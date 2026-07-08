@@ -161,7 +161,7 @@ async function autoPromoteProspects(): Promise<number> {
       const contact = await createContactGhlFirst({
         firstName,
         lastName,
-        email: email || `lead-${prospect.id}@placeholder.com`,
+        email: email || "",
         phone: phone || "",
         companyName: toProperCase(prospect.companyName) || undefined,
         vertical: prospect.vertical || undefined,

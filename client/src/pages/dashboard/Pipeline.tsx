@@ -713,7 +713,7 @@ export default function Pipeline() {
   const { data: contactsResult } = useQuery<{ data: Contact[]; total: number }>({
     queryKey: ["/api/contacts"],
     queryFn: async () => {
-      const res = await fetch("/api/contacts?limit=500", { credentials: "include" });
+      const res = await fetch("/api/contacts", { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch contacts");
       return res.json();
     },
@@ -1066,13 +1066,13 @@ export default function Pipeline() {
   const getContactName = (contactId: number | null) => {
     if (!contactId) return "No contact";
     const contact = contactsMap.get(contactId);
-    return contact ? `${contact.firstName} ${contact.lastName}` : `Contact #${contactId}`;
+    return contact ? `${contact.firstName} ${contact.lastName}` : "Unnamed contact";
   };
 
   const getCompanyName = (contactId: number | null) => {
     if (!contactId) return "";
     const contact = contactsMap.get(contactId);
-    return contact?.companyName || "";
+    return contact?.companyName || "Company unavailable";
   };
 
   const getContactVertical = (contactId: number | null): string | null => {

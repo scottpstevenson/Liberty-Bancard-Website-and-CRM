@@ -336,7 +336,7 @@ export default function LeadCommandCenter() {
     error: entitiesErrorObj,
     refetch: refetchEntities,
   } = useQuery<SunbizEntity[]>({ queryKey: ["/api/sunbiz/entities"] });
-  const { data: stats } = useQuery<{ total: number; enriched: number; pending: number; withEmail: number; withPhone: number; withWebsite: number }>({ queryKey: ["/api/sunbiz/stats"] });
+  const { data: stats } = useQuery<{ total: number; enriched: number; pending: number; withEmail: number; withPhone: number; withWebsite: number; withContactInfo: number }>({ queryKey: ["/api/sunbiz/stats"] });
   const {
     data: prospectsRaw,
     isLoading: prospectsLoading,
@@ -822,7 +822,7 @@ export default function LeadCommandCenter() {
         <p className="text-sm text-muted-foreground">Unified view of all leads, enrichment, and conversion pipeline</p>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
         <Card className="hover-elevate">
           <CardContent className="p-3 text-center">
             <div className="text-2xl font-bold" data-testid="text-kpi-total">{kpis.totalLeads}</div>
@@ -838,7 +838,13 @@ export default function LeadCommandCenter() {
         <Card className="hover-elevate">
           <CardContent className="p-3 text-center">
             <div className="text-2xl font-bold text-green-600 dark:text-green-400" data-testid="text-kpi-enriched">{kpis.enriched}</div>
-            <div className="text-xs text-muted-foreground">Enriched</div>
+            <div className="text-xs text-muted-foreground">Enrichment Attempted</div>
+          </CardContent>
+        </Card>
+        <Card className="hover-elevate">
+          <CardContent className="p-3 text-center">
+            <div className="text-2xl font-bold text-teal-600 dark:text-teal-400" data-testid="text-kpi-contactable">{stats?.withContactInfo ?? 0}</div>
+            <div className="text-xs text-muted-foreground">Contactable</div>
           </CardContent>
         </Card>
         <Card className="hover-elevate">

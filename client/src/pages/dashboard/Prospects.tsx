@@ -312,13 +312,26 @@ export default function Prospects() {
                       {prospect.vertical || "--"}
                     </TableCell>
                     <TableCell>
-                      <Badge
-                        variant="outline"
-                        className={`no-default-hover-elevate no-default-active-elevate ${getScoreBadgeClass(prospect.score)}`}
-                        data-testid={`badge-score-${prospect.id}`}
-                      >
-                        {prospect.score || "unqualified"}
-                      </Badge>
+                      <div className="flex flex-col gap-1">
+                        <Badge
+                          variant="outline"
+                          className={`no-default-hover-elevate no-default-active-elevate ${getScoreBadgeClass(prospect.score)}`}
+                          data-testid={`badge-score-${prospect.id}`}
+                        >
+                          {prospect.score || "unqualified"}
+                        </Badge>
+                        {(prospect.score === "hot" || prospect.score === "warm") &&
+                          !prospect.phone &&
+                          (!prospect.email || prospect.email.includes("placeholder.com")) && (
+                          <Badge
+                            variant="outline"
+                            className="no-default-hover-elevate no-default-active-elevate text-amber-600 border-amber-400 bg-amber-50 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-700"
+                            data-testid={`badge-not-contactable-${prospect.id}`}
+                          >
+                            Not yet contactable
+                          </Badge>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell>
                       <Badge

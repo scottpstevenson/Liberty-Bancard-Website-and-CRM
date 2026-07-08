@@ -546,7 +546,8 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
         COUNT(*) FILTER (WHERE enrichment_status = 'pending')::int as pending,
         COUNT(*) FILTER (WHERE email IS NOT NULL OR owner_email IS NOT NULL)::int as with_email,
         COUNT(*) FILTER (WHERE phone IS NOT NULL OR owner_phone IS NOT NULL)::int as with_phone,
-        COUNT(*) FILTER (WHERE website IS NOT NULL)::int as with_website
+        COUNT(*) FILTER (WHERE website IS NOT NULL)::int as with_website,
+        COUNT(*) FILTER (WHERE email IS NOT NULL OR owner_email IS NOT NULL OR phone IS NOT NULL OR owner_phone IS NOT NULL)::int as with_contact_info
       FROM sunbiz_entities
       WHERE ${condition}
     `);
@@ -559,6 +560,7 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
       withEmail: Number(row.with_email) || 0,
       withPhone: Number(row.with_phone) || 0,
       withWebsite: Number(row.with_website) || 0,
+      withContactInfo: Number(row.with_contact_info) || 0,
     };
   }
   }

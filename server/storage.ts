@@ -358,7 +358,7 @@ export interface IStorage {
   mergeSunbizDuplicates(keepId: number, mergeIds: number[]): Promise<boolean>;
   resetStuckProcessingEntities(): Promise<number>;
   searchSunbizEntitiesByNameCity(name: string, city?: string): Promise<SunbizEntity[]>;
-  getSunbizStats(listId?: number): Promise<{total: number, enriched: number, pending: number, withEmail: number, withPhone: number, withWebsite: number}>;
+  getSunbizStats(listId?: number): Promise<{total: number, enriched: number, pending: number, withEmail: number, withPhone: number, withWebsite: number, withContactInfo: number}>;
 
   getMerchantApplications(): Promise<MerchantApplication[]>;
   getMerchantApplication(id: number): Promise<MerchantApplication | undefined>;
