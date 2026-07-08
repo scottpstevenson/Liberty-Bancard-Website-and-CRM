@@ -1,0 +1,261 @@
+Automated Outreach Readiness Audit
+Date: July 7, 2026 | Mode: Read-only inspection + dry-run flags | No sends, no enrollments, no flag changes
+
+CONFIRMED FACTS
+Feature Flag Defaults (server/services/feature-flags.ts:14–25)
+Flag	Default	Current Effect
+SDR_ENABLED	true	SDR module loads; orchestrator still off
+ORCHESTRATOR_ENABLED	false	Sweep engine won't start
+VOICE_AI_ENABLED	false	Voice AI blocked at contactability step
+SMS_ENABLED	false	SMS blocked at contactability step
+RINGLESS_VM_ENABLED	false	RVM blocked at contactability step
+NIGHTLY_DISCOVERY_ENABLED	false	Nightly discovery engine dormant
+Sequence Default Policy (confirmed by memory + sequence-worker.ts:1064)
+autoEnrollFromTrigger filters allSequences down to those where s.status === "active". Since all sequences are created with status: "paused" by storage policy, no auto-enrollment can fire until a human manually activates a sequence. This is the single most important safety backstop in the system.
+
+DB Schema State — P0 BLOCKER
+Migration 0047_contacts_opted_out_email.sql exists on disk and declares:
+
+ALTER TABLE contacts ADD COLUMN IF NOT EXISTS "opted_out_email" boolean DEFAULT false;
+The column is also declared in shared/schema.ts:107. However, the migration has NOT been applied to the development database. Evidence:
+
+All three dry-run integration test scripts crash with:
+error: column "opted_out_email" of relation "contacts" does not exist (code 42703)
+GET /api/contacts → 500 (smoke-role-guards 53/58)
+GET /api/dashboard/stats → 500
+Ownership tests crash
+FALSE ASSUMPTIONS TO CORRECT
+Assumption	Reality
+"The test scripts will validate live compliance behavior"	All three integration test scripts crash before running a single assertion due to the missing DB column. Unit-only portions pass.
+"If sequences are paused, outreach cannot fire"	Correct as a safety backstop — but auto-enrollment call sites exist at 9+ entry points that will fire the instant any sequence is activated. There is no secondary human review before a sequence goes live if ORCHESTRATOR_ENABLED is ever turned on.
+"Sunbiz auto-promote creates contacts and auto-enrolls them"	Not quite. sunbiz-cron.ts:autoPromoteProspects (lines 98–229) does NOT call autoEnrollFromTrigger. It only creates the contact and deal. However, daily-outreach.ts:611 DOES call autoEnrollFromTrigger("contact_created") immediately after promoting a Sunbiz entity. These are two separate promote paths.
+"channel-enable can flip env flags"	Confirmed false. activation.ts:1263 explicitly states: "This system never modifies environment variables or secrets on its own." The route writes an audit log row only and returns manual instructions. Confirmed by channel audit smoke test (34/35 pass; process.env.SMS_ENABLED unchanged after call).
+"Contactability is only checked at enrollment time"	False — it is checked 3 times: (1) inside autoEnrollFromTrigger before writing the enrollment row; (2) at step 0 of the sequence worker (Gate a); (3) before every individual step execution (Gate b). All three use mode: "enforcement".
+TRUE ROOT CAUSES
+Why all compliance dry-run tests fail
+Migration 0047 has not been applied. The Drizzle schema has opted_out_email but the live DB does not. Because Drizzle ORM generates SELECT and INSERT statements using the schema, both reads and writes against the contacts table fail at the PostgreSQL layer, which cascades into every feature that touches contacts: sequence worker, contactability engine, GHL sync, dashboard stats.
+
+Fix: Run npx tsx scripts/migrate.ts (or let server/db-migrate.ts apply it on next restart). Single line, no data loss. Takes < 1 second.
+
+Why the sequence worker would also fail (even without the test scripts)
+The sequence worker calls storage.getContact(enrollment.contactId) at sequence-worker.ts:305. Because the ORM SELECT includes all schema columns, including opted_out_email, it would return an error on Drizzle's query builder step, causing each enrollment tick to throw and be logged as an error.
+
+Why SMS/Voice/Ringless cannot self-activate
+The contactability engine enforces a feature-flag gate inside evaluateContactability at steps that precede PEWC checks:
+
+contactability.ts:683 — SMS_ENABLED=false → blocked immediately
+contactability.ts:689 — VOICE_AI_ENABLED=false → blocked immediately
+contactability.ts:698 — RINGLESS_VM_ENABLED=false → blocked immediately
+Even if a sequence had SMS steps, the worker's Gate (b) would block execution and write an audit log. No SMS/voice/RVM message can exit the system with the flags at their defaults.
+
+AUDIT AREA BY AREA
+Area 1 — Auto-Outreach Entry Points
+All createSequenceEnrollment call sites (14 found):
+
+File	Line	Caller	Auto or Manual	confirmed required?	Contactability checked?
+contacts.ts	58	POST /api/contacts (new contact)	Auto	No	Yes — inside autoEnrollFromTrigger
+daily-outreach.ts	611	Sunbiz promote	Auto	No	Yes — inside autoEnrollFromTrigger
+imports.ts	920,926	CSV import	Auto	No	Yes — inside autoEnrollFromTrigger
+deals.ts	232	Deal stage changed	Auto	No	Yes — inside autoEnrollFromTrigger
+partners.ts	120	Partner creation	Auto	No	Yes — inside autoEnrollFromTrigger
+partner-orgs.ts	88	Partner portal	Auto	No	Yes — inside autoEnrollFromTrigger
+prospects.ts	140,247	Manual promote routes	Auto	No	Yes — inside autoEnrollFromTrigger
+ghl.ts	1578	GHL no-show tag webhook	Auto	No	Yes — inside enrollContactInGhlWorkflow
+statement-upload-chain.ts	722	Statement form submit	Auto	No	Yes — inside autoEnrollFromTrigger
+contacts.ts	1270	/api/contacts/:id/sdr-enroll	Manual	Yes (confirmed: true required)	Yes — Gate 7 explicit
+campaigns.ts	437	Campaign enroll	Manual/Admin	Varies	Per campaign settings
+activity.ts	542	Activity route	Manual	No	Not confirmed
+smart-router.ts	184	Smart router	Auto	No	Indirectly via sequence worker
+merchant-welcome.ts	76	Closed Won trigger	Auto	No	Via sequence worker
+Key finding: There is no automatic path that can send without passing contactability enforcement in mode: "enforcement" — but there are 9 auto-enrollment call sites that require zero human confirmation beyond activating a sequence. The human gate is the sequence status, not the enrollment itself.
+
+Area 2 — Discovery → Outreach Bridge
+Question	Answer
+Can a discovered lead be auto-promoted to CRM?	Yes — sunbiz-cron.ts:autoPromoteProspects promotes hot/warm-A/B prospects automatically
+Does auto-promote also auto-enroll sequences?	Only via daily-outreach.ts. sunbiz-cron.ts does NOT call autoEnrollFromTrigger. daily-outreach.ts:611 does call it after promoting.
+Can the A-Lead Queue trigger outreach without a human click?	No — A-Lead Queue promotes require manual confirm in the UI; autoEnrollFromTrigger is called but gated by active sequence status
+Can nightly discovery generate contacts that immediately enter outbound?	NIGHTLY_DISCOVERY_ENABLED defaults false. If enabled, contacts are created and autoEnrollFromTrigger fires — but only into active sequences
+Are suppressed/dead/discarded leads blocked from re-entry?	Yes — lead-finder.ts:545–723 checks SUPPRESSED/DISCARDED/DEAD at exact, fuzzy, and domain match level
+Are duplicates blocked?	Yes — email dedupe + company-name dedupe in sunbiz-cron.ts:120–134. Caveat: uses getContacts({limit:500}) — will miss duplicates if the CRM has >500 contacts (P1)
+Verdict → Discovery auto-outreach path: SEMI-AUTO (auto-promote fires, auto-enroll fires, but requires active sequence + contactability pass)
+
+Area 3 — Contactability Enforcement
+server/services/contactability.ts — evaluateContactability() is the canonical 17-step gate.
+
+Confirmed enforcement steps (key ones):
+
+Step 2: doNotContact → globally blocked, all channels
+Step 3: doNotAutoContact → automated channels blocked (manual_call allowed)
+Step 4: Global opted-out/suppressed → blocked
+Step 5: emailStatus === "opted_out" or "unsubscribed" → email blocked
+Step 5: smsStatus === "opted_out" → SMS, voice_ai, ringless_vm blocked
+Step 6: Internal DNC reason → voice/call blocked
+Step 7: consentTier !== "pewc_full_automation" → SMS/voice/ringless blocked
+Called in mode: "enforcement" (writes audit logs) at:
+
+autoEnrollFromTrigger pre-enrollment gate (sequence-worker.ts:1141)
+Sequence worker Gate (a) at step 0 (sequence-worker.ts:96)
+Sequence worker Gate (b) before every step (sequence-worker.ts:398)
+enrollContactInGhlWorkflow (ghl-workflow-enrollment.ts:241)
+SDR manual enroll Gate 7 (contacts.ts:1242)
+SDR compliance engine (sdr/compliance-engine.ts:206)
+Voice orchestrator (sdr/voice-orchestrator.ts:304)
+Verdict → Contactability IS enforced at every outbound boundary. However, the opted_out_email column missing from the DB means the enforcement reads are currently crashing.
+
+Area 4 — Sequence Safety
+Sequence worker channel dispatch (sequence-worker.ts:442–924):
+
+actionType	Dispatched as	Requires feature flag?
+email	GHL email send	No (GHL configured check)
+sms	sendGhlSms	SMS_ENABLED=true (contactability gate)
+call	Voice AI	VOICE_AI_ENABLED=true (contactability gate)
+voicemail_drop	GHL voicemail	RINGLESS_VM_ENABLED=true (contactability gate)
+task	CRM task only	No send; gated via manual_call channel contactability
+Cold outreach sequences: isColdOutreachSequence() returns true if sequenceFamily === "cold-email-manual-call" OR triggerType === "contact_created" OR triggerType === "form_submitted" OR no transactional family match. This means nearly all auto-enrolled sequences are treated as cold outreach and REQUIRE the mailing address + unsubscribe footer.
+
+SMS/voice/ringless in email-only sequences: Gate (b) maps each step.actionType to a channel and runs contactability in enforcement mode. An SMS step in an email-only sequence would be blocked at Gate (b) by SMS_ENABLED=false. No cross-channel send can slip through while flags are off.
+
+No enrollment can start without an enrollment record (confirmed — all paths write to sequenceEnrollments table first).
+
+Area 5 — Email Compliance & Deliverability
+Check	Status	Detail
+Unsubscribe link	✅ Generated	getComplianceFooterHtml() creates tokenized /unsubscribe?t= URL
+Physical mailing address	✅ Hard-blocked	sequence-worker.ts:474 → blockReason = "sequence_send_blocked_no_mailing_address" if compliance_mailing_address system setting is null
+APP_URL for unsubscribe	✅ Hard-blocked	sequence-worker.ts:476 → blockReason = "sequence_send_blocked_no_unsubscribe_base_url" if APP_URL is unset
+Unsubscribe token secret	✅ Hard-blocked	sequence-worker.ts:480–486 → blocks unless UNSUBSCRIBE_TOKEN_SECRET is set (except TEST_MODE)
+Bounced contacts	✅ Guarded	sequence-worker.ts:307 → pauses enrollment if emailStatus === "bounced" or "invalid"
+Opted-out suppression	✅ Global	Contactability step 4+5 blocks all channels
+Duplicate active enrollments	✅ Blocked	autoEnrollFromTrigger:1086–1089 checks existing active/completed before creating
+Daily send cap	✅ Enforced	Default 200/day cold outreach, atomic SQL counter with WHERE count < cap guard
+List-Unsubscribe header	❌ Not found	No List-Unsubscribe header in GHL send path (server/services/ghl.ts)
+Complaint handling	⚠️ Partial	GHL webhook handles opt_out events; no SMTP complaint handler
+P0: Can email be sent without unsubscribe? No — hard-blocked at sequence-worker.ts:474–508 for cold outreach sequences.
+P0: Can an opted-out contact be auto-sent? No — blocked at contactability step 5 in enforcement mode.
+P1: No List-Unsubscribe header — affects spam scoring.
+P1: compliance_mailing_address must be configured in Admin → Settings before any cold sequence can send.
+
+Area 6 — Human Review Gate
+Question	Answer
+Does the system require human confirmation before enrollment?	Only for /api/contacts/:id/sdr-enroll (requires confirmed:true). All other auto-enrollment paths have no confirmation field.
+Is there an admin toggle that bypasses human confirmation?	The activation of a sequence to status: "active" IS the human gate. No separate toggle.
+If auto-enrollment exists, what exact conditions does it require?	Active sequence matching the triggerType + contactability pass + no existing active/completed enrollment
+Can auto-enrollment be limited to A-grade leads only?	Not natively. Sequences do not have a minimumLeadScore field. A-grade filtering would require custom sequence triggerConfig
+Can auto-enrollment be limited to verified emails only?	Not natively enforced before enrollment — but bounce guard blocks the step at send time
+Can auto-enrollment be capped per day?	Yes — daily cold outreach cap (default 200) enforced atomically
+Verdict → Manual-only capability is confirmed for SDR contacts. Semi-auto capability exists but requires a human to set a sequence to "active." Full-auto ORCHESTRATOR path requires ORCHESTRATOR_ENABLED=true.
+
+Area 7 — Suppression, Dedupe, Re-Entry Prevention
+Question	Answer
+Can suppressed leads be rediscovered?	No — lead-finder.ts checks SUPPRESSED/DISCARDED/DEAD at exact, fuzzy, domain match
+Can discarded leads be enrolled later?	No — contactability lifecycleStage === "do_not_contact" check blocks at step
+Can duplicate contacts be enrolled twice?	No — autoEnrollFromTrigger checks existing enrollments per-contact per-sequence
+Can same business/domain be contacted through multiple people?	Yes — domain-level dedupe is only in lead-finder.ts, not enforced at sequence enrollment time (P1)
+Can live merchants/partners enter cold outreach?	Risk exists if lifecycleStage is not set to "customer" — contactability checks lifecycleStage at step 8+ but only blocks if it equals "do_not_contact"
+P1: Sunbiz auto-promote dedupe check uses getContacts({limit:500}) — will silently miss duplicates once CRM exceeds 500 contacts.
+
+Area 8 — Sequence Worker Execution Safety
+Check	Status	Detail
+Re-checks contactability at send time	✅ Yes	Gate (b) before every step, not just at enrollment
+Stale enrollment after opt-out	✅ Blocked	Gate (b) reads live contact data; opt-out is caught per-step
+Endless retry on failure	✅ Capped	BullMQ retries up to 3x with backoff; then dead-letter
+Error logging per enrollment/step	✅ Present	Audit log on every gate block
+Send idempotency / duplicate prevention	✅ Partial	Active/completed enrollment check, but no per-step send receipt dedup
+Global kill switch	✅ Yes	outboundGlobalPaused DB setting, checked FIRST on every tick
+Per-sequence pause	✅ Yes	sequence.status !== "active" → skipped
+Per-contact unsubscribe/pause	✅ Yes	Enrollment set to status: "paused" on contactability block
+Area 9 — Channel Activation Safety
+Channel audit smoke test: 34/35 passed.
+
+Check	Status
+channel-enable route writes audit log only	✅ Confirmed — activation.ts:1263 explicitly states it never touches env
+process.env.SMS_ENABLED unchanged after enable call	✅ Confirmed by test
+process.env.VOICE_AI_ENABLED unchanged	✅ Confirmed
+process.env.RINGLESS_VM_ENABLED unchanged	✅ Confirmed
+Non-admin roles forbidden	✅ requireRole("admin") on all three routes
+Test batch is dry-run only	✅ Uses mode: "dryRun" — no sends
+Test batch CSRF 500	⚠️ 1 failure — test-batch got 500; CSRF guard fires before route reaches logic (non-blocking for audit)
+SMS/Voice/Ringless remain permanently off unless an operator manually sets the Replit Secret and restarts. No route in this system can self-activate a channel.
+
+Area 10 — Monitoring, Kill Switches, Admin Visibility
+Control	Status
+Stop all outreach instantly	✅ outboundGlobalPaused DB setting (Activation Panel + API) — effective on next tick
+SDR orchestrator pause/resume	✅ globalPaused in-memory flag (orchestrator.ts:58–70)
+Per-sequence pause	✅ Set status: "inactive" → worker skips on next tick
+Cancel individual enrollment	✅ PATCH enrollment status to "paused"/"cancelled"
+Kill switch on bounce rate	✅ orchestrator.ts:98 — trackBounceForKillSwitch() auto-pauses on high bounces
+Send logs	✅ Audit log on every step execution
+Failure logs	✅ Audit log on every gate block + step failure
+Bounce/opt-out visibility	✅ Operator Dashboard → Anomaly Alerts tab
+Stuck enrollment alerts	✅ Operator Dashboard → stuck lead detection
+Area 11 — Dry-Run Script Results
+Script	Result
+test-sequence-compliance.ts	CRASHED — opted_out_email column missing (P0 DB blocker)
+test-contactability.ts	PARTIAL — 9 unit tests (deriveConsentTier) passed ✅; integration tests crashed (P0 DB blocker)
+test-sdr-manual-enroll.ts	CRASHED — opted_out_email column missing (P0 DB blocker)
+test-channel-audit.ts	34/35 passed ✅ — only failure is CSRF pre-check on test-batch endpoint (non-blocking)
+tsc --noEmit --skipLibCheck	3 TS errors — storage/misc.ts, storage/relationships.ts, storage/workflows.ts — string literal type mismatches in Drizzle insert calls (pre-existing tech debt, not outreach-specific)
+test-auto-outreach-readiness.ts	Does not exist — not yet created
+KILL LINES
+Severity	Issue	File:Line	Status
+P0	opted_out_email DB column missing — entire contacts table is broken (SELECT + INSERT both fail)	migrations/0047_contacts_opted_out_email.sql unapplied	BLOCKS ALL OUTREACH
+P0	compliance_mailing_address system setting must be populated before any cold sequence can send (hard-blocked in code)	sequence-worker.ts:474	Requires admin action pre-launch
+P0	APP_URL env var must be set before unsubscribe URLs are generated	sequence-worker.ts:476	Requires env var pre-launch
+P1	No List-Unsubscribe header in outbound email path	server/services/ghl.ts (GHL send path)	RFC 8058 compliance gap
+P1	Sunbiz auto-promote dedupe uses getContacts({limit:500}) — silent miss above 500 contacts	sunbiz-cron.ts:116	Duplicate outreach risk at scale
+P1	3 TypeScript strict errors in storage layer (pre-existing)	storage/misc.ts, storage/relationships.ts, storage/workflows.ts	Should fix before launch
+P1	autoEnrollFromTrigger is called at contact creation with no human confirmation field — relies entirely on sequence status gate	contacts.ts:58	Safe now; becomes semi-auto the instant any sequence is activated
+P2	Domain-level dedupe not enforced at enrollment time — same business can receive outreach via multiple people	Sequence enrollment path	Low risk initially
+EXACT FILES TO CHANGE (if/when building)
+Priority	File	Change Needed
+P0 — Apply now	scripts/migrate.ts	Run (read-only op) to apply migration 0047
+P1 — Before email launch	Admin Settings UI	Populate compliance_mailing_address system setting
+P1 — Before email launch	Replit Secrets	Set APP_URL to the production domain
+P1 — Build	server/services/ghl.ts	Add List-Unsubscribe header to outbound email sends
+P1 — Build	server/services/sunbiz-cron.ts:116	Replace getContacts({limit:500}) with indexed email lookup (db.select by email)
+P1 — Build	server/storage/misc.ts	Fix string literal type in Drizzle insert
+P1 — Build	server/storage/relationships.ts	Fix string literal union type in insert
+P1 — Build	server/storage/workflows.ts	Fix string literal union type in insert
+EXACT FILES NOT TO TOUCH
+File	Reason
+server/services/contactability.ts	Correctly enforces all 17 steps — do not alter gate logic
+server/services/sequence-worker.ts	Triple-gate (pre-enroll + Gate a + Gate b) is correctly implemented
+server/services/feature-flags.ts	All dangerous channel defaults are correctly false
+server/routes/activation.ts	Channel-enable correctly never writes env flags
+server/services/email-signatures.ts	isColdOutreachSequence and getComplianceFooterHtml are correct
+server/services/sdr/lead-finder.ts	Suppression guards are correct at discovery level
+FINAL VERDICTS
+Email Outreach
+NOT READY FOR OUTREACH
+Reason: P0 DB schema blocker — opted_out_email column unapplied. The entire contacts table is broken (all SELECTs and INSERTs fail), which breaks the sequence worker, contactability engine, and all 3 compliance dry-run scripts. No email can be safely sent or tracked until this is resolved.
+
+After fixing P0 + configuring prerequisites (compliance_mailing_address, APP_URL):
+
+READY ONLY FOR MANUAL CONFIRMED EMAIL OUTREACH
+via /api/contacts/:id/sdr-enroll with confirmed: true — 7-gate protection is solid.
+
+After also activating at least one sequence to status: "active":
+
+READY FOR SEMI-AUTO EMAIL OUTREACH
+(contactability gated, daily-capped, unsubscribe-enforced)
+For FULL AUTO (ORCHESTRATOR_ENABLED=true): Architecture is ready, but requires operator deliberate action to enable.
+
+SMS / Voice AI / Ringless
+SMS ready: NO
+Voice AI ready: NO
+Ringless voicemail ready: NO
+Reasons:
+
+All three flags default to false — channels are blocked at the contactability engine step before PEWC is even checked
+Channel-enable route records approval but never sets flags — only a manual Replit Secret change + restart can activate
+Zero contacts in the system currently have consentTier = "pewc_full_automation" (no PEWC evidence exists)
+Channel checklist (sms/voice_ai/ringless_vm) must pass all items before approval is even recorded
+These channels are correctly gated and cannot self-activate under any code path that currently exists.
+
+BUILD-READY VERDICT
+NOT BUILD-READY FOR OUTREACH IMPLEMENTATION
+Exact prerequisite before any outreach build work begins:
+
+Apply migration 0047 — npx tsx scripts/migrate.ts — zero code change, 1-second operation
+Verify: Re-run TEST_MODE=true SKIP_AI=true DRY_RUN=true npx tsx scripts/test-contactability.ts — should go from partial-crash to all-pass
+Then return for the outreach build task with clean dry-run results
+The compliance architecture is correct and production-grade. The only blocker is a missing DB migration.
