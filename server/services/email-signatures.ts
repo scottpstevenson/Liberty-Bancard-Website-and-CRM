@@ -81,9 +81,18 @@ export function getEmailSignatureHtml(
     ? `<tr><td style="padding-top:8px;font-size:12px;color:#1e3a5f;"><strong>P.S.</strong> ${escapeHtml(activePromo.headline)} — ${escapeHtml(activePromo.description)}</td></tr>`
     : "";
 
+  const appUrl = process.env.APP_URL;
+  let logoBlock = "";
+  if (appUrl) {
+    const logoUrl = escapeHtml(`${appUrl}/logo-blue.png`);
+    logoBlock = `<img src="${logoUrl}" alt="Liberty Bancard" width="200" style="max-width:200px;height:auto;display:block;margin-bottom:8px;border:none;outline:none;text-decoration:none;" />\n`;
+  } else {
+    console.warn("[email-signatures] APP_URL is not set — logo omitted from email signature");
+  }
+
   return `
 <br/><br/>
-<table style="font-family:Arial,sans-serif;font-size:13px;color:#333;border-collapse:collapse;">
+${logoBlock}<table style="font-family:Arial,sans-serif;font-size:13px;color:#333;border-collapse:collapse;">
   <tr>
     <td style="border-left:3px solid #1e3a5f;padding-left:12px;">
       <strong style="font-size:14px;color:#1e3a5f;">${name}</strong><br/>
@@ -113,7 +122,7 @@ export function getEmailSignaturePlainText(
   const quizUrl = buildLink(QUIZ_PATH, sig.refCode);
   const shopUrl = buildLink(SHOP_PATH, sig.refCode);
 
-  let text = `\n\n--\n${sig.name}\n${sig.title} | Liberty Bancard\n${sig.phone} | ${sig.email}`;
+  let text = `\n\n--\nLiberty Bancard — https://libertybancard.com\n${sig.name}\n${sig.title} | Liberty Bancard\n${sig.phone} | ${sig.email}`;
   if (sig.calendlyLink) text += `\nSchedule a Review: ${sig.calendlyLink}`;
   text += `\n\nGet Your Free Savings Analysis: ${quizUrl}`;
   text += `\nBrowse Terminals & Equipment: ${shopUrl}`;
