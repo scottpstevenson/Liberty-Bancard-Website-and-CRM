@@ -1,4 +1,4 @@
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import Reporting from "./Reporting";
 import GrowthKPI from "./GrowthKPI";
@@ -9,7 +9,8 @@ const VALID_TABS = ["overview", "growth", "win-loss", "outreach-analytics"] as c
 type Tab = typeof VALID_TABS[number];
 
 export default function ReportingHub() {
-  const raw = new URLSearchParams(window.location.search).get("tab") ?? "";
+  const search = useSearch();
+  const raw = new URLSearchParams(search).get("tab") ?? "";
   const tab: Tab = (VALID_TABS as readonly string[]).includes(raw) ? (raw as Tab) : "overview";
   const [, navigate] = useLocation();
   const goTab = (v: string) => navigate(`/dashboard/reporting?tab=${v}`);

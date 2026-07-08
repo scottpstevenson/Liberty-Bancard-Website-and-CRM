@@ -1,4 +1,4 @@
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import SdrDashboard from "./SdrDashboard";
 import ConversationAI from "./ConversationAI";
@@ -7,7 +7,8 @@ const VALID_TABS = ["sdr", "chatbot"] as const;
 type Tab = typeof VALID_TABS[number];
 
 export default function SDRHub() {
-  const raw = new URLSearchParams(window.location.search).get("tab") ?? "";
+  const search = useSearch();
+  const raw = new URLSearchParams(search).get("tab") ?? "";
   const tab: Tab = (VALID_TABS as readonly string[]).includes(raw) ? (raw as Tab) : "sdr";
   const [, navigate] = useLocation();
   const goTab = (v: string) => navigate(`/dashboard/sdr-hub?tab=${v}`);

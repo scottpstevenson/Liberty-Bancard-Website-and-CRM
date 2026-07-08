@@ -1,4 +1,4 @@
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import MarketingPlaybook from "./MarketingPlaybook";
@@ -9,7 +9,8 @@ export default function PlaybooksHub() {
   const canSeeGrowth = user?.role === "admin" || user?.role === "manager";
 
   const validTabs = canSeeGrowth ? ["marketing", "growth"] : ["marketing"];
-  const raw = new URLSearchParams(window.location.search).get("tab") ?? "";
+  const search = useSearch();
+  const raw = new URLSearchParams(search).get("tab") ?? "";
   const tab = validTabs.includes(raw) ? raw : "marketing";
   const [, navigate] = useLocation();
   const goTab = (v: string) => navigate(`/dashboard/playbooks?tab=${v}`);

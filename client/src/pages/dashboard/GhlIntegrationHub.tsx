@@ -1,4 +1,4 @@
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import GhlSettings from "./GhlSettings";
@@ -13,7 +13,8 @@ export default function GhlIntegrationHub() {
     ? ["settings", "workflow-ids", "sequence-guide"]
     : ["sequence-guide"];
 
-  const raw = new URLSearchParams(window.location.search).get("tab") ?? "";
+  const search = useSearch();
+  const raw = new URLSearchParams(search).get("tab") ?? "";
   const tab = validTabs.includes(raw) ? raw : validTabs[0];
   const [, navigate] = useLocation();
   const goTab = (v: string) => navigate(`/dashboard/ghl-integration?tab=${v}`);

@@ -1,4 +1,4 @@
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import ReviewRequests from "./ReviewRequests";
 import TestimonialSubmissions from "./TestimonialSubmissions";
@@ -9,7 +9,8 @@ const VALID_TABS = ["reviews", "testimonials", "nps", "retention"] as const;
 type Tab = typeof VALID_TABS[number];
 
 export default function MerchantSuccessHub() {
-  const raw = new URLSearchParams(window.location.search).get("tab") ?? "";
+  const search = useSearch();
+  const raw = new URLSearchParams(search).get("tab") ?? "";
   const tab: Tab = (VALID_TABS as readonly string[]).includes(raw) ? (raw as Tab) : "reviews";
   const [, navigate] = useLocation();
   const goTab = (v: string) => navigate(`/dashboard/merchant-success?tab=${v}`);

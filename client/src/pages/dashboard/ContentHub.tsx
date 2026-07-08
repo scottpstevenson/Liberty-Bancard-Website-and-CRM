@@ -1,4 +1,4 @@
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import ContentEditor from "./ContentEditor";
@@ -14,7 +14,8 @@ export default function ContentHub() {
     ? ["content", "blog", "linkedin", "blaze"]
     : ["content", "linkedin", "blaze"];
 
-  const raw = new URLSearchParams(window.location.search).get("tab") ?? "";
+  const search = useSearch();
+  const raw = new URLSearchParams(search).get("tab") ?? "";
   const tab = validTabs.includes(raw) ? raw : "content";
   const [, navigate] = useLocation();
   const goTab = (v: string) => navigate(`/dashboard/content-hub?tab=${v}`);

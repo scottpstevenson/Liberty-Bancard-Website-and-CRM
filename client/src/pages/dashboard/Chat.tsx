@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import { useSearch } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Send, Loader2, Bot, User, Briefcase, Headphones, ClipboardCheck, Megaphone, DollarSign, Shield, BarChart3, Tag, X, Search } from "lucide-react";
@@ -126,14 +127,15 @@ export default function Chat() {
   const [loadedFromContact, setLoadedFromContact] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  const search = useSearch();
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
+    const params = new URLSearchParams(search);
     const vParam = params.get("vertical");
     if (vParam) {
       const matched = matchContactVertical(vParam);
       if (matched) setVertical(matched);
     }
-  }, []);
+  }, [search]);
 
   const { data: contactsData } = useQuery<{ data: Contact[] }>({
     queryKey: ["/api/contacts", { limit: 200 }],

@@ -1,4 +1,4 @@
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import Outreach from "./Outreach";
 import OutreachCommand from "./OutreachCommand";
@@ -8,7 +8,8 @@ const VALID_TABS = ["overview", "command", "prospects"] as const;
 type Tab = typeof VALID_TABS[number];
 
 export default function OutreachHub() {
-  const raw = new URLSearchParams(window.location.search).get("tab") ?? "";
+  const search = useSearch();
+  const raw = new URLSearchParams(search).get("tab") ?? "";
   const tab: Tab = (VALID_TABS as readonly string[]).includes(raw) ? (raw as Tab) : "overview";
   const [, navigate] = useLocation();
   const goTab = (v: string) => navigate(`/dashboard/outreach-hub?tab=${v}`);
