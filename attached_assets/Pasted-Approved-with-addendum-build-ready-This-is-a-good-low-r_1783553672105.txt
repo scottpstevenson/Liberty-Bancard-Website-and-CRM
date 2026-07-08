@@ -1,0 +1,147 @@
+Approved with addendum — build-ready.
+
+This is a good, low-risk branding improvement as long as the logo URL is absolute and publicly reachable. Email clients will not reliably render relative paths, local file paths, or embedded dev assets.
+
+Use this final addendum:
+
+Final Addendum to #850 — Add Liberty Bancard Logo to Email Signature
+
+Approved to build.
+
+Core rule
+
+Only add the logo to the reusable email signature path:
+
+server/services/email-signatures.ts
+getEmailSignatureHtml()
+getEmailSignaturePlainText()
+
+Do not touch send logic, sequence worker logic, campaign logic, contactability, enrollment, unsubscribe footer injection, or CAN-SPAM footer logic.
+
+Public URL requirement
+
+The logo src must be an absolute public URL.
+
+Allowed:
+
+https://libertybancard.com/logo-blue.png
+https://app-domain.com/logo-blue.png
+
+Not allowed:
+
+/logo-blue.png
+attached_assets/logo-blue.png
+file://...
+data:image/png;base64,...
+localhost...
+
+Kill line:
+
+STOP if the signature uses a relative URL, local file path, data URI, or localhost URL for the logo.
+
+Asset location guard
+
+First confirm where public static assets are served from.
+
+Check:
+
+server/vite.ts
+public/
+client/public/
+attached_assets/
+
+If attached_assets/logo-blue.png is not publicly served, copy the logo to the correct public asset directory so it resolves as:
+
+/logo-blue.png
+
+Then convert that to an absolute URL in the signature using the same canonical base URL pattern already used elsewhere, ideally APP_URL.
+
+Required behavior:
+
+APP_URL present → https://domain.com/logo-blue.png
+APP_URL missing → do not inject broken image URL
+
+If APP_URL is missing, either omit the logo and log/report config warning, or use the existing production canonical domain only if the project already hardcodes it for public assets. Do not invent a dev/local URL.
+
+HTML signature requirements
+
+Insert logo above the text signature block.
+
+Recommended HTML:
+
+<img
+  src="https://libertybancard.com/logo-blue.png"
+  alt="Liberty Bancard"
+  width="200"
+  style="display:block;max-width:200px;height:auto;margin:0 0 8px 0;border:0;outline:none;text-decoration:none;"
+/>
+
+Keep the existing signature content below it.
+
+Do not add tracking pixels, external analytics, query-string trackers, or remote images from third-party domains.
+
+Plain-text fallback
+
+Update:
+
+getEmailSignaturePlainText()
+
+Add first line:
+
+Liberty Bancard — https://libertybancard.com
+
+Then preserve the existing agent/contact details.
+
+Campaign/sequence coverage guard
+
+Confirm both sequence and campaign send paths use getEmailSignatureHtml() or the same signature helper.
+
+If campaigns use a separate signature path, report it. Do not expand scope unless it is the same reusable helper.
+
+Kill lines
+
+STOP if any send/enrollment/contactability/compliance logic is changed.
+STOP if CAN-SPAM footer/unsubscribe logic is changed.
+STOP if the logo URL is relative, local, data URI, or localhost.
+STOP if the logo asset is not publicly reachable with HTTP 200.
+STOP if the logo is hosted on a private/Replit-only asset URL that recipients cannot access.
+STOP if third-party tracking pixels or query tracking are added.
+STOP if plain-text signature is forgotten.
+
+Validation
+
+Run or verify:
+
+npx tsx scripts/smoke-role-guards.ts
+
+Also verify:
+
+Logo public URL returns HTTP 200
+Logo public URL content-type is image/png or compatible
+getEmailSignatureHtml() contains img src absolute URL
+getEmailSignaturePlainText() contains Liberty Bancard — https://libertybancard.com
+No real email sent
+
+Optional grep checks:
+
+grep -n "logo-blue" server/services/email-signatures.ts
+grep -n "getEmailSignaturePlainText" server/services/email-signatures.ts
+grep -n "getEmailSignatureHtml" server/services/email-signatures.ts
+
+Final report required
+
+Return:
+
+Logo asset public path:
+Absolute logo URL used:
+Logo HTTP status:
+HTML signature updated: yes/no
+Plain-text signature updated: yes/no
+Sequence/campaign signature coverage confirmed: yes/no
+CAN-SPAM footer changed: yes/no
+Send/contactability/enrollment logic changed: yes/no
+Real outbound sent: yes/no
+Validation commands run:
+Files changed:
+
+Final verdict: build #850. Good task — just make sure the image is served from a stable absolute public URL and keep it isolated to the signature helper.

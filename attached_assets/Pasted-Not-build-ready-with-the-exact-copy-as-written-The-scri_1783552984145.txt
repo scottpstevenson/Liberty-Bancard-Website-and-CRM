@@ -1,0 +1,265 @@
+Not build-ready with the exact copy as written.
+
+The script/task structure is good, but the content itself violates the prior #833 copy guardrails in multiple places. Build the script, but do not apply this exact content until the claims are softened.
+
+Main issue: several templates make unsupported or legally sensitive claims around savings, compliance, card-brand approval, no chargebacks, HIPAA/IOLTA, PCI liability, and cash-discount legality.
+
+What’s approved
+
+✅ Standalone scripts/backfill-sdr-campaigns.ts
+✅ --dry-run before apply
+✅ hardcoded SDR_CAMPAIGN_CONTENT map
+✅ update only subject + bodyTemplate
+✅ no status/isActive/sequenceId/stepOrder/send-queue changes
+✅ backup-exists check
+✅ banned phrase audit
+✅ merge-tag audit
+✅ post-write verification
+✅ exclude follow_up_sequences
+✅ exclude V-[Vertical] sequences
+✅ target campaign_steps by campaignId + stepOrder
+
+What blocks it
+
+These claims need to be removed or softened before writing to DB:
+
+“legally, and with full card-brand approval”
+“Cash discount programs are approved by Visa, Mastercard, Discover, and Amex”
+“Permitted everywhere in the US”
+“No chargebacks related to the pricing structure”
+“HIPAA-aware solution”
+“PCI-compliant workflow — no liability exposure”
+“IOLTA-compliant processing”
+“Most practices save $500–$1,500/month”
+“typically increases collections by 15–25%”
+“typically $400–$700/month”
+“guaranteed-style savings ranges without proof”
+
+Even if some of those are true in specific cases, they should not be hardcoded into automated outbound copy unless Liberty has legal/compliance approval and supporting documentation.
+
+Use this addendum:
+
+Final Addendum to #849 — SDR Campaign Content Backfill
+
+Approved to build the backfill script, but do not apply the exact copy until compliance-sensitive claims are corrected.
+
+Build approval
+
+The script architecture is approved:
+
+scripts/backfill-sdr-campaigns.ts
+--dry-run mode
+apply mode
+backup check
+banned phrase check
+merge-tag audit
+post-write audit
+updates only campaign_steps.subject and campaign_steps.bodyTemplate
+targets campaignId + stepOrder
+does not touch follow_up_sequences
+does not touch V-[Vertical] sequences
+
+Critical copy corrections required before apply
+
+Remove or soften unsupported/legal-sensitive claims.
+
+Cash discount / 0% processing
+
+Replace absolute claims like:
+
+legally, and with full card-brand approval
+approved by Visa, Mastercard, Discover, and Amex
+permitted everywhere in the US
+no card-brand issues
+no chargebacks related to the pricing structure
+
+With safer language:
+
+when implemented with proper disclosures and program rules
+structured to follow applicable card-brand and state requirements
+we can review whether the model fits your business and location
+implementation details matter, including signage and disclosure
+
+Savings claims
+
+Avoid hardcoded guaranteed or broad numeric claims unless clearly framed as illustrative.
+
+Replace:
+
+Most clients save $500–$1,500/month
+typically $300–$700/month
+typically increases collections by 15–25%
+reduce by 25–35%
+
+With:
+
+some businesses find meaningful savings after a statement review
+the analysis will show whether savings are available for your specific volume and card mix
+we’ll compare your current effective rate against available pricing options
+
+If numbers stay, label them explicitly:
+
+illustrative example only
+actual savings depend on volume, card mix, and current pricing
+
+Healthcare / professional services claims
+
+Remove or soften:
+
+HIPAA-aware solution
+PCI-compliant workflow — no liability exposure
+IOLTA-compliant processing
+fees never touch trust accounts
+
+Use safer language:
+
+payment workflows designed for practices and professional firms
+support for PCI-conscious payment acceptance
+options for professional-service billing workflows
+for law firms, we can discuss payment setups designed around trust-account requirements
+
+Do not imply legal, HIPAA, or IOLTA compliance unless Liberty has approved, documented product support for those claims.
+
+Contract/funding claims
+
+Only keep these if verified true for the specific program:
+
+no long-term contracts
+same-day funding
+next-day funding
+free terminal
+
+If not universally true, write:
+
+available options may include month-to-month terms, equipment options, and faster funding depending on approval and setup
+
+Required banned phrase audit
+
+The script must fail if body copy contains phrases such as:
+
+guaranteed savings
+guaranteed approval
+permitted everywhere
+full card-brand approval
+no liability exposure
+no chargebacks
+HIPAA-compliant
+IOLTA-compliant
+fees never touch trust accounts
+will save
+eliminate your fees entirely
+
+Also flag but do not necessarily fail unless approved:
+
+same-day funding
+next-day funding
+no long-term contract
+free terminal
+0% processing
+near zero
+
+Merge tag audit
+
+Allowed merge tags:
+
+{{firstName}}
+{{companyName}}
+{{agentName}}
+{{agentPhone}}
+{{agentEmail}}
+{{bookingLink}}
+
+The script must fail on unsupported merge tags.
+
+Campaign targeting
+
+Only update the 10 named SDR campaigns:
+
+SDR-01
+SDR-02
+SDR-03
+SDR-04
+SDR-05
+SDR-06
+SDR-07
+SDR-08
+SDR-09
+SDR-10
+
+Do not touch:
+
+follow_up_sequences
+V-[Vertical] sequences
+campaign status/isActive
+sequenceId
+stepOrder
+send queue fields
+
+Update matching
+
+Do not rely on:
+
+stepType === "email"
+
+because SDR campaign steps use action-type values:
+
+initial_outreach
+follow_up
+value_add
+social_proof
+breakup
+
+Match by:
+
+campaignId + stepOrder
+
+and verify expected step count per campaign.
+
+Kill lines
+
+STOP if unsupported legal/compliance/card-brand claims remain in copy.
+STOP if savings claims are presented as guaranteed or typical without proof.
+STOP if the script touches anything besides subject and bodyTemplate.
+STOP if follow_up_sequences are touched.
+STOP if V-[Vertical] sequences are touched.
+STOP if campaign status, isActive, sequenceId, stepOrder, or send-queue fields are modified.
+STOP if the script updates before a backup exists.
+STOP if unsupported merge tags are present.
+STOP if no dry-run is reviewed before apply.
+STOP if any real email/outbound send is triggered.
+
+Validation
+
+Run:
+
+npx tsx scripts/backfill-sdr-campaigns.ts --dry-run
+npx tsx scripts/backfill-sdr-campaigns.ts
+npx tsx scripts/backfill-sdr-campaigns.ts --dry-run
+npx tsx scripts/smoke-role-guards.ts
+
+Expected final dry-run result:
+
+All 10 SDR campaigns: ALREADY CURRENT
+0 unsupported merge tags
+0 banned phrases
+0 pending writes
+
+Final report required
+
+Return:
+
+Campaigns targeted:
+Campaigns updated:
+Steps updated:
+Backup file:
+Dry-run result before apply:
+Apply result:
+Dry-run result after apply:
+Banned phrase audit:
+Merge tag audit:
+Unsupported claims removed: yes/no
+Fields modified:
+Real outbound sent: yes/no
+Files changed:
+
+Final verdict: build the script, but revise the copy first. Do not write the exact pasted content into production as-is.
