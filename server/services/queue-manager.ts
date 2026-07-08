@@ -644,7 +644,7 @@ class QueueManager {
     await queue.resume();
   }
 
-  async shutdown(timeoutMs = parseInt(process.env.QUEUE_SHUTDOWN_TIMEOUT_MS ?? "30000")): Promise<void> {
+  async shutdown(timeoutMs = parseInt(process.env.QUEUE_SHUTDOWN_TIMEOUT_MS ?? "7000")): Promise<void> {
     console.log("[QueueManager] Graceful shutdown — waiting for in-flight jobs...");
 
     const workerCloses = Array.from(this.workers.values()).map(w =>

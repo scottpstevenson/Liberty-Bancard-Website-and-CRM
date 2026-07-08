@@ -114,17 +114,31 @@ process.on("uncaughtException", (err: Error) => {
 });
 
 let isShuttingDown = false;
+const SHUTDOWN_HARD_CEILING_MS = parseInt(process.env.SHUTDOWN_HARD_CEILING_MS ?? "10000");
+
 async function gracefulShutdown(signal: string): Promise<void> {
   if (isShuttingDown) return;
   isShuttingDown = true;
-  console.log(`[Process] ${signal} received — starting graceful shutdown`);
+  console.log(`[Process] ${signal} received — starting graceful shutdown (hard ceiling ${SHUTDOWN_HARD_CEILING_MS}ms)`);
+
+  const forceExitTimer = setTimeout(() => {
+    console.error(
+      `[Process] Graceful shutdown exceeded ${SHUTDOWN_HARD_CEILING_MS}ms — forcing exit so the port is released for the next process`
+    );
+    process.exit(1);
+  }, SHUTDOWN_HARD_CEILING_MS);
+  forceExitTimer.unref();
+
   try {
     await shutdownQueueManager();
+    console.log("[Process] Graceful shutdown complete");
+    process.exit(0);
   } catch (err: any) {
     console.error("[Process] Error shutting down queue manager:", err.message);
+    process.exit(1);
+  } finally {
+    clearTimeout(forceExitTimer);
   }
-  console.log("[Process] Graceful shutdown complete");
-  process.exit(0);
 }
 
 process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
