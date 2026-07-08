@@ -1244,7 +1244,63 @@ Guidelines:
   // === CSV IMPORT PIPELINE ===
   app.get("/api/csv-imports", isAuthenticated, async (req, res) => {
     const imports = await storage.getCsvImports();
+
+    // Auto-mark any import that has been stuck in "processing" for longer than
+    // the configurable threshold with no progress heartbeat as "interrupted".
+    // Threshold is read from STALE_IMPORT_THRESHOLD_MINUTES (default: 30).
+    // This is fire-and-forget for the DB write but we mutate in-memory first
+    // so the response reflects the updated status immediately.
+    const thresholdMin = parseInt(process.env.STALE_IMPORT_THRESHOLD_MINUTES || "30", 10) || 30;
+    const STALE_THRESHOLD_MS = thresholdMin * 60 * 1000;
+    const now = Date.now();
+    const staleUpdates: Promise<any>[] = [];
+    for (const imp of imports) {
+      if (imp.status !== "processing") continue;
+      const progressAt = imp.lastProgressAt ? new Date(imp.lastProgressAt).getTime() : null;
+      const createdAt = imp.createdAt ? new Date(imp.createdAt).getTime() : now;
+      const lastActivity = progressAt ?? createdAt;
+      if (now - lastActivity > STALE_THRESHOLD_MS) {
+        imp.status = "interrupted"; // mutate in-memory before sending response
+        staleUpdates.push(
+          storage.updateCsvImport(imp.id, {
+            status: "interrupted",
+            staleReason: `No progress detected for >${thresholdMin} minutes (last heartbeat: ${
+              imp.lastProgressAt ? new Date(imp.lastProgressAt).toISOString() : "none"
+            })`,
+          }).catch((e: any) => {
+            console.warn(`[CSV Import] Failed to auto-mark import ${imp.id} as interrupted:`, e?.message);
+          })
+        );
+      }
+    }
+    if (staleUpdates.length > 0) {
+      Promise.all(staleUpdates).catch(() => {});
+    }
+
     res.json(imports);
+  });
+
+  // Admin: manually mark a processing import as interrupted (e.g. if stale
+  // threshold hasn't been reached but the import is clearly stuck).
+  // Gate to admin only — this is a lifecycle state mutation.
+  app.post("/api/csv-imports/:id/mark-interrupted", isAdmin, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const record = await storage.getCsvImport(id);
+      if (!record) return res.status(404).json({ message: "Import record not found" });
+      if (!["processing", "interrupted"].includes(record.status ?? "")) {
+        return res.status(400).json({
+          message: `Import is in status "${record.status}" — only processing imports can be marked interrupted`,
+        });
+      }
+      const updated = await storage.updateCsvImport(id, {
+        status: "interrupted",
+        staleReason: `Manually marked interrupted by admin at ${new Date().toISOString()}`,
+      });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message || "Failed to mark interrupted" });
+    }
   });
 
   app.get("/api/csv-imports/stats", isAuthenticated, async (req, res) => {
@@ -1545,6 +1601,13 @@ Guidelines:
         : sourceFormat === "apollo_lead_list" ? { ...genericColumnMap, ...apolloColumnMap }
         : genericColumnMap;
 
+      // For known-provider formats (google_maps_outscraper, apollo_lead_list)
+      // the system sourceFormat IS the canonical lead_source enum value.
+      // The CSV may contain a native `source` column with provenance metadata
+      // (URLs, scraper strings, etc.) which must never overwrite lead_source on
+      // known-provider imports. Force it here so the per-row mapper cannot win.
+      const forcedLeadSource = sourceFormat !== "custom" ? sourceFormat : null;
+
       let inserted = 0;
       let duplicatesSkipped = 0;
       let invalidRows = 0;
@@ -1668,7 +1731,7 @@ Guidelines:
           facebookUrl: mapped.facebookUrl || null,
           industry: industry || null,
           vertical: vertical || null,
-          leadSource: mapped.leadSource || sourceFormat,
+          leadSource: forcedLeadSource || mapped.leadSource || sourceFormat,
           employeeCount: mapped.employeeCount ? parseInt(mapped.employeeCount) || null : null,
           annualRevenue: mapped.annualRevenue || null,
           tags,
@@ -1680,6 +1743,27 @@ Guidelines:
       }
 
       let skippedRows = 0;
+
+      // Write an initial progress snapshot after pre-processing so that even
+      // all-duplicate / all-invalid imports (where contactInserts is empty and
+      // the batch loop never runs) still leave a non-null processedRows value.
+      const preFilteredRows = invalidRows + duplicatesSkipped;
+      if (preFilteredRows > 0 && contactInserts.length === 0) {
+        try {
+          await storage.updateCsvImport(importRecord.id, {
+            processedRows: preFilteredRows,
+            newRecords: 0,
+            duplicatesSkipped,
+            invalidRows,
+            skippedRows: 0,
+            errorsCount: 0,
+            lastProgressAt: new Date(),
+            status: "processing",
+          });
+        } catch (e: any) {
+          console.warn(`[CSV Import] Pre-filter progress write failed for import ${importRecord.id}:`, e?.message || e);
+        }
+      }
 
       for (let i = 0; i < contactInserts.length; i += batchSize) {
         const batch = contactInserts.slice(i, i + batchSize);
@@ -1751,6 +1835,27 @@ Guidelines:
               console.error(`[CSV Import] Row insert failed for import ${importRecord.id}:`, rowErr?.message || rowErr);
             }
           }
+        }
+
+        // Persist running totals after every batch so a crash mid-import
+        // leaves a visible partial-progress record rather than all-zeros.
+        // This is awaited so the heartbeat is durably written before the
+        // next batch starts — a crash after a batch commit but before this
+        // write completes would leave at most one batch unaccounted for.
+        const batchProcessedRows = inserted + duplicatesSkipped + invalidRows + skippedRows + errors;
+        try {
+          await storage.updateCsvImport(importRecord.id, {
+            processedRows: batchProcessedRows,
+            newRecords: inserted,
+            duplicatesSkipped,
+            invalidRows,
+            skippedRows,
+            errorsCount: errors,
+            lastProgressAt: new Date(),
+            status: "processing",
+          });
+        } catch (progressErr: any) {
+          console.warn(`[CSV Import] Per-batch progress write failed for import ${importRecord.id}:`, progressErr?.message || progressErr);
         }
       }
 

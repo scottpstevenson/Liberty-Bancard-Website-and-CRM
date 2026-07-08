@@ -2339,6 +2339,9 @@ export const csvImports = pgTable("csv_imports", {
   coldLeads: integer("cold_leads").default(0),
   createdAt: timestamp("created_at").defaultNow(),
   completedAt: timestamp("completed_at"),
+  processedRows: integer("processed_rows"),
+  lastProgressAt: timestamp("last_progress_at"),
+  staleReason: text("stale_reason"),
 });
 
 export const insertCsvImportSchema = createInsertSchema(csvImports).omit({

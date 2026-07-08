@@ -14,7 +14,7 @@ import {
 import {
   Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Loader2,
   TrendingUp, Users, Database, BarChart3, Flame, Thermometer, Snowflake,
-  Calendar, ArrowRight, FileText, RefreshCw, ListChecks,
+  Calendar, ArrowRight, FileText, RefreshCw, ListChecks, OctagonAlert,
 } from "lucide-react";
 import type { CsvImport } from "@shared/schema";
 
@@ -31,9 +31,33 @@ function getStatusBadge(status: string | null) {
       return <Badge variant="default" className="bg-blue-600" data-testid="badge-status-processing"><Loader2 className="h-3 w-3 mr-1 animate-spin" />Processing</Badge>;
     case "failed":
       return <Badge variant="destructive" data-testid="badge-status-failed"><AlertCircle className="h-3 w-3 mr-1" />Failed</Badge>;
+    case "interrupted":
+      return <Badge variant="outline" className="border-amber-500 text-amber-700 dark:text-amber-400" data-testid="badge-status-interrupted"><OctagonAlert className="h-3 w-3 mr-1" />Interrupted</Badge>;
+    case "legacy_interrupted":
+      return <Badge variant="outline" className="border-amber-500 text-amber-700 dark:text-amber-400" data-testid="badge-status-legacy-interrupted"><OctagonAlert className="h-3 w-3 mr-1" />Legacy (Partial)</Badge>;
+    case "stale":
+      return <Badge variant="outline" className="border-orange-500 text-orange-700 dark:text-orange-400" data-testid="badge-status-stale"><OctagonAlert className="h-3 w-3 mr-1" />Stale</Badge>;
     default:
       return <Badge variant="outline" data-testid="badge-status-unknown">{status || "unknown"}</Badge>;
   }
+}
+
+const INTERRUPTED_STATUSES = new Set(["interrupted", "legacy_interrupted", "stale"]);
+
+/** Returns true when the duplicate/invalid/skipped/errors buckets cannot be
+ *  trusted (they are null or the import is a legacy_interrupted record where
+ *  they were never computed). Used to render "—" instead of 0. */
+function hasUnknownBuckets(imp: CsvImport): boolean {
+  if (imp.status === "legacy_interrupted") return true;
+  if (INTERRUPTED_STATUSES.has(imp.status ?? "")) {
+    return imp.duplicatesSkipped == null || imp.invalidRows == null;
+  }
+  return false;
+}
+
+function fmtOrUnknown(value: number | null | undefined, imp: CsvImport): string {
+  if (hasUnknownBuckets(imp) && value == null) return "—";
+  return (value ?? 0).toLocaleString();
 }
 
 function getOutcomeSummary(imp: CsvImport): { label: string; className: string } {
@@ -41,7 +65,31 @@ function getOutcomeSummary(imp: CsvImport): { label: string; className: string }
     return { label: "Import failed — server/API error", className: "text-red-600 dark:text-red-400" };
   }
   if (imp.status === "processing") {
+    const processed = imp.processedRows ?? 0;
+    if (processed > 0 && imp.lastProgressAt) {
+      const ageSec = Math.round((Date.now() - new Date(imp.lastProgressAt).getTime()) / 1000);
+      const ageText = ageSec < 60 ? `${ageSec}s ago` : `${Math.round(ageSec / 60)}m ago`;
+      return { label: `In progress — ${processed.toLocaleString()} rows processed (last progress ${ageText})`, className: "text-blue-600 dark:text-blue-400" };
+    }
+    if (processed > 0) {
+      return { label: `In progress — ${processed.toLocaleString()} rows processed so far`, className: "text-blue-600 dark:text-blue-400" };
+    }
     return { label: "Processing...", className: "text-blue-600 dark:text-blue-400" };
+  }
+  if (INTERRUPTED_STATUSES.has(imp.status ?? "")) {
+    const created = imp.newRecords ?? 0;
+    const processed = imp.processedRows ?? created;
+    const total = imp.totalRows ?? 0;
+    const unprocessed = total > 0 ? Math.max(0, total - processed) : null;
+    const isUnknownBuckets = imp.status === "legacy_interrupted" || (imp.duplicatesSkipped == null && imp.invalidRows == null);
+    let label = `Created: ${created.toLocaleString()}`;
+    if (unprocessed !== null && unprocessed > 0) {
+      label += ` | Unprocessed (import interrupted): ${unprocessed.toLocaleString()}`;
+    }
+    if (isUnknownBuckets) {
+      label += " | Already Exists: unavailable | Invalid: unavailable";
+    }
+    return { label, className: "text-amber-600 dark:text-amber-400" };
   }
   const total = imp.totalRows ?? 0;
   if (total === 0) return { label: "--", className: "text-muted-foreground" };
@@ -147,6 +195,31 @@ export default function LeadImports() {
     verticalBreakdown: Record<string, number>;
   }>({
     queryKey: ["/api/csv-imports/stats"],
+  });
+
+  const markInterruptedMutation = useMutation({
+    mutationFn: async (importId: number) => {
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      const csrf = getCsrfToken();
+      if (csrf) headers["X-CSRF-Token"] = csrf;
+      const res = await fetch(`/api/csv-imports/${importId}/mark-interrupted`, {
+        method: "POST",
+        headers,
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: "Request failed" }));
+        throw new Error(err.message);
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/csv-imports"] });
+      toast({ title: "Import marked as interrupted", description: "The stuck import has been marked interrupted." });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed", description: err.message, variant: "destructive" });
+    },
   });
 
   const uploadMutation = useMutation({
@@ -549,22 +622,22 @@ export default function LeadImports() {
                     </TableCell>
                     <TableCell data-testid={`text-skipped-${imp.id}`}>
                       <span className="text-muted-foreground">
-                        {(imp.duplicatesSkipped ?? 0).toLocaleString()}
+                        {fmtOrUnknown(imp.duplicatesSkipped, imp)}
                       </span>
                     </TableCell>
                     <TableCell data-testid={`text-already-exists-${imp.id}`}>
                       <span className="text-blue-600 dark:text-blue-400">
-                        {(imp.skippedRows ?? 0).toLocaleString()}
+                        {fmtOrUnknown(imp.skippedRows, imp)}
                       </span>
                     </TableCell>
                     <TableCell data-testid={`text-invalid-${imp.id}`}>
                       <span className={(imp.invalidRows ?? 0) > 0 ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"}>
-                        {(imp.invalidRows ?? 0).toLocaleString()}
+                        {fmtOrUnknown(imp.invalidRows, imp)}
                       </span>
                     </TableCell>
                     <TableCell data-testid={`text-errors-${imp.id}`}>
                       <span className={(imp.errorsCount ?? 0) > 0 ? "text-red-600 dark:text-red-400" : "text-muted-foreground"}>
-                        {(imp.errorsCount ?? 0).toLocaleString()}
+                        {fmtOrUnknown(imp.errorsCount, imp)}
                       </span>
                     </TableCell>
                     <TableCell data-testid={`text-deals-${imp.id}`}>
@@ -594,7 +667,27 @@ export default function LeadImports() {
                         {(imp.hotLeads ?? 0) === 0 && (imp.warmLeads ?? 0) === 0 && (imp.coldLeads ?? 0) === 0 && "--"}
                       </div>
                     </TableCell>
-                    <TableCell>{getStatusBadge(imp.status)}</TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-1">
+                        {getStatusBadge(imp.status)}
+                        {imp.status === "processing" && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 px-1.5 text-xs text-amber-600 hover:text-amber-700"
+                            data-testid={`btn-mark-interrupted-${imp.id}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              markInterruptedMutation.mutate(imp.id);
+                            }}
+                            disabled={markInterruptedMutation.isPending}
+                            title="Mark this stuck import as interrupted"
+                          >
+                            Mark Interrupted
+                          </Button>
+                        )}
+                      </div>
+                    </TableCell>
                     <TableCell className="max-w-[220px]" data-testid={`text-result-${imp.id}`}>
                       {(() => {
                         const outcome = getOutcomeSummary(imp);
@@ -643,20 +736,27 @@ export default function LeadImports() {
                 </div>
                 <div className="space-y-1">
                   <p className="text-sm text-muted-foreground">Duplicates Skipped</p>
-                  <p className="font-medium">{(imp.duplicatesSkipped ?? 0).toLocaleString()}</p>
+                  <p className="font-medium">{fmtOrUnknown(imp.duplicatesSkipped, imp)}</p>
                 </div>
                 <div className="space-y-1">
                   <p className="text-sm text-muted-foreground">Invalid Rows</p>
-                  <p className="font-medium text-amber-600 dark:text-amber-400" data-testid={`text-detail-invalid-${imp.id}`}>{(imp.invalidRows ?? 0).toLocaleString()}</p>
+                  <p className="font-medium text-amber-600 dark:text-amber-400" data-testid={`text-detail-invalid-${imp.id}`}>{fmtOrUnknown(imp.invalidRows, imp)}</p>
                 </div>
                 <div className="space-y-1">
                   <p className="text-sm text-muted-foreground">Already Exists (DB Match)</p>
-                  <p className="font-medium text-blue-600 dark:text-blue-400" data-testid={`text-detail-skipped-${imp.id}`}>{(imp.skippedRows ?? 0).toLocaleString()}</p>
+                  <p className="font-medium text-blue-600 dark:text-blue-400" data-testid={`text-detail-skipped-${imp.id}`}>{fmtOrUnknown(imp.skippedRows, imp)}</p>
                 </div>
                 <div className="space-y-1">
                   <p className="text-sm text-muted-foreground">Errors</p>
-                  <p className="font-medium text-red-600 dark:text-red-400" data-testid={`text-detail-errors-${imp.id}`}>{(imp.errorsCount ?? 0).toLocaleString()}</p>
+                  <p className="font-medium text-red-600 dark:text-red-400" data-testid={`text-detail-errors-${imp.id}`}>{fmtOrUnknown(imp.errorsCount, imp)}</p>
                 </div>
+                {hasUnknownBuckets(imp) && (
+                  <div className="col-span-2 md:col-span-4">
+                    <p className="text-xs text-amber-600 dark:text-amber-400" data-testid={`text-unknown-buckets-${imp.id}`}>
+                      Import was interrupted before all row categories could be computed. Duplicate, invalid, and already-exists counts show "—" where unavailable.
+                    </p>
+                  </div>
+                )}
               </div>
 
               {(imp.totalRows ?? 0) > 0 && (() => {
