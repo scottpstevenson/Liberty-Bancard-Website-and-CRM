@@ -1,0 +1,184 @@
+Approved with addendum — build-ready, assuming #831 / 828A is already merged or the shared preview/editor component exists.
+
+This is correctly scoped now: Campaign step editing persistence only, not campaign sending, activation, GHL sync, or content backfill.
+
+Use this final addendum:
+
+Final Addendum to #832 — Campaign Step Editing Persistence
+
+Approved to build.
+
+Dependency guard
+
+This task depends on #831 / 828A.
+
+Required existing/shared component:
+
+client/src/components/EmailPreviewModal.tsx
+
+If the shared Write/Preview body editor was extracted in #831, reuse it. If it was not extracted, create a small shared component now rather than duplicating unsafe preview logic inside Campaigns.tsx.
+
+Endpoint guard
+
+Before adding a new endpoint, verify whether an update route already exists.
+
+Allowed endpoint shape:
+
+PUT or PATCH /api/campaigns/:campaignId/steps/:stepId
+
+Allowed payload only:
+
+{
+  subject: string;
+  body: string;
+  delayDays?: number;
+  delayHours?: number;
+}
+
+Do not add fields for:
+
+send
+activate
+enroll
+syncToGhl
+workflowId
+status
+audience
+
+Validation guard
+
+Use Zod or the existing route validation pattern.
+
+Required validation:
+
+subject: string, trim, reasonable max length
+body: string, reasonable max length
+delayDays/delayHours: non-negative integers
+campaignId/stepId: valid numeric/id format
+
+Reject malformed payloads with 400. Do not silently coerce invalid delay values into 0 unless that is the app’s existing behavior.
+
+Role guard
+
+Use the exact same role middleware already used for campaign create/delete/manage actions.
+
+Kill line:
+
+STOP if reps/agents gain edit access that they did not already have for campaign management.
+
+Persistence guard
+
+Saving a campaign step must only update that step’s editable fields.
+
+Required behavior:
+
+save subject/body/delay
+invalidate campaign query/cache
+reload shows persisted values
+no campaign send
+no activation
+no enrollment
+no GHL workflow creation/update
+
+If campaign steps are ordered, do not accidentally reorder steps while editing.
+
+Preview guard
+
+The Preview button must use the shared EmailPreviewModal.
+
+Preview should:
+
+render stored subject/body
+substitute sample merge tags
+sanitize HTML through the 828A path
+not generate real unsubscribe tokens
+not show send-time branding unless actually stored in body
+
+Do not reintroduce dangerouslySetInnerHTML in Campaigns.tsx directly unless it is sanitized through the shared preview component.
+
+Delay field guard
+
+Preserve the existing delay semantics.
+
+Before implementing the input, confirm whether campaign steps store delay as:
+
+delayDays
+delayHours
+delayMinutes
+delaySeconds
+delayAfterPrevious
+
+Do not change the underlying timing model. Map the UI fields to the existing schema exactly.
+
+Kill line:
+
+STOP if editing delay changes how existing campaign timing is interpreted.
+
+Scope protection
+
+Do not change:
+
+campaign send logic
+campaign activation logic
+sequence logic
+GHL workflow logic
+contactability
+unsubscribe/footer injection
+daily caps
+global kill switch
+template backfill
+
+Kill lines
+
+STOP if editing a campaign step triggers any real send.
+STOP if editing activates a campaign.
+STOP if editing creates or modifies a GHL workflow.
+STOP if agents gain unintended edit permissions.
+STOP if campaign step preview can execute stored scripts.
+STOP if delay values are saved with changed semantics.
+STOP if campaign steps reorder or disappear after edit.
+STOP if this task touches sequence send/enrollment/contactability/compliance logic.
+
+Validation
+
+Run:
+
+npx tsx scripts/smoke-role-guards.ts
+
+If global TypeScript still has unrelated legacy errors, report them separately and confirm touched files are clean.
+
+Manual checks:
+
+Open Campaigns tab
+Each step has Edit button
+Each step has Preview button
+Preview opens EmailPreviewModal
+Subject/body merge tags render with sample values
+Script HTML does not execute in preview
+Edit subject → save → reload → persisted
+Edit body → save → reload → persisted
+Edit delay → save → reload → persisted
+Cancel edit does not save
+Unauthorized role cannot edit
+No campaign send occurs
+No GHL workflow is modified
+
+Final report required
+
+Return:
+
+Campaign step update endpoint used/added:
+Endpoint method/path:
+Role guard used:
+Fields editable:
+Delay field mapping:
+Shared preview component reused:
+Sanitization path:
+Persistence verified after reload:
+Unauthorized edit check:
+Real outbound sent: yes/no
+Campaign activation/GHL sync changed: yes/no
+Validation commands run:
+Files changed:
+
+Final verdict: build #832 with this addendum. This is a safe and necessary follow-up to #831, as long as it stays limited to editing/persistence and does not touch campaign execution behavior.

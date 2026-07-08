@@ -1,0 +1,279 @@
+Approved with critical addendum — build-ready only with safety controls.
+
+This is useful, but it is also a mass enrollment feature, which means it can become a blast-radius problem if it bypasses confirmation, contactability, sequence policy, or caps.
+
+The main rule:
+
+Bulk enrollment must use the exact same enrollment authority as single enrollment.
+No direct batch insert that skips gates.
+
+Final Addendum to #829 — Vertical Bulk Enrollment for Sequences
+
+Approved to build with safety controls.
+
+Critical safety rule
+
+Bulk vertical enrollment must not bypass the existing enrollment pipeline.
+
+Allowed:
+
+for each contact → call the same shared enrollment service used by single enrollment
+or
+batch through a shared enrollment function that enforces the same rules
+
+Not allowed:
+
+direct batch insert into sequence_enrollments without contactability/dedupe/sequence-policy checks
+
+Kill line:
+
+STOP if bulk vertical enrollment can create an enrollment that single-contact enrollment would reject.
+
+Required preflight / dry-run mode
+
+Before committing, the endpoint must support a preview/dry-run.
+
+Suggested:
+
+POST /api/sequences/:id/enroll-vertical/preview
+
+or:
+
+{ "vertical": "salon_spa", "dryRun": true }
+
+Preview should return:
+
+{
+  totalMatching: number;
+  eligible: number;
+  alreadyEnrolled: number;
+  contactabilityBlocked: number;
+  missingContactInfo: number;
+  sequencePolicyBlocked: number;
+  previewContacts: Array<{ id, name, companyName, email, phone }>
+}
+
+The UI must show this before allowing “Enroll All.”
+
+Confirmation guard
+
+Require an explicit confirmation step for bulk enrollment.
+
+Minimum:
+
+show vertical
+show sequence name
+show eligible count
+show skipped count
+require Confirm / Enroll All final action
+
+For large counts, require typed confirmation:
+
+Type ENROLL to confirm
+
+Suggested threshold:
+
+>= 100 eligible contacts
+
+Role guard
+
+Bulk enrollment should require the same or stricter permissions than sequence management.
+
+Recommended:
+
+admin / manager only
+
+Do not expose bulk enrollment to agents unless agents already have permission to manage/enroll sequences at scale.
+
+Kill line:
+
+STOP if reps/agents gain new mass-enrollment permissions unintentionally.
+
+Sequence policy guard
+
+Respect existing sequence-control policy.
+
+Required:
+
+paused/inactive sequence → reject
+active sequence → allowed only if existing policy permits enrollment
+archived/deleted sequence → reject
+
+Do not activate a sequence as part of this task.
+
+Do not change sequence status.
+
+Contactability guard
+
+Each contact must still pass enforcement-mode contactability before enrollment.
+
+Return skipped counts by reason:
+
+already enrolled
+missing email/phone for the sequence channel
+opted out
+do not contact
+not contactable
+sequence inactive/paused
+
+Do not silently skip without explanation.
+
+Daily cap / send-safety note
+
+Bulk enrollment does not need to enforce the daily email send cap directly if the sequence worker already enforces it at send time.
+
+But the UI should warn:
+
+Enrollment queues contacts into this sequence. Sends are still governed by global pause, sequence status, contactability, compliance footer, and daily send caps.
+
+Do not imply all contacts will be emailed immediately.
+
+Endpoint design
+
+Suggested endpoints:
+
+GET /api/contacts/verticals
+GET /api/contacts/by-vertical?vertical=salon_spa&limit=5
+POST /api/sequences/:id/enroll-vertical
+
+GET /api/contacts/verticals should return canonical values and counts.
+
+Do not return thousands of contact records by default. Use preview limits/pagination.
+
+Canonical vertical guard
+
+Use the same canonical vertical source used by discovery/outreach.
+
+Do not create a new inconsistent vertical taxonomy.
+
+Required behavior:
+
+canonical vertical values
+alias normalization if already available
+uncategorized handled explicitly
+unknown vertical rejected or shown as Uncategorized
+
+Idempotency guard
+
+Bulk endpoint must be safe to run twice.
+
+Required:
+
+already active enrollment → skipped
+already completed enrollment → skipped or reported based on existing policy
+previously paused/cancelled enrollment → follow existing single-enroll policy
+
+Do not create duplicate enrollments.
+
+Performance guard
+
+For large verticals, avoid long request timeouts.
+
+Acceptable:
+
+chunked processing with transaction boundaries
+background job with progress
+batch size 50–100
+
+If processed synchronously, cap the max eligible contacts per request or prove 500+ runs safely.
+
+Do not hold a giant transaction across all contacts.
+
+Audit logging
+
+Write a bulk enrollment audit record:
+
+sequence_vertical_bulk_enroll_requested
+sequence_vertical_bulk_enroll_completed
+
+Include:
+
+sequenceId
+vertical
+requestedBy
+eligible
+queued
+skipped
+skipped breakdown
+dryRun true/false
+
+Do not log sensitive contact details unnecessarily.
+
+UI requirements
+
+The dialog should include:
+
+Single Contact tab
+By Vertical tab
+vertical dropdown
+matching contact count
+first 5 preview contacts
+eligibility/skipped breakdown after preview
+confirmation step
+result toast with queued/skipped counts
+
+Button language should say:
+
+Queue Eligible Contacts
+
+instead of implying every matching contact will definitely enroll.
+
+Kill lines
+
+STOP if bulk enrollment bypasses single-enrollment gates.
+STOP if paused/inactive sequences can be bulk-enrolled despite existing policy.
+STOP if opted-out/do-not-contact contacts can be enrolled.
+STOP if duplicate enrollments can be created by re-running the action.
+STOP if the endpoint returns thousands of full contact records by default.
+STOP if bulk enrollment activates a sequence.
+STOP if bulk enrollment sends emails immediately.
+STOP if role guards are weakened.
+STOP if a new inconsistent vertical taxonomy is created.
+STOP if skipped contacts are invisible in the result.
+
+Validation
+
+Add or extend a targeted test if practical:
+
+scripts/test-sequence-bulk-enroll.ts
+
+Test:
+
+single eligible contact in vertical is queued
+already enrolled contact is skipped
+opted-out contact is skipped
+missing-email contact is skipped for email sequence
+paused sequence rejects
+second run creates no duplicates
+dry-run creates no enrollments
+unknown vertical rejects safely
+
+Run:
+
+npx tsx scripts/smoke-role-guards.ts
+
+If global TypeScript still has unrelated legacy errors, report them and confirm touched files are clean.
+
+Final report required
+
+Return:
+
+Vertical source of truth:
+Endpoints added:
+Bulk enrollment service path:
+Single-enrollment gates reused: yes/no
+Dry-run/preview behavior:
+Confirmation behavior:
+Role guard:
+Paused sequence behavior:
+Contactability skipped count:
+Already-enrolled skipped count:
+Duplicate-run result:
+Audit actions:
+Real outbound sent: yes/no
+Validation commands run:
+Files changed:
+
+Final verdict: build #829 with this addendum.
+
+This will make sequence operations usable at scale, but only if it is implemented as bulk-queue eligible contacts through the existing gates, not as a raw mass insert.
