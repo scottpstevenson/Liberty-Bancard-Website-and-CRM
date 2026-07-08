@@ -1,0 +1,295 @@
+834 — Controlled Deal Backfill + Future Orphan Prevention
+
+What & Why
+
+153,887 contacts were bulk-imported but only 967 have linked deals. Qualified contacts are sitting outside the Sales Pipeline because deal creation only ran during import/scoring and there is no backfill for the existing pool.
+
+This task adds a complete, controlled deal-recovery system:
+
+1. dry-run candidate inventory
+2. confirmed batched deal creation
+3. persisted progress/status
+4. idempotency protection
+5. future orphan prevention for newly imported/scored contacts
+
+This is a CRM deal-recovery task, not an outreach/enrollment task.
+
+Non-Negotiable Safety Rule
+
+This task must not call:
+
+autoEnrollFromTrigger()
+
+Backfill creates missing deals only.
+
+It must not enroll contacts into sequences, activate sequences, send emails, trigger GHL workflows, or modify outreach logic.
+
+Done Looks Like
+
+* Admin can preview orphan-contact deal candidates before any mutation.
+* Admin can run a confirmed deal backfill after preview.
+* Backfill processes in batches with persisted progress.
+* Warm/hot contacts with score ≥45 can get deals.
+* Cold contacts below 45 are skipped.
+* Anonymous contacts with no usable company/email/phone are skipped.
+* Repeat runs do not create duplicate deals.
+* Existing deals are not duplicated.
+* Progress is visible in Operator Dashboard or Activation Panel.
+* A future-orphan guard ensures newly scored/imported warm/hot contacts can be surfaced or promoted without manual re-import.
+* Review-mode orchestrator does not mutate production data.
+* No outreach is triggered.
+
+Endpoints
+
+Add admin-only endpoints:
+
+POST /api/admin/contacts/backfill-deals/preview
+POST /api/admin/contacts/backfill-deals
+GET /api/admin/contacts/backfill-deals/status
+POST /api/admin/contacts/backfill-deals/cancel
+
+Preview Endpoint
+
+Payload:
+
+{
+  source?: string;
+  vertical?: string;
+  minScore?: number; // default 45
+  limit?: number;
+}
+
+Returns:
+
+{
+  totalOrphanContacts: number;
+  scored: number;
+  wouldCreateDeals: number;
+  skippedCold: number;
+  skippedExistingDeal: number;
+  skippedMissingIdentity: number;
+  skippedDuplicateBusiness: number;
+  skippedPlaceholderEmailOnly: number;
+  sampleCandidates: Array<{
+    contactId: number;
+    companyName?: string;
+    email?: string;
+    phone?: string;
+    score: number;
+    tier: "warm" | "hot";
+    vertical?: string;
+  }>;
+}
+
+Preview must not create deals.
+
+Confirmed Apply Endpoint
+
+Payload:
+
+{
+  confirmed: true;
+  confirmationText: "CREATE DEALS";
+  minScore: 45;
+  batchSize?: number;
+  source?: string;
+  vertical?: string;
+}
+
+For large runs, require typed confirmation.
+
+Candidate Eligibility
+
+A contact can receive a deal only if:
+
+score >= 45
+AND no linked deal already exists
+AND has real companyName/businessName OR real email OR real phone
+AND is not DNC / do-not-contact / suppressed
+AND does not only have a placeholder email
+AND does not duplicate an existing active deal for the same business/domain/contact
+
+Do not create deals for anonymous contacts.
+
+Processing Model
+
+Do not process 153k contacts in one blocking request.
+
+Use:
+
+background job
+or resumable cursor/batch loop
+
+Recommended batch size:
+
+100–500
+
+Persist progress after every batch:
+
+processed
+total
+dealsCreated
+skipped
+skippedBreakdown
+lastProcessedContactId
+status
+updatedAt
+
+Deal Creation Guard
+
+Use the existing safe deal-creation path from the import/pipeline system if possible, but only the deal creation portion.
+
+Allowed:
+
+create deal
+link contact
+set New Lead stage
+write audit log
+
+Forbidden:
+
+autoEnrollFromTrigger
+sequence enrollment
+GHL workflow trigger
+email/SMS/voice/ringless send
+sequence activation
+
+Future Orphan Prevention
+
+Add a lightweight future guard so newly imported/scored contacts do not stay orphaned forever.
+
+Acceptable implementation:
+
+When contact scoring runs, if contact is warm/hot and has no deal:
+- in review mode: record/report as deal candidate only
+- in apply mode: create deal only if explicit setting is enabled
+
+Add explicit setting:
+
+autoCreateDealsForWarmContacts
+
+Default:
+
+false
+
+If false, future warm/hot orphans appear in the candidate/status output but are not mutated.
+
+If true, the same eligibility and idempotency rules apply.
+
+Admin UI
+
+Add to Operator Dashboard or Activation Panel:
+
+Deal Backfill Preview
+Run Confirmed Backfill
+Progress: X of Y processed
+Deals Created
+Skipped Breakdown
+Current Status
+Cancel button if practical
+Future guard status
+
+Audit Logs
+
+Write audit actions:
+
+contacts_deal_backfill_previewed
+contacts_deal_backfill_started
+contacts_deal_backfill_batch_completed
+contacts_deal_backfill_completed
+contacts_deal_backfill_failed
+contacts_deal_backfill_cancelled
+contact_deal_candidate_detected
+contact_deal_auto_created
+
+Include:
+
+requestedBy
+source filter
+vertical filter
+minScore
+processed
+created
+skipped breakdown
+dryRun true/false
+
+Out of Scope
+
+Do not change:
+
+lead scoring thresholds
+sequence enrollment
+autoEnrollFromTrigger
+contactability
+outreach gates
+GHL sync
+SMS/voice/ringless
+existing deal stage migration
+pipeline redesign
+
+Kill Lines
+
+STOP if this task calls autoEnrollFromTrigger during backfill.
+STOP if deal creation triggers sequence enrollment.
+STOP if any outbound email/SMS/voice/ringless/GHL workflow is sent.
+STOP if review-mode orchestrator mutates production data.
+STOP if 153k contacts are processed in one blocking request with no resumable progress.
+STOP if duplicate deals can be created by re-running the backfill.
+STOP if anonymous contacts become deals with Contact # / Company N/A.
+STOP if placeholder emails count as real emails.
+STOP if lead score thresholds are changed.
+STOP if cold contacts below 45 become deals.
+STOP if progress is not persisted after each batch.
+STOP if future orphan prevention creates deals without explicit setting enabled.
+
+Validation
+
+Add:
+
+scripts/test-deal-backfill.ts
+
+Test:
+
+1. preview creates no deals
+2. hot contact creates deal on confirmed apply
+3. warm contact creates deal on confirmed apply
+4. cold contact is skipped
+5. anonymous contact is skipped
+6. existing deal is skipped
+7. second run creates no duplicates
+8. placeholder email does not count as contactable
+9. backfill does not call autoEnrollFromTrigger
+10. no outbound sent
+11. review-mode future guard records candidate but does not create deal
+12. autoCreateDealsForWarmContacts=false prevents future auto-mutation
+13. autoCreateDealsForWarmContacts=true creates one idempotent deal for eligible new warm/hot contact
+
+Run:
+
+npx tsx scripts/test-deal-backfill.ts
+npx tsx scripts/smoke-role-guards.ts
+
+If global TypeScript has unrelated legacy errors, report them separately and confirm touched files are clean.
+
+Final Report Required
+
+Return:
+
+Preview endpoint:
+Apply endpoint:
+Status endpoint:
+Cancel endpoint:
+Background/resumable mechanism:
+Candidate eligibility rules:
+Future orphan guard:
+autoCreateDealsForWarmContacts default:
+Total orphan contacts:
+Would-create count:
+Backfill created count:
+Skipped breakdown:
+Duplicate-run result:
+Review mode mutation prevented: yes/no
+autoEnrollFromTrigger called: yes/no
+Real outbound sent: yes/no
+Validation commands run:
+Files changed:

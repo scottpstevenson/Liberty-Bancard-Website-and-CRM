@@ -1,0 +1,247 @@
+Final Addendum to #833 — SDR/Campaign Template Content Backfill
+
+Approved to build.
+
+Critical rule
+
+This is a content backfill task only.
+
+Do not change:
+
+sequence activation
+sequence enrollment
+sequence worker/send logic
+GHL sync
+contactability
+unsubscribe/footer injection
+daily caps
+global kill switch
+campaign send logic
+
+Dry-run must happen before apply
+
+The apply script must not run until the dry-run output is reviewed.
+
+Required dry-run output:
+
+SDR vertical sequences found
+Steps per sequence
+Empty subject count
+Empty body count
+Stub/incomplete body count
+Campaign templates found
+Campaign steps missing content
+Active sequences affected
+Exact records that would be changed
+Backup file path
+
+Kill line:
+
+STOP if the apply script can update templates before a dry-run inventory and backup exist.
+
+Backup requirement
+
+Before mutation, export all to-be-changed records to a timestamped JSON backup.
+
+Include:
+
+sequenceId / campaignId
+stepId
+sequence/campaign name
+status
+current subject
+current body
+current delay
+createdAt / updatedAt if available
+
+Kill line:
+
+STOP if template content is mutated without a restorable backup.
+
+Active sequence guard
+
+Active sequences require special handling.
+
+Preferred behavior:
+
+dry-run flags active sequences
+apply script skips active sequences by default
+apply requires explicit --include-active flag to modify active sequences
+
+If active sequences are modified, final report must clearly list them.
+
+Kill line:
+
+STOP if active sequence content is silently changed without being flagged.
+
+Incomplete/stub detection guard
+
+Only update empty or clearly stubbed templates.
+
+Allowed to update:
+
+empty subject
+empty body
+"TODO"
+"Placeholder"
+"Insert copy here"
+"Hi {{firstName}}..."
+minimal one-line stub with no CTA/value prop
+
+Do not update substantive existing copy unless explicitly approved.
+
+Kill line:
+
+STOP if user-written non-stub template copy is overwritten.
+
+Branding source-of-truth decision
+
+Choose exactly one:
+
+Option A: stored template body includes Liberty header/logo HTML
+Option B: actual send-time wrapper adds Liberty header/logo
+
+Given current scope, safest default is:
+
+Option A only if the team wants the logo/header to actually be sent as part of the stored email body.
+
+Do not create preview-only branding.
+
+Do not add send-time wrapper logic in this task unless explicitly split into a separate send-path task.
+
+Kill line:
+
+STOP if preview shows Liberty branding that the recipient will not actually receive.
+
+Compliance footer rule
+
+Do not put unsubscribe links or physical mailing address into editable template bodies.
+
+Cold-email CAN-SPAM compliance remains injected at send time by #791.
+
+Allowed in template body:
+
+normal CTA
+booking link placeholder
+professional signature-adjacent copy if desired
+
+Not allowed in template body:
+
+unsubscribe link
+physical mailing address
+CAN-SPAM footer
+real unsubscribe token
+
+Kill line:
+
+STOP if users can remove CAN-SPAM compliance by editing template body content.
+
+Copy quality rules
+
+Each backfilled email must include:
+
+vertical-specific pain point
+{{firstName}} or equivalent
+{{companyName}} or {{businessName}}
+one clear CTA
+professional Liberty Bancard tone
+proper HTML formatting
+
+Allowed claims:
+
+free savings analysis
+statement review
+transparent pricing
+no long-term contracts, only if true
+next-day funding, only if true
+payment processing review
+
+Prohibited claims:
+
+guaranteed savings
+guaranteed approval
+specific fee reductions without proof
+fake average ticket numbers
+fake chargeback rates
+unsupported processor comparisons
+medical/legal/compliance claims
+high-pressure urgency
+misleading subject lines
+
+HTML formatting guard
+
+Stored body may be HTML, but it must be clean, readable, and preview-safe.
+
+Use simple email-safe HTML:
+
+<p>...</p>
+<ul>
+  <li>...</li>
+</ul>
+<p><a href="{{bookingLink}}">Book a 10-minute call</a></p>
+
+Avoid complex CSS, scripts, forms, iframes, tracking pixels, or external assets unless already part of the existing template system.
+
+Kill line:
+
+STOP if template HTML contains scripts, forms, iframes, tracking pixels, or unsafe embeds.
+
+Apply script guard
+
+scripts/backfill-templates-apply.ts must:
+
+read from the dry-run target set or recompute the same target set
+skip non-stub existing content
+update only subject/body fields unless delay is explicitly part of the approved backfill
+log every changed record
+not activate sequences
+not enroll contacts
+not send emails
+not touch GHL workflow IDs
+
+Validation
+
+Run:
+
+npx tsx scripts/backfill-templates-dryrun.ts
+
+After review, run:
+
+npx tsx scripts/backfill-templates-apply.ts
+npx tsx scripts/smoke-role-guards.ts
+
+If global TypeScript still has unrelated legacy errors, report them separately and confirm touched files/scripts are clean.
+
+Manual checks:
+
+Open Sequences page
+Open several backfilled SDR vertical sequences
+Preview each step using #831 preview
+Confirm merge tags remain visible/substituted in preview
+Confirm no compliance footer is embedded in body
+Confirm no sequence was activated
+Confirm no outbound sent
+Open Campaigns tab
+Confirm backfilled campaign steps render/edit/preview correctly
+
+Final report required
+
+Return:
+
+Dry-run script path:
+Apply script path:
+Backup file path:
+SDR sequences found:
+Campaign templates found:
+Steps eligible for update:
+Steps skipped as substantive/user-written:
+Active sequences flagged:
+Active sequences modified: yes/no
+Templates updated:
+Campaign steps updated:
+Branding source of truth chosen:
+Compliance footer embedded in body: yes/no
+Real outbound sent: yes/no
+Sequences activated/enrolled: yes/no
+Validation commands run:
+Files changed:

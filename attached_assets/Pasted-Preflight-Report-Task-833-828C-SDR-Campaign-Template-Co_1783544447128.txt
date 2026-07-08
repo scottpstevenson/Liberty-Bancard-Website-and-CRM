@@ -1,0 +1,109 @@
+Preflight Report — Task #833 (828C — SDR/Campaign Template Content Backfill)
+Confirmed Facts
+Complete email copy already exists in the codebase — not missing:
+
+server/services/vertical-email-sms-templates.ts (758 lines) contains full, professional copy for 10 verticals: Restaurant, Retail, Healthcare, Dental, Landscaping, Construction, Legal, Jewelry, Veterinary, MedSpa. Each vertical has 2–3 email steps (initial, follow-up, optional third) plus SMS. None of this is stubs or placeholder text.
+server/services/seed-vertical-campaigns.ts (2791 lines) defines VERTICAL_SEQUENCES — a full array of sequence seed objects with complete HTML step bodies, using an emailBody() helper. Confirmed at minimum for Retail (lines 32–80). This is likely the complete seeding source for all SDR vertical sequences.
+The actual gap: The content exists in code but may not be in the DB — either the seeding function was never called against the current DB, or was run partially. The dry-run script's job is to find which DB rows have empty/stub body/subject and map them to the existing content sources.
+
+Critical field name difference (confirmed from shared/schema.ts):
+
+Sequence steps (sequence_steps table, lines 1155–1178): fields are subject and body
+Campaign steps (campaign_steps table, lines 928–947): fields are subject and bodyTemplate
+These are different field names. Scripts must use the correct field per table. A script that uses body for campaign steps will silently do nothing (wrong column).
+Storage methods confirmed (server/storage.ts:289, 329):
+
+updateSequenceStep(id, updates: Partial<InsertSequenceStep>) — exists, ready
+updateCampaignStep(id, updates: Partial<InsertCampaignStep>) — exists, ready
+getSequenceSteps(sequenceId), getFollowUpSequences(), getCampaigns(), getCampaignSteps(campaignId) — all exist
+No backfill scripts exist yet — glob confirms scripts/backfill-templates-dryrun.ts and scripts/backfill-templates-apply.ts are new files to be created.
+
+seed-vertical-campaigns.ts compliance footer (line 22):
+
+const COMPLIANCE_FOOTER = `<p style="font-size:11px;color:#888;...">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>`;
+This is a legal disclaimer appended by emailBody() — it is NOT a CAN-SPAM unsubscribe footer. The real CAN-SPAM injection happens at send time via #791. The disclaimer already in the seed content is acceptable in the template body.
+
+Vertical count: vertical-email-sms-templates.ts has 10 verticals. The task mentions 13 SDR vertical sequences. The gap (3 verticals) needs to be identified via the dry-run — any sequence steps whose vertical has no matching entry in getVerticalTemplate() will require new copy to be written inline in the apply script.
+
+getVerticalTemplate(vertical) export (vertical-email-sms-templates.ts:744–750): Normalizes the key with case-insensitive + punctuation-stripped matching. The apply script can use this directly to look up copy by vertical name.
+
+seed-content-engine.ts: Handles knowledge base articles only. Not relevant to sequence/campaign templates — do not touch.
+
+False Assumptions in the Existing Task Plan
+Assumption	Reality
+"Bodies are empty, minimal, or contain only placeholder text"	Copy already exists for 10 verticals in vertical-email-sms-templates.ts and full HTML sequences in seed-vertical-campaigns.ts. The gap is DB state, not missing copy.
+"Write the Liberty Bancard email copy" (step 2) as if from scratch	Reuse VERTICAL_OUTREACH_TEMPLATES from vertical-email-sms-templates.ts and/or the HTML bodies from VERTICAL_SEQUENCES in seed-vertical-campaigns.ts. Only write new copy for verticals not covered by either source.
+"updateSequenceStep or equivalent DB calls" with unspecified field names	Sequence steps use body; campaign steps use bodyTemplate. These are distinct. The apply script must branch by table.
+13 SDR vertical sequences need content	Only 10 verticals have content in vertical-email-sms-templates.ts. The dry-run must surface which sequences have no matching vertical template — those 3 (or however many) need new copy written.
+True Root Cause / What This Task Actually Needs
+The content source already exists. The task is:
+
+A dry-run script that queries the live DB to find which sequence/campaign step rows have empty or stub body/bodyTemplate/subject, maps them to available content in vertical-email-sms-templates.ts, flags which have no content source, and exports a backup JSON before touching anything.
+An apply script that imports from existing content files (VERTICAL_OUTREACH_TEMPLATES and/or VERTICAL_SEQUENCES) to populate empty/stub rows, skips active sequences by default, logs every write, and never triggers sends or enrollment.
+Any verticals not covered by the existing templates need new copy written in the apply script's content map — not as a separate step.
+Exact Files to Change / Create
+File	Action
+scripts/backfill-templates-dryrun.ts	Create — new dry-run script
+scripts/backfill-templates-apply.ts	Create — new apply script
+What the dry-run script must do:
+
+Connect to DB via import { db } from "../server/db" (or pool)
+Query all follow_up_sequences + their sequence_steps — report: name, status (active/paused), step count, empty subject count, empty body count, stub body count (strings matching: "TODO", "Placeholder", "Insert copy", "Hi {{firstName}}" with no CTA/value prop, body length < 100 chars)
+Query all campaigns + their campaign_steps — same inventory on subject / bodyTemplate
+For each empty/stub step, check if getVerticalTemplate(vertical) returns content — flag those without a match as "no content source / needs manual copy"
+Flag sequences with status = 'active' separately — these need explicit --include-active to modify
+Export backup JSON to scripts/backfill-backup-<timestamp>.json before any mutation — include sequenceId/campaignId, stepId, name, status, subject, body/bodyTemplate, delayDays, delayHours, createdAt, updatedAt
+Print full report to stdout. Exit without writing any DB records.
+What the apply script must do:
+
+Re-run the same target detection (or read from backup file)
+Import VERTICAL_OUTREACH_TEMPLATES, getVerticalTemplate from server/services/vertical-email-sms-templates.ts
+For each eligible empty/stub step:
+Sequence steps: call updateSequenceStep(stepId, { subject, body }) — use body field
+Campaign steps: call updateCampaignStep(stepId, { subject, bodyTemplate }) — use bodyTemplate field
+Skip any step with non-stub existing content
+Skip active sequences unless --include-active CLI flag is passed; log all active sequences that were skipped
+Never touch status, enrolledAt, GHL fields, or any send queue
+Log every changed record (id, sequence/campaign name, step order, before/after subject)
+Do NOT activate sequences, enroll contacts, or trigger any send
+Exact Files NOT to Touch
+server/services/vertical-email-sms-templates.ts — read-only content source; do not modify
+server/services/seed-vertical-campaigns.ts — read-only reference; do not modify
+server/services/seed-content-engine.ts — unrelated (KB articles only)
+server/routes/campaigns.ts, server/routes/sequences.ts — no route changes
+server/storage.ts — no storage changes; use existing methods as-is
+Any sequence worker, campaign engine, GHL sync, contactability, or enrollment code
+Kill Lines
+STOP if the apply script can run before the dry-run has produced a backup JSON
+STOP if template content is mutated without a restorable scripts/backfill-backup-<timestamp>.json existing first
+STOP if active sequences are modified without the explicit --include-active flag — and without being listed in the final report
+STOP if the apply script uses body for campaign steps (must be bodyTemplate) or bodyTemplate for sequence steps (must be body)
+STOP if any template body contains: unsubscribe links, physical mailing address, CAN-SPAM footer, or real tokens
+STOP if any template body contains: scripts, forms, iframes, tracking pixels, or external assets
+STOP if prohibited claims appear: "guaranteed savings", "guaranteed approval", specific unsupported fee reductions, fake ticket numbers, fake chargeback rates, high-pressure language, misleading subjects
+STOP if non-stub existing copy is overwritten — only empty, null, or confirmed-stub content may be updated
+STOP if the apply script calls any send, enroll, activate, or GHL workflow function
+Validation Commands
+# Dry-run first — review output before running apply
+npx tsx scripts/backfill-templates-dryrun.ts
+# Confirm backup file was created before apply
+ls scripts/backfill-backup-*.json
+# Apply only after dry-run reviewed
+npx tsx scripts/backfill-templates-apply.ts
+# Role guard smoke test
+npx tsx scripts/smoke-role-guards.ts
+# TypeScript clean on new scripts
+npx tsc --noEmit --skipLibCheck
+Manual checks after apply:
+
+Open Sequences page → open several backfilled SDR vertical sequences → preview each step via 828A preview → confirm merge tags visible, no compliance footer embedded, no sequence activated, no outbound sent
+Open Campaigns tab → confirm backfilled steps render, edit, and preview correctly
+Verdict
+BUILD-READY with these corrections locked in:
+
+Do not write copy from scratch — import from VERTICAL_OUTREACH_TEMPLATES in vertical-email-sms-templates.ts. Only write new copy inline for verticals with no existing template match (identified by the dry-run).
+Field name split is mandatory: sequence steps → body; campaign steps → bodyTemplate. One wrong field name silently skips every update.
+Dry-run + backup JSON gate is a hard prerequisite — apply script must not run until backup exists.
+Active sequence guard: skip by default, require --include-active flag, list all flagged active sequences in the final report regardless.
+The COMPLIANCE_FOOTER disclaimer already in seed-vertical-campaigns.ts is acceptable in the template body — it is not a CAN-SPAM footer.
+Shall I update Task #833 with this corrected plan?
