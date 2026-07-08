@@ -18,7 +18,7 @@ import {
   Loader2, Phone, Mail, MessageSquare, Send, Sparkles, CheckCircle, Clock,
   FileText, ArrowRight, Eye, Edit3, ChevronDown, ChevronUp
 } from "lucide-react";
-import type { Contact, Deal } from "@shared/schema";
+import type { Contact, Deal, CollateralPacket } from "@shared/schema";
 import { computeSmsEligibility } from "@shared/sms-eligibility";
 import { SmsFollowUpSection } from "@/components/call-outcome/SmsFollowUpSection";
 
@@ -53,6 +53,7 @@ const formSchema = z.object({
   interestedIn0Percent: z.boolean().default(false),
   needsTerminal: z.boolean().default(false),
   sendPacketNow: z.boolean().default(false),
+  packetId: z.string().default("auto"),
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -93,6 +94,7 @@ export default function CallOutcome() {
       interestedIn0Percent: false,
       needsTerminal: false,
       sendPacketNow: false,
+      packetId: "auto",
     },
   });
 
@@ -105,6 +107,11 @@ export default function CallOutcome() {
     queryKey: ["/api/deals"],
   });
   const deals = dealsRes?.data;
+
+  const { data: collateralPackets } = useQuery<CollateralPacket[]>({
+    queryKey: ["/api/collateral-packets"],
+  });
+  const activePackets = (collateralPackets || []).filter((p) => p.isActive !== false);
 
   const contactDeals = deals?.filter(
     (d) => d.contactId === Number(selectedContactId)
@@ -156,6 +163,7 @@ export default function CallOutcome() {
         interestedIn0Percent: values.interestedIn0Percent,
         needsTerminal: values.needsTerminal,
         sendPacketNow: values.sendPacketNow,
+        packetId: values.sendPacketNow && values.packetId !== "auto" ? Number(values.packetId) : undefined,
       });
       return res.json();
     },
@@ -202,6 +210,7 @@ export default function CallOutcome() {
         interestedIn0Percent: values.interestedIn0Percent,
         needsTerminal: values.needsTerminal,
         sendPacketNow: values.sendPacketNow,
+        packetId: values.sendPacketNow && values.packetId !== "auto" ? Number(values.packetId) : undefined,
       });
       const data = await res.json();
       setSendResult(data);
@@ -296,6 +305,30 @@ export default function CallOutcome() {
                   <div className="flex items-center justify-center gap-2 text-muted-foreground" data-testid="text-sms-skipped">
                     <MessageSquare className="w-4 h-4" />
                     <span>{sendResult.smsMessage}</span>
+                  </div>
+                )}
+                {sendResult?.packetResult === "sent" && (
+                  <div className="flex items-center justify-center gap-2" data-testid="text-packet-sent">
+                    <FileText className="w-4 h-4 text-blue-500" />
+                    <span>{sendResult.packetMessage || `Packet sent: ${sendResult.packetName}`}</span>
+                  </div>
+                )}
+                {sendResult?.packetResult === "not_configured" && (
+                  <div className="flex items-center justify-center gap-2 text-amber-600 dark:text-amber-400" data-testid="text-packet-not-configured">
+                    <FileText className="w-4 h-4" />
+                    <span>{sendResult.packetMessage || "Packet was not sent — email provider is not configured."}</span>
+                  </div>
+                )}
+                {sendResult?.packetResult === "no_match" && (
+                  <div className="flex items-center justify-center gap-2 text-amber-600 dark:text-amber-400" data-testid="text-packet-no-match">
+                    <FileText className="w-4 h-4" />
+                    <span>{sendResult.packetMessage || "Packet was not sent — no matching collateral packet was found."}</span>
+                  </div>
+                )}
+                {sendResult?.packetResult === "failed" && (
+                  <div className="flex items-center justify-center gap-2 text-red-600 dark:text-red-400" data-testid="text-packet-failed">
+                    <FileText className="w-4 h-4" />
+                    <span>{sendResult.packetMessage || "Packet failed to send."}</span>
                   </div>
                 )}
                 {sendResult?.stageUpdated && (
@@ -683,6 +716,37 @@ export default function CallOutcome() {
                   )}
                 />
               </div>
+
+              {form.watch("sendPacketNow") && (
+                <FormField
+                  control={form.control}
+                  name="packetId"
+                  render={({ field }) => (
+                    <FormItem className="space-y-1">
+                      <FormLabel className="text-sm">Which packet?</FormLabel>
+                      <Select value={field.value} onValueChange={field.onChange}>
+                        <FormControl>
+                          <SelectTrigger data-testid="select-packet-override">
+                            <SelectValue placeholder="Auto (recommended)" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="auto">Auto (recommended — matched by deal vertical)</SelectItem>
+                          {activePackets.map((p) => (
+                            <SelectItem key={p.id} value={String(p.id)} data-testid={`select-packet-option-${p.id}`}>
+                              {p.name}{p.vertical ? ` — ${p.vertical}` : ""}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground">
+                        Leave on Auto to send the packet Liberty Bancard matches to this deal's vertical, or pick a specific packet if auto-match isn't right for this merchant.
+                      </p>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
 
               <div className="flex items-center gap-3 pt-2">
                 <Button

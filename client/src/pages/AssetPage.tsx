@@ -115,6 +115,11 @@ const contentMap: Record<string, ContentPage> = {
           { href: "/assets/verticals/restaurant", label: "Restaurant" },
           { href: "/assets/verticals/home-services", label: "Home Services" },
           { href: "/assets/verticals/retail", label: "Retail" },
+          { href: "/assets/verticals/salon", label: "Salon / Beauty" },
+          { href: "/assets/verticals/gym", label: "Gym / Fitness" },
+          { href: "/assets/verticals/hotel", label: "Hotel / Hospitality" },
+          { href: "/assets/verticals/legal", label: "Legal / Professional Services" },
+          { href: "/assets/verticals/general", label: "General / Local Business" },
         ],
       },
       {
@@ -454,6 +459,76 @@ const contentMap: Record<string, ContentPage> = {
     images: [{ src: verticalRetail, alt: "Retail store checkout experience", caption: "Tap-to-pay checkout in under 3 seconds." }],
   },
 
+  "/assets/verticals/salon": {
+    title: "Salon & Beauty Processing",
+    subtitle: "Payment Solutions for Salons, Spas, and Beauty Studios",
+    description: "Salons and beauty studios run a high volume of low-to-mid ticket transactions, often combined with deposits, memberships, or card-on-file booking. A statement review typically focuses on whether debit transactions are billed at a flat rate instead of true interchange, and whether recurring/booking fees are itemized clearly.",
+    bullets: [
+      "Ask what percentage of tickets are debit cards — flat-rate pricing usually overcharges on debit-heavy mixes",
+      "Confirm how deposits, cancellation fees, and memberships are currently processed",
+      "Tip-adjust accuracy matters for stylist and technician payroll reconciliation",
+      "Compliant 0% / dual-pricing programs may apply for service-based tickets — verify eligibility before quoting",
+      "Statement review angle: look for a PCI non-compliance fee and separately billed gateway/booking-platform fees",
+    ],
+    type: "standard",
+  },
+
+  "/assets/verticals/gym": {
+    title: "Gym & Fitness Processing",
+    subtitle: "Payment Solutions for Gyms, Studios, and Fitness Centers",
+    description: "Gyms and fitness studios depend on reliable recurring membership billing, so decline/retry handling and chargeback support for cancelled memberships matter as much as per-transaction rate. A statement review should separate recurring-billing/ACH fees from card-present terminal fees, since they're often billed differently.",
+    bullets: [
+      "Ask which recurring billing platform is used and whether it's billed separately from card-present processing",
+      "Confirm current decline/retry logic for expired or replaced membership cards",
+      "Chargeback volume from cancelled memberships is common — ask about current dispute support",
+      "Compliant 0% / dual-pricing programs may apply for walk-in or day-pass transactions — verify eligibility before quoting",
+      "Statement review angle: check for a monthly minimum fee on lower-volume locations",
+    ],
+    type: "standard",
+  },
+
+  "/assets/verticals/hotel": {
+    title: "Hotel & Hospitality Processing",
+    subtitle: "Payment Solutions for Hotels, Inns, and Short-Term Lodging",
+    description: "Hospitality merchants deal with pre-authorizations, incidental holds, higher-than-average tickets, and a heavier mix of corporate/rewards cards, which typically carry higher interchange. A statement review should confirm whether the current provider is billing those cards at a padded non-qualified rate instead of passing through actual interchange.",
+    bullets: [
+      "Ask about current pre-auth and no-show/incidental hold handling",
+      "Corporate and rewards cards carry higher interchange — confirm whether the current statement shows a inflated 'non-qualified' surcharge on them",
+      "Property management system (PMS) or booking engine integration needs should be scoped before recommending a terminal or gateway",
+      "Seasonal volume swings may affect which pricing structure makes sense — ask about peak vs. off-season volume",
+      "Statement review angle: check for stacked gateway, PCI, and batch fees common on legacy hospitality processors",
+    ],
+    type: "standard",
+  },
+
+  "/assets/verticals/legal": {
+    title: "Legal & Professional Services Processing",
+    subtitle: "Payment Solutions for Law Firms, CPAs, and Consultants",
+    description: "Legal and professional-services firms tend to have lower transaction volume but higher average tickets, invoice-based billing, and in some cases trust or IOLTA accounts. A statement review should flag monthly minimum fees on low-volume accounts, and any trust-account processing question should be routed to the firm's own compliance/bar guidance before recommending a setup.",
+    bullets: [
+      "Ask whether the firm operates a trust or IOLTA account — fees should never be deducted directly from trust balances; confirm the firm's own compliance requirements before proposing a structure",
+      "Invoice-based and virtual terminal billing is common — confirm how retainers and one-time invoices are currently collected",
+      "Lower transaction volume can mean a flat monthly minimum fee is quietly inflating the effective rate — check for one on the statement",
+      "Ask about current keyed-entry vs. card-present mix, since keyed rates are usually higher",
+      "Statement review angle: confirm whether recurring retainer billing is itemized separately from one-time invoice payments",
+    ],
+    type: "standard",
+  },
+
+  "/assets/verticals/general": {
+    title: "General & Local Business Processing",
+    subtitle: "Payment Solutions for Any Local Business",
+    description: "For verticals not covered by a dedicated packet, the fundamentals of a good statement review still apply: identify the actual interchange-plus cost versus what's being billed, flag junk and non-compliance fees, and confirm whether a compliant 0% or terminal upgrade makes sense for this specific business. Use this packet as a starting point and pull in vertical-specific materials once the business type is confirmed.",
+    bullets: [
+      "Request the merchant's most recent processing statement before quoting anything",
+      "Look for common junk fees: PCI non-compliance, statement fee, batch fee, or an unexplained gateway fee",
+      "Confirm current debit vs. credit mix — flat-rate pricing tends to overcharge on debit-heavy businesses",
+      "Ask whether a compliant 0% / dual-pricing program or a terminal upgrade fits this business's transaction style",
+      "If a more specific vertical becomes clear (restaurant, medical, retail, etc.), switch to that packet for more targeted talking points",
+    ],
+    type: "standard",
+  },
+
   "/assets/case-studies/medical-front-desk": {
     title: "Case Study: Prestige Dermatology & Medspa",
     subtitle: "How a Multi-Location Healthcare Practice Reduced Processing Costs by 53%",
@@ -681,6 +756,67 @@ const contentMap: Record<string, ContentPage> = {
       { href: "/assets/verticals/retail", label: "Retail Processing Overview", description: "Solutions for high-volume retail environments." },
       { href: "/assets/case-studies/retail-fast-checkout", label: "Case Study: Fast Checkout", description: "Faster checkout and debit savings for a retail store." },
       { href: "/assets/terminal/smart-terminal", label: "Liberty Smart Terminal", description: "Contactless-ready terminal for fast retail checkout." },
+    ],
+  },
+
+  "/packet/salon": {
+    title: "Salon / Beauty Vertical Packet",
+    subtitle: "Payment Processing Resources for Salons and Beauty Studios",
+    description: "Resources for salons, spas, and beauty studios processing a high volume of low-to-mid ticket transactions with deposits and memberships.",
+    bullets: [],
+    type: "packet",
+    links: [
+      { href: "/assets/verticals/salon", label: "Salon Processing Overview", description: "Talking points for debit-heavy, deposit-driven ticket mixes." },
+      { href: "/assets/0-percent/overview", label: "0% Processing Overview", description: "Compliant programs for service-based tickets, where eligible." },
+    ],
+  },
+
+  "/packet/gym": {
+    title: "Gym / Fitness Vertical Packet",
+    subtitle: "Payment Processing Resources for Gyms and Fitness Studios",
+    description: "Resources for gyms and fitness studios that depend on recurring membership billing and card-on-file reliability.",
+    bullets: [],
+    type: "packet",
+    links: [
+      { href: "/assets/verticals/gym", label: "Gym & Fitness Processing Overview", description: "Talking points for recurring billing and chargeback support." },
+      { href: "/assets/0-percent/overview", label: "0% Processing Overview", description: "Compliant programs for day-pass and walk-in transactions, where eligible." },
+    ],
+  },
+
+  "/packet/hotel": {
+    title: "Hotel / Hospitality Vertical Packet",
+    subtitle: "Payment Processing Resources for Hotels and Lodging",
+    description: "Resources for hotels, inns, and short-term lodging businesses managing pre-auths, incidental holds, and higher-ticket corporate/rewards card mixes.",
+    bullets: [],
+    type: "packet",
+    links: [
+      { href: "/assets/verticals/hotel", label: "Hotel & Hospitality Processing Overview", description: "Talking points for pre-auths, corporate cards, and PMS integration." },
+      { href: "/assets/terminal/smart-terminal", label: "Liberty Smart Terminal", description: "Terminal options for front-desk and incidental billing." },
+    ],
+  },
+
+  "/packet/legal": {
+    title: "Legal / Professional Services Vertical Packet",
+    subtitle: "Payment Processing Resources for Law Firms and Professional Services",
+    description: "Resources for law firms, CPAs, and consultants with invoice-based billing and lower transaction volume.",
+    bullets: [],
+    type: "packet",
+    links: [
+      { href: "/assets/verticals/legal", label: "Legal & Professional Services Processing Overview", description: "Talking points for trust accounts, invoicing, and monthly minimums." },
+      { href: "/assets/one-pagers/how-statement-review-works", label: "How Statement Review Works", description: "Step-by-step breakdown of our review process." },
+    ],
+  },
+
+  "/packet/general": {
+    title: "General / Local Business Packet",
+    subtitle: "Payment Processing Resources for Any Local Business",
+    description: "Default packet for verticals without a dedicated collateral set. Covers the fundamentals of a statement review and program fit, applicable to any local business.",
+    bullets: [],
+    type: "packet",
+    links: [
+      { href: "/assets/verticals/general", label: "General & Local Business Processing Overview", description: "Universal statement-review talking points." },
+      { href: "/assets/one-pagers/why-liberty", label: "Why Liberty Bancard", description: "Our approach: diagnose first, quote second." },
+      { href: "/assets/one-pagers/hidden-fees-checklist", label: "Hidden Fees Checklist", description: "Common junk fees and markups we identify." },
     ],
   },
 };

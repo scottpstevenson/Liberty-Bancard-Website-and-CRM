@@ -60,12 +60,14 @@ export async function seedDefaultData() {
     }
 
     const existingPackets = await storage.getCollateralPackets();
-    if (existingPackets.length === 0) {
-      console.log("Seeding collateral packets...");
-      for (const packet of DEFAULT_COLLATERAL_PACKETS) {
+    const existingPacketNames = new Set(existingPackets.map(p => p.name));
+    const newPackets = DEFAULT_COLLATERAL_PACKETS.filter(p => !existingPacketNames.has(p.name));
+    if (newPackets.length > 0) {
+      console.log(`Seeding ${newPackets.length} collateral packets...`);
+      for (const packet of newPackets) {
         await storage.createCollateralPacket(packet);
       }
-      console.log(`Seeded ${DEFAULT_COLLATERAL_PACKETS.length} collateral packets`);
+      console.log(`Seeded ${newPackets.length} collateral packets`);
     }
 
     const existingCampaigns = await storage.getCampaigns();

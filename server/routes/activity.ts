@@ -8,6 +8,7 @@ import { sendGhlEmail, sendGhlSms } from "../services/ghl";
 import { advanceDealStage } from "../services/deal-stage-service";
 import { parse } from "csv-parse/sync";
 import { logAiCall } from "../services/ai-audit-logger";
+import { resolveCollateralPacket } from "../services/workflow-executor";
 
 export function registerActivityRoutes(app: Express) {
 
@@ -397,7 +398,7 @@ Respond in this exact JSON format:
         sendEmail, sendSms,
         callSummary, nextSteps, sentiment,
         nextFollowUpDate,
-        interestedIn0Percent, needsTerminal, sendPacketNow,
+        interestedIn0Percent, needsTerminal, sendPacketNow, packetId,
       } = req.body;
 
       if (!contactId || !outcome) return res.status(400).json({ message: "contactId and outcome are required" });
@@ -525,6 +526,59 @@ Respond in this exact JSON format:
         });
       }
 
+      // Truthful packet-send state — mirrors the smsResult pattern above.
+      // The rep may optionally override which packet gets sent via
+      // `packetId`; otherwise it falls back to the same
+      // offerPath -> vertical -> General/Local Business resolution used by
+      // the automated send_packet workflow action.
+      let packetResult: "sent" | "not_requested" | "not_configured" | "no_match" | "failed" = "not_requested";
+      let packetMessage = "Packet send was not requested.";
+      let packetName: string | null = null;
+      if (sendPacketNow) {
+        const { isGhlConfigured } = await import("../services/ghl");
+        if (!isGhlConfigured()) {
+          packetResult = "not_configured";
+          packetMessage = "Packet was not sent — email provider is not configured.";
+        } else {
+          const packets = await storage.getCollateralPackets();
+          const deal = dealId ? await storage.getDeal(Number(dealId)) : undefined;
+          const matchedPacket = resolveCollateralPacket(packets, {
+            packetId: packetId ? Number(packetId) : undefined,
+            deal,
+          });
+          if (!matchedPacket) {
+            packetResult = "no_match";
+            packetMessage = "Packet was not sent — no matching collateral packet was found.";
+          } else {
+            packetName = matchedPacket.name;
+            try {
+              const result = await sendGhlEmail({
+                contactId: Number(contactId),
+                dealId: dealId ? Number(dealId) : undefined,
+                subject: `Your Custom Pricing Breakdown - ${matchedPacket.name}`,
+                body: `<p>Hi {{contact.firstName}},</p><p>Here is your personalized information packet.</p><p>Best,<br/>Liberty Bancard</p><p style="font-size:11px;color:#999;">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>`,
+              });
+              if (result?.success) {
+                packetResult = "sent";
+                packetMessage = `Packet sent: ${matchedPacket.name}.`;
+              } else {
+                packetResult = "failed";
+                packetMessage = `Packet failed to send${result?.error ? `: ${result.error}` : "."}`;
+              }
+            } catch (packetErr: any) {
+              packetResult = "failed";
+              packetMessage = `Packet failed to send: ${packetErr.message}`;
+            }
+          }
+        }
+        await storage.createAuditLog({
+          action: "call_outcome_packet_send",
+          entityType: "contact",
+          entityId: Number(contactId),
+          details: { dealId: dealId ? Number(dealId) : undefined, packetIdOverride: packetId ? Number(packetId) : undefined, packetResult, packetName },
+        });
+      }
+
       const OUTCOME_TO_SEQUENCE: Record<string, string> = {
         "Connected - Send Review Summary": "Post-Call Review Follow-Up",
         "Connected - Needs Proposal": "Proposal Follow-Up",
@@ -568,6 +622,9 @@ Respond in this exact JSON format:
         smsSent,
         smsResult,
         smsMessage,
+        packetResult,
+        packetMessage,
+        packetName,
         stageUpdated: !!dealId && !!OUTCOME_TO_STAGE[outcome],
         newStage: dealId ? (OUTCOME_TO_STAGE[outcome] || null) : null,
         sequenceEnrolled,

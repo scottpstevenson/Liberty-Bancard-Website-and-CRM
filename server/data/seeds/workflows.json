@@ -751,6 +751,130 @@
       ],
       "description": "Restaurant processing solutions with case study and terminal configuration for high-volume use.",
       "isActive": true
+    },
+    {
+      "name": "Automotive Packet",
+      "offerPath": null,
+      "vertical": "Automotive",
+      "tags": [
+        "automotive",
+        "auto-repair"
+      ],
+      "pages": [
+        "/assets/verticals/auto",
+        "/assets/case-studies/auto-high-ticket",
+        "/assets/terminal/smart-terminal"
+      ],
+      "description": "Automotive processing solutions with case study and terminal configuration for high-ticket repair orders.",
+      "isActive": true
+    },
+    {
+      "name": "Home Services Packet",
+      "offerPath": null,
+      "vertical": "Home Services",
+      "tags": [
+        "home-services",
+        "construction",
+        "landscaping"
+      ],
+      "pages": [
+        "/assets/verticals/home-services",
+        "/assets/case-studies/home-services-mobile",
+        "/assets/0-percent/overview"
+      ],
+      "description": "Field-service processing solutions with case study and mobile/virtual terminal options.",
+      "isActive": true
+    },
+    {
+      "name": "Retail Packet",
+      "offerPath": null,
+      "vertical": "Retail",
+      "tags": [
+        "retail"
+      ],
+      "pages": [
+        "/assets/verticals/retail",
+        "/assets/case-studies/retail-fast-checkout",
+        "/assets/terminal/smart-terminal"
+      ],
+      "description": "Retail processing solutions with case study and terminal configuration for high-volume checkout.",
+      "isActive": true
+    },
+    {
+      "name": "Salon/Beauty Packet",
+      "offerPath": null,
+      "vertical": "Salon",
+      "tags": [
+        "salon",
+        "beauty"
+      ],
+      "pages": [
+        "/assets/verticals/salon",
+        "/assets/0-percent/overview"
+      ],
+      "description": "Salon and beauty studio processing solutions with talking points for debit-heavy, deposit-driven ticket mixes.",
+      "isActive": true
+    },
+    {
+      "name": "Gym/Fitness Packet",
+      "offerPath": null,
+      "vertical": "Gym",
+      "tags": [
+        "gym",
+        "fitness"
+      ],
+      "pages": [
+        "/assets/verticals/gym",
+        "/assets/0-percent/overview"
+      ],
+      "description": "Gym and fitness studio processing solutions with talking points for recurring membership billing.",
+      "isActive": true
+    },
+    {
+      "name": "Hotel/Hospitality Packet",
+      "offerPath": null,
+      "vertical": "Hotel",
+      "tags": [
+        "hotel",
+        "hospitality"
+      ],
+      "pages": [
+        "/assets/verticals/hotel",
+        "/assets/terminal/smart-terminal"
+      ],
+      "description": "Hotel and hospitality processing solutions with talking points for pre-auths and corporate card mixes.",
+      "isActive": true
+    },
+    {
+      "name": "Legal/Professional Services Packet",
+      "offerPath": null,
+      "vertical": "Legal",
+      "tags": [
+        "legal",
+        "professional-services"
+      ],
+      "pages": [
+        "/assets/verticals/legal",
+        "/assets/one-pagers/how-statement-review-works"
+      ],
+      "description": "Law firm and professional services processing solutions with talking points for trust accounts and invoicing.",
+      "isActive": true
+    },
+    {
+      "name": "General/Local Business Packet",
+      "offerPath": null,
+      "vertical": "General / Local Business",
+      "tags": [
+        "general",
+        "fallback"
+      ],
+      "pages": [
+        "/assets/verticals/general",
+        "/assets/one-pagers/why-liberty",
+        "/assets/one-pagers/hidden-fees-checklist"
+      ],
+      "description": "Default packet used when a merchant's vertical does not map to a dedicated packet. Universal statement-review talking points.",
+      "isActive": true
     }
   ],
   "PILLAR_SDR_CAMPAIGNS": [

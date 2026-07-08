@@ -2,6 +2,7 @@ import { storage } from "../storage";
 import { sendGhlEmail, sendGhlSms, sendTemplatedMessage, isGhlConfigured } from "./ghl";
 import { advanceDealStage } from "./deal-stage-service";
 import { updateContactGhlFirst } from "./contact-writer";
+import { resolvePacketVertical, GENERAL_FALLBACK_VERTICAL } from "../../shared/collateral-packet-verticals";
 
 interface WorkflowContext {
   entityType?: string;
@@ -26,6 +27,34 @@ async function resolveContext(ctx: WorkflowContext): Promise<{ contactId?: numbe
   }
 
   return { contactId, dealId };
+}
+
+/**
+ * Resolves which collateral packet should be sent for a given contact/deal.
+ * Match order: explicit packetId override -> deal.offerPath -> resolved
+ * deal.vertical -> General/Local Business fallback. Shared by the
+ * workflow-executor's `send_packet` action and any manual "send packet"
+ * entry points (e.g. the call outcome UI) so both paths stay consistent.
+ */
+export function resolveCollateralPacket(
+  packets: any[],
+  opts: { packetId?: number; deal?: any }
+): any | undefined {
+  const { packetId, deal } = opts;
+  let matchedPacket = packets.find((p: any) => p.id === packetId && p.isActive !== false);
+  if (!matchedPacket && deal) {
+    matchedPacket = packets.find((p: any) => p.offerPath && p.offerPath === deal.offerPath && p.isActive);
+    if (!matchedPacket) {
+      const canonicalVertical = resolvePacketVertical(deal.vertical);
+      if (canonicalVertical) {
+        matchedPacket = packets.find((p: any) => p.vertical === canonicalVertical && p.isActive);
+      }
+    }
+  }
+  if (!matchedPacket) {
+    matchedPacket = packets.find((p: any) => p.vertical === GENERAL_FALLBACK_VERTICAL && p.isActive);
+  }
+  return matchedPacket;
 }
 
 async function interpolateTemplate(text: string, contactId?: number, dealId?: number): Promise<string> {
@@ -189,11 +218,8 @@ export async function executeWorkflowActions(
 
       } else if (action.type === "send_packet" && contactId) {
         const packets = await storage.getCollateralPackets();
-        let matchedPacket = packets.find((p: any) => p.id === action.packetId);
-        if (!matchedPacket && dealId) {
-          const deal = await storage.getDeal(dealId);
-          matchedPacket = packets.find((p: any) => p.offerPath === deal?.offerPath && p.isActive);
-        }
+        const deal = dealId ? await storage.getDeal(dealId) : undefined;
+        const matchedPacket = resolveCollateralPacket(packets, { packetId: action.packetId, deal });
         if (matchedPacket && isGhlConfigured()) {
           const result = await sendGhlEmail({
             contactId, dealId,
