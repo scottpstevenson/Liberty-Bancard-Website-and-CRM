@@ -1,0 +1,178 @@
+Final Addendum to #810 — Sequence Grouping, Filtering & Template Editing
+
+Approved to build.
+
+Critical scope guard
+
+This task improves sequence visibility and template editing only.
+
+Do not change:
+
+sequence activation policy
+auto-enrollment logic
+contactability gates
+cold email compliance footer injection
+unsubscribe logic
+daily cap logic
+global kill switch
+GHL credentials
+actual GHL workflow creation
+
+Sequence grouping/filtering guard
+
+Use existing fields first:
+
+sequenceFamily
+category
+triggerType
+vertical
+status
+
+Do not invent a new taxonomy unless the existing data cannot support grouping.
+
+Required filters:
+
+All
+Cold outreach
+Onboarding
+Nurture/follow-up
+Vertical-specific
+Transactional/operational
+Missing GHL workflow ID
+Active
+Paused
+
+If a sequence has missing/unknown family data, show it under:
+
+Uncategorized
+
+Do not hide uncategorized sequences.
+
+Template editing guard
+
+Users should be able to open a sequence and edit step content for email/SMS steps:
+
+subject
+body
+optional preview/interpolated variable hints if already supported
+
+Required behavior:
+
+loads existing saved content
+saves edits
+reload confirms persistence
+shows save success/error state
+does not activate the sequence
+does not enroll contacts
+does not send test messages
+does not push changes into GHL automatically
+
+If step body includes template variables, preserve them. Do not strip placeholders like:
+
+{{firstName}}
+{{businessName}}
+{{companyName}}
+
+unless the existing template system uses different syntax.
+
+Compliance guard
+
+Do not bake CAN-SPAM footer text directly into editable templates.
+
+Cold-email compliance remains platform-injected at send time through the #791 footer path.
+
+Kill line:
+
+STOP if users can remove the unsubscribe link or mailing address by editing the sequence template.
+
+Editing body content is allowed. Removing compliance enforcement is not.
+
+GHL workflow wiring status guard
+
+Show status clearly per sequence:
+
+Connected
+Missing workflow ID
+Invalid/stale mapping if detectable
+Not applicable
+
+Use the existing GHL Workflow ID Manager registry / server/services/ghl-workflows.ts source of truth.
+
+Do not create workflows in GHL.
+
+Do not assume every sequence requires a GHL workflow ID. If some are internal-only or app-native, mark them:
+
+Not applicable
+
+rather than “missing.”
+
+Role/permission guard
+
+Template editing should be limited to the same admin/manager roles that can manage sequences today.
+
+Agents/reps may view if already allowed, but should not gain new edit power unless existing permissions already allow it.
+
+Kill line:
+
+STOP if this task gives agents edit access to sequence templates or GHL workflow IDs without existing permission.
+
+Safety around active sequences
+
+If editing an active sequence is allowed today, preserve existing behavior.
+
+If unclear, add a confirmation warning before saving changes to an active sequence:
+
+This sequence is active. Changes will affect future sends only.
+
+Do not pause, activate, or restart sequences automatically.
+
+Kill lines
+
+STOP if filtering hides sequences permanently.
+STOP if uncategorized sequences disappear.
+STOP if template edits trigger real sends.
+STOP if saving a template activates a sequence.
+STOP if editing a sequence bypasses cold-email footer injection.
+STOP if GHL workflows are created/modified inside GHL by this task.
+STOP if contactability, opt-out suppression, global pause, or daily caps are touched.
+STOP if role guards are weakened.
+
+Validation
+
+Run:
+
+npx tsc --noEmit --skipLibCheck
+npx tsx scripts/smoke-role-guards.ts
+
+If global TypeScript still has known unrelated errors, report them separately and confirm touched files are clean.
+
+Manual checks:
+
+Sequences page loads all ~94 sequences without crash
+Filter by family/category works
+Missing GHL workflow ID filter works
+Uncategorized sequences remain visible
+Open email step → subject/body visible
+Edit email step → save → reload → persisted
+Open SMS step → body visible/editable if supported
+Connected/not-connected GHL status displays correctly
+No real send/enrollment occurs
+Active sequence edit warning appears if applicable
+
+Final report required
+
+Return:
+
+Sequence count before:
+Sequence count after:
+Filters/groupings added:
+Uncategorized handling:
+Template fields editable:
+Persistence verified:
+GHL workflow status source:
+Missing workflow count:
+Not-applicable workflow count:
+Role permissions preserved:
+Real outbound sent: yes/no
+Validation commands run:
+Files changed:

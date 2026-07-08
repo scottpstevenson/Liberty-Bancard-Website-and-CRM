@@ -1,0 +1,137 @@
+Final Addendum to #812 — Fix Misleading Lead Import Summary Stats
+
+Approved to build.
+
+Core rule
+
+Every parsed row must land in exactly one visible outcome bucket.
+
+Required reconciliation:
+
+totalRows = newRows + duplicateRows + invalidRows + skippedRows
+
+Where skippedRows may represent DB-level conflicts from onConflictDoNothing().
+
+Do not leave DB-conflict rows invisible.
+
+Naming recommendation
+
+Use rep-friendly language in the UI:
+
+New
+Already Exists
+Invalid
+Skipped
+
+or:
+
+New
+Duplicates / Already Exists
+Invalid
+Skipped
+
+Preferred: Already Exists for DB-level contact conflicts, because it explains the actual outcome better than generic “Skipped.”
+
+Backend accounting guard
+
+Do not change dedupe policy.
+
+Allowed:
+
+count DB conflict rows separately
+include skipped/alreadyExists in import summary response
+persist skipped/alreadyExists on import history metadata
+include skipped/alreadyExists in aggregate stats endpoint
+
+Not allowed:
+
+changing which rows are considered duplicates
+removing onConflictDoNothing
+forcing DB conflicts to count as successful new imports
+double-counting rows as both duplicate and skipped
+
+UI guard
+
+The top summary cards and Import History table must tell the same story.
+
+Required:
+
+top cards show New / Already Exists / Invalid / Total or equivalent
+history table shows the same outcome buckets
+all visible counts reconcile to Total Rows
+empty/no-new import clearly reads as “all already existed,” not “nothing happened”
+
+For the known case:
+
+Total Rows: 1,319
+New: 0
+Already Exists: 1,319
+Invalid: 0
+Skipped: 0
+
+or if DB conflicts are named skipped:
+
+Total Rows: 1,319
+New: 0
+Duplicates: 0
+Invalid: 0
+Skipped / Already Exists: 1,319
+
+Error distinction guard
+
+Do not make successful duplicate-only imports look like failures.
+
+But also do not hide real failures.
+
+The UI should distinguish:
+
+Processed successfully, no new contacts found
+Import completed with invalid rows
+Import failed due to server/API error
+
+Kill lines
+
+STOP if Total Rows does not equal visible outcome buckets.
+STOP if DB-conflict skipped rows are invisible in summary cards.
+STOP if Import History and top summary cards show contradictory counts.
+STOP if duplicate-only imports still appear as Records Imported: 0 with no explanation.
+STOP if DB conflicts are counted as new contacts.
+STOP if the dedupe/conflict policy is changed in this task.
+STOP if this task changes Outscraper parsing, lead scoring, enrichment, or contact creation rules beyond reporting.
+
+Validation
+
+Run or simulate three cases:
+
+1. all rows new
+2. all rows already exist / DB conflict
+3. mixed new + duplicate + invalid + skipped
+
+For each case, confirm:
+
+visible buckets add up to Total Rows
+top summary matches Import History
+success vs failure messaging is clear
+
+Run:
+
+npx tsc --noEmit --skipLibCheck
+npx tsx scripts/smoke-role-guards.ts
+
+If global TypeScript still has unrelated legacy errors, report them separately and confirm touched files are clean.
+
+Final report required
+
+Return:
+
+Backend outcome buckets:
+DB-conflict bucket name:
+Import summary response fields changed:
+Import history fields changed:
+Top summary card changes:
+History table changes:
+Reconciliation proof:
+Duplicate-only import result:
+Mixed import result:
+Validation commands run:
+Files changed:
