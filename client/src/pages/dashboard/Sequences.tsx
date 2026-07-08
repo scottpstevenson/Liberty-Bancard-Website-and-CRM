@@ -18,7 +18,7 @@ import {
   Plus, Trash2, Loader2, Play, Pause, Mail, MessageSquare, Phone,
   CheckSquare, Clock, ChevronDown, ChevronUp, Users, Zap, Send, ArrowDown,
   Target, BarChart3, FlaskConical, Pencil, AlertTriangle, Tag, ShieldCheck,
-  Radio,
+  Radio, Filter, Link2, Link2Off, HelpCircle,
 } from "lucide-react";
 
 interface ABTestConfig {
@@ -56,6 +56,70 @@ const TRIGGER_TYPES = [
   { value: "contact_created", label: "New Contact Created" },
   { value: "form_submitted", label: "Form Submitted" },
 ];
+
+type SequenceBucket =
+  | "cold_outreach"
+  | "onboarding"
+  | "nurture_followup"
+  | "vertical_specific"
+  | "transactional_operational"
+  | "uncategorized";
+
+const BUCKET_ORDER: SequenceBucket[] = [
+  "cold_outreach",
+  "onboarding",
+  "nurture_followup",
+  "vertical_specific",
+  "transactional_operational",
+  "uncategorized",
+];
+
+const BUCKET_LABELS: Record<SequenceBucket, string> = {
+  cold_outreach: "Cold Outreach",
+  onboarding: "Onboarding",
+  nurture_followup: "Nurture / Follow-Up",
+  vertical_specific: "Vertical-Specific",
+  transactional_operational: "Transactional / Operational",
+  uncategorized: "Uncategorized",
+};
+
+type WiringStatus = "connected" | "missing" | "invalid_stale" | "not_applicable";
+
+const WIRING_LABELS: Record<WiringStatus, string> = {
+  connected: "Connected",
+  missing: "Missing GHL Workflow ID",
+  invalid_stale: "Invalid / Stale",
+  not_applicable: "Not Applicable",
+};
+
+function WiringBadge({ status }: { status: WiringStatus }) {
+  if (status === "connected") {
+    return (
+      <Badge variant="outline" className="text-green-700 border-green-300 bg-green-50 dark:bg-green-900/20 text-xs">
+        <Link2 className="w-3 h-3 mr-1" /> Connected
+      </Badge>
+    );
+  }
+  if (status === "missing") {
+    return (
+      <Badge variant="outline" className="text-red-700 border-red-300 bg-red-50 dark:bg-red-900/20 text-xs">
+        <Link2Off className="w-3 h-3 mr-1" /> Missing GHL ID
+      </Badge>
+    );
+  }
+  if (status === "invalid_stale") {
+    return (
+      <Badge variant="outline" className="text-amber-700 border-amber-300 bg-amber-50 dark:bg-amber-900/20 text-xs">
+        <AlertTriangle className="w-3 h-3 mr-1" /> Invalid / Stale
+      </Badge>
+    );
+  }
+  return (
+    <Badge variant="outline" className="text-muted-foreground text-xs">
+      <HelpCircle className="w-3 h-3 mr-1" /> N/A
+    </Badge>
+  );
+}
 
 function stepIcon(actionType: string) {
   const found = STEP_TYPES.find(s => s.value === actionType);
@@ -112,6 +176,17 @@ export default function Sequences() {
     queryKey: ["/api/sequences"],
   });
   const sequences = Array.isArray(sequencesRaw) ? sequencesRaw : [];
+
+  const { data: groupingMetaRaw } = useQuery<any[]>({
+    queryKey: ["/api/sequences/grouping-meta"],
+  });
+  const groupingMetaById = new Map<number, { bucket: SequenceBucket; wiring: { status: WiringStatus; workflowId: string | null } }>(
+    (Array.isArray(groupingMetaRaw) ? groupingMetaRaw : []).map((m: any) => [m.id, { bucket: m.bucket, wiring: m.wiring }])
+  );
+
+  const [bucketFilter, setBucketFilter] = useState<"all" | SequenceBucket>("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "paused">("all");
+  const [wiringFilter, setWiringFilter] = useState<"all" | "missing">("all");
 
   const { data: allEnrollmentsRaw } = useQuery<any[]>({
     queryKey: ["/api/sequence-enrollments"],
@@ -428,8 +503,102 @@ export default function Sequences() {
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-3">
-          {sequences.map((seq: any) => {
+        <>
+          <Card data-testid="card-sequence-filters">
+            <CardContent className="pt-4 pb-4">
+              <div className="flex items-center gap-2 mb-3 text-sm font-medium text-muted-foreground">
+                <Filter className="w-4 h-4" /> Filter &amp; Group Sequences
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">Group</Label>
+                  <Select value={bucketFilter} onValueChange={(v) => setBucketFilter(v as any)}>
+                    <SelectTrigger data-testid="select-bucket-filter">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Groups</SelectItem>
+                      {BUCKET_ORDER.map(b => (
+                        <SelectItem key={b} value={b}>{BUCKET_LABELS[b]}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">Status</Label>
+                  <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as any)}>
+                    <SelectTrigger data-testid="select-status-filter">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Statuses</SelectItem>
+                      <SelectItem value="active">Active</SelectItem>
+                      <SelectItem value="paused">Paused</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">GHL Wiring</Label>
+                  <Select value={wiringFilter} onValueChange={(v) => setWiringFilter(v as any)}>
+                    <SelectTrigger data-testid="select-wiring-filter">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Wiring States</SelectItem>
+                      <SelectItem value="missing">Missing GHL Workflow ID</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {(() => {
+            const enriched = sequences.map((seq: any) => {
+              const meta = groupingMetaById.get(seq.id);
+              const bucket: SequenceBucket = meta?.bucket || "uncategorized";
+              const wiring = meta?.wiring || { status: "missing" as WiringStatus, workflowId: null };
+              return { seq, bucket, wiring };
+            });
+            const filtered = enriched.filter(({ seq, bucket, wiring }) => {
+              if (bucketFilter !== "all" && bucket !== bucketFilter) return false;
+              if (statusFilter !== "all" && seq.status !== statusFilter) return false;
+              if (wiringFilter === "missing" && wiring.status !== "missing" && wiring.status !== "invalid_stale") return false;
+              return true;
+            });
+            if (filtered.length === 0) {
+              return (
+                <Card>
+                  <CardContent className="py-10 text-center text-sm text-muted-foreground" data-testid="text-no-filtered-sequences">
+                    No sequences match the selected filters.
+                  </CardContent>
+                </Card>
+              );
+            }
+            const groups = new Map<SequenceBucket, typeof filtered>();
+            for (const item of filtered) {
+              const arr = groups.get(item.bucket) || [];
+              arr.push(item);
+              groups.set(item.bucket, arr);
+            }
+            const bucketsToRender = bucketFilter === "all" ? BUCKET_ORDER : [bucketFilter];
+            return (
+              <div className="space-y-6">
+                {bucketsToRender.map(bucket => {
+                  const items = groups.get(bucket);
+                  if (!items || items.length === 0) return null;
+                  return (
+                    <div key={bucket} data-testid={`group-${bucket}`}>
+                      {bucketFilter === "all" && (
+                        <div className="flex items-center gap-2 mb-2">
+                          <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide" data-testid={`heading-group-${bucket}`}>
+                            {BUCKET_LABELS[bucket]}
+                          </h3>
+                          <Badge variant="secondary" className="text-xs">{items.length}</Badge>
+                        </div>
+                      )}
+                      <div className="space-y-3">
+                        {items.map(({ seq, wiring }) => {
             const seqEnrollments = allEnrollments?.filter(e => e.sequenceId === seq.id) || [];
             const isExpanded = expandedId === seq.id;
             const hasSmsSteps = seq.channelsAllowed?.includes("sms");
@@ -456,6 +625,7 @@ export default function Sequences() {
                             <Tag className="w-3 h-3 mr-1" />{seq.sequenceFamily}
                           </Badge>
                         )}
+                        <WiringBadge status={wiring.status} />
                       </div>
                       {seq.description && (
                         <p className="text-sm text-muted-foreground mt-1 truncate">{seq.description}</p>
@@ -595,8 +765,15 @@ export default function Sequences() {
                 </CardContent>
               </Card>
             );
-          })}
-        </div>
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
+        </>
       )}
 
       <Dialog open={showCreate || isEditMode} onOpenChange={(open) => { if (!open) closeDialog(); }}>

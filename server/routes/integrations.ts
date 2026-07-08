@@ -874,8 +874,10 @@ export function registerIntegrationsRoutes(app: Express) {
     }
   });
 
-  // Sequence steps for cadence visualizer
-  app.get("/api/sequences/:name/steps", isAuthenticated, async (req, res) => {
+  // Sequence steps for cadence visualizer (name-based lookup; distinct path
+  // from the numeric-ID `/api/sequences/:sequenceId/steps` route in
+  // campaigns.ts so the two never collide in Express's route matching).
+  app.get("/api/sequences/by-name/:name/steps", isAuthenticated, async (req, res) => {
     try {
       const name = decodeURIComponent(req.params.name);
       const allSequences = await storage.getFollowUpSequences();

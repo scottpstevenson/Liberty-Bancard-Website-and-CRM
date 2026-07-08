@@ -385,7 +385,7 @@ function CadenceTimeline() {
   const { data, isLoading, error } = useQuery<SequenceStepsResponse>({
     queryKey: ["/api/sequences", selected, "steps"],
     queryFn: async () => {
-      const r = await fetch(`/api/sequences/${encodeURIComponent(selected)}/steps`, { credentials: "include" });
+      const r = await fetch(`/api/sequences/by-name/${encodeURIComponent(selected)}/steps`, { credentials: "include" });
       if (!r.ok) throw new Error(`Failed to load sequence steps: ${r.status}`);
       return r.json() as Promise<SequenceStepsResponse>;
     },

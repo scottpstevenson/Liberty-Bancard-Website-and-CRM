@@ -1,5 +1,5 @@
 import type { Express } from "express";
-import { isAuthenticated, isDashboardUser } from "../replit_integrations/auth";
+import { isAuthenticated, isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { z } from "zod";
 import { DateValidationError } from "../utils/date-coerce";
@@ -247,7 +247,25 @@ export function registerCampaignsRoutes(app: Express) {
     }
   });
 
-  app.put("/api/sequences/:id/toggle-status", isAuthenticated, async (req, res) => {
+  // === SEQUENCE GROUPING / FILTERING / GHL WIRING STATUS (read-only) ===
+  app.get("/api/sequences/grouping-meta", isDashboardUser, async (_req, res) => {
+    try {
+      const { classifySequenceBucket, getSequenceWiringMap } = await import("../services/sequence-grouping");
+      const sequences = await storage.getFollowUpSequences();
+      const wiringMap = await getSequenceWiringMap(sequences.map(s => ({ name: s.name, triggerType: s.triggerType })));
+      const meta = sequences.map(s => ({
+        id: s.id,
+        name: s.name,
+        bucket: classifySequenceBucket(s),
+        wiring: wiringMap[s.name] || { status: "missing" as const, workflowId: null, source: "none" as const },
+      }));
+      res.json(meta);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.put("/api/sequences/:id/toggle-status", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
       const id = Number(req.params.id);
       const seq = await storage.getFollowUpSequence(id);
@@ -271,7 +289,7 @@ export function registerCampaignsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/sequences", isAuthenticated, async (req, res) => {
+  app.post("/api/sequences", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
       const input = insertFollowUpSequenceSchema.parse(req.body);
       const seq = await storage.createFollowUpSequence(input);
@@ -283,7 +301,7 @@ export function registerCampaignsRoutes(app: Express) {
     }
   });
 
-  app.put("/api/sequences/:id", isAuthenticated, async (req, res) => {
+  app.put("/api/sequences/:id", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
       const updated = await storage.updateFollowUpSequence(Number(req.params.id), req.body);
       if (!updated) return res.status(404).json({ message: "Not found" });
@@ -293,7 +311,7 @@ export function registerCampaignsRoutes(app: Express) {
     }
   });
 
-  app.delete("/api/sequences/:id", isAuthenticated, async (req, res) => {
+  app.delete("/api/sequences/:id", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
       await storage.deleteFollowUpSequence(Number(req.params.id));
       res.json({ success: true });
@@ -313,7 +331,7 @@ export function registerCampaignsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/sequences/:sequenceId/steps", isAuthenticated, async (req, res) => {
+  app.post("/api/sequences/:sequenceId/steps", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
       const input = insertSequenceStepSchema.parse({ ...req.body, sequenceId: Number(req.params.sequenceId) });
       const step = await storage.createSequenceStep(input);
@@ -329,7 +347,7 @@ export function registerCampaignsRoutes(app: Express) {
     }
   });
 
-  app.put("/api/sequence-steps/:id", isAuthenticated, async (req, res) => {
+  app.put("/api/sequence-steps/:id", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
       const updated = await storage.updateSequenceStep(Number(req.params.id), req.body);
       if (!updated) return res.status(404).json({ message: "Not found" });
@@ -339,7 +357,7 @@ export function registerCampaignsRoutes(app: Express) {
     }
   });
 
-  app.delete("/api/sequence-steps/:id", isAuthenticated, async (req, res) => {
+  app.delete("/api/sequence-steps/:id", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
       await storage.deleteSequenceStep(Number(req.params.id));
       res.json({ success: true });
@@ -347,7 +365,6 @@ export function registerCampaignsRoutes(app: Express) {
       res.status(500).json({ message: err.message });
     }
   });
-
 
   // === SEQUENCE TIER BREAKDOWN ===
   app.get("/api/sequences/:id/enrollments/by-tier", isDashboardUser, async (req, res) => {
