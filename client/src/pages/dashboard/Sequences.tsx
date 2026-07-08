@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -148,6 +149,11 @@ export default function Sequences() {
   const [enrollDialogSeqId, setEnrollDialogSeqId] = useState<number | null>(null);
   const [enrollContactId, setEnrollContactId] = useState("");
   const [enrollDealId, setEnrollDealId] = useState("");
+  const [enrollTab, setEnrollTab] = useState<"single" | "vertical">("single");
+  const [bulkVertical, setBulkVertical] = useState("");
+  const [bulkPreview, setBulkPreview] = useState<any>(null);
+  const [bulkPreviewLoading, setBulkPreviewLoading] = useState(false);
+  const [bulkConfirmText, setBulkConfirmText] = useState("");
   const [activatingSeq, setActivatingSeq] = useState<any | null>(null);
   const [activateChecks, setActivateChecks] = useState<boolean[]>([false, false, false]);
   const [bodyPreviewTab, setBodyPreviewTab] = useState<Record<number, "write" | "preview">>({});
@@ -287,6 +293,51 @@ export default function Sequences() {
     },
     onError: (err: Error) => {
       toast({ title: "Failed to enroll", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const { data: verticalsData } = useQuery<Array<{ vertical: string; count: number }>>({
+    queryKey: ["/api/contacts/verticals"],
+    enabled: enrollTab === "vertical" && enrollDialogSeqId !== null,
+  });
+  const verticalsList = Array.isArray(verticalsData) ? verticalsData : [];
+
+  async function handleVerticalPreview() {
+    if (!bulkVertical || !enrollDialogSeqId) return;
+    setBulkPreviewLoading(true);
+    setBulkPreview(null);
+    try {
+      const res = await apiRequest("POST", `/api/sequences/${enrollDialogSeqId}/enroll-vertical/preview`, { vertical: bulkVertical });
+      const data = await res.json();
+      setBulkPreview(data);
+    } catch (err: any) {
+      toast({ title: "Preview failed", description: err.message, variant: "destructive" });
+    } finally {
+      setBulkPreviewLoading(false);
+    }
+  }
+
+  const bulkEnrollMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/sequences/${enrollDialogSeqId}/enroll-vertical`, {
+        vertical: bulkVertical,
+        confirmed: true,
+      });
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/sequence-enrollments"] });
+      setEnrollDialogSeqId(null);
+      setBulkVertical("");
+      setBulkPreview(null);
+      setBulkConfirmText("");
+      toast({
+        title: `Bulk enrollment queued`,
+        description: `Queued: ${data.queued} | Skipped already enrolled: ${data.skippedBreakdown?.alreadyEnrolled ?? 0} | Skipped ineligible/DNC/opt-out: ${data.skippedBreakdown?.ineligible ?? 0} | Skipped missing contact info: ${data.skippedBreakdown?.missingInfo ?? 0}`,
+      });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Bulk enrollment failed", description: err.message, variant: "destructive" });
     },
   });
 
@@ -1155,50 +1206,169 @@ export default function Sequences() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={enrollDialogSeqId !== null} onOpenChange={(open) => { if (!open) setEnrollDialogSeqId(null); }}>
-        <DialogContent data-testid="dialog-enroll">
+      <Dialog open={enrollDialogSeqId !== null} onOpenChange={(open) => {
+        if (!open) {
+          setEnrollDialogSeqId(null);
+          setEnrollTab("single");
+          setBulkVertical("");
+          setBulkPreview(null);
+          setBulkConfirmText("");
+        }
+      }}>
+        <DialogContent data-testid="dialog-enroll" className="max-w-lg">
           <DialogHeader>
             <DialogTitle>Enroll Contact in Sequence</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label>Select Contact</Label>
-              <Select value={enrollContactId} onValueChange={setEnrollContactId}>
-                <SelectTrigger data-testid="select-enroll-contact">
-                  <SelectValue placeholder="Choose a contact..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {(contacts || []).map((c: any) => (
-                    <SelectItem key={c.id} value={String(c.id)}>
-                      {c.firstName} {c.lastName} - {c.email}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Deal ID (optional)</Label>
-              <Input
-                value={enrollDealId}
-                onChange={e => setEnrollDealId(e.target.value)}
-                placeholder="Optional deal ID"
-                data-testid="input-enroll-deal"
-              />
-            </div>
-            <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setEnrollDialogSeqId(null)} data-testid="button-cancel-enroll">
-                Cancel
-              </Button>
-              <Button
-                onClick={() => enrollMutation.mutate()}
-                disabled={!enrollContactId || enrollMutation.isPending}
-                data-testid="button-confirm-enroll"
-              >
-                {enrollMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Users className="w-4 h-4 mr-2" />}
-                Enroll
-              </Button>
-            </div>
-          </div>
+          <Tabs value={enrollTab} onValueChange={(v) => { setEnrollTab(v as "single" | "vertical"); setBulkVertical(""); setBulkPreview(null); setBulkConfirmText(""); }}>
+            <TabsList className="flex-wrap h-auto gap-1 mb-4" data-testid="enroll-tab-list">
+              <TabsTrigger value="single" data-testid="tab-single-contact">Single Contact</TabsTrigger>
+              <TabsTrigger value="vertical" data-testid="tab-by-vertical">By Vertical</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="single">
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label>Select Contact</Label>
+                  <Select value={enrollContactId} onValueChange={setEnrollContactId}>
+                    <SelectTrigger data-testid="select-enroll-contact">
+                      <SelectValue placeholder="Choose a contact..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(contacts || []).map((c: any) => (
+                        <SelectItem key={c.id} value={String(c.id)}>
+                          {c.firstName} {c.lastName} - {c.email}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Deal ID (optional)</Label>
+                  <Input
+                    value={enrollDealId}
+                    onChange={e => setEnrollDealId(e.target.value)}
+                    placeholder="Optional deal ID"
+                    data-testid="input-enroll-deal"
+                  />
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" onClick={() => setEnrollDialogSeqId(null)} data-testid="button-cancel-enroll">
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={() => enrollMutation.mutate()}
+                    disabled={!enrollContactId || enrollMutation.isPending}
+                    data-testid="button-confirm-enroll"
+                  >
+                    {enrollMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Users className="w-4 h-4 mr-2" />}
+                    Enroll
+                  </Button>
+                </div>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="vertical">
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label>Select Vertical</Label>
+                  <Select value={bulkVertical} onValueChange={(v) => { setBulkVertical(v); setBulkPreview(null); setBulkConfirmText(""); }} data-testid="select-bulk-vertical">
+                    <SelectTrigger data-testid="trigger-bulk-vertical">
+                      <SelectValue placeholder="Choose a vertical..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {verticalsList.map((v) => (
+                        <SelectItem key={v.vertical} value={v.vertical}>
+                          {v.vertical}
+                          <Badge variant="secondary" className="ml-2 text-xs">{v.count}</Badge>
+                        </SelectItem>
+                      ))}
+                      {verticalsList.length === 0 && (
+                        <SelectItem value="_none" disabled>No verticals found</SelectItem>
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {bulkVertical && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleVerticalPreview}
+                    disabled={bulkPreviewLoading}
+                    data-testid="button-preview-vertical"
+                  >
+                    {bulkPreviewLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Eye className="w-4 h-4 mr-2" />}
+                    Preview Eligibility
+                  </Button>
+                )}
+
+                {bulkPreview && (
+                  <div className="border rounded-md p-3 space-y-2 text-sm bg-muted/30" data-testid="bulk-preview-results">
+                    <div className="flex gap-4 flex-wrap">
+                      <span>Total matching: <strong data-testid="preview-total">{bulkPreview.totalMatching}</strong></span>
+                      <span className="text-green-700 dark:text-green-400">Eligible: <strong data-testid="preview-eligible">{bulkPreview.eligible}</strong></span>
+                      <span className="text-amber-700 dark:text-amber-400">Already enrolled: <strong>{bulkPreview.alreadyEnrolled}</strong></span>
+                      <span className="text-red-700 dark:text-red-400">Ineligible: <strong>{bulkPreview.notEligible}</strong></span>
+                    </div>
+                    {bulkPreview.previewContacts?.length > 0 && (
+                      <div>
+                        <p className="text-muted-foreground text-xs mb-1">First {bulkPreview.previewContacts.length} eligible contact(s):</p>
+                        <ul className="space-y-0.5" data-testid="preview-contact-list">
+                          {bulkPreview.previewContacts.map((c: any) => (
+                            <li key={c.id} className="text-xs text-muted-foreground">
+                              {c.firstName} {c.lastName} — {c.email}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {Object.keys(bulkPreview.skippedBreakdown ?? {}).length > 0 && (
+                      <div>
+                        <p className="text-xs text-muted-foreground mb-1">Skip reasons:</p>
+                        <ul className="text-xs text-muted-foreground space-y-0.5">
+                          {Object.entries(bulkPreview.skippedBreakdown).map(([reason, cnt]: [string, any]) => (
+                            <li key={reason}>{reason}: {cnt}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {bulkPreview && bulkPreview.eligible >= 100 && (
+                  <div className="space-y-1">
+                    <Label className="text-sm">Type <strong>ENROLL</strong> to confirm ({bulkPreview.eligible} eligible contacts)</Label>
+                    <Input
+                      value={bulkConfirmText}
+                      onChange={e => setBulkConfirmText(e.target.value)}
+                      placeholder="ENROLL"
+                      data-testid="input-bulk-confirm"
+                    />
+                  </div>
+                )}
+
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" onClick={() => setEnrollDialogSeqId(null)} data-testid="button-cancel-bulk-enroll">
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={() => bulkEnrollMutation.mutate()}
+                    disabled={
+                      !bulkVertical ||
+                      !bulkPreview ||
+                      bulkPreview.eligible === 0 ||
+                      bulkEnrollMutation.isPending ||
+                      (bulkPreview.eligible >= 100 && bulkConfirmText !== "ENROLL")
+                    }
+                    data-testid="button-queue-vertical-enroll"
+                  >
+                    {bulkEnrollMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Users className="w-4 h-4 mr-2" />}
+                    Queue Eligible Contacts
+                  </Button>
+                </div>
+              </div>
+            </TabsContent>
+          </Tabs>
         </DialogContent>
       </Dialog>
 

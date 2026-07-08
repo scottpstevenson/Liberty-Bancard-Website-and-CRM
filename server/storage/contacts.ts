@@ -397,6 +397,39 @@ import { coerceDateFields } from "../utils/date-coerce";
     return parent ?? null;
   }
 
+  async getContactVerticalCounts(): Promise<Array<{ vertical: string; count: number }>> {
+    const { normalizeDiscoveryVertical } = await import("../services/sdr/lead-finder");
+    const rows = await db
+      .select({ vertical: contacts.vertical, cnt: count() })
+      .from(contacts)
+      .where(and(isNull(contacts.archivedAt), sql`${contacts.vertical} IS NOT NULL AND trim(${contacts.vertical}) != ''`))
+      .groupBy(contacts.vertical);
+
+    const tally = new Map<string, number>();
+    for (const row of rows) {
+      const canonical = normalizeDiscoveryVertical({ rawCategory: row.vertical }).canonicalVertical;
+      tally.set(canonical, (tally.get(canonical) ?? 0) + row.cnt);
+    }
+    return Array.from(tally.entries())
+      .map(([vertical, cnt]) => ({ vertical, count: cnt }))
+      .sort((a, b) => b.count - a.count);
+  }
+
+  async getContactsByVertical(vertical: string, limit?: number): Promise<Array<{ id: number; firstName: string; lastName: string; email: string; phone: string; vertical: string | null }>> {
+    const { normalizeDiscoveryVertical } = await import("../services/sdr/lead-finder");
+    const rows = await db
+      .select({ id: contacts.id, firstName: contacts.firstName, lastName: contacts.lastName, email: contacts.email, phone: contacts.phone, vertical: contacts.vertical })
+      .from(contacts)
+      .where(and(isNull(contacts.archivedAt), sql`${contacts.vertical} IS NOT NULL AND trim(${contacts.vertical}) != ''`))
+      .orderBy(desc(contacts.createdAt));
+
+    const matching = rows.filter(r => {
+      const canonical = normalizeDiscoveryVertical({ rawCategory: r.vertical }).canonicalVertical;
+      return canonical === vertical;
+    });
+    return limit ? matching.slice(0, limit) : matching;
+  }
+
   async getGroupKpis(parentContactId: number) {
     const children = await this.getChildLocations(parentContactId);
     const allIds = [parentContactId, ...children.map(c => c.id)];

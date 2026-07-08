@@ -598,6 +598,188 @@ export function registerCampaignsRoutes(app: Express) {
     }
   });
 
+  // === VERTICAL BULK ENROLLMENT ===
+
+  app.get("/api/contacts/verticals", isAuthenticated, async (_req, res) => {
+    try {
+      const verticals = await storage.getContactVerticalCounts();
+      res.json(verticals);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/sequences/:id/enroll-vertical/preview", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const seqId = Number(req.params.id);
+      const schema = z.object({ vertical: z.string().min(1) });
+      const { vertical } = schema.parse(req.body);
+
+      const seq = await storage.getFollowUpSequence(seqId);
+      if (!seq) return res.status(404).json({ message: "Sequence not found." });
+      if (seq.status !== "active") return res.status(409).json({ message: `Sequence "${seq.name}" is ${seq.status}. Activate it before enrolling contacts.` });
+
+      const { canEnrollContactInSequence } = await import("../services/sequence-eligibility");
+      const contactsInVertical = await storage.getContactsByVertical(vertical);
+      const totalMatching = contactsInVertical.length;
+
+      const existingEnrollments = await storage.getSequenceEnrollments(seqId);
+      const enrolledContactIds = new Set(
+        existingEnrollments
+          .filter(e => e.status === "active" || e.status === "completed")
+          .map(e => e.contactId)
+          .filter(Boolean) as number[]
+      );
+
+      let eligible = 0;
+      let alreadyEnrolled = 0;
+      let notEligible = 0;
+      const skippedBreakdown: Record<string, number> = {};
+      const previewContacts: Array<{ id: number; firstName: string; lastName: string; email: string }> = [];
+
+      for (const c of contactsInVertical) {
+        if (enrolledContactIds.has(c.id)) {
+          alreadyEnrolled++;
+          continue;
+        }
+        const eligibility = await canEnrollContactInSequence(c.id, seq);
+        if (!eligibility.allowed) {
+          notEligible++;
+          const reason = eligibility.reason ?? "ineligible";
+          skippedBreakdown[reason] = (skippedBreakdown[reason] ?? 0) + 1;
+        } else {
+          eligible++;
+          if (previewContacts.length < 5) {
+            previewContacts.push({ id: c.id, firstName: c.firstName, lastName: c.lastName, email: c.email });
+          }
+        }
+      }
+
+      const userId = (req as any).user?.id?.toString() ?? null;
+      await storage.createAuditLog({
+        action: "sequence_vertical_bulk_enroll_previewed",
+        entityType: "sequence",
+        entityId: seqId,
+        userId,
+        actorType: "user",
+        details: { sequenceId: seqId, vertical, totalMatching, eligible, alreadyEnrolled, notEligible, dryRun: true },
+      });
+
+      res.json({ totalMatching, eligible, alreadyEnrolled, notEligible, skippedBreakdown, previewContacts });
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/sequences/:id/enroll-vertical", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const seqId = Number(req.params.id);
+      const schema = z.object({
+        vertical: z.string().min(1),
+        confirmed: z.literal(true),
+      });
+      const { vertical } = schema.parse(req.body);
+
+      const seq = await storage.getFollowUpSequence(seqId);
+      if (!seq) return res.status(404).json({ message: "Sequence not found." });
+      if (seq.status !== "active") return res.status(409).json({ message: `Sequence "${seq.name}" is ${seq.status}. Activate it before enrolling contacts.` });
+
+      const { canEnrollContactInSequence } = await import("../services/sequence-eligibility");
+      const contactsInVertical = await storage.getContactsByVertical(vertical);
+
+      const existingEnrollments = await storage.getSequenceEnrollments(seqId);
+      const enrolledContactIds = new Set(
+        existingEnrollments
+          .filter(e => e.status === "active" || e.status === "completed")
+          .map(e => e.contactId)
+          .filter(Boolean) as number[]
+      );
+
+      const userId = (req as any).user?.id?.toString() ?? null;
+
+      await storage.createAuditLog({
+        action: "sequence_vertical_bulk_enroll_requested",
+        entityType: "sequence",
+        entityId: seqId,
+        userId,
+        actorType: "user",
+        details: { sequenceId: seqId, vertical, requestedBy: userId, totalMatching: contactsInVertical.length, dryRun: false },
+      });
+
+      let queued = 0;
+      let skippedAlreadyEnrolled = 0;
+      let skippedIneligible = 0;
+      let skippedMissingInfo = 0;
+      const skippedBreakdown: Record<string, number> = {};
+
+      const BATCH_SIZE = 50;
+      for (let i = 0; i < contactsInVertical.length; i += BATCH_SIZE) {
+        const batch = contactsInVertical.slice(i, i + BATCH_SIZE);
+        for (const c of batch) {
+          if (enrolledContactIds.has(c.id)) {
+            skippedAlreadyEnrolled++;
+            continue;
+          }
+          if (!c.email && !c.phone) {
+            skippedMissingInfo++;
+            skippedBreakdown["missing_contact_info"] = (skippedBreakdown["missing_contact_info"] ?? 0) + 1;
+            continue;
+          }
+          const eligibility = await canEnrollContactInSequence(c.id, seq);
+          if (!eligibility.allowed) {
+            skippedIneligible++;
+            const reason = eligibility.reason ?? "ineligible";
+            skippedBreakdown[reason] = (skippedBreakdown[reason] ?? 0) + 1;
+            continue;
+          }
+          await storage.createSequenceEnrollment({
+            sequenceId: seqId,
+            contactId: c.id,
+            status: "active",
+            currentStep: 0,
+            nextActionAt: new Date(),
+          });
+          enrolledContactIds.add(c.id);
+          queued++;
+        }
+      }
+
+      const skipped = skippedAlreadyEnrolled + skippedIneligible + skippedMissingInfo;
+
+      await storage.createAuditLog({
+        action: "sequence_vertical_bulk_enroll_completed",
+        entityType: "sequence",
+        entityId: seqId,
+        userId,
+        actorType: "user",
+        details: {
+          sequenceId: seqId,
+          vertical,
+          requestedBy: userId,
+          eligible: queued,
+          queued,
+          skipped,
+          skippedBreakdown: { alreadyEnrolled: skippedAlreadyEnrolled, ineligible: skippedIneligible, missingInfo: skippedMissingInfo, ...skippedBreakdown },
+          dryRun: false,
+        },
+      });
+
+      res.json({
+        queued,
+        skipped,
+        skippedBreakdown: {
+          alreadyEnrolled: skippedAlreadyEnrolled,
+          ineligible: skippedIneligible,
+          missingInfo: skippedMissingInfo,
+        },
+      });
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.post("/api/email-logs/:id/track-click", async (req, res) => {
     try {
       const id = Number(req.params.id);
