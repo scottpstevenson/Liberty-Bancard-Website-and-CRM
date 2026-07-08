@@ -45,3 +45,4 @@
 - [Dashboard header shrink-0 sibling overlap](header-shrink0-overlap.md) — shrink-0 right header group forced left group (sidebar toggle) to 0 width on mobile; search input silently ate its taps; playwright via nix chromium binary reproduces it.
 - [Collateral packet manual override](collateral-packet-override.md) — override precedence pattern (explicit > auto-match > fallback) and a "resolved name left null on failure" truthful-state bug to watch for.
 - [Express route collision on same-shape paths](express-route-collision-same-shape-path.md) — two route files can both register `/api/x/:param/steps`; earlier-registered wins silently, swallowed by empty-array fetch fallbacks — verify via curl, not just code reading.
+- [SMTP-preferred bulk email compliance](smtp-preferred-bulk-compliance.md) — cold sequences and campaign-engine now prefer SMTP over GHL's send API for List-Unsubscribe headers; two separate send call sites had to be fixed, not one.
