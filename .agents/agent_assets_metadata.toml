@@ -275,3 +275,9 @@ id = "9EWcFdAaCS3GELksFXNkP"
 uri = "file://docs/visual-qa-release-2026-06-26.md"
 type = "text"
 title = "Cross-Surface Visual QA & Release Gate Report (2026-06-26)"
+
+[[outputs]]
+id = "r1Scax2fptp_nvSWyHeQS"
+uri = "file://exports/ghl-workflow-checklist.csv"
+type = "table"
+title = "GHL Workflow Setup Checklist (66 sequences)"

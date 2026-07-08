@@ -1,0 +1,67 @@
+Group,Sequence Name,Vertical,GHL Trigger Tag,All Tags Applied,GHL Workflow ID (paste here),Connected? (Y/N)
+1 - Core Sales & Compliance Sequences,1. Switch & Save — Statement Audit,all,LB-SEQ-STATEMENT-AUDIT,LB-SDR | LB-SEQ-STATEMENT-AUDIT,,N
+1 - Core Sales & Compliance Sequences,2. Payment Stack 101 — Education,all,LB-SEQ-EDUCATION,LB-SDR | LB-SEQ-EDUCATION,,N
+1 - Core Sales & Compliance Sequences,3. Fast Approval — Application Completion,all,LB-SEQ-APPLICATION,LB-SDR | LB-SEQ-APPLICATION,,N
+1 - Core Sales & Compliance Sequences,4. Trust Builder — Authority Sequence,all,LB-SEQ-TRUST-BUILDER,LB-SDR | LB-SEQ-TRUST-BUILDER,,N
+1 - Core Sales & Compliance Sequences,5. Chargeback Defense,all,LB-SEQ-CHARGEBACK,LB-SDR | LB-SEQ-CHARGEBACK,,N
+1 - Core Sales & Compliance Sequences,6. Funding Speed & Reliability,all,LB-SEQ-FUNDING,LB-SDR | LB-SEQ-FUNDING,,N
+1 - Core Sales & Compliance Sequences,8. Liberty Smart Terminal — Product Showcase,all,LB-SEQ-TERMINAL,LB-SDR | LB-SEQ-TERMINAL,,N
+1 - Core Sales & Compliance Sequences,9. Surcharge & Cash Discount — Compliance,all,LB-SEQ-SURCHARGE,LB-SDR | LB-SEQ-SURCHARGE,,N
+1 - Core Sales & Compliance Sequences,13. Recurring Billing — Subscription Merchants,subscription,LB-SEQ-RECURRING,LB-SDR | LB-SEQ-RECURRING,,N
+1 - Core Sales & Compliance Sequences,15. Omnichannel — Online + In-Person,omnichannel,LB-SEQ-OMNICHANNEL,LB-SDR | LB-SEQ-OMNICHANNEL,,N
+1 - Core Sales & Compliance Sequences,16. Security & PCI Compliance — Made Easy,all,LB-SEQ-PCI,LB-SDR | LB-SEQ-PCI,,N
+1 - Core Sales & Compliance Sequences,17. Contract Escape — Switch Help,all,LB-SEQ-CONTRACT-ESCAPE,LB-SDR | LB-SEQ-CONTRACT-ESCAPE,,N
+1 - Core Sales & Compliance Sequences,18. Objection Crusher — Overcome Hesitation,all,LB-SEQ-OBJECTION-CRUSHER,LB-SDR | LB-SEQ-OBJECTION-CRUSHER,,N
+1 - Core Sales & Compliance Sequences,19. Reactivation — Cold Lead Revival,all,LB-SEQ-REACTIVATION,LB-SDR | LB-SEQ-REACTIVATION,,N
+1 - Core Sales & Compliance Sequences,20. Free Analysis Follow-Up,all,LB-SEQ-ANALYSIS-FOLLOWUP,LB-SDR | LB-SEQ-ANALYSIS-FOLLOWUP,,N
+1 - Core Sales & Compliance Sequences,Post-Call Review Follow-Up,all,LB-SEQ-POST-CALL,LB-SDR | LB-SEQ-POST-CALL,,N
+1 - Core Sales & Compliance Sequences,Proposal Follow-Up,all,LB-SEQ-PROPOSAL,LB-SDR | LB-SEQ-PROPOSAL,,N
+1 - Core Sales & Compliance Sequences,No-Show Reschedule,all,LB-SEQ-NOSHOW,LB-SDR | LB-SEQ-NOSHOW,,N
+1 - Core Sales & Compliance Sequences,Long-Term Nurture,all,LB-SEQ-NURTURE,LB-SDR | LB-SEQ-NURTURE,,N
+2 - SDR Outbound + Drip by Industry,10. Retail Merchants — SDR Outbound + Drip,retail,LB-SEQ-RETAIL-SDR,LB-SDR | LB-RETAIL | LB-SEQ-RETAIL-SDR,,N
+2 - SDR Outbound + Drip by Industry,11. Auto Merchants — SDR Outbound + Drip,auto,LB-SEQ-AUTO-SDR,LB-SDR | LB-AUTO | LB-SEQ-AUTO-SDR,,N
+2 - SDR Outbound + Drip by Industry,12. Medical & Med Spa — SDR Outbound + Drip,medical,LB-SEQ-MEDICAL-SDR,LB-SDR | LB-MEDSPA | LB-SEQ-MEDICAL-SDR,,N
+3 - Cold Outbound by Vertical,SDR: Cold Outbound — Auto Repair,Auto Repair,LB-SEQ-COLD-AUTO,LB-SDR | LB-AUTO | LB-SEQ-COLD-AUTO,,N
+3 - Cold Outbound by Vertical,SDR: Cold Outbound — Med Spa,Med Spa,LB-SEQ-COLD-MEDSPA,LB-SDR | LB-MEDSPA | LB-SEQ-COLD-MEDSPA,,N
+3 - Cold Outbound by Vertical,SDR: Cold Outbound — Dental,Dental,LB-SEQ-COLD-DENTAL,LB-SDR | LB-DENTAL | LB-SEQ-COLD-DENTAL,,N
+3 - Cold Outbound by Vertical,SDR: Cold Outbound — Construction,Construction,LB-SEQ-COLD-CONSTRUCTION,LB-SDR | LB-SDR-CONSTRUCTION | LB-SEQ-COLD-CONSTRUCTION,,N
+4 - SDR Lifecycle Events,SDR: Reply Engaged,all,LB-SEQ-REPLY-ENGAGED,LB-SDR | LB-SEQ-REPLY-ENGAGED,,N
+4 - SDR Lifecycle Events,SDR: Statement Chase,all,LB-SEQ-STATEMENT-CHASE,LB-SDR | LB-STATEMENT-PENDING | LB-SEQ-STATEMENT-CHASE,,N
+4 - SDR Lifecycle Events,SDR: Proposal Follow-Up,all,LB-SEQ-PROPOSAL-FU,LB-SDR | LB-PROPOSAL-SENT | LB-SEQ-PROPOSAL-FU,,N
+4 - SDR Lifecycle Events,SDR: No-Show Recovery,all,LB-SEQ-NOSHOW-RECOVERY,LB-SDR | LB-SEQ-NOSHOW-RECOVERY,,N
+5 - Vertical Playbooks,V-Retail: SDR Outbound Prospecting,retail,LB-SEQ-V-RETAIL-SDR,LB-SDR | LB-RETAIL | LB-SEQ-V-RETAIL-SDR,,N
+5 - Vertical Playbooks,V-Retail: Inbound Lead Nurture,retail,LB-SEQ-V-RETAIL-INBOUND,LB-SDR | LB-RETAIL | LB-SEQ-V-RETAIL-INBOUND,,N
+5 - Vertical Playbooks,V-Retail: Account Management Ops,retail,LB-RETAIL,LB-OPS | LB-RETAIL,,N
+5 - Vertical Playbooks,V-Auto: SDR Outbound Prospecting,auto,LB-SEQ-V-AUTO-SDR,LB-SDR | LB-AUTO | LB-SEQ-V-AUTO-SDR,,N
+5 - Vertical Playbooks,V-Auto: Inbound Lead Nurture,auto,LB-SEQ-V-AUTO-INBOUND,LB-SDR | LB-AUTO | LB-SEQ-V-AUTO-INBOUND,,N
+5 - Vertical Playbooks,V-Auto: Account Management Ops,auto,LB-AUTO,LB-OPS | LB-AUTO,,N
+5 - Vertical Playbooks,V-Medical: SDR Outbound Prospecting,medical,LB-SEQ-V-MEDICAL-SDR,LB-SDR | LB-MEDICAL | LB-SEQ-V-MEDICAL-SDR,,N
+5 - Vertical Playbooks,V-Medical: Inbound Lead Nurture,medical,LB-SEQ-V-MEDICAL-INBOUND,LB-SDR | LB-MEDICAL | LB-SEQ-V-MEDICAL-INBOUND,,N
+5 - Vertical Playbooks,V-Medical: Account Management Ops,medical,LB-MEDICAL,LB-OPS | LB-MEDICAL,,N
+5 - Vertical Playbooks,V-Med Spa: SDR Outbound Prospecting,medspa,LB-SEQ-V-MEDSPA-SDR,LB-SDR | LB-MEDSPA | LB-SEQ-V-MEDSPA-SDR,,N
+5 - Vertical Playbooks,V-Med Spa: Inbound Lead Nurture,medspa,LB-SEQ-V-MEDSPA-INBOUND,LB-SDR | LB-MEDSPA | LB-SEQ-V-MEDSPA-INBOUND,,N
+5 - Vertical Playbooks,V-Med Spa: Account Management Ops,medspa,LB-MEDSPA,LB-OPS | LB-MEDSPA,,N
+5 - Vertical Playbooks,V-Dental: SDR Outbound Prospecting,dental,LB-SEQ-V-DENTAL-SDR,LB-SDR | LB-DENTAL | LB-SEQ-V-DENTAL-SDR,,N
+5 - Vertical Playbooks,V-Dental: Inbound Lead Nurture,dental,LB-SEQ-V-DENTAL-INBOUND,LB-SDR | LB-DENTAL | LB-SEQ-V-DENTAL-INBOUND,,N
+5 - Vertical Playbooks,V-Dental: Account Management Ops,dental,LB-DENTAL,LB-OPS | LB-DENTAL,,N
+5 - Vertical Playbooks,V-Auto Repair: SDR Outbound Prospecting,autorepair,LB-SEQ-V-AUTOREPAIR-SDR,LB-SDR | LB-AUTO | LB-SEQ-V-AUTOREPAIR-SDR,,N
+5 - Vertical Playbooks,V-Auto Repair: Inbound Lead Nurture,autorepair,LB-SEQ-V-AUTOREPAIR-INBOUND,LB-SDR | LB-AUTO | LB-SEQ-V-AUTOREPAIR-INBOUND,,N
+5 - Vertical Playbooks,V-Auto Repair: Account Management Ops,autorepair,LB-AUTO,LB-OPS | LB-AUTO,,N
+5 - Vertical Playbooks,V-Salon: SDR Outbound Prospecting,salon,LB-SEQ-V-SALON-SDR,LB-SDR | LB-SDR-SALON | LB-SEQ-V-SALON-SDR,,N
+5 - Vertical Playbooks,V-Salon: Inbound Lead Nurture,salon,LB-SEQ-V-SALON-INBOUND,LB-SDR | LB-SDR-SALON | LB-SEQ-V-SALON-INBOUND,,N
+5 - Vertical Playbooks,V-Salon: Account Management Ops,salon,LB-SDR-SALON,LB-OPS | LB-SDR-SALON,,N
+5 - Vertical Playbooks,V-Gym: SDR Outbound Prospecting,gym,LB-SEQ-V-GYM-SDR,LB-SDR | LB-SDR-GYM | LB-SEQ-V-GYM-SDR,,N
+5 - Vertical Playbooks,V-Gym: Inbound Lead Nurture,gym,LB-SEQ-V-GYM-INBOUND,LB-SDR | LB-SDR-GYM | LB-SEQ-V-GYM-INBOUND,,N
+5 - Vertical Playbooks,V-Gym: Account Management Ops,gym,LB-SDR-GYM,LB-OPS | LB-SDR-GYM,,N
+5 - Vertical Playbooks,V-Hotel: SDR Outbound Prospecting,hotel,LB-SEQ-V-HOTEL-SDR,LB-SDR | LB-SDR-HOTEL | LB-SEQ-V-HOTEL-SDR,,N
+5 - Vertical Playbooks,V-Hotel: Inbound Lead Nurture,hotel,LB-SEQ-V-HOTEL-INBOUND,LB-SDR | LB-SDR-HOTEL | LB-SEQ-V-HOTEL-INBOUND,,N
+5 - Vertical Playbooks,V-Hotel: Account Management Ops,hotel,LB-SDR-HOTEL,LB-OPS | LB-SDR-HOTEL,,N
+5 - Vertical Playbooks,V-Landscaping: SDR Outbound Prospecting,landscaping,LB-SEQ-V-LANDSCAPING-SDR,LB-SDR | LB-SDR-LANDSCAPING | LB-SEQ-V-LANDSCAPING-SDR,,N
+5 - Vertical Playbooks,V-Landscaping: Inbound Lead Nurture,landscaping,LB-SEQ-V-LANDSCAPING-INBOUND,LB-SDR | LB-SDR-LANDSCAPING | LB-SEQ-V-LANDSCAPING-INBOUND,,N
+5 - Vertical Playbooks,V-Landscaping: Account Management Ops,landscaping,LB-SDR-LANDSCAPING,LB-OPS | LB-SDR-LANDSCAPING,,N
+5 - Vertical Playbooks,V-Construction: SDR Outbound Prospecting,construction,LB-SEQ-V-CONSTRUCTION-SDR,LB-SDR | LB-SDR-CONSTRUCTION | LB-SEQ-V-CONSTRUCTION-SDR,,N
+5 - Vertical Playbooks,V-Construction: Inbound Lead Nurture,construction,LB-SEQ-V-CONSTRUCTION-INBOUND,LB-SDR | LB-SDR-CONSTRUCTION | LB-SEQ-V-CONSTRUCTION-INBOUND,,N
+5 - Vertical Playbooks,V-Construction: Account Management Ops,construction,LB-SDR-CONSTRUCTION,LB-OPS | LB-SDR-CONSTRUCTION,,N
+5 - Vertical Playbooks,V-Legal: SDR Outbound Prospecting,legal,LB-SEQ-V-LEGAL-SDR,LB-SDR | LB-SDR-LEGAL | LB-SEQ-V-LEGAL-SDR,,N
+5 - Vertical Playbooks,V-Legal: Inbound Lead Nurture,legal,LB-SEQ-V-LEGAL-INBOUND,LB-SDR | LB-SDR-LEGAL | LB-SEQ-V-LEGAL-INBOUND,,N
+5 - Vertical Playbooks,V-Legal: Account Management Ops,legal,LB-SDR-LEGAL,LB-OPS | LB-SDR-LEGAL,,N
