@@ -113,23 +113,20 @@ async function autoPromoteProspects(): Promise<number> {
 
   for (const prospect of qualified.slice(0, BATCH_SIZE)) {
     try {
-      const { data: contacts } = await storage.getContacts({ limit: 500 });
       const email = prospect.ownerEmail || prospect.email || "";
       const phone = prospect.ownerPhone || prospect.phone || "";
 
-      const alreadyExists = contacts.some(c =>
-        (email && c.email.toLowerCase() === email.toLowerCase()) ||
-        (prospect.companyName && c.companyName &&
-          c.companyName.toLowerCase() === prospect.companyName.toLowerCase())
-      );
+      // Indexed lookups instead of loading up to 500 contacts into memory —
+      // that cap silently stopped catching duplicates once the contacts table
+      // grew past it, risking duplicate cold outreach to the same person.
+      const existingByEmail = email ? await storage.getContactByEmail(email) : undefined;
+      const existingByCompany = !existingByEmail && prospect.companyName
+        ? await storage.getContactByCompanyName(prospect.companyName)
+        : undefined;
+      const existingContact = existingByEmail || existingByCompany;
 
-      if (alreadyExists) {
-        const existingContact = contacts.find(c =>
-          (email && c.email.toLowerCase() === email.toLowerCase())
-        );
-        if (existingContact) {
-          await storage.updateProspect(prospect.id, { contactId: existingContact.id, status: "converted" });
-        }
+      if (existingContact) {
+        await storage.updateProspect(prospect.id, { contactId: existingContact.id, status: "converted" });
         continue;
       }
 

@@ -150,6 +150,7 @@ export interface IStorage {
   getContactByGhlContactId(ghlContactId: string): Promise<typeof contacts.$inferSelect | undefined>;
   getContactByEmail(email: string): Promise<typeof contacts.$inferSelect | undefined>;
   getContactByPhone(phone: string): Promise<typeof contacts.$inferSelect | null>;
+  getContactByCompanyName(companyName: string): Promise<typeof contacts.$inferSelect | undefined>;
   getContactsByIds(ids: number[]): Promise<typeof contacts.$inferSelect[]>;
   getChildLocations(parentContactId: number): Promise<typeof contacts.$inferSelect[]>;
   getParentAccount(contactId: number): Promise<typeof contacts.$inferSelect | null>;

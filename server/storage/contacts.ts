@@ -139,6 +139,15 @@ import { coerceDateFields } from "../utils/date-coerce";
     return contact ?? null;
   }
 
+  async getContactByCompanyName(companyName: string) {
+    const [contact] = await db.select().from(contacts)
+      .where(and(
+        isNull(contacts.archivedAt),
+        sql`lower(${contacts.companyName}) = lower(${companyName})`,
+      ));
+    return contact;
+  }
+
 
   async createContact(insertContact: InsertContact, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }) {
     const { auditChange } = await import("../services/audit-change");

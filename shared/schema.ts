@@ -3262,6 +3262,8 @@ export const insertChargebackSchema = createInsertSchema(chargebacks).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
+}).extend({
+  aiEvidencePacket: z.custom<NonNullable<typeof chargebacks.$inferInsert.aiEvidencePacket>>().nullable().optional(),
 });
 
 export type Chargeback = typeof chargebacks.$inferSelect;
@@ -3795,6 +3797,9 @@ export const insertReviewQueueSchema = createInsertSchema(reviewQueue).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
+}).extend({
+  sourceType: z.enum(["rfi", "quiz", "dead_letter_job", "ai_output"]),
+  status: z.enum(["pending", "approved"]).optional(),
 });
 
 export type ReviewQueueItem = typeof reviewQueue.$inferSelect;
@@ -3925,6 +3930,10 @@ export const insertEntityRelationshipSchema = createInsertSchema(entityRelations
   id: true,
   createdAt: true,
   updatedAt: true,
+}).extend({
+  sourceEntityType: z.enum(ENTITY_TYPES),
+  targetEntityType: z.enum(ENTITY_TYPES),
+  relationshipType: z.enum(ENTITY_RELATIONSHIP_TYPES),
 });
 
 export type EntityRelationship = typeof entityRelationships.$inferSelect;
