@@ -538,8 +538,8 @@ function SendMonitoringPanel() {
   }
 
   const agg = data?.aggregated;
-  const recentSends = Array.isArray(data?.recentSends) ? data!.recentSends! : [];
-  const identities = Array.isArray(data?.identities) ? data!.identities! : [];
+  const recentSends = Array.isArray(data?.recentSends) ? data.recentSends : [];
+  const identities = Array.isArray(data?.identities) ? data.identities : [];
 
   return (
     <div className="space-y-4">
@@ -612,7 +612,7 @@ function SendMonitoringPanel() {
         </Card>
       )}
 
-      {(data?.recentSends?.length ?? 0) > 0 && (
+      {recentSends.length > 0 && (
         <Card data-testid="card-recent-sends">
           <CardHeader className="pb-2 pt-4 px-4">
             <CardTitle className="text-sm font-semibold">Recent Sends — Communication Channel</CardTitle>
@@ -1263,7 +1263,7 @@ function SubjectAuditPanel() {
   }
 
   const midCount = data?.midSequenceCount ?? 0;
-  const auditItems = Array.isArray(data?.items) ? data!.items! : [];
+  const auditItems = Array.isArray(data?.items) ? data.items : [];
 
   return (
     <div className="space-y-4">
@@ -1499,7 +1499,7 @@ function JobHealthPanel() {
     );
   }
 
-  const jobs = Array.isArray(data?.jobs) ? data!.jobs! : [];
+  const jobs = Array.isArray(data?.jobs) ? data.jobs : [];
   const criticalJobs = jobs.filter(j => j.consecutiveFailures >= 3);
 
   return (
@@ -1723,7 +1723,7 @@ function QueueMetricsPanel() {
     onError: (err: any) => toast({ title: "Failed to resume queue", description: err.message, variant: "destructive" }),
   });
 
-  const queueList = Array.isArray(metrics?.queues) ? metrics!.queues! : [];
+  const queueList = Array.isArray(metrics?.queues) ? metrics.queues : [];
   const dlqList = Array.isArray(dlqItems) ? dlqItems : [];
   const totalActive = queueList.reduce((s, q) => s + q.active, 0);
   const totalWaiting = queueList.reduce((s, q) => s + q.waiting, 0);
@@ -2246,7 +2246,7 @@ function GhlConnectionPanel() {
     staleTime: 30_000,
   });
 
-  const failedOps = Array.isArray(auditData?.logs) ? auditData!.logs : [];
+  const failedOps = Array.isArray(auditData?.logs) ? auditData.logs : [];
 
   async function handleRetry(op: { id: number; entityId?: number | null; entityKey?: string }) {
     if (!op.entityId) {
@@ -2521,7 +2521,7 @@ function DeletedRecordsPanel() {
     );
   }
 
-  const records = Array.isArray(data?.records) ? data!.records : [];
+  const records = Array.isArray(data?.records) ? data.records : [];
 
   return (
     <div className="space-y-4">
@@ -3026,12 +3026,12 @@ function CommandCenter({ onNavigate }: { onNavigate: (v: string) => void }) {
 
   // Safe, array-guarded query data (never trust query data shape at runtime)
   const dlqList = Array.isArray(dlq.data) ? dlq.data : [];
-  const queueList = Array.isArray(queue.data?.queues) ? queue.data!.queues : [];
-  const readinessChecks = Array.isArray(readiness.data?.checks) ? readiness.data!.checks : [];
-  const senderUtilization = Array.isArray(sdr.data?.senderUtilization) ? sdr.data!.senderUtilization : [];
-  const sentTodayByChannel = Array.isArray(sdr.data?.sentTodayByChannel) ? sdr.data!.sentTodayByChannel : [];
-  const funnelRows = Array.isArray(funnel.data?.funnel) ? funnel.data!.funnel : [];
-  const blockRows = Array.isArray(blocks.data?.rows) ? blocks.data!.rows : [];
+  const queueList = Array.isArray(queue.data?.queues) ? queue.data.queues : [];
+  const readinessChecks = Array.isArray(readiness.data?.checks) ? readiness.data.checks : [];
+  const senderUtilization = Array.isArray(sdr.data?.senderUtilization) ? sdr.data.senderUtilization : [];
+  const sentTodayByChannel = Array.isArray(sdr.data?.sentTodayByChannel) ? sdr.data.sentTodayByChannel : [];
+  const funnelRows = Array.isArray(funnel.data?.funnel) ? funnel.data.funnel : [];
+  const blockRows = Array.isArray(blocks.data?.rows) ? blocks.data.rows : [];
 
   // Derived metrics
   const dlqCount = dlqList.length;
@@ -3043,7 +3043,7 @@ function CommandCenter({ onNavigate }: { onNavigate: (v: string) => void }) {
   const sendersOver = senderUtilization.filter(
     (s) => s.utilizationPct >= 95 || (s.status && s.status !== "active"),
   );
-  const sdrWarnings = Array.isArray(sdr.data?.warnings) ? sdr.data!.warnings : [];
+  const sdrWarnings = Array.isArray(sdr.data?.warnings) ? sdr.data.warnings : [];
   const totalSentToday = sentTodayByChannel.reduce((s, c) => s + c.count, 0);
   const totalBlocked = blockRows
     .filter((r) => r.blockReason)
@@ -4558,7 +4558,7 @@ function AiCostPanel() {
   });
 
   const summary = data?.summary;
-  const dailyRollup = Array.isArray(data?.dailyRollup) ? data!.dailyRollup : [];
+  const dailyRollup = Array.isArray(data?.dailyRollup) ? data.dailyRollup : [];
 
   const chartData = dailyRollup.map(d => ({
     date: d.date.slice(5),
@@ -4740,7 +4740,7 @@ function AiActivityPanel() {
   });
 
   const totals = data?.totals;
-  const logs = Array.isArray(data?.logs) ? data!.logs : [];
+  const logs = Array.isArray(data?.logs) ? data.logs : [];
 
   return (
     <div className="space-y-4 mt-4">
@@ -5142,10 +5142,10 @@ function ConversionPanel() {
   });
 
   const funnelColors = ["#3b82f6", "#8b5cf6", "#10b981", "#f59e0b", "#ef4444", "#06b6d4"];
-  const funnelRows = Array.isArray(funnelData?.funnel) ? funnelData!.funnel : [];
-  const utmRows = Array.isArray(utmData?.rows) ? utmData!.rows : [];
+  const funnelRows = Array.isArray(funnelData?.funnel) ? funnelData.funnel : [];
+  const utmRows = Array.isArray(utmData?.rows) ? utmData.rows : [];
   const topUtm = utmRows.slice().sort((a, b) => Number(b.cnt) - Number(a.cnt)).slice(0, 10);
-  const recentEvents = Array.isArray(eventsData?.events) ? eventsData!.events : [];
+  const recentEvents = Array.isArray(eventsData?.events) ? eventsData.events : [];
 
   function relT(s: string) {
     const diff = Date.now() - new Date(s).getTime();
@@ -5322,7 +5322,7 @@ export function LifecycleCommandCenter() {
     );
   }
 
-  const lifecycleStages = Array.isArray(data?.stages) ? data!.stages : [];
+  const lifecycleStages = Array.isArray(data?.stages) ? data.stages : [];
 
   if (!data || lifecycleStages.length === 0) {
     return (
