@@ -1,0 +1,28 @@
+Area 11 — Dry-Run Script Results
+Script	Result
+test-sequence-compliance.ts	CRASHED — opted_out_email column missing (P0 DB blocker)
+test-contactability.ts	PARTIAL — 9 unit tests (deriveConsentTier) passed ✅; integration tests crashed (P0 DB blocker)
+test-sdr-manual-enroll.ts	CRASHED — opted_out_email column missing (P0 DB blocker)
+test-channel-audit.ts	34/35 passed ✅ — only failure is CSRF pre-check on test-batch endpoint (non-blocking)
+tsc --noEmit --skipLibCheck	3 TS errors — storage/misc.ts, storage/relationships.ts, storage/workflows.ts — string literal type mismatches in Drizzle insert calls (pre-existing tech debt, not outreach-specific)
+test-auto-outreach-readiness.ts	Does not exist — not yet created
+KILL LINES
+Severity	Issue	File:Line	Status
+P0	opted_out_email DB column missing — entire contacts table is broken (SELECT + INSERT both fail)	migrations/0047_contacts_opted_out_email.sql unapplied	BLOCKS ALL OUTREACH
+P0	compliance_mailing_address system setting must be populated before any cold sequence can send (hard-blocked in code)	sequence-worker.ts:474	Requires admin action pre-launch
+P0	APP_URL env var must be set before unsubscribe URLs are generated	sequence-worker.ts:476	Requires env var pre-launch
+P1	No List-Unsubscribe header in outbound email path	server/services/ghl.ts (GHL send path)	RFC 8058 compliance gap
+P1	Sunbiz auto-promote dedupe uses getContacts({limit:500}) — silent miss above 500 contacts	sunbiz-cron.ts:116	Duplicate outreach risk at scale
+P1	3 TypeScript strict errors in storage layer (pre-existing)	storage/misc.ts, storage/relationships.ts, storage/workflows.ts	Should fix before launch
+P1	autoEnrollFromTrigger is called at contact creation with no human confirmation field — relies entirely on sequence status gate	contacts.ts:58	Safe now; becomes semi-auto the instant any sequence is activated
+P2	Domain-level dedupe not enforced at enrollment time — same business can receive outreach via multiple people	Sequence enrollment path	Low risk initially
+EXACT FILES TO CHANGE (if/when building)
+Priority	File	Change Needed
+P0 — Apply now	scripts/migrate.ts	Run (read-only op) to apply migration 0047
+P1 — Before email launch	Admin Settings UI	Populate compliance_mailing_address system setting
+P1 — Before email launch	Replit Secrets	Set APP_URL to the production domain
+P1 — Build	server/services/ghl.ts	Add List-Unsubscribe header to outbound email sends
+P1 — Build	server/services/sunbiz-cron.ts:116	Replace getContacts({limit:500}) with indexed email lookup (db.select by email)
+P1 — Build	server/storage/misc.ts	Fix string literal type in Drizzle insert
+P1 — Build	server/storage/relationships.ts	Fix string literal union type in insert
+P1 — Build	server/storage/workflows.ts	Fix string literal union type in insert
