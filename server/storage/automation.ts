@@ -219,15 +219,74 @@ import { coerceDateFields } from "../utils/date-coerce";
   }
 
 
-  async createSequenceEnrollment(enrollment: InsertSequenceEnrollment) {
+  async createSequenceEnrollment(enrollment: InsertSequenceEnrollment): Promise<typeof sequenceEnrollments.$inferSelect | null> {
     if (enrollment.sequenceId) {
       const [seq] = await db.select({ status: followUpSequences.status }).from(followUpSequences).where(eq(followUpSequences.id, enrollment.sequenceId));
       if (seq && seq.status !== "active") {
         throw new Error(`Sequence ${enrollment.sequenceId} is ${seq.status} — enrollment blocked. Activate the sequence before enrolling contacts.`);
       }
     }
-    const [created] = await db.insert(sequenceEnrollments).values(enrollment).returning();
-    return created;
+
+    // Idempotency check — prevent TOCTOU double-enrollment.
+    // If an active or paused enrollment already exists for this contact+sequence,
+    // skip the insert and return null. The partial unique index (idx_sequence_enrollments_active_unique)
+    // is a hard DB backstop; this pre-check avoids the constraint violation in the happy path.
+    if (enrollment.contactId && enrollment.sequenceId) {
+      const [existing] = await db
+        .select({ id: sequenceEnrollments.id })
+        .from(sequenceEnrollments)
+        .where(
+          and(
+            eq(sequenceEnrollments.contactId, enrollment.contactId),
+            eq(sequenceEnrollments.sequenceId, enrollment.sequenceId),
+            inArray(sequenceEnrollments.status, ["active", "paused"])
+          )
+        )
+        .limit(1);
+      if (existing) {
+        await db.insert(auditLogs).values({
+          action: "sequence_enrollment_duplicate_skipped",
+          entityType: "contact",
+          entityId: enrollment.contactId,
+          actorType: "system",
+          details: {
+            contactId: enrollment.contactId,
+            sequenceId: enrollment.sequenceId,
+            existingEnrollmentId: existing.id,
+            reason: "Active or paused enrollment already exists — duplicate insert skipped.",
+          },
+        } as any);
+        return null;
+      }
+    }
+
+    try {
+      const [created] = await db.insert(sequenceEnrollments).values(enrollment).returning();
+      return created;
+    } catch (err: any) {
+      // Catch any DB unique-constraint violation from the partial index (hard backstop).
+      // Treat it as a skip — do not rethrow so callers never crash.
+      const isUniqueViolation =
+        err?.code === "23505" ||
+        (typeof err?.message === "string" && err.message.includes("idx_sequence_enrollments_active_unique"));
+      if (isUniqueViolation) {
+        if (enrollment.contactId && enrollment.sequenceId) {
+          await db.insert(auditLogs).values({
+            action: "sequence_enrollment_duplicate_skipped",
+            entityType: "contact",
+            entityId: enrollment.contactId,
+            actorType: "system",
+            details: {
+              contactId: enrollment.contactId,
+              sequenceId: enrollment.sequenceId,
+              reason: "DB unique constraint violation caught — duplicate insert blocked by index.",
+            },
+          } as any);
+        }
+        return null;
+      }
+      throw err;
+    }
   }
 
 

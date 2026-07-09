@@ -1216,6 +1216,7 @@ export const sequenceEnrollments = pgTable("sequence_enrollments", {
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
   index("sequence_enrollments_contact_id_status_idx").on(table.contactId, table.status),
+  uniqueIndex("idx_sequence_enrollments_active_unique").on(table.contactId, table.sequenceId).where(sql`status IN ('active', 'paused')`),
 ]);
 
 export const insertSequenceEnrollmentSchema = createInsertSchema(sequenceEnrollments).omit({

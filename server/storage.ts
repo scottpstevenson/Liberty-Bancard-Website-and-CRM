@@ -335,7 +335,7 @@ export interface IStorage {
   getContactEnrollmentsForContacts(contactIds: number[], sequenceIds?: number[]): Promise<typeof sequenceEnrollments.$inferSelect[]>;
   getFollowUpSequencesByIds(sequenceIds: number[]): Promise<typeof followUpSequences.$inferSelect[]>;
   getSequenceStepsForSequences(sequenceIds: number[]): Promise<typeof sequenceSteps.$inferSelect[]>;
-  createSequenceEnrollment(enrollment: InsertSequenceEnrollment): Promise<typeof sequenceEnrollments.$inferSelect>;
+  createSequenceEnrollment(enrollment: InsertSequenceEnrollment): Promise<typeof sequenceEnrollments.$inferSelect | null>;
   updateSequenceEnrollment(id: number, updates: Partial<InsertSequenceEnrollment>): Promise<typeof sequenceEnrollments.$inferSelect | undefined>;
   getActiveEnrollments(): Promise<typeof sequenceEnrollments.$inferSelect[]>;
   pauseAllActiveEnrollments(contactId: number): Promise<number>;

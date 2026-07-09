@@ -460,6 +460,9 @@ export function registerCampaignsRoutes(app: Express) {
         }
       }
       const enrollment = await storage.createSequenceEnrollment(input);
+      if (enrollment === null) {
+        return res.status(409).json({ message: "Contact is already enrolled in an active or paused sequence." });
+      }
       await storage.createAuditLog({ action: "sequence_enrolled", entityType: "contact", entityId: enrollment.contactId || 0, details: { sequenceId: String(enrollment.sequenceId) } });
       res.status(201).json(enrollment);
     } catch (err: any) {

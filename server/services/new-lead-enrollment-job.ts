@@ -639,6 +639,21 @@ async function _runAsync(opts: {
  * DB round-trips for sequence lookup, PEWC check, or enrollment check.
  */
 export async function runNewLeadAutoEnrollCheck(): Promise<void> {
+  // Re-entrancy guard — safe for single-process deployment (Replit).
+  // Both the manual startNewLeadEnroll() path and the SLA auto-check path share
+  // _jobRunning so they are mutually exclusive at the process level.
+  if (_jobRunning) {
+    await storage.createAuditLog({
+      action: "new_lead_auto_enrollment_tick_skipped_already_running",
+      entityType: "system",
+      entityId: 0,
+      actorType: "system",
+      details: { reason: "Previous runNewLeadAutoEnrollCheck() is still in progress; tick skipped." },
+    });
+    return;
+  }
+  _jobRunning = true;
+  try {
   const startMs = Date.now();
   const autoEnabled = await getAutoEnrollEnabled();
   const [defaultSeqId, verticalMap] = await Promise.all([
@@ -841,6 +856,9 @@ export async function runNewLeadAutoEnrollCheck(): Promise<void> {
       durationMs,
     },
   });
+  } finally {
+    _jobRunning = false;
+  }
 }
 
 /** Alias matching the requested external contract name. */
