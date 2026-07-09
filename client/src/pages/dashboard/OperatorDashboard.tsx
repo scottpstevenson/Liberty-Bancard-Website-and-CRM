@@ -5998,19 +5998,30 @@ interface StageHealthData {
 }
 
 function StageHealthPanel() {
+  const [, navigate] = useLocation();
   const { data, isLoading, isError, refetch } = useQuery<StageHealthData>({
     queryKey: ["/api/admin/pipeline/stage-health"],
-    refetchInterval: 30000,
+    refetchInterval: 60000,
   });
 
   return (
     <div className="space-y-4" data-testid="panel-stage-health">
-      <div>
-        <h3 className="text-lg font-semibold">Pipeline Stage Health</h3>
-        <p className="text-xs text-muted-foreground">
-          New Lead deal coverage, staleness, and enrollment gaps. Staleness uses <code>updatedAt</code> as proxy (no <code>stageEnteredAt</code> column).
-          Use the <strong>New Lead Enrollment</strong> tab to configure and trigger enrollment.
-        </p>
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <h3 className="text-lg font-semibold">Pipeline Stage Health</h3>
+          <p className="text-xs text-muted-foreground">
+            New Lead deal coverage, staleness, and enrollment gaps. Staleness uses <code>updatedAt</code> as proxy (no <code>stageEnteredAt</code> column).
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => navigate("/dashboard/operator?view=new-lead-enroll")}
+          data-testid="button-go-to-enroll-panel"
+        >
+          <ListChecks className="w-4 h-4 mr-1" />
+          New Lead Enrollment
+        </Button>
       </div>
 
       {isLoading && (
@@ -6164,7 +6175,7 @@ function NewLeadEnrollPanel() {
 
   const { data: stageHealth } = useQuery<StageHealthData>({
     queryKey: ["/api/admin/pipeline/stage-health"],
-    refetchInterval: 30000,
+    refetchInterval: 60000,
   });
   const autoEnabled = stageHealth?.autoEnrollNewLeadDeals ?? false;
 
@@ -6184,7 +6195,7 @@ function NewLeadEnrollPanel() {
 
   const { data: status, refetch: refetchStatus } = useQuery<NewLeadEnrollStatus>({
     queryKey: ["/api/admin/pipeline/new-leads/enroll-status"],
-    refetchInterval: (data) => (data?.state?.data?.jobRunning ? 3000 : false),
+    refetchInterval: (data) => (data?.state?.data?.jobRunning ? 2000 : false),
   });
 
   const { data: sequences } = useQuery<SequenceOption[]>({
@@ -6323,12 +6334,12 @@ function NewLeadEnrollPanel() {
           <div className="space-y-1">
             <p className="text-xs font-medium">Default Sequence ID</p>
             <p className="text-xs text-muted-foreground mb-1">Used when no vertical-specific sequence is mapped.</p>
-            <Select value={defaultSeqId} onValueChange={v => setDefaultSeqId(v)}>
+            <Select value={defaultSeqId || "none"} onValueChange={v => setDefaultSeqId(v === "none" ? "" : v)}>
               <SelectTrigger data-testid="select-default-sequence" className="max-w-xs">
                 <SelectValue placeholder="None — vertical map required" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">None</SelectItem>
+                <SelectItem value="none">None</SelectItem>
                 {activeSequences.map(s => (
                   <SelectItem key={s.id} value={s.id.toString()} data-testid={`option-seq-${s.id}`}>{s.name} ({s.id})</SelectItem>
                 ))}
