@@ -1837,6 +1837,8 @@ export function registerAdminRoutes(app: Express) {
         staleness_proxy: "updatedAt",
         staleDeals,
         breakdownByVertical,
+        verticalSequenceMap: verticalMap,
+        defaultSequenceId: defaultSeqId ?? null,
       });
     } catch (err: any) {
       res.status(500).json({ message: err.message });

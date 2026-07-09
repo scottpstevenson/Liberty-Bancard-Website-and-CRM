@@ -5682,6 +5682,7 @@ interface SequenceOption {
   name: string;
   status: string;
   vertical?: string | null;
+  sequenceFamily?: string | null;
 }
 
 function BulkEnrollPanel() {
@@ -6012,6 +6013,8 @@ interface StageHealthData {
     createdAt: string | null;
   }>;
   breakdownByVertical?: VerticalBreakdownRow[];
+  verticalSequenceMap?: Record<string, number | null>;
+  defaultSequenceId?: number | null;
 }
 
 interface VerticalDetailRow {
@@ -6520,6 +6523,9 @@ function NewLeadEnrollPanel() {
   const [preview, setPreview] = useState<NewLeadEnrollPreview | null>(null);
   const [verticalMapInput, setVerticalMapInput] = useState("");
   const [defaultSeqId, setDefaultSeqId] = useState("");
+  const [showAdvancedJson, setShowAdvancedJson] = useState(false);
+  const [localVerticalMap, setLocalVerticalMap] = useState<Record<string, number | null>>({});
+  const [rowSaveStates, setRowSaveStates] = useState<Record<string, { status: "idle" | "saving" | "success" | "error"; error?: string }>>({});
 
   const { data: stageHealth } = useQuery<StageHealthData>({
     queryKey: ["/api/admin/pipeline/stage-health"],
@@ -6551,6 +6557,22 @@ function NewLeadEnrollPanel() {
   });
 
   const activeSequences = (sequences ?? []).filter(s => s.status === "active");
+
+  useEffect(() => {
+    if (stageHealth?.verticalSequenceMap !== undefined) {
+      const hasPendingEdits = Object.values(rowSaveStates).some(
+        s => s.status === "saving" || s.status === "error"
+      );
+      if (!hasPendingEdits) {
+        const serverMap = stageHealth.verticalSequenceMap ?? {};
+        setLocalVerticalMap(serverMap);
+        setVerticalMapInput(JSON.stringify(serverMap, null, 2));
+      }
+    }
+    if (stageHealth?.defaultSequenceId !== undefined && !defaultSeqId) {
+      setDefaultSeqId(stageHealth.defaultSequenceId ? String(stageHealth.defaultSequenceId) : "");
+    }
+  }, [stageHealth?.verticalSequenceMap, stageHealth?.defaultSequenceId]);
 
   const previewMutation = useMutation({
     mutationFn: async () => {
@@ -6678,57 +6700,154 @@ function NewLeadEnrollPanel() {
         <CardHeader className="pb-2">
           <CardTitle className="text-sm">Enrollment Routing Settings</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-3">
+        <CardContent className="space-y-4">
           <div className="space-y-1">
-            <p className="text-xs font-medium">Default Sequence ID</p>
+            <p className="text-xs font-medium">Default Sequence</p>
             <p className="text-xs text-muted-foreground mb-1">Used when no vertical-specific sequence is mapped.</p>
-            <Select value={defaultSeqId || "none"} onValueChange={v => setDefaultSeqId(v === "none" ? "" : v)}>
-              <SelectTrigger data-testid="select-default-sequence" className="max-w-xs">
-                <SelectValue placeholder="None — vertical map required" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">None</SelectItem>
-                {activeSequences.map(s => (
-                  <SelectItem key={s.id} value={s.id.toString()} data-testid={`option-seq-${s.id}`}>{s.name} ({s.id})</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div className="flex items-center gap-2 flex-wrap">
+              <Select value={defaultSeqId || "none"} onValueChange={v => setDefaultSeqId(v === "none" ? "" : v)}>
+                <SelectTrigger data-testid="select-default-sequence" className="max-w-xs">
+                  <SelectValue placeholder="None — vertical map required" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">None</SelectItem>
+                  {activeSequences.map(s => (
+                    <SelectItem key={s.id} value={s.id.toString()} data-testid={`option-seq-${s.id}`}>{s.name} ({s.id})</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => saveSettingsMutation.mutate()}
+                disabled={saveSettingsMutation.isPending}
+                data-testid="button-save-settings"
+              >
+                {saveSettingsMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Settings className="w-4 h-4 mr-2" />}
+                Save Default
+              </Button>
+            </div>
           </div>
 
           {stageHealth?.breakdownByVertical && stageHealth.breakdownByVertical.length > 0 && (
-            <div className="space-y-1" data-testid="vertical-breakdown-prefill">
-              <p className="text-xs font-medium">Vertical Coverage Overview</p>
-              <p className="text-xs text-muted-foreground mb-1">Current coverage from the Stage Health panel. Rows flagged with ⚠ have uncovered deals and no mapped sequence.</p>
+            <div className="space-y-2" data-testid="vertical-breakdown-prefill">
+              <div>
+                <p className="text-xs font-medium">Vertical → Sequence Mapping</p>
+                <p className="text-xs text-muted-foreground">Select an active sequence per vertical. Rows flagged with ⚠ have uncovered deals. Changes save immediately per row.</p>
+              </div>
               <div className="overflow-x-auto rounded border">
                 <table className="w-full text-xs" data-testid="table-vertical-mapping-editor">
                   <thead>
                     <tr className="border-b text-muted-foreground bg-muted/40">
                       <th className="text-left py-1.5 px-2 font-medium">Vertical</th>
                       <th className="text-right py-1.5 px-2 font-medium">Uncovered</th>
-                      <th className="text-left py-1.5 px-2 font-medium">Current Mapping</th>
+                      <th className="text-left py-2 px-2 font-medium">Sequence</th>
+                      <th className="py-1.5 px-2"></th>
                     </tr>
                   </thead>
                   <tbody>
                     {stageHealth.breakdownByVertical.map((row, i) => {
+                      const canonicalKey = row.vertical ?? "__unknown__";
+                      const isUnknownRow = row.vertical === null;
                       const isGap = row.noActiveEnrollment > 0 && row.noSequenceMapped > 0;
+                      const currentSeqId = isUnknownRow ? null : (localVerticalMap[canonicalKey] ?? null);
+                      const rowState = isUnknownRow ? { status: "idle" as const } : (rowSaveStates[canonicalKey] ?? { status: "idle" as const });
                       return (
                         <tr
-                          key={row.vertical ?? "__unknown__"}
+                          key={canonicalKey}
                           className={cn("border-b last:border-0", isGap ? "bg-amber-50 dark:bg-amber-950/20" : "")}
                           data-testid={`mapping-row-${i}`}
                         >
-                          <td className="py-1.5 px-2 font-medium">
+                          <td className="py-1.5 px-2 font-medium whitespace-nowrap">
                             {isGap && <span className="mr-1" aria-label="Gap: no mapping">⚠</span>}
                             <span className={row.vertical ? "" : "italic text-muted-foreground"}>{row.label}</span>
                           </td>
-                          <td className={cn("py-1.5 px-2 text-right", row.noActiveEnrollment > 0 ? "text-red-600 font-semibold" : "text-muted-foreground")}>
+                          <td className={cn("py-1.5 px-2 text-right whitespace-nowrap", row.noActiveEnrollment > 0 ? "text-red-600 font-semibold" : "text-muted-foreground")}>
                             {row.noActiveEnrollment}
                           </td>
-                          <td className="py-1.5 px-2">
-                            {row.mappedSequenceName ? (
-                              <span className="text-blue-700 dark:text-blue-400">{row.mappedSequenceName} <span className="text-muted-foreground">(#{row.mappedSequenceId})</span></span>
+                          <td className="py-1.5 px-2 min-w-[180px]">
+                            {isUnknownRow ? (
+                              <span className="text-xs italic text-muted-foreground">
+                                {row.mappedSequenceName
+                                  ? `${row.mappedSequenceName} (default)`
+                                  : "Set via Default Sequence above"}
+                              </span>
                             ) : (
-                              <span className="italic text-muted-foreground">No mapping</span>
+                              <Select
+                                value={currentSeqId !== null ? String(currentSeqId) : "unmapped"}
+                                onValueChange={(v) => {
+                                  const newSeqId = v === "unmapped" ? null : Number(v);
+                                  const newMap = { ...localVerticalMap };
+                                  if (newSeqId === null) {
+                                    delete newMap[canonicalKey];
+                                  } else {
+                                    newMap[canonicalKey] = newSeqId;
+                                  }
+                                  setLocalVerticalMap(newMap);
+                                  setVerticalMapInput(JSON.stringify(newMap, null, 2));
+                                }}
+                              >
+                                <SelectTrigger
+                                  className="h-7 text-xs"
+                                  data-testid={`select-vertical-seq-${canonicalKey}`}
+                                >
+                                  <SelectValue placeholder="Unmapped" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="unmapped">
+                                    <span className="italic text-muted-foreground">Unmapped</span>
+                                  </SelectItem>
+                                  {activeSequences.map(s => (
+                                    <SelectItem key={s.id} value={s.id.toString()}>
+                                      {s.name}
+                                      {s.sequenceFamily && (
+                                        <span className="text-muted-foreground ml-1 text-xs">· {s.sequenceFamily}</span>
+                                      )}
+                                      <span className="text-muted-foreground ml-1 text-xs">(#{s.id})</span>
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            )}
+                          </td>
+                          <td className="py-1.5 px-2 whitespace-nowrap">
+                            {!isUnknownRow && (
+                              <div className="flex items-center gap-1.5">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 px-2 text-xs"
+                                  data-testid={`btn-save-vertical-${canonicalKey}`}
+                                  disabled={rowState.status === "saving"}
+                                  onClick={async () => {
+                                    setRowSaveStates(prev => ({ ...prev, [canonicalKey]: { status: "saving" } }));
+                                    try {
+                                      const fullMap: Record<string, number | null> = { ...localVerticalMap };
+                                      const res = await apiRequest("POST", "/api/admin/pipeline/vertical-sequence-map", {
+                                        verticalMap: fullMap,
+                                      });
+                                      const body = await res.json();
+                                      if (!res.ok) throw new Error(body.message ?? "Save failed");
+                                      setRowSaveStates(prev => ({ ...prev, [canonicalKey]: { status: "success" } }));
+                                      queryClient.invalidateQueries({ queryKey: ["/api/admin/pipeline/stage-health"] });
+                                      queryClient.invalidateQueries({ queryKey: ["/api/admin/pipeline/new-leads/enroll-status"] });
+                                      setTimeout(() => {
+                                        setRowSaveStates(prev => ({ ...prev, [canonicalKey]: { status: "idle" } }));
+                                      }, 2500);
+                                    } catch (err: any) {
+                                      setRowSaveStates(prev => ({ ...prev, [canonicalKey]: { status: "error", error: err.message } }));
+                                    }
+                                  }}
+                                >
+                                  {rowState.status === "saving" ? <Loader2 className="w-3 h-3 animate-spin" /> : "Save"}
+                                </Button>
+                                {rowState.status === "success" && (
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-green-600 shrink-0" aria-label="Saved" />
+                                )}
+                                {rowState.status === "error" && (
+                                  <span className="text-red-600 text-xs" title={rowState.error}>✗</span>
+                                )}
+                              </div>
                             )}
                           </td>
                         </tr>
@@ -6737,50 +6856,51 @@ function NewLeadEnrollPanel() {
                   </tbody>
                 </table>
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                className="mt-1"
-                data-testid="button-prefill-vertical-map"
-                onClick={() => {
-                  const existing: Record<string, number> = {};
-                  try { Object.assign(existing, JSON.parse(verticalMapInput || "{}")); } catch {}
-                  const breakdown = stageHealth.breakdownByVertical ?? [];
-                  for (const row of breakdown) {
-                    if (row.vertical && row.mappedSequenceId && !existing[row.vertical]) {
-                      existing[row.vertical] = row.mappedSequenceId;
-                    }
-                  }
-                  setVerticalMapInput(JSON.stringify(existing, null, 2));
-                }}
-              >
-                <ArrowRight className="w-3 h-3 mr-1" />
-                Prefill JSON from coverage table
-              </Button>
             </div>
           )}
 
           <div className="space-y-1">
-            <p className="text-xs font-medium">Vertical → Sequence Map (JSON)</p>
-            <p className="text-xs text-muted-foreground mb-1">Maps deal verticals to sequence IDs. Example: <code>{`{"restaurant": 4, "dental": 7}`}</code></p>
-            <Textarea
-              value={verticalMapInput}
-              onChange={e => setVerticalMapInput(e.target.value)}
-              placeholder={`{"restaurant": 4, "dental": 7}`}
-              data-testid="input-vertical-map"
-              className="font-mono text-xs h-24 max-w-md"
-            />
+            <button
+              type="button"
+              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+              onClick={() => setShowAdvancedJson(v => !v)}
+              data-testid="toggle-advanced-json"
+              aria-expanded={showAdvancedJson}
+            >
+              {showAdvancedJson ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+              Advanced JSON editor
+            </button>
+            {showAdvancedJson && (
+              <div className="space-y-2 pt-1">
+                <p className="text-xs text-muted-foreground">Edit the full vertical → sequence ID map as JSON. Changes here sync to the inline dropdowns. Example: <code>{`{"restaurant": 4, "dental": 7}`}</code></p>
+                <Textarea
+                  value={verticalMapInput}
+                  onChange={e => {
+                    setVerticalMapInput(e.target.value);
+                    try {
+                      const parsed = JSON.parse(e.target.value);
+                      if (typeof parsed === "object" && !Array.isArray(parsed)) {
+                        setLocalVerticalMap(parsed);
+                      }
+                    } catch {}
+                  }}
+                  placeholder={`{"restaurant": 4, "dental": 7}`}
+                  data-testid="input-vertical-map"
+                  className="font-mono text-xs h-24 max-w-md"
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => saveSettingsMutation.mutate()}
+                  disabled={saveSettingsMutation.isPending}
+                  data-testid="button-save-json-settings"
+                >
+                  {saveSettingsMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Settings className="w-4 h-4 mr-2" />}
+                  Save JSON Map
+                </Button>
+              </div>
+            )}
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => saveSettingsMutation.mutate()}
-            disabled={saveSettingsMutation.isPending}
-            data-testid="button-save-settings"
-          >
-            {saveSettingsMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Settings className="w-4 h-4 mr-2" />}
-            Save Settings
-          </Button>
         </CardContent>
       </Card>
 
