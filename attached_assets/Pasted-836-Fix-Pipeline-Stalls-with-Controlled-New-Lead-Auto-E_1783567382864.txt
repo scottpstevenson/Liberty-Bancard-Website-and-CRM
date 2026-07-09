@@ -1,0 +1,441 @@
+836 — Fix Pipeline Stalls with Controlled New Lead Auto-Enrollment
+
+What & Why
+
+967 deals are stuck in New Lead because bulk-imported deals have no activity signals and are not enrolled in SDR outreach. The stage progression sweep depends on downstream signals like email activity, call tasks, statement upload, booking, or rep action. Without enrollment, those signals never start.
+
+This task adds:
+
+1. Stage progression sweep observability.
+2. Stage Health visibility.
+3. Controlled backfill enrollment for existing New Lead deal contacts.
+4. Future auto-enrollment for newly created New Lead deals, gated by an explicit setting.
+5. Audit visibility for every enrolled/skipped contact.
+
+This solves the actual issue: eligible New Lead deal contacts begin SDR outreach, which can generate the activity needed for pipeline progression.
+
+Critical Principle
+
+Do not globally convert all 94 seeded sequences to automatic.
+
+Instead, create a controlled New Lead deal enrollment policy:
+
+New Lead deal + eligible contact + configured SDR sequence mapping + explicit enable flag
+→ enroll through existing sequence gates
+
+Done Looks Like
+
+* Stage progression sweep writes a heartbeat audit/log entry.
+* Operator Dashboard shows Stage Health:
+    * New Lead total
+    * New Lead deals stuck 7+ days
+    * New Lead deals without sequence enrollment
+    * last progression sweep run
+    * last sequence worker tick
+* Admin can preview which existing New Lead deal contacts would be enrolled.
+* Admin can run a confirmed backfill enrollment for existing New Lead deals.
+* Future auto-enrollment exists but is gated by a system setting:
+    * autoEnrollNewLeadDeals
+    * default false
+* When enabled, newly created eligible New Lead deals enroll into the mapped SDR sequence within one orchestrator/SLA cycle.
+* Enrollment uses the existing single-contact sequence enrollment gates.
+* DNC, opted-out, missing-email, already-enrolled, inactive-sequence, and channel-ineligible contacts are skipped with reasons.
+* Audit log records which sequence was selected and why each contact was enrolled or skipped.
+* No deals are created.
+* No GHL sync is triggered directly by this task.
+* No outbound is sent directly by this task.
+* The sequence worker/global pause/daily cap/contactability/CAN-SPAM gates still control actual sends.
+
+Out of Scope
+
+Do not:
+
+change stage names
+change lead scoring thresholds
+create new deals
+auto-advance deals to Closed Won
+globally convert all sequences to automatic
+modify GHL sync
+modify contactability
+modify unsubscribe/CAN-SPAM logic
+modify sequence worker send logic
+enable SMS/voice/ringless
+
+Step 1 — Stage Progression Observability
+
+In:
+
+server/services/stage-progression.ts
+server/services/sla-worker.ts
+
+Verify runStageProgressionSweep() is called on the expected cadence.
+
+Add audit action:
+
+stage_progression_sweep_ran
+
+Include:
+
+startedAt
+completedAt
+dealsScanned
+dealsMoved
+errors
+
+Do not change stage movement rules unless a confirmed bug is found.
+
+Step 2 — Stage Health Endpoint
+
+Add:
+
+GET /api/admin/pipeline/stage-health
+
+Admin/manager only.
+
+Returns:
+
+{
+  newLeadTotal: number;
+  newLeadNoMovement7d: number;
+  newLeadNoSequenceEnrollment: number;
+  newLeadWithActiveEnrollment: number;
+  lastStageProgressionSweepAt?: string | null;
+  lastSequenceWorkerTickAt?: string | null;
+  autoEnrollNewLeadDeals: boolean;
+  staleDealsSample: Array<{
+    dealId: number;
+    contactId?: number | null;
+    companyName?: string | null;
+    stage: string;
+    daysInStage: number;
+    hasActiveEnrollment: boolean;
+  }>;
+}
+
+Step 3 — New Lead Enrollment Policy
+
+Add system settings:
+
+autoEnrollNewLeadDeals = false
+defaultNewLeadSequenceId
+verticalNewLeadSequenceMap
+
+autoEnrollNewLeadDeals must default to false.
+
+The sequence mapping should support:
+
+default sequence
+optional vertical-specific sequence override
+
+Example:
+
+{
+  "default": 123,
+  "restaurant": 124,
+  "salon_spa": 125,
+  "auto_repair": 126
+}
+
+Do not activate or modify sequences in this task.
+
+Admin must choose existing active sequences.
+
+Step 4 — Existing New Lead Enrollment Preview
+
+Add:
+
+POST /api/admin/pipeline/new-leads/enroll-preview
+
+Payload:
+
+{
+  sequenceId?: number;
+  useVerticalMapping?: boolean;
+  vertical?: string;
+  minScore?: number;
+  limit?: number;
+}
+
+Preview only. No writes.
+
+Returns:
+
+{
+  totalNewLeadDeals: number;
+  matchingDeals: number;
+  eligible: number;
+  alreadyEnrolled: number;
+  dncBlocked: number;
+  optedOutBlocked: number;
+  contactabilityBlocked: number;
+  missingContactMethod: number;
+  sequenceInactive: number;
+  noMappedSequence: number;
+  skippedBreakdown: Record<string, number>;
+  sampleEligible: Array<{
+    dealId: number;
+    contactId: number;
+    companyName?: string | null;
+    email?: string | null;
+    phone?: string | null;
+    vertical?: string | null;
+    leadScore?: number | null;
+    selectedSequenceId?: number;
+    selectedSequenceName?: string;
+  }>;
+}
+
+Step 5 — Existing New Lead Enrollment Apply
+
+Add:
+
+POST /api/admin/pipeline/new-leads/enroll
+
+Payload:
+
+{
+  sequenceId?: number;
+  useVerticalMapping?: boolean;
+  vertical?: string;
+  minScore?: number;
+  confirmed: true;
+  confirmationText?: "ENROLL";
+  batchSize?: number;
+}
+
+For eligible >= 100, require:
+
+confirmationText === "ENROLL"
+
+Process in batches and persist progress.
+
+Add:
+
+GET /api/admin/pipeline/new-leads/enroll-status
+POST /api/admin/pipeline/new-leads/enroll-cancel
+
+Progress key:
+
+new_lead_enrollment_progress
+
+Step 6 — Future Auto-Enrollment Hook
+
+Add a future hook in the safest existing place where new deals or deal-linked contacts are evaluated, likely the SLA/orchestrator cycle.
+
+Required behavior:
+
+if autoEnrollNewLeadDeals !== true:
+  record/report candidate only
+  do not enroll
+if autoEnrollNewLeadDeals === true:
+  for New Lead deals with linked contact and no active/completed enrollment:
+    select mapped sequence
+    run existing enrollment gates
+    create enrollment only if gates pass
+    audit enrolled/skipped reason
+
+Do not call this for Closed Won, onboarding, support, or transactional flows.
+
+Do not call GHL sync.
+
+Do not create deals.
+
+Enrollment Authority
+
+Do not direct-insert enrollments.
+
+Each contact must reuse the same gate path as single-contact sequence enrollment.
+
+Required gates per contact:
+
+load sequence
+reject if sequence.status !== active
+check existing active/completed enrollment
+run canEnrollContactInSequence(contactId, sequence)
+create enrollment only if gates pass
+
+Worker-time gates remain untouched:
+
+global outbound pause
+daily cold email cap
+bounce/invalid email guard
+full contactability Gate A/Gate B
+CAN-SPAM footer injection
+channel feature flags
+
+Sequence TriggerType Rule
+
+Do not convert all sequences to automatic.
+
+Allowed:
+
+admin-selected sequence mapping for New Lead deal enrollment
+
+Not allowed:
+
+migration changing all cold outreach triggerType values
+automatic enrollment from every contact_created event
+
+Operator Dashboard UI
+
+Add Stage Health card:
+
+New Lead total
+stuck 7+ days
+without active enrollment
+last progression sweep
+last sequence worker tick
+autoEnrollNewLeadDeals status
+
+Add New Lead Enrollment card:
+
+default sequence picker
+vertical mapping editor or simple vertical override table
+autoEnrollNewLeadDeals toggle
+preview existing New Lead enrollments
+confirm backfill enrollment
+progress bar
+result summary
+cancel button
+
+Button copy:
+
+Queue Eligible New Lead Contacts
+
+Do not use:
+
+Send Emails
+Start Outreach Now
+Email Everyone
+
+Audit Logs
+
+Add audit actions:
+
+stage_progression_sweep_ran
+new_lead_enrollment_policy_updated
+new_lead_enrollment_previewed
+new_lead_enrollment_started
+new_lead_enrollment_batch_completed
+new_lead_enrollment_completed
+new_lead_enrollment_failed
+new_lead_enrollment_cancelled
+new_lead_auto_enrollment_candidate_detected
+new_lead_auto_enrollment_created
+new_lead_auto_enrollment_skipped
+
+Include:
+
+requestedBy
+dealId
+contactId
+sequenceId
+vertical
+minScore
+processed
+enrolled
+skipped
+skipReason
+dryRun true/false
+
+Kill Lines
+
+STOP if this task globally converts all seeded sequences to automatic.
+STOP if autoEnrollNewLeadDeals defaults to true.
+STOP if future auto-enrollment runs when autoEnrollNewLeadDeals is false.
+STOP if enrollment bypasses existing single-contact sequence gates.
+STOP if DNC or opted-out contacts are enrolled.
+STOP if inactive/paused sequences receive enrollments.
+STOP if duplicate enrollments are created.
+STOP if any email/SMS/voice/ringless/GHL workflow is sent directly by this task.
+STOP if this task creates deals.
+STOP if this task triggers GHL sync directly.
+STOP if this task changes stage names or scoring thresholds.
+STOP if stage progression rules are changed without a confirmed bug.
+STOP if Operator Dashboard implies deals will move stages before real activity signals occur.
+
+Validation
+
+Add:
+
+scripts/test-new-lead-enrollment-policy.ts
+
+Test cases:
+
+1. stage progression sweep writes heartbeat audit
+2. stage health returns New Lead counts
+3. preview creates no enrollments
+4. eligible New Lead contact enrolls on confirmed apply
+5. already-enrolled contact is skipped
+6. DNC contact is skipped
+7. paused sequence rejects before write
+8. no mapped sequence is skipped
+9. second run creates no duplicates
+10. autoEnrollNewLeadDeals defaults false
+11. future hook detects candidate but does not enroll when flag false
+12. future hook enrolls eligible New Lead when flag true
+13. no autoEnrollFromTrigger call unless the existing shared enrollment service requires it safely
+14. no deals created
+15. no GHL sync triggered
+16. no outbound sent directly
+17. progress persists after batch
+18. cancel stops next batch
+
+Run:
+
+npx tsx scripts/test-new-lead-enrollment-policy.ts
+npx tsx scripts/smoke-role-guards.ts
+npx tsc --noEmit --skipLibCheck
+
+If global TypeScript has unrelated legacy errors, report them separately and confirm touched files are clean.
+
+Files To Change
+
+server/services/stage-progression.ts
+server/services/sla-worker.ts
+server/routes/admin.ts
+server/storage.ts
+client/src/pages/dashboard/OperatorDashboard.tsx
+scripts/test-new-lead-enrollment-policy.ts
+
+Potentially, if the safest future hook location is confirmed there:
+
+server/services/sdr/orchestrator.ts
+
+Files Not To Touch
+
+server/services/contactability.ts
+server/services/lead-scoring.ts
+server/services/ghl.ts
+server/data/seeds/sequences.json
+email compliance/unsubscribe services
+SMS/voice/ringless services
+
+Only touch server/services/sequence-worker.ts if there is already a shared enrollment helper there that must be reused safely. Do not change send execution logic.
+
+Final Report Required
+
+Return:
+
+Stage progression sweep verified:
+Sweep audit action:
+Stage Health endpoint:
+New Lead total:
+Stuck 7+ days:
+No active enrollment:
+Policy settings added:
+autoEnrollNewLeadDeals default:
+Default sequence mapping:
+Vertical sequence mapping:
+Enrollment preview endpoint:
+Enrollment apply endpoint:
+Status/cancel endpoints:
+Enrollment gate path reused:
+Future auto-enrollment hook:
+Future hook disabled by default:
+Sequences triggerType changed: yes/no
+Deals created: yes/no
+GHL sync triggered: yes/no
+Outbound sent directly: yes/no
+Validation commands run:
+Files changed:
