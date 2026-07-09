@@ -1,0 +1,233 @@
+Final Addendum to #866 — Show Contactability Reasons Per Row in Vertical Breakdown
+
+Approved to build.
+
+Goal
+
+Let operators expand a vertical in the Stage Health breakdown and see the specific New Lead deals/contacts causing the coverage gap.
+
+This should answer:
+
+Which contacts are blocked?
+Why are they blocked?
+Is this a mapping problem, email problem, DNC/opt-out problem, or suppression problem?
+
+Required behavior
+
+In the vertical breakdown table:
+
+Click vertical row
+→ expand read-only detail list
+→ show blocked deals/contacts for that vertical
+
+Detail rows should include:
+
+dealId
+contactId
+contact name
+company name
+email
+vertical
+mapped sequence, if any
+block reason
+days in New Lead, if available
+
+Block reasons:
+
+DNC
+opted_out
+suppressed
+no_email
+no_sequence_mapped
+already_enrolled
+contactability_blocked
+sequence_inactive
+unknown
+
+Use friendly labels in UI, but keep stable machine keys from the backend.
+
+Backend
+
+Extend:
+
+GET /api/admin/pipeline/stage-health
+
+Preferred pattern:
+
+GET /api/admin/pipeline/stage-health?vertical=<verticalKey>&includeDetails=true
+
+or add a dedicated detail endpoint if cleaner:
+
+GET /api/admin/pipeline/stage-health/vertical-detail?vertical=<verticalKey>
+
+Either is acceptable.
+
+Response shape
+
+Add optional detail payload:
+
+{
+  verticalDetail?: {
+    vertical: string | null;
+    label: string;
+    total: number;
+    rows: Array<{
+      dealId: number;
+      contactId?: number | null;
+      contactName?: string | null;
+      companyName?: string | null;
+      email?: string | null;
+      vertical?: string | null;
+      leadScore?: number | null;
+      mappedSequenceId?: number | null;
+      mappedSequenceName?: string | null;
+      blockReason: string;
+      blockReasonLabel: string;
+      daysInStage?: number | null;
+    }>;
+  };
+}
+
+Pagination / limit guard
+
+Do not return thousands of detail rows unbounded.
+
+Use:
+
+limit default 50
+max 200
+offset supported
+
+If using expandable row UI, fetch the first 50 and show “Load more” if needed.
+
+Kill line:
+
+STOP if expanding a vertical can return every blocked deal in a huge vertical with no limit.
+
+Unknown / Uncategorized vertical
+
+Support the same stable key used by #860/#867.
+
+Do not rely on display label matching.
+
+Allowed:
+
+__unknown__
+unknown
+uncategorized
+
+Only use the canonical key already chosen by the backend.
+
+UI
+
+In:
+
+client/src/pages/dashboard/OperatorDashboard.tsx
+StageHealthPanel
+
+Add expandable rows to the vertical breakdown table.
+
+Each expanded row should show a compact sub-table:
+
+Deal
+Contact
+Email
+Reason
+Mapped sequence
+Days in stage
+
+This must be read-only.
+
+No inline action buttons in this task.
+
+Scope protection
+
+Do not:
+
+enroll contacts
+suppress contacts
+unsuppress contacts
+edit mappings
+toggle autoEnrollNewLeadDeals
+change contactability logic
+change sequence status
+change triggerType
+create deals
+trigger GHL sync
+send outbound
+
+This task only exposes diagnostic detail.
+
+Reason precedence
+
+If a contact has multiple blockers, return the clearest primary reason and optionally a reasons array.
+
+Recommended priority:
+
+suppressed
+DNC
+opted_out
+no_email
+no_sequence_mapped
+sequence_inactive
+already_enrolled
+contactability_blocked
+unknown
+
+If returning only one reason, be consistent.
+
+Kill lines
+
+STOP if detail expansion writes data.
+STOP if detail expansion triggers enrollment.
+STOP if detail expansion changes suppression/DNC/contactability state.
+STOP if row expansion changes vertical sequence mappings.
+STOP if details are fetched without role guard.
+STOP if details expose unbounded rows.
+STOP if null/unknown vertical cannot be inspected.
+STOP if block reason is computed differently from the aggregate Stage Health counts.
+STOP if GHL sync, deal creation, outbound send, sequence worker, or contactability code is touched.
+
+Validation
+
+Add or extend:
+
+scripts/test-stage-health-vertical-breakdown.ts
+
+Test cases:
+
+1. detail endpoint returns rows for selected vertical
+2. detail endpoint is read-only
+3. DNC row returns DNC reason
+4. opted-out row returns opted_out reason
+5. suppressed row returns suppressed reason
+6. missing email row returns no_email reason
+7. missing mapping row returns no_sequence_mapped reason
+8. unknown/null vertical detail works
+9. limit/max limit are enforced
+10. aggregate count reconciles with detail reason counts for fixture data
+
+Run:
+
+npx tsx scripts/test-stage-health-vertical-breakdown.ts
+npx tsx scripts/smoke-role-guards.ts
+
+Final report required
+
+Return:
+
+Detail endpoint/pattern:
+Detail row fields:
+Reason keys:
+Reason precedence:
+Pagination/limit:
+Unknown vertical handling:
+Expandable UI added:
+Read-only confirmed:
+Enrollment triggered: yes/no
+Suppression changed: yes/no
+Mapping changed: yes/no
+Outbound sent: yes/no
+GHL sync triggered: yes/no
+Validation commands run:
+Files changed:
