@@ -585,6 +585,217 @@ async function run() {
       fail("detail Test 10: reconciliation check threw", String(err));
     }
 
+    // ── Task #872: blockReason filter tests (10 new cases) ──────────────────
+
+    async function fetchVerticalDetailRaw(vertical: string, extra = ""): Promise<Response> {
+      const url = `${BASE_URL}/api/admin/pipeline/stage-health/vertical-detail?vertical=${encodeURIComponent(vertical)}${extra}`;
+      return fetch(url, { headers: { cookie: adminCookie } });
+    }
+
+    // ── Filter Test 1: omitted blockReason → all blocked rows returned ────────
+    console.log("\nFilter Test 1: omitted blockReason returns all blocked rows (existing behavior unchanged)");
+    try {
+      const detail = await fetchVerticalDetail(V_DENT);
+      assert(detail.verticalDetail !== undefined, "filter Test 1: verticalDetail present");
+      const allTotal = detail.verticalDetail.total as number;
+      // Should include DNC + suppressed rows (at least 2)
+      assert(allTotal >= 2, `filter Test 1: total >= 2 when no filter (got ${allTotal})`);
+      // blockReason field should be "all" when omitted
+      assert(detail.verticalDetail.blockReason === "all", `filter Test 1: blockReason field is 'all' when omitted (got '${detail.verticalDetail.blockReason}')`);
+    } catch (err) {
+      fail("filter Test 1: omitted blockReason threw", String(err));
+    }
+
+    // ── Filter Test 2: blockReason=all → same as omitted ─────────────────────
+    console.log("\nFilter Test 2: blockReason=all returns same result as omitted");
+    try {
+      const detailOmitted = await fetchVerticalDetail(V_DENT);
+      const detailAll = await fetchVerticalDetail(V_DENT, "&blockReason=all");
+      assert(
+        detailOmitted.verticalDetail.total === detailAll.verticalDetail.total,
+        `filter Test 2: total matches between omitted (${detailOmitted.verticalDetail.total}) and blockReason=all (${detailAll.verticalDetail.total})`
+      );
+      assert(detailAll.verticalDetail.blockReason === "all", `filter Test 2: blockReason field is 'all' (got '${detailAll.verticalDetail.blockReason}')`);
+    } catch (err) {
+      fail("filter Test 2: blockReason=all threw", String(err));
+    }
+
+    // ── Filter Test 3: blockReason=no_email → only no_email rows returned ────
+    console.log("\nFilter Test 3: blockReason=no_email returns only no_email rows");
+    try {
+      const detail = await fetchVerticalDetail(V_REST, "&blockReason=no_email");
+      const rows: any[] = detail.verticalDetail.rows ?? [];
+      assert(rows.length > 0, `filter Test 3: at least 1 no_email row returned (c2 has empty email)`);
+      const allNoEmail = rows.every((r: any) => r.blockReason === "no_email");
+      assert(allNoEmail, `filter Test 3: all returned rows have blockReason='no_email'`);
+      assert(detail.verticalDetail.blockReason === "no_email", `filter Test 3: response.blockReason='no_email' (got '${detail.verticalDetail.blockReason}')`);
+      // total must equal rows with no_email in the unfiltered result
+      const allDetail = await fetchVerticalDetail(V_REST);
+      const expectedCount = (allDetail.verticalDetail.rows as any[]).filter((r: any) => r.blockReason === "no_email").length;
+      assert(
+        detail.verticalDetail.total === expectedCount,
+        `filter Test 3: filtered total (${detail.verticalDetail.total}) equals expected no_email count (${expectedCount})`
+      );
+    } catch (err) {
+      fail("filter Test 3: blockReason=no_email threw", String(err));
+    }
+
+    // ── Filter Test 4a: blockReason=DNC (uppercase) → DNC rows returned ──────
+    // Filter Test 4b: blockReason=dnc (lowercase) → 400
+    console.log("\nFilter Test 4: DNC uppercase succeeds; dnc lowercase returns 400");
+    try {
+      const detailDNC = await fetchVerticalDetail(V_DENT, "&blockReason=DNC");
+      const dncRows: any[] = detailDNC.verticalDetail.rows ?? [];
+      assert(dncRows.length > 0, `filter Test 4a: at least 1 DNC row returned (got ${dncRows.length})`);
+      const allDNC = dncRows.every((r: any) => r.blockReason === "DNC");
+      assert(allDNC, `filter Test 4a: all returned rows have blockReason='DNC'`);
+      assert(detailDNC.verticalDetail.blockReason === "DNC", `filter Test 4a: response.blockReason='DNC'`);
+
+      const resDncLower = await fetchVerticalDetailRaw(V_DENT, "&blockReason=dnc");
+      assert(resDncLower.status === 400, `filter Test 4b: blockReason=dnc (lowercase) returns 400 (got ${resDncLower.status})`);
+    } catch (err) {
+      fail("filter Test 4: DNC case sensitivity threw", String(err));
+    }
+
+    // ── Filter Test 5: blockReason=suppressed → suppressed rows returned ──────
+    console.log("\nFilter Test 5: blockReason=suppressed returns only suppressed rows");
+    try {
+      const detail = await fetchVerticalDetail(V_DENT, "&blockReason=suppressed");
+      const rows: any[] = detail.verticalDetail.rows ?? [];
+      assert(rows.length > 0, `filter Test 5: at least 1 suppressed row returned (d4 is suppressed; got ${rows.length})`);
+      const allSuppressed = rows.every((r: any) => r.blockReason === "suppressed");
+      assert(allSuppressed, `filter Test 5: all returned rows have blockReason='suppressed'`);
+    } catch (err) {
+      fail("filter Test 5: blockReason=suppressed threw", String(err));
+    }
+
+    // ── Filter Test 6: invalid blockReason value → 400 ───────────────────────
+    console.log("\nFilter Test 6: invalid blockReason value returns 400");
+    try {
+      const res = await fetchVerticalDetailRaw(V_DENT, "&blockReason=foobar");
+      assert(res.status === 400, `filter Test 6: blockReason=foobar returns 400 (got ${res.status})`);
+      const body = await res.json();
+      assert(typeof body.message === "string", `filter Test 6: error body has message field`);
+    } catch (err) {
+      fail("filter Test 6: invalid blockReason threw", String(err));
+    }
+
+    // ── Filter Test 7: filter-before-pagination (correct second page) ─────────
+    console.log("\nFilter Test 7: filter applied before pagination — second page correct");
+    try {
+      // Use V_DENT which has DNC + suppressed rows. Fetch all with no filter first.
+      const allDetail = await fetchVerticalDetail(V_DENT);
+      const allRows2 = allDetail.verticalDetail.rows as any[];
+      const totalUnfiltered = allDetail.verticalDetail.total as number;
+
+      // Count suppressed in the full set
+      const suppressedInAll = allRows2.filter((r: any) => r.blockReason === "suppressed");
+      if (suppressedInAll.length > 0) {
+        // Fetch page 1 with limit=1 + blockReason=suppressed
+        const page1 = await fetchVerticalDetail(V_DENT, "&blockReason=suppressed&limit=1&offset=0");
+        const p1Rows: any[] = page1.verticalDetail.rows ?? [];
+        // page1 total = count of suppressed rows (filter-before-pagination)
+        const filteredTotal = page1.verticalDetail.total as number;
+        assert(filteredTotal < totalUnfiltered, `filter Test 7: filtered total (${filteredTotal}) < unfiltered total (${totalUnfiltered}) — proves filter applied`);
+        assert(p1Rows.length === 1, `filter Test 7: page1 has 1 row (limit=1; got ${p1Rows.length})`);
+        assert(p1Rows[0].blockReason === "suppressed", `filter Test 7: page1 row is suppressed`);
+
+        if (filteredTotal > 1) {
+          const page2 = await fetchVerticalDetail(V_DENT, "&blockReason=suppressed&limit=1&offset=1");
+          const p2Rows: any[] = page2.verticalDetail.rows ?? [];
+          assert(p2Rows.length === 1, `filter Test 7: page2 has 1 row (got ${p2Rows.length})`);
+          assert(p2Rows[0].blockReason === "suppressed", `filter Test 7: page2 row is suppressed`);
+          assert(p1Rows[0].dealId !== p2Rows[0].dealId, `filter Test 7: page1 and page2 return different deals`);
+        } else {
+          pass("filter Test 7: only 1 suppressed row in V_DENT; single-page validation sufficient");
+        }
+      } else {
+        pass("filter Test 7: no suppressed rows in V_DENT to paginate — skipped (seeding may differ)");
+      }
+    } catch (err) {
+      fail("filter Test 7: filter-before-pagination check threw", String(err));
+    }
+
+    // ── Filter Test 8: total reflects filtered count, not total blocked count ─
+    console.log("\nFilter Test 8: total reflects filtered count, not total blocked count");
+    try {
+      const allDetail = await fetchVerticalDetail(V_DENT);
+      const totalAll = allDetail.verticalDetail.total as number;
+
+      const dncDetail = await fetchVerticalDetail(V_DENT, "&blockReason=DNC");
+      const totalDNC = dncDetail.verticalDetail.total as number;
+
+      // DNC-filtered total must be <= total blocked (and < if there are non-DNC blocked rows)
+      assert(totalDNC <= totalAll, `filter Test 8: DNC filtered total (${totalDNC}) <= total blocked (${totalAll})`);
+      // The DNC rows in the full set should match the DNC-filtered total
+      const allRows3 = allDetail.verticalDetail.rows as any[];
+      const dncCountInAll = allRows3.filter((r: any) => r.blockReason === "DNC").length;
+      assert(
+        dncDetail.verticalDetail.total === dncCountInAll,
+        `filter Test 8: DNC filtered total (${dncDetail.verticalDetail.total}) equals DNC count in all rows (${dncCountInAll})`
+      );
+    } catch (err) {
+      fail("filter Test 8: filtered total check threw", String(err));
+    }
+
+    // ── Filter Test 9: no DB write during any filter operation ───────────────
+    console.log("\nFilter Test 9: no DB writes triggered by filter operations");
+    try {
+      const enrollsBefore9 = await db.select({ id: sequenceEnrollments.id }).from(sequenceEnrollments).where(eq(sequenceEnrollments.sequenceId, seqId!));
+      await fetchVerticalDetail(V_DENT, "&blockReason=DNC");
+      await fetchVerticalDetail(V_REST, "&blockReason=no_email");
+      await fetchVerticalDetail(V_TINY, "&blockReason=suppressed");
+      await fetchVerticalDetailRaw(V_DENT, "&blockReason=foobar");
+      const enrollsAfter9 = await db.select({ id: sequenceEnrollments.id }).from(sequenceEnrollments).where(eq(sequenceEnrollments.sequenceId, seqId!));
+      assert(
+        enrollsBefore9.length === enrollsAfter9.length,
+        `filter Test 9: no enrollments created during filter calls (before=${enrollsBefore9.length}, after=${enrollsAfter9.length})`
+      );
+    } catch (err) {
+      fail("filter Test 9: write-check threw", String(err));
+    }
+
+    // ── Filter Test 10: blockReason=unknown → only unknown rows returned ──────
+    console.log("\nFilter Test 10: blockReason=unknown returns only unknown rows");
+    try {
+      // Create a contact that will fall through to 'unknown' — has email, sequence mapped,
+      // active sequence, no enrollment, not DNC, not suppressed, not opted out,
+      // not doNotAutoContact, emailStatus=active (or null).
+      // Map a sequence for V_TINY so no_sequence_mapped doesn't fire.
+      await fetch(`${BASE_URL}/api/admin/pipeline/vertical-sequence-map`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          cookie: adminCookie,
+          "x-csrf-token": csrfToken,
+        },
+        body: JSON.stringify({ verticalMap: { [V_TINY]: seqId } }),
+      });
+
+      // c7 (d7) in V_TINY: has email, sequence now mapped and active, no enrollment
+      // → should be 'unknown' (passes all checks but no explicit block)
+      // Re-fetch detail for V_TINY with blockReason=unknown
+      const detailUnknown = await fetchVerticalDetail(V_TINY, "&blockReason=unknown");
+      const rows: any[] = detailUnknown.verticalDetail.rows ?? [];
+      // c7 may appear — if the sequence is active it should pass all gates and be 'unknown'
+      const allUnknown = rows.every((r: any) => r.blockReason === "unknown");
+      assert(allUnknown, `filter Test 10: all returned rows have blockReason='unknown' (got ${rows.map((r: any) => r.blockReason).join(", ")})`);
+      assert(detailUnknown.verticalDetail.blockReason === "unknown", `filter Test 10: response.blockReason='unknown'`);
+
+      // Clean up the mapping for V_TINY
+      await fetch(`${BASE_URL}/api/admin/pipeline/vertical-sequence-map`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          cookie: adminCookie,
+          "x-csrf-token": csrfToken,
+        },
+        body: JSON.stringify({ verticalMap: {} }),
+      }).catch(() => {});
+    } catch (err) {
+      fail("filter Test 10: blockReason=unknown threw", String(err));
+    }
+
   } finally {
     await teardown();
   }

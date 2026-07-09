@@ -1857,6 +1857,18 @@ export function registerAdminRoutes(app: Express) {
       const limitRaw = Math.min(Math.max(Number(req.query.limit ?? 50) || 50, 1), 200);
       const offsetRaw = Math.max(Number(req.query.offset ?? 0) || 0, 0);
 
+      const VALID_BLOCK_REASONS = new Set([
+        "suppressed", "DNC", "opted_out", "no_email",
+        "no_sequence_mapped", "sequence_inactive", "already_enrolled",
+        "contactability_blocked", "unknown",
+      ]);
+      const rawBlockReason = req.query.blockReason as string | undefined;
+      if (rawBlockReason !== undefined && rawBlockReason !== "all" && !VALID_BLOCK_REASONS.has(rawBlockReason)) {
+        return res.status(400).json({ message: "Invalid blockReason value" });
+      }
+      const blockReasonFilter: string | null =
+        !rawBlockReason || rawBlockReason === "all" ? null : rawBlockReason;
+
       // Map __unknown__ or absent → null (unset vertical)
       const vertical: string | null =
         rawVertical === "__unknown__" || rawVertical === undefined || rawVertical === ""
@@ -1998,12 +2010,26 @@ export function registerAdminRoutes(app: Express) {
         (d) => d.contactId != null && !enrolledContactIds.has(d.contactId)
       );
 
-      const total = blockedDeals.length;
-      const pageRows = blockedDeals.slice(offsetRaw, offsetRaw + limitRaw);
-
+      // Step 1: compute block reason for ALL blocked deals before any slicing
       const now = new Date();
+      const allWithReasons = blockedDeals.map((d) => ({
+        ...d,
+        blockReason: getBlockReason(d),
+      }));
+
+      // Step 2: apply optional blockReason filter (filter-before-pagination)
+      const filteredDeals = blockReasonFilter
+        ? allWithReasons.filter((d) => d.blockReason === blockReasonFilter)
+        : allWithReasons;
+
+      // Step 3: total reflects filtered count
+      const total = filteredDeals.length;
+
+      // Step 4: paginate the filtered set
+      const pageRows = filteredDeals.slice(offsetRaw, offsetRaw + limitRaw);
+
+      // Step 5: build response rows (blockReason already computed — no second call needed)
       const rows = pageRows.map((d) => {
-        const blockReason = getBlockReason(d);
         const updatedAt = d.updatedAt ? new Date(d.updatedAt as any) : null;
         const daysInStage = updatedAt
           ? Math.floor((now.getTime() - updatedAt.getTime()) / (1000 * 60 * 60 * 24))
@@ -2020,8 +2046,8 @@ export function registerAdminRoutes(app: Express) {
           leadScore: d.contactLeadScore ?? null,
           mappedSequenceId: resolvedSeqId ?? null,
           mappedSequenceName: resolvedSeqName ?? null,
-          blockReason,
-          blockReasonLabel: BLOCK_REASON_LABELS[blockReason] ?? "Unknown block reason",
+          blockReason: d.blockReason,
+          blockReasonLabel: BLOCK_REASON_LABELS[d.blockReason] ?? "Unknown block reason",
           daysInStage,
         };
       });
@@ -2033,6 +2059,9 @@ export function registerAdminRoutes(app: Express) {
           vertical,
           label,
           total,
+          limit: limitRaw,
+          offset: offsetRaw,
+          blockReason: rawBlockReason ?? "all",
           rows,
         },
       });

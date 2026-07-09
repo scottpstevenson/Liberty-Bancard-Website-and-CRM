@@ -6037,6 +6037,9 @@ interface VerticalDetailData {
     vertical: string | null;
     label: string;
     total: number;
+    limit?: number;
+    offset?: number;
+    blockReason?: string;
     rows: VerticalDetailRow[];
   };
 }
@@ -6053,6 +6056,32 @@ const BLOCK_REASON_COLORS: Record<string, string> = {
   unknown: "text-muted-foreground bg-muted/40",
 };
 
+const BLOCK_REASON_LABEL_MAP: Record<string, string> = {
+  all: "All reasons",
+  DNC: "Do Not Contact (DNC)",
+  suppressed: "Auto-enrollment suppressed",
+  opted_out: "Opted out of email",
+  no_email: "No email address",
+  no_sequence_mapped: "No sequence mapped",
+  sequence_inactive: "Sequence inactive",
+  already_enrolled: "Already enrolled",
+  contactability_blocked: "Contactability blocked",
+  unknown: "Unknown",
+};
+
+const BLOCK_REASON_OPTIONS = [
+  "all",
+  "DNC",
+  "suppressed",
+  "opted_out",
+  "no_email",
+  "no_sequence_mapped",
+  "sequence_inactive",
+  "already_enrolled",
+  "contactability_blocked",
+  "unknown",
+] as const;
+
 function VerticalDetailPanel({
   verticalKey,
   limit = 50,
@@ -6062,17 +6091,23 @@ function VerticalDetailPanel({
 }) {
   const [offset, setOffset] = useState(0);
   const [allRows, setAllRows] = useState<VerticalDetailRow[]>([]);
+  const [blockReason, setBlockReason] = useState<string>("all");
 
-  const url = `/api/admin/pipeline/stage-health/vertical-detail?vertical=${encodeURIComponent(verticalKey)}&limit=${limit}&offset=${offset}`;
+  const url = `/api/admin/pipeline/stage-health/vertical-detail?vertical=${encodeURIComponent(verticalKey)}&limit=${limit}&offset=${offset}${blockReason !== "all" ? `&blockReason=${blockReason}` : ""}`;
 
   const { data, isLoading, isError } = useQuery<VerticalDetailData>({
-    queryKey: ["/api/admin/pipeline/stage-health/vertical-detail", verticalKey, offset],
+    queryKey: ["/api/admin/pipeline/stage-health/vertical-detail", verticalKey, blockReason, offset],
     queryFn: async () => {
       const res = await fetch(url, { credentials: "include" });
       if (!res.ok) throw new Error(`Failed: ${res.status}`);
       return res.json();
     },
   });
+
+  useEffect(() => {
+    setOffset(0);
+    setAllRows([]);
+  }, [blockReason]);
 
   useEffect(() => {
     if (data?.verticalDetail?.rows) {
@@ -6087,7 +6122,7 @@ function VerticalDetailPanel({
   const total = data?.verticalDetail?.total ?? 0;
   const canLoadMore = allRows.length < total && !isLoading;
 
-  if (isLoading && offset === 0) {
+  if (isLoading && offset === 0 && allRows.length === 0) {
     return (
       <div className="flex items-center gap-2 py-3 px-4 text-xs text-muted-foreground" data-testid="vertical-detail-loading">
         <Loader2 className="w-3 h-3 animate-spin" /> Loading blocked deals…
@@ -6103,18 +6138,33 @@ function VerticalDetailPanel({
     );
   }
 
-  if (allRows.length === 0) {
-    return (
-      <div className="py-3 px-4 text-xs text-muted-foreground" data-testid="vertical-detail-empty">
-        No blocked deals found for this vertical.
-      </div>
-    );
-  }
-
   return (
     <div className="bg-muted/20 border-t px-4 py-3" data-testid="vertical-detail-panel">
+      <div className="flex items-center gap-3 mb-2">
+        <label className="text-xs font-medium text-muted-foreground whitespace-nowrap">Filter by reason:</label>
+        <select
+          className="text-xs border rounded px-2 py-1 bg-background text-foreground"
+          value={blockReason}
+          onChange={(e) => setBlockReason(e.target.value)}
+          data-testid="select-block-reason-filter"
+        >
+          {BLOCK_REASON_OPTIONS.map((key) => (
+            <option key={key} value={key}>
+              {BLOCK_REASON_LABEL_MAP[key]}
+            </option>
+          ))}
+        </select>
+      </div>
+      {allRows.length === 0 && !isLoading ? (
+        <div className="py-2 text-xs text-muted-foreground" data-testid="vertical-detail-empty">
+          No blocked deals found for this filter.
+        </div>
+      ) : (
+        <>
       <p className="text-xs font-medium text-muted-foreground mb-2">
-        Showing {allRows.length} of {total} blocked deal{total !== 1 ? "s" : ""}
+        {blockReason !== "all"
+          ? `Showing ${BLOCK_REASON_LABEL_MAP[blockReason] ?? blockReason} blockers — ${allRows.length} of ${total}`
+          : `Showing ${allRows.length} of ${total} blocked deal${total !== 1 ? "s" : ""}`}
       </p>
       <div className="overflow-x-auto">
         <table className="w-full text-xs" data-testid="table-vertical-detail">
@@ -6179,6 +6229,8 @@ function VerticalDetailPanel({
             Load more ({total - allRows.length} remaining)
           </Button>
         </div>
+      )}
+        </>
       )}
     </div>
   );
