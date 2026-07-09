@@ -167,10 +167,10 @@ export async function previewNewLeadEnroll(): Promise<NewLeadEnrollPreviewResult
     if (!contact.email) { counts.missingContactMethod++; continue; }
     if (requiresPewc && tier !== "pewc_full_automation") { counts.pewcBlocked++; continue; }
 
-    // Check existing enrollment
+    // Check existing enrollment — any active/paused enrollment blocks re-enrollment
     const existingEnrollments = await storage.getContactEnrollments(contact.id);
     const isEnrolled = existingEnrollments.some(
-      e => e.sequenceId === seqId && (e.status === "active" || e.status === "paused")
+      e => e.status === "active" || e.status === "paused"
     );
     if (isEnrolled) { counts.alreadyEnrolled++; continue; }
 
@@ -358,10 +358,10 @@ async function _runAsync(opts: {
           continue;
         }
 
-        // Duplicate check
+        // Duplicate check — any active/paused enrollment in ANY sequence blocks re-enrollment
         const existingEnrollments = await storage.getContactEnrollments(contact.id);
         const isEnrolled = existingEnrollments.some(
-          e => e.sequenceId === seqId && (e.status === "active" || e.status === "paused")
+          e => e.status === "active" || e.status === "paused"
         );
         if (isEnrolled) {
           progress.alreadyEnrolled++;
@@ -506,8 +506,9 @@ export async function runNewLeadAutoEnrollCheck(): Promise<void> {
       if (!contact.email) continue;
 
       const existingEnrollments = await storage.getContactEnrollments(contact.id);
+      // Any active/paused enrollment in ANY sequence blocks re-enrollment
       const isEnrolled = existingEnrollments.some(
-        e => e.sequenceId === seqId && (e.status === "active" || e.status === "paused")
+        e => e.status === "active" || e.status === "paused"
       );
       if (isEnrolled) continue;
 

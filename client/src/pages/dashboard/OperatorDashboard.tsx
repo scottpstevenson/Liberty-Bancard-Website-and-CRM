@@ -5998,28 +5998,10 @@ interface StageHealthData {
 }
 
 function StageHealthPanel() {
-  const { toast } = useToast();
-
   const { data, isLoading, isError, refetch } = useQuery<StageHealthData>({
     queryKey: ["/api/admin/pipeline/stage-health"],
     refetchInterval: 30000,
   });
-
-  const toggleAutoEnroll = useMutation({
-    mutationFn: async (enabled: boolean) => {
-      const res = await apiRequest("POST", "/api/admin/pipeline/auto-enroll-toggle", { enabled });
-      if (!res.ok) { const b = await res.json(); throw new Error(b.message); }
-      return res.json();
-    },
-    onSuccess: (_, enabled) => {
-      toast({ title: enabled ? "Auto-enrollment enabled" : "Auto-enrollment disabled" });
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/pipeline/stage-health"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/pipeline/new-leads/enroll-status"] });
-    },
-    onError: (err: any) => toast({ title: "Failed to toggle", description: err.message, variant: "destructive" }),
-  });
-
-  const autoEnabled = data?.autoEnrollNewLeadDeals ?? false;
 
   return (
     <div className="space-y-4" data-testid="panel-stage-health">
@@ -6027,6 +6009,7 @@ function StageHealthPanel() {
         <h3 className="text-lg font-semibold">Pipeline Stage Health</h3>
         <p className="text-xs text-muted-foreground">
           New Lead deal coverage, staleness, and enrollment gaps. Staleness uses <code>updatedAt</code> as proxy (no <code>stageEnteredAt</code> column).
+          Use the <strong>New Lead Enrollment</strong> tab to configure and trigger enrollment.
         </p>
       </div>
 
@@ -6065,48 +6048,12 @@ function StageHealthPanel() {
             </Card>
           </div>
 
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm flex items-center gap-2">
-                Auto-Enrollment Switch
-                {autoEnabled ? (
-                  <Badge className="ml-auto text-xs bg-green-600 hover:bg-green-600">ON</Badge>
-                ) : (
-                  <Badge variant="secondary" className="ml-auto text-xs">OFF</Badge>
-                )}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <p className="text-xs text-muted-foreground">
-                When ON, the SLA worker will automatically enroll eligible New Lead deal contacts into their resolved sequence every hour.
-                When OFF, candidates are detected and logged but no enrollments are created.
-              </p>
-              {autoEnabled && (
-                <div className="flex items-start gap-2 p-2 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded text-xs text-amber-800 dark:text-amber-300">
-                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-600" />
-                  <span>Auto-enrollment is live. Eligible New Lead contacts will be enrolled each hourly sweep.</span>
-                </div>
-              )}
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={autoEnabled}
-                  onClick={() => toggleAutoEnroll.mutate(!autoEnabled)}
-                  disabled={toggleAutoEnroll.isPending}
-                  data-testid="toggle-auto-enroll"
-                  className={cn(
-                    "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
-                    autoEnabled ? "bg-blue-600" : "bg-muted"
-                  )}
-                >
-                  <span className={cn("inline-block h-4 w-4 transform rounded-full bg-white transition-transform", autoEnabled ? "translate-x-6" : "translate-x-1")} />
-                </button>
-                <span className="text-sm">{autoEnabled ? "Auto-enroll ON" : "Auto-enroll OFF (candidates logged only)"}</span>
-                {toggleAutoEnroll.isPending && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}
-              </div>
-            </CardContent>
-          </Card>
+          {data.autoEnrollNewLeadDeals && (
+            <div className="flex items-start gap-2 p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded text-xs text-amber-800 dark:text-amber-300" data-testid="alert-auto-enroll-live">
+              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-600" />
+              <span>Auto-enrollment is <strong>ON</strong>. Eligible New Lead contacts are being enrolled automatically each hourly sweep. Configure in the New Lead Enrollment tab.</span>
+            </div>
+          )}
 
           <Card>
             <CardHeader className="pb-2">
@@ -6215,6 +6162,26 @@ function NewLeadEnrollPanel() {
   const [verticalMapInput, setVerticalMapInput] = useState("");
   const [defaultSeqId, setDefaultSeqId] = useState("");
 
+  const { data: stageHealth } = useQuery<StageHealthData>({
+    queryKey: ["/api/admin/pipeline/stage-health"],
+    refetchInterval: 30000,
+  });
+  const autoEnabled = stageHealth?.autoEnrollNewLeadDeals ?? false;
+
+  const toggleAutoEnroll = useMutation({
+    mutationFn: async (enabled: boolean) => {
+      const res = await apiRequest("POST", "/api/admin/pipeline/auto-enroll-toggle", { enabled });
+      if (!res.ok) { const b = await res.json(); throw new Error(b.message); }
+      return res.json();
+    },
+    onSuccess: (_, enabled) => {
+      toast({ title: enabled ? "Auto-enrollment enabled" : "Auto-enrollment disabled" });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/pipeline/stage-health"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/pipeline/new-leads/enroll-status"] });
+    },
+    onError: (err: any) => toast({ title: "Failed to toggle", description: err.message, variant: "destructive" }),
+  });
+
   const { data: status, refetch: refetchStatus } = useQuery<NewLeadEnrollStatus>({
     queryKey: ["/api/admin/pipeline/new-leads/enroll-status"],
     refetchInterval: (data) => (data?.state?.data?.jobRunning ? 3000 : false),
@@ -6304,6 +6271,49 @@ function NewLeadEnrollPanel() {
           Enroll contacts linked to "New Lead" sales deals into a sequence. DNC, opt-out, PEWC, contactability, and eligibility gates enforced. No deals created, no outbound sends triggered directly.
         </p>
       </div>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm flex items-center gap-2">
+            Auto-Enrollment Switch
+            {autoEnabled ? (
+              <Badge className="ml-auto text-xs bg-green-600 hover:bg-green-600">ON</Badge>
+            ) : (
+              <Badge variant="secondary" className="ml-auto text-xs">OFF</Badge>
+            )}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-xs text-muted-foreground">
+            When ON, the SLA worker automatically enrolls eligible New Lead deal contacts into their resolved sequence every hour.
+            When OFF, candidates are detected and logged but no enrollments are created.
+          </p>
+          {autoEnabled && (
+            <div className="flex items-start gap-2 p-2 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded text-xs text-amber-800 dark:text-amber-300">
+              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-600" />
+              <span>Auto-enrollment is live. Eligible New Lead contacts will be enrolled each hourly sweep.</span>
+            </div>
+          )}
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              role="switch"
+              aria-checked={autoEnabled}
+              onClick={() => toggleAutoEnroll.mutate(!autoEnabled)}
+              disabled={toggleAutoEnroll.isPending}
+              data-testid="toggle-auto-enroll"
+              className={cn(
+                "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+                autoEnabled ? "bg-blue-600" : "bg-muted"
+              )}
+            >
+              <span className={cn("inline-block h-4 w-4 transform rounded-full bg-white transition-transform", autoEnabled ? "translate-x-6" : "translate-x-1")} />
+            </button>
+            <span className="text-sm">{autoEnabled ? "Auto-enroll ON" : "Auto-enroll OFF (candidates logged only)"}</span>
+            {toggleAutoEnroll.isPending && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader className="pb-2">

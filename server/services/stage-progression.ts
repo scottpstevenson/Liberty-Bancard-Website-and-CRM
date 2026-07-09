@@ -112,6 +112,8 @@ export async function runStageProgressionSweep(opts?: { limit?: number }): Promi
 
   const details: StageProgressionResult["details"] = [];
   let progressed = 0;
+  let errors = 0;
+  const startedAt = new Date().toISOString();
 
   for (const deal of activeSales) {
     const signals: DealSignals = {
@@ -141,6 +143,7 @@ export async function runStageProgressionSweep(opts?: { limit?: number }): Promi
       progressed++;
     } catch (err) {
       console.error(`[StageProgression] Failed to advance deal ${deal.id}:`, err);
+      errors++;
     }
   }
 
@@ -156,10 +159,11 @@ export async function runStageProgressionSweep(opts?: { limit?: number }): Promi
     entityType: "system",
     entityId: 0,
     details: {
+      startedAt,
       completedAt,
       dealsScanned: activeSales.length,
       dealsMoved: progressed,
-      errors: 0,
+      errors,
     },
   });
 
