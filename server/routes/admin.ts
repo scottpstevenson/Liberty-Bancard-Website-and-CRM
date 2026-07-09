@@ -1843,6 +1843,202 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // ── PIPELINE STAGE HEALTH — VERTICAL DETAIL ─────────────────────────────
+  // GET /api/admin/pipeline/stage-health/vertical-detail
+  // Returns blocked deal rows for a single vertical with block reason per row.
+  // Query params: vertical (string or __unknown__), limit (default 50, max 200), offset (default 0)
+  // Block reason precedence: suppressed → DNC → opted_out → no_email →
+  //   no_sequence_mapped → sequence_inactive → already_enrolled → contactability_blocked → unknown
+  app.get("/api/admin/pipeline/stage-health/vertical-detail", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const rawVertical = req.query.vertical as string | undefined;
+      const limitRaw = Math.min(Math.max(Number(req.query.limit ?? 50) || 50, 1), 200);
+      const offsetRaw = Math.max(Number(req.query.offset ?? 0) || 0, 0);
+
+      // Map __unknown__ or absent → null (unset vertical)
+      const vertical: string | null =
+        rawVertical === "__unknown__" || rawVertical === undefined || rawVertical === ""
+          ? null
+          : rawVertical;
+
+      const {
+        deals: dealsTable,
+        sequenceEnrollments: enrollmentsTable,
+        contacts: contactsTable,
+        followUpSequences: sequencesTable,
+      } = await import("@shared/schema");
+      const { eq, and, isNull, inArray, desc } = await import("drizzle-orm");
+
+      // Fetch all New Lead deals for this vertical with contact data
+      const baseConditions = [
+        eq(dealsTable.pipeline, "sales"),
+        eq(dealsTable.stage, "New Lead"),
+        isNull(dealsTable.archivedAt),
+      ];
+      const verticalCondition =
+        vertical === null ? isNull(dealsTable.vertical) : eq(dealsTable.vertical, vertical);
+
+      const dealRows = await db
+        .select({
+          dealId: dealsTable.id,
+          dealVertical: dealsTable.vertical,
+          contactId: dealsTable.contactId,
+          autoEnrollmentSuppressedAt: dealsTable.autoEnrollmentSuppressedAt,
+          updatedAt: dealsTable.updatedAt,
+          contactFirstName: contactsTable.firstName,
+          contactLastName: contactsTable.lastName,
+          contactCompanyName: contactsTable.companyName,
+          contactEmail: contactsTable.email,
+          contactPhone: contactsTable.phone,
+          contactDoNotContact: contactsTable.doNotContact,
+          contactConsentTier: contactsTable.consentTier,
+          contactOptedOutEmail: contactsTable.optedOutEmail,
+          contactDoNotAutoContact: contactsTable.doNotAutoContact,
+          contactEmailStatus: contactsTable.emailStatus,
+          contactLeadScore: contactsTable.leadScore,
+        })
+        .from(dealsTable)
+        .leftJoin(contactsTable, eq(dealsTable.contactId, contactsTable.id))
+        .where(and(...baseConditions, verticalCondition))
+        // Stable ORDER BY for consistent pagination across "Load more" calls
+        .orderBy(desc(dealsTable.updatedAt), desc(dealsTable.id));
+
+      const contactIds = dealRows
+        .map((d) => d.contactId)
+        .filter(Boolean) as number[];
+
+      // Enrolled = active | completed (same definition as aggregate)
+      let enrolledContactIds = new Set<number>();
+      // Any enrollment (any status) for already_enrolled check
+      const anyEnrollmentContactIds = new Set<number>();
+
+      if (contactIds.length > 0) {
+        const allEnrollments = await db
+          .select({ contactId: enrollmentsTable.contactId, status: enrollmentsTable.status })
+          .from(enrollmentsTable)
+          .where(inArray(enrollmentsTable.contactId, contactIds));
+
+        const COVERED_STATUSES = new Set(["active", "completed"]);
+        for (const e of allEnrollments) {
+          const cid = Number(e.contactId);
+          if (COVERED_STATUSES.has(e.status ?? "")) enrolledContactIds.add(cid);
+          anyEnrollmentContactIds.add(cid);
+        }
+      }
+
+      // Vertical sequence map + default (same as aggregate)
+      const { getVerticalSequenceMap, getDefaultSequenceId } = await import(
+        "../services/new-lead-enrollment-job"
+      );
+      const [verticalMap, defaultSeqId] = await Promise.all([
+        getVerticalSequenceMap(),
+        getDefaultSequenceId(),
+      ]);
+
+      const resolvedSeqId =
+        vertical && verticalMap[vertical] ? verticalMap[vertical] : (defaultSeqId ?? null);
+
+      let resolvedSeqStatus: string | null = null;
+      let resolvedSeqName: string | null = null;
+      if (resolvedSeqId) {
+        const [seqRow] = await db
+          .select({ id: sequencesTable.id, name: sequencesTable.name, status: sequencesTable.status })
+          .from(sequencesTable)
+          .where(eq(sequencesTable.id, resolvedSeqId));
+        if (seqRow) {
+          resolvedSeqStatus = (seqRow.status as string | null) ?? null;
+          resolvedSeqName = seqRow.name ?? null;
+        }
+      }
+
+      // Block reason labels (stable machine keys)
+      const BLOCK_REASON_LABELS: Record<string, string> = {
+        suppressed: "Auto-enrollment suppressed",
+        DNC: "Do Not Contact (DNC)",
+        opted_out: "Opted out of email",
+        no_email: "No email address",
+        no_sequence_mapped: "No sequence mapped for this vertical",
+        sequence_inactive: "Mapped sequence is inactive",
+        already_enrolled: "Already enrolled (non-covered status)",
+        contactability_blocked: "Blocked by contactability check",
+        unknown: "Unknown block reason",
+      };
+
+      function getBlockReason(row: (typeof dealRows)[0]): string {
+        // Precedence mirrors new-lead-enrollment-job.ts checks (same order):
+        //   suppressed → DNC → opted_out → no_email →
+        //   no_sequence_mapped → sequence_inactive → already_enrolled →
+        //   contactability_blocked (doNotAutoContact or emailStatus non-active) → unknown
+        if (row.autoEnrollmentSuppressedAt != null) return "suppressed";
+        if (row.contactDoNotContact === true) return "DNC";
+        const tier = row.contactConsentTier ?? "cold_no_consent";
+        if (
+          tier === "opted_out" ||
+          tier === "do_not_contact" ||
+          row.contactOptedOutEmail === true
+        )
+          return "opted_out";
+        if (!row.contactEmail || row.contactEmail.trim() === "") return "no_email";
+        if (resolvedSeqId == null) return "no_sequence_mapped";
+        if (resolvedSeqStatus && resolvedSeqStatus !== "active") return "sequence_inactive";
+        const cid = row.contactId ? Number(row.contactId) : null;
+        if (cid !== null && anyEnrollmentContactIds.has(cid)) return "already_enrolled";
+        // Step 3 of evaluateContactability: doNotAutoContact blocks email automation
+        if (row.contactDoNotAutoContact === true) return "contactability_blocked";
+        // Email status non-active (bounced, complained, etc.) blocks email sends
+        if (row.contactEmailStatus && row.contactEmailStatus !== "active") return "contactability_blocked";
+        return "unknown";
+      }
+
+      // Only blocked deals (not in enrolledContactIds — same semantics as aggregate noActiveEnrollment).
+      // Exclude null-contactId deals to match aggregate which uses rows.filter(r => r.contactId != null).
+      const blockedDeals = dealRows.filter(
+        (d) => d.contactId != null && !enrolledContactIds.has(d.contactId)
+      );
+
+      const total = blockedDeals.length;
+      const pageRows = blockedDeals.slice(offsetRaw, offsetRaw + limitRaw);
+
+      const now = new Date();
+      const rows = pageRows.map((d) => {
+        const blockReason = getBlockReason(d);
+        const updatedAt = d.updatedAt ? new Date(d.updatedAt as any) : null;
+        const daysInStage = updatedAt
+          ? Math.floor((now.getTime() - updatedAt.getTime()) / (1000 * 60 * 60 * 24))
+          : null;
+        return {
+          dealId: d.dealId,
+          contactId: d.contactId ?? null,
+          contactName: d.contactId
+            ? `${d.contactFirstName ?? ""} ${d.contactLastName ?? ""}`.trim() || null
+            : null,
+          companyName: d.contactCompanyName ?? null,
+          email: d.contactEmail ?? null,
+          vertical: d.dealVertical ?? null,
+          leadScore: d.contactLeadScore ?? null,
+          mappedSequenceId: resolvedSeqId ?? null,
+          mappedSequenceName: resolvedSeqName ?? null,
+          blockReason,
+          blockReasonLabel: BLOCK_REASON_LABELS[blockReason] ?? "Unknown block reason",
+          daysInStage,
+        };
+      });
+
+      const label = vertical ? vertical : "Unknown / Uncategorized";
+
+      res.json({
+        verticalDetail: {
+          vertical,
+          label,
+          total,
+          rows,
+        },
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // ── NEW LEAD ENROLLMENT SETTINGS ──────────────────────────────────────────
   app.post("/api/admin/pipeline/vertical-sequence-map", requireRole("admin", "manager"), async (req, res) => {
     try {

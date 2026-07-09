@@ -412,6 +412,179 @@ async function run() {
       body: JSON.stringify({ verticalMap: {} }),
     }).catch(() => {});
 
+    // ── Task #866: Detail endpoint tests (10 new cases) ────────────────────
+
+    async function fetchVerticalDetail(vertical: string, extra = ""): Promise<any> {
+      const url = `${BASE_URL}/api/admin/pipeline/stage-health/vertical-detail?vertical=${encodeURIComponent(vertical)}${extra}`;
+      const res = await fetch(url, { headers: { cookie: adminCookie } });
+      if (!res.ok) throw new Error(`vertical-detail returned ${res.status}: ${await res.text()}`);
+      return res.json();
+    }
+
+    // ── Detail Test 1: endpoint returns rows for selected vertical ───────────
+    console.log("\nDetail Test 1: endpoint returns rows for selected named vertical");
+    try {
+      const detail = await fetchVerticalDetail(V_DENT);
+      assert(detail.verticalDetail !== undefined, "detail Test 1: verticalDetail field present");
+      assert(Array.isArray(detail.verticalDetail.rows), "detail Test 1: rows is array");
+      assert(typeof detail.verticalDetail.total === "number", "detail Test 1: total is number");
+      assert(detail.verticalDetail.rows.length > 0, `detail Test 1: rows is non-empty (got ${detail.verticalDetail.rows.length})`);
+    } catch (err) {
+      fail("detail Test 1: fetch threw", String(err));
+    }
+
+    // ── Detail Test 2: endpoint is read-only (no DB writes) ──────────────────
+    console.log("\nDetail Test 2: endpoint is read-only (no DB writes triggered)");
+    try {
+      const enrollsBefore = await db.select({ id: sequenceEnrollments.id }).from(sequenceEnrollments).where(eq(sequenceEnrollments.sequenceId, seqId!));
+      await fetchVerticalDetail(V_REST);
+      const enrollsAfter = await db.select({ id: sequenceEnrollments.id }).from(sequenceEnrollments).where(eq(sequenceEnrollments.sequenceId, seqId!));
+      assert(enrollsBefore.length === enrollsAfter.length, `detail Test 2: no enrollments created (before=${enrollsBefore.length}, after=${enrollsAfter.length})`);
+    } catch (err) {
+      fail("detail Test 2: read-only check threw", String(err));
+    }
+
+    // ── Detail Test 3: DNC row returns 'DNC' reason ──────────────────────────
+    console.log("\nDetail Test 3: DNC contact returns 'DNC' block reason");
+    try {
+      const detail = await fetchVerticalDetail(V_DENT);
+      const rows: any[] = detail.verticalDetail.rows ?? [];
+      // c3 is DNC and linked to d3 in V_DENT
+      const dncRow = rows.find((r: any) => r.dealId === d3.id);
+      assert(dncRow !== undefined, `detail Test 3: DNC deal (d3=#${d3.id}) appears in detail rows`);
+      assert(dncRow?.blockReason === "DNC", `detail Test 3: blockReason='DNC' (got '${dncRow?.blockReason}')`);
+      assert(typeof dncRow?.blockReasonLabel === "string", "detail Test 3: blockReasonLabel is string");
+    } catch (err) {
+      fail("detail Test 3: DNC check threw", String(err));
+    }
+
+    // ── Detail Test 4: opted-out row returns 'opted_out' reason ─────────────
+    console.log("\nDetail Test 4: opted-out contact returns 'opted_out' block reason");
+    try {
+      // Create a temp opted-out contact + deal in V_DENT
+      const [cOpt] = await db.insert(contacts).values({
+        firstName: "T866", lastName: "OptedOut",
+        email: `t866-opt-${uniqueTag}@test.local`, phone: "+10000866001",
+        doNotContact: false, consentTier: "opted_out",
+      } as any).returning({ id: contacts.id });
+      cleanup.push({ table: "contacts", id: cOpt.id });
+      const [dOpt] = await db.insert(deals).values({
+        contactId: cOpt.id, pipeline: "sales", stage: "New Lead", vertical: V_DENT,
+      } as any).returning({ id: deals.id });
+      cleanup.push({ table: "deals", id: dOpt.id });
+
+      const detail = await fetchVerticalDetail(V_DENT);
+      const rows: any[] = detail.verticalDetail.rows ?? [];
+      const optRow = rows.find((r: any) => r.dealId === dOpt.id);
+      assert(optRow !== undefined, `detail Test 4: opted-out deal (dOpt=#${dOpt.id}) appears in detail rows`);
+      assert(optRow?.blockReason === "opted_out", `detail Test 4: blockReason='opted_out' (got '${optRow?.blockReason}')`);
+    } catch (err) {
+      fail("detail Test 4: opted-out check threw", String(err));
+    }
+
+    // ── Detail Test 5: suppressed deal returns 'suppressed' reason ───────────
+    console.log("\nDetail Test 5: suppressed deal returns 'suppressed' block reason");
+    try {
+      const detail = await fetchVerticalDetail(V_DENT);
+      const rows: any[] = detail.verticalDetail.rows ?? [];
+      const suppRow = rows.find((r: any) => r.dealId === d4.id);
+      assert(suppRow !== undefined, `detail Test 5: suppressed deal (d4=#${d4.id}) appears in detail rows`);
+      assert(suppRow?.blockReason === "suppressed", `detail Test 5: blockReason='suppressed' (got '${suppRow?.blockReason}')`);
+    } catch (err) {
+      fail("detail Test 5: suppressed check threw", String(err));
+    }
+
+    // ── Detail Test 6: missing email returns 'no_email' reason ──────────────
+    console.log("\nDetail Test 6: missing email returns 'no_email' block reason");
+    try {
+      const detail = await fetchVerticalDetail(V_REST);
+      const rows: any[] = detail.verticalDetail.rows ?? [];
+      const noEmailRow = rows.find((r: any) => r.dealId === d2.id);
+      assert(noEmailRow !== undefined, `detail Test 6: no-email deal (d2=#${d2.id}) appears in detail rows`);
+      assert(noEmailRow?.blockReason === "no_email", `detail Test 6: blockReason='no_email' (got '${noEmailRow?.blockReason}')`);
+    } catch (err) {
+      fail("detail Test 6: no-email check threw", String(err));
+    }
+
+    // ── Detail Test 7: missing mapping returns 'no_sequence_mapped' ─────────
+    console.log("\nDetail Test 7: missing mapping returns 'no_sequence_mapped' block reason");
+    try {
+      // V_TINY has no mapping and d7/c7 has no special block: should be no_sequence_mapped
+      const detail = await fetchVerticalDetail(V_TINY);
+      const rows: any[] = detail.verticalDetail.rows ?? [];
+      const noMapRow = rows.find((r: any) => r.dealId === d7.id);
+      assert(noMapRow !== undefined, `detail Test 7: no-map deal (d7=#${d7.id}) appears in detail rows`);
+      assert(noMapRow?.blockReason === "no_sequence_mapped", `detail Test 7: blockReason='no_sequence_mapped' (got '${noMapRow?.blockReason}')`);
+    } catch (err) {
+      fail("detail Test 7: no-mapping check threw", String(err));
+    }
+
+    // ── Detail Test 8: unknown/null vertical detail works via __unknown__ ────
+    console.log("\nDetail Test 8: null vertical detail works via __unknown__ canonical key");
+    try {
+      const detail = await fetchVerticalDetail("__unknown__");
+      assert(detail.verticalDetail !== undefined, "detail Test 8: verticalDetail present");
+      assert(detail.verticalDetail.vertical === null, `detail Test 8: vertical is null (got ${JSON.stringify(detail.verticalDetail.vertical)})`);
+      assert(detail.verticalDetail.label === "Unknown / Uncategorized", `detail Test 8: label is 'Unknown / Uncategorized' (got '${detail.verticalDetail.label}')`);
+      // The total must be >= 1 (we seeded at least d6 in the null vertical).
+      // d6 may be beyond the first page if the DB has many null-vertical deals —
+      // paginate through all pages (up to 200-row limit each) to find it.
+      const totalNullBlocked = detail.verticalDetail.total as number;
+      assert(totalNullBlocked >= 1, `detail Test 8: total >= 1 for null vertical (got ${totalNullBlocked})`);
+      let foundD6 = (detail.verticalDetail.rows as any[]).some((r: any) => r.dealId === d6.id);
+      let paginationOffset = detail.verticalDetail.rows.length;
+      while (!foundD6 && paginationOffset < totalNullBlocked) {
+        const nextPage = await fetchVerticalDetail("__unknown__", `&limit=200&offset=${paginationOffset}`);
+        const nextRows: any[] = nextPage.verticalDetail?.rows ?? [];
+        foundD6 = nextRows.some((r: any) => r.dealId === d6.id);
+        paginationOffset += nextRows.length;
+        if (nextRows.length === 0) break;
+      }
+      assert(foundD6, `detail Test 8: null-vertical deal (d6=#${d6.id}) found across all pages (checked ${paginationOffset} of ${totalNullBlocked} rows)`);
+    } catch (err) {
+      fail("detail Test 8: null vertical check threw", String(err));
+    }
+
+    // ── Detail Test 9: limit enforced (request 500 → capped at 200) ─────────
+    console.log("\nDetail Test 9: limit=500 is capped at 200 server-side");
+    try {
+      const res = await fetch(
+        `${BASE_URL}/api/admin/pipeline/stage-health/vertical-detail?vertical=${encodeURIComponent(V_DENT)}&limit=500`,
+        { headers: { cookie: adminCookie } }
+      );
+      assert(res.ok, `detail Test 9: request succeeded (got ${res.status})`);
+      const body = await res.json();
+      const rows: any[] = body.verticalDetail?.rows ?? [];
+      assert(rows.length <= 200, `detail Test 9: rows.length <= 200 (got ${rows.length})`);
+      // total may be larger; rows.length is what's returned and must be ≤ 200
+      assert(body.verticalDetail?.total !== undefined, "detail Test 9: total field present");
+    } catch (err) {
+      fail("detail Test 9: limit cap check threw", String(err));
+    }
+
+    // ── Detail Test 10: aggregate count reconciles with detail reason counts ─
+    console.log("\nDetail Test 10: aggregate dncBlocked reconciles with detail DNC count for V_DENT");
+    try {
+      const health3 = await fetchStageHealth(adminCookie);
+      const dentRow3 = (health3.breakdownByVertical as any[])?.find((r: any) => r.vertical === V_DENT);
+      const detail = await fetchVerticalDetail(V_DENT);
+      const rows: any[] = detail.verticalDetail.rows ?? [];
+
+      // The number of rows with blockReason=DNC must equal aggregate dncBlocked for this vertical
+      const detailDncCount = rows.filter((r: any) => r.blockReason === "DNC").length;
+      // detail total must equal aggregate noActiveEnrollment
+      assert(
+        detail.verticalDetail.total === dentRow3?.noActiveEnrollment,
+        `detail Test 10: detail.total (${detail.verticalDetail.total}) === aggregate noActiveEnrollment (${dentRow3?.noActiveEnrollment})`
+      );
+      assert(
+        detailDncCount >= 1 && detailDncCount === (dentRow3?.dncBlocked ?? 0),
+        `detail Test 10: detail DNC count (${detailDncCount}) reconciles with aggregate dncBlocked (${dentRow3?.dncBlocked})`
+      );
+    } catch (err) {
+      fail("detail Test 10: reconciliation check threw", String(err));
+    }
+
   } finally {
     await teardown();
   }

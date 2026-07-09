@@ -6014,9 +6014,177 @@ interface StageHealthData {
   breakdownByVertical?: VerticalBreakdownRow[];
 }
 
+interface VerticalDetailRow {
+  dealId: number;
+  contactId?: number | null;
+  contactName?: string | null;
+  companyName?: string | null;
+  email?: string | null;
+  vertical?: string | null;
+  leadScore?: number | null;
+  mappedSequenceId?: number | null;
+  mappedSequenceName?: string | null;
+  blockReason: string;
+  blockReasonLabel: string;
+  daysInStage?: number | null;
+}
+
+interface VerticalDetailData {
+  verticalDetail: {
+    vertical: string | null;
+    label: string;
+    total: number;
+    rows: VerticalDetailRow[];
+  };
+}
+
+const BLOCK_REASON_COLORS: Record<string, string> = {
+  DNC: "text-red-700 bg-red-50 dark:bg-red-950/30",
+  suppressed: "text-orange-700 bg-orange-50 dark:bg-orange-950/30",
+  opted_out: "text-pink-700 bg-pink-50 dark:bg-pink-950/30",
+  no_email: "text-gray-600 bg-gray-100 dark:bg-gray-800/40",
+  no_sequence_mapped: "text-amber-700 bg-amber-50 dark:bg-amber-950/30",
+  sequence_inactive: "text-amber-700 bg-amber-50 dark:bg-amber-950/30",
+  already_enrolled: "text-blue-700 bg-blue-50 dark:bg-blue-950/30",
+  contactability_blocked: "text-purple-700 bg-purple-50 dark:bg-purple-950/30",
+  unknown: "text-muted-foreground bg-muted/40",
+};
+
+function VerticalDetailPanel({
+  verticalKey,
+  limit = 50,
+}: {
+  verticalKey: string;
+  limit?: number;
+}) {
+  const [offset, setOffset] = useState(0);
+  const [allRows, setAllRows] = useState<VerticalDetailRow[]>([]);
+
+  const url = `/api/admin/pipeline/stage-health/vertical-detail?vertical=${encodeURIComponent(verticalKey)}&limit=${limit}&offset=${offset}`;
+
+  const { data, isLoading, isError } = useQuery<VerticalDetailData>({
+    queryKey: ["/api/admin/pipeline/stage-health/vertical-detail", verticalKey, offset],
+    queryFn: async () => {
+      const res = await fetch(url, { credentials: "include" });
+      if (!res.ok) throw new Error(`Failed: ${res.status}`);
+      return res.json();
+    },
+  });
+
+  useEffect(() => {
+    if (data?.verticalDetail?.rows) {
+      if (offset === 0) {
+        setAllRows(data.verticalDetail.rows);
+      } else {
+        setAllRows((prev) => [...prev, ...data.verticalDetail.rows]);
+      }
+    }
+  }, [data, offset]);
+
+  const total = data?.verticalDetail?.total ?? 0;
+  const canLoadMore = allRows.length < total && !isLoading;
+
+  if (isLoading && offset === 0) {
+    return (
+      <div className="flex items-center gap-2 py-3 px-4 text-xs text-muted-foreground" data-testid="vertical-detail-loading">
+        <Loader2 className="w-3 h-3 animate-spin" /> Loading blocked deals…
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="py-3 px-4 text-xs text-red-600" data-testid="vertical-detail-error">
+        Failed to load detail rows.
+      </div>
+    );
+  }
+
+  if (allRows.length === 0) {
+    return (
+      <div className="py-3 px-4 text-xs text-muted-foreground" data-testid="vertical-detail-empty">
+        No blocked deals found for this vertical.
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-muted/20 border-t px-4 py-3" data-testid="vertical-detail-panel">
+      <p className="text-xs font-medium text-muted-foreground mb-2">
+        Showing {allRows.length} of {total} blocked deal{total !== 1 ? "s" : ""}
+      </p>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs" data-testid="table-vertical-detail">
+          <thead>
+            <tr className="border-b text-muted-foreground">
+              <th className="text-left py-1 pr-2 font-medium">Deal</th>
+              <th className="text-left py-1 pr-2 font-medium">Contact</th>
+              <th className="text-left py-1 pr-2 font-medium">Email</th>
+              <th className="text-left py-1 pr-2 font-medium">Block Reason</th>
+              <th className="text-left py-1 pr-2 font-medium">Mapped Sequence</th>
+              <th className="text-right py-1 font-medium">Days in Stage</th>
+            </tr>
+          </thead>
+          <tbody>
+            {allRows.map((row) => (
+              <tr
+                key={row.dealId}
+                className="border-b last:border-0 hover:bg-muted/30"
+                data-testid={`detail-row-${row.dealId}`}
+              >
+                <td className="py-1 pr-2 font-mono text-muted-foreground">#{row.dealId}</td>
+                <td className="py-1 pr-2">
+                  <div className="font-medium">{row.contactName || <span className="italic text-muted-foreground">No contact</span>}</div>
+                  {row.companyName && <div className="text-muted-foreground truncate max-w-[140px]">{row.companyName}</div>}
+                </td>
+                <td className="py-1 pr-2 text-muted-foreground font-mono truncate max-w-[140px]">
+                  {row.email || <span className="italic">—</span>}
+                </td>
+                <td className="py-1 pr-2">
+                  <span
+                    className={cn(
+                      "inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium",
+                      BLOCK_REASON_COLORS[row.blockReason] ?? "text-muted-foreground bg-muted/40"
+                    )}
+                    data-testid={`block-reason-${row.dealId}`}
+                  >
+                    {row.blockReasonLabel}
+                  </span>
+                </td>
+                <td className="py-1 pr-2 text-muted-foreground truncate max-w-[120px]">
+                  {row.mappedSequenceName || <span className="italic">—</span>}
+                </td>
+                <td className="py-1 text-right text-muted-foreground">
+                  {row.daysInStage != null ? `${row.daysInStage}d` : "—"}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {canLoadMore && (
+        <div className="mt-2 flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="text-xs h-7"
+            onClick={() => setOffset((o) => o + limit)}
+            disabled={isLoading}
+            data-testid="button-load-more-vertical-detail"
+          >
+            {isLoading ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : null}
+            Load more ({total - allRows.length} remaining)
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function StageHealthPanel() {
   const [, navigate] = useLocation();
   const [breakdownOpen, setBreakdownOpen] = useState(false);
+  const [expandedVertical, setExpandedVertical] = useState<string | null>(null);
   const { data, isLoading, isError, refetch } = useQuery<StageHealthData>({
     queryKey: ["/api/admin/pipeline/stage-health"],
     refetchInterval: 60000,
@@ -6209,6 +6377,7 @@ function StageHealthPanel() {
                     <table className="w-full text-xs">
                       <thead>
                         <tr className="border-b text-muted-foreground">
+                          <th className="text-left py-1.5 pr-2 font-medium w-5" />
                           <th className="text-left py-1.5 pr-2 font-medium">Vertical</th>
                           <th className="text-right py-1.5 pr-2 font-medium">Total</th>
                           <th className="text-right py-1.5 pr-2 font-medium">Enrolled</th>
@@ -6223,44 +6392,66 @@ function StageHealthPanel() {
                       <tbody>
                         {data.breakdownByVertical.map((row, i) => {
                           const isGap = row.noActiveEnrollment > 0 && row.noSequenceMapped > 0;
+                          const vKey = row.vertical ?? "__unknown__";
+                          const isExpanded = expandedVertical === vKey;
+                          const hasBlocked = row.noActiveEnrollment > 0;
                           return (
-                            <tr
-                              key={row.vertical ?? "__unknown__"}
-                              className={cn(
-                                "border-b last:border-0",
-                                isGap ? "bg-amber-50 dark:bg-amber-950/20" : ""
-                              )}
-                              data-testid={`vertical-row-${i}`}
-                            >
-                              <td className="py-1.5 pr-2 font-medium">
-                                <span className="flex items-center gap-1">
-                                  {isGap && <AlertTriangle className="w-3 h-3 text-amber-500 shrink-0" aria-label="Gap: uncovered deals with no mapping" />}
-                                  <span className={row.vertical ? "" : "italic text-muted-foreground"}>
-                                    {row.label}
-                                  </span>
-                                </span>
-                              </td>
-                              <td className="py-1.5 pr-2 text-right">{row.totalDeals}</td>
-                              <td className="py-1.5 pr-2 text-right text-green-700 dark:text-green-400">{row.enrolled}</td>
-                              <td className={cn("py-1.5 pr-2 text-right font-semibold", row.noActiveEnrollment > 0 ? "text-red-600" : "text-muted-foreground")}>
-                                {row.noActiveEnrollment}
-                              </td>
-                              <td className="py-1.5 pr-2 max-w-[160px] truncate">
-                                {row.mappedSequenceName ? (
-                                  <span className="text-blue-700 dark:text-blue-400" title={row.mappedSequenceName}>
-                                    {row.mappedSequenceName}
-                                  </span>
-                                ) : (
-                                  <span className="italic text-muted-foreground">None</span>
+                            <>
+                              <tr
+                                key={vKey}
+                                className={cn(
+                                  "border-b",
+                                  isGap ? "bg-amber-50 dark:bg-amber-950/20" : "",
+                                  hasBlocked ? "cursor-pointer hover:bg-muted/40" : ""
                                 )}
-                              </td>
-                              <td className={cn("py-1.5 pr-2 text-right", row.noSequenceMapped > 0 ? "text-amber-600 font-semibold" : "text-muted-foreground")}>
-                                {row.noSequenceMapped}
-                              </td>
-                              <td className="py-1.5 pr-2 text-right text-muted-foreground">{row.noEmail}</td>
-                              <td className="py-1.5 pr-2 text-right text-muted-foreground">{row.dncBlocked + row.optedOutBlocked}</td>
-                              <td className="py-1.5 text-right text-muted-foreground">{row.suppressed}</td>
-                            </tr>
+                                onClick={hasBlocked ? () => setExpandedVertical(isExpanded ? null : vKey) : undefined}
+                                data-testid={`vertical-row-${i}`}
+                                aria-expanded={hasBlocked ? isExpanded : undefined}
+                              >
+                                <td className="py-1.5 pr-1 pl-1 text-muted-foreground">
+                                  {hasBlocked && (
+                                    isExpanded
+                                      ? <ChevronDown className="w-3 h-3" aria-hidden="true" />
+                                      : <ChevronRight className="w-3 h-3" aria-hidden="true" />
+                                  )}
+                                </td>
+                                <td className="py-1.5 pr-2 font-medium">
+                                  <span className="flex items-center gap-1">
+                                    {isGap && <AlertTriangle className="w-3 h-3 text-amber-500 shrink-0" aria-label="Gap: uncovered deals with no mapping" />}
+                                    <span className={row.vertical ? "" : "italic text-muted-foreground"}>
+                                      {row.label}
+                                    </span>
+                                  </span>
+                                </td>
+                                <td className="py-1.5 pr-2 text-right">{row.totalDeals}</td>
+                                <td className="py-1.5 pr-2 text-right text-green-700 dark:text-green-400">{row.enrolled}</td>
+                                <td className={cn("py-1.5 pr-2 text-right font-semibold", row.noActiveEnrollment > 0 ? "text-red-600" : "text-muted-foreground")}>
+                                  {row.noActiveEnrollment}
+                                </td>
+                                <td className="py-1.5 pr-2 max-w-[160px] truncate">
+                                  {row.mappedSequenceName ? (
+                                    <span className="text-blue-700 dark:text-blue-400" title={row.mappedSequenceName}>
+                                      {row.mappedSequenceName}
+                                    </span>
+                                  ) : (
+                                    <span className="italic text-muted-foreground">None</span>
+                                  )}
+                                </td>
+                                <td className={cn("py-1.5 pr-2 text-right", row.noSequenceMapped > 0 ? "text-amber-600 font-semibold" : "text-muted-foreground")}>
+                                  {row.noSequenceMapped}
+                                </td>
+                                <td className="py-1.5 pr-2 text-right text-muted-foreground">{row.noEmail}</td>
+                                <td className="py-1.5 pr-2 text-right text-muted-foreground">{row.dncBlocked + row.optedOutBlocked}</td>
+                                <td className="py-1.5 text-right text-muted-foreground">{row.suppressed}</td>
+                              </tr>
+                              {isExpanded && (
+                                <tr key={`${vKey}-detail`} data-testid={`vertical-detail-row-${i}`}>
+                                  <td colSpan={10} className="p-0">
+                                    <VerticalDetailPanel verticalKey={vKey} />
+                                  </td>
+                                </tr>
+                              )}
+                            </>
                           );
                         })}
                       </tbody>
