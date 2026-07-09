@@ -1,0 +1,220 @@
+Final Addendum to #861 — Preview Speed: Avoid Per-Deal Serial Await Chain
+
+Approved to build.
+
+Goal
+
+Optimize previewNewLeadEnroll() so it does not perform serial per-deal database lookups.
+
+Current risk:
+
+1,413 New Lead deals × contact + sequence + steps + enrollment lookups
+= 5,600+ sequential DB round-trips
+
+Target behavior:
+
+Preview 5,000+ New Lead deals in under 2 seconds.
+
+Required implementation
+
+In:
+
+server/services/new-lead-enrollment-job.ts
+
+Refactor previewNewLeadEnroll() to use bulk reads.
+
+1. Fetch New Lead deals once
+
+Use _fetchNewLeadDeals() or equivalent existing helper.
+
+Do not change which deals qualify as New Lead.
+
+2. Batch-fetch contacts
+
+Collect unique contactIds from the deals.
+
+Fetch contacts in one bulk query, or chunked bulk queries if needed:
+
+getContactsByIds(contactIds)
+
+Build:
+
+const contactsById = new Map<number, Contact>();
+
+Do not call storage.getContact() once per deal.
+
+3. Resolve sequence IDs once
+
+If preview uses a single selected sequenceId, load that sequence once.
+
+If preview uses vertical mapping, compute all needed sequence IDs first, then fetch/cache unique sequences.
+
+Build:
+
+const sequenceById = new Map<number, Sequence>();
+const stepsBySequenceId = new Map<number, SequenceStep[]>();
+
+Do not call storage.getFollowUpSequence() or storage.getSequenceSteps() repeatedly for the same sequence.
+
+4. Batch-fetch enrollments
+
+Collect unique contact IDs.
+
+Fetch all relevant enrollments in one query, ideally filtered to the target sequence IDs:
+
+getContactEnrollmentsForContacts(contactIds, sequenceIds?)
+
+Build lookup:
+
+const enrollmentsByContactId = new Map<number, Enrollment[]>();
+
+Do not call storage.getContactEnrollments(contactId) once per deal.
+
+5. Preserve preview behavior exactly
+
+The optimized preview must return the same counts and skip reasons as the previous serial version:
+
+eligible
+alreadyEnrolled
+dncBlocked
+optedOutBlocked
+contactabilityBlocked
+missingContactMethod
+sequenceInactive
+noMappedSequence
+skippedBreakdown
+sampleEligible
+
+Do not loosen eligibility checks.
+
+Do not mark contacts eligible just because batch data is missing.
+
+If a contact or sequence cannot be loaded, skip with a clear reason.
+
+Chunking guard
+
+For very large datasets, avoid huge SQL parameter lists.
+
+Use chunks such as:
+
+500–1000 ids per chunk
+
+for:
+
+contactIds
+sequenceIds if needed
+enrollment queries
+
+Kill line:
+
+STOP if this creates a single massive unbounded IN query that could fail at larger contact counts.
+
+Storage changes
+
+Add new bulk storage helpers rather than changing existing single-record behavior globally.
+
+Possible helpers:
+
+getContactsByIds(contactIds: number[])
+getContactEnrollmentsForContacts(contactIds: number[], sequenceIds?: number[])
+getFollowUpSequencesByIds(sequenceIds: number[])
+getSequenceStepsForSequences(sequenceIds: number[])
+
+If existing storage methods already support bulk reads, reuse them.
+
+Do not modify existing single-contact enrollment/apply behavior.
+
+Scope protection
+
+This task is preview-only performance work.
+
+Do not change:
+
+actual enrollment apply logic
+runNewLeadAutoEnrollCheck() mutation behavior
+contactability rules
+DNC/opt-out rules
+sequence worker
+GHL sync
+deal creation
+stage progression
+sequence triggerType
+autoEnrollNewLeadDeals default
+
+Performance instrumentation
+
+Add timing logs around preview:
+
+new_lead_enrollment_preview_started
+new_lead_enrollment_preview_completed
+
+or console/debug timing if audit logging is too heavy.
+
+Include:
+
+dealCount
+contactCount
+sequenceCount
+durationMs
+
+Do not spam one audit row per deal during preview.
+
+Kill lines
+
+STOP if preview writes sequence enrollments.
+STOP if preview creates deals.
+STOP if preview triggers GHL sync.
+STOP if preview sends outbound.
+STOP if preview changes stage progression.
+STOP if optimized preview changes eligibility or skip-reason semantics.
+STOP if storage.getContact() is still awaited inside the per-deal loop.
+STOP if storage.getContactEnrollments() is still awaited inside the per-deal loop.
+STOP if sequence/steps are fetched repeatedly for the same sequenceId.
+STOP if DNC/opt-out contacts become eligible due to missing batch data.
+
+Validation
+
+Add or extend:
+
+scripts/test-new-lead-enrollment-policy.ts
+
+or create:
+
+scripts/test-new-lead-preview-performance.ts
+
+Test cases:
+
+1. preview creates no enrollments
+2. preview returns same counts as serial baseline for mixed fixture data
+3. already-enrolled contacts are counted correctly
+4. DNC contacts are still blocked
+5. missing-email contacts are still blocked
+6. inactive sequence is still counted correctly
+7. no mapped sequence is still counted correctly
+8. duplicate deals/contactIds do not cause duplicate contact lookups
+9. sequence and steps are cached by sequenceId
+10. preview completes within acceptable threshold for large fixture
+
+Run:
+
+npx tsx scripts/test-new-lead-enrollment-policy.ts
+npx tsx scripts/test-new-lead-preview-performance.ts
+npx tsx scripts/smoke-role-guards.ts
+
+Final report required
+
+Return:
+
+Preview function optimized:
+Bulk contact fetch added:
+Bulk enrollment fetch added:
+Sequence cache added:
+Steps cache added:
+Chunk size:
+Per-deal storage.getContact removed: yes/no
+Per-deal storage.getContactEnrollments removed: yes/no
+Preview writes data: yes/no
+Eligibility parity confirmed: yes/no
+Large preview duration:
+Validation commands run:
+Files changed:
