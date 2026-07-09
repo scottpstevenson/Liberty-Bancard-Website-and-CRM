@@ -634,8 +634,12 @@ async function _runAsync(opts: {
  * Called periodically from the SLA worker.
  * When autoEnrollNewLeadDeals=false: writes candidate audit entries, no enrollments.
  * When autoEnrollNewLeadDeals=true:  enrolls each eligible deal contact.
+ *
+ * Performance: builds 3 Maps once before the loop so there are zero per-deal
+ * DB round-trips for sequence lookup, PEWC check, or enrollment check.
  */
 export async function runNewLeadAutoEnrollCheck(): Promise<void> {
+  const startMs = Date.now();
   const autoEnabled = await getAutoEnrollEnabled();
   const [defaultSeqId, verticalMap] = await Promise.all([
     getDefaultSequenceId(),
@@ -644,10 +648,63 @@ export async function runNewLeadAutoEnrollCheck(): Promise<void> {
 
   const dealRows = await _fetchNewLeadDeals();
 
+  // ── 1. Collect all distinct sequence IDs referenced by this deal set ─────
+  const allSeqIdSet = new Set<number>();
+  if (defaultSeqId) allSeqIdSet.add(defaultSeqId);
+  for (const { deal } of dealRows) {
+    if (deal.vertical && verticalMap[deal.vertical]) {
+      allSeqIdSet.add(verticalMap[deal.vertical]);
+    }
+  }
+  const seqIdList = Array.from(allSeqIdSet);
+
+  // ── 2. Bulk-fetch sequences and steps in parallel ─────────────────────────
+  const [allSequences, allSteps] = await Promise.all([
+    seqIdList.length > 0 ? storage.getFollowUpSequencesByIds(seqIdList) : Promise.resolve([]),
+    seqIdList.length > 0 ? storage.getSequenceStepsForSequences(seqIdList) : Promise.resolve([]),
+  ]);
+
+  const sequencesById = new Map(allSequences.map(s => [s.id, s]));
+  const stepsBySequenceId = new Map<number, typeof sequenceSteps.$inferSelect[]>();
+  for (const step of allSteps) {
+    if (!stepsBySequenceId.has(step.sequenceId)) stepsBySequenceId.set(step.sequenceId, []);
+    stepsBySequenceId.get(step.sequenceId)!.push(step);
+  }
+
+  // Cached PEWC helper — uses pre-fetched steps, never hits DB
+  const requiresPewcCached = (seqId: number): boolean => {
+    const steps = stepsBySequenceId.get(seqId) ?? [];
+    return steps.some(s => SMS_VOICE_RINGLESS_TYPES.has(s.actionType ?? ""));
+  };
+
+  // ── 3. Collect all contact IDs and bulk-fetch enrollments ─────────────────
+  const allContactIds = [...new Set(
+    dealRows.filter(r => r.contact != null).map(r => r.contact.id as number)
+  )];
+
+  const allEnrollments = allContactIds.length > 0
+    ? await storage.getContactEnrollmentsForContacts(allContactIds)
+    : [];
+
+  const enrollmentsByContactId = new Map<number, typeof sequenceEnrollments.$inferSelect[]>();
+  for (const enrollment of allEnrollments) {
+    if (!enrollmentsByContactId.has(enrollment.contactId)) {
+      enrollmentsByContactId.set(enrollment.contactId, []);
+    }
+    enrollmentsByContactId.get(enrollment.contactId)!.push(enrollment);
+  }
+
+  // ── 4. Per-deal loop — zero DB calls for sequence/PEWC/enrollment lookups ─
+  let skipped = 0;
+  let candidates = 0;
+  let enrolled = 0;
+  let eligible = 0;
+
   for (const row of dealRows) {
     try {
       const { deal, contact } = row;
-      if (!contact) continue;
+      if (!contact) { skipped++; continue; }
+
       if (contact.doNotContact) {
         await storage.createAuditLog({
           action: "new_lead_auto_enrollment_skipped",
@@ -656,8 +713,10 @@ export async function runNewLeadAutoEnrollCheck(): Promise<void> {
           actorType: "system",
           details: { contactId: contact.id, dealId: deal.id, skipReason: "dnc" },
         });
+        skipped++;
         continue;
       }
+
       const tier = contact.consentTier ?? "cold_no_consent";
       if (tier === "opted_out" || tier === "do_not_contact") {
         await storage.createAuditLog({
@@ -667,39 +726,43 @@ export async function runNewLeadAutoEnrollCheck(): Promise<void> {
           actorType: "system",
           details: { contactId: contact.id, dealId: deal.id, skipReason: "opted_out", consentTier: tier },
         });
+        skipped++;
         continue;
       }
 
       // Suppression guard: skip contacts that have unsubscribed via email-status or
       // optedOutEmail flag, and deals that carry an explicit suppression timestamp.
-      if (contact.emailStatus === "unsubscribed" || contact.emailStatus === "opted_out") continue;
-      if (contact.optedOutEmail === true) continue;
-      if (deal.autoEnrollmentSuppressedAt != null) continue;
+      if (contact.emailStatus === "unsubscribed" || contact.emailStatus === "opted_out") { skipped++; continue; }
+      if (contact.optedOutEmail === true) { skipped++; continue; }
+      if (deal.autoEnrollmentSuppressedAt != null) { skipped++; continue; }
 
       const seqId = (deal.vertical && verticalMap[deal.vertical]) || defaultSeqId;
-      if (!seqId) continue;
+      if (!seqId) { skipped++; continue; }
 
-      const sequence = await storage.getFollowUpSequence(seqId);
-      if (!sequence || sequence.status !== "active") continue;
+      // Map lookup — no DB call
+      const sequence = sequencesById.get(seqId);
+      if (!sequence || sequence.status !== "active") { skipped++; continue; }
 
-      // Channel-aware contact-method + PEWC gate (parity with preview/_runAsync)
-      const requiresPewc = await _requiresPewc(seqId);
+      // Channel-aware contact-method + PEWC gate — no DB call
+      const requiresPewc = requiresPewcCached(seqId);
       if (requiresPewc) {
-        if (tier !== "pewc_full_automation") continue;
-        if (!contact.phone) continue;
+        if (tier !== "pewc_full_automation") { skipped++; continue; }
+        if (!contact.phone) { skipped++; continue; }
       } else {
-        if (!contact.email) continue;
+        if (!contact.email) { skipped++; continue; }
       }
 
-      const existingEnrollments = await storage.getContactEnrollments(contact.id);
-      // Any active/paused enrollment in ANY sequence blocks re-enrollment
+      // Enrollment check — no DB call
+      const existingEnrollments = enrollmentsByContactId.get(contact.id) ?? [];
       const isEnrolled = existingEnrollments.some(
         e => e.status === "active" || e.status === "paused"
       );
-      if (isEnrolled) continue;
+      if (isEnrolled) { skipped++; continue; }
 
       const enrollCheck = await canEnrollContactInSequence(contact.id, sequence);
-      if (!enrollCheck.allowed) continue;
+      if (!enrollCheck.allowed) { skipped++; continue; }
+
+      eligible++;
 
       if (!autoEnabled) {
         // Candidate detection only — no enrollment
@@ -715,6 +778,7 @@ export async function runNewLeadAutoEnrollCheck(): Promise<void> {
             note: "autoEnrollNewLeadDeals=false — no enrollment created",
           },
         });
+        candidates++;
         continue;
       }
 
@@ -724,7 +788,7 @@ export async function runNewLeadAutoEnrollCheck(): Promise<void> {
         channel: requiresPewc ? "sms" : "email",
         mode: "dryRun",
       });
-      if (!contactResult.allowed) continue;
+      if (!contactResult.allowed) { skipped++; continue; }
 
       await storage.createSequenceEnrollment({
         sequenceId: seqId,
@@ -752,10 +816,31 @@ export async function runNewLeadAutoEnrollCheck(): Promise<void> {
           enrolledBy: "sla_auto_enroll",
         },
       });
+      enrolled++;
     } catch (err) {
       console.error(`[NewLeadAutoEnroll] Error processing deal ${row.deal?.id}:`, err);
+      skipped++;
     }
   }
+
+  // ── 5. One summary audit per run (not per deal) ───────────────────────────
+  const durationMs = Date.now() - startMs;
+  await storage.createAuditLog({
+    action: "new_lead_auto_enrollment_check_completed",
+    entityType: "system",
+    entityId: 0,
+    actorType: "system",
+    details: {
+      dealCount: dealRows.length,
+      contactCount: allContactIds.length,
+      sequenceCount: seqIdList.length,
+      eligibleCount: eligible,
+      enrolledCount: enrolled,
+      candidateCount: candidates,
+      skippedCount: skipped,
+      durationMs,
+    },
+  });
 }
 
 /** Alias matching the requested external contract name. */
