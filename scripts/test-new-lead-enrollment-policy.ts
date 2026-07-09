@@ -396,14 +396,18 @@ async function runPartA(): Promise<void> {
   console.log("\n  (HTTP state reset: auto-enroll=false, map cleared)");
 }
 
-// ─── PART B: Behavioral Gate Tests (direct storage-layer approach) ────────────
+// ─── PART B: Behavioral Gate Tests (direct service + storage layer) ──────────
 //
-// Strategy: avoid calling previewNewLeadEnroll() on the full 1413-deal dataset
-// (N+1 queries × N deals = slow). Instead, verify gate logic by:
-//   1. Storing test fixtures in the DB with specific flag combinations
-//   2. Calling storage-layer helpers (getContactEnrollments, getFollowUpSequence)
-//      and applying the service gate logic directly — fast and precise
-//   3. Using HTTP for the one case that needs end-to-end enrollment (B9/B10)
+// Strategy: mix real service calls with targeted storage-layer checks:
+//   B9  — calls runNewLeadAutoEnrollCheck() (the actual periodic hook) with
+//          autoEnabled=false; verifies zero enrollments written for the test
+//          contact and a candidate audit log entry for the test deal.
+//   B10 — calls storage.createSequenceEnrollment() directly because running
+//          the full sweep with autoEnabled=true would enroll all production
+//          contacts; the storage call is the exact write path used by _runAsync.
+//   B13 — calls runStageProgressionSweep({limit:1}) to validate audit shape.
+//   All other cases use direct DB reads to verify the service gate logic without
+//   the overhead of sweeping 1400+ production deals per assertion.
 //
 async function runPartB(): Promise<void> {
   console.log("\n════════════════════════════════════════════════════════");
@@ -523,22 +527,35 @@ async function runPartB(): Promise<void> {
       ko("B8: Preview zero-write violated or failed",
         `status=${previewRes.status}, enrollBefore=${enrollCountBefore}, enrollAfter=${enrollCountAfter}`);
 
-    // ── B9: autoEnroll=false → getAutoEnrollEnabled returns false → no enrollments ─
+    // ── B9: autoEnroll=false → runNewLeadAutoEnrollCheck() writes audit, no enrollment ─
     console.log("\n── B9: autoEnroll=false → no enrollment (kill line) ─────");
-    await setAutoEnrollEnabled(false);
-    const isOff = await getAutoEnrollEnabled();
-    if (isOff === false)
-      ok("B9: getAutoEnrollEnabled()=false — service will NOT create enrollments in auto-check");
-    else
-      ko("B9: expected false after setAutoEnrollEnabled(false)", `got: ${isOff}`);
+    // Create a test contact + deal that passes ALL gates so the periodic hook
+    // would normally enroll it — but must NOT because autoEnabled=false.
+    const cB9 = await createTestContact(); // fresh email, not DNC, not opted_out
+    const dB9 = await createTestDeal(cB9); // New Lead, pipeline=sales, no vertical
 
-    // Verify: enroll-status endpoint reflects autoEnroll=false prevents write
-    // (If a job were run now with isOff=false, _runAsync checks autoEnabled before any write)
-    const checkRes = await jsonFetch("GET", "/api/admin/pipeline/new-leads/enroll-status");
-    if (checkRes.body?.jobRunning === false)
-      ok("B9: No job running — autoEnroll=false means no background enrollment sweep");
+    // Ensure the hook will resolve a sequence for this deal
+    await setDefaultSequenceId(activeSeqId);
+    await setAutoEnrollEnabled(false);
+
+    // Call the ACTUAL periodic hook (what the SLA worker calls)
+    await runNewLeadAutoEnrollCheck();
+
+    // Verify: zero enrollments written for the test contact
+    const b9Enrollments = await getEnrollmentsForContact(cB9);
+    if (b9Enrollments.length === 0)
+      ok("B9: runNewLeadAutoEnrollCheck() with autoEnabled=false wrote 0 enrollments (kill-line holds)");
     else
-      ko("B9: Unexpected job running state", `jobRunning=${checkRes.body?.jobRunning}`);
+      ko("B9: KILL LINE VIOLATED — enrollment written despite autoEnabled=false",
+        `enrollments found: ${b9Enrollments.length}`);
+
+    // Verify: candidate audit log written for the test deal
+    const b9Audit = await getRecentAuditLogs("new_lead_auto_enrollment_candidate_detected", dB9);
+    if (b9Audit.length > 0)
+      ok("B9: candidate audit log written for test deal (autoEnabled=false detection path)");
+    else
+      ko("B9: no candidate audit log written for test deal",
+        "expected new_lead_auto_enrollment_candidate_detected");
 
     // ── B10: autoEnroll=true path — write path verified via storage.createSequenceEnrollment ─
     console.log("\n── B10: autoEnroll=true enrollment write path ───────────");

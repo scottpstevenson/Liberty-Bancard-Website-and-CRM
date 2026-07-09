@@ -163,9 +163,15 @@ export async function previewNewLeadEnroll(): Promise<NewLeadEnrollPreviewResult
     if (!sequence) { counts.noSequenceBlocked++; continue; }
     if (sequence.status !== "active") { counts.inactiveSequenceBlocked++; continue; }
 
+    // Channel-aware contact-method + PEWC gate:
+    // SMS/voice/ringless sequences require PEWC consent + phone; email sequences require email.
     const requiresPewc = await _requiresPewc(seqId);
-    if (!contact.email) { counts.missingContactMethod++; continue; }
-    if (requiresPewc && tier !== "pewc_full_automation") { counts.pewcBlocked++; continue; }
+    if (requiresPewc) {
+      if (tier !== "pewc_full_automation") { counts.pewcBlocked++; continue; }
+      if (!contact.phone) { counts.missingContactMethod++; continue; }
+    } else {
+      if (!contact.email) { counts.missingContactMethod++; continue; }
+    }
 
     // Check existing enrollment — any active/paused enrollment blocks re-enrollment
     const existingEnrollments = await storage.getContactEnrollments(contact.id);
@@ -179,7 +185,7 @@ export async function previewNewLeadEnroll(): Promise<NewLeadEnrollPreviewResult
 
     const contactResult = await evaluateContactability({
       contactId: contact.id,
-      channel: "email",
+      channel: requiresPewc ? "sms" : "email",
       mode: "dryRun",
     });
     if (!contactResult.allowed) { counts.contactabilityBlocked++; continue; }
@@ -335,27 +341,41 @@ async function _runAsync(opts: {
           continue;
         }
 
-        if (!contact.email) {
-          progress.missingContactMethod++;
-          await storage.createAuditLog({
-            action: "new_lead_deal_enrollment_skipped_no_contact_method",
-            entityType: "deal",
-            entityId: deal.id,
-            details: { contactId: contact.id, sequenceId: seqId, reason: "no_email", dealId: deal.id },
-          });
-          continue;
-        }
-
+        // Channel-aware contact-method + PEWC gate:
+        // SMS/voice/ringless sequences require PEWC consent + phone; email sequences require email.
         const requiresPewc = await _requiresPewc(seqId);
-        if (requiresPewc && tier !== "pewc_full_automation") {
-          progress.pewcBlocked++;
-          await storage.createAuditLog({
-            action: "new_lead_deal_enrollment_skipped_pewc",
-            entityType: "deal",
-            entityId: deal.id,
-            details: { contactId: contact.id, sequenceId: seqId, consentTier: tier, dealId: deal.id },
-          });
-          continue;
+        if (requiresPewc) {
+          if (tier !== "pewc_full_automation") {
+            progress.pewcBlocked++;
+            await storage.createAuditLog({
+              action: "new_lead_deal_enrollment_skipped_pewc",
+              entityType: "deal",
+              entityId: deal.id,
+              details: { contactId: contact.id, sequenceId: seqId, consentTier: tier, dealId: deal.id },
+            });
+            continue;
+          }
+          if (!contact.phone) {
+            progress.missingContactMethod++;
+            await storage.createAuditLog({
+              action: "new_lead_deal_enrollment_skipped_no_contact_method",
+              entityType: "deal",
+              entityId: deal.id,
+              details: { contactId: contact.id, sequenceId: seqId, reason: "no_phone", dealId: deal.id },
+            });
+            continue;
+          }
+        } else {
+          if (!contact.email) {
+            progress.missingContactMethod++;
+            await storage.createAuditLog({
+              action: "new_lead_deal_enrollment_skipped_no_contact_method",
+              entityType: "deal",
+              entityId: deal.id,
+              details: { contactId: contact.id, sequenceId: seqId, reason: "no_email", dealId: deal.id },
+            });
+            continue;
+          }
         }
 
         // Duplicate check — any active/paused enrollment in ANY sequence blocks re-enrollment
@@ -387,10 +407,10 @@ async function _runAsync(opts: {
           continue;
         }
 
-        // Contactability gate
+        // Contactability gate (channel matches sequence type)
         const contactResult = await evaluateContactability({
           contactId: contact.id,
-          channel: "email",
+          channel: requiresPewc ? "sms" : "email",
           mode: "dryRun",
         });
         if (!contactResult.allowed) {
@@ -503,12 +523,14 @@ export async function runNewLeadAutoEnrollCheck(): Promise<void> {
       const sequence = await storage.getFollowUpSequence(seqId);
       if (!sequence || sequence.status !== "active") continue;
 
-      if (!contact.email) continue;
-
-      // PEWC gate — parity with preview/_runAsync: SMS/voice/ringless sequences require
-      // pewc_full_automation consent tier; skip without enrolling if not met.
+      // Channel-aware contact-method + PEWC gate (parity with preview/_runAsync)
       const requiresPewc = await _requiresPewc(seqId);
-      if (requiresPewc && tier !== "pewc_full_automation") continue;
+      if (requiresPewc) {
+        if (tier !== "pewc_full_automation") continue;
+        if (!contact.phone) continue;
+      } else {
+        if (!contact.email) continue;
+      }
 
       const existingEnrollments = await storage.getContactEnrollments(contact.id);
       // Any active/paused enrollment in ANY sequence blocks re-enrollment
@@ -537,10 +559,10 @@ export async function runNewLeadAutoEnrollCheck(): Promise<void> {
         continue;
       }
 
-      // Auto-enroll
+      // Auto-enroll — contactability check uses channel matching sequence type
       const contactResult = await evaluateContactability({
         contactId: contact.id,
-        channel: "email",
+        channel: requiresPewc ? "sms" : "email",
         mode: "dryRun",
       });
       if (!contactResult.allowed) continue;
@@ -575,6 +597,9 @@ export async function runNewLeadAutoEnrollCheck(): Promise<void> {
     }
   }
 }
+
+/** Alias matching the requested external contract name. */
+export const runNewLeadEnroll = startNewLeadEnroll;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
