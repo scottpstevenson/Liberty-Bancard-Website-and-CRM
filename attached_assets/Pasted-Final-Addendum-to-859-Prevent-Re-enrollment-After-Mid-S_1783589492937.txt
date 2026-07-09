@@ -1,0 +1,141 @@
+Final Addendum to #859 — Prevent Re-enrollment After Mid-Sequence Unsubscribe
+
+Approved to build with one correction: use deal/contact suppression, not automatic stage progression.
+
+Required behavior
+
+When a contact becomes opted out / unsubscribed:
+
+active sequence enrollments are paused/cancelled
+future New Lead auto-enrollment sweeps skip the contact/deal
+audit log records the suppression
+Stage Health reports suppressed separately
+
+Do not automatically move the deal to another sales stage unless the product already has a clear Disqualified, Do Not Contact, or equivalent stage and this behavior is explicitly approved.
+
+Preferred implementation
+
+Add or reuse a central helper:
+
+suppressNewLeadAutoEnrollmentForContact(contactId, reason)
+
+It should:
+
+find active New Lead deals for contactId
+set auto-enrollment suppression metadata/field
+store reason = unsubscribed / opted_out
+store suppressedAt
+optionally store suppressedUntil = null/permanent unless a timed suppression model already exists
+write audit log
+pause active sequence enrollments if existing system supports it
+
+Recommended audit action:
+
+new_lead_auto_enrollment_suppressed
+
+Suppression field
+
+Use an existing deal metadata/status field if available.
+
+If not available, add a minimal explicit field or metadata key such as:
+
+autoEnrollmentSuppressedAt
+autoEnrollmentSuppressedReason
+autoEnrollmentSuppressedUntil
+
+Do not overload the pipeline stage for this.
+
+Hook locations
+
+Find and cover all unsubscribe/opt-out mutation paths, not just one:
+
+public /unsubscribe endpoint
+GHL opt_out webhook
+admin/contact update setting consentTier = opted_out
+emailStatus = unsubscribed / opted_out
+optedOutEmail = true
+
+If there is already a central contact consent update service, put the suppression hook there. If opt-outs are scattered, create a shared helper and call it from each path.
+
+New Lead enrollment job guard
+
+In:
+
+server/services/new-lead-enrollment-job.ts
+
+runNewLeadAutoEnrollCheck must skip if:
+
+contact consentTier = opted_out
+OR contact optedOutEmail = true for email sequences
+OR emailStatus = unsubscribed/opted_out
+OR active New Lead deal has auto-enrollment suppression
+
+The consent/contactability check remains authoritative. The deal suppression is a back-pressure/dedupe guard, not a replacement for contactability.
+
+Stage Health update
+
+In:
+
+/api/admin/pipeline/stage-health
+
+Add:
+
+newLeadAutoEnrollmentSuppressed
+
+or similar.
+
+Operator Dashboard should show it separately from DNC:
+
+DNC / Do Not Contact
+Auto-enrollment suppressed
+No active enrollment
+
+Do not merge suppressed into DNC, because unsubscribe suppression and global DNC are operationally different.
+
+Kill lines
+
+STOP if an unsubscribed contact can be re-enrolled by runNewLeadAutoEnrollCheck.
+STOP if suppression only happens in the UI and not in the backend job.
+STOP if contactability gates are weakened or bypassed.
+STOP if unsubscribe automatically moves deals to Closed Won, Won, Qualified, or any misleading stage.
+STOP if active enrollments continue after unsubscribe when the system has a pause/cancel path.
+STOP if Stage Health hides suppressed contacts inside the DNC count only.
+STOP if only one unsubscribe path is covered while GHL webhook/public unsubscribe/admin opt-out still bypass suppression.
+
+Validation
+
+Add or extend a targeted test:
+
+scripts/test-new-lead-unsubscribe-suppression.ts
+
+Test cases:
+
+1. active New Lead deal + active enrollment + unsubscribe → suppression audit written
+2. public unsubscribe path suppresses future New Lead auto-enrollment
+3. GHL opt_out webhook suppresses future New Lead auto-enrollment
+4. admin consentTier opted_out update suppresses future New Lead auto-enrollment
+5. runNewLeadAutoEnrollCheck skips suppressed deal/contact
+6. suppressed count appears in stage-health response
+7. DNC count remains separate from suppressed count
+8. no misleading deal stage movement occurs
+
+Run:
+
+npx tsx scripts/test-new-lead-unsubscribe-suppression.ts
+npx tsx scripts/smoke-role-guards.ts
+
+Final report required
+
+Return:
+
+Suppression helper:
+Opt-out paths covered:
+Suppression storage field/metadata:
+Enrollment job skip condition:
+Active enrollment pause/cancel behavior:
+Audit action:
+Stage Health suppressed count:
+Deal stage changed: yes/no
+Contactability logic changed: yes/no
+Validation commands run:
+Files changed:

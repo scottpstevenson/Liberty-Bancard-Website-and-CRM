@@ -1,0 +1,170 @@
+Approved with correction — build-ready.
+
+This is a good visibility patch, but the table should not be sorted by enrolled desc by default. The stated problem is finding coverage gaps, so default sort should be by uncovered / no active enrollment desc, then totalDeals desc.
+
+Use this addendum:
+
+Final Addendum to #860 — Per-Vertical Enrollment Coverage on Stage Health
+
+Approved to build.
+
+Required correction
+
+Default sort should highlight the biggest uncovered gaps.
+
+Use:
+
+noActiveEnrollment desc
+then totalDeals desc
+
+Not:
+
+enrolled desc
+
+because that hides the verticals that need attention.
+
+Endpoint shape
+
+Extend:
+
+GET /api/admin/pipeline/stage-health
+
+Add:
+
+breakdownByVertical: Array<{
+  vertical: string | null;
+  label: string;
+  totalDeals: number;
+  enrolled: number;
+  noActiveEnrollment: number;
+  noSequenceMapped: number;
+  noEmail: number;
+  dncBlocked: number;
+  optedOutBlocked?: number;
+  suppressed?: number;
+  contactabilityBlocked?: number;
+  mappedSequenceId?: number | null;
+  mappedSequenceName?: string | null;
+}>
+
+Include Unknown / Uncategorized for null/empty verticals. Do not drop them.
+
+Counting rules
+
+For each New Lead deal with a linked contact:
+
+totalDeals = all New Lead deals in that vertical
+enrolled = has active/completed relevant sequence enrollment
+noActiveEnrollment = totalDeals - enrolled
+noSequenceMapped = no eligible/default sequence mapping exists
+noEmail = no usable real email for email sequence
+dncBlocked = do_not_contact / DNC blocked
+optedOutBlocked = opted out / unsubscribed
+suppressed = auto-enrollment suppressed from #859, if available
+
+A deal can appear in more than one reason bucket if that matches current diagnostic logic, but totalDeals, enrolled, and noActiveEnrollment must remain clearly reconciled.
+
+Mapping editor guard
+
+The vertical → sequence mapping editor may pre-populate rows from breakdownByVertical, but saving mappings must continue to use the existing policy/settings path.
+
+Allowed:
+
+display current mapped sequence
+show missing mapping warning
+let admin choose a sequence for that vertical
+save mapping through existing New Lead enrollment policy endpoint/settings
+
+Not allowed:
+
+auto-create mappings without admin confirmation
+auto-enroll contacts when a mapping is selected
+activate sequences
+modify sequence triggerType
+
+UI requirements
+
+In StageHealthPanel, render a collapsible table with:
+
+Vertical
+Total New Lead Deals
+Enrolled
+Uncovered
+Mapped Sequence
+No Mapping
+No Email
+DNC / Opted Out
+Suppressed
+
+Default collapsed is acceptable if the aggregate cards remain visible.
+
+Add a clear warning style for verticals where:
+
+noActiveEnrollment > 0 AND noSequenceMapped > 0
+
+Scope protection
+
+Do not change:
+
+new lead enrollment behavior
+autoEnrollNewLeadDeals default
+sequence worker
+contactability
+unsubscribe suppression
+deal stage progression rules
+GHL sync
+sequence triggerType
+lead scoring
+
+This is analytics/visibility + mapping-editor prefill only.
+
+Kill lines
+
+STOP if this task auto-enrolls contacts.
+STOP if this task changes sequence triggerType.
+STOP if this task activates sequences.
+STOP if this task changes contactability or suppression logic.
+STOP if null/unknown verticals are excluded from the breakdown.
+STOP if the table sorts in a way that hides the largest uncovered verticals.
+STOP if saving a sequence mapping triggers enrollment immediately.
+STOP if counts imply DNC/suppressed contacts are safely enrollable.
+
+Validation
+
+Add or extend a targeted test if practical:
+
+scripts/test-stage-health-vertical-breakdown.ts
+
+Test:
+
+1. stage-health returns breakdownByVertical
+2. unknown/null vertical appears as Unknown / Uncategorized
+3. enrolled and noActiveEnrollment counts are correct
+4. missing mapping increments noSequenceMapped
+5. missing email increments noEmail
+6. DNC contact increments dncBlocked
+7. suppressed contact increments suppressed if #859 exists
+8. UI sorts by uncovered/noActiveEnrollment desc
+9. mapping editor pre-populates vertical rows without enrolling contacts
+
+Run:
+
+npx tsx scripts/test-stage-health-vertical-breakdown.ts
+npx tsx scripts/smoke-role-guards.ts
+
+Final report required
+
+Return:
+
+Stage Health endpoint updated:
+breakdownByVertical fields:
+Default sort:
+Unknown vertical handling:
+Mapping editor prefill:
+Saving mapping triggers enrollment: yes/no
+Auto-enrollment behavior changed: yes/no
+Contactability/suppression logic changed: yes/no
+Validation commands run:
+Files changed:
+
+Final verdict: build #860 with this addendum. It is the right operator visibility layer before scaling New Lead enrollment, especially because it tells you whether the blocker is missing mapping, missing email, DNC, or suppression.
