@@ -1672,6 +1672,177 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // ── PIPELINE STAGE HEALTH ─────────────────────────────────────────────────
+  app.get("/api/admin/pipeline/stage-health", requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const { deals: dealsTable, sequenceEnrollments: enrollmentsTable } = await import("@shared/schema");
+      const { eq, and, isNull, inArray, count: drizzleCount } = await import("drizzle-orm");
+
+      // 1. Total New Lead deals (non-archived)
+      const [totalRow] = await db.select({ count: drizzleCount() }).from(dealsTable).where(
+        and(eq(dealsTable.pipeline, "sales"), eq(dealsTable.stage, "New Lead"), isNull(dealsTable.archivedAt))
+      );
+      const totalNewLeadDeals = totalRow?.count ?? 0;
+
+      // 2. Stuck 7+ days (uses updatedAt — documented limitation)
+      const staleDealsRaw = await storage.getDealsStuckInStage("New Lead", 7 * 24 * 60);
+      const staleDeals = staleDealsRaw.slice(0, 25).map((d: any) => ({
+        dealId: d.id,
+        contactId: d.contactId,
+        vertical: d.vertical ?? null,
+        updatedAt: d.updatedAt,
+        createdAt: d.createdAt,
+      }));
+
+      // 3. New Lead deals with no active enrollment
+      const allNewLeadDeals = await db.select({
+        id: dealsTable.id,
+        contactId: dealsTable.contactId,
+      }).from(dealsTable).where(
+        and(eq(dealsTable.pipeline, "sales"), eq(dealsTable.stage, "New Lead"), isNull(dealsTable.archivedAt))
+      );
+      const contactIds = allNewLeadDeals.map((d: any) => d.contactId).filter(Boolean) as number[];
+      let enrolledContactIds = new Set<number>();
+      if (contactIds.length > 0) {
+        const activeEnrollments = await db
+          .select({ contactId: enrollmentsTable.contactId })
+          .from(enrollmentsTable)
+          .where(
+            and(
+              inArray(enrollmentsTable.contactId, contactIds),
+              eq(enrollmentsTable.status, "active")
+            )
+          );
+        enrolledContactIds = new Set(activeEnrollments.map((e: any) => e.contactId));
+      }
+      const newLeadNoActiveEnrollment = allNewLeadDeals.filter(
+        (d: any) => !d.contactId || !enrolledContactIds.has(d.contactId)
+      ).length;
+
+      // 4. System settings
+      const [lastSweep, lastTick, autoEnroll] = await Promise.all([
+        storage.getSystemSetting("stage_progression_last_run"),
+        storage.getSystemSetting("sequence_runner_last_tick"),
+        storage.getSystemSetting("autoEnrollNewLeadDeals"),
+      ]);
+
+      res.json({
+        totalNewLeadDeals,
+        newLeadNoMovement7d: staleDealsRaw.length,
+        newLeadNoActiveEnrollment,
+        autoEnrollNewLeadDeals: autoEnroll === true,
+        lastStageProgressionSweepAt: (lastSweep as any)?.at ?? null,
+        lastSequenceWorkerTickAt: (lastTick as any)?.at ?? null,
+        staleness_proxy: "updatedAt",
+        staleDeals,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── NEW LEAD ENROLLMENT SETTINGS ──────────────────────────────────────────
+  app.post("/api/admin/pipeline/vertical-sequence-map", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const { setVerticalSequenceMap, setDefaultSequenceId } = await import("../services/new-lead-enrollment-job");
+      const { verticalMap, defaultSequenceId } = req.body ?? {};
+      if (verticalMap !== undefined) {
+        if (typeof verticalMap !== "object" || Array.isArray(verticalMap)) {
+          return res.status(400).json({ message: "verticalMap must be an object." });
+        }
+        await setVerticalSequenceMap(verticalMap);
+      }
+      if (defaultSequenceId !== undefined) {
+        await setDefaultSequenceId(defaultSequenceId === null ? null : Number(defaultSequenceId));
+      }
+      res.json({ saved: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/admin/pipeline/auto-enroll-toggle", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const { setAutoEnrollEnabled } = await import("../services/new-lead-enrollment-job");
+      const { enabled } = req.body ?? {};
+      if (typeof enabled !== "boolean") {
+        return res.status(400).json({ message: "enabled must be a boolean." });
+      }
+      await setAutoEnrollEnabled(enabled);
+      res.json({ autoEnrollNewLeadDeals: enabled });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── NEW LEAD ENROLLMENT JOB ───────────────────────────────────────────────
+  app.post("/api/admin/pipeline/new-leads/enroll-preview", requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const { previewNewLeadEnroll } = await import("../services/new-lead-enrollment-job");
+      const result = await previewNewLeadEnroll();
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/admin/pipeline/new-leads/enroll", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const { isNewLeadEnrollJobRunning, startNewLeadEnroll, previewNewLeadEnroll } =
+        await import("../services/new-lead-enrollment-job");
+      const { confirmed, confirmationText } = req.body ?? {};
+
+      if (!confirmed) {
+        return res.status(400).json({ message: "confirmed: true is required." });
+      }
+      if (isNewLeadEnrollJobRunning()) {
+        return res.status(409).json({ message: "A new-lead enrollment job is already running." });
+      }
+
+      const preview = await previewNewLeadEnroll();
+      if (preview.eligible >= 100 && confirmationText !== "ENROLL") {
+        return res.status(400).json({
+          message: `Typed confirmation 'ENROLL' required when eligible count is ≥ 100 (found ${preview.eligible}).`,
+          eligible: preview.eligible,
+          requiresTypedConfirmation: true,
+        });
+      }
+
+      await startNewLeadEnroll();
+      res.status(202).json({ started: true, eligible: preview.eligible });
+    } catch (err: any) {
+      if (err.message === "A new-lead enrollment job is already running.") {
+        return res.status(409).json({ message: err.message });
+      }
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/admin/pipeline/new-leads/enroll-status", requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const { getNewLeadEnrollProgress, isNewLeadEnrollJobRunning } =
+        await import("../services/new-lead-enrollment-job");
+      const progress = await getNewLeadEnrollProgress();
+      res.json({ ...progress, jobRunning: isNewLeadEnrollJobRunning() });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/admin/pipeline/new-leads/enroll-cancel", requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const { isNewLeadEnrollJobRunning, cancelNewLeadEnroll } =
+        await import("../services/new-lead-enrollment-job");
+      if (!isNewLeadEnrollJobRunning()) {
+        return res.status(400).json({ message: "No new-lead enrollment job is currently running." });
+      }
+      await cancelNewLeadEnroll();
+      res.json({ cancelled: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // ── CAN-SPAM cold-email config health ─────────────────────────────────────
   app.get("/api/admin/cold-email-health", requireRole("admin", "manager"), async (_req, res) => {
     try {

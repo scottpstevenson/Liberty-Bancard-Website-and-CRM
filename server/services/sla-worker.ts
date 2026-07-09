@@ -923,6 +923,16 @@ export function startSlaWorker() {
       } catch (err) {
         console.error("[StageProgression] Worker sweep error:", err);
       }
+
+      // New-lead auto-enrollment check — runs at the same ~hourly cadence.
+      // When autoEnrollNewLeadDeals=false (default): writes candidate audit entries only.
+      // When autoEnrollNewLeadDeals=true: creates enrollments for eligible deal contacts.
+      try {
+        const { runNewLeadAutoEnrollCheck } = await import("./new-lead-enrollment-job");
+        await runNewLeadAutoEnrollCheck();
+      } catch (err) {
+        console.error("[NewLeadAutoEnroll] Worker check error:", err);
+      }
     }
     await processEnrichmentQueue().catch(err => console.error("Enrichment queue error:", err));
     if (featureFlags.SUNBIZ_ENRICHMENT_ENABLED) {

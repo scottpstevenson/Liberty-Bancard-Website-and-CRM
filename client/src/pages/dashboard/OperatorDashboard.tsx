@@ -2630,6 +2630,7 @@ const OPERATOR_NAV_GROUPS: OperatorNavGroup[] = [
       { value: "lifecycle", label: "Lifecycle", icon: Users },
       { value: "conversion", label: "Conversion", icon: TrendingUp },
       { value: "stuck-leads", label: "Stuck Leads", icon: AlertTriangle },
+      { value: "stage-health", label: "Stage Health", icon: Activity },
       { value: "vertical-coverage", label: "Vertical Coverage", icon: BarChart3 },
       { value: "statement-upload", label: "Statement Upload", icon: Upload },
     ],
@@ -2678,6 +2679,7 @@ const OPERATOR_NAV_GROUPS: OperatorNavGroup[] = [
     items: [
       { value: "score-all", label: "Score All Contacts", icon: BarChart3 },
       { value: "bulk-enroll", label: "Bulk Enroll", icon: Users },
+      { value: "new-lead-enroll", label: "New Lead Enrollment", icon: ListChecks },
     ],
   },
   {
@@ -2768,6 +2770,10 @@ function renderOperatorView(view: string, onNavigate: (v: string) => void) {
       return <ScoreAllPanel />;
     case "bulk-enroll":
       return <BulkEnrollPanel />;
+    case "stage-health":
+      return <StageHealthPanel />;
+    case "new-lead-enroll":
+      return <NewLeadEnrollPanel />;
     default:
       return <CommandCenter onNavigate={onNavigate} />;
   }
@@ -5961,6 +5967,545 @@ function BulkEnrollPanel() {
             </div>
             {status.error && (
               <p className="text-xs text-red-600 dark:text-red-400" data-testid="text-bulk-enroll-error">Error: {status.error}</p>
+            )}
+            {status.completedAt && (
+              <p className="text-xs text-muted-foreground">Completed: {new Date(status.completedAt).toLocaleString()}</p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+// ─── Stage Health Panel ────────────────────────────────────────────────────────
+
+interface StageHealthData {
+  totalNewLeadDeals: number;
+  newLeadNoMovement7d: number;
+  newLeadNoActiveEnrollment: number;
+  autoEnrollNewLeadDeals: boolean;
+  lastStageProgressionSweepAt: string | null;
+  lastSequenceWorkerTickAt: string | null;
+  staleness_proxy: string;
+  staleDeals: Array<{
+    dealId: number;
+    contactId: number | null;
+    vertical: string | null;
+    updatedAt: string | null;
+    createdAt: string | null;
+  }>;
+}
+
+function StageHealthPanel() {
+  const { toast } = useToast();
+
+  const { data, isLoading, isError, refetch } = useQuery<StageHealthData>({
+    queryKey: ["/api/admin/pipeline/stage-health"],
+    refetchInterval: 30000,
+  });
+
+  const toggleAutoEnroll = useMutation({
+    mutationFn: async (enabled: boolean) => {
+      const res = await apiRequest("POST", "/api/admin/pipeline/auto-enroll-toggle", { enabled });
+      if (!res.ok) { const b = await res.json(); throw new Error(b.message); }
+      return res.json();
+    },
+    onSuccess: (_, enabled) => {
+      toast({ title: enabled ? "Auto-enrollment enabled" : "Auto-enrollment disabled" });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/pipeline/stage-health"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/pipeline/new-leads/enroll-status"] });
+    },
+    onError: (err: any) => toast({ title: "Failed to toggle", description: err.message, variant: "destructive" }),
+  });
+
+  const autoEnabled = data?.autoEnrollNewLeadDeals ?? false;
+
+  return (
+    <div className="space-y-4" data-testid="panel-stage-health">
+      <div>
+        <h3 className="text-lg font-semibold">Pipeline Stage Health</h3>
+        <p className="text-xs text-muted-foreground">
+          New Lead deal coverage, staleness, and enrollment gaps. Staleness uses <code>updatedAt</code> as proxy (no <code>stageEnteredAt</code> column).
+        </p>
+      </div>
+
+      {isLoading && (
+        <div className="space-y-3">
+          {[1,2,3].map(i => (
+            <Card key={i}><CardContent className="p-4"><div className="h-4 bg-muted animate-pulse rounded w-1/3 mb-2" /><div className="h-8 bg-muted animate-pulse rounded w-1/2" /></CardContent></Card>
+          ))}
+        </div>
+      )}
+
+      {isError && (
+        <Card><CardContent className="p-4 text-sm text-red-600">Failed to load stage health data. <Button variant="ghost" size="sm" onClick={() => refetch()}>Retry</Button></CardContent></Card>
+      )}
+
+      {data && (
+        <>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            <Card>
+              <CardContent className="p-4">
+                <p className="text-xs text-muted-foreground mb-1">Total New Lead Deals</p>
+                <p className="text-2xl font-bold" data-testid="kpi-total-new-lead">{data.totalNewLeadDeals.toLocaleString()}</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4">
+                <p className="text-xs text-muted-foreground mb-1">Stale 7+ Days</p>
+                <p className={`text-2xl font-bold ${data.newLeadNoMovement7d > 0 ? "text-amber-600" : "text-green-600"}`} data-testid="kpi-stale-7d">{data.newLeadNoMovement7d.toLocaleString()}</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4">
+                <p className="text-xs text-muted-foreground mb-1">No Active Enrollment</p>
+                <p className={`text-2xl font-bold ${data.newLeadNoActiveEnrollment > 0 ? "text-red-600" : "text-green-600"}`} data-testid="kpi-no-enrollment">{data.newLeadNoActiveEnrollment.toLocaleString()}</p>
+              </CardContent>
+            </Card>
+          </div>
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm flex items-center gap-2">
+                Auto-Enrollment Switch
+                {autoEnabled ? (
+                  <Badge className="ml-auto text-xs bg-green-600 hover:bg-green-600">ON</Badge>
+                ) : (
+                  <Badge variant="secondary" className="ml-auto text-xs">OFF</Badge>
+                )}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-xs text-muted-foreground">
+                When ON, the SLA worker will automatically enroll eligible New Lead deal contacts into their resolved sequence every hour.
+                When OFF, candidates are detected and logged but no enrollments are created.
+              </p>
+              {autoEnabled && (
+                <div className="flex items-start gap-2 p-2 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded text-xs text-amber-800 dark:text-amber-300">
+                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-600" />
+                  <span>Auto-enrollment is live. Eligible New Lead contacts will be enrolled each hourly sweep.</span>
+                </div>
+              )}
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={autoEnabled}
+                  onClick={() => toggleAutoEnroll.mutate(!autoEnabled)}
+                  disabled={toggleAutoEnroll.isPending}
+                  data-testid="toggle-auto-enroll"
+                  className={cn(
+                    "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+                    autoEnabled ? "bg-blue-600" : "bg-muted"
+                  )}
+                >
+                  <span className={cn("inline-block h-4 w-4 transform rounded-full bg-white transition-transform", autoEnabled ? "translate-x-6" : "translate-x-1")} />
+                </button>
+                <span className="text-sm">{autoEnabled ? "Auto-enroll ON" : "Auto-enroll OFF (candidates logged only)"}</span>
+                {toggleAutoEnroll.isPending && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Worker Last Run</CardTitle>
+            </CardHeader>
+            <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-muted-foreground">
+              <div>
+                <p className="font-medium text-foreground">Stage Progression Sweep</p>
+                <p>{data.lastStageProgressionSweepAt ? new Date(data.lastStageProgressionSweepAt).toLocaleString() : "Never"}</p>
+              </div>
+              <div>
+                <p className="font-medium text-foreground">Sequence Worker</p>
+                <p>{data.lastSequenceWorkerTickAt ? new Date(data.lastSequenceWorkerTickAt).toLocaleString() : "Never"}</p>
+              </div>
+            </CardContent>
+          </Card>
+
+          {data.staleDeals.length > 0 && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 text-amber-600" />
+                  Stale New Lead Deals (up to 25)
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b text-muted-foreground">
+                        <th className="text-left py-1.5 pr-3">Deal ID</th>
+                        <th className="text-left py-1.5 pr-3">Contact ID</th>
+                        <th className="text-left py-1.5 pr-3">Vertical</th>
+                        <th className="text-left py-1.5">Last Updated</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.staleDeals.map(d => (
+                        <tr key={d.dealId} className="border-b last:border-0" data-testid={`stale-deal-${d.dealId}`}>
+                          <td className="py-1.5 pr-3 font-mono">{d.dealId}</td>
+                          <td className="py-1.5 pr-3 font-mono">{d.contactId ?? "—"}</td>
+                          <td className="py-1.5 pr-3">{d.vertical ?? "—"}</td>
+                          <td className="py-1.5 text-muted-foreground">{d.updatedAt ? new Date(d.updatedAt).toLocaleDateString() : "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─── New Lead Enroll Panel ─────────────────────────────────────────────────────
+
+interface NewLeadEnrollStatus {
+  status: "idle" | "running" | "complete" | "cancelled" | "failed";
+  total: number;
+  processed: number;
+  enrolled: number;
+  alreadyEnrolled: number;
+  dncBlocked: number;
+  optOutBlocked: number;
+  contactabilityBlocked: number;
+  pewcBlocked: number;
+  missingContactMethod: number;
+  eligibilityBlocked: number;
+  noSequenceBlocked: number;
+  inactiveSequenceBlocked: number;
+  noContactBlocked: number;
+  errors: number;
+  startedAt: string | null;
+  updatedAt: string | null;
+  completedAt: string | null;
+  error?: string | null;
+  jobRunning?: boolean;
+}
+
+interface NewLeadEnrollPreview {
+  total: number;
+  eligible: number;
+  alreadyEnrolled: number;
+  dncBlocked: number;
+  optOutBlocked: number;
+  contactabilityBlocked: number;
+  pewcBlocked: number;
+  missingContactMethod: number;
+  eligibilityBlocked: number;
+  noSequenceBlocked: number;
+  inactiveSequenceBlocked: number;
+  noContactBlocked: number;
+  sequenceChannelLabel: string;
+  requiresTypedConfirmation: boolean;
+  defaultSequenceId: number | null;
+  verticalMap: Record<string, number>;
+}
+
+function NewLeadEnrollPanel() {
+  const { toast } = useToast();
+  const [confirmText, setConfirmText] = useState("");
+  const [preview, setPreview] = useState<NewLeadEnrollPreview | null>(null);
+  const [verticalMapInput, setVerticalMapInput] = useState("");
+  const [defaultSeqId, setDefaultSeqId] = useState("");
+
+  const { data: status, refetch: refetchStatus } = useQuery<NewLeadEnrollStatus>({
+    queryKey: ["/api/admin/pipeline/new-leads/enroll-status"],
+    refetchInterval: (data) => (data?.state?.data?.jobRunning ? 3000 : false),
+  });
+
+  const { data: sequences } = useQuery<SequenceOption[]>({
+    queryKey: ["/api/sequences"],
+  });
+
+  const activeSequences = (sequences ?? []).filter(s => s.status === "active");
+
+  const previewMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/admin/pipeline/new-leads/enroll-preview");
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.message ?? "Preview failed");
+      return body as NewLeadEnrollPreview;
+    },
+    onSuccess: (data) => setPreview(data),
+    onError: (err: any) => toast({ title: "Preview failed", description: err.message, variant: "destructive" }),
+  });
+
+  const enrollMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/admin/pipeline/new-leads/enroll", {
+        confirmed: true,
+        confirmationText: confirmText || undefined,
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.message ?? "Enrollment failed");
+      return body;
+    },
+    onSuccess: (data) => {
+      toast({ title: "Enrollment job started", description: `Enrolling ${data.eligible ?? ""} deals` });
+      setConfirmText("");
+      setPreview(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/pipeline/new-leads/enroll-status"] });
+    },
+    onError: (err: any) => toast({ title: "Enrollment failed", description: err.message, variant: "destructive" }),
+  });
+
+  const cancelMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/admin/pipeline/new-leads/enroll-cancel");
+      if (!res.ok) { const b = await res.json(); throw new Error(b.message); }
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Cancel requested" });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/pipeline/new-leads/enroll-status"] });
+    },
+    onError: (err: any) => toast({ title: "Cancel failed", description: err.message, variant: "destructive" }),
+  });
+
+  const saveSettingsMutation = useMutation({
+    mutationFn: async () => {
+      let verticalMap: Record<string, number> | undefined;
+      if (verticalMapInput.trim()) {
+        try { verticalMap = JSON.parse(verticalMapInput); }
+        catch { throw new Error("Vertical map must be valid JSON. Example: {\"restaurant\": 4, \"dental\": 7}"); }
+      }
+      const res = await apiRequest("POST", "/api/admin/pipeline/vertical-sequence-map", {
+        verticalMap,
+        defaultSequenceId: defaultSeqId ? Number(defaultSeqId) : undefined,
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.message ?? "Save failed");
+      return body;
+    },
+    onSuccess: () => {
+      toast({ title: "Settings saved" });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/pipeline/new-leads/enroll-status"] });
+    },
+    onError: (err: any) => toast({ title: "Save failed", description: err.message, variant: "destructive" }),
+  });
+
+  const isRunning = status?.jobRunning || status?.status === "running";
+  const pct = status && status.total > 0 ? Math.round((status.processed / status.total) * 100) : 0;
+  const needsTypedConfirm = preview?.requiresTypedConfirmation ?? false;
+  const canEnroll = !!((!needsTypedConfirm || confirmText === "ENROLL") && !isRunning && (preview?.eligible ?? 0) > 0);
+
+  return (
+    <div className="space-y-4" data-testid="panel-new-lead-enroll">
+      <div>
+        <h3 className="text-lg font-semibold">New Lead Enrollment</h3>
+        <p className="text-xs text-muted-foreground">
+          Enroll contacts linked to "New Lead" sales deals into a sequence. DNC, opt-out, PEWC, contactability, and eligibility gates enforced. No deals created, no outbound sends triggered directly.
+        </p>
+      </div>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm">Enrollment Routing Settings</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="space-y-1">
+            <p className="text-xs font-medium">Default Sequence ID</p>
+            <p className="text-xs text-muted-foreground mb-1">Used when no vertical-specific sequence is mapped.</p>
+            <Select value={defaultSeqId} onValueChange={v => setDefaultSeqId(v)}>
+              <SelectTrigger data-testid="select-default-sequence" className="max-w-xs">
+                <SelectValue placeholder="None — vertical map required" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">None</SelectItem>
+                {activeSequences.map(s => (
+                  <SelectItem key={s.id} value={s.id.toString()} data-testid={`option-seq-${s.id}`}>{s.name} ({s.id})</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <p className="text-xs font-medium">Vertical → Sequence Map (JSON)</p>
+            <p className="text-xs text-muted-foreground mb-1">Maps deal verticals to sequence IDs. Example: <code>{`{"restaurant": 4, "dental": 7}`}</code></p>
+            <Textarea
+              value={verticalMapInput}
+              onChange={e => setVerticalMapInput(e.target.value)}
+              placeholder={`{"restaurant": 4, "dental": 7}`}
+              data-testid="input-vertical-map"
+              className="font-mono text-xs h-24 max-w-md"
+            />
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => saveSettingsMutation.mutate()}
+            disabled={saveSettingsMutation.isPending}
+            data-testid="button-save-settings"
+          >
+            {saveSettingsMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Settings className="w-4 h-4 mr-2" />}
+            Save Settings
+          </Button>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm">Manual Enrollment Run</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-xs text-muted-foreground">Run a one-off enrollment sweep of all current New Lead deals. Preview first to review eligibility breakdown.</p>
+          <div className="flex gap-2 flex-wrap">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => { setPreview(null); previewMutation.mutate(); }}
+              disabled={previewMutation.isPending || isRunning}
+              data-testid="button-new-lead-enroll-preview"
+            >
+              {previewMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Eye className="w-4 h-4 mr-2" />}
+              Preview
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {preview && (
+        <Card data-testid="card-new-lead-enroll-preview">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              Preview
+              <Badge variant="secondary" className="ml-auto text-xs">{preview.sequenceChannelLabel}</Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 text-xs">
+              <div className="bg-green-50 dark:bg-green-950/20 rounded p-2">
+                <p className="text-muted-foreground">Eligible</p>
+                <p className="font-semibold text-base text-green-700 dark:text-green-400">{preview.eligible.toLocaleString()}</p>
+              </div>
+              <div className="bg-muted/40 rounded p-2">
+                <p className="text-muted-foreground">Total Deals</p>
+                <p className="font-semibold text-base">{preview.total.toLocaleString()}</p>
+              </div>
+              <div className="bg-yellow-50 dark:bg-yellow-950/20 rounded p-2">
+                <p className="text-muted-foreground">Already Enrolled</p>
+                <p className="font-semibold text-base">{preview.alreadyEnrolled.toLocaleString()}</p>
+              </div>
+              <div className="bg-red-50 dark:bg-red-950/20 rounded p-2">
+                <p className="text-muted-foreground">DNC</p>
+                <p className="font-semibold text-base">{preview.dncBlocked.toLocaleString()}</p>
+              </div>
+              <div className="rounded p-2 bg-muted/40">
+                <p className="text-muted-foreground">Opt-Out</p>
+                <p className="font-semibold text-base">{preview.optOutBlocked.toLocaleString()}</p>
+              </div>
+              <div className="rounded p-2 bg-muted/40">
+                <p className="text-muted-foreground">No Sequence</p>
+                <p className="font-semibold text-base">{preview.noSequenceBlocked.toLocaleString()}</p>
+              </div>
+              <div className="rounded p-2 bg-muted/40">
+                <p className="text-muted-foreground">Inactive Seq</p>
+                <p className="font-semibold text-base">{preview.inactiveSequenceBlocked.toLocaleString()}</p>
+              </div>
+              <div className="rounded p-2 bg-muted/40">
+                <p className="text-muted-foreground">No Email</p>
+                <p className="font-semibold text-base">{preview.missingContactMethod.toLocaleString()}</p>
+              </div>
+              <div className="rounded p-2 bg-muted/40">
+                <p className="text-muted-foreground">PEWC</p>
+                <p className="font-semibold text-base">{preview.pewcBlocked.toLocaleString()}</p>
+              </div>
+              <div className="rounded p-2 bg-muted/40">
+                <p className="text-muted-foreground">Eligibility</p>
+                <p className="font-semibold text-base">{preview.eligibilityBlocked.toLocaleString()}</p>
+              </div>
+              <div className="rounded p-2 bg-muted/40">
+                <p className="text-muted-foreground">No Contact</p>
+                <p className="font-semibold text-base">{preview.noContactBlocked.toLocaleString()}</p>
+              </div>
+            </div>
+
+            {needsTypedConfirm && (
+              <div className="space-y-1">
+                <p className="text-xs font-medium text-amber-700 dark:text-amber-300">
+                  {preview.eligible.toLocaleString()} deals eligible. Type <code>ENROLL</code> to confirm.
+                </p>
+                <Input
+                  value={confirmText}
+                  onChange={e => setConfirmText(e.target.value)}
+                  placeholder="ENROLL"
+                  data-testid="input-new-lead-enroll-confirm"
+                  className="max-w-xs text-sm"
+                />
+              </div>
+            )}
+
+            <div className="flex gap-2 flex-wrap">
+              <Button
+                size="sm"
+                onClick={() => enrollMutation.mutate()}
+                disabled={enrollMutation.isPending || !canEnroll}
+                data-testid="button-new-lead-enroll-start"
+              >
+                {enrollMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Play className="w-4 h-4 mr-2" />}
+                {preview.eligible === 0 ? "No Eligible Deals" : `Enroll ${preview.eligible.toLocaleString()} Deals`}
+              </Button>
+              {isRunning && (
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => cancelMutation.mutate()}
+                  disabled={cancelMutation.isPending}
+                  data-testid="button-new-lead-enroll-cancel"
+                >
+                  {cancelMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <XCircle className="w-4 h-4 mr-2" />}
+                  Cancel
+                </Button>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {status && status.status !== "idle" && (
+        <Card data-testid="card-new-lead-enroll-progress">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              Progress
+              {status.status === "running" && <Loader2 className="w-4 h-4 animate-spin text-blue-600" />}
+              {status.status === "complete" && <CheckCircle2 className="w-4 h-4 text-green-600" />}
+              {status.status === "cancelled" && <XCircle className="w-4 h-4 text-orange-600" />}
+              {status.status === "failed" && <AlertTriangle className="w-4 h-4 text-red-600" />}
+              <Badge variant={status.status === "complete" ? "default" : status.status === "failed" ? "destructive" : "secondary"} className="ml-auto text-xs">
+                {status.status}
+              </Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="space-y-1">
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>{status.processed.toLocaleString()} / {status.total.toLocaleString()}</span>
+                <span>{pct}%</span>
+              </div>
+              <Progress value={pct} className="h-2" data-testid="progress-new-lead-enroll" />
+            </div>
+            <div className="grid grid-cols-3 gap-2 text-xs">
+              <div className="bg-green-50 dark:bg-green-950/20 rounded p-2">
+                <p className="text-muted-foreground">Enrolled</p>
+                <p className="font-semibold text-base text-green-700 dark:text-green-400">{status.enrolled.toLocaleString()}</p>
+              </div>
+              <div className="rounded p-2 bg-muted/40">
+                <p className="text-muted-foreground">Skipped</p>
+                <p className="font-semibold text-base">{(status.alreadyEnrolled + status.dncBlocked + status.optOutBlocked + status.contactabilityBlocked + status.pewcBlocked + status.missingContactMethod + status.eligibilityBlocked + status.noSequenceBlocked + status.inactiveSequenceBlocked + status.noContactBlocked).toLocaleString()}</p>
+              </div>
+              <div className="rounded p-2 bg-red-50 dark:bg-red-950/20">
+                <p className="text-muted-foreground">Errors</p>
+                <p className="font-semibold text-base">{status.errors.toLocaleString()}</p>
+              </div>
+            </div>
+            {status.error && (
+              <p className="text-xs text-red-600 dark:text-red-400" data-testid="text-new-lead-enroll-error">Error: {status.error}</p>
             )}
             {status.completedAt && (
               <p className="text-xs text-muted-foreground">Completed: {new Date(status.completedAt).toLocaleString()}</p>

@@ -144,10 +144,23 @@ export async function runStageProgressionSweep(opts?: { limit?: number }): Promi
     }
   }
 
+  const completedAt = new Date().toISOString();
   await storage.setSystemSetting("stage_progression_last_run", {
-    at: new Date().toISOString(),
+    at: completedAt,
     evaluated: activeSales.length,
     progressed,
+  });
+
+  await storage.createAuditLog({
+    action: "stage_progression_sweep_ran",
+    entityType: "system",
+    entityId: 0,
+    details: {
+      completedAt,
+      dealsScanned: activeSales.length,
+      dealsMoved: progressed,
+      errors: 0,
+    },
   });
 
   return { evaluated: activeSales.length, progressed, details };
