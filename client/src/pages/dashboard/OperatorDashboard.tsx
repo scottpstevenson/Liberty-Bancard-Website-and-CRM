@@ -2672,6 +2672,15 @@ const OPERATOR_NAV_GROUPS: OperatorNavGroup[] = [
     ],
   },
   {
+    id: "lead-scoring",
+    label: "Lead Scoring",
+    icon: Target,
+    items: [
+      { value: "score-all", label: "Score All Contacts", icon: BarChart3 },
+      { value: "bulk-enroll", label: "Bulk Enroll", icon: Users },
+    ],
+  },
+  {
     id: "system",
     label: "System Health",
     icon: Settings,
@@ -2755,6 +2764,10 @@ function renderOperatorView(view: string, onNavigate: (v: string) => void) {
       return <QueueMetricsPanel />;
     case "deleted-records":
       return <DeletedRecordsPanel />;
+    case "score-all":
+      return <ScoreAllPanel />;
+    case "bulk-enroll":
+      return <BulkEnrollPanel />;
     default:
       return <CommandCenter onNavigate={onNavigate} />;
   }
@@ -5375,6 +5388,585 @@ export function LifecycleCommandCenter() {
           <AlertTriangle className="w-4 h-4 text-yellow-600 shrink-0 mt-0.5" />
           <span>{data.warning}</span>
         </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Score All Contacts Panel ──────────────────────────────────────────────────
+
+interface ScoringProgress {
+  status: "idle" | "running" | "complete" | "cancelled" | "failed";
+  total: number;
+  processed: number;
+  hot: number;
+  warm: number;
+  cold: number;
+  unqualified: number;
+  errors: number;
+  lastProcessedContactId: number | null;
+  rescore: boolean;
+  startedAt: string | null;
+  updatedAt: string | null;
+  completedAt: string | null;
+  error?: string | null;
+  jobRunning?: boolean;
+}
+
+interface ScoringPreview {
+  totalUnscored: number;
+  wouldProcess: number;
+  estimatedBatches: number;
+  paidAiRequired: boolean;
+}
+
+function ScoreAllPanel() {
+  const { toast } = useToast();
+  const [rescore, setRescore] = useState(false);
+  const [confirmText, setConfirmText] = useState("");
+  const [showConfirm, setShowConfirm] = useState(false);
+
+  const { data: status, refetch: refetchStatus } = useQuery<ScoringProgress>({
+    queryKey: ["/api/admin/contacts/score-all/status"],
+    refetchInterval: (data) => (data?.state?.data?.jobRunning ? 3000 : false),
+  });
+
+  const previewMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/admin/contacts/score-all/preview");
+      return (await res.json()) as ScoringPreview;
+    },
+  });
+
+  const startMutation = useMutation({
+    mutationFn: async (payload: { confirmed: true; rescore: boolean; confirmationText?: string }) => {
+      const res = await apiRequest("POST", "/api/admin/contacts/score-all", payload);
+      if (!res.ok) {
+        const body = await res.json();
+        throw new Error(body.message ?? "Failed to start job");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Scoring job started" });
+      setShowConfirm(false);
+      setConfirmText("");
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/contacts/score-all/status"] });
+    },
+    onError: (err: any) => {
+      toast({ title: "Failed to start job", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const cancelMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/admin/contacts/score-all/cancel");
+      if (!res.ok) { const b = await res.json(); throw new Error(b.message); }
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Cancel requested" });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/contacts/score-all/status"] });
+    },
+    onError: (err: any) => toast({ title: "Cancel failed", description: err.message, variant: "destructive" }),
+  });
+
+  const isRunning = status?.jobRunning || status?.status === "running";
+  const pct = status && status.total > 0 ? Math.round((status.processed / status.total) * 100) : 0;
+
+  const handleStartClick = () => {
+    if (rescore) { setShowConfirm(true); return; }
+    startMutation.mutate({ confirmed: true, rescore: false });
+  };
+
+  return (
+    <div className="space-y-4" data-testid="panel-score-all">
+      <div>
+        <h3 className="text-lg font-semibold">Score All Contacts</h3>
+        <p className="text-xs text-muted-foreground">
+          Batch-scores contacts using deterministic signals only. No AI cost, no GHL sync, no deal changes.
+        </p>
+      </div>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm">Options</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium">Rescore all contacts</p>
+              <p className="text-xs text-muted-foreground">Including contacts already scored. Requires typed confirmation.</p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={rescore}
+              onClick={() => setRescore(v => !v)}
+              data-testid="toggle-rescore"
+              className={cn(
+                "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+                rescore ? "bg-blue-600" : "bg-muted"
+              )}
+            >
+              <span className={cn("inline-block h-4 w-4 transform rounded-full bg-white transition-transform", rescore ? "translate-x-6" : "translate-x-1")} />
+            </button>
+          </div>
+
+          {rescore && (
+            <div className="space-y-1">
+              <p className="text-xs font-medium text-amber-700 dark:text-amber-300">Type <code>SCORE CONTACTS</code> to confirm rescoring all contacts</p>
+              <Input
+                value={confirmText}
+                onChange={e => setConfirmText(e.target.value)}
+                placeholder="SCORE CONTACTS"
+                data-testid="input-rescore-confirm"
+                className="max-w-xs text-sm"
+              />
+            </div>
+          )}
+
+          <div className="flex gap-2 flex-wrap">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => previewMutation.mutate()}
+              disabled={previewMutation.isPending || isRunning}
+              data-testid="button-score-all-preview"
+            >
+              {previewMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Eye className="w-4 h-4 mr-2" />}
+              Preview
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleStartClick}
+              disabled={startMutation.isPending || isRunning || (rescore && confirmText !== "SCORE CONTACTS")}
+              data-testid="button-score-all-start"
+            >
+              {startMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Play className="w-4 h-4 mr-2" />}
+              {rescore ? "Rescore All" : "Score Unscored"}
+            </Button>
+            {isRunning && (
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => cancelMutation.mutate()}
+                disabled={cancelMutation.isPending}
+                data-testid="button-score-all-cancel"
+              >
+                {cancelMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <XCircle className="w-4 h-4 mr-2" />}
+                Cancel
+              </Button>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {previewMutation.data && (
+        <Card data-testid="card-score-all-preview">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Preview</CardTitle>
+          </CardHeader>
+          <CardContent className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+            <div><p className="text-muted-foreground text-xs">Unscored</p><p className="font-semibold text-lg">{previewMutation.data.totalUnscored.toLocaleString()}</p></div>
+            <div><p className="text-muted-foreground text-xs">Would Process</p><p className="font-semibold text-lg">{previewMutation.data.wouldProcess.toLocaleString()}</p></div>
+            <div><p className="text-muted-foreground text-xs">Batches (~50)</p><p className="font-semibold text-lg">{previewMutation.data.estimatedBatches.toLocaleString()}</p></div>
+            <div><p className="text-muted-foreground text-xs">Paid AI?</p><p className="font-semibold text-lg">{previewMutation.data.paidAiRequired ? "Yes" : "No"}</p></div>
+          </CardContent>
+        </Card>
+      )}
+
+      {status && status.status !== "idle" && (
+        <Card data-testid="card-score-all-progress">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              Progress
+              {status.status === "running" && <Loader2 className="w-4 h-4 animate-spin text-blue-600" />}
+              {status.status === "complete" && <CheckCircle2 className="w-4 h-4 text-green-600" />}
+              {status.status === "cancelled" && <XCircle className="w-4 h-4 text-orange-600" />}
+              {status.status === "failed" && <AlertTriangle className="w-4 h-4 text-red-600" />}
+              <Badge variant={status.status === "complete" ? "default" : status.status === "failed" ? "destructive" : "secondary"} className="ml-auto text-xs">
+                {status.status}
+              </Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="space-y-1">
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>{status.processed.toLocaleString()} / {status.total.toLocaleString()}</span>
+                <span>{pct}%</span>
+              </div>
+              <Progress value={pct} className="h-2" data-testid="progress-score-all" />
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+              <div className="bg-red-50 dark:bg-red-950/20 rounded p-2">
+                <p className="text-muted-foreground">Hot</p>
+                <p className="font-semibold text-base">{status.hot.toLocaleString()}</p>
+              </div>
+              <div className="bg-orange-50 dark:bg-orange-950/20 rounded p-2">
+                <p className="text-muted-foreground">Warm</p>
+                <p className="font-semibold text-base">{status.warm.toLocaleString()}</p>
+              </div>
+              <div className="bg-blue-50 dark:bg-blue-950/20 rounded p-2">
+                <p className="text-muted-foreground">Cold</p>
+                <p className="font-semibold text-base">{status.cold.toLocaleString()}</p>
+              </div>
+              <div className="bg-muted/40 rounded p-2">
+                <p className="text-muted-foreground">Unqualified</p>
+                <p className="font-semibold text-base">{status.unqualified.toLocaleString()}</p>
+              </div>
+            </div>
+            {status.errors > 0 && (
+              <p className="text-xs text-red-600 dark:text-red-400" data-testid="text-score-all-errors">{status.errors} contact(s) failed to score</p>
+            )}
+            {status.error && (
+              <p className="text-xs text-red-600 dark:text-red-400" data-testid="text-score-all-job-error">Error: {status.error}</p>
+            )}
+            {status.completedAt && (
+              <p className="text-xs text-muted-foreground">Completed: {new Date(status.completedAt).toLocaleString()}</p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+// ─── Bulk Enroll Panel ─────────────────────────────────────────────────────────
+
+interface BulkEnrollStatus {
+  status: "idle" | "running" | "complete" | "cancelled" | "failed";
+  sequenceId: number;
+  vertical: string;
+  minScore: number;
+  total: number;
+  processed: number;
+  enrolled: number;
+  alreadyEnrolled: number;
+  dncBlocked: number;
+  optOutBlocked: number;
+  contactabilityBlocked: number;
+  pewcBlocked: number;
+  missingContactMethod: number;
+  eligibilityBlocked: number;
+  errors: number;
+  startedAt: string | null;
+  updatedAt: string | null;
+  completedAt: string | null;
+  error?: string | null;
+  jobRunning?: boolean;
+}
+
+interface BulkEnrollPreview {
+  total: number;
+  eligible: number;
+  alreadyEnrolled: number;
+  dncBlocked: number;
+  optOutBlocked: number;
+  contactabilityBlocked: number;
+  pewcBlocked: number;
+  missingContactMethod: number;
+  eligibilityBlocked: number;
+  sequenceChannelLabel: string;
+  requiresTypedConfirmation: boolean;
+}
+
+interface SequenceOption {
+  id: number;
+  name: string;
+  status: string;
+  vertical?: string | null;
+}
+
+function BulkEnrollPanel() {
+  const { toast } = useToast();
+  const [vertical, setVertical] = useState("");
+  const [minScore, setMinScore] = useState(70);
+  const [sequenceId, setSequenceId] = useState<number | null>(null);
+  const [confirmText, setConfirmText] = useState("");
+  const [preview, setPreview] = useState<BulkEnrollPreview | null>(null);
+
+  const { data: status, refetch: refetchStatus } = useQuery<BulkEnrollStatus>({
+    queryKey: ["/api/admin/contacts/bulk-enroll/status"],
+    refetchInterval: (data) => (data?.state?.data?.jobRunning ? 3000 : false),
+  });
+
+  const { data: sequences } = useQuery<SequenceOption[]>({
+    queryKey: ["/api/sequences"],
+  });
+
+  const activeSequences = (sequences ?? []).filter(s => s.status === "active");
+
+  const previewMutation = useMutation({
+    mutationFn: async () => {
+      if (!vertical.trim()) throw new Error("Vertical is required.");
+      if (!sequenceId) throw new Error("Select a sequence.");
+      const res = await apiRequest("POST", "/api/admin/contacts/bulk-enroll/preview", {
+        vertical: vertical.trim(),
+        minScore,
+        sequenceId,
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.message ?? "Preview failed");
+      return body as BulkEnrollPreview;
+    },
+    onSuccess: (data) => setPreview(data),
+    onError: (err: any) => toast({ title: "Preview failed", description: err.message, variant: "destructive" }),
+  });
+
+  const enrollMutation = useMutation({
+    mutationFn: async () => {
+      if (!vertical.trim()) throw new Error("Vertical is required.");
+      if (!sequenceId) throw new Error("Select a sequence.");
+      const res = await apiRequest("POST", "/api/admin/contacts/bulk-enroll", {
+        vertical: vertical.trim(),
+        minScore,
+        sequenceId,
+        confirmed: true,
+        confirmationText: confirmText || undefined,
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.message ?? "Enrollment failed");
+      return body;
+    },
+    onSuccess: (data) => {
+      toast({ title: "Bulk enrollment started", description: `Enrolling ${data.eligible ?? ""} contacts` });
+      setConfirmText("");
+      setPreview(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/contacts/bulk-enroll/status"] });
+    },
+    onError: (err: any) => toast({ title: "Enrollment failed", description: err.message, variant: "destructive" }),
+  });
+
+  const cancelMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/admin/contacts/bulk-enroll/cancel");
+      if (!res.ok) { const b = await res.json(); throw new Error(b.message); }
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Cancel requested" });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/contacts/bulk-enroll/status"] });
+    },
+    onError: (err: any) => toast({ title: "Cancel failed", description: err.message, variant: "destructive" }),
+  });
+
+  const isRunning = status?.jobRunning || status?.status === "running";
+  const pct = status && status.total > 0 ? Math.round((status.processed / status.total) * 100) : 0;
+  const needsTypedConfirm = preview?.requiresTypedConfirmation ?? false;
+  const canEnroll = !!(vertical.trim() && sequenceId && (!needsTypedConfirm || confirmText === "ENROLL") && !isRunning);
+
+  return (
+    <div className="space-y-4" data-testid="panel-bulk-enroll">
+      <div>
+        <h3 className="text-lg font-semibold">Bulk Enroll Hot/Warm Contacts</h3>
+        <p className="text-xs text-muted-foreground">
+          Enroll scored contacts into a sequence by vertical. DNC, opt-out, PEWC, and contactability gates are enforced. No deals created. No outbound sends triggered directly.
+        </p>
+      </div>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm">Filters</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <p className="text-xs font-medium">Vertical</p>
+              <Input
+                value={vertical}
+                onChange={e => { setVertical(e.target.value); setPreview(null); }}
+                placeholder="e.g. restaurant, dental, retail"
+                data-testid="input-bulk-enroll-vertical"
+              />
+            </div>
+            <div className="space-y-1">
+              <p className="text-xs font-medium">Min Lead Score</p>
+              <div className="flex items-center gap-2">
+                <Input
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={minScore}
+                  onChange={e => { setMinScore(Number(e.target.value)); setPreview(null); }}
+                  className="w-24"
+                  data-testid="input-bulk-enroll-minscore"
+                />
+                <span className="text-xs text-muted-foreground">0–100 (default 70 = Hot+Warm)</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <p className="text-xs font-medium">Sequence</p>
+            {activeSequences.length === 0 ? (
+              <p className="text-xs text-muted-foreground">No active sequences found. Activate a sequence first.</p>
+            ) : (
+              <Select value={sequenceId?.toString() ?? ""} onValueChange={v => { setSequenceId(Number(v)); setPreview(null); }}>
+                <SelectTrigger data-testid="select-bulk-enroll-sequence">
+                  <SelectValue placeholder="Select sequence…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {activeSequences.map(s => (
+                    <SelectItem key={s.id} value={s.id.toString()} data-testid={`option-sequence-${s.id}`}>
+                      {s.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            <p className="text-xs text-muted-foreground">Campaign enrollment is not supported. Sequences only.</p>
+          </div>
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => previewMutation.mutate()}
+            disabled={previewMutation.isPending || !vertical.trim() || !sequenceId}
+            data-testid="button-bulk-enroll-preview"
+          >
+            {previewMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Eye className="w-4 h-4 mr-2" />}
+            Preview Enrollment
+          </Button>
+        </CardContent>
+      </Card>
+
+      {preview && (
+        <Card data-testid="card-bulk-enroll-preview">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              Preview
+              <Badge variant="secondary" className="ml-auto text-xs">{preview.sequenceChannelLabel}</Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 text-xs">
+              <div className="bg-green-50 dark:bg-green-950/20 rounded p-2">
+                <p className="text-muted-foreground">Eligible</p>
+                <p className="font-semibold text-base text-green-700 dark:text-green-400">{preview.eligible.toLocaleString()}</p>
+              </div>
+              <div className="bg-muted/40 rounded p-2">
+                <p className="text-muted-foreground">Total Found</p>
+                <p className="font-semibold text-base">{preview.total.toLocaleString()}</p>
+              </div>
+              <div className="bg-yellow-50 dark:bg-yellow-950/20 rounded p-2">
+                <p className="text-muted-foreground">Already Enrolled</p>
+                <p className="font-semibold text-base">{preview.alreadyEnrolled.toLocaleString()}</p>
+              </div>
+              <div className="bg-red-50 dark:bg-red-950/20 rounded p-2">
+                <p className="text-muted-foreground">DNC Blocked</p>
+                <p className="font-semibold text-base">{preview.dncBlocked.toLocaleString()}</p>
+              </div>
+              <div className="rounded p-2 bg-muted/40">
+                <p className="text-muted-foreground">Opt-Out</p>
+                <p className="font-semibold text-base">{preview.optOutBlocked.toLocaleString()}</p>
+              </div>
+              <div className="rounded p-2 bg-muted/40">
+                <p className="text-muted-foreground">Contactability</p>
+                <p className="font-semibold text-base">{preview.contactabilityBlocked.toLocaleString()}</p>
+              </div>
+              <div className="rounded p-2 bg-muted/40">
+                <p className="text-muted-foreground">PEWC Required</p>
+                <p className="font-semibold text-base">{preview.pewcBlocked.toLocaleString()}</p>
+              </div>
+              <div className="rounded p-2 bg-muted/40">
+                <p className="text-muted-foreground">No Email</p>
+                <p className="font-semibold text-base">{preview.missingContactMethod.toLocaleString()}</p>
+              </div>
+            </div>
+
+            {preview.sequenceChannelLabel === "SMS/Voice/Ringless requires PEWC" && (
+              <div className="flex items-start gap-2 p-2 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded text-xs text-amber-800 dark:text-amber-300" data-testid="alert-pewc-required">
+                <Shield className="w-4 h-4 shrink-0 mt-0.5 text-amber-600" />
+                <span>This sequence contains SMS/Voice/Ringless steps. Only contacts with PEWC full automation will be enrolled.</span>
+              </div>
+            )}
+
+            {needsTypedConfirm && (
+              <div className="space-y-1">
+                <p className="text-xs font-medium text-amber-700 dark:text-amber-300">
+                  {preview.eligible.toLocaleString()} contacts will be enrolled. Type <code>ENROLL</code> to confirm.
+                </p>
+                <Input
+                  value={confirmText}
+                  onChange={e => setConfirmText(e.target.value)}
+                  placeholder="ENROLL"
+                  data-testid="input-bulk-enroll-confirm"
+                  className="max-w-xs text-sm"
+                />
+              </div>
+            )}
+
+            <Button
+              size="sm"
+              onClick={() => enrollMutation.mutate()}
+              disabled={enrollMutation.isPending || !canEnroll || preview.eligible === 0}
+              data-testid="button-bulk-enroll-start"
+            >
+              {enrollMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Play className="w-4 h-4 mr-2" />}
+              Confirm & Enroll {preview.eligible > 0 ? `${preview.eligible.toLocaleString()} Contacts` : "(none eligible)"}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {isRunning && (
+        <Button
+          variant="destructive"
+          size="sm"
+          onClick={() => cancelMutation.mutate()}
+          disabled={cancelMutation.isPending}
+          data-testid="button-bulk-enroll-cancel"
+        >
+          {cancelMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <XCircle className="w-4 h-4 mr-2" />}
+          Cancel Job
+        </Button>
+      )}
+
+      {status && status.status !== "idle" && (
+        <Card data-testid="card-bulk-enroll-progress">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              Progress
+              {status.status === "running" && <Loader2 className="w-4 h-4 animate-spin text-blue-600" />}
+              {status.status === "complete" && <CheckCircle2 className="w-4 h-4 text-green-600" />}
+              {status.status === "cancelled" && <XCircle className="w-4 h-4 text-orange-600" />}
+              {status.status === "failed" && <AlertTriangle className="w-4 h-4 text-red-600" />}
+              <Badge variant={status.status === "complete" ? "default" : status.status === "failed" ? "destructive" : "secondary"} className="ml-auto text-xs">
+                {status.status}
+              </Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="space-y-1">
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>{status.processed.toLocaleString()} / {status.total.toLocaleString()}</span>
+                <span>{pct}%</span>
+              </div>
+              <Progress value={pct} className="h-2" data-testid="progress-bulk-enroll" />
+            </div>
+            <div className="grid grid-cols-3 gap-2 text-xs">
+              <div className="bg-green-50 dark:bg-green-950/20 rounded p-2">
+                <p className="text-muted-foreground">Enrolled</p>
+                <p className="font-semibold text-base text-green-700 dark:text-green-400">{status.enrolled.toLocaleString()}</p>
+              </div>
+              <div className="rounded p-2 bg-muted/40">
+                <p className="text-muted-foreground">Skipped</p>
+                <p className="font-semibold text-base">{(status.alreadyEnrolled + status.dncBlocked + status.optOutBlocked + status.contactabilityBlocked + status.pewcBlocked + status.missingContactMethod + status.eligibilityBlocked).toLocaleString()}</p>
+              </div>
+              <div className="rounded p-2 bg-red-50 dark:bg-red-950/20">
+                <p className="text-muted-foreground">Errors</p>
+                <p className="font-semibold text-base">{status.errors.toLocaleString()}</p>
+              </div>
+            </div>
+            {status.error && (
+              <p className="text-xs text-red-600 dark:text-red-400" data-testid="text-bulk-enroll-error">Error: {status.error}</p>
+            )}
+            {status.completedAt && (
+              <p className="text-xs text-muted-foreground">Completed: {new Date(status.completedAt).toLocaleString()}</p>
+            )}
+          </CardContent>
+        </Card>
       )}
     </div>
   );

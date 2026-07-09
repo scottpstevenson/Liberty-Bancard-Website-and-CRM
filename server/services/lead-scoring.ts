@@ -418,8 +418,61 @@ export async function scoreContactBatch(contactIds: number[]): Promise<number> {
   return scored;
 }
 
+/**
+ * scoreContactBatchSafe — compute and persist scores without GHL sync,
+ * notifications, or deal updates. Safe for batch processing 100k+ contacts.
+ * Returns null if contact not found.
+ */
+export async function scoreContactBatchSafe(contactId: number): Promise<{ tier: string; total: number } | null> {
+  const contact = await storage.getContact(contactId);
+  if (!contact) return null;
+
+  const contactDeals = await storage.getDealsByContact(contactId);
+  const primaryDeal = contactDeals[0] || null;
+
+  const revPotential = calculateRevenuePotential(contact, primaryDeal);
+  const switchability = calculateSwitchability(contact);
+  const uwConfidence = calculateUnderwritingConfidence(contact, primaryDeal);
+  const engagement = await calculateEngagement(contactId);
+  const quizBonus = calculateQuizBonus(contact);
+
+  let offerBonus = 0;
+  if (contact.offerRoutingSource !== "manual_override" && contact.offerConfidence != null) {
+    offerBonus = Math.min(5, Math.round(contact.offerConfidence / 20));
+  }
+  const uwWithBonus = Math.min(25, uwConfidence.score + offerBonus);
+
+  const total = Math.min(100, revPotential.score + switchability.score + uwWithBonus + engagement.score + quizBonus.score);
+  const tier = determineTier(total);
+
+  const breakdown: ScoreBreakdown = {
+    revPotential: { score: revPotential.score, max: 30, factors: revPotential.factors },
+    switchability: { score: switchability.score, max: 25, factors: switchability.factors },
+    uwConfidence: { score: uwWithBonus, max: 25, factors: offerBonus > 0 ? { ...uwConfidence.factors, offerConfidenceBonus: offerBonus } : uwConfidence.factors },
+    engagement: { score: engagement.score, max: 20, factors: engagement.factors },
+    quizBonus: { score: quizBonus.score, max: 20, factors: quizBonus.factors },
+    total,
+    tier,
+    summary: "",
+  };
+  breakdown.summary = generateSummary(breakdown, contact);
+
+  await storage.syncUpdateContact(contactId, {
+    leadScore: total,
+    revPotentialScore: revPotential.score,
+    switchabilityScore: switchability.score,
+    uwConfidenceScore: uwWithBonus,
+    engagementScore: engagement.score,
+    scoreBreakdown: breakdown as any,
+    lastScoredAt: new Date(),
+  });
+
+  return { tier, total };
+}
+
 export { calculateRevenuePotential as calculateRevenuePotentialFn };
 export { calculateSwitchability as calculateSwitchabilityFn };
 export { calculateUnderwritingConfidence as calculateUnderwritingConfidenceFn };
+export { calculateEngagement as calculateEngagementFn };
 export { calculateQuizBonus as calculateQuizBonusFn };
 export type { ScoreBreakdown };

@@ -1527,6 +1527,151 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // === CONTACT SCORING JOB ===
+  app.post("/api/admin/contacts/score-all/preview", requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const { previewScoringJob } = await import("../services/contact-scoring-job");
+      const result = await previewScoringJob(false);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/admin/contacts/score-all", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const { isScoringJobRunning, startScoringJob } = await import("../services/contact-scoring-job");
+      const { confirmed, confirmationText, rescore, batchSize } = req.body ?? {};
+
+      if (!confirmed) {
+        return res.status(400).json({ message: "confirmed: true is required." });
+      }
+
+      if (rescore === true && confirmationText !== "SCORE CONTACTS") {
+        return res.status(400).json({ message: "Typed confirmation 'SCORE CONTACTS' required to rescore all contacts." });
+      }
+
+      if (isScoringJobRunning()) {
+        return res.status(409).json({ message: "A scoring job is already running." });
+      }
+
+      await startScoringJob({ rescore: !!rescore, batchSize, adminUserId: (req.user as any)?.id ?? null });
+      res.status(202).json({ message: "Scoring job started." });
+    } catch (err: any) {
+      if (err.message === "A scoring job is already running.") {
+        return res.status(409).json({ message: err.message });
+      }
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/admin/contacts/score-all/status", requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const { getScoringProgress, isScoringJobRunning } = await import("../services/contact-scoring-job");
+      const progress = await getScoringProgress();
+      res.json({ ...progress, jobRunning: isScoringJobRunning() });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/admin/contacts/score-all/cancel", requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const { isScoringJobRunning, cancelScoringJob } = await import("../services/contact-scoring-job");
+      if (!isScoringJobRunning()) {
+        return res.status(400).json({ message: "No scoring job is currently running." });
+      }
+      await cancelScoringJob();
+      res.json({ message: "Cancel requested. The job will stop after the current batch." });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === BULK ENROLLMENT JOB ===
+  app.post("/api/admin/contacts/bulk-enroll/preview", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const { previewBulkEnroll } = await import("../services/bulk-enrollment-job");
+      const { vertical, minScore, sequenceId, campaignId } = req.body ?? {};
+      if (!vertical) return res.status(400).json({ message: "vertical is required." });
+      const result = await previewBulkEnroll({
+        vertical,
+        minScore: Number(minScore) || 70,
+        sequenceId: sequenceId ? Number(sequenceId) : undefined,
+        campaignId: campaignId ? Number(campaignId) : undefined,
+      });
+      res.json(result);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/admin/contacts/bulk-enroll", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const { isBulkEnrollJobRunning, startBulkEnrollJob, previewBulkEnroll } = await import("../services/bulk-enrollment-job");
+      const { vertical, minScore, sequenceId, campaignId, confirmed, confirmationText } = req.body ?? {};
+
+      if (!vertical) return res.status(400).json({ message: "vertical is required." });
+      if (!confirmed) return res.status(400).json({ message: "confirmed: true is required." });
+
+      if (isBulkEnrollJobRunning()) {
+        return res.status(409).json({ message: "A bulk enrollment job is already running." });
+      }
+
+      const preview = await previewBulkEnroll({
+        vertical,
+        minScore: Number(minScore) || 70,
+        sequenceId: sequenceId ? Number(sequenceId) : undefined,
+        campaignId: campaignId ? Number(campaignId) : undefined,
+      });
+
+      if (preview.eligible >= 100 && confirmationText !== "ENROLL") {
+        return res.status(400).json({
+          message: `Typed confirmation 'ENROLL' required when eligible count is ≥ 100 (found ${preview.eligible}).`,
+          eligible: preview.eligible,
+          requiresTypedConfirmation: true,
+        });
+      }
+
+      await startBulkEnrollJob({
+        vertical,
+        minScore: Number(minScore) || 70,
+        sequenceId: sequenceId ? Number(sequenceId) : undefined,
+        campaignId: campaignId ? Number(campaignId) : undefined,
+      });
+
+      res.status(202).json({ message: "Bulk enrollment job started.", eligible: preview.eligible });
+    } catch (err: any) {
+      if (err.message === "A bulk enrollment job is already running.") {
+        return res.status(409).json({ message: err.message });
+      }
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/admin/contacts/bulk-enroll/status", requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const { getBulkEnrollProgress, isBulkEnrollJobRunning } = await import("../services/bulk-enrollment-job");
+      const progress = await getBulkEnrollProgress();
+      res.json({ ...progress, jobRunning: isBulkEnrollJobRunning() });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/admin/contacts/bulk-enroll/cancel", requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const { isBulkEnrollJobRunning, cancelBulkEnrollJob } = await import("../services/bulk-enrollment-job");
+      if (!isBulkEnrollJobRunning()) {
+        return res.status(400).json({ message: "No bulk enrollment job is currently running." });
+      }
+      await cancelBulkEnrollJob();
+      res.json({ message: "Cancel requested. The job will stop after the current contact." });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // ── CAN-SPAM cold-email config health ─────────────────────────────────────
   app.get("/api/admin/cold-email-health", requireRole("admin", "manager"), async (_req, res) => {
     try {
