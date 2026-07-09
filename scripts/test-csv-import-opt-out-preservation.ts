@@ -1,9 +1,13 @@
 #!/usr/bin/env tsx
 /**
- * Task #864 — Validation script: CSV import opt-out preservation
+ * Task #864 + #884 — Validation script: CSV import opt-out preservation
  *
  * Tests 13 cases verifying the monotonic consent merge rule:
  *   "restrictive consent state is never downgraded by a CSV import"
+ *
+ * Cases 14-19 (Task #884): GHL sync payload verification after CSV opt-out.
+ *   Confirms that after a CSV import applies an opt-out, the GHL upsert
+ *   payload correctly includes lb_do_not_contact and lb_consent_tier.
  *
  * Run with the dev server NOT required — directly tests the merge helpers
  * and database update logic extracted from server/routes/imports.ts.
@@ -15,6 +19,8 @@ import { pool, db } from "../server/db";
 import { contacts } from "../shared/schema";
 import { eq } from "drizzle-orm";
 import { randomUUID } from "crypto";
+import { storage } from "../server/storage";
+import { upsertGhlContact } from "../server/services/ghl";
 
 // ── Replica of the helpers from server/routes/imports.ts ─────────────────────
 const RESTRICTIVE_EMAIL_STATUSES = new Set(["unsubscribed", "opted_out"]);
@@ -329,6 +335,216 @@ async function runTests(): Promise<void> {
     } else {
       fail("Case 13", `${recentGhl} GHL-related audit entries found (expected 0)`);
     }
+  }
+
+  // ── Cases 14-19: GHL sync payload verification (Task #884) ───────────────
+  //
+  // After a CSV import applies an opt-out, the GHL 45-second sync loop calls
+  // upsertGhlContact() via syncContactToGhl().  We verify that the permission-
+  // fields payload it builds contains lb_do_not_contact and lb_consent_tier
+  // with the correct opt-out values.
+  //
+  // Mock strategy: replace global.fetch before calling upsertGhlContact() so
+  // no real network request is made. ghlFetch() (ghl.ts:44) calls global.fetch
+  // directly, so this intercept is sufficient.  We also set fake GHL env vars
+  // so getConfig() returns non-null, enabling the payload builder to run.
+
+  console.log("\n── Cases 14-19: GHL payload after CSV opt-out apply ──");
+
+  // Captured GHL HTTP calls from the mock
+  type CapturedCall = { url: string; method: string; body: any };
+  const capturedGhlCalls: CapturedCall[] = [];
+  const originalFetch = (global as any).fetch;
+
+  // Save and override GHL env vars with fake values
+  const origToken = process.env.GHL_PRIVATE_INTEGRATION_TOKEN;
+  const origApiKey = process.env.GHL_API_KEY;
+  const origLocId = process.env.GHL_LOCATION_ID;
+  process.env.GHL_PRIVATE_INTEGRATION_TOKEN = "test-mock-token-884";
+  process.env.GHL_LOCATION_ID = "test-mock-location-884";
+  // Clear real API key so only the private integration token is used
+  delete process.env.GHL_API_KEY;
+
+  // Install mock fetch — records calls and returns a synthetic 200 success
+  (global as any).fetch = async (url: string, options: RequestInit = {}) => {
+    let bodyParsed: any;
+    if (options.body) {
+      try { bodyParsed = JSON.parse(options.body as string); } catch { bodyParsed = options.body; }
+    }
+    capturedGhlCalls.push({ url, method: (options.method || "GET").toUpperCase(), body: bodyParsed });
+    // Synthetic success response — includes a contact id for the POST/create path
+    const responseBody = JSON.stringify({ contact: { id: "fake-ghl-id-884" } });
+    return {
+      ok: true,
+      status: 200,
+      headers: { get: (k: string) => k === "content-type" ? "application/json" : null },
+      text: async () => responseBody,
+    } as unknown as Response;
+  };
+
+  try {
+    // Create fixture contact simulating a full CSV opt-out apply.
+    // createTestContact() inserts via Drizzle ORM; then we apply the same
+    // raw-SQL path that imports.ts:1765-1769 uses so the fixture mirrors
+    // the exact DB state produced by a real CSV import.
+    const ghlFixtureId = await createTestContact({
+      emailStatus: "active",
+      consentTier: "cold_no_consent",
+      optedOutEmail: false,
+      doNotContact: false,
+    });
+
+    // Simulate CSV opt-out apply (mirrors imports.ts:1765-1769 raw SQL path)
+    await pool.query(
+      `UPDATE contacts
+          SET email_status = $2, consent_tier = $3, opted_out_email = $4, do_not_contact = $5
+        WHERE id = $1`,
+      [ghlFixtureId, "unsubscribed", "opted_out", true, true]
+    );
+
+    // ── Case 14: Local DB correctness after CSV opt-out apply ──────────────
+    console.log("\n── Case 14: Local DB correctness for GHL fixture ──");
+    {
+      const dbState = await getContact(ghlFixtureId);
+      if (
+        dbState.consentTier === "opted_out" &&
+        dbState.doNotContact === true &&
+        dbState.optedOutEmail === true &&
+        dbState.emailStatus === "unsubscribed"
+      ) {
+        pass("Case 14: DB has consent_tier=opted_out, do_not_contact=true, opted_out_email=true, email_status=unsubscribed after CSV apply");
+      } else {
+        fail(
+          "Case 14",
+          `consent_tier=${dbState.consentTier}, do_not_contact=${dbState.doNotContact}, ` +
+          `opted_out_email=${dbState.optedOutEmail}, email_status=${dbState.emailStatus}`
+        );
+      }
+    }
+
+    // Read contact as the GHL sync worker would (via storage.getContact)
+    const storedContact = await storage.getContact(ghlFixtureId);
+    if (!storedContact) {
+      fail("Case 15", "storage.getContact returned undefined — cannot test GHL payload");
+      fail("Case 16", "storage.getContact returned undefined — cannot test GHL payload");
+      fail("Case 17", "storage.getContact returned undefined — cannot test GHL payload");
+      fail("Case 18", "storage.getContact returned undefined — cannot test GHL payload");
+      fail("Case 19", "storage.getContact returned undefined — cannot test GHL payload");
+    } else {
+      // Inject a fake ghlContactId so upsertGhlContact takes the PUT (update) path
+      // and does not attempt to POST (create) a new GHL contact.
+      const contactInput = { ...storedContact, ghlContactId: "fake-ghl-id-884" };
+
+      // Reset captured calls so only calls from this upsert are inspected
+      capturedGhlCalls.length = 0;
+
+      // Invoke the real payload builder — all HTTP calls are captured by the mock
+      await upsertGhlContact(contactInput);
+
+      // The permission fields are written in a SEPARATE PUT call (Wave 7 pattern —
+      // ghl.ts:436).  Find that call by looking for customFields containing lb_do_not_contact.
+      const permCall = capturedGhlCalls.find(
+        c => c.method === "PUT" &&
+             Array.isArray(c.body?.customFields) &&
+             c.body.customFields.some((f: any) => f.key === "lb_do_not_contact")
+      );
+
+      // ── Case 15: lb_do_not_contact = "true" present in permission payload ──
+      console.log("\n── Case 15: lb_do_not_contact in GHL permission payload ──");
+      {
+        const field = permCall?.body?.customFields?.find((f: any) => f.key === "lb_do_not_contact");
+        if (field && field.field_value === "true") {
+          pass(`Case 15: lb_do_not_contact="true" found in GHL permission payload`);
+        } else {
+          fail(
+            "Case 15",
+            `lb_do_not_contact not found or wrong value: ${JSON.stringify(field)}. ` +
+            `permCall customFields: ${JSON.stringify(permCall?.body?.customFields)}`
+          );
+        }
+      }
+
+      // ── Case 16: lb_consent_tier = "opted_out" present (primary gap test) ──
+      // ghl.ts:409 guards this with `if (contact.consentTier)`.  If the contact
+      // returned by storage.getContact() has consentTier=null/undefined even though
+      // the DB has consent_tier="opted_out", this field would be silently omitted.
+      console.log("\n── Case 16: lb_consent_tier=opted_out in GHL permission payload ──");
+      {
+        const field = permCall?.body?.customFields?.find((f: any) => f.key === "lb_consent_tier");
+        if (field && field.field_value === "opted_out") {
+          pass(`Case 16: lb_consent_tier="opted_out" found in GHL permission payload`);
+        } else {
+          fail(
+            "Case 16",
+            `lb_consent_tier not found or wrong value: ${JSON.stringify(field)}. ` +
+            `All permission customFields: ${JSON.stringify(permCall?.body?.customFields)}`
+          );
+        }
+      }
+
+      // ── Case 17: No resubscribe — lb_do_not_contact="false" must not appear ──
+      console.log("\n── Case 17: No resubscribe signal (lb_do_not_contact!=false) ──");
+      {
+        const allFields = capturedGhlCalls.flatMap(c =>
+          Array.isArray(c.body?.customFields) ? (c.body.customFields as any[]) : []
+        );
+        const badField = allFields.find(
+          (f: any) => f.key === "lb_do_not_contact" && f.field_value === "false"
+        );
+        if (!badField) {
+          pass("Case 17: No lb_do_not_contact=\"false\" — opted-out contact will not be resubscribed");
+        } else {
+          fail("Case 17", `Found lb_do_not_contact="false" — contact would be resubscribed in GHL`);
+        }
+      }
+
+      // ── Case 18: No sequence enrollment created during mock sync ───────────
+      console.log("\n── Case 18: No sequence enrollment during mock GHL sync ──");
+      {
+        const enrollCheck = await pool.query(
+          `SELECT COUNT(*)::int as cnt
+             FROM sequence_enrollments
+            WHERE status = 'active'
+              AND created_at > NOW() - INTERVAL '5 seconds'`
+        );
+        if (enrollCheck.rows[0].cnt === 0) {
+          pass("Case 18: No sequence enrollment created during mock GHL sync");
+        } else {
+          fail("Case 18", `${enrollCheck.rows[0].cnt} active enrollment(s) found (expected 0)`);
+        }
+      }
+
+      // ── Case 19: Real GHL was not called — mock intercepted all requests ──
+      // We verify: (a) at least one call was captured by the mock, and (b) every
+      // captured URL targets the GHL API base we expected, confirming the mock
+      // interceptor was active for the entire upsert.
+      console.log("\n── Case 19: Real GHL not called — all requests captured by mock ──");
+      {
+        const expectedBase = "https://services.leadconnectorhq.com";
+        const allCaptured = capturedGhlCalls.length > 0;
+        const allTargetGhl = capturedGhlCalls.every(c => c.url.startsWith(expectedBase));
+        if (allCaptured && allTargetGhl) {
+          pass(
+            `Case 19: Real GHL not called — ${capturedGhlCalls.length} call(s) captured by mock ` +
+            `(all to ${expectedBase}; no real network requests)`
+          );
+        } else if (!allCaptured) {
+          fail("Case 19", "No GHL calls were captured — upsertGhlContact may not have executed");
+        } else {
+          const unexpected = capturedGhlCalls.filter(c => !c.url.startsWith(expectedBase)).map(c => c.url);
+          fail("Case 19", `Unexpected URL(s) outside GHL base: ${JSON.stringify(unexpected)}`);
+        }
+      }
+    }
+  } finally {
+    // Restore global.fetch and GHL env vars unconditionally
+    (global as any).fetch = originalFetch;
+    if (origToken !== undefined) process.env.GHL_PRIVATE_INTEGRATION_TOKEN = origToken;
+    else delete process.env.GHL_PRIVATE_INTEGRATION_TOKEN;
+    if (origApiKey !== undefined) process.env.GHL_API_KEY = origApiKey;
+    else delete process.env.GHL_API_KEY;
+    if (origLocId !== undefined) process.env.GHL_LOCATION_ID = origLocId;
+    else delete process.env.GHL_LOCATION_ID;
   }
 }
 
