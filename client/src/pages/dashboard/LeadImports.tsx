@@ -15,8 +15,17 @@ import {
   Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Loader2,
   TrendingUp, Users, Database, BarChart3, Flame, Thermometer, Snowflake,
   Calendar, ArrowRight, FileText, RefreshCw, ListChecks, OctagonAlert,
+  ShieldCheck,
 } from "lucide-react";
 import type { CsvImport } from "@shared/schema";
+
+/** Normalize opt-out counts from either camelCase or snake_case API responses. */
+function normalizeOptOut(data: Record<string, unknown>): { optOutPreserved: number; optOutApplied: number } {
+  return {
+    optOutPreserved: Number(data.optOutPreserved ?? data.opt_out_preserved ?? 0),
+    optOutApplied: Number(data.optOutApplied ?? data.opt_out_applied ?? 0),
+  };
+}
 
 function formatDate(date: string | Date | null | undefined) {
   if (!date) return "--";
@@ -250,6 +259,7 @@ export default function LeadImports() {
       const inserted = data.inserted || 0;
       const alreadyExists = (data.duplicatesSkipped || 0) + (data.skippedRows || 0);
       const invalidOrErrored = (data.invalidRows || 0) + (data.errors || 0);
+      const { optOutPreserved, optOutApplied } = normalizeOptOut(data as Record<string, unknown>);
 
       let title = "Import Complete";
       let description = `${inserted.toLocaleString()} new contact(s) imported. ${data.dealsCreated || 0} deal(s) created. Format: ${data.sourceFormat?.replace(/_/g, " ")}`;
@@ -262,6 +272,13 @@ export default function LeadImports() {
         }
       } else if (invalidOrErrored > 0) {
         description += ` ${invalidOrErrored.toLocaleString()} row(s) were invalid or skipped.`;
+      }
+
+      if (optOutPreserved > 0 || optOutApplied > 0) {
+        const parts: string[] = [];
+        if (optOutPreserved > 0) parts.push(`${optOutPreserved.toLocaleString()} existing opt-out${optOutPreserved !== 1 ? "s" : ""} preserved`);
+        if (optOutApplied > 0) parts.push(`${optOutApplied.toLocaleString()} new opt-out${optOutApplied !== 1 ? "s" : ""} applied`);
+        description += ` · Opt-out protection: ${parts.join(" · ")}.`;
       }
 
       toast({ title, description });
@@ -648,24 +665,47 @@ export default function LeadImports() {
                       ) : "--"}
                     </TableCell>
                     <TableCell>
-                      <div className="flex items-center gap-2">
-                        {(imp.hotLeads ?? 0) > 0 && (
-                          <span className="flex items-center gap-0.5 text-xs" data-testid={`text-hot-${imp.id}`}>
-                            <Flame className="h-3 w-3 text-red-500" />{imp.hotLeads}
-                          </span>
-                        )}
-                        {(imp.warmLeads ?? 0) > 0 && (
-                          <span className="flex items-center gap-0.5 text-xs" data-testid={`text-warm-${imp.id}`}>
-                            <Thermometer className="h-3 w-3 text-amber-500" />{imp.warmLeads}
-                          </span>
-                        )}
-                        {(imp.coldLeads ?? 0) > 0 && (
-                          <span className="flex items-center gap-0.5 text-xs" data-testid={`text-cold-${imp.id}`}>
-                            <Snowflake className="h-3 w-3 text-blue-400" />{imp.coldLeads}
-                          </span>
-                        )}
-                        {(imp.hotLeads ?? 0) === 0 && (imp.warmLeads ?? 0) === 0 && (imp.coldLeads ?? 0) === 0 && "--"}
-                      </div>
+                      {(() => {
+                        const { optOutPreserved, optOutApplied } = normalizeOptOut(imp as unknown as Record<string, unknown>);
+                        const hasLeadBreakdown = (imp.hotLeads ?? 0) > 0 || (imp.warmLeads ?? 0) > 0 || (imp.coldLeads ?? 0) > 0;
+                        const hasOptOut = optOutPreserved > 0 || optOutApplied > 0;
+                        return (
+                          <div className="flex flex-col gap-1">
+                            <div className="flex items-center gap-2">
+                              {(imp.hotLeads ?? 0) > 0 && (
+                                <span className="flex items-center gap-0.5 text-xs" data-testid={`text-hot-${imp.id}`}>
+                                  <Flame className="h-3 w-3 text-red-500" />{imp.hotLeads}
+                                </span>
+                              )}
+                              {(imp.warmLeads ?? 0) > 0 && (
+                                <span className="flex items-center gap-0.5 text-xs" data-testid={`text-warm-${imp.id}`}>
+                                  <Thermometer className="h-3 w-3 text-amber-500" />{imp.warmLeads}
+                                </span>
+                              )}
+                              {(imp.coldLeads ?? 0) > 0 && (
+                                <span className="flex items-center gap-0.5 text-xs" data-testid={`text-cold-${imp.id}`}>
+                                  <Snowflake className="h-3 w-3 text-blue-400" />{imp.coldLeads}
+                                </span>
+                              )}
+                              {!hasLeadBreakdown && !hasOptOut && "--"}
+                            </div>
+                            {hasOptOut && (
+                              <span
+                                className="flex items-center gap-1 text-xs text-emerald-700 dark:text-emerald-400"
+                                title={`Preserved: contacts that were already opted out and stayed protected during import. Applied: contacts newly marked opted out by this import.`}
+                                data-testid={`text-optout-${imp.id}`}
+                              >
+                                <ShieldCheck className="h-3 w-3 shrink-0" />
+                                {optOutPreserved > 0 && optOutApplied > 0
+                                  ? `Preserved: ${optOutPreserved.toLocaleString()} · Applied: ${optOutApplied.toLocaleString()}`
+                                  : optOutPreserved > 0
+                                  ? `Preserved: ${optOutPreserved.toLocaleString()}`
+                                  : `Applied: ${optOutApplied.toLocaleString()}`}
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1">
@@ -758,6 +798,27 @@ export default function LeadImports() {
                   </div>
                 )}
               </div>
+
+              {(() => {
+                const { optOutPreserved, optOutApplied } = normalizeOptOut(imp as unknown as Record<string, unknown>);
+                if (optOutPreserved === 0 && optOutApplied === 0) return null;
+                const parts: string[] = [];
+                if (optOutPreserved > 0) parts.push(`${optOutPreserved.toLocaleString()} existing opt-out${optOutPreserved !== 1 ? "s" : ""} preserved`);
+                if (optOutApplied > 0) parts.push(`${optOutApplied.toLocaleString()} new opt-out${optOutApplied !== 1 ? "s" : ""} applied`);
+                return (
+                  <div className="flex items-start gap-2 p-3 rounded-md bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800" data-testid={`card-optout-detail-${imp.id}`}>
+                    <ShieldCheck className="h-4 w-4 text-emerald-600 dark:text-emerald-400 mt-0.5 shrink-0" />
+                    <div>
+                      <p className="text-sm font-medium text-emerald-800 dark:text-emerald-300">Opt-Out Protection</p>
+                      <p className="text-xs text-emerald-700 dark:text-emerald-400 mt-0.5">{parts.join(" · ")}</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Preserved: contacts that were already opted out and stayed protected during import.
+                        Applied: contacts newly marked opted out by this import.
+                      </p>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {(imp.totalRows ?? 0) > 0 && (() => {
                 const reconciled = (imp.newRecords ?? 0) + (imp.duplicatesSkipped ?? 0) + (imp.invalidRows ?? 0) + (imp.skippedRows ?? 0) + (imp.errorsCount ?? 0);
