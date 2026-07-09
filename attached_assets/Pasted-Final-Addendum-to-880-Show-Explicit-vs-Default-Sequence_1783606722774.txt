@@ -1,0 +1,147 @@
+Final Addendum to #880 — Show Explicit vs. Default Sequence Mapping
+
+Approved to build.
+
+Goal
+
+Operators need to distinguish:
+
+Explicitly mapped vertical
+Using default sequence fallback
+Truly unmapped
+
+The vertical coverage table should make that obvious in the Sequence column.
+
+Required UI behavior
+
+In:
+
+client/src/pages/dashboard/OperatorDashboard.tsx
+NewLeadEnrollPanel
+vertical breakdown / enrollment routing table
+
+Show:
+
+Explicit mapping
+
+If verticalSequenceMap[verticalKey] exists:
+
+[Sequence Name]
+
+No fallback badge.
+
+Default fallback
+
+If no explicit vertical mapping exists, but defaultSequenceId exists:
+
+[Default Sequence Name] · Using default
+
+Use a muted badge, pill, or italic helper text.
+
+Unmapped
+
+If neither explicit mapping nor default exists:
+
+Unmapped
+
+Show warning styling if that vertical has uncovered New Lead deals.
+
+Backend data requirement
+
+The UI needs enough data to avoid guessing.
+
+Preferred stage-health response fields per vertical:
+
+{
+  vertical: string | null;
+  verticalKey: string;
+  label: string;
+  mappedSequenceId?: number | null;
+  mappedSequenceName?: string | null;
+  sequenceMappingSource: "explicit" | "default" | "none";
+  defaultSequenceId?: number | null;
+  defaultSequenceName?: string | null;
+}
+
+If the endpoint already returns verticalSequenceMap and defaultSequenceId, the UI may derive this, but the safer long-term version is for the backend to return sequenceMappingSource.
+
+Unknown vertical compatibility
+
+For the unknown/null row, use the stable key:
+
+__unknown__
+
+The indicator should work the same way:
+
+__unknown__ explicit mapping exists → explicit
+no __unknown__ mapping + default exists → Using default
+no __unknown__ mapping + no default → Unmapped
+
+This should align with #881.
+
+Scope protection
+
+Do not change:
+
+actual sequence resolution
+verticalSequenceMap save behavior
+default sequence save behavior
+autoEnrollNewLeadDeals
+enrollment jobs
+contactability
+suppression
+sequence status
+triggerType
+GHL sync
+deal creation
+outbound sending
+
+This task is display-only unless the backend needs to expose mapping-source metadata.
+
+Kill lines
+
+STOP if this changes which sequence a vertical resolves to.
+STOP if adding the badge triggers enrollment.
+STOP if default fallback rows are displayed as if explicitly mapped.
+STOP if explicitly mapped rows are mislabeled as default fallback.
+STOP if unmapped rows are hidden when no default sequence exists.
+STOP if the unknown/null vertical row does not show correct explicit/default/unmapped state.
+STOP if saving mappings, toggling auto-enroll, sequence activation, or triggerType are touched.
+
+Validation
+
+Manual checks:
+
+1. Vertical with explicit mapping shows sequence name only.
+2. Vertical without explicit mapping but with default sequence shows “Using default.”
+3. Vertical without explicit mapping and without default shows “Unmapped.”
+4. Unknown / Uncategorized row follows the same rules.
+5. Changing a dropdown updates explicit/default display after refresh.
+6. No enrollment job starts from display changes.
+
+If adding tests, extend:
+
+scripts/test-stage-health-vertical-breakdown.ts
+
+Run:
+
+npx tsx scripts/test-stage-health-vertical-breakdown.ts
+npx tsx scripts/smoke-role-guards.ts
+
+Final report required
+
+Return:
+
+Mapping source displayed:
+Explicit mapping indicator:
+Default fallback indicator:
+Unmapped indicator:
+Unknown vertical behavior:
+Backend field added/used:
+Sequence resolution changed: yes/no
+Enrollment triggered: yes/no
+autoEnrollNewLeadDeals changed: yes/no
+Outbound sent: yes/no
+GHL sync triggered: yes/no
+Files changed:
+Validation commands run:

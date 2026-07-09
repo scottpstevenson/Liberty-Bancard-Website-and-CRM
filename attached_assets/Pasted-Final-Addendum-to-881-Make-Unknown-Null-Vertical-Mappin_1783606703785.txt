@@ -1,0 +1,135 @@
+Final Addendum to #881 — Make Unknown/Null Vertical Mapping Functional
+
+Approved to build.
+
+Goal
+
+When operators map the Unknown / Uncategorized row to a sequence, New Lead enrollment must actually use that mapping for deals whose vertical is null, empty, or otherwise missing.
+
+Required behavior
+
+In:
+
+server/services/new-lead-enrollment-job.ts
+
+Update sequence resolution so the fallback order is:
+
+1. vertical-specific mapping, if deal/contact vertical is present
+2. verticalMap["__unknown__"], if vertical is null/empty/unknown
+3. defaultNewLeadSequenceId
+4. no mapped sequence
+
+Required implementation
+
+Add or reuse a stable constant:
+
+const UNKNOWN_VERTICAL_KEY = "__unknown__";
+
+Normalize vertical before lookup:
+
+const normalizedVertical = normalizeVerticalKey(deal.vertical ?? contact.vertical);
+
+Then resolve:
+
+if (normalizedVertical && verticalMap[normalizedVertical]) {
+  return verticalMap[normalizedVertical];
+}
+if (!normalizedVertical && verticalMap[UNKNOWN_VERTICAL_KEY]) {
+  return verticalMap[UNKNOWN_VERTICAL_KEY];
+}
+return defaultNewLeadSequenceId ?? null;
+
+The exact code can vary, but the behavior must match.
+
+Null / empty handling
+
+Treat all of these as unknown:
+
+null
+undefined
+""
+" "
+"unknown"
+"uncategorized"
+
+Only do this if it aligns with existing vertical normalization. Do not break existing real vertical keys.
+
+UI compatibility
+
+The inline picker already saves:
+
+__unknown__
+
+for the unknown row.
+
+Server-side sequence resolution must read that same key.
+
+No frontend changes are required unless the UI is saving a different key than the server expects.
+
+If the UI key differs, fix the mismatch by using one shared/stable key.
+
+Scope protection
+
+Do not change:
+
+enrollment gates
+contactability logic
+DNC/opt-out suppression
+sequence worker
+GHL sync
+deal creation
+stage progression
+autoEnrollNewLeadDeals default
+sequence triggerType
+
+This is only sequence-resolution behavior for unknown/null verticals.
+
+Kill lines
+
+STOP if null/empty verticals still fall directly to default before checking verticalMap["__unknown__"].
+STOP if changing this breaks existing mapped verticals.
+STOP if saving the unknown mapping triggers enrollment immediately.
+STOP if this task changes enrollment/contactability gates.
+STOP if inactive sequences become enrollable because of the unknown mapping.
+STOP if this task sends outbound directly, creates deals, or triggers GHL sync.
+
+Validation
+
+Add or extend:
+
+scripts/test-new-lead-enrollment-policy.ts
+
+Test cases:
+
+1. deal with vertical=null uses verticalMap["__unknown__"]
+2. deal with vertical="" uses verticalMap["__unknown__"]
+3. deal with vertical="restaurant" still uses verticalMap["restaurant"]
+4. unknown mapping beats default sequence for null vertical
+5. default sequence is used only when no unknown mapping exists
+6. no mapped sequence is reported if neither unknown nor default exists
+7. candidate mode shows selected unknown sequence in audit/preview
+8. auto mode enrolls null-vertical deal into unknown-mapped sequence when enabled and eligible
+9. no enrollment is created just by saving the mapping
+
+Run:
+
+npx tsx scripts/test-new-lead-enrollment-policy.ts
+npx tsx scripts/smoke-role-guards.ts
+
+Final report required
+
+Return:
+
+Unknown key used:
+Null vertical resolution:
+Empty vertical resolution:
+Existing vertical mapping preserved:
+Unknown mapping beats default: yes/no
+Default fallback still works: yes/no
+Inline picker key matches server key: yes/no
+Enrollment gates changed: yes/no
+Outbound sent directly: yes/no
+Deals created: yes/no
+GHL sync triggered: yes/no
+Validation commands run:
+Files changed:
