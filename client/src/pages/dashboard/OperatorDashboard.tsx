@@ -5980,6 +5980,21 @@ function BulkEnrollPanel() {
 
 // ─── Stage Health Panel ────────────────────────────────────────────────────────
 
+interface VerticalBreakdownRow {
+  vertical: string | null;
+  label: string;
+  totalDeals: number;
+  enrolled: number;
+  noActiveEnrollment: number;
+  noSequenceMapped: number;
+  noEmail: number;
+  dncBlocked: number;
+  optedOutBlocked: number;
+  suppressed: number;
+  mappedSequenceId: number | null;
+  mappedSequenceName: string | null;
+}
+
 interface StageHealthData {
   totalNewLeadDeals: number;
   newLeadNoMovement7d: number;
@@ -5996,10 +6011,12 @@ interface StageHealthData {
     updatedAt: string | null;
     createdAt: string | null;
   }>;
+  breakdownByVertical?: VerticalBreakdownRow[];
 }
 
 function StageHealthPanel() {
   const [, navigate] = useLocation();
+  const [breakdownOpen, setBreakdownOpen] = useState(false);
   const { data, isLoading, isError, refetch } = useQuery<StageHealthData>({
     queryKey: ["/api/admin/pipeline/stage-health"],
     refetchInterval: 60000,
@@ -6156,6 +6173,104 @@ function StageHealthPanel() {
                   </table>
                 </div>
               </CardContent>
+            </Card>
+          )}
+
+          {data.breakdownByVertical && data.breakdownByVertical.length > 0 && (
+            <Card data-testid="card-vertical-breakdown">
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <BarChart3 className="w-4 h-4 text-blue-600" />
+                    Enrollment Coverage by Vertical
+                    <Badge variant="secondary" className="text-xs">{data.breakdownByVertical.length} verticals</Badge>
+                  </CardTitle>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2"
+                    onClick={() => setBreakdownOpen(v => !v)}
+                    data-testid="button-toggle-vertical-breakdown"
+                    aria-label={breakdownOpen ? "Collapse vertical breakdown" : "Expand vertical breakdown"}
+                  >
+                    {breakdownOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                    {breakdownOpen ? "Collapse" : "Expand"}
+                  </Button>
+                </div>
+                {!breakdownOpen && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {data.breakdownByVertical.filter(r => r.noActiveEnrollment > 0 && r.noSequenceMapped > 0).length} vertical(s) have uncovered deals with no sequence mapping.
+                  </p>
+                )}
+              </CardHeader>
+              {breakdownOpen && (
+                <CardContent className="pt-0">
+                  <div className="overflow-x-auto" data-testid="table-vertical-breakdown">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b text-muted-foreground">
+                          <th className="text-left py-1.5 pr-2 font-medium">Vertical</th>
+                          <th className="text-right py-1.5 pr-2 font-medium">Total</th>
+                          <th className="text-right py-1.5 pr-2 font-medium">Enrolled</th>
+                          <th className="text-right py-1.5 pr-2 font-medium text-red-600">Uncovered</th>
+                          <th className="text-left py-1.5 pr-2 font-medium">Mapped Sequence</th>
+                          <th className="text-right py-1.5 pr-2 font-medium">No Mapping</th>
+                          <th className="text-right py-1.5 pr-2 font-medium">No Email</th>
+                          <th className="text-right py-1.5 pr-2 font-medium">DNC / Opted Out</th>
+                          <th className="text-right py-1.5 font-medium">Suppressed</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {data.breakdownByVertical.map((row, i) => {
+                          const isGap = row.noActiveEnrollment > 0 && row.noSequenceMapped > 0;
+                          return (
+                            <tr
+                              key={row.vertical ?? "__unknown__"}
+                              className={cn(
+                                "border-b last:border-0",
+                                isGap ? "bg-amber-50 dark:bg-amber-950/20" : ""
+                              )}
+                              data-testid={`vertical-row-${i}`}
+                            >
+                              <td className="py-1.5 pr-2 font-medium">
+                                <span className="flex items-center gap-1">
+                                  {isGap && <AlertTriangle className="w-3 h-3 text-amber-500 shrink-0" aria-label="Gap: uncovered deals with no mapping" />}
+                                  <span className={row.vertical ? "" : "italic text-muted-foreground"}>
+                                    {row.label}
+                                  </span>
+                                </span>
+                              </td>
+                              <td className="py-1.5 pr-2 text-right">{row.totalDeals}</td>
+                              <td className="py-1.5 pr-2 text-right text-green-700 dark:text-green-400">{row.enrolled}</td>
+                              <td className={cn("py-1.5 pr-2 text-right font-semibold", row.noActiveEnrollment > 0 ? "text-red-600" : "text-muted-foreground")}>
+                                {row.noActiveEnrollment}
+                              </td>
+                              <td className="py-1.5 pr-2 max-w-[160px] truncate">
+                                {row.mappedSequenceName ? (
+                                  <span className="text-blue-700 dark:text-blue-400" title={row.mappedSequenceName}>
+                                    {row.mappedSequenceName}
+                                  </span>
+                                ) : (
+                                  <span className="italic text-muted-foreground">None</span>
+                                )}
+                              </td>
+                              <td className={cn("py-1.5 pr-2 text-right", row.noSequenceMapped > 0 ? "text-amber-600 font-semibold" : "text-muted-foreground")}>
+                                {row.noSequenceMapped}
+                              </td>
+                              <td className="py-1.5 pr-2 text-right text-muted-foreground">{row.noEmail}</td>
+                              <td className="py-1.5 pr-2 text-right text-muted-foreground">{row.dncBlocked + row.optedOutBlocked}</td>
+                              <td className="py-1.5 text-right text-muted-foreground">{row.suppressed}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-3">
+                    <span className="inline-flex items-center gap-1"><AlertTriangle className="w-3 h-3 text-amber-500" /> Warning</span> = vertical has uncovered deals AND no sequence mapped. Configure mappings in the <button className="underline text-blue-600 hover:text-blue-800" onClick={() => navigate("/dashboard/operator?view=new-lead-enroll")}>New Lead Enrollment</button> tab.
+                  </p>
+                </CardContent>
+              )}
             </Card>
           )}
         </>
@@ -6388,6 +6503,72 @@ function NewLeadEnrollPanel() {
               </SelectContent>
             </Select>
           </div>
+
+          {stageHealth?.breakdownByVertical && stageHealth.breakdownByVertical.length > 0 && (
+            <div className="space-y-1" data-testid="vertical-breakdown-prefill">
+              <p className="text-xs font-medium">Vertical Coverage Overview</p>
+              <p className="text-xs text-muted-foreground mb-1">Current coverage from the Stage Health panel. Rows flagged with ⚠ have uncovered deals and no mapped sequence.</p>
+              <div className="overflow-x-auto rounded border">
+                <table className="w-full text-xs" data-testid="table-vertical-mapping-editor">
+                  <thead>
+                    <tr className="border-b text-muted-foreground bg-muted/40">
+                      <th className="text-left py-1.5 px-2 font-medium">Vertical</th>
+                      <th className="text-right py-1.5 px-2 font-medium">Uncovered</th>
+                      <th className="text-left py-1.5 px-2 font-medium">Current Mapping</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {stageHealth.breakdownByVertical.map((row, i) => {
+                      const isGap = row.noActiveEnrollment > 0 && row.noSequenceMapped > 0;
+                      return (
+                        <tr
+                          key={row.vertical ?? "__unknown__"}
+                          className={cn("border-b last:border-0", isGap ? "bg-amber-50 dark:bg-amber-950/20" : "")}
+                          data-testid={`mapping-row-${i}`}
+                        >
+                          <td className="py-1.5 px-2 font-medium">
+                            {isGap && <span className="mr-1" aria-label="Gap: no mapping">⚠</span>}
+                            <span className={row.vertical ? "" : "italic text-muted-foreground"}>{row.label}</span>
+                          </td>
+                          <td className={cn("py-1.5 px-2 text-right", row.noActiveEnrollment > 0 ? "text-red-600 font-semibold" : "text-muted-foreground")}>
+                            {row.noActiveEnrollment}
+                          </td>
+                          <td className="py-1.5 px-2">
+                            {row.mappedSequenceName ? (
+                              <span className="text-blue-700 dark:text-blue-400">{row.mappedSequenceName} <span className="text-muted-foreground">(#{row.mappedSequenceId})</span></span>
+                            ) : (
+                              <span className="italic text-muted-foreground">No mapping</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-1"
+                data-testid="button-prefill-vertical-map"
+                onClick={() => {
+                  const existing: Record<string, number> = {};
+                  try { Object.assign(existing, JSON.parse(verticalMapInput || "{}")); } catch {}
+                  const breakdown = stageHealth.breakdownByVertical ?? [];
+                  for (const row of breakdown) {
+                    if (row.vertical && row.mappedSequenceId && !existing[row.vertical]) {
+                      existing[row.vertical] = row.mappedSequenceId;
+                    }
+                  }
+                  setVerticalMapInput(JSON.stringify(existing, null, 2));
+                }}
+              >
+                <ArrowRight className="w-3 h-3 mr-1" />
+                Prefill JSON from coverage table
+              </Button>
+            </div>
+          )}
+
           <div className="space-y-1">
             <p className="text-xs font-medium">Vertical → Sequence Map (JSON)</p>
             <p className="text-xs text-muted-foreground mb-1">Maps deal verticals to sequence IDs. Example: <code>{`{"restaurant": 4, "dental": 7}`}</code></p>

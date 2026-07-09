@@ -1675,8 +1675,8 @@ export function registerAdminRoutes(app: Express) {
   // ── PIPELINE STAGE HEALTH ─────────────────────────────────────────────────
   app.get("/api/admin/pipeline/stage-health", requireRole("admin", "manager"), async (_req, res) => {
     try {
-      const { deals: dealsTable, sequenceEnrollments: enrollmentsTable } = await import("@shared/schema");
-      const { eq, and, isNull, inArray, count: drizzleCount } = await import("drizzle-orm");
+      const { deals: dealsTable, sequenceEnrollments: enrollmentsTable, contacts: contactsTable, followUpSequences: sequencesTable } = await import("@shared/schema");
+      const { eq, and, isNull, inArray, or, count: drizzleCount } = await import("drizzle-orm");
 
       // 1. Total New Lead deals (non-archived)
       const [totalRow] = await db.select({ count: drizzleCount() }).from(dealsTable).where(
@@ -1694,69 +1694,132 @@ export function registerAdminRoutes(app: Express) {
         createdAt: d.createdAt,
       }));
 
-      // 3. New Lead deals with no active enrollment
-      const allNewLeadDeals = await db.select({
-        id: dealsTable.id,
-        contactId: dealsTable.contactId,
-      }).from(dealsTable).where(
-        and(eq(dealsTable.pipeline, "sales"), eq(dealsTable.stage, "New Lead"), isNull(dealsTable.archivedAt))
-      );
-      const contactIds = allNewLeadDeals.map((d: any) => d.contactId).filter(Boolean) as number[];
+      // 3. Fetch all New Lead deals with their contact data (for enrollment + breakdown queries)
+      const allNewLeadDealsWithContacts = await db
+        .select({
+          dealId: dealsTable.id,
+          dealVertical: dealsTable.vertical,
+          contactId: dealsTable.contactId,
+          autoEnrollmentSuppressedAt: dealsTable.autoEnrollmentSuppressedAt,
+          contactEmail: contactsTable.email,
+          contactPhone: contactsTable.phone,
+          contactDoNotContact: contactsTable.doNotContact,
+          contactConsentTier: contactsTable.consentTier,
+          contactOptedOutEmail: contactsTable.optedOutEmail,
+        })
+        .from(dealsTable)
+        .leftJoin(contactsTable, eq(dealsTable.contactId, contactsTable.id))
+        .where(
+          and(eq(dealsTable.pipeline, "sales"), eq(dealsTable.stage, "New Lead"), isNull(dealsTable.archivedAt))
+        );
+
+      const contactIds = allNewLeadDealsWithContacts
+        .map((d) => d.contactId)
+        .filter(Boolean) as number[];
+
       let enrolledContactIds = new Set<number>();
       if (contactIds.length > 0) {
-        const activeEnrollments = await db
-          .select({ contactId: enrollmentsTable.contactId })
+        // Fetch all enrollments for these contacts, filter covered statuses in JS
+        // (avoids any ORM text-column IN() ambiguity)
+        const allEnrollmentsForContacts = await db
+          .select({ contactId: enrollmentsTable.contactId, status: enrollmentsTable.status })
           .from(enrollmentsTable)
-          .where(
-            and(
-              inArray(enrollmentsTable.contactId, contactIds),
-              eq(enrollmentsTable.status, "active")
-            )
-          );
-        enrolledContactIds = new Set(activeEnrollments.map((e: any) => e.contactId));
+          .where(inArray(enrollmentsTable.contactId, contactIds));
+        const COVERED_STATUSES = new Set(["active", "completed"]);
+        enrolledContactIds = new Set(
+          allEnrollmentsForContacts
+            .filter((e) => COVERED_STATUSES.has(e.status ?? ""))
+            .map((e) => Number(e.contactId))
+        );
       }
-      const newLeadNoActiveEnrollment = allNewLeadDeals.filter(
-        (d: any) => !d.contactId || !enrolledContactIds.has(d.contactId)
+
+      const newLeadNoActiveEnrollment = allNewLeadDealsWithContacts.filter(
+        (d) => !d.contactId || !enrolledContactIds.has(d.contactId)
       ).length;
 
       // 4. Suppressed count (deals with autoEnrollmentSuppressedAt IS NOT NULL, not already DNC)
-      const { isNotNull: isNotNullOp } = await import("drizzle-orm");
-      const { contacts: contactsTable } = await import("@shared/schema");
-      const suppressedDealsRaw = await db
-        .select({ id: dealsTable.id, contactId: dealsTable.contactId })
-        .from(dealsTable)
-        .where(
-          and(
-            eq(dealsTable.pipeline, "sales"),
-            eq(dealsTable.stage, "New Lead"),
-            isNull(dealsTable.archivedAt),
-            isNotNullOp(dealsTable.autoEnrollmentSuppressedAt)
-          )
-        );
-      // Exclude contacts already counted in DNC (doNotContact=true or consentTier=do_not_contact)
-      let dncContactIds = new Set<number>();
-      const suppressedContactIds = suppressedDealsRaw.map((d: any) => d.contactId).filter(Boolean) as number[];
-      if (suppressedContactIds.length > 0) {
-        const { or: orOp } = await import("drizzle-orm");
-        const dncContacts = await db
-          .select({ id: contactsTable.id })
-          .from(contactsTable)
-          .where(
-            and(
-              inArray(contactsTable.id, suppressedContactIds),
-              orOp(
-                eq(contactsTable.doNotContact, true),
-                eq(contactsTable.consentTier, "do_not_contact")
-              )
-            )
-          );
-        dncContactIds = new Set(dncContacts.map((c: any) => c.id));
-      }
-      const newLeadAutoEnrollmentSuppressed = suppressedDealsRaw.filter(
-        (d: any) => !d.contactId || !dncContactIds.has(d.contactId)
-      ).length;
+      const suppressedDeals = allNewLeadDealsWithContacts.filter(
+        (d) => d.autoEnrollmentSuppressedAt != null
+      );
+      const newLeadAutoEnrollmentSuppressed = suppressedDeals.filter((d) => {
+        if (!d.contactId) return true;
+        const isDnc = d.contactDoNotContact === true || d.contactConsentTier === "do_not_contact";
+        return !isDnc;
+      }).length;
 
-      // 5. System settings
+      // 5. Vertical sequence map + default sequence (for breakdown)
+      const { getVerticalSequenceMap, getDefaultSequenceId } = await import("../services/new-lead-enrollment-job");
+      const [verticalMap, defaultSeqId] = await Promise.all([
+        getVerticalSequenceMap(),
+        getDefaultSequenceId(),
+      ]);
+
+      // Build a set of all referenced sequence IDs to resolve names in one query
+      const allMappedSeqIds = new Set<number>(Object.values(verticalMap).filter(Boolean));
+      if (defaultSeqId) allMappedSeqIds.add(defaultSeqId);
+      let seqNameMap: Record<number, string> = {};
+      if (allMappedSeqIds.size > 0) {
+        const seqRows = await db
+          .select({ id: sequencesTable.id, name: sequencesTable.name })
+          .from(sequencesTable)
+          .where(inArray(sequencesTable.id, Array.from(allMappedSeqIds)));
+        for (const row of seqRows) seqNameMap[row.id] = row.name;
+      }
+
+      // 6. Build breakdownByVertical — group deals by deal.vertical
+      const verticalGroups: Map<string | null, typeof allNewLeadDealsWithContacts> = new Map();
+      for (const row of allNewLeadDealsWithContacts) {
+        const key = row.dealVertical ?? null;
+        if (!verticalGroups.has(key)) verticalGroups.set(key, []);
+        verticalGroups.get(key)!.push(row);
+      }
+      // Ensure null/"" vertical always present when there are deals without a vertical
+      // (already handled by the loop above — null keys will be included)
+
+      const breakdownByVertical = Array.from(verticalGroups.entries()).map(([vertical, rows]) => {
+        const label = vertical ? vertical : "Unknown / Uncategorized";
+        const totalDeals = rows.filter((r) => r.contactId != null).length;
+        const enrolled = rows.filter((r) => r.contactId != null && enrolledContactIds.has(r.contactId)).length;
+        const noActiveEnrollment = totalDeals - enrolled;
+
+        const resolvedSeqId = (vertical && verticalMap[vertical]) ? verticalMap[vertical] : (defaultSeqId ?? null);
+        const noSequenceMapped = resolvedSeqId == null ? rows.filter((r) => r.contactId != null).length : 0;
+
+        const noEmail = rows.filter((r) => r.contactId != null && (!r.contactEmail || r.contactEmail.trim() === "")).length;
+        const dncBlocked = rows.filter((r) => r.contactId != null && r.contactDoNotContact === true).length;
+        const optedOutBlocked = rows.filter((r) => {
+          if (!r.contactId) return false;
+          const tier = r.contactConsentTier ?? "cold_no_consent";
+          return tier === "opted_out" || tier === "do_not_contact" || r.contactOptedOutEmail === true;
+        }).length;
+        const suppressed = rows.filter((r) => r.contactId != null && r.autoEnrollmentSuppressedAt != null).length;
+
+        const mappedSequenceId = resolvedSeqId ?? null;
+        const mappedSequenceName = mappedSequenceId ? (seqNameMap[mappedSequenceId] ?? null) : null;
+
+        return {
+          vertical,
+          label,
+          totalDeals,
+          enrolled,
+          noActiveEnrollment,
+          noSequenceMapped,
+          noEmail,
+          dncBlocked,
+          optedOutBlocked,
+          suppressed,
+          mappedSequenceId,
+          mappedSequenceName,
+        };
+      });
+
+      // Sort: noActiveEnrollment desc, then totalDeals desc
+      breakdownByVertical.sort((a, b) => {
+        if (b.noActiveEnrollment !== a.noActiveEnrollment) return b.noActiveEnrollment - a.noActiveEnrollment;
+        return b.totalDeals - a.totalDeals;
+      });
+
+      // 7. System settings
       const [lastSweep, lastTick, autoEnroll] = await Promise.all([
         storage.getSystemSetting("stage_progression_last_run"),
         storage.getSystemSetting("sequence_runner_last_tick"),
@@ -1773,6 +1836,7 @@ export function registerAdminRoutes(app: Express) {
         lastSequenceWorkerTickAt: (lastTick as any)?.at ?? null,
         staleness_proxy: "updatedAt",
         staleDeals,
+        breakdownByVertical,
       });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
