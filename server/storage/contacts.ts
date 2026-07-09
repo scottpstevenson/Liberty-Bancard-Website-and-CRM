@@ -377,7 +377,14 @@ import { coerceDateFields } from "../utils/date-coerce";
 
   async getContactsByIds(ids: number[]) {
     if (ids.length === 0) return [];
-    return await db.select().from(contacts).where(inArray(contacts.id, ids));
+    const CHUNK = 500;
+    const results: typeof contacts.$inferSelect[] = [];
+    for (let i = 0; i < ids.length; i += CHUNK) {
+      const chunk = ids.slice(i, i + CHUNK);
+      const rows = await db.select().from(contacts).where(inArray(contacts.id, chunk));
+      results.push(...rows);
+    }
+    return results;
   }
 
   async getContactsByPartnerOrg(partnerOrgId: number) {

@@ -196,6 +196,9 @@ export async function setDefaultSequenceId(id: number | null): Promise<void> {
 // ─── Preview (fully read-only) ────────────────────────────────────────────────
 
 export async function previewNewLeadEnroll(): Promise<NewLeadEnrollPreviewResult> {
+  const startMs = Date.now();
+  console.log(JSON.stringify({ event: "new_lead_enrollment_preview_started" }));
+
   const [defaultSeqId, verticalMap] = await Promise.all([
     getDefaultSequenceId(),
     getVerticalSequenceMap(),
@@ -205,17 +208,71 @@ export async function previewNewLeadEnroll(): Promise<NewLeadEnrollPreviewResult
   const counts = _emptyPreviewCounts();
   counts.total = dealRows.length;
 
-  // Determine channel label from the default sequence (if set)
+  // ── 1. Collect all unique sequence IDs referenced by this deal set ───────
+  const allSeqIdSet = new Set<number>();
+  if (defaultSeqId) allSeqIdSet.add(defaultSeqId);
+  for (const { deal } of dealRows) {
+    if (deal.vertical && verticalMap[deal.vertical]) {
+      allSeqIdSet.add(verticalMap[deal.vertical]);
+    }
+  }
+  const seqIdList = Array.from(allSeqIdSet);
+
+  // ── 2. Bulk-fetch sequences and steps once ────────────────────────────────
+  const [allSequences, allSteps] = await Promise.all([
+    seqIdList.length > 0 ? storage.getFollowUpSequencesByIds(seqIdList) : Promise.resolve([]),
+    seqIdList.length > 0 ? storage.getSequenceStepsForSequences(seqIdList) : Promise.resolve([]),
+  ]);
+
+  const sequenceById = new Map(allSequences.map(s => [s.id, s]));
+  const stepsBySequenceId = new Map<number, typeof sequenceSteps.$inferSelect[]>();
+  for (const step of allSteps) {
+    if (!stepsBySequenceId.has(step.sequenceId)) stepsBySequenceId.set(step.sequenceId, []);
+    stepsBySequenceId.get(step.sequenceId)!.push(step);
+  }
+
+  // Cached PEWC helper — uses pre-fetched steps, never hits DB
+  const requiresPewcCached = (seqId: number): boolean => {
+    const steps = stepsBySequenceId.get(seqId) ?? [];
+    return steps.some(s => SMS_VOICE_RINGLESS_TYPES.has(s.actionType ?? ""));
+  };
+
+  // ── 3. Collect all contact IDs and bulk-fetch enrollments ─────────────────
+  const allContactIds = [...new Set(
+    dealRows.filter(r => r.contact != null).map(r => r.contact.id as number)
+  )];
+
+  const allEnrollments = allContactIds.length > 0
+    ? await storage.getContactEnrollmentsForContacts(allContactIds)
+    : [];
+
+  const enrollmentsByContactId = new Map<number, typeof sequenceEnrollments.$inferSelect[]>();
+  for (const enrollment of allEnrollments) {
+    if (!enrollmentsByContactId.has(enrollment.contactId)) {
+      enrollmentsByContactId.set(enrollment.contactId, []);
+    }
+    enrollmentsByContactId.get(enrollment.contactId)!.push(enrollment);
+  }
+
+  // ── 4. Determine channel label from default sequence (from cache) ─────────
   let sequenceChannelLabel = "Email-only";
   if (defaultSeqId) {
-    const seq = await storage.getFollowUpSequence(defaultSeqId);
+    const seq = sequenceById.get(defaultSeqId);
     if (seq) {
-      sequenceChannelLabel = await _getChannelLabel(defaultSeqId);
+      const steps = stepsBySequenceId.get(defaultSeqId) ?? [];
+      const hasSmsVoiceRingless = steps.some(s => SMS_VOICE_RINGLESS_TYPES.has(s.actionType ?? ""));
+      if (hasSmsVoiceRingless) {
+        sequenceChannelLabel = "SMS/Voice/Ringless requires PEWC";
+      } else {
+        const hasOtherChannels = steps.some(
+          s => s.actionType && !["email", "wait", "condition", "task"].includes(s.actionType)
+        );
+        sequenceChannelLabel = hasOtherChannels ? "Mixed channel" : "Email-only";
+      }
     }
   }
 
-  const requiresPewcDefault = await _requiresPewc(defaultSeqId);
-
+  // ── 5. Per-deal classification — no storage calls inside this loop ────────
   for (const row of dealRows) {
     const contact = row.contact;
     if (!contact) { counts.noContactBlocked++; continue; }
@@ -228,13 +285,12 @@ export async function previewNewLeadEnroll(): Promise<NewLeadEnrollPreviewResult
     const seqId = (row.deal.vertical && verticalMap[row.deal.vertical]) || defaultSeqId;
     if (!seqId) { counts.noSequenceBlocked++; continue; }
 
-    const sequence = await storage.getFollowUpSequence(seqId);
+    const sequence = sequenceById.get(seqId);
     if (!sequence) { counts.noSequenceBlocked++; continue; }
     if (sequence.status !== "active") { counts.inactiveSequenceBlocked++; continue; }
 
-    // Channel-aware contact-method + PEWC gate:
-    // SMS/voice/ringless sequences require PEWC consent + phone; email sequences require email.
-    const requiresPewc = await _requiresPewc(seqId);
+    // Channel-aware contact-method + PEWC gate (uses cached steps)
+    const requiresPewc = requiresPewcCached(seqId);
     if (requiresPewc) {
       if (tier !== "pewc_full_automation") { counts.pewcBlocked++; continue; }
       if (!contact.phone) { counts.missingContactMethod++; continue; }
@@ -242,13 +298,14 @@ export async function previewNewLeadEnroll(): Promise<NewLeadEnrollPreviewResult
       if (!contact.email) { counts.missingContactMethod++; continue; }
     }
 
-    // Check existing enrollment — any active/paused enrollment blocks re-enrollment
-    const existingEnrollments = await storage.getContactEnrollments(contact.id);
+    // Check existing enrollment from bulk-fetched cache
+    const existingEnrollments = enrollmentsByContactId.get(contact.id) ?? [];
     const isEnrolled = existingEnrollments.some(
       e => e.status === "active" || e.status === "paused"
     );
     if (isEnrolled) { counts.alreadyEnrolled++; continue; }
 
+    // Eligibility and contactability checks run on the filtered, much-smaller pool
     const enrollCheck = await canEnrollContactInSequence(contact.id, sequence);
     if (!enrollCheck.allowed) { counts.eligibilityBlocked++; continue; }
 
@@ -261,6 +318,15 @@ export async function previewNewLeadEnroll(): Promise<NewLeadEnrollPreviewResult
 
     counts.eligible++;
   }
+
+  const durationMs = Date.now() - startMs;
+  console.log(JSON.stringify({
+    event: "new_lead_enrollment_preview_completed",
+    dealCount: dealRows.length,
+    contactCount: allContactIds.length,
+    sequenceCount: seqIdList.length,
+    durationMs,
+  }));
 
   return {
     ...counts,
@@ -691,16 +757,19 @@ async function _fetchNewLeadDeals(): Promise<Array<{ deal: any; contact: any }>>
     )
     .orderBy(deals.id);
 
-  const results: Array<{ deal: any; contact: any }> = [];
-  for (const deal of dealRows) {
-    if (!deal.contactId) {
-      results.push({ deal, contact: null });
-      continue;
-    }
-    const contact = await storage.getContact(deal.contactId);
-    results.push({ deal, contact: contact ?? null });
-  }
-  return results;
+  // Bulk-fetch all contacts in one chunked query instead of per-deal serial fetches
+  const uniqueContactIds = [...new Set(
+    dealRows.filter(d => d.contactId != null).map(d => d.contactId as number)
+  )];
+  const contactList = uniqueContactIds.length > 0
+    ? await storage.getContactsByIds(uniqueContactIds)
+    : [];
+  const contactById = new Map(contactList.map(c => [c.id, c]));
+
+  return dealRows.map(deal => ({
+    deal,
+    contact: deal.contactId ? (contactById.get(deal.contactId) ?? null) : null,
+  }));
 }
 
 async function _requiresPewc(sequenceId: number | null): Promise<boolean> {

@@ -273,5 +273,46 @@ import { coerceDateFields } from "../utils/date-coerce";
     return active.length;
   }
 
+  async getContactEnrollmentsForContacts(contactIds: number[], sequenceIds?: number[]) {
+    if (contactIds.length === 0) return [];
+    const CHUNK = 500;
+    const results: typeof sequenceEnrollments.$inferSelect[] = [];
+    for (let i = 0; i < contactIds.length; i += CHUNK) {
+      const chunk = contactIds.slice(i, i + CHUNK);
+      const condition = sequenceIds && sequenceIds.length > 0
+        ? and(inArray(sequenceEnrollments.contactId, chunk), inArray(sequenceEnrollments.sequenceId, sequenceIds))
+        : inArray(sequenceEnrollments.contactId, chunk);
+      const rows = await db.select().from(sequenceEnrollments).where(condition);
+      results.push(...rows);
+    }
+    return results;
+  }
+
+  async getFollowUpSequencesByIds(sequenceIds: number[]) {
+    if (sequenceIds.length === 0) return [];
+    const CHUNK = 500;
+    const results: typeof followUpSequences.$inferSelect[] = [];
+    for (let i = 0; i < sequenceIds.length; i += CHUNK) {
+      const chunk = sequenceIds.slice(i, i + CHUNK);
+      const rows = await db.select().from(followUpSequences).where(inArray(followUpSequences.id, chunk));
+      results.push(...rows);
+    }
+    return results;
+  }
+
+  async getSequenceStepsForSequences(sequenceIds: number[]) {
+    if (sequenceIds.length === 0) return [];
+    const CHUNK = 500;
+    const results: typeof sequenceSteps.$inferSelect[] = [];
+    for (let i = 0; i < sequenceIds.length; i += CHUNK) {
+      const chunk = sequenceIds.slice(i, i + CHUNK);
+      const rows = await db.select().from(sequenceSteps)
+        .where(inArray(sequenceSteps.sequenceId, chunk))
+        .orderBy(asc(sequenceSteps.stepOrder));
+      results.push(...rows);
+    }
+    return results;
+  }
+
   }
   
