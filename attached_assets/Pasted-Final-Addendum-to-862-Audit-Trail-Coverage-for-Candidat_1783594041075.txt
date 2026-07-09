@@ -1,0 +1,125 @@
+Final Addendum to #862 — Audit Trail Coverage for Candidate-Detection Mode
+
+Approved to build.
+
+Core requirement
+
+Add automated coverage proving that runNewLeadAutoEnrollCheck() behaves differently in candidate mode vs. auto-enroll mode.
+
+Required test cases
+
+Add to:
+
+scripts/test-new-lead-enrollment-policy.ts
+
+or create:
+
+scripts/test-new-lead-candidate-audit.ts
+
+Test 1 — Candidate mode writes audit and creates no enrollment
+
+Setup:
+
+create contact with usable email
+create active New Lead deal linked to contact
+create valid active sequence
+configure defaultNewLeadSequenceId or verticalNewLeadSequenceMap
+set autoEnrollNewLeadDeals=false
+
+Run:
+
+runNewLeadAutoEnrollCheck()
+
+Assert:
+
+no sequence_enrollments row created
+audit log entry exists with action = new_lead_auto_enrollment_candidate_detected
+audit log includes contactId
+audit log includes dealId
+audit log includes sequenceId
+audit log includes reason/mode = candidate_only or autoEnrollDisabled
+
+Test 2 — Auto mode creates enrollment
+
+Setup is the same, except:
+
+set autoEnrollNewLeadDeals=true
+
+Run:
+
+runNewLeadAutoEnrollCheck()
+
+Assert:
+
+sequence_enrollments row created
+audit log entry exists with action = new_lead_auto_enrollment_created
+no duplicate enrollment created on second run
+
+Test 3 — Candidate audit is not written for ineligible contacts
+
+Add at least one skipped case:
+
+DNC contact
+or missing email
+or inactive sequence
+
+Assert:
+
+no enrollment created
+skip audit exists with action = new_lead_auto_enrollment_skipped
+skipReason is present
+candidate_detected is not falsely written as if eligible
+
+Kill lines
+
+STOP if autoEnrollNewLeadDeals=false creates a sequence enrollment.
+STOP if candidate mode silently skips without an audit log.
+STOP if audit logs omit dealId/contactId/sequenceId.
+STOP if autoEnrollNewLeadDeals=true fails to create an enrollment for a fully eligible contact.
+STOP if a second run creates duplicate enrollments.
+STOP if the test requires real outbound email, SMS, voice, GHL, or sequence worker execution.
+STOP if the test modifies global production settings without restoring them.
+
+Scope protection
+
+Do not change:
+
+sequence worker send execution
+contactability rules
+GHL sync
+deal creation
+stage progression logic
+unsubscribe/CAN-SPAM logic
+sequence triggerType
+
+This is a test-coverage task. Only fix implementation if the test reveals candidate audit behavior is actually broken.
+
+Validation
+
+Run:
+
+npx tsx scripts/test-new-lead-enrollment-policy.ts
+npx tsx scripts/smoke-role-guards.ts
+
+If using a new file:
+
+npx tsx scripts/test-new-lead-candidate-audit.ts
+npx tsx scripts/smoke-role-guards.ts
+
+Final report required
+
+Return:
+
+Test file:
+Candidate mode setting:
+Candidate audit action verified:
+Enrollment created in candidate mode: yes/no
+Auto mode setting:
+Enrollment created in auto mode: yes/no
+Created audit action verified:
+Duplicate-run result:
+Skipped/ineligible audit verified:
+Real outbound sent: yes/no
+GHL sync triggered: yes/no
+Files changed:
+Validation commands run:
