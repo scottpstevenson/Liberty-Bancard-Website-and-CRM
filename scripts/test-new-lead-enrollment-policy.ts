@@ -710,6 +710,156 @@ async function runPartB(): Promise<void> {
       ko("B15-d: Non-PEWC contact was enrolled into SMS sequence — PEWC gate failed!",
         `enrollment: ${JSON.stringify(smsEnrollment)}`);
 
+    // ── B16: null vertical → resolves via __unknown__ key ────────────────────
+    console.log("\n── B16: null vertical → __unknown__ key ─────────────────");
+    const unknownSeqId = await createTestSequence("active");
+    await setDefaultSequenceId(activeSeqId); // default present
+    await setVerticalSequenceMap({ __unknown__: unknownSeqId });
+    const map16 = await getVerticalSequenceMap();
+
+    // Simulate resolver for null vertical
+    const resolved16null = (() => {
+      const raw: string | null = null;
+      const v = raw == null ? null : raw.trim() || null;
+      const normalized = (!v || v.toLowerCase() === "unknown" || v.toLowerCase() === "uncategorized") ? null : v;
+      return (normalized && map16[normalized]) || (!normalized && map16["__unknown__"]) || activeSeqId;
+    })();
+    if (resolved16null === unknownSeqId)
+      ok(`B16: vertical=null → resolves to __unknown__ seq (${unknownSeqId}), not default (${activeSeqId})`);
+    else
+      ko("B16: null vertical did not resolve to __unknown__ mapped sequence", `got=${resolved16null}`);
+
+    // ── B17: empty string vertical → resolves via __unknown__ key ─────────────
+    console.log("\n── B17: empty string vertical → __unknown__ key ─────────");
+    const resolved17empty = (() => {
+      const raw: string | null = "";
+      const v = raw == null ? null : raw.trim() || null;
+      const normalized = (!v || v.toLowerCase() === "unknown" || v.toLowerCase() === "uncategorized") ? null : v;
+      return (normalized && map16[normalized]) || (!normalized && map16["__unknown__"]) || activeSeqId;
+    })();
+    if (resolved17empty === unknownSeqId)
+      ok(`B17: vertical="" → resolves to __unknown__ seq (${unknownSeqId}), not default`);
+    else
+      ko("B17: empty vertical did not resolve to __unknown__ mapped sequence", `got=${resolved17empty}`);
+
+    // ── B18: known vertical still resolves to its own mapped sequence ─────────
+    console.log("\n── B18: known vertical unaffected by __unknown__ fix ────");
+    await setVerticalSequenceMap({ __unknown__: unknownSeqId, restaurant: pausedSeqId });
+    const map18 = await getVerticalSequenceMap();
+    const resolved18 = (() => {
+      const raw = "restaurant";
+      const v = raw == null ? null : raw.trim() || null;
+      const normalized = (!v || v.toLowerCase() === "unknown" || v.toLowerCase() === "uncategorized") ? null : v;
+      return (normalized && map18[normalized]) || (!normalized && map18["__unknown__"]) || activeSeqId;
+    })();
+    if (resolved18 === pausedSeqId)
+      ok(`B18: vertical='restaurant' → still resolves to its own mapped seq (${pausedSeqId}), not __unknown__`);
+    else
+      ko("B18: known vertical broken by __unknown__ fix", `got=${resolved18}, expected=${pausedSeqId}`);
+
+    // ── B19: __unknown__ beats default for null vertical ──────────────────────
+    console.log("\n── B19: __unknown__ mapping beats default ────────────────");
+    const resolved19 = (() => {
+      const raw: string | null = null;
+      const v = raw == null ? null : raw.trim() || null;
+      const normalized = (!v || v.toLowerCase() === "unknown" || v.toLowerCase() === "uncategorized") ? null : v;
+      return (normalized && map18[normalized]) || (!normalized && map18["__unknown__"]) || activeSeqId;
+    })();
+    if (resolved19 === unknownSeqId)
+      ok(`B19: __unknown__ (${unknownSeqId}) beats default (${activeSeqId}) for null vertical`);
+    else
+      ko("B19: __unknown__ did not beat default", `got=${resolved19}`);
+
+    // ── B20: default fallback when no __unknown__ mapping exists ──────────────
+    console.log("\n── B20: default used when no __unknown__ mapping ─────────");
+    await setVerticalSequenceMap({ restaurant: pausedSeqId }); // no __unknown__
+    const map20 = await getVerticalSequenceMap();
+    const resolved20 = (() => {
+      const raw: string | null = null;
+      const v = raw == null ? null : raw.trim() || null;
+      const normalized = (!v || v.toLowerCase() === "unknown" || v.toLowerCase() === "uncategorized") ? null : v;
+      return (normalized && map20[normalized]) || (!normalized && map20["__unknown__"]) || activeSeqId;
+    })();
+    if (resolved20 === activeSeqId)
+      ok(`B20: No __unknown__ mapping → null vertical falls back to default (${activeSeqId})`);
+    else
+      ko("B20: default fallback broken for null vertical without __unknown__ key", `got=${resolved20}`);
+
+    // ── B21: no sequence at all → null resolution ─────────────────────────────
+    console.log("\n── B21: no sequence mapped at all → null (noSequenceBlocked) ─");
+    const resolved21 = (() => {
+      const raw: string | null = null;
+      const v = raw == null ? null : raw.trim() || null;
+      const normalized = (!v || v.toLowerCase() === "unknown" || v.toLowerCase() === "uncategorized") ? null : v;
+      const defaultSeq: number | null = null;
+      const emptyMap: Record<string, number> = {};
+      return (normalized && emptyMap[normalized]) || (!normalized && emptyMap["__unknown__"]) || defaultSeq || null;
+    })();
+    if (resolved21 === null)
+      ok("B21: no map + no default → null seqId → noSequenceBlocked gate fires correctly");
+    else
+      ko("B21: expected null resolution when no mapping exists", `got=${resolved21}`);
+
+    // ── B22: candidate audit log contains unknown-mapped seqId (autoEnabled=false) ─
+    console.log("\n── B22: candidate audit log uses __unknown__ seqId ──────");
+    await setVerticalSequenceMap({ __unknown__: unknownSeqId });
+    await setDefaultSequenceId(activeSeqId);
+    await setAutoEnrollEnabled(false);
+    const cB22 = await createTestContact({ vertical: null }); // null vertical
+    const dB22 = await createTestDeal(cB22);                  // deal with null vertical
+    await runNewLeadAutoEnrollCheck();
+    const b22Audit = await getRecentAuditLogs("new_lead_auto_enrollment_candidate_detected", dB22);
+    if (b22Audit.length > 0) {
+      const det = b22Audit[0].details as any;
+      if (det?.sequenceId === unknownSeqId)
+        ok(`B22: candidate audit shows __unknown__ seqId (${unknownSeqId}) for null-vertical deal`);
+      else
+        ko("B22: candidate audit seqId mismatch", `got=${det?.sequenceId}, expected=${unknownSeqId}`);
+    } else {
+      ko("B22: no candidate audit log written for null-vertical deal with __unknown__ mapping");
+    }
+    // Verify no enrollment was created
+    const b22Enrollments = await getEnrollmentsForContact(cB22);
+    if (b22Enrollments.length === 0)
+      ok("B22: no enrollment created (autoEnabled=false kill-line holds with __unknown__ seq)");
+    else
+      ko("B22: enrollment created despite autoEnabled=false", `count=${b22Enrollments.length}`);
+
+    // ── B23: autoEnabled=true → null-vertical deal enrolled into __unknown__ seq ─
+    console.log("\n── B23: autoEnabled=true enrolls null-vertical into __unknown__ seq ─");
+    await setVerticalSequenceMap({ __unknown__: unknownSeqId });
+    await setDefaultSequenceId(activeSeqId);
+    await setAutoEnrollEnabled(true);
+    const cB23 = await createTestContact({ vertical: null });
+    await createTestDeal(cB23);
+    await runNewLeadAutoEnrollCheck();
+    await setAutoEnrollEnabled(false); // restore kill-line immediately
+    const b23Enrollments = await getEnrollmentsForContact(cB23);
+    const b23InUnknown = b23Enrollments.find(e => e.sequenceId === unknownSeqId);
+    if (b23InUnknown)
+      ok(`B23: null-vertical deal enrolled into __unknown__ seq (${unknownSeqId}) when autoEnabled=true`);
+    else
+      ko("B23: null-vertical deal NOT enrolled into __unknown__ seq", `enrollments=${JSON.stringify(b23Enrollments)}`);
+    // Verify kill-line restored
+    const b23KillLine = await getAutoEnrollEnabled();
+    if (b23KillLine === false)
+      ok("B23: kill-line restored — autoEnrollEnabled=false after test");
+    else
+      ko("B23: kill-line NOT restored after B23 test", `still=${b23KillLine}`);
+
+    // ── B24: saving the map does not trigger enrollment ───────────────────────
+    console.log("\n── B24: saving __unknown__ mapping does not enroll ───────");
+    const cB24 = await createTestContact({ vertical: null });
+    await createTestDeal(cB24);
+    // Just write the map — no sweep called
+    await setVerticalSequenceMap({ __unknown__: unknownSeqId });
+    const b24Enrollments = await getEnrollmentsForContact(cB24);
+    if (b24Enrollments.length === 0)
+      ok("B24: writing __unknown__ map entry alone creates 0 enrollments (no side-effect)");
+    else
+      ko("B24: enrollment appeared after map save — saving must not trigger enrollment",
+        `count=${b24Enrollments.length}`);
+
   } finally {
     await setAutoEnrollEnabled(origAutoEnroll ?? false);
     await setDefaultSequenceId(origDefaultSeqId);

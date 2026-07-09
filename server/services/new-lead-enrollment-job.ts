@@ -35,6 +35,21 @@ const DEFAULT_SEQUENCE_SETTING = "defaultNewLeadSequenceId";
 
 const SMS_VOICE_RINGLESS_TYPES = new Set(["sms", "call", "call_reminder", "voicemail_drop"]);
 
+/** Key used in verticalMap for deals that have no/null/empty vertical. Must match the UI key. */
+const UNKNOWN_VERTICAL_KEY = "__unknown__";
+
+/**
+ * Normalise a raw vertical string.
+ * Returns null for null/undefined/""/whitespace-only/"unknown"/"uncategorized".
+ * Returns the trimmed string for all other values.
+ */
+function _resolveVertical(raw: string | null | undefined): string | null {
+  if (raw == null) return null;
+  const t = raw.trim();
+  if (!t || t.toLowerCase() === "unknown" || t.toLowerCase() === "uncategorized") return null;
+  return t;
+}
+
 export interface NewLeadEnrollProgress {
   status: "idle" | "running" | "complete" | "cancelled" | "failed";
   total: number;
@@ -212,10 +227,13 @@ export async function previewNewLeadEnroll(): Promise<NewLeadEnrollPreviewResult
   const allSeqIdSet = new Set<number>();
   if (defaultSeqId) allSeqIdSet.add(defaultSeqId);
   for (const { deal } of dealRows) {
-    if (deal.vertical && verticalMap[deal.vertical]) {
-      allSeqIdSet.add(verticalMap[deal.vertical]);
+    const v = _resolveVertical(deal.vertical);
+    if (v && verticalMap[v]) {
+      allSeqIdSet.add(verticalMap[v]);
     }
   }
+  // Always include the unknown-vertical sequence if mapped, so it's bulk-loaded
+  if (verticalMap[UNKNOWN_VERTICAL_KEY]) allSeqIdSet.add(verticalMap[UNKNOWN_VERTICAL_KEY]);
   const seqIdList = Array.from(allSeqIdSet);
 
   // ── 2. Bulk-fetch sequences and steps once ────────────────────────────────
@@ -281,8 +299,9 @@ export async function previewNewLeadEnroll(): Promise<NewLeadEnrollPreviewResult
     const tier = contact.consentTier ?? "cold_no_consent";
     if (tier === "opted_out" || tier === "do_not_contact") { counts.optOutBlocked++; continue; }
 
-    // Resolve sequence for this deal
-    const seqId = (row.deal.vertical && verticalMap[row.deal.vertical]) || defaultSeqId;
+    // Resolve sequence for this deal — 3-tier: vertical map → unknown map → default
+    const v = _resolveVertical(row.deal.vertical);
+    const seqId = (v && verticalMap[v]) || (!v && verticalMap[UNKNOWN_VERTICAL_KEY]) || defaultSeqId;
     if (!seqId) { counts.noSequenceBlocked++; continue; }
 
     const sequence = sequenceById.get(seqId);
@@ -441,8 +460,9 @@ async function _runAsync(opts: {
           continue;
         }
 
-        // Resolve sequence
-        const seqId = (deal.vertical && verticalMap[deal.vertical]) || defaultSeqId;
+        // Resolve sequence — 3-tier: vertical map → unknown map → default
+        const v = _resolveVertical(deal.vertical);
+        const seqId = (v && verticalMap[v]) || (!v && verticalMap[UNKNOWN_VERTICAL_KEY]) || defaultSeqId;
         if (!seqId) {
           progress.noSequenceBlocked++;
           await storage.createAuditLog({
@@ -667,10 +687,13 @@ export async function runNewLeadAutoEnrollCheck(): Promise<void> {
   const allSeqIdSet = new Set<number>();
   if (defaultSeqId) allSeqIdSet.add(defaultSeqId);
   for (const { deal } of dealRows) {
-    if (deal.vertical && verticalMap[deal.vertical]) {
-      allSeqIdSet.add(verticalMap[deal.vertical]);
+    const v = _resolveVertical(deal.vertical);
+    if (v && verticalMap[v]) {
+      allSeqIdSet.add(verticalMap[v]);
     }
   }
+  // Always include the unknown-vertical sequence if mapped, so it's bulk-loaded
+  if (verticalMap[UNKNOWN_VERTICAL_KEY]) allSeqIdSet.add(verticalMap[UNKNOWN_VERTICAL_KEY]);
   const seqIdList = Array.from(allSeqIdSet);
 
   // ── 2. Bulk-fetch sequences and steps in parallel ─────────────────────────
@@ -751,7 +774,9 @@ export async function runNewLeadAutoEnrollCheck(): Promise<void> {
       if (contact.optedOutEmail === true) { skipped++; continue; }
       if (deal.autoEnrollmentSuppressedAt != null) { skipped++; continue; }
 
-      const seqId = (deal.vertical && verticalMap[deal.vertical]) || defaultSeqId;
+      // Resolve sequence — 3-tier: vertical map → unknown map → default
+      const v = _resolveVertical(deal.vertical);
+      const seqId = (v && verticalMap[v]) || (!v && verticalMap[UNKNOWN_VERTICAL_KEY]) || defaultSeqId;
       if (!seqId) { skipped++; continue; }
 
       // Map lookup — no DB call
