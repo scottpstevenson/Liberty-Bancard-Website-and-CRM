@@ -386,6 +386,13 @@
       "when": 1784100000000,
       "tag": "0049_csv_import_progress_tracking",
       "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1784300000000,
+      "tag": "0050_deals_auto_enrollment_suppression",
+      "breakpoints": true
     }
   ]
 }

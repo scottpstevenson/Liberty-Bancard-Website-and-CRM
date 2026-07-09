@@ -201,6 +201,26 @@ export function registerContactsRoutes(app: Express) {
       const updated = await updateContactGhlFirst(contactId, body, { actorType: "user", userId: (req.user as any)?.id ?? null });
       if (!updated) return res.status(404).json({ message: "Not found" });
 
+      // If this update sets an opt-out signal, suppress New Lead auto-enrollment
+      const isOptOut =
+        body.consentTier === "opted_out" ||
+        body.emailStatus === "opted_out" || body.emailStatus === "unsubscribed" ||
+        body.optedOutEmail === true ||
+        body.doNotContact === true;
+      if (isOptOut) {
+        const reason = body.doNotContact
+          ? "admin_do_not_contact"
+          : body.consentTier === "opted_out"
+          ? "admin_consent_tier_opted_out"
+          : body.emailStatus === "opted_out" || body.emailStatus === "unsubscribed"
+          ? "admin_email_status_opted_out"
+          : "admin_opted_out_email_flag";
+        const { suppressNewLeadAutoEnrollmentForContact } = await import("../services/new-lead-enrollment-job");
+        suppressNewLeadAutoEnrollmentForContact(contactId, reason).catch((err: any) =>
+          console.error("[contacts PUT] suppression error:", err?.message)
+        );
+      }
+
       // Re-extract relationships when key identifiers change
       const phoneChanged = req.body?.phone !== undefined && req.body.phone !== existing?.phone;
       const addressChanged = req.body?.address !== undefined && req.body.address !== existing?.address;

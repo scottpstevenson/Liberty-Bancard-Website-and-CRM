@@ -220,6 +220,8 @@ export const deals = pgTable("deals", {
   archivedAt: timestamp("archived_at"),
   partnerOrgId: integer("partner_org_id"),
   vertical: text("vertical"),
+  autoEnrollmentSuppressedAt: timestamp("auto_enrollment_suppressed_at"),
+  autoEnrollmentSuppressedReason: text("auto_enrollment_suppressed_reason"),
 }, (table) => [
   index("deals_contact_id_idx").on(table.contactId),
   index("deals_pipeline_idx").on(table.pipeline),

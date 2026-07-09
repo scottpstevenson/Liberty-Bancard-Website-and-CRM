@@ -1017,6 +1017,12 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
             email: contact.email,
           },
         });
+
+        // Suppress New Lead auto-enrollment so the next hourly sweep won't re-enroll
+        const { suppressNewLeadAutoEnrollmentForContact } = await import("../services/new-lead-enrollment-job");
+        suppressNewLeadAutoEnrollmentForContact(contactId, "email_unsubscribe_link").catch((err: any) =>
+          console.error("[unsubscribe] suppression error:", err?.message)
+        );
       }
 
       return res.send(UNSUB_PAGE);

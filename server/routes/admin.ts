@@ -1719,7 +1719,44 @@ export function registerAdminRoutes(app: Express) {
         (d: any) => !d.contactId || !enrolledContactIds.has(d.contactId)
       ).length;
 
-      // 4. System settings
+      // 4. Suppressed count (deals with autoEnrollmentSuppressedAt IS NOT NULL, not already DNC)
+      const { isNotNull: isNotNullOp } = await import("drizzle-orm");
+      const { contacts: contactsTable } = await import("@shared/schema");
+      const suppressedDealsRaw = await db
+        .select({ id: dealsTable.id, contactId: dealsTable.contactId })
+        .from(dealsTable)
+        .where(
+          and(
+            eq(dealsTable.pipeline, "sales"),
+            eq(dealsTable.stage, "New Lead"),
+            isNull(dealsTable.archivedAt),
+            isNotNullOp(dealsTable.autoEnrollmentSuppressedAt)
+          )
+        );
+      // Exclude contacts already counted in DNC (doNotContact=true or consentTier=do_not_contact)
+      let dncContactIds = new Set<number>();
+      const suppressedContactIds = suppressedDealsRaw.map((d: any) => d.contactId).filter(Boolean) as number[];
+      if (suppressedContactIds.length > 0) {
+        const { or: orOp } = await import("drizzle-orm");
+        const dncContacts = await db
+          .select({ id: contactsTable.id })
+          .from(contactsTable)
+          .where(
+            and(
+              inArray(contactsTable.id, suppressedContactIds),
+              orOp(
+                eq(contactsTable.doNotContact, true),
+                eq(contactsTable.consentTier, "do_not_contact")
+              )
+            )
+          );
+        dncContactIds = new Set(dncContacts.map((c: any) => c.id));
+      }
+      const newLeadAutoEnrollmentSuppressed = suppressedDealsRaw.filter(
+        (d: any) => !d.contactId || !dncContactIds.has(d.contactId)
+      ).length;
+
+      // 5. System settings
       const [lastSweep, lastTick, autoEnroll] = await Promise.all([
         storage.getSystemSetting("stage_progression_last_run"),
         storage.getSystemSetting("sequence_runner_last_tick"),
@@ -1730,6 +1767,7 @@ export function registerAdminRoutes(app: Express) {
         totalNewLeadDeals,
         newLeadNoMovement7d: staleDealsRaw.length,
         newLeadNoActiveEnrollment,
+        newLeadAutoEnrollmentSuppressed,
         autoEnrollNewLeadDeals: autoEnroll === true,
         lastStageProgressionSweepAt: (lastSweep as any)?.at ?? null,
         lastSequenceWorkerTickAt: (lastTick as any)?.at ?? null,

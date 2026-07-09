@@ -423,5 +423,19 @@ export async function handleOptOut(rawPayload: unknown): Promise<void> {
     });
   }
 
+  // Suppress New Lead auto-enrollment for the CRM contact (if linked by ghlContactId)
+  if (ghlContactId) {
+    try {
+      const [crmContact] = await db.select({ id: contacts.id }).from(contacts)
+        .where(eq(contacts.ghlContactId, ghlContactId)).limit(1);
+      if (crmContact) {
+        const { suppressNewLeadAutoEnrollmentForContact } = await import("../new-lead-enrollment-job");
+        await suppressNewLeadAutoEnrollmentForContact(crmContact.id, `ghl_opt_out:${payload.channel || "all"}`);
+      }
+    } catch (err: any) {
+      console.error("[SDR Webhook] suppressNewLeadAutoEnrollment error:", err?.message);
+    }
+  }
+
   console.log(`[SDR Webhook] opt-out processed for GHL contact ${ghlContactId}`);
 }

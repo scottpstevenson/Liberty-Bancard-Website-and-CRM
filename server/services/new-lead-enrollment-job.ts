@@ -22,7 +22,7 @@
 
 import { db } from "../db";
 import { deals, contacts, sequenceEnrollments, sequenceSteps } from "@shared/schema";
-import { eq, and, isNull, inArray, sql } from "drizzle-orm";
+import { eq, and, isNull, inArray, isNotNull, sql } from "drizzle-orm";
 import { storage } from "../storage";
 import { canEnrollContactInSequence } from "./sequence-eligibility";
 import { evaluateContactability } from "./contactability";
@@ -77,6 +77,75 @@ export interface NewLeadEnrollPreviewResult {
 }
 
 let _jobRunning = false;
+
+// ─── Suppression helper ───────────────────────────────────────────────────────
+
+/**
+ * Central suppression helper.  Called by every unsubscribe / opt-out path.
+ * Sets `autoEnrollmentSuppressedAt` + `autoEnrollmentSuppressedReason` on all
+ * active New Lead deals for the contact, writes an audit log row, and pauses
+ * any active sequence enrollments.
+ *
+ * This is additive back-pressure on top of the contactability / consent gates —
+ * it does NOT change deal stage, DNC status, or consent fields.
+ */
+export async function suppressNewLeadAutoEnrollmentForContact(
+  contactId: number,
+  reason: string
+): Promise<void> {
+  try {
+    const now = new Date();
+
+    // 1. Find active New Lead deals for this contact
+    const newLeadDeals = await db
+      .select({ id: deals.id })
+      .from(deals)
+      .where(
+        and(
+          eq(deals.contactId, contactId),
+          eq(deals.pipeline, "sales"),
+          eq(deals.stage, "New Lead"),
+          isNull(deals.archivedAt)
+        )
+      );
+
+    for (const deal of newLeadDeals) {
+      // 2. Set suppression metadata on the deal
+      await db
+        .update(deals)
+        .set({
+          autoEnrollmentSuppressedAt: now,
+          autoEnrollmentSuppressedReason: reason,
+          updatedAt: now,
+        })
+        .where(eq(deals.id, deal.id));
+
+      // 3. Write audit log
+      await storage.createAuditLog({
+        action: "new_lead_auto_enrollment_suppressed",
+        entityType: "deal",
+        entityId: deal.id,
+        actorType: "system",
+        details: {
+          contactId,
+          dealId: deal.id,
+          reason,
+          suppressedAt: now.toISOString(),
+        },
+      });
+    }
+
+    // 4. Pause any active sequence enrollments for this contact
+    const enrollments = await storage.getContactEnrollments(contactId);
+    for (const enrollment of enrollments) {
+      if (enrollment.status === "active") {
+        await storage.updateSequenceEnrollment(enrollment.id, { status: "paused" });
+      }
+    }
+  } catch (err) {
+    console.error("[suppressNewLeadAutoEnrollment] Error suppressing contact", contactId, err);
+  }
+}
 
 export function isNewLeadEnrollJobRunning(): boolean {
   return _jobRunning;
@@ -516,6 +585,12 @@ export async function runNewLeadAutoEnrollCheck(): Promise<void> {
       if (contact.doNotContact) continue;
       const tier = contact.consentTier ?? "cold_no_consent";
       if (tier === "opted_out" || tier === "do_not_contact") continue;
+
+      // Suppression guard: skip contacts that have unsubscribed via email-status or
+      // optedOutEmail flag, and deals that carry an explicit suppression timestamp.
+      if (contact.emailStatus === "unsubscribed" || contact.emailStatus === "opted_out") continue;
+      if (contact.optedOutEmail === true) continue;
+      if (deal.autoEnrollmentSuppressedAt != null) continue;
 
       const seqId = (deal.vertical && verticalMap[deal.vertical]) || defaultSeqId;
       if (!seqId) continue;

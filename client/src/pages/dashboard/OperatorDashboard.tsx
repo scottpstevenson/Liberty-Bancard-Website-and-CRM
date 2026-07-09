@@ -5984,6 +5984,7 @@ interface StageHealthData {
   totalNewLeadDeals: number;
   newLeadNoMovement7d: number;
   newLeadNoActiveEnrollment: number;
+  newLeadAutoEnrollmentSuppressed: number;
   autoEnrollNewLeadDeals: boolean;
   lastStageProgressionSweepAt: string | null;
   lastSequenceWorkerTickAt: string | null;
@@ -6038,7 +6039,7 @@ function StageHealthPanel() {
 
       {data && (
         <>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <Card>
               <CardContent className="p-4">
                 <p className="text-xs text-muted-foreground mb-1">Total New Lead Deals</p>
@@ -6057,7 +6058,48 @@ function StageHealthPanel() {
                 <p className={`text-2xl font-bold ${data.newLeadNoActiveEnrollment > 0 ? "text-red-600" : "text-green-600"}`} data-testid="kpi-no-enrollment">{data.newLeadNoActiveEnrollment.toLocaleString()}</p>
               </CardContent>
             </Card>
+            <Card>
+              <CardContent className="p-4">
+                <p className="text-xs text-muted-foreground mb-1">Auto-Enroll Suppressed</p>
+                <p className={`text-2xl font-bold ${(data.newLeadAutoEnrollmentSuppressed ?? 0) > 0 ? "text-orange-600" : "text-green-600"}`} data-testid="kpi-suppressed">{(data.newLeadAutoEnrollmentSuppressed ?? 0).toLocaleString()}</p>
+              </CardContent>
+            </Card>
           </div>
+
+          <Card>
+            <CardContent className="p-4">
+              <p className="text-xs font-medium text-muted-foreground mb-3">Enrollment Suppression Breakdown</p>
+              <div className="space-y-2 text-sm">
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-red-500 shrink-0" />
+                    DNC / Do Not Contact
+                  </span>
+                  <Badge variant="destructive" data-testid="badge-dnc-count">
+                    blocked by contactability
+                  </Badge>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-orange-500 shrink-0" />
+                    Auto-enrollment suppressed
+                  </span>
+                  <Badge variant={(data.newLeadAutoEnrollmentSuppressed ?? 0) > 0 ? "secondary" : "outline"} className={(data.newLeadAutoEnrollmentSuppressed ?? 0) > 0 ? "text-orange-700 border-orange-300" : ""} data-testid="badge-suppressed-count">
+                    {(data.newLeadAutoEnrollmentSuppressed ?? 0).toLocaleString()}
+                  </Badge>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-gray-400 shrink-0" />
+                    No active enrollment
+                  </span>
+                  <Badge variant={data.newLeadNoActiveEnrollment > 0 ? "secondary" : "outline"} data-testid="badge-no-enrollment-count">
+                    {data.newLeadNoActiveEnrollment.toLocaleString()}
+                  </Badge>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
 
           {data.autoEnrollNewLeadDeals && (
             <div className="flex items-start gap-2 p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded text-xs text-amber-800 dark:text-amber-300" data-testid="alert-auto-enroll-live">
