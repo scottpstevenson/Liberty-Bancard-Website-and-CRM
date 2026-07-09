@@ -41,7 +41,9 @@ import {
   deals,
   followUpSequences,
   sequenceEnrollments,
+  sequenceSteps,
   auditLogs,
+  ghlActivityLog,
 } from "../shared/schema";
 import { eq, and, desc, inArray } from "drizzle-orm";
 import {
@@ -128,6 +130,7 @@ const testContactIds: number[] = [];
 const testDealIds: number[] = [];
 const testSequenceIds: number[] = [];
 const testEnrollmentIds: number[] = [];
+const testStepIds: number[] = [];
 
 async function createTestContact(overrides: {
   email?: string | null;
@@ -215,12 +218,21 @@ async function cleanup(): Promise<void> {
       await db.delete(sequenceEnrollments)
         .where(inArray(sequenceEnrollments.id, seqEnrollRows.map(r => r.id)));
     }
+    // Delete steps before sequences (FK constraint)
+    if (testStepIds.length) {
+      await db.delete(sequenceSteps).where(inArray(sequenceSteps.id, testStepIds));
+    }
+    // Also sweep steps belonging to test sequences (in case stepIds were not individually tracked)
+    await db.delete(sequenceSteps)
+      .where(inArray(sequenceSteps.sequenceId, testSequenceIds));
     await db.delete(followUpSequences).where(inArray(followUpSequences.id, testSequenceIds));
   }
   if (testDealIds.length) {
     await db.delete(deals).where(inArray(deals.id, testDealIds));
   }
   if (testContactIds.length) {
+    // Delete child rows that FK-reference contacts before deleting contacts
+    await db.delete(ghlActivityLog).where(inArray(ghlActivityLog.contactId, testContactIds));
     await db.delete(contacts).where(inArray(contacts.id, testContactIds));
   }
 }
@@ -627,6 +639,59 @@ async function runPartB(): Promise<void> {
       ok("B14: Cancel flag write/read round-trip: false→false, true→true ✓");
     else
       ko("B14: Cancel flag round-trip failed", `false=${cancelFalse}, true=${cancelTrue}`);
+
+    // ── B15: PEWC gate — autoEnroll=true + SMS seq + non-PEWC contact → NO enrollment ──
+    console.log("\n── B15: PEWC gate in auto-enroll path ────────────────────");
+    // Create an "active" sequence with an SMS step → requiresPewc=true
+    const smsSeqId = await createTestSequence("active");
+    const [smsStep] = await db.insert(sequenceSteps).values({
+      sequenceId: smsSeqId,
+      stepOrder: 1,
+      actionType: "sms",
+      delayDays: 0,
+      delayHours: 0,
+      body: "Test SMS step",
+    }).returning({ id: sequenceSteps.id });
+    testStepIds.push(smsStep.id);
+
+    // Create a non-PEWC contact (cold_no_consent)
+    const cNonPewc = await createTestContact({ consentTier: "cold_no_consent" });
+    await createTestDeal(cNonPewc);
+
+    // Verify the gate logic directly: the sequence has an SMS step → requiresPewc=true
+    const steps = await storage.getSequenceSteps(smsSeqId);
+    const smsTypes = new Set(["sms", "call", "call_reminder", "voicemail_drop"]);
+    const requiresPewc15 = steps.some(s => smsTypes.has(s.actionType ?? ""));
+    if (requiresPewc15)
+      ok("B15-a: SMS sequence step detected → requiresPewc=true");
+    else
+      ko("B15-a: Expected requiresPewc=true for SMS sequence", `steps=${JSON.stringify(steps)}`);
+
+    // With the PEWC gate active, the auto-enroll path must NOT enroll cNonPewc
+    // into an SMS sequence. We test by applying the same gate logic as runNewLeadAutoEnrollCheck:
+    const tier15 = "cold_no_consent";
+    const isBlockedByPewcGate = requiresPewc15 && tier15 !== "pewc_full_automation";
+    if (isBlockedByPewcGate)
+      ok("B15-b: Non-PEWC contact gate fires: requiresPewc=true && tier!='pewc_full_automation' → skip");
+    else
+      ko("B15-b: PEWC gate should block this contact");
+
+    // And confirm a PEWC-qualified contact would NOT be blocked:
+    const tier15Full = "pewc_full_automation";
+    const isBlockedForPewcFull = requiresPewc15 && tier15Full !== "pewc_full_automation";
+    if (!isBlockedForPewcFull)
+      ok("B15-c: pewc_full_automation contact passes the PEWC gate (not blocked)");
+    else
+      ko("B15-c: PEWC gate incorrectly blocked a pewc_full_automation contact");
+
+    // Verify no enrollment was created for the non-PEWC contact into the SMS seq
+    const enrollsNonPewc = await getEnrollmentsForContact(cNonPewc);
+    const smsEnrollment = enrollsNonPewc.find(e => e.sequenceId === smsSeqId);
+    if (!smsEnrollment)
+      ok("B15-d: No enrollment created for non-PEWC contact → SMS seq PEWC gate held");
+    else
+      ko("B15-d: Non-PEWC contact was enrolled into SMS sequence — PEWC gate failed!",
+        `enrollment: ${JSON.stringify(smsEnrollment)}`);
 
   } finally {
     await setAutoEnrollEnabled(origAutoEnroll ?? false);

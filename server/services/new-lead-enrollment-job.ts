@@ -505,6 +505,11 @@ export async function runNewLeadAutoEnrollCheck(): Promise<void> {
 
       if (!contact.email) continue;
 
+      // PEWC gate — parity with preview/_runAsync: SMS/voice/ringless sequences require
+      // pewc_full_automation consent tier; skip without enrolling if not met.
+      const requiresPewc = await _requiresPewc(seqId);
+      if (requiresPewc && tier !== "pewc_full_automation") continue;
+
       const existingEnrollments = await storage.getContactEnrollments(contact.id);
       // Any active/paused enrollment in ANY sequence blocks re-enrollment
       const isEnrolled = existingEnrollments.some(
