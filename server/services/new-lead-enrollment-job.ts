@@ -648,9 +648,27 @@ export async function runNewLeadAutoEnrollCheck(): Promise<void> {
     try {
       const { deal, contact } = row;
       if (!contact) continue;
-      if (contact.doNotContact) continue;
+      if (contact.doNotContact) {
+        await storage.createAuditLog({
+          action: "new_lead_auto_enrollment_skipped",
+          entityType: "deal",
+          entityId: deal.id,
+          actorType: "system",
+          details: { contactId: contact.id, dealId: deal.id, skipReason: "dnc" },
+        });
+        continue;
+      }
       const tier = contact.consentTier ?? "cold_no_consent";
-      if (tier === "opted_out" || tier === "do_not_contact") continue;
+      if (tier === "opted_out" || tier === "do_not_contact") {
+        await storage.createAuditLog({
+          action: "new_lead_auto_enrollment_skipped",
+          entityType: "deal",
+          entityId: deal.id,
+          actorType: "system",
+          details: { contactId: contact.id, dealId: deal.id, skipReason: "opted_out", consentTier: tier },
+        });
+        continue;
+      }
 
       // Suppression guard: skip contacts that have unsubscribed via email-status or
       // optedOutEmail flag, and deals that carry an explicit suppression timestamp.
@@ -722,9 +740,10 @@ export async function runNewLeadAutoEnrollCheck(): Promise<void> {
         },
       });
       await storage.createAuditLog({
-        action: "new_lead_deal_enrolled",
+        action: "new_lead_auto_enrollment_created",
         entityType: "deal",
         entityId: deal.id,
+        actorType: "system",
         details: {
           contactId: contact.id,
           sequenceId: seqId,
