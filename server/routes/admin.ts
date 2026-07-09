@@ -1797,6 +1797,15 @@ export function registerAdminRoutes(app: Express) {
         const mappedSequenceId = resolvedSeqId ?? null;
         const mappedSequenceName = mappedSequenceId ? (seqNameMap[mappedSequenceId] ?? null) : null;
 
+        let sequenceMappingSource: "explicit" | "default" | "none";
+        if (vertical !== null && verticalMap[vertical]) {
+          sequenceMappingSource = "explicit";
+        } else if (defaultSeqId != null) {
+          sequenceMappingSource = "default";
+        } else {
+          sequenceMappingSource = "none";
+        }
+
         return {
           vertical,
           label,
@@ -1810,6 +1819,7 @@ export function registerAdminRoutes(app: Express) {
           suppressed,
           mappedSequenceId,
           mappedSequenceName,
+          sequenceMappingSource,
         };
       });
 

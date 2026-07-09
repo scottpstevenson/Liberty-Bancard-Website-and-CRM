@@ -5994,6 +5994,7 @@ interface VerticalBreakdownRow {
   suppressed: number;
   mappedSequenceId: number | null;
   mappedSequenceName: string | null;
+  sequenceMappingSource?: "explicit" | "default" | "none";
 }
 
 interface StageHealthData {
@@ -6820,11 +6821,12 @@ function NewLeadEnrollPanel() {
                           <td className="py-1.5 px-2 min-w-[180px]">
                             {isUnknownRow ? (
                               <span className="text-xs italic text-muted-foreground">
-                                {row.mappedSequenceName
-                                  ? `${row.mappedSequenceName} (default)`
+                                {row.sequenceMappingSource === "default"
+                                  ? `${row.mappedSequenceName} · Using default`
                                   : "Set via Default Sequence above"}
                               </span>
                             ) : (
+                              <>
                               <Select
                                 value={currentSeqId !== null ? String(currentSeqId) : "unmapped"}
                                 onValueChange={(v) => {
@@ -6860,6 +6862,10 @@ function NewLeadEnrollPanel() {
                                   ))}
                                 </SelectContent>
                               </Select>
+                              {row.sequenceMappingSource === "default" && (
+                                <span className="text-xs italic text-muted-foreground mt-0.5 block">Using default</span>
+                              )}
+                              </>
                             )}
                           </td>
                           <td className="py-1.5 px-2 whitespace-nowrap">
