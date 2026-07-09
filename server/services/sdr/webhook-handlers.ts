@@ -1,8 +1,10 @@
 import { z } from "zod";
+import { createHash } from "crypto";
 import { db } from "../../db";
 import { sdrLeadEvents, sdrMerchants, sdrLeadState, contacts } from "@shared/schema";
 import type { SdrMerchant } from "@shared/schema";
 import { eq, and, sql } from "drizzle-orm";
+import { storage } from "../../storage";
 import { onOptOut, onAppointmentBooked, onStageChange } from "./ghl-sync-rules";
 import { classifyIntent, executeIntentAction } from "./reply-intelligence";
 import { handleCallDisposition, CALL_DISPOSITIONS, type CallDisposition } from "./voice-orchestrator";
@@ -49,6 +51,8 @@ const appointmentSchema = z.object({
 const optOutSchema = z.object({
   contactId: z.string().optional(),
   channel: z.enum(["sms", "email", "call", "all"]).optional(),
+  email: z.string().optional(),
+  phone: z.string().optional(),
 }).passthrough();
 
 async function findMerchantByGhlId(ghlContactId: string): Promise<SdrMerchant | null> {
@@ -407,35 +411,155 @@ export async function handleOptOut(rawPayload: unknown): Promise<void> {
   }
   const payload = parsed.data;
   const ghlContactId = payload.contactId;
-  const merchant = ghlContactId ? await findMerchantByGhlId(ghlContactId) : null;
+  const channel = payload.channel || "all";
 
+  const normalizedEmail = payload.email ? payload.email.toLowerCase().trim() : null;
+  const normalizedPhone = payload.phone ? payload.phone.replace(/\D/g, "") : null;
+
+  // ── 1. SDR merchant lookup (existing pipeline logic) ──────────────────────
+  const merchant = ghlContactId ? await findMerchantByGhlId(ghlContactId) : null;
   if (merchant) {
-    const channel = payload.channel || "all";
     await onOptOut(merchant.id, channel);
-  } else {
-    await db.insert(sdrLeadEvents).values({
-      merchantId: null,
-      eventType: "opt_out",
-      channel: payload.channel || "all",
-      actorType: "merchant",
-      payloadJson: payload,
-      ghlRefId: ghlContactId || null,
-    });
   }
 
-  // Suppress New Lead auto-enrollment for the CRM contact (if linked by ghlContactId)
+  // ── 2. Always store webhook event (regardless of match result) ────────────
+  await db.insert(sdrLeadEvents).values({
+    merchantId: merchant?.id || null,
+    eventType: "opt_out",
+    channel,
+    actorType: "merchant",
+    payloadJson: {
+      ...payload,
+      emailPresent: !!normalizedEmail,
+      phonePresent: !!normalizedPhone,
+    },
+    ghlRefId: ghlContactId || null,
+  });
+
+  // ── 3. CRM contact suppression — three-tier fallback chain ────────────────
+  const { suppressNewLeadAutoEnrollmentForContact } = await import("../new-lead-enrollment-job");
+  const now = new Date();
+  let matched = false;
+
+  // Path A: exact ghlContactId match in contacts table
   if (ghlContactId) {
     try {
-      const [crmContact] = await db.select({ id: contacts.id }).from(contacts)
-        .where(eq(contacts.ghlContactId, ghlContactId)).limit(1);
-      if (crmContact) {
-        const { suppressNewLeadAutoEnrollmentForContact } = await import("../new-lead-enrollment-job");
-        await suppressNewLeadAutoEnrollmentForContact(crmContact.id, `ghl_opt_out:${payload.channel || "all"}`);
+      const matchedContacts = await db
+        .select({ id: contacts.id })
+        .from(contacts)
+        .where(eq(contacts.ghlContactId, ghlContactId));
+
+      if (matchedContacts.length > 0) {
+        matched = true;
+        for (const contact of matchedContacts) {
+          await suppressNewLeadAutoEnrollmentForContact(contact.id, "ghl_opt_out");
+          await db.update(contacts)
+            .set({ optedOutEmail: true, emailStatus: "opted_out", consentTier: "opted_out", updatedAt: now })
+            .where(eq(contacts.id, contact.id));
+        }
+        console.log(`[SDR Webhook] opt-out: GHL ID match — suppressed ${matchedContacts.length} contact(s)`);
       }
     } catch (err: any) {
-      console.error("[SDR Webhook] suppressNewLeadAutoEnrollment error:", err?.message);
+      console.error("[SDR Webhook] opt-out GHL ID lookup error:", err?.message);
     }
   }
 
-  console.log(`[SDR Webhook] opt-out processed for GHL contact ${ghlContactId}`);
+  // Path B: exact normalized email match (only if no GHL ID match)
+  if (!matched && normalizedEmail) {
+    try {
+      const matchedContacts = await db
+        .select({ id: contacts.id })
+        .from(contacts)
+        .where(eq(contacts.email, normalizedEmail));
+
+      if (matchedContacts.length > 0) {
+        matched = true;
+        const emailHash = createHash("sha256").update(normalizedEmail).digest("hex").slice(0, 16);
+        const matchedCount = matchedContacts.length;
+        for (const contact of matchedContacts) {
+          await suppressNewLeadAutoEnrollmentForContact(contact.id, "ghl_opt_out_email_match");
+          await db.update(contacts)
+            .set({ optedOutEmail: true, emailStatus: "opted_out", consentTier: "opted_out", updatedAt: now })
+            .where(eq(contacts.id, contact.id));
+          await storage.createAuditLog({
+            action: "ghl_opt_out_email_match",
+            entityType: "contact",
+            entityId: contact.id,
+            actorType: "system",
+            details: {
+              matchedBy: "email",
+              matchedCount,
+              emailHash,
+              ghlContactId: ghlContactId || null,
+              channel,
+            },
+          });
+        }
+        console.log(`[SDR Webhook] opt-out: email fallback match — suppressed ${matchedCount} contact(s)`);
+      }
+    } catch (err: any) {
+      console.error("[SDR Webhook] opt-out email fallback error:", err?.message);
+    }
+  }
+
+  // Path C: exact normalized phone match (only if no prior match)
+  if (!matched && normalizedPhone) {
+    try {
+      const matchedContacts = await db
+        .select({ id: contacts.id, phone: contacts.phone })
+        .from(contacts)
+        .where(sql`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') = ${normalizedPhone}`);
+
+      if (matchedContacts.length > 0) {
+        matched = true;
+        const matchedCount = matchedContacts.length;
+        for (const contact of matchedContacts) {
+          await suppressNewLeadAutoEnrollmentForContact(contact.id, "ghl_opt_out_phone_match");
+          await db.update(contacts)
+            .set({ optedOutEmail: true, emailStatus: "opted_out", consentTier: "opted_out", updatedAt: now })
+            .where(eq(contacts.id, contact.id));
+          await storage.createAuditLog({
+            action: "ghl_opt_out_phone_match",
+            entityType: "contact",
+            entityId: contact.id,
+            actorType: "system",
+            details: {
+              matchedBy: "phone",
+              matchedCount,
+              phonePresent: true,
+              ghlContactId: ghlContactId || null,
+              channel,
+            },
+          });
+        }
+        console.log(`[SDR Webhook] opt-out: phone fallback match — suppressed ${matchedCount} contact(s)`);
+      }
+    } catch (err: any) {
+      console.error("[SDR Webhook] opt-out phone fallback error:", err?.message);
+    }
+  }
+
+  // Path D: no match — write anomaly audit, never drop silently
+  if (!matched) {
+    try {
+      await storage.createAuditLog({
+        action: "ghl_opt_out_unmatched_contact",
+        entityType: "system",
+        entityId: 0,
+        actorType: "system",
+        details: {
+          ghlContactId: ghlContactId || null,
+          emailPresent: !!normalizedEmail,
+          phonePresent: !!normalizedPhone,
+          reason: "no_contact_match",
+          channel,
+        },
+      });
+      console.warn(`[SDR Webhook] opt-out: no CRM contact matched (ghlContactId=${ghlContactId}, emailPresent=${!!normalizedEmail}, phonePresent=${!!normalizedPhone})`);
+    } catch (err: any) {
+      console.error("[SDR Webhook] opt-out anomaly audit error:", err?.message);
+    }
+  }
+
+  console.log(`[SDR Webhook] opt-out processed for GHL contact ${ghlContactId} — matched=${matched}`);
 }
