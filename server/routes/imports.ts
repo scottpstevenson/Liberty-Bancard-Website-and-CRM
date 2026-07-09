@@ -1595,6 +1595,13 @@ Guidelines:
         "google_rating": "rating", "google_reviews": "reviewCount",
         "lead_source": "leadSource", "source": "leadSource",
         "notes": "notes", "tags": "tags",
+        // Consent / opt-out fields — protected by monotonic merge on upsert
+        "email_status": "emailStatus", "emailstatus": "emailStatus",
+        "consent_tier": "consentTier", "consenttier": "consentTier",
+        "opted_out_email": "optedOutEmail", "optedoutemail": "optedOutEmail", "opted_out": "optedOutEmail",
+        "do_not_contact": "doNotContact", "donotcontact": "doNotContact", "dnc": "doNotContact",
+        "do_not_auto_contact": "doNotAutoContact", "donotautocontact": "doNotAutoContact",
+        "unsubscribed": "emailStatus",
       };
 
       const columnMap = sourceFormat === "google_maps_outscraper" ? { ...genericColumnMap, ...googleMapsColumnMap }
@@ -1608,8 +1615,77 @@ Guidelines:
       // known-provider imports. Force it here so the per-row mapper cannot win.
       const forcedLeadSource = sourceFormat !== "custom" ? sourceFormat : null;
 
+      // ── Monotonic consent merge helpers ─────────────────────────────────────
+      // These values can never be "downgraded" by a CSV import — restrictive
+      // state always beats contactable state.
+      const RESTRICTIVE_EMAIL_STATUSES = new Set(["unsubscribed", "opted_out"]);
+      const RESTRICTIVE_CONSENT_TIERS = new Set(["opted_out", "do_not_contact"]);
+
+      function existingContactIsRestrictive(c: {
+        emailStatus: string; consentTier: string;
+        optedOutEmail: boolean | null; doNotContact: boolean | null;
+      }): boolean {
+        return RESTRICTIVE_EMAIL_STATUSES.has(c.emailStatus) ||
+          RESTRICTIVE_CONSENT_TIERS.has(c.consentTier) ||
+          c.optedOutEmail === true ||
+          c.doNotContact === true;
+      }
+
+      function csvMappedHasRestrictiveConsent(mapped: Record<string, string>): boolean {
+        const emailStatus = (mapped.emailStatus || "").toLowerCase();
+        const consentTier = (mapped.consentTier || "").toLowerCase();
+        const optedOutEmail = (mapped.optedOutEmail || "").toLowerCase();
+        const doNotContact = (mapped.doNotContact || "").toLowerCase();
+        return RESTRICTIVE_EMAIL_STATUSES.has(emailStatus) ||
+          RESTRICTIVE_CONSENT_TIERS.has(consentTier) ||
+          optedOutEmail === "true" || optedOutEmail === "1" || optedOutEmail === "yes" ||
+          doNotContact === "true" || doNotContact === "1" || doNotContact === "yes";
+      }
+
+      // Pre-fetch consent data for emails in this CSV that already exist in DB.
+      // This allows O(1) consent lookups in the per-row loop without extra queries.
+      type ConsentSnapshot = {
+        id: number; emailStatus: string; consentTier: string;
+        optedOutEmail: boolean | null; doNotContact: boolean | null; doNotAutoContact: boolean;
+      };
+      const consentByEmail = new Map<string, ConsentSnapshot>();
+      {
+        const csvEmailsForConsentLookup: string[] = [];
+        for (const rec of records) {
+          const emailVal = (rec.email || rec.Email || "").toLowerCase().trim();
+          if (emailVal && emailSet.has(emailVal)) csvEmailsForConsentLookup.push(emailVal);
+        }
+        if (csvEmailsForConsentLookup.length > 0) {
+          const consentRows = await pool.query<{
+            id: number; email: string; email_status: string; consent_tier: string;
+            opted_out_email: boolean | null; do_not_contact: boolean | null; do_not_auto_contact: boolean;
+          }>(
+            `SELECT id, LOWER(TRIM(email)) AS email, email_status, consent_tier,
+                    opted_out_email, do_not_contact, do_not_auto_contact
+             FROM contacts
+             WHERE LOWER(TRIM(email)) = ANY($1::text[])`,
+            [csvEmailsForConsentLookup]
+          );
+          for (const row of consentRows.rows) {
+            if (row.email) {
+              consentByEmail.set(row.email, {
+                id: row.id,
+                emailStatus: row.email_status ?? "active",
+                consentTier: row.consent_tier ?? "cold_no_consent",
+                optedOutEmail: row.opted_out_email,
+                doNotContact: row.do_not_contact,
+                doNotAutoContact: row.do_not_auto_contact ?? false,
+              });
+            }
+          }
+        }
+      }
+
       let inserted = 0;
       let duplicatesSkipped = 0;
+      let updated = 0;
+      let optOutPreserved = 0;
+      let optOutApplied = 0;
       let invalidRows = 0;
       let errors = 0;
       const verticalCounts: Record<string, number> = {};
@@ -1645,11 +1721,63 @@ Guidelines:
         if (!firstName && !companyName) { invalidRows++; continue; }
 
         let isDuplicate = false;
-        if (email && emailSet.has(email)) isDuplicate = true;
-        else if (phone && phone.length >= 10 && phoneSet.has(phone)) isDuplicate = true;
-        else if (companyName && companySet.has(companyName.toLowerCase())) isDuplicate = true;
+        let emailMatchedContact: ConsentSnapshot | undefined;
+        if (email && emailSet.has(email)) {
+          isDuplicate = true;
+          emailMatchedContact = consentByEmail.get(email);
+        } else if (phone && phone.length >= 10 && phoneSet.has(phone)) {
+          isDuplicate = true;
+        } else if (companyName && companySet.has(companyName.toLowerCase())) {
+          isDuplicate = true;
+        }
 
-        if (isDuplicate) { duplicatesSkipped++; continue; }
+        if (isDuplicate) {
+          // ── Monotonic consent merge for email-matched duplicates ────────────
+          // If we have a consent snapshot for this contact (email match), check
+          // whether the existing contact is already restricted OR whether the CSV
+          // row is trying to apply a new restriction.  For phone/company-only
+          // matches we don't have a quick consent lookup; fall through to skip.
+          if (emailMatchedContact) {
+            const existingRestricted = existingContactIsRestrictive(emailMatchedContact);
+            const csvRestricts = csvMappedHasRestrictiveConsent(mapped);
+
+            if (existingRestricted) {
+              // Preserve: existing opt-out must not be downgraded by this CSV row.
+              // The suppression helper back-pressures any pending New Lead deals.
+              optOutPreserved++;
+              updated++;
+              const { suppressNewLeadAutoEnrollmentForContact } = await import("../services/new-lead-enrollment-job");
+              suppressNewLeadAutoEnrollmentForContact(emailMatchedContact.id, "csv_import_existing_opt_out_preserved").catch(() => {});
+            } else if (csvRestricts) {
+              // Apply: CSV is asserting a new opt-out/DNC for a previously
+              // contactable contact.  Write only the restrictive consent fields.
+              optOutApplied++;
+              updated++;
+              const consentUpdates: Record<string, unknown> = {};
+              const csvEmailStatus = (mapped.emailStatus || "").toLowerCase();
+              const csvConsentTier = (mapped.consentTier || "").toLowerCase();
+              const csvOptedOutEmail = (mapped.optedOutEmail || "").toLowerCase();
+              const csvDoNotContact = (mapped.doNotContact || "").toLowerCase();
+              if (RESTRICTIVE_EMAIL_STATUSES.has(csvEmailStatus)) consentUpdates.email_status = csvEmailStatus;
+              if (RESTRICTIVE_CONSENT_TIERS.has(csvConsentTier)) consentUpdates.consent_tier = csvConsentTier;
+              if (csvOptedOutEmail === "true" || csvOptedOutEmail === "1" || csvOptedOutEmail === "yes") consentUpdates.opted_out_email = true;
+              if (csvDoNotContact === "true" || csvDoNotContact === "1" || csvDoNotContact === "yes") consentUpdates.do_not_contact = true;
+              if (Object.keys(consentUpdates).length > 0) {
+                await pool.query(
+                  `UPDATE contacts SET ${Object.keys(consentUpdates).map((k, i) => `${k} = $${i + 2}`).join(", ")} WHERE id = $1`,
+                  [emailMatchedContact.id, ...Object.values(consentUpdates)]
+                ).catch(() => {});
+              }
+              const { suppressNewLeadAutoEnrollmentForContact } = await import("../services/new-lead-enrollment-job");
+              suppressNewLeadAutoEnrollmentForContact(emailMatchedContact.id, "csv_import_opt_out").catch(() => {});
+            } else {
+              duplicatesSkipped++;
+            }
+          } else {
+            duplicatesSkipped++;
+          }
+          continue;
+        }
 
         if (email) emailSet.add(email);
         if (phone && phone.length >= 10) phoneSet.add(phone);
@@ -1842,15 +1970,18 @@ Guidelines:
         // This is awaited so the heartbeat is durably written before the
         // next batch starts — a crash after a batch commit but before this
         // write completes would leave at most one batch unaccounted for.
-        const batchProcessedRows = inserted + duplicatesSkipped + invalidRows + skippedRows + errors;
+        const batchProcessedRows = inserted + updated + duplicatesSkipped + invalidRows + skippedRows + errors;
         try {
           await storage.updateCsvImport(importRecord.id, {
             processedRows: batchProcessedRows,
             newRecords: inserted,
+            updatedRecords: updated,
             duplicatesSkipped,
             invalidRows,
             skippedRows,
             errorsCount: errors,
+            optOutPreserved,
+            optOutApplied,
             lastProgressAt: new Date(),
             status: "processing",
           });
@@ -1898,6 +2029,7 @@ Guidelines:
       await storage.updateCsvImport(importRecord.id, {
         newRecords: inserted,
         duplicatesSkipped: duplicatesSkipped,
+        updatedRecords: updated,
         invalidRows: invalidRows,
         skippedRows: skippedRows,
         errorsCount: errors,
@@ -1908,11 +2040,14 @@ Guidelines:
         hotLeads,
         warmLeads,
         coldLeads,
+        optOutPreserved,
+        optOutApplied,
       });
 
-      const reconciledTotal = inserted + duplicatesSkipped + invalidRows + skippedRows + errors;
+      // Reconciliation: totalRows = created + updated + duplicatesSkipped + invalidRows + skippedRows + errors
+      const reconciledTotal = inserted + updated + duplicatesSkipped + invalidRows + skippedRows + errors;
       if (reconciledTotal !== records.length) {
-        console.error(`[CSV Import] Reconciliation mismatch for import ${importRecord.id}: total=${records.length} but created(${inserted})+duplicates(${duplicatesSkipped})+invalid(${invalidRows})+skipped(${skippedRows})+errors(${errors})=${reconciledTotal}`);
+        console.error(`[CSV Import] Reconciliation mismatch for import ${importRecord.id}: total=${records.length} but created(${inserted})+updated(${updated})+duplicates(${duplicatesSkipped})+invalid(${invalidRows})+skipped(${skippedRows})+errors(${errors})=${reconciledTotal}`);
       }
 
       const updatedImport = await storage.getCsvImport(importRecord.id);
@@ -1920,6 +2055,7 @@ Guidelines:
       res.status(201).json({
         import: updatedImport,
         inserted,
+        updated,
         duplicatesSkipped,
         invalidRows,
         skippedRows,
@@ -1927,6 +2063,8 @@ Guidelines:
         dealsCreated,
         verticalBreakdown: verticalCounts,
         sourceFormat,
+        optOutPreserved,
+        optOutApplied,
       });
     } catch (err: any) {
       console.error("CSV import error:", err);

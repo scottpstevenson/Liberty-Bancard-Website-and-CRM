@@ -2328,6 +2328,7 @@ export const csvImports = pgTable("csv_imports", {
   totalRows: integer("total_rows").default(0),
   newRecords: integer("new_records").default(0),
   duplicatesSkipped: integer("duplicates_skipped").default(0),
+  updatedRecords: integer("updated_records").default(0),
   invalidRows: integer("invalid_rows").default(0),
   skippedRows: integer("skipped_rows").default(0),
   errorsCount: integer("errors_count").default(0),
@@ -2344,6 +2345,8 @@ export const csvImports = pgTable("csv_imports", {
   processedRows: integer("processed_rows"),
   lastProgressAt: timestamp("last_progress_at"),
   staleReason: text("stale_reason"),
+  optOutPreserved: integer("opt_out_preserved").default(0),
+  optOutApplied: integer("opt_out_applied").default(0),
 });
 
 export const insertCsvImportSchema = createInsertSchema(csvImports).omit({
