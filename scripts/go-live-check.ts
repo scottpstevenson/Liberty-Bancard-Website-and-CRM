@@ -157,16 +157,26 @@ async function checkStage1(): Promise<StageResult> {
     }
   }
 
-  // OpenAI
+  // OpenAI (Replit AI Integrations — key is a Replit-managed token, NOT a standard OpenAI key)
   const openaiKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
+  const openaiBaseUrl = process.env.AI_INTEGRATIONS_OPENAI_BASE_URL;
   let openaiStatus = "not configured";
 
   if (!openaiKey) {
     steps.push(step("OpenAI: API key configured", false,
       "AI_INTEGRATIONS_OPENAI_API_KEY is not set. AI enrichment, blueprint generation, and auto-proposals will be skipped."));
+  } else if (!openaiBaseUrl) {
+    openaiStatus = "misconfigured: missing base URL";
+    steps.push(step("OpenAI: base URL configured", false,
+      "AI_INTEGRATIONS_OPENAI_BASE_URL is not set. Without it the Replit AI Integration token cannot reach the proxy endpoint."));
   } else {
+    // The Replit AI Integration token is NOT a standard OpenAI API key — it must be validated
+    // against the Replit proxy (AI_INTEGRATIONS_OPENAI_BASE_URL), not api.openai.com.
+    // We probe the /models endpoint on the configured base URL.
+    const baseUrl = openaiBaseUrl.replace(/\/+$/, "");
+    const modelsUrl = `${baseUrl}/models`;
     try {
-      const res = await fetch("https://api.openai.com/v1/models", {
+      const res = await fetch(modelsUrl, {
         headers: { Authorization: `Bearer ${openaiKey}` },
       });
       if (res.ok) {
@@ -174,7 +184,8 @@ async function checkStage1(): Promise<StageResult> {
         steps.push(step("OpenAI: API key valid", true));
       } else {
         openaiStatus = `error ${res.status}`;
-        steps.push(step("OpenAI: API key valid", false, `HTTP ${res.status} from OpenAI models endpoint`));
+        steps.push(step("OpenAI: API key valid", false,
+          `HTTP ${res.status} from ${modelsUrl}. If this is a Replit AI Integrations token, re-propose the integration via the Replit Integrations panel to refresh it.`));
       }
     } catch (err: any) {
       openaiStatus = `unreachable: ${err.message.slice(0, 60)}`;
