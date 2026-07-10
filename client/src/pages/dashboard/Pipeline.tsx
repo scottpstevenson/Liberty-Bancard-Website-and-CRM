@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useSearch, useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -30,6 +30,7 @@ import { SALES_STAGES, OFFER_PATHS, VERTICALS } from "@shared/schema";
 import Comments from "@/components/Comments";
 import SavedFilterBar from "@/components/SavedFilterBar";
 import DashboardErrorState from "@/components/DashboardErrorState";
+import { useConfirmationFailedBatch, type ConfirmationFailedStatus } from "@/hooks/use-confirmation-failed-batch";
 import {
   DndContext,
   DragOverlay,
@@ -176,6 +177,7 @@ function SortableDealCard({
   proposalsFailed,
   onRetryProposals,
   proposalsRetrying,
+  confirmationFailed,
 }: {
   deal: Deal;
   isDealArchived: boolean;
@@ -191,6 +193,7 @@ function SortableDealCard({
   proposalsFailed?: boolean;
   onRetryProposals?: (dealId: number) => void;
   proposalsRetrying?: boolean;
+  confirmationFailed?: ConfirmationFailedStatus | null;
 }) {
   const [, navigateTo] = useLocation();
   const identity = getDealCardIdentity(deal, deal.contactId);
@@ -336,6 +339,21 @@ function SortableDealCard({
             </Badge>
           )}
           {deal.mid && <DealMidBadge summary={midSummary} />}
+          {confirmationFailed && deal.contactId && (
+            <Badge
+              variant="destructive"
+              className="text-xs gap-1 cursor-pointer no-default-hover-elevate no-default-active-elevate"
+              data-testid={`badge-confirmation-failed-deal-${deal.id}`}
+              title="Confirmation failed — click to view contact details"
+              onClick={(e) => {
+                e.stopPropagation();
+                navigateTo(`/dashboard/contacts/${deal.contactId}#confirmation-status`);
+              }}
+            >
+              <AlertTriangle className="h-3 w-3" />
+              Confirm Failed
+            </Badge>
+          )}
           <div className="text-xs text-muted-foreground" data-testid={`text-deal-date-${deal.id}`}>
             <Calendar className="w-3 h-3 inline-block mr-1" />
             {(() => {
@@ -367,6 +385,7 @@ function DroppableColumn({
   proposalsFailedByDeal,
   onRetryProposals,
   proposalsRetryingByDeal,
+  confirmationFailedMap,
 }: {
   stage: string;
   colorClass: string;
@@ -384,6 +403,7 @@ function DroppableColumn({
   proposalsFailedByDeal?: Record<string, boolean>;
   onRetryProposals?: (dealId: number) => void;
   proposalsRetryingByDeal?: Record<string, boolean>;
+  confirmationFailedMap?: Map<number, ConfirmationFailedStatus>;
 }) {
   return (
     <div className="w-[270px] flex-shrink-0" data-testid={`stage-column-${stage.replace(/\s+/g, "-").toLowerCase()}`}>
@@ -414,6 +434,7 @@ function DroppableColumn({
                 proposalsFailed={proposalsFailedByDeal?.[String(deal.id)]}
                 onRetryProposals={onRetryProposals}
                 proposalsRetrying={proposalsRetryingByDeal?.[String(deal.id)]}
+                confirmationFailed={deal.contactId != null ? confirmationFailedMap?.get(deal.contactId) : undefined}
               />
             );
           })}
@@ -706,6 +727,13 @@ export default function Pipeline() {
     },
   });
   const deals = dealsResult?.data;
+
+  // Collect unique non-null contactIds from all loaded deals for the batch hook
+  const dealContactIds = useMemo(
+    () => (deals ?? []).map((d: Deal) => d.contactId).filter((id): id is number => id != null),
+    [deals],
+  );
+  const { failedMap: confirmationFailedMap } = useConfirmationFailedBatch(dealContactIds);
 
   const { data: contactsResult } = useQuery<{ data: Contact[]; total: number }>({
     queryKey: ["/api/contacts"],
@@ -1525,6 +1553,7 @@ export default function Pipeline() {
                   proposalsFailedByDeal={proposalsFailedByDeal}
                   onRetryProposals={retryDealProposals}
                   proposalsRetryingByDeal={proposalsRetryingByDeal}
+                  confirmationFailedMap={confirmationFailedMap}
                 />
               );
             })}

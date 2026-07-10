@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useUpdateContact } from "@/hooks/use-contacts";
@@ -80,8 +80,14 @@ function ConfirmationStatusSection({
   const latest = submissions[0] ?? null;
   const history = submissions.slice(1); // older submissions in DESC order
 
+  useEffect(() => {
+    if (confirmationResult === null) return;
+    if (window.location.hash !== "#confirmation-status") return;
+    document.getElementById("confirmation-status")?.scrollIntoView({ behavior: "smooth" });
+  }, [confirmationResult]);
+
   return (
-    <Card data-testid="section-confirmation-status">
+    <Card id="confirmation-status" data-testid="section-confirmation-status">
       <CardContent className="pt-4 pb-4">
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-3">

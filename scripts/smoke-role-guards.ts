@@ -159,6 +159,12 @@ const CASES: GuardCase[] = [
   { method: "GET", path: "/api/contacts/1/confirmation-status",    anon: [401], merchant: [403], admin: [200],      description: "contact confirmation status (isDashboardUser)" },
   { method: "GET", path: "/api/operator/confirmation-metric",      anon: [401], merchant: [403], admin: [200],      description: "operator confirmation send success rate (isDashboardUser)" },
   { method: "GET", path: "/api/operator/confirmation-failures",    anon: [401], merchant: [403], admin: [200],      description: "operator confirmation failures (isDashboardUser)" },
+
+  // ── Task #929: Confirmation Status Batch — isDashboardUser ──
+  // POST route hits CSRF middleware before role guard for authenticated sessions.
+  // Anon still gets 401 (CSRF skips; role guard fires). Merchant gets 403 (role gate).
+  // Admin/agent get 403 without CSRF token (CSRF fires before role gate on POST).
+  { method: "POST", path: "/api/contacts/confirmation-status/batch", anon: [401], merchant: [403], admin: [403], agent: [403], description: "confirmation-status batch (isDashboardUser; CSRF required for POST — 403 on all auth roles without token; merchant also blocked by role gate)" },
 ];
 
 async function ensureAgentUser(): Promise<void> {

@@ -143,6 +143,29 @@ function toSubmissionStatus(event: ConfirmationEvent): SubmissionStatus {
 }
 
 /**
+ * Shared helper: given rows for a single contact (already sorted by created_at DESC, id DESC),
+ * return the de-duplicated list of submission statuses (latest event per submissionId),
+ * with index 0 being the most recent submission overall.
+ *
+ * Both getContactConfirmationStatuses and getContactConfirmationStatusBatch call this
+ * so single-contact and batch results are identical for the same audit rows.
+ */
+function resolveSubmissionsFromRows(rows: RawAuditRow[]): SubmissionStatus[] {
+  // Group by submissionId; first occurrence per group is the latest event
+  // because rows are sorted DESC by (created_at, id).
+  const seen = new Set<string>();
+  const events: ConfirmationEvent[] = [];
+  for (const row of rows) {
+    const event = normalizeConfirmationAuditEvent(row);
+    if (!seen.has(event.submissionId)) {
+      seen.add(event.submissionId);
+      events.push(event);
+    }
+  }
+  return events.map(toSubmissionStatus);
+}
+
+/**
  * Contact-level: groups by submissionId (entity_id is fixed), latest event per group.
  * Uses audit_logs_entity_type_entity_id_action_idx (or entity_type/entity_id index) — index-bounded.
  *
@@ -166,25 +189,85 @@ export async function getContactConfirmationStatuses(
     return { latestStatus: null, submissions: [], hasConfirmationRecord: false };
   }
 
-  // Group by submissionId; for each group keep only the latest event
-  // (rows are already sorted DESC so first occurrence per submissionId is the latest)
-  const seen = new Set<string>();
-  const events: ConfirmationEvent[] = [];
-
-  for (const row of rows) {
-    const event = normalizeConfirmationAuditEvent(row);
-    if (!seen.has(event.submissionId)) {
-      seen.add(event.submissionId);
-      events.push(event);
-    }
-  }
-
-  const submissions = events.map(toSubmissionStatus);
+  const submissions = resolveSubmissionsFromRows(rows);
   return {
     latestStatus: submissions[0] ?? null,
     submissions,
     hasConfirmationRecord: submissions.length > 0,
   };
+}
+
+/**
+ * Batch response shape for the /api/contacts/confirmation-status/batch endpoint.
+ * Only contacts with a current "failed" latest submission are included in statuses.
+ * null value (or omission) means no current failure.
+ */
+export interface BatchContactConfirmationStatus {
+  status: "failed";
+  submissionId: string;
+  timestamp: string;
+  formType: string | null;
+  reason: string | null;
+}
+
+export interface BatchConfirmationResult {
+  statuses: Record<string, BatchContactConfirmationStatus | null>;
+}
+
+/**
+ * Batch: resolves confirmation status for up to 200 contacts in one DB query.
+ * Uses the same shared resolveSubmissionsFromRows helper so results are identical
+ * to getContactConfirmationStatuses for the same audit rows.
+ *
+ * Only contacts whose latest submission's state is "failed" appear in the response.
+ * Contacts with no record, skipped, sent, or workflow_enrolled are omitted (null).
+ *
+ * Uses audit_logs_entity_type_entity_id_idx — one query for the whole chunk.
+ */
+export async function getContactConfirmationStatusBatch(
+  contactIds: number[],
+): Promise<BatchConfirmationResult> {
+  if (contactIds.length === 0) return { statuses: {} };
+
+  const { rows } = await pool.query<RawAuditRow>(
+    `SELECT id, action, entity_id, details, created_at
+     FROM audit_logs
+     WHERE entity_type = 'contact'
+       AND entity_id = ANY($1::int[])
+       AND action = ANY($2::text[])
+     ORDER BY entity_id, created_at DESC, id DESC`,
+    [contactIds, CONFIRMATION_ACTIONS],
+  );
+
+  // Group rows by entity_id; within each group rows are sorted DESC (created_at, id)
+  const byContact = new Map<number, RawAuditRow[]>();
+  for (const row of rows) {
+    if (row.entity_id == null) continue;
+    const bucket = byContact.get(row.entity_id);
+    if (bucket) {
+      bucket.push(row);
+    } else {
+      byContact.set(row.entity_id, [row]);
+    }
+  }
+
+  const statuses: BatchConfirmationResult["statuses"] = {};
+  for (const [contactId, contactRows] of byContact.entries()) {
+    const submissions = resolveSubmissionsFromRows(contactRows);
+    const latestStatus = submissions[0] ?? null;
+    if (latestStatus && latestStatus.state === "failed") {
+      statuses[String(contactId)] = {
+        status: "failed",
+        submissionId: latestStatus.submissionId,
+        timestamp: latestStatus.timestamp,
+        formType: latestStatus.formType,
+        reason: latestStatus.safeReason,
+      };
+    }
+    // Contacts with no failure are omitted (treated as null by the consumer)
+  }
+
+  return { statuses };
 }
 
 /**

@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useContacts, useCreateContact, useUpdateContact } from "@/hooks/use-contacts";
+import { useConfirmationFailedBatch } from "@/hooks/use-confirmation-failed-batch";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -425,6 +426,13 @@ export default function Contacts() {
   const [showArchived, setShowArchived] = useState(false);
   const createContact = useCreateContact();
   const updateContact = useUpdateContact();
+
+  // Batch confirmation-failed check — one request for the whole page (≤100 IDs)
+  const pageContactIds = useMemo(
+    () => (contacts ?? []).map((c: any) => c.id as number),
+    [contacts],
+  );
+  const { failedMap: confirmationFailedMap } = useConfirmationFailedBatch(pageContactIds);
   const { toast } = useToast();
 
   const archiveContactMutation = useMutation({
@@ -1019,6 +1027,21 @@ export default function Contacts() {
                           {contact.firstName[0]}{contact.lastName[0]}
                         </div>
                         <span className={isArchived ? "line-through" : ""}>{contact.firstName} {contact.lastName}</span>
+                        {confirmationFailedMap.has(contact.id) && (
+                          <Badge
+                            variant="destructive"
+                            className="text-xs gap-1 cursor-pointer no-default-hover-elevate no-default-active-elevate"
+                            data-testid={`badge-confirmation-failed-${contact.id}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setLocation(`/dashboard/contacts/${contact.id}#confirmation-status`);
+                            }}
+                            title="Confirmation failed — click to view details"
+                          >
+                            <AlertTriangle className="h-3 w-3" />
+                            Confirm Failed
+                          </Badge>
+                        )}
                         {(contact as any).isDecisionMaker && (
                           <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400 shrink-0" aria-label="Decision Maker" data-testid={`badge-dm-${contact.id}`} />
                         )}

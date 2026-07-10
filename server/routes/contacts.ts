@@ -161,6 +161,34 @@ export function registerContactsRoutes(app: Express) {
     }
   });
 
+  // ── Confirmation Status Batch ──────────────────────────────────────────────
+  // POST /api/contacts/confirmation-status/batch
+  // Registered BEFORE /:id wildcards so "confirmation-status" is not captured
+  // as an :id parameter.
+  //
+  // Accepts up to 200 contactIds; deduplicates before querying.
+  // Returns: { statuses: { [contactId]: { status:"failed", ... } | null } }
+  // Only contacts with a current "failed" latest submission appear in statuses.
+  app.post("/api/contacts/confirmation-status/batch", isDashboardUser, async (req, res) => {
+    try {
+      const schema = z.object({
+        contactIds: z.array(z.number().int().positive()).min(1).max(200),
+      });
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: parsed.error.errors[0].message });
+      }
+      // Deduplicate before querying
+      const unique = Array.from(new Set(parsed.data.contactIds));
+      const { getContactConfirmationStatusBatch } = await import("../services/confirmation-status");
+      const result = await getContactConfirmationStatusBatch(unique);
+      res.json(result);
+    } catch (err: any) {
+      console.error("[confirmation-status batch POST]", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.get("/api/contacts/:id", isDashboardUser, async (req, res) => {
     try {
       const contact = await storage.getContact(Number(req.params.id));
