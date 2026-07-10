@@ -1,0 +1,29 @@
+Totally understandable — this got complicated. Let me explain what the core issue was and how it's now fixed.
+
+What the reviewer was blocking on:
+
+The system upgrades the database automatically every time the app starts. Migration 0053 (adds two new columns) and migration 0054 (creates a unique constraint using those columns) were both registered to run automatically on startup.
+
+The problem: if you started the app on a database that already had conflicting data, both migrations would run back-to-back — meaning the unique constraint would get applied before you had a chance to clean up the duplicates. That would crash the app.
+
+What I changed:
+
+I removed 0054 from the automatic startup list. Now the startup sequence is:
+
+Startup: only 0053 runs automatically (adds the columns, safe no matter what)
+Operator step: you run the cleanup script (npx tsx scripts/backfill-sla-task-identity.ts) to deduplicate any existing data
+Next startup: the system checks — "are there zero conflicts?" If yes, it automatically applies 0054. If there are still duplicates, it logs a clear warning and skips it, letting the app continue to run safely
+Startup after that (and every one after): the index is already there, so it's a no-op
+Previously, a SQL comment said "run these in order" — but nothing enforced it. Now the code enforces it: 0054 literally cannot apply until the database is clean.
+
+In short: the reviewer wanted proof that the dangerous migration couldn't accidentally run too early. I made it technically impossible for it to do so, rather than just documenting that it shouldn't.
+So what am I gonna need to do once this merges?
+1 minute ago
+You realize I don't start the app right? Like what the fuck are you saying
+Just now
+Fair point, sorry. The app restarts on its own — you don't touch that.
+
+The only thing you actually need to do is run one command after the merge deploys:
+
+npx tsx scripts/backfill-sla-task-identity.ts
+That's it. Everything else happens automatically — before and after that script.
