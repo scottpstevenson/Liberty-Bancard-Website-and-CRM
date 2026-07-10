@@ -1,0 +1,96 @@
+Verdict: NOT BUILD-READY
+
+The task contradicts itself and the proposed index does not match the stated architecture.
+
+It says “where source = 'sla',” but the proposed SQL has no source predicate—and the current task schema previously had no source field. As written, this would enforce uniqueness for every active task with the same (deal_id, title), including manually created tasks.
+
+Corrections to send back
+
+Run a migration preflight before implementation.
+1. Confirm the intended invariant.
+Choose exactly one:
+A. Only one active SLA stalling-follow-up task per deal.
+B. Only one SLA stalling-follow-up task ever per deal.
+C. One task per distinct stalling incident.
+The proposed deleted_at IS NULL index implements option A only:
+a new task may be created after the prior task is soft-deleted.
+It does not define what should happen after completion.
+2. Do not add a generic unique index on (deal_id, title).
+That can block legitimate manual tasks sharing the same deal and title.
+The constraint must have a canonical SLA-only discriminator.
+3. The current tasks schema must be verified.
+If no source/automation key exists, this task requires a schema migration such as:
+source text nullable
+automation_key text nullable
+SLA creation must write stable machine values, for example:
+source = 'sla'
+automation_key = 'stalling-deal-follow-up'
+Do not use display title as the only source identifier.
+4. Preferred index shape:
+CREATE UNIQUE INDEX tasks_sla_stalling_active_unique
+ON tasks (deal_id, automation_key)
+WHERE deleted_at IS NULL
+  AND deal_id IS NOT NULL
+  AND source = 'sla'
+  AND automation_key = 'stalling-deal-follow-up';
+Confirm whether completed tasks should remain protected.
+If only incomplete active tasks should block creation, the predicate may also need the canonical incomplete-status condition—but verify task status values first.
+5. Complete the duplicate/backfill audit before creating the index.
+Report:
+- duplicate groups by deal_id and intended automation key;
+- rows with null deal_id;
+- title variants;
+- completed versus active tasks;
+- soft-deleted tasks;
+- exact remediation applied.
+6. Backfill source and automation_key only for rows proven to be SLA-generated.
+Do not classify rows using dealId alone.
+Use the exact historical title pattern plus reviewed supporting evidence.
+7. Make creation conflict-safe in the storage layer.
+Do not catch PostgreSQL 23505 broadly in sla-worker.ts.
+Add a canonical idempotent creation method or conflict-targeted insert that:
+- ignores only the intended SLA unique conflict;
+- rethrows unrelated unique violations;
+- returns created versus already-existed explicitly.
+8. Migration sequence must be:
+- add nullable discriminator columns;
+- deploy compatible writers;
+- backfill confirmed SLA rows;
+- remove/soft-delete remaining duplicates;
+- verify zero conflicting groups;
+- create partial unique index;
+- verify worker conflict behavior.
+Do not use db push.
+
+Kill lines
+
+STOP if the index applies to manual tasks.
+STOP if title is the only canonical SLA identity.
+STOP if source or automation_key is referenced but does not exist in the schema.
+STOP if dealId is treated as proof of SLA origin.
+STOP if duplicate rows remain when the unique index is created.
+STOP if all PostgreSQL 23505 errors are swallowed.
+STOP if the migration changes completed-task behavior without defining the intended lifecycle.
+STOP if the index is created before compatible SLA writers are deployed.
+STOP if migration/backfill is not restart-safe and auditable.
+
+Validation
+
+pnpm typecheck
+pnpm lint
+pnpm test
+npx tsx scripts/smoke-role-guards.ts
+
+Required database checks:
+
+- Two concurrent SLA inserts for the same deal create exactly one active task.
+- A manual task with the same title is still allowed.
+- Different SLA automation keys on the same deal are allowed.
+- Soft-deleted task behavior matches the chosen lifecycle.
+- Completed-task behavior matches the chosen lifecycle.
+- An unrelated unique violation is not swallowed.
+- Migration rollback removes the index safely without losing task data.
+
+Final status: NOT BUILD-READY
+
+The right durable solution is a unique constraint on a stable SLA automation identity, not on human-readable title text across all tasks.

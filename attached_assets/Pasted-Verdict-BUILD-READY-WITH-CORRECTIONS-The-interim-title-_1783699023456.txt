@@ -1,0 +1,67 @@
+Verdict: BUILD-READY WITH CORRECTIONS
+
+The interim title-prefix approach is acceptable as a clearly documented heuristic. Do not call it canonical source attribution.
+
+Corrections to send back
+
+Proceed after these corrections:
+1. Move isSlaGeneratedTask() into a small dedicated utility file rather than defining it inside Tasks.tsx, for example:
+client/src/lib/task-source.ts
+Export:
+- SLA_TASK_TITLE_PREFIXES
+- isSlaGeneratedTask(task)
+Tasks.tsx and tests must import the same helper.
+2. Complete the title audit before selecting prefixes.
+List every task title created by sla-worker.ts with file:line evidence.
+Do not automatically include titles containing “SLA” unless they are actually generated task records and operators intend them to appear under this filter.
+3. Use startsWith() against exact reviewed prefixes.
+Do not use:
+- includes()
+- broad regex such as /SLA/i
+- dealId
+- createdBy
+- assignedTo
+- null-field inference
+4. Label the filter accurately.
+Use the field label:
+“Source (loaded tasks)”
+if the API does not return the entire active task dataset.
+Do not rely on helper text that may be missed while the dropdown itself implies a global filter.
+5. Clear selection immediately when the source filter changes.
+Do not retain selections merely because some selected rows remain visible. A complete reset is safer and easier to understand before bulk deletion.
+6. Define the source badge as part of the task or remove it.
+Avoid “optional” implementation scope. Recommended:
+- include a small “SLA” badge only on classified SLA tasks;
+- show no “Manual” badge to avoid unnecessary visual noise.
+7. Add focused unit tests for the utility:
+- exact prefix match;
+- prefix plus numeric deal ID;
+- different capitalization does not match unless historical evidence requires it;
+- leading whitespace does not match unless intentionally normalized;
+- manual task containing similar words does not match;
+- null/empty title returns false.
+8. Add an inline comment explaining that this is a temporary presentation heuristic pending schema-backed source/automationKey attribution.
+
+Kill lines
+
+STOP if source classification logic exists separately in the filter and badge.
+STOP if broad text matching can classify unrelated tasks as SLA-generated.
+STOP if unverified title prefixes are included.
+STOP if switching the filter can leave hidden tasks selected for bulk deletion.
+STOP if the UI implies the filter covers tasks not loaded by the client.
+STOP if this heuristic is described as canonical or database-backed source attribution.
+
+Validation
+
+- All reviewed SLA title prefixes classify consistently.
+- Similar manual titles remain Manual.
+- Deal-linked manual tasks remain Manual.
+- Null and empty titles do not crash filtering.
+- Filter counts reconcile with the currently loaded dataset.
+- Changing Source clears all selected task IDs.
+- Hidden tasks cannot be bulk-deleted through retained selection.
+- SLA badge and filter always use the same imported helper.
+
+Final status: BUILD-READY WITH CORRECTIONS
+
+This is safe as a temporary loaded-row UI filter once the exact worker title inventory is attached and the heuristic is centralized in one tested utility.

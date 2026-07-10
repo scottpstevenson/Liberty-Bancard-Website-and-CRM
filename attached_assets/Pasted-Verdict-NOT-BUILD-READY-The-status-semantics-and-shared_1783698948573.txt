@@ -1,0 +1,112 @@
+Verdict: NOT BUILD-READY
+
+The status semantics and shared-service direction are correct, but the global queries still have unresolved correctness and scaling problems.
+
+Corrections to send back
+
+Fix these blockers before implementation:
+1. Group by contactId + submissionId, not submissionId alone.
+The brief has not proven submissionId is globally unique across all contacts.
+Canonical correlation key for global queries must be:
+(entity_id, details->>'submissionId')
+Contact-level queries may group by submissionId because entity_id is already fixed.
+STOP if events from two contacts can merge because they share a submissionId.
+2. Resolve the “Not Sent” contract contradiction.
+getContactConfirmationStatuses(contactId) returns per-submission records, but a contact with no events has:
+- no submissionId,
+- no timestamp,
+- no per-submission record.
+Do not fabricate a SubmissionStatus with an empty submissionId.
+Choose one explicit API shape:
+{
+  latestStatus: SubmissionStatus | null,
+  submissions: SubmissionStatus[],
+  hasConfirmationRecord: boolean
+}
+Then the UI renders “Not Sent” when submissions.length === 0.
+3. Bound the unresolved-failure query.
+The metric is limited to today, but getUnresolvedConfirmationFailures() is currently global and unbounded. With no index on action or submissionId, it may scan all audit history on every poll.
+Define:
+- tenant/operator scope,
+- a bounded lookback window, such as the operationally relevant recent period,
+- a maximum result count,
+- pagination or cursor behavior,
+- poll frequency.
+If operators must see unresolved failures indefinitely, raw audit-log projection is the wrong long-term storage model and may require a persisted projection/indexed state.
+4. Correct retry resolution across time windows.
+A query limited only to today can produce false results.
+Example:
+- failure occurred yesterday,
+- success retry occurred today.
+Or:
+- failure occurred today,
+- success occurs after the metric/failure query’s initial candidate window.
+Use a two-stage query:
+- identify candidate submissions in the bounded window;
+- resolve each candidate using its latest terminal event overall, while remaining index-bounded.
+Do not determine “latest” from only the rows inside today’s window unless that is explicitly the intended business rule.
+5. Define dashboard metric cohort semantics precisely.
+Choose one:
+A. Attempts initiated today — requires a start/submission source not currently defined.
+B. Submissions with a terminal confirmation event today — feasible from existing audit data.
+If using B:
+- candidate submissions are those with a terminal event during today’s ET window;
+- outcome is their latest authoritative terminal event;
+- skipped remains excluded;
+- document how a retry after midnight affects the prior day’s metric.
+6. Prove tenant/row-level authorization.
+isDashboardUser is only a route-level role gate.
+Provide file:line evidence for how each endpoint restricts:
+- contact status to contacts the operator may access,
+- dashboard metric to the operator’s organization/tenant,
+- failure alerts to the same scope.
+If Liberty is intentionally single-tenant with global dashboard access, state and verify that explicitly.
+7. Do not import a private timezone literal from an unrelated service.
+Create or reuse one canonical exported application-timezone constant. Do not duplicate "America/New_York" across this new service and routes.
+8. Fix the index decision rule.
+EXPLAIN ANALYZE must be run with production-representative predicates and volume.
+A composite index on only (action, created_at) may still be insufficient for:
+- entity_type filtering,
+- entity_id grouping,
+- submissionId JSON extraction,
+- latest-event resolution.
+Do not preselect an index shape before examining the query plan. Any index requires a migration task with write-cost and rollback review.
+9. Keep presentation labels out of the raw normalizer.
+normalizeConfirmationAuditEvent() should return canonical typed state/provider fields.
+One shared display-label mapper should produce:
+- Workflow Enrolled
+- Sent — SMTP
+- Sent — GHL Direct
+- Failed
+- Skipped (no email)
+Do not duplicate label-building logic across three React surfaces.
+10. Sanitize failure reasons.
+details.reason may contain internal/provider error information.
+Return only an approved operator-safe message or category. Do not expose raw SMTP, GHL, database, request, or secret-bearing error text.
+
+Kill lines
+
+STOP if global correlation uses submissionId without contactId.
+STOP if a fake per-submission row is created to represent “Not Sent.”
+STOP if unresolved failures scan all historical audit rows on every poll.
+STOP if latest status is determined only from events inside the reporting window and later retries are ignored.
+STOP if metric cohort semantics remain undefined.
+STOP if isDashboardUser is treated as proof of tenant-level data authorization.
+STOP if an index shape is chosen before reviewing the real EXPLAIN ANALYZE plan.
+STOP if raw details.reason is returned to operators.
+STOP if status-label logic is duplicated across ContactDetail, OperatorDashboard, and ConfirmationFailuresPanel.
+
+Validation additions
+
+- Same submissionId on two different contacts remains two independent statuses.
+- Contact with no events returns submissions: [] and UI displays Not Sent.
+- Failure yesterday + success today resolves correctly.
+- Failure today + later success removes the alert on the next poll.
+- Failure query has a bounded lookback, limit, and tenant predicate.
+- Query plan is captured for realistic production volume.
+- Unauthorized operator cannot infer another tenant’s counts or failures.
+- Raw internal failure text never reaches the API response.
+
+Final status: NOT BUILD-READY
+
+The feature architecture is close, but global correlation, no-event representation, unresolved-failure query bounds, and tenant scope must be corrected before Replit builds it.
