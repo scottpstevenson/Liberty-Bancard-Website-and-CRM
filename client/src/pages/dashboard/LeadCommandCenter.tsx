@@ -21,7 +21,8 @@ import {
   ChevronLeft, ChevronsLeft, ChevronsRight, Tag,
 } from "lucide-react";
 import type { SunbizEntity, Prospect } from "@shared/schema";
-import type { OutreachStatus } from "./OutreachCommand";
+import type { OutreachStatus } from "@/types/outreach-status";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import LeadIntelligence from "./LeadIntelligence";
 
 type UnifiedRow = {
@@ -347,7 +348,7 @@ export default function LeadCommandCenter() {
   } = useQuery<Prospect[]>({ queryKey: ["/api/prospects"] });
   const { data: sequencesRaw = [] } = useQuery<any[]>({ queryKey: ["/api/sequences"] });
   const { data: workflowsRaw = [] } = useQuery<any[]>({ queryKey: ["/api/workflows"] });
-  const { data: outreachStatus } = useQuery<OutreachStatus>({ queryKey: ["/api/outreach/status"], staleTime: 60_000 });
+  const { data: outreachStatus, isLoading: outreachStatusLoading } = useQuery<OutreachStatus>({ queryKey: ["/api/outreach/status"], staleTime: 60_000 });
 
   const entities = Array.isArray(entitiesRaw) ? entitiesRaw : [];
   const prospects = Array.isArray(prospectsRaw) ? prospectsRaw : [];
@@ -828,11 +829,43 @@ export default function LeadCommandCenter() {
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
         <Card className="hover-elevate">
           <CardContent className="p-3 text-center">
-            <div className="text-2xl font-bold" data-testid="text-kpi-total">{kpis.totalLeads}</div>
-            <div
-              className="text-xs text-muted-foreground cursor-help underline decoration-dotted"
-              title="Sunbiz entities + prospects + CRM contacts. Individual records may appear in more than one source."
-            >Total lead records</div>
+            <div className="text-2xl font-bold" data-testid="text-kpi-total">
+              {kpis.totalLeads.toLocaleString()}
+            </div>
+            <Popover>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  className="text-xs text-muted-foreground cursor-help underline decoration-dotted bg-transparent border-0 p-0 font-normal"
+                  data-testid="trigger-total-lead-breakdown"
+                >
+                  Total lead records
+                </button>
+              </PopoverTrigger>
+              <PopoverContent className="w-56 p-3" align="center">
+                {outreachStatusLoading ? (
+                  <Skeleton className="h-16 w-full" />
+                ) : (
+                  <div className="space-y-1 text-xs">
+                    <div className="flex justify-between gap-4">
+                      <span>Sunbiz entities</span>
+                      <span className="font-medium">{(outreachStatus?.entities?.total || 0).toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <span>Prospects</span>
+                      <span className="font-medium">{(outreachStatus?.prospects?.total || 0).toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <span>CRM contacts</span>
+                      <span className="font-medium">{(outreachStatus?.contacts?.total || 0).toLocaleString()}</span>
+                    </div>
+                    <div className="border-t pt-1 mt-1 text-muted-foreground leading-tight">
+                      Combined record count; sources may overlap.
+                    </div>
+                  </div>
+                )}
+              </PopoverContent>
+            </Popover>
           </CardContent>
         </Card>
         <Card className="hover-elevate">
