@@ -21,6 +21,7 @@ import { DataState } from "@/components/ui/data-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { toastError } from "@/lib/toast-helpers";
 import type { Task } from "@shared/schema";
+import { isSlaGeneratedTask } from "@/lib/task-source";
 
 const STATUS_OPTIONS = ["pending", "in_progress", "completed"] as const;
 const PRIORITY_OPTIONS = ["normal", "high", "urgent"] as const;
@@ -96,11 +97,29 @@ export default function Tasks() {
   const { toast } = useToast();
   const [createOpen, setCreateOpen] = useState(false);
   const [filterStatus, setFilterStatus] = useState<string>("all");
+  const [filterSource, setFilterSource] = useState<string>("all");
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<number>>(new Set());
+  const [selectAll, setSelectAll] = useState(false);
   const [bulkAssignOpen, setBulkAssignOpen] = useState(false);
   const [bulkAssignTo, setBulkAssignTo] = useState("");
   const [bulkDeleteConfirmOpen, setBulkDeleteConfirmOpen] = useState(false);
   const [expandedTaskId, setExpandedTaskId] = useState<number | null>(null);
+
+  const handleSourceFilterChange = (value: string) => {
+    setFilterSource(value);
+    setSelectedTaskIds(new Set());
+    setSelectAll(false);
+    setBulkAssignOpen(false);
+    setBulkDeleteConfirmOpen(false);
+  };
+
+  const handleStatusFilterChange = (value: string) => {
+    setFilterStatus(value);
+    setSelectedTaskIds(new Set());
+    setSelectAll(false);
+    setBulkAssignOpen(false);
+    setBulkDeleteConfirmOpen(false);
+  };
 
   const [newTask, setNewTask] = useState({
     title: "",
@@ -263,15 +282,19 @@ export default function Tasks() {
   };
 
   const filteredTasks = tasks?.filter((t) => {
-    if (filterStatus === "all") return true;
-    return t.status === filterStatus;
+    if (filterStatus !== "all" && t.status !== filterStatus) return false;
+    if (filterSource === "sla") return isSlaGeneratedTask(t);
+    if (filterSource === "manual") return !isSlaGeneratedTask(t);
+    return true;
   }) || [];
 
   const toggleAllTasks = () => {
     if (selectedTaskIds.size === filteredTasks.length && filteredTasks.length > 0) {
       setSelectedTaskIds(new Set());
+      setSelectAll(false);
     } else {
       setSelectedTaskIds(new Set(filteredTasks.map((t) => t.id)));
+      setSelectAll(true);
     }
   };
 
@@ -322,7 +345,17 @@ export default function Tasks() {
         testId="text-tasks-title"
         actions={
           <>
-            <Select value={filterStatus} onValueChange={setFilterStatus}>
+            <Select value={filterSource} onValueChange={handleSourceFilterChange}>
+              <SelectTrigger className="w-[180px]" data-testid="select-filter-source">
+                <SelectValue placeholder="Source" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Sources</SelectItem>
+                <SelectItem value="manual">Manual</SelectItem>
+                <SelectItem value="sla">SLA-generated</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={filterStatus} onValueChange={handleStatusFilterChange}>
               <SelectTrigger className="w-[160px]" data-testid="select-filter-status">
                 <SelectValue placeholder="Filter by status" />
               </SelectTrigger>
@@ -562,9 +595,14 @@ export default function Tasks() {
 
       <SavedFilterBar
         entityType="task"
-        currentFilters={{ filterStatus }}
+        currentFilters={{ filterStatus, filterSource }}
         onApplyFilter={(filters) => {
           setFilterStatus(String(filters.filterStatus || "all"));
+          setFilterSource(String(filters.filterSource || "all"));
+          setSelectedTaskIds(new Set());
+          setSelectAll(false);
+          setBulkAssignOpen(false);
+          setBulkDeleteConfirmOpen(false);
         }}
       />
 
@@ -620,7 +658,14 @@ export default function Tasks() {
                   </TableCell>
                   <TableCell>
                     <div className="space-y-1">
-                      <div className="font-medium" data-testid={`text-task-title-${task.id}`}>{task.title || "Untitled task"}</div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-medium" data-testid={`text-task-title-${task.id}`}>{task.title || "Untitled task"}</span>
+                        {isSlaGeneratedTask(task) && (
+                          <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 no-default-hover-elevate no-default-active-elevate" data-testid={`badge-sla-${task.id}`}>
+                            SLA
+                          </Badge>
+                        )}
+                      </div>
                       {task.description && (
                         <div className="text-xs text-muted-foreground line-clamp-1" data-testid={`text-task-desc-${task.id}`}>{task.description}</div>
                       )}
