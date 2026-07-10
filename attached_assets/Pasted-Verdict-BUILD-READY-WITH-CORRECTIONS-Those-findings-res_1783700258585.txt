@@ -1,0 +1,66 @@
+Verdict: BUILD-READY WITH CORRECTIONS
+
+Those findings resolve three major blockers:
+
+* Global correlation must use contactId + submissionId.
+* CRM scope is intentionally single-tenant, so no tenant predicate is required.
+* The timezone needs one new canonical exported constant rather than another duplicated literal.
+
+Corrections to include in the plan
+
+1. Correlation key
+For global metric and failure queries, group by:
+(entity_id, details->>'submissionId')
+Never group by submissionId alone.
+For contact-level queries, submissionId alone is sufficient because entity_id is already fixed by the route.
+2. Single-tenant scope
+Document explicitly:
+Liberty CRM is intentionally single-tenant. audit_logs, contacts, and deals have no tenant/org ownership column. isDashboardUser is therefore the correct global CRM authorization boundary for these read-only endpoints.
+Do not invent tenant predicates or schema changes.
+3. Canonical timezone constant
+Create one exported constant in a neutral shared server utility, for example:
+server/lib/timezone.ts
+export const APPLICATION_TIMEZONE = "America/New_York";
+Replace the relevant duplicated literals only where safe and in scope, or at minimum use the new constant for Task 917.
+Do not import the value from digest-service.ts or another feature-specific module.
+4. No-event API shape
+Use:
+{
+  latestStatus: SubmissionStatus | null,
+  submissions: SubmissionStatus[],
+  hasConfirmationRecord: boolean
+}
+The frontend renders “Not Sent” when submissions.length === 0.
+Do not fabricate a submission record with an empty submissionId.
+5. Bounded unresolved-failure query
+Define:
+- lookback window,
+- result limit,
+- deterministic ordering,
+- polling interval.
+Candidate failures must be bounded by created_at, then resolved against the latest terminal event for the same contactId + submissionId.
+6. Metric cohort
+Use this explicit definition:
+Candidate cohort:
+submissions with at least one terminal confirmation event during the current America/New_York calendar day.
+Outcome:
+latest authoritative terminal event for each contactId + submissionId.
+Numerator:
+sent or workflow_enrolled.
+Denominator:
+sent + workflow_enrolled + failed.
+Skipped excluded from both.
+Document how retries after midnight affect the prior day’s metric.
+
+Kill lines
+
+STOP if global queries group only by submissionId.
+STOP if tenant filtering is invented for tables that are intentionally global CRM state.
+STOP if another raw "America/New_York" literal is added inside the new service.
+STOP if “Not Sent” is represented as a fake submission.
+STOP if unresolved failures are queried without a bounded candidate window and result limit.
+STOP if latest-event resolution ignores contactId.
+
+Final status: BUILD-READY WITH CORRECTIONS
+
+The corrected plan can now be written. The remaining work is precise query semantics and bounded execution, not another broad preflight.
