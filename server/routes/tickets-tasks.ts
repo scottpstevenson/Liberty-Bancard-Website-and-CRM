@@ -126,10 +126,19 @@ export function registerTicketsTasksRoutes(app: Express) {
     try {
       const dealId = req.query.dealId ? Number(req.query.dealId) : undefined;
       if (dealId && !isNaN(dealId)) {
+        if (req.query.source !== undefined) {
+          return res.status(400).json({ message: "Cannot combine dealId and source filters" });
+        }
         const tasks = await storage.getTasksByDeal(dealId);
         return res.json(tasks);
       }
-      const tasks = await storage.getTasks();
+      let source: "sla" | "manual" | undefined;
+      try {
+        source = z.enum(["sla", "manual"]).optional().parse(req.query.source);
+      } catch {
+        return res.status(400).json({ message: "Invalid source filter. Allowed values: sla, manual" });
+      }
+      const tasks = await storage.getTasks({ source });
       res.json(tasks);
     } catch (err: any) {
       res.status(500).json({ message: err.message });

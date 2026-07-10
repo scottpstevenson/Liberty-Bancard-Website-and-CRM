@@ -103,8 +103,16 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
   import { type PaginationParams, type PaginatedResult, normalizePagination } from "./_shared";
 
   export class TasksStorage {
-    async getTasks(opts?: { limit?: number; offset?: number }) {
-    let query = db.select().from(tasks).where(isNull(tasks.deletedAt)).orderBy(desc(tasks.createdAt)) as any;
+    async getTasks(opts?: { limit?: number; offset?: number; source?: "sla" | "manual" }) {
+    let whereClause;
+    if (opts?.source === "sla") {
+      whereClause = and(isNull(tasks.deletedAt), eq(tasks.source, "sla"));
+    } else if (opts?.source === "manual") {
+      whereClause = and(isNull(tasks.deletedAt), isNull(tasks.source));
+    } else {
+      whereClause = isNull(tasks.deletedAt);
+    }
+    let query = db.select().from(tasks).where(whereClause).orderBy(desc(tasks.createdAt)) as any;
     if (opts?.limit) query = query.limit(opts.limit);
     if (opts?.offset) query = query.offset(opts.offset);
     return await query;

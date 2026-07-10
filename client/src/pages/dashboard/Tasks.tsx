@@ -133,9 +133,14 @@ export default function Tasks() {
   });
 
   const { data: tasks, isLoading, isError, refetch } = useQuery<Task[]>({
-    queryKey: ["/api/tasks"],
+    queryKey: ["/api/tasks", filterSource],
     queryFn: async () => {
-      const res = await fetch("/api/tasks", { credentials: "include" });
+      const params = new URLSearchParams();
+      if (filterSource === "sla" || filterSource === "manual") {
+        params.set("source", filterSource);
+      }
+      const url = params.toString() ? `/api/tasks?${params.toString()}` : "/api/tasks";
+      const res = await fetch(url, { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch tasks");
       return res.json();
     },
@@ -283,8 +288,6 @@ export default function Tasks() {
 
   const filteredTasks = tasks?.filter((t) => {
     if (filterStatus !== "all" && t.status !== filterStatus) return false;
-    if (filterSource === "sla") return isSlaGeneratedTask(t);
-    if (filterSource === "manual") return !isSlaGeneratedTask(t);
     return true;
   }) || [];
 
