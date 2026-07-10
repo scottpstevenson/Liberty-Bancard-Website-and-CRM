@@ -1,0 +1,92 @@
+Verdict: NOT BUILD-READY
+
+The process separation is now correct, but four test-safety problems remain.
+
+Corrections to send back
+
+1. Do not run unrestricted runSlaCheckDirect() in this integration test.
+That function scans the full development dataset and can create unrelated SLA tasks.
+Remove this test:
+“runSlaCheckDirect() delegates to the same scoped logic.”
+Prove shared ownership structurally instead:
+- both runSlaCheckDirect() and production scheduling call one canonical internal stalling-task function;
+- add a unit assertion or code-level dependency test if the repository supports it.
+Never execute the unrestricted cycle against shared dev data.
+2. Do not use TEST_DATABASE_URL=$DATABASE_URL.
+That defeats the positive database-safety contract.
+Require one of:
+- a separately configured TEST_DATABASE_URL whose current_database() matches an approved test DB name; or
+- INTEGRATION_TEST_DB_NAME exactly matching current_database() plus an explicit confirmation flag.
+The validation command must not blindly alias DATABASE_URL into TEST_DATABASE_URL.
+3. Do not use canonical credentials as code defaults.
+This still hardcodes credentials:
+process.env.TEST_USER_PASSWORD ?? "PlaywrightTest2024!"
+Require TEST_USER_EMAIL and TEST_USER_PASSWORD to be supplied through environment configuration. Fail clearly when absent.
+Also explain how the wrong-role merchant session is obtained without:
+- changing the canonical user’s role,
+- creating persistent unmanaged users,
+- or using production credentials.
+4. The worker fixture eligibility list is incomplete.
+There are five relevant conditions, not four:
+- pipeline = sales
+- stage not Closed Won
+- stage not Closed Lost
+- updatedAt older than seven days
+- no existing active incomplete canonical SLA task, when testing creation
+For the blocking test, the last condition is intentionally false because an existing task is present. Assert the expected condition set separately per scenario.
+5. Do not complete the worker fixture through generic storage.updateTask() unless it runs canonical normalization.
+The test needs the completed row to reflect real application semantics:
+status = completed
+completedAt = non-null
+Use:
+- the canonical normalized task-update service, or
+- an explicit fixture DB update setting both fields.
+Do not accidentally test a reopened/completed state that production could never produce.
+6. Dependency injection must not create a second behavior path.
+runSlaCheckForDeals() should accept narrow infrastructure dependencies, but the worker’s:
+- eligibility logic,
+- canonical identity check,
+- task payload,
+- conflict handling
+must remain the same production code.
+Do not let tests inject a fake createTask and then claim database idempotency was exercised. The scoped worker integration cases should use the real conflict-safe storage method against the approved test DB.
+7. Background interference is not fully solved by a five-minute schedule assumption.
+A manually triggered worker or delayed BullMQ job could still run.
+Before and after each scoped worker call:
+- query tasks for the fixture deal;
+- verify only expected canonical tasks exist;
+- clean every task associated with the fixture deal in finally.
+Use unique fixture markers and keep HTTP fixtures non-stalling as planned.
+8. Fix the test count.
+The listed groups contain:
+- 3 authorization assertions
+- 6 provenance assertions
+- 2 completion assertions
+- 4 worker assertions
+That is 15 only if the unsafe unrestricted runSlaCheckDirect assertion remains.
+After removing it, report 14 integration assertions unless another safe case is added.
+
+Kill lines
+
+STOP if runSlaCheckDirect() scans the shared development dataset during tests.
+STOP if TEST_DATABASE_URL is merely assigned from the normal DATABASE_URL.
+STOP if test credentials are embedded as fallback literals.
+STOP if the wrong-role test mutates the canonical test user’s role.
+STOP if the worker test uses injected fake persistence while claiming real idempotency coverage.
+STOP if completion is represented by status alone without completedAt.
+STOP if the final report claims 15 cases when only 14 safe cases exist.
+
+Validation
+
+BASE_URL=http://localhost:5000 \
+TEST_DATABASE_URL=<dedicated-test-db-url> \
+TEST_USER_EMAIL=<test-user> \
+TEST_USER_PASSWORD=<secret> \
+npx tsx scripts/test-sla-route-integration.ts
+npx tsx scripts/test-sla-task-idempotency.ts
+npx tsx scripts/test-task-invariants.ts
+npx tsc --noEmit --skipLibCheck
+
+Final status: NOT BUILD-READY
+
+Remove the unrestricted worker execution, enforce a genuinely separate test database, and eliminate hardcoded credential fallbacks. The remaining route and scoped-worker test design is otherwise solid.

@@ -1,0 +1,68 @@
+Verdict: BUILD-READY WITH CORRECTIONS
+
+The feature is low-risk, but do not couple Lead Command Center to a page-level interface exported from OutreachCommand.tsx.
+
+Corrections to send back
+
+Proceed with these corrections:
+1. Do not import OutreachStatus from OutreachCommand.tsx.
+A page component must not become the shared API-contract owner.
+Move or reuse the outreach-status response type from a neutral shared client module, for example:
+client/src/types/outreach-status.ts
+Both LeadCommandCenter.tsx and OutreachCommand.tsx should import from that module.
+If LeadCommandCenter already has a local typed query response, extend that existing owner instead of creating a duplicate.
+2. Use one interaction primitive with accessible behavior.
+Preferred:
+- Popover for click/tap persistence
+- optional hover trigger only if the existing component pattern supports it accessibly
+The breakdown must also work on touch devices and keyboard focus. Do not make hover the only way to reveal it.
+3. Keep the source labels exact and non-misleading:
+- Sunbiz entities
+- Prospects
+- CRM contacts
+Include a short footer:
+“Combined record count; sources may overlap.”
+Do not imply these are unique leads.
+4. Use the exact same values that produce the displayed total.
+The card total and breakdown must derive from one local calculation:
+totalLeadRecords =
+  entities.total +
+  prospects.total +
+  contacts.total
+Do not separately recompute or read different fallbacks for the popover.
+5. Define loading and missing-data behavior.
+While the status query is loading:
+- show the existing KPI skeleton/loading state;
+- do not render misleading zero-count source rows.
+If one field is unexpectedly absent, use the existing typed fallback consistently and surface no NaN/undefined output.
+6. Format large counts consistently.
+Reuse the KPI card’s existing number formatter for both:
+- total
+- source rows
+Do not show “1.2M” in the card and an unrelated raw formatting style in the popover unless intentionally designed.
+7. Verify nested interactive markup.
+If the KPI card is already a button/link or contains a tooltip trigger, do not create invalid nested buttons by wrapping it in a PopoverTrigger.
+Use `asChild` and the repository’s established card-trigger pattern.
+
+Kill lines
+
+STOP if LeadCommandCenter imports a response interface from OutreachCommand.tsx.
+STOP if the breakdown values can diverge from the number displayed on the KPI card.
+STOP if hover is the only available interaction.
+STOP if the popover implies the summed records are unique leads.
+STOP if loading data is represented as three zero-count sources.
+STOP if the implementation creates nested interactive elements or breaks the existing tooltip.
+
+Validation
+
+- Total equals Sunbiz + Prospects + CRM contacts.
+- All three source rows use the same API response and formatter as the card.
+- Footer warns that sources may overlap.
+- Popover opens by click, keyboard, and touch.
+- Existing dotted-underline tooltip behavior is removed or coordinated so two overlays do not compete.
+- Loading state does not show false zeros.
+- No backend files or endpoint changes.
+
+Final status: BUILD-READY WITH CORRECTIONS
+
+Safe to build once the shared response type lives in a neutral module and the card uses one accessible, non-conflicting popover interaction.
