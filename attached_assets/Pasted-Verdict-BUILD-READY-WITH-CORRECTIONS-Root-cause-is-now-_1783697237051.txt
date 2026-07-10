@@ -1,0 +1,67 @@
+Verdict: BUILD-READY WITH CORRECTIONS
+
+Root cause is now proven. The startup reconciliation fix is correct for the confirmed OOM scenario.
+
+Two gaps remain: the plan adds a failed UI state without proving the server writes status: "failed", and it reconciles contact_enrich_batch_progress even though that key is absent and not part of the incident.
+
+Corrections to send back
+
+Proceed with implementation after these corrections:
+1. Reconcile only the confirmed affected key:
+   enrichment_progress
+Do not include contact_enrich_batch_progress in this task. It was not present in production, belongs to a separate enrichment flow, and was not involved in the incident.
+2. Add or verify the outer batch failure write.
+Before adding failed-state UI, prove reEnrichAllSunbizEntities persists status: "failed" when the overall run throws.
+If it does not, add an outer catch that preserves the latest progress payload and writes:
+{
+  ...currentProgress,
+  status: "failed",
+  failedAt: new Date().toISOString(),
+  error: sanitizedMessage
+}
+Then rethrow or log according to the existing route convention.
+Never expose stack traces, provider response bodies, database details, or secret material through /api/outreach/status.
+3. Make startup reconciliation defensive:
+- Missing setting → no-op
+- Non-object/malformed setting → log and continue startup
+- Only status === "running" may transition to interrupted
+- Preserve every existing field
+- Reconciliation failure must not prevent the server from starting
+4. Add automated tests rather than manual validation only:
+- running → interrupted with all counters preserved
+- complete/failed/interrupted remain unchanged
+- missing setting is a no-op
+- malformed value does not crash startup
+- outer batch exception writes failed
+- interrupted and failed UI states do not show a spinner
+- a new run can start after interrupted
+5. Run the repository validation suite, not only smoke-role-guards.
+
+Kill lines
+
+STOP if contact_enrich_batch_progress is modified in this incident-specific task.
+STOP if failed-state UI is added without a server path that persists status: "failed".
+STOP if raw exception details can reach the browser.
+STOP if malformed system_settings data can block server startup.
+STOP if reconciliation replaces the payload instead of preserving its counters.
+STOP if the OOM/root-cause fix expands into provider, BullMQ, scoring, or background_jobs changes.
+
+Validation
+
+npx tsx scripts/smoke-role-guards.ts
+pnpm typecheck
+pnpm lint
+pnpm test
+
+Then verify:
+
+- Kill the process during a running batch.
+- Restart and confirm status becomes interrupted with original counters.
+- Start another run immediately and confirm normal completion.
+- Force an outer batch exception and confirm status becomes failed.
+- Confirm neither interrupted nor failed displays “Enriching...”.
+- Confirm credential fields expose booleans only.
+
+Final status: BUILD-READY WITH CORRECTIONS
+
+The confirmed OOM stale-state bug is correctly scoped. Remove the unrelated progress key and ensure the new failed UI has an actual persisted backend state before building.

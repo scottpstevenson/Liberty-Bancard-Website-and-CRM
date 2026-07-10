@@ -1,0 +1,427 @@
+Verdict
+
+NOT BUILD READY
+
+Task Classification
+
+This is not one simple “Emergency Operational Fix.”
+
+It combines:
+
+* Bug Fix: Pipeline fallback labels.
+* Enhancement: Vertical-picker explanatory empty state.
+* Infrastructure / Background Worker Fix: SLA task-generation idempotency.
+* Operational Data Mutation: Bulk soft-deletion of potentially 2,427 production task records.
+
+The UI copy changes are low risk. The worker and deletion changes are production-sensitive and currently rely on unverified assumptions.
+
+The most serious flaw is that the proposed SLA duplicate guard is not concurrency-safe. A bulk pre-check followed by task creation can still produce duplicates when workers overlap, jobs retry, or two processes evaluate the same deal concurrently.
+
+⸻
+
+Confirmed Facts
+
+No code-backed facts are confirmed from this brief alone.
+
+The following are claims that require repository verification:
+
+* There are exactly 2,427 unwanted tasks.
+* They were created by the SLA worker.
+* The Tasks page already supports selecting all 2,427 records, rather than only the current page.
+* Tasks support deletedAt.
+* Every task query excludes soft-deleted records.
+* isDashboardUser is the correct authorization boundary.
+* Tasks are not tenant-scoped, merchant-scoped, or organization-scoped beyond that middleware.
+* A canonical tasks route already exists.
+* dealId, task status, title, and deletion fields are available as described.
+* Pipeline.tsx owns the displayed fallback logic.
+* Sequences.tsx is the canonical owner of the vertical picker.
+* The SLA worker creates tasks at the cited lines.
+* Existing generated tasks have a reliable title, task type, source, or metadata marker.
+
+These must be verified before implementation.
+
+⸻
+
+False Assumptions
+
+1. “These are independent surface-level fixes”
+
+False.
+
+Bulk task deletion is a production data mutation. SLA generation is background-worker infrastructure. Neither is merely surface-level.
+
+2. A read-before-write duplicate check guarantees one task per deal
+
+False.
+
+This sequence is race-prone:
+
+1. Worker A checks and finds no task.
+2. Worker B checks and finds no task.
+3. Worker A inserts.
+4. Worker B inserts.
+
+The bulk lookup avoids N+1 queries but does not establish idempotency.
+
+3. Exact task title is an appropriate identity key
+
+Likely false or at least fragile.
+
+A title such as Follow up on stalling Deal #N is presentation copy, not durable canonical identity. Copy changes, formatting changes, historical titles, whitespace, or localization can bypass the guard.
+
+The task needs a stable machine-readable identity such as:
+
+* task source/type,
+* automation key,
+* dedupe key,
+* or a persisted relation identifying the SLA rule and deal.
+
+4. An unrestricted array of task IDs is safe with dashboard-user authorization
+
+False unless tenant and permission boundaries are proven.
+
+The endpoint must prevent a dashboard user from deleting tasks outside their authorized account, organization, merchant, team, or ownership scope.
+
+Authorization middleware alone does not prove row-level authorization.
+
+5. “2427 selected” means all 2,427 IDs are available to the browser
+
+Unverified and dangerous.
+
+The UI may display the server-reported total while only holding IDs for loaded rows. If the table has pagination, virtualization, or a 500-row API cap, “Delete Selected” may delete only a subset while appearing to delete everything.
+
+6. Cache invalidation is sufficient after deletion
+
+Incomplete.
+
+The implementation may also need to update:
+
+* selected-row state,
+* total counts,
+* pagination,
+* dashboard counters,
+* task badges,
+* SLA health metrics,
+* related deal cards,
+* cached task summaries.
+
+7. Soft deletion is complete merely because deletedAt is set
+
+False unless every read path filters deleted records.
+
+The task must prove that deleted tasks disappear from:
+
+* Tasks page queries,
+* counts,
+* dashboard summaries,
+* deal activity,
+* reminders,
+* SLA worker duplicate checks,
+* exports,
+* search,
+* APIs,
+* background processors.
+
+8. Chunking 500 IDs per statement solves operational safety
+
+Incomplete.
+
+Chunking does not define:
+
+* transaction behavior,
+* partial-failure behavior,
+* retries,
+* duplicate IDs,
+* nonexistent IDs,
+* unauthorized IDs,
+* audit records,
+* maximum request size,
+* completion semantics.
+
+9. Removing all “Unnamed contact” and “Company unavailable” text is necessarily safe
+
+Unverified.
+
+Those strings may appear in unrelated surfaces, tests, exports, accessibility labels, or intentionally distinct empty states. The change must be scoped to the deal-card presentation owner.
+
+10. Empty verticals necessarily means contacts need AI enrichment
+
+Potentially false.
+
+An empty list could also result from:
+
+* failed API request,
+* authorization failure,
+* loading-state bug,
+* server error,
+* query filtering,
+* missing vertical mappings,
+* no eligible contacts,
+* stale cache,
+* enrichment not producing recognized verticals.
+
+The UI must distinguish a legitimate empty result from an error.
+
+⸻
+
+Root Cause
+
+There are three separate root causes.
+
+SLA-generated task duplication
+
+The likely root problem is that automated task creation lacks a durable, database-enforced idempotency boundary.
+
+The symptom is 2,427 unwanted tasks. A title lookup reduces repeat creation during ordinary sequential execution, but it does not solve overlapping execution, retries, or multiple workers.
+
+Pipeline placeholder quality
+
+The presentation layer apparently assumes contacts have human-readable name fields and falls back to generic placeholders instead of progressively using available identifying data.
+
+Vertical-picker ambiguity
+
+The empty state does not explain the prerequisite for vertical enrollment, but the task has not yet proven that missing enrichment is the only cause of an empty result.
+
+Bulk deletion is remediation for historical damage, not the root fix.
+
+⸻
+
+Correct Architecture
+
+SLA task idempotency
+
+The canonical owner is the server-side task-generation service or task-creation abstraction used by the SLA worker.
+
+The implementation should not rely exclusively on title copy.
+
+Preferred architecture:
+
+1. Assign automated SLA tasks a stable identity, for example:
+    * source = 'sla-worker'
+    * automationKey = 'stalling-deal-follow-up'
+    * dealId = N
+2. Enforce at most one active task for that identity at the database level where the schema supports it.
+3. Create through an idempotent task service using conflict-safe insertion or a transaction-safe equivalent.
+4. Preserve the distinction between:
+    * one task ever,
+    * one active task,
+    * or one task per SLA incident.
+
+The current brief says both “not more than 1 task per deal” and “skip when an incomplete, undeleted task exists.” Those are different rules. The intended lifecycle must be determined from existing SLA behavior.
+
+A bulk prefetch may remain as a performance optimization, but it cannot be the only correctness mechanism.
+
+Bulk task deletion
+
+The endpoint belongs beside the canonical task mutation routes and must reuse the existing task authorization, filtering, audit, and cache conventions.
+
+It should:
+
+* accept a bounded set of IDs,
+* validate integer uniqueness,
+* enforce row-level scope,
+* update only nondeleted authorized tasks,
+* record the actor and operation,
+* return requested, eligible, updated, skipped, and unauthorized/not-found-safe counts,
+* use defined all-or-nothing or partial-success behavior.
+
+The browser must not imply that all 2,427 records are selected unless it truly has a server-side selection strategy.
+
+For the specific historical cleanup, a safer operational mechanism may be a narrowly targeted dry-run/apply cleanup based on proven provenance. A generic admin bulk-delete feature is broader than necessary and creates permanent blast radius for future users.
+
+Pipeline fallback
+
+This belongs in one shared presentation helper if deal-card identity is rendered in more than one place.
+
+Recommended fallback:
+
+trim(firstName + " " + lastName)
+→ company name
+→ email
+→ phone
+→ Deal #<display-safe identifier>
+
+The secondary/company line should not duplicate the primary line. For example, if company name became the primary identifier, the secondary line should move to email or phone rather than repeat the same company value.
+
+Vertical empty state
+
+The UI must represent distinct states:
+
+* Loading
+* Failed to load
+* Successfully loaded with no configured/eligible verticals
+* Successfully loaded with verticals
+
+The enrichment guidance belongs only in the legitimate empty-data state and only if code confirms enrichment/classification is the actual prerequisite.
+
+⸻
+
+Exact Files To Change
+
+These are provisional until repository preflight confirms ownership:
+
+* Canonical task route file—either server/routes/tasks.ts or the actual registered equivalent, not both.
+* Canonical task mutation/service layer, if one exists.
+* server/services/sla-worker.ts, or the actual SLA task-generation owner.
+* Database schema and migration files only if a durable automation/dedupe key or unique constraint is required.
+* Tasks page component that owns selection and bulk actions.
+* Shared task API/query hooks used by that page.
+* Pipeline deal-card identity helper or client/src/pages/dashboard/Pipeline.tsx if it is truly local.
+* Vertical-picker component or client/src/pages/dashboard/Sequences.tsx if it is truly local.
+* Relevant server and client test files.
+* scripts/smoke-role-guards.ts only if the existing script is intentionally extended to cover the new endpoint.
+
+Do not choose between crm-operations.ts and tasks.ts based on convenience. Verify route registration and canonical ownership first.
+
+⸻
+
+Exact Files NOT To Touch
+
+Unless direct code evidence proves they are required:
+
+* Contactability logic.
+* DNC and suppression logic.
+* Consent logic.
+* Sequence enrollment logic.
+* GHL synchronization.
+* Email, SMS, voice, or ringless voicemail services.
+* Lead enrichment algorithms.
+* Vertical classification logic.
+* Pipeline stage-transition logic.
+* Deal creation logic.
+* CSV or universal importer logic.
+* Existing task records through manual production SQL.
+* The 500-row query cap.
+* Generic contact display helpers used by unrelated surfaces without regression coverage.
+* Existing role middleware semantics merely to make the endpoint easier to expose.
+* db push or direct production schema modification paths.
+
+⸻
+
+Kill Lines
+
+* STOP if task soft deletion is not already a supported canonical lifecycle.
+* STOP if any task read, count, export, worker, or dashboard query does not consistently exclude deletedAt IS NOT NULL records where appropriate.
+* STOP if authorization is only route-level and does not restrict rows to the acting user’s permitted tenant or organizational scope.
+* STOP if the client can submit arbitrary IDs belonging to other tenants or users.
+* STOP if “select all” represents only loaded rows while displaying the global total.
+* STOP if deleting 2,427 tasks requires transmitting an unbounded request body without a documented limit.
+* STOP if bulk deletion is not audited with actor, timestamp, scope, and affected count.
+* STOP if partial chunk failure can leave the UI claiming complete success.
+* STOP if the SLA fix relies only on a pre-read or exact title comparison.
+* STOP if two overlapping SLA workers can still create duplicate active tasks.
+* STOP if the intended rule—one task ever, one active task, or one per stalling incident—is not determined.
+* STOP if a new canonical task-state field is introduced without a migration and ownership review.
+* STOP if the worker performs a database lookup per deal.
+* STOP if completed or deleted tasks are treated incorrectly for the intended task lifecycle.
+* STOP if pipeline display changes alter enrollment, contactability, deal routing, or persisted data.
+* STOP if the primary and secondary deal-card labels can resolve to the same value.
+* STOP if a failed vertical API request is rendered as a legitimate empty-enrichment state.
+* STOP if the empty-state CTA references an Outreach Command Center route the user cannot access.
+* STOP if production cleanup occurs before the duplicate-generation fix is deployed and verified.
+* STOP if cleanup cannot be previewed with an exact affected-record count before applying.
+
+⸻
+
+Validation
+
+Preflight
+
+Replit must provide file-and-line evidence for:
+
+1. Canonical task router registration.
+2. Existing single-task delete semantics.
+3. Task schema fields, including deletedAt, status, dealId, tenant/org ownership, source/type, and audit metadata.
+4. Every query that lists or counts tasks.
+5. Current Tasks selection semantics:
+    * page-only,
+    * loaded rows,
+    * explicit IDs,
+    * or server-side all-results selection.
+6. Existing request-body limits.
+7. SLA worker scheduling, concurrency, and retry behavior.
+8. Task creation abstraction and transaction behavior.
+9. Current generated-task title and any stable source metadata.
+10. Pipeline helper ownership and all consumers.
+11. Vertical API loading, error, and empty states.
+12. Role middleware and row-level authorization.
+
+Required automated tests
+
+At minimum:
+
+* Unauthenticated bulk delete returns 401 or the project-standard equivalent.
+* Authenticated but unauthorized user cannot delete out-of-scope tasks.
+* Empty taskIds is rejected or returns a defined no-op.
+* Noninteger, duplicate, negative, and excessive IDs are handled safely.
+* Already deleted and nonexistent IDs do not inflate the deleted count.
+* Bulk deletion updates only authorized, currently active records.
+* Chunk failure behavior matches the documented transaction policy.
+* Audit record is produced.
+* Two concurrent SLA executions for the same deal produce only one permitted active task.
+* SLA worker does not perform N+1 task-existence queries.
+* Completed/deleted task behavior matches the chosen lifecycle rule.
+* Pipeline fallback works for:
+    * full name,
+    * first name only,
+    * last name only,
+    * company only,
+    * email only,
+    * phone only,
+    * no contact data.
+* Primary and secondary labels do not duplicate each other.
+* Vertical loading error does not show the no-data enrichment message.
+* Legitimate empty response shows the approved guidance.
+
+Commands
+
+Use repository-native commands discovered from package.json; do not invent command names. At minimum, run the project equivalents of:
+
+npx tsx scripts/smoke-role-guards.ts
+pnpm typecheck
+pnpm lint
+pnpm test
+
+Also run targeted tests for:
+
+task bulk deletion
+task authorization
+SLA worker concurrency/idempotency
+pipeline fallback rendering
+vertical-picker state rendering
+
+Manual verification
+
+1. Create test tasks across at least two authorization scopes.
+2. Select several allowed tasks and attempt to include an out-of-scope ID manually.
+3. Verify only authorized tasks are soft-deleted.
+4. Verify deleted tasks disappear from all relevant counts and surfaces.
+5. Verify selected state and total counts reset correctly.
+6. Simulate a failure during a multi-chunk operation and confirm truthful UI reporting.
+7. Start two SLA worker executions concurrently against the same stalling deal.
+8. Confirm only the intended number of tasks exists afterward.
+9. Verify all pipeline fallback combinations visually.
+10. Verify vertical picker under loading, failed, empty, and populated responses.
+11. Verify the referenced Outreach Command Center destination exists and is permitted.
+
+Operational cleanup sequence
+
+1. Deploy and verify the SLA idempotency fix.
+2. Stop or pause the affected worker if cleanup requires it.
+3. Produce a dry-run identifying the historical garbage tasks by proven provenance.
+4. Review exact count and sample records.
+5. Apply soft deletion.
+6. Verify counts across Tasks, dashboard summaries, deals, and worker health.
+7. Resume the worker.
+8. Confirm no duplicate regeneration.
+9. Retain an auditable completion report and a reversible undelete identifier or batch marker.
+
+⸻
+
+The task should be split into at least two releases:
+
+1. SLA Task Idempotency + Controlled Cleanup
+2. Pipeline and Vertical-Picker UX Fixes
+
+The second can proceed after a focused code preflight. The first must not begin from the current brief because its proposed duplicate guard does not satisfy Liberty’s concurrency and production-safety standards.

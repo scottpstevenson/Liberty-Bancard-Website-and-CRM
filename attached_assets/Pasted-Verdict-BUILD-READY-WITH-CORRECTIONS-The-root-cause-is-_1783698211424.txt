@@ -1,0 +1,86 @@
+Verdict: BUILD-READY WITH CORRECTIONS
+
+The root cause is proven and the scope is now correct. Two issues remain: raw err.message is not reliably sanitized, and the proposed test script may be unable to mock imported storage cleanly unless the logic is extracted into testable helpers.
+
+Corrections to send back
+
+Proceed after these corrections:
+1. Do not persist raw err.message directly.
+Database, network, and provider error messages can contain:
+- hostnames,
+- connection strings,
+- SQL fragments,
+- endpoint paths,
+- request identifiers,
+- provider response content.
+Add a canonical sanitizer or bounded operator-safe formatter.
+Required behavior:
+- map known failures to safe operator messages;
+- strip line breaks and control characters;
+- cap length;
+- never persist stack, cause, response body, config, query, hostname, or credentials.
+Example safe categories:
+- "Database connection failed"
+- "Provider request failed"
+- "Enrichment initialization failed"
+- "Unexpected batch failure"
+The full error may still go to the canonical server logger/Sentry, but only the sanitized message may enter system_settings and the API response.
+2. Preserve counters even when reading current progress fails.
+The outer catch currently proposes calling getSystemSetting() before writing failed state. If that read throws, the failure state will never be written.
+Structure the failure path defensively:
+- attempt to read existing progress;
+- fall back to the latest in-memory counters/default payload if the read fails;
+- attempt to persist failed state;
+- log persistence failure separately;
+- always rethrow the original batch error.
+Do not let error-reporting failure replace or hide the original exception.
+3. Extract testable pure/helper functions.
+Do not make the script monkey-patch a hard-imported global storage singleton if the module structure does not support it.
+Prefer:
+- reconcileEnrichmentState(storage = defaultStorage)
+- buildSafeEnrichmentFailureProgress(current, error, timestamp)
+- markEnrichmentFailed(storage, error, fallbackProgress)
+Dependency injection or exported pure helpers will make the tests deterministic without modifying production globals.
+4. Test the real spinner/label predicates or extract them.
+Assertions that merely repeat:
+status === "interrupted" !== status === "running"
+do not test the JSX implementation.
+Either:
+- add a component-level render test, or
+- extract helpers such as isEnrichmentRunning(status) and use them in both JSX and tests.
+5. Do not manually break production code to test failure.
+Replace:
+“temporarily break getSunbizEntitiesNeedingEnrichment”
+with a controlled local/test dependency failure or mocked storage call. Production validation should not require deploying intentionally broken code.
+6. Confirm a new run overwrites interrupted/failed state with a complete fresh running payload, including startedAt and zeroed counters. Stale counters from the prior run must not bleed into the new execution.
+7. Add failedAt/interruptedAt/error fields to the TypeScript enrichment progress interface explicitly. Do not rely on untyped optional access.
+
+Kill lines
+
+STOP if raw err.message is persisted or returned to the browser.
+STOP if failure-state persistence can throw and hide the original batch exception.
+STOP if tests require mutating a global storage singleton unsafely.
+STOP if UI tests only restate boolean logic without exercising the implementation.
+STOP if production code must be intentionally broken to validate the failed state.
+STOP if a new run inherits counters, error, failedAt, or interruptedAt from the previous run.
+STOP if startup reconciliation can delay or block startup after a storage failure.
+
+Validation
+
+npm run check
+npx tsx scripts/smoke-role-guards.ts
+npx tsx scripts/test-enrichment-reconcile.ts
+
+Required assertions:
+
+- Sensitive/raw error text is converted to a bounded safe message.
+- Original exception is rethrown even if status persistence fails.
+- Running → interrupted preserves counters.
+- A fresh run clears prior interrupted/failed metadata.
+- Failed and interrupted states render no spinner or Enriching label.
+- Missing/malformed settings cannot block startup.
+- Credential fields remain booleans only.
+
+Final status: BUILD-READY WITH CORRECTIONS
+
+The architecture is now right. Tighten the failure-message handling and make the reconciliation/failure logic genuinely testable before implementation.
