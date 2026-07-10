@@ -414,7 +414,14 @@ async function checkStage5(): Promise<StageResult> {
     .orderBy(desc(auditLogs.createdAt))
     .limit(1);
 
-  const ghlInboundWorkflowId = process.env.GHL_WORKFLOW_INBOUND_CONFIRMATION;
+  // Check both process.env AND the DB-backed store (set via Dashboard → Integrations → GHL Workflow IDs)
+  const ghlInboundWorkflowIdEnv = process.env.GHL_WORKFLOW_INBOUND_CONFIRMATION;
+  const ghlInboundWorkflowIdDb = await db.select({ value: systemSettings.value })
+    .from(systemSettings)
+    .where(eq(systemSettings.key, "ghl_workflow_env_GHL_WORKFLOW_INBOUND_CONFIRMATION"))
+    .limit(1)
+    .then(rows => rows[0]?.value as string | null | undefined ?? null);
+  const ghlInboundWorkflowId = ghlInboundWorkflowIdEnv || ghlInboundWorkflowIdDb;
 
   if (enrolledLog) {
     steps.push(step("enrollInInboundConfirmation called and audit logged", true,
@@ -425,7 +432,7 @@ async function checkStage5(): Promise<StageResult> {
       `inbound_confirmation_skipped — reason: ${detail.reason ?? "GHL_WORKFLOW_INBOUND_CONFIRMATION not set"}`));
   } else if (!ghlInboundWorkflowId) {
     steps.push(step("enrollInInboundConfirmation called", true,
-      "GHL_WORKFLOW_INBOUND_CONFIRMATION env var not set — enrollment is a no-op (expected in dev). Set it in prod to activate."));
+      "GHL_WORKFLOW_INBOUND_CONFIRMATION not set — enrollment is a no-op. Set it via Dashboard → Integrations → GHL Workflow IDs (row: Inbound Lead — Instant Confirmation) to activate instant lead response."));
   } else {
     steps.push(step("enrollInInboundConfirmation audit log found", false,
       "Neither enrolled nor skipped log found yet. May still be in-flight — check server logs for [GHL Inbound]."));

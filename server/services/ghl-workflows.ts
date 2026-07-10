@@ -16,7 +16,8 @@ export interface GhlWorkflowConfig {
 }
 
 export const GHL_WORKFLOW_REGISTRY: GhlWorkflowConfig[] = [
-  { id: "inbound_lead", name: "Inbound Lead Confirmation", category: "inbound_lead", triggerType: "form_submitted", envKey: "GHL_WORKFLOW_INBOUND_LEAD", description: "Sends welcome email + SMS with booking link on new lead creation. 24h follow-up if no booking." },
+  { id: "inbound_confirmation", name: "Inbound Lead — Instant Confirmation", category: "inbound_lead", triggerType: "form_submitted", envKey: "GHL_WORKFLOW_INBOUND_CONFIRMATION", description: "CRITICAL: Triggers on every web form submission (estimate, statement upload, get started, callback). Sends an instant welcome/confirmation email with booking link. Without this, new leads get no immediate response." },
+  { id: "inbound_lead", name: "Inbound Lead Confirmation (Legacy)", category: "inbound_lead", triggerType: "form_submitted", envKey: "GHL_WORKFLOW_INBOUND_LEAD", description: "Sends welcome email + SMS with booking link on new lead creation. 24h follow-up if no booking." },
   { id: "statement_review", name: "Statement Review Follow-Up", category: "inbound_lead", triggerType: "statement_uploaded", envKey: "GHL_WORKFLOW_STATEMENT_REVIEW", description: "Triggered when merchant uploads a processing statement. Sends confirmation and schedules AI review." },
   { id: "merchant_app", name: "Merchant Application Received", category: "onboarding", triggerType: "merchant_app_submitted", envKey: "GHL_WORKFLOW_MERCHANT_APP", description: "Triggered on merchant application submission. Sends confirmation, triggers e-sign, begins onboarding." },
   { id: "support_ticket", name: "Support Ticket Created", category: "support", triggerType: "ticket_created", envKey: "GHL_WORKFLOW_SUPPORT_TICKET", description: "Triggered on support form submission. Assigns to support team, sends acknowledgment." },

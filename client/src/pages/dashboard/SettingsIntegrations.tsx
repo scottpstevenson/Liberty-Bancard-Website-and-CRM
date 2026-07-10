@@ -406,8 +406,25 @@ function GhlWorkflowEnvTab() {
   const total = registry.length;
   const configured = registry.filter(e => e.isSet).length;
 
+  const inboundConfirmationEntry = registry.find(e => e.envKey === "GHL_WORKFLOW_INBOUND_CONFIRMATION");
+  const inboundConfirmationMissing = !inboundConfirmationEntry?.isSet;
+
   return (
     <div className="space-y-4">
+      {inboundConfirmationMissing && (
+        <div className="flex items-start gap-3 p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800" data-testid="alert-inbound-confirmation-missing">
+          <AlertTriangle className="w-4 h-4 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-red-800 dark:text-red-300">
+              Inbound Confirmation Workflow Not Set — New leads get no instant response
+            </p>
+            <p className="text-xs text-red-700 dark:text-red-400 mt-0.5">
+              <strong>GHL_WORKFLOW_INBOUND_CONFIRMATION</strong> is unset. Every estimate, statement upload, get-started, and callback form submission is a no-op — leads submit a form and hear nothing back. To fix: create a workflow in GHL (Automation → Workflows) that sends a welcome email with a booking link, then paste the GHL Workflow ID into the <em>Inbound Lead — Instant Confirmation</em> row below.
+            </p>
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center gap-4">
         <div className="text-sm text-muted-foreground flex-1">
           Wire up the GHL workflow IDs that the SDR orchestrator uses to trigger outreach sequences.

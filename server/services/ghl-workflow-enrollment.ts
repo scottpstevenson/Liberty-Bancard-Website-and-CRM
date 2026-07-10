@@ -7,6 +7,7 @@ import {
   sendSmsReply as sdrSendSms,
 } from "./sdr/ghl-client";
 import { createPreferenceAwareNotification } from "./digest-service";
+import { getWorkflowEnvValue } from "./ghl-workflows";
 
 const SALES_CALENDAR = "https://api.leadconnectorhq.com/widget/bookings/libertybancard";
 const AM_CALENDAR = "https://api.leadconnectorhq.com/widget/booking/kBRoNz5XoTpddupMQg0c";
@@ -402,7 +403,7 @@ export async function enrollInInboundConfirmation(params: {
   const contact = await storage.getContact(contactId);
   if (!contact) return;
 
-  const inboundWorkflowId = process.env.GHL_WORKFLOW_INBOUND_CONFIRMATION;
+  const inboundWorkflowId = await getWorkflowEnvValue("GHL_WORKFLOW_INBOUND_CONFIRMATION");
 
   if (inboundWorkflowId && (isGhlConfigured() || isSdrGhlConfigured())) {
     let ghlContactId = contact.ghlContactId;
