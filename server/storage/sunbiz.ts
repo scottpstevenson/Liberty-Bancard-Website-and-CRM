@@ -493,17 +493,43 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
   }
 
 
-  async getContactAggregateStats(): Promise<{ total: number; fromSunbiz: number; newLeads: number; syncedToGhl: number }> {
+  async getContactAggregateStats(): Promise<{
+    total: number; fromSunbiz: number; newLeads: number; syncedToGhl: number;
+    hot: number; warm: number; cold: number; unqualified: number; unclassified: number; withContactInfo: number;
+  }> {
     const result = await db.execute(sql`
       SELECT
         COUNT(*)::int as total,
         COUNT(*) FILTER (WHERE referral_source = 'sunbiz_enrichment' OR 'sunbiz' = ANY(tags))::int as from_sunbiz,
         COUNT(*) FILTER (WHERE status = 'New')::int as new_leads,
-        COUNT(*) FILTER (WHERE ghl_contact_id IS NOT NULL)::int as synced_to_ghl
+        COUNT(*) FILTER (WHERE ghl_contact_id IS NOT NULL)::int as synced_to_ghl,
+        COUNT(*) FILTER (WHERE lead_score >= 70)::int as hot,
+        COUNT(*) FILTER (WHERE lead_score >= 45 AND lead_score < 70)::int as warm,
+        COUNT(*) FILTER (WHERE lead_score >= 20 AND lead_score < 45)::int as cold,
+        COUNT(*) FILTER (WHERE lead_score >= 0 AND lead_score < 20)::int as unqualified,
+        COUNT(*) FILTER (WHERE lead_score IS NULL)::int as unclassified,
+        COUNT(*) FILTER (
+          WHERE (do_not_contact IS NULL OR do_not_contact = false)
+            AND (
+              (email IS NOT NULL AND TRIM(email) <> '')
+              OR (phone IS NOT NULL AND TRIM(phone) <> '')
+            )
+        )::int as with_contact_info
       FROM contacts WHERE archived_at IS NULL
     `);
     const row = ((result as any).rows || [])[0] || {};
-    return { total: Number(row.total) || 0, fromSunbiz: Number(row.from_sunbiz) || 0, newLeads: Number(row.new_leads) || 0, syncedToGhl: Number(row.synced_to_ghl) || 0 };
+    return {
+      total: Number(row.total) || 0,
+      fromSunbiz: Number(row.from_sunbiz) || 0,
+      newLeads: Number(row.new_leads) || 0,
+      syncedToGhl: Number(row.synced_to_ghl) || 0,
+      hot: Number(row.hot) || 0,
+      warm: Number(row.warm) || 0,
+      cold: Number(row.cold) || 0,
+      unqualified: Number(row.unqualified) || 0,
+      unclassified: Number(row.unclassified) || 0,
+      withContactInfo: Number(row.with_contact_info) || 0,
+    };
   }
 
 
@@ -523,17 +549,33 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
   }
 
 
-  async getProspectAggregateStats(): Promise<{ total: number; withEmail: number; converted: number; qualified: number }> {
+  async getProspectAggregateStats(): Promise<{
+    total: number; withEmail: number; converted: number; qualified: number;
+    hot: number; warm: number; cold: number; unclassified: number;
+  }> {
     const result = await db.execute(sql`
       SELECT
         COUNT(*)::int as total,
         COUNT(*) FILTER (WHERE email IS NOT NULL)::int as with_email,
         COUNT(*) FILTER (WHERE status = 'converted')::int as converted,
-        COUNT(*) FILTER (WHERE qualification_score IN ('A', 'B'))::int as qualified
+        COUNT(*) FILTER (WHERE qualification_score IN ('A', 'B'))::int as qualified,
+        COUNT(*) FILTER (WHERE score = 'hot')::int as hot,
+        COUNT(*) FILTER (WHERE score = 'warm')::int as warm,
+        COUNT(*) FILTER (WHERE score = 'cold')::int as cold,
+        COUNT(*) FILTER (WHERE score IS NULL OR score NOT IN ('hot', 'warm', 'cold'))::int as unclassified
       FROM prospects
     `);
     const row = ((result as any).rows || [])[0] || {};
-    return { total: Number(row.total) || 0, withEmail: Number(row.with_email) || 0, converted: Number(row.converted) || 0, qualified: Number(row.qualified) || 0 };
+    return {
+      total: Number(row.total) || 0,
+      withEmail: Number(row.with_email) || 0,
+      converted: Number(row.converted) || 0,
+      qualified: Number(row.qualified) || 0,
+      hot: Number(row.hot) || 0,
+      warm: Number(row.warm) || 0,
+      cold: Number(row.cold) || 0,
+      unclassified: Number(row.unclassified) || 0,
+    };
   }
 
 

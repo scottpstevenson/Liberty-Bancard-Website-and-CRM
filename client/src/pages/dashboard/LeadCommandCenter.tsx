@@ -21,6 +21,7 @@ import {
   ChevronLeft, ChevronsLeft, ChevronsRight, Tag,
 } from "lucide-react";
 import type { SunbizEntity, Prospect } from "@shared/schema";
+import type { OutreachStatus } from "./OutreachCommand";
 import LeadIntelligence from "./LeadIntelligence";
 
 type UnifiedRow = {
@@ -346,6 +347,7 @@ export default function LeadCommandCenter() {
   } = useQuery<Prospect[]>({ queryKey: ["/api/prospects"] });
   const { data: sequencesRaw = [] } = useQuery<any[]>({ queryKey: ["/api/sequences"] });
   const { data: workflowsRaw = [] } = useQuery<any[]>({ queryKey: ["/api/workflows"] });
+  const { data: outreachStatus } = useQuery<OutreachStatus>({ queryKey: ["/api/outreach/status"], staleTime: 60_000 });
 
   const entities = Array.isArray(entitiesRaw) ? entitiesRaw : [];
   const prospects = Array.isArray(prospectsRaw) ? prospectsRaw : [];
@@ -382,14 +384,15 @@ export default function LeadCommandCenter() {
   const paginatedPipeline = useMemo(() => qualifiedRows.slice((safePipelinePage - 1) * PAGE_SIZE, safePipelinePage * PAGE_SIZE), [qualifiedRows, safePipelinePage]);
 
   const kpis = useMemo(() => {
-    const totalLeads = (stats?.total || 0) + prospects.length;
+    const totalLeads = (outreachStatus?.entities?.total || 0) + (outreachStatus?.prospects?.total || 0) + (outreachStatus?.contacts?.total || 0);
     const pendingEnrichment = stats?.pending || 0;
     const enriched = (stats?.enriched || 0) + prospects.filter((p) => p.status === "enriched" || p.status === "qualified").length;
-    const hotLeads = entities.filter((e) => e.score === "hot").length + prospects.filter((p) => p.score === "hot").length;
-    const warmLeads = entities.filter((e) => e.score === "warm").length + prospects.filter((p) => p.score === "warm").length;
-    const converted = prospects.filter((p) => p.status === "converted").length;
-    return { totalLeads, pendingEnrichment, enriched, hotLeads, warmLeads, converted };
-  }, [stats, entities, prospects]);
+    const hotLeads = (outreachStatus?.entities?.hot || 0) + (outreachStatus?.prospects?.hot || 0) + (outreachStatus?.contacts?.hot || 0);
+    const warmLeads = (outreachStatus?.entities?.warm || 0) + (outreachStatus?.prospects?.warm || 0) + (outreachStatus?.contacts?.warm || 0);
+    const converted = outreachStatus?.prospects?.converted ?? prospects.filter((p) => p.status === "converted").length;
+    const crmWithContactInfo = outreachStatus?.contacts?.withContactInfo ?? 0;
+    return { totalLeads, pendingEnrichment, enriched, hotLeads, warmLeads, converted, crmWithContactInfo };
+  }, [stats, prospects, outreachStatus]);
 
   const selectedEntities = useMemo(() => Array.from(selectedIds).filter((id) => id.startsWith("e-")).map((id) => parseInt(id.slice(2))), [selectedIds]);
   const selectedProspects = useMemo(() => Array.from(selectedIds).filter((id) => id.startsWith("p-")).map((id) => parseInt(id.slice(2))), [selectedIds]);
@@ -826,7 +829,10 @@ export default function LeadCommandCenter() {
         <Card className="hover-elevate">
           <CardContent className="p-3 text-center">
             <div className="text-2xl font-bold" data-testid="text-kpi-total">{kpis.totalLeads}</div>
-            <div className="text-xs text-muted-foreground">Total Leads</div>
+            <div
+              className="text-xs text-muted-foreground cursor-help underline decoration-dotted"
+              title="Sunbiz entities + prospects + CRM contacts. Individual records may appear in more than one source."
+            >Total lead records</div>
           </CardContent>
         </Card>
         <Card className="hover-elevate">
@@ -843,8 +849,8 @@ export default function LeadCommandCenter() {
         </Card>
         <Card className="hover-elevate">
           <CardContent className="p-3 text-center">
-            <div className="text-2xl font-bold text-teal-600 dark:text-teal-400" data-testid="text-kpi-contactable">{stats?.withContactInfo ?? 0}</div>
-            <div className="text-xs text-muted-foreground">Contactable</div>
+            <div className="text-2xl font-bold text-teal-600 dark:text-teal-400" data-testid="text-kpi-contactable">{kpis.crmWithContactInfo}</div>
+            <div className="text-xs text-muted-foreground">CRM records with contact info</div>
           </CardContent>
         </Card>
         <Card className="hover-elevate">

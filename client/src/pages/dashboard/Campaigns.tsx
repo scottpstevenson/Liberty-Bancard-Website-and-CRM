@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -62,6 +62,17 @@ const stepFormSchema = z.object({
 
 type StepFormData = z.infer<typeof stepFormSchema>;
 
+function isMeaningfulBody(html: string): boolean {
+  if (!html) return false;
+  const normalised = html
+    .replace(/&nbsp;/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!normalised) return false;
+  const EMPTY_SHELLS = /^(\s*<p(\s[^>]*)?>(\s|<br\s*\/?>)*<\/p>\s*)*$/i;
+  return !EMPTY_SHELLS.test(normalised);
+}
+
 function getStatusBadgeClass(status: string | null | undefined) {
   switch (status) {
     case "active":
@@ -85,6 +96,11 @@ function CampaignDetail({ campaign }: { campaign: Campaign }) {
   const [editDelayDays, setEditDelayDays] = useState(0);
   const [editBodyTab, setEditBodyTab] = useState<"write" | "preview">("write");
   const [previewStep, setPreviewStep] = useState<CampaignStep | null>(null);
+
+  useEffect(() => {
+    if (!editingStep) return;
+    setEditBodyTab(isMeaningfulBody(editingStep.bodyTemplate ?? "") ? "preview" : "write");
+  }, [editingStep?.id]);
 
   const { data: steps, isLoading: stepsLoading } = useQuery<CampaignStep[]>({
     queryKey: ["/api/campaigns", campaign.id, "steps"],
@@ -269,7 +285,6 @@ function CampaignDetail({ campaign }: { campaign: Campaign }) {
                         setEditSubject(step.subject ?? "");
                         setEditBodyTemplate(step.bodyTemplate ?? "");
                         setEditDelayDays(step.delayDays ?? 0);
-                        setEditBodyTab("write");
                       }
                     }}
                     data-testid={`button-edit-step-${step.id}`}

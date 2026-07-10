@@ -19,13 +19,33 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { isEnrichmentRunning } from "@/lib/enrichment-utils";
 
-interface OutreachStatus {
+export interface OutreachStatus {
   entities: {
     total: number; enriched: number; pending: number; withEmail: number; withPhone: number;
     hot: number; warm: number; cold: number; unqualified: number; classified: number; pendingPromotion: number;
   };
-  prospects: { total: number; withEmail: number; converted: number; qualified: number };
-  contacts: { total: number; fromSunbiz: number; newLeads: number; syncedToGhl: number };
+  prospects: {
+    total: number;
+    withEmail: number;
+    converted: number;
+    qualified: number;
+    hot: number;
+    warm: number;
+    cold: number;
+    unclassified: number;
+  };
+  contacts: {
+    total: number;
+    fromSunbiz: number;
+    newLeads: number;
+    syncedToGhl: number;
+    hot: number;
+    warm: number;
+    cold: number;
+    unqualified: number;
+    unclassified: number;
+    withContactInfo: number;
+  };
   deals: { total: number; fromSunbiz: number; newLead: number; contacted: number; qualified: number; won: number };
   activeCampaigns: number;
   verticalBreakdown: Record<string, number>;
