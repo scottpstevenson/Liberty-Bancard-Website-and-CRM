@@ -330,6 +330,89 @@ async function checkTicketSla() {
   }
 }
 
+/**
+ * Stalling-deal follow-up task generation scoped to a specific set of deal IDs.
+ *
+ * Called by runSlaCheck() with the full list of stalling deal IDs each cycle.
+ * Also exported for targeted integration tests that need to exercise the
+ * stalling-deal block in isolation without triggering the full SLA loop.
+ *
+ * Re-applies all five stalling predicates internally so that callers from tests
+ * can safely pass any deal ID set without relying on the caller to pre-filter.
+ */
+export async function runSlaCheckForDeals(dealIds: number[]): Promise<void> {
+  if (dealIds.length === 0) return;
+
+  const now = new Date();
+  const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+  // Compute which deal IDs already have an active+incomplete canonical SLA task.
+  // Dual-match during Phase 1–2 transitional window (canonical + legacy title).
+  const blockedDealIds = new Set<number>();
+  const candidateRows = await db
+    .select({ dealId: tasks.dealId, source: tasks.source, automationKey: tasks.automationKey, title: tasks.title })
+    .from(tasks)
+    .where(
+      and(
+        inArray(tasks.dealId, dealIds),
+        isNull(tasks.deletedAt),
+        isNull(tasks.completedAt),
+      )
+    );
+  for (const row of candidateRows) {
+    if (!row.dealId) continue;
+    const isCanonical = row.source === 'sla' && row.automationKey === 'stalling-deal-follow-up';
+    const isLegacy = row.source === null && row.title === `Follow up on stalling Deal #${row.dealId}`;
+    if (isCanonical || isLegacy) blockedDealIds.add(row.dealId);
+  }
+
+  // Fetch deal records and re-apply all five stalling predicates.
+  const dealRows = await storage.getDealsByIds(dealIds);
+  const stallingDeals = dealRows.filter(d =>
+    d.pipeline === 'sales' &&
+    d.stage !== 'Closed Won' &&
+    d.stage !== 'Closed Lost' &&
+    d.updatedAt != null &&
+    new Date(d.updatedAt) < sevenDaysAgo
+  );
+
+  const phase4Ready = await isPhase3IndexPresent();
+
+  let tasksGenerated = 0;
+  for (const deal of stallingDeals) {
+    if (blockedDealIds.has(deal.id)) continue;
+
+    if (phase4Ready) {
+      const { created } = await storage.createStallingDealFollowUpTask({
+        title: `Follow up on stalling Deal #${deal.id}`,
+        description: `Deal #${deal.id} (${deal.stage}) has had no activity for 7+ days.`,
+        priority: "high",
+        dueDate: new Date(now.getTime() + 24 * 60 * 60 * 1000),
+        dealId: deal.id,
+      });
+      if (created) {
+        tasksGenerated++;
+        if (tasksGenerated >= 5) break;
+      }
+    } else {
+      const legacyTitle = `Follow up on stalling Deal #${deal.id}`;
+      if (!blockedDealIds.has(deal.id)) {
+        await db.insert(tasks).values({
+          title: legacyTitle,
+          description: `Deal #${deal.id} (${deal.stage}) has had no activity for 7+ days.`,
+          priority: "high",
+          dueDate: new Date(now.getTime() + 24 * 60 * 60 * 1000),
+          dealId: deal.id,
+          source: 'sla' as any,
+          automationKey: 'stalling-deal-follow-up' as any,
+        });
+        tasksGenerated++;
+        if (tasksGenerated >= 5) break;
+      }
+    }
+  }
+}
+
 export async function runSlaCheckDirect() {
   return runSlaCheck();
 }
@@ -649,82 +732,9 @@ async function runScheduledAiOps() {
     const salesDeals = allDeals.filter(d => d.pipeline === "sales" && d.stage !== "Closed Won" && d.stage !== "Closed Lost");
     const stallingDeals = salesDeals.filter(d => d.updatedAt && new Date(d.updatedAt) < sevenDaysAgo);
 
-    // Single bulk query per cycle: find all deals that are already blocked by an active+incomplete task.
-    // Dual match during Phase 1–2 transitional window:
-    //   1. Canonical identity: source='sla' AND automation_key='stalling-deal-follow-up'
-    //   2. Legacy title match (exact): for tasks created before Phase 1 that lack identity columns.
-    // REMOVE the legacy branch after Phase 2 verification confirms:
-    //   SELECT COUNT(*) FROM tasks WHERE title ~ '^Follow up on stalling Deal #[0-9]+$'
-    //     AND source IS NULL AND deleted_at IS NULL AND completed_at IS NULL;
-    //   returns 0.
-    const blockedDealIds = new Set<number>();
-    if (stallingDeals.length > 0) {
-      const dealIds = stallingDeals.map(d => d.id).filter(id => typeof id === 'number');
-      const candidateRows = await db
-        .select({ dealId: tasks.dealId, source: tasks.source, automationKey: tasks.automationKey, title: tasks.title })
-        .from(tasks)
-        .where(
-          and(
-            inArray(tasks.dealId, dealIds),
-            isNull(tasks.deletedAt),
-            isNull(tasks.completedAt),
-          )
-        );
-      for (const row of candidateRows) {
-        if (!row.dealId) continue;
-        const isCanonical = row.source === 'sla' && row.automationKey === 'stalling-deal-follow-up';
-        // Legacy transitional branch — remove after Phase 2 backfill verified complete
-        const isLegacy = row.source === null && row.title === `Follow up on stalling Deal #${row.dealId}`;
-        if (isCanonical || isLegacy) {
-          blockedDealIds.add(row.dealId);
-        }
-      }
-    }
-
-    // Phase gate: use conflict-safe Phase 4 path only when migration 0054 index
-    // is confirmed present. Falls back to legacy title-check + createTask() until
-    // Phase 2 backfill verification is complete and Phase 3 is applied.
-    const phase4Ready = await isPhase3IndexPresent();
-
-    let tasksGenerated = 0;
-    for (const deal of stallingDeals) {
-      if (blockedDealIds.has(deal.id)) continue;
-
-      if (phase4Ready) {
-        // Phase 4 path: conflict-safe INSERT ON CONFLICT DO NOTHING via partial index.
-        const { created } = await storage.createStallingDealFollowUpTask({
-          title: `Follow up on stalling Deal #${deal.id}`,
-          description: `Deal #${deal.id} (${deal.stage}) has had no activity for 7+ days.`,
-          priority: "high",
-          dueDate: new Date(now.getTime() + 24 * 60 * 60 * 1000),
-          dealId: deal.id,
-        });
-        if (created) {
-          tasksGenerated++;
-          if (tasksGenerated >= 5) break;
-        }
-      } else {
-        // Pre-Phase-4 path: index not yet present, so we cannot use ON CONFLICT.
-        // The blockedDealIds pre-check above is the duplicate guard here.
-        // We still stamp source/automationKey/dealId so new rows are canonically
-        // identifiable and won't need Phase 2 backfill stamping.
-        // Remove once Phase 2 backfill is verified and Phase 3 migration applied.
-        const legacyTitle = `Follow up on stalling Deal #${deal.id}`;
-        if (!blockedDealIds.has(deal.id)) {
-          await db.insert(tasks).values({
-            title: legacyTitle,
-            description: `Deal #${deal.id} (${deal.stage}) has had no activity for 7+ days.`,
-            priority: "high",
-            dueDate: new Date(now.getTime() + 24 * 60 * 60 * 1000),
-            dealId: deal.id,
-            source: 'sla' as any,
-            automationKey: 'stalling-deal-follow-up' as any,
-          });
-          tasksGenerated++;
-          if (tasksGenerated >= 5) break;
-        }
-      }
-    }
+    // Delegate to scoped helper — handles blockedDealIds computation, phase gate,
+    // and the insert loop (lines extracted to runSlaCheckForDeals above).
+    await runSlaCheckForDeals(stallingDeals.map(d => d.id));
 
     const newLeads = allContacts.filter(c => c.status === "new" && c.createdAt && new Date(c.createdAt) < threeDaysAgo);
     for (const lead of newLeads.slice(0, 3)) {
