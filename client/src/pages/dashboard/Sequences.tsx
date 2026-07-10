@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useAuth } from "@/hooks/use-auth";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -140,6 +141,8 @@ function supportsABTest(actionType: string) {
 export default function Sequences() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const canAccessOutreachHub = user?.role === "admin" || user?.role === "manager";
   const [showCreate, setShowCreate] = useState(false);
   const [editingSeq, setEditingSeq] = useState<any | null>(null);
   const [editLoadingSteps, setEditLoadingSteps] = useState(false);
@@ -296,7 +299,11 @@ export default function Sequences() {
     },
   });
 
-  const { data: verticalsData } = useQuery<Array<{ vertical: string; count: number }>>({
+  const {
+    data: verticalsData,
+    isPending: verticalsIsPending,
+    isError: verticalsIsError,
+  } = useQuery<Array<{ vertical: string; count: number }>>({
     queryKey: ["/api/contacts/verticals"],
     enabled: enrollTab === "vertical" && enrollDialogSeqId !== null,
   });
@@ -1276,17 +1283,36 @@ export default function Sequences() {
                       <SelectValue placeholder="Choose a vertical..." />
                     </SelectTrigger>
                     <SelectContent>
-                      {verticalsList.map((v) => (
+                      {verticalsIsPending && (
+                        <SelectItem value="_loading" disabled>Loading verticals…</SelectItem>
+                      )}
+                      {!verticalsIsPending && verticalsIsError && (
+                        <SelectItem value="_error" disabled>Could not load verticals — try again</SelectItem>
+                      )}
+                      {!verticalsIsPending && !verticalsIsError && verticalsList.length === 0 && (
+                        <SelectItem value="_empty" disabled>No verticals yet</SelectItem>
+                      )}
+                      {!verticalsIsPending && !verticalsIsError && verticalsList.map((v) => (
                         <SelectItem key={v.vertical} value={v.vertical}>
                           {v.vertical}
                           <Badge variant="secondary" className="ml-2 text-xs">{v.count}</Badge>
                         </SelectItem>
                       ))}
-                      {verticalsList.length === 0 && (
-                        <SelectItem value="_none" disabled>No verticals found</SelectItem>
-                      )}
                     </SelectContent>
                   </Select>
+                  {/* Enrichment guidance — shown only on successful empty result, never on error */}
+                  {!verticalsIsPending && !verticalsIsError && verticalsList.length === 0 && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      No contacts have been classified into verticals yet. Enrich your contacts first.{" "}
+                      {canAccessOutreachHub ? (
+                        <a href="/dashboard/outreach-hub?tab=command" className="underline hover:text-foreground">
+                          Open Outreach Command Center
+                        </a>
+                      ) : (
+                        "Ask an admin to run enrichment from the Outreach Command Center."
+                      )}
+                    </p>
+                  )}
                 </div>
 
                 {bulkVertical && (

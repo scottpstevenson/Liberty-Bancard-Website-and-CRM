@@ -24,6 +24,7 @@ import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { exportToCSV } from "@/lib/export-csv";
+import { getDealCardIdentity as dealCardIdentityFn } from "@/lib/deal-identity";
 import type { Deal, Contact, PipelineStage, Agent, AgentMerchant, CoBrandedProposal } from "@shared/schema";
 import { SALES_STAGES, OFFER_PATHS, VERTICALS } from "@shared/schema";
 import Comments from "@/components/Comments";
@@ -168,8 +169,7 @@ function SortableDealCard({
   openDealDetail,
   archiveDealMutation,
   restoreDealMutation,
-  getContactName,
-  getCompanyName,
+  getDealCardIdentity,
   getContactVertical,
   midSummary,
   proposals,
@@ -184,8 +184,7 @@ function SortableDealCard({
   openDealDetail: (deal: Deal) => void;
   archiveDealMutation: any;
   restoreDealMutation: any;
-  getContactName: (id: number | null) => string;
-  getCompanyName: (id: number | null) => string;
+  getDealCardIdentity: (deal: { id: number }, contactId: number | null) => { primary: string; secondary: string | null };
   getContactVertical: (id: number | null) => string | null;
   midSummary?: MidSummary;
   proposals?: CoBrandedProposal[];
@@ -194,6 +193,7 @@ function SortableDealCard({
   proposalsRetrying?: boolean;
 }) {
   const [, navigateTo] = useLocation();
+  const identity = getDealCardIdentity(deal, deal.contactId);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: deal.id,
     data: { stage: deal.stage },
@@ -227,7 +227,7 @@ function SortableDealCard({
               title="Drag to move"
             >
               <div className={`font-medium text-sm ${isDealArchived ? "line-through" : ""}`} data-testid={`text-deal-contact-${deal.id}`}>
-                {getContactName(deal.contactId)}
+                {identity.primary}
               </div>
             </div>
             <DropdownMenu>
@@ -270,9 +270,9 @@ function SortableDealCard({
               <Archive className="w-3 h-3 mr-1" /> Archived
             </Badge>
           )}
-          {getCompanyName(deal.contactId) && (
+          {identity.secondary && (
             <div className="text-xs text-muted-foreground" data-testid={`text-deal-company-${deal.id}`}>
-              {getCompanyName(deal.contactId)}
+              {identity.secondary}
             </div>
           )}
           {deal.offerPath && (
@@ -359,8 +359,7 @@ function DroppableColumn({
   openDealDetail,
   archiveDealMutation,
   restoreDealMutation,
-  getContactName,
-  getCompanyName,
+  getDealCardIdentity,
   getContactVertical,
   setCreateOpen,
   midSummaries,
@@ -377,8 +376,7 @@ function DroppableColumn({
   openDealDetail: (deal: Deal) => void;
   archiveDealMutation: any;
   restoreDealMutation: any;
-  getContactName: (id: number | null) => string;
-  getCompanyName: (id: number | null) => string;
+  getDealCardIdentity: (deal: { id: number }, contactId: number | null) => { primary: string; secondary: string | null };
   getContactVertical: (id: number | null) => string | null;
   setCreateOpen: (open: boolean) => void;
   midSummaries: Record<string, MidSummary>;
@@ -409,8 +407,7 @@ function DroppableColumn({
                 openDealDetail={openDealDetail}
                 archiveDealMutation={archiveDealMutation}
                 restoreDealMutation={restoreDealMutation}
-                getContactName={getContactName}
-                getCompanyName={getCompanyName}
+                getDealCardIdentity={getDealCardIdentity}
                 getContactVertical={getContactVertical}
                 midSummary={midSummaries[String(deal.id)]}
                 proposals={proposalsByDeal[String(deal.id)]}
@@ -1063,16 +1060,12 @@ export default function Pipeline() {
   const contactsMap = new Map<number, Contact>();
   contacts?.forEach((c) => contactsMap.set(c.id, c));
 
-  const getContactName = (contactId: number | null) => {
-    if (!contactId) return "No contact";
-    const contact = contactsMap.get(contactId);
-    return contact ? `${contact.firstName} ${contact.lastName}` : "Unnamed contact";
-  };
-
-  const getCompanyName = (contactId: number | null) => {
-    if (!contactId) return "";
-    const contact = contactsMap.get(contactId);
-    return contact?.companyName || "Company unavailable";
+  const getDealCardIdentity = (
+    deal: { id: number },
+    contactId: number | null
+  ): { primary: string; secondary: string | null } => {
+    const contact = contactId ? contactsMap.get(contactId) : undefined;
+    return dealCardIdentityFn(deal, contact);
   };
 
   const getContactVertical = (contactId: number | null): string | null => {
@@ -1298,17 +1291,25 @@ export default function Pipeline() {
             size="sm"
             variant="outline"
             onClick={() => {
-              const exportData = (deals || []).map(d => ({
-                contact: getContactName(d.contactId),
-                company: getCompanyName(d.contactId),
-                pipeline: d.pipeline,
-                stage: d.stage,
-                priorityScore: d.priorityScore,
-                estVolume: d.totalVolume || "",
-                estProfit: d.estimatedGrossProfitMonthly || "",
-                followUp: d.nextFollowUp ? new Date(d.nextFollowUp).toLocaleDateString() : "",
-                createdAt: d.createdAt ? new Date(d.createdAt).toLocaleDateString() : "",
-              }));
+              const exportData = (deals || []).map(d => {
+                const c = d.contactId ? contactsMap.get(d.contactId) : undefined;
+                // Contact column: best available identifier (same fallback chain as visual display, written separately — no-duplicate rule does not apply to CSV columns)
+                const fullName = c ? [c.firstName, c.lastName].filter(Boolean).join(" ").trim() : "";
+                const contactCol = fullName || c?.companyName || c?.email || c?.phone || `Deal #${d.id}`;
+                // Company column: explicit fallback; may equal contactCol when companyName is the only identifier
+                const companyCol = c?.companyName || "N/A";
+                return {
+                  contact: contactCol,
+                  company: companyCol,
+                  pipeline: d.pipeline,
+                  stage: d.stage,
+                  priorityScore: d.priorityScore,
+                  estVolume: d.totalVolume || "",
+                  estProfit: d.estimatedGrossProfitMonthly || "",
+                  followUp: d.nextFollowUp ? new Date(d.nextFollowUp).toLocaleDateString() : "",
+                  createdAt: d.createdAt ? new Date(d.createdAt).toLocaleDateString() : "",
+                };
+              });
               exportToCSV(exportData, "deals", [
                 { key: "contact", label: "Contact" },
                 { key: "company", label: "Company" },
@@ -1516,8 +1517,7 @@ export default function Pipeline() {
                   openDealDetail={openDealDetail}
                   archiveDealMutation={archiveDealMutation}
                   restoreDealMutation={restoreDealMutation}
-                  getContactName={getContactName}
-                  getCompanyName={getCompanyName}
+                  getDealCardIdentity={getDealCardIdentity}
                   getContactVertical={getContactVertical}
                   setCreateOpen={setCreateOpen}
                   midSummaries={midSummaries}
@@ -1532,18 +1532,21 @@ export default function Pipeline() {
           <ScrollBar orientation="horizontal" />
         </ScrollArea>
         <DragOverlay>
-          {activeDeal && (
-            <div className="w-[270px] opacity-90 shadow-xl">
-              <Card className="cursor-grabbing">
-                <CardContent className="p-3">
-                  <div className="font-medium text-sm">{getContactName(activeDeal.contactId)}</div>
-                  {getCompanyName(activeDeal.contactId) && (
-                    <div className="text-xs text-muted-foreground">{getCompanyName(activeDeal.contactId)}</div>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
-          )}
+          {activeDeal && (() => {
+            const overlayIdentity = getDealCardIdentity(activeDeal, activeDeal.contactId);
+            return (
+              <div className="w-[270px] opacity-90 shadow-xl">
+                <Card className="cursor-grabbing">
+                  <CardContent className="p-3">
+                    <div className="font-medium text-sm">{overlayIdentity.primary}</div>
+                    {overlayIdentity.secondary && (
+                      <div className="text-xs text-muted-foreground">{overlayIdentity.secondary}</div>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+            );
+          })()}
         </DragOverlay>
       </DndContext>
 
@@ -1555,14 +1558,23 @@ export default function Pipeline() {
           {selectedDeal && (
             <div className="space-y-4 pt-2">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-                <div>
-                  <span className="text-muted-foreground">Contact</span>
-                  <div className="font-medium" data-testid="text-detail-contact">{getContactName(selectedDeal.contactId)}</div>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Company</span>
-                  <div className="font-medium" data-testid="text-detail-company">{getCompanyName(selectedDeal.contactId) || "N/A"}</div>
-                </div>
+                {(() => {
+                  const detailPrimary = getDealCardIdentity(selectedDeal, selectedDeal.contactId).primary;
+                  const detailContact = selectedDeal.contactId ? contactsMap.get(selectedDeal.contactId) : undefined;
+                  return (
+                    <>
+                      <div>
+                        <span className="text-muted-foreground">Contact</span>
+                        <div className="font-medium" data-testid="text-detail-contact">{detailPrimary}</div>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Company</span>
+                        {/* Company always resolves independently to the raw company name — never email or phone */}
+                        <div className="font-medium" data-testid="text-detail-company">{detailContact?.companyName || "N/A"}</div>
+                      </div>
+                    </>
+                  );
+                })()}
                 <div>
                   <span className="text-muted-foreground">Pipeline</span>
                   <div className="font-medium" data-testid="text-detail-pipeline">{selectedDeal.pipeline}</div>
