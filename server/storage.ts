@@ -1,4 +1,5 @@
 import { db, pool } from "./db";
+import type { InternalTaskInsert } from "./types/task-types";
 import {
   liveChats, liveChatMessages,
   type LiveChat, type InsertLiveChat, type LiveChatMessage, type InsertLiveChatMessage,
@@ -183,9 +184,11 @@ export interface IStorage {
 
   getTasks(opts?: { limit?: number; offset?: number }): Promise<typeof tasks.$inferSelect[]>;
   getTasksByDeal(dealId: number): Promise<typeof tasks.$inferSelect[]>;
+  getTaskById(id: number): Promise<typeof tasks.$inferSelect | null>;
   getTaskByGhlTaskId(ghlTaskId: string): Promise<typeof tasks.$inferSelect | undefined>;
-  createTask(task: InsertTask): Promise<typeof tasks.$inferSelect>;
+  createTask(task: InternalTaskInsert): Promise<typeof tasks.$inferSelect>;
   updateTask(id: number, task: UpdateTaskRequest): Promise<typeof tasks.$inferSelect | undefined>;
+  createStallingDealFollowUpTask(payload: Omit<InternalTaskInsert, 'source' | 'automationKey'>): Promise<{ task: typeof tasks.$inferSelect | null; created: boolean }>;
   softDeleteTask(id: number): Promise<void>;
   bulkSoftDeleteTasks(ids: number[]): Promise<number>;
 

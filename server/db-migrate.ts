@@ -31,6 +31,14 @@
  *   On subsequent runs after the baseline is established, no new rows are inserted
  *   and the migrator finds `lastApplied.created_at >= BASELINE_WHEN`, so nothing runs
  *   until a genuinely new migration file is added to the journal.
+ *
+ * Guarded Phase 3 migration (0054):
+ *   Migration 0054 (tasks_sla_stalling_active_unique partial unique index) is NOT in
+ *   the Drizzle journal. It is applied by applyPhase3IndexIfReady() ONLY after verifying
+ *   zero active+incomplete SLA task conflicts exist. If conflicts remain (Phase 2 backfill
+ *   not yet run), the migration is deferred with a startup warning and the SLA worker
+ *   continues on its pre-Phase-4 path. This enforces the deployment order requirement:
+ *     Phase 1 (0053) → Phase 2 (backfill) → Phase 3 (0054) → Phase 4 (ON CONFLICT).
  */
 
 import { drizzle } from "drizzle-orm/node-postgres";
@@ -54,11 +62,117 @@ const DRIZZLE_TABLE = "__drizzle_migrations";
  */
 const BASELINE_WHEN = 1777739833710;
 
+// Synthetic `when` value used to record 0054 in drizzle_migrations when we
+// apply it manually. Must be higher than 0053's `when` (1784600000000).
+const PHASE3_INDEX_WHEN = 1784700000000;
+
+const PHASE3_INDEX_TAG = "0054_sla_task_stalling_unique_index";
+const PHASE3_INDEX_NAME = "tasks_sla_stalling_active_unique";
+
 function computeMigrationHash(tag: string): string | null {
   const filePath = path.join(MIGRATIONS_FOLDER, `${tag}.sql`);
   if (!fs.existsSync(filePath)) return null;
   const content = fs.readFileSync(filePath, "utf8");
   return crypto.createHash("sha256").update(content).digest("hex");
+}
+
+/**
+ * Guarded Phase 3 migration: apply the partial unique index on tasks only when
+ * Phase 2 backfill preconditions are verified (zero active+incomplete SLA conflicts).
+ *
+ * Precondition check (KILL LINE):
+ *   SELECT deal_id, COUNT(*) FROM tasks
+ *   WHERE source='sla' AND automation_key='stalling-deal-follow-up'
+ *     AND deleted_at IS NULL AND completed_at IS NULL AND deal_id IS NOT NULL
+ *   GROUP BY deal_id HAVING COUNT(*) > 1
+ *   must return zero rows before 0054 is applied.
+ *
+ * Behaviour:
+ *   - Index already present → logs confirmation, no-op.
+ *   - Not present, zero conflicts → applies 0054 SQL, records hash in drizzle_migrations.
+ *   - Not present, conflicts remain → logs STARTUP WARNING, defers; SLA worker stays
+ *     on pre-Phase-4 path (isPhase3IndexPresent() returns false).
+ */
+async function applyPhase3IndexIfReady(): Promise<void> {
+  const client = await pool.connect();
+  try {
+    // 1. Check if the index already exists (idempotent).
+    const { rows: indexRows } = await client.query<{ exists: number }>(`
+      SELECT 1 AS exists FROM pg_indexes
+      WHERE indexname = $1 LIMIT 1
+    `, [PHASE3_INDEX_NAME]);
+
+    if (indexRows.length > 0) {
+      console.log(`[DB Migrate] Phase 3 index '${PHASE3_INDEX_NAME}' already present.`);
+      return;
+    }
+
+    // 2. Check precondition: zero active+incomplete SLA stalling conflicts.
+    const { rows: conflictRows } = await client.query<{ deal_id: number; cnt: string }>(`
+      SELECT deal_id, COUNT(*) AS cnt
+      FROM tasks
+      WHERE source = 'sla'
+        AND automation_key = 'stalling-deal-follow-up'
+        AND deleted_at IS NULL
+        AND completed_at IS NULL
+        AND deal_id IS NOT NULL
+      GROUP BY deal_id
+      HAVING COUNT(*) > 1
+    `);
+
+    if (conflictRows.length > 0) {
+      // KILL LINE: do not apply 0054 while conflicts exist.
+      console.warn(
+        `[DB Migrate] PHASE 3 DEFERRED: ${conflictRows.length} deal(s) have multiple active+incomplete SLA stalling tasks. ` +
+        `Migration 0054 (${PHASE3_INDEX_NAME}) will NOT be applied until conflicts are resolved. ` +
+        `Run: npx tsx scripts/backfill-sla-task-identity.ts — then restart the application.`
+      );
+      console.warn(`[DB Migrate] Conflicting deal_id(s): ${conflictRows.map(r => r.deal_id).join(", ")}`);
+      return;
+    }
+
+    // Also check for legacy unclean rows (unstamped SLA tasks that would violate the index).
+    const { rows: legacyRows } = await client.query<{ cnt: string }>(`
+      SELECT COUNT(*) AS cnt FROM tasks
+      WHERE title ~ '^Follow up on stalling Deal #[0-9]+$'
+        AND source IS NULL
+        AND deleted_at IS NULL
+        AND completed_at IS NULL
+    `);
+    const legacyCount = parseInt(legacyRows[0]?.cnt ?? "0", 10);
+    if (legacyCount > 0) {
+      console.warn(
+        `[DB Migrate] PHASE 3 DEFERRED: ${legacyCount} legacy SLA task(s) lack source/automation_key stamps. ` +
+        `Run: npx tsx scripts/backfill-sla-task-identity.ts — then restart.`
+      );
+      return;
+    }
+
+    // 3. Precondition met: apply 0054 SQL directly.
+    const sqlPath = path.join(MIGRATIONS_FOLDER, `${PHASE3_INDEX_TAG}.sql`);
+    if (!fs.existsSync(sqlPath)) {
+      console.error(`[DB Migrate] PHASE 3 ERROR: SQL file not found at ${sqlPath}`);
+      return;
+    }
+    const sql = fs.readFileSync(sqlPath, "utf8");
+
+    console.log(`[DB Migrate] Phase 3 preconditions verified (0 conflicts, 0 legacy rows). Applying ${PHASE3_INDEX_TAG}...`);
+    await client.query(sql);
+
+    // 4. Record the hash in drizzle_migrations so the migrator treats it as applied.
+    const hash = computeMigrationHash(PHASE3_INDEX_TAG);
+    if (hash) {
+      await client.query(
+        `INSERT INTO "${DRIZZLE_SCHEMA}"."${DRIZZLE_TABLE}" (hash, created_at) VALUES ($1, $2)
+         ON CONFLICT DO NOTHING`,
+        [hash, PHASE3_INDEX_WHEN]
+      );
+    }
+
+    console.log(`[DB Migrate] Phase 3 index '${PHASE3_INDEX_NAME}' applied successfully. SLA worker will use conflict-safe ON CONFLICT path.`);
+  } finally {
+    client.release();
+  }
 }
 
 export async function runDrizzleMigrations(): Promise<void> {
@@ -136,6 +250,11 @@ export async function runDrizzleMigrations(): Promise<void> {
     client.release();
   }
 
+  // Apply all journal-registered migrations (0000–0053).
   await migrate(db, { migrationsFolder: MIGRATIONS_FOLDER });
-  console.log("[DB Migrate] All migrations up to date.");
+  console.log("[DB Migrate] All Drizzle journal migrations up to date.");
+
+  // Apply Phase 3 (0054) only after verifying Phase 2 backfill preconditions.
+  // This call is a no-op if the index already exists or if conflicts remain.
+  await applyPhase3IndexIfReady();
 }

@@ -2,6 +2,7 @@ import type { Express } from "express";
 import { isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { computeDealTerminalEconomics, getEconomicsConfig } from "../services/terminal-economics";
+import { normalizeTaskCompletionState } from "../services/task-normalization";
 
 export function registerTerminalEconomicsRoutes(app: Express) {
 
@@ -152,11 +153,16 @@ export function registerTerminalEconomicsRoutes(app: Express) {
       await storage.updateDeal(dealId, { terminalApprovalStatus: "approved" } as any);
 
       if (deal.terminalApprovalTaskId) {
-        await storage.updateTask(deal.terminalApprovalTaskId, {
-          status: "completed",
-          completedAt: new Date(),
-          description: `APPROVED by manager (${(req.user as any)?.email ?? "manager"}).\n\nDeal: /dashboard/pipeline?deal=${dealId}`,
-        });
+        const existingTask = await storage.getTaskById(deal.terminalApprovalTaskId);
+        const approveUpdate = normalizeTaskCompletionState(
+          {
+            status: "completed",
+            completedAt: new Date(),
+            description: `APPROVED by manager (${(req.user as any)?.email ?? "manager"}).\n\nDeal: /dashboard/pipeline?deal=${dealId}`,
+          },
+          existingTask ?? { status: "pending", completedAt: null },
+        );
+        await storage.updateTask(deal.terminalApprovalTaskId, approveUpdate);
       }
 
       const contact = deal.contactId ? await storage.getContact(deal.contactId) : null;
@@ -194,10 +200,12 @@ export function registerTerminalEconomicsRoutes(app: Express) {
       await storage.updateDeal(dealId, { terminalApprovalStatus: "rejected" } as any);
 
       if (deal.terminalApprovalTaskId) {
-        await storage.updateTask(deal.terminalApprovalTaskId, {
-          status: "completed",
-          completedAt: new Date(),
-        });
+        const existingTask = await storage.getTaskById(deal.terminalApprovalTaskId);
+        const rejectUpdate = normalizeTaskCompletionState(
+          { status: "completed", completedAt: new Date() },
+          existingTask ?? { status: "pending", completedAt: null },
+        );
+        await storage.updateTask(deal.terminalApprovalTaskId, rejectUpdate);
       }
 
       const contact = deal.contactId ? await storage.getContact(deal.contactId) : null;

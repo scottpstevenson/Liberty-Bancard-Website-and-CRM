@@ -879,10 +879,15 @@ export async function syncTaskFromGhl(ghlTask: any, ghlContactId: string): Promi
     );
 
     if (existingTask) {
-      await storage.updateTask(existingTask.id, {
-        status: ghlTask.completed ? "completed" : existingTask.status,
-        description: ghlTask.body || existingTask.description,
-      });
+      // When GHL marks a task as not-completed, map to an active status so
+      // normalizeTaskCompletionState can clear completedAt (reopening a task).
+      const newStatus = ghlTask.completed ? "completed" : "pending";
+      const { normalizeTaskCompletionState } = await import("./task-normalization");
+      const normalized = normalizeTaskCompletionState(
+        { status: newStatus, description: ghlTask.body || existingTask.description },
+        existingTask,
+      );
+      await storage.updateTask(existingTask.id, normalized);
       await updateSyncStatusRecord("tasks", "inbound", 1, 0);
       return { success: true, taskId: existingTask.id };
     }
@@ -895,6 +900,7 @@ export async function syncTaskFromGhl(ghlTask: any, ghlContactId: string): Promi
       dueDate: ghlTask.dueDate ? new Date(ghlTask.dueDate) : undefined,
       description: ghlTask.body || "",
       assignedTo: "Unassigned",
+      ...(ghlTask.completed ? { completedAt: new Date() } : {}),
     });
 
     await updateSyncStatusRecord("tasks", "inbound", 1, 0);

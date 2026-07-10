@@ -4,6 +4,7 @@ import { storage } from "../storage";
 import { z } from "zod";
 import { and } from "drizzle-orm";
 import { insertTaskSchema, insertTicketCommentSchema, insertTicketSchema } from "@shared/schema";
+import { normalizeTaskCompletionState } from "../services/task-normalization";
 import { triggerWorkflowsByEvent } from "../services/workflow-executor";
 import { enrollInGhlWorkflow } from "../services/ghl-workflows";
 import { createPreferenceAwareNotification } from "../services/digest-service";
@@ -151,11 +152,16 @@ export function registerTicketsTasksRoutes(app: Express) {
 
   app.put("/api/tasks/:id", isDashboardUser, async (req, res) => {
     try {
+      const taskId = Number(req.params.id);
       const parseResult = updateTaskSchema.safeParse(req.body);
       if (!parseResult.success) {
         return res.status(400).json({ message: parseResult.error.errors[0].message });
       }
-      const updated = await storage.updateTask(Number(req.params.id), parseResult.data);
+      const allTasks = await storage.getTasks();
+      const existing = allTasks.find(t => t.id === taskId);
+      if (!existing) return res.status(404).json({ message: "Not found" });
+      const normalized = normalizeTaskCompletionState(parseResult.data, existing);
+      const updated = await storage.updateTask(taskId, normalized);
       if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
     } catch (err: any) {

@@ -333,11 +333,15 @@ export const tasks = pgTable("tasks", {
   ghlTaskId: text("ghl_task_id"),
   deletedAt: timestamp("deleted_at"),
   createdAt: timestamp("created_at").defaultNow(),
+  source: text("source"),
+  automationKey: text("automation_key"),
 });
 
 export const insertTaskSchema = createInsertSchema(tasks).omit({
   id: true,
   createdAt: true,
+  source: true,
+  automationKey: true,
 });
 
 export const auditLogs = pgTable("audit_logs", {
@@ -452,7 +456,9 @@ export type InsertDocument = z.infer<typeof insertDocumentSchema>;
 
 export type Task = typeof tasks.$inferSelect;
 export type InsertTask = z.infer<typeof insertTaskSchema>;
-export type UpdateTaskRequest = Partial<InsertTask>;
+export type PublicTaskCreateInput = InsertTask;
+export type PublicTaskUpdateInput = Partial<PublicTaskCreateInput>;
+export type UpdateTaskRequest = PublicTaskUpdateInput;
 
 export type AuditLog = typeof auditLogs.$inferSelect;
 export type InsertAuditLog = z.infer<typeof insertAuditLogSchema>;
