@@ -28,10 +28,6 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
-args = "Start application"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
 args = "api-coverage"
 
 [[workflows.workflow.tasks]]
@@ -42,14 +38,9 @@ args = "role-guards"
 task = "workflow.run"
 args = "seo-audit"
 
-[[workflows.workflow]]
-name = "Start application"
-author = "agent"
-
 [[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "npm run dev"
-waitForPort = 5000
+task = "workflow.run"
+args = "Start application"
 
 [[workflows.workflow]]
 name = "api-coverage"
@@ -83,6 +74,18 @@ args = "npx tsx scripts/seo-audit.ts"
 
 [workflows.workflow.metadata]
 outputType = "console"
+
+[[workflows.workflow]]
+name = "Start application"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npm run dev"
+waitForPort = 5000
+
+[workflows.workflow.metadata]
+outputType = "webview"
 
 [agent]
 integrations = ["javascript_log_in_with_replit:2.0.0", "javascript_openai_ai_integrations:2.0.0", "google-docs:1.0.0", "google-drive:1.0.0"]
