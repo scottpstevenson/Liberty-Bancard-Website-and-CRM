@@ -14,6 +14,9 @@ interface State {
   isChunkError: boolean;
 }
 
+const CHUNK_RELOAD_KEY = "chunk_reload_attempted";
+const CHUNK_RELOAD_EXPIRY_MS = 60_000;
+
 function isChunkLoadError(error: Error): boolean {
   return (
     error.name === "ChunkLoadError" ||
@@ -21,6 +24,43 @@ function isChunkLoadError(error: Error): boolean {
     /failed to fetch dynamically imported module/i.test(error.message) ||
     /importing a module script failed/i.test(error.message)
   );
+}
+
+type GuardStatus =
+  | { ok: true; isRecent: true }
+  | { ok: true; isRecent: false }
+  | { ok: false };
+
+function readReloadGuard(): GuardStatus {
+  if (typeof window === "undefined") return { ok: false };
+  try {
+    const raw = sessionStorage.getItem(CHUNK_RELOAD_KEY);
+    if (!raw) return { ok: true, isRecent: false };
+    const parsed = JSON.parse(raw) as { attemptedAt?: unknown };
+    if (typeof parsed.attemptedAt !== "number") return { ok: true, isRecent: false };
+    const isRecent = Date.now() - parsed.attemptedAt < CHUNK_RELOAD_EXPIRY_MS;
+    return { ok: true, isRecent };
+  } catch {
+    return { ok: false };
+  }
+}
+
+function writeReloadGuard(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    sessionStorage.setItem(CHUNK_RELOAD_KEY, JSON.stringify({ attemptedAt: Date.now() }));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function clearReloadGuard(): void {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.removeItem(CHUNK_RELOAD_KEY);
+  } catch {
+  }
 }
 
 export class ErrorBoundary extends Component<Props, State> {
@@ -33,8 +73,29 @@ export class ErrorBoundary extends Component<Props, State> {
     return { hasError: true, error, isChunkError: isChunkLoadError(error) };
   }
 
+  componentDidMount() {
+    if (!this.state.hasError) {
+      clearReloadGuard();
+    }
+  }
+
   componentDidCatch(error: Error, info: { componentStack: string }) {
     console.error("ErrorBoundary caught an error:", error, info);
+
+    if (!isChunkLoadError(error)) return;
+
+    const guard = readReloadGuard();
+
+    if (!guard.ok) return;
+
+    if (guard.isRecent) return;
+
+    const wrote = writeReloadGuard();
+    if (!wrote) return;
+
+    if (typeof window !== "undefined") {
+      window.location.reload();
+    }
   }
 
   handleReload = () => {
