@@ -1,0 +1,93 @@
+Verdict: NOT BUILD-READY
+
+The route-test scope is solid, but the proposed test environment mixes:
+
+* HTTP requests against a live development server, and
+* direct worker execution inside the test script.
+
+That creates two separate application processes with different module state, side-effect controls, and background-worker behavior. Import-level mocks in the test script will not affect the already-running dev server.
+
+Corrections to send back
+
+Fix the test architecture before implementation:
+1. Separate HTTP route tests from scoped worker tests.
+HTTP tests:
+- hit the real running dev server;
+- cover authorization, Zod parsing, provenance isolation, completion, and reopen;
+- do not invoke the SLA worker.
+Worker integration tests:
+- import and execute runSlaCheckForDeals() inside the test process;
+- use injected dependencies or verified side-effect suppression;
+- do not assume mocks affect the external dev server.
+Report these as two test groups in one script or two scripts, but do not blur the process boundary.
+2. Do not rely on import-level mocking unless the repository already supports it.
+Extract the scoped SLA logic with explicit dependencies, for example:
+runSlaCheckForDeals(dealIds, {
+  storage,
+  createAuditLog,
+  syncTaskToGhl,
+  ...
+})
+Production callers use default real dependencies.
+Tests inject no-op or recording dependencies.
+Do not add NODE_ENV branches inside decision logic.
+3. Prevent normal dev workers from interfering.
+A live dev server may still run BullMQ, SLA timers, GHL sync, or other workers while fixtures exist.
+Before route tests:
+- use the stable no-worker/test-server mode if one exists; or
+- prove background workers are disabled for the running server.
+Otherwise a normal worker could mutate the fixture deal during assertions.
+4. Strengthen the database safety gate.
+INTEGRATION_TEST_CONFIRM=true plus “hostname does not look production-like” is not sufficient.
+Require a positively identified approved database, such as:
+- TEST_DATABASE_URL, or
+- an exact approved database name plus environment marker.
+Fail closed if identity cannot be proven.
+5. Do not embed or repeat test-user credentials in the script.
+Reuse the canonical session-generation helper or environment-provided test credentials. Never hardcode the password into a new test file or final report.
+6. Define fixture eligibility explicitly.
+The fixture deal must satisfy every real stalling-deal predicate used by the SLA worker.
+Document and assert the required fields before running the cycle so a test cannot pass merely because the fixture was never eligible.
+7. Verify production behavior remains identical after extraction.
+Add a test proving:
+- unrestricted runSlaCheckDirect() still delegates to the same canonical scoped logic;
+- an omitted dealIds filter preserves the existing deal-selection behavior;
+- the extraction does not duplicate the stalling-task decision code.
+8. Avoid duplicate completion assertions.
+Group B and Group C currently test completedAt twice. Keep one provenance/mutable-field assertion and one complete→reopen lifecycle sequence, with clear test numbering.
+9. Cleanup must cover audit records and any related fixtures.
+Track and remove:
+- generated tasks,
+- fixture deals,
+- contacts if created,
+- test audit-log rows where safe,
+- any other records produced by the scoped cycle.
+Do not leave recurring test noise in the shared development database.
+
+Kill lines
+
+STOP if mocks in the test process are assumed to suppress behavior in the external dev server.
+STOP if normal background workers can run while fixture deals exist.
+STOP if the database is approved only because its hostname does not match a blacklist.
+STOP if credentials are hardcoded into the new test script.
+STOP if the fixture does not prove it meets the real stalling-deal criteria.
+STOP if runSlaCheckForDeals() creates a second copy of production decision logic.
+STOP if cleanup removes tasks but leaves audit or related fixture records behind.
+
+Validation
+
+- HTTP tests run through the registered live routes with workers disabled.
+- Worker tests run in-process with explicit dependency injection.
+- POST/PUT cannot persist source or automationKey.
+- Complete sets completedAt; reopen clears it.
+- Fixture is proven eligible before the SLA cycle.
+- Existing active SLA task blocks replacement.
+- Completion followed by one scoped cycle creates exactly one replacement.
+- Second scoped cycle creates none.
+- No unrelated deal or task changes during the test.
+- Database identity is positively verified as test/dev.
+- All generated tasks and related test artifacts are cleaned in finally.
+
+Final status: NOT BUILD-READY
+
+The missing piece is a trustworthy process boundary. Route tests against a live server and worker tests inside the script are both valid, but their side-effect controls must be designed separately and normal background workers must not interfere.

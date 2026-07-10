@@ -1,0 +1,88 @@
+Verdict: BUILD-READY WITH CORRECTIONS
+
+The KPI architecture is now sound. Two remaining correctness issues: all tier counts must use the same active-contact denominator, and the proposed HTML helper would classify image-only or other meaningful HTML content as empty.
+
+Corrections to send back
+
+1. Align contacts.total with the tier predicates.
+If hot/warm/cold/unqualified all use archived_at IS NULL, then contacts.total must also count only:
+archived_at IS NULL
+Otherwise this invariant can fail:
+contacts.hot + contacts.warm + contacts.cold + contacts.unqualified
+=== contacts.total
+Verify getContactAggregateStats().total currently uses the same active-contact predicate and correct it if necessary.
+2. Confirm lead_score nullability from the live schema, not only its default.
+A DEFAULT 0 does not make a column NOT NULL.
+If lead_score can be NULL on historical rows, add:
+contactsUnclassified:
+lead_score IS NULL
+Then reconcile:
+hot + warm + cold + unqualified + unclassified = active contacts total
+Do not silently exclude NULL scores.
+3. Do not implement isMeaningfulBody() by stripping every HTML tag and checking text only.
+That would incorrectly classify meaningful non-text templates as empty, such as:
+<img ...>
+<a href="..."><img ...></a>
+<hr>
+table/image-based email content
+The helper should remove known empty editor shells while treating meaningful elements or attributes as populated.
+Required empty cases:
+- blank/whitespace
+- &nbsp;
+- <p></p>
+- <p><br></p>
+- equivalent empty wrapper markup
+Required populated cases:
+- visible text
+- image
+- linked image
+- meaningful table content
+- other renderable email elements
+4. Ensure the step-open handler and useEffect do not fight each other.
+Use one canonical reset mechanism keyed to the selected step identity.
+Do not both:
+- setEditBodyTab() unconditionally in the edit-click handler, and
+- reset it again in useEffect.
+Opening/reopening a step should produce one deterministic tab decision.
+5. Add authenticated endpoint validation.
+The curl examples will return 401 unless they include the project’s authenticated session. The smoke script should use the established non-admin dashboard-user session pattern rather than unauthenticated curl.
+6. Verify the existing /api/outreach/status consumer types are updated.
+Add all new fields to the client response interface:
+contacts:
+- hot
+- warm
+- cold
+- unqualified
+- unclassified, if needed
+- withContactInfo
+prospects:
+- hot
+- warm
+- cold
+- unclassified
+No any casts or optional fallback logic that hides a missing backend field.
+
+Kill lines
+
+STOP if contacts.total includes archived contacts while the tier buckets exclude them.
+STOP if nullable lead_score rows fall outside every reconciliation bucket.
+STOP if image-only or table-based email content opens in Write because all tags were stripped.
+STOP if both the click handler and useEffect independently reset the editor tab.
+STOP if validation relies on unauthenticated curl output.
+STOP if missing aggregate fields silently become zero through loose typing.
+
+Validation additions
+
+- Verify contacts lead_score NOT NULL status in the actual database.
+- Active-contact denominator matches every contact tier predicate.
+- Historical NULL scores, if present, appear in an explicit unclassified bucket.
+- <p><br></p> opens Write.
+- &nbsp; opens Write.
+- <img src="..."> opens Preview.
+- linked-image and meaningful table templates open Preview.
+- Reopening the same step after closing applies the correct default.
+- Authenticated smoke test validates the real endpoint response.
+
+Final status: BUILD-READY WITH CORRECTIONS
+
+Once denominator/null handling and meaningful non-text HTML are addressed, this is safe to build.

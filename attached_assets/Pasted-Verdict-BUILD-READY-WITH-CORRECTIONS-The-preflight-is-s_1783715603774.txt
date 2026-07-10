@@ -1,0 +1,79 @@
+Verdict: BUILD-READY WITH CORRECTIONS
+
+The preflight is strong, but the proposed Warm contact query overlaps Hot and will double-count every contact with lead_score >= 70.
+
+Corrections to send back
+
+1. Fix the contact tier predicates.
+Use mutually exclusive canonical ranges:
+contactsHot:
+lead_score >= 70
+contactsWarm:
+lead_score >= 45 AND lead_score < 70
+contactsCold:
+lead_score >= 20 AND lead_score < 45
+contactsUnqualified:
+lead_score < 20
+All must also apply archived_at IS NULL.
+Do not define Warm as only lead_score >= 45.
+2. Confirm Sunbiz is included in Hot/Warm totals.
+The final “Done looks like” says Hot/Warm aggregate across:
+- sunbiz_entities
+- prospects
+- contacts
+Therefore the endpoint response and LCC bindings must explicitly use:
+hot = sunbiz.hot + prospects.hot + contacts.hot
+warm = sunbiz.warm + prospects.warm + contacts.warm
+Do not accidentally replace the current Sunbiz contribution while moving the computation server-side.
+3. Tighten “CRM records with contact info.”
+Use nonblank field presence, not only IS NOT NULL:
+(email IS NOT NULL AND trim(email) <> '')
+OR
+(phone IS NOT NULL AND trim(phone) <> '')
+Apply:
+archived_at IS NULL
+AND do_not_contact IS NOT TRUE
+The label must remain “CRM records with contact info,” because this is not canonical contactability or consent eligibility.
+4. Remove “approximately” from tier reconciliation.
+If every active contact has a numeric lead_score defaulting to 0, then:
+hot + warm + cold + unqualified = active contacts total
+should reconcile exactly.
+Track last_scored_at-null separately if operators need to distinguish valid scored-zero records from never-scored records, but it does not create an arithmetic difference.
+5. Define prospect score normalization.
+Verify whether prospects.score can be NULL, blank, or values outside:
+hot | warm | cold
+If so, add an explicit unclassified count rather than claiming:
+prospects.hot + prospects.warm + prospects.cold = prospects.total
+without proof.
+6. Use a shared “meaningful body content” helper for the editor.
+Do not rely only on bodyTemplate.trim(). Define how these count:
+- whitespace → empty
+- <p></p> → empty
+- <p><br></p> → empty
+- &nbsp; → empty
+- real text or meaningful HTML → populated
+Reset the tab when editingStep.id changes, not on every body edit.
+
+Kill lines
+
+STOP if contacts with lead_score >= 70 are counted in both Hot and Warm.
+STOP if moving Hot/Warm server-side drops the existing Sunbiz contribution.
+STOP if blank email or phone strings count as contact information.
+STOP if the UI calls this population “Contactable.”
+STOP if tier totals are declared exact without accounting for unknown prospect score values.
+STOP if tab state resets while an operator edits the same step.
+
+Validation
+
+- contacts.hot and contacts.warm are mutually exclusive.
+- Active contact tier counts reconcile exactly to contacts.total.
+- Combined Hot/Warm equal Sunbiz + Prospects + Contacts components.
+- Blank email/phone records are excluded from “CRM records with contact info.”
+- DNC and archived contacts are excluded.
+- Existing meaningful HTML opens Preview.
+- Empty HTML shells open Write.
+- Switching steps resets correctly; editing the same step does not.
+
+Final status: BUILD-READY WITH CORRECTIONS
+
+The architecture and endpoint ownership are correct. Fix the overlapping Warm predicate and explicitly preserve the Sunbiz Hot/Warm contribution before building.
