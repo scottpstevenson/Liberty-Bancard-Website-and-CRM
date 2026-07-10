@@ -1,0 +1,69 @@
+Verdict: NOT BUILD-READY — PREFLIGHT CONFIRMED TWO NEW BLOCKERS
+
+These findings materially change Task 927. The provenance fields are currently at risk of becoming writable through both API schemas and internal storage calls, and the chosen invariant is invalid unless reopen semantics are fixed.
+
+Corrections to send back
+
+Update Task 927 with these mandatory changes:
+1. Explicitly omit provenance fields from all client-facing task schemas.
+When source and automationKey are added to tasks, update insertTaskSchema to omit:
+source
+automationKey
+Do not rely on createInsertSchema defaults.
+Also verify every derived schema/type, including:
+- UpdateTaskRequest
+- task create route body
+- task update route body
+- bulk update schemas
+- import schemas
+Tests must prove POST/PUT cannot persist either field.
+2. Split public and internal task types.
+Do not keep:
+UpdateTaskRequest = Partial<InsertTask>
+if InsertTask includes source/automationKey.
+Create explicit types:
+PublicTaskCreateInput
+PublicTaskUpdateInput
+InternalTaskInsert
+Only InternalTaskInsert may contain source and automationKey.
+3. Restrict updateTask() at the storage boundary.
+updateTask() must not accept or write provenance fields from arbitrary internal callers.
+Whitelist allowed mutable fields before db.update().set(), or define its input type so source and automationKey are impossible to pass.
+Do not cast an untrusted partial object to typeof tasks.$inferInsert.
+4. Fix reopen semantics before creating the index.
+completedAt is the canonical lock-release signal under the chosen invariant.
+Required normalization:
+- status transitions to completed → set completedAt if absent
+- status transitions from completed to a non-completed state → clear completedAt
+- direct completedAt updates must remain consistent with status
+Centralize this normalization in one canonical task update service/storage path. Do not implement it independently in each route.
+5. Audit every task completion/reopen writer.
+Provide file:line evidence for:
+- PUT /api/tasks/:id
+- bulk task status actions
+- GHL-originated updates
+- background workers
+- imports or sync paths
+Every path must use the same completion normalization.
+6. Add invariant tests before Phase 3:
+- completed task has completedAt set
+- reopened task has completedAt cleared
+- reopened SLA task blocks creation again
+- completed SLA task permits replacement
+- public API cannot set source/automationKey
+- generic internal updateTask cannot mutate source/automationKey
+
+Kill lines
+
+STOP if source or automationKey flows into insertTaskSchema through createInsertSchema(tasks).
+STOP if UpdateTaskRequest remains Partial<InsertTask> after provenance fields are added.
+STOP if updateTask() casts arbitrary input to tasks.$inferInsert.
+STOP if any internal caller can change or erase task provenance.
+STOP if reopening a task leaves completedAt populated.
+STOP if the partial unique index is created before completion/reopen normalization is canonical across all writers.
+
+Final status
+
+NOT BUILD-READY
+
+The next corrected plan must include both provenance immutability and completion-state normalization as Phase 1 prerequisites. Without them, the index can be bypassed by ordinary task updates or reopened tasks.

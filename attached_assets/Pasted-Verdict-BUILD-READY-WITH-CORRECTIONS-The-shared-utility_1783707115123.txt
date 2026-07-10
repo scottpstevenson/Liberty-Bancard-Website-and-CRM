@@ -1,0 +1,71 @@
+Verdict: BUILD-READY WITH CORRECTIONS
+
+The shared-utility direction is correct. Two gaps remain: the task assumes the Onboarding Board payload contains phone, and it treats a labeled detail Contact field like a compact card surface without verifying its surrounding fields.
+
+Corrections to send back
+
+Proceed with these corrections:
+1. Verify the exact getDealCardIdentity() signature before changing call sites.
+Use the existing exported contract from client/src/lib/deal-identity.ts exactly.
+Do not create an Onboarding-specific wrapper unless the current deal/contact shapes are incompatible.
+2. Preflight the Onboarding Board API payload before adding phone to the type.
+Provide file:line evidence for the endpoint/query that builds /api/onboarding-board.
+- If phone is already returned, update only the client type.
+- If phone is missing, identify the exact backend owner and add it to Relevant files before changing the query.
+- Do not add a second contact lookup from each card or create an N+1 request pattern.
+3. Keep detail-panel fields semantically correct.
+For labeled fields:
+Contact:
+full name → companyName → email → phone → Deal #${deal.id}
+Company:
+contact?.companyName || "N/A"
+Email:
+existing canonical email value
+Phone:
+existing canonical phone value
+Using identity.primary for Contact is acceptable, but do not let identity.secondary populate any explicitly labeled Company, Email, or Phone field.
+4. Audit both files for all old-helper usages before deleting them.
+Include:
+- cards
+- drag overlays
+- detail panels
+- search text
+- sorting
+- accessibility labels
+- tooltips
+Only compact, unlabeled primary/secondary surfaces should use both identity.primary and identity.secondary.
+5. Extend the existing deal-identity tests if a test file already exists.
+Do not create a second test owner for the same utility.
+6. Confirm the shared utility accepts incomplete contact objects safely.
+OnboardingBoard.contact may have a narrower shape than Pipeline contacts. Type the utility against the minimum identity fields needed rather than using unsafe casts.
+7. Pipeline.tsx must remain unchanged, but run its existing identity tests to prove the shared utility change did not regress Pipeline behavior.
+
+Kill lines
+
+STOP if phone is added to the client type without proving the API returns it.
+STOP if fixing the payload introduces one contact request per board card.
+STOP if identity.secondary appears under a labeled Company, Email, or Phone field.
+STOP if Onboarding uses a cast to bypass an incompatible shared-helper type.
+STOP if a duplicate deal-identity test suite or helper implementation is created.
+STOP if changes to the shared utility alter Pipeline fallback behavior.
+
+Validation
+
+pnpm typecheck
+pnpm lint
+pnpm test
+
+Required checks:
+
+- Both Onboarding surfaces use the same imported identity utility.
+- No-contact fallback uses deal.id.
+- Company-only + email renders company / email on cards.
+- Email-only and phone-only cards have no duplicate secondary.
+- Detail Company always shows companyName or N/A.
+- Board payload includes phone without extra per-card requests.
+- All 7 identity cases pass.
+- Existing Pipeline identity tests remain green.
+
+Final status: BUILD-READY WITH CORRECTIONS
+
+Safe to build once the board payload ownership and labeled detail-field semantics are verified.
