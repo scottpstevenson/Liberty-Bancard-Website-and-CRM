@@ -694,12 +694,26 @@ async function runSequencesTick(): Promise<void> {
     const { recordWorkerFailure, JOB_NAMES } = await import("./job-registry");
     await recordWorkerFailure(JOB_NAMES.SEQUENCE_ENROLLMENT_PROCESSOR, sequenceError.message);
   } finally {
+    const tickAt = new Date().toISOString();
     await storage.setSystemSetting("sequence_runner_last_tick", {
-      at: new Date().toISOString(),
+      at: tickAt,
       processed: (result as any).processed ?? 0,
       sent: (result as any).sent ?? 0,
       enabled: true,
       ...(sequenceError ? { lastError: sequenceError.message } : {}),
+    }).catch(() => {});
+    // Emit audit-log heartbeat so go-live-check.ts and monitoring can verify the
+    // worker ran without relying on system_settings alone.
+    await storage.createAuditLog({
+      action: "sequence_worker_tick",
+      entityType: "system",
+      actorType: "system",
+      details: {
+        at: tickAt,
+        processed: (result as any).processed ?? 0,
+        sent: (result as any).sent ?? 0,
+        ...(sequenceError ? { error: sequenceError.message } : {}),
+      },
     }).catch(() => {});
   }
 
