@@ -1,0 +1,72 @@
+Verdict: PREFLIGHT REQUIRED
+
+The interaction pattern is reusable, but the task assumes every KPI already has a clean multi-source breakdown. That must be verified per card before adding explanatory UI.
+
+Corrections to send back
+
+Before implementation, document the exact displayed formula for every card with file:line evidence:
+- Pending Enrichment
+- With Email
+- CRM records with contact info
+- Hot
+- Warm
+- Cold
+For each card provide:
+- displayed total formula;
+- contributing outreach-status fields;
+- source labels;
+- exclusions;
+- whether records may overlap.
+Do not use the label “Contactable” if Task #920 renamed it to
+“CRM records with contact info.”
+Expected examples:
+Hot:
+- Sunbiz entities: entities.hot
+- Prospects: prospects.hot
+- CRM contacts: contacts.hot
+Warm:
+- Sunbiz entities: entities.warm
+- Prospects: prospects.warm
+- CRM contacts: contacts.warm
+Cold:
+- verify all three cold fields actually exist before building.
+For Pending Enrichment and With Email, do not invent CRM/prospect contributions unless the displayed card total already includes them.
+Create one reusable KPI breakdown component/config rather than six copied Popover blocks, for example:
+{
+  label,
+  total,
+  rows: [{ label, value }],
+  explanation,
+  overlapWarning?
+}
+The card total and popover rows must derive from the same config object so they cannot drift.
+Use one accessible Popover trigger pattern:
+- click
+- keyboard
+- touch
+- no hover-only interaction
+Do not wrap the full card in nested interactive elements if the card already contains buttons or links.
+Use the existing shared number formatter rather than adding scattered toLocaleString() calls throughout the JSX.
+
+Kill lines
+
+STOP if a popover describes sources that do not exactly equal the displayed total.
+STOP if “Contactable” reappears after being intentionally renamed.
+STOP if missing contacts/prospects fields are treated as zero without verifying that those sources are excluded by design.
+STOP if six independent copies of breakdown logic are added.
+STOP if the card total and popover row sum are calculated separately.
+STOP if hover is the only interaction or nested triggers break accessibility.
+
+Validation
+
+- Every popover row sum exactly equals its KPI card total.
+- Hot/Warm/Cold each show all confirmed contributing sources.
+- Pending Enrichment and With Email show only their real owners.
+- CRM contact-info card explains that it is not canonical outreach eligibility.
+- Large-number formatting is identical across cards and popovers.
+- Popovers work by mouse, keyboard, and touch.
+- Loading state does not present missing fields as real zero counts.
+
+Final status: PREFLIGHT REQUIRED
+
+First attach the exact formula/source inventory for all six cards. Once that is confirmed, the reusable popover implementation is straightforward.
