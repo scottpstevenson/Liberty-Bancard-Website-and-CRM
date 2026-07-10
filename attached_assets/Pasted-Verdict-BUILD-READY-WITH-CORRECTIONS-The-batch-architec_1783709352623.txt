@@ -1,0 +1,76 @@
+Verdict: BUILD-READY WITH CORRECTIONS
+
+The batch architecture is correct and avoids the N+1 problem. Four implementation details need tightening before build.
+
+Corrections to send back
+
+Proceed after these corrections:
+1. Resolve the 200-ID limit for Pipeline.
+Contacts pages load 100, but Pipeline may contain more than 200 unique contactIds.
+Choose one explicit behavior:
+- If Pipeline is proven to expose at most 200 unique contacts, attach file:line evidence.
+- Otherwise, the hook must split the sorted unique IDs into chunks of 200 and issue one request per chunk.
+Do not truncate IDs silently.
+Update the acceptance criterion from “one request” to:
+“one request per bounded 200-ID chunk, never one request per row/card.”
+2. Make the batch service reuse the canonical projection logic.
+Do not independently recreate subtly different event semantics inside the batch function.
+Extract/reuse shared internal helpers for:
+- event normalization;
+- latest event per (contactId, submissionId);
+- latest submission selection;
+- failed-state resolution;
+- failure-reason sanitization.
+The single-contact and batch paths must produce identical results for the same contact.
+3. Verify hash scrolling in the SPA.
+Adding id="confirmation-status" makes the anchor valid, but it does not guarantee scrolling after client-side navigation and asynchronous ContactDetail rendering.
+Confirm the router automatically handles the hash after the section mounts.
+If it does not, ContactDetail must detect:
+window.location.hash === "#confirmation-status"
+and call scrollIntoView() after the confirmation section has rendered.
+Do not mark navigation verified merely because the id exists.
+4. Correct authorization test expectations.
+Unauthenticated access normally returns 401, not 403.
+Tests must follow the project’s actual middleware contract:
+- unauthenticated → 401
+- authenticated but unauthorized role → 403
+Do not hardcode 403 for both.
+5. Make the query key deterministic.
+The hook must:
+- remove null/invalid IDs;
+- deduplicate;
+- numerically sort;
+- use that stable array in the query key and request body.
+Do not trigger refetches because the same IDs arrive in a different card order.
+6. Define loading/error behavior.
+A failed batch request must not display stale failure badges as current truth.
+Specify whether badges:
+- remain hidden while loading/error;
+- or retain cached results with an explicit stale policy.
+Do not show a failure badge based on an earlier dataset after the loaded contact set changes.
+7. Verify endpoint route placement.
+Ensure POST /api/contacts/confirmation-status/batch is registered without being intercepted or confused by generic /api/contacts/:id routes and uses the canonical contacts router/auth middleware.
+
+Kill lines
+
+STOP if more than 200 unique Pipeline contact IDs are truncated or rejected without chunking.
+STOP if batch and single-contact projections can disagree for the same audit rows.
+STOP if adding an HTML id is treated as proof that SPA hash scrolling works.
+STOP if unauthenticated and unauthorized responses are conflated.
+STOP if unstable ID ordering causes repeated batch requests.
+STOP if a failed/refetched query leaves badges attached to contacts no longer in the loaded dataset.
+STOP if raw audit interpretation is duplicated rather than sharing canonical projection helpers.
+
+Validation additions
+
+- 201 unique IDs are split into two bounded requests or rejected by a proven UI limit—never truncated.
+- Different input orders for the same ID set reuse the same cache key.
+- Single-contact and batch results match for identical fixtures.
+- Client-side navigation waits for ContactDetail rendering and scrolls to the confirmation section.
+- Unauthenticated request returns 401; wrong-role request returns 403.
+- Batch request failure does not show stale badges for a changed dataset.
+- Pipeline with more than one 200-ID chunk still deduplicates shared contact IDs.
+
+Final status: BUILD-READY WITH CORRECTIONS
+
+The feature is safe once the Pipeline’s possible >200-contact case, shared projection ownership, and actual SPA scroll behavior are handled explicitly.
