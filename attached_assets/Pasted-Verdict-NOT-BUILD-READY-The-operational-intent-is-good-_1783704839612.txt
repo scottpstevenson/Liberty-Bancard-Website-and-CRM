@@ -1,0 +1,99 @@
+Verdict: NOT BUILD-READY
+
+The operational intent is good, but the proposed architecture creates an N+1 API problem. The existing /api/contacts/:id/confirmation-status endpoint is appropriate for one Contact Detail page, not a contacts table or Kanban board containing dozens or hundreds of contacts.
+
+Also, “latest confirmation state is failed” must mean the latest state for the contact’s latest submission, not “any historical submission failed.”
+
+Corrections to send back
+
+Do not call /api/contacts/:id/confirmation-status once per contact or deal card.
+Run a focused preflight and add a bounded batch projection using the existing
+confirmation-status service.
+Required architecture:
+1. Add one batch endpoint or extend the canonical contacts/deals list responses:
+POST /api/contacts/confirmation-status/batch
+Body: { contactIds: number[] }
+- isDashboardUser protected
+- bounded maximum ID count
+- deduplicates IDs
+- returns only contacts whose current actionable status is failed
+- uses one set-based audit-log query, not one query per contact
+- groups globally by contactId + submissionId
+- determines each contact’s latest submission, then its latest terminal event
+- later sent/workflow-enrolled events resolve prior failures
+Suggested response:
+{
+  statuses: {
+    "<contactId>": {
+      status: "failed",
+      submissionId: "...",
+      timestamp: "...",
+      formType: "...",
+      reason: "operator-safe message"
+    }
+  }
+}
+Contacts without a current failure may be omitted or returned as status: null.
+2. Define “Confirmation Failed” precisely:
+Show the indicator only when:
+- the contact’s most recent submission has latest terminal state = failed.
+Do not show it because:
+- an older submission failed but a newer one succeeded;
+- one failed attempt was followed by SMTP or GHL success;
+- the event was skipped for no email;
+- there is no confirmation record.
+3. Reuse the existing confirmation-status normalization and label helpers.
+Do not add raw audit-event parsing inside Contacts.tsx, Pipeline.tsx, or a new route.
+4. Fetch statuses once per loaded dataset.
+Contacts:
+- collect unique contact IDs from the loaded rows;
+- make one bounded query;
+- cache by the loaded contact-ID set.
+Pipeline:
+- collect unique contact IDs across loaded deals;
+- make one bounded query;
+- do not issue one request per Kanban card.
+5. Handle deals without contactId safely.
+No badge should render when the deal has no linked contact.
+6. Verify navigation ownership.
+Clicking the badge must navigate to the real Contact Detail route and focus/scroll
+to a confirmed confirmation-section anchor.
+Do not invent an anchor such as #confirmation unless ContactDetail actually registers it.
+7. Prevent card interaction conflicts.
+The Kanban badge click must not:
+- begin drag behavior;
+- open the deal panel unintentionally;
+- trigger stage movement.
+Use stopPropagation only where consistent with existing card interaction patterns.
+8. Keep the indicator visually subordinate.
+Use a compact destructive/warning badge or icon. Do not make every failed card
+visually dominate the pipeline or alter card height significantly.
+
+Kill lines
+
+STOP if the contacts list or Pipeline performs one confirmation-status request per row/card.
+STOP if any historical failure causes the badge despite a later successful retry.
+STOP if multiple submissions are collapsed without selecting the latest submission deterministically.
+STOP if raw audit_logs are interpreted separately in frontend code.
+STOP if skipped/no-email or Not Sent states display as Confirmation Failed.
+STOP if a deal without contactId causes a request or broken navigation.
+STOP if the badge link targets an unverified route or section anchor.
+STOP if clicking the Kanban indicator triggers drag, card-open, or stage-change behavior.
+
+Validation
+
+- 100 loaded contacts produce one bounded status request, not 100 requests.
+- Multiple deals sharing one contact ID request that contact only once.
+- Failure followed by SMTP/GHL success → no badge.
+- Older failed submission + newer successful submission → no badge.
+- Latest submission failed → badge shown.
+- Skipped/no-email → no failed badge.
+- No confirmation record → no badge.
+- No contactId → no badge and no request.
+- Contacts and Pipeline use the same canonical status result.
+- Badge opens the correct contact and confirmation section.
+- Kanban drag/click behavior remains unchanged.
+
+Final status: NOT BUILD-READY
+
+A batch status projection is required. Reusing the single-contact endpoint across list surfaces would create avoidable API and database load and could display stale historical failures incorrectly.
