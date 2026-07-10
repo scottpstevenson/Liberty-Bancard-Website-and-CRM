@@ -11,6 +11,7 @@ import { IdentityHealthDashboard } from "./sdr/IdentityHealthDashboard";
 import { MarketExpansionDashboard } from "./sdr/MarketExpansionDashboard";
 import { WeeklyKpiReport } from "./sdr/WeeklyKpiReport";
 import { AnomalyAlertsPanel } from "./sdr/AnomalyAlertsPanel";
+import { ConfirmationFailuresPanel } from "./sdr/ConfirmationFailuresPanel";
 import { SmsMetricsPanel } from "./sdr/SmsMetricsPanel";
 import { VoiceAiStatusPanel } from "./sdr/VoiceAiStatusPanel";
 import { SerperEnrichmentPanel } from "./sdr/SerperEnrichmentPanel";
@@ -67,7 +68,10 @@ export default function SdrDashboard() {
         </TabsContent>
 
         <TabsContent value="alerts" className="mt-4">
-          <AnomalyAlertsPanel />
+          <div className="space-y-8">
+            <AnomalyAlertsPanel />
+            <ConfirmationFailuresPanel />
+          </div>
         </TabsContent>
 
         <TabsContent value="sms" className="mt-4">

@@ -3030,4 +3030,76 @@ export function registerSdrRoutes(app: Express) {
     }
   });
 
+  // ── Confirmation Metric ─────────────────────────────────────────────────────
+  // GET /api/operator/confirmation-metric
+  // Returns the "Confirmation send success rate" stat for today's ET window.
+  //
+  // Liberty is single-tenant; all dashboard users may access all contacts.
+  // Metric cohort semantics: "terminal_event_in_window" (Option B).
+  // Retry-after-midnight: a failure in today's cohort resolved by a retry tomorrow
+  // is NOT reflected in today's archived metric once the day has ended.
+  // Operators should check the Confirmation Failures panel for corrections.
+  app.get("/api/operator/confirmation-metric", isDashboardUser, async (req, res) => {
+    try {
+      const { getConfirmationMetricForRange } = await import("../services/confirmation-status");
+      const { APP_TIMEZONE, getTzDayBoundaries } = await import("../config");
+
+      // Build today's ET window using deterministic Intl.DateTimeFormat.formatToParts helper.
+      // getTzDayBoundaries does not depend on the server's local timezone or locale env.
+      const { windowStart, windowEnd } = getTzDayBoundaries(APP_TIMEZONE);
+
+      const metric = await getConfirmationMetricForRange(windowStart, windowEnd, APP_TIMEZONE);
+      res.json(metric);
+    } catch (err: any) {
+      console.error("[confirmation-metric GET]", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Confirmation Failures ───────────────────────────────────────────────────
+  // GET /api/operator/confirmation-failures
+  // Returns unresolved inbound confirmation failures within the lookback window.
+  // Raw details.reason is NEVER returned — passes through sanitizeFailureReason() first.
+  //
+  // Query params: ?lookbackDays=7&limit=50&offset=0
+  // lookbackDays default: 7, max: 30
+  // limit default: 50, max: 200
+  //
+  // Liberty is single-tenant; all dashboard users may access all contacts.
+  // TODO: add tenant predicate if multi-tenant support is added.
+  app.get("/api/operator/confirmation-failures", isDashboardUser, async (req, res) => {
+    try {
+      const { getUnresolvedConfirmationFailures } = await import("../services/confirmation-status");
+
+      const rawLookback = req.query.lookbackDays !== undefined ? Number(req.query.lookbackDays) : 7;
+      const rawLimit    = req.query.limit         !== undefined ? Number(req.query.limit)         : 50;
+      const rawOffset   = req.query.offset        !== undefined ? Number(req.query.offset)        : 0;
+
+      // Reject non-numeric or out-of-bounds inputs with 400 so callers get deterministic errors
+      // instead of silent mis-behaviour (e.g. LIMIT -1 = no limit in Postgres).
+      if (!Number.isFinite(rawLookback) || !Number.isFinite(rawLimit) || !Number.isFinite(rawOffset)) {
+        return res.status(400).json({ message: "lookbackDays, limit, and offset must be numeric" });
+      }
+      if (rawLookback < 1 || rawLookback > 30) {
+        return res.status(400).json({ message: "lookbackDays must be between 1 and 30" });
+      }
+      if (rawLimit < 1 || rawLimit > 200) {
+        return res.status(400).json({ message: "limit must be between 1 and 200" });
+      }
+      if (rawOffset < 0) {
+        return res.status(400).json({ message: "offset must be >= 0" });
+      }
+
+      const lookbackDays = Math.floor(rawLookback);
+      const limit        = Math.floor(rawLimit);
+      const offset       = Math.floor(rawOffset);
+
+      const result = await getUnresolvedConfirmationFailures({ lookbackDays, limit, offset });
+      res.json(result);
+    } catch (err: any) {
+      console.error("[confirmation-failures GET]", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
 }

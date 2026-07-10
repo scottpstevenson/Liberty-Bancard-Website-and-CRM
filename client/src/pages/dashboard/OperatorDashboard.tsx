@@ -359,6 +359,62 @@ function KpiCard({ label, value, icon: Icon, color, suffix, subtext }: {
   );
 }
 
+/**
+ * ConfirmationSuccessRateCard
+ * Shows the "Confirmation send success rate" stat for today's ET window.
+ * Fetches from /api/operator/confirmation-metric, polls every 60 seconds.
+ * Semantics: enrolled + sent / (enrolled + sent + failed). Skipped excluded from both.
+ * "Delivered" and "Delivery rate" labels are intentionally absent — no delivery webhook exists.
+ */
+function ConfirmationSuccessRateCard() {
+  const { data, isLoading } = useQuery<{
+    rate: number;
+    numerator: number;
+    denominator: number;
+    windowStart: string;
+    windowEnd: string;
+    timezone: string;
+    cohortSemantics: string;
+  }>({
+    queryKey: ["/api/operator/confirmation-metric"],
+    queryFn: async () => {
+      const res = await fetch("/api/operator/confirmation-metric", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch confirmation metric");
+      return res.json();
+    },
+    refetchInterval: 60000,
+  });
+
+  return (
+    <Card data-testid="card-confirmation-rate">
+      <CardContent className="p-4">
+        <div className="flex items-center justify-between gap-4">
+          <div className="space-y-0.5">
+            <div className="text-xs text-muted-foreground">Confirmation send success rate</div>
+            {isLoading ? (
+              <div className="h-7 w-16 bg-muted animate-pulse rounded" />
+            ) : data?.denominator === 0 ? (
+              <div className="text-2xl font-bold text-muted-foreground">—</div>
+            ) : (
+              <div className="text-2xl font-bold" data-testid="text-confirmation-rate">
+                {data?.rate ?? 0}%
+              </div>
+            )}
+            <div className="text-xs text-muted-foreground" data-testid="text-confirmation-counts">
+              {isLoading
+                ? "Loading…"
+                : data?.denominator === 0
+                ? "No submissions today"
+                : `${data?.numerator ?? 0} of ${data?.denominator ?? 0} submissions · today ET`}
+            </div>
+          </div>
+          <Mail className="w-8 h-8 text-muted-foreground opacity-40" />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function OperatorKpiPanel() {
   const [range, setRange] = useState("today");
 
@@ -425,6 +481,8 @@ function OperatorKpiPanel() {
         <KpiCard label="Stuck Leads" value={kpis?.stuckLeadsCount || 0} icon={AlertTriangle} color="text-yellow-600" subtext="Needs attention" />
         <KpiCard label="Active Identities" value={kpis?.activeIdentities || 0} icon={Activity} color="text-cyan-600" subtext={`${kpis?.pausedSystems || 0} paused`} />
       </div>
+
+      <ConfirmationSuccessRateCard />
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <Card>

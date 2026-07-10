@@ -1314,6 +1314,27 @@ export function registerContactsRoutes(app: Express) {
     }
   });
 
+  // ── Confirmation Status ────────────────────────────────────────────────────
+  // GET /api/contacts/:id/confirmation-status
+  // Returns inbound confirmation delivery status for a contact.
+  //
+  // Liberty is single-tenant; all dashboard users may access all contacts.
+  // Update with a tenant predicate if multi-tenant support is added.
+  app.get("/api/contacts/:id/confirmation-status", isDashboardUser, async (req, res) => {
+    try {
+      const contactId = Number(req.params.id);
+      if (isNaN(contactId) || contactId <= 0) {
+        return res.status(400).json({ message: "Invalid contact ID" });
+      }
+      const { getContactConfirmationStatuses } = await import("../services/confirmation-status");
+      const result = await getContactConfirmationStatuses(contactId);
+      res.json(result);
+    } catch (err: any) {
+      console.error("[confirmation-status GET]", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
 }
 
 /**

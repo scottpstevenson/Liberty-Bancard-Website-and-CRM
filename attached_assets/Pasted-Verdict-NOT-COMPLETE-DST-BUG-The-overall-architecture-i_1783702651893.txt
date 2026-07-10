@@ -1,0 +1,66 @@
+Verdict: NOT COMPLETE — DST BUG
+
+The overall architecture is strong, but getTzDayBoundaries() is incorrect on daylight-saving transition days.
+
+The formula uses the timezone offset at now to calculate local midnight. On the spring-forward and fall-back dates, the offset at midnight can differ from the offset later that same day, shifting the reporting window by one hour.
+
+Correction to send back
+
+Fix getTzDayBoundaries() before closing Task 917.
+Current approach:
+Date.UTC(y, m, d, 0, 0, 0)
++ offset derived from the current time
+is not DST-safe because the UTC offset at “now” may differ from the offset at local midnight.
+Use a timezone-aware boundary calculation that resolves the offset specifically for the target local midnight and the following local midnight.
+Required behavior:
+- start = 00:00:00 America/New_York for the requested local date
+- end = start of the next America/New_York calendar date
+- normal day duration may be 24 hours
+- spring-forward day duration must be 23 hours
+- fall-back day duration must be 25 hours
+Do not define the end boundary as start + 24 hours.
+Add automated tests for:
+- normal EST date
+- normal EDT date
+- 2026-03-08 spring-forward date
+- 2026-11-01 fall-back date
+- timestamps just before and after local midnight
+Also confirm:
+1. The metric and failure queries correlate globally by:
+   entity_id + submissionId
+2. The latest-events CTE resolves candidates against the latest terminal event overall, not merely the latest event inside the candidate window.
+3. The failure endpoint has an explicit bounded lookback, deterministic ordering, maximum page size, and validated pagination parameters.
+4. No UI label uses:
+   - Delivered
+   - Delivery rate
+   - Pending
+5. Raw inbound_confirmation_failed details.reason is sanitized before it reaches the operator UI.
+
+Kill lines
+
+STOP if current-time offset is reused to calculate local midnight.
+STOP if end-of-day is calculated as start + 24 hours.
+STOP if DST transition tests are missing.
+STOP if failure reasons expose raw SMTP, GHL, database, or internal error details.
+STOP if latest status is limited to events inside the reporting window and therefore misses a later retry.
+
+Validation
+
+npm run check
+npx tsx scripts/smoke-role-guards.ts
+pnpm test
+
+Required boundary assertions:
+
+America/New_York 2026-03-08:
+start = 2026-03-08T05:00:00.000Z
+next midnight = 2026-03-09T04:00:00.000Z
+duration = 23 hours
+America/New_York 2026-11-01:
+start = 2026-11-01T04:00:00.000Z
+next midnight = 2026-11-02T05:00:00.000Z
+duration = 25 hours
+
+Final status: NOT COMPLETE
+
+The confirmation projection, shared labels, SQL aggregation, and separate failure panel appear correctly structured. Fix and test the timezone boundary helper, then this can be marked COMPLETE / VERIFIED.

@@ -22,8 +22,14 @@ import {
   Activity, Link2, Trash2, Star,
   RefreshCw, CheckCircle2, AlertCircle, Linkedin, FolderOpen, Info,
   ChevronDown, ChevronUp, Brain, AlertOctagon, ShieldCheck, GitFork, Bot, MapPin, Store,
-  FileSearch2, Merge,
+  FileSearch2, Merge, SendHorizonal,
 } from "lucide-react";
+import {
+  labelForConfirmationStatus,
+  variantForConfirmationStatus,
+  type ConfirmationState,
+  type SubmissionStatus,
+} from "@shared/confirmation-status-types";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import Comments from "@/components/Comments";
 import { EmailComposer } from "@/components/EmailComposer";
@@ -52,6 +58,121 @@ import { CompanyIntelligenceTab } from "./contact-detail-tabs/CompanyIntelligenc
 import { CommunicationHealthTab } from "./contact-detail-tabs/CommunicationHealthTab";
 import { OfferIntelligenceTab } from "./contact-detail-tabs/OfferIntelligenceTab";
 import { SalesPrepTab } from "./contact-detail-tabs/SalesPrepTab";
+
+// ── Confirmation Status Section ───────────────────────────────────────────────
+/**
+ * Always renders. Shows "Not Sent" when submissions is empty.
+ * Shows the latest submission prominently; when multiple exist, the history is
+ * collapsible (older submissions sorted DESC, hidden until user expands).
+ */
+function ConfirmationStatusSection({
+  confirmationResult,
+}: {
+  confirmationResult: {
+    latestStatus: SubmissionStatus | null;
+    submissions: SubmissionStatus[];
+    hasConfirmationRecord: boolean;
+  } | null;
+}) {
+  const [historyOpen, setHistoryOpen] = useState(false);
+
+  const submissions = confirmationResult?.submissions ?? [];
+  const latest = submissions[0] ?? null;
+  const history = submissions.slice(1); // older submissions in DESC order
+
+  return (
+    <Card data-testid="section-confirmation-status">
+      <CardContent className="pt-4 pb-4">
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground shrink-0">
+              <SendHorizonal className="h-4 w-4" />
+              <span>Confirmation:</span>
+            </div>
+
+            {!latest ? (
+              <Badge variant="secondary" data-testid="badge-confirmation-not-sent">
+                Not Sent
+              </Badge>
+            ) : (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Badge
+                      variant={variantForConfirmationStatus(latest.state as ConfirmationState)}
+                      className="gap-1 cursor-default"
+                      data-testid={`badge-confirmation-${latest.submissionId}`}
+                    >
+                      {labelForConfirmationStatus(latest.state as ConfirmationState, latest.provider)}
+                      {latest.formType && (
+                        <span className="opacity-70 font-normal">· {latest.formType}</span>
+                      )}
+                    </Badge>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    <div className="text-xs space-y-0.5">
+                      <p>{new Date(latest.timestamp).toLocaleString()}</p>
+                      {latest.safeReason && (
+                        <p className="text-red-400">{latest.safeReason}</p>
+                      )}
+                    </div>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
+
+            {history.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setHistoryOpen((v) => !v)}
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                data-testid="button-confirmation-history-toggle"
+              >
+                {historyOpen ? (
+                  <ChevronUp className="h-3.5 w-3.5" />
+                ) : (
+                  <ChevronDown className="h-3.5 w-3.5" />
+                )}
+                {history.length} earlier
+              </button>
+            )}
+          </div>
+
+          {historyOpen && history.length > 0 && (
+            <div className="flex flex-wrap gap-2 pl-6 pt-1" data-testid="section-confirmation-history">
+              {history.map((sub) => (
+                <TooltipProvider key={sub.submissionId}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Badge
+                        variant={variantForConfirmationStatus(sub.state as ConfirmationState)}
+                        className="gap-1 cursor-default opacity-70"
+                        data-testid={`badge-confirmation-history-${sub.submissionId}`}
+                      >
+                        {labelForConfirmationStatus(sub.state as ConfirmationState, sub.provider)}
+                        {sub.formType && (
+                          <span className="opacity-70 font-normal">· {sub.formType}</span>
+                        )}
+                      </Badge>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">
+                      <div className="text-xs space-y-0.5">
+                        <p>{new Date(sub.timestamp).toLocaleString()}</p>
+                        {sub.safeReason && (
+                          <p className="text-red-400">{sub.safeReason}</p>
+                        )}
+                      </div>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              ))}
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
 // ── Churn Risk Panel ──────────────────────────────────────────────────────────
 type MerchantHealthScore = {
@@ -535,6 +656,20 @@ export default function ContactDetail() {
   const { data: salesPrepStatus } = useQuery<{ sdrSourced: boolean }>({
     queryKey: [`/api/contacts/${contactId}/sales-prep`],
     staleTime: Infinity,
+    enabled: !!contactId,
+  });
+
+  const { data: confirmationResult } = useQuery<{
+    latestStatus: SubmissionStatus | null;
+    submissions: SubmissionStatus[];
+    hasConfirmationRecord: boolean;
+  }>({
+    queryKey: ["/api/contacts", contactId, "confirmation-status"],
+    queryFn: async () => {
+      const res = await fetch(`/api/contacts/${contactId}/confirmation-status`, { credentials: "include" });
+      if (!res.ok) return null;
+      return res.json();
+    },
     enabled: !!contactId,
   });
 
@@ -1081,6 +1216,11 @@ export default function ContactDetail() {
           enrichLinkedInMutation={enrichLinkedInMutation}
         />
 
+
+      {/* Confirmation Status — always rendered; shows "Not Sent" when no record exists */}
+      {confirmationResult !== undefined && (
+        <ConfirmationStatusSection confirmationResult={confirmationResult} />
+      )}
 
       {/* Tags */}
       <Card data-testid="section-tags">

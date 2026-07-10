@@ -153,6 +153,12 @@ const CASES: GuardCase[] = [
   // users without an x-csrf-token header get 403 (csrf_missing).  Anon still
   // gets 401 because CSRF short-circuits to isAuthenticated first.
   { method: "POST", path: "/api/tasks/bulk-delete", anon: [401], merchant: [403], admin: [403], agent: [403], description: "task bulk-delete (isDashboardUser; CSRF required for POST — all auth roles hit 403 without token; merchant also blocked by role gate)" },
+
+  // ── Task #917: Confirmation Status — isDashboardUser (blocks merchants/partners) ──
+  // All three endpoints are read-only (no state produced here).
+  { method: "GET", path: "/api/contacts/1/confirmation-status",    anon: [401], merchant: [403], admin: [200],      description: "contact confirmation status (isDashboardUser)" },
+  { method: "GET", path: "/api/operator/confirmation-metric",      anon: [401], merchant: [403], admin: [200],      description: "operator confirmation send success rate (isDashboardUser)" },
+  { method: "GET", path: "/api/operator/confirmation-failures",    anon: [401], merchant: [403], admin: [200],      description: "operator confirmation failures (isDashboardUser)" },
 ];
 
 async function ensureAgentUser(): Promise<void> {
