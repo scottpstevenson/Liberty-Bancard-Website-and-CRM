@@ -147,6 +147,12 @@ const CASES: GuardCase[] = [
 
   // ── Task #866: Vertical detail endpoint — admin/manager only ─────────────
   { method: "GET",  path: "/api/admin/pipeline/stage-health/vertical-detail?vertical=__unknown__", anon: [401], merchant: [403], admin: [200], agent: [403], description: "vertical detail (admin/manager only; read-only)" },
+
+  // ── Task #918: SLA Task Bulk-Delete — isDashboardUser (blocks merchants) ──
+  // POST routes hit CSRF middleware before the body is parsed, so authenticated
+  // users without an x-csrf-token header get 403 (csrf_missing).  Anon still
+  // gets 401 because CSRF short-circuits to isAuthenticated first.
+  { method: "POST", path: "/api/tasks/bulk-delete", anon: [401], merchant: [403], admin: [403], agent: [403], description: "task bulk-delete (isDashboardUser; CSRF required for POST — all auth roles hit 403 without token; merchant also blocked by role gate)" },
 ];
 
 async function ensureAgentUser(): Promise<void> {

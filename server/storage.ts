@@ -186,6 +186,7 @@ export interface IStorage {
   createTask(task: InsertTask): Promise<typeof tasks.$inferSelect>;
   updateTask(id: number, task: UpdateTaskRequest): Promise<typeof tasks.$inferSelect | undefined>;
   softDeleteTask(id: number): Promise<void>;
+  bulkSoftDeleteTasks(ids: number[]): Promise<number>;
 
   getDocuments(): Promise<typeof documents.$inferSelect[]>;
   getDocumentsByContact(contactId: number): Promise<typeof documents.$inferSelect[]>;

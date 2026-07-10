@@ -99,6 +99,7 @@ export default function Tasks() {
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<number>>(new Set());
   const [bulkAssignOpen, setBulkAssignOpen] = useState(false);
   const [bulkAssignTo, setBulkAssignTo] = useState("");
+  const [bulkDeleteConfirmOpen, setBulkDeleteConfirmOpen] = useState(false);
   const [expandedTaskId, setExpandedTaskId] = useState<number | null>(null);
 
   const [newTask, setNewTask] = useState({
@@ -202,18 +203,23 @@ export default function Tasks() {
   });
 
   const bulkDeleteMutation = useMutation({
-    mutationFn: async (taskIds: number[]) => {
-      const results = await Promise.all(
-        taskIds.map((id) => apiRequest("DELETE", `/api/tasks/${id}`))
-      );
-      return results;
+    mutationFn: async (taskIds: number[]): Promise<{ deleted: number; requested: number }> => {
+      const res = await apiRequest("POST", "/api/tasks/bulk-delete", { taskIds });
+      const data = await res.json();
+      return { deleted: data.deleted, requested: taskIds.length };
     },
-    onSuccess: () => {
+    onSuccess: ({ deleted, requested }) => {
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
       setSelectedTaskIds(new Set());
-      toast({ title: "Tasks deleted successfully" });
+      setBulkDeleteConfirmOpen(false);
+      if (deleted < requested) {
+        toast({ title: `${deleted} of ${requested} tasks deleted`, description: "Some tasks may have already been deleted.", variant: "default" });
+      } else {
+        toast({ title: `${deleted} task${deleted !== 1 ? "s" : ""} deleted` });
+      }
     },
     onError: (err: Error) => {
+      setBulkDeleteConfirmOpen(false);
       toastError(err, { title: "Failed to delete tasks" });
     },
   });
@@ -447,7 +453,7 @@ export default function Tasks() {
       {selectedTaskIds.size > 0 && (
         <div className="flex items-center gap-3 flex-wrap" data-testid="tasks-bulk-bar">
           <span className="text-sm text-muted-foreground" data-testid="text-tasks-selected-count">
-            {selectedTaskIds.size} task{selectedTaskIds.size > 1 ? "s" : ""} selected
+            {selectedTaskIds.size} of {filteredTasks.length} shown selected
           </span>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -474,10 +480,10 @@ export default function Tasks() {
               <DropdownMenuItem
                 data-testid="button-bulk-delete"
                 className="text-destructive"
-                onClick={() => bulkDeleteMutation.mutate(Array.from(selectedTaskIds))}
+                onClick={() => setBulkDeleteConfirmOpen(true)}
               >
                 <Trash2 className="w-4 h-4 mr-2" />
-                Delete Selected
+                Delete Selected ({selectedTaskIds.size})
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -491,6 +497,37 @@ export default function Tasks() {
           </Button>
         </div>
       )}
+
+      <Dialog open={bulkDeleteConfirmOpen} onOpenChange={setBulkDeleteConfirmOpen}>
+        <DialogContent data-testid="dialog-bulk-delete-confirm">
+          <DialogHeader>
+            <DialogTitle>Delete {selectedTaskIds.size} Task{selectedTaskIds.size !== 1 ? "s" : ""}?</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
+            <p className="text-sm text-muted-foreground">
+              This will remove {selectedTaskIds.size} task{selectedTaskIds.size !== 1 ? "s" : ""} from active task views. Confirm the reviewed selection before continuing.
+            </p>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button
+                variant="outline"
+                onClick={() => setBulkDeleteConfirmOpen(false)}
+                disabled={bulkDeleteMutation.isPending}
+                data-testid="button-cancel-bulk-delete"
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={() => bulkDeleteMutation.mutate(Array.from(selectedTaskIds))}
+                disabled={bulkDeleteMutation.isPending}
+                data-testid="button-confirm-bulk-delete"
+              >
+                {bulkDeleteMutation.isPending ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Deleting...</> : `Delete ${selectedTaskIds.size} Task${selectedTaskIds.size !== 1 ? "s" : ""}`}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={bulkAssignOpen} onOpenChange={setBulkAssignOpen}>
         <DialogContent data-testid="dialog-bulk-assign">

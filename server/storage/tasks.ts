@@ -144,6 +144,23 @@ import { coerceDateFields } from "../utils/date-coerce";
     await db.update(tasks).set({ deletedAt: new Date() }).where(eq(tasks.id, id));
   }
 
+  async bulkSoftDeleteTasks(ids: number[]): Promise<number> {
+    const unique = [...new Set(ids.filter(id => Number.isInteger(id) && id > 0))];
+    if (unique.length === 0) return 0;
+    const CHUNK_SIZE = 500;
+    let totalDeleted = 0;
+    const now = new Date();
+    for (let i = 0; i < unique.length; i += CHUNK_SIZE) {
+      const chunk = unique.slice(i, i + CHUNK_SIZE);
+      const result = await db
+        .update(tasks)
+        .set({ deletedAt: now })
+        .where(and(inArray(tasks.id, chunk), isNull(tasks.deletedAt)))
+        .returning({ id: tasks.id });
+      totalDeleted += result.length;
+    }
+    return totalDeleted;
+  }
 
   async deleteTask(id: number): Promise<void> {
     await db.delete(tasks).where(eq(tasks.id, id));

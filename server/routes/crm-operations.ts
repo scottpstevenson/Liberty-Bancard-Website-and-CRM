@@ -1,5 +1,5 @@
 import type { Express } from "express";
-import { isAuthenticated } from "../replit_integrations/auth";
+import { isAuthenticated, isDashboardUser } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { z } from "zod";
 import { contacts, insertContactCompanySchema } from "@shared/schema";
@@ -250,13 +250,51 @@ export function registerCrmOperationsRoutes(app: Express) {
         ghlTaskId = task.ghlTaskId;
         ghlContactId = contact?.ghlContactId || null;
       }
-      await storage.deleteTask(taskId);
+      await storage.softDeleteTask(taskId);
       res.json({ success: true });
       propagateTaskDeleteToGhl(taskId, ghlTaskId, ghlContactId).catch((err: Error) => {
         console.warn(`[GHL Delete] Failed to propagate task #${taskId} delete to GHL:`, err.message);
       });
     } catch (err: any) {
       console.error("Delete task error:", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/tasks/bulk-delete", isDashboardUser, async (req, res) => {
+    try {
+      const { taskIds } = req.body;
+      if (!Array.isArray(taskIds)) return res.status(400).json({ message: "taskIds must be an array" });
+      if (taskIds.length === 0) {
+        return res.json({ deleted: 0 });
+      }
+      if (taskIds.length > 2000) return res.status(400).json({ message: "Cannot delete more than 2,000 tasks at once" });
+      const invalid = taskIds.filter(id => !Number.isInteger(id) || id <= 0);
+      if (invalid.length > 0) return res.status(400).json({ message: "All taskIds must be positive integers" });
+
+      const submittedCount = taskIds.length;
+      const uniqueIds: number[] = [...new Set(taskIds as number[])];
+      const uniqueCount = uniqueIds.length;
+      const actualDeleted = await storage.bulkSoftDeleteTasks(uniqueIds);
+
+      const actor = (req.user as any);
+      await storage.createAuditLog({
+        action: "bulk_soft_delete_tasks",
+        entityType: "task",
+        userId: actor?.id ?? null,
+        details: {
+          actor: actor?.email ?? actor?.username ?? "unknown",
+          submitted: submittedCount,
+          unique: uniqueCount,
+          deleted: actualDeleted,
+          alreadyDeletedOrMissing: uniqueCount - actualDeleted,
+          timestamp: new Date().toISOString(),
+        },
+      });
+
+      res.json({ deleted: actualDeleted });
+    } catch (err: any) {
+      console.error("Bulk delete tasks error:", err.message);
       res.status(500).json({ message: err.message });
     }
   });

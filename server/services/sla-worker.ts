@@ -594,7 +594,18 @@ let cycleCount = 0;
 const AI_OPS_EVERY_N_CYCLES = 2;
 const STAGE_PROGRESSION_EVERY_N_CYCLES = 12; // ~1 hour at 5-min cycle
 
+// Single-process re-entrancy guard. This deployment runs in a single Replit
+// process (no pm2 cluster, no multi-dyno). If the deployment model changes to
+// multi-process or multi-instance, replace this flag with a distributed
+// advisory lock (e.g. a Redis SET NX with a short TTL).
+let _aiOpsRunning = false;
+
 async function runScheduledAiOps() {
+  if (_aiOpsRunning) {
+    console.log("[SLA] runScheduledAiOps already in progress — skipping concurrent invocation");
+    return;
+  }
+  _aiOpsRunning = true;
   try {
     const { data: allDeals } = await storage.getDeals({ limit: 500 });
     const allTasks = await storage.getTasks();
@@ -613,7 +624,7 @@ async function runScheduledAiOps() {
       if (deal.updatedAt && new Date(deal.updatedAt) < sevenDaysAgo) {
         const title = `Follow up on stalling Deal #${deal.id}`;
         if (!existingTaskTitles.has(title)) {
-          await storage.createTask({ title, description: `Deal #${deal.id} (${deal.stage}) has had no activity for 7+ days.`, priority: "high", dueDate: new Date(now.getTime() + 24 * 60 * 60 * 1000) });
+          await storage.createTask({ title, description: `Deal #${deal.id} (${deal.stage}) has had no activity for 7+ days.`, priority: "high", dueDate: new Date(now.getTime() + 24 * 60 * 60 * 1000), dealId: deal.id });
           existingTaskTitles.add(title);
           tasksGenerated++;
           if (tasksGenerated >= 5) break;
@@ -649,12 +660,14 @@ async function runScheduledAiOps() {
       }
     }
 
-    if (tasksGenerated > 0 || dealsProgressed > 0) {
-      await storage.createAuditLog({ action: "scheduled_ai_ops", entityType: "system", details: { tasksGenerated, dealsProgressed, timestamp: now.toISOString() } });
-      console.log(`Scheduled AI ops: ${tasksGenerated} tasks generated, ${dealsProgressed} deals progressed`);
-    }
+    // Always log the cycle — even zero-task runs — so SLA cycle health is observable
+    // and two-cycle post-deploy verification can be confirmed from audit_logs.
+    await storage.createAuditLog({ action: "scheduled_ai_ops", entityType: "system", details: { tasksGenerated, dealsProgressed, timestamp: now.toISOString() } });
+    console.log(`[SLA] AI ops cycle complete: ${tasksGenerated} tasks generated, ${dealsProgressed} deals progressed`);
   } catch (err) {
     console.error("Scheduled AI operations error:", err);
+  } finally {
+    _aiOpsRunning = false;
   }
 }
 
