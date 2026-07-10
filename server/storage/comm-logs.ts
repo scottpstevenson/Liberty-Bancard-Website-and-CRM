@@ -149,5 +149,29 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
     return created;
   }
 
+  async getEmailLogsByContactIds(contactIds: number[]) {
+    if (contactIds.length === 0) return [];
+    const CHUNK = 500;
+    const results: typeof emailLogs.$inferSelect[] = [];
+    for (let i = 0; i < contactIds.length; i += CHUNK) {
+      const chunk = contactIds.slice(i, i + CHUNK);
+      const rows = await db.select().from(emailLogs).where(inArray(emailLogs.contactId, chunk));
+      results.push(...rows);
+    }
+    return results;
+  }
+
+  async getCallLogsByContactIds(contactIds: number[]) {
+    if (contactIds.length === 0) return [];
+    const CHUNK = 500;
+    const results: typeof callLogs.$inferSelect[] = [];
+    for (let i = 0; i < contactIds.length; i += CHUNK) {
+      const chunk = contactIds.slice(i, i + CHUNK);
+      const rows = await db.select().from(callLogs).where(inArray(callLogs.contactId, chunk));
+      results.push(...rows);
+    }
+    return results;
+  }
+
   }
   

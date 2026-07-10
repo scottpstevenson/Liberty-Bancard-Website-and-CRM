@@ -170,6 +170,7 @@ export interface IStorage {
   getDeal(id: number): Promise<typeof deals.$inferSelect | undefined>;
   getDealByGhlOpportunityId(ghlOpportunityId: string): Promise<typeof deals.$inferSelect | undefined>;
   getDealsByIds(ids: number[]): Promise<typeof deals.$inferSelect[]>;
+  getDealsByContactIds(contactIds: number[]): Promise<typeof deals.$inferSelect[]>;
   getDealsByPipeline(pipeline: string, params?: PaginationParams): Promise<PaginatedResult<typeof deals.$inferSelect>>;
   getDealsByContact(contactId: number): Promise<typeof deals.$inferSelect[]>;
   createDeal(deal: InsertDeal, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }): Promise<typeof deals.$inferSelect>;
@@ -306,10 +307,12 @@ export interface IStorage {
   getEmailLogs(contactId?: number): Promise<typeof emailLogs.$inferSelect[]>;
   getEmailLogsByStepId(stepId: number): Promise<typeof emailLogs.$inferSelect[]>;
   getEmailLogsByContactId(contactId: number): Promise<typeof emailLogs.$inferSelect[]>;
+  getEmailLogsByContactIds(contactIds: number[]): Promise<typeof emailLogs.$inferSelect[]>;
   createEmailLog(log: InsertEmailLog): Promise<typeof emailLogs.$inferSelect>;
   updateEmailLog(id: number, updates: Partial<InsertEmailLog>): Promise<typeof emailLogs.$inferSelect | undefined>;
 
   getCallLogs(contactId?: number): Promise<typeof callLogs.$inferSelect[]>;
+  getCallLogsByContactIds(contactIds: number[]): Promise<typeof callLogs.$inferSelect[]>;
   createCallLog(log: InsertCallLog): Promise<typeof callLogs.$inferSelect>;
 
   getStageAutomationRules(pipeline?: string): Promise<typeof stageAutomationRules.$inferSelect[]>;

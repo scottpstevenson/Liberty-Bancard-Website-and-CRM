@@ -265,6 +265,20 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
     return await db.select().from(deals).where(inArray(deals.id, ids));
   }
 
+  async getDealsByContactIds(contactIds: number[]) {
+    if (contactIds.length === 0) return [];
+    const CHUNK = 500;
+    const results: typeof deals.$inferSelect[] = [];
+    for (let i = 0; i < contactIds.length; i += CHUNK) {
+      const chunk = contactIds.slice(i, i + CHUNK);
+      const rows = await db.select().from(deals)
+        .where(inArray(deals.contactId, chunk))
+        .orderBy(desc(deals.createdAt));
+      results.push(...rows);
+    }
+    return results;
+  }
+
   async getDealsByPartnerOrg(partnerOrgId: number) {
     return await db.select().from(deals).where(eq(deals.partnerOrgId, partnerOrgId)).orderBy(desc(deals.createdAt));
   }

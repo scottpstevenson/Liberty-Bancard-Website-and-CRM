@@ -1,5 +1,5 @@
 import { storage } from "../storage";
-import type { Contact, Deal } from "@shared/schema";
+import type { Contact, Deal, EmailLog, CallLog, SequenceEnrollment } from "@shared/schema";
 import { sendCriticalEmailNotification, createPreferenceAwareNotification } from "./digest-service";
 import { updateContactGhlFirst } from "./contact-writer";
 
@@ -328,6 +328,221 @@ function generateSummary(breakdown: ScoreBreakdown, contact: Contact): string {
   return parts.join(" ");
 }
 
+// ── Canonical scoring input types ─────────────────────────────────────────────
+
+export interface ScoringInputs {
+  contact: Contact;
+  deal: Deal | null;
+  emailLogs: EmailLog[];
+  callLogs: CallLog[];
+  enrollments: SequenceEnrollment[];
+}
+
+export interface ScoringOutput {
+  leadScore: number;
+  revPotentialScore: number;
+  switchabilityScore: number;
+  uwConfidenceScore: number;
+  engagementScore: number;
+  scoreBreakdown: ScoreBreakdown;
+  tier: "hot" | "warm" | "cold" | "unqualified";
+}
+
+/**
+ * Build scoring inputs from pre-fetched data (no DB access).
+ * Pure function — same inputs → same outputs.
+ */
+export function buildScoringInputs(
+  contact: Contact,
+  deal: Deal | null,
+  emailLogs: EmailLog[],
+  callLogs: CallLog[],
+  enrollments: SequenceEnrollment[]
+): ScoringInputs {
+  return { contact, deal, emailLogs, callLogs, enrollments };
+}
+
+/**
+ * Apply scoring inputs to compute scores.
+ * Pure function — no DB access, no side effects.
+ */
+export function applyScoringInputs(inputs: ScoringInputs): ScoringOutput {
+  const { contact, deal, emailLogs, callLogs, enrollments } = inputs;
+
+  const revPotential = calculateRevenuePotential(contact, deal);
+  const switchability = calculateSwitchability(contact);
+  const uwConfidence = calculateUnderwritingConfidence(contact, deal);
+
+  // Engagement computed from pre-fetched data (not async DB calls)
+  let engScore = 0;
+  const engFactors: Record<string, number> = {};
+  try {
+    const repliedEmails = emailLogs.filter(e => e.repliedAt).length;
+    const openedEmails = emailLogs.filter(e => e.openedAt).length;
+    const connectedCalls = callLogs.filter(c => c.outcome === "Connected" || c.outcome === "Interested" || c.outcome === "Appointment Set").length;
+
+    if (repliedEmails > 0) {
+      const v = Math.min(6, repliedEmails * 3);
+      engScore += v;
+      engFactors.emailReplies = v;
+    }
+    if (openedEmails > 0) {
+      const v = Math.min(3, openedEmails);
+      engScore += v;
+      engFactors.emailOpens = v;
+    }
+    if (connectedCalls > 0) {
+      const v = Math.min(5, connectedCalls * 3);
+      engScore += v;
+      engFactors.callsConnected = v;
+    }
+    const appointmentCalls = callLogs.filter(c => c.outcome === "Appointment Set").length;
+    if (appointmentCalls > 0) {
+      engScore += 4;
+      engFactors.appointmentSet = 4;
+    }
+    if (enrollments.length > 0) {
+      engScore += 2;
+      engFactors.inSequence = 2;
+    }
+  } catch {
+    engScore = 5;
+    engFactors.default = 5;
+  }
+  engScore = Math.max(0, Math.min(20, engScore));
+
+  const quizBonus = calculateQuizBonus(contact);
+
+  let offerBonus = 0;
+  if (contact.offerRoutingSource !== "manual_override" && contact.offerConfidence != null) {
+    offerBonus = Math.min(5, Math.round(contact.offerConfidence / 20));
+  }
+  const uwWithBonus = Math.min(25, uwConfidence.score + offerBonus);
+
+  const total = Math.min(100, revPotential.score + switchability.score + uwWithBonus + engScore + quizBonus.score);
+  const tier = determineTier(total);
+
+  const breakdown: ScoreBreakdown = {
+    revPotential: { score: revPotential.score, max: 30, factors: revPotential.factors },
+    switchability: { score: switchability.score, max: 25, factors: switchability.factors },
+    uwConfidence: { score: uwWithBonus, max: 25, factors: offerBonus > 0 ? { ...uwConfidence.factors, offerConfidenceBonus: offerBonus } : uwConfidence.factors },
+    engagement: { score: engScore, max: 20, factors: engFactors },
+    quizBonus: { score: quizBonus.score, max: 20, factors: quizBonus.factors },
+    total,
+    tier,
+    summary: "",
+  };
+  breakdown.summary = generateSummary(breakdown, contact);
+
+  return {
+    leadScore: total,
+    revPotentialScore: revPotential.score,
+    switchabilityScore: switchability.score,
+    uwConfidenceScore: uwWithBonus,
+    engagementScore: engScore,
+    scoreBreakdown: breakdown,
+    tier,
+  };
+}
+
+export interface PageScoringResult {
+  scores: Array<{
+    id: number;
+    leadScore: number;
+    revPotentialScore: number;
+    switchabilityScore: number;
+    uwConfidenceScore: number;
+    engagementScore: number;
+    scoreBreakdown: ScoreBreakdown;
+    tier: "hot" | "warm" | "cold" | "unqualified";
+    lastScoredAt: Date;
+  }>;
+  updated: number;
+  skipped: number;
+}
+
+/**
+ * Score a page of contacts in bulk using 5 parallel batch reads + in-memory scoring.
+ * No DB writes — caller owns the write transaction.
+ */
+export async function scoreContactPageBulk(ids: number[]): Promise<PageScoringResult> {
+  if (ids.length === 0) return { scores: [], updated: 0, skipped: 0 };
+
+  const [contactRows, dealRows, emailLogRows, callLogRows, enrollmentRows] = await Promise.all([
+    storage.getContactsByIds(ids),
+    storage.getDealsByContactIds(ids),
+    storage.getEmailLogsByContactIds(ids),
+    storage.getCallLogsByContactIds(ids),
+    storage.getContactEnrollmentsForContacts(ids),
+  ]);
+
+  const contactMap = new Map(contactRows.map(c => [c.id, c]));
+  const dealsByContact = new Map<number, Deal[]>();
+  for (const d of dealRows) {
+    if (d.contactId == null) continue;
+    const arr = dealsByContact.get(d.contactId) ?? [];
+    arr.push(d);
+    dealsByContact.set(d.contactId, arr);
+  }
+  const emailsByContact = new Map<number, EmailLog[]>();
+  for (const e of emailLogRows) {
+    if (e.contactId == null) continue;
+    const arr = emailsByContact.get(e.contactId) ?? [];
+    arr.push(e);
+    emailsByContact.set(e.contactId, arr);
+  }
+  const callsByContact = new Map<number, CallLog[]>();
+  for (const c of callLogRows) {
+    if (c.contactId == null) continue;
+    const arr = callsByContact.get(c.contactId) ?? [];
+    arr.push(c);
+    callsByContact.set(c.contactId, arr);
+  }
+  const enrollmentsByContact = new Map<number, SequenceEnrollment[]>();
+  for (const e of enrollmentRows) {
+    if (e.contactId == null) continue;
+    const arr = enrollmentsByContact.get(e.contactId) ?? [];
+    arr.push(e);
+    enrollmentsByContact.set(e.contactId, arr);
+  }
+
+  const scores: PageScoringResult["scores"] = [];
+  let updated = 0;
+  let skipped = 0;
+  const now = new Date();
+
+  for (const id of ids) {
+    const contact = contactMap.get(id);
+    if (!contact) {
+      skipped++;
+      continue;
+    }
+    const contactDeals = dealsByContact.get(id) ?? [];
+    const primaryDeal = contactDeals[0] ?? null;
+    const emailLogs = emailsByContact.get(id) ?? [];
+    const callLogs = callsByContact.get(id) ?? [];
+    const enrollments = enrollmentsByContact.get(id) ?? [];
+
+    const inputs = buildScoringInputs(contact, primaryDeal, emailLogs, callLogs, enrollments);
+    const output = applyScoringInputs(inputs);
+
+    scores.push({
+      id,
+      leadScore: output.leadScore,
+      revPotentialScore: output.revPotentialScore,
+      switchabilityScore: output.switchabilityScore,
+      uwConfidenceScore: output.uwConfidenceScore,
+      engagementScore: output.engagementScore,
+      scoreBreakdown: output.scoreBreakdown,
+      tier: output.tier,
+      lastScoredAt: now,
+    });
+    updated++;
+  }
+
+  return { scores, updated, skipped };
+}
+
 export async function scoreContact(contactId: number): Promise<ScoreBreakdown | null> {
   const contact = await storage.getContact(contactId);
   if (!contact) return null;
@@ -342,7 +557,6 @@ export async function scoreContact(contactId: number): Promise<ScoreBreakdown | 
 
   const quizBonus = calculateQuizBonus(contact);
 
-  // Offer confidence bonus: max +5 pts, applied to UW confidence — manual_override excluded
   let offerBonus = 0;
   if (contact.offerRoutingSource !== "manual_override" && contact.offerConfidence != null) {
     offerBonus = Math.min(5, Math.round(contact.offerConfidence / 20));
@@ -421,7 +635,7 @@ export async function scoreContactBatch(contactIds: number[]): Promise<number> {
 /**
  * scoreContactBatchSafe — compute and persist scores without GHL sync,
  * notifications, or deal updates. Safe for batch processing 100k+ contacts.
- * Returns null if contact not found.
+ * Returns null if contact not found. Uses shared buildScoringInputs/applyScoringInputs helpers.
  */
 export async function scoreContactBatchSafe(contactId: number): Promise<{ tier: string; total: number } | null> {
   const contact = await storage.getContact(contactId);
@@ -429,45 +643,24 @@ export async function scoreContactBatchSafe(contactId: number): Promise<{ tier: 
 
   const contactDeals = await storage.getDealsByContact(contactId);
   const primaryDeal = contactDeals[0] || null;
+  const emailLogs = await storage.getEmailLogs(contactId);
+  const callLogs = await storage.getCallLogs(contactId);
+  const enrollments = await storage.getContactEnrollments(contactId);
 
-  const revPotential = calculateRevenuePotential(contact, primaryDeal);
-  const switchability = calculateSwitchability(contact);
-  const uwConfidence = calculateUnderwritingConfidence(contact, primaryDeal);
-  const engagement = await calculateEngagement(contactId);
-  const quizBonus = calculateQuizBonus(contact);
-
-  let offerBonus = 0;
-  if (contact.offerRoutingSource !== "manual_override" && contact.offerConfidence != null) {
-    offerBonus = Math.min(5, Math.round(contact.offerConfidence / 20));
-  }
-  const uwWithBonus = Math.min(25, uwConfidence.score + offerBonus);
-
-  const total = Math.min(100, revPotential.score + switchability.score + uwWithBonus + engagement.score + quizBonus.score);
-  const tier = determineTier(total);
-
-  const breakdown: ScoreBreakdown = {
-    revPotential: { score: revPotential.score, max: 30, factors: revPotential.factors },
-    switchability: { score: switchability.score, max: 25, factors: switchability.factors },
-    uwConfidence: { score: uwWithBonus, max: 25, factors: offerBonus > 0 ? { ...uwConfidence.factors, offerConfidenceBonus: offerBonus } : uwConfidence.factors },
-    engagement: { score: engagement.score, max: 20, factors: engagement.factors },
-    quizBonus: { score: quizBonus.score, max: 20, factors: quizBonus.factors },
-    total,
-    tier,
-    summary: "",
-  };
-  breakdown.summary = generateSummary(breakdown, contact);
+  const inputs = buildScoringInputs(contact, primaryDeal, emailLogs, callLogs, enrollments);
+  const output = applyScoringInputs(inputs);
 
   await storage.syncUpdateContact(contactId, {
-    leadScore: total,
-    revPotentialScore: revPotential.score,
-    switchabilityScore: switchability.score,
-    uwConfidenceScore: uwWithBonus,
-    engagementScore: engagement.score,
-    scoreBreakdown: breakdown as any,
+    leadScore: output.leadScore,
+    revPotentialScore: output.revPotentialScore,
+    switchabilityScore: output.switchabilityScore,
+    uwConfidenceScore: output.uwConfidenceScore,
+    engagementScore: output.engagementScore,
+    scoreBreakdown: output.scoreBreakdown as any,
     lastScoredAt: new Date(),
   });
 
-  return { tier, total };
+  return { tier: output.tier, total: output.leadScore };
 }
 
 export { calculateRevenuePotential as calculateRevenuePotentialFn };

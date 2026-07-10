@@ -1033,6 +1033,40 @@ export function registerActivationRoutes(app: Express) {
         source: "N/A",
       });
 
+      // contact_scoring — check how many contacts still need scoring
+      let scoringStatus: "green" | "yellow" | "red" = "yellow";
+      let scoringValue = "Unable to check";
+      try {
+        const unscoredResult = await db.execute(sql`SELECT count(*)::int AS cnt FROM contacts WHERE archived_at IS NULL AND last_scored_at IS NULL`);
+        const unscoredCount = Number((unscoredResult.rows?.[0] as any)?.cnt ?? 0);
+
+        const { getScoringProgress } = await import("../services/contact-scoring-job");
+        const scoringProgress = await getScoringProgress();
+
+        if (scoringProgress.status === "running") {
+          scoringStatus = "yellow";
+          scoringValue = `Running: ${scoringProgress.processed}/${scoringProgress.total} processed`;
+        } else if (unscoredCount === 0) {
+          scoringStatus = "green";
+          scoringValue = "All contacts scored";
+        } else {
+          scoringStatus = "yellow";
+          scoringValue = `${unscoredCount.toLocaleString()} contacts not yet scored`;
+        }
+      } catch {
+        scoringStatus = "yellow";
+        scoringValue = "Unable to check scoring status";
+      }
+      items.push({
+        key: "contact_scoring",
+        label: "Contact Scoring Backfill",
+        status: scoringStatus,
+        value: scoringValue,
+        description: "All active contacts should have lead scores for pipeline prioritization and LCC analytics.",
+        remediation: scoringStatus !== "green" ? "Run the Contact Scoring backfill from Activation Panel → One-shot Operations." : null,
+        source: "contacts.last_scored_at IS NULL count",
+      });
+
       const hasRed = items.some(i => i.status === "red");
       const hasYellow = items.some(i => i.status === "yellow");
       const overallStatus: "green" | "yellow" | "red" = hasRed ? "red" : hasYellow ? "yellow" : "green";

@@ -1,4 +1,13 @@
 import { storage } from "../storage";
+import { markScoringInterrupted } from "./scoring-progress-helpers";
+
+export async function reconcileScoringState(): Promise<void> {
+  try {
+    await markScoringInterrupted();
+  } catch (err) {
+    console.error("[StartupReconcile] Scoring reconciliation failed — continuing startup:", err);
+  }
+}
 
 export async function reconcileEnrichmentState(
   storageImpl: Pick<typeof storage, "getSystemSetting" | "setSystemSetting"> = storage

@@ -1528,38 +1528,59 @@ export function registerAdminRoutes(app: Express) {
   });
 
   // === CONTACT SCORING JOB ===
-  app.post("/api/admin/contacts/score-all/preview", requireRole("admin", "manager"), async (_req, res) => {
+
+  // Preview endpoint: returns eligible count, estimated batches, sample IDs
+  app.post("/api/admin/contacts/score-all/preview", requireRole("admin", "manager"), async (req, res) => {
     try {
       const { previewScoringJob } = await import("../services/contact-scoring-job");
-      const result = await previewScoringJob(false);
+      const mode = req.body?.mode === "rescore" ? "rescore" : "backfill";
+      const result = await previewScoringJob(mode);
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
   });
 
+  // Start backfill (admin or manager)
   app.post("/api/admin/contacts/score-all", requireRole("admin", "manager"), async (req, res) => {
     try {
-      const { isScoringJobRunning, startScoringJob } = await import("../services/contact-scoring-job");
-      const { confirmed, confirmationText, rescore, batchSize } = req.body ?? {};
+      const { startScoringJob } = await import("../services/contact-scoring-job");
+      const { confirmed, mode, batchSize } = req.body ?? {};
 
       if (!confirmed) {
         return res.status(400).json({ message: "confirmed: true is required." });
       }
 
-      if (rescore === true && confirmationText !== "SCORE CONTACTS") {
-        return res.status(400).json({ message: "Typed confirmation 'SCORE CONTACTS' required to rescore all contacts." });
+      // Rescore mode requires admin only (not manager) — enforced here explicitly
+      if (mode === "rescore") {
+        const userRole = (req.user as any)?.role;
+        if (userRole !== "admin") {
+          return res.status(403).json({ message: "Re-score mode requires admin role." });
+        }
+        const { confirmationText } = req.body;
+        if (confirmationText !== "RE-SCORE ALL CONTACTS") {
+          return res.status(400).json({ message: "Typed confirmation 'RE-SCORE ALL CONTACTS' required to rescore all contacts." });
+        }
       }
 
-      if (isScoringJobRunning()) {
-        return res.status(409).json({ message: "A scoring job is already running." });
-      }
-
-      await startScoringJob({ rescore: !!rescore, batchSize, adminUserId: (req.user as any)?.id ?? null });
+      const { preflightToken } = req.body ?? {};
+      await startScoringJob({
+        mode: mode === "rescore" ? "rescore" : "backfill",
+        batchSize,
+        adminUserId: String((req.user as any)?.id ?? ""),
+        preflightToken: preflightToken ?? null,
+      });
       res.status(202).json({ message: "Scoring job started." });
     } catch (err: any) {
       if (err.message === "A scoring job is already running.") {
-        return res.status(409).json({ message: err.message });
+        // Return current persisted progress so the client can render state
+        try {
+          const { getScoringProgress } = await import("../services/contact-scoring-job");
+          const current = await getScoringProgress();
+          return res.status(409).json({ message: err.message, progress: current });
+        } catch {
+          return res.status(409).json({ message: err.message });
+        }
       }
       res.status(500).json({ message: err.message });
     }

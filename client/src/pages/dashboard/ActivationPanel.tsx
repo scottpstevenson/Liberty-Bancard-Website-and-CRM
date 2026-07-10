@@ -487,6 +487,292 @@ function SendingIdentityWizard({ identities, ghlHealth, onTestGhl, ghlTesting }:
   );
 }
 
+interface ScoringProgressResponse {
+  status: "idle" | "running" | "complete" | "cancelled" | "failed" | "interrupted";
+  runId: string | null;
+  mode: "backfill" | "rescore";
+  total: number;
+  processed: number;
+  updated: number;
+  skipped: number;
+  hot: number;
+  warm: number;
+  cold: number;
+  unqualified: number;
+  errors: number;
+  lastProcessedContactId: number | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  error?: string | null;
+  jobRunning: boolean;
+}
+
+interface ScoringPreviewResponse {
+  totalEligible: number;
+  estimatedBatches: number;
+  sampleIds: number[];
+  breakdown: { nullLastScoredAt: number; staleLastScoredAt: number };
+  preflightToken?: string;
+}
+
+function ContactScoringPanel() {
+  const { toast } = useToast();
+  const [rescoreConfirm, setRescoreConfirm] = useState("");
+  const [rescoreDialogOpen, setRescoreDialogOpen] = useState(false);
+  const [lastPreview, setLastPreview] = useState<ScoringPreviewResponse | null>(null);
+  const [rescorePreview, setRescorePreview] = useState<ScoringPreviewResponse | null>(null);
+
+  const statusQuery = useQuery<ScoringProgressResponse>({
+    queryKey: ["/api/admin/contacts/score-all/status"],
+    refetchInterval: (query) => {
+      const data = query.state.data as ScoringProgressResponse | undefined;
+      return data?.status === "running" ? 5000 : false;
+    },
+  });
+
+  const previewMutation = useMutation({
+    mutationFn: async (mode: "backfill" | "rescore") => {
+      const r = await apiRequest("POST", "/api/admin/contacts/score-all/preview", { mode });
+      return r.json() as Promise<ScoringPreviewResponse>;
+    },
+    onSuccess: (data, mode) => {
+      if (mode === "rescore") {
+        setRescorePreview(data);
+        toast({ title: "Rescore preview ready", description: `${data.totalEligible.toLocaleString()} contacts eligible. You may now confirm.` });
+      } else {
+        setLastPreview(data);
+        toast({ title: "Preview ready", description: `${data.totalEligible.toLocaleString()} contacts eligible` });
+      }
+    },
+    onError: (err: Error) => toast({ title: "Preview failed", description: err.message, variant: "destructive" }),
+  });
+
+  const backfillMutation = useMutation({
+    mutationFn: async () => {
+      const r = await apiRequest("POST", "/api/admin/contacts/score-all", { confirmed: true, mode: "backfill" });
+      return r.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Backfill started", description: "Scoring job is running. Progress updates every 5s." });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/contacts/score-all/status"] });
+    },
+    onError: (err: Error) => toast({ title: "Start failed", description: err.message, variant: "destructive" }),
+  });
+
+  const rescoreMutation = useMutation({
+    mutationFn: async () => {
+      if (!rescorePreview?.preflightToken) {
+        throw new Error("Run 'Preview Rescore' first to obtain a preflight token.");
+      }
+      const r = await apiRequest("POST", "/api/admin/contacts/score-all", {
+        confirmed: true,
+        mode: "rescore",
+        confirmationText: "RE-SCORE ALL CONTACTS",
+        preflightToken: rescorePreview.preflightToken,
+      });
+      return r.json();
+    },
+    onSuccess: () => {
+      setRescoreDialogOpen(false);
+      setRescoreConfirm("");
+      setRescorePreview(null);
+      toast({ title: "Re-score started", description: "Re-scoring all active contacts. Progress updates every 5s." });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/contacts/score-all/status"] });
+    },
+    onError: (err: Error) => toast({ title: "Re-score failed", description: err.message, variant: "destructive" }),
+  });
+
+  const cancelMutation = useMutation({
+    mutationFn: async () => {
+      const r = await apiRequest("POST", "/api/admin/contacts/score-all/cancel", {});
+      return r.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Cancel requested", description: "Job will stop after the current batch." });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/contacts/score-all/status"] });
+    },
+    onError: (err: Error) => toast({ title: "Cancel failed", description: err.message, variant: "destructive" }),
+  });
+
+  const progress = statusQuery.data;
+  const isRunning = progress?.status === "running";
+  const pct = progress && progress.total > 0 ? Math.round((progress.processed / progress.total) * 100) : 0;
+
+  return (
+    <Card data-testid="card-contact-scoring">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm flex items-center gap-2">
+          <Users className="w-4 h-4" /> Contact Scoring
+          {progress && (
+            <Badge variant={
+              progress.status === "complete" ? "default" :
+              progress.status === "running" ? "secondary" :
+              progress.status === "failed" ? "destructive" : "outline"
+            } data-testid="badge-scoring-status">
+              {progress.status}
+            </Badge>
+          )}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {statusQuery.isLoading && (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="w-4 h-4 animate-spin" /> Loading status…
+          </div>
+        )}
+
+        {progress && (
+          <div className="space-y-2 text-xs">
+            {isRunning && (
+              <div className="space-y-1">
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>Progress</span>
+                  <span data-testid="text-scoring-progress">{progress.processed.toLocaleString()} / {progress.total.toLocaleString()} ({pct}%)</span>
+                </div>
+                <div className="h-2 rounded-full bg-muted overflow-hidden">
+                  <div
+                    className="h-full bg-primary transition-all duration-500"
+                    style={{ width: `${pct}%` }}
+                    data-testid="bar-scoring-progress"
+                  />
+                </div>
+              </div>
+            )}
+            {progress.status === "complete" && (
+              <div className="grid grid-cols-4 gap-1 text-center text-xs border rounded p-2" data-testid="div-scoring-distribution">
+                <div><div className="font-semibold text-green-600">{progress.hot}</div><div className="text-muted-foreground">Hot</div></div>
+                <div><div className="font-semibold text-amber-600">{progress.warm}</div><div className="text-muted-foreground">Warm</div></div>
+                <div><div className="font-semibold text-blue-600">{progress.cold}</div><div className="text-muted-foreground">Cold</div></div>
+                <div><div className="font-semibold text-muted-foreground">{progress.unqualified}</div><div className="text-muted-foreground">Unqualified</div></div>
+              </div>
+            )}
+            {progress.status !== "idle" && (
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-muted-foreground">
+                <span>Mode: <strong>{progress.mode}</strong></span>
+                {progress.processed > 0 && <span>Updated: <strong>{progress.updated}</strong> Skipped: <strong>{progress.skipped}</strong> Errors: <strong>{progress.errors}</strong></span>}
+                {progress.startedAt && <span>Started: {new Date(progress.startedAt).toLocaleString()}</span>}
+              </div>
+            )}
+            {progress.error && (
+              <div className="text-xs text-destructive" data-testid="text-scoring-error">{progress.error}</div>
+            )}
+          </div>
+        )}
+
+        {lastPreview && (
+          <div className="text-xs border rounded p-2 bg-muted/30 space-y-1" data-testid="div-scoring-preview">
+            <div className="font-medium">Last Preview</div>
+            <div className="text-muted-foreground">{lastPreview.totalEligible.toLocaleString()} eligible · {lastPreview.estimatedBatches} batches</div>
+          </div>
+        )}
+
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => previewMutation.mutate("backfill")}
+            disabled={previewMutation.isPending || isRunning}
+            data-testid="button-scoring-preview"
+          >
+            {previewMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Search className="w-3 h-3 mr-1" />}
+            Preview
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => backfillMutation.mutate()}
+            disabled={backfillMutation.isPending || isRunning}
+            data-testid="button-run-backfill"
+          >
+            {backfillMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Play className="w-3 h-3 mr-1" />}
+            Run Backfill
+          </Button>
+          {isRunning && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => cancelMutation.mutate()}
+              disabled={cancelMutation.isPending}
+              data-testid="button-cancel-scoring"
+            >
+              <Square className="w-3 h-3 mr-1" /> Cancel
+            </Button>
+          )}
+          <Dialog open={rescoreDialogOpen} onOpenChange={(open) => {
+            setRescoreDialogOpen(open);
+            if (!open) { setRescoreConfirm(""); setRescorePreview(null); }
+          }}>
+            <DialogTrigger asChild>
+              <Button
+                variant="destructive"
+                size="sm"
+                disabled={isRunning}
+                data-testid="button-rescore-all"
+              >
+                Re-score All
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Re-score All Active Contacts</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-3 text-sm">
+                <p className="text-muted-foreground">
+                  This will re-score every active contact (including already-scored contacts). Requires admin role.
+                  First run a preflight preview, then type <strong>RE-SCORE ALL CONTACTS</strong> to confirm.
+                </p>
+                {/* Step 1: Preflight preview — must be completed before confirmation is enabled */}
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => previewMutation.mutate("rescore")}
+                    disabled={previewMutation.isPending}
+                    data-testid="button-rescore-preview"
+                  >
+                    {previewMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Search className="w-3 h-3 mr-1" />}
+                    Preview Rescore
+                  </Button>
+                  {rescorePreview && (
+                    <span className="text-xs text-green-600 font-medium">
+                      ✓ {rescorePreview.totalEligible.toLocaleString()} eligible — preflight token ready
+                    </span>
+                  )}
+                </div>
+                {/* Step 2: Confirmation text — only enabled after preview */}
+                <Input
+                  value={rescoreConfirm}
+                  onChange={e => setRescoreConfirm(e.target.value)}
+                  placeholder="RE-SCORE ALL CONTACTS"
+                  disabled={!rescorePreview}
+                  data-testid="input-rescore-confirm"
+                />
+                <div className="flex gap-2 justify-end">
+                  <DialogClose asChild>
+                    <Button variant="outline" size="sm" onClick={() => { setRescoreConfirm(""); setRescorePreview(null); }}>Cancel</Button>
+                  </DialogClose>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    disabled={!rescorePreview || rescoreConfirm !== "RE-SCORE ALL CONTACTS" || rescoreMutation.isPending}
+                    onClick={() => rescoreMutation.mutate()}
+                    data-testid="button-rescore-confirm"
+                  >
+                    {rescoreMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : null}
+                    Re-score All Contacts
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Backfill scores contacts with no <code>lastScoredAt</code>. Re-score overwrites all active contacts (admin only). No GHL sync, no enrollment, no outbound triggered.
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
 function Day1Runbook() {
   const { toast } = useToast();
   const { data, isLoading, refetch } = useQuery<ActivationStatus>({
@@ -585,6 +871,8 @@ function Day1Runbook() {
           </p>
         </CardContent>
       </Card>
+
+      <ContactScoringPanel />
     </div>
   );
 }
