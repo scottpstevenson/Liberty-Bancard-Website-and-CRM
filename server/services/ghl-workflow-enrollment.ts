@@ -457,6 +457,23 @@ export async function enrollInInboundConfirmation(params: {
   }
 
   if (isGhlConfigured() || isSdrGhlConfigured()) {
+    // Log that we are using direct sends as fallback (workflow ID not configured).
+    // This makes go-live-check Stage 5 show ✓ with a clear explanation instead of a
+    // false "neither enrolled nor skipped" error when GHL is live but the workflow ID
+    // has not been pasted in yet.
+    if (!inboundWorkflowId) {
+      await storage.createAuditLog({
+        action: "inbound_confirmation_skipped",
+        entityType: "contact",
+        entityId: contactId,
+        details: {
+          formType,
+          dealId,
+          reason: "GHL_WORKFLOW_INBOUND_CONFIRMATION not configured — sending direct email/SMS fallback instead. Set the GHL Workflow ID via Dashboard → Integrations → GHL Workflow IDs (row: Inbound Lead — Instant Confirmation) to activate the native GHL workflow.",
+        },
+      }).catch(() => {});
+    }
+
     let fallbackGhlContactId = contact.ghlContactId;
     if (!fallbackGhlContactId) {
       try {

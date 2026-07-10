@@ -10,8 +10,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useToast } from "@/hooks/use-toast";
-import { CheckCircle2, XCircle, Plus, Trash2, Settings, Workflow, Mail, Edit2, Save, X, Loader2, ShieldCheck, Linkedin, Info, Cpu, RefreshCw, AlertTriangle, Activity } from "lucide-react";
+import { CheckCircle2, XCircle, Plus, Trash2, Settings, Workflow, Mail, Edit2, Save, X, Loader2, ShieldCheck, Linkedin, Info, Cpu, RefreshCw, AlertTriangle, Activity, ChevronDown, ChevronRight, ExternalLink, Copy, Tag, Clock, MessageSquare } from "lucide-react";
 
 interface WorkflowEnvEntry {
   id: string;
@@ -391,6 +392,167 @@ function SendingIdentitiesTab() {
   );
 }
 
+function GhlWorkflowSetupGuide() {
+  const [open, setOpen] = useState(false);
+  const { toast } = useToast();
+
+  function copyToClipboard(text: string, label: string) {
+    navigator.clipboard.writeText(text).then(() => {
+      toast({ title: `Copied ${label}`, description: "Paste it into GHL." });
+    });
+  }
+
+  const emailSubject = "We received your request, {{contact.first_name}}!";
+  const emailBody = `Hi {{contact.first_name}},
+
+Thanks for reaching out to Liberty Bancard! We've received your information and our team is reviewing it now.
+
+Here's what happens next:
+1. Our team will analyze your processing statement (usually within a few hours)
+2. We'll prepare a personalized savings estimate for {{contact.company_name}}
+3. A team member will follow up with your results and recommendations
+
+Want to skip the wait? Book a call directly:
+{{contact.bookingLink}}
+
+Questions? Just reply to this email.
+
+— Liberty Bancard Team
+
+Eligibility, underwriting, card brand rules, and applicable laws apply.`;
+
+  const smsBody = `Hi {{contact.first_name}}, thanks for connecting with Liberty Bancard! We'll review your info and follow up soon. Book a call: {{contact.bookingLink}} — Liberty Bancard`;
+
+  return (
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <CollapsibleTrigger asChild>
+        <button
+          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-left hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors"
+          data-testid="button-toggle-workflow-setup-guide"
+        >
+          {open ? <ChevronDown className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" /> : <ChevronRight className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />}
+          <span className="text-sm font-semibold text-blue-800 dark:text-blue-300 flex-1">
+            GHL Workflow Setup Guide — Step-by-step instructions to build the "Instant Lead Confirmation" workflow in GoHighLevel
+          </span>
+          <ExternalLink className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+        </button>
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="mt-2 p-4 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-900/10 space-y-5">
+          <p className="text-xs text-blue-700 dark:text-blue-300">
+            GoHighLevel does not expose a workflow creation API — you must build this workflow manually in the GHL UI. Follow these steps exactly, then paste the resulting Workflow ID into the row below.
+          </p>
+
+          {/* Step 1 */}
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="w-5 h-5 rounded-full bg-blue-600 text-white text-[10px] font-bold flex items-center justify-center shrink-0">1</span>
+              <p className="text-sm font-semibold text-foreground">Open Automation → Workflows → + New Workflow → Start from Scratch</p>
+            </div>
+            <p className="text-xs text-muted-foreground ml-7">Name it: <strong>LB — Inbound Lead Instant Confirmation</strong></p>
+          </div>
+
+          {/* Step 2 — Trigger */}
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="w-5 h-5 rounded-full bg-blue-600 text-white text-[10px] font-bold flex items-center justify-center shrink-0">2</span>
+              <p className="text-sm font-semibold text-foreground">Add Trigger: <Tag className="w-3.5 h-3.5 inline mx-0.5" /> Contact Tag Added</p>
+            </div>
+            <div className="ml-7 space-y-1.5">
+              <p className="text-xs text-muted-foreground">In the trigger settings, set the tag filter to:</p>
+              <div className="flex items-center gap-2">
+                <code className="text-xs bg-white dark:bg-gray-800 border rounded px-2 py-1 font-mono font-bold text-blue-700 dark:text-blue-300">LB-INBOUND</code>
+                <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={() => copyToClipboard("LB-INBOUND", "tag")} data-testid="button-copy-tag-lb-inbound">
+                  <Copy className="w-3 h-3 mr-1" />Copy
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">This tag is added automatically by the platform on every form submission (estimate, statement upload, get-started, callback).</p>
+            </div>
+          </div>
+
+          {/* Step 3 — Send Email */}
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="w-5 h-5 rounded-full bg-blue-600 text-white text-[10px] font-bold flex items-center justify-center shrink-0">3</span>
+              <p className="text-sm font-semibold text-foreground">Add Action: <Mail className="w-3.5 h-3.5 inline mx-0.5" /> Send Email (Step 1 — Instant confirmation)</p>
+            </div>
+            <div className="ml-7 space-y-2">
+              <div>
+                <p className="text-xs font-medium text-muted-foreground mb-1">Subject line:</p>
+                <div className="flex items-start gap-2">
+                  <code className="text-xs bg-white dark:bg-gray-800 border rounded px-2 py-1 font-mono flex-1 break-all">{emailSubject}</code>
+                  <Button size="sm" variant="ghost" className="h-6 px-2 text-xs shrink-0" onClick={() => copyToClipboard(emailSubject, "subject")} data-testid="button-copy-email-subject">
+                    <Copy className="w-3 h-3 mr-1" />Copy
+                  </Button>
+                </div>
+              </div>
+              <div>
+                <p className="text-xs font-medium text-muted-foreground mb-1">Email body (paste into GHL email editor):</p>
+                <div className="flex items-start gap-2">
+                  <pre className="text-xs bg-white dark:bg-gray-800 border rounded px-2 py-1 font-mono flex-1 whitespace-pre-wrap break-all leading-relaxed">{emailBody}</pre>
+                  <Button size="sm" variant="ghost" className="h-6 px-2 text-xs shrink-0 self-start" onClick={() => copyToClipboard(emailBody, "email body")} data-testid="button-copy-email-body">
+                    <Copy className="w-3 h-3 mr-1" />Copy
+                  </Button>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                The <code className="font-mono bg-gray-100 dark:bg-gray-800 px-1 rounded">{"{{contact.bookingLink}}"}</code> merge tag maps to the <strong>bookingLink</strong> custom field that the platform writes on every contact sync. If it's blank in a test, create a GHL custom field named <code className="font-mono bg-gray-100 dark:bg-gray-800 px-1 rounded">bookingLink</code> under Contacts → Custom Fields.
+              </p>
+            </div>
+          </div>
+
+          {/* Step 4 — Wait + SMS */}
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="w-5 h-5 rounded-full bg-blue-600 text-white text-[10px] font-bold flex items-center justify-center shrink-0">4</span>
+              <p className="text-sm font-semibold text-foreground">(Optional) Add Wait → <Clock className="w-3.5 h-3.5 inline mx-0.5" /> 5 Minutes → <MessageSquare className="w-3.5 h-3.5 inline mx-0.5" /> Send SMS</p>
+            </div>
+            <div className="ml-7 space-y-2">
+              <p className="text-xs text-muted-foreground">Add an <strong>If/Else</strong> condition: <code className="font-mono bg-gray-100 dark:bg-gray-800 px-1 rounded">consentSms = true</code> → branch YES sends the SMS below.</p>
+              <div className="flex items-start gap-2">
+                <code className="text-xs bg-white dark:bg-gray-800 border rounded px-2 py-1 font-mono flex-1 break-all">{smsBody}</code>
+                <Button size="sm" variant="ghost" className="h-6 px-2 text-xs shrink-0 self-start" onClick={() => copyToClipboard(smsBody, "SMS body")} data-testid="button-copy-sms-body">
+                  <Copy className="w-3 h-3 mr-1" />Copy
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          {/* Step 5 — 24h follow-up */}
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="w-5 h-5 rounded-full bg-blue-600 text-white text-[10px] font-bold flex items-center justify-center shrink-0">5</span>
+              <p className="text-sm font-semibold text-foreground">(Optional) Add Wait → <Clock className="w-3.5 h-3.5 inline mx-0.5" /> 24 Hours → If/Else: no appointment booked → Send follow-up nudge</p>
+            </div>
+            <div className="ml-7">
+              <p className="text-xs text-muted-foreground">Condition: <code className="font-mono bg-gray-100 dark:bg-gray-800 px-1 rounded">Appointment is not set</code> (or check the deal stage via a custom field). Send a second email with subject <code className="font-mono bg-gray-100 dark:bg-gray-800 px-1 rounded">Still want to see how much you could save, {"{{contact.first_name}}"}?</code> and the booking link.</p>
+            </div>
+          </div>
+
+          {/* Step 6 — Publish and copy ID */}
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="w-5 h-5 rounded-full bg-green-600 text-white text-[10px] font-bold flex items-center justify-center shrink-0">6</span>
+              <p className="text-sm font-semibold text-foreground">Publish the workflow → Copy the Workflow ID → Paste it below</p>
+            </div>
+            <div className="ml-7 space-y-1">
+              <p className="text-xs text-muted-foreground">After publishing, open the workflow. The Workflow ID is in the URL: <code className="font-mono bg-gray-100 dark:bg-gray-800 px-1 rounded">app.gohighlevel.com/…/automation/workflows/<strong>WORKFLOW_ID_HERE</strong></code></p>
+              <p className="text-xs text-muted-foreground">Paste that ID into the <strong>Inbound Lead — Instant Confirmation</strong> row in the table below. The platform will start enrolling leads immediately — no code change or restart needed.</p>
+            </div>
+          </div>
+
+          <div className="flex items-start gap-2 p-2 rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+            <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
+            <p className="text-xs text-amber-700 dark:text-amber-300">
+              <strong>Prerequisite:</strong> The <code className="font-mono bg-amber-100 dark:bg-amber-900/40 px-1 rounded">bookingLink</code> custom field must exist in GHL (Contacts → Settings → Custom Fields). The platform writes this value on every contact upsert. Without it the merge tag will render blank in the email.
+            </p>
+          </div>
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
 function GhlWorkflowEnvTab() {
   const { data: registry = [], isLoading, refetch } = useQuery<WorkflowEnvEntry[]>({
     queryKey: ["/api/ghl/workflow-env-ids"],
@@ -419,11 +581,13 @@ function GhlWorkflowEnvTab() {
               Inbound Confirmation Workflow Not Set — New leads get no instant response
             </p>
             <p className="text-xs text-red-700 dark:text-red-400 mt-0.5">
-              <strong>GHL_WORKFLOW_INBOUND_CONFIRMATION</strong> is unset. Every estimate, statement upload, get-started, and callback form submission is a no-op — leads submit a form and hear nothing back. To fix: create a workflow in GHL (Automation → Workflows) that sends a welcome email with a booking link, then paste the GHL Workflow ID into the <em>Inbound Lead — Instant Confirmation</em> row below.
+              <strong>GHL_WORKFLOW_INBOUND_CONFIRMATION</strong> is unset. Every estimate, statement upload, get-started, and callback form submission sends a direct email/SMS fallback, but no GHL native workflow fires. To fix: follow the setup guide below to create the workflow in GHL, then paste the GHL Workflow ID into the <em>Inbound Lead — Instant Confirmation</em> row.
             </p>
           </div>
         </div>
       )}
+
+      <GhlWorkflowSetupGuide />
 
       <div className="flex items-center gap-4">
         <div className="text-sm text-muted-foreground flex-1">
