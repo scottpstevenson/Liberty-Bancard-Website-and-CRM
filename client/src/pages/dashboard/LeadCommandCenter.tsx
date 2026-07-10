@@ -22,7 +22,8 @@ import {
 } from "lucide-react";
 import type { SunbizEntity, Prospect } from "@shared/schema";
 import type { OutreachStatus } from "@/types/outreach-status";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { KpiBreakdownPopover, type KpiBreakdownPopoverProps } from "@/components/ui/kpi-breakdown-popover";
+import { fmtN } from "@/lib/format";
 import LeadIntelligence from "./LeadIntelligence";
 
 type UnifiedRow = {
@@ -826,85 +827,137 @@ export default function LeadCommandCenter() {
         <p className="text-sm text-muted-foreground">Unified view of all leads, enrichment, and conversion pipeline</p>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
-        <Card className="hover-elevate">
-          <CardContent className="p-3 text-center">
-            <div className="text-2xl font-bold" data-testid="text-kpi-total">
-              {kpis.totalLeads.toLocaleString()}
-            </div>
-            <Popover>
-              <PopoverTrigger asChild>
-                <button
-                  type="button"
-                  className="text-xs text-muted-foreground cursor-help underline decoration-dotted bg-transparent border-0 p-0 font-normal"
-                  data-testid="trigger-total-lead-breakdown"
-                >
-                  Total lead records
-                </button>
-              </PopoverTrigger>
-              <PopoverContent className="w-56 p-3" align="center">
-                {outreachStatusLoading ? (
-                  <Skeleton className="h-16 w-full" />
-                ) : (
-                  <div className="space-y-1 text-xs">
-                    <div className="flex justify-between gap-4">
-                      <span>Sunbiz entities</span>
-                      <span className="font-medium">{(outreachStatus?.entities?.total || 0).toLocaleString()}</span>
-                    </div>
-                    <div className="flex justify-between gap-4">
-                      <span>Prospects</span>
-                      <span className="font-medium">{(outreachStatus?.prospects?.total || 0).toLocaleString()}</span>
-                    </div>
-                    <div className="flex justify-between gap-4">
-                      <span>CRM contacts</span>
-                      <span className="font-medium">{(outreachStatus?.contacts?.total || 0).toLocaleString()}</span>
-                    </div>
-                    <div className="border-t pt-1 mt-1 text-muted-foreground leading-tight">
-                      Combined record count; sources may overlap.
-                    </div>
+      {(() => {
+        const enrichedProspectCount = prospects.filter((p) => p.status === "enriched" || p.status === "qualified").length;
+        const kpiCards: Array<{
+          config: KpiBreakdownPopoverProps;
+          testId: string;
+          colorClass?: string;
+        }> = [
+          {
+            testId: "text-kpi-total",
+            config: {
+              label: "Total lead records",
+              total: kpis.totalLeads,
+              rows: [
+                { label: "Sunbiz entities", value: outreachStatus?.entities?.total || 0 },
+                { label: "Prospects", value: outreachStatus?.prospects?.total || 0 },
+                { label: "CRM contacts", value: outreachStatus?.contacts?.total || 0 },
+              ],
+              overlapWarning: "Combined record count; sources may overlap.",
+              loading: outreachStatusLoading,
+              triggerTestId: "trigger-total-lead-breakdown",
+            },
+          },
+          {
+            testId: "text-kpi-pending",
+            colorClass: "text-amber-600 dark:text-amber-400",
+            config: {
+              label: "Pending Enrichment",
+              total: kpis.pendingEnrichment,
+              rows: [
+                { label: "Sunbiz entities", value: stats?.pending || 0 },
+              ],
+              explanation: "Sunbiz entities queued and awaiting enrichment.",
+              loading: stats === undefined,
+              triggerTestId: "trigger-pending-breakdown",
+            },
+          },
+          {
+            testId: "text-kpi-enriched",
+            colorClass: "text-green-600 dark:text-green-400",
+            config: {
+              label: "Enrichment Attempted",
+              total: kpis.enriched,
+              rows: [
+                { label: "Sunbiz entities enriched", value: stats?.enriched || 0 },
+                { label: "Loaded prospects enriched/qualified", value: enrichedProspectCount },
+              ],
+              explanation: "Prospect count reflects records currently loaded in this view.",
+              overlapWarning: "Entities promoted to prospects may appear in both buckets.",
+              loading: stats === undefined || prospectsLoading,
+              triggerTestId: "trigger-enriched-breakdown",
+            },
+          },
+          {
+            testId: "text-kpi-contactable",
+            colorClass: "text-teal-600 dark:text-teal-400",
+            config: {
+              label: "CRM records with contact info",
+              total: kpis.crmWithContactInfo,
+              rows: [
+                { label: "CRM contacts with info", value: outreachStatus?.contacts?.withContactInfo ?? 0 },
+              ],
+              explanation: "Counts active, non-DNC CRM records with a nonblank email or phone. This is not a canonical outreach-eligibility check.",
+              loading: outreachStatusLoading,
+              triggerTestId: "trigger-contactable-breakdown",
+            },
+          },
+          {
+            testId: "text-kpi-hot",
+            colorClass: "text-red-600 dark:text-red-400",
+            config: {
+              label: "Hot Leads",
+              total: kpis.hotLeads,
+              rows: [
+                { label: "Sunbiz entities", value: outreachStatus?.entities?.hot || 0 },
+                { label: "Prospects", value: outreachStatus?.prospects?.hot || 0 },
+                { label: "CRM contacts", value: outreachStatus?.contacts?.hot || 0 },
+              ],
+              explanation: "Score tier: hot (≥70) across all pipeline stages.",
+              overlapWarning: "A record promoted across stages may appear in more than one bucket.",
+              loading: outreachStatusLoading,
+              triggerTestId: "trigger-hot-breakdown",
+            },
+          },
+          {
+            testId: "text-kpi-warm",
+            colorClass: "text-orange-600 dark:text-orange-400",
+            config: {
+              label: "Warm Leads",
+              total: kpis.warmLeads,
+              rows: [
+                { label: "Sunbiz entities", value: outreachStatus?.entities?.warm || 0 },
+                { label: "Prospects", value: outreachStatus?.prospects?.warm || 0 },
+                { label: "CRM contacts", value: outreachStatus?.contacts?.warm || 0 },
+              ],
+              explanation: "Score tier: warm (45–69) across all pipeline stages.",
+              overlapWarning: "A record promoted across stages may appear in more than one bucket.",
+              loading: outreachStatusLoading,
+              triggerTestId: "trigger-warm-breakdown",
+            },
+          },
+          {
+            testId: "text-kpi-converted",
+            colorClass: "text-blue-600 dark:text-blue-400",
+            config: {
+              label: "Converted",
+              total: kpis.converted,
+              rows: [
+                { label: "Prospects converted", value: kpis.converted },
+              ],
+              explanation: "Prospects converted to CRM contacts. Uses server total when available; falls back to loaded-row count.",
+              loading: outreachStatusLoading && prospectsLoading,
+              triggerTestId: "trigger-converted-breakdown",
+            },
+          },
+        ];
+
+        return (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
+            {kpiCards.map(({ config, testId, colorClass }) => (
+              <Card key={testId} className="hover-elevate">
+                <CardContent className="p-3 text-center">
+                  <div className={`text-2xl font-bold${colorClass ? ` ${colorClass}` : ""}`} data-testid={testId}>
+                    {fmtN(config.total)}
                   </div>
-                )}
-              </PopoverContent>
-            </Popover>
-          </CardContent>
-        </Card>
-        <Card className="hover-elevate">
-          <CardContent className="p-3 text-center">
-            <div className="text-2xl font-bold text-amber-600 dark:text-amber-400" data-testid="text-kpi-pending">{kpis.pendingEnrichment}</div>
-            <div className="text-xs text-muted-foreground">Pending Enrichment</div>
-          </CardContent>
-        </Card>
-        <Card className="hover-elevate">
-          <CardContent className="p-3 text-center">
-            <div className="text-2xl font-bold text-green-600 dark:text-green-400" data-testid="text-kpi-enriched">{kpis.enriched}</div>
-            <div className="text-xs text-muted-foreground">Enrichment Attempted</div>
-          </CardContent>
-        </Card>
-        <Card className="hover-elevate">
-          <CardContent className="p-3 text-center">
-            <div className="text-2xl font-bold text-teal-600 dark:text-teal-400" data-testid="text-kpi-contactable">{kpis.crmWithContactInfo}</div>
-            <div className="text-xs text-muted-foreground">CRM records with contact info</div>
-          </CardContent>
-        </Card>
-        <Card className="hover-elevate">
-          <CardContent className="p-3 text-center">
-            <div className="text-2xl font-bold text-red-600 dark:text-red-400" data-testid="text-kpi-hot">{kpis.hotLeads}</div>
-            <div className="text-xs text-muted-foreground">Hot Leads</div>
-          </CardContent>
-        </Card>
-        <Card className="hover-elevate">
-          <CardContent className="p-3 text-center">
-            <div className="text-2xl font-bold text-orange-600 dark:text-orange-400" data-testid="text-kpi-warm">{kpis.warmLeads}</div>
-            <div className="text-xs text-muted-foreground">Warm Leads</div>
-          </CardContent>
-        </Card>
-        <Card className="hover-elevate">
-          <CardContent className="p-3 text-center">
-            <div className="text-2xl font-bold text-blue-600 dark:text-blue-400" data-testid="text-kpi-converted">{kpis.converted}</div>
-            <div className="text-xs text-muted-foreground">Converted</div>
-          </CardContent>
-        </Card>
-      </div>
+                  <KpiBreakdownPopover {...config} />
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        );
+      })()}
 
       <div
         className={`flex items-center gap-3 p-3 border-2 border-dashed rounded-md transition-colors ${dragOver ? "border-primary bg-primary/5" : "border-muted-foreground/25"}`}
