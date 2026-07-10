@@ -396,11 +396,30 @@ async function checkStage5(): Promise<StageResult> {
 
   await sleep(1000);
 
+  // Look for the three possible confirmation outcomes
   const [enrolledLog] = await db.select().from(auditLogs)
     .where(and(
       eq(auditLogs.entityType, "contact"),
       eq(auditLogs.entityId, createdContactId!),
       eq(auditLogs.action, "ghl_inbound_confirmation_enrolled"),
+    ))
+    .orderBy(desc(auditLogs.createdAt))
+    .limit(1);
+
+  const [sentLog] = await db.select().from(auditLogs)
+    .where(and(
+      eq(auditLogs.entityType, "contact"),
+      eq(auditLogs.entityId, createdContactId!),
+      eq(auditLogs.action, "inbound_confirmation_sent"),
+    ))
+    .orderBy(desc(auditLogs.createdAt))
+    .limit(1);
+
+  const [failedLog] = await db.select().from(auditLogs)
+    .where(and(
+      eq(auditLogs.entityType, "contact"),
+      eq(auditLogs.entityId, createdContactId!),
+      eq(auditLogs.action, "inbound_confirmation_failed"),
     ))
     .orderBy(desc(auditLogs.createdAt))
     .limit(1);
@@ -424,21 +443,65 @@ async function checkStage5(): Promise<StageResult> {
   const ghlInboundWorkflowId = ghlInboundWorkflowIdEnv || ghlInboundWorkflowIdDb;
 
   if (enrolledLog) {
-    steps.push(step("enrollInInboundConfirmation called and audit logged", true,
+    // GHL workflow path succeeded — highest confidence delivery
+    steps.push(step("Inbound confirmation: GHL workflow enrolled", true,
       `ghl_inbound_confirmation_enrolled logged at ${enrolledLog.createdAt}`));
+  } else if (sentLog) {
+    // Direct email (GHL direct or SMTP) delivered successfully
+    const detail = (sentLog.details as any) ?? {};
+    steps.push(step("Inbound confirmation: direct email sent", true,
+      `inbound_confirmation_sent via ${detail.provider ?? "unknown"} at ${sentLog.createdAt}`));
+  } else if (failedLog) {
+    // All providers attempted and failed
+    const detail = (failedLog.details as any) ?? {};
+    steps.push(step("Inbound confirmation: all providers failed", false,
+      `inbound_confirmation_failed — ${detail.reason ?? "see server logs"}. Configure SMTP or GHL to enable reliable confirmation delivery.`));
   } else if (skippedLog) {
+    // Skipped (e.g. no email on test lead) — warn, do not block go-live.
     const detail = (skippedLog.details as any) ?? {};
-    steps.push(step("enrollInInboundConfirmation: skipped (logged)", true,
-      `inbound_confirmation_skipped — reason: ${detail.reason ?? "GHL_WORKFLOW_INBOUND_CONFIRMATION not set"}`));
-  } else if (!ghlInboundWorkflowId) {
-    steps.push(step("enrollInInboundConfirmation called", true,
-      "GHL_WORKFLOW_INBOUND_CONFIRMATION not set — enrollment is a no-op. Set it via Dashboard → Integrations → GHL Workflow IDs (row: Inbound Lead — Instant Confirmation) to activate instant lead response."));
+    steps.push(step("Inbound confirmation: skipped (no email on test lead)", false,
+      `inbound_confirmation_skipped — reason: ${detail.reason ?? "unknown"}. ` +
+      "Submit a test lead with an email address to fully verify delivery."));
   } else {
-    steps.push(step("enrollInInboundConfirmation audit log found", false,
-      "Neither enrolled nor skipped log found yet. May still be in-flight — check server logs for [GHL Inbound]."));
+    // No audit log found. Determine whether a delivery provider is configured.
+    // If no provider is available, this is a blocking misconfiguration — confirmations
+    // cannot reach contacts at all. If a provider exists, it is merely untested.
+    // Provider detection mirrors runtime delivery capability:
+    // GHL direct requires an API key; SMTP requires HOST + USER + PASS (all three).
+    // A workflow ID alone is NOT a delivery provider — it requires GHL credentials
+    // to trigger; without them, no email can be sent regardless of workflow config.
+    const hasGhl = !!(process.env.GHL_API_KEY || process.env.SDR_GHL_API_KEY);
+    const hasSmtp = !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
+    const hasProvider = hasGhl || hasSmtp;
+
+    if (!hasProvider) {
+      const workflowNote = ghlInboundWorkflowId
+        ? ` GHL_WORKFLOW_INBOUND_CONFIRMATION is set but cannot deliver without GHL credentials.`
+        : "";
+      steps.push(step("Inbound confirmation: no delivery provider configured", false,
+        "No GHL API key (GHL_API_KEY / SDR_GHL_API_KEY) and no SMTP credentials " +
+        "(SMTP_HOST + SMTP_USER + SMTP_PASS all required) detected." + workflowNote +
+        " Without at least one real delivery provider, confirmation emails cannot be sent. " +
+        "Configure SMTP or GHL credentials before go-live."));
+    } else {
+      steps.push(step("Inbound confirmation: provider configured, not yet tested", false,
+        (hasGhl ? "GHL API key detected." : "SMTP configured.") +
+        (ghlInboundWorkflowId ? " GHL_WORKFLOW_INBOUND_CONFIRMATION is set." : "") +
+        " No audit log found yet. Submit a test form (estimate, callback, get-started, or statement upload) and re-run to confirm delivery."));
+    }
   }
 
-  return stage(5, "Inbound confirmation enrollment", steps, true);
+  // Stage 5 blocking is dynamic:
+  //   PASS  (enrolled / sent):  blocking irrelevant — stage passed.
+  //   FAIL, blocking=true  (failed): all providers tried and failed — misconfiguration.
+  //   FAIL, blocking=true  (no-provider): no real delivery capability — blocking.
+  //   WARN, blocking=false (skipped / provider-but-no-log): non-blocking informational.
+  const hasGhlOuter = !!(process.env.GHL_API_KEY || process.env.SDR_GHL_API_KEY);
+  const hasSmtpOuter = !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
+  const hasProviderOuter = hasGhlOuter || hasSmtpOuter;
+  const noDeliveryAtAll = !enrolledLog && !sentLog && !skippedLog && !hasProviderOuter;
+  const stageIsBlocking = !!failedLog || noDeliveryAtAll;
+  return stage(5, "Inbound confirmation enrollment", steps, stageIsBlocking);
 }
 
 // ─── STAGE 6 — New-Lead auto-enroll readiness ────────────────────────────────

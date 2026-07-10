@@ -366,6 +366,9 @@ class QueueManager {
             await runStatementBlueprintJob(_job.data.dealId);
           } else if (_job.name === "free-contact-enrichment" && typeof _job.data?.merchantId === "number") {
             await runFreeContactEnrichmentForMerchant(_job.data.merchantId);
+          } else if (_job.name === "inbound-confirmation-followup") {
+            const { runInboundConfirmationFollowupJob } = await import("./ghl-workflow-enrollment");
+            await runInboundConfirmationFollowupJob(_job.data);
           } else {
             await runEnrichmentTick();
           }

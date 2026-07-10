@@ -172,6 +172,9 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
   // === PUBLIC FORM SUBMISSIONS ===
   app.post("/api/public/statement-upload", publicLeadRateLimit, upload.single("statementFile"), async (req, res) => {
     try {
+      // Per-request UUID: each HTTP submission is a distinct event. BullMQ job retries
+      // use this same UUID (stored in job data), ensuring intra-retry dedup stability.
+      const submissionId = crypto.randomUUID();
       const { businessName, contactName, email, mobile, vertical, currentProvider, interestedIn0Percent, needTerminal, notes, consentSms, referralCode, utmSource, utmMedium, utmCampaign, utmContent, utmTerm, landingPage } = req.body;
       const nameParts = (contactName || "").split(" ");
       const firstName = nameParts[0] || "";
@@ -288,7 +291,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       scoreContact(contact.id).catch(err => console.error("Lead scoring error:", err));
       routeContact(contact.id).catch(err => console.error("Smart routing error:", err));
       triggerWorkflowsByEvent("form_submitted", { entityType: "contact", entityId: contact.id, contactId: contact.id, dealId: existingDealId || undefined }, { formType: "statement_upload" }).catch(err => console.error("Workflow trigger error:", err));
-      enrollInInboundConfirmation({ contactId: contact.id, formType: "statement_upload", dealId: existingDealId || undefined }).catch(err => console.error("GHL inbound confirmation error:", err));
+      enrollInInboundConfirmation({ contactId: contact.id, formType: "statement_upload", dealId: existingDealId || undefined, submissionId }).catch(err => console.error("GHL inbound confirmation error:", err));
 
       await storage.createAuditLog({
         action: "statement_uploaded",
@@ -305,6 +308,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
 
   app.post("/api/public/estimate", publicLeadRateLimit, async (req, res) => {
     try {
+      const submissionId = crypto.randomUUID();
       const { contactName, email, phone, monthlyVolume, totalFees, currentProvider, notes, pewcConsent: estimatePewcRaw, referralCode, utmSource, utmMedium, utmCampaign, utmContent, utmTerm, landingPage } = req.body;
       const nameParts = (contactName || "").split(" ");
       const firstName = nameParts[0] || "";
@@ -378,7 +382,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       routeContact(contact.id).catch(err => console.error("Smart routing error:", err));
       autoEnrollFromTrigger("form_submitted", { contactId: contact.id, dealId: deal.id, formType: "estimate" }).catch(err => console.error("Auto-enroll error:", err));
       triggerWorkflowsByEvent("form_submitted", { entityType: "contact", entityId: contact.id, contactId: contact.id, dealId: deal.id }, { formType: "estimate" }).catch(err => console.error("Workflow trigger error:", err));
-      enrollInInboundConfirmation({ contactId: contact.id, formType: "estimate", dealId: deal.id }).catch(err => console.error("GHL inbound confirmation error:", err));
+      enrollInInboundConfirmation({ contactId: contact.id, formType: "estimate", dealId: deal.id, submissionId }).catch(err => console.error("GHL inbound confirmation error:", err));
       if (contact.ghlContactId) enrollInGhlWorkflow({ workflowKey: "inbound_lead", ghlContactId: contact.ghlContactId, metadata: { formType: "estimate", dealId: deal.id } }).catch(err => console.error("[Estimate] GHL inbound_lead enrollment error:", err));
       syncFormSubmissionToGhl({ contactId: contact.id, dealId: deal.id, leadSource: "estimate" }).catch(err => console.error("GHL form sync error:", err));
       res.status(201).json({ success: true, contactId: contact.id, dealId: deal.id });
@@ -460,6 +464,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
 
   app.post("/api/public/get-started", publicLeadRateLimit, async (req, res) => {
     try {
+      const submissionId = crypto.randomUUID();
       const { goal, vertical, monthlyVolume, needTerminal, interestedIn0Percent, firstName, lastName, email, phone, pewcConsent, referralCode, utmSource, utmMedium, utmCampaign, utmContent, utmTerm, landingPage } = req.body;
 
       let offerPath = "Not Sure";
@@ -555,7 +560,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       generateDealBlueprint(deal.id).catch(err => console.error("Blueprint gen error:", err));
       autoEnrollFromTrigger("form_submitted", { contactId: contact.id, dealId: deal.id, formType: "get_started" }).catch(err => console.error("Auto-enroll error:", err));
       triggerWorkflowsByEvent("form_submitted", { entityType: "contact", entityId: contact.id, contactId: contact.id, dealId: deal.id }, { formType: "get_started" }).catch(err => console.error("Workflow trigger error:", err));
-      enrollInInboundConfirmation({ contactId: contact.id, formType: "get_started", dealId: deal.id }).catch(err => console.error("GHL inbound confirmation error:", err));
+      enrollInInboundConfirmation({ contactId: contact.id, formType: "get_started", dealId: deal.id, submissionId }).catch(err => console.error("GHL inbound confirmation error:", err));
       if (contact.ghlContactId) enrollInGhlWorkflow({ workflowKey: "inbound_lead", ghlContactId: contact.ghlContactId, metadata: { formType: "get_started", dealId: deal.id } }).catch(err => console.error("[GetStarted] GHL inbound_lead enrollment error:", err));
       if (!isGhlInboundActive() && pewcConsent === true && phone) {
         evaluateContactability({ contactId: contact.id, channel: "sms", campaignType: "confirmation", mode: "enforcement" })
@@ -662,6 +667,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
   // === CALLBACK REQUEST ===
   app.post("/api/public/callback", publicLeadRateLimit, async (req, res) => {
     try {
+      const submissionId = crypto.randomUUID();
       const { name, phone, bestTime, notes, pewcConsent: pewcConsentRaw } = req.body;
       const pewcConsent = pewcConsentRaw === true;
       const nameParts = (name || "").split(" ");
@@ -699,7 +705,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       routeContact(contact.id).catch(err => console.error("Smart routing error:", err));
       autoEnrollFromTrigger("form_submitted", { contactId: contact.id, dealId: deal.id, formType: "callback" }).catch(err => console.error("Auto-enroll error:", err));
       triggerWorkflowsByEvent("form_submitted", { entityType: "contact", entityId: contact.id, contactId: contact.id, dealId: deal.id }, { formType: "callback" }).catch(err => console.error("Workflow trigger error:", err));
-      enrollInInboundConfirmation({ contactId: contact.id, formType: "callback", dealId: deal.id }).catch(err => console.error("GHL inbound confirmation error:", err));
+      enrollInInboundConfirmation({ contactId: contact.id, formType: "callback", dealId: deal.id, submissionId }).catch(err => console.error("GHL inbound confirmation error:", err));
       if (contact.ghlContactId) enrollInGhlWorkflow({ workflowKey: "callback_request", ghlContactId: contact.ghlContactId, metadata: { dealId: deal.id, bestTime: bestTime || "anytime" } }).catch(err => console.error("[Callback] GHL callback_request enrollment error:", err));
       if (!isGhlInboundActive() && pewcConsent && phone) {
         evaluateContactability({ contactId: contact.id, channel: "sms", campaignType: "confirmation", mode: "enforcement" })

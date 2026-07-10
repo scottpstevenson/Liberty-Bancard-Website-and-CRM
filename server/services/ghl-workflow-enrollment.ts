@@ -8,6 +8,7 @@ import {
 } from "./sdr/ghl-client";
 import { createPreferenceAwareNotification } from "./digest-service";
 import { getWorkflowEnvValue } from "./ghl-workflows";
+import { sendSmtpEmail, isSmtpConfigured } from "./smtp-email";
 
 const SALES_CALENDAR = "https://api.leadconnectorhq.com/widget/bookings/libertybancard";
 const AM_CALENDAR = "https://api.leadconnectorhq.com/widget/booking/kBRoNz5XoTpddupMQg0c";
@@ -64,6 +65,72 @@ async function unifiedSendSms(params: { contactId: number; ghlContactId: string;
     return;
   }
   throw new Error("No GHL client configured for sending SMS");
+}
+
+type ConfirmationEmailResult =
+  | { sent: true; provider: "ghl_direct" | "smtp"; providerMessageId?: string | null }
+  | { sent: false; providerAttempts: Array<{ provider: "ghl_direct" | "smtp"; error: string }>; reason: string };
+
+/**
+ * Provider-independent confirmation email delivery.
+ * Tries GHL direct first (when available + contact ID present), then SMTP.
+ * Returns a typed result. NEVER writes to the database — audit logging and
+ * queue scheduling belong in the caller (sendInboundConfirmation).
+ */
+async function sendConfirmationEmail(params: {
+  contactId: number;
+  ghlContactId?: string | null;
+  email: string;
+  subject: string;
+  body: string;
+}): Promise<ConfirmationEmailResult> {
+  const providerAttempts: Array<{ provider: "ghl_direct" | "smtp"; error: string }> = [];
+
+  // Provider 1: GHL direct (requires GHL configured AND a GHL contact ID)
+  if ((isGhlConfigured() || isSdrGhlConfigured()) && params.ghlContactId) {
+    try {
+      if (isGhlConfigured()) {
+        const result = await sendGhlEmail({
+          contactId: params.contactId,
+          subject: params.subject,
+          body: params.body,
+          skipActivityLog: true, // deliver-only: caller (enrollInInboundConfirmation) owns all audit writes
+        });
+        if (result.success) {
+          return { sent: true, provider: "ghl_direct", providerMessageId: result.messageId ?? null };
+        }
+        providerAttempts.push({ provider: "ghl_direct", error: result.error || "GHL direct send failed" });
+      } else {
+        // SDR GHL client (no return value)
+        await sdrSendEmail({ contactId: params.ghlContactId, subject: params.subject, htmlBody: params.body });
+        return { sent: true, provider: "ghl_direct" };
+      }
+    } catch (err: any) {
+      providerAttempts.push({ provider: "ghl_direct", error: err.message ?? "Unknown GHL error" });
+    }
+  }
+
+  // Provider 2: SMTP (contact.email used directly, no GHL contact ID required)
+  if (isSmtpConfigured()) {
+    try {
+      const result = await sendSmtpEmail({ to: params.email, subject: params.subject, html: params.body });
+      if (result.success) {
+        return { sent: true, provider: "smtp", providerMessageId: result.messageId ?? null };
+      }
+      providerAttempts.push({ provider: "smtp", error: result.error || "SMTP send returned failure" });
+    } catch (err: any) {
+      providerAttempts.push({ provider: "smtp", error: err.message ?? "Unknown SMTP error" });
+    }
+  } else {
+    providerAttempts.push({ provider: "smtp", error: "SMTP not configured (set SMTP_HOST, SMTP_USER, SMTP_PASS)" });
+  }
+
+  const reason =
+    providerAttempts.length === 0
+      ? "No delivery provider available (GHL not configured or missing contact ID, SMTP not configured)"
+      : `All providers failed: ${providerAttempts.map((a) => `${a.provider}: ${a.error}`).join("; ")}`;
+
+  return { sent: false, providerAttempts, reason };
 }
 
 export interface GhlWorkflowMapping {
@@ -393,23 +460,82 @@ export async function enrollContactInGhlWorkflow(params: {
   };
 }
 
+/**
+ * Injectable provider overrides for `enrollInInboundConfirmation`.
+ * All fields are optional — real implementations are used for any field not provided.
+ * @internal Production code never passes this. Used exclusively in test scripts
+ *           to exercise real routing logic without live DB / GHL / SMTP / BullMQ.
+ */
+export interface InboundConfirmationTestOverrides {
+  /** Pre-fetched contact — skips `storage.getContact()` DB call. */
+  contact?: Record<string, any> | null;
+  /** Override GHL availability (replaces `isGhlConfigured() || isSdrGhlConfigured()`). */
+  ghlAvailable?: boolean;
+  /** Override inbound workflow ID lookup (replaces `getWorkflowEnvValue()`). */
+  inboundWorkflowId?: string | null;
+  /** Override GHL contact upsert. */
+  upsertGhlContact?: (contact: any) => Promise<string | null>;
+  /** Override GHL tag addition. */
+  addGhlTags?: (params: { contactId: string; tags: string[] }) => Promise<void>;
+  /** Override GHL workflow trigger. */
+  triggerGhlWorkflow?: (params: { workflowId: string; contactId: string; metadata: any }) => Promise<void>;
+  /** Override email send (replaces `sendConfirmationEmail()`). */
+  sendEmail?: (params: { contactId: number; ghlContactId: string | null; email: string; subject: string; body: string }) => Promise<ConfirmationEmailResult>;
+  /** Override SMS send. */
+  sendSms?: (params: { contactId: number; ghlContactId: string; body: string }) => Promise<void>;
+  /** Override audit log write (replaces `storage.createAuditLog()`). */
+  writeAuditLog?: (entry: { action: string; entityType: string; entityId: number; details: any }) => Promise<void>;
+  /** Override BullMQ job scheduling. */
+  scheduleFollowup?: (jobId: string, data: any, opts: any) => Promise<void>;
+}
+
 export async function enrollInInboundConfirmation(params: {
   contactId: number;
   formType: string;
   dealId?: number;
+  /** Stable identifier for this form submission — used as the BullMQ dedup jobId.
+   *  Route callers must pass `${contactId}-${formType}-${dealId}` so the same
+   *  logical submission always produces the same jobId even if retried. */
+  submissionId?: string;
+  /** @internal Test-only injectable overrides. Never pass in production. */
+  _testOverrides?: InboundConfirmationTestOverrides;
 }): Promise<void> {
-  const { contactId, formType, dealId } = params;
+  const { contactId, formType, dealId, _testOverrides: ov } = params;
 
-  const contact = await storage.getContact(contactId);
+  // ── Fetch contact (real or injected) ───────────────────────────────────────
+  const contact = (ov?.contact !== undefined ? ov.contact : await storage.getContact(contactId)) as (Awaited<ReturnType<typeof storage.getContact>> | null);
   if (!contact) return;
 
-  const inboundWorkflowId = await getWorkflowEnvValue("GHL_WORKFLOW_INBOUND_CONFIRMATION");
+  const submissionId = params.submissionId ?? `${contactId}-${formType}-${dealId ?? "nd"}`;
 
-  if (inboundWorkflowId && (isGhlConfigured() || isSdrGhlConfigured())) {
-    let ghlContactId = contact.ghlContactId;
+  const bookingLink =
+    getCalendarBookingUrl({
+      contactEmail: contact.email,
+      contactName: `${contact.firstName ?? ""} ${contact.lastName ?? ""}`.trim(),
+      source: formType,
+    }) || SALES_CALENDAR;
+
+  // ── Resolve config values (real or injected) ────────────────────────────────
+  const inboundWorkflowId = ov?.inboundWorkflowId !== undefined
+    ? ov.inboundWorkflowId
+    : await getWorkflowEnvValue("GHL_WORKFLOW_INBOUND_CONFIRMATION");
+
+  const ghlAvailable = ov?.ghlAvailable !== undefined
+    ? ov.ghlAvailable
+    : (isGhlConfigured() || isSdrGhlConfigured());
+
+  // Injected audit log writer (default: real storage)
+  const writeAuditLog = ov?.writeAuditLog
+    ?? ((entry: Parameters<typeof storage.createAuditLog>[0]) => storage.createAuditLog(entry).catch(() => {}));
+
+  // ── Path 1: GHL workflow trigger ────────────────────────────────────────────
+  if (inboundWorkflowId && ghlAvailable) {
+    let ghlContactId = contact.ghlContactId as string | null | undefined;
     if (!ghlContactId) {
       try {
-        ghlContactId = await unifiedUpsertContact(contact);
+        ghlContactId = ov?.upsertGhlContact
+          ? await ov.upsertGhlContact(contact)
+          : await unifiedUpsertContact(contact);
       } catch (err) {
         console.error(`[GHL Inbound] Failed to upsert contact for inbound confirmation:`, err);
       }
@@ -417,142 +543,346 @@ export async function enrollInInboundConfirmation(params: {
 
     if (ghlContactId) {
       try {
-        await addTag({
-          contactId: ghlContactId,
-          tags: ["LB-INBOUND", `LB-FORM-${formType.toUpperCase().replace(/[^A-Z0-9]/g, "_")}`, getVerticalTag(contact.vertical)],
-        });
+        const tagsToAdd = ["LB-INBOUND", `LB-FORM-${formType.toUpperCase().replace(/[^A-Z0-9]/g, "_")}`, getVerticalTag(contact.vertical)];
+        if (ov?.addGhlTags) {
+          await ov.addGhlTags({ contactId: ghlContactId, tags: tagsToAdd });
+        } else {
+          await addTag({ contactId: ghlContactId, tags: tagsToAdd });
+        }
 
-        await triggerWorkflow({
+        const workflowParams = {
           workflowId: inboundWorkflowId,
           contactId: ghlContactId,
-          metadata: {
-            formType,
-            contactId,
-            dealId,
-            firstName: contact.firstName,
-            companyName: contact.companyName,
-            vertical: contact.vertical,
-            source: "website_form",
-            bookingLink: getCalendarBookingUrl({
-              contactEmail: contact.email,
-              contactName: `${contact.firstName} ${contact.lastName}`,
-              source: formType,
-            }) || SALES_CALENDAR,
-          },
-        });
+          metadata: { formType, contactId, dealId, firstName: contact.firstName, companyName: contact.companyName, vertical: contact.vertical, source: "website_form", bookingLink },
+        };
+        if (ov?.triggerGhlWorkflow) {
+          await ov.triggerGhlWorkflow(workflowParams);
+        } else {
+          await triggerWorkflow(workflowParams);
+        }
 
-        await storage.createAuditLog({
+        await writeAuditLog({
           action: "ghl_inbound_confirmation_enrolled",
           entityType: "contact",
           entityId: contactId,
-          details: { formType, ghlWorkflowId: inboundWorkflowId, ghlContactId },
+          details: { formType, ghlWorkflowId: inboundWorkflowId, ghlContactId, submissionId },
         });
 
         console.log(`[GHL Inbound] Contact ${contactId} enrolled in inbound confirmation workflow`);
-        return;
+        return; // GHL workflow takes over — no direct email
       } catch (err) {
         console.error(`[GHL Inbound] Workflow trigger failed, falling back to direct sends:`, err);
       }
     }
   }
 
-  if (isGhlConfigured() || isSdrGhlConfigured()) {
-    // Log that we are using direct sends as fallback (workflow ID not configured).
-    // This makes go-live-check Stage 5 show ✓ with a clear explanation instead of a
-    // false "neither enrolled nor skipped" error when GHL is live but the workflow ID
-    // has not been pasted in yet.
-    if (!inboundWorkflowId) {
-      await storage.createAuditLog({
-        action: "inbound_confirmation_skipped",
-        entityType: "contact",
-        entityId: contactId,
-        details: {
-          formType,
-          dealId,
-          reason: "GHL_WORKFLOW_INBOUND_CONFIRMATION not configured — sending direct email/SMS fallback instead. Set the GHL Workflow ID via Dashboard → Integrations → GHL Workflow IDs (row: Inbound Lead — Instant Confirmation) to activate the native GHL workflow.",
-        },
-      }).catch(() => {});
-    }
-
-    let fallbackGhlContactId = contact.ghlContactId;
-    if (!fallbackGhlContactId) {
-      try {
-        fallbackGhlContactId = await unifiedUpsertContact(contact);
-      } catch (err) {
-        console.error(`[GHL Inbound] Failed to upsert contact for fallback sends:`, err);
-      }
-    }
-
-    if (!fallbackGhlContactId) {
-      console.error(`[GHL Inbound] No GHL contact ID for fallback sends — skipping`);
-      return;
-    }
-
-    const bookingLink = getCalendarBookingUrl({
-      contactEmail: contact.email,
-      contactName: `${contact.firstName} ${contact.lastName}`,
-      source: formType,
-    }) || SALES_CALENDAR;
-
+  // ── Path 2: Provider-independent direct email (GHL direct → SMTP) ──────────
+  // Best-effort GHL contact upsert for sync purposes (only for GHL direct path).
+  // Never blocks SMTP delivery — SMTP uses contact.email directly.
+  let fallbackGhlContactId = contact.ghlContactId as string | null | undefined;
+  if (!fallbackGhlContactId && ghlAvailable) {
     try {
-      await unifiedSendEmail({
-        contactId,
-        ghlContactId: fallbackGhlContactId,
-        subject: `Thanks for reaching out, ${contact.firstName}!`,
-        body: buildInboundConfirmationEmail(contact.firstName || "there", contact.companyName || "your business", formType, bookingLink),
-      });
+      fallbackGhlContactId = ov?.upsertGhlContact
+        ? await ov.upsertGhlContact(contact)
+        : await unifiedUpsertContact(contact);
     } catch (err) {
-      console.error(`[GHL Inbound] Confirmation email failed:`, err);
+      console.error(`[GHL Inbound] Best-effort GHL upsert failed (SMTP path will proceed):`, err);
     }
+  }
 
-    if (contact.consentSms && contact.phone) {
-      try {
-        await unifiedSendSms({
-          contactId,
-          ghlContactId: fallbackGhlContactId,
-          body: `Hi ${contact.firstName}, thanks for connecting with Liberty Bancard! We'll review your info and follow up soon. Book a call anytime: ${bookingLink} — Liberty Bancard`,
-        });
-      } catch (err) {
-        console.error(`[GHL Inbound] Confirmation SMS failed:`, err);
-      }
-    }
-
-    if (dealId) {
-      const capturedGhlContactId = fallbackGhlContactId;
-      setTimeout(async () => {
-        try {
-          const updatedContact = await storage.getContact(contactId);
-          if (!updatedContact) return;
-
-          const deal = dealId ? await storage.getDeal(dealId) : null;
-          const hasBooked = deal && ["Statement Received", "Engaged", "Call Scheduled"].includes(deal.stage);
-          if (hasBooked) return;
-
-          await unifiedSendEmail({
-            contactId,
-            ghlContactId: capturedGhlContactId,
-            subject: `Still want to see how much you could save, ${updatedContact.firstName}?`,
-            body: buildInbound24hFollowupEmail(updatedContact.firstName || "there", bookingLink),
-          });
-
-          await storage.createAuditLog({
-            action: "inbound_24h_followup_sent",
-            entityType: "contact",
-            entityId: contactId,
-            details: { formType, dealId },
-          });
-        } catch (err) {
-          console.error(`[GHL Inbound] 24h follow-up failed:`, err);
-        }
-      }, 24 * 60 * 60 * 1000);
-    }
-  } else {
-    await storage.createAuditLog({
+  if (!contact.email) {
+    // "skipped" (not "failed") — we lack the prerequisite, not a provider error.
+    // Callback submissions commonly arrive with no email; this is expected.
+    await writeAuditLog({
       action: "inbound_confirmation_skipped",
       entityType: "contact",
       entityId: contactId,
-      details: { formType, dealId, reason: "GHL not configured — no confirmation sent" },
+      details: { formType, dealId: dealId ?? null, submissionId, reason: "no_email" },
     });
+    console.warn(`[GHL Inbound] Contact ${contactId} has no email — confirmation skipped (no_email)`);
+    return;
+  }
+
+  const sendEmailImpl = ov?.sendEmail ?? sendConfirmationEmail;
+  const emailResult = await sendEmailImpl({
+    contactId,
+    ghlContactId: fallbackGhlContactId ?? null,
+    email: contact.email,
+    subject: `Thanks for reaching out, ${contact.firstName}!`,
+    body: buildInboundConfirmationEmail(
+      contact.firstName || "there",
+      contact.companyName || "your business",
+      formType,
+      bookingLink,
+    ),
+  });
+
+  if (emailResult.sent) {
+    await writeAuditLog({
+      action: "inbound_confirmation_sent",
+      entityType: "contact",
+      entityId: contactId,
+      details: {
+        provider: emailResult.provider,
+        recipient: contact.email,
+        providerMessageId: emailResult.providerMessageId ?? null,
+        formType,
+        dealId: dealId ?? null,
+        submissionId,
+      },
+    });
+    console.log(`[GHL Inbound] Confirmation sent via ${emailResult.provider} to contact ${contactId}`);
+  } else {
+    await writeAuditLog({
+      action: "inbound_confirmation_failed",
+      entityType: "contact",
+      entityId: contactId,
+      details: {
+        providerAttempts: emailResult.providerAttempts,
+        reason: emailResult.reason,
+        formType,
+        dealId: dealId ?? null,
+        submissionId,
+      },
+    });
+    console.error(`[GHL Inbound] All providers failed for contact ${contactId} — no follow-up scheduled`);
+    return; // no follow-up on failed delivery
+  }
+
+  // ── SMS (optional, non-blocking) ────────────────────────────────────────────
+  if (contact.consentSms && contact.phone && fallbackGhlContactId && ghlAvailable) {
+    try {
+      const smsParams = {
+        contactId,
+        ghlContactId: fallbackGhlContactId,
+        body: `Hi ${contact.firstName}, thanks for connecting with Liberty Bancard! We'll review your info and follow up soon. Book a call anytime: ${bookingLink} — Liberty Bancard`,
+      };
+      if (ov?.sendSms) {
+        await ov.sendSms(smsParams);
+      } else {
+        await unifiedSendSms(smsParams);
+      }
+    } catch (err) {
+      console.error(`[GHL Inbound] Confirmation SMS failed (non-fatal):`, err);
+    }
+  }
+
+  // ── Durable 24-hour follow-up (BullMQ enrichment queue) ─────────────────────
+  // Scheduling failure is isolated — inbound_confirmation_sent is preserved.
+  if (dealId !== undefined) {
+    const followupJobId = `inbound_followup:${submissionId}`;
+    const jobData = { contactId, dealId, formType, submissionId };
+    const jobOpts = {
+      delay: 24 * 60 * 60 * 1000,
+      jobId: followupJobId,
+      attempts: 3,
+      backoff: { type: "exponential", delay: 60_000 },
+      removeOnComplete: { age: 7 * 24 * 3600 },
+      removeOnFail: false,
+    };
+    try {
+      if (ov?.scheduleFollowup) {
+        await ov.scheduleFollowup(followupJobId, jobData, jobOpts);
+      } else {
+        const { getQueueManager, QUEUE_NAMES } = await import("./queue-manager");
+        const qm = await getQueueManager();
+        const enrichmentQueue = qm.getQueue(QUEUE_NAMES.ENRICHMENT);
+        if (!enrichmentQueue) throw new Error("Enrichment queue not available from QueueManager");
+        await enrichmentQueue.add("inbound-confirmation-followup", jobData, jobOpts);
+      }
+      console.log(`[GHL Inbound] Follow-up scheduled: jobId=${followupJobId}`);
+    } catch (err: any) {
+      console.error(`[GHL Inbound] Follow-up scheduling failed (immediate send preserved):`, err);
+      await writeAuditLog({
+        action: "inbound_confirmation_followup_schedule_failed",
+        entityType: "contact",
+        entityId: contactId,
+        details: { submissionId, failureReason: err.message, formType, dealId },
+      });
+    }
+  }
+}
+
+/**
+ * Injectable provider overrides for `runInboundConfirmationFollowupJob`.
+ * @internal Test-only. Never pass in production.
+ */
+export interface InboundFollowupTestOverrides {
+  /** Pre-fetched contact — skips `storage.getContact()`. */
+  contact?: Record<string, any> | null;
+  /** Pre-fetched deal — skips `storage.getDeal()`. */
+  deal?: Record<string, any> | null;
+  /** Override contactability evaluation. */
+  evaluateContactability?: (params: any) => Promise<{ allowed: boolean; reason?: string }>;
+  /** Override duplicate-followup guard. Returns true if a duplicate already exists. */
+  checkDuplicateFollowup?: () => Promise<boolean>;
+  /** Override email send (replaces `sendConfirmationEmail()`). */
+  sendEmail?: (params: { contactId: number; ghlContactId: string | null; email: string; subject: string; body: string }) => Promise<ConfirmationEmailResult>;
+  /** Override audit log write (replaces `storage.createAuditLog()`). */
+  writeAuditLog?: (entry: { action: string; entityType: string; entityId: number; details: any }) => Promise<void>;
+}
+
+/**
+ * BullMQ handler for the "inbound-confirmation-followup" job.
+ * Executed ~24 hours after the initial inbound confirmation.
+ * Re-evaluates contactability and deal progression before sending.
+ * Re-throws on provider failure so BullMQ can retry (up to 3 attempts).
+ */
+export async function runInboundConfirmationFollowupJob(data: {
+  contactId: number;
+  dealId?: number;
+  formType: string;
+  submissionId: string;
+  /** @internal Test-only injectable overrides. Never pass in production. */
+  _testOverrides?: InboundFollowupTestOverrides;
+}): Promise<void> {
+  const { contactId, dealId, formType, submissionId, _testOverrides: fov } = data;
+  const logPrefix = `[InboundFollowup:${submissionId}]`;
+
+  const writeAuditLog = fov?.writeAuditLog
+    ?? ((entry: Parameters<typeof storage.createAuditLog>[0]) => storage.createAuditLog(entry).catch(() => {}));
+
+  // 1. Contact still exists
+  const contact = (fov?.contact !== undefined ? fov.contact : await storage.getContact(contactId)) as (Awaited<ReturnType<typeof storage.getContact>> | null);
+  if (!contact) {
+    await writeAuditLog({
+      action: "inbound_confirmation_followup_skipped",
+      entityType: "contact",
+      entityId: contactId,
+      details: { reason: "no_contact", submissionId },
+    });
+    console.log(`${logPrefix} Skipped — contact not found`);
+    return;
+  }
+
+  // 2. Evaluate contactability (catches opt-out, DNC, contactability block)
+  const contactabilityCheck = fov?.evaluateContactability
+    ? await fov.evaluateContactability({ contactId, channel: "email", campaignType: "inbound_followup", mode: "enforcement" })
+    : await (async () => {
+        const { evaluateContactability } = await import("./contactability");
+        return evaluateContactability({ contactId, channel: "email", campaignType: "inbound_followup", mode: "enforcement" });
+      })();
+
+  if (!contactabilityCheck.allowed) {
+    const reasonCode: string = contact.doNotContact
+      ? "dnc"
+      : contact.smsStatus === "opted_out" || contact.emailStatus === "opted_out"
+        ? "opted_out"
+        : "contactability_blocked";
+    await writeAuditLog({
+      action: "inbound_confirmation_followup_skipped",
+      entityType: "contact",
+      entityId: contactId,
+      details: { reason: reasonCode, contactabilityReason: contactabilityCheck.reason, submissionId },
+    });
+    console.log(`${logPrefix} Skipped — ${reasonCode}: ${contactabilityCheck.reason}`);
+    return;
+  }
+
+  // 3. Contact has a usable email address
+  if (!contact.email) {
+    await writeAuditLog({
+      action: "inbound_confirmation_followup_skipped",
+      entityType: "contact",
+      entityId: contactId,
+      details: { reason: "no_email", submissionId },
+    });
+    console.log(`${logPrefix} Skipped — no email address`);
+    return;
+  }
+
+  // 4. Deal progression check
+  if (dealId) {
+    const deal = (fov?.deal !== undefined ? fov.deal : await storage.getDeal(dealId)) as any;
+    if (deal && ["Statement Received", "Engaged", "Call Booked"].includes(deal.stage)) {
+      await writeAuditLog({
+        action: "inbound_confirmation_followup_skipped",
+        entityType: "contact",
+        entityId: contactId,
+        details: { reason: "deal_progressed", dealStage: deal.stage, submissionId },
+      });
+      console.log(`${logPrefix} Skipped — deal progressed to ${deal.stage}`);
+      return;
+    }
+  }
+
+  // 5. Duplicate guard: ensure this submission's follow-up hasn't already been sent
+  const isDuplicate = fov?.checkDuplicateFollowup
+    ? await fov.checkDuplicateFollowup()
+    : await (async () => {
+        const { db } = await import("../db");
+        const { auditLogs: auditLogsTable } = await import("@shared/schema");
+        const { eq, and: drizzleAnd, sql: drizzleSql } = await import("drizzle-orm");
+        const rows = await db
+          .select({ id: auditLogsTable.id })
+          .from(auditLogsTable)
+          .where(
+            drizzleAnd(
+              eq(auditLogsTable.entityType, "contact"),
+              eq(auditLogsTable.entityId, contactId),
+              eq(auditLogsTable.action, "inbound_confirmation_followup_sent"),
+              drizzleSql`(${auditLogsTable.details}->>'submissionId') = ${submissionId}`,
+            ),
+          )
+          .limit(1);
+        return rows.length > 0;
+      })();
+
+  if (isDuplicate) {
+    await writeAuditLog({
+      action: "inbound_confirmation_followup_skipped",
+      entityType: "contact",
+      entityId: contactId,
+      details: { reason: "duplicate_already_processed", submissionId },
+    });
+    console.log(`${logPrefix} Skipped — follow-up already sent for this submission`);
+    return;
+  }
+
+  const bookingLink =
+    getCalendarBookingUrl({
+      contactEmail: contact.email,
+      contactName: `${contact.firstName ?? ""} ${contact.lastName ?? ""}`.trim(),
+      source: formType,
+    }) || SALES_CALENDAR;
+
+  const sendEmailImpl = fov?.sendEmail ?? sendConfirmationEmail;
+  const emailResult = await sendEmailImpl({
+    contactId,
+    ghlContactId: contact.ghlContactId ?? null,
+    email: contact.email,
+    subject: `Still want to see how much you could save, ${contact.firstName}?`,
+    body: buildInbound24hFollowupEmail(contact.firstName || "there", bookingLink),
+  });
+
+  if (emailResult.sent) {
+    await writeAuditLog({
+      action: "inbound_confirmation_followup_sent",
+      entityType: "contact",
+      entityId: contactId,
+      details: {
+        provider: emailResult.provider,
+        recipient: contact.email,
+        providerMessageId: emailResult.providerMessageId ?? null,
+        submissionId,
+        formType,
+        dealId: dealId ?? null,
+      },
+    });
+    console.log(`${logPrefix} Follow-up sent via ${emailResult.provider}`);
+  } else {
+    await writeAuditLog({
+      action: "inbound_confirmation_followup_failed",
+      entityType: "contact",
+      entityId: contactId,
+      details: {
+        providerAttempts: emailResult.providerAttempts,
+        reason: emailResult.reason,
+        submissionId,
+      },
+    });
+    console.error(`${logPrefix} All providers failed: ${emailResult.reason}`);
+    throw new Error(`Inbound follow-up failed for submission ${submissionId}: ${emailResult.reason}`);
   }
 }
 

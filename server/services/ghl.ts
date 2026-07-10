@@ -478,6 +478,12 @@ export async function sendGhlEmail(params: {
   templateId?: number;
   fromEmail?: string;
   fromName?: string;
+  /**
+   * When true, skips the `createGhlActivityLog` DB write on both success and failure.
+   * Used by deliver-only helpers (e.g. `sendConfirmationEmail`) that must remain
+   * side-effect free — the caller is responsible for all audit/activity logging.
+   */
+  skipActivityLog?: boolean;
 }): Promise<{ success: boolean; messageId?: string; error?: string }> {
   try {
     const contact = await storage.getContact(params.contactId);
@@ -516,32 +522,36 @@ export async function sendGhlEmail(params: {
 
     if (result?.messageId) trackOutboundMessageId(result.messageId);
 
-    await storage.createGhlActivityLog({
-      contactId: params.contactId,
-      dealId: params.dealId || null,
-      direction: "outbound",
-      channel: "email",
-      templateId: params.templateId || null,
-      subject: params.subject,
-      body: params.body,
-      status: "sent",
-      ghlMessageId: result?.messageId || null,
-    });
+    if (!params.skipActivityLog) {
+      await storage.createGhlActivityLog({
+        contactId: params.contactId,
+        dealId: params.dealId || null,
+        direction: "outbound",
+        channel: "email",
+        templateId: params.templateId || null,
+        subject: params.subject,
+        body: params.body,
+        status: "sent",
+        ghlMessageId: result?.messageId || null,
+      });
+    }
 
     return { success: true, messageId: result?.messageId };
   } catch (err: any) {
-    await storage.createGhlActivityLog({
-      contactId: params.contactId,
-      dealId: params.dealId || null,
-      direction: "outbound",
-      channel: "email",
-      templateId: params.templateId || null,
-      subject: params.subject,
-      body: params.body,
-      status: "failed",
-      ghlMessageId: null,
-      metadata: { error: err.message },
-    });
+    if (!params.skipActivityLog) {
+      await storage.createGhlActivityLog({
+        contactId: params.contactId,
+        dealId: params.dealId || null,
+        direction: "outbound",
+        channel: "email",
+        templateId: params.templateId || null,
+        subject: params.subject,
+        body: params.body,
+        status: "failed",
+        ghlMessageId: null,
+        metadata: { error: err.message },
+      });
+    }
     return { success: false, error: err.message };
   }
 }
