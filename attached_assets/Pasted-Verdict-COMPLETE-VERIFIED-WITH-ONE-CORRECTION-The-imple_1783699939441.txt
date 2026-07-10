@@ -1,0 +1,50 @@
+Verdict: COMPLETE / VERIFIED WITH ONE CORRECTION
+
+The implementation addresses the confirmed OOM failure correctly. Moving counters outside the try block is the right fix and is safer than reading potentially stale persisted progress inside the outer catch.
+
+Correction to send back
+
+Task 919 is functionally complete.
+Before final closure, confirm one remaining consistency point:
+There are now two separate isEnrichmentRunning() helpers:
+- server/services/enrichment-progress-helpers.ts
+- client/src/lib/enrichment-utils.ts
+This is acceptable only if the server helper is genuinely used by server logic/tests. If it exists solely to duplicate the client predicate, remove the unused server copy.
+Also confirm every fresh run writes a completely fresh "running" payload that clears prior terminal metadata:
+- failedAt
+- error
+- interruptedAt
+- interruptionReason
+- completedAt
+No stale terminal metadata may remain visible during a new run.
+
+Required final evidence
+
+npm run check
+npx tsx scripts/smoke-role-guards.ts
+npx tsx scripts/test-enrichment-reconcile.ts
+
+Completion report should explicitly confirm:
+
+- TypeScript check passes.
+- Reconciliation tests: 68/68 pass.
+- Role guards: 60/60 pass.
+- running → interrupted preserves counters.
+- Outer failure uses current in-memory counters.
+- Raw errors are sanitized and bounded.
+- Original batch exception is always rethrown.
+- Reconciliation failure cannot block startup.
+- Interrupted/failed/complete states show no running spinner.
+- A fresh run clears all prior terminal metadata.
+- Credential status exposes booleans only.
+
+Kill lines
+
+STOP if a fresh run can retain error, failedAt, interruptedAt, or completedAt from the prior run.
+STOP if the server-side isEnrichmentRunning helper is dead duplicated code.
+STOP if the outer catch can replace or swallow the original exception.
+STOP if startup reconciliation can prevent server startup.
+
+Final status: COMPLETE / VERIFIED WITH ONE CORRECTION
+
+Once the fresh-run metadata reset and duplicate-helper usage are confirmed, Task 919 can be closed.

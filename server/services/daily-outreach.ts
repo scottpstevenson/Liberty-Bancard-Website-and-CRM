@@ -1,4 +1,5 @@
 import { storage } from "../storage";
+import { buildSafeEnrichmentFailureProgress } from "./enrichment-progress-helpers";
 import { enrichSunbizEntity, convertToProspect } from "./sunbiz-enrichment";
 import { queueCampaignMessages, processSendQueue } from "./campaign-engine";
 import { scoreContact } from "./lead-scoring";
@@ -368,16 +369,19 @@ export async function reEnrichAllSunbizEntities(limit: number = 200): Promise<{
     return { processed: 0, classified: 0, emailsFound: 0, phonesFound: 0, errors: 0 };
   }
   reEnrichRunning = true;
-  try {
-  const toProcess = await storage.getSunbizEntitiesNeedingEnrichment(limit);
-
-  console.log(`[Re-Enrich] Starting re-enrichment for ${toProcess.length} entities...`);
-
+  // Counters declared outside try so outer catch can always use current in-memory values
+  // even if getSunbizEntitiesNeedingEnrichment throws before they are ever incremented.
   let processed = 0;
   let classified = 0;
   let emailsFound = 0;
   let phonesFound = 0;
   let errors = 0;
+  let total = 0;
+  try {
+  const toProcess = await storage.getSunbizEntitiesNeedingEnrichment(limit);
+  total = toProcess.length;
+
+  console.log(`[Re-Enrich] Starting re-enrichment for ${toProcess.length} entities...`);
 
   await storage.setSystemSetting("enrichment_progress", {
     status: "running",
@@ -444,6 +448,25 @@ export async function reEnrichAllSunbizEntities(limit: number = 200): Promise<{
   console.log(`[Re-Enrich] Complete: ${processed} processed, ${classified} classified, ${emailsFound} emails, ${phonesFound} phones, ${errors} errors`);
 
   return { processed, classified, emailsFound, phonesFound, errors };
+  } catch (err) {
+    console.error("[Re-Enrich] Batch-level failure:", err);
+
+    // Use in-memory counters for this run — never read from storage here,
+    // which could carry stale metadata/counts from a prior run if initialization
+    // threw before the fresh "running" payload was written.
+    try {
+      const failPayload = buildSafeEnrichmentFailureProgress(
+        { total, processed, classified, emailsFound, phonesFound, errors },
+        err,
+        new Date().toISOString()
+      );
+      await storage.setSystemSetting("enrichment_progress", failPayload);
+    } catch (writeErr) {
+      console.error("[Re-Enrich] Could not persist failed state:", writeErr);
+      // Do not rethrow writeErr — original error takes priority
+    }
+
+    throw err;
   } finally {
     reEnrichRunning = false;
   }

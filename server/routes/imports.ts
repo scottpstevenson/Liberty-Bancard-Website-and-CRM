@@ -133,6 +133,7 @@ export function registerImportsRoutes(app: Express) {
       lastOutreachRun,
       workerRunning: isWorkerRunning(),
       workerStatus,
+      openAiConfigured: !!process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
       serper: {
         configured: isSerperConfigured(),
         usage: serperUsage,

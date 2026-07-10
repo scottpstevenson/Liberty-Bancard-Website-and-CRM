@@ -299,6 +299,8 @@ app.use((req, res, next) => {
 
 (async () => {
   await runDrizzleMigrations();
+  const { reconcileEnrichmentState } = await import("./services/startup-reconcile");
+  await reconcileEnrichmentState();
   await registerRoutes(httpServer, app);
 
   const { logSmtpStartupWarning } = await import("./services/smtp-email");

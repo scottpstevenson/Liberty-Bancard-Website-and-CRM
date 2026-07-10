@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { isEnrichmentRunning } from "@/lib/enrichment-utils";
 
 interface OutreachStatus {
   entities: {
@@ -31,7 +32,23 @@ interface OutreachStatus {
   ghlSync: { configured: boolean; totalContacts: number; syncedToGhl: number; unsyncedToGhl: number; lastSyncTo: any; lastSyncFrom: any };
   importProgress: { status: string; totalProcessed?: number; totalImported?: number; totalDuplicates?: number; totalSkipped?: number; error?: string };
   cordataProgress: { status: string; totalProcessed?: number; totalUpdated?: number; totalNew?: number; totalSkipped?: number; error?: string };
-  enrichmentProgress: { status: string; total?: number; processed?: number; classified?: number; emailsFound?: number; phonesFound?: number; errors?: number };
+  enrichmentProgress: {
+    status: string;
+    total?: number;
+    processed?: number;
+    classified?: number;
+    emailsFound?: number;
+    phonesFound?: number;
+    errors?: number;
+    startedAt?: string;
+    lastUpdate?: string;
+    completedAt?: string;
+    interruptedAt?: string;
+    interruptionReason?: string;
+    failedAt?: string;
+    error?: string;
+  };
+  openAiConfigured?: boolean;
   lastOutreachRun: any;
   workerRunning: boolean;
   workerStatus: any;
@@ -460,13 +477,13 @@ export default function OutreachCommand() {
                   <Label>Batch Size</Label>
                   <Input type="number" value={enrichLimit} onChange={(e) => setEnrichLimit(e.target.value)} className="w-32" data-testid="input-enrich-limit" />
                 </div>
-                <Button onClick={() => reEnrichMutation.mutate()} disabled={reEnrichMutation.isPending || enr.status === "running"} className="gap-2" data-testid="button-re-enrich">
-                  {reEnrichMutation.isPending || enr.status === "running" ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-                  {enr.status === "running" ? "Enriching..." : "Re-Classify Entities"}
+                <Button onClick={() => reEnrichMutation.mutate()} disabled={reEnrichMutation.isPending || isEnrichmentRunning(enr.status)} className="gap-2" data-testid="button-re-enrich">
+                  {reEnrichMutation.isPending || isEnrichmentRunning(enr.status) ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                  {isEnrichmentRunning(enr.status) ? "Enriching..." : "Re-Classify Entities"}
                 </Button>
               </div>
 
-              {enr.status === "running" && enr.total && (
+              {isEnrichmentRunning(enr.status) && enr.total && (
                 <div className="space-y-2">
                   <Progress value={((enr.processed || 0) / enr.total) * 100} className="h-2" />
                   <div className="flex justify-between text-sm text-muted-foreground">
@@ -477,6 +494,66 @@ export default function OutreachCommand() {
                   </div>
                 </div>
               )}
+
+              {enr.status === "interrupted" && (
+                <Alert data-testid="alert-enrichment-interrupted">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertDescription>
+                    <span className="font-medium">Enrichment was interrupted (server restart).</span>{" "}
+                    {enr.processed ?? 0}/{enr.total ?? 0} processed before interruption.
+                    {enr.interruptedAt && (
+                      <span className="block text-xs text-muted-foreground mt-1">
+                        Interrupted at {new Date(enr.interruptedAt).toLocaleString()}
+                      </span>
+                    )}
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {enr.status === "failed" && (
+                <Alert variant="destructive" data-testid="alert-enrichment-failed">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertDescription>
+                    <span className="font-medium">Enrichment failed.</span>{" "}
+                    {enr.processed ?? 0}/{enr.total ?? 0} processed.{enr.error ? ` ${enr.error}` : ""}
+                    {enr.failedAt && (
+                      <span className="block text-xs mt-1">
+                        Failed at {new Date(enr.failedAt).toLocaleString()}
+                      </span>
+                    )}
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {enr.status === "complete" && (
+                <Alert data-testid="alert-enrichment-complete">
+                  <CheckCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    <span className="font-medium">Last run complete:</span>{" "}
+                    {enr.processed} processed, {enr.classified} classified, {enr.emailsFound} emails found.
+                    {enr.completedAt && (
+                      <span className="block text-xs text-muted-foreground mt-1">
+                        Completed at {new Date(enr.completedAt).toLocaleString()}
+                      </span>
+                    )}
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              <div className="rounded-lg border p-3 bg-muted/50 text-sm flex flex-wrap gap-4">
+                <span>
+                  <span className="font-medium">Serper:</span>{" "}
+                  {s.serper?.configured
+                    ? <span className="text-green-600" data-testid="text-serper-configured">Configured</span>
+                    : <span className="text-muted-foreground" data-testid="text-serper-not-configured">Not configured</span>}
+                </span>
+                <span>
+                  <span className="font-medium">OpenAI:</span>{" "}
+                  {s.openAiConfigured
+                    ? <span className="text-green-600" data-testid="text-openai-configured">Configured</span>
+                    : <span className="text-muted-foreground" data-testid="text-openai-not-configured">Not configured</span>}
+                </span>
+              </div>
 
               <div className="rounded-lg border p-4 bg-muted/50 text-sm space-y-2">
                 <p className="font-medium">Enhanced Enrichment Pipeline:</p>
