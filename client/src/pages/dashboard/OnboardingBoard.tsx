@@ -19,6 +19,7 @@ import {
   ONBOARDING_CHECKLIST_ITEM_LABELS,
 } from "@shared/schema";
 import { useAuth } from "@/hooks/use-auth";
+import { getDealCardIdentity } from "@/lib/deal-identity";
 
 const BOARDING_STATUS_CONFIG: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
   not_submitted: { label: "Not Submitted", variant: "outline" },
@@ -45,6 +46,7 @@ type BoardEntry = {
     lastName: string | null;
     companyName: string | null;
     email: string | null;
+    phone: string | null;
   } | null;
   checklistItems: OnboardingChecklistItem[];
   stats: {
@@ -186,11 +188,7 @@ function DealChecklistCard({ entry, canApprove }: { entry: BoardEntry; canApprov
     },
   });
 
-  const merchantName =
-    contact?.companyName ||
-    `${contact?.firstName || ""} ${contact?.lastName || ""}`.trim() ||
-    deal.name ||
-    `Deal #${deal.id}`;
+  const { primary: cardPrimary, secondary: cardSecondary } = getDealCardIdentity(deal, contact || undefined);
 
   const overdueFlag = stats.overdueItems > 0;
 
@@ -200,8 +198,13 @@ function DealChecklistCard({ entry, canApprove }: { entry: BoardEntry; canApprov
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
             <CardTitle className="text-sm font-semibold truncate" data-testid={`text-merchant-name-${deal.id}`}>
-              {merchantName}
+              {cardPrimary}
             </CardTitle>
+            {cardSecondary && (
+              <p className="text-xs text-muted-foreground truncate mt-0.5" data-testid={`text-merchant-secondary-${deal.id}`}>
+                {cardSecondary}
+              </p>
+            )}
             <div className="flex items-center gap-2 mt-1 flex-wrap">
               {deal.stage && (
                 <Badge variant="secondary" className="text-xs" data-testid={`badge-stage-${deal.id}`}>

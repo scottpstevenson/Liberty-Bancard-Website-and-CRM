@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Card, CardContent } from "@/components/ui/card";
+import { getDealCardIdentity } from "@/lib/deal-identity";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -121,17 +122,6 @@ export default function Onboarding() {
   const contactsMap = new Map<number, Contact>();
   contacts?.forEach((c) => contactsMap.set(c.id, c));
 
-  const getContactName = (contactId: number | null) => {
-    if (!contactId) return "No contact";
-    const contact = contactsMap.get(contactId);
-    return contact ? `${contact.firstName} ${contact.lastName}` : `Contact #${contactId}`;
-  };
-
-  const getCompanyName = (contactId: number | null) => {
-    if (!contactId) return "";
-    const contact = contactsMap.get(contactId);
-    return contact?.companyName || "";
-  };
 
   const handleUpdateDeal = () => {
     if (!selectedDeal) return;
@@ -252,6 +242,8 @@ export default function Onboarding() {
                 <div className="space-y-3 min-h-[200px]">
                   {stageDeals.map((deal) => {
                     const status = onboardingStatuses?.find(s => s.dealId === deal.id);
+                    const cardContact = contactsMap.get(deal.contactId ?? 0);
+                    const cardIdentity = getDealCardIdentity(deal, cardContact);
                     return (
                       <Card
                         key={deal.id}
@@ -262,7 +254,7 @@ export default function Onboarding() {
                         <CardContent className="p-3 space-y-2">
                           <div className="flex items-start justify-between gap-2">
                             <div className="font-medium text-sm" data-testid={`text-onboarding-contact-${deal.id}`}>
-                              {getContactName(deal.contactId)}
+                              {cardIdentity.primary}
                             </div>
                             {status && (
                               <div className={`text-xs font-medium flex items-center gap-1 shrink-0 ${getDaysColor(status.daysSinceSignup)}`} data-testid={`text-days-since-${deal.id}`}>
@@ -271,9 +263,9 @@ export default function Onboarding() {
                               </div>
                             )}
                           </div>
-                          {getCompanyName(deal.contactId) && (
+                          {cardIdentity.secondary && (
                             <div className="text-xs text-muted-foreground" data-testid={`text-onboarding-company-${deal.id}`}>
-                              {getCompanyName(deal.contactId)}
+                              {cardIdentity.secondary}
                             </div>
                           )}
                           {deal.goLiveDate && (
@@ -367,11 +359,11 @@ export default function Onboarding() {
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div>
                   <span className="text-muted-foreground">Contact</span>
-                  <div className="font-medium" data-testid="text-onboarding-detail-contact">{getContactName(selectedDeal.contactId)}</div>
+                  <div className="font-medium" data-testid="text-onboarding-detail-contact">{getDealCardIdentity(selectedDeal, contactsMap.get(selectedDeal.contactId ?? 0)).primary}</div>
                 </div>
                 <div>
                   <span className="text-muted-foreground">Company</span>
-                  <div className="font-medium" data-testid="text-onboarding-detail-company">{getCompanyName(selectedDeal.contactId) || "N/A"}</div>
+                  <div className="font-medium" data-testid="text-onboarding-detail-company">{contactsMap.get(selectedDeal.contactId ?? 0)?.companyName || "N/A"}</div>
                 </div>
                 <div>
                   <span className="text-muted-foreground">Pipeline</span>

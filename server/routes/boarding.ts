@@ -801,7 +801,7 @@ export function registerBoardingRoutes(app: Express) {
           }).length;
           return {
             deal,
-            contact: contact ? { id: contact.id, firstName: contact.firstName, lastName: contact.lastName, companyName: contact.companyName, email: contact.email } : null,
+            contact: contact ? { id: contact.id, firstName: contact.firstName, lastName: contact.lastName, companyName: contact.companyName, email: contact.email, phone: contact.phone } : null,
             checklistItems,
             stats: { totalItems, approvedItems, pendingItems, overdueItems, progressPct: totalItems > 0 ? Math.round((approvedItems / totalItems) * 100) : 0 },
           };
