@@ -1,0 +1,63 @@
+Verdict: DO NOT START YET
+
+The task itself is sound, but it is explicitly blocked on #927. Do not build against a schema field that may not yet be deployed, backfilled, or returned by the Tasks API.
+
+Corrections to send back
+
+Treat #926 as dependency-gated.
+Before implementation, verify all of the following from the deployed code/database:
+1. #927 Phase 1 is applied:
+   - tasks.source exists
+   - tasks.automation_key exists
+2. The SLA worker is actively writing:
+   - source = 'sla'
+   - automation_key = 'stalling-deal-follow-up'
+3. Historical SLA tasks intended to appear in the filter have been backfilled.
+4. GET /api/tasks actually returns source to the frontend.
+   Do not assume adding the column to shared/schema.ts automatically exposes it if the storage/query maps selected fields explicitly.
+5. The frontend task type includes:
+   source: string | null
+6. Confirm whether Tasks.tsx loads the full active dataset or only a capped/page-limited subset.
+   Use:
+   - “Source” if the full dataset is loaded
+   - “Source (loaded tasks)” if filtering is client-local to a subset
+7. Preserve the current task-selection scope.
+   On every source-filter change:
+   - clear selected task IDs
+   - clear any select-all state
+   - close or reset bulk-action state if applicable
+8. Type the helper against the minimum shape:
+type TaskSourceLike = {
+  source?: string | null;
+};
+export function isSlaGeneratedTask(
+  task: TaskSourceLike | null | undefined
+): boolean {
+  return task?.source === "sla";
+}
+Do not couple the utility to the full database Task type unnecessarily.
+
+Kill lines
+
+STOP if #927 is not deployed and verified.
+STOP if historical SLA rows remain source = NULL but operators expect them under SLA-generated.
+STOP if GET /api/tasks omits source.
+STOP if the UI falls back to title matching when source is absent.
+STOP if filter changes leave selected or select-all task state active.
+STOP if “Source” implies global coverage while only a loaded subset is filtered.
+STOP if any backend file is modified for this frontend-only task.
+
+Validation
+
+- Newly created SLA task appears under SLA-generated.
+- Backfilled historical SLA task appears under SLA-generated.
+- Matching historical title with source = NULL remains Manual.
+- Manual task with dealId remains Manual.
+- Filter and badge import the same helper.
+- Changing filters clears all selection and bulk-action state.
+- Counts reconcile with the loaded dataset.
+- Existing bulk-delete behavior remains unchanged.
+
+Final status: DO NOT START YET
+
+Once #927’s columns, writer, backfill, and API response are verified, #926 becomes BUILD-READY as written.

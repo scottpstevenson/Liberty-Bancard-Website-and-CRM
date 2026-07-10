@@ -1,0 +1,95 @@
+Verdict: PREFLIGHT REQUIRED
+
+The intent is good, but the task title overstates what this adds. Route-level integration tests catch regressions before merge, not “the moment duplicates appear” in production.
+
+The brief also references server/routes/tasks.ts, which prior preflight showed does not exist.
+
+Corrections to send back
+
+Run a focused test-architecture preflight first.
+1. Correct the route ownership.
+Verify the actual endpoints and files:
+- POST /api/tasks is owned by server/routes/tickets-tasks.ts
+- PUT /api/tasks/:id is owned by server/routes/tickets-tasks.ts or the currently registered equivalent
+- DELETE/bulk operations may live in crm-operations.ts
+Do not create server/routes/tasks.ts just for tests.
+2. Test through the real registered Express app.
+The tests must exercise:
+- actual route registration,
+- authentication middleware,
+- Zod request parsing,
+- task normalization,
+- storage writes.
+Do not call route handlers directly with fabricated req/res objects unless that is the repository’s canonical integration-test pattern.
+3. Use an isolated test database and deterministic fixtures.
+Required:
+- dedicated test deal/contact/task IDs,
+- cleanup in finally,
+- no production database,
+- no live GHL propagation,
+- no BullMQ/cron startup,
+- no outbound email/SMS.
+4. Define provenance-field behavior precisely.
+Test the actual schema contract:
+POST /api/tasks with source/automationKey:
+- either rejects with 400, or
+- strips them and creates a manual task without provenance.
+PUT /api/tasks/:id with source/automationKey:
+- either rejects, or
+- ignores them while preserving existing provenance.
+Do not merely assert the request returned 2xx.
+5. Test completion and reopen through HTTP.
+Required sequence:
+- create an SLA task through an internal fixture/helper;
+- PUT status=completed through the real API;
+- verify completedAt is populated;
+- PUT status=pending/open through the real API;
+- verify completedAt is cleared.
+This proves the route reaches normalizeTaskCompletionState().
+6. Test the actual SLA generation orchestration.
+Export or expose a test-safe single-cycle function such as:
+runScheduledAiOpsOnce(dependencies?)
+Do not start the perpetual worker, timers, or BullMQ scheduler in the test.
+Test:
+- existing incomplete SLA task blocks creation;
+- complete it through PUT;
+- run one actual SLA cycle;
+- exactly one replacement is created;
+- run another cycle;
+- no second active replacement appears.
+7. Keep the real PostgreSQL concurrency test.
+HTTP tests do not replace the Phase 4 real-DB concurrent insert test. Both layers are required:
+- route/invariant integration,
+- database uniqueness concurrency.
+8. Rename the task or add production detection if “moment they appear” is literal.
+For test-only scope, use:
+“SLA Task Route and Worker Integration Regression Tests.”
+Actual immediate production detection would require an observable invariant check or alert, which is separate work.
+
+Kill lines
+
+STOP if tests use a nonexistent server/routes/tasks.ts owner.
+STOP if route tests bypass middleware, validation, or registered routing.
+STOP if tests can touch production data or trigger GHL/outbound side effects.
+STOP if the test starts recurring timers or the full SLA worker indefinitely.
+STOP if provenance tests check only HTTP status and not persisted fields.
+STOP if direct storage insertion is presented as proof of worker behavior.
+STOP if HTTP integration tests replace the real PostgreSQL concurrency test.
+STOP if the task claims production-time duplicate detection while adding only CI tests.
+
+Validation
+
+- POST cannot persist source or automationKey.
+- PUT cannot add, remove, or alter provenance.
+- Completing through PUT sets completedAt.
+- Reopening through PUT clears completedAt.
+- One SLA cycle after completion creates exactly one replacement.
+- A second cycle creates no additional active task.
+- Existing incomplete task blocks replacement.
+- Real concurrent PostgreSQL inserts still produce one active task.
+- Test cleanup runs even after assertion failure.
+- No GHL, BullMQ, email, SMS, or production mutations occur.
+
+Final status: PREFLIGHT REQUIRED
+
+This should become a focused HTTP route + single-cycle SLA integration test task. It is valuable, but it does not provide live production detection unless a separate monitoring check is added.
