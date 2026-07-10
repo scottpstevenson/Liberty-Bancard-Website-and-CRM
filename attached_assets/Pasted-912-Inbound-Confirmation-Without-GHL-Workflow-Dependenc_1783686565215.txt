@@ -1,0 +1,360 @@
+912 — Inbound Confirmation Without GHL Workflow Dependency
+
+Verdict
+
+Build-ready only with the corrections below.
+
+What & Why
+
+All public lead forms must send an immediate confirmation even when no GHL workflow is configured.
+
+The current implementation incorrectly gates the direct confirmation path behind:
+
+isGhlConfigured() || isSdrGhlConfigured()
+
+This allows a valid form submission to complete without any confirmation when GHL is unavailable or incompletely configured.
+
+This task makes immediate inbound confirmation provider-independent:
+
+GHL workflow is optional
+GHL direct-send API is optional
+SMTP is the final delivery fallback
+
+Critical Corrections
+
+1. Never send both workflow confirmation and direct confirmation
+
+The flow must choose exactly one immediate-confirmation path.
+
+Required precedence:
+
+1. If a configured GHL workflow is intentionally used and trigger succeeds:
+   record workflow enrollment
+   do not direct-send a duplicate confirmation
+2. If workflow ID is missing, workflow enrollment is disabled, or workflow trigger fails:
+   send confirmation through unifiedSendEmail()
+3. unifiedSendEmail():
+   use GHL direct-send if available
+   otherwise use SMTP
+
+Kill line:
+
+STOP if one form submission can trigger both a GHL workflow confirmation and a direct confirmation email.
+
+2. Do not use a 24-hour in-memory setTimeout
+
+A 24-hour setTimeout is not reliable for production scheduling.
+
+It is lost on:
+
+server restart
+deployment
+process crash
+autoscaling
+worker replacement
+
+The follow-up nudge must be scheduled through the project’s existing durable queue, delayed-job, task, cron, or persisted follow-up mechanism.
+
+Preflight these existing systems before implementation:
+
+BullMQ or delayed jobs
+follow-up task table
+scheduled communications table
+sequence worker delayed steps
+existing inbound confirmation follow-up scheduler
+
+Preferred behavior:
+
+persist follow-up dueAt = submittedAt + 24 hours
+worker evaluates whether deal has progressed
+send only if still eligible
+mark job completed/skipped/failed
+
+Do not create a second scheduling system if an existing durable mechanism already exists.
+
+Kill line:
+
+STOP if the 24-hour follow-up remains dependent on an in-memory setTimeout.
+
+3. Audit successful provider acceptance, not merely intent
+
+Add distinct audit actions:
+
+inbound_confirmation_send_attempted
+inbound_confirmation_sent
+inbound_confirmation_failed
+inbound_confirmation_followup_scheduled
+inbound_confirmation_followup_sent
+inbound_confirmation_followup_skipped
+inbound_confirmation_followup_failed
+
+inbound_confirmation_sent should only be written after the selected provider accepts the send request successfully.
+
+Include:
+
+contactId
+dealId if available
+formType
+provider = ghl_direct | smtp | ghl_workflow
+recipient
+providerMessageId if available
+workflowId if applicable
+failureReason if failed
+
+Do not treat an attempted send or a “sending direct” skip reason as confirmed success.
+
+Required Immediate Confirmation Flow
+
+Refactor or add a helper such as:
+
+sendInboundConfirmation({
+  contact,
+  deal,
+  formType,
+  bookingLink,
+})
+
+Expected result:
+
+type InboundConfirmationResult =
+  | {
+      sent: true;
+      method: "ghl_workflow" | "ghl_direct" | "smtp";
+      providerMessageId?: string;
+    }
+  | {
+      sent: false;
+      method?: "ghl_workflow" | "ghl_direct" | "smtp";
+      reason: string;
+    };
+
+The public routes should call one canonical helper instead of duplicating delivery decisions.
+
+Workflow Behavior
+
+The GHL workflow ID must no longer be required for confirmation delivery.
+
+Allowed:
+
+workflow configured and successfully triggered
+→ workflow owns immediate confirmation
+
+Fallback:
+
+workflow missing
+workflow disabled
+workflow trigger fails
+→ unified direct-send path
+
+Do not classify a missing workflow ID as an error when direct delivery succeeds.
+
+SMTP Fallback
+
+Verify unifiedSendEmail() has real provider fallback semantics:
+
+attempt GHL direct send only when properly configured
+if unavailable or provider call fails in a fallback-eligible way, use SMTP
+return actual provider used
+return success/failure explicitly
+
+Do not swallow a GHL error and falsely report success.
+
+Do not call real providers in tests.
+
+SMS
+
+The request says “email + optional SMS,” but SMS must remain governed by existing consent and feature flags.
+
+Only send SMS if:
+
+the contact has the required consent
+SMS is enabled
+the existing SMS contactability gate passes
+
+Email confirmation must still work if SMS is unavailable.
+
+Do not make SMS delivery a condition for overall confirmation success.
+
+Durable 24-Hour Follow-Up
+
+The follow-up must:
+
+be persisted durably
+be idempotent
+check deal progression at execution time
+check current opt-out/DNC/contactability state
+use unifiedSendEmail()
+skip if the lead has progressed
+skip if the contact opted out
+avoid duplicate follow-up scheduling for the same submission/contact
+
+Recommended idempotency key:
+
+inbound_confirmation_followup:<formSubmissionId>
+
+or an equivalent stable submission/contact identifier.
+
+Public Form Coverage
+
+Verify all current public call sites use the canonical helper:
+
+estimate form
+statement upload
+get-started form
+callback form
+
+Relevant locations currently identified:
+
+server/routes/public.ts:291
+server/routes/public.ts:381
+server/routes/public.ts:558
+server/routes/public.ts:702
+
+Do not copy/paste provider logic into each route.
+
+Go-Live Check Stage 5
+
+Update Stage 5 to pass when there is evidence of a valid confirmation path.
+
+Passing states:
+
+recent inbound_confirmation_sent
+OR recent ghl_inbound_confirmation_enrolled
+
+Conditional/degraded state:
+
+direct provider configured but no recent form submission exists
+
+Failure states:
+
+recent inbound confirmation failed
+no usable GHL direct-send or SMTP provider
+workflow missing and no direct provider available
+
+Do not treat this as a success:
+
+inbound_confirmation_skipped with text containing "sending direct"
+
+That only proves routing intent, not successful delivery.
+
+Tasks #910 and #911
+
+Do not delete or mark tasks cancelled from code unless the project has an explicit task-management system in scope.
+
+In the completion report, state:
+
+#910 and #911 are superseded by #912 if their only purpose was provisioning the GHL inbound-confirmation workflow.
+
+Confirm they have no other independent requirements before closing them.
+
+Scope Protection
+
+Do not change:
+
+form copy
+booking-link logic
+lead scoring
+deal stage logic
+sequence enrollment
+cold outreach
+contactability policy
+CAN-SPAM footer logic
+GHL workflow definitions
+transactional merchant emails
+password-reset emails
+
+Kill Lines
+
+STOP if a submission can receive duplicate workflow + direct confirmation.
+STOP if immediate confirmation still depends on GHL workflow configuration.
+STOP if SMTP is bypassed when GHL direct-send is unavailable.
+STOP if a failed provider call is audited as inbound_confirmation_sent.
+STOP if the 24-hour nudge uses an in-memory setTimeout.
+STOP if the follow-up ignores current opt-out/DNC/contactability state.
+STOP if repeated submissions create duplicate delayed follow-up jobs without an idempotency key.
+STOP if SMS sends without required consent.
+STOP if Stage 5 passes based only on an attempted/skipped audit.
+STOP if real email, SMS, or GHL calls are made during automated tests.
+
+Validation
+
+Add:
+
+scripts/test-inbound-confirmation-delivery.ts
+
+Required tests:
+
+1. No GHL workflow ID + GHL direct-send unavailable + SMTP available
+   → one confirmation sent through mocked SMTP
+2. No workflow ID + GHL direct-send available
+   → one confirmation sent through mocked GHL direct-send
+3. Workflow configured and succeeds
+   → workflow enrollment recorded
+   → no direct confirmation duplicate
+4. Workflow configured but trigger fails
+   → direct-send fallback succeeds
+5. GHL direct-send fails and SMTP succeeds
+   → sent result uses SMTP
+6. All providers fail
+   → inbound_confirmation_failed
+   → no false sent audit
+7. All four public form types use the canonical helper
+8. 24-hour follow-up is persisted durably
+   → no long-lived setTimeout
+9. Follow-up skips when deal progressed
+10. Follow-up skips when contact opted out or DNC
+11. Follow-up executes once when still eligible
+12. Duplicate scheduling request is idempotent
+13. Stage 5 accepts inbound_confirmation_sent
+14. Stage 5 accepts ghl_inbound_confirmation_enrolled
+15. Stage 5 does not pass on attempted/skipped-only evidence
+16. No real GHL, SMTP, or SMS provider called
+
+Run:
+
+npx tsx scripts/test-inbound-confirmation-delivery.ts
+npx tsx scripts/go-live-check.ts
+npx tsx scripts/smoke-role-guards.ts
+
+Relevant Files
+
+Likely changes:
+
+server/services/ghl-workflow-enrollment.ts
+server/routes/public.ts
+server/services/smtp-email.ts
+server/services/unified-send-email.ts if present
+existing durable scheduling/queue service
+scripts/go-live-check.ts
+scripts/test-inbound-confirmation-delivery.ts
+
+Do not create a new queue implementation if the project already has a durable delayed-job mechanism.
+
+Final Report Required
+
+Return:
+
+Canonical confirmation helper:
+Public form call sites migrated:
+Workflow ID required: yes/no
+Workflow success causes direct duplicate: yes/no
+Direct-send provider order:
+SMTP fallback verified:
+Immediate sent audit action:
+Failure audit action:
+Provider message ID captured:
+24h follow-up scheduler:
+Follow-up persisted durably: yes/no
+In-memory 24h setTimeout remaining: yes/no
+Follow-up idempotency key:
+Progressed-deal skip verified:
+Opt-out/DNC skip verified:
+Stage 5 passing evidence:
+Stage 5 attempted-only pass removed: yes/no
+#910 status:
+#911 status:
+Real email sent during tests: yes/no
+Real SMS sent during tests: yes/no
+Real GHL called during tests: yes/no
+Validation commands run:
+Files changed:
