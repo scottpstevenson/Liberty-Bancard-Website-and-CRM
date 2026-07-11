@@ -207,12 +207,12 @@ function CampaignDetail({ campaign }: { campaign: Campaign }) {
   const queueMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("POST", `/api/campaigns/${campaign.id}/queue`);
-      return res;
+      return res.json() as Promise<{ queued: number; mode: string }>;
     },
     onSuccess: (data: { queued: number; mode: string } | void) => {
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
       const queued = (data as any)?.queued ?? 0;
-      const mode = (data as any)?.mode === "crm_contacts" ? " from CRM contacts" : "";
+      const mode = (data as any)?.mode === "contacts" ? " from CRM contacts" : "";
       toast({ title: "Messages queued", description: `${queued} messages queued${mode}.` });
     },
     onError: (err: Error) => {
@@ -333,8 +333,8 @@ function CampaignDetail({ campaign }: { campaign: Campaign }) {
               queueMutation.mutate();
             }
           }}
-          disabled={queueMutation.isPending || (isCrmMode && (!audiencePreview || audiencePreview.isPartial))}
-          title={isCrmMode && !audiencePreview ? "Run Preview Audience first to confirm eligible contacts before queuing" : isCrmMode && audiencePreview?.isPartial ? "Preview is partial — run preview on a smaller vertical to get an exact count before queuing" : undefined}
+          disabled={queueMutation.isPending || (isCrmMode && !audiencePreview)}
+          title={isCrmMode && !audiencePreview ? "Run Preview Audience first to confirm eligible contacts before queuing" : undefined}
           data-testid={`button-queue-messages-${campaign.id}`}
         >
           <Send className="w-4 h-4 mr-1" />
@@ -347,7 +347,7 @@ function CampaignDetail({ campaign }: { campaign: Campaign }) {
         )}
         {isCrmMode && audiencePreview?.isPartial && (
           <p className="text-xs text-amber-600 dark:text-amber-400 self-center" data-testid="text-preview-partial-hint">
-            Partial preview — queueing blocked until exact count confirmed
+            Partial preview — eligible count may be higher than shown
           </p>
         )}
       </div>
@@ -393,13 +393,13 @@ function CampaignDetail({ campaign }: { campaign: Campaign }) {
             <AlertDialogCancel data-testid={`button-queue-cancel-${campaign.id}`}>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => queueMutation.mutate()}
-              disabled={!audiencePreview || audiencePreview.eligibleCount === 0 || audiencePreview.isPartial}
+              disabled={!audiencePreview || audiencePreview.eligibleCount === 0}
               data-testid={`button-queue-confirm-${campaign.id}`}
             >
-              {!audiencePreview || audiencePreview.isPartial
+              {!audiencePreview
                 ? "Preview Required"
                 : audiencePreview.eligibleCount > 0
-                  ? `Queue ${audiencePreview.eligibleCount.toLocaleString()} Messages`
+                  ? `Queue ${audiencePreview.eligibleCount.toLocaleString()}${audiencePreview.isPartial ? "+" : ""} Messages`
                   : "No Eligible Contacts"}
             </AlertDialogAction>
           </AlertDialogFooter>

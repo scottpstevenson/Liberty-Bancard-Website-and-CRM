@@ -288,12 +288,25 @@ export async function queueContactCampaignMessages(campaignId: number, maxToQueu
 
   const existingMessages = await storage.getOutboundMessages(campaignId);
 
-  // Count already-sent messages today for daily limit enforcement.
+  // Count already-committed messages today for daily limit enforcement.
+  // Includes: (1) sent/delivered today (sentAt >= todayStart), (2) already-queued
+  // messages (will be sent imminently), (3) scheduled messages for today.
+  // Including queued/scheduled prevents double-enqueuing on repeated queue calls
+  // before any sends have occurred.
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
-  const todaySentCount = existingMessages.filter(m =>
-    m.sentAt && new Date(m.sentAt).getTime() >= todayStart.getTime()
-  ).length;
+  const todayEnd = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
+  const todaySentCount = existingMessages.filter(m => {
+    if (m.status === "queued") return true; // already in queue, will be sent
+    if (m.status === "scheduled" && m.scheduledFor) {
+      const sf = new Date(m.scheduledFor).getTime();
+      return sf >= todayStart.getTime() && sf < todayEnd.getTime();
+    }
+    if ((m.status === "sent" || m.status === "delivered") && m.sentAt) {
+      return new Date(m.sentAt).getTime() >= todayStart.getTime();
+    }
+    return false;
+  }).length;
 
   const remainingDailyBudget = dailyLimit - todaySentCount;
   if (remainingDailyBudget <= 0) return 0;
