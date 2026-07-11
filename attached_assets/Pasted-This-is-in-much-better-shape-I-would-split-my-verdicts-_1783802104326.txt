@@ -1,0 +1,182 @@
+This is in much better shape. I would split my verdicts:
+
+Task #968 — BUILD-READY WITH 4 FINAL CORRECTIONS
+
+You fixed almost everything I was worried about. The architecture is now much closer to something that can survive long-term.
+
+There are just four things I’d tighten before I’d call it fully build-ready.
+
+1. Don’t use contact_readiness_runs for long-term progress
+
+You’re introducing a proper contact_readiness_runs table, which is great.
+
+But make sure it stores both run metadata and resumable state.
+
+I would explicitly require:
+
+status
+runId
+modelVersion
+startedAt
+completedAt
+lastHeartbeatAt
+lastProcessedContactId
+processed
+updated
+skipped
+errors
+force
+
+Don’t rely on derived values.
+
+⸻
+
+2. Version invalidation needs an explicit policy
+
+You added:
+
+readinessModelVersion
+
+Excellent.
+
+But specify exactly what happens when
+
+READINESS_MODEL_VERSION
+
+increments.
+
+Example:
+
+If contact.readinessModelVersion <
+READINESS_MODEL_VERSION
+the contact is automatically eligible for
+re-score during the next background run.
+Do not compute synchronously during reads.
+
+Otherwise future developers won’t know how version upgrades happen.
+
+⸻
+
+3. Make campaign previews store the threshold snapshot
+
+Phase 1 already introduced preview hashing.
+
+Phase 2 adds
+
+readinessThreshold
+
+The preview record itself should persist:
+
+readinessThreshold
+modelVersion
+previewHash
+
+That way if
+
+threshold changes
+
+or
+
+modelVersion changes
+
+the preview becomes invalid immediately.
+
+Don’t rely only on recomputing hashes.
+
+Persist the snapshot.
+
+⸻
+
+4. Don’t allow “stale but non-null” readiness
+
+Right now the plan distinguishes
+
+NULL
+
+vs
+
+non-null
+
+I’d add another category:
+
+stale
+
+Example:
+
+readinessUpdatedAt <
+lastMeaningfulContactMutation
+
+or
+
+modelVersion mismatch
+
+Those should also be
+
+excludedByReadiness
+
+Otherwise an old score could pass the threshold forever.
+
+⸻
+
+One optional improvement
+
+I’d also persist
+
+dataReadinessGrade
+A
+B
+C
+D
+F
+
+computed from the numeric score.
+
+Not for filtering.
+
+Purely for operators.
+
+Humans understand
+
+Grade B
+
+much faster than
+
+72
+
+It doesn’t replace the numeric score.
+
+⸻
+
+Task #969 — APPROVED
+
+I actually like keeping this completely read-only.
+
+This project has enough complexity now that an ownership audit before Phase 3 is worth doing.
+
+One thing I’d explicitly require in the audit:
+
+For every intake source, document:
+
+* canonical owner
+* dedupe key
+* provenance fields
+* scoring trigger
+* enrichment trigger
+* campaign eligibility
+* GHL ownership
+* rollback behavior
+* idempotency guarantees
+
+That becomes the contract Phase 3 implements instead of discovering it while coding.
+
+⸻
+
+Overall
+
+I’d consider the roadmap now:
+
+* ✅ Phase 1: Campaign audience enablement (shipped)
+* ✅ Phase 2: Readiness scoring (essentially build-ready with the four refinements above)
+* ✅ Phase 3: Ownership audit before architectural consolidation
+
+This is a much stronger sequence than trying to jump straight into replacing the prospects model. It lets you harden the campaign system first, then understand the intake architecture before making larger structural changes.
