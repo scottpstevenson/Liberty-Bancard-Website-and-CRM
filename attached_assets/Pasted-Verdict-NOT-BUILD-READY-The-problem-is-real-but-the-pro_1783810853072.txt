@@ -1,0 +1,118 @@
+Verdict: NOT BUILD-READY
+
+The problem is real, but the proposed gate is conceptually wrong.
+
+scoreContact() is behavioral sales scoring, not a send-permission prerequisite. A readiness score of 40 also should not independently authorize promotional enrollment. The task must separate transactional confirmations from promotional outreach and use one canonical enrollment-eligibility service.
+
+Corrections to send back
+
+Rewrite #971 around promotional enrollment safety.
+1. Separate transactional messages from promotional enrollment.
+Do not block or delay:
+- requested confirmation emails
+- statement-upload confirmations
+- support acknowledgements
+- other transactional responses
+Only gate:
+- autoEnrollFromTrigger("form_submitted")
+- autoEnrollFromTrigger("contact_created")
+- prospect-conversion promotional sequences
+- any other automated nurture/cold-outreach enrollment
+Transactional confirmation must keep its existing canonical path.
+2. Do not require scoreContact() to complete before enrollment.
+leadScore measures sales priority and behavior. It is not permission to send.
+scoreContact() may still run independently, but promotional enrollment eligibility
+must not depend on Hot/Warm/Cold scoring completion.
+3. Do not use dataReadinessScore >= 40 as the sole gate.
+Readiness is a structural precondition only.
+Create one canonical service, for example:
+evaluatePromotionalEnrollmentEligibility(contactId, trigger)
+It should return:
+{
+  eligible: boolean;
+  reasonCodes: string[];
+  readinessScore: number | null;
+  contactabilityDecision: ...;
+}
+Required checks:
+- readiness score exists
+- readiness model version is current
+- readiness meets the approved trigger-specific threshold
+- usable promotional channel exists
+- evaluateContactability(contactId, "email", <canonical campaign type>) allows
+- contact is not already enrolled in the same trigger/sequence
+- contact is not a test/spam/internal record if canonical flags exist
+4. Define trigger-specific readiness requirements.
+Do not assume one threshold works for all sources.
+At minimum distinguish:
+- website form
+- manual CRM creation
+- prospect conversion
+A website form with explicit verified email may have different requirements from
+a bulk-converted prospect.
+Document each threshold and required fields before building.
+5. Centralize ownership.
+Do not copy this gate into:
+- public.ts
+- contacts.ts
+- prospects.ts
+Each caller should invoke the same enrollment service.
+The service should own:
+- eligibility evaluation
+- reason-coded rejection
+- idempotent enrollment call
+- audit logging
+6. Make enrollment durable, not fire-and-forget.
+Do not await several slow services inside the form response path, but also do not use
+an unmanaged promise.
+After contact creation commits:
+- enqueue one idempotent promotional-enrollment evaluation job, or
+- emit a durable post-write event consumed by the existing enrollment worker.
+The job re-reads current readiness and contactability before enrolling.
+7. Recheck at first send.
+Passing the enrollment gate does not permanently authorize delivery.
+The sequence/send worker must still call evaluateContactability immediately before
+each send.
+8. Fix prospect conversion scope explicitly.
+For single and batch conversion:
+- creating the contact must succeed independently of promotional enrollment;
+- failed eligibility leaves the contact created but not enrolled;
+- batch results report created, already existed, enrolled, and blocked-by-reason
+  separately.
+Do not roll back valid contact creation because outreach eligibility failed.
+9. Preserve previous opt-outs.
+A new form submission or prospect conversion must never clear:
+- doNotContact
+- doNotAutoContact
+- opted-out consent tier
+- unsubscribed/bounced status
+This task must use the current persisted compliance state, not only the incoming body.
+
+Kill lines
+
+STOP if transactional confirmation emails are delayed or blocked by promotional rules.
+STOP if leadScore or Hot/Warm status is treated as send permission.
+STOP if readinessScore >= 40 alone allows enrollment.
+STOP if eligibility logic is duplicated across three route files.
+STOP if promotional enrollment remains an unmanaged fire-and-forget promise.
+STOP if a failed enrollment gate prevents a valid contact from being created.
+STOP if contactability is checked only at enrollment and not again before send.
+STOP if form resubmission can restore a prior opt-out.
+
+Validation
+
+- Transactional confirmation still sends for a valid form submission even when
+  promotional enrollment is blocked.
+- Invalid or stale readiness blocks promotional enrollment with a reason code.
+- Below-threshold readiness blocks enrollment.
+- Above-threshold readiness still fails when evaluateContactability denies.
+- Passing contact is enrolled exactly once.
+- Repeated post-write events do not duplicate enrollment.
+- Manual contact, form contact, and converted prospect use the same service.
+- Batch conversion reports enrollment outcomes separately from contact creation.
+- Existing opt-out remains protected after resubmission.
+- Send worker rechecks contactability before first delivery.
+
+Final status: NOT BUILD-READY
+
+The correct task is centralized promotional-enrollment eligibility and durable post-write evaluation, not “wait for lead scoring, then enroll.”

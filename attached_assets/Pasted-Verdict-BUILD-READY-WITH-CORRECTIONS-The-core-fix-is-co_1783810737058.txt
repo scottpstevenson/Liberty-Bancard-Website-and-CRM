@@ -1,0 +1,80 @@
+Verdict: BUILD-READY WITH CORRECTIONS
+
+The core fix is correct and appropriately narrow. But replacing the 500-row scan alone does not fully prevent duplicate creation under concurrent GHL syncs.
+
+Corrections to send back
+
+1. Verify the actual canonical lookup methods and indexes before implementation.
+Provide file:line evidence for:
+- getContactByEmail()
+- whether it normalizes email case/whitespace
+- whether contacts.ghlContactId has a real applicable DB index or unique constraint
+- whether normalized email is protected by a unique index
+Do not claim the lookups are indexed until pg_indexes/schema evidence confirms it.
+2. Use deterministic lookup order.
+syncContactFromGhl must resolve in this order:
+A. Exact ghlContactId match
+B. Normalized email match
+C. Create new contact
+If both lookups resolve to different local contacts, STOP and create/log a sync conflict.
+Do not arbitrarily choose one or merge them silently.
+3. Normalize email consistently.
+Use the same canonical email normalization used by contact creation and the unique constraint:
+trim
+lowercase
+empty string → null
+Do not add a second email-normalization implementation inside ghl-sync.ts.
+4. Handle concurrent creates idempotently.
+Two inbound syncs can both perform the indexed lookups, both see no match, and race to create.
+The create path must catch the targeted unique violation and then re-query by:
+- ghlContactId
+- normalized email
+If the newly found row is compatible, continue as an idempotent update.
+Do not return null or record the sync as failed merely because another request won the race.
+5. Define ghlContactId ownership.
+If an email match finds an existing contact with:
+- ghlContactId = null → attach the incoming GHL ID safely
+- the same ghlContactId → update normally
+- a different non-null ghlContactId → conflict; do not overwrite silently
+6. Do not use a “large dataset” smoke test that inserts 500+ unnecessary rows.
+The regression can be proven deterministically by:
+- inserting the target contact outside any former capped slice, or
+- stubbing the old capped method to prove it is never called,
+- then confirming the indexed lookup finds the contact.
+Also test the real DB query plan/index separately.
+7. Preserve all existing inbound ownership protections.
+This task must not change:
+- REPLIT_OWNED_FIELDS
+- conflict detection
+- tags
+- sync timestamps
+- GHL activity logging
+- scoring/enrichment behavior
+Those belong to later Phase 3A tasks.
+
+Kill lines
+
+STOP if getContacts({ limit: 500 }) remains anywhere in the dedupe path.
+STOP if ghlContactId and email resolve to different contacts without a conflict record.
+STOP if email matching is case-sensitive or whitespace-sensitive.
+STOP if concurrent 23505 creation is treated as a terminal sync failure.
+STOP if an existing different ghlContactId is overwritten based only on email.
+STOP if an unverified index is described as present.
+STOP if this task expands into scoring, enrichment, campaign eligibility, or canonical-writer redesign.
+
+Validation
+
+- Contact with ID/location beyond the former 500-row slice is found and updated.
+- Exact ghlContactId match wins over email matching.
+- Mixed-case/whitespace email resolves to the existing contact.
+- GHL-ID lookup and email lookup pointing to different contacts produces a conflict.
+- Email match with null ghlContactId safely attaches the incoming GHL ID.
+- Email match with another non-null ghlContactId is not overwritten.
+- Two concurrent first-time syncs produce exactly one contact.
+- Targeted unique-race recovery re-queries and succeeds.
+- getContacts({ limit: 500 }) is never called by syncContactFromGhl.
+- Existing GHL field-ownership and conflict tests remain green.
+
+Final status: BUILD-READY WITH CORRECTIONS
+
+Keep #970 surgical: indexed identity lookup, identity-conflict handling, and race-safe creation recovery.
