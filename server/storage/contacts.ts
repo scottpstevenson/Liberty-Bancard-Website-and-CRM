@@ -609,6 +609,32 @@ import { coerceDateFields } from "../utils/date-coerce";
       .where(eq(contacts.id, id));
   }
 
+  /**
+   * Write an entire scored batch in a single DB transaction.
+   * Cursor advancement in the backfill loop happens AFTER this resolves,
+   * so any failure rolls back the entire batch and the cursor stays behind it.
+   */
+  async batchUpdateContactReadiness(
+    batch: Array<{ id: number; score: number; grade: string; breakdown: Record<string, unknown> }>,
+    modelVersion: number,
+  ): Promise<void> {
+    if (batch.length === 0) return;
+    const now = new Date();
+    await db.transaction(async (tx) => {
+      for (const w of batch) {
+        await tx.update(contacts)
+          .set({
+            dataReadinessScore: w.score,
+            dataReadinessGrade: w.grade,
+            readinessBreakdown: w.breakdown,
+            readinessUpdatedAt: now,
+            readinessModelVersion: modelVersion,
+          })
+          .where(eq(contacts.id, w.id));
+      }
+    });
+  }
+
   async createReadinessRun(run: InsertContactReadinessRun): Promise<ContactReadinessRun> {
     const [created] = await db.insert(contactReadinessRuns).values(run).returning();
     return created;

@@ -180,13 +180,11 @@ export function registerCampaignsRoutes(app: Express) {
         // Phase 2: verify readiness model version matches the snapshot in the preview.
         // If the scoring model was updated between preview and queue, block queueing.
         const { READINESS_MODEL_VERSION } = await import("../services/contact-readiness");
-        if (
-          preview.readinessModelVersion !== null &&
-          preview.readinessModelVersion !== undefined &&
-          preview.readinessModelVersion !== READINESS_MODEL_VERSION
-        ) {
+        // Strict equality: null preview version also fails — a preview created before
+        // readiness versioning was introduced must not slip through the gate.
+        if (preview.readinessModelVersion !== READINESS_MODEL_VERSION) {
           return res.status(400).json({
-            message: `Readiness scoring model updated (preview used v${preview.readinessModelVersion}, current is v${READINESS_MODEL_VERSION}). Please re-run the audience preview.`,
+            message: `Readiness scoring model mismatch (preview used v${preview.readinessModelVersion ?? "none"}, current is v${READINESS_MODEL_VERSION}). Please re-run the audience preview.`,
           });
         }
         if (preview.consumedAt) {
@@ -521,16 +519,17 @@ export function registerCampaignsRoutes(app: Express) {
           ORDER BY bucket_start
         `),
 
-        // 3. Top-10 missing reason codes — derived from readiness_breakdown JSONB.
-        //    A field is "missing" when its "earned" value is 0 in the per-field map.
+        // 3. Top-10 missing reason codes — aggregated from the missingReasons array
+        //    stored at readiness_breakdown->'missingReasons'.  The array contains
+        //    canonical REASON_CODE strings (e.g. "missing_email", "missing_city").
         db.execute(sql`
-          SELECT field_key AS reason, COUNT(*) AS cnt
+          SELECT reason, COUNT(*) AS cnt
           FROM contacts,
-               jsonb_each(readiness_breakdown) AS f(field_key, field_val)
+               jsonb_array_elements_text(readiness_breakdown->'missingReasons') AS reason
           WHERE archived_at IS NULL
             AND readiness_breakdown IS NOT NULL
-            AND (field_val->>'earned')::numeric = 0
-          GROUP BY field_key
+            AND readiness_breakdown ? 'missingReasons'
+          GROUP BY reason
           ORDER BY cnt DESC
           LIMIT 10
         `),

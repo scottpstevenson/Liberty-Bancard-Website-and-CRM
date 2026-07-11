@@ -2,13 +2,17 @@
  * Contact Readiness Backfill Service
  *
  * Keyset-paginated, runId-fenced, restart-safe backfill of dataReadinessScore
- * across all CRM contacts. One active run at a time — enforced by the
- * `contact_readiness_runs` table and atomic claimReadinessRun() check.
+ * across all CRM contacts. One active run at a time — enforced by:
+ *   1. A DB partial unique index on contact_readiness_runs WHERE status='running'
+ *      (migration 0059) — prevents concurrent starts even across processes.
+ *   2. claimReadinessRun() ownership check before each batch commit.
  *
  * Kill lines:
  * - No OFFSET pagination — uses WHERE id > lastProcessedContactId keyset cursor
- * - No overlapping runs — runId claim before each batch commit
+ * - No overlapping runs — DB-level partial unique index + claimReadinessRun() fence
  * - No fire-and-forget — terminal state (complete/failed) is always persisted
+ * - Transactional per batch — entire batch writes in one DB transaction before
+ *   cursor advances; partial batch application is impossible
  */
 import { randomUUID } from "crypto";
 import { storage } from "../storage";
@@ -53,7 +57,8 @@ export async function startReadinessBackfill(force = false): Promise<{ runId: st
       };
     }
 
-    // Interrupt the stale/forced run
+    // Interrupt the stale/forced run and carry its keyset cursor forward so the
+    // replacement run continues from where the interrupted one stopped.
     await storage.updateReadinessRun(existing.runId, {
       status: "interrupted",
       completedAt: new Date(),
@@ -64,27 +69,39 @@ export async function startReadinessBackfill(force = false): Promise<{ runId: st
     console.log(`[ReadinessBackfill] Interrupted stale run ${existing.runId}`);
   }
 
-  // Carry the interrupted run's keyset cursor forward so a restarted run
-  // continues from where the interrupted one left off, not from id=0.
+  // Carry the interrupted run's keyset cursor forward (or start from 0 for a fresh start).
   const resumeCursor = existing?.lastProcessedContactId ?? null;
 
   const runId = randomUUID();
-  await storage.createReadinessRun({
-    runId,
-    modelVersion: READINESS_MODEL_VERSION,
-    status: "running",
-    force,
-    processed: 0,
-    updated: 0,
-    skipped: 0,
-    errors: 0,
-    startedAt: new Date(),
-    lastHeartbeatAt: new Date(),
-    lastProcessedContactId: resumeCursor,
-    totalEligible: null,
-    completedAt: null,
-    lastError: null,
-  });
+  try {
+    await storage.createReadinessRun({
+      runId,
+      modelVersion: READINESS_MODEL_VERSION,
+      status: "running",
+      force,
+      processed: 0,
+      updated: 0,
+      skipped: 0,
+      errors: 0,
+      startedAt: new Date(),
+      lastHeartbeatAt: new Date(),
+      lastProcessedContactId: resumeCursor,
+      totalEligible: null,
+      completedAt: null,
+      lastError: null,
+    });
+  } catch (err: any) {
+    // unique_violation (23505) means the partial unique index on status='running'
+    // fired — another process inserted a running row between our check and insert.
+    if (err?.code === "23505" || (err?.message ?? "").includes("contact_readiness_runs_singleton_active")) {
+      const concurrent = await storage.getActiveReadinessRun();
+      return {
+        runId: concurrent?.runId ?? "unknown",
+        message: `Concurrent start detected — another run is already active (runId=${concurrent?.runId}). Use force=true to interrupt.`,
+      };
+    }
+    throw err;
+  }
 
   console.log(`[ReadinessBackfill] Started run ${runId} (modelVersion=${READINESS_MODEL_VERSION}, force=${force})`);
 
@@ -99,6 +116,9 @@ async function runBackfillLoop(runId: string): Promise<void> {
   let updated = 0;
   let skipped = 0;
   let errors = 0;
+  // Declared OUTSIDE the try block so the catch block can reference it for the
+  // terminal-state progress persist without a TypeScript compile error.
+  let lastProcessedId = 0;
 
   try {
     // Claim ownership atomically — bail if another process already owns this run.
@@ -113,7 +133,7 @@ async function runBackfillLoop(runId: string): Promise<void> {
     // Resume from the cursor persisted on THIS run record (carried forward from any
     // interrupted predecessor by startReadinessBackfill).  Never use getLatestReadinessRun()
     // here — it could return a different run's cursor after a race.
-    let lastProcessedId: number = claimed.lastProcessedContactId ?? 0;
+    lastProcessedId = claimed.lastProcessedContactId ?? 0;
 
     for (;;) {
       // Fetch next batch via keyset cursor
@@ -140,7 +160,12 @@ async function runBackfillLoop(runId: string): Promise<void> {
       for (const contact of batch) {
         try {
           const result = computeDataReadinessScore(contact);
-          writes.push({ id: contact.id, score: result.score, grade: result.grade, breakdown: result.breakdown as unknown as Record<string, unknown> });
+          writes.push({
+            id: contact.id,
+            score: result.score,
+            grade: result.grade,
+            breakdown: result.breakdown as unknown as Record<string, unknown>,
+          });
         } catch (err) {
           errors++;
           console.error(`[ReadinessBackfill] Scoring error for contact ${contact.id}:`, (err as Error).message);
@@ -154,23 +179,35 @@ async function runBackfillLoop(runId: string): Promise<void> {
         return;
       }
 
-      // Write all successfully-scored contacts
-      for (const w of writes) {
-        try {
-          await storage.updateContactReadiness(w.id, w.score, w.grade, w.breakdown, READINESS_MODEL_VERSION);
-          updated++;
-        } catch (err) {
-          errors++;
-          console.error(`[ReadinessBackfill] Write error for contact ${w.id}:`, (err as Error).message);
-        }
+      // Write entire batch in a single DB transaction — cursor advances AFTER this
+      // resolves so a partial failure cannot produce a partially-applied batch with
+      // an advanced cursor.
+      try {
+        await storage.batchUpdateContactReadiness(writes, READINESS_MODEL_VERSION);
+        updated += writes.length;
+      } catch (err) {
+        errors += writes.length;
+        console.error(`[ReadinessBackfill] Batch write failed for run ${runId} at id=${lastProcessedId}:`, (err as Error).message);
+        // Do not advance cursor — the batch will be retried on the next loop iteration
+        // (contacts remain stale and will be re-fetched).
+        await storage.updateReadinessRun(runId, {
+          processed,
+          updated,
+          skipped,
+          errors,
+          lastHeartbeatAt: new Date(),
+          lastError: `Batch write failed at id=${lastProcessedId}: ${(err as Error).message}`,
+        });
+        // Yield and continue — don't abort the entire run on one batch failure
+        await new Promise(resolve => setImmediate(resolve));
+        continue;
       }
 
       processed += batch.length;
       skipped += batch.length - writes.length;
 
-      // Advance keyset cursor to the last ID in this batch AFTER writes complete so
-      // that cursor advancement only happens after the batch is durably committed.
-      // Using the last batch contact's ID (not per-contact) ensures consistent paging.
+      // Advance keyset cursor to the last ID in this batch AFTER writes are durably
+      // committed.  This is safe because batchUpdateContactReadiness is transactional.
       lastProcessedId = batch[batch.length - 1].id;
 
       // Persist progress + heartbeat
