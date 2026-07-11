@@ -449,6 +449,13 @@
       "when": 1785200000000,
       "tag": "0059_readiness_run_singleton",
       "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1785300000000,
+      "tag": "0060_promotional_enrollment_jobs",
+      "breakpoints": true
     }
   ]
 }

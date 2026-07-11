@@ -11,7 +11,7 @@ import { enrollContactInGhlWorkflow } from "../services/ghl-workflow-enrollment"
 import { enrichContactBatch, isContactEnrichRunning } from "../services/enrichment";
 import { enrichContactFromLinkedIn, bulkEnrichFromLinkedIn } from "../services/linkedin-enrichment";
 import { getSerperUsage, isSerperConfigured, resetSerperUsage } from "../services/serper";
-import { autoEnrollFromTrigger } from "../services/sequence-worker";
+import { enqueuePromotionalEnrollment } from "../services/promotional-enrollment-eligibility";
 import { triggerWorkflowsByEvent } from "../services/workflow-executor";
 import { scoreContact } from "../services/lead-scoring";
 import { routeContact } from "../services/smart-router";
@@ -55,7 +55,7 @@ export function registerContactsRoutes(app: Express) {
       ingestBusinessFromContact(contact.id, "manual_upload", "crm_contact_create").catch(err => console.warn("[CRM] Business ingest failed:", err));
       scoreContact(contact.id).catch(err => console.error("Lead scoring error:", err));
       extractRelationshipsForContact(contact.id).catch(err => console.warn("[Relationships] Extraction failed:", err));
-      autoEnrollFromTrigger("contact_created", { contactId: contact.id }).catch(err => console.error("Auto-enroll error:", err));
+      enqueuePromotionalEnrollment({ contactId: contact.id, triggerType: "contact_created", sourceEventId: crypto.randomUUID() }).catch(err => console.error("Enqueue error:", err));
       routeContact(contact.id).catch(err => console.error("Smart routing error:", err));
       assignNextRep(contact.id, `${contact.firstName} ${contact.lastName}`.trim()).catch(err => console.error("Round-robin assignment error:", err));
       if (contact.leadScore && contact.leadScore >= 80) {

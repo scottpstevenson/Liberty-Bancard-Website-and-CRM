@@ -11,7 +11,7 @@ import { contacts, users } from "@shared/schema";
 import { and, eq, ne, sql } from "drizzle-orm";
 import { INDUSTRY_SLUGS, LOCATION_CITIES, LOCATION_VERTICALS, STATIC_BLOG_SLUGS } from "@shared/blog-slugs";
 import { getSerperUsage, isSerperConfigured } from "../services/serper";
-import { autoEnrollFromTrigger } from "../services/sequence-worker";
+import { enqueuePromotionalEnrollment } from "../services/promotional-enrollment-eligibility";
 import { triggerWorkflowsByEvent } from "../services/workflow-executor";
 import { calculateQuizBonusFn, calculateRevenuePotentialFn, calculateSwitchabilityFn, calculateUnderwritingConfidenceFn, scoreContact } from "../services/lead-scoring";
 import { generateDealBlueprint } from "../services/deal-blueprint";
@@ -918,15 +918,17 @@ Guidelines:
         dealId: deal.id,
       }, { formType: "free_analysis" }).catch(err => console.error("Workflow trigger error:", err));
 
-      autoEnrollFromTrigger("form_submitted", {
+      enqueuePromotionalEnrollment({
         contactId: contact.id,
-        dealId: deal.id,
+        triggerType: "form_submitted",
         formType: "free_analysis",
+        sourceEventId: `deal-${deal.id}-form_submitted-free_analysis`,
       }).catch(err => console.error("Auto-enroll error:", err));
 
-      autoEnrollFromTrigger("quiz_completed", {
+      enqueuePromotionalEnrollment({
         contactId: contact.id,
-        dealId: deal.id,
+        triggerType: "quiz_completed",
+        sourceEventId: `deal-${deal.id}-quiz_completed`,
       }).catch(err => console.error("Auto-enroll quiz error:", err));
 
       if (pewcConsent && phone) {

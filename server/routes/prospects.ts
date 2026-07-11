@@ -5,7 +5,7 @@ import { z } from "zod";
 import { DateValidationError } from "../utils/date-coerce";
 import { insertEnrichmentJobSchema, insertProspectListSchema, insertProspectSchema } from "@shared/schema";
 import { enrichProspect, processEnrichmentQueue, runEnrichmentJob } from "../services/enrichment";
-import { autoEnrollFromTrigger } from "../services/sequence-worker";
+import { enqueuePromotionalEnrollment } from "../services/promotional-enrollment-eligibility";
 import { scoreContact } from "../services/lead-scoring";
 import { generateDealBlueprint } from "../services/deal-blueprint";
 import { getRoutingRecommendation, routeContact } from "../services/smart-router";
@@ -137,10 +137,13 @@ export function registerProspectsRoutes(app: Express) {
       generateDealBlueprint(deal.id).catch(err => console.error("Blueprint error:", err));
 
       try {
-        const { autoEnrollFromTrigger } = await import("../services/sequence-worker");
-        await autoEnrollFromTrigger("contact_created", { contactId: contact.id });
+        await enqueuePromotionalEnrollment({
+          contactId: contact.id,
+          triggerType: "contact_created",
+          sourceEventId: `prospect-convert-${prospect.id}`,
+        });
       } catch (enrollErr) {
-        console.error("Auto-enroll error on prospect conversion:", enrollErr);
+        console.error("Enqueue error on prospect conversion:", enrollErr);
       }
 
       try {
@@ -243,13 +246,26 @@ export function registerProspectsRoutes(app: Express) {
         results.push({ prospectId: pid, contactId: contact.id, dealId: deal.id });
       }
 
-      try {
-        const { autoEnrollFromTrigger } = await import("../services/sequence-worker");
-        for (const r of results) {
-          await autoEnrollFromTrigger("contact_created", { contactId: r.contactId });
+      const enrollmentEvaluations: Array<{
+        contactId: number;
+        enrollmentEvaluation: { status: string; jobId?: string; reasonCodes?: string[] };
+      }> = [];
+
+      for (const r of results) {
+        try {
+          const evalResult = await enqueuePromotionalEnrollment({
+            contactId: r.contactId,
+            triggerType: "contact_created",
+            sourceEventId: `prospect-convert-${r.prospectId}`,
+          });
+          enrollmentEvaluations.push({ contactId: r.contactId, enrollmentEvaluation: evalResult });
+        } catch (enrollErr) {
+          console.error(`Enqueue error on batch conversion for contact ${r.contactId}:`, enrollErr);
+          enrollmentEvaluations.push({
+            contactId: r.contactId,
+            enrollmentEvaluation: { status: "deferred_queue_unavailable" },
+          });
         }
-      } catch (enrollErr) {
-        console.error("Auto-enroll error on batch conversion:", enrollErr);
       }
 
       try {
@@ -301,7 +317,7 @@ export function registerProspectsRoutes(app: Express) {
         console.error("Stage rule error on batch conversion:", ruleErr);
       }
 
-      res.json({ converted: results.length, results });
+      res.json({ converted: results.length, results, enrollmentEvaluations });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

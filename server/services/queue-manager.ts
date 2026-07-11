@@ -378,6 +378,90 @@ class QueueManager {
                 contact.id, r.score, r.grade, r.breakdown as Record<string, unknown>, READINESS_MODEL_VERSION,
               );
             }
+          } else if (_job.name === "promotional-enrollment-eval" && typeof _job.data?.promotionalEnrollmentJobId === "number") {
+            const { db: dbInst } = await import("../db");
+            const { promotionalEnrollmentJobs } = await import("@shared/schema");
+            const { eq } = await import("drizzle-orm");
+            const { evaluatePromotionalEnrollmentEligibility } = await import("./promotional-enrollment-eligibility");
+            const { autoEnrollFromTrigger } = await import("./sequence-worker");
+
+            const jobRowId: number = _job.data.promotionalEnrollmentJobId;
+            const contactId: number = _job.data.contactId;
+            const triggerType: string = _job.data.triggerType;
+            const formType: string | null = _job.data.formType ?? null;
+            const isResubmission: boolean = _job.data.isResubmission ?? false;
+
+            // Top-level try/catch ensures the row never gets stranded in "processing"
+            // regardless of where an error originates (eligibility eval, enroll, DB write).
+            try {
+              await dbInst
+                .update(promotionalEnrollmentJobs)
+                .set({ status: "processing", attempts: (_job.attemptsMade ?? 0) + 1 })
+                .where(eq(promotionalEnrollmentJobs.id, jobRowId));
+
+              const eligibility = await evaluatePromotionalEnrollmentEligibility(
+                contactId,
+                triggerType,
+                { isResubmission }
+              );
+
+              if (!eligibility.eligible) {
+                await dbInst
+                  .update(promotionalEnrollmentJobs)
+                  .set({
+                    status: "blocked",
+                    reasonCodes: eligibility.reasonCodes,
+                    processedAt: new Date(),
+                  })
+                  .where(eq(promotionalEnrollmentJobs.id, jobRowId));
+              } else {
+                let enrollResult: { count: number; enrollmentIds: number[]; alreadyEnrolledCount: number } = {
+                  count: 0,
+                  enrollmentIds: [],
+                  alreadyEnrolledCount: 0,
+                };
+                enrollResult = await autoEnrollFromTrigger(
+                  triggerType,
+                  { contactId, formType: formType ?? undefined },
+                  { preEvaluated: { contactabilityByChannel: eligibility.contactabilityByChannel } }
+                );
+
+                // Determine terminal status:
+                // - "enrolled"            → at least one new enrollment created
+                // - "already_enrolled"    → sequences matched but contact already in all of them (none new)
+                // - "no_matching_sequence"→ no active sequences matched the trigger at all
+                const terminalStatus: string =
+                  enrollResult.count > 0
+                    ? "enrolled"
+                    : enrollResult.alreadyEnrolledCount > 0
+                      ? "already_enrolled"
+                      : "no_matching_sequence";
+
+                await dbInst
+                  .update(promotionalEnrollmentJobs)
+                  .set({
+                    status: terminalStatus,
+                    enrollmentIds: enrollResult.enrollmentIds.length > 0 ? enrollResult.enrollmentIds : null,
+                    processedAt: new Date(),
+                  })
+                  .where(eq(promotionalEnrollmentJobs.id, jobRowId));
+              }
+            } catch (workerErr) {
+              // Durably mark failed so the row exits "processing" even if BullMQ retries are exhausted.
+              try {
+                await dbInst
+                  .update(promotionalEnrollmentJobs)
+                  .set({
+                    status: "failed",
+                    reasonCodes: [(workerErr as Error).message?.slice(0, 200) ?? "error"],
+                    processedAt: new Date(),
+                  })
+                  .where(eq(promotionalEnrollmentJobs.id, jobRowId));
+              } catch (updateErr) {
+                console.error("[PromotionalEnrollment] Failed to mark row as failed:", updateErr);
+              }
+              throw workerErr;
+            }
           } else {
             await runEnrichmentTick();
           }

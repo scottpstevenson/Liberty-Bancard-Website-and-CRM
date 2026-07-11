@@ -4,7 +4,7 @@ import { z } from "zod";
 import { and } from "drizzle-orm";
 import { verifyUnsubscribeToken } from "../services/unsubscribe-token";
 import { sendGhlEmail, sendGhlSms } from "../services/ghl";
-import { autoEnrollFromTrigger } from "../services/sequence-worker";
+import { enqueuePromotionalEnrollment } from "../services/promotional-enrollment-eligibility";
 import { triggerWorkflowsByEvent } from "../services/workflow-executor";
 import { enrollInInboundConfirmation, isGhlInboundActive } from "../services/ghl-workflow-enrollment";
 import { enrollInGhlWorkflow } from "../services/ghl-workflows";
@@ -380,7 +380,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       ingestBusinessFromContact(contact.id, "manual_upload", "website_estimate").catch(err => console.warn("[Estimate] Business ingest failed:", err));
       scoreContact(contact.id).catch(err => console.error("Lead scoring error:", err));
       routeContact(contact.id).catch(err => console.error("Smart routing error:", err));
-      autoEnrollFromTrigger("form_submitted", { contactId: contact.id, dealId: deal.id, formType: "estimate" }).catch(err => console.error("Auto-enroll error:", err));
+      enqueuePromotionalEnrollment({ contactId: contact.id, triggerType: "form_submitted", formType: "estimate", sourceEventId: submissionId }).catch(err => console.error("Enqueue error:", err));
       triggerWorkflowsByEvent("form_submitted", { entityType: "contact", entityId: contact.id, contactId: contact.id, dealId: deal.id }, { formType: "estimate" }).catch(err => console.error("Workflow trigger error:", err));
       enrollInInboundConfirmation({ contactId: contact.id, formType: "estimate", dealId: deal.id, submissionId }).catch(err => console.error("GHL inbound confirmation error:", err));
       if (contact.ghlContactId) enrollInGhlWorkflow({ workflowKey: "inbound_lead", ghlContactId: contact.ghlContactId, metadata: { formType: "estimate", dealId: deal.id } }).catch(err => console.error("[Estimate] GHL inbound_lead enrollment error:", err));
@@ -558,7 +558,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         }).catch(err => console.error("[OfferRouter] Import error:", err));
       }
       generateDealBlueprint(deal.id).catch(err => console.error("Blueprint gen error:", err));
-      autoEnrollFromTrigger("form_submitted", { contactId: contact.id, dealId: deal.id, formType: "get_started" }).catch(err => console.error("Auto-enroll error:", err));
+      enqueuePromotionalEnrollment({ contactId: contact.id, triggerType: "form_submitted", formType: "get_started", sourceEventId: submissionId }).catch(err => console.error("Enqueue error:", err));
       triggerWorkflowsByEvent("form_submitted", { entityType: "contact", entityId: contact.id, contactId: contact.id, dealId: deal.id }, { formType: "get_started" }).catch(err => console.error("Workflow trigger error:", err));
       enrollInInboundConfirmation({ contactId: contact.id, formType: "get_started", dealId: deal.id, submissionId }).catch(err => console.error("GHL inbound confirmation error:", err));
       if (contact.ghlContactId) enrollInGhlWorkflow({ workflowKey: "inbound_lead", ghlContactId: contact.ghlContactId, metadata: { formType: "get_started", dealId: deal.id } }).catch(err => console.error("[GetStarted] GHL inbound_lead enrollment error:", err));
@@ -652,7 +652,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         },
       });
 
-      autoEnrollFromTrigger("form_submitted", { contactId: contact.id, formType: "integration_request" }).catch(err => console.error("Auto-enroll error:", err));
+      enqueuePromotionalEnrollment({ contactId: contact.id, triggerType: "form_submitted", formType: "integration_request", sourceEventId: crypto.randomUUID() }).catch(err => console.error("Enqueue error:", err));
       triggerWorkflowsByEvent("form_submitted", { entityType: "contact", entityId: contact.id, contactId: contact.id }, { formType: "integration_request", software: data.softwareName }).catch(err => console.error("Workflow trigger error:", err));
 
       res.status(201).json({ success: true, contactId: contact.id });
@@ -703,7 +703,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       }
       scoreContact(contact.id).catch(err => console.error("Lead scoring error:", err));
       routeContact(contact.id).catch(err => console.error("Smart routing error:", err));
-      autoEnrollFromTrigger("form_submitted", { contactId: contact.id, dealId: deal.id, formType: "callback" }).catch(err => console.error("Auto-enroll error:", err));
+      enqueuePromotionalEnrollment({ contactId: contact.id, triggerType: "form_submitted", formType: "callback", sourceEventId: submissionId }).catch(err => console.error("Enqueue error:", err));
       triggerWorkflowsByEvent("form_submitted", { entityType: "contact", entityId: contact.id, contactId: contact.id, dealId: deal.id }, { formType: "callback" }).catch(err => console.error("Workflow trigger error:", err));
       enrollInInboundConfirmation({ contactId: contact.id, formType: "callback", dealId: deal.id, submissionId }).catch(err => console.error("GHL inbound confirmation error:", err));
       if (contact.ghlContactId) enrollInGhlWorkflow({ workflowKey: "callback_request", ghlContactId: contact.ghlContactId, metadata: { dealId: deal.id, bestTime: bestTime || "anytime" } }).catch(err => console.error("[Callback] GHL callback_request enrollment error:", err));
@@ -831,7 +831,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       }).catch(err => console.error("[Attribution] equipment-order error:", err));
       scoreContact(contact.id).catch(err => console.error("Lead scoring error:", err));
       routeContact(contact.id).catch(err => console.error("Smart routing error:", err));
-      autoEnrollFromTrigger("form_submitted", { contactId: contact.id, dealId: deal.id, formType: "equipment_order" }).catch(err => console.error("Auto-enroll error:", err));
+      enqueuePromotionalEnrollment({ contactId: contact.id, triggerType: "form_submitted", formType: "equipment_order", sourceEventId: submissionId }).catch(err => console.error("Enqueue error:", err));
       triggerWorkflowsByEvent("form_submitted", { entityType: "contact", entityId: contact.id, contactId: contact.id, dealId: deal.id }, { formType: "equipment_order" }).catch(err => console.error("Workflow trigger error:", err));
       if (contact.ghlContactId) enrollInGhlWorkflow({ workflowKey: "equipment_order", ghlContactId: contact.ghlContactId, metadata: { dealId: deal.id, items: validatedItems.map((i: any) => i.name) } }).catch(err => console.error("[EquipmentOrder] GHL equipment_order enrollment error:", err));
       if (phone) sendConfirmationSms(contact.id, firstName, "equipment_order", deal.id).catch(err => console.error("Confirm SMS error:", err));
@@ -962,8 +962,8 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         formData: { lb_newsletter_source: "blog_inline" },
       }).catch(err => console.error("[Newsletter] GHL sync error:", err));
 
-      autoEnrollFromTrigger("newsletter_signup", { contactId: contact.id, formType: "newsletter" }).catch(err =>
-        console.error("[Newsletter] Auto-enroll error:", err),
+      enqueuePromotionalEnrollment({ contactId: contact.id, triggerType: "newsletter_signup", formType: "newsletter", sourceEventId: crypto.randomUUID() }).catch(err =>
+        console.error("[Newsletter] Enqueue error:", err),
       );
 
       res.status(201).json({ success: true, contactId: contact.id });

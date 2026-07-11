@@ -1084,8 +1084,14 @@ export async function autoEnrollFromTrigger(triggerType: string, data: {
   contactId?: number;
   dealId?: number;
   formType?: string;
-}): Promise<number> {
+}, opts?: {
+  preEvaluated?: {
+    contactabilityByChannel: Partial<Record<string, import("./contactability").ContactabilityResult>>;
+  };
+}): Promise<{ count: number; enrollmentIds: number[]; alreadyEnrolledCount: number }> {
   let enrolled = 0;
+  let alreadyEnrolledCount = 0;
+  const enrollmentIds: number[] = [];
 
   try {
     const allSequences = await storage.getFollowUpSequences();
@@ -1114,7 +1120,10 @@ export async function autoEnrollFromTrigger(triggerType: string, data: {
       const alreadyInSequence = existing.some(
         e => e.sequenceId === seq.id && (e.status === "active" || e.status === "completed")
       );
-      if (alreadyInSequence) continue;
+      if (alreadyInSequence) {
+        alreadyEnrolledCount++;
+        continue;
+      }
 
       const steps = await storage.getSequenceSteps(seq.id);
 
@@ -1174,12 +1183,21 @@ export async function autoEnrollFromTrigger(triggerType: string, data: {
         let blockLifecycleStage: string | undefined;
 
         for (const channel of channelSet) {
-          const check = await evaluateContactability({
-            contactId: data.contactId,
-            channel,
-            campaignType: "auto_enrollment",
-            mode: "enforcement",
-          });
+          let check: import("./contactability").ContactabilityResult | undefined;
+
+          if (opts?.preEvaluated?.contactabilityByChannel) {
+            check = opts.preEvaluated.contactabilityByChannel[channel];
+          }
+
+          if (!check) {
+            check = await evaluateContactability({
+              contactId: data.contactId,
+              channel,
+              campaignType: "auto_enrollment",
+              mode: "enforcement",
+            });
+          }
+
           if (!check.allowed) {
             enrollmentBlocked = true;
             blockedChannel = channel;
@@ -1215,7 +1233,7 @@ export async function autoEnrollFromTrigger(triggerType: string, data: {
         ? ((firstStep.delayDays || 0) * 86400000) + ((firstStep.delayHours || 0) * 3600000)
         : 0;
 
-      await storage.createSequenceEnrollment({
+      const newEnrollment = await storage.createSequenceEnrollment({
         sequenceId: seq.id,
         contactId: data.contactId,
         dealId: data.dealId || undefined,
@@ -1223,6 +1241,10 @@ export async function autoEnrollFromTrigger(triggerType: string, data: {
         currentStep: 0,
         nextActionAt: new Date(Date.now() + Math.max(delayMs, 1000)),
       });
+
+      if (newEnrollment?.id) {
+        enrollmentIds.push(newEnrollment.id);
+      }
 
       await storage.createAuditLog({
         action: "sequence_auto_enrolled",
@@ -1241,5 +1263,5 @@ export async function autoEnrollFromTrigger(triggerType: string, data: {
     console.error("Auto-enrollment error:", err);
   }
 
-  return enrolled;
+  return { count: enrolled, enrollmentIds, alreadyEnrolledCount };
 }

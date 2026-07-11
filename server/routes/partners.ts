@@ -118,13 +118,13 @@ export function registerPartnersRoutes(app: Express) {
             }
 
             const { autoEnrollFromTrigger } = await import("../services/sequence-worker");
-            const enrolled = await autoEnrollFromTrigger("partner_approved", { contactId: contact.id });
+            const enrollResult = await autoEnrollFromTrigger("partner_approved", { contactId: contact.id });
 
             await storage.createAuditLog({
               action: "partner_approved_sequence_enrolled",
               entityType: "partner",
               entityId: partnerId,
-              details: { contactId: contact.id, sequencesEnrolled: enrolled, email: partnerEmail },
+              details: { contactId: contact.id, sequencesEnrolled: enrollResult.count, email: partnerEmail },
               type: "info",
             });
           } catch (e) {

@@ -219,8 +219,8 @@ async function testCase9(): Promise<void> {
   const contactId = await makeContact({ emailStatus: "opted_out", consentTier: "opted_out" });
   const seqId = await makeAutoTriggerSequence({ triggerType: "test_gate_opted_out" });
 
-  const count = await autoEnrollFromTrigger("test_gate_opted_out", { contactId });
-  assert("opted-out: autoEnrollFromTrigger returns 0 enrolled", count === 0, `enrolled=${count}`);
+  const result = await autoEnrollFromTrigger("test_gate_opted_out", { contactId });
+  assert("opted-out: autoEnrollFromTrigger returns 0 enrolled", result.count === 0, `enrolled=${result.count}`);
 
   const rowExists = await enrollmentRowExists(contactId, seqId);
   assert("opted-out: no sequenceEnrollments row created", !rowExists, "row should not exist");
@@ -235,8 +235,8 @@ async function testCase10(): Promise<void> {
   const contactId = await makeContact({ emailStatus: "bounced" });
   const seqId = await makeAutoTriggerSequence({ triggerType: "test_gate_bounced" });
 
-  const count = await autoEnrollFromTrigger("test_gate_bounced", { contactId });
-  assert("bounced email: autoEnrollFromTrigger returns 0 enrolled", count === 0, `enrolled=${count}`);
+  const result = await autoEnrollFromTrigger("test_gate_bounced", { contactId });
+  assert("bounced email: autoEnrollFromTrigger returns 0 enrolled", result.count === 0, `enrolled=${result.count}`);
 
   const rowExists = await enrollmentRowExists(contactId, seqId);
   assert("bounced email: no sequenceEnrollments row created", !rowExists);
@@ -254,8 +254,8 @@ async function testCase11(): Promise<void> {
     stepActionTypes: ["email", "sms"],
   });
 
-  const count = await autoEnrollFromTrigger("test_gate_sms_cold", { contactId });
-  assert("cold contact: autoEnrollFromTrigger returns 0 for SMS sequence", count === 0, `enrolled=${count}`);
+  const result = await autoEnrollFromTrigger("test_gate_sms_cold", { contactId });
+  assert("cold contact: autoEnrollFromTrigger returns 0 for SMS sequence", result.count === 0, `enrolled=${result.count}`);
 
   const rowExists = await enrollmentRowExists(contactId, seqId);
   assert("cold contact: no sequenceEnrollments row created for SMS sequence", !rowExists);
@@ -274,8 +274,8 @@ async function testCase12(): Promise<void> {
     stepActionTypes: ["email"],
   });
 
-  const count = await autoEnrollFromTrigger("test_gate_email_only", { contactId });
-  assert("eligible contact: autoEnrollFromTrigger returns 1 enrolled", count === 1, `enrolled=${count}`);
+  const result = await autoEnrollFromTrigger("test_gate_email_only", { contactId });
+  assert("eligible contact: autoEnrollFromTrigger returns 1 enrolled", result.count === 1, `enrolled=${result.count}`);
 
   const rowExists = await enrollmentRowExists(contactId, seqId);
   assert("eligible contact: sequenceEnrollments row created", rowExists);
@@ -296,8 +296,8 @@ async function testCase13(): Promise<void> {
     stepActionTypes: ["email", "sms"],
   });
 
-  const count = await autoEnrollFromTrigger("test_gate_mixed", { contactId });
-  assert("warm contact: mixed-channel sequence blocked (SMS requires PEWC)", count === 0, `enrolled=${count}`);
+  const result = await autoEnrollFromTrigger("test_gate_mixed", { contactId });
+  assert("warm contact: mixed-channel sequence blocked (SMS requires PEWC)", result.count === 0, `enrolled=${result.count}`);
 
   const rowExists = await enrollmentRowExists(contactId, seqId);
   assert("warm contact: no enrollment row for mixed sequence", !rowExists);
@@ -318,11 +318,11 @@ async function testCase13(): Promise<void> {
     outboundChannels: ["email"], // narrower than actual steps
   });
 
-  const count2 = await autoEnrollFromTrigger("test_gate_mixed_conflict", { contactId: contactId2 });
+  const result2 = await autoEnrollFromTrigger("test_gate_mixed_conflict", { contactId: contactId2 });
   assert(
     "union: outboundChannels=[email] + sms step — warm contact still blocked (SMS requires PEWC)",
-    count2 === 0,
-    `enrolled=${count2} — step-derived sms channel must be evaluated even when outboundChannels only declares email`
+    result2.count === 0,
+    `enrolled=${result2.count} — step-derived sms channel must be evaluated even when outboundChannels only declares email`
   );
   const rowExists2 = await enrollmentRowExists(contactId2, seqId2);
   assert("union: no enrollment row for conflict-scenario sequence", !rowExists2);

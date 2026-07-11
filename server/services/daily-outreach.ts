@@ -4,7 +4,7 @@ import { enrichSunbizEntity, convertToProspect } from "./sunbiz-enrichment";
 import { queueCampaignMessages, processSendQueue } from "./campaign-engine";
 import { scoreContact } from "./lead-scoring";
 import { routeContact } from "./smart-router";
-import { autoEnrollFromTrigger } from "./sequence-worker";
+import { enqueuePromotionalEnrollment } from "./promotional-enrollment-eligibility";
 import { triggerWorkflowsByEvent } from "./workflow-executor";
 import { syncContactToGhl } from "./ghl-sync";
 import { createContactGhlFirst, updateContactGhlFirst } from "./contact-writer";
@@ -631,7 +631,7 @@ export async function promoteQualifiedToContacts(): Promise<{
 
       scoreContact(contact.id).catch(err => console.error("Lead scoring error:", err));
       routeContact(contact.id).catch(err => console.error("Smart routing error:", err));
-      autoEnrollFromTrigger("contact_created", { contactId: contact.id }).catch(err => console.error("Auto-enroll error:", err));
+      enqueuePromotionalEnrollment({ contactId: contact.id, triggerType: "contact_created", sourceEventId: `discovery-enroll-${contact.id}-${Date.now()}` }).catch(err => console.error("Auto-enroll error:", err));
       triggerWorkflowsByEvent("contact_created", {
         entityType: "contact",
         entityId: contact.id,

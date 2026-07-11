@@ -15,7 +15,7 @@ import { isGhlConfigured, createGhlTask } from "./ghl";
 import { isSmtpConfigured, sendSmtpEmail } from "./smtp-email";
 import { autoGenerateProposal } from "./proposal-engine";
 import { generateDealBlueprint } from "./deal-blueprint";
-import { autoEnrollFromTrigger } from "./sequence-worker";
+import { enqueuePromotionalEnrollment } from "./promotional-enrollment-eligibility";
 import { ACTIVE_DEAL_STAGES, statementProposals } from "@shared/schema";
 import { db } from "../db";
 import { eq } from "drizzle-orm";
@@ -719,13 +719,14 @@ export async function runStatementUploadChain(
   // STEP 11 — Follow-up sequence enrolled
   // ────────────────────────────────────────────────────────────────────────────
   try {
-    await autoEnrollFromTrigger("form_submitted", {
+    const enqueueResult = await enqueuePromotionalEnrollment({
       contactId: input.contactId,
-      dealId: dealId || undefined,
+      triggerType: "form_submitted",
       formType: "statement_upload",
+      sourceEventId: `statement-enroll-${dealId ?? input.contactId}`,
     });
     steps.push(makeStep(11, "Follow-up sequence enrolled", true, undefined, {
-      contactId: input.contactId, dealId,
+      contactId: input.contactId, dealId, enrollmentStatus: enqueueResult.status,
     }));
   } catch (err: any) {
     steps.push(makeStep(11, "Follow-up sequence enrolled", false, err.message));

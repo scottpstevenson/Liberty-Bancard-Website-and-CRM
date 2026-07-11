@@ -4380,3 +4380,48 @@ export const insertOutboundSendCounterSchema = createInsertSchema(outboundSendCo
 
 export type OutboundSendCounter = typeof outboundSendCounters.$inferSelect;
 export type InsertOutboundSendCounter = z.infer<typeof insertOutboundSendCounterSchema>;
+
+// ─── Promotional Enrollment Jobs ──────────────────────────────────────────────
+export const promotionalEnrollmentJobs = pgTable("promotional_enrollment_jobs", {
+  id: serial("id").primaryKey(),
+  sourceEventId: text("source_event_id").notNull().unique(),
+  contactId: integer("contact_id").notNull().references(() => contacts.id, { onDelete: "cascade" }),
+  triggerType: text("trigger_type").notNull(),
+  formType: text("form_type"),
+  status: text("status").notNull().default("pending"),
+  reasonCodes: text("reason_codes").array(),
+  enrollmentIds: integer("enrollment_ids").array(),
+  attempts: integer("attempts").notNull().default(0),
+  jobId: text("job_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  processedAt: timestamp("processed_at"),
+}, (table) => [
+  index("promotional_enrollment_jobs_contact_id_idx").on(table.contactId),
+  index("promotional_enrollment_jobs_status_idx").on(table.status),
+]);
+
+export const insertPromotionalEnrollmentJobSchema = createInsertSchema(promotionalEnrollmentJobs).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type PromotionalEnrollmentJob = typeof promotionalEnrollmentJobs.$inferSelect;
+export type InsertPromotionalEnrollmentJob = z.infer<typeof insertPromotionalEnrollmentJobSchema>;
+
+export type PromotionalEnrollmentJobStatus =
+  | "pending"
+  | "processing"
+  | "enrolled"
+  | "blocked"
+  | "no_matching_sequence"
+  | "already_enrolled"
+  | "failed"
+  | "deferred_queue_unavailable";
+
+export type PromotionalEligibilityReason =
+  | "contact_not_found"
+  | "dnc"
+  | "existing_opt_out"
+  | "existing_opt_out_preserved_on_resubmission"
+  | "no_usable_channel"
+  | "eligible";
