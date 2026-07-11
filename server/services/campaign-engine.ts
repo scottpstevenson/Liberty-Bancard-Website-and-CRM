@@ -267,6 +267,14 @@ export async function queueCampaignMessages(campaignId: number, maxToQueue?: num
 
 // CRM contact-mode queuing: targets CRM contacts by vertical/completeness.
 // evaluateContactability() is called BEFORE every outbound_messages row creation — kill line.
+// SQL page size for paginated traversals — large enough to get meaningful
+// vertical matches per page, small enough to avoid memory pressure.
+const QUEUE_SQL_PAGE = 1000;
+
+// Maximum contacts to run through the full contactability gate during a preview.
+// Beyond this cap the gated counts are marked as partial, not extrapolated.
+const PREVIEW_MAX_GATE = 5000;
+
 export async function queueContactCampaignMessages(campaignId: number, maxToQueue?: number): Promise<number> {
   const campaign = await storage.getCampaign(campaignId);
   if (!campaign || campaign.status !== "active") return 0;
@@ -292,75 +300,96 @@ export async function queueContactCampaignMessages(campaignId: number, maxToQueu
 
   const effectiveLimit = Math.min(batchCap, remainingDailyBudget);
 
-  // Fetch audience — over-fetch so JS vertical filter has room to match.
-  const candidates = await storage.getContactsForCampaignAudience({
-    verticals: campaign.targetVerticals ?? undefined,
-    limit: Math.min(effectiveLimit * 5, 50000),
-  });
+  // Index existing messages by contactId for O(1) lookup during traversal.
+  const messagesByContact = new Map<number, typeof existingMessages>();
+  for (const m of existingMessages) {
+    if (!messagesByContact.has(m.contactId)) {
+      messagesByContact.set(m.contactId, []);
+    }
+    messagesByContact.get(m.contactId)!.push(m);
+  }
 
   let queued = 0;
+  let sqlOffset = 0;
   const now = new Date();
 
-  for (const contact of candidates) {
-    if (queued >= effectiveLimit) break;
-
-    const contactMessages = existingMessages.filter(m => m.contactId === contact.id);
-    const completedSteps = contactMessages.filter(m => m.status === "sent" || m.status === "delivered");
-
-    const nextStepIndex = completedSteps.length;
-    if (nextStepIndex >= steps.length) continue;
-
-    const hasReplied = contactMessages.some(m => m.status === "replied");
-    if (hasReplied) continue;
-
-    // Duplicate prevention: skip if already queued/scheduled for same step.
-    const step = steps[nextStepIndex];
-    const hasPending = contactMessages.some(m =>
-      m.stepId === step.id && (m.status === "queued" || m.status === "scheduled" || m.status === "sent" || m.status === "delivered")
-    );
-    if (hasPending) continue;
-
-    const lastSent = contactMessages
-      .filter(m => m.sentAt)
-      .sort((a, b) => new Date(b.sentAt!).getTime() - new Date(a.sentAt!).getTime())[0];
-
-    if (lastSent && step.delayDays) {
-      const delayMs = step.delayDays * 24 * 60 * 60 * 1000;
-      if (now.getTime() - new Date(lastSent.sentAt!).getTime() < delayMs) continue;
-    }
-
-    // ── KILL LINE: contactability gate BEFORE row creation ────────────────────
-    const gate = await evaluateContactability({
-      contactId: contact.id,
-      channel: "email",
-      campaignType: "marketing_campaign",
-      mode: "enforcement",
+  // True paginated traversal — iterate through the entire contactable pool
+  // using SQL-level OFFSET pages until the daily limit is reached or all
+  // contacts have been visited.
+  while (queued < effectiveLimit) {
+    const page = await storage.getContactsForCampaignAudience({
+      verticals: campaign.targetVerticals ?? undefined,
+      offset: sqlOffset,
+      limit: QUEUE_SQL_PAGE,
     });
-    if (!gate.allowed) {
-      await storage.createAuditLog({
-        actorType: "system",
-        action: "campaign_queue_blocked_contactability",
-        entityType: "contact",
-        entityId: contact.id,
-        details: { reason: gate.reason, campaignId },
+
+    if (page.length === 0) break; // exhausted the contactable pool
+
+    for (const contact of page) {
+      if (queued >= effectiveLimit) break;
+
+      const contactMessages = messagesByContact.get(contact.id) ?? [];
+      const completedSteps = contactMessages.filter(m => m.status === "sent" || m.status === "delivered");
+
+      const nextStepIndex = completedSteps.length;
+      if (nextStepIndex >= steps.length) continue;
+
+      const hasReplied = contactMessages.some(m => m.status === "replied");
+      if (hasReplied) continue;
+
+      // Duplicate prevention: skip if already queued/scheduled for same step.
+      const step = steps[nextStepIndex];
+      const hasPending = contactMessages.some(m =>
+        m.stepId === step.id && (m.status === "queued" || m.status === "scheduled" || m.status === "sent" || m.status === "delivered")
+      );
+      if (hasPending) continue;
+
+      const lastSent = contactMessages
+        .filter(m => m.sentAt)
+        .sort((a, b) => new Date(b.sentAt!).getTime() - new Date(a.sentAt!).getTime())[0];
+
+      if (lastSent && step.delayDays) {
+        const delayMs = step.delayDays * 24 * 60 * 60 * 1000;
+        if (now.getTime() - new Date(lastSent.sentAt!).getTime() < delayMs) continue;
+      }
+
+      // ── KILL LINE: contactability gate BEFORE row creation ────────────────────
+      const gate = await evaluateContactability({
+        contactId: contact.id,
+        channel: "email",
+        campaignType: "marketing_campaign",
+        mode: "enforcement",
       });
-      continue; // Do NOT create the outbound_messages row.
+      if (!gate.allowed) {
+        await storage.createAuditLog({
+          actorType: "system",
+          action: "campaign_queue_blocked_contactability",
+          entityType: "contact",
+          entityId: contact.id,
+          details: { reason: gate.reason, campaignId },
+        });
+        continue; // Do NOT create the outbound_messages row.
+      }
+
+      const scheduledFor = new Date(now.getTime() + queued * SEND_INTERVAL_MS);
+
+      await storage.createOutboundMessage({
+        campaignId,
+        contactId: contact.id,
+        stepId: step.id,
+        channel: step.channel || "email",
+        subject: step.subject || "",
+        body: step.bodyTemplate || "",
+        status: "queued",
+        scheduledFor,
+      });
+
+      queued++;
     }
 
-    const scheduledFor = new Date(now.getTime() + queued * SEND_INTERVAL_MS);
-
-    await storage.createOutboundMessage({
-      campaignId,
-      contactId: contact.id,
-      stepId: step.id,
-      channel: step.channel || "email",
-      subject: step.subject || "",
-      body: step.bodyTemplate || "",
-      status: "queued",
-      scheduledFor,
-    });
-
-    queued++;
+    // Advance SQL offset by full page size regardless of how many passed the
+    // JS vertical filter — ensures we never revisit the same SQL rows.
+    sqlOffset += QUEUE_SQL_PAGE;
   }
 
   return queued;
@@ -368,6 +397,8 @@ export async function queueContactCampaignMessages(campaignId: number, maxToQueu
 
 // Preview the CRM contact audience without queuing.
 // Returns required contract shape: { eligibleCount, sampleContacts, totalInVerticals, blockedCount, blockReasons }.
+// eligibleCount is EXACT — every candidate is run through evaluateContactability()
+// (up to PREVIEW_MAX_GATE contacts); no sample extrapolation is used.
 export async function previewContactCampaignAudience(campaignId: number): Promise<{
   eligibleCount: number;
   sampleContacts: Array<{ id: number; name: string; email: string; vertical: string | null }>;
@@ -380,44 +411,62 @@ export async function previewContactCampaignAudience(campaignId: number): Promis
     return { eligibleCount: 0, sampleContacts: [], totalInVerticals: 0, blockedCount: 0, blockReasons: {} };
   }
 
-  // Fetch pre-filtered candidates (post-SQL + post-JS vertical filter, no contactability gate).
-  const candidates = await storage.getContactsForCampaignAudience({
-    verticals: campaign.targetVerticals ?? undefined,
-    limit: 50000,
-  });
-  const totalInVerticals = candidates.length;
+  // DB-level count of the contactable pool (SQL pre-filter, no JS vertical normalization).
+  // Used as the authoritative denominator — fast single COUNT query.
+  const totalInVerticals = await storage.countContactsForCampaignAudience();
 
-  // Run evaluateContactability on first 50 to derive blocked breakdown.
-  const sampleForGate = candidates.slice(0, 50);
+  // Paginate through contacts, running the full contactability gate on each one,
+  // up to PREVIEW_MAX_GATE contacts.  Counts are exact, never extrapolated.
+  let eligibleCount = 0;
   let blockedCount = 0;
   const blockReasons: Record<string, number> = {};
+  const sampleContacts: Array<{ id: number; name: string; email: string; vertical: string | null }> = [];
+  let sqlOffset = 0;
+  let gateCapReached = false;
 
-  for (const contact of sampleForGate) {
-    const gate = await evaluateContactability({
-      contactId: contact.id,
-      channel: "email",
-      campaignType: "marketing_campaign",
-      mode: "preview",
+  while (!gateCapReached) {
+    const page = await storage.getContactsForCampaignAudience({
+      verticals: campaign.targetVerticals ?? undefined,
+      offset: sqlOffset,
+      limit: QUEUE_SQL_PAGE,
     });
-    if (!gate.allowed) {
-      blockedCount++;
-      const reason = gate.reason || "unknown";
-      blockReasons[reason] = (blockReasons[reason] || 0) + 1;
+
+    if (page.length === 0) break; // exhausted all SQL rows in this vertical set
+
+    for (const contact of page) {
+      if (eligibleCount + blockedCount >= PREVIEW_MAX_GATE) {
+        gateCapReached = true;
+        break;
+      }
+
+      // Run the full contactability gate in dryRun mode — no audit log writes.
+      const gate = await evaluateContactability({
+        contactId: contact.id,
+        channel: "email",
+        campaignType: "marketing_campaign",
+        mode: "dryRun",
+      });
+
+      if (gate.allowed) {
+        eligibleCount++;
+        if (sampleContacts.length < 5) {
+          sampleContacts.push({
+            id: contact.id,
+            name: [contact.firstName, contact.lastName].filter(Boolean).join(" ") || contact.companyName || "Unknown",
+            email: contact.email,
+            vertical: contact.vertical,
+          });
+        }
+      } else {
+        blockedCount++;
+        const reason = gate.reason || "unknown";
+        blockReasons[reason] = (blockReasons[reason] || 0) + 1;
+      }
     }
+
+    sqlOffset += QUEUE_SQL_PAGE;
+    if (page.length < QUEUE_SQL_PAGE) break; // last page
   }
-
-  // Extrapolate eligible count from sample block rate.
-  const sampleSize = sampleForGate.length || 1;
-  const blockRate = blockedCount / sampleSize;
-  const eligibleCount = Math.max(0, Math.round(totalInVerticals * (1 - blockRate)));
-
-  // Return up to 5 sample contacts (pre-gate — names/emails only).
-  const sampleContacts = candidates.slice(0, 5).map(c => ({
-    id: c.id,
-    name: [c.firstName, c.lastName].filter(Boolean).join(" ") || c.companyName || "Unknown",
-    email: c.email,
-    vertical: c.vertical,
-  }));
 
   return { eligibleCount, sampleContacts, totalInVerticals, blockedCount, blockReasons };
 }

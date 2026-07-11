@@ -1087,6 +1087,35 @@ export default function ContactDetail() {
                 </button>
               )}
             </div>
+
+            {/* Contact Quality Signals — Lead Score + Data Completeness */}
+            {(contact.leadScore != null || contact.dataCompletenessScore != null) && (
+              <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground pt-1" data-testid="section-contact-quality">
+                {contact.leadScore != null && (
+                  <span className="flex items-center gap-1" data-testid="text-lead-score">
+                    <TrendingUp className="h-3 w-3" />
+                    Lead Score: <strong className="text-foreground">{contact.leadScore}</strong>
+                  </span>
+                )}
+                {contact.dataCompletenessScore != null && (
+                  <span className="flex items-center gap-2" data-testid="section-data-completeness">
+                    <span>Data Completeness:</span>
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="w-20 h-1.5 bg-muted rounded-full overflow-hidden inline-block">
+                        <span
+                          className="h-full bg-primary block rounded-full transition-all"
+                          style={{ width: `${Math.min(100, Math.max(0, contact.dataCompletenessScore))}%` }}
+                          data-testid="bar-data-completeness"
+                        />
+                      </span>
+                      <strong className="text-foreground" data-testid="text-data-completeness-score">
+                        {contact.dataCompletenessScore}%
+                      </strong>
+                    </span>
+                  </span>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="flex gap-2 flex-wrap">

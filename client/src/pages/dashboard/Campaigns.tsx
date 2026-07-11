@@ -326,12 +326,18 @@ function CampaignDetail({ campaign }: { campaign: Campaign }) {
               queueMutation.mutate();
             }
           }}
-          disabled={queueMutation.isPending}
+          disabled={queueMutation.isPending || (isCrmMode && !audiencePreview)}
+          title={isCrmMode && !audiencePreview ? "Run Preview Audience first to confirm eligible contacts before queuing" : undefined}
           data-testid={`button-queue-messages-${campaign.id}`}
         >
           <Send className="w-4 h-4 mr-1" />
           {queueMutation.isPending ? "Queuing..." : "Queue Messages"}
         </Button>
+        {isCrmMode && !audiencePreview && !audienceLoading && (
+          <p className="text-xs text-muted-foreground self-center" data-testid="text-preview-required-hint">
+            Preview audience first to enable queueing
+          </p>
+        )}
       </div>
 
       <AlertDialog open={showQueueConfirm} onOpenChange={setShowQueueConfirm}>
@@ -375,9 +381,12 @@ function CampaignDetail({ campaign }: { campaign: Campaign }) {
             <AlertDialogCancel data-testid={`button-queue-cancel-${campaign.id}`}>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => queueMutation.mutate()}
+              disabled={!audiencePreview || audiencePreview.eligibleCount === 0}
               data-testid={`button-queue-confirm-${campaign.id}`}
             >
-              Queue Messages
+              {audiencePreview && audiencePreview.eligibleCount > 0
+                ? `Queue ${audiencePreview.eligibleCount.toLocaleString()} Messages`
+                : "No Eligible Contacts"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

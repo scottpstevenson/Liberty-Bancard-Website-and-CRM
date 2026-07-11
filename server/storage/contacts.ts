@@ -458,10 +458,11 @@ import { coerceDateFields } from "../utils/date-coerce";
   }>> {
     const { normalizeDiscoveryVertical } = await import("../services/sdr/lead-finder");
 
-    // SQL-level pre-filter: archived-out, bad email status, opted out.
-    // We cap at sqlLimit to protect memory — best-scored candidates first.
-    const sqlLimit = (opts.limit ?? 5000) * (opts.verticals && opts.verticals.length ? 10 : 1);
-    const cappedSqlLimit = Math.min(sqlLimit, 50000);
+    // True SQL OFFSET/LIMIT pagination — no JS-level multiplier trick.
+    // offset is applied at the SQL layer so callers can page through the full
+    // contactable pool without JS-level offset skew.
+    const sqlOffset = opts.offset ?? 0;
+    const sqlLimit = opts.limit ?? 1000;
 
     const rows = await db
       .select({
@@ -492,22 +493,46 @@ import { coerceDateFields } from "../utils/date-coerce";
         )
       )
       .orderBy(desc(contacts.dataCompletenessScore), desc(contacts.leadScore))
-      .limit(cappedSqlLimit);
-
-    const pageOffset = opts.offset ?? 0;
-    const pageLimit = opts.limit ?? 5000;
+      .offset(sqlOffset)
+      .limit(sqlLimit);
 
     if (!opts.verticals || opts.verticals.length === 0) {
-      return rows.slice(pageOffset, pageOffset + pageLimit);
+      return rows;
     }
 
+    // JS-level vertical normalization filter — applied on the SQL page result.
+    // Callers that paginate must use large SQL pages (e.g. 1000) so each page
+    // contains a meaningful number of vertical matches even for sparse verticals.
     const targetSet = new Set(opts.verticals);
-    const matched = rows.filter((r) => {
+    return rows.filter((r) => {
       if (!r.vertical) return false;
       const canonical = normalizeDiscoveryVertical({ rawCategory: r.vertical }).canonicalVertical;
       return targetSet.has(canonical);
     });
-    return matched.slice(pageOffset, pageOffset + pageLimit);
+  }
+
+  // DB-level count of all contactable rows passing the SQL pre-filter.
+  // Returns the total before JS-level vertical normalization — use as the
+  // authoritative denominator for campaign audience sizing.
+  async countContactsForCampaignAudience(opts: {
+    minCompletenessScore?: number;
+  } = {}): Promise<number> {
+    const [result] = await db
+      .select({ total: count() })
+      .from(contacts)
+      .where(
+        and(
+          isNull(contacts.archivedAt),
+          sql`${contacts.email} IS NOT NULL AND trim(${contacts.email}) != ''`,
+          ne(contacts.emailStatus, "bounced"),
+          ne(contacts.emailStatus, "invalid"),
+          sql`${contacts.optedOutEmail} IS NOT TRUE`,
+          opts.minCompletenessScore != null
+            ? gte(contacts.dataCompletenessScore, opts.minCompletenessScore)
+            : undefined,
+        )
+      );
+    return result?.total ?? 0;
   }
 
   async getGroupKpis(parentContactId: number) {
