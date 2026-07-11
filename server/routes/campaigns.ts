@@ -170,11 +170,24 @@ export function registerCampaignsRoutes(app: Express) {
           return res.status(400).json({ message: "Preview has expired (1-hour window). Please re-run the audience preview." });
         }
         // Verify targeting/template version has not changed since the preview.
-        // Hash covers: verticals (sorted), targetListId, step content per step.
+        // Hash covers: verticals (sorted), targetListId, step content per step,
+        // readinessThreshold, and READINESS_MODEL_VERSION.
         const steps = await storage.getCampaignSteps(campaignId);
         const currentHash = computeTargetingHash(campaign, steps);
         if (preview.targetingHash !== currentHash) {
           return res.status(400).json({ message: "Campaign targeting or step templates changed since the preview was run. Please re-run the audience preview." });
+        }
+        // Phase 2: verify readiness model version matches the snapshot in the preview.
+        // If the scoring model was updated between preview and queue, block queueing.
+        const { READINESS_MODEL_VERSION } = await import("../services/contact-readiness");
+        if (
+          preview.readinessModelVersion !== null &&
+          preview.readinessModelVersion !== undefined &&
+          preview.readinessModelVersion !== READINESS_MODEL_VERSION
+        ) {
+          return res.status(400).json({
+            message: `Readiness scoring model updated (preview used v${preview.readinessModelVersion}, current is v${READINESS_MODEL_VERSION}). Please re-run the audience preview.`,
+          });
         }
         if (preview.consumedAt) {
           return res.status(409).json({ message: "This preview was already used to queue messages. Re-run the audience preview to queue again." });
@@ -423,6 +436,89 @@ export function registerCampaignsRoutes(app: Express) {
     }
   });
 
+
+  // ============================================================
+  // Phase 2 — Readiness backfill + stats admin endpoints
+  // All three are admin/manager gated.
+  // ============================================================
+
+  // POST /api/admin/readiness-backfill/start
+  // Starts (or restarts) a readiness score backfill run.
+  // Optional body: { force: boolean } — interrupts stale/active runs.
+  app.post("/api/admin/readiness-backfill/start", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const { startReadinessBackfill } = await import("../services/contact-readiness-backfill");
+      const force = req.body?.force === true;
+      const result = await startReadinessBackfill(force);
+      res.status(202).json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // GET /api/admin/readiness-backfill/status
+  // Returns the most recent backfill run status (any terminal state).
+  app.get("/api/admin/readiness-backfill/status", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const { getReadinessBackfillStatus } = await import("../services/contact-readiness-backfill");
+      const status = await getReadinessBackfillStatus();
+      res.json(status);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // GET /api/contacts/readiness-stats
+  // Aggregated readiness score distribution — computed in Postgres via CASE on
+  // the integer column, never loads JSONB blobs into Node.
+  app.get("/api/contacts/readiness-stats", isDashboardUser, async (req, res) => {
+    try {
+      const { sql } = await import("drizzle-orm");
+      const { db } = await import("../db");
+      const { contacts } = await import("@shared/schema");
+      const { READINESS_MODEL_VERSION, READINESS_GRADE_THRESHOLDS } = await import("../services/contact-readiness");
+
+      const [row] = await db.execute(sql`
+        SELECT
+          COUNT(*)                                                       AS total,
+          COUNT(*) FILTER (WHERE data_readiness_score IS NULL)           AS null_score,
+          COUNT(*) FILTER (WHERE readiness_model_version < ${READINESS_MODEL_VERSION} OR readiness_model_version IS NULL) AS stale_model,
+          COUNT(*) FILTER (WHERE data_readiness_score >= ${READINESS_GRADE_THRESHOLDS.A}) AS grade_a,
+          COUNT(*) FILTER (WHERE data_readiness_score >= ${READINESS_GRADE_THRESHOLDS.B}
+                            AND data_readiness_score < ${READINESS_GRADE_THRESHOLDS.A})   AS grade_b,
+          COUNT(*) FILTER (WHERE data_readiness_score >= ${READINESS_GRADE_THRESHOLDS.C}
+                            AND data_readiness_score < ${READINESS_GRADE_THRESHOLDS.B})   AS grade_c,
+          COUNT(*) FILTER (WHERE data_readiness_score >= ${READINESS_GRADE_THRESHOLDS.D}
+                            AND data_readiness_score < ${READINESS_GRADE_THRESHOLDS.C})   AS grade_d,
+          COUNT(*) FILTER (WHERE data_readiness_score < ${READINESS_GRADE_THRESHOLDS.D}
+                            AND data_readiness_score IS NOT NULL)                         AS grade_f,
+          ROUND(AVG(data_readiness_score), 1)                            AS avg_score,
+          MIN(data_readiness_score)                                       AS min_score,
+          MAX(data_readiness_score)                                       AS max_score
+        FROM contacts
+        WHERE archived_at IS NULL
+      `);
+
+      res.json({
+        total: Number(row.total),
+        nullScore: Number(row.null_score),
+        staleModel: Number(row.stale_model),
+        grades: {
+          A: Number(row.grade_a),
+          B: Number(row.grade_b),
+          C: Number(row.grade_c),
+          D: Number(row.grade_d),
+          F: Number(row.grade_f),
+        },
+        avgScore: row.avg_score !== null ? Number(row.avg_score) : null,
+        minScore: row.min_score !== null ? Number(row.min_score) : null,
+        maxScore: row.max_score !== null ? Number(row.max_score) : null,
+        modelVersion: READINESS_MODEL_VERSION,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
 
   // === SEQUENCE STEPS ===
   app.get("/api/sequences/:sequenceId/steps", isAuthenticated, async (req, res) => {

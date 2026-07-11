@@ -63,6 +63,7 @@ const campaignFormSchema = z.object({
   targetScores: z.array(z.string()).optional(),
   aiPersonalization: z.boolean().optional(),
   dailySendLimit: z.coerce.number().min(1).optional(),
+  readinessThreshold: z.coerce.number().min(0).max(100).optional().nullable(),
 });
 
 type CampaignFormData = z.infer<typeof campaignFormSchema>;
@@ -108,7 +109,15 @@ type AudiencePreviewResult = {
   sampleContacts: Array<{ id: number; name: string; email: string; vertical: string | null }>;
   totalInVerticals: number;
   blockedCount: number;
-  blockReasons: Record<string, number>;
+  blockReasons: Record<string, unknown>;
+  // Phase 2: 4-category breakdown
+  excludedByReadiness?: number;
+  readinessSubReasons?: { null_score: number; stale_score: number; below_threshold: number };
+  blockedByContactability?: number;
+  alreadyQueued?: number;
+  queueable?: number;
+  readinessThreshold?: number | null;
+  readinessModelVersionUsed?: number;
 };
 
 type PreviewPollResponse = {
@@ -310,7 +319,8 @@ function CampaignDetail({ campaign }: { campaign: Campaign }) {
             </p>
           )}
           {audiencePreview && (
-            <div className="space-y-2">
+            <div className="space-y-3">
+              {/* Summary row */}
               <div className="flex flex-wrap items-center gap-3 text-sm">
                 <span className="font-medium text-green-700 dark:text-green-400" data-testid="text-eligible-count">
                   {audiencePreview.eligibleCount.toLocaleString()} eligible
@@ -324,17 +334,72 @@ function CampaignDetail({ campaign }: { campaign: Campaign }) {
                   </span>
                 )}
               </div>
-              {Object.keys(audiencePreview.blockReasons).length > 0 && (
-                <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground font-medium">Block reasons:</p>
-                  {Object.entries(audiencePreview.blockReasons).map(([reason, count]) => (
-                    <div key={reason} className="flex items-center gap-2 text-xs">
-                      <span className="text-muted-foreground truncate flex-1">{reason.replace(/_/g, " ")}</span>
-                      <span className="font-medium tabular-nums">{count}</span>
+
+              {/* Phase 2: 4-category breakdown */}
+              {(audiencePreview.excludedByReadiness !== undefined || audiencePreview.blockedByContactability !== undefined) && (
+                <div className="rounded border bg-background/60 divide-y text-xs" data-testid="panel-readiness-breakdown">
+                  {/* 1. Excluded by readiness */}
+                  {(audiencePreview.excludedByReadiness ?? 0) > 0 && (
+                    <div className="p-2 space-y-1">
+                      <div className="flex justify-between font-medium text-red-700 dark:text-red-400">
+                        <span>Excluded by readiness</span>
+                        <span data-testid="text-excluded-by-readiness">{audiencePreview.excludedByReadiness}</span>
+                      </div>
+                      {audiencePreview.readinessSubReasons && (
+                        <div className="pl-3 space-y-0.5 text-muted-foreground">
+                          {audiencePreview.readinessSubReasons.null_score > 0 && (
+                            <div className="flex justify-between">
+                              <span>No score yet</span>
+                              <span>{audiencePreview.readinessSubReasons.null_score}</span>
+                            </div>
+                          )}
+                          {audiencePreview.readinessSubReasons.stale_score > 0 && (
+                            <div className="flex justify-between">
+                              <span>Stale / outdated score</span>
+                              <span>{audiencePreview.readinessSubReasons.stale_score}</span>
+                            </div>
+                          )}
+                          {audiencePreview.readinessSubReasons.below_threshold > 0 && (
+                            <div className="flex justify-between">
+                              <span>Below threshold ({audiencePreview.readinessThreshold ?? 0})</span>
+                              <span>{audiencePreview.readinessSubReasons.below_threshold}</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
-                  ))}
+                  )}
+                  {/* 2. Blocked by contactability */}
+                  {(audiencePreview.blockedByContactability ?? 0) > 0 && (
+                    <div className="p-2 flex justify-between font-medium text-orange-700 dark:text-orange-400">
+                      <span>Blocked by contactability</span>
+                      <span data-testid="text-blocked-by-contactability">{audiencePreview.blockedByContactability}</span>
+                    </div>
+                  )}
+                  {/* 3. Already queued */}
+                  {(audiencePreview.alreadyQueued ?? 0) > 0 && (
+                    <div className="p-2 flex justify-between text-muted-foreground">
+                      <span>Already in queue</span>
+                      <span data-testid="text-already-queued">{audiencePreview.alreadyQueued}</span>
+                    </div>
+                  )}
+                  {/* 4. Queueable */}
+                  <div className="p-2 flex justify-between font-semibold text-green-700 dark:text-green-400">
+                    <span>Queueable (ready to send)</span>
+                    <span data-testid="text-queueable">{audiencePreview.queueable ?? audiencePreview.eligibleCount}</span>
+                  </div>
+                  {audiencePreview.readinessModelVersionUsed !== undefined && (
+                    <div className="p-2 flex justify-between text-muted-foreground text-[10px]">
+                      <span>Readiness model v{audiencePreview.readinessModelVersionUsed}</span>
+                      {audiencePreview.readinessThreshold != null && (
+                        <span>Threshold: {audiencePreview.readinessThreshold}</span>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
+
+              {/* Sample contacts */}
               {audiencePreview.sampleContacts.length > 0 && (
                 <div className="space-y-1">
                   <p className="text-xs text-muted-foreground font-medium">Sample contacts:</p>
@@ -1037,6 +1102,34 @@ export default function Campaigns() {
                     </FormItem>
                   )}
                 />
+                {audienceSource === "crm" && (
+                  <FormField
+                    control={form.control}
+                    name="readinessThreshold"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Min. Readiness Score (0–100)</FormLabel>
+                        <p className="text-xs text-muted-foreground">
+                          Only contacts scoring at or above this threshold will be queued. Leave blank for no minimum.
+                          A score of 0 disables the filter; 60+ recommended for best deliverability.
+                        </p>
+                        <FormControl>
+                          <Input
+                            type="number"
+                            min={0}
+                            max={100}
+                            placeholder="e.g. 60"
+                            {...field}
+                            value={field.value ?? ""}
+                            onChange={(e) => field.onChange(e.target.value === "" ? null : Number(e.target.value))}
+                            data-testid="input-readiness-threshold"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
                 <div className="flex justify-end pt-2">
                   <Button type="submit" disabled={createMutation.isPending} data-testid="button-submit-campaign">
                     {createMutation.isPending ? "Creating..." : "Create Campaign"}

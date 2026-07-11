@@ -4,7 +4,8 @@
 import {
   liveChats, liveChatMessages,
   type LiveChat, type InsertLiveChat, type LiveChatMessage, type InsertLiveChatMessage,
-  contacts, companies, deals, tickets, tasks, documents, auditLogs, notifications, workflowRuns, workflows, rfis, users,
+  contacts, companies, deals, tickets, tasks, documents, auditLogs, notifications, workflowRuns, workflows, rfis, users, contactReadinessRuns,
+  type ContactReadinessRun, type InsertContactReadinessRun,
   chargebacks,
   type Chargeback, type InsertChargeback, type UpdateChargebackRequest,
   messageTemplates, collateralPackets, ghlActivityLog, slaConfigs,
@@ -554,6 +555,76 @@ import { coerceDateFields } from "../utils/date-coerce";
         )
       );
     return result?.total ?? 0;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Contact readiness storage methods
+  // ---------------------------------------------------------------------------
+
+  async getContactsForReadinessBackfill(afterId: number, limit: number, modelVersion: number): Promise<typeof contacts.$inferSelect[]> {
+    return db.select().from(contacts)
+      .where(and(
+        sql`${contacts.id} > ${afterId}`,
+        isNull(contacts.archivedAt),
+        or(
+          isNull(contacts.readinessModelVersion),
+          sql`${contacts.readinessModelVersion} < ${modelVersion}`,
+        ),
+      ))
+      .orderBy(asc(contacts.id))
+      .limit(limit);
+  }
+
+  async updateContactReadiness(id: number, score: number, grade: string, breakdown: Record<string, unknown>, modelVersion: number): Promise<void> {
+    await db.update(contacts)
+      .set({
+        dataReadinessScore: score,
+        dataReadinessGrade: grade,
+        readinessBreakdown: breakdown,
+        readinessUpdatedAt: new Date(),
+        readinessModelVersion: modelVersion,
+      })
+      .where(eq(contacts.id, id));
+  }
+
+  async createReadinessRun(run: InsertContactReadinessRun): Promise<ContactReadinessRun> {
+    const [created] = await db.insert(contactReadinessRuns).values(run).returning();
+    return created;
+  }
+
+  async getActiveReadinessRun(): Promise<ContactReadinessRun | null> {
+    const [run] = await db.select().from(contactReadinessRuns)
+      .where(eq(contactReadinessRuns.status, "running"))
+      .orderBy(desc(contactReadinessRuns.startedAt))
+      .limit(1);
+    return run ?? null;
+  }
+
+  async getLatestReadinessRun(): Promise<ContactReadinessRun | null> {
+    const [run] = await db.select().from(contactReadinessRuns)
+      .orderBy(desc(contactReadinessRuns.startedAt))
+      .limit(1);
+    return run ?? null;
+  }
+
+  async updateReadinessRun(runId: string, updates: Partial<ContactReadinessRun>): Promise<void> {
+    const { id: _id, runId: _runId, ...rest } = updates as any;
+    await db.update(contactReadinessRuns).set(rest).where(eq(contactReadinessRuns.runId, runId));
+  }
+
+  /**
+   * Atomic ownership claim — only succeeds if the run is still in 'running' state.
+   * Returns the run if claim succeeded, null if another process claimed it first.
+   */
+  async claimReadinessRun(runId: string): Promise<ContactReadinessRun | null> {
+    const [claimed] = await db.update(contactReadinessRuns)
+      .set({ lastHeartbeatAt: new Date() })
+      .where(and(
+        eq(contactReadinessRuns.runId, runId),
+        eq(contactReadinessRuns.status, "running"),
+      ))
+      .returning();
+    return claimed ?? null;
   }
 
   async getGroupKpis(parentContactId: number) {

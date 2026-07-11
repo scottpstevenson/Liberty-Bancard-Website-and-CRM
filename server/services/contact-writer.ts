@@ -2,6 +2,7 @@ import { storage } from "../storage";
 import type { InsertContact, UpdateContactRequest, Contact } from "@shared/schema";
 import { isGhlConfigured, upsertGhlContact } from "./ghl";
 import { syncContactToGhl } from "./ghl-sync";
+import { READINESS_DEPENDENT_FIELDS, enqueueReadinessRecalculation } from "./contact-readiness";
 
 /**
  * GHL-first contact create.
@@ -61,6 +62,11 @@ export async function createContactGhlFirst(
     ...input,
     ...(ghlContactId ? { ghlContactId } : {}),
   }, auditCtx);
+
+  // Readiness hook: all fields that affect score are present at creation time.
+  // Mark lastMeaningfulContactMutationAt and enqueue recalculation.
+  storage.updateContact(contact.id, { lastMeaningfulContactMutationAt: new Date() }).catch(() => {});
+  enqueueReadinessRecalculation(contact.id).catch(() => {});
 
   if (ghlSyncPending) {
     await storage.createAuditLog({
@@ -130,6 +136,14 @@ export async function updateContactGhlFirst(
 
   const updated = await storage.updateContact(contactId, updates, auditCtx);
   if (!updated) return null;
+
+  // Readiness hook: check if any readiness-dependent field changed.
+  const changedKeys = Object.keys(updates) as Array<keyof typeof updates>;
+  const hasReadinessChange = changedKeys.some(k => READINESS_DEPENDENT_FIELDS.includes(k as any));
+  if (hasReadinessChange) {
+    storage.updateContact(contactId, { lastMeaningfulContactMutationAt: new Date() }).catch(() => {});
+    enqueueReadinessRecalculation(contactId).catch(() => {});
+  }
 
   if (ghlSyncFailed) {
     syncContactToGhl(contactId).then(result => {

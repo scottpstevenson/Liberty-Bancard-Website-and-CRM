@@ -106,6 +106,12 @@ export const contacts = pgTable("contacts", {
   offerMatchedSignals: jsonb("offer_matched_signals"),
   optedOutEmail: boolean("opted_out_email").default(false),
   dataCompletenessScore: integer("data_completeness_score"),
+  dataReadinessScore: integer("data_readiness_score"),
+  dataReadinessGrade: text("data_readiness_grade"),
+  readinessBreakdown: jsonb("readiness_breakdown"),
+  readinessUpdatedAt: timestamp("readiness_updated_at"),
+  readinessModelVersion: integer("readiness_model_version"),
+  lastMeaningfulContactMutationAt: timestamp("last_meaningful_contact_mutation_at"),
 }, (table) => [
   uniqueIndex("contacts_email_unique_idx").on(table.email).where(sql`archived_at IS NULL`),
   index("contacts_phone_idx").on(table.phone),
@@ -922,6 +928,7 @@ export const campaigns = pgTable("campaigns", {
   createdBy: text("created_by"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
+  readinessThreshold: integer("readiness_threshold"),
 });
 
 export const insertCampaignSchema = createInsertSchema(campaigns).omit({
@@ -978,11 +985,37 @@ export const campaignPreviews = pgTable("campaign_previews", {
   completedAt: timestamp("completed_at"),
   expiresAt: timestamp("expires_at"),
   consumedAt: timestamp("consumed_at"),
+  readinessThreshold: integer("readiness_threshold"),
+  readinessModelVersion: integer("readiness_model_version"),
 });
 
 export const insertCampaignPreviewSchema = createInsertSchema(campaignPreviews).omit({ id: true, createdAt: true });
 export type CampaignPreview = typeof campaignPreviews.$inferSelect;
 export type InsertCampaignPreview = z.infer<typeof insertCampaignPreviewSchema>;
+
+// ---------------------------------------------------------------------------
+// Contact Readiness Runs — tracks backfill execution state
+// ---------------------------------------------------------------------------
+export const contactReadinessRuns = pgTable("contact_readiness_runs", {
+  id: serial("id").primaryKey(),
+  runId: text("run_id").notNull().unique(),
+  modelVersion: integer("model_version").notNull(),
+  status: text("status").notNull().default("idle"),
+  totalEligible: integer("total_eligible"),
+  processed: integer("processed").notNull().default(0),
+  updated: integer("updated").notNull().default(0),
+  skipped: integer("skipped").notNull().default(0),
+  errors: integer("errors").notNull().default(0),
+  force: boolean("force").notNull().default(false),
+  lastProcessedContactId: integer("last_processed_contact_id"),
+  startedAt: timestamp("started_at").defaultNow(),
+  lastHeartbeatAt: timestamp("last_heartbeat_at"),
+  completedAt: timestamp("completed_at"),
+  lastError: text("last_error"),
+});
+
+export type ContactReadinessRun = typeof contactReadinessRuns.$inferSelect;
+export type InsertContactReadinessRun = typeof contactReadinessRuns.$inferInsert;
 
 export const OUTBOUND_STATUSES = [
   "queued",

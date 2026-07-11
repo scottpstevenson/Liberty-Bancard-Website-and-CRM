@@ -161,6 +161,13 @@ export interface IStorage {
   getContactsByVertical(vertical: string, limit?: number): Promise<Array<{ id: number; firstName: string; lastName: string; email: string; phone: string; vertical: string | null }>>;
   getContactsForCampaignAudience(opts: { verticals?: string[]; minCompletenessScore?: number; limit?: number; offset?: number }): Promise<Array<{ id: number; firstName: string; lastName: string; email: string; phone: string | null; vertical: string | null; companyName: string | null; city: string | null; state: string | null; dataCompletenessScore: number | null; emailStatus: string; optedOutEmail: boolean | null }>>;
   countContactsForCampaignAudience(opts?: { verticals?: string[]; minCompletenessScore?: number }): Promise<number>;
+  getContactsForReadinessBackfill(afterId: number, limit: number, modelVersion: number): Promise<typeof contacts.$inferSelect[]>;
+  updateContactReadiness(id: number, score: number, grade: string, breakdown: Record<string, unknown>, modelVersion: number): Promise<void>;
+  createReadinessRun(run: import("@shared/schema").InsertContactReadinessRun): Promise<import("@shared/schema").ContactReadinessRun>;
+  getActiveReadinessRun(): Promise<import("@shared/schema").ContactReadinessRun | null>;
+  getLatestReadinessRun(): Promise<import("@shared/schema").ContactReadinessRun | null>;
+  updateReadinessRun(runId: string, updates: Partial<import("@shared/schema").ContactReadinessRun>): Promise<void>;
+  claimReadinessRun(runId: string): Promise<import("@shared/schema").ContactReadinessRun | null>;
   createContact(contact: InsertContact, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }): Promise<typeof contacts.$inferSelect>;
   updateContact(id: number, contact: UpdateContactRequest, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }): Promise<typeof contacts.$inferSelect | undefined>;
   syncUpdateContact(id: number, contact: UpdateContactRequest): Promise<typeof contacts.$inferSelect | undefined>;
