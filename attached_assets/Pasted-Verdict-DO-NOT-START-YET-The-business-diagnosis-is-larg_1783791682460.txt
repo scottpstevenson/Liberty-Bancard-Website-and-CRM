@@ -1,0 +1,140 @@
+Verdict: DO NOT START YET
+
+The business diagnosis is largely right: the 154K CRM contacts are the immediately actionable pool, while campaigns are still prospect-centric and the current behavioral score is unsuitable for imported cold outreach.
+
+But the proposed three-task plan is still too broad and makes several unsafe architecture jumps. Do not retire #961/#962 or start rewriting the campaign engine yet.
+
+What is correct
+
+* CRM contacts should become the primary operational audience for outreach.
+* Imported records need a data-readiness signal, not a behavioral-engagement score.
+* Campaign targeting needs contact-based vertical selection and scalable batching.
+* Registry/entity enrichment needs a controlled promotion path into CRM.
+* Pipeline deals should represent actual sales work, not every discovered business.
+
+False assumptions and risks
+
+1. Completeness score should not replace lead_score.
+    A record with email, phone, and company data is campaign-ready—not necessarily a “hot lead.” Calling 134K cold records “Hot” would corrupt sales-priority semantics.
+2. Having an email does not make a contact sendable.
+    Campaign eligibility must still pass canonical contactability, suppression, DNC, unsubscribe, bounce, consent/legal basis, duplicate enrollment, and sender-cap checks.
+3. “No score gate” is unsafe wording.
+    Remove the behavioral-score gate, but replace it with a formal outreach readiness eligibility contract, not unrestricted enrollment.
+4. 152K sends cannot be treated as one campaign fire.
+    It needs preview, audience snapshots, approval, rate limits, cancellation, resumability, idempotency, sender allocation, and reply/unsubscribe handling.
+5. Auto-enrollment after enrichment is dangerous.
+    Enrichment may create/update CRM records, but it should not automatically send or enroll without an explicitly approved campaign rule and contactability check.
+6. Sunbiz and prospects cannot simply be declared redundant.
+    They currently own discovery/enrichment history and prospect workflows. Deprecation requires a field-by-field ownership and migration audit.
+7. Email → phone → company/city dedupe is not automatically safe.
+    Shared business phones, generic inboxes, franchises, multi-location companies, and reused domains can cause destructive merges.
+
+⸻
+
+Corrections to send back
+
+Do not formalize the proposed A/B/C tasks as build tasks yet.
+Create a read-only “Universal Lead Architecture and Campaign Ownership Audit” first.
+The audit must establish:
+1. Canonical record ownership
+- What belongs in contacts?
+- What remains discovery-only in sunbiz_entities / registry tables?
+- What unique functionality still depends on prospects?
+- Which IDs and relationships would be lost by consolidation?
+2. Campaign execution ownership
+- Exact campaign creation route
+- Audience-selection path
+- Enrollment owner
+- Queue/BullMQ owner
+- Sender/provider owner
+- Suppression/DNC/unsubscribe/bounce checks
+- Duplicate-enrollment prevention
+- Retry, cancellation, restart, and partial-failure behavior
+- Current 2,000 cap and why it exists
+3. Contactability contract
+Prove the canonical function that decides whether a CRM contact may receive:
+- marketing email
+- sequence email
+- SMS
+- voice/ringless voicemail
+No campaign-v2 design may bypass this owner.
+4. Score ownership
+Do not replace lead_score.
+Define separate concepts:
+- dataCompletenessScore:
+  measures whether useful identifying/contact fields exist
+- outreachReadiness:
+  boolean/reason-coded result from completeness + contactability + suppression + valid channel
+- leadScore:
+  sales priority / intent / fit, preserving its current canonical meaning
+- lifecycleStage:
+  discovered, enriched, campaign-ready, prospect, engaged, opportunity, customer, etc.
+5. CRM-contact campaign preflight
+Design a narrowly scoped first release that:
+- targets contacts, not prospects
+- filters by vertical
+- applies canonical contactability
+- provides an exact preview count and sample
+- snapshots the audience
+- enrolls through the existing canonical campaign/sequence queue
+- uses bounded batches and rate limits
+- supports pause/cancel/resume
+- prevents duplicate enrollment
+- does not automatically send merely because enrichment completed
+6. Source ingestion audit
+Inventory every current intake path:
+- CSV
+- registry imports
+- GHL
+- website forms
+- manual entry
+- existing API integrations
+For each, document:
+- dedupe behavior
+- provenance fields
+- update/overwrite rules
+- vertical assignment
+- score triggers
+- enrichment triggers
+- downstream campaign behavior
+7. Deprecation audit
+Do not deprecate prospects or sunbiz_entities until all readers/writers,
+foreign keys, routes, dashboards, workers, exports, and audit history are mapped
+with file:line evidence.
+8. Pipeline cleanup
+Treat auto-generated deal cleanup as a separate operational task.
+Do not bulk-archive deals based only on title or pipeline label without a reviewed
+dry-run, provenance proof, and GHL impact check.
+
+Recommended execution sequence after the audit
+
+Phase 1 — CRM Campaign Audience Enablement
+Allow existing campaign infrastructure to target reviewed CRM contacts by vertical through the canonical contactability and enrollment paths. No mass architecture consolidation yet.
+
+Phase 2 — Data Completeness + Outreach Readiness
+Add a separate readiness projection and backfill it across CRM contacts. Do not rename it Hot/Warm or overwrite the current lead score.
+
+Phase 3 — Universal Intake and Enrichment Routing
+Normalize all source ingestion into CRM with source provenance, safe dedupe, enrichment eligibility, and controlled promotion.
+
+Phase 4 — Table and Navigation Consolidation
+Only after ownership evidence proves prospects or discovery tables can be migrated/deprecated safely.
+
+Kill lines
+
+STOP if data completeness replaces lead_score or labels imported contacts “Hot.”
+STOP if CRM campaign targeting bypasses contactability, DNC, suppression,
+unsubscribe, bounce, or consent checks.
+STOP if enrichment automatically enrolls or sends without an approved campaign rule.
+STOP if a 100K+ audience can be launched without preview, snapshot, pause,
+cancel, resume, rate limits, and duplicate prevention.
+STOP if a second campaign queue or enrollment owner is created.
+STOP if prospects or sunbiz_entities are deprecated without a complete
+reader/writer and relationship audit.
+STOP if dedupe can merge records solely on shared phone or loose company matching.
+STOP if API-direct Outscraper, Apollo, and Apify integrations are bundled into
+one implementation task without separate provider contracts and rate-limit reviews.
+
+Final status: PREFLIGHT REQUIRED
+
+The immediate priority is correct: make existing CRM contacts safely targetable by vertical. But frame it as CRM audience enablement through existing canonical send/enrollment systems—not a wholesale “Campaign Engine v2” rewrite or a replacement of behavioral scoring with field-completeness points.
