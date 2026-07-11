@@ -443,6 +443,8 @@ import { coerceDateFields } from "../utils/date-coerce";
     minCompletenessScore?: number;
     limit?: number;
     offset?: number;
+    readinessThreshold?: number;
+    readinessModelVersion?: number;
   }): Promise<Array<{
     id: number;
     firstName: string;
@@ -498,6 +500,19 @@ import { coerceDateFields } from "../utils/date-coerce";
           // normalization pass below; SQL filter reduces the scanned rows significantly.
           opts.verticals && opts.verticals.length > 0
             ? inArray(contacts.vertical, opts.verticals)
+            : undefined,
+          // Phase 2 readiness filter — all checks expressed in SQL so no per-contact
+          // JS lookups are needed downstream. Applied only when a threshold is set.
+          opts.readinessThreshold != null && opts.readinessModelVersion != null
+            ? sql`(
+                ${contacts.dataReadinessScore} IS NOT NULL
+                AND ${contacts.readinessModelVersion} IS NOT NULL
+                AND ${contacts.readinessModelVersion} >= ${opts.readinessModelVersion}
+                AND (${contacts.lastMeaningfulContactMutationAt} IS NULL
+                  OR ${contacts.readinessUpdatedAt} IS NULL
+                  OR ${contacts.readinessUpdatedAt} >= ${contacts.lastMeaningfulContactMutationAt})
+                AND ${contacts.dataReadinessScore} >= ${opts.readinessThreshold}
+              )`
             : undefined,
         )
       )
@@ -613,9 +628,65 @@ import { coerceDateFields } from "../utils/date-coerce";
   }
 
   /**
-   * Atomic ownership claim — only succeeds if the run is still in 'running' state.
-   * Returns the run if claim succeeded, null if another process claimed it first.
+   * SQL aggregate that counts readiness exclusion sub-categories for the campaign
+   * preview breakdown panel.  All three buckets are mutually exclusive:
+   *   null_score:       score IS NULL (never computed)
+   *   stale_score:      score exists but model version or mutation staleness
+   *   below_threshold:  score valid + fresh, but below campaign threshold
+   * The vertical pre-filter mirrors getContactsForCampaignAudience's base conditions.
    */
+  async getReadinessCategoryBreakdown(opts: {
+    verticals?: string[];
+    readinessThreshold: number;
+    readinessModelVersion: number;
+  }): Promise<{ nullScore: number; staleScore: number; belowThreshold: number }> {
+    const modelVer = opts.readinessModelVersion;
+    const threshold = opts.readinessThreshold;
+    const verticalSql = opts.verticals && opts.verticals.length > 0
+      ? sql`AND vertical = ANY(${opts.verticals}::text[])`
+      : sql``;
+
+    const raw = await db.execute(sql`
+      SELECT
+        COUNT(*) FILTER (WHERE data_readiness_score IS NULL) AS null_score,
+        COUNT(*) FILTER (WHERE
+          data_readiness_score IS NOT NULL
+          AND (
+            readiness_model_version IS NULL
+            OR readiness_model_version < ${modelVer}
+            OR (
+              readiness_updated_at IS NOT NULL
+              AND last_meaningful_contact_mutation_at IS NOT NULL
+              AND readiness_updated_at < last_meaningful_contact_mutation_at
+            )
+          )
+        ) AS stale_score,
+        COUNT(*) FILTER (WHERE
+          data_readiness_score IS NOT NULL
+          AND readiness_model_version IS NOT NULL
+          AND readiness_model_version >= ${modelVer}
+          AND (last_meaningful_contact_mutation_at IS NULL
+            OR readiness_updated_at IS NULL
+            OR readiness_updated_at >= last_meaningful_contact_mutation_at)
+          AND data_readiness_score < ${threshold}
+        ) AS below_threshold
+      FROM contacts
+      WHERE archived_at IS NULL
+        AND email IS NOT NULL AND trim(email) != ''
+        AND email_status NOT IN ('bounced','invalid','opted_out','unsubscribed')
+        AND opted_out_email IS NOT TRUE
+        ${verticalSql}
+    `);
+
+    const rows = Array.isArray(raw) ? raw : (raw as any)?.rows ?? [];
+    const row = rows[0] ?? {};
+    return {
+      nullScore: parseInt(String(row.null_score ?? '0'), 10),
+      staleScore: parseInt(String(row.stale_score ?? '0'), 10),
+      belowThreshold: parseInt(String(row.below_threshold ?? '0'), 10),
+    };
+  }
+
   async claimReadinessRun(runId: string): Promise<ContactReadinessRun | null> {
     const [claimed] = await db.update(contactReadinessRuns)
       .set({ lastHeartbeatAt: new Date() })

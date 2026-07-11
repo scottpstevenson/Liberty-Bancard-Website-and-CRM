@@ -987,6 +987,7 @@ export const campaignPreviews = pgTable("campaign_previews", {
   consumedAt: timestamp("consumed_at"),
   readinessThreshold: integer("readiness_threshold"),
   readinessModelVersion: integer("readiness_model_version"),
+  readinessBreakdown: jsonb("readiness_breakdown"),
 });
 
 export const insertCampaignPreviewSchema = createInsertSchema(campaignPreviews).omit({ id: true, createdAt: true });

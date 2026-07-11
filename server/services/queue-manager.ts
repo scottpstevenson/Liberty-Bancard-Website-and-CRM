@@ -369,6 +369,15 @@ class QueueManager {
           } else if (_job.name === "inbound-confirmation-followup") {
             const { runInboundConfirmationFollowupJob } = await import("./ghl-workflow-enrollment");
             await runInboundConfirmationFollowupJob(_job.data);
+          } else if (_job.name === "readiness_recalculation" && typeof _job.data?.contactId === "number") {
+            const { computeDataReadinessScore, READINESS_MODEL_VERSION } = await import("./contact-readiness");
+            const contact = await storage.getContact(_job.data.contactId);
+            if (contact) {
+              const r = computeDataReadinessScore(contact);
+              await storage.updateContactReadiness(
+                contact.id, r.score, r.grade, r.breakdown as Record<string, unknown>, READINESS_MODEL_VERSION,
+              );
+            }
           } else {
             await runEnrichmentTick();
           }

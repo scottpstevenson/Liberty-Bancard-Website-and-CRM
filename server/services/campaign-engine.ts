@@ -328,11 +328,20 @@ export async function queueContactCampaignMessages(campaignId: number, maxToQueu
   // True paginated traversal — iterate through the entire contactable pool
   // using SQL-level OFFSET pages until the daily limit is reached or all
   // contacts have been visited.
+  // Apply the same readiness filter at queue time as at preview time so contacts
+  // with null/stale/below-threshold scores never enter the outbound queue silently.
+  const queueReadinessThreshold = campaign.readinessThreshold ?? null;
+  const applyQueueReadiness = queueReadinessThreshold !== null && queueReadinessThreshold > 0;
+
   while (queued < effectiveLimit) {
     const page = await storage.getContactsForCampaignAudience({
       verticals: campaign.targetVerticals ?? undefined,
       offset: sqlOffset,
       limit: QUEUE_SQL_PAGE,
+      ...(applyQueueReadiness ? {
+        readinessThreshold: queueReadinessThreshold,
+        readinessModelVersion: READINESS_MODEL_VERSION,
+      } : {}),
     });
 
     if (page.length === 0) break; // exhausted the contactable pool
@@ -472,12 +481,22 @@ export async function getCampaignPreviewState(campaignId: number): Promise<{
 }> {
   const preview = await storage.getLatestCampaignPreview(campaignId);
   if (!preview) return { status: "idle" };
+  // Phase 2: read the four audience categories from the first-class readinessBreakdown
+  // column (not from __ magic-key entries inside blockReasons).
+  const rbd = preview.readinessBreakdown as Record<string, any> | null | undefined;
   const result: CampaignPreviewResult | undefined = preview.status === "done" ? {
     eligibleCount: preview.eligibleCount ?? 0,
     sampleContacts: (preview.sampleContacts as CampaignPreviewResult["sampleContacts"]) ?? [],
     totalInVerticals: preview.totalInVerticals ?? 0,
     blockedCount: preview.blockedCount ?? 0,
     blockReasons: (preview.blockReasons as Record<string, number>) ?? {},
+    excludedByReadiness: rbd?.excludedByReadiness ?? 0,
+    readinessSubReasons: rbd?.readinessSubReasons ?? { null_score: 0, stale_score: 0, below_threshold: 0 },
+    blockedByContactability: rbd?.blockedByContactability ?? 0,
+    alreadyQueued: rbd?.alreadyQueued ?? 0,
+    queueable: rbd?.queueable ?? 0,
+    readinessThreshold: rbd?.readinessThreshold ?? null,
+    readinessModelVersionUsed: rbd?.readinessModelVersionUsed ?? READINESS_MODEL_VERSION,
   } : undefined;
   return {
     status: preview.status as "idle" | "running" | "done" | "error" | "interrupted",
@@ -507,19 +526,38 @@ export async function previewContactCampaignAudience(campaignId: number): Promis
   }
 
   const readinessThreshold = campaign.readinessThreshold ?? null;
+  const applyReadiness = readinessThreshold !== null && readinessThreshold > 0;
 
-  // DB-level count scoped to the campaign's target verticals.
+  // ── Step 1: DB-level denominator — total contacts in target verticals ────────
   const totalInVerticals = await storage.countContactsForCampaignAudience({
     verticals: campaign.targetVerticals ?? undefined,
   });
 
-  // Get existing queued messages for step 1 to identify already-queued contacts
+  // ── Step 2: SQL aggregate — readiness exclusion counts (no per-contact JS) ───
+  // A single aggregate query produces all three buckets. Contacts never receive
+  // a readiness_null_score/stale/below_threshold key in contactability blockReasons;
+  // the counts live only in readinessSubReasons.
+  let excludedByReadiness = 0;
+  const readinessSubReasons = { null_score: 0, stale_score: 0, below_threshold: 0 };
+  if (applyReadiness) {
+    const breakdown = await storage.getReadinessCategoryBreakdown({
+      verticals: campaign.targetVerticals ?? undefined,
+      readinessThreshold,
+      readinessModelVersion: READINESS_MODEL_VERSION,
+    });
+    readinessSubReasons.null_score = breakdown.nullScore;
+    readinessSubReasons.stale_score = breakdown.staleScore;
+    readinessSubReasons.below_threshold = breakdown.belowThreshold;
+    excludedByReadiness = breakdown.nullScore + breakdown.staleScore + breakdown.belowThreshold;
+  }
+
+  // ── Step 3: Index already-queued contacts from existing messages ─────────────
   const existingMessages = await storage.getOutboundMessages(campaignId);
   const alreadyQueuedContactIds = new Set(
     existingMessages
       .filter(m => m.status === "queued" || m.status === "sent" || m.status === "delivered")
       .map(m => m.contactId)
-      .filter((id): id is number => id !== null)
+      .filter((id): id is number => id !== null),
   );
 
   let eligibleCount = 0;
@@ -527,69 +565,35 @@ export async function previewContactCampaignAudience(campaignId: number): Promis
   const blockReasons: Record<string, number> = {};
   const sampleContacts: Array<{ id: number; name: string; email: string; vertical: string | null }> = [];
   let sqlOffset = 0;
-
-  // Phase 2 category counters
-  let excludedByReadiness = 0;
-  const readinessSubReasons = { null_score: 0, stale_score: 0, below_threshold: 0 };
   let blockedByContactability = 0;
   let alreadyQueued = 0;
   let queueable = 0;
 
+  // ── Step 4: Paginate through the READINESS-FILTERED pool ─────────────────────
+  // SQL excludes null/stale/below-threshold contacts before they reach JS so no
+  // per-contact storage.getContact() calls are needed for readiness checks.
   for (;;) {
     const page = await storage.getContactsForCampaignAudience({
       verticals: campaign.targetVerticals ?? undefined,
       offset: sqlOffset,
       limit: QUEUE_SQL_PAGE,
+      // Pass readiness filter into SQL only when a threshold is set.
+      ...(applyReadiness ? {
+        readinessThreshold,
+        readinessModelVersion: READINESS_MODEL_VERSION,
+      } : {}),
     });
 
     if (page.length === 0) break;
 
     for (const contact of page) {
-      // Fetch full contact record to get readiness fields
-      const fullContact = await storage.getContact(contact.id);
-
-      // ── Phase 2: Readiness gate (checked before contactability) ──────────────
-      if (readinessThreshold !== null && readinessThreshold > 0) {
-        const score = fullContact?.dataReadinessScore ?? null;
-        const contactModelVersion = fullContact?.readinessModelVersion ?? null;
-        const readinessUpdatedAt = fullContact?.readinessUpdatedAt ? new Date(fullContact.readinessUpdatedAt) : null;
-        const lastMutation = fullContact?.lastMeaningfulContactMutationAt ? new Date(fullContact.lastMeaningfulContactMutationAt) : null;
-
-        if (score === null || score === undefined) {
-          excludedByReadiness++;
-          readinessSubReasons.null_score++;
-          blockedCount++;
-          blockReasons["readiness_null_score"] = (blockReasons["readiness_null_score"] || 0) + 1;
-          continue;
-        }
-
-        const isVersionStale = contactModelVersion === null || contactModelVersion < READINESS_MODEL_VERSION;
-        const isMutationStale = readinessUpdatedAt && lastMutation && readinessUpdatedAt < lastMutation;
-
-        if (isVersionStale || isMutationStale) {
-          excludedByReadiness++;
-          readinessSubReasons.stale_score++;
-          blockedCount++;
-          blockReasons["readiness_stale_score"] = (blockReasons["readiness_stale_score"] || 0) + 1;
-          continue;
-        }
-
-        if (score < readinessThreshold) {
-          excludedByReadiness++;
-          readinessSubReasons.below_threshold++;
-          blockedCount++;
-          blockReasons["readiness_below_threshold"] = (blockReasons["readiness_below_threshold"] || 0) + 1;
-          continue;
-        }
-      }
-
-      // ── Already queued check ──────────────────────────────────────────────────
+      // ── Already queued check ────────────────────────────────────────────────
       if (alreadyQueuedContactIds.has(contact.id)) {
         alreadyQueued++;
         continue;
       }
 
-      // ── Contactability gate ───────────────────────────────────────────────────
+      // ── Contactability gate (only contacts that passed readiness filter) ────
       const gate = await evaluateContactability({
         contactId: contact.id,
         channel: "email",
@@ -681,19 +685,20 @@ export async function startCampaignPreviewAsync(
         eligibleCount: result.eligibleCount,
         totalInVerticals: result.totalInVerticals,
         blockedCount: result.blockedCount,
-        blockReasons: {
-          ...result.blockReasons,
-          // Phase 2: embed the 4-category breakdown in blockReasons for
-          // backwards-compatible storage (read back via previewState).
-          __readiness: {
-            excluded: result.excludedByReadiness,
-            subReasons: result.readinessSubReasons,
-          },
-          __alreadyQueued: result.alreadyQueued,
-          __queueable: result.queueable,
-          __blockedByContactability: result.blockedByContactability,
-          __readinessThreshold: result.readinessThreshold,
-          __readinessModelVersionUsed: result.readinessModelVersionUsed,
+        // blockReasons holds ONLY contactability gate reasons — no __ magic keys.
+        // readiness exclusions are a separate data concern stored in readinessBreakdown.
+        blockReasons: result.blockReasons,
+        // Phase 2: the four audience categories are stored in their own first-class
+        // JSONB column so getCampaignPreviewState() can reconstruct them without
+        // any __ key hacks inside blockReasons.
+        readinessBreakdown: {
+          excludedByReadiness: result.excludedByReadiness,
+          readinessSubReasons: result.readinessSubReasons,
+          blockedByContactability: result.blockedByContactability,
+          alreadyQueued: result.alreadyQueued,
+          queueable: result.queueable,
+          readinessThreshold: result.readinessThreshold,
+          readinessModelVersionUsed: result.readinessModelVersionUsed,
         },
         sampleContacts: result.sampleContacts,
         completedAt: now,

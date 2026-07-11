@@ -91,19 +91,23 @@ export async function startReadinessBackfill(force = false): Promise<{ runId: st
 }
 
 async function runBackfillLoop(runId: string): Promise<void> {
-  let lastProcessedId = 0;
   let processed = 0;
   let updated = 0;
   let skipped = 0;
   let errors = 0;
 
   try {
-    // Check if run still belongs to us before starting
+    // Claim ownership atomically — bail if another process already owns this run.
     const claimed = await storage.claimReadinessRun(runId);
     if (!claimed) {
       console.warn(`[ReadinessBackfill] Run ${runId} already claimed by another process — aborting`);
       return;
     }
+
+    // Resume from the persisted keyset cursor so a restart after interruption picks up
+    // where the previous attempt left off rather than re-scanning from id=0.
+    const runRecord = await storage.getLatestReadinessRun();
+    let lastProcessedId: number = runRecord?.lastProcessedContactId ?? 0;
 
     for (;;) {
       // Fetch next batch via keyset cursor
@@ -125,7 +129,7 @@ async function runBackfillLoop(runId: string): Promise<void> {
         return;
       }
 
-      // Score batch
+      // Score all contacts in batch (pure, no I/O)
       const writes: Array<{ id: number; score: number; grade: string; breakdown: Record<string, unknown> }> = [];
       for (const contact of batch) {
         try {
@@ -135,17 +139,16 @@ async function runBackfillLoop(runId: string): Promise<void> {
           errors++;
           console.error(`[ReadinessBackfill] Scoring error for contact ${contact.id}:`, (err as Error).message);
         }
-        lastProcessedId = contact.id;
       }
 
-      // Claim before committing — bail if ownership lost
+      // Verify ownership is still valid before committing writes
       const stillOwned = await storage.claimReadinessRun(runId);
       if (!stillOwned) {
         console.warn(`[ReadinessBackfill] Ownership lost for run ${runId} — stopping at id=${lastProcessedId}`);
         return;
       }
 
-      // Write all scored contacts
+      // Write all successfully-scored contacts
       for (const w of writes) {
         try {
           await storage.updateContactReadiness(w.id, w.score, w.grade, w.breakdown, READINESS_MODEL_VERSION);
@@ -159,7 +162,12 @@ async function runBackfillLoop(runId: string): Promise<void> {
       processed += batch.length;
       skipped += batch.length - writes.length;
 
-      // Update run progress + heartbeat
+      // Advance keyset cursor to the last ID in this batch AFTER writes complete so
+      // that cursor advancement only happens after the batch is durably committed.
+      // Using the last batch contact's ID (not per-contact) ensures consistent paging.
+      lastProcessedId = batch[batch.length - 1].id;
+
+      // Persist progress + heartbeat
       await storage.updateReadinessRun(runId, {
         processed,
         updated,
@@ -169,9 +177,9 @@ async function runBackfillLoop(runId: string): Promise<void> {
         lastHeartbeatAt: new Date(),
       });
 
-      if (batch.length < BATCH_SIZE) break; // last partial page
+      if (batch.length < BATCH_SIZE) break; // last partial page — done
 
-      // Yield to event loop briefly between batches
+      // Yield to event loop between batches
       await new Promise(resolve => setImmediate(resolve));
     }
 

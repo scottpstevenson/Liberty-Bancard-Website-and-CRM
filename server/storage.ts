@@ -159,9 +159,10 @@ export interface IStorage {
   getGroupKpis(parentContactId: number): Promise<{ locationCount: number; totalDeals: number; closedWonCount: number; totalVolume: number; activeMids: number; locationIds: number[]; managementType: string }>;
   getContactVerticalCounts(): Promise<Array<{ vertical: string; count: number }>>;
   getContactsByVertical(vertical: string, limit?: number): Promise<Array<{ id: number; firstName: string; lastName: string; email: string; phone: string; vertical: string | null }>>;
-  getContactsForCampaignAudience(opts: { verticals?: string[]; minCompletenessScore?: number; limit?: number; offset?: number }): Promise<Array<{ id: number; firstName: string; lastName: string; email: string; phone: string | null; vertical: string | null; companyName: string | null; city: string | null; state: string | null; dataCompletenessScore: number | null; emailStatus: string; optedOutEmail: boolean | null }>>;
+  getContactsForCampaignAudience(opts: { verticals?: string[]; minCompletenessScore?: number; limit?: number; offset?: number; readinessThreshold?: number; readinessModelVersion?: number }): Promise<Array<{ id: number; firstName: string; lastName: string; email: string; phone: string | null; vertical: string | null; companyName: string | null; city: string | null; state: string | null; dataCompletenessScore: number | null; emailStatus: string; optedOutEmail: boolean | null }>>;
   countContactsForCampaignAudience(opts?: { verticals?: string[]; minCompletenessScore?: number }): Promise<number>;
   getContactsForReadinessBackfill(afterId: number, limit: number, modelVersion: number): Promise<typeof contacts.$inferSelect[]>;
+  getReadinessCategoryBreakdown(opts: { verticals?: string[]; readinessThreshold: number; readinessModelVersion: number }): Promise<{ nullScore: number; staleScore: number; belowThreshold: number }>;
   updateContactReadiness(id: number, score: number, grade: string, breakdown: Record<string, unknown>, modelVersion: number): Promise<void>;
   createReadinessRun(run: import("@shared/schema").InsertContactReadinessRun): Promise<import("@shared/schema").ContactReadinessRun>;
   getActiveReadinessRun(): Promise<import("@shared/schema").ContactReadinessRun | null>;
