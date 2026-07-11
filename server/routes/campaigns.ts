@@ -5,7 +5,7 @@ import { z } from "zod";
 import { DateValidationError } from "../utils/date-coerce";
 import { contacts, followUpSequences, sequenceEnrollments, insertCampaignSchema, insertCampaignStepSchema, insertFollowUpSequenceSchema, insertSequenceEnrollmentSchema, insertSequenceStepSchema } from "@shared/schema";
 import type { AbTestConfig, AbTestResults } from "@shared/schema";
-import { getCampaignAnalytics, processSendQueue, queueCampaignMessages } from "../services/campaign-engine";
+import { getCampaignAnalytics, processSendQueue, queueCampaignMessages, queueContactCampaignMessages, previewContactCampaignAudience } from "../services/campaign-engine";
 import { parse } from "csv-parse/sync";
 import { checkAbTestWinners } from "../services/ab-test-worker";
 import { pool, db } from "../db";
@@ -137,8 +137,31 @@ export function registerCampaignsRoutes(app: Express) {
 
   app.post("/api/campaigns/:id/queue", isAuthenticated, async (req, res) => {
     try {
-      const queued = await queueCampaignMessages(Number(req.params.id));
-      res.json({ queued, message: `${queued} messages queued for sending` });
+      const campaignId = Number(req.params.id);
+      const campaign = await storage.getCampaign(campaignId);
+      if (!campaign) return res.status(404).json({ message: "Campaign not found" });
+
+      // Branch: contact-mode campaign (has targetVerticals, no targetListId)
+      // vs. prospect-list campaign (legacy, has targetListId).
+      let queued: number;
+      let mode: string;
+      if (!campaign.targetListId && campaign.targetVerticals && campaign.targetVerticals.length > 0) {
+        queued = await queueContactCampaignMessages(campaignId);
+        mode = "crm_contacts";
+      } else {
+        queued = await queueCampaignMessages(campaignId);
+        mode = "prospect_list";
+      }
+      res.json({ queued, mode, message: `${queued} messages queued for sending` });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/campaigns/:id/audience-preview", isAuthenticated, async (req, res) => {
+    try {
+      const preview = await previewContactCampaignAudience(Number(req.params.id));
+      res.json(preview);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

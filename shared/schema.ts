@@ -105,6 +105,7 @@ export const contacts = pgTable("contacts", {
   offerRoutedAt: timestamp("offer_routed_at"),
   offerMatchedSignals: jsonb("offer_matched_signals"),
   optedOutEmail: boolean("opted_out_email").default(false),
+  dataCompletenessScore: integer("data_completeness_score"),
 }, (table) => [
   uniqueIndex("contacts_email_unique_idx").on(table.email).where(sql`archived_at IS NULL`),
   index("contacts_phone_idx").on(table.phone),

@@ -414,6 +414,13 @@
       "when": 1784600000000,
       "tag": "0053_sla_task_source_identity",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1784800000000,
+      "tag": "0055_add_data_completeness_score",
+      "breakpoints": true
     }
   ]
 }

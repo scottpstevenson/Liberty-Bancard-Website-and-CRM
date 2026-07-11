@@ -51,3 +51,4 @@
 - [SLA AI ops cycle timing](sla-ai-ops-cycle-timing.md) — FULL_LOOP_AI_OPS_EVERY_N=2 means runScheduledAiOps fires every 2nd BullMQ tick (every ~30min dev); two scheduled_ai_ops audit entries needed to prove clean post-deploy cycles.
 - [Drizzle partial-index ON CONFLICT](drizzle-partial-index-on-conflict.md) — onConflictDoNothing({ targetWhere }) does NOT emit the WHERE clause for partial indexes; use db.execute(sql`INSERT … ON CONFLICT (cols) WHERE … DO NOTHING RETURNING *`) instead.
 - [SLA task idempotency design](sla-task-idempotency.md) — source/automationKey identity columns; partial unique index tasks_sla_stalling_active_unique; bulk dual pre-check; Phase 2 backfill before prod index; legacy title branch removed after Phase 2 verified.
+- [Migration timestamp vs PHASE3_INDEX_WHEN collision](migration-when-collision.md) — new journal entries must use `when` ABOVE PHASE3_INDEX_WHEN=1784700000000 or Drizzle's migrate() skips them silently.

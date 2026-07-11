@@ -437,6 +437,75 @@ import { coerceDateFields } from "../utils/date-coerce";
     return limit ? matching.slice(0, limit) : matching;
   }
 
+  async getContactsForCampaignAudience(opts: {
+    verticals?: string[];
+    minCompletenessScore?: number;
+    limit?: number;
+  }): Promise<Array<{
+    id: number;
+    firstName: string;
+    lastName: string;
+    email: string;
+    phone: string | null;
+    vertical: string | null;
+    companyName: string | null;
+    city: string | null;
+    state: string | null;
+    dataCompletenessScore: number | null;
+    emailStatus: string;
+    optedOutEmail: boolean | null;
+  }>> {
+    const { normalizeDiscoveryVertical } = await import("../services/sdr/lead-finder");
+
+    // SQL-level pre-filter: archived-out, bad email status, opted out.
+    // We cap at sqlLimit to protect memory — best-scored candidates first.
+    const sqlLimit = (opts.limit ?? 5000) * (opts.verticals && opts.verticals.length ? 10 : 1);
+    const cappedSqlLimit = Math.min(sqlLimit, 50000);
+
+    const rows = await db
+      .select({
+        id: contacts.id,
+        firstName: contacts.firstName,
+        lastName: contacts.lastName,
+        email: contacts.email,
+        phone: contacts.phone,
+        vertical: contacts.vertical,
+        companyName: contacts.companyName,
+        city: contacts.city,
+        state: contacts.state,
+        dataCompletenessScore: contacts.dataCompletenessScore,
+        emailStatus: contacts.emailStatus,
+        optedOutEmail: contacts.optedOutEmail,
+      })
+      .from(contacts)
+      .where(
+        and(
+          isNull(contacts.archivedAt),
+          sql`${contacts.email} IS NOT NULL AND trim(${contacts.email}) != ''`,
+          ne(contacts.emailStatus, "bounced"),
+          ne(contacts.emailStatus, "invalid"),
+          sql`${contacts.optedOutEmail} IS NOT TRUE`,
+          opts.minCompletenessScore != null
+            ? gte(contacts.dataCompletenessScore, opts.minCompletenessScore)
+            : undefined,
+        )
+      )
+      .orderBy(desc(contacts.dataCompletenessScore), desc(contacts.leadScore))
+      .limit(cappedSqlLimit);
+
+    if (!opts.verticals || opts.verticals.length === 0) {
+      return rows.slice(0, opts.limit ?? 5000);
+    }
+
+    const targetSet = new Set(opts.verticals);
+    const matched = rows.filter((r) => {
+      if (!r.vertical) return false;
+      const canonical = normalizeDiscoveryVertical({ rawCategory: r.vertical }).canonicalVertical;
+      return targetSet.has(canonical);
+    });
+    return matched.slice(0, opts.limit ?? 5000);
+  }
+
   async getGroupKpis(parentContactId: number) {
     const children = await this.getChildLocations(parentContactId);
     const allIds = [parentContactId, ...children.map(c => c.id)];

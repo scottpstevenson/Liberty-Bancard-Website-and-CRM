@@ -40,10 +40,16 @@ import DashboardErrorState from "@/components/DashboardErrorState";
 import EmailPreviewModal, { EmailPreviewContent } from "@/components/EmailPreviewModal";
 import type { Campaign, CampaignStep, ProspectList } from "@shared/schema";
 
+const CANONICAL_VERTICALS = [
+  "Restaurant", "Retail", "Healthcare", "Salon", "Auto Repair",
+  "Dental", "Med Spa", "Hotel", "Gym", "Landscaping", "Construction", "Legal",
+];
+
 const campaignFormSchema = z.object({
   name: z.string().min(1, "Name is required"),
   description: z.string().optional(),
   targetListId: z.coerce.number().optional(),
+  targetVerticals: z.array(z.string()).optional(),
   targetScores: z.array(z.string()).optional(),
   aiPersonalization: z.boolean().optional(),
   dailySendLimit: z.coerce.number().min(1).optional(),
@@ -87,6 +93,12 @@ function getStatusBadgeClass(status: string | null | undefined) {
   }
 }
 
+type AudiencePreview = {
+  totalEligible: number;
+  verticals: string[];
+  sample: Array<{ id: number; name: string; email: string; vertical: string | null; score: number | null }>;
+};
+
 function CampaignDetail({ campaign }: { campaign: Campaign }) {
   const { toast } = useToast();
   const [showStepForm, setShowStepForm] = useState(false);
@@ -96,6 +108,7 @@ function CampaignDetail({ campaign }: { campaign: Campaign }) {
   const [editDelayDays, setEditDelayDays] = useState(0);
   const [editBodyTab, setEditBodyTab] = useState<"write" | "preview">("write");
   const [previewStep, setPreviewStep] = useState<CampaignStep | null>(null);
+  const [showAudiencePreview, setShowAudiencePreview] = useState(false);
 
   useEffect(() => {
     if (!editingStep) return;
@@ -165,13 +178,28 @@ function CampaignDetail({ campaign }: { campaign: Campaign }) {
     },
   });
 
+  const isCrmMode = !campaign.targetListId && (campaign.targetVerticals?.length ?? 0) > 0;
+
+  const { data: audiencePreview, isLoading: audienceLoading } = useQuery<AudiencePreview>({
+    queryKey: ["/api/campaigns", campaign.id, "audience-preview"],
+    queryFn: async () => {
+      const res = await fetch(`/api/campaigns/${campaign.id}/audience-preview`, { credentials: "include" });
+      if (!res.ok) throw new Error(`${res.status}`);
+      return res.json();
+    },
+    enabled: isCrmMode && showAudiencePreview,
+  });
+
   const queueMutation = useMutation({
     mutationFn: async () => {
-      await apiRequest("POST", `/api/campaigns/${campaign.id}/queue`);
+      const res = await apiRequest("POST", `/api/campaigns/${campaign.id}/queue`);
+      return res;
     },
-    onSuccess: () => {
+    onSuccess: (data: { queued: number; mode: string } | void) => {
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
-      toast({ title: "Messages queued", description: "Campaign messages have been queued for sending." });
+      const queued = (data as any)?.queued ?? 0;
+      const mode = (data as any)?.mode === "crm_contacts" ? " from CRM contacts" : "";
+      toast({ title: "Messages queued", description: `${queued} messages queued${mode}.` });
     },
     onError: (err: Error) => {
       toast({ title: "Queue failed", description: err.message, variant: "destructive" });
@@ -194,6 +222,52 @@ function CampaignDetail({ campaign }: { campaign: Campaign }) {
 
   return (
     <div className="space-y-4 pt-4 border-t">
+      {isCrmMode && (
+        <div className="rounded-md border bg-blue-50/50 dark:bg-blue-950/20 p-3 space-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <p className="text-xs font-medium text-blue-700 dark:text-blue-300">CRM Contact Mode</p>
+              <p className="text-xs text-muted-foreground">
+                Targeting: {campaign.targetVerticals?.join(", ") || "All verticals"}
+              </p>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-xs h-7"
+              onClick={() => setShowAudiencePreview(!showAudiencePreview)}
+              data-testid={`button-audience-preview-${campaign.id}`}
+            >
+              <Eye className="w-3 h-3 mr-1" />
+              {showAudiencePreview ? "Hide Audience" : "Preview Audience"}
+            </Button>
+          </div>
+          {showAudiencePreview && (
+            audienceLoading ? (
+              <Skeleton className="h-16 w-full" />
+            ) : audiencePreview ? (
+              <div className="space-y-2">
+                <p className="text-sm font-medium">
+                  {audiencePreview.totalEligible.toLocaleString()} eligible contacts
+                </p>
+                {audiencePreview.sample.length > 0 && (
+                  <div className="space-y-1">
+                    <p className="text-xs text-muted-foreground font-medium">Sample (first 10):</p>
+                    {audiencePreview.sample.map((c) => (
+                      <div key={c.id} className="flex items-center justify-between text-xs gap-2 p-1 rounded bg-background/80">
+                        <span className="font-medium truncate">{c.name}</span>
+                        <span className="text-muted-foreground truncate">{c.vertical ?? "—"}</span>
+                        <span className="text-muted-foreground shrink-0">Score: {c.score ?? "—"}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : null
+          )}
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center gap-2">
         <Button
           variant="outline"
@@ -558,6 +632,7 @@ export default function Campaigns() {
     defaultValues: {
       name: "",
       description: "",
+      targetVerticals: [],
       targetScores: [],
       aiPersonalization: true,
       dailySendLimit: 200,
@@ -572,7 +647,7 @@ export default function Campaigns() {
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
       toast({ title: "Campaign created", description: "Your new campaign has been created." });
       setIsCreateOpen(false);
-      form.reset({ name: "", description: "", targetScores: [], aiPersonalization: true, dailySendLimit: 200 });
+      form.reset({ name: "", description: "", targetVerticals: [], targetScores: [], aiPersonalization: true, dailySendLimit: 200 });
     },
     onError: (err: Error) => {
       toast({ title: "Failed to create campaign", description: err.message, variant: "destructive" });
@@ -651,6 +726,41 @@ export default function Campaigns() {
                           ))}
                         </SelectContent>
                       </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="targetVerticals"
+                  render={() => (
+                    <FormItem>
+                      <FormLabel>Target CRM Verticals</FormLabel>
+                      <p className="text-xs text-muted-foreground">Select industries to target from your CRM contacts. Leave blank to use a Prospect List instead.</p>
+                      <div className="flex flex-wrap gap-2 pt-1">
+                        {CANONICAL_VERTICALS.map((v) => (
+                          <FormField
+                            key={v}
+                            control={form.control}
+                            name="targetVerticals"
+                            render={({ field }) => (
+                              <FormItem className="flex items-center gap-1.5">
+                                <FormControl>
+                                  <Checkbox
+                                    checked={field.value?.includes(v)}
+                                    onCheckedChange={(checked) => {
+                                      const current = field.value || [];
+                                      field.onChange(checked ? [...current, v] : current.filter((x) => x !== v));
+                                    }}
+                                    data-testid={`checkbox-vertical-${v.toLowerCase().replace(/\s+/g, "-")}`}
+                                  />
+                                </FormControl>
+                                <FormLabel className="font-normal text-sm cursor-pointer">{v}</FormLabel>
+                              </FormItem>
+                            )}
+                          />
+                        ))}
+                      </div>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -817,9 +927,13 @@ export default function Campaigns() {
                         {campaign.totalSteps} Steps
                       </Badge>
                     )}
-                    {campaign.targetVerticals && campaign.targetVerticals.length > 0 && (
-                      <Badge variant="outline" className="no-default-hover-elevate no-default-active-elevate text-xs">
-                        {campaign.targetVerticals.length} Verticals
+                    {campaign.targetVerticals && campaign.targetVerticals.length > 0 && !campaign.targetListId && (
+                      <Badge
+                        variant="outline"
+                        className="no-default-hover-elevate no-default-active-elevate text-xs bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/30 dark:text-blue-300 dark:border-blue-800"
+                        data-testid={`badge-crm-mode-${campaign.id}`}
+                      >
+                        CRM · {campaign.targetVerticals.length} {campaign.targetVerticals.length === 1 ? "Vertical" : "Verticals"}
                       </Badge>
                     )}
                   </div>
