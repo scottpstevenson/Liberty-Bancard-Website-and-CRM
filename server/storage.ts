@@ -165,6 +165,7 @@ export interface IStorage {
   getReadinessCategoryBreakdown(opts: { verticals?: string[]; readinessThreshold: number; readinessModelVersion: number }): Promise<{ nullScore: number; staleScore: number; belowThreshold: number }>;
   updateContactReadiness(id: number, score: number, grade: string, breakdown: Record<string, unknown>, modelVersion: number): Promise<void>;
   batchUpdateContactReadiness(batch: Array<{ id: number; score: number; grade: string; breakdown: Record<string, unknown> }>, modelVersion: number): Promise<void>;
+  batchUpdateContactReadinessWithOwnershipCheck(runId: string, batch: Array<{ id: number; score: number; grade: string; breakdown: Record<string, unknown> }>, modelVersion: number): Promise<void>;
   createReadinessRun(run: import("@shared/schema").InsertContactReadinessRun): Promise<import("@shared/schema").ContactReadinessRun>;
   getActiveReadinessRun(): Promise<import("@shared/schema").ContactReadinessRun | null>;
   getLatestReadinessRun(): Promise<import("@shared/schema").ContactReadinessRun | null>;

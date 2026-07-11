@@ -5,14 +5,18 @@
  * across all CRM contacts. One active run at a time — enforced by:
  *   1. A DB partial unique index on contact_readiness_runs WHERE status='running'
  *      (migration 0059) — prevents concurrent starts even across processes.
- *   2. claimReadinessRun() ownership check before each batch commit.
+ *   2. batchUpdateContactReadinessWithOwnershipCheck() — locks the run row FOR UPDATE
+ *      inside each batch transaction so force-interruption cannot race with writes.
+ *   3. updateReadinessRun() guards with status='running' — interrupted runs cannot
+ *      have their metadata mutated by stale workers.
  *
  * Kill lines:
  * - No OFFSET pagination — uses WHERE id > lastProcessedContactId keyset cursor
- * - No overlapping runs — DB-level partial unique index + claimReadinessRun() fence
+ * - No overlapping runs — DB partial unique index + atomic SELECT FOR UPDATE per batch
  * - No fire-and-forget — terminal state (complete/failed) is always persisted
- * - Transactional per batch — entire batch writes in one DB transaction before
- *   cursor advances; partial batch application is impossible
+ * - Transactional per batch — batch write + ownership lock in one DB transaction;
+ *   cursor advances only AFTER transaction commits
+ * - updateReadinessRun is guarded — stale workers cannot mutate interrupted/complete runs
  */
 import { randomUUID } from "crypto";
 import { storage } from "../storage";
@@ -91,8 +95,8 @@ export async function startReadinessBackfill(force = false): Promise<{ runId: st
       lastError: null,
     });
   } catch (err: any) {
-    // unique_violation (23505) means the partial unique index on status='running'
-    // fired — another process inserted a running row between our check and insert.
+    // unique_violation (23505) from the partial unique index on status='running':
+    // another process inserted a running row between our check and insert.
     if (err?.code === "23505" || (err?.message ?? "").includes("contact_readiness_runs_singleton_active")) {
       const concurrent = await storage.getActiveReadinessRun();
       return {
@@ -131,8 +135,7 @@ async function runBackfillLoop(runId: string): Promise<void> {
     }
 
     // Resume from the cursor persisted on THIS run record (carried forward from any
-    // interrupted predecessor by startReadinessBackfill).  Never use getLatestReadinessRun()
-    // here — it could return a different run's cursor after a race.
+    // interrupted predecessor by startReadinessBackfill).
     lastProcessedId = claimed.lastProcessedContactId ?? 0;
 
     for (;;) {
@@ -172,33 +175,29 @@ async function runBackfillLoop(runId: string): Promise<void> {
         }
       }
 
-      // Verify ownership is still valid before committing writes
-      const stillOwned = await storage.claimReadinessRun(runId);
-      if (!stillOwned) {
-        console.warn(`[ReadinessBackfill] Ownership lost for run ${runId} — stopping at id=${lastProcessedId}`);
-        return;
-      }
-
-      // Write entire batch in a single DB transaction — cursor advances AFTER this
-      // resolves so a partial failure cannot produce a partially-applied batch with
-      // an advanced cursor.
+      // Write entire batch in a single DB transaction that also holds a SELECT FOR UPDATE
+      // lock on the run row.  If the run was force-interrupted between scoring and writing,
+      // the transaction sees status ≠ 'running' and throws — we stop the loop cleanly.
       try {
-        await storage.batchUpdateContactReadiness(writes, READINESS_MODEL_VERSION);
+        await storage.batchUpdateContactReadinessWithOwnershipCheck(runId, writes, READINESS_MODEL_VERSION);
         updated += writes.length;
-      } catch (err) {
+      } catch (err: any) {
+        const isOwnershipLoss = (err?.message ?? "").includes("ownership lost");
+        if (isOwnershipLoss) {
+          console.warn(`[ReadinessBackfill] Ownership lost for run ${runId} — stopping at id=${lastProcessedId}`);
+          return; // Run was interrupted; don't mutate its terminal state
+        }
         errors += writes.length;
-        console.error(`[ReadinessBackfill] Batch write failed for run ${runId} at id=${lastProcessedId}:`, (err as Error).message);
-        // Do not advance cursor — the batch will be retried on the next loop iteration
-        // (contacts remain stale and will be re-fetched).
+        console.error(`[ReadinessBackfill] Batch write failed for run ${runId} at id=${lastProcessedId}:`, err.message);
+        // Don't advance cursor — contacts remain stale and will be retried
         await storage.updateReadinessRun(runId, {
           processed,
           updated,
           skipped,
           errors,
           lastHeartbeatAt: new Date(),
-          lastError: `Batch write failed at id=${lastProcessedId}: ${(err as Error).message}`,
+          lastError: `Batch write failed at id=${lastProcessedId}: ${err.message}`.slice(0, 500),
         });
-        // Yield and continue — don't abort the entire run on one batch failure
         await new Promise(resolve => setImmediate(resolve));
         continue;
       }
@@ -206,8 +205,8 @@ async function runBackfillLoop(runId: string): Promise<void> {
       processed += batch.length;
       skipped += batch.length - writes.length;
 
-      // Advance keyset cursor to the last ID in this batch AFTER writes are durably
-      // committed.  This is safe because batchUpdateContactReadiness is transactional.
+      // Advance keyset cursor AFTER the batch transaction commits — safe because
+      // batchUpdateContactReadinessWithOwnershipCheck is fully transactional.
       lastProcessedId = batch[batch.length - 1].id;
 
       // Persist progress + heartbeat
@@ -241,6 +240,8 @@ async function runBackfillLoop(runId: string): Promise<void> {
   } catch (err: any) {
     const msg = (err?.message ?? "Unknown error").slice(0, 500);
     console.error(`[ReadinessBackfill] Run ${runId} failed:`, msg);
+    // Note: updateReadinessRun guards with status='running'. If the run was already
+    // interrupted, this update is a no-op — that's correct.
     try {
       await storage.updateReadinessRun(runId, {
         status: "failed",

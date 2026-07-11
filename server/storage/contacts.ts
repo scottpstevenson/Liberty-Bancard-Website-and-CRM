@@ -635,6 +635,51 @@ import { coerceDateFields } from "../utils/date-coerce";
     });
   }
 
+  /**
+   * Write an entire scored batch in one transaction that also locks and verifies
+   * run ownership atomically.  If the run has been interrupted between the scoring
+   * phase and the write, the FOR UPDATE lock will observe status ≠ 'running' and
+   * throw an "ownership lost" error — the caller should then stop the loop.
+   *
+   * This closes the window between claimReadinessRun() and batchUpdateContactReadiness()
+   * where a forced interruption could otherwise allow a stale worker's writes through.
+   */
+  async batchUpdateContactReadinessWithOwnershipCheck(
+    runId: string,
+    batch: Array<{ id: number; score: number; grade: string; breakdown: Record<string, unknown> }>,
+    modelVersion: number,
+  ): Promise<void> {
+    if (batch.length === 0) return;
+    const now = new Date();
+    await db.transaction(async (tx) => {
+      // Lock the run row for the duration of the transaction so concurrent
+      // force-interrupt + re-create cannot race with our batch write.
+      const [run] = await tx
+        .select({ status: contactReadinessRuns.status })
+        .from(contactReadinessRuns)
+        .where(eq(contactReadinessRuns.runId, runId))
+        .for("update");
+
+      if (!run || run.status !== "running") {
+        throw new Error(
+          `Readiness run ${runId} ownership lost (status=${run?.status ?? "missing"}) — aborting batch write`,
+        );
+      }
+
+      for (const w of batch) {
+        await tx.update(contacts)
+          .set({
+            dataReadinessScore: w.score,
+            dataReadinessGrade: w.grade,
+            readinessBreakdown: w.breakdown,
+            readinessUpdatedAt: now,
+            readinessModelVersion: modelVersion,
+          })
+          .where(eq(contacts.id, w.id));
+      }
+    });
+  }
+
   async createReadinessRun(run: InsertContactReadinessRun): Promise<ContactReadinessRun> {
     const [created] = await db.insert(contactReadinessRuns).values(run).returning();
     return created;
@@ -657,7 +702,14 @@ import { coerceDateFields } from "../utils/date-coerce";
 
   async updateReadinessRun(runId: string, updates: Partial<ContactReadinessRun>): Promise<void> {
     const { id: _id, runId: _runId, ...rest } = updates as any;
-    await db.update(contactReadinessRuns).set(rest).where(eq(contactReadinessRuns.runId, runId));
+    // Guard with status = 'running' so interrupted/complete runs cannot have their
+    // progress or metadata mutated by a stale worker that hasn't noticed interruption.
+    await db.update(contactReadinessRuns)
+      .set(rest)
+      .where(and(
+        eq(contactReadinessRuns.runId, runId),
+        eq(contactReadinessRuns.status, "running"),
+      ));
   }
 
   /**
