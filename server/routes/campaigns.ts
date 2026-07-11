@@ -147,10 +147,10 @@ export function registerCampaignsRoutes(app: Express) {
       let mode: string;
       if (!campaign.targetListId && campaign.targetVerticals && campaign.targetVerticals.length > 0) {
         queued = await queueContactCampaignMessages(campaignId);
-        mode = "crm_contacts";
+        mode = "contacts";
       } else {
         queued = await queueCampaignMessages(campaignId);
-        mode = "prospect_list";
+        mode = "prospects";
       }
       res.json({ queued, mode, message: `${queued} messages queued for sending` });
     } catch (err: any) {

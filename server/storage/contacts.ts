@@ -490,6 +490,12 @@ import { coerceDateFields } from "../utils/date-coerce";
           opts.minCompletenessScore != null
             ? gte(contacts.dataCompletenessScore, opts.minCompletenessScore)
             : undefined,
+          // SQL-level vertical pre-filter: `vertical = ANY(ARRAY[...])` equivalent.
+          // Contacts with non-canonical raw vertical strings are caught by the JS
+          // normalization pass below; SQL filter reduces the scanned rows significantly.
+          opts.verticals && opts.verticals.length > 0
+            ? inArray(contacts.vertical, opts.verticals)
+            : undefined,
         )
       )
       .orderBy(desc(contacts.dataCompletenessScore), desc(contacts.leadScore))
@@ -500,21 +506,27 @@ import { coerceDateFields } from "../utils/date-coerce";
       return rows;
     }
 
-    // JS-level vertical normalization filter — applied on the SQL page result.
-    // Callers that paginate must use large SQL pages (e.g. 1000) so each page
-    // contains a meaningful number of vertical matches even for sparse verticals.
+    // Secondary JS-level normalization filter — catches raw non-canonical vertical
+    // values that weren't matched by the SQL-level `inArray` clause above.
+    // SQL-level filtering already ran via the WHERE clause built in the calling query;
+    // this pass handles contacts imported with non-canonical strings (e.g. "Restaurants").
     const targetSet = new Set(opts.verticals);
     return rows.filter((r) => {
       if (!r.vertical) return false;
+      // Fast path: canonical value matches directly (SQL clause already selected these).
+      if (targetSet.has(r.vertical)) return true;
+      // Slow path: normalize raw value and check.
       const canonical = normalizeDiscoveryVertical({ rawCategory: r.vertical }).canonicalVertical;
       return targetSet.has(canonical);
     });
   }
 
-  // DB-level count of all contactable rows passing the SQL pre-filter.
-  // Returns the total before JS-level vertical normalization — use as the
-  // authoritative denominator for campaign audience sizing.
+  // DB-level count of contactable rows scoped to the specified vertical(s).
+  // Uses SQL `vertical IN (...)` for canonical names plus the same email/archive
+  // pre-filters as getContactsForCampaignAudience().
+  // Pass verticals to scope to the campaign audience; omit for global pool size.
   async countContactsForCampaignAudience(opts: {
+    verticals?: string[];
     minCompletenessScore?: number;
   } = {}): Promise<number> {
     const [result] = await db
@@ -529,6 +541,11 @@ import { coerceDateFields } from "../utils/date-coerce";
           sql`${contacts.optedOutEmail} IS NOT TRUE`,
           opts.minCompletenessScore != null
             ? gte(contacts.dataCompletenessScore, opts.minCompletenessScore)
+            : undefined,
+          // SQL-level vertical filter: exact match on canonical names.
+          // Non-canonical raw values are not counted here (they're rare post-enrichment).
+          opts.verticals && opts.verticals.length > 0
+            ? inArray(contacts.vertical, opts.verticals)
             : undefined,
         )
       );

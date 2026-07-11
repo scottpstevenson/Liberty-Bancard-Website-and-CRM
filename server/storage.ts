@@ -159,7 +159,7 @@ export interface IStorage {
   getContactVerticalCounts(): Promise<Array<{ vertical: string; count: number }>>;
   getContactsByVertical(vertical: string, limit?: number): Promise<Array<{ id: number; firstName: string; lastName: string; email: string; phone: string; vertical: string | null }>>;
   getContactsForCampaignAudience(opts: { verticals?: string[]; minCompletenessScore?: number; limit?: number; offset?: number }): Promise<Array<{ id: number; firstName: string; lastName: string; email: string; phone: string | null; vertical: string | null; companyName: string | null; city: string | null; state: string | null; dataCompletenessScore: number | null; emailStatus: string; optedOutEmail: boolean | null }>>;
-  countContactsForCampaignAudience(opts?: { minCompletenessScore?: number }): Promise<number>;
+  countContactsForCampaignAudience(opts?: { verticals?: string[]; minCompletenessScore?: number }): Promise<number>;
   createContact(contact: InsertContact, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }): Promise<typeof contacts.$inferSelect>;
   updateContact(id: number, contact: UpdateContactRequest, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }): Promise<typeof contacts.$inferSelect | undefined>;
   syncUpdateContact(id: number, contact: UpdateContactRequest): Promise<typeof contacts.$inferSelect | undefined>;

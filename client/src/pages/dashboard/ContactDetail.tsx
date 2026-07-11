@@ -1090,30 +1090,52 @@ export default function ContactDetail() {
 
             {/* Contact Quality Signals — Lead Score + Data Completeness */}
             {(contact.leadScore != null || contact.dataCompletenessScore != null) && (
-              <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground pt-1" data-testid="section-contact-quality">
-                {contact.leadScore != null && (
-                  <span className="flex items-center gap-1" data-testid="text-lead-score">
-                    <TrendingUp className="h-3 w-3" />
-                    Lead Score: <strong className="text-foreground">{contact.leadScore}</strong>
-                  </span>
-                )}
-                {contact.dataCompletenessScore != null && (
-                  <span className="flex items-center gap-2" data-testid="section-data-completeness">
-                    <span>Data Completeness:</span>
-                    <span className="inline-flex items-center gap-1.5">
-                      <span className="w-20 h-1.5 bg-muted rounded-full overflow-hidden inline-block">
-                        <span
-                          className="h-full bg-primary block rounded-full transition-all"
-                          style={{ width: `${Math.min(100, Math.max(0, contact.dataCompletenessScore))}%` }}
-                          data-testid="bar-data-completeness"
-                        />
-                      </span>
-                      <strong className="text-foreground" data-testid="text-data-completeness-score">
-                        {contact.dataCompletenessScore}%
-                      </strong>
+              <div className="flex flex-col gap-2 pt-1" data-testid="section-contact-quality">
+                <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
+                  {contact.leadScore != null && (
+                    <span className="flex items-center gap-1" data-testid="text-lead-score">
+                      <TrendingUp className="h-3 w-3" />
+                      Lead Score: <strong className="text-foreground">{contact.leadScore}</strong>
                     </span>
-                  </span>
-                )}
+                  )}
+                  {contact.dataCompletenessScore != null && (
+                    <span className="flex items-center gap-2" data-testid="section-data-completeness">
+                      <span>Data Completeness:</span>
+                      <span className="inline-flex items-center gap-1.5">
+                        <span className="w-20 h-1.5 bg-muted rounded-full overflow-hidden inline-block">
+                          <span
+                            className="h-full bg-primary block rounded-full transition-all"
+                            style={{ width: `${Math.min(100, Math.max(0, contact.dataCompletenessScore))}%` }}
+                            data-testid="bar-data-completeness"
+                          />
+                        </span>
+                        <strong className="text-foreground" data-testid="text-data-completeness-score">
+                          {contact.dataCompletenessScore}%
+                        </strong>
+                      </span>
+                    </span>
+                  )}
+                </div>
+                {/* Field-contribution checklist — shows which key fields are present or missing */}
+                <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px]" data-testid="section-field-checklist">
+                  {([
+                    { key: "name",    label: "Name",    present: !!(contact.firstName || contact.lastName) },
+                    { key: "email",   label: "Email",   present: !!contact.email },
+                    { key: "phone",   label: "Phone",   present: !!contact.phone },
+                    { key: "company", label: "Company", present: !!contact.companyName },
+                    { key: "website", label: "Website", present: !!contact.website },
+                    { key: "vertical",label: "Vertical",present: !!contact.vertical },
+                  ] as const).map(({ key, label, present }) => (
+                    <span
+                      key={key}
+                      className={`inline-flex items-center gap-0.5 ${present ? "text-green-700 dark:text-green-400" : "text-muted-foreground/60"}`}
+                      data-testid={`field-indicator-${key}`}
+                    >
+                      <span aria-hidden="true">{present ? "✓" : "✗"}</span>
+                      {label}
+                    </span>
+                  ))}
+                </div>
               </div>
             )}
           </div>

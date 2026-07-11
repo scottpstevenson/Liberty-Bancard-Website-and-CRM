@@ -109,6 +109,7 @@ type AudiencePreview = {
   totalInVerticals: number;
   blockedCount: number;
   blockReasons: Record<string, number>;
+  isPartial: boolean;
 };
 
 function CampaignDetail({ campaign }: { campaign: Campaign }) {
@@ -260,22 +261,28 @@ function CampaignDetail({ campaign }: { campaign: Campaign }) {
               <Skeleton className="h-16 w-full" />
             ) : audiencePreview ? (
               <div className="space-y-2">
+                {audiencePreview.isPartial && (
+                  <div className="flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 rounded px-2 py-1" data-testid="alert-preview-partial">
+                    <span>⚠</span>
+                    <span>Preview is partial — gated {(audiencePreview.eligibleCount + audiencePreview.blockedCount).toLocaleString()} of {audiencePreview.totalInVerticals.toLocaleString()} contacts. Run preview again on a smaller vertical to get an exact count before queuing.</span>
+                  </div>
+                )}
                 <div className="flex flex-wrap items-center gap-3 text-sm">
-                  <span className="font-medium text-green-700 dark:text-green-400">
-                    {audiencePreview.eligibleCount.toLocaleString()} eligible
+                  <span className="font-medium text-green-700 dark:text-green-400" data-testid="text-eligible-count">
+                    {audiencePreview.eligibleCount.toLocaleString()} eligible{audiencePreview.isPartial ? "*" : ""}
                   </span>
                   <span className="text-muted-foreground">
                     of {audiencePreview.totalInVerticals.toLocaleString()} in vertical{(campaign.targetVerticals?.length ?? 0) !== 1 ? "s" : ""}
                   </span>
                   {audiencePreview.blockedCount > 0 && (
                     <span className="text-orange-600 dark:text-orange-400 text-xs">
-                      ~{audiencePreview.blockedCount} blocked in sample
+                      {audiencePreview.blockedCount} blocked
                     </span>
                   )}
                 </div>
                 {Object.keys(audiencePreview.blockReasons).length > 0 && (
                   <div className="space-y-1">
-                    <p className="text-xs text-muted-foreground font-medium">Block reasons (sample of 50):</p>
+                    <p className="text-xs text-muted-foreground font-medium">Block reasons:</p>
                     {Object.entries(audiencePreview.blockReasons).map(([reason, count]) => (
                       <div key={reason} className="flex items-center gap-2 text-xs">
                         <span className="text-muted-foreground truncate flex-1">{reason.replace(/_/g, " ")}</span>
@@ -326,8 +333,8 @@ function CampaignDetail({ campaign }: { campaign: Campaign }) {
               queueMutation.mutate();
             }
           }}
-          disabled={queueMutation.isPending || (isCrmMode && !audiencePreview)}
-          title={isCrmMode && !audiencePreview ? "Run Preview Audience first to confirm eligible contacts before queuing" : undefined}
+          disabled={queueMutation.isPending || (isCrmMode && (!audiencePreview || audiencePreview.isPartial))}
+          title={isCrmMode && !audiencePreview ? "Run Preview Audience first to confirm eligible contacts before queuing" : isCrmMode && audiencePreview?.isPartial ? "Preview is partial — run preview on a smaller vertical to get an exact count before queuing" : undefined}
           data-testid={`button-queue-messages-${campaign.id}`}
         >
           <Send className="w-4 h-4 mr-1" />
@@ -336,6 +343,11 @@ function CampaignDetail({ campaign }: { campaign: Campaign }) {
         {isCrmMode && !audiencePreview && !audienceLoading && (
           <p className="text-xs text-muted-foreground self-center" data-testid="text-preview-required-hint">
             Preview audience first to enable queueing
+          </p>
+        )}
+        {isCrmMode && audiencePreview?.isPartial && (
+          <p className="text-xs text-amber-600 dark:text-amber-400 self-center" data-testid="text-preview-partial-hint">
+            Partial preview — queueing blocked until exact count confirmed
           </p>
         )}
       </div>
@@ -381,12 +393,14 @@ function CampaignDetail({ campaign }: { campaign: Campaign }) {
             <AlertDialogCancel data-testid={`button-queue-cancel-${campaign.id}`}>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => queueMutation.mutate()}
-              disabled={!audiencePreview || audiencePreview.eligibleCount === 0}
+              disabled={!audiencePreview || audiencePreview.eligibleCount === 0 || audiencePreview.isPartial}
               data-testid={`button-queue-confirm-${campaign.id}`}
             >
-              {audiencePreview && audiencePreview.eligibleCount > 0
-                ? `Queue ${audiencePreview.eligibleCount.toLocaleString()} Messages`
-                : "No Eligible Contacts"}
+              {!audiencePreview || audiencePreview.isPartial
+                ? "Preview Required"
+                : audiencePreview.eligibleCount > 0
+                  ? `Queue ${audiencePreview.eligibleCount.toLocaleString()} Messages`
+                  : "No Eligible Contacts"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

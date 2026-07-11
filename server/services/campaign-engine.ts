@@ -405,15 +405,19 @@ export async function previewContactCampaignAudience(campaignId: number): Promis
   totalInVerticals: number;
   blockedCount: number;
   blockReasons: Record<string, number>;
+  isPartial: boolean;
 }> {
   const campaign = await storage.getCampaign(campaignId);
   if (!campaign) {
-    return { eligibleCount: 0, sampleContacts: [], totalInVerticals: 0, blockedCount: 0, blockReasons: {} };
+    return { eligibleCount: 0, sampleContacts: [], totalInVerticals: 0, blockedCount: 0, blockReasons: {}, isPartial: false };
   }
 
-  // DB-level count of the contactable pool (SQL pre-filter, no JS vertical normalization).
-  // Used as the authoritative denominator — fast single COUNT query.
-  const totalInVerticals = await storage.countContactsForCampaignAudience();
+  // DB-level count scoped to the campaign's target verticals.
+  // Uses SQL `vertical IN (...)` exact match on canonical names — same filter
+  // as the getContactsForCampaignAudience() query below.
+  const totalInVerticals = await storage.countContactsForCampaignAudience({
+    verticals: campaign.targetVerticals ?? undefined,
+  });
 
   // Paginate through contacts, running the full contactability gate on each one,
   // up to PREVIEW_MAX_GATE contacts.  Counts are exact, never extrapolated.
@@ -468,7 +472,12 @@ export async function previewContactCampaignAudience(campaignId: number): Promis
     if (page.length < QUEUE_SQL_PAGE) break; // last page
   }
 
-  return { eligibleCount, sampleContacts, totalInVerticals, blockedCount, blockReasons };
+  // isPartial: true when PREVIEW_MAX_GATE was reached before exhausting all contacts.
+  // When partial, the queue confirmation button is blocked — the user must acknowledge
+  // they are queuing into a larger audience than the gated preview covered.
+  const isPartial = gateCapReached && totalInVerticals > PREVIEW_MAX_GATE;
+
+  return { eligibleCount, sampleContacts, totalInVerticals, blockedCount, blockReasons, isPartial };
 }
 
 export async function processSendQueue(maxToSend?: number): Promise<{ sent: number; failed: number }> {
