@@ -64,8 +64,12 @@ export async function startReadinessBackfill(force = false): Promise<{ runId: st
     console.log(`[ReadinessBackfill] Interrupted stale run ${existing.runId}`);
   }
 
+  // Carry the interrupted run's keyset cursor forward so a restarted run
+  // continues from where the interrupted one left off, not from id=0.
+  const resumeCursor = existing?.lastProcessedContactId ?? null;
+
   const runId = randomUUID();
-  const run = await storage.createReadinessRun({
+  await storage.createReadinessRun({
     runId,
     modelVersion: READINESS_MODEL_VERSION,
     status: "running",
@@ -76,7 +80,7 @@ export async function startReadinessBackfill(force = false): Promise<{ runId: st
     errors: 0,
     startedAt: new Date(),
     lastHeartbeatAt: new Date(),
-    lastProcessedContactId: null,
+    lastProcessedContactId: resumeCursor,
     totalEligible: null,
     completedAt: null,
     lastError: null,
@@ -98,16 +102,18 @@ async function runBackfillLoop(runId: string): Promise<void> {
 
   try {
     // Claim ownership atomically — bail if another process already owns this run.
+    // The returned record also carries lastProcessedContactId so we can resume from
+    // the right keyset cursor without a separate DB round-trip.
     const claimed = await storage.claimReadinessRun(runId);
     if (!claimed) {
       console.warn(`[ReadinessBackfill] Run ${runId} already claimed by another process — aborting`);
       return;
     }
 
-    // Resume from the persisted keyset cursor so a restart after interruption picks up
-    // where the previous attempt left off rather than re-scanning from id=0.
-    const runRecord = await storage.getLatestReadinessRun();
-    let lastProcessedId: number = runRecord?.lastProcessedContactId ?? 0;
+    // Resume from the cursor persisted on THIS run record (carried forward from any
+    // interrupted predecessor by startReadinessBackfill).  Never use getLatestReadinessRun()
+    // here — it could return a different run's cursor after a race.
+    let lastProcessedId: number = claimed.lastProcessedContactId ?? 0;
 
     for (;;) {
       // Fetch next batch via keyset cursor

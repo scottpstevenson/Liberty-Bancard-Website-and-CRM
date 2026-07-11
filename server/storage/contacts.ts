@@ -582,8 +582,15 @@ import { coerceDateFields } from "../utils/date-coerce";
         sql`${contacts.id} > ${afterId}`,
         isNull(contacts.archivedAt),
         or(
+          // Model version not yet scored, or scored by an older model
           isNull(contacts.readinessModelVersion),
           sql`${contacts.readinessModelVersion} < ${modelVersion}`,
+          // Score is stale: a readiness-dependent field was mutated after the last scoring run
+          and(
+            sql`${contacts.readinessUpdatedAt} IS NOT NULL`,
+            sql`${contacts.lastMeaningfulContactMutationAt} IS NOT NULL`,
+            sql`${contacts.readinessUpdatedAt} < ${contacts.lastMeaningfulContactMutationAt}`,
+          ),
         ),
       ))
       .orderBy(asc(contacts.id))

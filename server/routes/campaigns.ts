@@ -471,49 +471,122 @@ export function registerCampaignsRoutes(app: Express) {
   // GET /api/contacts/readiness-stats
   // Aggregated readiness score distribution — computed in Postgres via CASE on
   // the integer column, never loads JSONB blobs into Node.
+  // Returns: grade distribution, 10-bucket histogram, top-10 missing reason codes
+  // (derived from readiness_breakdown JSONB), and the latest backfill run status.
   app.get("/api/contacts/readiness-stats", isDashboardUser, async (req, res) => {
     try {
       const { sql } = await import("drizzle-orm");
       const { db } = await import("../db");
-      const { contacts } = await import("@shared/schema");
       const { READINESS_MODEL_VERSION, READINESS_GRADE_THRESHOLDS } = await import("../services/contact-readiness");
+      const { storage } = await import("../storage");
 
-      const [row] = await db.execute(sql`
-        SELECT
-          COUNT(*)                                                       AS total,
-          COUNT(*) FILTER (WHERE data_readiness_score IS NULL)           AS null_score,
-          COUNT(*) FILTER (WHERE readiness_model_version < ${READINESS_MODEL_VERSION} OR readiness_model_version IS NULL) AS stale_model,
-          COUNT(*) FILTER (WHERE data_readiness_score >= ${READINESS_GRADE_THRESHOLDS.A}) AS grade_a,
-          COUNT(*) FILTER (WHERE data_readiness_score >= ${READINESS_GRADE_THRESHOLDS.B}
-                            AND data_readiness_score < ${READINESS_GRADE_THRESHOLDS.A})   AS grade_b,
-          COUNT(*) FILTER (WHERE data_readiness_score >= ${READINESS_GRADE_THRESHOLDS.C}
-                            AND data_readiness_score < ${READINESS_GRADE_THRESHOLDS.B})   AS grade_c,
-          COUNT(*) FILTER (WHERE data_readiness_score >= ${READINESS_GRADE_THRESHOLDS.D}
-                            AND data_readiness_score < ${READINESS_GRADE_THRESHOLDS.C})   AS grade_d,
-          COUNT(*) FILTER (WHERE data_readiness_score < ${READINESS_GRADE_THRESHOLDS.D}
-                            AND data_readiness_score IS NOT NULL)                         AS grade_f,
-          ROUND(AVG(data_readiness_score), 1)                            AS avg_score,
-          MIN(data_readiness_score)                                       AS min_score,
-          MAX(data_readiness_score)                                       AS max_score
-        FROM contacts
-        WHERE archived_at IS NULL
-      `);
+      // All three queries run in parallel — none depends on another.
+      const [summaryResult, histogramResult, reasonResult, latestRun] = await Promise.all([
+        // 1. Summary + grade breakdown
+        db.execute(sql`
+          SELECT
+            COUNT(*)                                                                            AS total,
+            COUNT(*) FILTER (WHERE data_readiness_score IS NULL)                                AS null_score,
+            COUNT(*) FILTER (WHERE readiness_model_version < ${READINESS_MODEL_VERSION}
+                              OR readiness_model_version IS NULL)                               AS stale_model,
+            COUNT(*) FILTER (WHERE data_readiness_score IS NOT NULL
+                              AND readiness_updated_at < last_meaningful_contact_mutation_at)   AS mutation_stale,
+            COUNT(*) FILTER (WHERE data_readiness_score >= ${READINESS_GRADE_THRESHOLDS.A})     AS grade_a,
+            COUNT(*) FILTER (WHERE data_readiness_score >= ${READINESS_GRADE_THRESHOLDS.B}
+                              AND  data_readiness_score <  ${READINESS_GRADE_THRESHOLDS.A})     AS grade_b,
+            COUNT(*) FILTER (WHERE data_readiness_score >= ${READINESS_GRADE_THRESHOLDS.C}
+                              AND  data_readiness_score <  ${READINESS_GRADE_THRESHOLDS.B})     AS grade_c,
+            COUNT(*) FILTER (WHERE data_readiness_score >= ${READINESS_GRADE_THRESHOLDS.D}
+                              AND  data_readiness_score <  ${READINESS_GRADE_THRESHOLDS.C})     AS grade_d,
+            COUNT(*) FILTER (WHERE data_readiness_score < ${READINESS_GRADE_THRESHOLDS.D}
+                              AND  data_readiness_score IS NOT NULL)                            AS grade_f,
+            ROUND(AVG(data_readiness_score), 1)                                                 AS avg_score,
+            MIN(data_readiness_score)                                                           AS min_score,
+            MAX(data_readiness_score)                                                           AS max_score
+          FROM contacts
+          WHERE archived_at IS NULL
+        `),
+
+        // 2. 10-bucket score histogram (0-9, 10-19, …, 90-100)
+        db.execute(sql`
+          SELECT
+            CASE
+              WHEN data_readiness_score >= 100 THEN 90
+              ELSE (data_readiness_score / 10) * 10
+            END AS bucket_start,
+            COUNT(*) AS cnt
+          FROM contacts
+          WHERE archived_at IS NULL AND data_readiness_score IS NOT NULL
+          GROUP BY bucket_start
+          ORDER BY bucket_start
+        `),
+
+        // 3. Top-10 missing reason codes — derived from readiness_breakdown JSONB.
+        //    A field is "missing" when its "earned" value is 0 in the per-field map.
+        db.execute(sql`
+          SELECT field_key AS reason, COUNT(*) AS cnt
+          FROM contacts,
+               jsonb_each(readiness_breakdown) AS f(field_key, field_val)
+          WHERE archived_at IS NULL
+            AND readiness_breakdown IS NOT NULL
+            AND (field_val->>'earned')::numeric = 0
+          GROUP BY field_key
+          ORDER BY cnt DESC
+          LIMIT 10
+        `),
+
+        // 4. Latest backfill run (any status) for run-status reporting
+        storage.getLatestReadinessRun(),
+      ]);
+
+      // Normalise drizzle execute result — may be array or {rows:[…]}
+      const toRows = (r: unknown) => Array.isArray(r) ? r : (r as any)?.rows ?? [];
+      const [summary] = toRows(summaryResult);
+      const histRows: Array<{ bucket_start: number; cnt: number }> = toRows(histogramResult)
+        .map((r: any) => ({ bucket_start: Number(r.bucket_start), cnt: Number(r.cnt) }));
+      const reasonRows: Array<{ reason: string; cnt: number }> = toRows(reasonResult)
+        .map((r: any) => ({ reason: String(r.reason), cnt: Number(r.cnt) }));
+
+      // Build full 10-bucket histogram (0–90 step 10) filling missing buckets with 0
+      const histogramMap: Record<number, number> = {};
+      for (const r of histRows) histogramMap[r.bucket_start] = r.cnt;
+      const histogram = Array.from({ length: 10 }, (_, i) => ({
+        bucketStart: i * 10,
+        bucketEnd: i === 9 ? 100 : i * 10 + 9,
+        count: histogramMap[i * 10] ?? 0,
+      }));
 
       res.json({
-        total: Number(row.total),
-        nullScore: Number(row.null_score),
-        staleModel: Number(row.stale_model),
+        total: Number(summary.total),
+        nullScore: Number(summary.null_score),
+        staleModel: Number(summary.stale_model),
+        mutationStale: Number(summary.mutation_stale),
         grades: {
-          A: Number(row.grade_a),
-          B: Number(row.grade_b),
-          C: Number(row.grade_c),
-          D: Number(row.grade_d),
-          F: Number(row.grade_f),
+          A: Number(summary.grade_a),
+          B: Number(summary.grade_b),
+          C: Number(summary.grade_c),
+          D: Number(summary.grade_d),
+          F: Number(summary.grade_f),
         },
-        avgScore: row.avg_score !== null ? Number(row.avg_score) : null,
-        minScore: row.min_score !== null ? Number(row.min_score) : null,
-        maxScore: row.max_score !== null ? Number(row.max_score) : null,
+        avgScore: summary.avg_score !== null ? Number(summary.avg_score) : null,
+        minScore: summary.min_score !== null ? Number(summary.min_score) : null,
+        maxScore: summary.max_score !== null ? Number(summary.max_score) : null,
+        histogram,
+        topMissingReasons: reasonRows,
         modelVersion: READINESS_MODEL_VERSION,
+        backfillRun: latestRun
+          ? {
+              runId: latestRun.runId,
+              status: latestRun.status,
+              processed: latestRun.processed,
+              updated: latestRun.updated,
+              errors: latestRun.errors,
+              startedAt: latestRun.startedAt,
+              completedAt: latestRun.completedAt,
+              lastHeartbeatAt: latestRun.lastHeartbeatAt,
+              lastProcessedContactId: latestRun.lastProcessedContactId,
+            }
+          : null,
       });
     } catch (err: any) {
       res.status(500).json({ message: err.message });

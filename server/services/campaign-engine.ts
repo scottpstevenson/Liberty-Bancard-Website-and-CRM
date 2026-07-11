@@ -331,7 +331,9 @@ export async function queueContactCampaignMessages(campaignId: number, maxToQueu
   // Apply the same readiness filter at queue time as at preview time so contacts
   // with null/stale/below-threshold scores never enter the outbound queue silently.
   const queueReadinessThreshold = campaign.readinessThreshold ?? null;
-  const applyQueueReadiness = queueReadinessThreshold !== null && queueReadinessThreshold > 0;
+  // Apply the filter whenever a threshold is explicitly configured (even 0 = "must have a valid score").
+  // Null means "no readiness filter" — do not conflate with 0.
+  const applyQueueReadiness = queueReadinessThreshold !== null;
 
   while (queued < effectiveLimit) {
     const page = await storage.getContactsForCampaignAudience({
@@ -526,7 +528,9 @@ export async function previewContactCampaignAudience(campaignId: number): Promis
   }
 
   const readinessThreshold = campaign.readinessThreshold ?? null;
-  const applyReadiness = readinessThreshold !== null && readinessThreshold > 0;
+  // Apply the filter whenever a threshold is explicitly configured (even 0 = "must have a valid score").
+  // Null means "no readiness filter" — do not conflate with 0.
+  const applyReadiness = readinessThreshold !== null;
 
   // ── Step 1: DB-level denominator — total contacts in target verticals ────────
   const totalInVerticals = await storage.countContactsForCampaignAudience({

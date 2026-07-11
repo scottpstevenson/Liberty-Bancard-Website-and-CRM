@@ -61,12 +61,18 @@ export async function createContactGhlFirst(
   const contact = await storage.createContact({
     ...input,
     ...(ghlContactId ? { ghlContactId } : {}),
+    // Set mutation timestamp at create time so the backfill considers this contact
+    // stale-eligible if any field changes before the readiness worker processes it.
+    lastMeaningfulContactMutationAt: new Date(),
   }, auditCtx);
 
-  // Readiness hook: all fields that affect score are present at creation time.
-  // Mark lastMeaningfulContactMutationAt and enqueue recalculation.
-  storage.updateContact(contact.id, { lastMeaningfulContactMutationAt: new Date() }).catch(() => {});
-  enqueueReadinessRecalculation(contact.id).catch(() => {});
+  // Readiness hook: all score-relevant fields are present at creation time.
+  // Awaited so failures surface as warnings rather than being silently swallowed.
+  try {
+    await enqueueReadinessRecalculation(contact.id);
+  } catch (err) {
+    console.warn(`[ContactWriter] Readiness enqueue failed for new contact ${contact.id}: ${(err as Error).message}`);
+  }
 
   if (ghlSyncPending) {
     await storage.createAuditLog({
@@ -134,15 +140,24 @@ export async function updateContactGhlFirst(
     }
   }
 
-  const updated = await storage.updateContact(contactId, updates, auditCtx);
-  if (!updated) return null;
-
-  // Readiness hook: check if any readiness-dependent field changed.
+  // Readiness hook: check if any readiness-dependent field changed BEFORE the update
+  // so we can merge lastMeaningfulContactMutationAt into the same DB write (one round-trip).
   const changedKeys = Object.keys(updates) as Array<keyof typeof updates>;
   const hasReadinessChange = changedKeys.some(k => READINESS_DEPENDENT_FIELDS.includes(k as any));
+
+  const updated = await storage.updateContact(contactId, {
+    ...updates,
+    ...(hasReadinessChange ? { lastMeaningfulContactMutationAt: new Date() } : {}),
+  }, auditCtx);
+  if (!updated) return null;
+
+  // Awaited so failures surface as warnings rather than being silently swallowed.
   if (hasReadinessChange) {
-    storage.updateContact(contactId, { lastMeaningfulContactMutationAt: new Date() }).catch(() => {});
-    enqueueReadinessRecalculation(contactId).catch(() => {});
+    try {
+      await enqueueReadinessRecalculation(contactId);
+    } catch (err) {
+      console.warn(`[ContactWriter] Readiness enqueue failed for contact ${contactId}: ${(err as Error).message}`);
+    }
   }
 
   if (ghlSyncFailed) {
