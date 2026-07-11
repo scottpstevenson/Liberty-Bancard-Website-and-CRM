@@ -35,7 +35,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Send, Plus, Play, Pause, Trash2, Mail, Clock, Pencil, Eye } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Send, Plus, Play, Pause, Trash2, Mail, Clock, Pencil, Eye, Users, List } from "lucide-react";
 import DashboardErrorState from "@/components/DashboardErrorState";
 import EmailPreviewModal, { EmailPreviewContent } from "@/components/EmailPreviewModal";
 import type { Campaign, CampaignStep, ProspectList } from "@shared/schema";
@@ -94,9 +104,11 @@ function getStatusBadgeClass(status: string | null | undefined) {
 }
 
 type AudiencePreview = {
-  totalEligible: number;
-  verticals: string[];
-  sample: Array<{ id: number; name: string; email: string; vertical: string | null; score: number | null }>;
+  eligibleCount: number;
+  sampleContacts: Array<{ id: number; name: string; email: string; vertical: string | null }>;
+  totalInVerticals: number;
+  blockedCount: number;
+  blockReasons: Record<string, number>;
 };
 
 function CampaignDetail({ campaign }: { campaign: Campaign }) {
@@ -109,6 +121,7 @@ function CampaignDetail({ campaign }: { campaign: Campaign }) {
   const [editBodyTab, setEditBodyTab] = useState<"write" | "preview">("write");
   const [previewStep, setPreviewStep] = useState<CampaignStep | null>(null);
   const [showAudiencePreview, setShowAudiencePreview] = useState(false);
+  const [showQueueConfirm, setShowQueueConfirm] = useState(false);
 
   useEffect(() => {
     if (!editingStep) return;
@@ -247,17 +260,38 @@ function CampaignDetail({ campaign }: { campaign: Campaign }) {
               <Skeleton className="h-16 w-full" />
             ) : audiencePreview ? (
               <div className="space-y-2">
-                <p className="text-sm font-medium">
-                  {audiencePreview.totalEligible.toLocaleString()} eligible contacts
-                </p>
-                {audiencePreview.sample.length > 0 && (
+                <div className="flex flex-wrap items-center gap-3 text-sm">
+                  <span className="font-medium text-green-700 dark:text-green-400">
+                    {audiencePreview.eligibleCount.toLocaleString()} eligible
+                  </span>
+                  <span className="text-muted-foreground">
+                    of {audiencePreview.totalInVerticals.toLocaleString()} in vertical{(campaign.targetVerticals?.length ?? 0) !== 1 ? "s" : ""}
+                  </span>
+                  {audiencePreview.blockedCount > 0 && (
+                    <span className="text-orange-600 dark:text-orange-400 text-xs">
+                      ~{audiencePreview.blockedCount} blocked in sample
+                    </span>
+                  )}
+                </div>
+                {Object.keys(audiencePreview.blockReasons).length > 0 && (
                   <div className="space-y-1">
-                    <p className="text-xs text-muted-foreground font-medium">Sample (first 10):</p>
-                    {audiencePreview.sample.map((c) => (
+                    <p className="text-xs text-muted-foreground font-medium">Block reasons (sample of 50):</p>
+                    {Object.entries(audiencePreview.blockReasons).map(([reason, count]) => (
+                      <div key={reason} className="flex items-center gap-2 text-xs">
+                        <span className="text-muted-foreground truncate flex-1">{reason.replace(/_/g, " ")}</span>
+                        <span className="font-medium tabular-nums">{count}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {audiencePreview.sampleContacts.length > 0 && (
+                  <div className="space-y-1">
+                    <p className="text-xs text-muted-foreground font-medium">Sample contacts:</p>
+                    {audiencePreview.sampleContacts.map((c) => (
                       <div key={c.id} className="flex items-center justify-between text-xs gap-2 p-1 rounded bg-background/80">
                         <span className="font-medium truncate">{c.name}</span>
                         <span className="text-muted-foreground truncate">{c.vertical ?? "—"}</span>
-                        <span className="text-muted-foreground shrink-0">Score: {c.score ?? "—"}</span>
+                        <span className="text-muted-foreground shrink-0 text-[10px]">{c.email}</span>
                       </div>
                     ))}
                   </div>
@@ -285,7 +319,13 @@ function CampaignDetail({ campaign }: { campaign: Campaign }) {
         <Button
           variant="outline"
           size="sm"
-          onClick={() => queueMutation.mutate()}
+          onClick={() => {
+            if (isCrmMode) {
+              setShowQueueConfirm(true);
+            } else {
+              queueMutation.mutate();
+            }
+          }}
           disabled={queueMutation.isPending}
           data-testid={`button-queue-messages-${campaign.id}`}
         >
@@ -293,6 +333,55 @@ function CampaignDetail({ campaign }: { campaign: Campaign }) {
           {queueMutation.isPending ? "Queuing..." : "Queue Messages"}
         </Button>
       </div>
+
+      <AlertDialog open={showQueueConfirm} onOpenChange={setShowQueueConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Queue Campaign Messages</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2">
+                <p>
+                  This will queue email messages for CRM contacts in{" "}
+                  <strong>{campaign.targetVerticals?.join(", ") || "all verticals"}</strong>.
+                </p>
+                {audiencePreview ? (
+                  <div className="rounded-md border bg-muted/40 p-3 space-y-1 text-sm">
+                    <div className="flex justify-between">
+                      <span>Eligible contacts</span>
+                      <span className="font-medium">{audiencePreview.eligibleCount.toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between text-muted-foreground">
+                      <span>Total in verticals</span>
+                      <span>{audiencePreview.totalInVerticals.toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between text-muted-foreground">
+                      <span>Daily send limit</span>
+                      <span>{campaign.dailySendLimit ?? 200}</span>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-muted-foreground text-sm">
+                    Run "Preview Audience" first to see eligible contact counts before queuing.
+                  </p>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  Every contact is checked through the contactability gate before a message row is created.
+                  Blocked contacts are skipped and audit-logged.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid={`button-queue-cancel-${campaign.id}`}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => queueMutation.mutate()}
+              data-testid={`button-queue-confirm-${campaign.id}`}
+            >
+              Queue Messages
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <div>
         <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
@@ -618,6 +707,7 @@ export default function Campaigns() {
   const { toast } = useToast();
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [audienceSource, setAudienceSource] = useState<"prospect" | "crm">("prospect");
 
   const { data: campaigns, isLoading, isError, refetch } = useQuery<Campaign[]>({
     queryKey: ["/api/campaigns"],
@@ -703,68 +793,106 @@ export default function Campaigns() {
                     </FormItem>
                   )}
                 />
-                <FormField
-                  control={form.control}
-                  name="targetListId"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Target List</FormLabel>
-                      <Select
-                        onValueChange={(val) => field.onChange(val ? Number(val) : undefined)}
-                        value={field.value ? String(field.value) : ""}
-                      >
-                        <FormControl>
-                          <SelectTrigger data-testid="select-target-list">
-                            <SelectValue placeholder="Select a prospect list" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {prospectLists?.map((list) => (
-                            <SelectItem key={list.id} value={String(list.id)} data-testid={`select-item-list-${list.id}`}>
-                              {list.name} ({list.totalRecords} records)
-                            </SelectItem>
+                {/* Audience Source toggle */}
+                <FormItem>
+                  <FormLabel>Audience Source</FormLabel>
+                  <div className="flex gap-2 pt-1">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={audienceSource === "prospect" ? "default" : "outline"}
+                      className="gap-1.5"
+                      onClick={() => {
+                        setAudienceSource("prospect");
+                        form.setValue("targetVerticals", []);
+                      }}
+                      data-testid="button-source-prospect"
+                    >
+                      <List className="w-3.5 h-3.5" /> Prospect List
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={audienceSource === "crm" ? "default" : "outline"}
+                      className="gap-1.5"
+                      onClick={() => {
+                        setAudienceSource("crm");
+                        form.setValue("targetListId", undefined);
+                      }}
+                      data-testid="button-source-crm"
+                    >
+                      <Users className="w-3.5 h-3.5" /> CRM Contacts by Vertical
+                    </Button>
+                  </div>
+                </FormItem>
+
+                {audienceSource === "prospect" && (
+                  <FormField
+                    control={form.control}
+                    name="targetListId"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Target List</FormLabel>
+                        <Select
+                          onValueChange={(val) => field.onChange(val ? Number(val) : undefined)}
+                          value={field.value ? String(field.value) : ""}
+                        >
+                          <FormControl>
+                            <SelectTrigger data-testid="select-target-list">
+                              <SelectValue placeholder="Select a prospect list" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {prospectLists?.map((list) => (
+                              <SelectItem key={list.id} value={String(list.id)} data-testid={`select-item-list-${list.id}`}>
+                                {list.name} ({list.totalRecords} records)
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
+
+                {audienceSource === "crm" && (
+                  <FormField
+                    control={form.control}
+                    name="targetVerticals"
+                    render={() => (
+                      <FormItem>
+                        <FormLabel>Target Verticals</FormLabel>
+                        <p className="text-xs text-muted-foreground">Select industries to target from your 154K CRM contacts.</p>
+                        <div className="flex flex-wrap gap-2 pt-1">
+                          {CANONICAL_VERTICALS.map((v) => (
+                            <FormField
+                              key={v}
+                              control={form.control}
+                              name="targetVerticals"
+                              render={({ field }) => (
+                                <FormItem className="flex items-center gap-1.5">
+                                  <FormControl>
+                                    <Checkbox
+                                      checked={field.value?.includes(v)}
+                                      onCheckedChange={(checked) => {
+                                        const current = field.value || [];
+                                        field.onChange(checked ? [...current, v] : current.filter((x) => x !== v));
+                                      }}
+                                      data-testid={`checkbox-vertical-${v.toLowerCase().replace(/\s+/g, "-")}`}
+                                    />
+                                  </FormControl>
+                                  <FormLabel className="font-normal text-sm cursor-pointer">{v}</FormLabel>
+                                </FormItem>
+                              )}
+                            />
                           ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="targetVerticals"
-                  render={() => (
-                    <FormItem>
-                      <FormLabel>Target CRM Verticals</FormLabel>
-                      <p className="text-xs text-muted-foreground">Select industries to target from your CRM contacts. Leave blank to use a Prospect List instead.</p>
-                      <div className="flex flex-wrap gap-2 pt-1">
-                        {CANONICAL_VERTICALS.map((v) => (
-                          <FormField
-                            key={v}
-                            control={form.control}
-                            name="targetVerticals"
-                            render={({ field }) => (
-                              <FormItem className="flex items-center gap-1.5">
-                                <FormControl>
-                                  <Checkbox
-                                    checked={field.value?.includes(v)}
-                                    onCheckedChange={(checked) => {
-                                      const current = field.value || [];
-                                      field.onChange(checked ? [...current, v] : current.filter((x) => x !== v));
-                                    }}
-                                    data-testid={`checkbox-vertical-${v.toLowerCase().replace(/\s+/g, "-")}`}
-                                  />
-                                </FormControl>
-                                <FormLabel className="font-normal text-sm cursor-pointer">{v}</FormLabel>
-                              </FormItem>
-                            )}
-                          />
-                        ))}
-                      </div>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                        </div>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
                 <FormField
                   control={form.control}
                   name="targetScores"

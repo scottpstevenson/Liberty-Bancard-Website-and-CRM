@@ -196,9 +196,12 @@ export async function queueCampaignMessages(campaignId: number, maxToQueue?: num
 
   let queued = 0;
   const now = new Date();
+  const limit = maxToQueue ?? DEFAULT_QUEUE_LIMIT;
+  const existingMessages = await storage.getOutboundMessages(campaignId);
 
   for (const prospect of eligibleProspects) {
-    const existingMessages = await storage.getOutboundMessages(campaignId);
+    if (queued >= limit) break;
+
     const prospectMessages = existingMessages.filter(m => m.prospectId === prospect.id);
     const completedSteps = prospectMessages.filter(m => m.status === "sent" || m.status === "delivered");
 
@@ -208,10 +211,11 @@ export async function queueCampaignMessages(campaignId: number, maxToQueue?: num
     const hasReplied = prospectMessages.some(m => m.status === "replied");
     if (hasReplied) continue;
 
-    const hasPending = prospectMessages.some(m => m.status === "queued" || m.status === "scheduled");
-    if (hasPending) continue;
-
     const step = steps[nextStepIndex];
+    const hasPending = prospectMessages.some(m =>
+      m.stepId === step.id && (m.status === "queued" || m.status === "scheduled" || m.status === "sent" || m.status === "delivered")
+    );
+    if (hasPending) continue;
 
     const lastSent = prospectMessages
       .filter(m => m.sentAt)
@@ -220,6 +224,26 @@ export async function queueCampaignMessages(campaignId: number, maxToQueue?: num
     if (lastSent && step.delayDays) {
       const delayMs = step.delayDays * 24 * 60 * 60 * 1000;
       if (now.getTime() - new Date(lastSent.sentAt!).getTime() < delayMs) continue;
+    }
+
+    // ── Contactability gate for prospects with a linked CRM contact ───────────
+    if (prospect.contactId) {
+      const gate = await evaluateContactability({
+        contactId: prospect.contactId,
+        channel: "email",
+        campaignType: "marketing_campaign",
+        mode: "enforcement",
+      });
+      if (!gate.allowed) {
+        await storage.createAuditLog({
+          actorType: "system",
+          action: "campaign_queue_blocked_contactability",
+          entityType: "contact",
+          entityId: prospect.contactId,
+          details: { reason: gate.reason, campaignId, prospectId: prospect.id },
+        });
+        continue; // Do NOT create the outbound_messages row.
+      }
     }
 
     const scheduledFor = new Date(now.getTime() + queued * SEND_INTERVAL_MS);
@@ -236,15 +260,13 @@ export async function queueCampaignMessages(campaignId: number, maxToQueue?: num
     });
 
     queued++;
-    const limit = maxToQueue ?? DEFAULT_QUEUE_LIMIT;
-    if (queued >= limit) break;
   }
 
   return queued;
 }
 
-// CRM contact-mode queuing: targets CRM contacts by vertical/completeness,
-// wires through the contactability gate at send time (not here).
+// CRM contact-mode queuing: targets CRM contacts by vertical/completeness.
+// evaluateContactability() is called BEFORE every outbound_messages row creation — kill line.
 export async function queueContactCampaignMessages(campaignId: number, maxToQueue?: number): Promise<number> {
   const campaign = await storage.getCampaign(campaignId);
   if (!campaign || campaign.status !== "active") return 0;
@@ -252,19 +274,35 @@ export async function queueContactCampaignMessages(campaignId: number, maxToQueu
   const steps = await storage.getCampaignSteps(campaignId);
   if (steps.length === 0) return 0;
 
-  const limit = maxToQueue ?? campaign.dailySendLimit ?? DEFAULT_QUEUE_LIMIT;
-  const contacts = await storage.getContactsForCampaignAudience({
+  // Hard caps: DEFAULT_QUEUE_LIMIT (2000) per call, dailySendLimit per day.
+  const batchCap = Math.min(maxToQueue ?? DEFAULT_QUEUE_LIMIT, DEFAULT_QUEUE_LIMIT);
+  const dailyLimit = campaign.dailySendLimit ?? 200;
+
+  const existingMessages = await storage.getOutboundMessages(campaignId);
+
+  // Count already-sent messages today for daily limit enforcement.
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const todaySentCount = existingMessages.filter(m =>
+    m.sentAt && new Date(m.sentAt).getTime() >= todayStart.getTime()
+  ).length;
+
+  const remainingDailyBudget = dailyLimit - todaySentCount;
+  if (remainingDailyBudget <= 0) return 0;
+
+  const effectiveLimit = Math.min(batchCap, remainingDailyBudget);
+
+  // Fetch audience — over-fetch so JS vertical filter has room to match.
+  const candidates = await storage.getContactsForCampaignAudience({
     verticals: campaign.targetVerticals ?? undefined,
-    limit,
+    limit: Math.min(effectiveLimit * 5, 50000),
   });
 
   let queued = 0;
   const now = new Date();
 
-  const existingMessages = await storage.getOutboundMessages(campaignId);
-
-  for (const contact of contacts) {
-    if (queued >= limit) break;
+  for (const contact of candidates) {
+    if (queued >= effectiveLimit) break;
 
     const contactMessages = existingMessages.filter(m => m.contactId === contact.id);
     const completedSteps = contactMessages.filter(m => m.status === "sent" || m.status === "delivered");
@@ -275,10 +313,12 @@ export async function queueContactCampaignMessages(campaignId: number, maxToQueu
     const hasReplied = contactMessages.some(m => m.status === "replied");
     if (hasReplied) continue;
 
-    const hasPending = contactMessages.some(m => m.status === "queued" || m.status === "scheduled");
-    if (hasPending) continue;
-
+    // Duplicate prevention: skip if already queued/scheduled for same step.
     const step = steps[nextStepIndex];
+    const hasPending = contactMessages.some(m =>
+      m.stepId === step.id && (m.status === "queued" || m.status === "scheduled" || m.status === "sent" || m.status === "delivered")
+    );
+    if (hasPending) continue;
 
     const lastSent = contactMessages
       .filter(m => m.sentAt)
@@ -287,6 +327,24 @@ export async function queueContactCampaignMessages(campaignId: number, maxToQueu
     if (lastSent && step.delayDays) {
       const delayMs = step.delayDays * 24 * 60 * 60 * 1000;
       if (now.getTime() - new Date(lastSent.sentAt!).getTime() < delayMs) continue;
+    }
+
+    // ── KILL LINE: contactability gate BEFORE row creation ────────────────────
+    const gate = await evaluateContactability({
+      contactId: contact.id,
+      channel: "email",
+      campaignType: "marketing_campaign",
+      mode: "enforcement",
+    });
+    if (!gate.allowed) {
+      await storage.createAuditLog({
+        actorType: "system",
+        action: "campaign_queue_blocked_contactability",
+        entityType: "contact",
+        entityId: contact.id,
+        details: { reason: gate.reason, campaignId },
+      });
+      continue; // Do NOT create the outbound_messages row.
     }
 
     const scheduledFor = new Date(now.getTime() + queued * SEND_INTERVAL_MS);
@@ -308,31 +366,60 @@ export async function queueContactCampaignMessages(campaignId: number, maxToQueu
   return queued;
 }
 
-// Preview the CRM contact audience for a campaign without queuing.
+// Preview the CRM contact audience without queuing.
+// Returns required contract shape: { eligibleCount, sampleContacts, totalInVerticals, blockedCount, blockReasons }.
 export async function previewContactCampaignAudience(campaignId: number): Promise<{
-  totalEligible: number;
-  sample: Array<{ id: number; name: string; email: string; vertical: string | null; score: number | null }>;
-  verticals: string[];
+  eligibleCount: number;
+  sampleContacts: Array<{ id: number; name: string; email: string; vertical: string | null }>;
+  totalInVerticals: number;
+  blockedCount: number;
+  blockReasons: Record<string, number>;
 }> {
   const campaign = await storage.getCampaign(campaignId);
-  if (!campaign) return { totalEligible: 0, sample: [], verticals: [] };
+  if (!campaign) {
+    return { eligibleCount: 0, sampleContacts: [], totalInVerticals: 0, blockedCount: 0, blockReasons: {} };
+  }
 
-  const contacts = await storage.getContactsForCampaignAudience({
+  // Fetch pre-filtered candidates (post-SQL + post-JS vertical filter, no contactability gate).
+  const candidates = await storage.getContactsForCampaignAudience({
     verticals: campaign.targetVerticals ?? undefined,
-    limit: 5000,
+    limit: 50000,
   });
+  const totalInVerticals = candidates.length;
 
-  return {
-    totalEligible: contacts.length,
-    verticals: campaign.targetVerticals ?? [],
-    sample: contacts.slice(0, 10).map(c => ({
-      id: c.id,
-      name: [c.firstName, c.lastName].filter(Boolean).join(" ") || c.companyName || "Unknown",
-      email: c.email,
-      vertical: c.vertical,
-      score: c.dataCompletenessScore,
-    })),
-  };
+  // Run evaluateContactability on first 50 to derive blocked breakdown.
+  const sampleForGate = candidates.slice(0, 50);
+  let blockedCount = 0;
+  const blockReasons: Record<string, number> = {};
+
+  for (const contact of sampleForGate) {
+    const gate = await evaluateContactability({
+      contactId: contact.id,
+      channel: "email",
+      campaignType: "marketing_campaign",
+      mode: "preview",
+    });
+    if (!gate.allowed) {
+      blockedCount++;
+      const reason = gate.reason || "unknown";
+      blockReasons[reason] = (blockReasons[reason] || 0) + 1;
+    }
+  }
+
+  // Extrapolate eligible count from sample block rate.
+  const sampleSize = sampleForGate.length || 1;
+  const blockRate = blockedCount / sampleSize;
+  const eligibleCount = Math.max(0, Math.round(totalInVerticals * (1 - blockRate)));
+
+  // Return up to 5 sample contacts (pre-gate — names/emails only).
+  const sampleContacts = candidates.slice(0, 5).map(c => ({
+    id: c.id,
+    name: [c.firstName, c.lastName].filter(Boolean).join(" ") || c.companyName || "Unknown",
+    email: c.email,
+    vertical: c.vertical,
+  }));
+
+  return { eligibleCount, sampleContacts, totalInVerticals, blockedCount, blockReasons };
 }
 
 export async function processSendQueue(maxToSend?: number): Promise<{ sent: number; failed: number }> {
@@ -351,10 +438,26 @@ export async function processSendQueue(maxToSend?: number): Promise<{ sent: numb
   let sent = 0;
   let failed = 0;
 
+  // Cache campaign status to avoid N DB fetches per message.
+  const campaignStatusCache = new Map<number, string>();
+
   for (const msg of ready) {
     if (maxToSend !== undefined && sent >= maxToSend) break;
 
     try {
+      // ── Skip messages from paused/draft campaigns ──────────────────────────
+      if (msg.campaignId) {
+        let campaignStatus = campaignStatusCache.get(msg.campaignId);
+        if (campaignStatus === undefined) {
+          const c = await storage.getCampaign(msg.campaignId);
+          campaignStatus = c?.status ?? "unknown";
+          campaignStatusCache.set(msg.campaignId, campaignStatus);
+        }
+        if (campaignStatus === "paused" || campaignStatus === "draft") {
+          continue; // Leave in queued state — do not send, do not fail.
+        }
+      }
+
       // ── Route to correct send path based on which FK is set ───────────────
       if (msg.contactId && !msg.prospectId) {
         const result = await sendContactCampaignMessage(msg, storedSig);
@@ -651,10 +754,28 @@ async function sendContactCampaignMessage(
   return "sent";
 }
 
-export async function getDailySendCount(): Promise<number> {
+export async function getDailySendCount(campaignId?: number): Promise<number> {
+  const { db } = await import("../db");
+  const { outboundMessages } = await import("@shared/schema");
+  const { gte, eq, and: drizzleAnd, isNotNull } = await import("drizzle-orm");
+
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  return 0;
+
+  const conditions = [
+    isNotNull(outboundMessages.sentAt),
+    gte(outboundMessages.sentAt, today),
+  ];
+  if (campaignId !== undefined) {
+    conditions.push(eq(outboundMessages.campaignId, campaignId));
+  }
+
+  const rows = await db
+    .select({ id: outboundMessages.id })
+    .from(outboundMessages)
+    .where(drizzleAnd(...conditions));
+
+  return rows.length;
 }
 
 export async function getCampaignAnalytics(campaignId: number) {

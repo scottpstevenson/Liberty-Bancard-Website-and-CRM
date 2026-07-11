@@ -441,6 +441,7 @@ import { coerceDateFields } from "../utils/date-coerce";
     verticals?: string[];
     minCompletenessScore?: number;
     limit?: number;
+    offset?: number;
   }): Promise<Array<{
     id: number;
     firstName: string;
@@ -493,8 +494,11 @@ import { coerceDateFields } from "../utils/date-coerce";
       .orderBy(desc(contacts.dataCompletenessScore), desc(contacts.leadScore))
       .limit(cappedSqlLimit);
 
+    const pageOffset = opts.offset ?? 0;
+    const pageLimit = opts.limit ?? 5000;
+
     if (!opts.verticals || opts.verticals.length === 0) {
-      return rows.slice(0, opts.limit ?? 5000);
+      return rows.slice(pageOffset, pageOffset + pageLimit);
     }
 
     const targetSet = new Set(opts.verticals);
@@ -503,7 +507,7 @@ import { coerceDateFields } from "../utils/date-coerce";
       const canonical = normalizeDiscoveryVertical({ rawCategory: r.vertical }).canonicalVertical;
       return targetSet.has(canonical);
     });
-    return matched.slice(0, opts.limit ?? 5000);
+    return matched.slice(pageOffset, pageOffset + pageLimit);
   }
 
   async getGroupKpis(parentContactId: number) {
