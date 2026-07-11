@@ -125,7 +125,10 @@ import { coerceDateFields } from "../utils/date-coerce";
 
 
   async getContactByEmail(email: string) {
-    const [contact] = await db.select().from(contacts).where(and(eq(contacts.email, email.toLowerCase()), isNull(contacts.archivedAt)));
+    // contacts_email_unique_idx (shared/schema.ts:116) — partial unique index on email WHERE archived_at IS NULL
+    const normalized = email.trim().toLowerCase();
+    if (!normalized) return undefined;
+    const [contact] = await db.select().from(contacts).where(and(eq(contacts.email, normalized), isNull(contacts.archivedAt)));
     return contact;
   }
 

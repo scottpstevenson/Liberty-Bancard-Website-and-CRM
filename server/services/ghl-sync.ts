@@ -266,12 +266,65 @@ export async function syncContactToGhl(contactId: number): Promise<{ success: bo
 
 export async function syncContactFromGhl(ghlContact: any): Promise<{ contactId: number; created: boolean } | null> {
   try {
+    // Branch A: indexed lookup by GHL contact ID.
+    // Uses contacts_ghl_contact_id_idx (shared/schema.ts:118) — never falls back to full scan.
     const existingByGhlId = ghlContact.id
-      ? (await storage.getContacts({ limit: 500 })).data.find(c => c.ghlContactId === ghlContact.id)
-      : null;
+      ? await storage.getContactByGhlContactId(ghlContact.id)
+      : undefined;
 
-    if (existingByGhlId) {
-      const { conflictFields, cleanPayload } = await detectAndWriteConflicts(existingByGhlId, ghlContact);
+    // Branch B: indexed lookup by normalized email.
+    // Uses contacts_email_unique_idx (shared/schema.ts:116) — partial unique index WHERE archived_at IS NULL.
+    const normalizedEmail = ghlContact.email ? ghlContact.email.trim().toLowerCase() : "";
+    const existingByEmail = normalizedEmail
+      ? await storage.getContactByEmail(normalizedEmail)
+      : undefined;
+
+    // Identity-conflict guard: both branches matched but to *different* local contacts.
+    // Writing to either row would silently merge two distinct merchants — stop and log.
+    if (existingByGhlId && existingByEmail && existingByGhlId.id !== existingByEmail.id) {
+      await storage.createAuditLog({
+        action: "ghl_sync_identity_conflict",
+        entityType: "contact",
+        entityId: existingByGhlId.id,
+        details: {
+          ghlContactId: ghlContact.id,
+          byGhlIdContactId: existingByGhlId.id,
+          byEmailContactId: existingByEmail.id,
+          email: normalizedEmail,
+        },
+      });
+      console.warn(`[GHL Sync] Identity conflict: GHL ID ${ghlContact.id} maps to contact #${existingByGhlId.id} but email ${normalizedEmail} maps to contact #${existingByEmail.id} — sync aborted`);
+      return null;
+    }
+
+    // Resolve the winning row: GHL ID takes precedence over email match.
+    const existingContact = existingByGhlId ?? existingByEmail;
+
+    if (existingContact) {
+      // ghlContactId ownership enforcement on email-match path (Step 5).
+      // If we landed here via email only, check whether this row already belongs to a different GHL contact.
+      if (!existingByGhlId && existingByEmail) {
+        if (
+          existingByEmail.ghlContactId !== null &&
+          existingByEmail.ghlContactId !== undefined &&
+          existingByEmail.ghlContactId !== ghlContact.id
+        ) {
+          await storage.createAuditLog({
+            action: "ghl_sync_ghlid_ownership_conflict",
+            entityType: "contact",
+            entityId: existingByEmail.id,
+            details: {
+              incomingGhlContactId: ghlContact.id,
+              existingGhlContactId: existingByEmail.ghlContactId,
+              email: normalizedEmail,
+            },
+          });
+          console.warn(`[GHL Sync] ghlContactId ownership conflict for contact #${existingByEmail.id}: already owned by ${existingByEmail.ghlContactId}, incoming ${ghlContact.id} — sync aborted`);
+          return null;
+        }
+      }
+
+      const { conflictFields, cleanPayload } = await detectAndWriteConflicts(existingContact, ghlContact);
 
       // Wave 7: Strip Replit-owned compliance/permission fields from any GHL-sourced payload.
       // Replit is the system-of-record; GHL must never overwrite these — even if GHL sends them.
@@ -284,63 +337,66 @@ export async function syncContactFromGhl(ghlContact: any): Promise<{ contactId: 
         cleanPayload.tags = ghlContact.tags;
       }
 
+      // On email-match path: attach the incoming ghlContactId when the row has none.
+      // If it already matches, this is a no-op; if it differed, we returned null above.
+      if (!existingByGhlId && existingByEmail) {
+        (cleanPayload as any).ghlContactId = ghlContact.id;
+      }
+
       if (conflictFields.length === 0) {
         // Fully clean sync — apply field changes and advance the baseline.
         // syncUpdateContact does NOT bump updatedAt, so updatedAt stays as the last
         // genuine user-edit timestamp and future conflict detection stays accurate.
         cleanPayload.lastSyncedAt = new Date();
-        await storage.syncUpdateContact(existingByGhlId.id, cleanPayload);
+        await storage.syncUpdateContact(existingContact.id, cleanPayload);
       } else if (Object.keys(cleanPayload).length > 0) {
         // Some fields were clean, some conflicted — apply only the clean ones, preserve baseline.
-        await storage.syncUpdateContact(existingByGhlId.id, cleanPayload);
-        console.log(`[GHL Sync] ${conflictFields.length} conflict(s) logged for contact #${existingByGhlId.id}: ${conflictFields.join(", ")}`);
+        await storage.syncUpdateContact(existingContact.id, cleanPayload);
+        console.log(`[GHL Sync] ${conflictFields.length} conflict(s) logged for contact #${existingContact.id}: ${conflictFields.join(", ")}`);
       } else {
         // All changed fields were conflicted — don't touch anything; preserve lastSyncedAt.
-        console.log(`[GHL Sync] ${conflictFields.length} conflict(s) logged for contact #${existingByGhlId.id}: ${conflictFields.join(", ")} — no DB write`);
+        console.log(`[GHL Sync] ${conflictFields.length} conflict(s) logged for contact #${existingContact.id}: ${conflictFields.join(", ")} — no DB write`);
       }
 
       await updateSyncStatusRecord("contacts", "inbound", 1, 0);
-      return { contactId: existingByGhlId.id, created: false };
+      return { contactId: existingContact.id, created: false };
     }
 
-    if (ghlContact.email) {
-      const existingByEmail = (await storage.getContacts({ limit: 500 })).data.find(c => c.email?.toLowerCase() === ghlContact.email?.toLowerCase());
-      if (existingByEmail) {
-        const { conflictFields: emailConflicts, cleanPayload } = await detectAndWriteConflicts(existingByEmail, ghlContact);
-        // Wave 7: Strip Replit-owned fields from GHL-sourced payload (email-match path)
-        for (const field of REPLIT_OWNED_FIELDS) {
-          delete (cleanPayload as any)[field];
+    // No existing row found — create a new contact.
+    // Wrap in try/catch to recover from 23505 unique-violation races (concurrent create).
+    try {
+      const contact = await storage.createContact({
+        firstName: ghlContact.firstName || "Unknown",
+        lastName: ghlContact.lastName || "",
+        email: ghlContact.email || "",
+        phone: ghlContact.phone || "",
+        companyName: ghlContact.companyName || "",
+        ghlContactId: ghlContact.id,
+        status: "New",
+        tags: [...(ghlContact.tags || []), "ghl-import"],
+        referralSource: "ghl_sync",
+        lastSyncedAt: new Date(),
+      });
+
+      await updateSyncStatusRecord("contacts", "inbound", 1, 0);
+      return { contactId: contact.id, created: true };
+    } catch (createErr: any) {
+      // 23505 = Postgres unique_violation — a concurrent create beat us to it.
+      // Re-query by GHL ID then email to find the winner and continue as an idempotent update.
+      if (createErr?.code === "23505" || createErr?.message?.includes("23505")) {
+        console.warn(`[GHL Sync] 23505 unique-violation on create for GHL ID ${ghlContact.id} — re-querying`);
+        const recovered =
+          (ghlContact.id ? await storage.getContactByGhlContactId(ghlContact.id) : undefined) ??
+          (normalizedEmail ? await storage.getContactByEmail(normalizedEmail) : undefined);
+
+        if (recovered) {
+          await storage.syncUpdateContact(recovered.id, { lastSyncedAt: new Date() });
+          await updateSyncStatusRecord("contacts", "inbound", 1, 0);
+          return { contactId: recovered.id, created: false };
         }
-        const mergedPayload: UpdateContactRequest = { ghlContactId: ghlContact.id, ...cleanPayload };
-        if (Array.isArray(ghlContact.tags)) {
-          mergedPayload.tags = ghlContact.tags;
-        }
-        // Only advance lastSyncedAt when no conflicts were detected.
-        // syncUpdateContact preserves updatedAt so conflict detection stays accurate.
-        if (emailConflicts.length === 0) {
-          mergedPayload.lastSyncedAt = new Date();
-        }
-        await storage.syncUpdateContact(existingByEmail.id, mergedPayload);
-        await updateSyncStatusRecord("contacts", "inbound", 1, 0);
-        return { contactId: existingByEmail.id, created: false };
       }
+      throw createErr;
     }
-
-    const contact = await storage.createContact({
-      firstName: ghlContact.firstName || "Unknown",
-      lastName: ghlContact.lastName || "",
-      email: ghlContact.email || "",
-      phone: ghlContact.phone || "",
-      companyName: ghlContact.companyName || "",
-      ghlContactId: ghlContact.id,
-      status: "New",
-      tags: [...(ghlContact.tags || []), "ghl-import"],
-      referralSource: "ghl_sync",
-      lastSyncedAt: new Date(),
-    });
-
-    await updateSyncStatusRecord("contacts", "inbound", 1, 0);
-    return { contactId: contact.id, created: true };
   } catch (err: any) {
     console.error("[GHL Sync] Failed to sync from GHL:", err.message);
     await updateSyncStatusRecord("contacts", "inbound", 0, 1, err.message);
