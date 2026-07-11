@@ -302,6 +302,14 @@ app.use((req, res, next) => {
   const { reconcileEnrichmentState, reconcileScoringState } = await import("./services/startup-reconcile");
   await reconcileEnrichmentState();
   await reconcileScoringState();
+  // Mark any previews left 'running' by a previous server process as interrupted.
+  // This prevents stale running previews from ever being used for queuing after a restart.
+  try {
+    await storage.markInterruptedCampaignPreviews();
+    console.log("[CampaignPreview] Startup: interrupted any stale running previews");
+  } catch (e: any) {
+    console.warn("[CampaignPreview] Startup interrupt-mark failed (non-fatal):", e?.message);
+  }
   await registerRoutes(httpServer, app);
 
   const { logSmtpStartupWarning } = await import("./services/smtp-email");

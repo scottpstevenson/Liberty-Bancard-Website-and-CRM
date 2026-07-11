@@ -1,4 +1,5 @@
 import { storage } from "../storage";
+import { createHash } from "crypto";
 import type { Prospect, Campaign, Contact } from "@shared/schema";
 import OpenAI from "openai";
 import { sendGhlEmail, isGhlConfigured } from "./ghl";
@@ -406,8 +407,26 @@ export async function queueContactCampaignMessages(campaignId: number, maxToQueu
 }
 
 // ---------------------------------------------------------------------------
-// Async preview state — in-memory, scoped to the server process lifetime.
-// Server restart clears state; users simply re-run the preview.
+// Targeting hash — a short fingerprint of campaign audience criteria.
+// If any of these change between preview and queue, the preview is invalidated.
+// ---------------------------------------------------------------------------
+
+export function computeTargetingHash(campaign: Campaign, stepCount: number): string {
+  const payload = JSON.stringify({
+    verticals: [...(campaign.targetVerticals ?? [])].sort(),
+    targetListId: campaign.targetListId ?? null,
+    stepCount,
+  });
+  return createHash("sha256").update(payload).digest("hex").slice(0, 16);
+}
+
+// Preview expiry window: 1 hour from completion.
+const PREVIEW_TTL_MS = 60 * 60 * 1000;
+
+// ---------------------------------------------------------------------------
+// Async preview state — DB-backed, restart-safe.
+// On server restart, any 'running' previews are marked 'interrupted' by
+// storage.markInterruptedCampaignPreviews() called in server/index.ts.
 // ---------------------------------------------------------------------------
 
 export type CampaignPreviewResult = {
@@ -418,24 +437,27 @@ export type CampaignPreviewResult = {
   blockReasons: Record<string, number>;
 };
 
-type PreviewEntry = {
-  status: "running" | "done" | "error";
+export async function getCampaignPreviewState(campaignId: number): Promise<{
+  status: "idle" | "running" | "done" | "error" | "interrupted";
+  previewId?: number;
   result?: CampaignPreviewResult;
   error?: string;
-  startedAt: Date;
-  completedAt?: Date;
-};
-
-const previewStateMap = new Map<number, PreviewEntry>();
-
-export function getCampaignPreviewState(campaignId: number): {
-  status: "idle" | "running" | "done" | "error";
-  result?: CampaignPreviewResult;
-  error?: string;
-} {
-  const entry = previewStateMap.get(campaignId);
-  if (!entry) return { status: "idle" };
-  return { status: entry.status, result: entry.result, error: entry.error };
+}> {
+  const preview = await storage.getLatestCampaignPreview(campaignId);
+  if (!preview) return { status: "idle" };
+  const result: CampaignPreviewResult | undefined = preview.status === "done" ? {
+    eligibleCount: preview.eligibleCount ?? 0,
+    sampleContacts: (preview.sampleContacts as CampaignPreviewResult["sampleContacts"]) ?? [],
+    totalInVerticals: preview.totalInVerticals ?? 0,
+    blockedCount: preview.blockedCount ?? 0,
+    blockReasons: (preview.blockReasons as Record<string, number>) ?? {},
+  } : undefined;
+  return {
+    status: preview.status as "idle" | "running" | "done" | "error" | "interrupted",
+    previewId: preview.id,
+    result,
+    error: preview.status === "error" ? ((preview.blockReasons as any)?.__error ?? "Preview failed") : undefined,
+  };
 }
 
 // Preview the CRM contact audience without queuing.
@@ -506,31 +528,62 @@ export async function previewContactCampaignAudience(campaignId: number): Promis
   return { eligibleCount, sampleContacts, totalInVerticals, blockedCount, blockReasons };
 }
 
-// Kick off the preview computation in the background (non-blocking).
-// The caller should return immediately and let the client poll
-// getCampaignPreviewState() for results.
-export function startCampaignPreviewAsync(campaignId: number): void {
-  previewStateMap.set(campaignId, { status: "running", startedAt: new Date() });
+// Kick off a DB-backed preview computation in the background (non-blocking).
+// Creates a campaign_previews row with status=running, then fills it in
+// setImmediate so the HTTP response is returned before work starts.
+// Returns the new preview's DB id so the caller can include it in the response.
+export async function startCampaignPreviewAsync(
+  campaignId: number,
+  requestedBy?: string,
+): Promise<number> {
+  const campaign = await storage.getCampaign(campaignId);
+  if (!campaign) throw new Error("Campaign not found");
+
+  const steps = await storage.getCampaignSteps(campaignId);
+  const targetingHash = computeTargetingHash(campaign, steps.length);
+
+  const preview = await storage.createCampaignPreview({
+    campaignId,
+    status: "running",
+    targetVerticals: campaign.targetVerticals ?? [],
+    targetingHash,
+    requestedBy: requestedBy ?? null,
+    eligibleCount: null,
+    totalInVerticals: null,
+    blockedCount: null,
+    blockReasons: {},
+    sampleContacts: [],
+    completedAt: null,
+    expiresAt: null,
+    consumedAt: null,
+  });
+
+  const previewId = preview.id;
+
   setImmediate(async () => {
     try {
       const result = await previewContactCampaignAudience(campaignId);
-      const entry = previewStateMap.get(campaignId);
-      previewStateMap.set(campaignId, {
+      const now = new Date();
+      await storage.updateCampaignPreview(previewId, {
         status: "done",
-        result,
-        startedAt: entry?.startedAt ?? new Date(),
-        completedAt: new Date(),
+        eligibleCount: result.eligibleCount,
+        totalInVerticals: result.totalInVerticals,
+        blockedCount: result.blockedCount,
+        blockReasons: result.blockReasons,
+        sampleContacts: result.sampleContacts,
+        completedAt: now,
+        expiresAt: new Date(now.getTime() + PREVIEW_TTL_MS),
       });
     } catch (err: any) {
-      const entry = previewStateMap.get(campaignId);
-      previewStateMap.set(campaignId, {
-        status: "error",
-        error: err?.message ?? "Preview failed",
-        startedAt: entry?.startedAt ?? new Date(),
+      await storage.updateCampaignPreview(previewId, {
+        status: "failed",
         completedAt: new Date(),
+        blockReasons: { __error: err?.message ?? "Preview failed" },
       });
     }
   });
+
+  return previewId;
 }
 
 export async function processSendQueue(maxToSend?: number): Promise<{ sent: number; failed: number }> {

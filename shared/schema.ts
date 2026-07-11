@@ -956,6 +956,34 @@ export const insertCampaignStepSchema = createInsertSchema(campaignSteps).omit({
 export type CampaignStep = typeof campaignSteps.$inferSelect;
 export type InsertCampaignStep = z.infer<typeof insertCampaignStepSchema>;
 
+// ---------------------------------------------------------------------------
+// Campaign Previews — durable DB record of every audience preview run.
+// The queue endpoint verifies a completed, unexpired, unconsumed, hash-matching
+// preview before proceeding. Status lifecycle:
+//   running → done | failed | interrupted (server restart)
+// ---------------------------------------------------------------------------
+export const campaignPreviews = pgTable("campaign_previews", {
+  id: serial("id").primaryKey(),
+  campaignId: integer("campaign_id").notNull().references(() => campaigns.id, { onDelete: "cascade" }),
+  status: text("status").notNull().default("running"),
+  eligibleCount: integer("eligible_count"),
+  totalInVerticals: integer("total_in_verticals"),
+  blockedCount: integer("blocked_count"),
+  blockReasons: jsonb("block_reasons").$type<Record<string, number>>().default({}),
+  sampleContacts: jsonb("sample_contacts").$type<Array<{ id: number; name: string; email: string; vertical: string | null }>>().default([]),
+  targetVerticals: text("target_verticals").array().default([]),
+  targetingHash: text("targeting_hash").notNull(),
+  requestedBy: text("requested_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+  completedAt: timestamp("completed_at"),
+  expiresAt: timestamp("expires_at"),
+  consumedAt: timestamp("consumed_at"),
+});
+
+export const insertCampaignPreviewSchema = createInsertSchema(campaignPreviews).omit({ id: true, createdAt: true });
+export type CampaignPreview = typeof campaignPreviews.$inferSelect;
+export type InsertCampaignPreview = z.infer<typeof insertCampaignPreviewSchema>;
+
 export const OUTBOUND_STATUSES = [
   "queued",
   "sending",

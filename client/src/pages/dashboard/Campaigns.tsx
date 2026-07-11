@@ -112,7 +112,8 @@ type AudiencePreviewResult = {
 };
 
 type PreviewPollResponse = {
-  status: "idle" | "running" | "done" | "error";
+  status: "idle" | "running" | "done" | "error" | "interrupted";
+  previewId?: number;
   result?: AudiencePreviewResult;
   error?: string;
 };
@@ -233,9 +234,15 @@ function CampaignDetail({ campaign }: { campaign: Campaign }) {
   const audiencePreview = previewStatus === "done" ? previewPoll?.result : undefined;
   const previewRunning = previewStatus === "running" || startPreviewMutation.isPending;
 
+  // previewId is captured when startPreviewMutation succeeds or when the polling
+  // query returns a completed preview. It is required by the queue endpoint.
+  const latestPreviewId = previewPoll?.previewId;
+
   const queueMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", `/api/campaigns/${campaign.id}/queue`);
+      const body: Record<string, unknown> = {};
+      if (isCrmMode && latestPreviewId) body.previewId = latestPreviewId;
+      const res = await apiRequest("POST", `/api/campaigns/${campaign.id}/queue`, body);
       return res.json() as Promise<{ queued: number; mode: string }>;
     },
     onSuccess: (data: { queued: number; mode: string } | void) => {

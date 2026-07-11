@@ -1,0 +1,54 @@
+Verdict: NOT COMPLETE / FOLLOW-UP REQUIRED
+
+The core feature shipped, but the missing server-side preview authorization gate is not optional. Right now the UI is safe while the API remains bypassable.
+
+Send this back
+
+Phase 1 is functionally shipped, but do not mark it fully complete until the queue endpoint enforces the approved audience preview server-side.
+Required follow-up:
+1. Persist a preview execution record containing:
+   - previewId
+   - campaignId
+   - campaign version or targeting snapshot
+   - selected verticals
+   - computed eligible count
+   - completion status
+   - createdAt / completedAt
+   - requesting operator
+   - expiry timestamp
+2. The queue endpoint must require previewId and verify:
+   - preview completed successfully
+   - preview belongs to the same campaign
+   - targeting/template settings have not changed since preview
+   - preview has not expired
+   - eligible count is greater than zero
+   - preview has not already been consumed, unless retry semantics explicitly permit it
+3. Queueing must use the same frozen audience criteria or snapshot as the preview.
+   Do not rerun a materially different live query after operator confirmation.
+4. Make preview execution restart-safe.
+   If the server restarts mid-preview, status must become failed/interrupted rather than remain running forever.
+5. Add explicit tests for vertical query semantics:
+   - one vertical
+   - multiple verticals
+   - normalized aliases
+   - null/blank vertical
+   - contacts outside selected verticals excluded
+   - SQL result and normalization result cannot disagree silently
+6. Treat SQL email-status exclusions only as a performance prefilter.
+   evaluateContactability() remains the canonical compliance authority at preview/queue time and immediately before send.
+7. Document the POST-start + GET-poll contract as the canonical API shape and update client/server types accordingly.
+
+Kill lines
+
+STOP if a raw queue API request can bypass a completed preview.
+STOP if campaign targeting can change after preview without invalidating it.
+STOP if preview and queue can operate on different audience criteria.
+STOP if a preview can remain permanently running after restart.
+STOP if SQL exclusions replace evaluateContactability() as the compliance authority.
+STOP if repeated queue requests can consume the same preview and duplicate messages without idempotency protection.
+
+Final status
+
+Core CRM audience enablement: SHIPPED
+
+Release closure: BLOCKED on server-enforced preview parity and preview lifecycle safety.

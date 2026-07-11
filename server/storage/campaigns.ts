@@ -8,7 +8,7 @@ import {
   chargebacks,
   type Chargeback, type InsertChargeback, type UpdateChargebackRequest,
   messageTemplates, collateralPackets, ghlActivityLog, slaConfigs,
-  prospects, prospectLists, enrichmentJobs, campaigns, campaignSteps, outboundMessages, notes,
+  prospects, prospectLists, enrichmentJobs, campaigns, campaignSteps, campaignPreviews, outboundMessages, notes,
   emailLogs, callLogs, stageAutomationRules, followUpSequences, sequenceSteps, sequenceEnrollments,
   sunbizEntities, consentAuditLogs, calendarEvents,
   merchantApplications, merchantProfiles, equipmentOrders, agents, agentQuotas, agentMerchants, residualReports, merchantResiduals,
@@ -50,6 +50,7 @@ import {
   type InsertProspectList,
   type InsertEnrichmentJob,
   type InsertCampaign, type UpdateCampaignRequest,
+  type CampaignPreview, type InsertCampaignPreview,
   type InsertCampaignStep,
   type InsertOutboundMessage, type UpdateOutboundMessageRequest,
   type InsertNote,
@@ -193,6 +194,40 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
       bounced: sql<number>`count(*) filter (where ${outboundMessages.status} = 'bounced')`,
     }).from(outboundMessages).where(eq(outboundMessages.campaignId, campaignId));
     return result[0] ?? { sent: 0, opened: 0, replied: 0, bounced: 0 };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Campaign Previews
+  // ---------------------------------------------------------------------------
+
+  async createCampaignPreview(data: InsertCampaignPreview): Promise<CampaignPreview> {
+    const [row] = await db.insert(campaignPreviews).values(data).returning();
+    return row;
+  }
+
+  async getCampaignPreview(id: number): Promise<CampaignPreview | undefined> {
+    const [row] = await db.select().from(campaignPreviews).where(eq(campaignPreviews.id, id));
+    return row;
+  }
+
+  async getLatestCampaignPreview(campaignId: number): Promise<CampaignPreview | undefined> {
+    const [row] = await db.select()
+      .from(campaignPreviews)
+      .where(eq(campaignPreviews.campaignId, campaignId))
+      .orderBy(desc(campaignPreviews.createdAt))
+      .limit(1);
+    return row;
+  }
+
+  async updateCampaignPreview(id: number, updates: Partial<CampaignPreview>): Promise<CampaignPreview> {
+    const [row] = await db.update(campaignPreviews).set(updates).where(eq(campaignPreviews.id, id)).returning();
+    return row;
+  }
+
+  async markInterruptedCampaignPreviews(): Promise<void> {
+    await db.update(campaignPreviews)
+      .set({ status: "interrupted" })
+      .where(eq(campaignPreviews.status, "running"));
   }
   }
   

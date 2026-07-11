@@ -5,7 +5,7 @@ import { z } from "zod";
 import { DateValidationError } from "../utils/date-coerce";
 import { contacts, followUpSequences, sequenceEnrollments, insertCampaignSchema, insertCampaignStepSchema, insertFollowUpSequenceSchema, insertSequenceEnrollmentSchema, insertSequenceStepSchema } from "@shared/schema";
 import type { AbTestConfig, AbTestResults } from "@shared/schema";
-import { getCampaignAnalytics, processSendQueue, queueCampaignMessages, queueContactCampaignMessages, startCampaignPreviewAsync, getCampaignPreviewState } from "../services/campaign-engine";
+import { getCampaignAnalytics, processSendQueue, queueCampaignMessages, queueContactCampaignMessages, startCampaignPreviewAsync, getCampaignPreviewState, computeTargetingHash } from "../services/campaign-engine";
 import { parse } from "csv-parse/sync";
 import { checkAbTestWinners } from "../services/ab-test-worker";
 import { pool, db } from "../db";
@@ -143,9 +143,44 @@ export function registerCampaignsRoutes(app: Express) {
 
       // Branch: contact-mode campaign (has targetVerticals, no targetListId)
       // vs. prospect-list campaign (legacy, has targetListId).
+      const isCrmMode = !campaign.targetListId && campaign.targetVerticals && campaign.targetVerticals.length > 0;
       let queued: number;
       let mode: string;
-      if (!campaign.targetListId && campaign.targetVerticals && campaign.targetVerticals.length > 0) {
+
+      if (isCrmMode) {
+        // ENFORCE: a completed, unexpired, unconsumed, hash-matching preview is required.
+        const { previewId } = req.body;
+        if (!previewId) {
+          return res.status(400).json({ message: "previewId is required for CRM contact campaigns. Run an audience preview first." });
+        }
+        const preview = await storage.getCampaignPreview(Number(previewId));
+        if (!preview) {
+          return res.status(400).json({ message: "Preview not found. Please re-run the audience preview." });
+        }
+        if (preview.campaignId !== campaignId) {
+          return res.status(400).json({ message: "Preview does not belong to this campaign." });
+        }
+        if (preview.status !== "done") {
+          return res.status(400).json({ message: `Preview is not complete (status: ${preview.status}). Please wait or re-run.` });
+        }
+        if (!preview.eligibleCount || preview.eligibleCount === 0) {
+          return res.status(400).json({ message: "No eligible contacts in this audience. Nothing to queue." });
+        }
+        if (preview.expiresAt && new Date() > new Date(preview.expiresAt)) {
+          return res.status(400).json({ message: "Preview has expired (1-hour window). Please re-run the audience preview." });
+        }
+        if (preview.consumedAt) {
+          return res.status(400).json({ message: "This preview has already been used to queue messages. Re-run the audience preview to queue again." });
+        }
+        // Verify targeting has not changed since the preview was computed.
+        const steps = await storage.getCampaignSteps(campaignId);
+        const currentHash = computeTargetingHash(campaign, steps.length);
+        if (preview.targetingHash !== currentHash) {
+          return res.status(400).json({ message: "Campaign targeting or steps changed since the preview was run. Please re-run the audience preview." });
+        }
+        // Mark preview consumed before queuing to prevent duplicate use.
+        await storage.updateCampaignPreview(preview.id, { consumedAt: new Date() });
+
         queued = await queueContactCampaignMessages(campaignId);
         mode = "contacts";
       } else {
@@ -158,27 +193,29 @@ export function registerCampaignsRoutes(app: Express) {
     }
   });
 
-  // POST — start an async audience preview (fire-and-forget).
-  // Returns immediately with { status: "running" }.
-  // Client should poll GET below until status === "done".
+  // POST — start an async audience preview (DB-backed, restart-safe).
+  // Creates a campaign_previews row with status=running and returns { status, previewId }.
+  // Client should poll GET below until status === "done", then pass previewId to /queue.
   app.post("/api/campaigns/:id/audience-preview", isAuthenticated, async (req, res) => {
     try {
       const campaignId = Number(req.params.id);
       const campaign = await storage.getCampaign(campaignId);
       if (!campaign) return res.status(404).json({ message: "Campaign not found" });
-      startCampaignPreviewAsync(campaignId);
-      res.json({ status: "running" });
+      const requestedBy = (req as any).user?.email ?? (req as any).user?.id?.toString();
+      const previewId = await startCampaignPreviewAsync(campaignId, requestedBy);
+      res.json({ status: "running", previewId });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
   });
 
   // GET — poll for preview status and result.
-  // Returns { status: "idle"|"running"|"done"|"error", result?, error? }.
-  // Queue should only be enabled by the client when status === "done".
+  // Returns { status, previewId?, result?, error? }.
+  // status: "idle" | "running" | "done" | "error" | "interrupted"
+  // Queue is only unlocked server-side when status === "done" and previewId is valid.
   app.get("/api/campaigns/:id/audience-preview", isAuthenticated, async (req, res) => {
     try {
-      const state = getCampaignPreviewState(Number(req.params.id));
+      const state = await getCampaignPreviewState(Number(req.params.id));
       res.json(state);
     } catch (err: any) {
       res.status(500).json({ message: err.message });

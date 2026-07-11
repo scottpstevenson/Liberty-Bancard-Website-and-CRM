@@ -49,6 +49,7 @@ import {
   type InsertProspectList,
   type InsertEnrichmentJob,
   type InsertCampaign, type UpdateCampaignRequest,
+  type CampaignPreview, type InsertCampaignPreview,
   type InsertCampaignStep,
   type InsertOutboundMessage, type UpdateOutboundMessageRequest,
   type InsertNote,
@@ -290,6 +291,12 @@ export interface IStorage {
   getCampaign(id: number): Promise<typeof campaigns.$inferSelect | undefined>;
   createCampaign(campaign: InsertCampaign): Promise<typeof campaigns.$inferSelect>;
   updateCampaign(id: number, updates: UpdateCampaignRequest): Promise<typeof campaigns.$inferSelect | undefined>;
+
+  createCampaignPreview(data: InsertCampaignPreview): Promise<CampaignPreview>;
+  getCampaignPreview(id: number): Promise<CampaignPreview | undefined>;
+  getLatestCampaignPreview(campaignId: number): Promise<CampaignPreview | undefined>;
+  updateCampaignPreview(id: number, updates: Partial<CampaignPreview>): Promise<CampaignPreview>;
+  markInterruptedCampaignPreviews(): Promise<void>;
 
   getCampaignSteps(campaignId: number): Promise<typeof campaignSteps.$inferSelect[]>;
   createCampaignStep(step: InsertCampaignStep): Promise<typeof campaignSteps.$inferSelect>;
