@@ -271,9 +271,6 @@ export async function queueCampaignMessages(campaignId: number, maxToQueue?: num
 // vertical matches per page, small enough to avoid memory pressure.
 const QUEUE_SQL_PAGE = 1000;
 
-// Maximum contacts to run through the full contactability gate during a preview.
-// Beyond this cap the gated counts are marked as partial, not extrapolated.
-const PREVIEW_MAX_GATE = 5000;
 
 export async function queueContactCampaignMessages(campaignId: number, maxToQueue?: number): Promise<number> {
   const campaign = await storage.getCampaign(campaignId);
@@ -408,21 +405,48 @@ export async function queueContactCampaignMessages(campaignId: number, maxToQueu
   return queued;
 }
 
-// Preview the CRM contact audience without queuing.
-// Returns required contract shape: { eligibleCount, sampleContacts, totalInVerticals, blockedCount, blockReasons }.
-// eligibleCount is EXACT — every candidate is run through evaluateContactability()
-// (up to PREVIEW_MAX_GATE contacts); no sample extrapolation is used.
-export async function previewContactCampaignAudience(campaignId: number): Promise<{
+// ---------------------------------------------------------------------------
+// Async preview state — in-memory, scoped to the server process lifetime.
+// Server restart clears state; users simply re-run the preview.
+// ---------------------------------------------------------------------------
+
+export type CampaignPreviewResult = {
   eligibleCount: number;
   sampleContacts: Array<{ id: number; name: string; email: string; vertical: string | null }>;
   totalInVerticals: number;
   blockedCount: number;
   blockReasons: Record<string, number>;
-  isPartial: boolean;
-}> {
+};
+
+type PreviewEntry = {
+  status: "running" | "done" | "error";
+  result?: CampaignPreviewResult;
+  error?: string;
+  startedAt: Date;
+  completedAt?: Date;
+};
+
+const previewStateMap = new Map<number, PreviewEntry>();
+
+export function getCampaignPreviewState(campaignId: number): {
+  status: "idle" | "running" | "done" | "error";
+  result?: CampaignPreviewResult;
+  error?: string;
+} {
+  const entry = previewStateMap.get(campaignId);
+  if (!entry) return { status: "idle" };
+  return { status: entry.status, result: entry.result, error: entry.error };
+}
+
+// Preview the CRM contact audience without queuing.
+// Runs the FULL contactability gate on every contact in the vertical set
+// — no cap, no extrapolation.  Always returns an exact eligible count.
+// Call startCampaignPreviewAsync() to run this in the background; poll
+// getCampaignPreviewState() for completion.
+export async function previewContactCampaignAudience(campaignId: number): Promise<CampaignPreviewResult> {
   const campaign = await storage.getCampaign(campaignId);
   if (!campaign) {
-    return { eligibleCount: 0, sampleContacts: [], totalInVerticals: 0, blockedCount: 0, blockReasons: {}, isPartial: false };
+    return { eligibleCount: 0, sampleContacts: [], totalInVerticals: 0, blockedCount: 0, blockReasons: {} };
   }
 
   // DB-level count scoped to the campaign's target verticals.
@@ -432,16 +456,15 @@ export async function previewContactCampaignAudience(campaignId: number): Promis
     verticals: campaign.targetVerticals ?? undefined,
   });
 
-  // Paginate through contacts, running the full contactability gate on each one,
-  // up to PREVIEW_MAX_GATE contacts.  Counts are exact, never extrapolated.
+  // Paginate through ALL contacts in the vertical set, running the full
+  // contactability gate on each one.  No cap — counts are always exact.
   let eligibleCount = 0;
   let blockedCount = 0;
   const blockReasons: Record<string, number> = {};
   const sampleContacts: Array<{ id: number; name: string; email: string; vertical: string | null }> = [];
   let sqlOffset = 0;
-  let gateCapReached = false;
 
-  while (!gateCapReached) {
+  for (;;) {
     const page = await storage.getContactsForCampaignAudience({
       verticals: campaign.targetVerticals ?? undefined,
       offset: sqlOffset,
@@ -451,11 +474,6 @@ export async function previewContactCampaignAudience(campaignId: number): Promis
     if (page.length === 0) break; // exhausted all SQL rows in this vertical set
 
     for (const contact of page) {
-      if (eligibleCount + blockedCount >= PREVIEW_MAX_GATE) {
-        gateCapReached = true;
-        break;
-      }
-
       // Run the full contactability gate in dryRun mode — no audit log writes.
       const gate = await evaluateContactability({
         contactId: contact.id,
@@ -485,12 +503,34 @@ export async function previewContactCampaignAudience(campaignId: number): Promis
     if (page.length < QUEUE_SQL_PAGE) break; // last page
   }
 
-  // isPartial: true when PREVIEW_MAX_GATE was reached before exhausting all contacts.
-  // When partial, the queue confirmation button is blocked — the user must acknowledge
-  // they are queuing into a larger audience than the gated preview covered.
-  const isPartial = gateCapReached && totalInVerticals > PREVIEW_MAX_GATE;
+  return { eligibleCount, sampleContacts, totalInVerticals, blockedCount, blockReasons };
+}
 
-  return { eligibleCount, sampleContacts, totalInVerticals, blockedCount, blockReasons, isPartial };
+// Kick off the preview computation in the background (non-blocking).
+// The caller should return immediately and let the client poll
+// getCampaignPreviewState() for results.
+export function startCampaignPreviewAsync(campaignId: number): void {
+  previewStateMap.set(campaignId, { status: "running", startedAt: new Date() });
+  setImmediate(async () => {
+    try {
+      const result = await previewContactCampaignAudience(campaignId);
+      const entry = previewStateMap.get(campaignId);
+      previewStateMap.set(campaignId, {
+        status: "done",
+        result,
+        startedAt: entry?.startedAt ?? new Date(),
+        completedAt: new Date(),
+      });
+    } catch (err: any) {
+      const entry = previewStateMap.get(campaignId);
+      previewStateMap.set(campaignId, {
+        status: "error",
+        error: err?.message ?? "Preview failed",
+        startedAt: entry?.startedAt ?? new Date(),
+        completedAt: new Date(),
+      });
+    }
+  });
 }
 
 export async function processSendQueue(maxToSend?: number): Promise<{ sent: number; failed: number }> {

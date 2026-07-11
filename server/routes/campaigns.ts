@@ -5,7 +5,7 @@ import { z } from "zod";
 import { DateValidationError } from "../utils/date-coerce";
 import { contacts, followUpSequences, sequenceEnrollments, insertCampaignSchema, insertCampaignStepSchema, insertFollowUpSequenceSchema, insertSequenceEnrollmentSchema, insertSequenceStepSchema } from "@shared/schema";
 import type { AbTestConfig, AbTestResults } from "@shared/schema";
-import { getCampaignAnalytics, processSendQueue, queueCampaignMessages, queueContactCampaignMessages, previewContactCampaignAudience } from "../services/campaign-engine";
+import { getCampaignAnalytics, processSendQueue, queueCampaignMessages, queueContactCampaignMessages, startCampaignPreviewAsync, getCampaignPreviewState } from "../services/campaign-engine";
 import { parse } from "csv-parse/sync";
 import { checkAbTestWinners } from "../services/ab-test-worker";
 import { pool, db } from "../db";
@@ -158,10 +158,28 @@ export function registerCampaignsRoutes(app: Express) {
     }
   });
 
+  // POST — start an async audience preview (fire-and-forget).
+  // Returns immediately with { status: "running" }.
+  // Client should poll GET below until status === "done".
+  app.post("/api/campaigns/:id/audience-preview", isAuthenticated, async (req, res) => {
+    try {
+      const campaignId = Number(req.params.id);
+      const campaign = await storage.getCampaign(campaignId);
+      if (!campaign) return res.status(404).json({ message: "Campaign not found" });
+      startCampaignPreviewAsync(campaignId);
+      res.json({ status: "running" });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // GET — poll for preview status and result.
+  // Returns { status: "idle"|"running"|"done"|"error", result?, error? }.
+  // Queue should only be enabled by the client when status === "done".
   app.get("/api/campaigns/:id/audience-preview", isAuthenticated, async (req, res) => {
     try {
-      const preview = await previewContactCampaignAudience(Number(req.params.id));
-      res.json(preview);
+      const state = getCampaignPreviewState(Number(req.params.id));
+      res.json(state);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

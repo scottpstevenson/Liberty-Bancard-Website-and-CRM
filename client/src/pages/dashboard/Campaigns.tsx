@@ -103,13 +103,18 @@ function getStatusBadgeClass(status: string | null | undefined) {
   }
 }
 
-type AudiencePreview = {
+type AudiencePreviewResult = {
   eligibleCount: number;
   sampleContacts: Array<{ id: number; name: string; email: string; vertical: string | null }>;
   totalInVerticals: number;
   blockedCount: number;
   blockReasons: Record<string, number>;
-  isPartial: boolean;
+};
+
+type PreviewPollResponse = {
+  status: "idle" | "running" | "done" | "error";
+  result?: AudiencePreviewResult;
+  error?: string;
 };
 
 function CampaignDetail({ campaign }: { campaign: Campaign }) {
@@ -121,7 +126,6 @@ function CampaignDetail({ campaign }: { campaign: Campaign }) {
   const [editDelayDays, setEditDelayDays] = useState(0);
   const [editBodyTab, setEditBodyTab] = useState<"write" | "preview">("write");
   const [previewStep, setPreviewStep] = useState<CampaignStep | null>(null);
-  const [showAudiencePreview, setShowAudiencePreview] = useState(false);
   const [showQueueConfirm, setShowQueueConfirm] = useState(false);
 
   useEffect(() => {
@@ -194,15 +198,40 @@ function CampaignDetail({ campaign }: { campaign: Campaign }) {
 
   const isCrmMode = !campaign.targetListId && (campaign.targetVerticals?.length ?? 0) > 0;
 
-  const { data: audiencePreview, isLoading: audienceLoading } = useQuery<AudiencePreview>({
+  // Async audience preview — POST to start, GET to poll.
+  // Polling runs every 2s while status === "running"; stops when done or error.
+  const { data: previewPoll } = useQuery<PreviewPollResponse>({
     queryKey: ["/api/campaigns", campaign.id, "audience-preview"],
     queryFn: async () => {
       const res = await fetch(`/api/campaigns/${campaign.id}/audience-preview`, { credentials: "include" });
       if (!res.ok) throw new Error(`${res.status}`);
       return res.json();
     },
-    enabled: isCrmMode && showAudiencePreview,
+    enabled: isCrmMode,
+    refetchInterval: (query) => {
+      const status = (query.state.data as PreviewPollResponse | undefined)?.status;
+      return status === "running" ? 2000 : false;
+    },
+    staleTime: Infinity,
   });
+
+  const startPreviewMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/campaigns/${campaign.id}/audience-preview`);
+      return res.json() as Promise<PreviewPollResponse>;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaign.id, "audience-preview"] });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Preview failed to start", description: err.message, variant: "destructive" });
+    },
+  });
+
+  // Convenience aliases for readability in JSX below.
+  const previewStatus = previewPoll?.status ?? "idle";
+  const audiencePreview = previewStatus === "done" ? previewPoll?.result : undefined;
+  const previewRunning = previewStatus === "running" || startPreviewMutation.isPending;
 
   const queueMutation = useMutation({
     mutationFn: async () => {
@@ -249,62 +278,64 @@ function CampaignDetail({ campaign }: { campaign: Campaign }) {
               variant="outline"
               size="sm"
               className="text-xs h-7"
-              onClick={() => setShowAudiencePreview(!showAudiencePreview)}
+              onClick={() => startPreviewMutation.mutate()}
+              disabled={previewRunning}
               data-testid={`button-audience-preview-${campaign.id}`}
             >
               <Eye className="w-3 h-3 mr-1" />
-              {showAudiencePreview ? "Hide Audience" : "Preview Audience"}
+              {previewRunning ? "Computing…" : previewStatus === "done" ? "Re-run Preview" : "Preview Audience"}
             </Button>
           </div>
-          {showAudiencePreview && (
-            audienceLoading ? (
-              <Skeleton className="h-16 w-full" />
-            ) : audiencePreview ? (
-              <div className="space-y-2">
-                {audiencePreview.isPartial && (
-                  <div className="flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 rounded px-2 py-1" data-testid="alert-preview-partial">
-                    <span>⚠</span>
-                    <span>Preview is partial — gated {(audiencePreview.eligibleCount + audiencePreview.blockedCount).toLocaleString()} of {audiencePreview.totalInVerticals.toLocaleString()} contacts. Run preview again on a smaller vertical to get an exact count before queuing.</span>
-                  </div>
-                )}
-                <div className="flex flex-wrap items-center gap-3 text-sm">
-                  <span className="font-medium text-green-700 dark:text-green-400" data-testid="text-eligible-count">
-                    {audiencePreview.eligibleCount.toLocaleString()} eligible{audiencePreview.isPartial ? "*" : ""}
+          {previewRunning && (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground" data-testid="alert-preview-running">
+              <Skeleton className="h-3 w-3 rounded-full" />
+              <span>Computing exact eligible count across all contacts in vertical(s)… this may take a moment.</span>
+            </div>
+          )}
+          {previewStatus === "error" && (
+            <p className="text-xs text-destructive" data-testid="text-preview-error">
+              Preview failed: {previewPoll?.error ?? "unknown error"}. Please try again.
+            </p>
+          )}
+          {audiencePreview && (
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center gap-3 text-sm">
+                <span className="font-medium text-green-700 dark:text-green-400" data-testid="text-eligible-count">
+                  {audiencePreview.eligibleCount.toLocaleString()} eligible
+                </span>
+                <span className="text-muted-foreground">
+                  of {audiencePreview.totalInVerticals.toLocaleString()} in vertical{(campaign.targetVerticals?.length ?? 0) !== 1 ? "s" : ""}
+                </span>
+                {audiencePreview.blockedCount > 0 && (
+                  <span className="text-orange-600 dark:text-orange-400 text-xs">
+                    {audiencePreview.blockedCount} blocked
                   </span>
-                  <span className="text-muted-foreground">
-                    of {audiencePreview.totalInVerticals.toLocaleString()} in vertical{(campaign.targetVerticals?.length ?? 0) !== 1 ? "s" : ""}
-                  </span>
-                  {audiencePreview.blockedCount > 0 && (
-                    <span className="text-orange-600 dark:text-orange-400 text-xs">
-                      {audiencePreview.blockedCount} blocked
-                    </span>
-                  )}
-                </div>
-                {Object.keys(audiencePreview.blockReasons).length > 0 && (
-                  <div className="space-y-1">
-                    <p className="text-xs text-muted-foreground font-medium">Block reasons:</p>
-                    {Object.entries(audiencePreview.blockReasons).map(([reason, count]) => (
-                      <div key={reason} className="flex items-center gap-2 text-xs">
-                        <span className="text-muted-foreground truncate flex-1">{reason.replace(/_/g, " ")}</span>
-                        <span className="font-medium tabular-nums">{count}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {audiencePreview.sampleContacts.length > 0 && (
-                  <div className="space-y-1">
-                    <p className="text-xs text-muted-foreground font-medium">Sample contacts:</p>
-                    {audiencePreview.sampleContacts.map((c) => (
-                      <div key={c.id} className="flex items-center justify-between text-xs gap-2 p-1 rounded bg-background/80">
-                        <span className="font-medium truncate">{c.name}</span>
-                        <span className="text-muted-foreground truncate">{c.vertical ?? "—"}</span>
-                        <span className="text-muted-foreground shrink-0 text-[10px]">{c.email}</span>
-                      </div>
-                    ))}
-                  </div>
                 )}
               </div>
-            ) : null
+              {Object.keys(audiencePreview.blockReasons).length > 0 && (
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground font-medium">Block reasons:</p>
+                  {Object.entries(audiencePreview.blockReasons).map(([reason, count]) => (
+                    <div key={reason} className="flex items-center gap-2 text-xs">
+                      <span className="text-muted-foreground truncate flex-1">{reason.replace(/_/g, " ")}</span>
+                      <span className="font-medium tabular-nums">{count}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {audiencePreview.sampleContacts.length > 0 && (
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground font-medium">Sample contacts:</p>
+                  {audiencePreview.sampleContacts.map((c) => (
+                    <div key={c.id} className="flex items-center justify-between text-xs gap-2 p-1 rounded bg-background/80">
+                      <span className="font-medium truncate">{c.name}</span>
+                      <span className="text-muted-foreground truncate">{c.vertical ?? "—"}</span>
+                      <span className="text-muted-foreground shrink-0 text-[10px]">{c.email}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
         </div>
       )}
@@ -333,21 +364,26 @@ function CampaignDetail({ campaign }: { campaign: Campaign }) {
               queueMutation.mutate();
             }
           }}
-          disabled={queueMutation.isPending || (isCrmMode && !audiencePreview)}
-          title={isCrmMode && !audiencePreview ? "Run Preview Audience first to confirm eligible contacts before queuing" : undefined}
+          disabled={queueMutation.isPending || (isCrmMode && previewStatus !== "done")}
+          title={
+            isCrmMode && previewStatus === "idle" ? "Run Preview Audience first to confirm exact eligible count" :
+            isCrmMode && previewStatus === "running" ? "Preview is computing — please wait" :
+            isCrmMode && previewStatus === "error" ? "Preview failed — please re-run before queuing" :
+            undefined
+          }
           data-testid={`button-queue-messages-${campaign.id}`}
         >
           <Send className="w-4 h-4 mr-1" />
-          {queueMutation.isPending ? "Queuing..." : "Queue Messages"}
+          {queueMutation.isPending ? "Queuing..." : isCrmMode && audiencePreview ? `Queue ${audiencePreview.eligibleCount.toLocaleString()} Contacts` : "Queue Messages"}
         </Button>
-        {isCrmMode && !audiencePreview && !audienceLoading && (
+        {isCrmMode && previewStatus === "idle" && (
           <p className="text-xs text-muted-foreground self-center" data-testid="text-preview-required-hint">
             Preview audience first to enable queueing
           </p>
         )}
-        {isCrmMode && audiencePreview?.isPartial && (
-          <p className="text-xs text-amber-600 dark:text-amber-400 self-center" data-testid="text-preview-partial-hint">
-            Partial preview — eligible count may be higher than shown
+        {isCrmMode && previewRunning && (
+          <p className="text-xs text-muted-foreground self-center" data-testid="text-preview-computing-hint">
+            Preview computing…
           </p>
         )}
       </div>
@@ -393,13 +429,13 @@ function CampaignDetail({ campaign }: { campaign: Campaign }) {
             <AlertDialogCancel data-testid={`button-queue-cancel-${campaign.id}`}>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => queueMutation.mutate()}
-              disabled={!audiencePreview || audiencePreview.eligibleCount === 0}
+              disabled={previewStatus !== "done" || !audiencePreview || audiencePreview.eligibleCount === 0}
               data-testid={`button-queue-confirm-${campaign.id}`}
             >
-              {!audiencePreview
+              {previewStatus !== "done" || !audiencePreview
                 ? "Preview Required"
                 : audiencePreview.eligibleCount > 0
-                  ? `Queue ${audiencePreview.eligibleCount.toLocaleString()}${audiencePreview.isPartial ? "+" : ""} Messages`
+                  ? `Queue ${audiencePreview.eligibleCount.toLocaleString()} Messages`
                   : "No Eligible Contacts"}
             </AlertDialogAction>
           </AlertDialogFooter>
