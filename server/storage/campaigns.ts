@@ -225,9 +225,28 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
   }
 
   async markInterruptedCampaignPreviews(): Promise<void> {
+    // Preserves all diagnostic fields (counts, hash, timestamps).
+    // Only flips status; does NOT clear eligibleCount or other columns.
     await db.update(campaignPreviews)
       .set({ status: "interrupted" })
       .where(eq(campaignPreviews.status, "running"));
+  }
+
+  // Atomic consumption: single conditional UPDATE that sets consumed_at only when
+  // the row is still done and unconsumed.  Two concurrent requests for the same
+  // previewId will each get a RETURNING result from Postgres — but only ONE will
+  // match the WHERE (consumed_at IS NULL); the other gets an empty array → null.
+  // This is safe without application-level locks because Postgres UPDATE is atomic.
+  async consumeCampaignPreviewAtomic(id: number): Promise<CampaignPreview | null> {
+    const [row] = await db.update(campaignPreviews)
+      .set({ consumedAt: new Date() })
+      .where(and(
+        eq(campaignPreviews.id, id),
+        eq(campaignPreviews.status, "done"),
+        isNull(campaignPreviews.consumedAt),
+      ))
+      .returning();
+    return row ?? null;
   }
   }
   

@@ -297,6 +297,7 @@ export interface IStorage {
   getLatestCampaignPreview(campaignId: number): Promise<CampaignPreview | undefined>;
   updateCampaignPreview(id: number, updates: Partial<CampaignPreview>): Promise<CampaignPreview>;
   markInterruptedCampaignPreviews(): Promise<void>;
+  consumeCampaignPreviewAtomic(id: number): Promise<CampaignPreview | null>;
 
   getCampaignSteps(campaignId: number): Promise<typeof campaignSteps.$inferSelect[]>;
   createCampaignStep(step: InsertCampaignStep): Promise<typeof campaignSteps.$inferSelect>;

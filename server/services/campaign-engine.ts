@@ -1,6 +1,6 @@
 import { storage } from "../storage";
 import { createHash } from "crypto";
-import type { Prospect, Campaign, Contact } from "@shared/schema";
+import type { Prospect, Campaign, Contact, CampaignStep } from "@shared/schema";
 import OpenAI from "openai";
 import { sendGhlEmail, isGhlConfigured } from "./ghl";
 import { getEmailSignatureHtml, getComplianceFooterHtml, type EmailSignature } from "./email-signatures";
@@ -411,11 +411,25 @@ export async function queueContactCampaignMessages(campaignId: number, maxToQueu
 // If any of these change between preview and queue, the preview is invalidated.
 // ---------------------------------------------------------------------------
 
-export function computeTargetingHash(campaign: Campaign, stepCount: number): string {
+// computeTargetingHash fingerprints all fields that materially affect which
+// contacts are reached and what they receive:
+//   - target mode: verticals + targetListId (audience scope)
+//   - step content: subject + body + channel + delayDays per step (what is sent)
+// If ANY of these change after a preview, the hash differs and queueing is blocked.
+// Daily send limits are NOT included — they affect rate, not audience validity.
+// Criteria Snapshot contract: queue re-runs the same frozen criteria with live
+// contactability rechecked immediately before each row is inserted.
+// New or changed contacts may cause the queued count to differ from the preview
+// eligible count; the queue endpoint always reports both.
+export function computeTargetingHash(campaign: Campaign, steps: CampaignStep[]): string {
+  const stepDigest = [...steps]
+    .sort((a, b) => a.stepOrder - b.stepOrder)
+    .map((s) => [s.stepOrder, s.subject ?? "", s.bodyTemplate ?? "", s.channel ?? "", s.delayDays ?? 0].join("|"))
+    .join("\n");
   const payload = JSON.stringify({
     verticals: [...(campaign.targetVerticals ?? [])].sort(),
     targetListId: campaign.targetListId ?? null,
-    stepCount,
+    stepHash: createHash("sha256").update(stepDigest).digest("hex").slice(0, 12),
   });
   return createHash("sha256").update(payload).digest("hex").slice(0, 16);
 }
@@ -540,7 +554,7 @@ export async function startCampaignPreviewAsync(
   if (!campaign) throw new Error("Campaign not found");
 
   const steps = await storage.getCampaignSteps(campaignId);
-  const targetingHash = computeTargetingHash(campaign, steps.length);
+  const targetingHash = computeTargetingHash(campaign, steps);
 
   const preview = await storage.createCampaignPreview({
     campaignId,
@@ -575,10 +589,19 @@ export async function startCampaignPreviewAsync(
         expiresAt: new Date(now.getTime() + PREVIEW_TTL_MS),
       });
     } catch (err: any) {
+      // Sanitize before persisting: strip file paths, SQL detail, stack frames.
+      // Never persist raw query text, secrets, or hostnames.
+      const rawMsg: string = err?.message ?? "Preview computation failed";
+      const safe = rawMsg
+        .replace(/\/[^\s"']+\.(ts|js|mjs|cjs):\d+:\d*/g, "[file]")
+        .replace(/\bpassword\b[^,}\n]*/gi, "[redacted]")
+        .replace(/\bsecret\b[^,}\n]*/gi, "[redacted]")
+        .replace(/detail:\s*Failing row[^\n]*/gi, "[row detail redacted]")
+        .slice(0, 400);
       await storage.updateCampaignPreview(previewId, {
         status: "failed",
         completedAt: new Date(),
-        blockReasons: { __error: err?.message ?? "Preview failed" },
+        blockReasons: { __error: safe },
       });
     }
   });

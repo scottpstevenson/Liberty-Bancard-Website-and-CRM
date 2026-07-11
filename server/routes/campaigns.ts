@@ -169,20 +169,37 @@ export function registerCampaignsRoutes(app: Express) {
         if (preview.expiresAt && new Date() > new Date(preview.expiresAt)) {
           return res.status(400).json({ message: "Preview has expired (1-hour window). Please re-run the audience preview." });
         }
-        if (preview.consumedAt) {
-          return res.status(400).json({ message: "This preview has already been used to queue messages. Re-run the audience preview to queue again." });
-        }
-        // Verify targeting has not changed since the preview was computed.
+        // Verify targeting/template version has not changed since the preview.
+        // Hash covers: verticals (sorted), targetListId, step content per step.
         const steps = await storage.getCampaignSteps(campaignId);
-        const currentHash = computeTargetingHash(campaign, steps.length);
+        const currentHash = computeTargetingHash(campaign, steps);
         if (preview.targetingHash !== currentHash) {
-          return res.status(400).json({ message: "Campaign targeting or steps changed since the preview was run. Please re-run the audience preview." });
+          return res.status(400).json({ message: "Campaign targeting or step templates changed since the preview was run. Please re-run the audience preview." });
         }
-        // Mark preview consumed before queuing to prevent duplicate use.
-        await storage.updateCampaignPreview(preview.id, { consumedAt: new Date() });
+        if (preview.consumedAt) {
+          return res.status(409).json({ message: "This preview was already used to queue messages. Re-run the audience preview to queue again." });
+        }
+        // ATOMIC CONSUME: single conditional UPDATE — only succeeds if consumed_at
+        // is still NULL.  Two concurrent requests for the same previewId will each
+        // try this UPDATE; exactly one wins (non-empty RETURNING), the other gets
+        // null and receives 409.  No application-level lock needed.
+        const consumed = await storage.consumeCampaignPreviewAtomic(preview.id);
+        if (!consumed) {
+          return res.status(409).json({ message: "This preview was already consumed by a concurrent request. Re-run the audience preview to queue again." });
+        }
 
         queued = await queueContactCampaignMessages(campaignId);
         mode = "contacts";
+        const previewEligibleCount = preview.eligibleCount ?? 0;
+        return res.json({
+          queued,
+          mode,
+          previewEligibleCount,
+          countDifference: queued - previewEligibleCount,
+          message: queued === previewEligibleCount
+            ? `${queued} messages queued (matches preview).`
+            : `${queued} messages queued (preview showed ${previewEligibleCount} eligible — difference due to contactability changes since preview).`,
+        });
       } else {
         queued = await queueCampaignMessages(campaignId);
         mode = "prospects";

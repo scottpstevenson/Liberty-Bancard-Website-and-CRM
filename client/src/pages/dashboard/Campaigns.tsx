@@ -245,11 +245,16 @@ function CampaignDetail({ campaign }: { campaign: Campaign }) {
       const res = await apiRequest("POST", `/api/campaigns/${campaign.id}/queue`, body);
       return res.json() as Promise<{ queued: number; mode: string }>;
     },
-    onSuccess: (data: { queued: number; mode: string } | void) => {
+    onSuccess: (data: { queued: number; mode: string; previewEligibleCount?: number; countDifference?: number } | void) => {
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
-      const queued = (data as any)?.queued ?? 0;
-      const mode = (data as any)?.mode === "contacts" ? " from CRM contacts" : "";
-      toast({ title: "Messages queued", description: `${queued} messages queued${mode}.` });
+      const d = data as any;
+      const queued = d?.queued ?? 0;
+      const mode = d?.mode === "contacts" ? " from CRM contacts" : "";
+      const diff = d?.countDifference;
+      const diffNote = diff !== undefined && diff !== 0
+        ? ` (preview showed ${d.previewEligibleCount} eligible — ${Math.abs(diff)} ${diff < 0 ? "fewer" : "more"} than preview due to live contactability check)`
+        : "";
+      toast({ title: "Messages queued", description: `${queued} messages queued${mode}.${diffNote}` });
     },
     onError: (err: Error) => {
       toast({ title: "Queue failed", description: err.message, variant: "destructive" });
