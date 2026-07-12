@@ -10,6 +10,7 @@ import {
 } from "@shared/schema";
 import { eq, sql } from "drizzle-orm";
 import { isGhlConfigured, upsertGhlContact } from "./ghl";
+import { normalizeGhlId } from "../utils/normalize";
 import { syncContactToGhl } from "./ghl-sync";
 import { READINESS_DEPENDENT_FIELDS, enqueueReadinessRecalculation } from "./contact-readiness";
 
@@ -125,6 +126,11 @@ export async function writeContact(args: {
   const { mode, mutation, provenance, actor } = args;
 
   assertValidSourceCombo(provenance.sourceCategory, provenance.sourceType);
+
+  // Normalize ghlContactId in mutation before any DB write — blank strings become null.
+  if ((mutation as any).ghlContactId !== undefined) {
+    (mutation as any).ghlContactId = normalizeGhlId((mutation as any).ghlContactId);
+  }
 
   let ghlContactId: string | undefined;
   let ghlSyncPending = false;
@@ -350,8 +356,9 @@ export async function updateContactGhlFirst(
       const merged: Contact = { ...existing, ...safeUpdates };
       try {
         const ghlId = await upsertGhlContact(merged);
-        if (ghlId && !existing.ghlContactId) {
-          (safeUpdates as any).ghlContactId = ghlId;
+        const normalizedGhlId = normalizeGhlId(ghlId);
+        if (normalizedGhlId && !existing.ghlContactId) {
+          (safeUpdates as any).ghlContactId = normalizedGhlId;
         }
         console.log(`[ContactWriter] Synced contact ${contactId} to GHL before local update`);
       } catch (ghlErr: unknown) {

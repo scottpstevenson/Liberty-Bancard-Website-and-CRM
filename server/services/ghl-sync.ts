@@ -3,6 +3,7 @@ import { db } from "../db";
 import type { Contact, Deal, Company, Task, Ticket, Note, UpdateContactRequest } from "@shared/schema";
 import { ghlSyncStatus, GHL_PIPELINE_STAGE_MAP, GHL_PIPELINE_STAGE_REVERSE, ACTIVE_DEAL_STAGES } from "@shared/schema";
 import { upsertGhlContact, isGhlConfigured, sendGhlEmail } from "./ghl";
+import { normalizeGhlId } from "../utils/normalize";
 import { getEmailSignatureHtml } from "./email-signatures";
 import { auditChange } from "./audit-change";
 import { writeContact, upsertContactSourceEvent } from "./contact-writer";
@@ -208,7 +209,8 @@ export async function syncContactToGhl(contactId: number): Promise<{ success: bo
     const contact = await storage.getContact(contactId);
     if (!contact) return { success: false, error: "Contact not found" };
 
-    const ghlId = await upsertGhlContact(contact);
+    const rawGhlId = await upsertGhlContact(contact);
+    const ghlId = normalizeGhlId(rawGhlId) ?? undefined;
     if (ghlId && !contact.ghlContactId) {
       await storage.updateContact(contactId, { ghlContactId: ghlId });
     }
@@ -341,7 +343,7 @@ export async function syncContactFromGhl(ghlContact: any): Promise<{ contactId: 
       // On email-match path: attach the incoming ghlContactId when the row has none.
       // If it already matches, this is a no-op; if it differed, we returned null above.
       if (!existingByGhlId && existingByEmail) {
-        (cleanPayload as any).ghlContactId = ghlContact.id;
+        (cleanPayload as any).ghlContactId = normalizeGhlId(ghlContact.id);
       }
 
       if (conflictFields.length === 0) {
@@ -408,18 +410,38 @@ export async function syncContactFromGhl(ghlContact: any): Promise<{ contactId: 
       return { contactId: contact.id, created: true };
     } catch (createErr: any) {
       // 23505 = Postgres unique_violation — a concurrent create beat us to it.
-      // Re-query by GHL ID then email to find the winner and continue as an idempotent update.
-      if (createErr?.code === "23505" || createErr?.message?.includes("23505")) {
-        console.warn(`[GHL Sync] 23505 unique-violation on create for GHL ID ${ghlContact.id} — re-querying`);
-        const recovered =
-          (ghlContact.id ? await storage.getContactByGhlContactId(ghlContact.id) : undefined) ??
-          (normalizedEmail ? await storage.getContactByEmail(normalizedEmail) : undefined);
+      // IMPORTANT: Only recover when the violated constraint is contacts_ghl_contact_id_unique.
+      // Any other 23505 (e.g. email uniqueness) must be rethrown — swallowing those would
+      // silently corrupt unrelated identity constraints.
+      const isUniqueViolation = createErr?.code === "23505" || createErr?.message?.includes("23505");
+      if (isUniqueViolation) {
+        const violatedConstraint: string = createErr?.constraint ?? createErr?.detail ?? "";
+        const isGhlIdConstraint =
+          violatedConstraint.includes("contacts_ghl_contact_id_unique") ||
+          (createErr?.detail ?? "").includes("ghl_contact_id");
 
-        if (recovered) {
-          await storage.syncUpdateContact(recovered.id, { lastSyncedAt: new Date() });
-          await updateSyncStatusRecord("contacts", "inbound", 1, 0);
-          return { contactId: recovered.id, created: false };
+        if (isGhlIdConstraint) {
+          console.warn(`[GHL Sync] 23505 on contacts_ghl_contact_id_unique for GHL ID ${ghlContact.id} — re-querying`);
+          const recovered = ghlContact.id
+            ? await storage.getContactByGhlContactId(ghlContact.id)
+            : undefined;
+
+          if (recovered) {
+            // Verify identity before stamping lastSyncedAt — guard against phantom race recovery.
+            await storage.syncUpdateContact(recovered.id, { lastSyncedAt: new Date() });
+            await updateSyncStatusRecord("contacts", "inbound", 1, 0);
+            return { contactId: recovered.id, created: false };
+          }
+          // Re-query returned nothing — do not create a third row; log and bail.
+          console.error(`[GHL Sync] 23505 recovery: re-query found no contact for GHL ID ${ghlContact.id} — aborting`);
+          await storage.createAuditLog({
+            action: "ghl_sync_23505_unrecoverable",
+            entityType: "contact",
+            details: { ghlContactId: ghlContact.id, email: normalizedEmail },
+          });
+          return null;
         }
+        // Non-GHL-ID unique violation (e.g. email index) — rethrow so the outer catch logs it.
       }
       throw createErr;
     }

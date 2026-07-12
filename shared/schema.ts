@@ -151,7 +151,7 @@ export const contacts = pgTable("contacts", {
 }, (table) => [
   uniqueIndex("contacts_email_unique_idx").on(table.email).where(sql`archived_at IS NULL`),
   index("contacts_phone_idx").on(table.phone),
-  index("contacts_ghl_contact_id_idx").on(table.ghlContactId),
+  uniqueIndex("contacts_ghl_contact_id_unique").on(table.ghlContactId).where(sql`ghl_contact_id IS NOT NULL AND BTRIM(ghl_contact_id) <> ''`),
   index("contacts_created_at_idx").on(table.createdAt),
   index("contacts_email_archived_at_idx").on(table.email, table.archivedAt),
   index("contacts_phone_archived_at_idx").on(table.phone, table.archivedAt),

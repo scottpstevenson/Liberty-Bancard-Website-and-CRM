@@ -18,6 +18,7 @@ import { routeContact } from "../services/smart-router";
 import { createPreferenceAwareNotification, sendCriticalEmailNotification } from "../services/digest-service";
 import { ingestBusinessFromContact } from "../services/sdr/dedupe";
 import { isGhlConfigured } from "../services/ghl";
+import { normalizeGhlId } from "../utils/normalize";
 import { syncContactToGhl } from "../services/ghl-sync";
 import { writeContact, updateContactGhlFirst, stripProvenanceFields } from "../services/contact-writer";
 import { assignNextRep } from "./toolkit";
@@ -240,7 +241,12 @@ export function registerContactsRoutes(app: Express) {
       const rawBody = contactDateSchema.parse(req.body);
       // Strip provenance fields — they are immutable after first set and must never be
       // overwritten via the PUT route (defense layer 1; storage.updateContact is layer 2).
-      const body = stripProvenanceFields(rawBody as Record<string, unknown>) as typeof rawBody;
+      const strippedBody = stripProvenanceFields(rawBody as Record<string, unknown>) as typeof rawBody;
+      // Normalize ghlContactId from passthrough body before it reaches any write path.
+      if ((strippedBody as any).ghlContactId !== undefined) {
+        (strippedBody as any).ghlContactId = normalizeGhlId((strippedBody as any).ghlContactId);
+      }
+      const body = strippedBody;
       const updated = await updateContactGhlFirst(contactId, body, { actorType: "user", userId: (req.user as any)?.id ?? null });
       if (!updated) return res.status(404).json({ message: "Not found" });
 

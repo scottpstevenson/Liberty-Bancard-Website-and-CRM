@@ -491,6 +491,13 @@
       "when": 1785800000000,
       "tag": "0065_provenance_schema",
       "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "7",
+      "when": 1785900000000,
+      "tag": "0066_ghl_contact_id_unique",
+      "breakpoints": true
     }
   ]
 }
