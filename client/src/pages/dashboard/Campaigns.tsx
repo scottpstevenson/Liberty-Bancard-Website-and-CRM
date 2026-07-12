@@ -45,9 +45,16 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Send, Plus, Play, Pause, Trash2, Mail, Clock, Pencil, Eye, Users, List } from "lucide-react";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs";
+import { Send, Plus, Play, Pause, Trash2, Mail, Clock, Pencil, Eye, Users, List, BarChart2 } from "lucide-react";
 import DashboardErrorState from "@/components/DashboardErrorState";
 import EmailPreviewModal, { EmailPreviewContent } from "@/components/EmailPreviewModal";
+import ReadinessIntelligencePanel from "@/components/ReadinessIntelligencePanel";
 import type { Campaign, CampaignStep, ProspectList } from "@shared/schema";
 
 const CANONICAL_VERTICALS = [
@@ -1141,6 +1148,21 @@ export default function Campaigns() {
         </Dialog>
       </div>
 
+      <Tabs defaultValue="campaigns" data-testid="tabs-campaigns-page">
+        <TabsList className="mb-4">
+          <TabsTrigger value="campaigns" className="gap-1.5" data-testid="tab-campaigns">
+            <Mail className="w-3.5 h-3.5" /> Campaigns
+          </TabsTrigger>
+          <TabsTrigger value="readiness" className="gap-1.5" data-testid="tab-readiness">
+            <BarChart2 className="w-3.5 h-3.5" /> Readiness Intelligence
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="readiness">
+          <ReadinessIntelligencePanel />
+        </TabsContent>
+
+        <TabsContent value="campaigns">
       {isError ? (
         <DashboardErrorState title="Failed to load campaigns" onRetry={() => refetch()} />
       ) : isLoading ? (
@@ -1283,6 +1305,8 @@ export default function Campaigns() {
           </CardContent>
         </Card>
       )}
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
