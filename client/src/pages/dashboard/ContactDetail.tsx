@@ -33,6 +33,7 @@ import {
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import Comments from "@/components/Comments";
 import { EmailComposer } from "@/components/EmailComposer";
+import { ReadinessCard } from "@/components/ReadinessCard";
 
 import {
   type ActivityEvent,
@@ -1314,6 +1315,16 @@ export default function ContactDetail() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Data Readiness */}
+      <ReadinessCard
+        score={contact.dataReadinessScore ?? null}
+        grade={contact.dataReadinessGrade ?? null}
+        breakdown={contact.readinessBreakdown ?? null}
+        readinessUpdatedAt={contact.readinessUpdatedAt ? String(contact.readinessUpdatedAt) : null}
+        readinessModelVersion={contact.readinessModelVersion ?? null}
+        lastMeaningfulContactMutationAt={contact.lastMeaningfulContactMutationAt ? String(contact.lastMeaningfulContactMutationAt) : null}
+      />
 
       {/* Associated Companies */}
       <Card data-testid="section-associated-companies">
