@@ -1,0 +1,145 @@
+BUILD-READY WITH CORRECTIONS
+
+The database backstop is necessary, but do not apply a plain unique constraint until existing data and GHL-ID normalization are verified.
+
+Send this back:
+
+BUILD-READY WITH CORRECTIONS — Task #978
+
+Add schema-level uniqueness for non-empty GHL contact IDs, but use a reviewed partial unique index rather than blindly applying ALTER TABLE ... UNIQUE.
+
+1. Audit production data before migration
+
+Run and document:
+
+SELECT ghl_contact_id, COUNT(*) AS row_count, ARRAY_AGG(id ORDER BY id) AS contact_ids
+FROM contacts
+WHERE ghl_contact_id IS NOT NULL
+  AND BTRIM(ghl_contact_id) <> ''
+GROUP BY ghl_contact_id
+HAVING COUNT(*) > 1;
+
+Also audit normalization collisions:
+
+SELECT LOWER(BTRIM(ghl_contact_id)) AS normalized_ghl_id,
+       COUNT(*) AS row_count,
+       ARRAY_AGG(id ORDER BY id) AS contact_ids,
+       ARRAY_AGG(DISTINCT ghl_contact_id) AS stored_variants
+FROM contacts
+WHERE ghl_contact_id IS NOT NULL
+  AND BTRIM(ghl_contact_id) <> ''
+GROUP BY LOWER(BTRIM(ghl_contact_id))
+HAVING COUNT(*) > 1;
+
+Do not create the index until every duplicate group is reviewed and resolved.
+
+2. Confirm canonical GHL-ID normalization
+
+Verify whether GHL IDs are case-sensitive.
+
+At minimum:
+
+* trim surrounding whitespace before persistence;
+* convert empty strings to NULL;
+* do not lowercase unless GHL IDs are confirmed case-insensitive.
+
+Use one shared normalization helper in all create/update and lookup paths. Do not normalize only inside the migration.
+
+3. Prefer a partial unique index
+
+Use:
+
+CREATE UNIQUE INDEX contacts_ghl_contact_id_unique
+ON contacts (ghl_contact_id)
+WHERE ghl_contact_id IS NOT NULL
+  AND BTRIM(ghl_contact_id) <> '';
+
+This:
+
+* allows contacts with no GHL ID;
+* prevents multiple ownership of one real GHL ID;
+* avoids treating blank strings as a valid owned identity.
+
+If application writes are first normalized so blank values become NULL, the BTRIM predicate remains a defensive backstop.
+
+Update shared/schema.ts with the equivalent uniqueIndex and predicate.
+
+4. Resolve duplicates conservatively
+
+Do not automatically select the newest or oldest row without reviewing:
+
+* matching normalized email;
+* deals and task references;
+* GHL activity and sync history;
+* compliance fields;
+* source provenance;
+* which row already owns the matching GHL identity and contact data.
+
+For each duplicate group, produce a resolution manifest containing:
+
+* retained contact ID;
+* duplicate contact IDs;
+* reference reassignment required;
+* fields merged or preserved;
+* rows archived or cleared;
+* operator decision.
+
+Do not hard-delete contacts as part of this migration.
+
+5. Preserve race-safe recovery semantics
+
+After the index exists, verify syncContactFromGhl():
+
+* catches PostgreSQL 23505;
+* confirms the violated constraint/index is contacts_ghl_contact_id_unique or the canonical email uniqueness rule;
+* re-queries by GHL ID and normalized email;
+* continues idempotently only when the resolved identity is compatible;
+* does not swallow unrelated unique violations.
+
+6. Protect updates, not only creates
+
+Any path that assigns or changes ghlContactId must receive the same normalization and conflict behavior.
+
+Audit:
+
+* inbound GHL creation;
+* email-match attachment of a previously null GHL ID;
+* manual/admin updates;
+* bulk imports or reconciliation scripts;
+* GHL relinking tools.
+
+A conflicting reassignment must return or record an identity conflict rather than overwriting another contact’s GHL ID.
+
+Deployment order
+
+1. Audit duplicate and normalization-collision groups.
+2. Resolve and verify zero conflicts.
+3. Deploy normalization on all GHL-ID write paths.
+4. Apply the versioned unique-index migration.
+5. Query pg_indexes to verify the exact applied definition.
+6. Run concurrent sync validation.
+
+Kill lines
+
+* STOP if the migration runs while duplicate GHL IDs remain.
+* STOP if blank strings remain valid persisted GHL IDs.
+* STOP if GHL IDs are lowercased without proving case-insensitivity.
+* STOP if duplicate resolution hard-deletes contacts or loses references.
+* STOP if all 23505 errors are treated as the targeted GHL-ID race.
+* STOP if only create paths are protected while update/relink paths can still violate ownership.
+* STOP if IF NOT EXISTS hides a same-named but incorrectly defined index.
+* STOP if db push is used instead of a versioned migration.
+
+Validation
+
+* Two concurrent creates with the same GHL ID produce exactly one contact.
+* Whitespace variants cannot create separate ownership.
+* NULL GHL IDs remain allowed on multiple contacts.
+* Blank GHL IDs are normalized to NULL.
+* Email match with null GHL ID safely attaches the incoming ID.
+* Email match with a different non-null GHL ID produces a conflict.
+* Unrelated 23505 errors are rethrown.
+* pg_indexes shows the exact expected unique index and predicate.
+* Existing GHL sync and field-ownership tests remain green.
+
+The task should remain narrow: audit, normalize, resolve duplicates, add the unique backstop, and validate concurrent ownership.
