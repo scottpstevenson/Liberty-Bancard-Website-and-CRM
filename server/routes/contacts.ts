@@ -19,7 +19,7 @@ import { createPreferenceAwareNotification, sendCriticalEmailNotification } from
 import { ingestBusinessFromContact } from "../services/sdr/dedupe";
 import { isGhlConfigured } from "../services/ghl";
 import { syncContactToGhl } from "../services/ghl-sync";
-import { createContactGhlFirst, updateContactGhlFirst } from "../services/contact-writer";
+import { writeContact, updateContactGhlFirst, stripProvenanceFields } from "../services/contact-writer";
 import { assignNextRep } from "./toolkit";
 import { parse } from "csv-parse/sync";
 import path from "path";
@@ -48,7 +48,19 @@ export function registerContactsRoutes(app: Express) {
   app.post("/api/contacts", isDashboardUser, async (req, res) => {
     try {
       const input = insertContactSchema.parse(req.body);
-      const contact = await createContactGhlFirst(input, { actorType: "user", userId: (req.user as any)?.id ?? null });
+      const userId = (req.user as any)?.id ?? null;
+      const contact = await writeContact({
+        mode: "ghl_upsert_first",
+        mutation: input as any,
+        provenance: {
+          sourceCategory: "manual_crm",
+          sourceType: "dashboard",
+          eventKey: `manual:${crypto.randomUUID()}`,
+          actorType: "user",
+          actorId: userId ? String(userId) : undefined,
+        },
+        actor: { actorType: "user", actorId: userId ? String(userId) : null, userId },
+      });
       await createPreferenceAwareNotification({ channel: "internal", title: "New Contact Created", message: `${contact.firstName} ${contact.lastName}${contact.companyName ? ` — ${contact.companyName}` : ""} has been added as a new contact.`, type: "info", metadata: { contactId: contact.id, eventType: "contact_created" } }, "contact_created");
       sendPushToAllReps({ title: "New Lead Assigned", body: `${contact.firstName} ${contact.lastName}${contact.companyName ? ` — ${contact.companyName}` : ""} added to CRM`, url: "/mobile/contacts" }).catch(() => {});
       triggerWorkflowsByEvent("contact_created", { entityType: "contact", entityId: contact.id, contactId: contact.id }).catch(err => console.error("Workflow trigger error:", err));
@@ -225,7 +237,10 @@ export function registerContactsRoutes(app: Express) {
         lastVoicemailAt: z.coerce.date().optional().nullable(),
         offerRoutedAt: z.coerce.date().optional().nullable(),
       }).passthrough();
-      const body = contactDateSchema.parse(req.body);
+      const rawBody = contactDateSchema.parse(req.body);
+      // Strip provenance fields — they are immutable after first set and must never be
+      // overwritten via the PUT route (defense layer 1; storage.updateContact is layer 2).
+      const body = stripProvenanceFields(rawBody as Record<string, unknown>) as typeof rawBody;
       const updated = await updateContactGhlFirst(contactId, body, { actorType: "user", userId: (req.user as any)?.id ?? null });
       if (!updated) return res.status(404).json({ message: "Not found" });
 

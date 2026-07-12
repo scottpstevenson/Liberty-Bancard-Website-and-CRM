@@ -12,6 +12,9 @@ import { getRoutingRecommendation, routeContact } from "../services/smart-router
 import { getEntityDetail, parseSunbizCsv, searchSunbiz, streamCorevtFromZip } from "../services/sunbiz-scraper";
 import { isMassEnrichmentRunning, promoteQualifiedToContacts, reEnrichAllSunbizEntities, runMassEnrichment } from "../services/daily-outreach";
 import { createContactGhlFirst } from "../services/contact-writer";
+import { importExecutions } from "@shared/schema";
+import { db } from "../db";
+import { eq } from "drizzle-orm";
 import { convertToProspect, deepEnrichEntity, enrichSunbizEntitySafe, isPipelineRunning, processSunbizEnrichmentBatch, processSunbizEnrichmentQueue, runAutoDeduplication, runBulkAIClassification, runDailyEnrichmentPipeline } from "../services/sunbiz-enrichment";
 import { parse } from "csv-parse/sync";
 import path from "path";
@@ -718,6 +721,16 @@ export function registerProspectsRoutes(app: Express) {
         status: "processing",
       });
 
+      // Create import_executions row to anchor provenance for this Sunbiz upload batch
+      const [sunbizImportExec] = await db.insert(importExecutions).values({
+        importType: "sunbiz_csv",
+        status: "running",
+        totalRows: records.length,
+        actorType: "user",
+        actorId: String((req as any).user?.id ?? ""),
+        metadata: { listId: list.id, fileName: req.file!.originalname },
+      }).returning();
+
       const parsed = parseSunbizCsv(records as Record<string, string>[]);
       const entities = parsed.map(p => ({
         entityName: p.entityName || "",
@@ -743,9 +756,19 @@ export function registerProspectsRoutes(app: Express) {
         source: "sunbiz",
         enrichmentStatus: "pending" as const,
         searchQuery: listName,
+        importExecutionId: sunbizImportExec?.id ?? undefined,
       }));
 
       const created = await storage.createSunbizEntitiesBulk(entities);
+
+      // Mark import_executions completed
+      if (sunbizImportExec) {
+        db.update(importExecutions)
+          .set({ status: "completed", insertedRows: created.length, completedAt: new Date() })
+          .where(eq(importExecutions.id, sunbizImportExec.id))
+          .execute()
+          .catch((e: any) => console.warn("[Sunbiz Upload] import_executions update failed:", e?.message || e));
+      }
 
       await storage.updateProspectList(list.id, {
         totalRecords: created.length,
@@ -812,6 +835,22 @@ export function registerProspectsRoutes(app: Express) {
         throw createErr;
       }
 
+      // Create import_executions row to anchor provenance for this Corevt upload batch
+      let corevtImportExec: { id: string } | null = null;
+      try {
+        const [execRow] = await db.insert(importExecutions).values({
+          importType: "sunbiz_corevt",
+          status: "running",
+          totalRows: 0,
+          actorType: "user",
+          actorId: String((req as any).user?.id ?? ""),
+          metadata: { listId: list!.id, fileName: req.file!.originalname, fileHash },
+        }).returning();
+        corevtImportExec = execRow ?? null;
+      } catch (execErr: any) {
+        console.warn("[Corevt Upload] import_executions create failed:", execErr?.message || execErr);
+      }
+
       let totalInserted = 0;
       let totalUpserted = 0;
 
@@ -847,6 +886,7 @@ export function registerProspectsRoutes(app: Express) {
             source: "corevt",
             enrichmentStatus: "pending" as const,
             searchQuery: listName,
+            importExecutionId: corevtImportExec?.id ?? undefined,
           }));
 
           const result = await storage.upsertSunbizEntitiesBulk(entities);
@@ -870,11 +910,27 @@ export function registerProspectsRoutes(app: Express) {
         status: "complete",
       });
 
+      // Mark import_executions completed for corevt batch
+      if (corevtImportExec) {
+        db.update(importExecutions)
+          .set({ status: "completed", insertedRows: totalInserted, completedAt: new Date() })
+          .where(eq(importExecutions.id, corevtImportExec.id))
+          .execute()
+          .catch((e: any) => console.warn("[Corevt Upload] import_executions update failed:", e?.message || e));
+      }
+
       res.json({ list: updatedList, imported: totalInserted, updated: totalUpserted });
     } catch (err: any) {
       if (filePath) { try { fs.unlinkSync(filePath); } catch {} }
       if (list) {
         await storage.updateProspectList(list.id, { status: "failed" }).catch(() => {});
+      }
+      if (corevtImportExec) {
+        db.update(importExecutions)
+          .set({ status: "failed", completedAt: new Date() })
+          .where(eq(importExecutions.id, corevtImportExec.id))
+          .execute()
+          .catch(() => {});
       }
       res.status(500).json({ message: err.message });
     }

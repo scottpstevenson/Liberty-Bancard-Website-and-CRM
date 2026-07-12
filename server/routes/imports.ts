@@ -21,7 +21,9 @@ import { getGhlSyncStatus } from "../services/ghl-sync";
 import { runBulkFastClassification } from "../services/sunbiz-enrichment";
 import { ingestBusiness, ingestBusinessFromContact } from "../services/sdr/dedupe";
 import { syncFormSubmissionToGhl } from "../services/ghl-form-sync";
-import { createContactGhlFirst, updateContactGhlFirst } from "../services/contact-writer";
+import { updateContactGhlFirst } from "../services/contact-writer";
+import { importExecutions, contactSourceEvents } from "@shared/schema";
+import { computeFileHash } from "../services/import-normalizer";
 import { parse } from "csv-parse/sync";
 import bcrypt from "bcryptjs";
 import path from "path";
@@ -1543,6 +1545,23 @@ Guidelines:
         importedBy: (req.body.importedBy as string) || "system",
       });
 
+      // Compute file hash for replay-protection. The file has already been read
+      // into csvContent (or converted from XLSX) so we hash the canonical CSV
+      // string rather than the raw upload bytes — consistent across XLSX→CSV conversions.
+      const csvHash = computeFileHash(Buffer.from(csvContent, "utf-8"));
+      const csvSourceType = sourceFormat === "google_maps_outscraper" ? "outscraper"
+        : sourceFormat === "apollo_lead_list" ? "apollo"
+        : "csv_contact";
+      const [importExecution] = await db.insert(importExecutions).values({
+        importType: "csv_contact",
+        status: "running",
+        totalRows: records.length,
+        fileHash: csvHash,
+        actorType: "user",
+        actorId: String((req as any).user?.id ?? ""),
+        metadata: { csvImportRecordId: importRecord.id, sourceFormat },
+      }).returning();
+
       const existingEmails = await db.select({ email: sql<string>`LOWER(TRIM(email))` }).from(contacts).where(and(ne(contacts.email, ""), sql`email IS NOT NULL`));
       const existingPhones = await db.select({ phone: contacts.phone }).from(contacts).where(and(ne(contacts.phone, ""), sql`phone IS NOT NULL`));
       const existingCompanies = await db.select({ name: sql<string>`LOWER(TRIM(company_name))` }).from(contacts).where(and(sql`company_name IS NOT NULL`, ne(contacts.companyName, "")));
@@ -1870,6 +1889,10 @@ Guidelines:
           status: "New",
           monthlyVolume: mapped.monthlyVolume || null,
           currentProvider: mapped.currentProvider || null,
+          // Provenance — stamped here so every bulk-inserted contact has intake origin set
+          sourceCategory: "csv_import",
+          primarySourceCategory: "csv_import",
+          primarySourceType: csvSourceType,
         });
       }
 
@@ -1991,6 +2014,34 @@ Guidelines:
         } catch (progressErr: any) {
           console.warn(`[CSV Import] Per-batch progress write failed for import ${importRecord.id}:`, progressErr?.message || progressErr);
         }
+      }
+
+      // Create one contact_source_events row per newly inserted contact.
+      // Uses ON CONFLICT DO UPDATE lastSeenAt for idempotency on retries.
+      // Fire-and-forget — failures are logged but don't fail the import.
+      if (insertedContactIds.length > 0 && importExecution) {
+        const sourceEventsPayload = insertedContactIds.map((cid, idx) => ({
+          contactId: cid,
+          eventKey: `import:${importExecution.id}:row:${idx}`,
+          sourceCategory: "csv_import" as const,
+          sourceType: csvSourceType,
+          importExecutionId: importExecution.id,
+          sourceRowNumber: idx,
+          actorType: "system" as const,
+        }));
+        for (let i = 0; i < sourceEventsPayload.length; i += 100) {
+          const evtBatch = sourceEventsPayload.slice(i, i + 100);
+          db.insert(contactSourceEvents).values(evtBatch)
+            .onConflictDoNothing()
+            .execute()
+            .catch((e: any) => console.warn(`[CSV Import] Source event insert failed:`, e?.message || e));
+        }
+        // Update import_executions to completed
+        db.update(importExecutions)
+          .set({ status: "completed", insertedRows: inserted, completedAt: new Date() })
+          .where(eq(importExecutions.id, importExecution.id))
+          .execute()
+          .catch((e: any) => console.warn(`[CSV Import] import_executions update failed:`, e?.message || e));
       }
 
       let businessesLinked = 0;

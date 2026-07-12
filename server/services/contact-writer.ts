@@ -1,8 +1,292 @@
+import { db } from "../db";
 import { storage } from "../storage";
-import type { InsertContact, UpdateContactRequest, Contact } from "@shared/schema";
+import {
+  contacts,
+  contactSourceEvents,
+  type InsertContact,
+  type UpdateContactRequest,
+  type Contact,
+  type ServerInsertContact,
+} from "@shared/schema";
+import { eq, sql } from "drizzle-orm";
 import { isGhlConfigured, upsertGhlContact } from "./ghl";
 import { syncContactToGhl } from "./ghl-sync";
 import { READINESS_DEPENDENT_FIELDS, enqueueReadinessRecalculation } from "./contact-readiness";
+
+// ---------------------------------------------------------------------------
+// Source category / type validation
+// Reject invalid combinations before any DB write.
+// ---------------------------------------------------------------------------
+const VALID_SOURCE_COMBOS: ReadonlySet<string> = new Set([
+  "website_form|statement_upload",
+  "website_form|estimate_form",
+  "website_form|callback_form",
+  "website_form|equipment_order",
+  "website_form|support_form",
+  "website_form|partner_application",
+  "website_form|merchant_application",
+  "website_form|get_started_form",
+  "website_form|integration_request",
+  "website_form|testimonial_submit",
+  "website_form|newsletter_signup",
+  "manual_crm|dashboard",
+  "ghl_sync|inbound",
+  "csv_import|csv_contact",
+  "csv_import|outscraper",
+  "csv_import|apollo",
+  "csv_import|apify",
+  "registry_import|sunbiz_upload",
+  "registry_import|sunbiz_corevt",
+  "prospect_conversion|csv_prospect",
+  "discovery|apollo",
+  "discovery|outscraper",
+  "discovery|apify",
+  "discovery|serper",
+  "partner_referral|partner_form",
+  "legacy_unknown|historical_backfill",
+]);
+
+function assertValidSourceCombo(sourceCategory: string, sourceType: string): void {
+  const key = `${sourceCategory}|${sourceType}`;
+  if (!VALID_SOURCE_COMBOS.has(key)) {
+    throw new Error(`[ContactWriter] Invalid sourceCategory/sourceType combination: ${key}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+export type WriteMode =
+  | "ghl_upsert_first"    // GHL first, then local DB (public forms, manual CRM)
+  | "ghl_inbound_no_echo" // Local DB only — skip GHL write to avoid echo loop
+  | "local_only";         // Local DB only — no GHL (CSV imports, bulk ops)
+
+export interface ProvenanceInput {
+  sourceCategory: string;
+  sourceType: string;
+  eventKey: string; // non-null, server-generated
+  sourceExternalId?: string;
+  importExecutionId?: string; // UUID
+  sourceRowNumber?: number;
+  rowFingerprint?: string;
+  actorType: string;
+  actorId?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ActorCtx {
+  actorType: string;
+  actorId?: string | null;
+  userId?: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Provenance fields that must never be accepted from client input
+// ---------------------------------------------------------------------------
+export const PROVENANCE_FIELDS = [
+  "sourceCategory",
+  "primarySourceCategory",
+  "primarySourceType",
+  "primarySourceEventId",
+] as const;
+
+/**
+ * Strip provenance fields from any object (defense-in-depth for PUT/PATCH routes).
+ */
+export function stripProvenanceFields<T extends Record<string, unknown>>(obj: T): Omit<T, typeof PROVENANCE_FIELDS[number]> {
+  const result = { ...obj };
+  for (const field of PROVENANCE_FIELDS) {
+    delete (result as Record<string, unknown>)[field];
+  }
+  return result as Omit<T, typeof PROVENANCE_FIELDS[number]>;
+}
+
+// ---------------------------------------------------------------------------
+// Canonical writer — all contact creation flows go through here
+// ---------------------------------------------------------------------------
+/**
+ * writeContact — canonical single write path for all new contact creation.
+ *
+ * Modes:
+ *  - ghl_upsert_first: attempt GHL write before local DB (website forms, manual CRM)
+ *  - ghl_inbound_no_echo: skip GHL write entirely (GHL sync inbound — avoids echo)
+ *  - local_only: skip GHL entirely (CSV bulk imports)
+ *
+ * In all modes: contact + source event are written in a single DB transaction.
+ * Sets sourceCategory AND primarySourceCategory to the same server-controlled value.
+ * primarySourceCategory is immutable after first set via this writer.
+ */
+export async function writeContact(args: {
+  mode: WriteMode;
+  mutation: Omit<InsertContact, "sourceCategory" | "primarySourceCategory" | "primarySourceType" | "primarySourceEventId"> & Record<string, unknown>;
+  provenance: ProvenanceInput;
+  actor: ActorCtx;
+}): Promise<Contact & { _ghlSyncPending: boolean }> {
+  const { mode, mutation, provenance, actor } = args;
+
+  assertValidSourceCombo(provenance.sourceCategory, provenance.sourceType);
+
+  let ghlContactId: string | undefined;
+  let ghlSyncPending = false;
+
+  // Step 1: GHL pre-write (ghl_upsert_first mode only)
+  if (mode === "ghl_upsert_first" && isGhlConfigured()) {
+    try {
+      ghlContactId = await upsertGhlContact({
+        id: 0,
+        firstName: (mutation as any).firstName,
+        lastName: (mutation as any).lastName ?? "",
+        email: (mutation as any).email ?? "",
+        phone: (mutation as any).phone ?? "",
+        ghlContactId: (mutation as any).ghlContactId ?? null,
+        companyName: (mutation as any).companyName ?? undefined,
+        tags: (mutation as any).tags ?? [],
+        vertical: (mutation as any).vertical ?? undefined,
+        monthlyVolume: (mutation as any).monthlyVolume ?? undefined,
+        primaryOfferPath: (mutation as any).primaryOfferPath ?? undefined,
+        currentProvider: (mutation as any).currentProvider ?? undefined,
+        painPoints: (mutation as any).painPoints ?? undefined,
+        interestedIn0Percent: (mutation as any).interestedIn0Percent ?? false,
+        needTerminal: (mutation as any).needTerminal ?? false,
+        utmSource: (mutation as any).utmSource ?? undefined,
+        utmMedium: (mutation as any).utmMedium ?? undefined,
+        utmCampaign: (mutation as any).utmCampaign ?? undefined,
+        promoCode: (mutation as any).promoCode ?? undefined,
+        consentSms: (mutation as any).consentSms ?? false,
+        consentEmail: (mutation as any).consentEmail ?? false,
+        landingPage: (mutation as any).landingPage ?? undefined,
+      });
+      if (ghlContactId) {
+        console.log(`[ContactWriter] Pre-created contact in GHL: ${ghlContactId}`);
+      }
+    } catch (ghlErr: unknown) {
+      const msg = ghlErr instanceof Error ? ghlErr.message : String(ghlErr);
+      console.warn(`[ContactWriter] GHL pre-write failed (will retry): ${msg}`);
+      ghlSyncPending = true;
+    }
+  }
+
+  // Step 2: Transactional contact + source event creation
+  // A: insert contact with primarySourceEventId = NULL
+  // B: insert contact_source_events row
+  // C: UPDATE contact to set primarySourceCategory, primarySourceType, primarySourceEventId, sourceCategory
+  // The DEFERRABLE INITIALLY DEFERRED FK on primarySourceEventId allows A before B.
+  const { auditChange } = await import("./audit-change");
+
+  const contact = await db.transaction(async (tx) => {
+    const contactPayload: ServerInsertContact = {
+      ...(mutation as any),
+      ...(ghlContactId ? { ghlContactId } : {}),
+      sourceCategory: provenance.sourceCategory,
+      primarySourceCategory: provenance.sourceCategory,
+      primarySourceType: provenance.sourceType,
+      primarySourceEventId: null, // will be updated after event insert
+      lastMeaningfulContactMutationAt: new Date(),
+    };
+
+    // A: Insert contact
+    const [newContact] = await tx.insert(contacts).values(contactPayload).returning();
+
+    // B: Insert source event
+    const [sourceEvent] = await tx.insert(contactSourceEvents).values({
+      contactId: newContact.id,
+      eventKey: provenance.eventKey,
+      sourceCategory: provenance.sourceCategory,
+      sourceType: provenance.sourceType,
+      sourceExternalId: provenance.sourceExternalId ?? null,
+      importExecutionId: provenance.importExecutionId ?? null,
+      sourceRowNumber: provenance.sourceRowNumber ?? null,
+      rowFingerprint: provenance.rowFingerprint ?? null,
+      actorType: provenance.actorType,
+      actorId: provenance.actorId ?? null,
+      metadata: provenance.metadata ?? null,
+    }).returning();
+
+    // C: Update contact with sourceEvent FK
+    const [updatedContact] = await tx
+      .update(contacts)
+      .set({ primarySourceEventId: sourceEvent.id })
+      .where(eq(contacts.id, newContact.id))
+      .returning();
+
+    // Audit log
+    await auditChange({
+      userId: actor.userId ?? null,
+      actorType: (actor.actorType as any) ?? "system",
+      actorId: actor.actorId ?? null,
+      action: "contact_created",
+      entityType: "contact",
+      entityId: updatedContact.id,
+      before: null,
+      after: updatedContact as unknown as Record<string, unknown>,
+    }, tx);
+
+    return updatedContact;
+  });
+
+  // Step 3: Readiness hook
+  try {
+    await enqueueReadinessRecalculation(contact.id);
+  } catch (err) {
+    console.warn(`[ContactWriter] Readiness enqueue failed for new contact ${contact.id}: ${(err as Error).message}`);
+  }
+
+  // Step 4: GHL retry if pre-write failed
+  if (ghlSyncPending) {
+    await storage.createAuditLog({
+      action: "ghl_sync_pending",
+      entityType: "contact",
+      entityId: contact.id,
+      details: { trigger: "contact_created", reason: "GHL pre-create failed; auto-sync loop will retry" },
+    });
+    syncContactToGhl(contact.id).then(result => {
+      if (!result.success) {
+        console.error(`[ContactWriter] Retry sync failed for contact ${contact.id}: ${result.error}`);
+        storage.createAuditLog({
+          action: "ghl_sync_failed",
+          entityType: "contact",
+          entityId: contact.id,
+          details: { error: result.error, trigger: "contact_created_retry" },
+        }).catch(() => {});
+      }
+    }).catch((err: Error) => {
+      console.error(`[ContactWriter] Retry exception for contact ${contact.id}:`, err.message);
+    });
+  }
+
+  return { ...contact, _ghlSyncPending: ghlSyncPending };
+}
+
+/**
+ * Upsert a contact_source_events row — used on GHL inbound updates
+ * (existing contacts only). Does NOT touch primarySourceCategory if already set.
+ * On duplicate eventKey: updates lastSeenAt only.
+ */
+export async function upsertContactSourceEvent(args: {
+  contactId: number;
+  provenance: ProvenanceInput;
+}): Promise<void> {
+  const { contactId, provenance } = args;
+  assertValidSourceCombo(provenance.sourceCategory, provenance.sourceType);
+
+  await db.execute(sql`
+    INSERT INTO contact_source_events
+      (contact_id, event_key, source_category, source_type, source_external_id,
+       import_execution_id, actor_type, actor_id, metadata)
+    VALUES
+      (${contactId}, ${provenance.eventKey}, ${provenance.sourceCategory},
+       ${provenance.sourceType}, ${provenance.sourceExternalId ?? null},
+       ${provenance.importExecutionId ?? null},
+       ${provenance.actorType}, ${provenance.actorId ?? null},
+       ${provenance.metadata ? JSON.stringify(provenance.metadata) : null}::jsonb)
+    ON CONFLICT (contact_id, event_key)
+    DO UPDATE SET last_seen_at = now()
+  `);
+}
+
+// ---------------------------------------------------------------------------
+// Legacy backward-compat wrappers — delegate to writeContact / storage
+// ---------------------------------------------------------------------------
 
 /**
  * GHL-first contact create.
@@ -14,90 +298,31 @@ import { READINESS_DEPENDENT_FIELDS, enqueueReadinessRecalculation } from "./con
  *
  * Returns the created contact plus a `_ghlSyncPending` flag indicating whether
  * GHL sync succeeded at creation time.
+ *
+ * @deprecated Use writeContact() with explicit provenance instead.
+ *   Kept for backward compatibility with routes that have not yet been
+ *   migrated to provenance-aware calls. Provenance defaults to legacy_unknown.
  */
 export async function createContactGhlFirst(
   input: InsertContact,
   auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }
 ): Promise<Contact & { _ghlSyncPending: boolean }> {
-  let ghlContactId: string | undefined;
-  let ghlSyncPending = false;
-
-  if (isGhlConfigured()) {
-    try {
-      ghlContactId = await upsertGhlContact({
-        id: 0,
-        firstName: input.firstName,
-        lastName: input.lastName ?? "",
-        email: input.email ?? "",
-        phone: input.phone ?? "",
-        ghlContactId: input.ghlContactId ?? null,
-        companyName: input.companyName ?? undefined,
-        tags: input.tags ?? [],
-        vertical: input.vertical ?? undefined,
-        monthlyVolume: input.monthlyVolume ?? undefined,
-        primaryOfferPath: input.primaryOfferPath ?? undefined,
-        currentProvider: input.currentProvider ?? undefined,
-        painPoints: input.painPoints ?? undefined,
-        interestedIn0Percent: input.interestedIn0Percent ?? false,
-        needTerminal: input.needTerminal ?? false,
-        utmSource: input.utmSource ?? undefined,
-        utmMedium: input.utmMedium ?? undefined,
-        utmCampaign: input.utmCampaign ?? undefined,
-        promoCode: input.promoCode ?? undefined,
-        consentSms: input.consentSms ?? false,
-        consentEmail: input.consentEmail ?? false,
-        landingPage: input.landingPage ?? undefined,
-      });
-      if (ghlContactId) {
-        console.log(`[GHL Write-First] Pre-created contact in GHL: ${ghlContactId}`);
-      }
-    } catch (ghlErr: unknown) {
-      const msg = ghlErr instanceof Error ? ghlErr.message : String(ghlErr);
-      console.warn(`[GHL Write-First] Failed to pre-create contact in GHL (will retry): ${msg}`);
-      ghlSyncPending = true;
-    }
-  }
-
-  const contact = await storage.createContact({
-    ...input,
-    ...(ghlContactId ? { ghlContactId } : {}),
-    // Set mutation timestamp at create time so the backfill considers this contact
-    // stale-eligible if any field changes before the readiness worker processes it.
-    lastMeaningfulContactMutationAt: new Date(),
-  }, auditCtx);
-
-  // Readiness hook: all score-relevant fields are present at creation time.
-  // Awaited so failures surface as warnings rather than being silently swallowed.
-  try {
-    await enqueueReadinessRecalculation(contact.id);
-  } catch (err) {
-    console.warn(`[ContactWriter] Readiness enqueue failed for new contact ${contact.id}: ${(err as Error).message}`);
-  }
-
-  if (ghlSyncPending) {
-    await storage.createAuditLog({
-      action: "ghl_sync_pending",
-      entityType: "contact",
-      entityId: contact.id,
-      details: { trigger: "contact_created", reason: "GHL pre-create failed; auto-sync loop will retry" },
-    });
-    // Immediate async retry — auto-sync loop also picks this up every 45s
-    syncContactToGhl(contact.id).then(result => {
-      if (!result.success) {
-        console.error(`[GHL Write-First] Retry sync failed for contact ${contact.id}: ${result.error}`);
-        storage.createAuditLog({
-          action: "ghl_sync_failed",
-          entityType: "contact",
-          entityId: contact.id,
-          details: { error: result.error, trigger: "contact_created_retry" },
-        }).catch(() => {});
-      }
-    }).catch((err: Error) => {
-      console.error(`[GHL Write-First] Retry exception for contact ${contact.id}:`, err.message);
-    });
-  }
-
-  return { ...contact, _ghlSyncPending: ghlSyncPending };
+  return writeContact({
+    mode: "ghl_upsert_first",
+    mutation: input as any,
+    provenance: {
+      sourceCategory: (input as any).sourceCategory || "legacy_unknown",
+      sourceType: "historical_backfill",
+      eventKey: `legacy:compat:${Date.now()}:${Math.random().toString(36).slice(2)}`,
+      actorType: auditCtx?.actorType ?? "system",
+      actorId: auditCtx?.actorId ?? undefined,
+    },
+    actor: {
+      actorType: auditCtx?.actorType ?? "system",
+      actorId: auditCtx?.actorId ?? null,
+      userId: auditCtx?.userId ?? null,
+    },
+  });
 }
 
 /**
@@ -116,19 +341,22 @@ export async function updateContactGhlFirst(
 ): Promise<(Contact & { _ghlSyncFailed: boolean }) | null> {
   let ghlSyncFailed = false;
 
+  // Strip provenance fields — updates must never overwrite intake origin
+  const safeUpdates = stripProvenanceFields(updates as Record<string, unknown>) as UpdateContactRequest;
+
   if (isGhlConfigured()) {
     const existing = await storage.getContact(contactId);
     if (existing) {
-      const merged: Contact = { ...existing, ...updates };
+      const merged: Contact = { ...existing, ...safeUpdates };
       try {
         const ghlId = await upsertGhlContact(merged);
         if (ghlId && !existing.ghlContactId) {
-          updates = { ...updates, ghlContactId: ghlId };
+          (safeUpdates as any).ghlContactId = ghlId;
         }
-        console.log(`[GHL Write-First] Synced contact ${contactId} to GHL before local update`);
+        console.log(`[ContactWriter] Synced contact ${contactId} to GHL before local update`);
       } catch (ghlErr: unknown) {
         const msg = ghlErr instanceof Error ? ghlErr.message : String(ghlErr);
-        console.warn(`[GHL Write-First] GHL pre-update failed for contact ${contactId}: ${msg}`);
+        console.warn(`[ContactWriter] GHL pre-update failed for contact ${contactId}: ${msg}`);
         ghlSyncFailed = true;
         await storage.createAuditLog({
           action: "ghl_sync_failed",
@@ -140,18 +368,15 @@ export async function updateContactGhlFirst(
     }
   }
 
-  // Readiness hook: check if any readiness-dependent field changed BEFORE the update
-  // so we can merge lastMeaningfulContactMutationAt into the same DB write (one round-trip).
-  const changedKeys = Object.keys(updates) as Array<keyof typeof updates>;
+  const changedKeys = Object.keys(safeUpdates) as Array<keyof typeof safeUpdates>;
   const hasReadinessChange = changedKeys.some(k => READINESS_DEPENDENT_FIELDS.includes(k as any));
 
   const updated = await storage.updateContact(contactId, {
-    ...updates,
+    ...safeUpdates,
     ...(hasReadinessChange ? { lastMeaningfulContactMutationAt: new Date() } : {}),
   }, auditCtx);
   if (!updated) return null;
 
-  // Awaited so failures surface as warnings rather than being silently swallowed.
   if (hasReadinessChange) {
     try {
       await enqueueReadinessRecalculation(contactId);
@@ -163,12 +388,12 @@ export async function updateContactGhlFirst(
   if (ghlSyncFailed) {
     syncContactToGhl(contactId).then(result => {
       if (!result.success) {
-        console.error(`[GHL Write-First] Retry sync failed for contact ${contactId}: ${result.error}`);
+        console.error(`[ContactWriter] Retry sync failed for contact ${contactId}: ${result.error}`);
       } else {
-        console.log(`[GHL Write-First] Retry sync succeeded for contact ${contactId}`);
+        console.log(`[ContactWriter] Retry sync succeeded for contact ${contactId}`);
       }
     }).catch((err: Error) => {
-      console.error(`[GHL Write-First] Retry exception for contact ${contactId}:`, err.message);
+      console.error(`[ContactWriter] Retry exception for contact ${contactId}:`, err.message);
     });
   }
 

@@ -5,6 +5,7 @@ import { ghlSyncStatus, GHL_PIPELINE_STAGE_MAP, GHL_PIPELINE_STAGE_REVERSE, ACTI
 import { upsertGhlContact, isGhlConfigured, sendGhlEmail } from "./ghl";
 import { getEmailSignatureHtml } from "./email-signatures";
 import { auditChange } from "./audit-change";
+import { writeContact, upsertContactSourceEvent } from "./contact-writer";
 import { eq } from "drizzle-orm";
 
 const CONFLICT_FIELDS: Array<{ ghlKey: string; contactKey: keyof Contact }> = [
@@ -358,24 +359,49 @@ export async function syncContactFromGhl(ghlContact: any): Promise<{ contactId: 
         console.log(`[GHL Sync] ${conflictFields.length} conflict(s) logged for contact #${existingContact.id}: ${conflictFields.join(", ")} — no DB write`);
       }
 
+      // Record/refresh a source event so provenance stays current on every inbound sync tick.
+      // eventKey is stable per GHL contact ID — upsertContactSourceEvent is idempotent.
+      upsertContactSourceEvent({
+        contactId: existingContact.id,
+        provenance: {
+          eventKey: `ghl:${ghlContact.id}:inbound`,
+          sourceCategory: "ghl_sync",
+          sourceType: "inbound",
+          sourceExternalId: ghlContact.id,
+          actorType: "system",
+        },
+      }).catch((e: any) => console.warn(`[GHL Sync] source event upsert failed for contact #${existingContact.id}:`, e?.message || e));
+
       await updateSyncStatusRecord("contacts", "inbound", 1, 0);
       return { contactId: existingContact.id, created: false };
     }
 
     // No existing row found — create a new contact.
+    // Use ghl_inbound_no_echo mode to avoid echoing inbound data back to GHL.
     // Wrap in try/catch to recover from 23505 unique-violation races (concurrent create).
     try {
-      const contact = await storage.createContact({
-        firstName: ghlContact.firstName || "Unknown",
-        lastName: ghlContact.lastName || "",
-        email: ghlContact.email || "",
-        phone: ghlContact.phone || "",
-        companyName: ghlContact.companyName || "",
-        ghlContactId: ghlContact.id,
-        status: "New",
-        tags: [...(ghlContact.tags || []), "ghl-import"],
-        referralSource: "ghl_sync",
-        lastSyncedAt: new Date(),
+      const contact = await writeContact({
+        mode: "ghl_inbound_no_echo",
+        mutation: {
+          firstName: ghlContact.firstName || "Unknown",
+          lastName: ghlContact.lastName || "",
+          email: ghlContact.email || "",
+          phone: ghlContact.phone || "",
+          companyName: ghlContact.companyName || "",
+          ghlContactId: ghlContact.id,
+          status: "New",
+          tags: [...(ghlContact.tags || []), "ghl-import"],
+          referralSource: "ghl_sync",
+          lastSyncedAt: new Date(),
+        },
+        provenance: {
+          sourceCategory: "ghl_sync",
+          sourceType: "inbound",
+          eventKey: `ghl:${ghlContact.id}:${Date.now()}`,
+          sourceExternalId: ghlContact.id,
+          actorType: "system",
+        },
+        actor: { actorType: "system" },
       });
 
       await updateSyncStatusRecord("contacts", "inbound", 1, 0);

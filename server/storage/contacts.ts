@@ -174,8 +174,13 @@ import { coerceDateFields } from "../utils/date-coerce";
 
   async updateContact(id: number, updates: UpdateContactRequest, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }) {
     const { auditChange } = await import("../services/audit-change");
+    // Defense-in-depth: strip provenance fields — these are immutable after first set
+    // and must never be overwritten via the generic update path. The PUT route also
+    // strips these, but we enforce here as a second layer.
+    const { sourceCategory, primarySourceCategory, primarySourceType, primarySourceEventId, ...safeUpdates } = updates as any;
+    void sourceCategory; void primarySourceCategory; void primarySourceType; void primarySourceEventId;
     const coercedUpdates = coerceDateFields(
-      updates as Record<string, unknown>,
+      safeUpdates as Record<string, unknown>,
       ["lastScoredAt", "smsOptInAt", "emailOptInAt", "lastContactedAt", "coolingUntil",
        "linkedinEnrichedAt", "archivedAt", "lastSyncedAt", "bouncedAt",
        "lastVoicemailAt", "offerRoutedAt"],

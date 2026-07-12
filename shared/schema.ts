@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, boolean, timestamp, jsonb, varchar, real, numeric, index, uniqueIndex, unique, date } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, jsonb, varchar, real, numeric, index, uniqueIndex, unique, date, uuid } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -6,6 +6,34 @@ import { users } from "./models/auth";
 
 export * from "./models/auth";
 export * from "./models/chat";
+
+// ---------------------------------------------------------------------------
+// Import Executions — one row per file-based import run (CSV, Sunbiz, etc.)
+// ---------------------------------------------------------------------------
+export const importExecutions = pgTable("import_executions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  importType: text("import_type").notNull(), // csv_contact | sunbiz_upload | sunbiz_corevt | prospect_csv
+  fileHash: text("file_hash"),
+  status: text("status").notNull().default("running"), // running | completed | failed
+  totalRows: integer("total_rows"),
+  insertedRows: integer("inserted_rows"),
+  updatedRows: integer("updated_rows"),
+  skippedRows: integer("skipped_rows"),
+  errorRows: integer("error_rows"),
+  actorType: text("actor_type"),
+  actorId: text("actor_id"),
+  metadata: jsonb("metadata"),
+  startedAt: timestamp("started_at").defaultNow(),
+  completedAt: timestamp("completed_at"),
+}, (table) => [
+  // Prevent re-completing the same file twice (replay protection)
+  uniqueIndex("import_executions_type_hash_completed_uidx")
+    .on(table.importType, table.fileHash)
+    .where(sql`file_hash IS NOT NULL AND status = 'completed'`),
+]);
+
+export type ImportExecution = typeof importExecutions.$inferSelect;
+export type InsertImportExecution = typeof importExecutions.$inferInsert;
 
 export const contacts = pgTable("contacts", {
   id: serial("id").primaryKey(),
@@ -112,6 +140,14 @@ export const contacts = pgTable("contacts", {
   readinessUpdatedAt: timestamp("readiness_updated_at"),
   readinessModelVersion: integer("readiness_model_version"),
   lastMeaningfulContactMutationAt: timestamp("last_meaningful_contact_mutation_at"),
+  // Intake provenance — immutable after first set; dual-field design:
+  // sourceCategory (line 99 above) = operational field read by contactability.ts
+  // primarySourceCategory = permanent record of acquisition origin
+  primarySourceCategory: text("primary_source_category"),
+  primarySourceType: text("primary_source_type"),
+  // DEFERRABLE INITIALLY DEFERRED: allows insert-contact-then-insert-event-then-UPDATE
+  // within a single transaction without violating FK at mid-tx.
+  primarySourceEventId: integer("primary_source_event_id").references(() => contactSourceEvents.id, { deferrable: true, initiallyDeferred: true }),
 }, (table) => [
   uniqueIndex("contacts_email_unique_idx").on(table.email).where(sql`archived_at IS NULL`),
   index("contacts_phone_idx").on(table.phone),
@@ -126,7 +162,55 @@ export const insertContactSchema = createInsertSchema(contacts).omit({
   createdAt: true,
   updatedAt: true,
   archivedAt: true,
+  // Provenance fields are server-assigned only — never accepted from client input.
+  // Use serverInsertContactSchema (below) for internal writes that need these.
+  sourceCategory: true,
+  primarySourceCategory: true,
+  primarySourceType: true,
+  primarySourceEventId: true,
 });
+
+// Internal-only schema used by writeContact() — includes provenance fields.
+// Never expose this to client-facing request parsing.
+export const serverInsertContactSchema = createInsertSchema(contacts).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  archivedAt: true,
+});
+export type ServerInsertContact = z.infer<typeof serverInsertContactSchema>;
+
+// ---------------------------------------------------------------------------
+// Contact Source Events — one row per intake event per contact
+// UNIQUE (contact_id, event_key) prevents duplicate ingestion of same event
+// ---------------------------------------------------------------------------
+export const contactSourceEvents = pgTable("contact_source_events", {
+  id: serial("id").primaryKey(),
+  contactId: integer("contact_id").notNull().references(() => contacts.id),
+  // eventKey is server-generated, non-null, guaranteed unique per contact.
+  // Examples: form:statement_upload:<nanoid>, ghl:<ghlId>:<hash>, import:<execId>:row:<n>
+  eventKey: text("event_key").notNull(),
+  sourceCategory: text("source_category").notNull(),
+  sourceType: text("source_type").notNull(),
+  sourceExternalId: text("source_external_id"),
+  importExecutionId: uuid("import_execution_id").references(() => importExecutions.id),
+  sourceRowNumber: integer("source_row_number"),
+  rowFingerprint: text("row_fingerprint"),
+  actorType: text("actor_type").notNull(),
+  actorId: text("actor_id"),
+  metadata: jsonb("metadata"),
+  firstSeenAt: timestamp("first_seen_at").notNull().defaultNow(),
+  lastSeenAt: timestamp("last_seen_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  // Core idempotency constraint — non-null eventKey ensures this always fires
+  uniqueIndex("contact_source_events_contact_key_uidx").on(table.contactId, table.eventKey),
+  index("contact_source_events_contact_id_idx").on(table.contactId),
+  index("contact_source_events_import_execution_idx").on(table.importExecutionId),
+]);
+
+export type ContactSourceEvent = typeof contactSourceEvents.$inferSelect;
+export type InsertContactSourceEvent = typeof contactSourceEvents.$inferInsert;
 
 export const companies = pgTable("companies", {
   id: serial("id").primaryKey(),
@@ -1412,6 +1496,8 @@ export const sunbizEntities = pgTable("sunbiz_entities", {
   source: text("source").default("sunbiz"),
   searchQuery: text("search_query"),
   detailUrl: text("detail_url"),
+  // Provenance: links each entity batch back to a specific import execution
+  importExecutionId: uuid("import_execution_id").references(() => importExecutions.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [

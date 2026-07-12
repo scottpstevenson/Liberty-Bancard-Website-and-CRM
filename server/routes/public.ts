@@ -14,7 +14,7 @@ import { autoGenerateProposal } from "../services/proposal-engine";
 import { routeContact } from "../services/smart-router";
 import { ingestBusinessFromContact } from "../services/sdr/dedupe";
 import { syncFormSubmissionToGhl, syncStatementUploadToGhl, syncSupportTicketToGhl } from "../services/ghl-form-sync";
-import { createContactGhlFirst } from "../services/contact-writer";
+import { writeContact } from "../services/contact-writer";
 import { runStatementUploadChain } from "../services/statement-upload-chain";
 import { parse } from "csv-parse/sync";
 import path from "path";
@@ -206,20 +206,30 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
 
       const contact = existingContactId
         ? await storage.getContact(existingContactId).then(c => c!)
-        : await createContactGhlFirst({
-            firstName, lastName, email, phone: mobile,
-            companyName: businessName, vertical, currentProvider,
-            interestedIn0Percent: parseBool(interestedIn0Percent),
-            needTerminal: parseBool(needTerminal),
-            notes, consentSms: parseBool(consentSms),
-            utmSource: utmSource || undefined,
-            utmMedium: utmMedium || undefined,
-            utmCampaign: utmCampaign || undefined,
-            utmContent: utmContent || undefined,
-            utmTerm: utmTerm || undefined,
-            landingPage: landingPage || "/upload-statement",
-            status: "New",
-            tags,
+        : await writeContact({
+            mode: "ghl_upsert_first",
+            mutation: {
+              firstName, lastName, email, phone: mobile,
+              companyName: businessName, vertical, currentProvider,
+              interestedIn0Percent: parseBool(interestedIn0Percent),
+              needTerminal: parseBool(needTerminal),
+              notes, consentSms: parseBool(consentSms),
+              utmSource: utmSource || undefined,
+              utmMedium: utmMedium || undefined,
+              utmCampaign: utmCampaign || undefined,
+              utmContent: utmContent || undefined,
+              utmTerm: utmTerm || undefined,
+              landingPage: landingPage || "/upload-statement",
+              status: "New",
+              tags,
+            },
+            provenance: {
+              sourceCategory: "website_form",
+              sourceType: "statement_upload",
+              eventKey: `form:statement_upload:${submissionId}`,
+              actorType: "public",
+            },
+            actor: { actorType: "public" },
           });
 
       if (!contact) throw new Error("Could not resolve contact record");
@@ -317,17 +327,27 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       const tags = ["src_website", "lead_estimate"];
       if (utmSource) tags.push(`utm_src_${utmSource}`);
 
-      const contact = await createContactGhlFirst({
-        firstName, lastName, email, phone: phone || "",
-        monthlyVolume, currentProvider, notes,
-        utmSource: utmSource || undefined,
-        utmMedium: utmMedium || undefined,
-        utmCampaign: utmCampaign || undefined,
-        utmContent: utmContent || undefined,
-        utmTerm: utmTerm || undefined,
-        landingPage: landingPage || "/estimate",
-        status: "New",
-        tags,
+      const contact = await writeContact({
+        mode: "ghl_upsert_first",
+        mutation: {
+          firstName, lastName, email, phone: phone || "",
+          monthlyVolume, currentProvider, notes,
+          utmSource: utmSource || undefined,
+          utmMedium: utmMedium || undefined,
+          utmCampaign: utmCampaign || undefined,
+          utmContent: utmContent || undefined,
+          utmTerm: utmTerm || undefined,
+          landingPage: landingPage || "/estimate",
+          status: "New",
+          tags,
+        },
+        provenance: {
+          sourceCategory: "website_form",
+          sourceType: "estimate_form",
+          eventKey: `form:estimate_form:${submissionId}`,
+          actorType: "public",
+        },
+        actor: { actorType: "public" },
       });
 
       if (estimatePewcRaw === true) {
@@ -398,11 +418,21 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       const firstName = nameParts[0] || "there";
       const lastName = nameParts.slice(1).join(" ") || "";
 
-      let contact = await createContactGhlFirst({
-        firstName, lastName, email, phone: mobile || "",
-        companyName: businessName, consentSms: consentSms === true,
-        status: "Active",
-        tags: ["src_website", "support_request", `support_${(issueType || "other").toLowerCase().replace(/[^a-z]/g, "_")}`],
+      let contact = await writeContact({
+        mode: "ghl_upsert_first",
+        mutation: {
+          firstName, lastName, email, phone: mobile || "",
+          companyName: businessName, consentSms: consentSms === true,
+          status: "Active",
+          tags: ["src_website", "support_request", `support_${(issueType || "other").toLowerCase().replace(/[^a-z]/g, "_")}`],
+        },
+        provenance: {
+          sourceCategory: "website_form",
+          sourceType: "support_form",
+          eventKey: `form:support_form:${crypto.randomUUID()}`,
+          actorType: "public",
+        },
+        actor: { actorType: "public" },
       });
 
       if (consentSms) {
@@ -478,20 +508,30 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       if (utmMedium) tags.push(`utm_med_${utmMedium}`);
       if (utmCampaign) tags.push(`utm_camp_${utmCampaign}`);
 
-      const contact = await createContactGhlFirst({
-        firstName, lastName, email, phone: phone || "",
-        vertical, monthlyVolume, primaryOfferPath: offerPath,
-        interestedIn0Percent: interestedIn0Percent === true,
-        needTerminal: needTerminal === true,
-        consentSms: pewcConsent === true,
-        utmSource: utmSource || undefined,
-        utmMedium: utmMedium || undefined,
-        utmCampaign: utmCampaign || undefined,
-        utmContent: utmContent || undefined,
-        utmTerm: utmTerm || undefined,
-        landingPage: landingPage || "/get-started",
-        status: "New",
-        tags,
+      const contact = await writeContact({
+        mode: "ghl_upsert_first",
+        mutation: {
+          firstName, lastName, email, phone: phone || "",
+          vertical, monthlyVolume, primaryOfferPath: offerPath,
+          interestedIn0Percent: interestedIn0Percent === true,
+          needTerminal: needTerminal === true,
+          consentSms: pewcConsent === true,
+          utmSource: utmSource || undefined,
+          utmMedium: utmMedium || undefined,
+          utmCampaign: utmCampaign || undefined,
+          utmContent: utmContent || undefined,
+          utmTerm: utmTerm || undefined,
+          landingPage: landingPage || "/get-started",
+          status: "New",
+          tags,
+        },
+        provenance: {
+          sourceCategory: "website_form",
+          sourceType: "get_started_form",
+          eventKey: `form:get_started_form:${submissionId}`,
+          actorType: "public",
+        },
+        actor: { actorType: "public" },
       });
 
       if (pewcConsent === true) {
@@ -620,16 +660,26 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
 
       const requestNote = `Integration request: ${data.softwareName}${data.softwareCategory ? ` (${data.softwareCategory})` : ""}.${data.notes ? ` Notes: ${data.notes}` : ""}`;
 
-      const contact = await createContactGhlFirst({
-        firstName,
-        lastName,
-        email: data.email,
-        phone: data.phone || "",
-        companyName: data.businessName || undefined,
-        notes: requestNote,
-        landingPage: "/integrations",
-        status: "New",
-        tags,
+      const contact = await writeContact({
+        mode: "ghl_upsert_first",
+        mutation: {
+          firstName,
+          lastName,
+          email: data.email,
+          phone: data.phone || "",
+          companyName: data.businessName || undefined,
+          notes: requestNote,
+          landingPage: "/integrations",
+          status: "New",
+          tags,
+        },
+        provenance: {
+          sourceCategory: "website_form",
+          sourceType: "integration_request",
+          eventKey: `form:integration_request:${crypto.randomUUID()}`,
+          actorType: "public",
+        },
+        actor: { actorType: "public" },
       });
 
       await storage.createNotification({
@@ -674,10 +724,20 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       const firstName = nameParts[0] || "";
       const lastName = nameParts.slice(1).join(" ") || "";
 
-      const contact = await createContactGhlFirst({
-        firstName, lastName, email: "", phone: phone || "",
-        status: "New",
-        tags: ["src_website", "lead_callback", `callback_${(bestTime || "anytime").toLowerCase().replace(/[^a-z]/g, "_")}`],
+      const contact = await writeContact({
+        mode: "ghl_upsert_first",
+        mutation: {
+          firstName, lastName, email: "", phone: phone || "",
+          status: "New",
+          tags: ["src_website", "lead_callback", `callback_${(bestTime || "anytime").toLowerCase().replace(/[^a-z]/g, "_")}`],
+        },
+        provenance: {
+          sourceCategory: "website_form",
+          sourceType: "callback_form",
+          eventKey: `form:callback_form:${submissionId}`,
+          actorType: "public",
+        },
+        actor: { actorType: "public" },
       });
 
       const deal = await storage.createDeal({
@@ -752,18 +812,28 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
 
       if (utmSource) orderTags.push(`utm_src_${utmSource}`);
 
-      const contact = await createContactGhlFirst({
-        firstName: firstName.slice(0, 100), lastName: safeLastName, email: email.slice(0, 200), phone: phone.slice(0, 30),
-        companyName: safeBusiness,
-        promoCode: sanitizedPromo,
-        utmSource: utmSource || undefined,
-        utmMedium: utmMedium || undefined,
-        utmCampaign: utmCampaign || undefined,
-        utmContent: utmContent || undefined,
-        utmTerm: utmTerm || undefined,
-        landingPage: landingPage || "/shop",
-        status: "New",
-        tags: orderTags,
+      const contact = await writeContact({
+        mode: "ghl_upsert_first",
+        mutation: {
+          firstName: firstName.slice(0, 100), lastName: safeLastName, email: email.slice(0, 200), phone: phone.slice(0, 30),
+          companyName: safeBusiness,
+          promoCode: sanitizedPromo,
+          utmSource: utmSource || undefined,
+          utmMedium: utmMedium || undefined,
+          utmCampaign: utmCampaign || undefined,
+          utmContent: utmContent || undefined,
+          utmTerm: utmTerm || undefined,
+          landingPage: landingPage || "/shop",
+          status: "New",
+          tags: orderTags,
+        },
+        provenance: {
+          sourceCategory: "website_form",
+          sourceType: "equipment_order",
+          eventKey: `form:equipment_order:${crypto.randomUUID()}`,
+          actorType: "public",
+        },
+        actor: { actorType: "public" },
       });
 
       const itemSummary = validatedItems.map((i: any) => `${i.name} x${i.quantity} (${i.price})`).join(", ");
@@ -887,10 +957,20 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       const safeSavings = String(savingsAmount || "").slice(0, 100);
       const safeStory = String(story || "").slice(0, 5000);
 
-      const contact = await createContactGhlFirst({
-        firstName, lastName, email, phone: safePhone,
-        status: "New",
-        tags: ["src_testimonial_submit", "testimonial_prospect"],
+      const contact = await writeContact({
+        mode: "ghl_upsert_first",
+        mutation: {
+          firstName, lastName, email, phone: safePhone,
+          status: "New",
+          tags: ["src_testimonial_submit", "testimonial_prospect"],
+        },
+        provenance: {
+          sourceCategory: "website_form",
+          sourceType: "testimonial_submit",
+          eventKey: `form:testimonial_submit:${crypto.randomUUID()}`,
+          actorType: "public",
+        },
+        actor: { actorType: "public" },
       });
 
       const noteContent = [
@@ -945,15 +1025,25 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       });
       const { firstName, email } = schema.parse(req.body);
 
-      const contact = await createContactGhlFirst({
-        firstName,
-        lastName: "",
-        email,
-        phone: "",
-        status: "New",
-        tags: ["NEWSLETTER-SIGNUP", "src_blog"],
-        referralSource: "newsletter",
-        landingPage: "/blog",
+      const contact = await writeContact({
+        mode: "ghl_upsert_first",
+        mutation: {
+          firstName,
+          lastName: "",
+          email,
+          phone: "",
+          status: "New",
+          tags: ["NEWSLETTER-SIGNUP", "src_blog"],
+          referralSource: "newsletter",
+          landingPage: "/blog",
+        },
+        provenance: {
+          sourceCategory: "website_form",
+          sourceType: "newsletter_signup",
+          eventKey: `form:newsletter_signup:${crypto.randomUUID()}`,
+          actorType: "public",
+        },
+        actor: { actorType: "public" },
       });
 
       syncFormSubmissionToGhl({

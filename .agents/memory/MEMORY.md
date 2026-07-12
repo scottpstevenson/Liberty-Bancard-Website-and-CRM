@@ -54,3 +54,4 @@
 - [Migration timestamp vs PHASE3_INDEX_WHEN collision](migration-when-collision.md) — new journal entries must use `when` ABOVE PHASE3_INDEX_WHEN=1784700000000 or Drizzle's migrate() skips them silently.
 - [executeSql DDL timeout + migration lock contention](executesql-ddl-timeout.md) — executeSql times out on DDL against large tables; a crashed startup migration leaves exclusive locks; terminate blocking pids before retrying.
 - [Partial index scope for zero-migration uniqueness](partial-index-new-rows-only.md) — scope a new UNIQUE index to `new_discriminator_col IS NOT NULL` (added in a prior migration) to avoid deduping existing rows; pre-existing rows are excluded, so index builds instantly.
+- [Intake Provenance System](intake-provenance.md) — writeContact() canonical writer; import_executions + contact_source_events; A→B→C DEFERRABLE transaction; all 9 public forms + manual CRM + GHL sync + CSV + Sunbiz wired.
