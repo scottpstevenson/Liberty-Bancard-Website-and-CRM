@@ -288,6 +288,9 @@ export interface IStorage {
   getProspect(id: number): Promise<typeof prospects.$inferSelect | undefined>;
   createProspect(prospect: InsertProspect): Promise<typeof prospects.$inferSelect>;
   createProspectsBulk(prospectData: InsertProspect[]): Promise<Prospect[]>;
+  createProspectsBulkIdempotent(prospectData: InsertProspect[]): Promise<{ inserted: number }>;
+  getProspectListByHash(importType: string, fileHash: string): Promise<typeof prospectLists.$inferSelect | null>;
+  getExistingProspectEmailsChunked(emails: string[]): Promise<Set<string>>;
   updateProspect(id: number, updates: UpdateProspectRequest): Promise<typeof prospects.$inferSelect | undefined>;
   getProspectsByStatus(status: string): Promise<typeof prospects.$inferSelect[]>;
   getProspectsByScore(score: string): Promise<typeof prospects.$inferSelect[]>;
@@ -372,6 +375,7 @@ export interface IStorage {
   getSunbizEntityByFiling(filingNumber: string): Promise<SunbizEntity | undefined>;
   createSunbizEntity(entity: InsertSunbizEntity): Promise<SunbizEntity>;
   createSunbizEntitiesBulk(entities: InsertSunbizEntity[]): Promise<SunbizEntity[]>;
+  upsertSunbizEntitiesBulk(entities: InsertSunbizEntity[]): Promise<{ inserted: number; updated: number }>;
   updateSunbizEntity(id: number, updates: UpdateSunbizEntityRequest): Promise<SunbizEntity | undefined>;
   updateSunbizEntityByFilingNumber(filingNumber: string, updates: UpdateSunbizEntityRequest): Promise<SunbizEntity | undefined>;
   bulkUpdateSunbizEntitiesByFiling(updates: Array<{ filingNumber: string; data: UpdateSunbizEntityRequest }>): Promise<number>;

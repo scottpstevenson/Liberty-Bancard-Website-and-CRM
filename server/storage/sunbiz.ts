@@ -134,6 +134,32 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
     return created;
   }
 
+  async upsertSunbizEntitiesBulk(entities: InsertSunbizEntity[]): Promise<{ inserted: number; updated: number }> {
+    if (entities.length === 0) return { inserted: 0, updated: 0 };
+    const records = entities.map(e => ({
+      filingNumber: e.filingNumber ?? null,
+      entityName: e.entityName,
+      feiEinNumber: e.feiEinNumber ?? undefined,
+      entityType: e.entityType ?? undefined,
+      entityStatus: e.entityStatus ?? undefined,
+      filingDate: e.filingDate ?? undefined,
+      lastEvent: e.lastEvent ?? undefined,
+      principalAddress: e.principalAddress ?? undefined,
+      principalCity: e.principalCity ?? undefined,
+      principalState: e.principalState ?? undefined,
+      principalZip: e.principalZip ?? undefined,
+      mailingAddress: e.mailingAddress ?? undefined,
+      registeredAgentName: e.registeredAgentName ?? undefined,
+      registeredAgentAddress: e.registeredAgentAddress ?? undefined,
+      officers: e.officers ?? undefined,
+      ownerName: e.ownerName ?? undefined,
+      enrichmentData: e.enrichmentData ?? undefined,
+      listId: e.listId ?? undefined,
+      source: e.source ?? undefined,
+    }));
+    return this.bulkUpsertSunbizEntities(records);
+  }
+
 
   async updateSunbizEntity(id: number, updates: UpdateSunbizEntityRequest) {
     const [updated] = await db.update(sunbizEntities).set({ ...updates, updatedAt: new Date() }).where(eq(sunbizEntities.id, id)).returning();
@@ -260,7 +286,7 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
         officers, owner_name, enrichment_data,
         list_id, source, enrichment_status, created_at, updated_at
       ) VALUES ${valueGroups.join(', ')}
-      ON CONFLICT (filing_number) DO UPDATE SET
+      ON CONFLICT (source, filing_number) WHERE source IS NOT NULL AND filing_number IS NOT NULL DO UPDATE SET
         entity_name = COALESCE(EXCLUDED.entity_name, sunbiz_entities.entity_name),
         fei_ein_number = COALESCE(EXCLUDED.fei_ein_number, sunbiz_entities.fei_ein_number),
         entity_type = COALESCE(EXCLUDED.entity_type, sunbiz_entities.entity_type),
@@ -277,14 +303,17 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
         owner_name = COALESCE(EXCLUDED.owner_name, sunbiz_entities.owner_name),
         enrichment_data = COALESCE(EXCLUDED.enrichment_data, sunbiz_entities.enrichment_data),
         updated_at = NOW()
+      RETURNING (xmax = 0) AS is_insert
     `;
 
     const client = await pool.connect();
     try {
       await client.query('SET statement_timeout = 120000');
-      const result = await client.query(queryText, params);
-      const totalAffected = result.rowCount || 0;
-      return { inserted: totalAffected, updated: 0 };
+      const result = await client.query<{ is_insert: boolean }>(queryText, params);
+      const rows = result.rows || [];
+      const inserted = rows.filter(r => r.is_insert).length;
+      const updated = rows.length - inserted;
+      return { inserted, updated };
     } finally {
       client.release();
     }

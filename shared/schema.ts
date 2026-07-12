@@ -780,14 +780,26 @@ export const prospectLists = pgTable("prospect_lists", {
   name: text("name").notNull(),
   description: text("description"),
   fileName: text("file_name"),
+  fileHash: text("file_hash"),
+  importType: text("import_type"),
   totalRecords: integer("total_records").default(0),
   enrichedRecords: integer("enriched_records").default(0),
   qualifiedRecords: integer("qualified_records").default(0),
+  insertedRows: integer("inserted_rows").default(0),
+  skippedWithinFile: integer("skipped_within_file").default(0),
+  skippedExisting: integer("skipped_existing").default(0),
+  conflictRows: integer("conflict_rows").default(0),
+  actor: text("actor"),
   status: text("status").default("processing"),
   uploadedBy: text("uploaded_by"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => [
+  // Replay protection: same (importType, fileHash) cannot produce two running/complete lists.
+  uniqueIndex("prospect_lists_import_type_hash_uidx")
+    .on(table.importType, table.fileHash)
+    .where(sql`status IN ('running', 'complete')`),
+]);
 
 export const insertProspectListSchema = createInsertSchema(prospectLists).omit({
   id: true,
@@ -820,6 +832,8 @@ export const QUALIFICATION_SCORES = [
 export const prospects = pgTable("prospects", {
   id: serial("id").primaryKey(),
   listId: integer("list_id").references(() => prospectLists.id),
+  importExecutionId: integer("import_execution_id").references(() => prospectLists.id),
+  sourceRowIndex: integer("source_row_index"),
   contactId: integer("contact_id").references(() => contacts.id),
   companyName: text("company_name"),
   dba: text("dba"),
@@ -862,6 +876,15 @@ export const prospects = pgTable("prospects", {
   index("prospects_list_id_idx").on(table.listId),
   index("prospects_status_idx").on(table.status),
   index("prospects_created_at_idx").on(table.createdAt),
+  // Provenance + retry protection: same (importExecutionId, sourceRowIndex) cannot be inserted twice.
+  uniqueIndex("prospects_execution_row_uidx")
+    .on(table.importExecutionId, table.sourceRowIndex)
+    .where(sql`import_execution_id IS NOT NULL AND source_row_index IS NOT NULL`),
+  // DB-level email uniqueness for new imports (import_execution_id IS NOT NULL).
+  // Pre-existing rows have NULL import_execution_id so they are excluded.
+  uniqueIndex("prospects_email_import_unique_idx")
+    .on(table.email)
+    .where(sql`email IS NOT NULL AND import_execution_id IS NOT NULL`),
 ]);
 
 export const insertProspectSchema = createInsertSchema(prospects).omit({
@@ -1392,7 +1415,7 @@ export const sunbizEntities = pgTable("sunbiz_entities", {
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
-  index("sunbiz_entities_filing_number_idx").on(table.filingNumber),
+  uniqueIndex("sunbiz_entities_source_fn_unique").on(table.source, table.filingNumber).where(sql`source IS NOT NULL AND filing_number IS NOT NULL`),
   index("sunbiz_entities_entity_name_idx").on(table.entityName),
   index("sunbiz_entities_enrichment_status_idx").on(table.enrichmentStatus),
   index("sunbiz_entities_list_id_idx").on(table.listId),

@@ -456,6 +456,34 @@
       "when": 1785300000000,
       "tag": "0060_promotional_enrollment_jobs",
       "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1785400000000,
+      "tag": "0061_prospect_lists_idempotency",
+      "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1785500000000,
+      "tag": "0062_prospects_provenance",
+      "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1785600000000,
+      "tag": "0063_sunbiz_filing_number_unique",
+      "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1785700000000,
+      "tag": "0064_prospects_email_unique",
+      "breakpoints": true
     }
   ]
 }

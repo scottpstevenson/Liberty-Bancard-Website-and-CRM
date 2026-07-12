@@ -17,6 +17,7 @@ import { parse } from "csv-parse/sync";
 import path from "path";
 import fs from "fs";
 import { upload, uploadLarge } from "./helpers";
+import { computeFileHash, computeRowFingerprint, isValidEmailFormat, normalizeProspectEmail, normalizeProspectPhone } from "../services/import-normalizer";
 
 export function registerProspectsRoutes(app: Express) {
   // === PROSPECT LISTS ===
@@ -323,25 +324,67 @@ export function registerProspectsRoutes(app: Express) {
     }
   });
 
-  // CSV Upload endpoint
+  // CSV Upload endpoint — idempotent via file-hash replay protection
   app.post("/api/prospects/import", isAuthenticated, upload.single("file"), async (req, res) => {
+    let list: Awaited<ReturnType<typeof storage.createProspectList>> | null = null;
     try {
       if (!req.file) return res.status(400).json({ message: "No file uploaded" });
 
-      const csvContent = req.file.buffer.toString("utf-8");
+      const fileBuffer = req.file.buffer;
+      const fileHash = computeFileHash(fileBuffer);
+
+      // Replay check: same bytes already imported → return existing result
+      const existing = await storage.getProspectListByHash("prospect_csv", fileHash);
+      if (existing) {
+        return res.status(200).json({
+          list: existing,
+          imported: existing.insertedRows,
+          skippedWithinFile: existing.skippedWithinFile,
+          skippedExisting: existing.skippedExisting,
+          possibleMatchReview: existing.conflictRows,
+          invalid: (existing.totalRecords ?? 0) - (existing.insertedRows ?? 0) - (existing.skippedWithinFile ?? 0) - (existing.skippedExisting ?? 0) - (existing.conflictRows ?? 0),
+          replay: true,
+        });
+      }
+
+      const csvContent = fileBuffer.toString("utf-8");
       const records = parse(csvContent, {
         columns: true,
         skip_empty_lines: true,
         trim: true,
         relax_column_count: true,
-      });
+      }) as Record<string, string>[];
 
       const listName = (req.body.listName as string) || `Import ${new Date().toLocaleDateString()}`;
-      const list = await storage.createProspectList({
-        name: listName,
-        fileName: req.file.originalname || "upload.csv",
-        totalRecords: records.length,
-      });
+      try {
+        list = await storage.createProspectList({
+          name: listName,
+          fileName: req.file.originalname || "upload.csv",
+          fileHash,
+          importType: "prospect_csv",
+          totalRecords: records.length,
+          status: "running",
+          actor: (req as any).user?.email ?? null,
+        });
+      } catch (createErr: any) {
+        // Race: another concurrent request for the same file committed first.
+        // pg unique_violation = error code 23505
+        if (createErr?.code === "23505") {
+          const raceExisting = await storage.getProspectListByHash("prospect_csv", fileHash);
+          if (raceExisting) {
+            return res.status(200).json({
+              list: raceExisting,
+              imported: raceExisting.insertedRows,
+              skippedWithinFile: raceExisting.skippedWithinFile,
+              skippedExisting: raceExisting.skippedExisting,
+              possibleMatchReview: raceExisting.conflictRows,
+              invalid: (raceExisting.totalRecords ?? 0) - (raceExisting.insertedRows ?? 0) - (raceExisting.skippedWithinFile ?? 0) - (raceExisting.skippedExisting ?? 0) - (raceExisting.conflictRows ?? 0),
+              replay: true,
+            });
+          }
+        }
+        throw createErr;
+      }
 
       const columnMap: Record<string, string> = {
         "company": "companyName", "company_name": "companyName", "business": "companyName", "business_name": "companyName", "name": "companyName",
@@ -366,8 +409,18 @@ export function registerProspectsRoutes(app: Express) {
         "google_reviews": "googleReviews", "reviews": "googleReviews",
       };
 
-      const prospectInserts = (records as Record<string, string>[]).map((row: Record<string, string>) => {
-        const mapped: Record<string, any> = { listId: list.id };
+      // --- Parse and normalize all rows, assign sourceRowIndex ---
+      interface NormalizedRow {
+        sourceRowIndex: number;
+        raw: Record<string, any>;
+        normalizedEmail: string | null;
+        normalizedPhone: string | null;
+        fingerprint: string;
+        rowType: "email_candidate" | "phone_only" | "invalid";
+      }
+
+      const allRows: NormalizedRow[] = records.map((row, idx) => {
+        const mapped: Record<string, any> = {};
         for (const [csvCol, value] of Object.entries(row)) {
           const normalizedCol = csvCol.toLowerCase().trim().replace(/\s+/g, "_");
           const schemaField = columnMap[normalizedCol];
@@ -375,22 +428,145 @@ export function registerProspectsRoutes(app: Express) {
             mapped[schemaField] = value;
           }
         }
-        return mapped;
-      }).filter((p: Record<string, any>) => p.companyName || p.email || p.phone);
+        const normalizedEmail = normalizeProspectEmail(mapped.email ?? "");
+        const normalizedPhone = normalizeProspectPhone(mapped.phone ?? "");
+        const fingerprint = computeRowFingerprint({
+          email: normalizedEmail,
+          phone: normalizedPhone,
+          companyName: mapped.companyName ?? null,
+        });
 
-      const created = await storage.createProspectsBulk(prospectInserts);
+        // Classification: normalization is canonical (trim+lower+blank→null).
+        // Format validation (@ check) is a separate concern applied only here.
+        let rowType: NormalizedRow["rowType"] = "invalid";
+        if (normalizedEmail && isValidEmailFormat(normalizedEmail)) {
+          rowType = "email_candidate";
+        } else if (normalizedPhone) {
+          rowType = "phone_only";
+        }
+        // rows with no valid email and no phone → invalid (company-only included)
 
-      await storage.updateProspectList(list.id, {
-        totalRecords: created.length,
+        return {
+          sourceRowIndex: idx,
+          raw: mapped,
+          normalizedEmail,
+          normalizedPhone,
+          fingerprint,
+          rowType,
+        };
       });
 
+      // --- Dedup within file: group by normalizedEmail (if present) or fingerprint ---
+      const seenDedupeKeys = new Set<string>();
+      let skippedWithinFile = 0;
+      const dedupedRows = allRows.filter(r => {
+        if (r.rowType === "invalid") return true; // count as invalid, not dedup
+        const dedupeKey = r.normalizedEmail ?? r.fingerprint;
+        if (seenDedupeKeys.has(dedupeKey)) {
+          skippedWithinFile++;
+          return false;
+        }
+        seenDedupeKeys.add(dedupeKey);
+        return true;
+      });
+
+      // --- Classify rows ---
+      const emailCandidates = dedupedRows.filter(r => r.rowType === "email_candidate");
+      const phoneOnlyRows = dedupedRows.filter(r => r.rowType === "phone_only");
+      const invalidRows = dedupedRows.filter(r => r.rowType === "invalid");
+
+      // --- Batch-check existing prospects by email ---
+      const candidateEmails = emailCandidates
+        .map(r => r.normalizedEmail)
+        .filter((e): e is string => !!e);
+      const existingEmails = await storage.getExistingProspectEmailsChunked(candidateEmails);
+      let skippedExisting = 0;
+      const toInsert = emailCandidates.filter(r => {
+        if (r.normalizedEmail && existingEmails.has(r.normalizedEmail)) {
+          skippedExisting++;
+          return false;
+        }
+        return true;
+      });
+
+      // --- Build insert payloads ---
+      const prospectInserts = toInsert.map(r => ({
+        listId: list!.id,
+        importExecutionId: list!.id,
+        sourceRowIndex: r.sourceRowIndex,
+        companyName: r.raw.companyName ?? null,
+        dba: r.raw.dba ?? null,
+        website: r.raw.website ?? null,
+        phone: r.normalizedPhone ?? null,
+        email: r.normalizedEmail ?? null,
+        ownerFirstName: r.raw.ownerFirstName ?? null,
+        ownerLastName: r.raw.ownerLastName ?? null,
+        ownerEmail: r.raw.ownerEmail ?? null,
+        ownerPhone: r.raw.ownerPhone ?? null,
+        address: r.raw.address ?? null,
+        city: r.raw.city ?? null,
+        state: r.raw.state ?? null,
+        zip: r.raw.zip ?? null,
+        vertical: r.raw.vertical ?? null,
+        estimatedVolume: r.raw.estimatedVolume ?? null,
+        estimatedProcessor: r.raw.estimatedProcessor ?? null,
+        employeeCount: r.raw.employeeCount ?? null,
+        yearEstablished: r.raw.yearEstablished ?? null,
+        googleRating: r.raw.googleRating ?? null,
+        googleReviews: r.raw.googleReviews ?? null,
+        status: "raw" as const,
+        score: "cold" as const,
+        qualificationScore: "C" as const,
+        doNotContact: false,
+      }));
+
+      // --- phone-only rows: write as possible_match_review ---
+      const phoneOnlyInserts = phoneOnlyRows.map(r => ({
+        listId: list!.id,
+        importExecutionId: list!.id,
+        sourceRowIndex: r.sourceRowIndex,
+        companyName: r.raw.companyName ?? null,
+        phone: r.normalizedPhone ?? null,
+        email: null,
+        status: "possible_match_review" as const,
+        score: "cold" as const,
+        qualificationScore: "C" as const,
+        doNotContact: false,
+      }));
+
+      // Insert email candidates and phone-only rows separately so counts are independent.
+      const { inserted: emailInserted } = await storage.createProspectsBulkIdempotent(prospectInserts as any[]);
+      // Any toInsert rows the DB skipped (concurrent same-email from another import)
+      // are treated as skippedExisting to keep total accounting correct.
+      const emailSkippedByDB = prospectInserts.length - emailInserted;
+      const totalSkippedExisting = skippedExisting + emailSkippedByDB;
+
+      const { inserted: phoneInserted } = await storage.createProspectsBulkIdempotent(phoneOnlyInserts as any[]);
+
+      const finalCounts = {
+        insertedRows: emailInserted,
+        skippedWithinFile,
+        skippedExisting: totalSkippedExisting,
+        conflictRows: phoneInserted,
+        totalRecords: records.length,
+        status: "complete" as const,
+      };
+
+      const updatedList = await storage.updateProspectList(list.id, finalCounts);
+
       res.status(201).json({
-        list,
-        imported: created.length,
-        skipped: records.length - created.length,
+        list: updatedList,
+        imported: finalCounts.insertedRows,
+        skippedWithinFile: finalCounts.skippedWithinFile,
+        skippedExisting: finalCounts.skippedExisting,
+        possibleMatchReview: finalCounts.conflictRows,
+        invalid: invalidRows.length,
       });
     } catch (err: any) {
       console.error("CSV import error:", err);
+      if (list) {
+        await storage.updateProspectList(list.id, { status: "failed" }).catch(() => {});
+      }
       res.status(500).json({ message: err.message || "Import failed" });
     }
   });
@@ -583,23 +759,61 @@ export function registerProspectsRoutes(app: Express) {
   });
 
   app.post("/api/sunbiz/upload-corevt", isAuthenticated, uploadLarge.single("file"), async (req, res) => {
+    let list: Awaited<ReturnType<typeof storage.createProspectList>> | null = null;
+    let filePath: string | null = null;
     try {
       if (!req.file) return res.status(400).json({ message: "No file uploaded" });
 
-      const filePath = req.file.path;
+      filePath = req.file.path;
       const listName = req.body.listName || `Sunbiz Corevt Import ${new Date().toLocaleDateString()}`;
       const maxRecords = parseInt(req.body.maxRecords) || 10000;
       const onlyWithAddress = req.body.onlyWithAddress === "true";
 
-      const list = await storage.createProspectList({
-        name: listName,
-        description: `Sunbiz corevt fixed-width upload: ${req.file.originalname}`,
-        fileName: req.file.originalname || "corevt.zip",
-        totalRecords: 0,
-        status: "processing",
-      });
+      // Compute file hash for replay detection
+      const fileBuffer = fs.readFileSync(filePath);
+      const fileHash = computeFileHash(fileBuffer);
 
-      let totalImported = 0;
+      // Replay check: same zip bytes already imported → return existing result
+      const existing = await storage.getProspectListByHash("sunbiz_corevt", fileHash);
+      if (existing) {
+        try { fs.unlinkSync(filePath); } catch {}
+        return res.status(200).json({
+          list: existing,
+          imported: existing.insertedRows,
+          replay: true,
+        });
+      }
+
+      try {
+        list = await storage.createProspectList({
+          name: listName,
+          description: `Sunbiz corevt fixed-width upload: ${req.file.originalname}`,
+          fileName: req.file.originalname || "corevt.zip",
+          fileHash,
+          importType: "sunbiz_corevt",
+          totalRecords: 0,
+          insertedRows: 0,
+          status: "running",
+          actor: (req as any).user?.email ?? null,
+        });
+      } catch (createErr: any) {
+        if (createErr?.code === "23505") {
+          const raceExisting = await storage.getProspectListByHash("sunbiz_corevt", fileHash);
+          if (raceExisting) {
+            try { if (filePath) fs.unlinkSync(filePath); } catch {}
+            filePath = null;
+            return res.status(200).json({
+              list: raceExisting,
+              imported: raceExisting.insertedRows,
+              replay: true,
+            });
+          }
+        }
+        throw createErr;
+      }
+
+      let totalInserted = 0;
+      let totalUpserted = 0;
 
       try {
         for await (const batch of streamCorevtFromZip(filePath, { maxRecords })) {
@@ -629,26 +843,39 @@ export function registerProspectsRoutes(app: Express) {
             email: p.email || undefined,
             phone: p.phone || undefined,
             detailUrl: p.detailUrl || undefined,
-            listId: list.id,
+            listId: list!.id,
             source: "corevt",
             enrichmentStatus: "pending" as const,
             searchQuery: listName,
           }));
 
-          const created = await storage.createSunbizEntitiesBulk(entities);
-          totalImported += created.length;
+          const result = await storage.upsertSunbizEntitiesBulk(entities);
+          totalInserted += result.inserted;
+          totalUpserted += result.updated;
+
+          // Persist incremental progress so partial failures are recoverable
+          await storage.updateProspectList(list!.id, {
+            insertedRows: totalInserted,
+            totalRecords: totalInserted + totalUpserted,
+          });
         }
       } finally {
         try { fs.unlinkSync(filePath); } catch {}
+        filePath = null;
       }
 
-      await storage.updateProspectList(list.id, {
-        totalRecords: totalImported,
-        status: "ready",
+      const updatedList = await storage.updateProspectList(list.id, {
+        insertedRows: totalInserted,
+        totalRecords: totalInserted + totalUpserted,
+        status: "complete",
       });
 
-      res.json({ list: { ...list, totalRecords: totalImported }, imported: totalImported });
+      res.json({ list: updatedList, imported: totalInserted, updated: totalUpserted });
     } catch (err: any) {
+      if (filePath) { try { fs.unlinkSync(filePath); } catch {} }
+      if (list) {
+        await storage.updateProspectList(list.id, { status: "failed" }).catch(() => {});
+      }
       res.status(500).json({ message: err.message });
     }
   });

@@ -150,6 +150,55 @@ import { coerceDateFields } from "../utils/date-coerce";
     return await db.insert(prospects).values(prospectsList).returning();
   }
 
+  async createProspectsBulkIdempotent(prospectsList: InsertProspect[]): Promise<{ inserted: number }> {
+    if (prospectsList.length === 0) return { inserted: 0 };
+    // Use Drizzle insert so camelCase field names are mapped to snake_case columns
+    // automatically.  ON CONFLICT DO NOTHING (no target) covers both:
+    //   • prospects_execution_row_uidx  (import_execution_id, source_row_index) — retry protection
+    //   • prospects_email_unique_idx    (email)                                 — cross-import email backstop
+    const BATCH = 500;
+    let totalInserted = 0;
+    for (let i = 0; i < prospectsList.length; i += BATCH) {
+      const batch = prospectsList.slice(i, i + BATCH);
+      const result = await db
+        .insert(prospects)
+        .values(batch)
+        .onConflictDoNothing()
+        .returning({ id: prospects.id });
+      totalInserted += result.length;
+    }
+    return { inserted: totalInserted };
+  }
+
+  async getProspectListByHash(importType: string, fileHash: string) {
+    const [list] = await db
+      .select()
+      .from(prospectLists)
+      .where(
+        and(
+          eq(prospectLists.importType, importType),
+          eq(prospectLists.fileHash, fileHash),
+          sql`status IN ('running', 'complete')`
+        )
+      )
+      .limit(1);
+    return list ?? null;
+  }
+
+  async getExistingProspectEmailsChunked(emails: string[]): Promise<Set<string>> {
+    const result = new Set<string>();
+    const CHUNK = 500;
+    for (let i = 0; i < emails.length; i += CHUNK) {
+      const chunk = emails.slice(i, i + CHUNK);
+      const rows = await db
+        .select({ email: prospects.email })
+        .from(prospects)
+        .where(inArray(prospects.email, chunk));
+      rows.forEach(r => r.email && result.add(r.email));
+    }
+    return result;
+  }
+
 
   async updateProspect(id: number, updates: UpdateProspectRequest) {
     const coercedUpdates = coerceDateFields(
