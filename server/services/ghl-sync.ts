@@ -6,7 +6,7 @@ import { upsertGhlContact, isGhlConfigured, sendGhlEmail } from "./ghl";
 import { normalizeGhlId } from "../utils/normalize";
 import { getEmailSignatureHtml } from "./email-signatures";
 import { auditChange } from "./audit-change";
-import { writeContact, upsertContactSourceEvent } from "./contact-writer";
+import { writeContact, upsertContactSourceEvent, PROVENANCE_FIELDS } from "./contact-writer";
 import { eq } from "drizzle-orm";
 
 const CONFLICT_FIELDS: Array<{ ghlKey: string; contactKey: keyof Contact }> = [
@@ -19,17 +19,30 @@ const CONFLICT_FIELDS: Array<{ ghlKey: string; contactKey: keyof Contact }> = [
 
 // Wave 7: Replit is the system-of-record for these compliance/permission fields.
 // GHL webhooks and inbound sync must NEVER overwrite them, even if GHL sends a value.
-const REPLIT_OWNED_FIELDS = new Set<string>([
-  "doNotContact",
-  "doNotAutoContact",
-  "consentTier",
-  "lifecycleStage",
-  "consentEmail",
-  "consentSms",
-  "smsStatus",
-  "emailStatus",
-  "phoneType",
-]);
+// KL-4: Provenance fields are also Replit-owned; GHL must never overwrite source attribution.
+//
+// Lazy-initialized to avoid the circular-import TDZ: contact-writer imports
+// syncContactToGhl from this file, so we cannot spread PROVENANCE_FIELDS at
+// module-init time. The Set is built on first use (all modules are fully
+// initialized by then).
+let _replitOwnedFields: Set<string> | null = null;
+function getReplitOwnedFields(): Set<string> {
+  if (!_replitOwnedFields) {
+    _replitOwnedFields = new Set<string>([
+      "doNotContact",
+      "doNotAutoContact",
+      "consentTier",
+      "lifecycleStage",
+      "consentEmail",
+      "consentSms",
+      "smsStatus",
+      "emailStatus",
+      "phoneType",
+      ...PROVENANCE_FIELDS,
+    ]);
+  }
+  return _replitOwnedFields;
+}
 
 /**
  * Structured error logging for GHL sync failures.
@@ -331,7 +344,7 @@ export async function syncContactFromGhl(ghlContact: any): Promise<{ contactId: 
 
       // Wave 7: Strip Replit-owned compliance/permission fields from any GHL-sourced payload.
       // Replit is the system-of-record; GHL must never overwrite these — even if GHL sends them.
-      for (const field of REPLIT_OWNED_FIELDS) {
+      for (const field of getReplitOwnedFields()) {
         delete (cleanPayload as any)[field];
       }
 
