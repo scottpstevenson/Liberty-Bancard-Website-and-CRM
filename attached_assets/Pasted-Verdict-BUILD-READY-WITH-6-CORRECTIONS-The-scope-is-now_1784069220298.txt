@@ -1,0 +1,175 @@
+Verdict: BUILD-READY WITH 6 CORRECTIONS
+
+The scope is now right, but the proposed claim lifecycle can corrupt prospect status and still leave partial conversions.
+
+Corrections to send back
+
+BUILD-READY WITH REQUIRED CORRECTIONS — Task #991A
+
+Proceed with this scope, but correct the conversion ownership and failure contracts below.
+
+1. Do not reuse prospects.status as an infrastructure lock without auditing its semantics
+
+The proposed claim:
+
+UPDATE prospects
+SET status = 'conversion_in_progress'
+
+may overwrite a real prospect lifecycle status such as qualified, enriched, contacted, or converted.
+
+Before implementation, verify every valid prospects.status value and every consumer.
+
+Preferred approach:
+
+* add dedicated conversion ownership fields, such as:
+    * conversionStatus
+    * conversionClaimId
+    * conversionClaimedAt
+    * conversionLastError
+* or create a small prospect_conversion_jobs/claims table with one active claim per prospect.
+
+Do not overload the business-facing status column unless it is explicitly designed for conversion locking.
+
+2. Score before acquiring the external-work claim
+
+computeProspectConversionReadiness() is pure and cheap.
+
+Correct order:
+
+1. load prospect;
+2. return already_converted if linked;
+3. compute preview readiness;
+4. enforce threshold and override policy;
+5. only then acquire the conversion claim;
+6. create the contact/GHL record.
+
+Do not claim a clearly ineligible prospect and then attempt to restore an unknown prior status.
+
+3. Define stale-claim recovery
+
+A process can crash after acquiring the claim but before linking the contact.
+
+The claim contract must include:
+
+* unique claim ID;
+* claimed timestamp;
+* stale timeout;
+* owner/request ID;
+* recoverable or terminal failure state;
+* atomic stale-claim takeover rule.
+
+A zero-row claim result cannot remain a permanent “conversion in progress” dead end.
+
+Race losers should:
+
+* return already_converted when linkage completes;
+* return typed conversion_in_progress with retry guidance while a live claim exists;
+* reclaim only an expired claim through a guarded update.
+
+4. Contact creation, deal creation and prospect linkage need an explicit partial-failure policy
+
+GHL contact creation cannot be atomic with PostgreSQL.
+
+Define the recovery contract for each failure point:
+
+* GHL/local contact created, deal creation fails;
+* contact created, prospect linkage fails;
+* contact and deal created, claim finalization fails;
+* enrollment enqueue fails after successful conversion.
+
+At minimum:
+
+* persist the created contactId on the conversion claim as soon as available;
+* make retry reuse the same contact instead of creating another;
+* create/link the deal idempotently;
+* finalize the prospect with a conditional update owned by the same claim ID;
+* do not clear the claim and start over after an external contact has already been created.
+
+5. Do not state that contact and deal linkage occur in “the same DB operation” unless supported
+
+These are separate rows and likely separate storage calls.
+
+Use one local DB transaction after external contact creation to:
+
+* create or reconcile the deal;
+* link prospect.contactId;
+* persist dealId if the schema supports it;
+* mark the claim completed.
+
+If current storage methods cannot accept a transaction handle, add a focused conversion service that owns these local writes.
+
+Do not hold this transaction open during GHL calls.
+
+6. Validate the threshold once through a canonical config owner
+
+Do not read process.env directly from the pure scoring module.
+
+Keep contact-readiness.ts pure.
+
+Place configuration in a server config module:
+
+PROSPECT_CONVERSION_MIN_READINESS
+
+Requirements:
+
+* parsed once at startup;
+* integer 0–100;
+* invalid configured values fail startup or emit a loud configuration error;
+* API responses return the resolved value.
+
+Silently falling back to 40 on a malformed configured value can hide an operator mistake.
+
+Additional requirements
+
+* Preserve the existing prospect status unless conversion completion intentionally changes it.
+* Normal conversion access must use the project’s confirmed CRM authorization contract; verify that isDashboardUser does not unintentionally include roles that should not convert prospects.
+* Admin override must be authorized before any claim is acquired.
+* Override audit must be written even when individual rows later fail conversion, and must distinguish attempted, converted, skipped and failed IDs.
+* A duplicate email must reconcile to the canonical existing contact only after verifying identity compatibility; do not attach a prospect to an unrelated contact merely because the email constraint fired.
+* Enrollment enqueue failure must not undo a completed conversion. Return or log the downstream enrollment outcome separately.
+* Batch results must preserve input order or include a stable correlation index for duplicate prospect IDs.
+* Deduplicate requested prospect IDs before processing, but still return a result for every original input position if that is the API contract.
+
+Correct conversion sequence
+
+Load prospect
+→ already converted? return existing linkage
+→ compute conversionReadinessScore
+→ blocked? return typed 422/result
+→ validate admin override when applicable
+→ atomically acquire dedicated conversion claim
+→ create/reconcile canonical contact
+→ persist contactId on claim
+→ transactionally create/reconcile deal + link prospect + complete claim
+→ enqueue promotional enrollment
+→ return typed success and downstream enqueue outcome
+
+Kill lines
+
+* STOP if business prospects.status is overwritten as a lock without a complete status-consumer audit.
+* STOP if there is no stale-claim recovery.
+* STOP if a retry after partial contact creation can create another contact.
+* STOP if a database transaction remains open during GHL network calls.
+* STOP if threshold configuration silently falls back after an invalid explicit value.
+* STOP if duplicate-email recovery links an identity-incompatible contact.
+* STOP if enrollment failure rolls back or repeats contact conversion.
+* STOP if override authorization happens after claiming or creating anything.
+* STOP if partial conversions are reported only as generic failures with no recovery identity.
+
+Validation additions
+
+* Below-threshold prospect never acquires a conversion claim.
+* Crash after claim acquisition can be reclaimed after the stale timeout.
+* Crash after contact creation reuses the persisted contactId on retry.
+* Deal creation failure does not create a second contact on retry.
+* Two concurrent requests produce one claim owner and one contact/deal.
+* Prospect’s original business status remains intact during a failed or blocked conversion.
+* Invalid configured threshold fails loudly.
+* Duplicate email with incompatible identity is returned as a typed conflict, not auto-linked.
+* Enrollment enqueue failure leaves the conversion completed and observable.
+
+Final status
+
+Task #991A is build-ready after these corrections.
+
+The readiness gate and durable enrollment path are correct. The remaining production risk is the conversion claim and partial-failure recovery model, not the scoring calculation itself.

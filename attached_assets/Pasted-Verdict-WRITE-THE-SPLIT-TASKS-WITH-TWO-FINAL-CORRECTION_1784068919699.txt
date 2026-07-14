@@ -1,0 +1,58 @@
+Verdict: WRITE THE SPLIT TASKS — WITH TWO FINAL CORRECTIONS
+
+The preflight is complete. Split #991 into:
+
+* #991A — Prospect Conversion Eligibility & Concurrency Safety
+* #991B-0 — Vertical Provenance Schema
+* #991B-1 — Canonical Vertical Resolution, blocked by B-0
+
+Apply these corrections first:
+
+1. isDashboardUser is not the required role gate
+
+The brief requires only administrators to use the override. Do not rely on isDashboardUser if it includes agents or managers.
+
+Use:
+
+* normal conversion: confirm the intended operator roles explicitly;
+* override: requireRole("admin");
+* managers and agents must receive 403 for override requests.
+
+2. Do not wrap external GHL work inside a long database transaction
+
+If prospect conversion calls a GHL-first contact writer, a transaction around the entire route could hold locks during a network request and still cannot make the GHL write atomic with PostgreSQL.
+
+Use an atomic database claim for the prospect instead:
+
+1. Lock or conditionally claim the prospect while contactId IS NULL.
+2. Establish one conversion owner or durable conversion_in_progress state.
+3. Perform contact creation through the canonical writer.
+4. Transactionally link prospect.contactId and create the deal using the verified lifecycle.
+5. On failure, release or terminally mark the claim so it can be retried.
+6. Concurrent callers reconcile to the completed conversion rather than creating another contact.
+
+Do not describe a simple route-level transaction as sufficient unless all contact creation is local and transaction-aware.
+
+Send this back
+
+Proceed with the split.
+
+Create:
+
+1. #991A — Prospect Conversion Eligibility & Concurrency Safety
+2. #991B-0 — Vertical Provenance Schema
+3. #991B-1 — Canonical Vertical Resolution, explicitly blocked by B-0
+
+Use the completed preflight as the source of truth, with these final corrections:
+
+* Do not use isDashboardUser as proof of administrator-only override access. The conversion override must use requireRole("admin"); manager and agent override attempts must return 403.
+* Do not hold a database transaction open across GHL or other external contact-creation calls. Implement an atomic prospect conversion claim or equivalent DB-backed ownership mechanism so concurrent requests cannot both create contacts or deals. The completed conversion must reconcile idempotently for race losers.
+* Keep enqueuePromotionalEnrollment() unchanged; it is already the correct durable path.
+* Name the transient prospect result conversionReadinessScore and never present it as persisted contact readiness, contactability, consent, or permission to enroll.
+* Return one typed result for every requested prospect ID.
+* Keep 991B blocked until vertical source, confidence, and manual-override provenance fields exist.
+* B-1 must initially write the resolved value to sdrLeadState only. Do not overwrite contacts.vertical during bridging.
+
+No further generic preflight is needed. Write the tasks with these corrections and proceed with #991A first.
+
+Final status: #991A is build-ready after those corrections. #991B correctly remains blocked behind B-0.
