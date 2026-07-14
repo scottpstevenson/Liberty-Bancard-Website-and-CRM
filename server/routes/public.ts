@@ -15,6 +15,9 @@ import { routeContact } from "../services/smart-router";
 import { ingestBusinessFromContact } from "../services/sdr/dedupe";
 import { syncFormSubmissionToGhl, syncStatementUploadToGhl, syncSupportTicketToGhl } from "../services/ghl-form-sync";
 import { writeContact } from "../services/contact-writer";
+import { processExistingPublicFormSubmission } from "../services/public-form-submission";
+import { buildPublicContactPayload } from "../services/public-form-payload";
+import type { Contact } from "@shared/schema";
 import { runStatementUploadChain } from "../services/statement-upload-chain";
 import { parse } from "csv-parse/sync";
 import path from "path";
@@ -204,9 +207,33 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       const tags = ["src_website", "lead_statement_upload", `vertical_${(vertical || "unknown").toLowerCase().replace(/[^a-z]/g, "_")}`];
       if (utmSource) tags.push(`utm_src_${utmSource}`);
 
-      const contact = existingContactId
-        ? await storage.getContact(existingContactId).then(c => c!)
-        : await writeContact({
+      let contact: Contact;
+      if (existingContactId) {
+        contact = (await storage.getContact(existingContactId))!;
+      } else {
+        const normalizedEmail = email?.trim().toLowerCase() || null;
+        const existingByEmail = normalizedEmail ? await storage.getContactByEmail(normalizedEmail) : null;
+        if (existingByEmail) {
+          contact = await processExistingPublicFormSubmission({
+            existingContact: existingByEmail,
+            permittedProfileUpdates: buildPublicContactPayload("statement_upload", {
+              firstName, lastName, email, phone: mobile,
+              companyName: businessName, vertical, currentProvider,
+              interestedIn0Percent: parseBool(interestedIn0Percent),
+              needTerminal: parseBool(needTerminal),
+              notes, utmSource, utmMedium, utmCampaign, utmContent, utmTerm,
+              landingPage: landingPage || "/upload-statement",
+            }),
+            incomingConsent: { consentSms: parseBool(consentSms) },
+            submissionId,
+            formType: "statement_upload",
+            requestEvidence: {
+              ipAddress: req.ip || req.socket.remoteAddress || "unknown",
+              userAgent: req.headers["user-agent"] || "unknown",
+            },
+          });
+        } else {
+          contact = await writeContact({
             mode: "ghl_upsert_first",
             mutation: {
               firstName, lastName, email, phone: mobile,
@@ -231,6 +258,8 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
             },
             actor: { actorType: "public" },
           });
+        }
+      }
 
       if (!contact) throw new Error("Could not resolve contact record");
 
@@ -327,28 +356,50 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       const tags = ["src_website", "lead_estimate"];
       if (utmSource) tags.push(`utm_src_${utmSource}`);
 
-      const contact = await writeContact({
-        mode: "ghl_upsert_first",
-        mutation: {
-          firstName, lastName, email, phone: phone || "",
-          monthlyVolume, currentProvider, notes,
-          utmSource: utmSource || undefined,
-          utmMedium: utmMedium || undefined,
-          utmCampaign: utmCampaign || undefined,
-          utmContent: utmContent || undefined,
-          utmTerm: utmTerm || undefined,
-          landingPage: landingPage || "/estimate",
-          status: "New",
-          tags,
-        },
-        provenance: {
-          sourceCategory: "website_form",
-          sourceType: "estimate_form",
-          eventKey: `form:estimate_form:${submissionId}`,
-          actorType: "public",
-        },
-        actor: { actorType: "public" },
-      });
+      const normalizedEstimateEmail = email?.trim().toLowerCase() || null;
+      const existingEstimateContact = normalizedEstimateEmail ? await storage.getContactByEmail(normalizedEstimateEmail) : null;
+      let contact: Contact;
+      if (existingEstimateContact) {
+        contact = await processExistingPublicFormSubmission({
+          existingContact: existingEstimateContact,
+          permittedProfileUpdates: buildPublicContactPayload("estimate_form", {
+            firstName, lastName, email, phone: phone || "",
+            monthlyVolume, currentProvider, notes,
+            utmSource, utmMedium, utmCampaign, utmContent, utmTerm,
+            landingPage: landingPage || "/estimate",
+          }),
+          incomingConsent: {},
+          submissionId,
+          formType: "estimate_form",
+          requestEvidence: {
+            ipAddress: req.ip || req.socket.remoteAddress || "unknown",
+            userAgent: req.headers["user-agent"] || "unknown",
+          },
+        });
+      } else {
+        contact = await writeContact({
+          mode: "ghl_upsert_first",
+          mutation: {
+            firstName, lastName, email, phone: phone || "",
+            monthlyVolume, currentProvider, notes,
+            utmSource: utmSource || undefined,
+            utmMedium: utmMedium || undefined,
+            utmCampaign: utmCampaign || undefined,
+            utmContent: utmContent || undefined,
+            utmTerm: utmTerm || undefined,
+            landingPage: landingPage || "/estimate",
+            status: "New",
+            tags,
+          },
+          provenance: {
+            sourceCategory: "website_form",
+            sourceType: "estimate_form",
+            eventKey: `form:estimate_form:${submissionId}`,
+            actorType: "public",
+          },
+          actor: { actorType: "public" },
+        });
+      }
 
       if (estimatePewcRaw === true) {
         recordPewcDecision({
@@ -413,40 +464,63 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
 
   app.post("/api/public/support", publicLeadRateLimit, async (req, res) => {
     try {
+      const submissionId = crypto.randomUUID();
       const { name, businessName, email, mobile, issueType, priority, message: msg, consentSms } = req.body;
       const nameParts = (name || "").trim().split(" ").filter(Boolean);
       const firstName = nameParts[0] || "there";
       const lastName = nameParts.slice(1).join(" ") || "";
 
-      let contact = await writeContact({
-        mode: "ghl_upsert_first",
-        mutation: {
-          firstName, lastName, email, phone: mobile || "",
-          companyName: businessName, consentSms: consentSms === true,
-          status: "Active",
-          tags: ["src_website", "support_request", `support_${(issueType || "other").toLowerCase().replace(/[^a-z]/g, "_")}`],
-        },
-        provenance: {
-          sourceCategory: "website_form",
-          sourceType: "support_form",
-          eventKey: `form:support_form:${crypto.randomUUID()}`,
-          actorType: "public",
-        },
-        actor: { actorType: "public" },
-      });
-
-      if (consentSms) {
-        await storage.createConsentAuditLog({
-          contactId: contact.id,
-          channel: "sms",
-          action: "opt_in",
-          consented: true,
-          consentType: "general_optin",
-          source: "website_form",
-          ipAddress: req.ip || req.socket.remoteAddress || "unknown",
-          userAgent: req.headers["user-agent"] || "unknown",
-          details: { formType: "support" },
+      const normalizedSupportEmail = email?.trim().toLowerCase() || null;
+      const existingSupportContact = normalizedSupportEmail ? await storage.getContactByEmail(normalizedSupportEmail) : null;
+      let contact: Contact;
+      if (existingSupportContact) {
+        contact = await processExistingPublicFormSubmission({
+          existingContact: existingSupportContact,
+          permittedProfileUpdates: buildPublicContactPayload("support_form", {
+            firstName, lastName, email, phone: mobile || "",
+            companyName: businessName,
+          }),
+          incomingConsent: { consentSms: consentSms === true },
+          submissionId,
+          formType: "support_form",
+          requestEvidence: {
+            ipAddress: req.ip || req.socket.remoteAddress || "unknown",
+            userAgent: req.headers["user-agent"] || "unknown",
+          },
         });
+      } else {
+        contact = await writeContact({
+          mode: "ghl_upsert_first",
+          mutation: {
+            firstName, lastName, email, phone: mobile || "",
+            companyName: businessName, consentSms: consentSms === true,
+            status: "Active",
+            tags: ["src_website", "support_request", `support_${(issueType || "other").toLowerCase().replace(/[^a-z]/g, "_")}`],
+          },
+          provenance: {
+            sourceCategory: "website_form",
+            sourceType: "support_form",
+            eventKey: `form:support_form:${submissionId}`,
+            actorType: "public",
+          },
+          actor: { actorType: "public" },
+        });
+        // New contacts only: write the opt_in audit row here.
+        // Existing contacts: processExistingPublicFormSubmission() writes opt_in (or
+        // consent_reenable_blocked) audit rows inside its transaction — never both.
+        if (consentSms) {
+          await storage.createConsentAuditLog({
+            contactId: contact.id,
+            channel: "sms",
+            action: "opt_in",
+            consented: true,
+            consentType: "general_optin",
+            source: "website_form",
+            ipAddress: req.ip || req.socket.remoteAddress || "unknown",
+            userAgent: req.headers["user-agent"] || "unknown",
+            details: { formType: "support" },
+          });
+        }
       }
 
       const ticket = await storage.createTicket({
@@ -508,31 +582,55 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       if (utmMedium) tags.push(`utm_med_${utmMedium}`);
       if (utmCampaign) tags.push(`utm_camp_${utmCampaign}`);
 
-      const contact = await writeContact({
-        mode: "ghl_upsert_first",
-        mutation: {
-          firstName, lastName, email, phone: phone || "",
-          vertical, monthlyVolume, primaryOfferPath: offerPath,
-          interestedIn0Percent: interestedIn0Percent === true,
-          needTerminal: needTerminal === true,
-          consentSms: pewcConsent === true,
-          utmSource: utmSource || undefined,
-          utmMedium: utmMedium || undefined,
-          utmCampaign: utmCampaign || undefined,
-          utmContent: utmContent || undefined,
-          utmTerm: utmTerm || undefined,
-          landingPage: landingPage || "/get-started",
-          status: "New",
-          tags,
-        },
-        provenance: {
-          sourceCategory: "website_form",
-          sourceType: "get_started_form",
-          eventKey: `form:get_started_form:${submissionId}`,
-          actorType: "public",
-        },
-        actor: { actorType: "public" },
-      });
+      const normalizedGsEmail = email?.trim().toLowerCase() || null;
+      const existingGsContact = normalizedGsEmail ? await storage.getContactByEmail(normalizedGsEmail) : null;
+      let contact: Contact;
+      if (existingGsContact) {
+        contact = await processExistingPublicFormSubmission({
+          existingContact: existingGsContact,
+          permittedProfileUpdates: buildPublicContactPayload("get_started_form", {
+            firstName, lastName, email, phone: phone || "",
+            vertical, monthlyVolume, primaryOfferPath: offerPath,
+            interestedIn0Percent: interestedIn0Percent === true,
+            needTerminal: needTerminal === true,
+            utmSource, utmMedium, utmCampaign, utmContent, utmTerm,
+            landingPage: landingPage || "/get-started",
+          }),
+          incomingConsent: { consentSms: pewcConsent === true },
+          submissionId,
+          formType: "get_started_form",
+          requestEvidence: {
+            ipAddress: req.ip || req.socket.remoteAddress || "unknown",
+            userAgent: req.headers["user-agent"] || "unknown",
+          },
+        });
+      } else {
+        contact = await writeContact({
+          mode: "ghl_upsert_first",
+          mutation: {
+            firstName, lastName, email, phone: phone || "",
+            vertical, monthlyVolume, primaryOfferPath: offerPath,
+            interestedIn0Percent: interestedIn0Percent === true,
+            needTerminal: needTerminal === true,
+            consentSms: pewcConsent === true,
+            utmSource: utmSource || undefined,
+            utmMedium: utmMedium || undefined,
+            utmCampaign: utmCampaign || undefined,
+            utmContent: utmContent || undefined,
+            utmTerm: utmTerm || undefined,
+            landingPage: landingPage || "/get-started",
+            status: "New",
+            tags,
+          },
+          provenance: {
+            sourceCategory: "website_form",
+            sourceType: "get_started_form",
+            eventKey: `form:get_started_form:${submissionId}`,
+            actorType: "public",
+          },
+          actor: { actorType: "public" },
+        });
+      }
 
       if (pewcConsent === true) {
         recordPewcDecision({
@@ -640,6 +738,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
   // === INTEGRATION REQUEST ===
   app.post("/api/public/integration-request", publicLeadRateLimit, async (req, res) => {
     try {
+      const submissionId = crypto.randomUUID();
       const schema = z.object({
         softwareName: z.string().min(1, "Software name is required").max(120),
         softwareCategory: z.string().max(80).optional().default(""),
@@ -660,27 +759,49 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
 
       const requestNote = `Integration request: ${data.softwareName}${data.softwareCategory ? ` (${data.softwareCategory})` : ""}.${data.notes ? ` Notes: ${data.notes}` : ""}`;
 
-      const contact = await writeContact({
-        mode: "ghl_upsert_first",
-        mutation: {
-          firstName,
-          lastName,
-          email: data.email,
-          phone: data.phone || "",
-          companyName: data.businessName || undefined,
-          notes: requestNote,
-          landingPage: "/integrations",
-          status: "New",
-          tags,
-        },
-        provenance: {
-          sourceCategory: "website_form",
-          sourceType: "integration_request",
-          eventKey: `form:integration_request:${crypto.randomUUID()}`,
-          actorType: "public",
-        },
-        actor: { actorType: "public" },
-      });
+      const normalizedIrEmail = data.email?.trim().toLowerCase() || null;
+      const existingIrContact = normalizedIrEmail ? await storage.getContactByEmail(normalizedIrEmail) : null;
+      let contact: Contact;
+      if (existingIrContact) {
+        contact = await processExistingPublicFormSubmission({
+          existingContact: existingIrContact,
+          permittedProfileUpdates: buildPublicContactPayload("integration_request", {
+            firstName, lastName, email: data.email,
+            phone: data.phone || "",
+            companyName: data.businessName || undefined,
+            notes: requestNote,
+          }),
+          incomingConsent: {},
+          submissionId,
+          formType: "integration_request",
+          requestEvidence: {
+            ipAddress: req.ip || req.socket.remoteAddress || "unknown",
+            userAgent: req.headers["user-agent"] || "unknown",
+          },
+        });
+      } else {
+        contact = await writeContact({
+          mode: "ghl_upsert_first",
+          mutation: {
+            firstName,
+            lastName,
+            email: data.email,
+            phone: data.phone || "",
+            companyName: data.businessName || undefined,
+            notes: requestNote,
+            landingPage: "/integrations",
+            status: "New",
+            tags,
+          },
+          provenance: {
+            sourceCategory: "website_form",
+            sourceType: "integration_request",
+            eventKey: `form:integration_request:${submissionId}`,
+            actorType: "public",
+          },
+          actor: { actorType: "public" },
+        });
+      }
 
       await storage.createNotification({
         channel: "#sales",
@@ -702,7 +823,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         },
       });
 
-      enqueuePromotionalEnrollment({ contactId: contact.id, triggerType: "form_submitted", formType: "integration_request", sourceEventId: crypto.randomUUID() }).catch(err => console.error("Enqueue error:", err));
+      enqueuePromotionalEnrollment({ contactId: contact.id, triggerType: "form_submitted", formType: "integration_request", sourceEventId: submissionId }).catch(err => console.error("Enqueue error:", err));
       triggerWorkflowsByEvent("form_submitted", { entityType: "contact", entityId: contact.id, contactId: contact.id }, { formType: "integration_request", software: data.softwareName }).catch(err => console.error("Workflow trigger error:", err));
 
       res.status(201).json({ success: true, contactId: contact.id });
@@ -715,6 +836,12 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
   });
 
   // === CALLBACK REQUEST ===
+  // EXEMPTION from canonical existing-contact path: this form captures no email address
+  // (email: "" is hardcoded), so email-based lookup always returns null and the canonical
+  // processExistingPublicFormSubmission() flow cannot be applied. Additionally, this form
+  // does not write consentSms or consentEmail fields — only PEWC consent, which is handled
+  // via the separate recordPewcDecision() path. No consent field protection or opt_in audit
+  // is needed here; this handler is safe to remain as a direct writeContact() call.
   app.post("/api/public/callback", publicLeadRateLimit, async (req, res) => {
     try {
       const submissionId = crypto.randomUUID();
@@ -724,7 +851,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       const firstName = nameParts[0] || "";
       const lastName = nameParts.slice(1).join(" ") || "";
 
-      const contact = await writeContact({
+      let contact: Contact = await writeContact({
         mode: "ghl_upsert_first",
         mutation: {
           firstName, lastName, email: "", phone: phone || "",
@@ -781,6 +908,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
 
   app.post("/api/equipment-order", publicLeadRateLimit, async (req, res) => {
     try {
+      const submissionId = crypto.randomUUID();
       const { firstName, lastName, email, phone, businessName, message, items, referralCode, promoCode, utmSource, utmMedium, utmCampaign, utmContent, utmTerm, landingPage } = req.body;
       if (!firstName || typeof firstName !== "string" || firstName.length > 100) {
         return res.status(400).json({ message: "Valid first name is required" });
@@ -812,29 +940,52 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
 
       if (utmSource) orderTags.push(`utm_src_${utmSource}`);
 
-      const contact = await writeContact({
-        mode: "ghl_upsert_first",
-        mutation: {
-          firstName: firstName.slice(0, 100), lastName: safeLastName, email: email.slice(0, 200), phone: phone.slice(0, 30),
-          companyName: safeBusiness,
-          promoCode: sanitizedPromo,
-          utmSource: utmSource || undefined,
-          utmMedium: utmMedium || undefined,
-          utmCampaign: utmCampaign || undefined,
-          utmContent: utmContent || undefined,
-          utmTerm: utmTerm || undefined,
-          landingPage: landingPage || "/shop",
-          status: "New",
-          tags: orderTags,
-        },
-        provenance: {
-          sourceCategory: "website_form",
-          sourceType: "equipment_order",
-          eventKey: `form:equipment_order:${crypto.randomUUID()}`,
-          actorType: "public",
-        },
-        actor: { actorType: "public" },
-      });
+      const normalizedEoEmail = email?.trim().toLowerCase() || null;
+      const existingEoContact = normalizedEoEmail ? await storage.getContactByEmail(normalizedEoEmail) : null;
+      let contact: Contact;
+      if (existingEoContact) {
+        contact = await processExistingPublicFormSubmission({
+          existingContact: existingEoContact,
+          permittedProfileUpdates: buildPublicContactPayload("equipment_order", {
+            firstName: firstName.slice(0, 100), lastName: safeLastName,
+            email: email.slice(0, 200), phone: phone.slice(0, 30),
+            companyName: safeBusiness,
+            utmSource, utmMedium, utmCampaign, utmContent, utmTerm,
+            landingPage: landingPage || "/shop",
+          }),
+          incomingConsent: {},
+          submissionId,
+          formType: "equipment_order",
+          requestEvidence: {
+            ipAddress: req.ip || req.socket.remoteAddress || "unknown",
+            userAgent: req.headers["user-agent"] || "unknown",
+          },
+        });
+      } else {
+        contact = await writeContact({
+          mode: "ghl_upsert_first",
+          mutation: {
+            firstName: firstName.slice(0, 100), lastName: safeLastName, email: email.slice(0, 200), phone: phone.slice(0, 30),
+            companyName: safeBusiness,
+            promoCode: sanitizedPromo,
+            utmSource: utmSource || undefined,
+            utmMedium: utmMedium || undefined,
+            utmCampaign: utmCampaign || undefined,
+            utmContent: utmContent || undefined,
+            utmTerm: utmTerm || undefined,
+            landingPage: landingPage || "/shop",
+            status: "New",
+            tags: orderTags,
+          },
+          provenance: {
+            sourceCategory: "website_form",
+            sourceType: "equipment_order",
+            eventKey: `form:equipment_order:${submissionId}`,
+            actorType: "public",
+          },
+          actor: { actorType: "public" },
+        });
+      }
 
       const itemSummary = validatedItems.map((i: any) => `${i.name} x${i.quantity} (${i.price})`).join(", ");
       const primaryTerminal = validatedItems[0]?.name || "Unknown";
@@ -937,6 +1088,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
 
   app.post("/api/public/testimonial-submit", publicLeadRateLimit, async (req, res) => {
     try {
+      const submissionId = crypto.randomUUID();
       const { name, businessName, email, phone, industry, videoLink, savingsAmount, story } = req.body;
       if (!name || typeof name !== "string" || name.length > 200) {
         return res.status(400).json({ message: "Valid name is required" });
@@ -957,21 +1109,40 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       const safeSavings = String(savingsAmount || "").slice(0, 100);
       const safeStory = String(story || "").slice(0, 5000);
 
-      const contact = await writeContact({
-        mode: "ghl_upsert_first",
-        mutation: {
-          firstName, lastName, email, phone: safePhone,
-          status: "New",
-          tags: ["src_testimonial_submit", "testimonial_prospect"],
-        },
-        provenance: {
-          sourceCategory: "website_form",
-          sourceType: "testimonial_submit",
-          eventKey: `form:testimonial_submit:${crypto.randomUUID()}`,
-          actorType: "public",
-        },
-        actor: { actorType: "public" },
-      });
+      const normalizedTsEmail = email?.trim().toLowerCase() || null;
+      const existingTsContact = normalizedTsEmail ? await storage.getContactByEmail(normalizedTsEmail) : null;
+      let contact: Contact;
+      if (existingTsContact) {
+        contact = await processExistingPublicFormSubmission({
+          existingContact: existingTsContact,
+          permittedProfileUpdates: buildPublicContactPayload("testimonial_submit", {
+            firstName, lastName, email, phone: safePhone,
+          }),
+          incomingConsent: {},
+          submissionId,
+          formType: "testimonial_submit",
+          requestEvidence: {
+            ipAddress: req.ip || req.socket.remoteAddress || "unknown",
+            userAgent: req.headers["user-agent"] || "unknown",
+          },
+        });
+      } else {
+        contact = await writeContact({
+          mode: "ghl_upsert_first",
+          mutation: {
+            firstName, lastName, email, phone: safePhone,
+            status: "New",
+            tags: ["src_testimonial_submit", "testimonial_prospect"],
+          },
+          provenance: {
+            sourceCategory: "website_form",
+            sourceType: "testimonial_submit",
+            eventKey: `form:testimonial_submit:${submissionId}`,
+            actorType: "public",
+          },
+          actor: { actorType: "public" },
+        });
+      }
 
       const noteContent = [
         `TESTIMONIAL SUBMISSION`,
@@ -1019,32 +1190,52 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
   // === NEWSLETTER SIGNUP ===
   app.post("/api/newsletter/subscribe", publicLeadRateLimit, async (req, res) => {
     try {
+      const submissionId = crypto.randomUUID();
       const schema = z.object({
         firstName: z.string().min(1).max(100),
         email: z.string().email(),
       });
       const { firstName, email } = schema.parse(req.body);
 
-      const contact = await writeContact({
-        mode: "ghl_upsert_first",
-        mutation: {
-          firstName,
-          lastName: "",
-          email,
-          phone: "",
-          status: "New",
-          tags: ["NEWSLETTER-SIGNUP", "src_blog"],
-          referralSource: "newsletter",
-          landingPage: "/blog",
-        },
-        provenance: {
-          sourceCategory: "website_form",
-          sourceType: "newsletter_signup",
-          eventKey: `form:newsletter_signup:${crypto.randomUUID()}`,
-          actorType: "public",
-        },
-        actor: { actorType: "public" },
-      });
+      const normalizedNlEmail = email?.trim().toLowerCase() || null;
+      const existingNlContact = normalizedNlEmail ? await storage.getContactByEmail(normalizedNlEmail) : null;
+      let contact: Contact;
+      if (existingNlContact) {
+        contact = await processExistingPublicFormSubmission({
+          existingContact: existingNlContact,
+          permittedProfileUpdates: buildPublicContactPayload("newsletter_signup", {
+            firstName, email,
+          }),
+          incomingConsent: {},
+          submissionId,
+          formType: "newsletter_signup",
+          requestEvidence: {
+            ipAddress: req.ip || req.socket.remoteAddress || "unknown",
+            userAgent: req.headers["user-agent"] || "unknown",
+          },
+        });
+      } else {
+        contact = await writeContact({
+          mode: "ghl_upsert_first",
+          mutation: {
+            firstName,
+            lastName: "",
+            email,
+            phone: "",
+            status: "New",
+            tags: ["NEWSLETTER-SIGNUP", "src_blog"],
+            referralSource: "newsletter",
+            landingPage: "/blog",
+          },
+          provenance: {
+            sourceCategory: "website_form",
+            sourceType: "newsletter_signup",
+            eventKey: `form:newsletter_signup:${submissionId}`,
+            actorType: "public",
+          },
+          actor: { actorType: "public" },
+        });
+      }
 
       syncFormSubmissionToGhl({
         contactId: contact.id,
@@ -1052,7 +1243,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         formData: { lb_newsletter_source: "blog_inline" },
       }).catch(err => console.error("[Newsletter] GHL sync error:", err));
 
-      enqueuePromotionalEnrollment({ contactId: contact.id, triggerType: "newsletter_signup", formType: "newsletter", sourceEventId: crypto.randomUUID() }).catch(err =>
+      enqueuePromotionalEnrollment({ contactId: contact.id, triggerType: "newsletter_signup", formType: "newsletter", sourceEventId: submissionId }).catch(err =>
         console.error("[Newsletter] Enqueue error:", err),
       );
 

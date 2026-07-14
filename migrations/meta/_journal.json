@@ -512,6 +512,13 @@
       "when": 1786100000000,
       "tag": "0068_registry_import_log_confidence",
       "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1786200000000,
+      "tag": "0069_consent_audit_idempotency",
+      "breakpoints": true
     }
   ]
 }
