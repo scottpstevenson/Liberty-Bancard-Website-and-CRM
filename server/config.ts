@@ -11,6 +11,34 @@
 export const APP_TIMEZONE = "America/New_York";
 
 /**
+ * Minimum data-readiness score (0–100) a prospect must reach before it can be
+ * converted to a contact.  Default 40.  Parsed once at startup; invalid values
+ * throw immediately so a mis-configured deploy fails fast.
+ */
+function parseIntRange(
+  raw: string | undefined,
+  name: string,
+  min: number,
+  max: number,
+  defaultValue: number,
+): number {
+  if (raw === undefined || raw === "") return defaultValue;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < min || n > max) {
+    throw new Error(`[Config] ${name} must be an integer ${min}–${max}; got: ${raw}`);
+  }
+  return n;
+}
+
+export const prospectConversionMinReadiness: number = parseIntRange(
+  process.env.PROSPECT_CONVERSION_MIN_READINESS,
+  "PROSPECT_CONVERSION_MIN_READINESS",
+  0,
+  100,
+  40,
+);
+
+/**
  * Find the UTC instant that corresponds to local midnight (00:00:00) on the
  * given local calendar date in `timezone`.
  *

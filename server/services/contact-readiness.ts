@@ -274,3 +274,52 @@ export async function enqueueReadinessRecalculation(contactId: number): Promise<
     console.warn(`[Readiness] Failed to enqueue recalculation for contact ${contactId}:`, (err as Error).message);
   }
 }
+
+// ---------------------------------------------------------------------------
+// Prospect conversion readiness — pure, no DB reads, no process.env
+// ---------------------------------------------------------------------------
+
+import type { Prospect } from "@shared/schema";
+
+export interface ProspectConversionReadinessResult {
+  conversionReadinessScore: number;
+  grade: string;
+  breakdown: ReadinessBreakdown;
+  missingFields: string[];
+  meetsThreshold: boolean;
+}
+
+/**
+ * Compute conversion readiness for a prospect by mapping prospect fields to the
+ * Contact-shaped input required by computeDataReadinessScore().
+ *
+ * Pure — no DB reads, no process.env access.
+ * threshold is provided by the caller (from server/config.ts).
+ */
+export function computeProspectConversionReadiness(
+  prospect: Prospect,
+  threshold: number,
+): ProspectConversionReadinessResult {
+  const contactShape = {
+    email: prospect.email || prospect.ownerEmail || null,
+    firstName: prospect.ownerFirstName || null,
+    lastName: prospect.ownerLastName || null,
+    phone: prospect.phone || prospect.ownerPhone || null,
+    phoneType: null as string | null,
+    companyName: prospect.companyName || null,
+    vertical: prospect.vertical || null,
+    city: prospect.city || null,
+    state: prospect.state || null,
+    website: prospect.website || null,
+  };
+
+  const { score, grade, breakdown, missingFields } = computeDataReadinessScore(contactShape);
+
+  return {
+    conversionReadinessScore: score,
+    grade,
+    breakdown,
+    missingFields,
+    meetsThreshold: score >= threshold,
+  };
+}

@@ -954,6 +954,11 @@ export const prospects = pgTable("prospects", {
   tags: text("tags").array(),
   doNotContact: boolean("do_not_contact").default(false),
   lastContactedAt: timestamp("last_contacted_at"),
+  conversionClaimId: text("conversion_claim_id"),
+  conversionClaimedAt: timestamp("conversion_claimed_at"),
+  conversionClaimOwnerId: text("conversion_claim_owner_id"),
+  conversionContactId: integer("conversion_contact_id").references(() => contacts.id),
+  conversionLastError: text("conversion_last_error"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
