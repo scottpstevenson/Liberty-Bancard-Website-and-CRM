@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, boolean, timestamp, jsonb, varchar, real, numeric, index, uniqueIndex, unique, date, uuid } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, jsonb, varchar, real, numeric, index, uniqueIndex, unique, date, uuid, check } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -148,6 +148,13 @@ export const contacts = pgTable("contacts", {
   // DEFERRABLE INITIALLY DEFERRED: allows insert-contact-then-insert-event-then-UPDATE
   // within a single transaction without violating FK at mid-tx.
   primarySourceEventId: integer("primary_source_event_id").references(() => contactSourceEvents.id, { deferrable: true, initiallyDeferred: true }),
+  // Vertical provenance — server-assigned only; never accepted from client input.
+  // verticalSource: which pipeline/process last set the vertical value.
+  // verticalConfidence: 0–100 integer; NULL = not yet scored.
+  // manualVerticalOverride: NULL=unknown, false=evaluated/not-overridden, true=confirmed operator override.
+  verticalSource: text("vertical_source"),
+  verticalConfidence: integer("vertical_confidence"),
+  manualVerticalOverride: boolean("manual_vertical_override"),
 }, (table) => [
   uniqueIndex("contacts_email_unique_idx").on(table.email).where(sql`archived_at IS NULL`),
   index("contacts_phone_idx").on(table.phone),
@@ -155,6 +162,7 @@ export const contacts = pgTable("contacts", {
   index("contacts_created_at_idx").on(table.createdAt),
   index("contacts_email_archived_at_idx").on(table.email, table.archivedAt),
   index("contacts_phone_archived_at_idx").on(table.phone, table.archivedAt),
+  check("contacts_vertical_confidence_range", sql`vertical_confidence IS NULL OR (vertical_confidence BETWEEN 0 AND 100)`),
 ]);
 
 export const insertContactSchema = createInsertSchema(contacts).omit({
@@ -168,6 +176,10 @@ export const insertContactSchema = createInsertSchema(contacts).omit({
   primarySourceCategory: true,
   primarySourceType: true,
   primarySourceEventId: true,
+  // Vertical provenance — server-assigned; clients cannot forge vertical authority.
+  verticalSource: true,
+  verticalConfidence: true,
+  manualVerticalOverride: true,
 });
 
 // Internal-only schema used by writeContact() — includes provenance fields.
@@ -2822,16 +2834,34 @@ export const sdrMerchants = pgTable("sdr_merchants", {
   sourceCount: integer("source_count").default(1),
   sourcedVia: text("sourced_via"),
   ownerEnrichmentStatus: text("owner_enrichment_status").default("pending"),
+  // Vertical provenance — separate fields for coarse vertical and fine subvertical.
+  // verticalSource/verticalConfidence describe the coarse `vertical` field.
+  // subverticalSource/subverticalConfidence describe the `subvertical` field.
+  // Resolver (991B-1) must always write coarse + fine together.
+  // manualVerticalOverride: NULL=unknown, false=evaluated/not-overridden, true=confirmed operator override.
+  verticalSource: text("vertical_source"),
+  verticalConfidence: integer("vertical_confidence"),
+  subverticalSource: text("subvertical_source"),
+  subverticalConfidence: integer("subvertical_confidence"),
+  manualVerticalOverride: boolean("manual_vertical_override"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
   index("sdr_merchants_ghl_contact_id_idx").on(table.ghlContactId),
+  check("sdr_merchants_vertical_confidence_range", sql`vertical_confidence IS NULL OR (vertical_confidence BETWEEN 0 AND 100)`),
+  check("sdr_merchants_subvertical_confidence_range", sql`subvertical_confidence IS NULL OR (subvertical_confidence BETWEEN 0 AND 100)`),
 ]);
 
 export const insertSdrMerchantSchema = createInsertSchema(sdrMerchants).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
+  // Vertical provenance — server-assigned; clients cannot forge vertical authority.
+  verticalSource: true,
+  verticalConfidence: true,
+  subverticalSource: true,
+  subverticalConfidence: true,
+  manualVerticalOverride: true,
 });
 
 export type SdrMerchant = typeof sdrMerchants.$inferSelect;
@@ -2976,6 +3006,12 @@ export const sdrLeadState = pgTable("sdr_lead_state", {
   humanHandoffNote: text("human_handoff_note"),
   noShowCount: integer("no_show_count").default(0),
   dealId: integer("deal_id"),
+  // Vertical provenance — resolved projection from authority tables (contacts/sdrMerchants).
+  // Lead state does NOT own override authority; it reflects what the resolver decided.
+  // verticalResolutionReason explains which source won and why.
+  verticalSource: text("vertical_source"),
+  verticalConfidence: integer("vertical_confidence"),
+  verticalResolutionReason: text("vertical_resolution_reason"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
@@ -2986,12 +3022,17 @@ export const sdrLeadState = pgTable("sdr_lead_state", {
   index("sdr_lead_state_next_action_at_idx").on(table.nextActionAt),
   index("sdr_lead_state_stage_updated_at_idx").on(table.stage, table.updatedAt),
   index("sdr_lead_state_current_stage_updated_at_idx").on(table.currentStage, table.updatedAt),
+  check("sdr_lead_state_vertical_confidence_range", sql`vertical_confidence IS NULL OR (vertical_confidence BETWEEN 0 AND 100)`),
 ]);
 
 export const insertSdrLeadStateSchema = createInsertSchema(sdrLeadState).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
+  // Vertical provenance — server-assigned; clients cannot forge vertical resolution.
+  verticalSource: true,
+  verticalConfidence: true,
+  verticalResolutionReason: true,
 });
 
 export type SdrLeadState = typeof sdrLeadState.$inferSelect;

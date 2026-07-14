@@ -526,6 +526,13 @@
       "when": 1786300000000,
       "tag": "0070_prospect_conversion_claims",
       "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1786400000000,
+      "tag": "0071_vertical_provenance_schema",
+      "breakpoints": true
     }
   ]
 }

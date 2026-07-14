@@ -90,6 +90,10 @@ export const PROVENANCE_FIELDS = [
   "primarySourceCategory",
   "primarySourceType",
   "primarySourceEventId",
+  // Vertical provenance — server-assigned; never accepted from client input
+  "verticalSource",
+  "verticalConfidence",
+  "manualVerticalOverride",
 ] as const;
 
 /**
