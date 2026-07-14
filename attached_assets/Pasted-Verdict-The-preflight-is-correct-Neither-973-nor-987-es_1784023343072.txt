@@ -1,0 +1,70 @@
+Verdict: The preflight is correct
+
+Neither #973 nor #987 established behavioral lead scoring for newly created GHL contacts.
+
+* #973 added provenance and the canonical writeContact() contract.
+* writeContact() triggers readiness recalculation, which updates dataReadinessScore, not leadScore.
+* #987 only protected provenance fields from GHL inbound overwrites.
+* Neither task added a BullMQ job or durable per-contact execution path for behavioral scoring.
+
+So do not force lead scoring into #988 with scoreContact(...).catch(). That would create exactly the kind of unreliable detached work these recent tasks have been removing.
+
+What to send back
+
+Yes. Update Task #988 to cover only the enrollment gap that is safely buildable now.
+
+Task #988 — GHL New-Contact Promotional Enrollment Trigger
+
+Scope:
+
+1. Replace the unstable new-contact provenance key:
+
+ghl:${ghlContact.id}:${Date.now()}
+
+with:
+
+ghl:${ghlContact.id}:created
+
+2. After a genuine new contact is committed and created === true, call and await:
+
+enqueuePromotionalEnrollment({ contactId, triggerType: "contact_created", sourceEventId: stableEventKey })
+
+3. Catch enqueue errors without failing or rolling back the valid GHL contact creation. The durable enqueue service remains responsible for writing deferred queue-unavailable state.
+4. Do not enqueue when:
+
+* the sync matched an existing contact;
+* the request resolved through 23505 race recovery;
+* created === false.
+
+5. Do not call autoEnrollFromTrigger() directly.
+6. Do not inspect GHL payload compliance fields as enrollment authority. The worker must continue re-reading persisted contact state and applying the canonical eligibility/contactability gate.
+7. Add the behavior-based regression tests listed in the preflight:
+
+* one job for a genuine new contact;
+* replay creates no duplicate logical job;
+* existing-contact updates create no job;
+* race recovery creates no duplicate job;
+* enqueue failure does not fail contact creation;
+* persisted DNC is blocked by the worker.
+
+Explicitly out of scope
+
+Behavioral leadScore triggering.
+
+There is currently no durable per-contact behavioral scoring job. Do not add scoreContact(...).catch() or any new detached promise in this task.
+
+Create a separate preflight task to establish the canonical per-contact behavioral scoring path before wiring new-contact intake sources to it.
+
+Separate scoring task
+
+The follow-up should not merely say “call scoreContact().” It needs to establish:
+
+* the canonical per-contact scoring function;
+* a durable queue job type;
+* idempotency identity;
+* which mutations trigger rescoring;
+* retry and terminal failure behavior;
+* whether all contact intake paths use the same post-write hook;
+* protection against racing with the mass-scoring backfill.
+
+Final status: scope #988 to enrollment only, and create behavioral scoring as a separate architecture task.

@@ -1,0 +1,247 @@
+Verdict: YES — UPDATE TASK #1009 WITH THIS CORRECTED PLAN
+
+The preflight has now answered the architecture questions. No more investigation round is needed.
+
+Send this back:
+
+BUILD-READY WITH REQUIRED ARCHITECTURE CORRECTIONS
+
+Update Task #1009 using the verified contracts below.
+
+Scope boundary
+
+This task establishes the durable per-contact scoring architecture and wires it only to contacts created through writeContact().
+
+It does not yet cover contacts created directly through:
+
+* CSV bulk import
+* SDR paths
+* merchant routes
+* partner routes
+* live chat
+* any other direct storage.createContact() caller
+
+List those paths explicitly as follow-up adoption work. Do not claim universal coverage yet.
+
+Canonical scoring function
+
+The BullMQ worker must call:
+
+scoreContactBatchSafe(contactId)
+
+Do not call:
+
+* scoreContact()
+* scoreContactBatch()
+* scoreContactPageBulk([contactId]) directly from the handler
+
+scoreContact() has disqualifying side effects including GHL synchronization, hot-lead notifications, and deal updates.
+
+Durable job table
+
+Add contact_lead_scoring_jobs through a versioned migration.
+
+Required fields:
+
+* id
+* contactId
+* requestedGeneration
+* processedGeneration
+* status
+* triggerSources
+* inputVersionSnapshot
+* enqueueAttempts
+* executionAttempts
+* nextAttemptAt
+* lastErrorCode
+* createdAt
+* updatedAt
+* completedAt
+
+Required states:
+
+* pending_enqueue
+* queued
+* processing
+* retry_wait
+* completed
+* contact_not_found
+* deferred_queue_unavailable
+* failed_terminal
+
+Use a DB-level uniqueness rule allowing only one active logical request per contact.
+
+The migration journal when value must be above the current high-water mark:
+
+1785800000000
+
+Generation-based coalescing
+
+Do not use a permanent one-job-per-contact dedup key.
+
+requestContactLeadScoring(contactId, triggerSource) must:
+
+1. Atomically create or update the durable row.
+2. Increment or advance requestedGeneration.
+3. Merge the trigger source into triggerSources.
+4. Keep only one active BullMQ job per contact.
+5. Return one of:
+
+* queued
+* coalesced
+* deferred
+* already_current
+* contact_not_found
+
+The worker processes the latest requested generation.
+
+After scoring:
+
+* set processedGeneration;
+* if requestedGeneration > processedGeneration, queue another pass;
+* otherwise mark complete.
+
+Input-version race protection
+
+Use lastMeaningfulContactMutationAt as the scoring-input version.
+
+Per-contact worker flow:
+
+1. Read the contact and capture lastMeaningfulContactMutationAt.
+2. Compute the score through the canonical safe scoring function.
+3. Persist only if the contact’s current lastMeaningfulContactMutationAt still matches the captured value.
+4. If it changed, do not write stale results; advance/coalesce another generation.
+
+The batch scorer must use the same guarded persistence contract.
+
+This requires a targeted change to contact-scoring-job.ts. Do not leave the batch raw SQL write unguarded, or the race remains open.
+
+Shared persistence owner
+
+Extract one guarded score-write method used by both:
+
+* per-contact BullMQ jobs;
+* mass backfill batches.
+
+It must update:
+
+* lead score
+* score components/breakdown
+* tier fields
+* lastScoredAt
+
+only when the input-version guard passes.
+
+Do not allow batch and per-contact scoring to maintain separate write semantics.
+
+Queue ownership
+
+Register job type:
+
+contact_lead_scoring
+
+in the existing ENRICHMENT queue handler.
+
+Use the queue’s existing:
+
+* concurrency: 5
+* attempts: 3
+* backoff: 15 seconds
+
+Persist terminal failure state after retries are exhausted.
+
+The BullMQ jobId may be stable per durable scoring-job row/contact because generation coalescing is owned by the database row, not by permanent BullMQ deduplication.
+
+Redis-unavailable behavior
+
+The durable DB row must be written before attempting BullMQ enqueue.
+
+If Redis is unavailable:
+
+* set status to deferred_queue_unavailable;
+* set nextAttemptAt;
+* increment enqueueAttempts;
+* do not throw into contact creation;
+* do not use an in-memory fallback.
+
+Add bounded recurring recovery using the same atomic claim pattern as promotional enrollment:
+
+* FOR UPDATE SKIP LOCKED
+* bounded batch
+* stable job identity
+* exponential/capped backoff
+* retry cap
+* terminal failure state
+
+writeContact hook
+
+After the contact transaction commits, call and await:
+
+requestContactLeadScoring(contact.id, "contact_created")
+
+The request service must already have persisted the durable row before Redis interaction.
+
+If the request returns deferred or failed-to-enqueue:
+
+* log/record the outcome;
+* do not roll back the valid contact.
+
+Do not use .catch(() => {}).
+
+Never-scored definition
+
+Use:
+
+lastScoredAt IS NULL
+
+Never use:
+
+* leadScore IS NULL
+* leadScore = 0
+
+A contact may legitimately have score zero after being scored.
+
+Scoring-dependent fields
+
+Export:
+
+LEAD_SCORING_DEPENDENT_FIELDS
+
+from lead-scoring.ts.
+
+This task only needs the constant and create-time hook. Mutation-path adoption is future scope.
+
+The set must reflect the actual contact fields consumed by the scoring model. Related activity tables should be documented separately as future event triggers.
+
+Kill lines
+
+* STOP if scoreContact() is called from the worker.
+* STOP if BullMQ is the only durable source of truth.
+* STOP if leadScore = 0 means never scored.
+* STOP if contact-only dedup suppresses future generations.
+* STOP if stale inputs can overwrite newer scores.
+* STOP if the batch scorer keeps an unguarded raw SQL write.
+* STOP if Redis failure only logs and drops the request.
+* STOP if deferred rows have no recovery worker.
+* STOP if scoring triggers GHL, enrollment, notifications, routing, email, or SMS.
+* STOP if this task claims all intake paths are covered.
+
+Required tests
+
+* New writeContact() contact creates one durable scoring request.
+* Duplicate requests coalesce and increment generation.
+* Worker writes non-null lastScoredAt and a valid score.
+* Legitimately scored zero remains distinguishable from never scored.
+* Redis unavailable produces a deferred durable row and no throw.
+* Recovery re-enqueues after Redis returns.
+* Two recovery workers cannot claim the same row.
+* Contact mutated during scoring does not receive stale results.
+* Concurrent mass backfill and per-contact scoring produce a score from the newest input version.
+* scoreContact() side effects are never invoked.
+* Contacts created through known direct storage.createContact() paths remain explicitly outside this task.
+
+Final status
+
+Task #1009: BUILD-READY WITH THE CORRECTED PLAN ABOVE.
+
+The preflight is complete. The next response from Replit should be implementation, not another architecture proposal.
