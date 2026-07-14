@@ -1,0 +1,240 @@
+Verdict: NOT BUILD-READY — 4 MATERIAL CORRECTIONS
+
+The preflight found the real risk, but the proposed solution still has four production problems.
+
+1. Do not make every public form silently update an existing contact
+
+An email match does not automatically prove that the submitter should mutate that contact’s profile.
+
+The existing-contact branch must define exactly which fields may be refreshed. At minimum:
+
+* consent fields go through the channel-specific merge;
+* protected compliance fields remain unchanged;
+* identity/profile fields require an explicit allowlist;
+* existing contact ownership and downstream deal behavior remain unchanged.
+
+Do not pass arbitrary form fields into storage.updateContact() merely because the email matched.
+
+2. Fix the GHL-first ordering, not only the local consent merge
+
+The principal bug occurs before the local insert fails:
+
+1. upsertGhlContact() receives incoming consent.
+2. GHL is updated.
+3. Local insert gets 23505.
+
+An email prelookup must therefore happen before any GHL upsert.
+
+For existing contacts:
+
+* run the consent merge against persisted local state;
+* build a protected, allowlisted GHL update payload;
+* never send blocked consent values to GHL;
+* perform the local update and consent audit atomically;
+* synchronize only the permitted resulting state to GHL through the canonical update path.
+
+Do not call writeContact({ mode: "ghl_upsert_first" }) and hope the later local guard repairs GHL.
+
+3. doNotAutoContact is not automatically a consent-withdrawal signal
+
+doNotAutoContact may prohibit automated outreach without representing withdrawal of the underlying channel consent.
+
+Do not automatically block changing consentEmail or consentSms solely because doNotAutoContact === true unless the canonical compliance contract explicitly defines that behavior.
+
+Keep these concepts separate:
+
+* consent state: whether the person granted or withdrew channel consent;
+* automation restriction: whether automated contact is permitted;
+* global DNC: a stronger prohibition.
+
+doNotAutoContact should continue blocking enrollment/send through contactability. It should not silently rewrite the consent-merge policy without verified semantics.
+
+4. Do not use read-before-insert for audit idempotency
+
+This is race-prone:
+
+SELECT existing audit
+if none:
+  INSERT audit
+
+Add the database constraint first and use targeted conflict handling.
+
+A partial unique index should include contact identity as well as submission identity, for example:
+
+CREATE UNIQUE INDEX consent_reenable_blocked_event_unique
+ON consent_audit_logs (contact_id, form_id, channel)
+WHERE action = 'consent_reenable_blocked';
+
+Using only (form_id, channel) risks collisions if form IDs are not globally unique across contacts or form systems.
+
+Corrections to send back
+
+REVISE TASK #990 BEFORE BUILD
+
+The preflight correctly found that writeContact() is create-only and that the real risk is the GHL-first update occurring before the local unique conflict. Apply these corrections:
+
+1. Resolve existing contacts before any GHL write
+
+For every unauthenticated public form path:
+
+* normalize the submitted email using the canonical helper;
+* look up the existing active contact before calling writeContact() or upsertGhlContact();
+* branch into a dedicated existing-contact submission service when found.
+
+Do not let an existing-contact resubmission enter the GHL-upsert-first create path.
+
+2. Create one canonical existing-form-submission service
+
+Add a service such as:
+
+processExistingPublicFormSubmission({
+  contactId,
+  permittedProfileUpdates,
+  incomingConsent,
+  submissionId,
+  formType,
+  requestEvidence
+})
+
+It must:
+
+* lock/read the current contact;
+* call mergePersistedConsentState();
+* apply only explicitly allowlisted profile updates;
+* preserve all protected compliance/status fields;
+* write blocked-consent audit rows;
+* commit the local contact update and audits in one transaction;
+* return the canonical contact.
+
+Do not put nine independent update implementations in public.ts.
+
+3. Define the profile-update allowlist
+
+An email match must not permit arbitrary form payload fields to overwrite an existing CRM contact.
+
+Document the permitted fields per form type.
+
+At minimum, prohibit public mutation of:
+
+* source/provenance fields;
+* DNC and automation flags;
+* email/SMS status;
+* consent tier;
+* lifecycle stage;
+* ownership/assignment;
+* lead score/readiness fields;
+* GHL identity;
+* archived/deleted state.
+
+4. Synchronize only the protected merged result to GHL
+
+For an existing contact, GHL must receive only values permitted by the local merge.
+
+Blocked consent values must never be sent to GHL.
+
+Use the canonical existing-contact GHL update owner after the local transaction, or an outbox/durable sync if that is the established pattern.
+
+If the GHL update fails:
+
+* do not roll back the valid local submission;
+* record/retry through the existing GHL synchronization mechanism.
+
+5. Do not treat doNotAutoContact as consent withdrawal without evidence
+
+Channel consent blocking rules:
+
+* doNotContact=true may block both channels under the canonical global-DNC policy.
+* Email opt-out/unsubscribe blocks email re-enable.
+* SMS opt-out/unsubscribe/blocked state blocks SMS re-enable.
+* One channel does not govern the other.
+* doNotAutoContact continues to restrict automated outreach through contactability, but does not by itself alter stored channel consent unless existing canonical policy explicitly says it does.
+
+6. Use precise transition rules
+
+For each channel:
+
+* absent incoming value → no consent change;
+* existing true + incoming true → idempotent;
+* null/unknown + explicit affirmative evidence → may set true;
+* explicit withdrawal or opted-out status + incoming true → blocked;
+* bounced/invalid email status remains exactly unchanged;
+* incoming false must be handled according to the current withdrawal contract, not ignored automatically.
+
+7. Add DB-enforced audit idempotency
+
+Create a versioned migration with:
+
+CREATE UNIQUE INDEX consent_reenable_blocked_event_unique
+ON consent_audit_logs (contact_id, form_id, channel)
+WHERE action = 'consent_reenable_blocked';
+
+Verify existing duplicates before applying it.
+
+Use ON CONFLICT DO NOTHING or targeted 23505 handling. Do not rely on select-before-insert.
+
+8. Confirm stable submission IDs for all nine forms
+
+Do not generate a fresh ID inside each retry.
+
+Each handler must have one stable submissionId propagated through:
+
+* local contact update;
+* audit idempotency;
+* downstream deal/ticket creation;
+* GHL synchronization where applicable.
+
+If a form currently lacks one, generate it once at request acceptance.
+
+9. Preserve existing downstream form semantics
+
+An existing-contact match must still correctly support the form’s intended downstream operation:
+
+* deal creation;
+* ticket creation;
+* confirmation enrollment;
+* audit logging;
+* response payload.
+
+Do not skip the form’s business action merely because contact creation became an update.
+
+Avoid duplicate deals/tickets on replay by using the same stable submission identity where the existing architecture supports it.
+
+10. Protect public payloads centrally
+
+Do not rely on nine manual delete statements alone.
+
+Create a server-owned payload builder/allowlist that constructs the contact mutation from approved fields. Extra req.body properties must never be spread into writeContact() or storage.updateContact().
+
+Confirm consentEmail and consentSms remain in REPLIT_OWNED_FIELDS; add them only if missing.
+
+Kill lines
+
+* STOP if existing contacts still pass through a GHL-first create operation.
+* STOP if blocked consent is sent to GHL before the local guard runs.
+* STOP if matching by email permits arbitrary profile-field overwrite.
+* STOP if doNotAutoContact is treated as explicit consent withdrawal without canonical evidence.
+* STOP if audit idempotency uses a read-before-write check without a unique index.
+* STOP if (formId, channel) is assumed globally unique without contact identity.
+* STOP if existing-contact submissions lose their intended deal, ticket, or confirmation behavior.
+* STOP if a fresh submission ID is generated on every retry.
+* STOP if nine route handlers independently implement consent policy.
+* STOP if public body fields are spread into contact storage.
+
+Required validation
+
+* Existing email-opted-out contact resubmits with email consent: local and GHL email consent remain protected.
+* Existing SMS-opted-out contact resubmits with SMS consent: local and GHL SMS state remain protected.
+* Email opt-out does not block otherwise permitted SMS consent.
+* SMS opt-out does not block otherwise permitted email consent.
+* doNotAutoContact continues blocking automated sends but does not automatically rewrite channel consent.
+* Global DNC blocks both channels according to existing policy.
+* Crafted server-owned fields never reach local DB or GHL.
+* Existing-contact form still creates its intended deal/ticket exactly once.
+* Duplicate delivery creates one blocked audit per contact, submission, and channel.
+* Audit failure rolls back the local contact mutation.
+* GHL failure does not undo the local protected update and enters the existing retry path.
+* New-contact behavior remains unchanged.
+
+Final status: NOT BUILD-READY
+
+The correct implementation is a canonical existing-public-form submission service that resolves locally before GHL, merges consent by channel, atomically audits blocked changes, and preserves each form’s downstream business action.
