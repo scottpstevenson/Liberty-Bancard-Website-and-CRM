@@ -7,6 +7,7 @@ import { normalizeGhlId } from "../utils/normalize";
 import { getEmailSignatureHtml } from "./email-signatures";
 import { auditChange } from "./audit-change";
 import { writeContact, upsertContactSourceEvent, PROVENANCE_FIELDS } from "./contact-writer";
+import { enqueuePromotionalEnrollment } from "./promotional-enrollment-eligibility";
 import { eq } from "drizzle-orm";
 
 const CONFLICT_FIELDS: Array<{ ghlKey: string; contactKey: keyof Contact }> = [
@@ -394,6 +395,7 @@ export async function syncContactFromGhl(ghlContact: any): Promise<{ contactId: 
     // No existing row found — create a new contact.
     // Use ghl_inbound_no_echo mode to avoid echoing inbound data back to GHL.
     // Wrap in try/catch to recover from 23505 unique-violation races (concurrent create).
+    const stableEventKey = `ghl:${ghlContact.id}:created`;
     try {
       const contact = await writeContact({
         mode: "ghl_inbound_no_echo",
@@ -412,7 +414,7 @@ export async function syncContactFromGhl(ghlContact: any): Promise<{ contactId: 
         provenance: {
           sourceCategory: "ghl_sync",
           sourceType: "inbound",
-          eventKey: `ghl:${ghlContact.id}:${Date.now()}`,
+          eventKey: stableEventKey,
           sourceExternalId: ghlContact.id,
           actorType: "system",
         },
@@ -420,6 +422,15 @@ export async function syncContactFromGhl(ghlContact: any): Promise<{ contactId: 
       });
 
       await updateSyncStatusRecord("contacts", "inbound", 1, 0);
+      try {
+        await enqueuePromotionalEnrollment({
+          contactId: contact.id,
+          triggerType: "contact_created",
+          sourceEventId: stableEventKey,
+        });
+      } catch (enrollErr: any) {
+        console.warn(`[GHL Sync] enqueuePromotionalEnrollment failed for contact ${contact.id}:`, enrollErr?.message);
+      }
       return { contactId: contact.id, created: true };
     } catch (createErr: any) {
       // 23505 = Postgres unique_violation — a concurrent create beat us to it.
