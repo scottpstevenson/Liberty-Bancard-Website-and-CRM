@@ -95,6 +95,8 @@ export function registerRegistryImportRoutes(app: Express) {
         matched: string;
         unmatched: string;
         skipped: string;
+        low_confidence: string;
+        ambiguous: string;
         created_at: Date;
       }>(
         `SELECT import_id, source, state,
@@ -102,6 +104,8 @@ export function registerRegistryImportRoutes(app: Express) {
           COUNT(*) FILTER (WHERE status = 'matched') as matched,
           COUNT(*) FILTER (WHERE status = 'unmatched') as unmatched,
           COUNT(*) FILTER (WHERE status = 'skipped') as skipped,
+          COUNT(*) FILTER (WHERE status = 'low_confidence') as low_confidence,
+          COUNT(*) FILTER (WHERE status = 'ambiguous') as ambiguous,
           MIN(created_at) as created_at
          FROM registry_import_log
          GROUP BY import_id, source, state

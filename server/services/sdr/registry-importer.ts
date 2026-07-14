@@ -30,7 +30,50 @@ export interface ImportSummary {
   updated: number;
   unmatched: number;
   skipped: number;
+  lowConfidence: number;
+  ambiguous: number;
 }
+
+// ---------------------------------------------------------------------------
+// Phone-tier confidence constants (PROVISIONAL — pending distribution review)
+// Run scripts/test-registry-phone-distribution.ts against prod data before
+// treating these as final.
+// ---------------------------------------------------------------------------
+export const REGISTRY_MATCH_THRESHOLD = 60;        // provisional
+export const REGISTRY_MATCH_MARGIN = 15;           // provisional
+export const REGISTRY_MATCH_ALGORITHM_VERSION = "v2"; // provisional
+
+// ---------------------------------------------------------------------------
+// Typed reason codes — stored as stable JSON, never prose
+// ---------------------------------------------------------------------------
+export type RegistryMatchBasis =
+  | "phone_exact"
+  | "name_strong"
+  | "name_moderate"
+  | "name_weak"
+  | "name_missing"
+  | "state_same"
+  | "state_different"
+  | "state_missing"
+  | "name_conflict";
+
+export type RegistryMatchContradiction = "name_conflict";
+
+export interface RegistryPhoneCandidateScore {
+  merchantId: number;
+  score: number;
+  basis: RegistryMatchBasis[];
+  contradictions: RegistryMatchContradiction[];
+  corroborated: boolean;
+}
+
+// Returned by findMatchingMerchant — covers all outcome branches
+export type FindMatchResult =
+  | { outcome: "phone_accepted"; best: RegistryPhoneCandidateScore; runnerUp: RegistryPhoneCandidateScore | null }
+  | { outcome: "phone_low_confidence"; best: RegistryPhoneCandidateScore; runnerUp: RegistryPhoneCandidateScore | null }
+  | { outcome: "phone_ambiguous"; best: RegistryPhoneCandidateScore; runnerUp: RegistryPhoneCandidateScore }
+  | { outcome: "fuzzy_matched"; merchantId: number }
+  | { outcome: "unmatched" };
 
 const STATE_REGISTRY_MAPPINGS: Record<string, ColumnMapping> = {
   FL: {
@@ -225,7 +268,7 @@ function computeYearsInBusiness(formationDate: Date | null): number | null {
 
 const FUZZY_THRESHOLD = 0.82;
 
-function jaroWinkler(s1: string, s2: string): number {
+export function jaroWinkler(s1: string, s2: string): number {
   if (s1 === s2) return 1;
   if (!s1 || !s2) return 0;
   const maxLen = Math.max(s1.length, s2.length);
@@ -275,23 +318,184 @@ function normalizeAddress(addr: string): string {
     .trim();
 }
 
+// ---------------------------------------------------------------------------
+// Pure scoring helper for the phone-tier (exported for testing)
+// ---------------------------------------------------------------------------
+// Name-conflict contradiction floor: below this similarity AND both names
+// non-empty → the names are strongly incompatible and the candidate is
+// disqualified.  0.40 is too low for typical English business name strings
+// (shared common characters push JW above 0.40 even for unrelated names);
+// 0.65 reliably separates genuinely different business name pairs.
+const NAME_CONFLICT_FLOOR = 0.65;
+
+export function scorePhoneCandidate(
+  registryNormalizedName: string,
+  registryState: string,
+  candidate: {
+    id: number;
+    businessName: string | null;
+    legalName: string | null;
+    state: string | null;
+  }
+): RegistryPhoneCandidateScore {
+  const basis: RegistryMatchBasis[] = ["phone_exact"];
+  const contradictions: RegistryMatchContradiction[] = [];
+
+  const candidateName = normalizeBusinessName(candidate.businessName || "");
+  const candidateLegal = normalizeBusinessName(candidate.legalName || "");
+  const candidateState = (candidate.state || "").toUpperCase().trim();
+  const registryStateUpper = registryState.toUpperCase().trim();
+
+  const hasRegistryName = registryNormalizedName.length > 0;
+  const hasCandidateName = candidateName.length > 0 || candidateLegal.length > 0;
+
+  let nameScore = 0;
+  let corroborated = false;
+
+  if (!hasRegistryName || !hasCandidateName) {
+    // Missing on one side — not a contradiction, just no corroboration
+    basis.push("name_missing");
+  } else {
+    const nameSim = Math.max(
+      jaroWinkler(registryNormalizedName, candidateName),
+      candidateLegal ? jaroWinkler(registryNormalizedName, candidateLegal) : 0
+    );
+
+    if (nameSim >= 0.85) {
+      basis.push("name_strong");
+      nameScore = 60;
+      corroborated = true;
+    } else if (nameSim >= 0.72) {
+      basis.push("name_moderate");
+      nameScore = 40;
+      corroborated = true;
+    } else if (nameSim < NAME_CONFLICT_FLOOR) {
+      // Strong name conflict — disqualifies the candidate
+      basis.push("name_conflict");
+      contradictions.push("name_conflict");
+    } else {
+      // Weak similarity: not a contradiction, not corroboration
+      basis.push("name_weak");
+      nameScore = 20;
+    }
+  }
+
+  // State comparison
+  if (!registryStateUpper || !candidateState) {
+    basis.push("state_missing");
+  } else if (registryStateUpper === candidateState) {
+    basis.push("state_same");
+  } else {
+    basis.push("state_different");
+  }
+
+  const stateScore = basis.includes("state_same") ? 10 : 0;
+  // Disqualified candidates get score = 0 regardless of name/state points
+  const score = contradictions.length > 0 ? 0 : nameScore + stateScore;
+
+  return {
+    merchantId: candidate.id,
+    score,
+    basis,
+    contradictions,
+    corroborated,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Pure evaluation step — exported so the smoke test can call it without a DB
+// ---------------------------------------------------------------------------
+export function evaluatePhoneCandidates(
+  scoredCandidates: RegistryPhoneCandidateScore[]
+): { outcome: "accepted"; best: RegistryPhoneCandidateScore; runnerUp: RegistryPhoneCandidateScore | null }
+ | { outcome: "low_confidence"; best: RegistryPhoneCandidateScore; runnerUp: RegistryPhoneCandidateScore | null }
+ | { outcome: "ambiguous"; best: RegistryPhoneCandidateScore; runnerUp: RegistryPhoneCandidateScore }
+ | { outcome: "fallthrough" } {
+  if (scoredCandidates.length === 0) return { outcome: "fallthrough" };
+
+  // Rank: score desc, then merchantId asc for stable tiebreak
+  const ranked = [...scoredCandidates].sort((a, b) =>
+    b.score !== a.score ? b.score - a.score : a.merchantId - b.merchantId
+  );
+
+  const best = ranked[0];
+  const runnerUp = ranked[1] ?? null;
+
+  const hasDisqualifyingContradiction = best.contradictions.length > 0;
+
+  // Hard gates for acceptance
+  const meetsThreshold = best.score >= REGISTRY_MATCH_THRESHOLD;
+  const meetsMargin = !runnerUp || (best.score - runnerUp.score) >= REGISTRY_MATCH_MARGIN;
+  const isCorroborated = best.corroborated;
+
+  if (meetsThreshold && meetsMargin && isCorroborated && !hasDisqualifyingContradiction) {
+    return { outcome: "accepted", best, runnerUp };
+  }
+
+  // Two candidates with scores within REGISTRY_MATCH_MARGIN of each other and
+  // neither has a disqualifying contradiction → ambiguous
+  if (
+    runnerUp &&
+    !hasDisqualifyingContradiction &&
+    runnerUp.contradictions.length === 0 &&
+    (best.score - runnerUp.score) < REGISTRY_MATCH_MARGIN &&
+    best.score > 0 &&
+    runnerUp.score > 0
+  ) {
+    return { outcome: "ambiguous", best, runnerUp };
+  }
+
+  // Everything else that had phone candidates but didn't qualify → low_confidence
+  return { outcome: "low_confidence", best, runnerUp };
+}
+
 async function findMatchingMerchant(
   normalizedName: string,
   city: string,
   state: string,
   phone: string | null,
   address: string
-): Promise<number | null> {
+): Promise<FindMatchResult> {
   const stateUpper = state.toUpperCase();
 
+  // ------------------------------------------------------------------
+  // Phone tier: fetch ALL exact-phone candidates, score each one, then
+  // apply the confidence/margin/corroboration gates before committing.
+  // ------------------------------------------------------------------
   if (phone) {
-    const byPhone = await db.select({ id: sdrMerchants.id })
+    const byPhone = await db
+      .select({
+        id: sdrMerchants.id,
+        businessName: sdrMerchants.businessName,
+        legalName: sdrMerchants.legalName,
+        state: sdrMerchants.state,
+      })
       .from(sdrMerchants)
-      .where(eq(sdrMerchants.mainPhone, phone))
-      .limit(1);
-    if (byPhone.length > 0) return byPhone[0].id;
+      .where(eq(sdrMerchants.mainPhone, phone));
+
+    if (byPhone.length > 0) {
+      const scored = byPhone.map((c) =>
+        scorePhoneCandidate(normalizedName, stateUpper, c)
+      );
+      const evaluation = evaluatePhoneCandidates(scored);
+
+      if (evaluation.outcome === "accepted") {
+        return { outcome: "phone_accepted", best: evaluation.best, runnerUp: evaluation.runnerUp };
+      }
+      if (evaluation.outcome === "ambiguous") {
+        return { outcome: "phone_ambiguous", best: evaluation.best, runnerUp: evaluation.runnerUp };
+      }
+      if (evaluation.outcome === "low_confidence") {
+        return { outcome: "phone_low_confidence", best: evaluation.best, runnerUp: evaluation.runnerUp };
+      }
+      // fallthrough means evaluatePhoneCandidates returned no candidates (shouldn't
+      // happen here since byPhone.length > 0, but handle gracefully)
+    }
   }
 
+  // ------------------------------------------------------------------
+  // Fuzzy-name tier — unchanged behaviour from before this task
+  // ------------------------------------------------------------------
   if (normalizedName.length >= 3) {
     const namePrefix = normalizedName.substring(0, Math.min(10, normalizedName.length));
     const candidates = await db.select({
@@ -347,10 +551,10 @@ async function findMatchingMerchant(
       }
     }
 
-    if (bestId) return bestId;
+    if (bestId) return { outcome: "fuzzy_matched", merchantId: bestId };
   }
 
-  return null;
+  return { outcome: "unmatched" };
 }
 
 export async function runRegistryImport(
@@ -366,6 +570,8 @@ export async function runRegistryImport(
   let updated = 0;
   let unmatched = 0;
   let skipped = 0;
+  let lowConfidence = 0;
+  let ambiguous = 0;
 
   let rows: Record<string, string>[];
   try {
@@ -421,10 +627,84 @@ export async function runRegistryImport(
       ownerLastName = parts.slice(1).join(" ") || null;
     }
 
-    const merchantId = await findMatchingMerchant(normalizedName, rawCity, rawState, normalizedPhone, rawAddress);
+    const matchResult = await findMatchingMerchant(normalizedName, rawCity, rawState, normalizedPhone, rawAddress);
 
-    if (merchantId) {
+    if (matchResult.outcome === "phone_accepted") {
+      // Accepted via phone tier — corroborated match, apply update with evidence
       matched++;
+      const { best, runnerUp } = matchResult;
+      const updates: Record<string, any> = {
+        registrySource: `${sourceType}:${state}${subType ? `:${subType}` : ""}`,
+        updatedAt: new Date(),
+      };
+
+      if (rawLegalName) updates.legalName = toProperCase(rawLegalName);
+      if (ownerFirstName) updates.ownerFirstName = ownerFirstName;
+      if (ownerLastName) updates.ownerLastName = ownerLastName;
+      if (formationDate) updates.formationDate = formationDate;
+      if (yearsInBusiness !== null) updates.yearsInBusiness = yearsInBusiness;
+      if (rawLicenseNumber) updates.licenseNumber = rawLicenseNumber;
+
+      await db.update(sdrMerchants).set(updates).where(eq(sdrMerchants.id, best.merchantId));
+      updated++;
+
+      await db.insert(registryImportLog).values({
+        importId,
+        source: sourceType,
+        state,
+        rawRow: row as any,
+        matchedMerchantId: best.merchantId,
+        status: "matched",
+        matchConfidence: best.score,
+        matchBasis: best.basis as any,
+        contradictions: best.contradictions as any,
+        runnerUpMerchantId: runnerUp?.merchantId ?? null,
+        runnerUpConfidence: runnerUp?.score ?? null,
+        matchAlgorithmVersion: REGISTRY_MATCH_ALGORITHM_VERSION,
+      });
+
+    } else if (matchResult.outcome === "phone_low_confidence") {
+      // Phone matched but insufficient corroboration — log only, no update
+      lowConfidence++;
+      const { best, runnerUp } = matchResult;
+      await db.insert(registryImportLog).values({
+        importId,
+        source: sourceType,
+        state,
+        rawRow: row as any,
+        matchedMerchantId: null,
+        status: "low_confidence",
+        matchConfidence: best.score,
+        matchBasis: best.basis as any,
+        contradictions: best.contradictions as any,
+        runnerUpMerchantId: runnerUp?.merchantId ?? null,
+        runnerUpConfidence: runnerUp?.score ?? null,
+        matchAlgorithmVersion: REGISTRY_MATCH_ALGORITHM_VERSION,
+      });
+
+    } else if (matchResult.outcome === "phone_ambiguous") {
+      // Two candidates too close to distinguish — log both, no update
+      ambiguous++;
+      const { best, runnerUp } = matchResult;
+      await db.insert(registryImportLog).values({
+        importId,
+        source: sourceType,
+        state,
+        rawRow: row as any,
+        matchedMerchantId: null,
+        status: "ambiguous",
+        matchConfidence: best.score,
+        matchBasis: best.basis as any,
+        contradictions: best.contradictions as any,
+        runnerUpMerchantId: runnerUp.merchantId,
+        runnerUpConfidence: runnerUp.score,
+        matchAlgorithmVersion: REGISTRY_MATCH_ALGORITHM_VERSION,
+      });
+
+    } else if (matchResult.outcome === "fuzzy_matched") {
+      // Matched via fuzzy-name tier (unchanged behaviour)
+      matched++;
+      const merchantId = matchResult.merchantId;
       const updates: Record<string, any> = {
         registrySource: `${sourceType}:${state}${subType ? `:${subType}` : ""}`,
         updatedAt: new Date(),
@@ -448,7 +728,9 @@ export async function runRegistryImport(
         matchedMerchantId: merchantId,
         status: "matched",
       });
+
     } else {
+      // unmatched
       unmatched++;
       await db.insert(registryImportLog).values({
         importId,
@@ -461,5 +743,5 @@ export async function runRegistryImport(
     }
   }
 
-  return { importId, total, matched, updated, unmatched, skipped };
+  return { importId, total, matched, updated, unmatched, skipped, lowConfidence, ambiguous };
 }

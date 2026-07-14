@@ -2840,6 +2840,12 @@ export const registryImportLog = pgTable("registry_import_log", {
   rawRow: jsonb("raw_row").notNull(),
   matchedMerchantId: integer("matched_merchant_id").references(() => sdrMerchants.id),
   status: text("status").notNull().default("unmatched"),
+  matchConfidence: integer("match_confidence"),
+  matchBasis: jsonb("match_basis"),
+  contradictions: jsonb("contradictions"),
+  runnerUpMerchantId: integer("runner_up_merchant_id").references(() => sdrMerchants.id),
+  runnerUpConfidence: integer("runner_up_confidence"),
+  matchAlgorithmVersion: text("match_algorithm_version"),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
   index("registry_import_log_import_id_idx").on(table.importId),

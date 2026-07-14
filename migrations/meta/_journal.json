@@ -505,6 +505,13 @@
       "when": 1786000000000,
       "tag": "0067_contact_lead_scoring_jobs",
       "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1786100000000,
+      "tag": "0068_registry_import_log_confidence",
+      "breakpoints": true
     }
   ]
 }
