@@ -4534,3 +4534,42 @@ export type PromotionalEligibilityReason =
   | "existing_opt_out_preserved_on_resubmission"
   | "no_usable_channel"
   | "eligible";
+
+// ─── Per-Contact Lead Scoring Jobs ────────────────────────────────────────────
+export const contactLeadScoringJobs = pgTable("contact_lead_scoring_jobs", {
+  id: serial("id").primaryKey(),
+  contactId: integer("contact_id").notNull().references(() => contacts.id),
+  requestedGeneration: integer("requested_generation").notNull().default(1),
+  processedGeneration: integer("processed_generation").notNull().default(0),
+  status: text("status").notNull(),
+  triggerSources: text("trigger_sources").array(),
+  inputVersionSnapshot: timestamp("input_version_snapshot", { withTimezone: true }),
+  enqueueAttempts: integer("enqueue_attempts").notNull().default(0),
+  executionAttempts: integer("execution_attempts").notNull().default(0),
+  nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }),
+  lastErrorCode: text("last_error_code"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+}, (table) => [
+  index("contact_lead_scoring_jobs_contact_id_idx").on(table.contactId),
+  index("contact_lead_scoring_jobs_status_idx").on(table.status),
+]);
+
+export const insertContactLeadScoringJobSchema = createInsertSchema(contactLeadScoringJobs).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type ContactLeadScoringJob = typeof contactLeadScoringJobs.$inferSelect;
+export type InsertContactLeadScoringJob = z.infer<typeof insertContactLeadScoringJobSchema>;
+
+export type ContactLeadScoringJobStatus =
+  | "pending_enqueue"
+  | "queued"
+  | "processing"
+  | "completed"
+  | "contact_not_found"
+  | "failed_terminal"
+  | "deferred_queue_unavailable";

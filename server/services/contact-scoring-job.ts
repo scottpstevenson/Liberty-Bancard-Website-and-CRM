@@ -19,7 +19,7 @@ import { db } from "../db";
 import { contacts } from "@shared/schema";
 import { sql } from "drizzle-orm";
 import { storage } from "../storage";
-import { scoreContactPageBulk } from "./lead-scoring";
+import { scoreContactPageBulk, persistContactScore } from "./lead-scoring";
 import { sanitizeScoringError } from "./scoring-progress-helpers";
 import { randomUUID } from "crypto";
 
@@ -423,18 +423,40 @@ async function runScoringAsync(opts: {
         continue;
       }
 
-      // Transaction: bulk score write + conditional cursor advance
+      // Per-contact guarded score writes (replaces raw bulk SQL)
+      // Each call re-checks lastMeaningfulContactMutationAt to guard against stale writes.
+      let persistUpdated = 0;
+      let persistStale = 0;
+      let persistErrors = 0;
+      for (const s of pageResult.scores) {
+        try {
+          const result = await persistContactScore(s.id, s, s.inputVersionSnapshot);
+          if (result === "written") {
+            persistUpdated++;
+          } else {
+            if (result === "stale") {
+              console.debug(`[ContactScoringJob] Stale score skipped for contact ${s.id} — mutation during scoring`);
+            }
+            persistStale++;
+          }
+        } catch (persErr) {
+          console.error(`[ContactScoringJob] persistContactScore error for contact ${s.id}:`, persErr);
+          persistErrors++;
+        }
+      }
+
+      // Tally tier distribution (only written contacts count toward tiers)
       const newProgress: ScoringProgress = {
         ...progress,
-        processed: progress.processed + pageResult.updated + pageResult.skipped,
-        updated: progress.updated + pageResult.updated,
-        skipped: progress.skipped + pageResult.skipped,
+        processed: progress.processed + persistUpdated + persistStale + persistErrors + pageResult.skipped,
+        updated: progress.updated + persistUpdated,
+        skipped: progress.skipped + persistStale + pageResult.skipped,
+        errors: progress.errors + persistErrors,
         lastProcessedContactId: pageLastId,
         updatedAt: new Date().toISOString(),
         lastHeartbeatAt: new Date().toISOString(),
       };
 
-      // Tally tier distribution
       for (const s of pageResult.scores) {
         if (s.tier === "hot") newProgress.hot++;
         else if (s.tier === "warm") newProgress.warm++;
@@ -442,76 +464,9 @@ async function runScoringAsync(opts: {
         else newProgress.unqualified++;
       }
 
-      let txSuccess = false;
-      try {
-        await db.transaction(async (tx) => {
-          // Bulk score write: UPDATE contacts FROM (VALUES ...) — never inserts, only updates existing rows
-          if (pageResult.scores.length > 0) {
-            // Build multi-row VALUES clause: (id, scores...) typed literals joined with commas
-            const valueFragments = pageResult.scores.map(s =>
-              sql`(
-                ${s.id}::int,
-                ${s.leadScore}::int,
-                ${s.revPotentialScore}::int,
-                ${s.switchabilityScore}::int,
-                ${s.uwConfidenceScore}::int,
-                ${s.engagementScore}::int,
-                ${JSON.stringify(s.scoreBreakdown)}::jsonb,
-                ${s.lastScoredAt.toISOString()}::timestamptz
-              )`
-            );
-            const valuesClause = valueFragments.reduce((acc, frag, i) =>
-              i === 0 ? frag : sql`${acc}, ${frag}`
-            );
-            await tx.execute(sql`
-              UPDATE contacts SET
-                lead_score          = v.lead_score,
-                rev_potential_score = v.rev_potential_score,
-                switchability_score = v.switchability_score,
-                uw_confidence_score = v.uw_confidence_score,
-                engagement_score    = v.engagement_score,
-                score_breakdown     = v.score_breakdown,
-                last_scored_at      = v.last_scored_at
-              FROM (VALUES ${valuesClause}) AS v(
-                id, lead_score, rev_potential_score, switchability_score,
-                uw_confidence_score, engagement_score, score_breakdown, last_scored_at
-              )
-              WHERE contacts.id = v.id
-            `);
-          }
-
-          const progressJson = JSON.stringify({ ...newProgress, status: "running" });
-          const updateResult = await tx.execute(sql`
-            UPDATE system_settings
-              SET value = ${progressJson}::jsonb, updated_at = NOW()
-              WHERE key = ${PROGRESS_KEY}
-                AND value->>'runId' = ${runId}
-                AND value->>'status' = 'running'
-          `);
-          if ((updateResult.rowCount ?? 0) === 0) {
-            throw new OwnershipLostError();
-          }
-        });
-        txSuccess = true;
-      } catch (txErr) {
-        if (txErr instanceof OwnershipLostError) throw txErr;
-        // Write failure: classify entire page as errors and advance cursor so we don't retry
-        console.error("[ContactScoringJob] Transaction write failed for page ending at", pageLastId, "— counting as errors:", txErr);
-        const errProgress: ScoringProgress = {
-          ...progress,
-          errors: progress.errors + pageIds.length,
-          processed: progress.processed + pageIds.length,
-          lastProcessedContactId: pageLastId,
-          updatedAt: new Date().toISOString(),
-          lastHeartbeatAt: new Date().toISOString(),
-        };
-        const owned = await conditionalProgressUpdate(runId, errProgress);
-        if (!owned) throw new OwnershipLostError();
-        progress = { ...errProgress, status: "running" };
-        lastId = pageLastId;
-        if (rows.length < batchSize) keepGoing = false;
-        continue;
-      }
+      // Conditional cursor advance with ownership guard (no longer wrapped in score-write transaction)
+      const owned = await conditionalProgressUpdate(runId, { ...newProgress, status: "running" });
+      if (!owned) throw new OwnershipLostError();
 
       progress = { ...newProgress, status: "running" };
       lastId = pageLastId;

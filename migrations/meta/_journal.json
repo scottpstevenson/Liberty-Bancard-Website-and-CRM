@@ -498,6 +498,13 @@
       "when": 1785900000000,
       "tag": "0066_ghl_contact_id_unique",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1786000000000,
+      "tag": "0067_contact_lead_scoring_jobs",
+      "breakpoints": true
     }
   ]
 }

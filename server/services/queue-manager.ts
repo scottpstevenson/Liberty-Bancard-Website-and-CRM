@@ -378,6 +378,131 @@ class QueueManager {
                 contact.id, r.score, r.grade, r.breakdown as Record<string, unknown>, READINESS_MODEL_VERSION,
               );
             }
+          } else if (_job.name === "contact_lead_scoring" && typeof _job.data?.contactId === "number") {
+            const { db: dbInst } = await import("../db");
+            const { sql: sqlTag, eq: eqOp } = await import("drizzle-orm");
+            const { contactLeadScoringJobs } = await import("@shared/schema");
+            const { scoreContactBatchSafe } = await import("./lead-scoring");
+
+            const contactId: number = _job.data.contactId;
+            const dbRowId: number | undefined = _job.data.dbRowId;
+
+            try {
+              let activeRow: { id: number; requestedGeneration: number; processedGeneration: number } | undefined;
+
+              if (dbRowId !== undefined) {
+                const rows = await dbInst
+                  .select({
+                    id: contactLeadScoringJobs.id,
+                    requestedGeneration: contactLeadScoringJobs.requestedGeneration,
+                    processedGeneration: contactLeadScoringJobs.processedGeneration,
+                  })
+                  .from(contactLeadScoringJobs)
+                  .where(eqOp(contactLeadScoringJobs.id, dbRowId))
+                  .limit(1);
+                activeRow = rows[0];
+              }
+
+              if (!activeRow) {
+                const rows = await dbInst
+                  .select({
+                    id: contactLeadScoringJobs.id,
+                    requestedGeneration: contactLeadScoringJobs.requestedGeneration,
+                    processedGeneration: contactLeadScoringJobs.processedGeneration,
+                  })
+                  .from(contactLeadScoringJobs)
+                  .where(eqOp(contactLeadScoringJobs.contactId, contactId))
+                  .limit(1);
+                activeRow = rows[0];
+              }
+
+              if (!activeRow) {
+                return;
+              }
+
+              const { requestedGeneration: reqGen, processedGeneration: procGen } = activeRow;
+
+              if (reqGen <= procGen) {
+                await dbInst.execute(sqlTag`
+                  UPDATE contact_lead_scoring_jobs
+                  SET status       = 'completed',
+                      completed_at = NOW(),
+                      updated_at   = NOW()
+                  WHERE id = ${activeRow.id}
+                `);
+                return;
+              }
+
+              await dbInst.execute(sqlTag`
+                UPDATE contact_lead_scoring_jobs
+                SET status             = 'processing',
+                    execution_attempts = execution_attempts + 1,
+                    updated_at         = NOW()
+                WHERE id = ${activeRow.id}
+              `);
+
+              const scoringContact = await storage.getContact(contactId);
+              if (!scoringContact) {
+                await dbInst.execute(sqlTag`
+                  UPDATE contact_lead_scoring_jobs
+                  SET status       = 'contact_not_found',
+                      updated_at   = NOW()
+                  WHERE id = ${activeRow.id}
+                `);
+                return;
+              }
+
+              const inputVersionSnapshot = scoringContact.lastMeaningfulContactMutationAt ?? null;
+
+              await scoreContactBatchSafe(contactId, { inputVersionSnapshot });
+
+              const afterRows = await dbInst
+                .select({ requestedGeneration: contactLeadScoringJobs.requestedGeneration })
+                .from(contactLeadScoringJobs)
+                .where(eqOp(contactLeadScoringJobs.id, activeRow.id))
+                .limit(1);
+              const latestReqGen = afterRows[0]?.requestedGeneration ?? reqGen;
+
+              if (latestReqGen > reqGen) {
+                // More work arrived while we were processing this generation.
+                // We CANNOT safely re-enqueue from within an active BullMQ job
+                // because the current job's stable jobId is still active in Redis
+                // and queue.add() with the same jobId will be a no-op (dedup).
+                // Instead, set status = pending_enqueue so the recovery worker
+                // picks this up on the very next enrichment tick (by which time
+                // this job will have completed and the jobId freed).
+                await dbInst.execute(sqlTag`
+                  UPDATE contact_lead_scoring_jobs
+                  SET processed_generation = ${reqGen},
+                      status               = 'pending_enqueue',
+                      next_attempt_at      = NOW() + INTERVAL '5 seconds',
+                      updated_at           = NOW()
+                  WHERE id = ${activeRow.id}
+                `);
+              } else {
+                await dbInst.execute(sqlTag`
+                  UPDATE contact_lead_scoring_jobs
+                  SET processed_generation = ${reqGen},
+                      status               = 'completed',
+                      completed_at         = NOW(),
+                      updated_at           = NOW()
+                  WHERE id = ${activeRow.id}
+                `);
+              }
+            } catch (workerErr) {
+              const isTerminalAttempt = (_job.attemptsMade ?? 0) >= (_job.opts?.attempts ?? 3) - 1;
+              if (isTerminalAttempt) {
+                await dbInst.execute(sqlTag`
+                  UPDATE contact_lead_scoring_jobs
+                  SET status         = 'failed_terminal',
+                      last_error_code = ${(workerErr as Error).message?.slice(0, 200) ?? "error"},
+                      updated_at      = NOW()
+                  WHERE contact_id = ${contactId}
+                    AND status NOT IN ('completed', 'contact_not_found', 'failed_terminal')
+                `).catch((e) => console.error("[LeadScoring] Failed to mark failed_terminal:", e));
+              }
+              throw workerErr;
+            }
           } else if (_job.name === "promotional-enrollment-eval" && typeof _job.data?.promotionalEnrollmentJobId === "number") {
             const { db: dbInst } = await import("../db");
             const { promotionalEnrollmentJobs } = await import("@shared/schema");
@@ -841,6 +966,8 @@ async function runEnrichmentTick(): Promise<void> {
     await processSunbizEnrichmentQueue(5).catch(err => console.error("[Queue:enrichment] Sunbiz enrichment error (best-effort):", err));
   }
   await runFreeContactEnrichmentTick().catch(err => console.error("[Queue:enrichment] Free contact enrichment error (best-effort):", err));
+  const { runLeadScoringDeferredRecovery } = await import("./contact-lead-scoring-trigger");
+  await runLeadScoringDeferredRecovery().catch(err => console.error("[Queue:enrichment] Lead scoring deferred recovery error (best-effort):", err));
 }
 
 async function runFreeContactEnrichmentTick(): Promise<void> {

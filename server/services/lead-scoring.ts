@@ -3,6 +3,30 @@ import type { Contact, Deal, EmailLog, CallLog, SequenceEnrollment } from "@shar
 import { sendCriticalEmailNotification, createPreferenceAwareNotification } from "./digest-service";
 import { updateContactGhlFirst } from "./contact-writer";
 
+/**
+ * Contact fields directly consumed by applyScoringInputs() for revenue potential,
+ * switchability, underwriting confidence, and quiz bonus calculations.
+ *
+ * Future event-trigger scope (not wired in this task):
+ *  - deals table: riskTier, statementReceived, totalVolume
+ *  - emailLogs table: repliedAt, openedAt
+ *  - callLogs table: outcome
+ *  - sequenceEnrollments table: contactId (presence = in-sequence signal)
+ */
+export const LEAD_SCORING_DEPENDENT_FIELDS: Array<keyof Contact> = [
+  "monthlyVolume",
+  "vertical",
+  "locationCount",
+  "currentProvider",
+  "contractStatus",
+  "lookingReason",
+  "painPoints",
+  "businessAge",
+  "offerRoutingSource",
+  "offerConfidence",
+  "tags",
+];
+
 interface ScoreBreakdown {
   revPotential: { score: number; max: 30; factors: Record<string, number> };
   switchability: { score: number; max: 25; factors: Record<string, number> };
@@ -456,6 +480,7 @@ export interface PageScoringResult {
     scoreBreakdown: ScoreBreakdown;
     tier: "hot" | "warm" | "cold" | "unqualified";
     lastScoredAt: Date;
+    inputVersionSnapshot: Date | null;
   }>;
   updated: number;
   skipped: number;
@@ -536,6 +561,7 @@ export async function scoreContactPageBulk(ids: number[]): Promise<PageScoringRe
       scoreBreakdown: output.scoreBreakdown,
       tier: output.tier,
       lastScoredAt: now,
+      inputVersionSnapshot: contact.lastMeaningfulContactMutationAt ?? null,
     });
     updated++;
   }
@@ -619,6 +645,46 @@ export async function scoreContact(contactId: number): Promise<ScoreBreakdown | 
   return breakdown;
 }
 
+/**
+ * persistContactScore — shared guarded write for both per-contact and batch paths.
+ *
+ * Version guard logic:
+ *  - inputVersionSnapshot = null  → write unconditionally (safe backfill-only path)
+ *  - inputVersionSnapshot = Date  → re-read contact's lastMeaningfulContactMutationAt;
+ *                                    write only if the timestamps match (no intervening mutation)
+ *
+ * Never calls updateContactGhlFirst(), never fires notifications, never touches deals.
+ */
+export async function persistContactScore(
+  contactId: number,
+  output: ScoringOutput,
+  inputVersionSnapshot: Date | null,
+): Promise<"written" | "stale" | "contact_not_found"> {
+  const contact = await storage.getContact(contactId);
+  if (!contact) return "contact_not_found";
+
+  if (inputVersionSnapshot !== null) {
+    const currentMutation = contact.lastMeaningfulContactMutationAt;
+    const snapshotMs = inputVersionSnapshot.getTime();
+    const currentMs = currentMutation ? currentMutation.getTime() : null;
+    if (currentMs !== snapshotMs) {
+      return "stale";
+    }
+  }
+
+  await storage.syncUpdateContact(contactId, {
+    leadScore: output.leadScore,
+    revPotentialScore: output.revPotentialScore,
+    switchabilityScore: output.switchabilityScore,
+    uwConfidenceScore: output.uwConfidenceScore,
+    engagementScore: output.engagementScore,
+    scoreBreakdown: output.scoreBreakdown as any,
+    lastScoredAt: new Date(),
+  });
+
+  return "written";
+}
+
 export async function scoreContactBatch(contactIds: number[]): Promise<number> {
   let scored = 0;
   for (const id of contactIds) {
@@ -636,10 +702,18 @@ export async function scoreContactBatch(contactIds: number[]): Promise<number> {
  * scoreContactBatchSafe — compute and persist scores without GHL sync,
  * notifications, or deal updates. Safe for batch processing 100k+ contacts.
  * Returns null if contact not found. Uses shared buildScoringInputs/applyScoringInputs helpers.
+ * Accepts an optional inputVersionSnapshot for the guarded write path.
  */
-export async function scoreContactBatchSafe(contactId: number): Promise<{ tier: string; total: number } | null> {
+export async function scoreContactBatchSafe(
+  contactId: number,
+  opts?: { inputVersionSnapshot?: Date | null },
+): Promise<{ tier: string; total: number; persistResult: "written" | "stale" | "contact_not_found" } | null> {
   const contact = await storage.getContact(contactId);
   if (!contact) return null;
+
+  const snapshot = opts?.inputVersionSnapshot !== undefined
+    ? opts.inputVersionSnapshot
+    : contact.lastMeaningfulContactMutationAt ?? null;
 
   const contactDeals = await storage.getDealsByContact(contactId);
   const primaryDeal = contactDeals[0] || null;
@@ -650,17 +724,10 @@ export async function scoreContactBatchSafe(contactId: number): Promise<{ tier: 
   const inputs = buildScoringInputs(contact, primaryDeal, emailLogs, callLogs, enrollments);
   const output = applyScoringInputs(inputs);
 
-  await storage.syncUpdateContact(contactId, {
-    leadScore: output.leadScore,
-    revPotentialScore: output.revPotentialScore,
-    switchabilityScore: output.switchabilityScore,
-    uwConfidenceScore: output.uwConfidenceScore,
-    engagementScore: output.engagementScore,
-    scoreBreakdown: output.scoreBreakdown as any,
-    lastScoredAt: new Date(),
-  });
+  const persistResult = await persistContactScore(contactId, output, snapshot);
+  if (persistResult === "contact_not_found") return null;
 
-  return { tier: output.tier, total: output.leadScore };
+  return { tier: output.tier, total: output.leadScore, persistResult };
 }
 
 export { calculateRevenuePotential as calculateRevenuePotentialFn };

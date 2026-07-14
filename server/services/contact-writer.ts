@@ -13,6 +13,7 @@ import { isGhlConfigured, upsertGhlContact } from "./ghl";
 import { normalizeGhlId } from "../utils/normalize";
 import { syncContactToGhl } from "./ghl-sync";
 import { READINESS_DEPENDENT_FIELDS, enqueueReadinessRecalculation } from "./contact-readiness";
+import { requestContactLeadScoring } from "./contact-lead-scoring-trigger";
 
 // ---------------------------------------------------------------------------
 // Source category / type validation
@@ -235,6 +236,14 @@ export async function writeContact(args: {
     await enqueueReadinessRecalculation(contact.id);
   } catch (err) {
     console.warn(`[ContactWriter] Readiness enqueue failed for new contact ${contact.id}: ${(err as Error).message}`);
+  }
+
+  // Step 3b: Per-contact lead scoring hook
+  try {
+    const scoringStatus = await requestContactLeadScoring(contact.id, "contact_created");
+    console.debug(`[ContactWriter] Lead scoring enqueued for contact ${contact.id}: ${scoringStatus}`);
+  } catch (err) {
+    console.warn(`[ContactWriter] Lead scoring trigger failed for contact ${contact.id}: ${(err as Error).message}`);
   }
 
   // Step 4: GHL retry if pre-write failed
