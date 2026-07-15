@@ -11,6 +11,7 @@ import { resolveVoiceScriptForLead, buildGhlVoicePayload } from "./voice-orchest
 import { selectBestInbox, recordSend, rollbackSend, recordBounce, recordDelivered } from "./inbox-rotation";
 import { tagContactForInboxOrganization } from "../ghl-workflow-enrollment";
 import { getCanonicalLeadVertical } from "./vertical-resolver";
+import { resolveCanonicalVertical, getResolutionStrength } from "./canonical-vertical-resolver";
 import { ingestBusiness } from "./dedupe";
 import { featureFlags } from "../feature-flags";
 import { classifyEligibility } from "../deal-eligibility";
@@ -1389,15 +1390,189 @@ export async function bridgeContactsToSdr(options?: { limit?: number; contactIds
       contactsToProcess = contactsToProcess.slice(0, options.limit);
     }
 
-    const existingLeads = await db.select({ contactId: sdrLeadState.contactId, businessId: sdrLeadState.businessId })
+    const isExplicitBridge = Boolean(options?.contactIds && options.contactIds.length > 0);
+
+    const existingLeads = await db.select({ contactId: sdrLeadState.contactId, businessId: sdrLeadState.businessId, merchantId: sdrLeadState.merchantId })
       .from(sdrLeadState)
       .where(sql`${sdrLeadState.contactId} IS NOT NULL`);
     const existingContactIds = new Set(existingLeads.map(l => l.contactId));
     const existingBusinessIds = new Set(existingLeads.filter(l => l.businessId).map(l => l.businessId!));
+    const contactToMerchantId = new Map(existingLeads.filter(l => l.contactId && l.merchantId).map(l => [l.contactId!, l.merchantId!]));
 
     for (const contact of contactsToProcess) {
       if (existingContactIds.has(contact.id)) {
-        skipped++;
+        if (!isExplicitBridge) {
+          skipped++;
+          continue;
+        }
+        // Explicit re-bridge update path: compare incoming resolution strength against existing merchant
+        // classification and only overwrite if the incoming resolution is stronger.
+        try {
+          const existingMerchantId = contactToMerchantId.get(contact.id);
+          if (!existingMerchantId) { skipped++; continue; }
+
+          const [[existingMerchant], [existingLeadStateRow]] = await Promise.all([
+            db.select().from(sdrMerchants).where(eq(sdrMerchants.id, existingMerchantId)),
+            db.select().from(sdrLeadState).where(eq(sdrLeadState.merchantId, existingMerchantId)),
+          ]);
+          if (!existingMerchant) { skipped++; continue; }
+
+          // Helper: resolve the existing merchant's canonical vertical with no contact input.
+          // This is used for lead-state reprojection so the written value is always canonical.
+          const merchantOnlyInput = {
+            merchantVertical: existingMerchant.vertical ?? null,
+            merchantSubvertical: existingMerchant.subvertical ?? null,
+            merchantVerticalSource: existingMerchant.verticalSource ?? null,
+            merchantVerticalConfidence: existingMerchant.verticalConfidence ?? null,
+            merchantSubverticalSource: existingMerchant.subverticalSource ?? null,
+            merchantSubverticalConfidence: existingMerchant.subverticalConfidence ?? null,
+            merchantManualOverride: existingMerchant.manualVerticalOverride ?? null,
+          };
+
+          // Helper: write lead-state from a resolved result only when the fields actually differ
+          // from what is already stored (idempotency — second run with identical inputs = no write).
+          const syncLeadStateIfDrifted = async (
+            resolved: ReturnType<typeof resolveCanonicalVertical>,
+          ) => {
+            const resolvedSource = resolved.source !== "legacy_unknown" ? resolved.source : null;
+            if (
+              existingLeadStateRow?.vertical === resolved.vertical &&
+              existingLeadStateRow?.verticalSource === resolvedSource &&
+              existingLeadStateRow?.verticalConfidence === resolved.confidence &&
+              existingLeadStateRow?.verticalResolutionReason === resolved.reasonCode
+            ) {
+              return; // No drift — skip the write entirely.
+            }
+            await db.update(sdrLeadState).set({
+              vertical: resolved.vertical,
+              verticalSource: resolvedSource,
+              verticalConfidence: resolved.confidence,
+              verticalResolutionReason: resolved.reasonCode,
+            }).where(eq(sdrLeadState.merchantId, existingMerchantId));
+          };
+
+          // Manual-override merchants: never touch sdrMerchants, but still sync lead-state
+          // from the canonically resolved effective classification to clear drift.
+          if (existingMerchant.manualVerticalOverride === true) {
+            const effectiveResult = resolveCanonicalVertical(merchantOnlyInput);
+            await syncLeadStateIfDrifted(effectiveResult);
+            skipped++;
+            continue;
+          }
+
+          const verticalInput = {
+            ...merchantOnlyInput,
+            contactVertical: contact.vertical ?? null,
+            contactVerticalSource: (contact as any).verticalSource ?? null,
+            contactVerticalConfidence: (contact as any).verticalConfidence ?? null,
+            contactManualOverride: (contact as any).manualVerticalOverride ?? null,
+          };
+          const incomingResult = resolveCanonicalVertical(verticalInput);
+
+          // Existing strength must reflect the effective authority of the merchant's
+          // classification — use the stronger of coarse vs. subvertical provenance so
+          // a well-enriched subvertical cannot be overwritten by weaker contact data.
+          const coarseExistingStrength = getResolutionStrength(
+            existingMerchant.verticalSource,
+            existingMerchant.verticalConfidence,
+            existingMerchant.manualVerticalOverride,
+          );
+          const subExistingStrength = existingMerchant.subvertical
+            ? getResolutionStrength(
+                existingMerchant.subverticalSource,
+                existingMerchant.subverticalConfidence,
+                existingMerchant.manualVerticalOverride,
+              )
+            : 0;
+          const existingStrength = Math.max(coarseExistingStrength, subExistingStrength);
+          // Detect whether the incoming resolution was a manual override so the
+          // strength sentinel (999999) is correctly applied — never hardcode false.
+          const incomingIsManualOverride =
+            incomingResult.reasonCode === "contact_manual_override" ||
+            incomingResult.reasonCode === "merchant_manual_override";
+          const incomingStrength = getResolutionStrength(
+            incomingResult.source,
+            incomingResult.confidence,
+            incomingIsManualOverride,
+          );
+
+          if (incomingStrength <= existingStrength) {
+            // Incoming is not stronger than the existing merchant classification.
+            // Preserve sdrMerchants. Reproject sdrLeadState from the resolver's canonical
+            // output for the existing merchant — NOT raw existingMerchant.vertical — so the
+            // canonical coarse invariant always holds. Write only when fields actually differ.
+            const effectiveResult = resolveCanonicalVertical(merchantOnlyInput);
+            await syncLeadStateIfDrifted(effectiveResult);
+            skipped++;
+            continue;
+          }
+
+          // Unified source persistence policy: "legacy_unknown" maps to null in the DB.
+          // This is consistent with syncLeadStateIfDrifted and prevents asymmetric drift.
+          const toDbSource = (src: string | null | undefined) =>
+            src && src !== "legacy_unknown" ? src : null;
+
+          // Gate actual DB writes on a content diff — if the resolved values match what is
+          // already stored, skip writes and audit events entirely (idempotency guarantee).
+          // This prevents the contactManualOverride=true loop where incoming strength (999999)
+          // always exceeds existing strength even when the merchant record is unchanged.
+          const incomingVerticalSource = toDbSource(incomingResult.source);
+          const merchantValuesUnchanged =
+            existingMerchant.vertical === incomingResult.vertical &&
+            existingMerchant.verticalSource === incomingVerticalSource &&
+            existingMerchant.verticalConfidence === incomingResult.confidence &&
+            existingMerchant.subvertical === incomingResult.subvertical;
+
+          if (merchantValuesUnchanged) {
+            // sdrMerchants already reflects incoming — only sync lead-state if drifted.
+            await syncLeadStateIfDrifted(incomingResult);
+            skipped++;
+            continue;
+          }
+
+          // Incoming is strictly stronger AND values actually differ — update atomically.
+          const oldVertical = existingMerchant.vertical;
+          const oldSource = existingMerchant.verticalSource;
+          const oldConfidence = existingMerchant.verticalConfidence;
+
+          await db.update(sdrMerchants).set({
+            vertical: incomingResult.vertical,
+            verticalSource: incomingVerticalSource,
+            verticalConfidence: incomingResult.confidence,
+            subvertical: incomingResult.subvertical,
+            subverticalSource: incomingResult.subvertical ? incomingVerticalSource : null,
+            subverticalConfidence: incomingResult.subvertical ? incomingResult.confidence : null,
+          }).where(eq(sdrMerchants.id, existingMerchantId));
+
+          await db.update(sdrLeadState).set({
+            vertical: incomingResult.vertical,
+            verticalSource: incomingVerticalSource,
+            verticalConfidence: incomingResult.confidence,
+            verticalResolutionReason: incomingResult.reasonCode,
+          }).where(eq(sdrLeadState.merchantId, existingMerchantId));
+
+          // Emit vertical_reclassified audit event.
+          await db.insert(sdrLeadEvents).values({
+            merchantId: existingMerchantId,
+            eventType: "vertical_reclassified",
+            actorType: "system",
+            payloadJson: {
+              oldVertical,
+              newVertical: incomingResult.vertical,
+              oldSource,
+              newSource: incomingResult.source,
+              oldConfidence,
+              newConfidence: incomingResult.confidence,
+              reasonCode: incomingResult.reasonCode,
+              algorithmVersion: incomingResult.algorithmVersion,
+            },
+          });
+
+          imported++;
+        } catch (err) {
+          errorCount++;
+          console.error(`[SDR Bridge] Failed to update vertical for contact ${contact.id}:`, err);
+        }
         continue;
       }
       if (contact.businessId && existingBusinessIds.has(contact.businessId)) {
@@ -1463,6 +1638,15 @@ export async function bridgeContactsToSdr(options?: { limit?: number; contactIds
           totalOldScore >= 45 ? "QUALIFIED" :
           totalOldScore >= 20 ? "CLASSIFIED" : "DISCOVERED";
 
+        // Resolve canonical vertical via authority-ranked resolver
+        const verticalInput = {
+          contactVertical: contact.vertical ?? null,
+          contactVerticalSource: (contact as any).verticalSource ?? null,
+          contactVerticalConfidence: (contact as any).verticalConfidence ?? null,
+          contactManualOverride: (contact as any).manualVerticalOverride ?? null,
+        };
+        const verticalResult = resolveCanonicalVertical(verticalInput);
+
         const [merchant] = await db.insert(sdrMerchants).values({
           businessName,
           website: contact.website || null,
@@ -1471,7 +1655,12 @@ export async function bridgeContactsToSdr(options?: { limit?: number; contactIds
           address: contact.address || null,
           city: contact.city || null,
           state: contact.state || null,
-          vertical: contact.vertical || null,
+          vertical: verticalResult.vertical,
+          verticalSource: verticalResult.source !== "unknown" ? verticalResult.source : null,
+          verticalConfidence: verticalResult.confidence,
+          subvertical: verticalResult.subvertical,
+          subverticalSource: verticalResult.subvertical && verticalResult.source !== "unknown" ? verticalResult.source : null,
+          subverticalConfidence: verticalResult.subvertical ? verticalResult.confidence : null,
           source: "contact_bridge",
           sourceRef: `contact_${contact.id}`,
           businessId: resolvedBusinessId,
@@ -1485,7 +1674,10 @@ export async function bridgeContactsToSdr(options?: { limit?: number; contactIds
           email: contact.email || null,
           phone: contact.phone || null,
           website: contact.website || null,
-          vertical: contact.vertical || null,
+          vertical: verticalResult.vertical,
+          verticalSource: verticalResult.source !== "unknown" ? verticalResult.source : null,
+          verticalConfidence: verticalResult.confidence,
+          verticalResolutionReason: verticalResult.reasonCode,
           city: contact.city || null,
           state: contact.state || null,
           stage,

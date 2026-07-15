@@ -59,6 +59,8 @@ export function normalizePhoneForImport(phone: string): string {
   return digits;
 }
 
+export { CANONICAL_COARSE_VERTICALS } from "../services/sdr/vertical-constants";
+
 export function classifyVerticalForImport(industry: string, category: string, companyName: string, keywords: string = ""): string {
   const text = `${industry} ${category} ${companyName} ${keywords}`.toLowerCase();
   if (/restaurant|food|pizza|burger|taco|sushi|cafe|coffee|bakery|catering|bar\b|grill|diner|eatery|bistro|cuisine|kitchen/.test(text)) return "Restaurant";
