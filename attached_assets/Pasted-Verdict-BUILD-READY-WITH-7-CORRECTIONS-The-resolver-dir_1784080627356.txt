@@ -1,0 +1,228 @@
+Verdict: BUILD-READY WITH 7 CORRECTIONS
+
+The resolver direction is sound, but the brief still leaves taxonomy ownership, metadata propagation, and historical null behavior underspecified.
+
+Corrections to send back
+
+BUILD-READY WITH REQUIRED CORRECTIONS — Task #1023 / 991B-1
+
+Proceed only after Task #1022 is applied and the exact schema contract is verified.
+
+1. Match the actual schema shipped by #1022
+
+Before implementation, confirm whether sdrMerchants has separate provenance for:
+
+* vertical
+* subvertical
+
+If #1022 added:
+
+* verticalSource
+* verticalConfidence
+* subverticalSource
+* subverticalConfidence
+
+then VerticalResolutionInput and the bridge must use all four.
+
+Do not collapse subvertical provenance into the coarse vertical’s source/confidence unless #1022 explicitly defined them as one inseparable classification pair.
+
+Also confirm whether manualVerticalOverride exists only on contacts or on multiple tables. The resolver must use the canonical override owner only.
+
+2. Do not invent a new coarse taxonomy inside this service
+
+The task proposes defining a new coarse-vertical allowlist.
+
+Reuse the existing canonical taxonomy owner already used by:
+
+* campaign vertical filters;
+* template selection;
+* classifyVerticalForImport();
+* SDR normalization.
+
+Do not maintain a second hardcoded vertical list in vertical-resolver.ts.
+
+If no single exported taxonomy exists, extract one shared constant/mapping first and update existing consumers to import it only when that extraction is behavior-preserving.
+
+3. Parent mapping must be explicit and deterministic
+
+Do not implement “closest coarse parent” using fuzzy matching or substring guesses.
+
+Use a versioned mapping such as:
+
+SUBVERTICAL_TO_COARSE_VERTICAL = {
+  "Med Spa": "Healthcare",
+  "Hair Salon": "Salon/Spa",
+  "Auto Repair": "Auto",
+}
+
+Unknown subverticals must produce:
+
+reasonCode: "subvertical_parent_unknown"
+
+and preserve the best valid coarse vertical already available.
+
+Do not silently map unknown values to Other unless that is the existing canonical policy.
+
+4. Unknown provenance must not outrank known lower-authority provenance
+
+This rule is too loose:
+
+Missing provenance uses the value and labels source unknown, confidence 0.
+
+An unprovenanced contact string should not automatically replace a known GHL/import/enrichment value merely because it appears in the first non-null field.
+
+Define deterministic fallback behavior:
+
+* known-source candidates participate in the normal priority order;
+* unknown-source values are fallback-only;
+* unknown values cannot overwrite a known, valid, non-empty candidate;
+* if all candidates are unknown, preserve the current contact value as the conservative fallback and mark needs_review.
+
+5. Separate candidate authority from confidence
+
+Priority and confidence are different concepts.
+
+Example:
+
+* an operator override wins even with no model confidence;
+* enrichment requires a minimum confidence;
+* a raw form value may be valid but lower authority;
+* a GHL value may be well-formed but still lowest authority.
+
+The resolver should rank using an explicit source-authority table, not confidence alone.
+
+For example:
+
+VERTICAL_SOURCE_AUTHORITY = {
+  operator_override: 500,
+  discovery_enrichment: 400,
+  import_classification: 300,
+  website_form: 200,
+  ghl_sync: 100,
+  legacy_unknown: 0,
+}
+
+Confidence is then used within eligible source categories and for enrichment qualification.
+
+Do not compare an operator override’s missing confidence against a model-generated 95 and allow the latter to win.
+
+6. Preserve existing merchant classification unless the new result is stronger
+
+bridgeContactsToSdr() may encounter an existing sdrMerchant that already has a valid vertical/subvertical.
+
+Do not overwrite it blindly on every bridge call.
+
+The bridge update must compare:
+
+* existing merchant source authority;
+* existing confidence;
+* incoming resolved source authority;
+* manual-override status;
+* current value validity.
+
+Only replace existing merchant classification when the new resolution is stronger under the canonical policy.
+
+Otherwise preserve the existing merchant classification and project it to the new sdrLeadState.
+
+This is especially important because repeated bridge calls must be idempotent and must not degrade enriched merchant data.
+
+7. Write all resolution metadata, not only the value
+
+When writing sdrLeadState, persist the complete supported projection:
+
+* coarse vertical;
+* subvertical, if the schema supports it;
+* source;
+* confidence;
+* resolution reason/version.
+
+When updating sdrMerchants, persist the corresponding source/confidence fields for both coarse and fine-grained classifications according to the #1022 schema.
+
+Do not write a resolved value while leaving stale provenance metadata from an older classification.
+
+If sdrLeadState lacks subvertical or resolutionReason, do not silently omit that information while claiming the complete result is persisted. Either add the schema in #1022 or narrow the result contract.
+
+Resolver contract
+
+Use a candidate-based pure resolver:
+
+type VerticalCandidate = {
+  vertical: string | null;
+  subvertical: string | null;
+  source: VerticalSource | null;
+  confidence: number | null;
+  manualOverride: boolean;
+  origin: "contact" | "merchant";
+};
+type VerticalResolutionResult = {
+  vertical: string | null;
+  subvertical: string | null;
+  source: VerticalSource | "unknown";
+  confidence: number | null;
+  reasonCode: VerticalResolutionReasonCode;
+  algorithmVersion: string;
+  needsReview: boolean;
+};
+
+The resolver must:
+
+1. normalize values through the canonical taxonomy;
+2. construct candidates from contact and merchant data;
+3. honor the canonical manual override;
+4. qualify enrichment using actual confidence;
+5. rank by source authority;
+6. use confidence as a secondary comparator where applicable;
+7. preserve coarse and subvertical separately;
+8. return a conservative fallback when provenance is missing;
+9. perform no writes.
+
+Bridge behavior
+
+bridgeContactsToSdr() must:
+
+1. load the current contact and existing merchant classification;
+2. call the pure resolver once;
+3. create/update sdrMerchants only when the result is stronger than existing metadata;
+4. create/update sdrLeadState with the effective resolved classification;
+5. never mutate contacts.vertical;
+6. produce an audit/event log when an existing merchant classification changes, including old value, new value, source, confidence and reason code.
+
+If no canonical audit path exists, add one focused audit event rather than silently changing classification.
+
+Kill lines
+
+* STOP if implementation begins before #1022 columns are verified in the live schema.
+* STOP if a second coarse-vertical taxonomy is hardcoded in the resolver.
+* STOP if parent mapping uses fuzzy string matching.
+* STOP if unknown-provenance values outrank known-source values.
+* STOP if confidence alone determines source authority.
+* STOP if operator override can lose because its confidence is null.
+* STOP if an existing enriched merchant classification is overwritten by weaker contact data.
+* STOP if values are updated without matching source/confidence metadata.
+* STOP if fine-grained subvertical is written into the coarse vertical column.
+* STOP if bridge updates contacts.vertical.
+* STOP if repeated bridging changes classification on every run despite identical inputs.
+* STOP if one bridge caller bypasses the resolver.
+
+Required validation
+
+1. Confirmed operator override wins regardless of confidence.
+2. High-confidence enrichment wins over form/import/GHL input.
+3. Low-confidence enrichment does not outrank a valid known contact classification.
+4. Unknown-provenance contact value is fallback-only.
+5. Known GHL value outranks an unrelated unknown value only according to the documented fallback policy.
+6. Known subvertical maps to the correct canonical coarse vertical.
+7. Unknown subvertical does not corrupt a valid coarse vertical and sets needsReview.
+8. Existing stronger merchant classification is preserved.
+9. Stronger new resolution updates merchant value and provenance together.
+10. Repeated bridge calls are idempotent.
+11. sdrLeadState receives the effective coarse and fine-grained classification supported by its schema.
+12. contacts.vertical remains unchanged.
+13. Both confirmed callers of bridgeContactsToSdr() use the centralized resolver.
+14. Existing template-selection and campaign taxonomy tests remain green.
+
+Final status
+
+Task #1023 is build-ready after these corrections.
+
+The main production rule is: the resolver should not merely choose a string. It must preserve taxonomy level, source authority, confidence, existing stronger classifications, and complete provenance metadata.
