@@ -340,8 +340,8 @@ async function checkTicketSla() {
  * Re-applies all five stalling predicates internally so that callers from tests
  * can safely pass any deal ID set without relying on the caller to pre-filter.
  */
-export async function runSlaCheckForDeals(dealIds: number[]): Promise<void> {
-  if (dealIds.length === 0) return;
+export async function runSlaCheckForDeals(dealIds: number[]): Promise<{ tasksGenerated: number }> {
+  if (dealIds.length === 0) return { tasksGenerated: 0 };
 
   const now = new Date();
   const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
@@ -411,6 +411,7 @@ export async function runSlaCheckForDeals(dealIds: number[]): Promise<void> {
       }
     }
   }
+  return { tasksGenerated };
 }
 
 export async function runSlaCheckDirect() {
@@ -732,9 +733,12 @@ async function runScheduledAiOps() {
     const salesDeals = allDeals.filter(d => d.pipeline === "sales" && d.stage !== "Closed Won" && d.stage !== "Closed Lost");
     const stallingDeals = salesDeals.filter(d => d.updatedAt && new Date(d.updatedAt) < sevenDaysAgo);
 
+    let tasksGenerated = 0;
+
     // Delegate to scoped helper — handles blockedDealIds computation, phase gate,
     // and the insert loop (lines extracted to runSlaCheckForDeals above).
-    await runSlaCheckForDeals(stallingDeals.map(d => d.id));
+    const slaResult = await runSlaCheckForDeals(stallingDeals.map(d => d.id));
+    tasksGenerated += slaResult.tasksGenerated;
 
     const newLeads = allContacts.filter(c => c.status === "new" && c.createdAt && new Date(c.createdAt) < threeDaysAgo);
     for (const lead of newLeads.slice(0, 3)) {
