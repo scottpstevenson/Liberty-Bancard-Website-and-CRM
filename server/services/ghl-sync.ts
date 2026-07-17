@@ -2,7 +2,7 @@ import { storage } from "../storage";
 import { db } from "../db";
 import type { Contact, Deal, Company, Task, Ticket, Note, UpdateContactRequest } from "@shared/schema";
 import { ghlSyncStatus, GHL_PIPELINE_STAGE_MAP, GHL_PIPELINE_STAGE_REVERSE, ACTIVE_DEAL_STAGES } from "@shared/schema";
-import { upsertGhlContact, isGhlConfigured, sendGhlEmail } from "./ghl";
+import { upsertGhlContact, isGhlConfigured, sendGhlEmail, GhlIdentityConflictError } from "./ghl";
 import { normalizeGhlId } from "../utils/normalize";
 import { getEmailSignatureHtml } from "./email-signatures";
 import { auditChange } from "./audit-change";
@@ -223,7 +223,20 @@ export async function syncContactToGhl(contactId: number): Promise<{ success: bo
     const contact = await storage.getContact(contactId);
     if (!contact) return { success: false, error: "Contact not found" };
 
-    const rawGhlId = await upsertGhlContact(contact);
+    let rawGhlId: string;
+    try {
+      rawGhlId = await upsertGhlContact(contact);
+    } catch (upsertErr: any) {
+      if (upsertErr instanceof GhlIdentityConflictError) {
+        // Ownership conflict — another local contact already holds this GHL ID.
+        // This is a safe data-skip, not a GHL API failure; do not log as error.
+        console.warn(
+          `[GHL Sync] Contact #${contactId} identity conflict — GHL ID ${upsertErr.ghlContactId} owned by contact ${upsertErr.owningContactId} — skipping (not a failure)`
+        );
+        return { success: false, error: "ghl_identity_conflict" };
+      }
+      throw upsertErr;
+    }
     const ghlId = normalizeGhlId(rawGhlId) ?? undefined;
     if (ghlId && !contact.ghlContactId) {
       await storage.updateContact(contactId, { ghlContactId: ghlId });
@@ -1506,6 +1519,9 @@ export async function runGhlFullSyncTick(): Promise<void> {
         if (result.success) {
           consecutiveGhlFailures = 0;
           synced++;
+        } else if (result.error === "ghl_identity_conflict") {
+          // Ownership conflict — safe data-skip; do not trip the circuit breaker.
+          console.log(`[Queue:ghl-sync] Contact ${contact.id} identity conflict — skipping, not counted as GHL failure`);
         } else {
           consecutiveGhlFailures++;
         }
@@ -1544,6 +1560,9 @@ export async function runGhlFullSyncTick(): Promise<void> {
             consecutiveGhlFailures = 0;
             synced++;
             console.log(`[Queue:ghl-sync] Retry succeeded for failed contact ${contactId}`);
+          } else if (result.error === "ghl_identity_conflict") {
+            // Ownership conflict — safe data-skip; do not trip the circuit breaker.
+            console.log(`[Queue:ghl-sync] Retry contact ${contactId} identity conflict — skipping, not counted as GHL failure`);
           } else {
             consecutiveGhlFailures++;
           }

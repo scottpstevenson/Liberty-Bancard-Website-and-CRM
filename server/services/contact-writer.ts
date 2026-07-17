@@ -9,7 +9,7 @@ import {
   type ServerInsertContact,
 } from "@shared/schema";
 import { eq, sql } from "drizzle-orm";
-import { isGhlConfigured, upsertGhlContact } from "./ghl";
+import { isGhlConfigured, upsertGhlContact, GhlIdentityConflictError } from "./ghl";
 import { normalizeGhlId } from "../utils/normalize";
 import { syncContactToGhl } from "./ghl-sync";
 import { READINESS_DEPENDENT_FIELDS, enqueueReadinessRecalculation } from "./contact-readiness";
@@ -171,9 +171,15 @@ export async function writeContact(args: {
         console.log(`[ContactWriter] Pre-created contact in GHL: ${ghlContactId}`);
       }
     } catch (ghlErr: unknown) {
-      const msg = ghlErr instanceof Error ? ghlErr.message : String(ghlErr);
-      console.warn(`[ContactWriter] GHL pre-write failed (will retry): ${msg}`);
-      ghlSyncPending = true;
+      if (ghlErr instanceof GhlIdentityConflictError) {
+        // Another local contact owns the GHL ID this contact would map to — safe skip.
+        // Do not mark ghlSyncPending; retrying will hit the same conflict indefinitely.
+        console.warn(`[ContactWriter] GHL pre-write identity conflict (skip, no retry): GHL ID ${ghlErr.ghlContactId} owned by contact ${ghlErr.owningContactId}`);
+      } else {
+        const msg = ghlErr instanceof Error ? ghlErr.message : String(ghlErr);
+        console.warn(`[ContactWriter] GHL pre-write failed (will retry): ${msg}`);
+        ghlSyncPending = true;
+      }
     }
   }
 
@@ -375,15 +381,20 @@ export async function updateContactGhlFirst(
         }
         console.log(`[ContactWriter] Synced contact ${contactId} to GHL before local update`);
       } catch (ghlErr: unknown) {
-        const msg = ghlErr instanceof Error ? ghlErr.message : String(ghlErr);
-        console.warn(`[ContactWriter] GHL pre-update failed for contact ${contactId}: ${msg}`);
-        ghlSyncFailed = true;
-        await storage.createAuditLog({
-          action: "ghl_sync_failed",
-          entityType: "contact",
-          entityId: contactId,
-          details: { error: msg, trigger: "contact_updated" },
-        });
+        if (ghlErr instanceof GhlIdentityConflictError) {
+          // Another local contact owns the GHL ID — safe skip; do not retry.
+          console.warn(`[ContactWriter] GHL pre-update identity conflict for contact ${contactId} (skip, no retry): GHL ID ${ghlErr.ghlContactId} owned by contact ${ghlErr.owningContactId}`);
+        } else {
+          const msg = ghlErr instanceof Error ? ghlErr.message : String(ghlErr);
+          console.warn(`[ContactWriter] GHL pre-update failed for contact ${contactId}: ${msg}`);
+          ghlSyncFailed = true;
+          await storage.createAuditLog({
+            action: "ghl_sync_failed",
+            entityType: "contact",
+            entityId: contactId,
+            details: { error: msg, trigger: "contact_updated" },
+          });
+        }
       }
     }
   }

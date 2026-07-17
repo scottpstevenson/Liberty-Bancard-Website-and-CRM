@@ -225,6 +225,24 @@ export async function lookupGhlContactByEmail(email: string): Promise<string | n
   }
 }
 
+/**
+ * Thrown when `upsertGhlContact` detects that the GHL ID returned by a 400
+ * "duplicate contact" response is already owned by a *different* local contact.
+ * Callers should treat this as a safe data-skip — not a GHL API failure.
+ */
+export class GhlIdentityConflictError extends Error {
+  readonly ghlContactId: string;
+  readonly localContactId: number;
+  readonly owningContactId: number;
+  constructor(opts: { ghlContactId: string; localContactId: number; owningContactId: number }) {
+    super(`ghl_identity_conflict: GHL ID ${opts.ghlContactId} is already owned by local contact ${opts.owningContactId} — cannot relink to contact ${opts.localContactId}`);
+    this.name = "GhlIdentityConflictError";
+    this.ghlContactId = opts.ghlContactId;
+    this.localContactId = opts.localContactId;
+    this.owningContactId = opts.owningContactId;
+  }
+}
+
 export async function upsertGhlContact(contact: GhlContactInput): Promise<string> {
   const config = getConfig();
   if (!config) throw new Error("GHL not configured");
@@ -341,6 +359,35 @@ export async function upsertGhlContact(contact: GhlContactInput): Promise<string
         const idMatch = msg.match(/"(?:id|contactId)"\s*:\s*"([a-zA-Z0-9]+)"/);
         const existingId = idMatch?.[1];
         if (existingId) {
+          // ── Ownership pre-check ──────────────────────────────────────────────
+          // Before relinking, verify that existingId is not already owned by a
+          // *different* local contact. If it is, updating contact.id would hit
+          // the contacts_ghl_contact_id_unique constraint and crash sync —
+          // tripping the circuit breaker on every tick. Detect and skip instead.
+          if (contact.id) {
+            const currentOwner = await storage.getContactByGhlContactId(existingId).catch(() => null);
+            if (currentOwner && currentOwner.id !== contact.id) {
+              console.warn(
+                `[GHL] Identity conflict: GHL ID ${existingId} is already owned by local contact ${currentOwner.id} — will not relink contact ${contact.id}`
+              );
+              await storage.createAuditLog({
+                action: "ghl_sync_identity_conflict",
+                entityType: "contact",
+                entityId: contact.id,
+                details: {
+                  ghlContactId: existingId,
+                  owningContactId: currentOwner.id,
+                  message: "GHL returned duplicate ID that is already owned by another local contact — relinking skipped",
+                },
+              }).catch(() => {});
+              throw new GhlIdentityConflictError({
+                ghlContactId: existingId,
+                localContactId: contact.id,
+                owningContactId: currentOwner.id,
+              });
+            }
+          }
+          // ────────────────────────────────────────────────────────────────────
           try {
             await ghlFetch(`/contacts/${existingId}`, {
               method: "PUT",
@@ -351,6 +398,7 @@ export async function upsertGhlContact(contact: GhlContactInput): Promise<string
             }
             resolvedGhlId = existingId;
           } catch (putErr: any) {
+            if (putErr instanceof GhlIdentityConflictError) throw putErr;
             console.warn(`[GHL] Linked existing contact ${existingId} but PUT update failed:`, putErr?.message);
             if (contact.id) {
               await storage.updateContact(contact.id, { ghlContactId: existingId });
