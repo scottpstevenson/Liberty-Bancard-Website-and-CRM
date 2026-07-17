@@ -211,6 +211,114 @@ async function markFailed(dealId: number, reason: string): Promise<void> {
   }).catch(() => {});
 }
 
+export async function analyzeStatementBuffer(
+  buffer: Buffer,
+  fileName: string,
+): Promise<{
+  processorDetected: string | null;
+  effectiveRate: string | null;
+  monthlyVolume: string | null;
+  estimatedSavings: string | null;
+  rawSummary: string;
+  tokensUsed: number;
+  durationMs: number;
+}> {
+  const startMs = Date.now();
+  const ext = (fileName.split(".").pop() || "").toLowerCase();
+
+  let statementText: string | null = null;
+
+  if (ext === "pdf") {
+    try {
+      const { PDFParse } = await import("pdf-parse");
+      const parser = new PDFParse({ data: new Uint8Array(buffer), verbosity: 0 });
+      const textResult = await parser.getText();
+      const text = textResult?.text || "";
+      if (text.trim().length > 50) statementText = text.trim();
+    } catch (err) {
+      console.error("[analyzeStatementBuffer] PDF parse error:", err);
+    }
+  } else if (ext === "txt" || ext === "csv") {
+    const text = buffer.toString("utf-8");
+    if (text.trim().length > 50) statementText = text.trim();
+  }
+
+  if (!statementText) {
+    return {
+      processorDetected: null,
+      effectiveRate: null,
+      monthlyVolume: null,
+      estimatedSavings: null,
+      rawSummary: "Could not extract readable text from the uploaded file.",
+      tokensUsed: 0,
+      durationMs: Date.now() - startMs,
+    };
+  }
+
+  const extraction = await callOpenAIExtraction(statementText);
+  const durationMs = Date.now() - startMs;
+
+  if (!extraction) {
+    return {
+      processorDetected: null,
+      effectiveRate: null,
+      monthlyVolume: null,
+      estimatedSavings: null,
+      rawSummary: "AI extraction returned no usable output.",
+      tokensUsed: 0,
+      durationMs,
+    };
+  }
+
+  const parseResult = ExtractionSchema.safeParse(extraction);
+  if (!parseResult.success) {
+    return {
+      processorDetected: null,
+      effectiveRate: null,
+      monthlyVolume: null,
+      estimatedSavings: null,
+      rawSummary: `Schema validation failed: ${parseResult.error.issues.map(i => i.message).join("; ")}`,
+      tokensUsed: 0,
+      durationMs,
+    };
+  }
+
+  const extracted = parseResult.data;
+  const effectiveRate = extracted.monthlyVolume > 0
+    ? extracted.totalFees / extracted.monthlyVolume
+    : 0;
+
+  let savingsNote = "No estimate available (LIBERTY_TARGET_EFFECTIVE_RATE_BPS not configured)";
+  const targetBps = Number(process.env.LIBERTY_TARGET_EFFECTIVE_RATE_BPS);
+  if (targetBps > 0) {
+    const libertyFees = extracted.monthlyVolume * (targetBps / 10000);
+    const savings = extracted.totalFees - libertyFees;
+    savingsNote = savings > 0
+      ? `$${Math.round(savings).toLocaleString()}/mo (estimated)`
+      : "No clear savings detected";
+  } else if (process.env.TEST_MODE === "true" || process.env.SKIP_AI === "true") {
+    const libertyFees = extracted.monthlyVolume * (185 / 10000);
+    const savings = extracted.totalFees - libertyFees;
+    savingsNote = `$${Math.round(savings).toLocaleString()}/mo (test fixture)`;
+  }
+
+  return {
+    processorDetected: extracted.processorName || null,
+    effectiveRate: `${(effectiveRate * 100).toFixed(2)}%`,
+    monthlyVolume: `$${Math.round(extracted.monthlyVolume).toLocaleString()}`,
+    estimatedSavings: savingsNote,
+    rawSummary: JSON.stringify({
+      processorName: extracted.processorName,
+      monthlyVolume: extracted.monthlyVolume,
+      totalFees: extracted.totalFees,
+      effectiveRate: `${(effectiveRate * 100).toFixed(2)}%`,
+      topCostDrivers: extracted.topCostDrivers,
+    }),
+    tokensUsed: 0,
+    durationMs,
+  };
+}
+
 export async function analyzeStatement(dealId: number): Promise<void> {
   console.log(`[StatementAnalyzer] Starting structured analysis for deal #${dealId}`);
 

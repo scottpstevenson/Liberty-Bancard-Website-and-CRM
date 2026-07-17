@@ -28,6 +28,7 @@ interface GuardCase {
   merchant: number[];
   admin: number[];
   agent?: number[];
+  manager?: number[];
   description: string;
 }
 
@@ -50,6 +51,8 @@ const MERCHANT_EMAIL = "smoke-test-merchant@libertybancard.test";
 const MERCHANT_PASSWORD = "smoke-test-pw-Aa1!";
 const AGENT_EMAIL = "smoke-test-agent@libertybancard.test";
 const AGENT_PASSWORD = "smoke-test-agent-Aa1!";
+const MANAGER_EMAIL = "smoke-test-manager@libertybancard.test";
+const MANAGER_PASSWORD = "smoke-test-manager-Aa1!";
 
 const CASES: GuardCase[] = [
   // ── Pre-existing admin routes (task #169) ──
@@ -165,6 +168,31 @@ const CASES: GuardCase[] = [
   // Anon still gets 401 (CSRF skips; role guard fires). Merchant gets 403 (role gate).
   // Admin/agent get 403 without CSRF token (CSRF fires before role gate on POST).
   { method: "POST", path: "/api/contacts/confirmation-status/batch", anon: [401], merchant: [403], admin: [403], agent: [403], description: "confirmation-status batch (isDashboardUser; CSRF required for POST — 403 on all auth roles without token; merchant also blocked by role gate)" },
+
+  // ── Setup & Activation Wizard — admin/manager only ──────────────────────────
+  // GET endpoints: requireRole("admin","manager") — merchant/partner → 403; anon → 401.
+  // POST /api/wizard/feature-flag: requireRole("admin") only — manager also → 403.
+  // All POST/DELETE mutation routes: CSRF required → authenticated callers get 403 without token.
+  { method: "GET",    path: "/api/wizard/connectivity",             anon: [401], merchant: [403], admin: [200],      agent: [403], manager: [200], description: "wizard connectivity check (admin/manager only)" },
+  { method: "GET",    path: "/api/wizard/booking-links",            anon: [401], merchant: [403], admin: [200],      agent: [403], manager: [200], description: "wizard booking links (admin/manager only)" },
+  { method: "GET",    path: "/api/wizard/feature-flags",            anon: [401], merchant: [403], admin: [200],      agent: [403], manager: [200], description: "wizard feature-flag read (admin/manager only)" },
+  { method: "GET",    path: "/api/wizard/queue-health",             anon: [401], merchant: [403], admin: [200],      agent: [403], manager: [200], description: "wizard queue health (admin/manager only)" },
+  // Mutating wizard endpoints: admin/manager allowed role-wise, but CSRF fires first on POST/DELETE →
+  // all authenticated callers (admin, manager, agent) get 403 in the test harness (no CSRF token).
+  { method: "POST",   path: "/api/wizard/test-contact",             anon: [401], merchant: [403], admin: [403],      agent: [403], manager: [403], description: "wizard create test contact (admin/manager; CSRF required)" },
+  { method: "DELETE", path: "/api/wizard/test-contact/999999",      anon: [401], merchant: [403], admin: [404, 403], agent: [403], manager: [404, 403], description: "wizard delete test contact (admin/manager; 404 on non-existent; CSRF required)" },
+  { method: "POST",   path: "/api/wizard/test-send/email",          anon: [401], merchant: [403], admin: [403],      agent: [403], manager: [403], description: "wizard email send (admin/manager; CSRF required)" },
+  { method: "POST",   path: "/api/wizard/test-send/sms",            anon: [401], merchant: [403], admin: [403],      agent: [403], manager: [403], description: "wizard SMS send (admin/manager; CSRF required)" },
+  { method: "POST",   path: "/api/wizard/test-send/voice",          anon: [401], merchant: [403], admin: [403],      agent: [403], manager: [403], description: "wizard voice send (admin/manager; CSRF required)" },
+  { method: "POST",   path: "/api/wizard/test-send/voicemail",      anon: [401], merchant: [403], admin: [403],      agent: [403], manager: [403], description: "wizard RVM send (admin/manager; CSRF required)" },
+  { method: "POST",   path: "/api/wizard/test-sequence",            anon: [401], merchant: [403], admin: [403],      agent: [403], manager: [403], description: "wizard sequence enroll (admin/manager; CSRF required)" },
+  { method: "DELETE", path: "/api/wizard/test-sequence/999999",     anon: [401], merchant: [403], admin: [404, 403], agent: [403], manager: [404, 403], description: "wizard cancel enrollment (admin/manager; 404 on non-existent; CSRF required)" },
+  { method: "POST",   path: "/api/wizard/test-application",         anon: [401], merchant: [403], admin: [403],      agent: [403], manager: [403], description: "wizard test application (admin/manager; CSRF required)" },
+  // POST /api/wizard/test-statement is multipart/form-data; CSRF fires before role gate → 403 for auth roles.
+  { method: "POST",   path: "/api/wizard/test-statement",           anon: [401], merchant: [403], admin: [403],      agent: [403], manager: [403], description: "wizard statement upload (admin/manager; CSRF required)" },
+  // POST /api/wizard/feature-flag: admin-only; CSRF required for authenticated POSTs.
+  // Manager and agent both → 403 (role gate). Admin → 403 (CSRF absent in test harness).
+  { method: "POST",   path: "/api/wizard/feature-flag",             anon: [401], merchant: [403], admin: [403],      agent: [403], manager: [403], description: "wizard flag toggle (admin only; CSRF required — all auth roles 403 without token)" },
 ];
 
 async function ensureAgentUser(): Promise<void> {
@@ -184,6 +212,26 @@ async function ensureAgentUser(): Promise<void> {
     await db.update(users)
       .set({ passwordHash, role: "agent", authProvider: "local", emailVerified: new Date() })
       .where(eq(users.email, AGENT_EMAIL));
+  }
+}
+
+async function ensureManagerUser(): Promise<void> {
+  const existing = await db.select().from(users).where(eq(users.email, MANAGER_EMAIL));
+  const passwordHash = await bcrypt.hash(MANAGER_PASSWORD, 12);
+  if (existing.length === 0) {
+    await db.insert(users).values({
+      email: MANAGER_EMAIL,
+      firstName: "Smoke",
+      lastName: "Manager",
+      passwordHash,
+      role: "manager",
+      authProvider: "local",
+      emailVerified: new Date(),
+    });
+  } else {
+    await db.update(users)
+      .set({ passwordHash, role: "manager", authProvider: "local", emailVerified: new Date() })
+      .where(eq(users.email, MANAGER_EMAIL));
   }
 }
 
@@ -291,10 +339,12 @@ async function run(): Promise<void> {
   await waitForServer(`${BASE_URL}/api/health`);
   await ensureMerchantUser();
   await ensureAgentUser();
+  await ensureManagerUser();
 
   let adminCookie: string;
   let merchantCookie: string;
   let agentCookie: string;
+  let managerCookie: string;
   try {
     adminCookie = await loginWithRetry(ADMIN_EMAIL, ADMIN_PASSWORD);
   } catch (err) {
@@ -313,41 +363,56 @@ async function run(): Promise<void> {
     console.error(`✗ Could not log in smoke agent: ${err instanceof Error ? err.message : err}`);
     process.exit(1);
   }
+  try {
+    managerCookie = await loginWithRetry(MANAGER_EMAIL, MANAGER_PASSWORD);
+  } catch (err) {
+    console.error(`✗ Could not log in smoke manager: ${err instanceof Error ? err.message : err}`);
+    process.exit(1);
+  }
 
   let failures = 0;
-  console.log("Endpoint                                          ANON  MERCHANT  AGENT  ADMIN  Result");
+  console.log("Endpoint                                          ANON  MERCHANT  AGENT  MANAGER  ADMIN  Result");
   for (const c of CASES) {
     const hasAgent = c.agent !== undefined;
+    const hasManager = c.manager !== undefined;
     const results = await Promise.all([
       call(c),
       call(c, merchantCookie),
       ...(hasAgent ? [call(c, agentCookie)] : []),
+      ...(hasManager ? [call(c, managerCookie)] : []),
       call(c, adminCookie),
     ]);
-    const [anon, merchant, ...rest] = results;
-    const agent = hasAgent ? rest[0] : undefined;
-    const admin = hasAgent ? rest[1] : rest[0];
+
+    let idx = 0;
+    const anon = results[idx++];
+    const merchant = results[idx++];
+    const agent = hasAgent ? results[idx++] : undefined;
+    const manager = hasManager ? results[idx++] : undefined;
+    const admin = results[idx++];
 
     const anonOk = c.anon.includes(anon);
     const merchantOk = c.merchant.includes(merchant);
     const agentOk = !hasAgent || (c.agent!.includes(agent!));
+    const managerOk = !hasManager || (c.manager!.includes(manager!));
     const adminOk = c.admin.includes(admin);
-    const ok = anonOk && merchantOk && agentOk && adminOk;
+    const ok = anonOk && merchantOk && agentOk && managerOk && adminOk;
 
     const agentStr = hasAgent ? String(agent!).padEnd(6) : "—     ";
+    const managerStr = hasManager ? String(manager!).padEnd(8) : "—       ";
     const mark = ok ? "✓" : "✗";
     console.log(
-      `${mark} ${(c.method + " " + c.path).padEnd(48)} ${String(anon).padEnd(5)} ${String(merchant).padEnd(9)} ${agentStr} ${String(admin).padEnd(5)}  (${c.description})`
+      `${mark} ${(c.method + " " + c.path).padEnd(48)} ${String(anon).padEnd(5)} ${String(merchant).padEnd(9)} ${agentStr} ${managerStr} ${String(admin).padEnd(5)}  (${c.description})`
     );
     if (!ok) {
       failures++;
       let expected = `anon∈${JSON.stringify(c.anon)} merchant∈${JSON.stringify(c.merchant)}`;
       if (hasAgent) expected += ` agent∈${JSON.stringify(c.agent)}`;
+      if (hasManager) expected += ` manager∈${JSON.stringify(c.manager)}`;
       expected += ` admin∈${JSON.stringify(c.admin)}`;
       console.log(`    expected ${expected}`);
     }
   }
-  console.log(`\n${CASES.length - failures}/${CASES.length} guarded routes behave correctly across anon/merchant/agent/admin.`);
+  console.log(`\n${CASES.length - failures}/${CASES.length} guarded routes behave correctly across anon/merchant/agent/manager/admin.`);
 
   // ── Wave 12: Real ownership test ─────────────────────────────────────────
   // Create an actual document under a test contact, then verify that the

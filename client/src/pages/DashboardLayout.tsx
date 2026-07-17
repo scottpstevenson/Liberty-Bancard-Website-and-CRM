@@ -69,6 +69,7 @@ import {
   Code2,
   Monitor,
   Database,
+  FlaskConical,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -168,6 +169,7 @@ const automationItems: MenuItem[] = [
   { icon: Megaphone, label: "Campaigns", href: "/dashboard/campaigns", roles: ["admin", "manager"] },
   { icon: Mail, label: "Deliverability", href: "/dashboard/deliverability-hub", roles: ["admin", "manager"] },
   { icon: RocketIcon, label: "Go-Live Controls", href: "/dashboard/activation", roles: ["admin"] },
+  { icon: FlaskConical, label: "Setup Wizard", href: "/dashboard/setup-wizard", roles: ["admin", "manager"] },
   { icon: ArrowRightLeft, label: "Round-Robin", href: "/dashboard/round-robin", roles: ["admin", "manager"] },
   { icon: Settings, label: "Settings → Integrations", href: "/dashboard/settings/integrations", roles: ["admin"] },
   { icon: Database, label: "Data Requests", href: "/dashboard/data-requests", roles: ["admin", "manager"] },

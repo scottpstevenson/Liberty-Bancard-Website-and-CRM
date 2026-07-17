@@ -191,6 +191,7 @@ const UnderwritingPage = lazy(() => import("@/pages/dashboard/Underwriting"));
 const SystemReadiness = lazy(() => import("@/pages/dashboard/SystemReadiness"));
 const EmailHealth = lazy(() => import("@/pages/dashboard/EmailHealth"));
 const SystemAudit = lazy(() => import("@/pages/dashboard/SystemAudit"));
+const SetupWizard = lazy(() => import("@/pages/dashboard/SetupWizard"));
 
 // ─── Dashboard Hub Pages ───────────────────────────────────────────────────────
 const OnboardingHub = lazy(() => import("@/pages/dashboard/OnboardingHub"));
@@ -624,6 +625,9 @@ function Router() {
         </Route>
         <Route path="/dashboard/activation">
           <ProtectedRoute component={ActivationPanel} allowedRoles={["admin", "manager"]} />
+        </Route>
+        <Route path="/dashboard/setup-wizard">
+          <ProtectedRoute component={SetupWizard} allowedRoles={["admin", "manager"]} />
         </Route>
         <Route path="/dashboard/operator">
           <Redirect to="/dashboard/system-health?tab=monitor" />

@@ -1,3 +1,5 @@
+import { getCachedWizardFlagOverrideSync } from "./wizard-flag-overrides";
+
 function envBool(key: string, defaultVal: boolean): boolean {
   const val = process.env[key];
   if (val === undefined || val === "") return defaultVal;
@@ -11,15 +13,25 @@ function envInt(key: string, defaultVal: number): number {
   return Number.isFinite(parsed) ? parsed : defaultVal;
 }
 
+function dbFallbackBool(key: string, defaultVal: boolean): boolean {
+  const envVal = process.env[key];
+  if (envVal !== undefined && envVal !== "") {
+    return envVal === "true" || envVal === "1" || envVal === "yes" || envVal === "on";
+  }
+  const dbOverride = getCachedWizardFlagOverrideSync(key);
+  if (dbOverride !== null) return dbOverride;
+  return defaultVal;
+}
+
 export const featureFlags = {
-  get SDR_ENABLED() { return envBool("SDR_ENABLED", true); },
-  get ORCHESTRATOR_ENABLED() { return envBool("ORCHESTRATOR_ENABLED", false); },
-  get LEGACY_OUTREACH_ENABLED() { return envBool("LEGACY_OUTREACH_ENABLED", false); },
+  get SDR_ENABLED() { return dbFallbackBool("SDR_ENABLED", true); },
+  get ORCHESTRATOR_ENABLED() { return dbFallbackBool("ORCHESTRATOR_ENABLED", false); },
+  get LEGACY_OUTREACH_ENABLED() { return dbFallbackBool("LEGACY_OUTREACH_ENABLED", false); },
   get SUNBIZ_ENRICHMENT_ENABLED() { return envBool("SUNBIZ_ENRICHMENT_ENABLED", process.env.NODE_ENV === "production"); },
-  get VOICE_AI_ENABLED() { return envBool("VOICE_AI_ENABLED", false); },
-  get SMS_ENABLED() { return envBool("SMS_ENABLED", false); },
-  get RINGLESS_VM_ENABLED() { return envBool("RINGLESS_VM_ENABLED", false); },
-  get NIGHTLY_DISCOVERY_ENABLED() { return envBool("NIGHTLY_DISCOVERY_ENABLED", false); },
+  get VOICE_AI_ENABLED() { return dbFallbackBool("VOICE_AI_ENABLED", false); },
+  get SMS_ENABLED() { return dbFallbackBool("SMS_ENABLED", false); },
+  get RINGLESS_VM_ENABLED() { return dbFallbackBool("RINGLESS_VM_ENABLED", false); },
+  get NIGHTLY_DISCOVERY_ENABLED() { return dbFallbackBool("NIGHTLY_DISCOVERY_ENABLED", false); },
   get ORCHESTRATOR_BATCH_SIZE() { return Math.min(500, Math.max(1, envInt("ORCHESTRATOR_BATCH_SIZE", 25))); },
   get ORCHESTRATOR_REVIEW_MODE() { return envBool("ORCHESTRATOR_REVIEW_MODE", false); },
 };

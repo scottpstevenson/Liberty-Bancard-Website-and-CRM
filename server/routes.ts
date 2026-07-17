@@ -56,6 +56,7 @@ import { registerUnderwritingRoutes } from "./routes/underwriting";
 import { registerConversationAiConfigRoutes } from "./routes/conversation-ai-config";
 import { registerRegistryImportRoutes } from "./routes/registry-import";
 import { registerSystemAuditRoutes } from "./routes/system-audit";
+import { registerWizardRoutes } from "./routes/wizard";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -180,6 +181,7 @@ export async function registerRoutes(
   registerConversationAiConfigRoutes(app);
   registerRegistryImportRoutes(app);
   registerSystemAuditRoutes(app);
+  registerWizardRoutes(app);
 
   // Must be registered before the API 404 catch-all — extracts route
   // permissions by walking the already-populated express router stack

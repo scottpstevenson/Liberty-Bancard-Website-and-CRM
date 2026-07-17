@@ -86,6 +86,12 @@ const KNOWN_MISMATCHES = new Set<string>([
   // GHL workflow ID test — server handler exists at POST /api/admin/ghl-workflows/:workflowId/test
   // coverage script sees template literal prefix rather than the full resolved path
   "/api/admin/ghl-workflows/${encodeURIComponent",
+  // Wizard channel test — server handlers exist at POST /api/wizard/test-send/{email,sms,voice,voicemail}
+  // coverage script sees template literal variable (`/${channel}`) as `:param`
+  "/api/wizard/test-send/:param",
+  // Wizard statement — server handler exists at POST /api/wizard/test-statement (multer middleware)
+  // coverage script resolves the multer upload middleware differently from plain route handlers
+  "/api/wizard/test-statement",
 ]);
 
 function main() {
