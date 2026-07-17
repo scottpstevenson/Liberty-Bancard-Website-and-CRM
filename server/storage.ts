@@ -133,6 +133,7 @@ import { PartnerOrgsStorage } from "./storage/partner-orgs";
 import { ContentStorage } from "./storage/content";
 import { ChurnStorage } from "./storage/churn";
 import { UnderwritingStorage } from "./storage/underwriting";
+import { SystemAuditStorage } from "./storage/system-audit";
 
 export interface PaginationParams {
   limit?: number;
@@ -738,6 +739,9 @@ export interface IStorage {
   createUnderwritingDecision(data: InsertUnderwritingDecision): Promise<UnderwritingDecision>;
   overrideUnderwritingDecision(decisionId: number, overrideAction: "approve" | "reject", overriddenBy: string, note?: string): Promise<UnderwritingDecision | undefined>;
   getUnderwritingStats(since?: Date): Promise<{ total: number; approved: number; review: number; hold: number; overridden: number }>;
+  insertSystemAuditRun(data: { triggeredBy?: string; overallScore?: number; probeResults?: unknown; claudeNarrative?: string | null; slackStatus?: string }): Promise<{ id: number }>;
+  getSystemAuditRuns(limit?: number): Promise<any[]>;
+  getSystemAuditRun(id: number): Promise<any | null>;
 }
 
 const DEFAULT_LIMIT = 100;
@@ -767,10 +771,10 @@ function normalizePagination(params?: PaginationParams): { limit: number; offset
     }
   }
 
-export interface DatabaseStorage extends ContactsStorage, DealsStorage, TicketsStorage, TasksStorage, DocumentsStorage, AuditStorage, NotificationsStorage, WorkflowsStorage, TemplatesStorage, ProspectsStorage, CampaignsStorage, NotesStorage, CommLogsStorage, AutomationStorage, SunbizStorage, MerchantsStorage, ResidualsStorage, HealthStorage, PartnersStorage, ReviewsStorage, MiscStorage, RateReviewStorage, BusinessesStorage, SdrStorage, PartnerOrgsStorage, ContentStorage, ChurnStorage, RelationshipsStorage, UnderwritingStorage {}
+export interface DatabaseStorage extends ContactsStorage, DealsStorage, TicketsStorage, TasksStorage, DocumentsStorage, AuditStorage, NotificationsStorage, WorkflowsStorage, TemplatesStorage, ProspectsStorage, CampaignsStorage, NotesStorage, CommLogsStorage, AutomationStorage, SunbizStorage, MerchantsStorage, ResidualsStorage, HealthStorage, PartnersStorage, ReviewsStorage, MiscStorage, RateReviewStorage, BusinessesStorage, SdrStorage, PartnerOrgsStorage, ContentStorage, ChurnStorage, RelationshipsStorage, UnderwritingStorage, SystemAuditStorage {}
 
 export class DatabaseStorage implements IStorage {}
 
-applyMixins(DatabaseStorage, [ContactsStorage, DealsStorage, TicketsStorage, TasksStorage, DocumentsStorage, AuditStorage, NotificationsStorage, WorkflowsStorage, TemplatesStorage, ProspectsStorage, CampaignsStorage, NotesStorage, CommLogsStorage, AutomationStorage, SunbizStorage, MerchantsStorage, ResidualsStorage, HealthStorage, PartnersStorage, ReviewsStorage, MiscStorage, RateReviewStorage, BusinessesStorage, SdrStorage, PartnerOrgsStorage, ContentStorage, ChurnStorage, RelationshipsStorage, UnderwritingStorage]);
+applyMixins(DatabaseStorage, [ContactsStorage, DealsStorage, TicketsStorage, TasksStorage, DocumentsStorage, AuditStorage, NotificationsStorage, WorkflowsStorage, TemplatesStorage, ProspectsStorage, CampaignsStorage, NotesStorage, CommLogsStorage, AutomationStorage, SunbizStorage, MerchantsStorage, ResidualsStorage, HealthStorage, PartnersStorage, ReviewsStorage, MiscStorage, RateReviewStorage, BusinessesStorage, SdrStorage, PartnerOrgsStorage, ContentStorage, ChurnStorage, RelationshipsStorage, UnderwritingStorage, SystemAuditStorage]);
 
 export const storage = new DatabaseStorage();

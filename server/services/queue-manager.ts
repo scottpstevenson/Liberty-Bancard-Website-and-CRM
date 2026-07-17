@@ -2,6 +2,10 @@ import { Queue, Worker, type ConnectionOptions, type Job } from "bullmq";
 import { getRedisConnection, isUsingMockRedis } from "./queue-connection";
 import { storage } from "../storage";
 
+const dlqAlertCooldown = new Map<string, number>();
+const DLQ_ALERT_COOLDOWN_MS = 60 * 60 * 1000;
+let seqNoOpAlertCooldown = 0;
+
 export const QUEUE_NAMES = {
   GHL_SYNC: "ghl-sync",
   SLA_CHECKS: "sla-checks",
@@ -12,6 +16,7 @@ export const QUEUE_NAMES = {
   MID_INGESTION: "mid-ingestion",
   ONBOARDING_REMINDER: "onboarding-reminder",
   ABANDONED_STATEMENT: "abandoned-statement",
+  SYSTEM_AUDIT: "system-audit",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -22,6 +27,7 @@ interface QueueConfig {
   attempts: number;
   backoffDelay: number;
   repeatEveryMs: number;
+  cronPattern?: string;
   jobName: string;
 }
 
@@ -118,6 +124,17 @@ const QUEUE_CONFIGS: QueueConfig[] = [
     attempts: 3,
     backoffDelay: 60000,
     repeatEveryMs: 24 * 60 * 60 * 1000,
+    jobName: "run",
+  },
+  {
+    name: QUEUE_NAMES.SYSTEM_AUDIT,
+    // concurrency=1: weekly audit; single sequential run is correct.
+    // Cron: Monday 8 AM UTC by default; override with SYSTEM_AUDIT_CRON env var.
+    concurrency: 1,
+    attempts: 2,
+    backoffDelay: 30000,
+    repeatEveryMs: 7 * 24 * 60 * 60 * 1000,
+    cronPattern: process.env.SYSTEM_AUDIT_CRON ?? "0 8 * * 1",
     jobName: "run",
   },
 ];
@@ -617,6 +634,11 @@ class QueueManager {
           }
           break;
         }
+        case QUEUE_NAMES.SYSTEM_AUDIT: {
+          const { runSystemAudit } = await import("./system-audit/runner");
+          await runSystemAudit("schedule");
+          break;
+        }
         default:
           throw new Error(`Unknown queue: ${queueName}`);
       }
@@ -634,7 +656,9 @@ class QueueManager {
       }
 
       await queue.add(config.jobName, {}, {
-        repeat: { every: config.repeatEveryMs },
+        repeat: config.cronPattern
+          ? { pattern: config.cronPattern }
+          : { every: config.repeatEveryMs },
         jobId: `${config.name}-repeatable`,
       });
 
@@ -695,6 +719,19 @@ class QueueManager {
         },
       });
       console.warn(`[QueueManager] Dead-letter review item created: queue=${queueName} job=${job.id} after ${job.attemptsMade} attempts — ${err.message}`);
+      const nowMs = Date.now();
+      const lastDlqAlert = dlqAlertCooldown.get(queueName) ?? 0;
+      if (nowMs - lastDlqAlert > DLQ_ALERT_COOLDOWN_MS) {
+        dlqAlertCooldown.set(queueName, nowMs);
+        import("./system-audit/slack-notifier").then(({ sendCriticalAlert }) => {
+          sendCriticalAlert({
+            subsystem: "queues",
+            status: "error",
+            summary: `DLQ overflow — queue "${queueName}": job ${job.name} exhausted all retries after ${job.attemptsMade} attempts.`,
+            details: { queueName, jobId: job.id, jobName: job.name, attemptsMade: job.attemptsMade, failedReason: err.message },
+          });
+        }).catch(() => {});
+      }
     } catch (storageErr: any) {
       console.error("[QueueManager] Could not create review queue item for dead-letter job:", storageErr.message);
       await storage.createAuditLog({
@@ -936,6 +973,32 @@ async function runSequencesTick(): Promise<void> {
         ...(sequenceError ? { error: sequenceError.message } : {}),
       },
     }).catch(() => {});
+  }
+
+  if (!sequenceError && ((result as any).processed ?? 0) === 0) {
+    (async () => {
+      try {
+        const { db: _db } = await import("../db");
+        const { sql: _sql } = await import("drizzle-orm");
+        const enrollCheck = await _db.execute(_sql`
+          SELECT COUNT(*) AS c FROM sequence_enrollments WHERE status = 'active' LIMIT 1
+        `);
+        const hasActive = Number((enrollCheck.rows[0] as any)?.c ?? 0) > 0;
+        if (hasActive) {
+          const nowMs = Date.now();
+          if (nowMs - seqNoOpAlertCooldown > 4 * 60 * 60 * 1000) {
+            seqNoOpAlertCooldown = nowMs;
+            const { sendCriticalAlert } = await import("./system-audit/slack-notifier");
+            await sendCriticalAlert({
+              subsystem: "sequences",
+              status: "error",
+              summary: "Sequence engine unexpected no-op — processSequenceEnrollments returned 0 processed with active enrollments in DB.",
+              details: { hasActiveEnrollments: true, processed: 0, note: "Worker may be stalled, gated, or blocked by a lock." },
+            });
+          }
+        }
+      } catch (_e) {}
+    })().catch(() => {});
   }
 
   await processSendQueue().catch(err => console.error("[Queue:sequences] Campaign send queue error:", err));

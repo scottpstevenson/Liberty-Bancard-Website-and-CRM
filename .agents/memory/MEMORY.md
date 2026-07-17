@@ -55,3 +55,4 @@
 - [executeSql DDL timeout + migration lock contention](executesql-ddl-timeout.md) — executeSql times out on DDL against large tables; a crashed startup migration leaves exclusive locks; terminate blocking pids before retrying.
 - [Partial index scope for zero-migration uniqueness](partial-index-new-rows-only.md) — scope a new UNIQUE index to `new_discriminator_col IS NOT NULL` (added in a prior migration) to avoid deduping existing rows; pre-existing rows are excluded, so index builds instantly.
 - [Intake Provenance System](intake-provenance.md) — writeContact() canonical writer; import_executions + contact_source_events; A→B→C DEFERRABLE transaction; all 9 public forms + manual CRM + GHL sync + CSV + Sunbiz wired.
+- [System Audit Engine](system-audit-engine.md) — weekly BullMQ job probes 7 subsystems, generates GPT narrative, delivers Slack; admin UI at /dashboard/system-audit.

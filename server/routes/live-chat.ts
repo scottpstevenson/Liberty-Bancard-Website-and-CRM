@@ -25,6 +25,7 @@ export function registerLiveChatRoutes(app: Express) {
 
   // === PUBLIC: Start a new chat session ===
   app.post("/api/public/chat/session", async (req, res) => {
+    if (req.query.probe === "1") return res.json({ probe: true, endpoint: "/api/public/chat/session" });
     try {
       const schema = z.object({
         pageUrl: z.string().optional(),

@@ -2750,6 +2750,7 @@ const OPERATOR_NAV_GROUPS: OperatorNavGroup[] = [
       { value: "job-health", label: "Job Health", icon: Server },
       { value: "queue-metrics", label: "Job Queue", icon: Zap },
       { value: "deleted-records", label: "Deleted Records", icon: XCircle },
+      { value: "system-audit", label: "System Audit", icon: Shield },
     ],
   },
 ];
@@ -2824,6 +2825,22 @@ function renderOperatorView(view: string, onNavigate: (v: string) => void) {
       return <QueueMetricsPanel />;
     case "deleted-records":
       return <DeletedRecordsPanel />;
+    case "system-audit":
+      return (
+        <div className="flex flex-col items-center justify-center h-64 gap-4">
+          <Shield className="w-12 h-12 text-muted-foreground" />
+          <p className="text-lg font-medium">Weekly AI System Audit</p>
+          <p className="text-sm text-muted-foreground text-center max-w-md">
+            View probe results, health scores, and AI narratives for the full system audit.
+          </p>
+          <a
+            href="/dashboard/system-audit"
+            className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+          >
+            Open System Audit
+          </a>
+        </div>
+      );
     case "score-all":
       return <ScoreAllPanel />;
     case "bulk-enroll":

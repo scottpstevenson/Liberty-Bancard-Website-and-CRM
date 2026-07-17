@@ -55,6 +55,7 @@ import { registerTerminalEconomicsRoutes } from "./routes/terminal-economics";
 import { registerUnderwritingRoutes } from "./routes/underwriting";
 import { registerConversationAiConfigRoutes } from "./routes/conversation-ai-config";
 import { registerRegistryImportRoutes } from "./routes/registry-import";
+import { registerSystemAuditRoutes } from "./routes/system-audit";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -178,6 +179,7 @@ export async function registerRoutes(
   registerUnderwritingRoutes(app);
   registerConversationAiConfigRoutes(app);
   registerRegistryImportRoutes(app);
+  registerSystemAuditRoutes(app);
 
   // Must be registered before the API 404 catch-all — extracts route
   // permissions by walking the already-populated express router stack

@@ -473,6 +473,7 @@ Guidelines:
   });
 
   app.post("/api/affiliate/signup", publicLeadRateLimit, async (req, res) => {
+    if (req.query.probe === "1") return res.json({ probe: true, endpoint: "/api/affiliate/signup" });
     try {
       const { firstName, lastName, email, phone, companyName, website, howHeard, password } = req.body;
       if (!firstName || typeof firstName !== "string" || firstName.length > 100) {
@@ -717,6 +718,7 @@ Guidelines:
   });
 
   app.post("/api/public/free-analysis", async (req, res) => {
+    if (req.query.probe === "1") return res.json({ probe: true, endpoint: "/api/public/free-analysis" });
     try {
       const {
         businessType, industry, monthlyVolume, currentProcessor,

@@ -4625,3 +4625,26 @@ export type ContactLeadScoringJobStatus =
   | "contact_not_found"
   | "failed_terminal"
   | "deferred_queue_unavailable";
+
+// ─── System Audit Runs ────────────────────────────────────────────────────────
+export const systemAuditRuns = pgTable("system_audit_runs", {
+  id: serial("id").primaryKey(),
+  ranAt: timestamp("ran_at", { withTimezone: true }).defaultNow().notNull(),
+  overallScore: integer("overall_score"),
+  probeResults: jsonb("probe_results"),
+  claudeNarrative: text("claude_narrative"),
+  slackStatus: text("slack_status").notNull().default("skipped"),
+  triggeredBy: text("triggered_by").notNull().default("schedule"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  index("system_audit_runs_ran_at_idx").on(table.ranAt),
+  index("system_audit_runs_triggered_idx").on(table.triggeredBy),
+]);
+
+export const insertSystemAuditRunSchema = createInsertSchema(systemAuditRuns).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type SystemAuditRun = typeof systemAuditRuns.$inferSelect;
+export type InsertSystemAuditRun = z.infer<typeof insertSystemAuditRunSchema>;

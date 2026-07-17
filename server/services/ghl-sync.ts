@@ -1416,6 +1416,21 @@ const syncedTaskIds = new Set<number>();
 const GHL_CIRCUIT_THRESHOLD = 5;
 let consecutiveGhlFailures = 0;
 let ghlCircuitOpen = false;
+let lastCircuitAlertAt = 0;
+
+function maybeSendCircuitAlert(): void {
+  const now = Date.now();
+  if (now - lastCircuitAlertAt < 60 * 60 * 1000) return;
+  lastCircuitAlertAt = now;
+  import("./system-audit/slack-notifier").then(({ sendCriticalAlert }) => {
+    sendCriticalAlert({
+      subsystem: "ghl-auth",
+      status: "error",
+      summary: `GHL circuit breaker opened — ${consecutiveGhlFailures} consecutive API failures. Sync halted.`,
+      details: { consecutiveFailures: consecutiveGhlFailures, threshold: GHL_CIRCUIT_THRESHOLD },
+    }).catch(() => {});
+  }).catch(() => {});
+}
 
 export function getGhlCircuitState(): { open: boolean; consecutiveFailures: number } {
   return { open: ghlCircuitOpen, consecutiveFailures: consecutiveGhlFailures };
@@ -1481,6 +1496,7 @@ export async function runGhlFullSyncTick(): Promise<void> {
       if (consecutiveGhlFailures >= GHL_CIRCUIT_THRESHOLD) {
         console.error(`[Queue:ghl-sync] GHL_CIRCUIT_OPEN — ${consecutiveGhlFailures} consecutive failures, aborting tick`);
         storage.createAuditLog({ action: "GHL_CIRCUIT_OPEN", entityType: "system", details: `Circuit opened: ${consecutiveGhlFailures} consecutive GHL failures in contacts phase — tick aborted` }).catch(() => {});
+        maybeSendCircuitAlert();
         ghlCircuitOpen = true;
         await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN");
         return;

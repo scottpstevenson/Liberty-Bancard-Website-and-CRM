@@ -118,6 +118,7 @@ export function registerMerchantsRoutes(app: Express) {
 
   // Create a server-side draft — returns {id, draftToken}
   app.post("/api/merchant-applications/draft", publicLeadRateLimit, async (req, res) => {
+    if (req.query.probe === "1") return res.json({ probe: true, endpoint: "/api/merchant-applications/draft" });
     try {
       const draftToken = crypto.randomBytes(32).toString("hex");
       const tokenHash = hashToken(draftToken);

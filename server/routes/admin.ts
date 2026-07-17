@@ -581,6 +581,7 @@ export function registerAdminRoutes(app: Express) {
 
   // === DATA DELETE REQUESTS ===
   app.post("/api/data-requests", publicLeadRateLimit, async (req, res) => {
+    if (req.query.probe === "1") return res.json({ probe: true, endpoint: "/api/data-requests" });
     try {
       const input = insertDataDeleteRequestSchema.parse(req.body);
       const request = await storage.createDataDeleteRequest(input);

@@ -49,6 +49,7 @@ export function registerPartnerOrgsRoutes(app: Express) {
 
   // ── Public: submit contact from partner branded page (no auth required) ────
   app.post("/api/contacts/public", publicLeadRateLimit, async (req, res) => {
+    if (req.query.probe === "1") return res.json({ probe: true, endpoint: "/api/contacts/public" });
     try {
       const {
         firstName, lastName, email, phone, companyName,
