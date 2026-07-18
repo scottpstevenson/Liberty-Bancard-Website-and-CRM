@@ -22,7 +22,6 @@ import SavedFilterBar from "@/components/SavedFilterBar";
 import DashboardErrorState from "@/components/DashboardErrorState";
 import { DataState } from "@/components/ui/data-state";
 import { PageHeader } from "@/components/ui/page-header";
-import { ResponsiveTable } from "@/components/ui/responsive-table";
 import { toastError } from "@/lib/toast-helpers";
 import type { Ticket, Contact, TicketComment } from "@shared/schema";
 import { TICKET_CATEGORIES, SUPPORT_STAGES } from "@shared/schema";
@@ -585,7 +584,7 @@ export default function Tickets() {
 
       <Card>
         <CardContent className="p-0">
-          <ResponsiveTable data-testid="table-tickets-scroll">
+          <div className="overflow-x-auto" data-testid="table-tickets-scroll">
           <Table data-testid="table-tickets">
             <TableHeader>
               <TableRow>
@@ -665,7 +664,7 @@ export default function Tickets() {
               )}
             </TableBody>
           </Table>
-          </ResponsiveTable>
+          </div>
         </CardContent>
       </Card>
 
