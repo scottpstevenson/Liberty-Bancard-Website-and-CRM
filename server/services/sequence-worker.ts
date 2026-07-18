@@ -360,6 +360,12 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
           }
         }
 
+        const calendarLink =
+          process.env.GHL_CALENDAR_BOOKING_URL ||
+          (process.env.GHL_DEFAULT_CALENDAR_ID
+            ? `https://api.leadconnectorhq.com/widget/booking/${process.env.GHL_DEFAULT_CALENDAR_ID}`
+            : "https://api.leadconnectorhq.com/widget/booking/YFiIy7oIOUXN2qZZPnOr");
+
         const interpolate = (text: string | null | undefined): string => {
           if (!text) return "";
           return text
@@ -378,7 +384,10 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
             .replace(/\{\{recommendedTerminal\}\}/g, recommendedTerminal)
             .replace(/\{\{serviceType\}\}/g, serviceType)
             .replace(/\{\{estimatedVolume\}\}/g, estimatedVolume)
-            .replace(/\{\{agentName\}\}/g, agentName);
+            .replace(/\{\{agentName\}\}/g, agentName)
+            .replace(/\{\{calendarLink\}\}/g, calendarLink)
+            .replace(/\{\{contact\.vertical\}\}/g, industry)
+            .replace(/\{\{vertical\}\}/g, industry);
         };
 
         let stepExecuted = false;

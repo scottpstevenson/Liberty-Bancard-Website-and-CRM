@@ -157,7 +157,7 @@ export async function sendBookingLink(
   }
 
   const locationId = process.env.GHL_LOCATION_ID || "";
-  const bookingUrl = `https://api.leadconnectorhq.com/widget/bookings/${calendar.calendarId}`;
+  const bookingUrl = `https://api.leadconnectorhq.com/widget/booking/${calendar.calendarId}`;
 
   if (!isSdrGhlConfigured() || !merchant.ghlContactId) {
     const reason = !isSdrGhlConfigured() ? "GHL not configured" : "No GHL contact ID";
