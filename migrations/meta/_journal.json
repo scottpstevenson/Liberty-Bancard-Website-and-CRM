@@ -554,6 +554,13 @@
       "when": 1786700000000,
       "tag": "0074_fix_ghl_identity_conflicts",
       "breakpoints": false
+    },
+    {
+      "idx": 79,
+      "version": "7",
+      "when": 1786800000000,
+      "tag": "0075_admin_password_reset",
+      "breakpoints": false
     }
   ]
 }
