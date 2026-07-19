@@ -15,6 +15,7 @@ import type { GhlActivityLog, MessageTemplate, SlaConfig } from "@shared/schema"
 interface GhlStatus {
   configured: boolean;
   hasApiKey: boolean;
+  hasPrivateToken: boolean;
   hasLocationId: boolean;
   hasCalendarId: boolean;
 }
@@ -361,14 +362,14 @@ export default function GhlSettings() {
 
         <Card data-testid="card-ghl-apikey">
           <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">API Key</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">API Token</CardTitle>
             <Key className="w-4 h-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="flex items-center gap-2">
-              <StatusIndicator configured={status?.hasApiKey ?? false} />
+              <StatusIndicator configured={(status?.hasApiKey || status?.hasPrivateToken) ?? false} />
               <span className="text-lg font-semibold" data-testid="text-ghl-apikey-status">
-                {status?.hasApiKey ? "Configured" : "Not Set"}
+                {(status?.hasApiKey || status?.hasPrivateToken) ? "Configured" : "Not Set"}
               </span>
             </div>
           </CardContent>
