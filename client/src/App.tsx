@@ -209,6 +209,7 @@ const FinancialHub = lazy(() => import("@/pages/dashboard/FinancialHub"));
 const SystemHealthHub = lazy(() => import("@/pages/dashboard/SystemHealthHub"));
 const AdminHub = lazy(() => import("@/pages/dashboard/AdminHub"));
 const MerchantRiskHub = lazy(() => import("@/pages/dashboard/MerchantRiskHub"));
+const SequenceReport = lazy(() => import("@/pages/dashboard/SequenceReport"));
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -731,6 +732,9 @@ function Router() {
         </Route>
         <Route path="/dashboard/system-audit">
           <ProtectedRoute component={SystemAudit} allowedRoles={["admin", "manager"]} />
+        </Route>
+        <Route path="/dashboard/sequence-report">
+          <ProtectedRoute component={SequenceReport} allowedRoles={["admin", "manager"]} />
         </Route>
         {/* ─── Alias Redirects (legacy deep-links) ─────────────────────────── */}
         <Route path="/dashboard/ghl-workflow-ids">

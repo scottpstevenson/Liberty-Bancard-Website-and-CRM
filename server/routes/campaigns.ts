@@ -1065,4 +1065,158 @@ export function registerCampaignsRoutes(app: Express) {
     }
   });
 
+  // ─── Sequence Report ─────────────────────────────────────────────────────────
+  app.get("/api/sequence-report", isDashboardUser, async (_req, res) => {
+    try {
+      const client = await pool.connect();
+      try {
+        const seqRows = await client.query(`
+          SELECT
+            s.id, s.name, s.status, s.trigger_type, s.sequence_family,
+            s.description, s.eligible_consent_tiers, s.channels_allowed,
+            s.lifecycle_stages_allowed, s.total_steps,
+            COUNT(ss.id)::int AS step_count,
+            SUM(CASE WHEN ss.action_type = 'email' THEN 1 ELSE 0 END)::int AS email_steps,
+            SUM(CASE WHEN ss.action_type = 'sms' THEN 1 ELSE 0 END)::int AS sms_steps,
+            SUM(CASE WHEN ss.action_type = 'ghl_workflow' THEN 1 ELSE 0 END)::int AS ghl_steps,
+            SUM(CASE WHEN ss.action_type = 'task' THEN 1 ELSE 0 END)::int AS task_steps,
+            MAX(ss.delay_days + COALESCE(ss.delay_hours, 0) / 24.0)::numeric(6,1) AS max_delay_days,
+            COUNT(CASE WHEN e.status = 'active' THEN 1 END)::int AS active_enrollments,
+            COUNT(CASE WHEN e.status = 'completed' THEN 1 END)::int AS completed_enrollments
+          FROM follow_up_sequences s
+          LEFT JOIN sequence_steps ss ON ss.sequence_id = s.id
+          LEFT JOIN sequence_enrollments e ON e.sequence_id = s.id
+          GROUP BY s.id, s.name, s.status, s.trigger_type, s.sequence_family,
+                   s.description, s.eligible_consent_tiers, s.channels_allowed,
+                   s.lifecycle_stages_allowed, s.total_steps
+          ORDER BY s.status DESC, s.sequence_family NULLS LAST, s.name
+        `);
+
+        const siRows = await client.query(`
+          SELECT id, label, domain, email_address, mailbox_type, provider,
+                 is_active, warmup_status, daily_limit, sent_today,
+                 bounces_today, complaints_today, health_score, vertical_assignment, last_used_at
+          FROM sending_identities ORDER BY id
+        `);
+
+        const enrollRows = await client.query(`
+          SELECT
+            se.status,
+            COUNT(*)::int AS count,
+            COUNT(DISTINCT se.sequence_id)::int AS unique_sequences,
+            COUNT(DISTINCT se.contact_id)::int AS unique_contacts
+          FROM sequence_enrollments se
+          GROUP BY se.status
+        `);
+
+        const sequences = seqRows.rows;
+        const active = sequences.filter((s: any) => s.status === "active");
+        const paused = sequences.filter((s: any) => s.status === "paused");
+        const stalled = sequences.filter((s: any) => s.status === "paused" && (s.active_enrollments ?? 0) > 0);
+
+        const totalEmailSteps = sequences.reduce((a: number, s: any) => a + (s.email_steps ?? 0), 0);
+        const totalSmsSteps = sequences.reduce((a: number, s: any) => a + (s.sms_steps ?? 0), 0);
+        const dailyCap = siRows.rows.filter((i: any) => i.is_active).reduce((a: number, i: any) => a + (i.daily_limit ?? 0), 0);
+        const stallCount = stalled.reduce((a: number, s: any) => a + (s.active_enrollments ?? 0), 0);
+
+        const enrollTotals: Record<string, number> = {};
+        for (const r of enrollRows.rows) enrollTotals[r.status] = r.count;
+
+        const pausedByFamily: Record<string, any[]> = {};
+        for (const s of paused) {
+          const key = s.sequence_family || "Legacy / Ungrouped";
+          if (!pausedByFamily[key]) pausedByFamily[key] = [];
+          pausedByFamily[key].push(s);
+        }
+
+        res.json({
+          generatedAt: new Date().toISOString(),
+          summary: {
+            total: sequences.length,
+            active: active.length,
+            paused: paused.length,
+            totalEmailSteps,
+            totalSmsSteps,
+            dailyCap,
+            stallCount,
+            activeIdentities: siRows.rows.filter((i: any) => i.is_active).length,
+          },
+          sendingIdentities: siRows.rows,
+          activeSequences: active,
+          stalledEnrollments: stalled,
+          enrollmentTotals: enrollTotals,
+          pausedByFamily,
+          sequences,
+        });
+      } finally {
+        client.release();
+      }
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/sequence-report/analyze", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const { summary, activeSequences, stalledEnrollments, sendingIdentities, enrollmentTotals, pausedByFamily } = req.body;
+      const OpenAI = (await import("openai")).default;
+      const openai = new OpenAI({ apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY, baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL });
+
+      const activeNames = (activeSequences || []).map((s: any) => `  • [${s.trigger_type}] ${s.name} — ${s.email_steps}E/${s.sms_steps}S over ${s.max_delay_days}d (${s.active_enrollments} enrolled)`).join("\n");
+      const stalledNames = (stalledEnrollments || []).map((s: any) => `  • "${s.name}" — ${s.active_enrollments} contacts stalled (sequence is PAUSED)`).join("\n");
+      const identityList = (sendingIdentities || []).map((i: any) => `  • ${i.label} <${i.email_address}> | ${i.warmup_status} | health ${i.health_score} | daily_limit ${i.daily_limit} | sent_today ${i.sent_today}`).join("\n");
+      const familyNames = Object.keys(pausedByFamily || {}).slice(0, 20).join(", ");
+
+      const systemPrompt = `You are a senior revenue operations and email deliverability consultant auditing a payment processing company's (Liberty Bancard) outbound sales automation system. 
+Analyze the sequence data objectively. Flag risks, gaps, and opportunities clearly. Be direct and concise. Use markdown with ## headings and bullet points. 
+Focus on: business impact, deliverability risk, compliance, sales coverage gaps, and go-live readiness.`;
+
+      const userPrompt = `## Liberty Bancard — Sequence & Sending Audit
+
+**Business Model:** B2B payment processing sales targeting Florida merchants (auto repair, med spa, dental, salon, gym, restaurant, construction). Revenue from merchant processing volume (interchange + margin). Goal: convert small-to-mid merchants away from incumbents (Square, Stripe, local ISOs).
+
+**System Snapshot:**
+- Total sequences: ${summary?.total ?? 0}
+- Active: ${summary?.active ?? 0} | Paused: ${summary?.paused ?? 0}
+- Sending identities: ${summary?.activeIdentities ?? 0} active | Daily email cap: ${summary?.dailyCap ?? 0} emails/day
+- Enrollment totals: ${JSON.stringify(enrollmentTotals)}
+- Stalled contacts (active enrollments in PAUSED sequences): ${summary?.stallCount ?? 0}
+
+**Active Sequences:**
+${activeNames || "  (none)"}
+
+**Stalled Enrollments (URGENT):**
+${stalledNames || "  (none — good)"}
+
+**Sending Infrastructure:**
+${identityList || "  (none configured)"}
+
+**Paused Sequence Families:**
+${familyNames || "  (all ungrouped)"}
+
+Please provide:
+1. **Executive Summary** — 3-sentence read on overall system health
+2. **Critical Issues** — anything blocking revenue or creating compliance/deliverability risk
+3. **Sending Infrastructure Assessment** — capacity vs. business needs
+4. **Sequence Coverage Analysis** — are the right verticals and funnel stages covered?
+5. **Stalled Enrollment Action Plan** — what to do with the ${summary?.stallCount ?? 0} stuck contacts
+6. **Go-Live Readiness Score** (0–100) with rationale
+7. **Top 5 Priority Actions** — ordered by revenue impact`;
+
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        max_tokens: 2000,
+      });
+
+      const analysis = completion.choices[0]?.message?.content ?? "No analysis generated.";
+      res.json({ analysis, generatedAt: new Date().toISOString() });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
 }
