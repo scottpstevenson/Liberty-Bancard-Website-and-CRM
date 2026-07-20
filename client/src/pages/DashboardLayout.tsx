@@ -165,6 +165,7 @@ const automationItems: MenuItem[] = [
   { icon: BarChart3, label: "Automation", href: "/dashboard/automation", roles: ["admin", "manager"] },
   { icon: Zap, label: "Workflows", href: "/dashboard/workflows", roles: ["admin", "manager"] },
   { icon: ListOrdered, label: "Sequences", href: "/dashboard/sequences", roles: ["admin", "manager"] },
+  { icon: FileBarChart, label: "Sequence Report", href: "/dashboard/sequence-report", roles: ["admin", "manager"] },
   { icon: GitBranch, label: "Stage Rules", href: "/dashboard/stage-rules", roles: ["admin", "manager"] },
   { icon: Megaphone, label: "Campaigns", href: "/dashboard/campaigns", roles: ["admin", "manager"] },
   { icon: Mail, label: "Deliverability", href: "/dashboard/deliverability-hub", roles: ["admin", "manager"] },
