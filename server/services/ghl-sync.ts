@@ -8,7 +8,7 @@ import { getEmailSignatureHtml } from "./email-signatures";
 import { auditChange } from "./audit-change";
 import { writeContact, upsertContactSourceEvent, PROVENANCE_FIELDS } from "./contact-writer";
 import { enqueuePromotionalEnrollment } from "./promotional-enrollment-eligibility";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 const CONFLICT_FIELDS: Array<{ ghlKey: string; contactKey: keyof Contact }> = [
   { ghlKey: "firstName", contactKey: "firstName" },
@@ -738,7 +738,8 @@ export async function syncDealToGhl(dealId: number): Promise<{ success: boolean;
     const pipelineId = await ensurePipeline();
     const stageMapping = mapDealStageToGhl(deal.stage);
 
-    const opportunityPayload: Record<string, any> = {
+    // POST (create) requires locationId; PUT (update) rejects it — keep separate.
+    const createPayload: Record<string, any> = {
       pipelineId,
       locationId: config.locationId,
       name: deal.contactId ? `${contact?.companyName || contact?.firstName} - Deal #${deal.id}` : `Deal #${deal.id}`,
@@ -747,6 +748,14 @@ export async function syncDealToGhl(dealId: number): Promise<{ success: boolean;
       monetaryValue: deal.totalVolume ? Number(deal.totalVolume) : undefined,
       pipelineStageId: stageMapping.pipelineStageId,
     };
+    const updatePayload: Record<string, any> = {
+      pipelineId,
+      name: createPayload.name,
+      status: createPayload.status,
+      contactId: ghlContactId,
+      monetaryValue: createPayload.monetaryValue,
+      pipelineStageId: createPayload.pipelineStageId,
+    };
 
     const existingGhlOpportunityId = deal.ghlOpportunityId;
 
@@ -754,17 +763,35 @@ export async function syncDealToGhl(dealId: number): Promise<{ success: boolean;
     if (existingGhlOpportunityId) {
       await ghlFetch(`/opportunities/${existingGhlOpportunityId}`, {
         method: "PUT",
-        body: JSON.stringify(opportunityPayload),
+        body: JSON.stringify(updatePayload),
       });
       ghlOpportunityId = existingGhlOpportunityId;
     } else {
-      const result = await ghlFetch("/opportunities/", {
-        method: "POST",
-        body: JSON.stringify(opportunityPayload),
-      });
-      ghlOpportunityId = result?.opportunity?.id || result?.id;
-      if (ghlOpportunityId) {
-        await storage.updateDeal(dealId, { ghlOpportunityId });
+      try {
+        const result = await ghlFetch("/opportunities/", {
+          method: "POST",
+          body: JSON.stringify(createPayload),
+        });
+        ghlOpportunityId = result?.opportunity?.id || result?.id;
+        if (ghlOpportunityId) {
+          await db.execute(sql`UPDATE deals SET ghl_opportunity_id = ${ghlOpportunityId}, updated_at = NOW() WHERE id = ${dealId}`);
+        }
+      } catch (postErr: any) {
+        // Auto-recover duplicate opportunity — GHL returns 400 with meta.existingId.
+        // Same pattern as the duplicate-contact 400 recovery in upsertGhlContact.
+        const dupMatch = postErr.message?.match(/"existingId":"([^"]+)"/);
+        if (dupMatch) {
+          const recoveredId = dupMatch[1];
+          console.log(`[GHL Sync] Recovering duplicate deal ${dealId} → existing GHL opportunity ${recoveredId}`);
+          await db.execute(sql`UPDATE deals SET ghl_opportunity_id = ${recoveredId}, updated_at = NOW() WHERE id = ${dealId}`);
+          await ghlFetch(`/opportunities/${recoveredId}`, {
+            method: "PUT",
+            body: JSON.stringify(updatePayload),
+          });
+          ghlOpportunityId = recoveredId;
+        } else {
+          throw postErr;
+        }
       }
     }
 

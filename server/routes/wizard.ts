@@ -225,7 +225,7 @@ export function registerWizardRoutes(app: Express): void {
         firstName: firstName || "Wizard",
         lastName: "Test",
         email,
-        phone: phone || null,
+        phone: phone || "",
         tags: ["wizard_test_contact"],
         consentEmail: true,
         consentSms: true,
