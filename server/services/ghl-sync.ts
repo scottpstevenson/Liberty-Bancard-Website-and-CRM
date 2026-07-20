@@ -152,7 +152,7 @@ async function detectAndWriteConflicts(
 const GHL_API_BASE = "https://services.leadconnectorhq.com";
 
 function getConfig() {
-  const apiKey = process.env.GHL_API_KEY;
+  const apiKey = process.env.GHL_PRIVATE_INTEGRATION_TOKEN || process.env.GHL_API_KEY;
   const locationId = process.env.GHL_LOCATION_ID;
   if (!apiKey || !locationId) return null;
   return { apiKey, locationId, calendarId: process.env.GHL_CALENDAR_ID || undefined };
@@ -850,7 +850,7 @@ export async function syncCompanyToGhl(companyId: number): Promise<{ success: bo
       locationId: config.locationId,
     };
 
-    await ghlFetch("/companies/", {
+    await ghlFetch("/companies", {
       method: "POST",
       body: JSON.stringify(companyPayload),
     });
