@@ -283,6 +283,22 @@ function SortableDealCard({
               {deal.offerPath}
             </Badge>
           )}
+          {(deal as any).boardingStatus && (deal as any).boardingStatus !== "not_submitted" && (deal as any).boardingStatus !== "not submitted" && (() => {
+            const bs = (deal as any).boardingStatus as string;
+            const statusMap: Record<string, { label: string; className: string }> = {
+              submitted:  { label: "Boarding Submitted", className: "bg-blue-50 text-blue-800 border-blue-200" },
+              under_review: { label: "Under Review", className: "bg-amber-50 text-amber-800 border-amber-200" },
+              approved:   { label: "Board Approved", className: "bg-green-50 text-green-800 border-green-200" },
+              declined:   { label: "Board Declined", className: "bg-red-50 text-red-800 border-red-200" },
+              live:       { label: "Live / Active", className: "bg-emerald-50 text-emerald-800 border-emerald-200" },
+            };
+            const s = statusMap[bs] ?? { label: bs.replace(/_/g, " "), className: "bg-muted text-muted-foreground" };
+            return (
+              <Badge variant="outline" className={`text-xs no-default-hover-elevate no-default-active-elevate ${s.className}`} data-testid={`badge-boarding-${deal.id}`}>
+                {s.label}
+              </Badge>
+            );
+          })()}
           {proposals && proposals.length > 0 ? (() => {
             const accepted = proposals.some(p => p && p.status === "accepted");
             const viewed = proposals.some(p => p && ((p as any).viewCount > 0 || p.status === "viewed"));

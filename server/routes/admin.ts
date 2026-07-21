@@ -2229,4 +2229,118 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // ── Communications Readiness Checklist ────────────────────────────────────
+  // Single endpoint summarising every pre-send configuration requirement.
+  // Used by the Activation Panel and monitoring to gate outbound sends.
+  app.get("/api/admin/comms-readiness", requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const { isGhlConfigured } = await import("../services/ghl");
+      const { isSmtpConfigured } = await import("../services/smtp-email");
+      const { getGhlCircuitStatus } = await import("../services/ghl-sync");
+      const { getAllSenderProfiles } = await import("../services/email-signatures");
+
+      const mailingAddress = await storage.getSystemSetting("compliance_mailing_address") as string | null | undefined;
+      const unsubscribeSecret = !!(process.env.UNSUBSCRIBE_TOKEN_SECRET || process.env.SESSION_SECRET);
+      const appUrl = process.env.APP_URL;
+      const circuit = getGhlCircuitStatus();
+      const ghlOk = isGhlConfigured() && !circuit.circuitOpen;
+      const smtpOk = isSmtpConfigured();
+      const senderProfiles = await getAllSenderProfiles();
+
+      const hasSalesProfile = !!(senderProfiles.sales?.name && senderProfiles.sales?.email);
+      const hasSupportProfile = !!(senderProfiles.support?.name && senderProfiles.support?.email);
+      const hasOnboardingProfile = !!(senderProfiles.onboarding?.name && senderProfiles.onboarding?.email);
+      const hasMailingAddress = !!mailingAddress && String(mailingAddress).trim().length > 0;
+      const hasAppUrl = !!(appUrl && appUrl.trim().length > 0);
+
+      const outboundGlobalPaused = await storage.getSystemSetting("outboundGlobalPaused").catch(() => false);
+      const isPaused = outboundGlobalPaused === true || outboundGlobalPaused === "true";
+
+      const sendChannelReady = ghlOk || smtpOk;
+      const coldEmailReady = hasMailingAddress && unsubscribeSecret && hasAppUrl && sendChannelReady;
+      const transactionalReady = sendChannelReady && hasSalesProfile && hasOnboardingProfile;
+      const overallReady = coldEmailReady && transactionalReady && !isPaused;
+
+      res.json({
+        overallReady,
+        outboundGlobalPaused: isPaused,
+        checks: {
+          ghl:               { ok: isGhlConfigured(), label: "GHL configured" },
+          ghlCircuit:        { ok: !circuit.circuitOpen, label: "GHL circuit closed", consecutiveFailures: circuit.consecutiveFailures },
+          smtp:              { ok: smtpOk, label: "SMTP configured" },
+          sendChannel:       { ok: sendChannelReady, label: "At least one send channel ready (GHL or SMTP)" },
+          mailingAddress:    { ok: hasMailingAddress, label: "CAN-SPAM mailing address set" },
+          unsubscribeSecret: { ok: unsubscribeSecret, label: "Unsubscribe token secret set" },
+          appUrl:            { ok: hasAppUrl, label: "APP_URL configured" },
+          salesProfile:      { ok: hasSalesProfile, label: "Sales sender profile configured", value: senderProfiles.sales?.email },
+          supportProfile:    { ok: hasSupportProfile, label: "Support sender profile configured", value: senderProfiles.support?.email },
+          onboardingProfile: { ok: hasOnboardingProfile, label: "Onboarding sender profile configured", value: senderProfiles.onboarding?.email },
+          coldEmail:         { ok: coldEmailReady, label: "Cold outreach ready" },
+          transactional:     { ok: transactionalReady, label: "Transactional emails ready" },
+        },
+        senderProfiles,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Sender Profile GET / PUT ──────────────────────────────────────────────
+  // Allows admins to view and update the DB-backed sender profiles
+  // (sales, support, onboarding) without modifying code.
+  app.get("/api/admin/sender-profiles", requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const { getAllSenderProfiles } = await import("../services/email-signatures");
+      res.json(await getAllSenderProfiles());
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.put("/api/admin/sender-profiles/:type", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const { type } = req.params;
+      const validTypes = ["sales", "support", "onboarding"];
+      if (!validTypes.includes(type)) {
+        return res.status(400).json({ message: `Invalid type. Must be one of: ${validTypes.join(", ")}` });
+      }
+      const { name, title, phone, email, calendlyLink, refCode } = req.body;
+      if (!name || !email) {
+        return res.status(400).json({ message: "name and email are required" });
+      }
+      const { saveSignature, getStoredSignature } = await import("../services/email-signatures");
+      const existing = await getStoredSignature(type);
+      const updated = { ...existing, name, title: title || existing.title, phone: phone || existing.phone, email, ...(calendlyLink !== undefined ? { calendlyLink } : {}), ...(refCode !== undefined ? { refCode } : {}) };
+      await saveSignature(type, updated);
+      const user = req.user as any;
+      await storage.createAuditLog({ action: "sender_profile_updated", entityType: "system", actorType: "user", actorId: String(user?.id || ""), details: { type, name, email } });
+      res.json({ ok: true, type, profile: updated });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Database Backup Management ────────────────────────────────────────────
+  app.get("/api/admin/backups", requireRole("admin"), async (_req, res) => {
+    try {
+      const { listBackups } = await import("../services/db-backup");
+      res.json(await listBackups());
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/admin/backups/run", requireRole("admin"), async (_req, res) => {
+    try {
+      const { runDatabaseBackup } = await import("../services/db-backup");
+      const user = _req.user as any;
+      const result = await runDatabaseBackup(`manual:${user?.email || "admin"}`);
+      if (!result.ok) return res.status(500).json({ ok: false, error: result.error });
+      const _pathMod = await import("path");
+      res.json({ ok: true, filePath: result.filePath ? _pathMod.basename(result.filePath) : null, sizeBytes: result.sizeBytes, durationMs: result.durationMs });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
 }

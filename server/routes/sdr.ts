@@ -54,6 +54,7 @@ export function registerSdrRoutes(app: Express) {
     let dbOk = false;
     let sessionOk = false;
     let sessionCount: number | null = null;
+    let redisOk = false;
     try {
       const result = await pool.query("SELECT 1 AS check");
       dbOk = result.rows.length > 0;
@@ -63,14 +64,41 @@ export function registerSdrRoutes(app: Express) {
       sessionOk = sessResult.rows.length > 0;
       sessionCount = sessResult.rows[0] ? parseInt(sessResult.rows[0].cnt, 10) : null;
     } catch {}
+    try {
+      const { getQueueManager } = await import("../services/queue-manager");
+      const qm = getQueueManager();
+      if (qm) {
+        const conn = (qm as any)._redisConnection;
+        if (conn && typeof conn.ping === "function") await conn.ping();
+        redisOk = true;
+      }
+    } catch {}
+
     const { isGhlConfigured } = await import("../services/ghl");
-    res.json({
-      ok: dbOk && sessionOk,
+    const { getGhlCircuitStatus } = await import("../services/ghl-sync");
+    const circuit = getGhlCircuitStatus();
+    const { isSmtpConfigured } = await import("../services/smtp-email");
+
+    const smtpOk = isSmtpConfigured();
+    const ghlConfigured = isGhlConfigured();
+    const circuitOpen = circuit.circuitOpen;
+
+    const allOk = dbOk && sessionOk && !circuitOpen;
+
+    res.status(allOk ? 200 : 503).json({
+      ok: allOk,
       uptime: Math.floor(uptime),
       db: dbOk ? "connected" : "error",
       session: sessionOk ? "connected" : "error",
       sessionCount,
-      ghl: isGhlConfigured() ? "configured" : "missing",
+      redis: redisOk ? "connected" : "unavailable",
+      ghl: ghlConfigured ? (circuitOpen ? "circuit_open" : "configured") : "missing",
+      ghlCircuit: {
+        open: circuitOpen,
+        consecutiveFailures: circuit.consecutiveFailures,
+        threshold: circuit.threshold,
+      },
+      smtp: smtpOk ? "configured" : "missing",
       timestamp: new Date().toISOString(),
     });
   });

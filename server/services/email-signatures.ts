@@ -193,3 +193,44 @@ export async function getStoredSignature(type: string): Promise<EmailSignature> 
 export async function saveSignature(type: string, sig: Partial<EmailSignature>): Promise<void> {
   await storage.setSystemSetting(`email_signature_${type}`, sig);
 }
+
+/**
+ * Seed default sender profiles into system_settings on first startup.
+ * Safe to call multiple times — only writes keys that are not yet set.
+ * Call from server startup (after DB is ready) to guarantee defaults exist.
+ */
+export async function seedDefaultSignatures(): Promise<void> {
+  for (const [type, sig] of Object.entries(DEFAULT_SIGNATURES)) {
+    const existing = await storage.getSystemSetting(`email_signature_${type}`).catch(() => null);
+    if (!existing) {
+      await storage.setSystemSetting(`email_signature_${type}`, sig).catch(err =>
+        console.warn(`[email-signatures] Failed to seed signature "${type}":`, err.message)
+      );
+      console.log(`[email-signatures] Seeded default sender profile: ${type} (${sig.name} <${sig.email}>)`);
+    }
+  }
+}
+
+/**
+ * Async version of getEmailSignatureHtml — reads DB-configured sender profile first,
+ * falls back to DEFAULT_SIGNATURES. Use this in async contexts (workers, background jobs).
+ */
+export async function getEmailSignatureHtmlAsync(
+  type: "sales" | "support" | "onboarding" = "sales",
+  customSig?: Partial<EmailSignature>,
+  promo?: PromoOffer | null,
+): Promise<string> {
+  const dbSig = await getStoredSignature(type);
+  return getEmailSignatureHtml(type, { ...dbSig, ...customSig }, promo);
+}
+
+/**
+ * Get all configured sender profiles (DB-backed with hardcoded fallback).
+ */
+export async function getAllSenderProfiles(): Promise<Record<string, EmailSignature>> {
+  const result: Record<string, EmailSignature> = {};
+  for (const type of ["sales", "support", "onboarding"]) {
+    result[type] = await getStoredSignature(type);
+  }
+  return result;
+}

@@ -193,6 +193,42 @@ export function registerDocumentsRoutes(app: Express) {
         details: { fileName, category: category || 'Other', contactId: contactId || null },
       }).catch(err => console.error('[doc-audit] upload log failed:', err));
 
+      // Auto-update onboarding checklist item when document category maps to a known step.
+      // Resolves the active deal for the contact (if any) and marks the matching checklist
+      // item as "received" so staff don't have to update it manually.
+      const CATEGORY_TO_CHECKLIST_KEY: Record<string, string> = {
+        "Bank Statement":        "bank_statement",
+        "Processing Statement":  "processing_statement",
+        "ID Verification":       "government_id",
+        "KYC":                   "kyc_documents",
+        "Voided Check":          "voided_check",
+      };
+      const checklistKey = CATEGORY_TO_CHECKLIST_KEY[category as string];
+      if (checklistKey && contactId) {
+        (async () => {
+          try {
+            const cid = Number(contactId);
+            const dealList = await storage.getDeals({ contactId: cid, limit: 1 });
+            const activeDeal = dealList.data?.[0] ?? dealList[0];
+            const did = (activeDeal as any)?.id;
+            if (did) {
+              await storage.updateOnboardingChecklistItemStatus(did, checklistKey, "received", doc.id, null).catch(async () => {
+                await storage.upsertOnboardingChecklistItem({ dealId: did, itemKey: checklistKey, status: "received", documentId: doc.id });
+              });
+              await storage.createAuditLog({
+                action: "checklist_auto_updated",
+                entityType: "document",
+                entityId: doc.id,
+                actorType: "system",
+                details: { dealId: did, itemKey: checklistKey, documentId: doc.id, fileName },
+              });
+            }
+          } catch (e: any) {
+            console.warn("[doc-upload] checklist auto-update failed (non-critical):", e.message);
+          }
+        })().catch(() => {});
+      }
+
       res.status(201).json(doc);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -223,6 +259,33 @@ export function registerDocumentsRoutes(app: Express) {
         actorId: String(user?.id || ''),
         details: { from: doc.status || 'pending', to: status, fileName: doc.fileName },
       }).catch(err => console.error('[doc-audit] status change log failed:', err));
+
+      // When a document is rejected, notify the merchant via internal notification + GHL note.
+      if (status === "rejected" && doc.contactId) {
+        (async () => {
+          try {
+            const { createPreferenceAwareNotification } = await import("../services/digest-service");
+            await createPreferenceAwareNotification({
+              channel: "internal",
+              title: "Document Rejected",
+              message: `Document "${doc.fileName}" was rejected and requires resubmission. Please upload a corrected version.`,
+              type: "warning",
+              metadata: { documentId: doc.id, contactId: doc.contactId, eventType: "document_rejected" },
+            }, "document_rejected").catch(() => {});
+
+            const contact = await storage.getContact(doc.contactId);
+            if (contact?.ghlContactId) {
+              const { addNote } = await import("../services/sdr/ghl-client");
+              await addNote(contact.ghlContactId, `Document rejected: "${doc.fileName}". Merchant has been notified to resubmit.`).catch(() => {});
+            }
+
+            // Audit the rejection event for reporting
+            await storage.createAuditLog({ action: "document_rejected_notification_sent", entityType: "document", entityId: doc.id, actorType: "system", details: { contactId: doc.contactId, fileName: doc.fileName } }).catch(() => {});
+          } catch (e: any) {
+            console.warn("[doc-status] rejection notification failed (non-critical):", e.message);
+          }
+        })().catch(() => {});
+      }
 
       res.json(updated);
     } catch (err: any) {

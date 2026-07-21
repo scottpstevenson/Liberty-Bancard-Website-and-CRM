@@ -415,6 +415,14 @@ app.use((req, res, next) => {
         console.error("[Seed] Failed to seed Scott sending identity:", err);
       });
 
+      // Seed default sender profiles (sales / support / onboarding) into system_settings
+      // so they are configurable via the admin UI without hardcoded fallbacks.
+      import("./services/email-signatures").then(({ seedDefaultSignatures }) => {
+        return seedDefaultSignatures();
+      }).catch(err => {
+        console.warn("[Seed] Sender profile seeding failed (non-critical):", err.message);
+      });
+
       const { seedInboundMessageWorkflows } = await import("./services/seed-inbound-workflows");
       seedInboundMessageWorkflows().catch(err => {
         console.error("[Seed] Failed to seed inbound message workflows:", err);

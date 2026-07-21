@@ -17,6 +17,7 @@ export const QUEUE_NAMES = {
   ONBOARDING_REMINDER: "onboarding-reminder",
   ABANDONED_STATEMENT: "abandoned-statement",
   SYSTEM_AUDIT: "system-audit",
+  DB_BACKUP: "db-backup",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -135,6 +136,16 @@ const QUEUE_CONFIGS: QueueConfig[] = [
     backoffDelay: 30000,
     repeatEveryMs: 7 * 24 * 60 * 60 * 1000,
     cronPattern: process.env.SYSTEM_AUDIT_CRON ?? "0 8 * * 1",
+    jobName: "run",
+  },
+  {
+    name: QUEUE_NAMES.DB_BACKUP,
+    // concurrency=1: nightly pg_dump at 3 AM UTC; single sequential run avoids partial dumps.
+    concurrency: 1,
+    attempts: 2,
+    backoffDelay: 60000,
+    repeatEveryMs: 24 * 60 * 60 * 1000,
+    cronPattern: "0 3 * * *",
     jobName: "run",
   },
 ];
@@ -648,6 +659,11 @@ class QueueManager {
         case QUEUE_NAMES.SYSTEM_AUDIT: {
           const { runSystemAudit } = await import("./system-audit/runner");
           await runSystemAudit("schedule");
+          break;
+        }
+        case QUEUE_NAMES.DB_BACKUP: {
+          const { runDatabaseBackup } = await import("./db-backup");
+          await runDatabaseBackup("scheduled");
           break;
         }
         default:

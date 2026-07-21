@@ -452,6 +452,57 @@ function AccountTab({ profile, isLoading, isAdmin }: { profile: MerchantProfile 
         </CardContent>
       </Card>
 
+      {profile.accountStatus !== "active" && (
+        <Card data-testid="card-boarding-status">
+          <CardHeader>
+            <CardTitle className="text-base">Application &amp; Boarding Status</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ol className="relative border-l border-muted ml-3 space-y-4">
+              {[
+                {
+                  key: "submitted",
+                  label: "Application Submitted",
+                  done: ["under_review", "approved", "active", "pending"].includes(profile.accountStatus || ""),
+                  active: profile.accountStatus === "pending",
+                  description: "Your merchant application has been received.",
+                },
+                {
+                  key: "review",
+                  label: "Underwriting &amp; Review",
+                  done: ["approved", "active"].includes(profile.accountStatus || ""),
+                  active: profile.accountStatus === "under_review",
+                  description: "Our team is reviewing your business and processing history.",
+                },
+                {
+                  key: "approved",
+                  label: "Approval &amp; MID Assignment",
+                  done: profile.accountStatus === "active",
+                  active: profile.accountStatus === "approved",
+                  description: profile.merchantMid ? `Your MID is ${profile.merchantMid}.` : "Your Merchant ID will be assigned upon approval.",
+                },
+                {
+                  key: "golive",
+                  label: "Go-Live",
+                  done: profile.accountStatus === "active",
+                  active: false,
+                  description: profile.goLiveDate ? `Went live on ${new Date(profile.goLiveDate).toLocaleDateString()}.` : "Processing will begin after approval.",
+                },
+              ].map(step => (
+                <li key={step.key} className="ml-6">
+                  <span className={`absolute -left-3 flex items-center justify-center w-6 h-6 rounded-full ring-4 ring-background ${step.done ? "bg-primary text-primary-foreground" : step.active ? "bg-amber-400 text-white" : "bg-muted text-muted-foreground"}`}>
+                    {step.done ? "✓" : step.active ? "…" : "○"}
+                  </span>
+                  <p className={`text-sm font-medium ${step.active ? "text-foreground" : step.done ? "text-muted-foreground line-through" : "text-muted-foreground"}`} dangerouslySetInnerHTML={{ __html: step.label }} />
+                  {step.active && <p className="text-xs text-muted-foreground mt-0.5" dangerouslySetInnerHTML={{ __html: step.description }} />}
+                </li>
+              ))}
+            </ol>
+            <p className="text-xs text-muted-foreground mt-4">Typical approval timeline: 3–5 business days. Questions? Call 954-266-8214.</p>
+          </CardContent>
+        </Card>
+      )}
+
       <Card data-testid="card-account-rep">
         <CardHeader>
           <CardTitle className="text-base">Your Account Representative</CardTitle>

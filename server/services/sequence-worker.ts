@@ -75,6 +75,41 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
           }
         }
 
+        // ── Gate (reply-stop): Stop sequence if contact replied since enrollment ──
+        // Checks audit_logs for any inbound message processed for this contact
+        // after enrollment started. Prevents sending further steps after a reply.
+        if (currentStep > 0 && enrollment.contactId && enrollment.createdAt) {
+          try {
+            const { db: _sqDb } = await import("../db");
+            const { sql: _sqSql } = await import("drizzle-orm");
+            const enrolledAt = enrollment.createdAt instanceof Date ? enrollment.createdAt : new Date(enrollment.createdAt);
+            const replyRows = await _sqDb.execute(_sqSql`
+              SELECT id FROM audit_logs
+              WHERE action = 'inbound_message_processed'
+                AND entity_id = ${enrollment.contactId}
+                AND created_at > ${enrolledAt}
+              LIMIT 1
+            `);
+            if (replyRows.rows.length > 0) {
+              await storage.updateSequenceEnrollment(enrollment.id, {
+                status: "completed",
+                completedAt: new Date(),
+              });
+              await storage.createAuditLog({
+                action: "sequence_stopped_contact_replied",
+                entityType: "contact",
+                entityId: enrollment.contactId,
+                actorType: "system",
+                details: { enrollmentId: enrollment.id, sequenceId: sequence.id, sequenceName: sequence.name, stoppedAtStep: currentStep, reason: "contact_replied" },
+              });
+              processed++;
+              continue;
+            }
+          } catch (_replyCheckErr) {
+            // Non-fatal — continue processing if reply check fails
+          }
+        }
+
         if (currentStep >= steps.length) {
           await storage.updateSequenceEnrollment(enrollment.id, {
             status: "completed",
