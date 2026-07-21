@@ -314,6 +314,76 @@ async function main() {
     WARN("Could not query sequence enrollments", e.message);
   }
 
+  // ── 16. Routing & Canonical-Domain Regression ────────────────────────────────
+  // Verifies the production routing bug fix: Gmail OAuth callback must redirect
+  // to the canonical APP_URL domain, never to the raw replit.app hostname.
+  INFO("16. Routing & Canonical-Domain Regression");
+
+  // 16a: APP_URL must be set and resolve to a custom domain (not replit.app).
+  const canonicalAppUrl = process.env.APP_URL?.replace(/\/$/, "");
+  if (!canonicalAppUrl) {
+    FAIL("APP_URL not set — Gmail OAuth callback will redirect to localhost:5000 fallback");
+  } else {
+    OK(`APP_URL = ${canonicalAppUrl}`);
+    if (canonicalAppUrl.includes("replit.app") || canonicalAppUrl.includes("repl.co")) {
+      FAIL(
+        "APP_URL points to a Replit hostname",
+        `Set APP_URL to the custom domain (e.g. https://libertybancard.com). ` +
+        `Currently: ${canonicalAppUrl}. ` +
+        `Gmail OAuth callback redirects use this value — if it resolves to replit.app the post-OAuth ` +
+        `redirect will cross domains and the user's session cookie won't be sent.`
+      );
+    } else {
+      OK("APP_URL is a custom domain — Gmail OAuth callback will redirect to the correct host");
+    }
+  }
+
+  // 16b: REPLIT_DOMAINS (injected by Replit) must differ from APP_URL host so the
+  //      canonical-host redirect middleware fires for replit.app traffic.
+  const replitDomains16 = process.env.REPLIT_DOMAINS?.split(",").map(d => d.trim()) ?? [];
+  if (replitDomains16.length > 0) {
+    const firstReplitDomain = replitDomains16[0];
+    let canonicalHost16 = "";
+    try { canonicalHost16 = canonicalAppUrl ? new URL(canonicalAppUrl).hostname : ""; } catch {}
+    if (canonicalHost16 && firstReplitDomain !== canonicalHost16) {
+      OK(
+        `REPLIT_DOMAINS[0] (${firstReplitDomain}) differs from APP_URL host — ` +
+        `canonical-host middleware will redirect replit.app traffic to ${canonicalAppUrl}`
+      );
+    } else if (canonicalHost16) {
+      INFO(`REPLIT_DOMAINS[0] matches APP_URL host — canonical-host redirect is a no-op (expected if custom domain IS the Replit domain)`);
+    }
+  } else {
+    WARN("REPLIT_DOMAINS not set", "Canonical-host redirect relies solely on APP_URL; this is fine in dev");
+  }
+
+  // 16c: The /dashboard/outbound-readiness route must be reachable (SPA served).
+  //      We probe the LOCAL server so this works in both dev and CI.
+  try {
+    const localPort = process.env.PORT || "5000";
+    const routeResp = await fetch(`http://localhost:${localPort}/dashboard/outbound-readiness`);
+    if (routeResp.ok && routeResp.headers.get("content-type")?.includes("text/html")) {
+      OK("/dashboard/outbound-readiness → 200 text/html (SPA served — route exists in bundle)");
+    } else if (routeResp.status === 301 || routeResp.status === 302) {
+      const loc = routeResp.headers.get("location") ?? "";
+      if (canonicalAppUrl && loc.startsWith(canonicalAppUrl)) {
+        OK(`/dashboard/outbound-readiness → ${routeResp.status} → ${loc} (canonical-host redirect active)`);
+      } else {
+        FAIL(
+          `/dashboard/outbound-readiness → ${routeResp.status} → ${loc}`,
+          "Redirect target is not the canonical domain — cross-domain session loss expected"
+        );
+      }
+    } else {
+      WARN(
+        `/dashboard/outbound-readiness → ${routeResp.status}`,
+        "Unexpected status — verify the route is registered in App.tsx and the bundle is built"
+      );
+    }
+  } catch (e: any) {
+    WARN("Could not probe local server for route check", `${e.message} — server may not be running`);
+  }
+
   // ── Summary ──────────────────────────────────────────────────────────────────
   console.log("\n══════════════════════════════════════════════════════════");
   if (failures === 0) {

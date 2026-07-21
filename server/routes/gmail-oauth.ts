@@ -21,6 +21,7 @@
 
 import type { Express, Request, Response } from "express";
 import { requireRole } from "../replit_integrations/auth";
+import { getCanonicalUrl } from "../lib/canonical-url";
 import {
   getGmailOAuthStatus,
   getGmailAuthorizationUrl,
@@ -61,7 +62,7 @@ export function registerGmailOAuthRoutes(app: Express): void {
           ].filter(Boolean),
         });
       }
-      const redirectUri = `${process.env.APP_URL || "http://localhost:5000"}/api/admin/gmail-oauth/callback`;
+      const redirectUri = `${getCanonicalUrl()}/api/admin/gmail-oauth/callback`;
       const authUrl = getGmailAuthorizationUrl(redirectUri);
       if (!authUrl) return res.status(500).json({ message: "Could not generate authorization URL" });
       res.json({ authUrl, redirectUri });
@@ -77,22 +78,24 @@ export function registerGmailOAuthRoutes(app: Express): void {
   app.get("/api/admin/gmail-oauth/callback", async (req: Request, res: Response) => {
     const { code, error: oauthError } = req.query as Record<string, string>;
 
+    const canonicalBase = getCanonicalUrl();
+
     if (oauthError) {
       console.error("[Gmail OAuth] Callback error:", oauthError);
-      return res.redirect(`/dashboard/outbound-readiness?gmail_error=${encodeURIComponent(oauthError)}`);
+      return res.redirect(`${canonicalBase}/dashboard/outbound-readiness?gmail_error=${encodeURIComponent(oauthError)}`);
     }
 
     if (!code) {
-      return res.redirect("/dashboard/outbound-readiness?gmail_error=missing_code");
+      return res.redirect(`${canonicalBase}/dashboard/outbound-readiness?gmail_error=missing_code`);
     }
 
-    const redirectUri = `${process.env.APP_URL || "http://localhost:5000"}/api/admin/gmail-oauth/callback`;
+    const redirectUri = `${canonicalBase}/api/admin/gmail-oauth/callback`;
     const result = await exchangeCodeForTokens(code, redirectUri);
 
     if (result.success) {
-      return res.redirect(`/dashboard/outbound-readiness?gmail_connected=${encodeURIComponent(result.email || "")}`);
+      return res.redirect(`${canonicalBase}/dashboard/outbound-readiness?gmail_connected=${encodeURIComponent(result.email || "")}`);
     } else {
-      return res.redirect(`/dashboard/outbound-readiness?gmail_error=${encodeURIComponent(result.error || "unknown")}`);
+      return res.redirect(`${canonicalBase}/dashboard/outbound-readiness?gmail_error=${encodeURIComponent(result.error || "unknown")}`);
     }
   });
 

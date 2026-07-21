@@ -144,6 +144,39 @@ process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 const app = express();
 const httpServer = createServer(app);
 
+// Trust Replit's reverse proxy so req.hostname reflects X-Forwarded-Host
+// (the custom domain, e.g. libertybancard.com) rather than the internal
+// Replit hostname (liberty-bancard-system.replit.app).  Without this,
+// Express uses the raw Host header set by the proxy and res.redirect('/path')
+// constructs absolute URLs with the wrong hostname.
+app.set("trust proxy", 1);
+
+// Canonical-host redirect ─────────────────────────────────────────────────
+// When APP_URL is set to a custom domain (e.g. libertybancard.com) and a
+// request arrives on the non-canonical Replit hostname, redirect to the
+// canonical host.  This covers direct navigation, bookmarks, and any edge
+// case where a relative redirect lands on the wrong domain.
+// API and webhook paths are excluded so external callers are never broken.
+{
+  const _canonicalUrl = getCanonicalUrl().replace(/\/$/, "");
+  const _canonicalHost = (() => {
+    try { return new URL(_canonicalUrl).hostname; } catch { return null; }
+  })();
+
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    if (!_canonicalHost) return next();
+    const reqHost = (req.headers["x-forwarded-host"] as string | undefined)?.split(",")[0].trim()
+      || req.hostname;
+    if (reqHost === _canonicalHost) return next();
+    if (
+      req.path.startsWith("/api") ||
+      req.path.startsWith("/webhooks") ||
+      req.path === "/health"
+    ) return next();
+    return res.redirect(301, `${_canonicalUrl}${req.originalUrl}`);
+  });
+}
+
 declare module "http" {
   interface IncomingMessage {
     rawBody: unknown;
