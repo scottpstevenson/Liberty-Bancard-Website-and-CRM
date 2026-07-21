@@ -7,6 +7,9 @@ import { addNote as ghlAddNote, addTag as ghlAddTag, triggerWorkflow as ghlTrigg
 import { getWorkflowEnvValue } from "./ghl-workflows";
 import { sendSmtpEmail, isSmtpConfigured } from "./smtp-email";
 import { generateUnsubscribeToken } from "./unsubscribe-token";
+import { buildIdempotencyKey, hasSentStep, markSendSent, markSendFailed } from "./outbound-send-log";
+import { sendGmailEmail, isGmailOAuthConnected } from "./gmail-oauth";
+import type { SendChannel } from "./outbound-send-log";
 import type { VoiceBotMode } from "./sdr/voice-orchestrator";
 import type { AbTestConfig, AbTestResults } from "@shared/schema";
 
@@ -560,15 +563,87 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
 
             const emailBody = interpolate(bodyToSend) + getEmailSignatureHtml("sales") + complianceFooter;
 
-            // Cold outreach (bulk) sends prefer SMTP over the GHL Conversations API
-            // when SMTP is configured: GHL's /conversations/messages endpoint has no
-            // way to inject a List-Unsubscribe header, which real bulk senders need
-            // (Gmail/Yahoo require it, and it's best practice for CAN-SPAM bulk mail).
-            // Non-cold (transactional/relationship) sequences keep using GHL as before.
-            const useSmtpForThisStep =
-              isColdOutreachSequence(sequence) && isSmtpConfigured() && !!contact?.email;
+            // ── Per-channel pause gate (email) ────────────────────────────────
+            // Checked after global pause (already verified above) and contactability.
+            // emailChannelPaused = all email; coldEmailChannelPaused = cold only.
+            {
+              const emailPausedRaw = await storage.getSystemSetting("emailChannelPaused");
+              if (emailPausedRaw === true || emailPausedRaw === "true") {
+                await storage.createAuditLog({
+                  action: "sequence_step_skipped_channel_pause",
+                  entityType: "contact", entityId: enrollment.contactId ?? 0, actorType: "system",
+                  details: { enrollmentId: enrollment.id, sequenceId: sequence.id, channel: "email", reason: "emailChannelPaused" },
+                });
+                await storage.updateSequenceEnrollment(enrollment.id, { status: "paused" });
+                processed++; stepExecuted = false; break;
+              }
+              if (isColdOutreachSequence(sequence)) {
+                const coldPausedRaw = await storage.getSystemSetting("coldEmailChannelPaused");
+                if (coldPausedRaw === true || coldPausedRaw === "true") {
+                  await storage.createAuditLog({
+                    action: "sequence_step_skipped_channel_pause",
+                    entityType: "contact", entityId: enrollment.contactId ?? 0, actorType: "system",
+                    details: { enrollmentId: enrollment.id, sequenceId: sequence.id, channel: "cold_email", reason: "coldEmailChannelPaused" },
+                  });
+                  await storage.updateSequenceEnrollment(enrollment.id, { status: "paused" });
+                  processed++; stepExecuted = false; break;
+                }
+              }
+            }
 
-            if ((useSmtpForThisStep || isGhlConfigured()) && enrollment.contactId) {
+            // ── Idempotency gate (email) ──────────────────────────────────────
+            // seq-{enrollmentId}-s{stepOrder} is permanently unique per enrollment.
+            // If the step was already successfully sent (e.g. after a crash retry),
+            // skip the network call and advance enrollment normally.
+            const emailIdemKey = buildIdempotencyKey(enrollment.id, step.stepOrder ?? 0);
+            if (await hasSentStep(emailIdemKey)) {
+              console.warn(`[Sequence Worker] Email step already sent (idempotent skip): ${emailIdemKey}`);
+              stepExecuted = true;
+              break;
+            }
+
+            // ── Channel selection ─────────────────────────────────────────────
+            // Gmail OAuth  → staff/department (non-cold) when connected
+            // SMTP         → cold outreach when configured (needs List-Unsubscribe header)
+            // GHL          → cold outreach ONLY (Scott@mail.libertybancard.com)
+            //
+            // CRITICAL: Non-cold sequences MUST send via Gmail OAuth.
+            // If Gmail is unavailable, block the send — do NOT fall through to GHL.
+            // GHL sends from a cold-outreach domain; mixing department email through
+            // that domain silently sends from the wrong address and wrong brand.
+            const isColdEmail = isColdOutreachSequence(sequence);
+            const useGmailForThisStep = !isColdEmail && (await isGmailOAuthConnected()) && !!contact?.email;
+            const useSmtpForThisStep  = isColdEmail && isSmtpConfigured() && !!contact?.email;
+
+            // Gmail unavailable for non-cold sequence → BLOCK, do not fall through to GHL
+            if (!isColdEmail && !useGmailForThisStep) {
+              const gmailBlockReason = !process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET
+                ? "Gmail OAuth secrets (GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET) not configured"
+                : !process.env.CREDENTIAL_ENCRYPTION_KEY
+                ? "CREDENTIAL_ENCRYPTION_KEY not set — Gmail token cannot be decrypted"
+                : "Gmail OAuth not connected (complete OAuth flow at /dashboard/outbound-readiness)";
+              console.warn(`[Sequence Worker] Non-cold email blocked — Gmail unavailable for enrollment ${enrollment.id}: ${gmailBlockReason}`);
+              await storage.createAuditLog({
+                action: "sequence_step_blocked_gmail_unavailable",
+                entityType: "contact",
+                entityId: enrollment.contactId ?? 0,
+                actorType: "system",
+                details: {
+                  enrollmentId: enrollment.id,
+                  sequenceId: sequence.id,
+                  sequenceName: sequence.name,
+                  stepOrder: step.stepOrder,
+                  reason: gmailBlockReason,
+                  blockedAt: new Date().toISOString(),
+                },
+              });
+              await storage.updateSequenceEnrollment(enrollment.id, { status: "paused" });
+              processed++;
+              stepExecuted = false;
+              break;
+            }
+
+            if ((useGmailForThisStep || useSmtpForThisStep || isGhlConfigured()) && enrollment.contactId) {
               // ── Atomic cap reservation (cold outreach only) ───────────────────
               // Reserve a send slot via a single conditional upsert.  The WHERE
               // clause makes the increment a no-op when the cap is already reached,
@@ -632,7 +707,24 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
               }
 
               try {
-                if (useSmtpForThisStep && contact?.email) {
+                if (useGmailForThisStep && contact?.email) {
+                  // Gmail API: department/staff email via OAuth2 (non-cold sequences)
+                  const appUrlForToken = process.env.APP_URL;
+                  const token = generateUnsubscribeToken(enrollment.contactId);
+                  const unsubscribeUrl = appUrlForToken
+                    ? `${appUrlForToken}/unsubscribe?t=${encodeURIComponent(token)}`
+                    : undefined;
+                  const result = await sendGmailEmail({
+                    to: contact.email,
+                    subject: interpolate(subjectToSend),
+                    html: emailBody,
+                    category: "department_accounts",
+                    unsubscribeUrl,
+                  });
+                  if (!result.success) throw new Error(result.error || "Gmail send failed");
+                  await markSendSent({ idempotencyKey: emailIdemKey, providerMessageId: result.messageId, fromAddress: "gmail_oauth" });
+                } else if (useSmtpForThisStep && contact?.email) {
+                  // SMTP: cold outreach with List-Unsubscribe header
                   const appUrlForToken = process.env.APP_URL;
                   const token = generateUnsubscribeToken(enrollment.contactId);
                   const unsubscribeUrl = appUrlForToken
@@ -646,22 +738,25 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
                     unsubscribeUrl,
                     unsubscribeMailto: "Scott@mail.libertybancard.com",
                   });
-                  if (!result.success) {
-                    throw new Error(result.error || "SMTP send failed");
-                  }
+                  if (!result.success) throw new Error(result.error || "SMTP send failed");
+                  await markSendSent({ idempotencyKey: emailIdemKey, providerMessageId: result.messageId, fromAddress: "Scott@mail.libertybancard.com" });
                 } else {
-                  const seqIsCold = isColdOutreachSequence(sequence);
-                  await sendGhlEmail({
+                  // GHL: cold outreach from Scott@mail.libertybancard.com
+                  const fromEmail = isColdEmail ? "Scott@mail.libertybancard.com" : "accounts@libertybancard.com";
+                  const fromName  = isColdEmail ? "Scott Stevenson" : "Liberty Bancard Accounts";
+                  const ghlResult = await sendGhlEmail({
                     contactId: enrollment.contactId,
                     subject: interpolate(subjectToSend),
                     body: emailBody,
-                    fromEmail: seqIsCold ? "Scott@mail.libertybancard.com" : "accounts@libertybancard.com",
-                    fromName: seqIsCold ? "Scott Stevenson" : "Liberty Bancard Accounts",
-                  });
+                    fromEmail,
+                    fromName,
+                  }) as any;
+                  await markSendSent({ idempotencyKey: emailIdemKey, providerMessageId: ghlResult?.messageId, fromAddress: fromEmail });
                 }
                 stepExecuted = true;
               } catch (emailErr) {
                 console.error(`Sequence email failed for enrollment ${enrollment.id}:`, emailErr);
+                await markSendFailed({ idempotencyKey: emailIdemKey, failureReason: emailErr instanceof Error ? emailErr.message : String(emailErr) });
                 // Decrement cap reservation if send failed
                 if (coldCapReserved) {
                   try {
@@ -760,15 +855,39 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
               if (chosenVariant === "B") bodyToSend = step.variantBBody ?? step.body;
             }
 
+            // ── Per-channel pause gate (SMS) ──────────────────────────────────
+            {
+              const smsPausedRaw = await storage.getSystemSetting("smsChannelPaused");
+              if (smsPausedRaw === true || smsPausedRaw === "true") {
+                await storage.createAuditLog({
+                  action: "sequence_step_skipped_channel_pause",
+                  entityType: "contact", entityId: enrollment.contactId ?? 0, actorType: "system",
+                  details: { enrollmentId: enrollment.id, sequenceId: sequence.id, channel: "sms", reason: "smsChannelPaused" },
+                });
+                await storage.updateSequenceEnrollment(enrollment.id, { status: "paused" });
+                processed++; stepExecuted = false; break;
+              }
+            }
+
+            // ── Idempotency gate (SMS) ────────────────────────────────────────
+            const smsIdemKey = buildIdempotencyKey(enrollment.id, step.stepOrder ?? 0);
+            if (await hasSentStep(smsIdemKey)) {
+              console.warn(`[Sequence Worker] SMS step already sent (idempotent skip): ${smsIdemKey}`);
+              stepExecuted = true;
+              break;
+            }
+
             if (isGhlConfigured() && enrollment.contactId) {
               try {
-                await sendGhlSms({
+                const ghlSmsResult = await sendGhlSms({
                   contactId: enrollment.contactId,
                   body: interpolate(bodyToSend),
-                });
+                }) as any;
+                await markSendSent({ idempotencyKey: smsIdemKey, providerMessageId: ghlSmsResult?.messageId, fromAddress: "ghl_sms" });
                 stepExecuted = true;
               } catch (smsErr) {
                 console.error(`Sequence SMS failed for enrollment ${enrollment.id}:`, smsErr);
+                await markSendFailed({ idempotencyKey: smsIdemKey, failureReason: smsErr instanceof Error ? smsErr.message : String(smsErr) });
               }
             }
 

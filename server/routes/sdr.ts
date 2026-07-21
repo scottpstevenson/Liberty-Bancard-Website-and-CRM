@@ -629,6 +629,66 @@ export function registerSdrRoutes(app: Express) {
     return JSON.stringify(req.body);
   }
 
+  // ── Webhook signature + replay verification middleware ─────────────────────
+  // Runs BEFORE the dedup middleware so invalid/replayed events are rejected
+  // without being recorded in webhook_event_log (which would permanently block
+  // legitimate replays of the same payload sent later with a fresh timestamp).
+  //
+  // Signing method: HMAC-SHA256 (current HighLevel standard for webhook
+  // subscriptions).  GHL does not publish an Ed25519 public key for outgoing
+  // webhook signing; that is a separate mechanism for in-app action payloads.
+  //
+  // Replay protection: checks dateAdded/createdAt/timestamp from payload JSON
+  // and the x-ghl-timestamp header; rejects events > 5 minutes old.
+  // When no timestamp is present the event passes (dedup covers GHL retries).
+  app.use("/api/webhooks/ghl/", (req, res, next) => {
+    const rawBody  = getSdrWebhookRawBody(req);
+    const signature = (req.headers["x-ghl-signature"] as string) || "";
+    const { validateWebhookRequest } = require("../services/sdr/ghl-client") as typeof import("../services/sdr/ghl-client");
+    const result = validateWebhookRequest(rawBody, signature, req.headers as Record<string, string | string[] | undefined>);
+    if (!result.valid) {
+      if (result.replayRejected) {
+        console.warn(`[SDR Webhook] Replay rejected — ${result.error}`);
+        return res.status(401).json({ received: false, error: "Webhook replay rejected", detail: result.error });
+      }
+      if (process.env.GHL_WEBHOOK_SECRET) {
+        console.warn(`[SDR Webhook] Signature verification failed — ${result.error}`);
+        return res.status(401).json({ received: false, error: "Invalid webhook signature" });
+      }
+    }
+    next();
+  });
+
+  // ── Webhook idempotency middleware ─────────────────────────────────────────
+  // GHL retries failed webhook deliveries with an identical payload.
+  // We deduplicate by computing SHA-256(eventType + rawBody) and inserting into
+  // webhook_event_log with a UNIQUE constraint on event_id.  Duplicate deliveries
+  // get a 200 immediately; new events proceed to the handler.
+  app.use("/api/webhooks/ghl/", async (req, res, next) => {
+    const rawBody  = getSdrWebhookRawBody(req);
+    const eventType = req.path.replace(/^\//, "").replace(/\//g, "-") || "unknown";
+    let eventId = "";
+    try {
+      const { createHash } = await import("node:crypto");
+      eventId = createHash("sha256").update(`${eventType}:${rawBody}`).digest("hex").slice(0, 64);
+      const { db: whlDb } = await import("../db");
+      const { sql: whlSql } = await import("drizzle-orm");
+      const result = await whlDb.execute(whlSql`
+        INSERT INTO webhook_event_log (event_id, event_type, source, processed_at)
+        VALUES (${eventId}, ${eventType}, 'ghl', NOW())
+        ON CONFLICT (event_id) DO NOTHING
+        RETURNING id
+      `);
+      if (result.rows.length === 0) {
+        console.log(`[SDR Webhook] Duplicate event (${eventType}): ${eventId.slice(0, 16)}…`);
+        return res.json({ received: true, duplicate: true });
+      }
+    } catch (dedupeErr) {
+      console.warn("[SDR Webhook] Dedup check failed (non-fatal):", dedupeErr);
+    }
+    next();
+  });
+
   app.post("/api/webhooks/ghl/contact-updated", async (req, res) => {
     try {
       const signature = req.headers["x-ghl-signature"] as string || "";

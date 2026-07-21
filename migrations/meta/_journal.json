@@ -561,6 +561,20 @@
       "when": 1786800000000,
       "tag": "0075_admin_password_reset",
       "breakpoints": false
+    },
+    {
+      "idx": 80,
+      "version": "7",
+      "when": 1786900000000,
+      "tag": "0076_outbound_launch_foundation",
+      "breakpoints": false
+    },
+    {
+      "idx": 81,
+      "version": "7",
+      "when": 1787000000000,
+      "tag": "0077_outbound_attestations",
+      "breakpoints": false
     }
   ]
 }

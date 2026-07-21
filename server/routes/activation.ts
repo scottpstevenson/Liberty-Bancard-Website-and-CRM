@@ -1416,13 +1416,24 @@ export function registerActivationRoutes(app: Express) {
   // Returns booleans and counts only — no secrets, no env values.
   app.get("/api/system/outbound-settings", requireRole("admin", "manager"), async (_req, res) => {
     try {
-      const pausedRaw = await storage.getSystemSetting("outboundGlobalPaused");
-      const pausedReasonRaw = await storage.getSystemSetting("outboundGlobalPausedReason");
-      const capRaw = await storage.getSystemSetting("outboundDailyEmailCap");
+      const [
+        pausedRaw, pausedReasonRaw, capRaw,
+        emailChannelPausedRaw, smsChannelPausedRaw, coldEmailChannelPausedRaw,
+      ] = await Promise.all([
+        storage.getSystemSetting("outboundGlobalPaused"),
+        storage.getSystemSetting("outboundGlobalPausedReason"),
+        storage.getSystemSetting("outboundDailyEmailCap"),
+        storage.getSystemSetting("emailChannelPaused"),
+        storage.getSystemSetting("smsChannelPaused"),
+        storage.getSystemSetting("coldEmailChannelPaused"),
+      ]);
 
       const outboundGlobalPaused = pausedRaw === true || pausedRaw === "true";
       const outboundGlobalPausedReason = typeof pausedReasonRaw === "string" ? pausedReasonRaw : null;
       const outboundDailyEmailCap = typeof capRaw === "number" ? capRaw : parseInt(String(capRaw ?? "200"), 10) || 200;
+      const emailChannelPaused    = emailChannelPausedRaw === true    || emailChannelPausedRaw === "true";
+      const smsChannelPaused      = smsChannelPausedRaw === true      || smsChannelPausedRaw === "true";
+      const coldEmailChannelPaused = coldEmailChannelPausedRaw === true || coldEmailChannelPausedRaw === "true";
 
       const todayStr = new Date().toISOString().slice(0, 10);
       const [capRow] = await db
@@ -1442,6 +1453,9 @@ export function registerActivationRoutes(app: Express) {
         outboundDailyEmailCap,
         coldEmailSendsToday,
         coldEmailRemainingToday,
+        emailChannelPaused,
+        smsChannelPaused,
+        coldEmailChannelPaused,
       });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -1451,17 +1465,29 @@ export function registerActivationRoutes(app: Express) {
   // PATCH /api/system/outbound-settings — admin only: toggle pause and/or set cap
   app.patch("/api/system/outbound-settings", requireRole("admin"), async (req, res) => {
     try {
-      const { outboundGlobalPaused, outboundGlobalPausedReason, outboundDailyEmailCap } = req.body ?? {};
+      const {
+        outboundGlobalPaused,
+        outboundGlobalPausedReason,
+        outboundDailyEmailCap,
+        emailChannelPaused,
+        smsChannelPaused,
+        coldEmailChannelPaused,
+      } = req.body ?? {};
 
-      if (typeof outboundGlobalPaused === "boolean") {
-        await storage.setSystemSetting("outboundGlobalPaused", outboundGlobalPaused);
-      }
-      if (typeof outboundGlobalPausedReason === "string" || outboundGlobalPausedReason === null) {
-        await storage.setSystemSetting("outboundGlobalPausedReason", outboundGlobalPausedReason ?? null);
-      }
-      if (typeof outboundDailyEmailCap === "number" && outboundDailyEmailCap > 0) {
-        await storage.setSystemSetting("outboundDailyEmailCap", outboundDailyEmailCap);
-      }
+      const saves: Promise<void>[] = [];
+      if (typeof outboundGlobalPaused === "boolean")
+        saves.push(storage.setSystemSetting("outboundGlobalPaused", outboundGlobalPaused));
+      if (typeof outboundGlobalPausedReason === "string" || outboundGlobalPausedReason === null)
+        saves.push(storage.setSystemSetting("outboundGlobalPausedReason", outboundGlobalPausedReason ?? null));
+      if (typeof outboundDailyEmailCap === "number" && outboundDailyEmailCap > 0)
+        saves.push(storage.setSystemSetting("outboundDailyEmailCap", outboundDailyEmailCap));
+      if (typeof emailChannelPaused === "boolean")
+        saves.push(storage.setSystemSetting("emailChannelPaused", emailChannelPaused));
+      if (typeof smsChannelPaused === "boolean")
+        saves.push(storage.setSystemSetting("smsChannelPaused", smsChannelPaused));
+      if (typeof coldEmailChannelPaused === "boolean")
+        saves.push(storage.setSystemSetting("coldEmailChannelPaused", coldEmailChannelPaused));
+      await Promise.all(saves);
 
       const actorEmail = (req.user as any)?.email ?? null;
       await storage.createAuditLog({
@@ -1472,7 +1498,10 @@ export function registerActivationRoutes(app: Express) {
         actorId: (req.user as any)?.id ?? null,
         details: {
           actorEmail,
-          changes: { outboundGlobalPaused, outboundGlobalPausedReason, outboundDailyEmailCap },
+          changes: {
+            outboundGlobalPaused, outboundGlobalPausedReason, outboundDailyEmailCap,
+            emailChannelPaused, smsChannelPaused, coldEmailChannelPaused,
+          },
         },
       });
 

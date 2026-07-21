@@ -546,6 +546,69 @@ function checkGhlWorkflowEnvs(): CheckResult[] {
   });
 }
 
+// ── 3a. GMAIL OAUTH ───────────────────────────────────────────────────────────
+
+async function checkGmailOAuth(): Promise<CheckResult[]> {
+  const results: CheckResult[] = [];
+  const clientId     = process.env.GOOGLE_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  const secretsPresent = !!(clientId && clientSecret);
+
+  results.push({
+    key: "GOOGLE_CLIENT_ID", category: "EMAIL" as const,
+    label: "Gmail OAuth — GOOGLE_CLIENT_ID",
+    present: !!clientId, formatValid: clientId ? clientId.trim().length > 10 : null,
+    liveStatus: clientId ? "unverified" as const : "skipped" as const,
+    identity: clientId ? `…${clientId.slice(-8)}` : null,
+    diagnosisHint: !clientId ? "Not set — Gmail OAuth unavailable; cold email falls back to GHL, department email falls back to GHL" : null,
+    ownerAction: !clientId ? "Create OAuth 2.0 credentials in Google Cloud Console → APIs & Services → Credentials" : null,
+    lastTestedAt: ts(), importance: "optional" as const, featureName: "Gmail OAuth (staff/department email)",
+  });
+
+  results.push({
+    key: "GOOGLE_CLIENT_SECRET", category: "EMAIL" as const,
+    label: "Gmail OAuth — GOOGLE_CLIENT_SECRET",
+    present: !!clientSecret, formatValid: clientSecret ? clientSecret.trim().length > 10 : null,
+    liveStatus: clientSecret ? "unverified" as const : "skipped" as const,
+    identity: null,
+    diagnosisHint: !clientSecret ? "Not set — Gmail OAuth unavailable" : null,
+    ownerAction: !clientSecret ? "Add GOOGLE_CLIENT_SECRET to Replit Secrets" : null,
+    lastTestedAt: ts(), importance: "optional" as const, featureName: "Gmail OAuth (staff/department email)",
+  });
+
+  if (secretsPresent) {
+    try {
+      const { getGmailOAuthStatus } = await import("./gmail-oauth");
+      const status = await getGmailOAuthStatus();
+      results.push({
+        key: "GMAIL_OAUTH_CONNECTED", category: "EMAIL" as const,
+        label: "Gmail OAuth — Token Connected",
+        present: status.connected, formatValid: status.connected ? true : null,
+        liveStatus: status.connected ? "pass" as const : "fail" as const,
+        identity: status.connected ? (status.email || "connected") : null,
+        diagnosisHint: !status.connected ? "OAuth refresh token not stored — complete the flow at /dashboard/outbound-readiness" : null,
+        ownerAction: !status.connected ? "Visit /dashboard/outbound-readiness → click 'Connect Gmail'" : null,
+        lastTestedAt: ts(), importance: "optional" as const, featureName: "Gmail OAuth token storage",
+      });
+      if (status.connected && status.aliases.length > 0) {
+        results.push({
+          key: "GMAIL_SEND_AS_ALIASES", category: "EMAIL" as const,
+          label: "Gmail Send-As Aliases",
+          present: true, formatValid: true,
+          liveStatus: "pass" as const,
+          identity: status.aliases.slice(0, 3).join(", "),
+          diagnosisHint: null, ownerAction: null,
+          lastTestedAt: ts(), importance: "optional" as const, featureName: "Gmail verified send-as addresses",
+        });
+      }
+    } catch (_statusErr) {
+      // Non-fatal — secrets present but couldn't query DB
+    }
+  }
+
+  return results;
+}
+
 // ── 3. EMAIL ──────────────────────────────────────────────────────────────────
 
 async function checkSmtp(): Promise<CheckResult[]> {
@@ -850,11 +913,11 @@ export async function runFullValidation(forceRefresh = false): Promise<Validatio
   const [
     dbResult, redisResult, bullmqResult,
     ghlTokenResults, ghlCapResults,
-    smtpResults, serperResult, slackResult, backupResult,
+    gmailResults, smtpResults, serperResult, slackResult, backupResult,
   ] = await Promise.all([
     checkDatabase(), checkRedis(), checkBullmqIncidents(),
     checkGhlToken(), checkGhlCapabilities(),
-    checkSmtp(), checkSerper(), checkSlack(), checkBackups(),
+    checkGmailOAuth(), checkSmtp(), checkSerper(), checkSlack(), checkBackups(),
   ]);
 
   const checks: CheckResult[] = [
@@ -866,6 +929,7 @@ export async function runFullValidation(forceRefresh = false): Promise<Validatio
     ...ghlTokenResults,
     ...ghlCapResults,
     ...checkGhlWorkflowEnvs(),
+    ...gmailResults,
     ...smtpResults,
     serperResult,
     makeOptionalCheck("OUTSCRAPER_API_KEY", "Outscraper", "ENRICHMENT", "optional", "Google Maps bulk scraping"),
