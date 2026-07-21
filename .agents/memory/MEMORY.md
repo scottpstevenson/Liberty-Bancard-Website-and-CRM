@@ -57,3 +57,6 @@
 - [Partial index scope for zero-migration uniqueness](partial-index-new-rows-only.md) — scope a new UNIQUE index to `new_discriminator_col IS NOT NULL` (added in a prior migration) to avoid deduping existing rows; pre-existing rows are excluded, so index builds instantly.
 - [Intake Provenance System](intake-provenance.md) — writeContact() canonical writer; import_executions + contact_source_events; A→B→C DEFERRABLE transaction; all 9 public forms + manual CRM + GHL sync + CSV + Sunbiz wired.
 - [System Audit Engine](system-audit-engine.md) — weekly BullMQ job probes 7 subsystems, generates GPT narrative, delivers Slack; admin UI at /dashboard/system-audit.
+- [BullMQ infra requirements](bullmq-infra-requirements.md) — maxRetriesPerRequest:null + lockDuration:120000 are critical; missing either causes silent job stall or lock-renewal failures.
+- [Merchant portal access gaps](merchant-portal-access-gaps.md) — ProtectedRoute must redirect merchant→/dashboard/merchant-portal; onboarding-steps and checklist routes must use isAuthenticated+ownership, not isDashboardUser.
+- [GHL fetch timeout](ghl-fetch-timeout.md) — AbortController per fetch attempt (20 s default); clearTimeout in both success and catch; AbortError is retryable.

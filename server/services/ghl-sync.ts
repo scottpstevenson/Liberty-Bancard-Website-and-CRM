@@ -860,7 +860,7 @@ export async function syncDealFromGhl(ghlOpportunity: any): Promise<{ dealId: nu
   }
 }
 
-export async function syncCompanyToGhl(companyId: number): Promise<{ success: boolean; error?: string }> {
+export async function syncCompanyToGhl(companyId: number): Promise<{ success: boolean; skip?: boolean; error?: string }> {
   try {
     if (!isGhlConfigured()) return { success: false, error: "GHL not configured" };
     const config = getConfig();
@@ -886,6 +886,13 @@ export async function syncCompanyToGhl(companyId: number): Promise<{ success: bo
     console.log(`[GHL Sync] Company ${companyId} (${company.legalName}) synced to GHL`);
     return { success: true };
   } catch (err: any) {
+    // 404 = GHL companies API not available at this integration tier — skip
+    // silently rather than counting toward the circuit-breaker threshold.
+    const is404 = err.message?.includes("404");
+    if (is404) {
+      console.warn(`[GHL Sync] Company ${companyId} sync skipped (GHL companies API unavailable)`);
+      return { success: false, skip: true, error: err.message };
+    }
     console.error(`[GHL Sync] Failed to sync company ${companyId}:`, err.message);
     await updateSyncStatusRecord("companies", "outbound", 0, 1, err.message);
     return { success: false, error: err.message };
@@ -1704,6 +1711,11 @@ export async function runGhlFullSyncTick(): Promise<void> {
         if (result.success) {
           consecutiveGhlFailures = 0;
           companiesSynced++;
+          syncedCompanyIds.add(company.id);
+        } else if (result.skip) {
+          // Known API limitation (e.g. 404 on GHL companies endpoint) — don't
+          // count toward circuit-breaker threshold; mark as synced so we stop
+          // retrying on every tick.
           syncedCompanyIds.add(company.id);
         } else {
           consecutiveGhlFailures++;

@@ -269,6 +269,12 @@ function ProtectedRoute({ component: Component, allowedRoles }: { component: Rea
     return <Redirect to="/partner-portal" />;
   }
 
+  // Merchants only have access to the merchant portal — redirect them there
+  // whenever they land on the generic dashboard root or any CRM-only page.
+  if ((user as any).role === "merchant" && location !== "/dashboard/merchant-portal") {
+    return <Redirect to="/dashboard/merchant-portal" />;
+  }
+
   if (user.role === "agent" && location === "/dashboard") return null;
 
   if (allowedRoles && !allowedRoles.includes(user.role as string)) {

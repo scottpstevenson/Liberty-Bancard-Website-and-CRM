@@ -26,6 +26,11 @@ function getConfig(): GhlConfig | null {
   };
 }
 
+// Per-request timeout for all GHL API calls. Without this, a hung TCP
+// connection from a stale keep-alive socket can block a BullMQ worker
+// indefinitely — exhausting the lock duration and causing "could not renew lock".
+const GHL_REQUEST_TIMEOUT_MS = parseInt(process.env.GHL_REQUEST_TIMEOUT_MS ?? "20000", 10);
+
 async function ghlFetch(path: string, options: RequestInit = {}, retries = 3): Promise<any> {
   const config = getConfig();
   if (!config) throw new Error("GHL not configured. Set GHL_API_KEY and GHL_LOCATION_ID.");
@@ -39,8 +44,13 @@ async function ghlFetch(path: string, options: RequestInit = {}, retries = 3): P
   };
 
   for (let attempt = 0; attempt < retries; attempt++) {
+    // Fresh AbortController per attempt so a previous timeout signal doesn't
+    // leak into the next retry.
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), GHL_REQUEST_TIMEOUT_MS);
     try {
-      const response = await fetch(url, { ...options, headers });
+      const response = await fetch(url, { ...options, headers, signal: controller.signal });
+      clearTimeout(timeoutId);
 
       if (response.status === 429) {
         const retryAfter = parseInt(response.headers.get("retry-after") || "5", 10);
@@ -70,12 +80,16 @@ async function ghlFetch(path: string, options: RequestInit = {}, retries = 3): P
       const text = await response.text();
       return text ? JSON.parse(text) : {};
     } catch (err: unknown) {
+      clearTimeout(timeoutId);
       if (attempt === retries - 1) throw err;
       const errMsg = err instanceof Error ? err.message : String(err);
-      const isRetryable = errMsg.includes("429") || errMsg.includes("ECONNRESET") || errMsg.includes("ETIMEDOUT") || errMsg.includes("fetch failed");
+      // AbortError = our own 20 s timeout fired; treat like any other transient error.
+      const isAbort = err instanceof Error && err.name === "AbortError";
+      const isRetryable = isAbort || errMsg.includes("429") || errMsg.includes("ECONNRESET") || errMsg.includes("ETIMEDOUT") || errMsg.includes("fetch failed");
       if (isRetryable) {
         const backoffMs = Math.min(1000 * Math.pow(2, attempt) + Math.random() * 500, 15000);
-        console.warn(`[GHL] Transient error, retrying in ${Math.round(backoffMs)}ms (attempt ${attempt + 1}/${retries}): ${errMsg.substring(0, 100)}`);
+        const reason = isAbort ? `timeout (${GHL_REQUEST_TIMEOUT_MS}ms)` : errMsg.substring(0, 100);
+        console.warn(`[GHL] Transient error, retrying in ${Math.round(backoffMs)}ms (attempt ${attempt + 1}/${retries}): ${reason}`);
         await new Promise(resolve => setTimeout(resolve, backoffMs));
         continue;
       }

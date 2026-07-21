@@ -21,6 +21,7 @@ import { featureFlags } from "./services/feature-flags";
 import { runDrizzleMigrations } from "./db-migrate";
 import { hydrateWorkflowEnvFromDb } from "./services/ghl-workflows";
 import { validateEnv } from "./lib/validate-env";
+import { storage } from "./storage";
 
 // Validate required environment variables before anything else starts.
 validateEnv();

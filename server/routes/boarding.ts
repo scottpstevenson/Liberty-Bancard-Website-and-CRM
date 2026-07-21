@@ -725,10 +725,20 @@ export function registerBoardingRoutes(app: Express) {
 
   // ── Onboarding Checklist Routes ───────────────────────────────────────────
 
-  app.get("/api/deals/:id/onboarding-checklist", isDashboardUser, async (req, res) => {
+  app.get("/api/deals/:id/onboarding-checklist", isAuthenticated, async (req, res) => {
     try {
       const dealId = Number(req.params.id);
       if (isNaN(dealId)) return res.status(400).json({ message: "Invalid deal ID" });
+      const user = req.user as any;
+      // Merchants may only read the checklist for their own deal.
+      if (user.role === "merchant") {
+        const profile = await storage.getMerchantProfileByUser(user.id);
+        if (!profile || profile.dealId !== dealId) {
+          return res.status(403).json({ message: "Forbidden" });
+        }
+      } else if (user.role !== "admin" && user.role !== "manager" && user.role !== "agent") {
+        return res.status(403).json({ message: "Forbidden" });
+      }
       const items = await storage.getOnboardingChecklistItems(dealId);
       res.json(items);
     } catch (err: any) {

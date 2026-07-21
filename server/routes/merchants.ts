@@ -1469,9 +1469,20 @@ export function registerMerchantsRoutes(app: Express) {
 
 
   // === ONBOARDING STEPS ===
-  app.get("/api/onboarding-steps/deal/:dealId", isDashboardUser, async (req, res) => {
+  app.get("/api/onboarding-steps/deal/:dealId", isAuthenticated, async (req, res) => {
     try {
-      const steps = await storage.getOnboardingStepsByDeal(Number(req.params.dealId));
+      const dealId = Number(req.params.dealId);
+      const user = req.user as any;
+      // Merchants may only read onboarding steps for their own deal.
+      if (user.role === "merchant") {
+        const profile = await storage.getMerchantProfileByUser(user.id);
+        if (!profile || profile.dealId !== dealId) {
+          return res.status(403).json({ message: "Forbidden" });
+        }
+      } else if (user.role !== "admin" && user.role !== "manager" && user.role !== "agent") {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      const steps = await storage.getOnboardingStepsByDeal(dealId);
       res.json(steps);
     } catch (err: any) {
       res.status(500).json({ message: err.message });

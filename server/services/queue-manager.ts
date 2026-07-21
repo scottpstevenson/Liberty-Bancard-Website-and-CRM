@@ -299,6 +299,17 @@ class QueueManager {
       const worker = new Worker(config.name, processor, {
         connection: this.connection,
         concurrency: config.concurrency,
+        // Give each job 2 minutes to complete before BullMQ considers the lock
+        // expired. The previous default of 30 s was too short for Serper/GHL
+        // network calls and AI scoring jobs, causing "could not renew lock".
+        lockDuration: 120_000,
+        // Check for stalled jobs every 30 s (job grabbed by worker but lock
+        // renewal stopped — e.g. worker process crashed).
+        stalledInterval: 30_000,
+        // Allow a job to be recovered from stalled state up to 2 times before
+        // marking it failed. Prevents infinite stall loops on a consistently
+        // slow job while still tolerating a single transient network hiccup.
+        maxStalledCount: 2,
       });
 
       worker.on("completed", (job: Job) => {

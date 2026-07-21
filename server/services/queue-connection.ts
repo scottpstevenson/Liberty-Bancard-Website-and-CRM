@@ -30,6 +30,35 @@ export async function getRedisConnection(): Promise<ConnectionOptions> {
     password: url.password || undefined,
     username: url.username || undefined,
     tls: forceTls ? {} : undefined,
+
+    // ── BullMQ REQUIRED settings ──────────────────────────────────────────
+    // BullMQ's ioredis clients MUST have maxRetriesPerRequest=null. Without it,
+    // ioredis throws after a fixed number of retries on a single command, causing
+    // BullMQ's lock-renewal commands to throw instead of waiting for reconnect —
+    // which manifests as "could not renew lock" / "Missing lock" errors.
+    maxRetriesPerRequest: null,
+    // BullMQ calls WAIT/LISTEN, which trigger the ready-check timeout in some
+    // Redis providers. Disabling avoids false "ready check failed" disconnects.
+    enableReadyCheck: false,
+
+    // ── Connection stability settings ─────────────────────────────────────
+    // Send TCP keepalive probes so the OS doesn't silently drop idle
+    // connections (root cause of ECONNRESET on lock renewal commands).
+    keepAlive: 30_000,
+    // Re-connect automatically on ECONNRESET / ETIMEDOUT.
+    reconnectOnError: (err: Error) => {
+      const msg = err.message.toLowerCase();
+      return msg.includes("econnreset") || msg.includes("etimedout") || msg.includes("econnrefused");
+    },
+    // How long to wait between reconnect attempts (capped at 5 s).
+    retryStrategy: (times: number) => Math.min(times * 500, 5000),
+    // Queue commands during brief disconnects so in-flight BullMQ operations
+    // survive transient Redis blips without needing a full job re-queue.
+    enableOfflineQueue: true,
+    // Give up waiting for a command after 10 s when offline queue is disabled
+    // for non-BullMQ callers (probe below).
+    connectTimeout: 10_000,
+    lazyConnect: true,
   };
 
   // Smoke-test the connection before handing it to BullMQ.
