@@ -275,7 +275,7 @@ export default function OutboundReadiness() {
             note={coldProbe ? `${coldProbe.detectedDomain ?? "(via attestation)"} — ${coldProbe.method}` : undefined} />
           <GateRow label="SMS number + A2P 10DLC attested" ok={smsOk} loading={smsProbeLoading}
             note={smsProbe ? (smsProbe.smsSendingNumber ?? (smsProbe.numberAttestation ? "via attestation" : "not verified")) : undefined} />
-          <GateRow label="GHL webhook secret set" ok={null} note="GHL_WEBHOOK_SECRET — HMAC-SHA256 + replay protection" />
+          <GateRow label="GHL webhook signing configured" ok={null} note="GHL_WEBHOOK_SIGNATURE_PUBLIC_KEY (Ed25519, current) or GHL_WEBHOOK_SECRET (HMAC-SHA256, legacy fallback)" />
           <GateRow label="Compliance mailing address" ok={null} note="compliance_mailing_address system setting" />
           <GateRow label="Unsubscribe token secret" ok={null} note="UNSUBSCRIBE_TOKEN_SECRET env var" />
           <GateRow label="Daily email cap configured" ok={(settings?.outboundDailyEmailCap ?? 0) > 0}
@@ -296,16 +296,16 @@ export default function OutboundReadiness() {
               <div className="flex items-center gap-2 py-4 text-muted-foreground text-sm"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</div>
             ) : (
               <>
-                <ChannelToggle label="All Email" description="Block every email send (cold + department + Gmail)"
-                  checked={settings?.emailChannelPaused ?? false}
+                <ChannelToggle label="All Email" description="Block every email send (cold + department + Gmail) — defaults paused until explicitly released"
+                  checked={settings?.emailChannelPaused ?? true}
                   onChange={(v) => channelMutation.mutate({ emailChannelPaused: v })} disabled={isChanging} />
                 <Separator />
-                <ChannelToggle label="Cold Email Only" description="Block cold outreach (GHL / SMTP from Scott@mail.libertybancard.com)"
-                  checked={settings?.coldEmailChannelPaused ?? false}
+                <ChannelToggle label="Cold Email Only" description="Block cold outreach (GHL / SMTP from Scott@mail.libertybancard.com) — defaults paused"
+                  checked={settings?.coldEmailChannelPaused ?? true}
                   onChange={(v) => channelMutation.mutate({ coldEmailChannelPaused: v })} disabled={isChanging} />
                 <Separator />
-                <ChannelToggle label="SMS" description="Block all GHL SMS sends from sequence steps"
-                  checked={settings?.smsChannelPaused ?? false}
+                <ChannelToggle label="SMS" description="Block all GHL SMS sends from sequence steps — defaults paused until explicitly released"
+                  checked={settings?.smsChannelPaused ?? true}
                   onChange={(v) => channelMutation.mutate({ smsChannelPaused: v })} disabled={isChanging} />
                 <Separator />
                 <div className="pt-2 flex items-center justify-between text-xs text-muted-foreground">
@@ -608,15 +608,15 @@ export default function OutboundReadiness() {
                 </div>
                 <div className="rounded-md border p-3 text-center">
                   <p className="text-xs text-muted-foreground mb-1">Webhook signing</p>
-                  <code className="text-xs font-mono text-blue-700 bg-blue-50 px-2 py-1 rounded">HMAC-SHA256</code>
+                  <code className="text-xs font-mono text-blue-700 bg-blue-50 px-2 py-1 rounded">Ed25519 (primary) / HMAC-SHA256 (legacy)</code>
                 </div>
               </div>
               <div className="text-xs text-muted-foreground space-y-1">
                 <p className="flex items-start gap-1"><CheckCircle2 className="h-3 w-3 text-green-500 mt-0.5 shrink-0" /> Step already sent → skip re-send, advance enrollment</p>
                 <p className="flex items-start gap-1"><CheckCircle2 className="h-3 w-3 text-green-500 mt-0.5 shrink-0" /> GHL retries same payload → 200 immediately (dedup by SHA-256 hash)</p>
-                <p className="flex items-start gap-1"><CheckCircle2 className="h-3 w-3 text-green-500 mt-0.5 shrink-0" /> Webhook signature verified before dedup: HMAC-SHA256(body)</p>
+                <p className="flex items-start gap-1"><CheckCircle2 className="h-3 w-3 text-green-500 mt-0.5 shrink-0" /> Webhook verified before dedup: Ed25519 public-key (current) or HMAC-SHA256 (legacy fallback)</p>
                 <p className="flex items-start gap-1"><CheckCircle2 className="h-3 w-3 text-green-500 mt-0.5 shrink-0" /> Replay protection: events &gt; 5 min old rejected (dateAdded / x-ghl-timestamp)</p>
-                <p className="flex items-start gap-1"><CheckCircle2 className="h-3 w-3 text-green-500 mt-0.5 shrink-0" /> Signing note: GHL uses HMAC-SHA256 for webhook subscriptions (not Ed25519)</p>
+                <p className="flex items-start gap-1"><CheckCircle2 className="h-3 w-3 text-green-500 mt-0.5 shrink-0" /> Set <code className="font-mono">GHL_WEBHOOK_SIGNATURE_PUBLIC_KEY</code> (Ed25519 PEM from GHL Marketplace portal) for current standard</p>
               </div>
               <Separator />
               <div className="text-xs text-muted-foreground">

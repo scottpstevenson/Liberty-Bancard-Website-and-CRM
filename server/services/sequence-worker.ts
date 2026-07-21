@@ -566,9 +566,12 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
             // ── Per-channel pause gate (email) ────────────────────────────────
             // Checked after global pause (already verified above) and contactability.
             // emailChannelPaused = all email; coldEmailChannelPaused = cold only.
+            // FAIL-CLOSED: null/undefined (unset) → paused. Only explicit "false"
+            // (string or boolean) releases the channel.
             {
               const emailPausedRaw = await storage.getSystemSetting("emailChannelPaused");
-              if (emailPausedRaw === true || emailPausedRaw === "true") {
+              const emailPaused = emailPausedRaw !== "false" && emailPausedRaw !== false;
+              if (emailPaused) {
                 await storage.createAuditLog({
                   action: "sequence_step_skipped_channel_pause",
                   entityType: "contact", entityId: enrollment.contactId ?? 0, actorType: "system",
@@ -579,7 +582,8 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
               }
               if (isColdOutreachSequence(sequence)) {
                 const coldPausedRaw = await storage.getSystemSetting("coldEmailChannelPaused");
-                if (coldPausedRaw === true || coldPausedRaw === "true") {
+                const coldPaused = coldPausedRaw !== "false" && coldPausedRaw !== false;
+                if (coldPaused) {
                   await storage.createAuditLog({
                     action: "sequence_step_skipped_channel_pause",
                     entityType: "contact", entityId: enrollment.contactId ?? 0, actorType: "system",
@@ -856,9 +860,12 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
             }
 
             // ── Per-channel pause gate (SMS) ──────────────────────────────────
+            // FAIL-CLOSED: null/undefined (unset) → paused. Only explicit "false"
+            // (string or boolean) releases the SMS channel.
             {
               const smsPausedRaw = await storage.getSystemSetting("smsChannelPaused");
-              if (smsPausedRaw === true || smsPausedRaw === "true") {
+              const smsPaused = smsPausedRaw !== "false" && smsPausedRaw !== false;
+              if (smsPaused) {
                 await storage.createAuditLog({
                   action: "sequence_step_skipped_channel_pause",
                   entityType: "contact", entityId: enrollment.contactId ?? 0, actorType: "system",

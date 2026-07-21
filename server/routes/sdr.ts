@@ -611,11 +611,15 @@ export function registerSdrRoutes(app: Express) {
   });
 
   // === SDR WEBHOOK RECEIVER ===
-  // Guard: reject all GHL webhooks with 503 in production when the signing secret is unset.
-  // This forces the operator to configure GHL_WEBHOOK_SECRET before enabling GHL.
+  // Guard: reject all GHL webhooks with 503 in production when NEITHER
+  // GHL_WEBHOOK_SIGNATURE_PUBLIC_KEY (Ed25519, current) NOR GHL_WEBHOOK_SECRET
+  // (HMAC-SHA256, legacy) is configured.  Forces the operator to set at least
+  // one verification key before enabling GHL webhooks.
   app.use("/api/webhooks/ghl/", (req, res, next) => {
-    if (!process.env.GHL_WEBHOOK_SECRET && process.env.NODE_ENV === "production") {
-      console.error("[SDR Webhook] GHL_WEBHOOK_SECRET not configured — rejecting webhook in production");
+    const hasEd25519 = !!process.env.GHL_WEBHOOK_SIGNATURE_PUBLIC_KEY;
+    const hasHmac    = !!process.env.GHL_WEBHOOK_SECRET;
+    if (!hasEd25519 && !hasHmac && process.env.NODE_ENV === "production") {
+      console.error("[SDR Webhook] Neither GHL_WEBHOOK_SIGNATURE_PUBLIC_KEY nor GHL_WEBHOOK_SECRET is set — rejecting webhook in production");
       return res.status(503).json({ received: false, error: "Webhook signing not configured" });
     }
     next();
@@ -632,29 +636,26 @@ export function registerSdrRoutes(app: Express) {
   // ── Webhook signature + replay verification middleware ─────────────────────
   // Runs BEFORE the dedup middleware so invalid/replayed events are rejected
   // without being recorded in webhook_event_log (which would permanently block
-  // legitimate replays of the same payload sent later with a fresh timestamp).
+  // legitimate re-deliveries of the same payload with a fresh timestamp).
   //
-  // Signing method: HMAC-SHA256 (current HighLevel standard for webhook
-  // subscriptions).  GHL does not publish an Ed25519 public key for outgoing
-  // webhook signing; that is a separate mechanism for in-app action payloads.
+  // Verification priority (see ghl-client.ts for full docs):
+  //   1. x-ghl-signature + GHL_WEBHOOK_SIGNATURE_PUBLIC_KEY → Ed25519 (current)
+  //   2. x-ghl-signature + GHL_WEBHOOK_SECRET              → HMAC-SHA256 (legacy)
+  //   3. x-wh-signature  + GHL_WEBHOOK_SECRET              → HMAC-SHA256 (oldest)
+  //   4. No signature                                       → reject (401) always
   //
-  // Replay protection: checks dateAdded/createdAt/timestamp from payload JSON
-  // and the x-ghl-timestamp header; rejects events > 5 minutes old.
-  // When no timestamp is present the event passes (dedup covers GHL retries).
+  // Replay window: 5 minutes (dateAdded/createdAt/timestamp / x-ghl-timestamp).
   app.use("/api/webhooks/ghl/", (req, res, next) => {
-    const rawBody  = getSdrWebhookRawBody(req);
-    const signature = (req.headers["x-ghl-signature"] as string) || "";
+    const rawBody = getSdrWebhookRawBody(req);
     const { validateWebhookRequest } = require("../services/sdr/ghl-client") as typeof import("../services/sdr/ghl-client");
-    const result = validateWebhookRequest(rawBody, signature, req.headers as Record<string, string | string[] | undefined>);
+    const result = validateWebhookRequest(rawBody, req.headers as Record<string, string | string[] | undefined>);
     if (!result.valid) {
       if (result.replayRejected) {
         console.warn(`[SDR Webhook] Replay rejected — ${result.error}`);
         return res.status(401).json({ received: false, error: "Webhook replay rejected", detail: result.error });
       }
-      if (process.env.GHL_WEBHOOK_SECRET) {
-        console.warn(`[SDR Webhook] Signature verification failed — ${result.error}`);
-        return res.status(401).json({ received: false, error: "Invalid webhook signature" });
-      }
+      console.warn(`[SDR Webhook] Signature verification failed (method=${result.method}) — ${result.error}`);
+      return res.status(401).json({ received: false, error: "Invalid webhook signature" });
     }
     next();
   });

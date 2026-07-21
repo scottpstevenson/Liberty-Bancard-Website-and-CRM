@@ -276,29 +276,48 @@ export async function removeTag(params: {
 }
 
 /**
- * Webhook Signing — Current HighLevel Standard
- * ─────────────────────────────────────────────
- * GHL signs outgoing webhooks with HMAC-SHA256 of the raw request body,
- * delivered in the `x-ghl-signature` header (hex string, no prefix, or
- * `sha256=<hex>` prefix in some versions).
+ * Webhook Signing — HighLevel Current and Legacy Standards
+ * ─────────────────────────────────────────────────────────
  *
- * NOTE: GHL does NOT publish an Ed25519 public key for outgoing webhook
- * signing.  Ed25519 is used by GHL internally for in-app action payloads
- * via a different mechanism.  HMAC-SHA256 with GHL_WEBHOOK_SECRET IS
- * the current supported verification method for GHL webhook subscriptions.
+ * CURRENT STANDARD (primary):
+ *   Header:  x-ghl-signature
+ *   Method:  Ed25519 asymmetric signature over the raw UTF-8 request body
+ *   Key:     GHL_WEBHOOK_SIGNATURE_PUBLIC_KEY env var — Ed25519 public key in
+ *            PEM format (-----BEGIN PUBLIC KEY-----…) obtained from the GHL
+ *            Marketplace developer portal for your app.
+ *   Verified with: crypto.verify(null, bodyBuf, publicKeyPem, sigBase64Buf)
+ *   Source:  GHL Marketplace JS SDK README, verifyEd25519Signature()
  *
- * Replay protection: GHL events frequently include `dateAdded`, `createdAt`,
- * or `timestamp` fields in the payload JSON.  We extract these and reject
- * events whose declared timestamp is more than REPLAY_WINDOW_MS in the past.
- * If no timestamp field is present in the payload, we pass (no timestamp = no
- * replay protection possible from this signal alone; dedup covers retries).
+ * LEGACY FALLBACK (temporary, during GHL transition):
+ *   Header:  x-ghl-signature  (HMAC hex, optionally sha256= prefixed)
+ *         OR x-wh-signature   (older legacy header, same HMAC format)
+ *   Method:  HMAC-SHA256 over the raw body
+ *   Key:     GHL_WEBHOOK_SECRET env var (shared secret)
+ *   Used when: GHL_WEBHOOK_SIGNATURE_PUBLIC_KEY is not yet configured.
+ *   Log:     "[SDR GHL] Using HMAC-SHA256 legacy fallback — set GHL_WEBHOOK_SIGNATURE_PUBLIC_KEY"
  *
- * Freshness of delivery: The webhook_event_log table records `processed_at`
- * so that if the same event_id is seen again (GHL retry of an already-200'd
- * delivery), it is rejected by the idempotency middleware before reaching here.
+ * MISSING SIGNATURE:
+ *   Production → always reject (401).
+ *   Development → pass with warning (to allow local testing without keys).
+ *
+ * REPLAY PROTECTION (applies to both methods):
+ *   5-minute window enforced via x-ghl-timestamp header or dateAdded/
+ *   createdAt/timestamp fields in the JSON payload.
+ *
+ * IDEMPOTENCY:
+ *   webhook_event_log table records processed events; GHL retries of an
+ *   already-200'd delivery are rejected by the dedup middleware (upstream of
+ *   business logic) without re-processing.
  */
 
 const REPLAY_WINDOW_MS = 5 * 60 * 1000;
+
+/** Resolve the Ed25519 public key PEM, normalising escaped newlines from env vars. */
+function getEd25519PublicKey(): string | null {
+  const raw = process.env.GHL_WEBHOOK_SIGNATURE_PUBLIC_KEY;
+  if (!raw) return null;
+  return raw.includes("\\n") ? raw.replace(/\\n/g, "\n") : raw;
+}
 
 /** Extract a millisecond timestamp from a parsed GHL event payload. */
 function extractPayloadTimestampMs(payload: string): number | null {
@@ -320,13 +339,29 @@ function extractPayloadTimestampMs(payload: string): number | null {
   return null;
 }
 
-/** HMAC-SHA256 signature check — current GHL signing method. */
+/**
+ * Ed25519 signature verification — current GHL standard.
+ * signature is base64-encoded (NOT hex). publicKeyPem is the PEM public key.
+ */
+function checkEd25519Signature(rawBody: string, signatureBase64: string, publicKeyPem: string): boolean {
+  try {
+    const bodyBuf = Buffer.from(rawBody, "utf8");
+    const sigBuf  = Buffer.from(signatureBase64, "base64");
+    // crypto.verify with null algorithm = Ed25519 (no hash, signs raw bytes directly).
+    // Node.js 15+ required; this project uses Node.js 20.
+    return crypto.verify(null, bodyBuf, publicKeyPem, sigBuf);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * HMAC-SHA256 signature verification — legacy GHL method (kept during transition).
+ * Handles both plain hex and sha256=<hex> prefixed formats.
+ */
 function checkHmacSignature(payload: string, signature: string, secret: string): boolean {
   try {
-    const expectedSig = crypto
-      .createHmac("sha256", secret)
-      .update(payload)
-      .digest("hex");
+    const expectedSig  = crypto.createHmac("sha256", secret).update(payload).digest("hex");
     const sigToCompare = signature.startsWith("sha256=") ? signature.slice(7) : signature;
     if (sigToCompare.length !== expectedSig.length) return false;
     return crypto.timingSafeEqual(
@@ -338,68 +373,124 @@ function checkHmacSignature(payload: string, signature: string, secret: string):
   }
 }
 
+/** Helper: extract a single-valued header from a headers map. */
+function getHeader(
+  headers: Record<string, string | string[] | undefined> | undefined,
+  name: string,
+): string | undefined {
+  if (!headers) return undefined;
+  const v = headers[name];
+  if (!v) return undefined;
+  return Array.isArray(v) ? v[0] : v;
+}
+
 /**
- * Legacy-compatible HMAC-SHA256 verification.
- * Used by existing call sites.  No replay check (timestamp not available here).
- * Prefer validateWebhookRequest() for full verification including replay protection.
+ * Deprecated shim used by per-route handlers as defence-in-depth.
+ * Delegates to validateWebhookRequest so that Ed25519 / HMAC priority is
+ * identical to the middleware layer.
  */
 export function validateWebhookSignature(payload: string, signature: string): boolean {
-  const secret = getWebhookSecret();
-  if (!secret) {
-    if (process.env.NODE_ENV === "production") {
-      console.error("[SDR GHL] GHL_WEBHOOK_SECRET not set in production — rejecting webhook");
-      return false;
-    }
-    return true;
-  }
-  return checkHmacSignature(payload, signature, secret);
+  const result = validateWebhookRequest(payload, { "x-ghl-signature": signature });
+  return result.valid;
 }
+
+export type WebhookVerificationMethod =
+  | "ed25519_current"       // x-ghl-signature verified with Ed25519 public key (current standard)
+  | "hmac_sha256_legacy"    // x-ghl-signature or x-wh-signature verified with HMAC-SHA256 (legacy)
+  | "no_secret_dev_only";   // no key/secret configured — dev-only passthrough
 
 export type WebhookVerificationResult = {
   valid: boolean;
-  method: "hmac_sha256" | "no_secret_dev_only";
+  method: WebhookVerificationMethod;
   replayRejected: boolean;
   timestampAgeMs: number | null;
   error?: string;
 };
 
 /**
- * Full webhook verification: HMAC-SHA256 + replay protection.
- * Call this instead of validateWebhookSignature in new and updated webhook handlers.
+ * Full webhook verification: Ed25519 (primary) or HMAC-SHA256 (legacy fallback),
+ * plus replay protection.
  *
- * @param rawBody   Raw request body string (preserve original bytes for HMAC)
- * @param signature Value of the x-ghl-signature header
- * @param headers   Full request headers (checked for x-ghl-timestamp if present)
+ * Call this at the middleware layer.  validateWebhookSignature() delegates here.
+ *
+ * Verification priority:
+ *   1. x-ghl-signature + GHL_WEBHOOK_SIGNATURE_PUBLIC_KEY → Ed25519 (current)
+ *   2. x-ghl-signature + GHL_WEBHOOK_SECRET              → HMAC-SHA256 (legacy)
+ *   3. x-wh-signature  + GHL_WEBHOOK_SECRET              → HMAC-SHA256 (oldest legacy)
+ *   4. No signature at all                               → reject in prod, warn in dev
+ *
+ * @param rawBody  Raw request body string (preserve original bytes)
+ * @param headers  Full request headers object from Express req.headers
  */
 export function validateWebhookRequest(
   rawBody: string,
-  signature: string,
-  headers?: Record<string, string | string[] | undefined>,
+  headers: Record<string, string | string[] | undefined>,
 ): WebhookVerificationResult {
-  const secret = getWebhookSecret();
-  if (!secret) {
-    if (process.env.NODE_ENV === "production") {
-      return { valid: false, method: "no_secret_dev_only", replayRejected: false, timestampAgeMs: null, error: "GHL_WEBHOOK_SECRET not set in production" };
+  const sigGhl    = getHeader(headers, "x-ghl-signature") ?? "";
+  const sigLegacy = getHeader(headers, "x-wh-signature")  ?? "";
+  const ed25519Key = getEd25519PublicKey();
+  const hmacSecret = getWebhookSecret();
+  const isProd     = process.env.NODE_ENV === "production";
+
+  // ── No signature at all ──────────────────────────────────────────────────
+  if (!sigGhl && !sigLegacy) {
+    if (isProd || hmacSecret || ed25519Key) {
+      console.warn("[SDR GHL] Webhook rejected — no x-ghl-signature or x-wh-signature header present");
+      return { valid: false, method: "no_secret_dev_only", replayRejected: false, timestampAgeMs: null, error: "Missing webhook signature" };
     }
+    // Dev: no keys configured, no signature — allow for local testing
     return { valid: true, method: "no_secret_dev_only", replayRejected: false, timestampAgeMs: null };
   }
 
-  // ── Signature check ──────────────────────────────────────────────────────
-  const sigOk = checkHmacSignature(rawBody, signature, secret);
-  if (!sigOk) {
-    return { valid: false, method: "hmac_sha256", replayRejected: false, timestampAgeMs: null, error: "HMAC-SHA256 signature mismatch" };
+  // ── Method 1: Ed25519 (current standard) ─────────────────────────────────
+  if (sigGhl && ed25519Key) {
+    if (!checkEd25519Signature(rawBody, sigGhl, ed25519Key)) {
+      return { valid: false, method: "ed25519_current", replayRejected: false, timestampAgeMs: null, error: "Ed25519 signature mismatch" };
+    }
+    return applyReplayCheck(rawBody, headers, "ed25519_current");
   }
 
-  // ── Replay / timestamp check ─────────────────────────────────────────────
-  // Priority 1: x-ghl-timestamp header (present in some GHL webhook configs)
+  // ── Method 2: HMAC-SHA256 on x-ghl-signature (legacy — transition) ───────
+  if (sigGhl && hmacSecret) {
+    console.warn("[SDR GHL] Using HMAC-SHA256 legacy fallback on x-ghl-signature — set GHL_WEBHOOK_SIGNATURE_PUBLIC_KEY to use Ed25519 (current standard)");
+    if (!checkHmacSignature(rawBody, sigGhl, hmacSecret)) {
+      return { valid: false, method: "hmac_sha256_legacy", replayRejected: false, timestampAgeMs: null, error: "HMAC-SHA256 signature mismatch (x-ghl-signature)" };
+    }
+    return applyReplayCheck(rawBody, headers, "hmac_sha256_legacy");
+  }
+
+  // ── Method 3: HMAC-SHA256 on x-wh-signature (oldest legacy header) ───────
+  if (sigLegacy && hmacSecret) {
+    console.warn("[SDR GHL] Using HMAC-SHA256 legacy fallback on x-wh-signature — migrate to x-ghl-signature Ed25519");
+    if (!checkHmacSignature(rawBody, sigLegacy, hmacSecret)) {
+      return { valid: false, method: "hmac_sha256_legacy", replayRejected: false, timestampAgeMs: null, error: "HMAC-SHA256 signature mismatch (x-wh-signature)" };
+    }
+    return applyReplayCheck(rawBody, headers, "hmac_sha256_legacy");
+  }
+
+  // ── Signature present but no key/secret configured ───────────────────────
+  if (isProd) {
+    return { valid: false, method: "no_secret_dev_only", replayRejected: false, timestampAgeMs: null, error: "Signature header present but no verification key configured in production" };
+  }
+  // Dev fallback: signature present but keys not yet set — allow with warning
+  console.warn("[SDR GHL] Webhook signature present but no GHL_WEBHOOK_SIGNATURE_PUBLIC_KEY or GHL_WEBHOOK_SECRET — allowing in non-production");
+  return { valid: true, method: "no_secret_dev_only", replayRejected: false, timestampAgeMs: null };
+}
+
+/** Apply replay-window check after signature has already been verified. */
+function applyReplayCheck(
+  rawBody: string,
+  headers: Record<string, string | string[] | undefined>,
+  method: WebhookVerificationMethod,
+): WebhookVerificationResult {
   let eventTimestampMs: number | null = null;
-  const headerTs = headers?.["x-ghl-timestamp"];
+
+  // Priority 1: x-ghl-timestamp header
+  const headerTs = getHeader(headers, "x-ghl-timestamp");
   if (headerTs) {
-    const raw = Array.isArray(headerTs) ? headerTs[0] : headerTs;
-    const n   = Number(raw);
+    const n = Number(headerTs);
     if (!isNaN(n)) eventTimestampMs = n > 1_000_000_000_000 ? n : n * 1000;
   }
-
   // Priority 2: timestamp field in JSON payload
   if (eventTimestampMs === null) {
     eventTimestampMs = extractPayloadTimestampMs(rawBody);
@@ -409,13 +500,12 @@ export function validateWebhookRequest(
     const ageMs = Date.now() - eventTimestampMs;
     if (ageMs > REPLAY_WINDOW_MS) {
       console.warn(`[SDR GHL] Webhook replay rejected — event timestamp is ${Math.round(ageMs / 1000)}s old (limit: ${REPLAY_WINDOW_MS / 1000}s)`);
-      return { valid: false, method: "hmac_sha256", replayRejected: true, timestampAgeMs: ageMs, error: `Event timestamp is ${Math.round(ageMs / 1000)}s old — replay window is ${REPLAY_WINDOW_MS / 1000}s` };
+      return { valid: false, method, replayRejected: true, timestampAgeMs: ageMs, error: `Event timestamp is ${Math.round(ageMs / 1000)}s old — replay window is ${REPLAY_WINDOW_MS / 1000}s` };
     }
-    return { valid: true, method: "hmac_sha256", replayRejected: false, timestampAgeMs: ageMs };
+    return { valid: true, method, replayRejected: false, timestampAgeMs: ageMs };
   }
-
-  // No timestamp available — signature passed, allow through (dedup covers retries)
-  return { valid: true, method: "hmac_sha256", replayRejected: false, timestampAgeMs: null };
+  // No timestamp — signature passed, allow (dedup covers GHL retries)
+  return { valid: true, method, replayRejected: false, timestampAgeMs: null };
 }
 
 export interface SendMessageResult {

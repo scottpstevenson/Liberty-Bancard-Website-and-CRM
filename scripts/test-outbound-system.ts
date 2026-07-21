@@ -313,18 +313,42 @@ async function testPauseControls(): Promise<void> {
     ? pass("outboundGlobalPaused = true (global kill switch is active — safe)")
     : fail("outboundGlobalPaused is NOT true — outbound is globally live. Set to true immediately via /dashboard/activation");
 
+  // Per-channel checks use the FAIL-CLOSED semantics that match sequence-worker:
+  //   null/undefined → paused (fail-closed default)
+  //   "false" / false → open (explicitly released)
+  //   "true" / true   → paused (explicitly paused)
   const emailPausedRaw  = await storage.getSystemSetting("emailChannelPaused");
   const smsPausedRaw    = await storage.getSystemSetting("smsChannelPaused");
   const coldPausedRaw   = await storage.getSystemSetting("coldEmailChannelPaused");
-  const emailPaused     = emailPausedRaw === true || emailPausedRaw === "true";
-  const smsPaused       = smsPausedRaw === true   || smsPausedRaw === "true";
-  const coldPaused      = coldPausedRaw === true  || coldPausedRaw === "true";
 
-  emailPaused ? pass("emailChannelPaused = true")    : warn("emailChannelPaused not set (relying on global pause)");
-  smsPaused   ? pass("smsChannelPaused = true")      : warn("smsChannelPaused not set (relying on global pause)");
-  coldPaused  ? pass("coldEmailChannelPaused = true") : warn("coldEmailChannelPaused not set (relying on global pause)");
+  const emailPaused = emailPausedRaw !== "false" && emailPausedRaw !== false;
+  const smsPaused   = smsPausedRaw   !== "false" && smsPausedRaw   !== false;
+  const coldPaused  = coldPausedRaw  !== "false" && coldPausedRaw  !== false;
 
-  // Verify the global pause value is specifically the boolean true or "true" string, not just truthy
+  const channelLabel = (raw: unknown, paused: boolean): string => {
+    if (raw === "true" || raw === true)   return "PAUSED (explicitly true)";
+    if (raw === "false" || raw === false) return "OPEN (explicitly false)";
+    return paused ? "PAUSED (fail-closed default — not set in DB)" : "open";
+  };
+
+  if (emailPaused) {
+    pass(`emailChannelPaused — ${channelLabel(emailPausedRaw, emailPaused)}`);
+  } else {
+    fail("emailChannelPaused = false — email channel OPEN. Global kill switch is your only guard. Set to 'true' in /dashboard/activation to re-pause.");
+  }
+
+  if (smsPaused) {
+    pass(`smsChannelPaused — ${channelLabel(smsPausedRaw, smsPaused)}`);
+  } else {
+    fail("smsChannelPaused = false — SMS channel OPEN. Global kill switch is your only guard. Set to 'true' in /dashboard/activation to re-pause.");
+  }
+
+  if (coldPaused) {
+    pass(`coldEmailChannelPaused — ${channelLabel(coldPausedRaw, coldPaused)}`);
+  } else {
+    fail("coldEmailChannelPaused = false — cold-email channel OPEN. Global kill switch is your only guard. Set to 'true' in /dashboard/activation to re-pause.");
+  }
+
   pass(`Global pause raw value: ${JSON.stringify(globalPausedRaw)} → parsed as ${isPaused}`);
 }
 
@@ -376,89 +400,188 @@ async function testGmailUnavailableBlock(): Promise<void> {
 
 // ── Suite 6: GHL Webhook Signature Validation ─────────────────────────────────
 async function testWebhookValidation(): Promise<void> {
-  head("Suite 6 — GHL Webhook Signature Validation (HMAC-SHA256)");
+  head("Suite 6 — GHL Webhook Signature Validation (Ed25519 primary + HMAC legacy)");
 
   const { validateWebhookSignature, validateWebhookRequest } =
     await import("../server/services/sdr/ghl-client");
 
-  const secret = process.env.GHL_WEBHOOK_SECRET;
-  if (!secret) {
-    fail("GHL_WEBHOOK_SECRET not set — webhook verification cannot be tested with real secret");
-    pass("validateWebhookSignature and validateWebhookRequest are defined and exported ✓");
-    pass("validateWebhookRequest exported (full verification with replay protection) ✓");
-    return;
-  }
+  const { createHmac, generateKeyPairSync, sign: cryptoSign } = await import("crypto");
 
-  const { createHmac } = await import("crypto");
+  // Save and isolate env state so tests don't interfere with production secrets
+  const savedPubKey    = process.env.GHL_WEBHOOK_SIGNATURE_PUBLIC_KEY;
+  const savedHmacSec   = process.env.GHL_WEBHOOK_SECRET;
+  const restore = () => {
+    if (savedPubKey   !== undefined) { process.env.GHL_WEBHOOK_SIGNATURE_PUBLIC_KEY = savedPubKey; }
+    else { delete process.env.GHL_WEBHOOK_SIGNATURE_PUBLIC_KEY; }
+    if (savedHmacSec  !== undefined) { process.env.GHL_WEBHOOK_SECRET = savedHmacSec; }
+    else { delete process.env.GHL_WEBHOOK_SECRET; }
+  };
 
-  const testPayload = JSON.stringify({
+  // ── Part A: Ed25519 public-key verification (current HighLevel standard) ──
+  head("Suite 6A — Ed25519 Public-Key Verification (current standard)");
+
+  // Generate an ephemeral Ed25519 key pair for tests (no production secrets needed)
+  const { publicKey: pubKeyPem, privateKey: privKeyPem } = generateKeyPairSync("ed25519", {
+    publicKeyEncoding:  { type: "spki",  format: "pem" },
+    privateKeyEncoding: { type: "pkcs8", format: "pem" },
+  }) as { publicKey: string; privateKey: string };
+  pass("Ed25519 ephemeral test key pair generated (Node.js crypto.generateKeyPairSync)");
+
+  // Inject the test public key; clear HMAC secret so only Ed25519 path runs
+  process.env.GHL_WEBHOOK_SIGNATURE_PUBLIC_KEY = pubKeyPem;
+  delete process.env.GHL_WEBHOOK_SECRET;
+
+  const freshPayload = JSON.stringify({
     type: "ContactCreate",
-    contactId: "test-id-123",
+    contactId: "test-ed25519-001",
     dateAdded: new Date().toISOString(),
   });
+  const validEd25519Sig = cryptoSign(null, Buffer.from(freshPayload, "utf8"), privKeyPem).toString("base64");
 
-  // Compute valid HMAC-SHA256 signature
-  const validSig = createHmac("sha256", secret).update(testPayload).digest("hex");
+  // Test A1: valid Ed25519 signature → accept, method = ed25519_current
+  const r_A1 = validateWebhookRequest(freshPayload, { "x-ghl-signature": validEd25519Sig });
+  r_A1.valid && r_A1.method === "ed25519_current"
+    ? pass(`A1 valid Ed25519 accepted (method=${r_A1.method})`)
+    : fail(`A1 valid Ed25519 rejected — ${r_A1.error} (method=${r_A1.method})`);
+  r_A1.replayRejected === false
+    ? pass("A1 fresh Ed25519 event not replay-rejected")
+    : fail("A1 fresh Ed25519 event incorrectly replay-rejected");
 
-  // Test: valid signature passes
-  const legacyValid = validateWebhookSignature(testPayload, validSig);
-  legacyValid
-    ? pass("validateWebhookSignature: valid HMAC-SHA256 signature accepted")
-    : fail("validateWebhookSignature: valid signature rejected");
+  // Test A2: invalid (wrong) Ed25519 signature → reject
+  const r_A2 = validateWebhookRequest(freshPayload, { "x-ghl-signature": "aW52YWxpZHNpZ25hdHVyZWhlcmUhISE=" });
+  !r_A2.valid && r_A2.method === "ed25519_current"
+    ? pass(`A2 invalid Ed25519 signature correctly rejected (method=${r_A2.method})`)
+    : fail(`A2 invalid Ed25519 should be rejected but got valid=${r_A2.valid}`);
 
-  // Test: invalid signature rejected
-  const legacyInvalid = validateWebhookSignature(testPayload, "invalid-signature-here");
-  !legacyInvalid
-    ? pass("validateWebhookSignature: invalid signature rejected")
-    : fail("validateWebhookSignature: invalid signature should be rejected");
+  // Test A3: valid sig on tampered body → reject
+  const r_A3 = validateWebhookRequest("tampered-body-content", { "x-ghl-signature": validEd25519Sig });
+  !r_A3.valid
+    ? pass("A3 Ed25519 sig on tampered body correctly rejected")
+    : fail("A3 tampered body with valid Ed25519 sig should be rejected");
 
-  // Test: sha256= prefix handled
-  const withPrefix = validateWebhookSignature(testPayload, `sha256=${validSig}`);
-  withPrefix
-    ? pass("validateWebhookSignature: sha256= prefix stripped correctly")
-    : fail("validateWebhookSignature: sha256= prefix not handled");
-
-  // Test: validateWebhookRequest — valid, fresh payload
-  const freshResult = validateWebhookRequest(testPayload, validSig);
-  freshResult.valid
-    ? pass(`validateWebhookRequest: valid fresh payload accepted (method=${freshResult.method})`)
-    : fail(`validateWebhookRequest: valid fresh payload rejected: ${freshResult.error}`);
-  freshResult.replayRejected === false
-    ? pass("validateWebhookRequest: fresh event not replay-rejected")
-    : fail("validateWebhookRequest: fresh event incorrectly marked as replay");
-
-  // Test: validateWebhookRequest — replayed/stale payload (> 5 min old)
-  const stalePayload = JSON.stringify({
+  // Test A4: replay — stale dateAdded (> 5 min) → reject
+  const stalePayloadEd = JSON.stringify({
     type: "ContactCreate",
-    contactId: "test-stale-123",
-    dateAdded: new Date(Date.now() - 6 * 60 * 1000).toISOString(), // 6 min ago
+    contactId: "test-ed25519-stale",
+    dateAdded: new Date(Date.now() - 6 * 60 * 1000).toISOString(),
   });
-  const staleSig = createHmac("sha256", secret).update(stalePayload).digest("hex");
-  const staleResult = validateWebhookRequest(stalePayload, staleSig);
-  staleResult.replayRejected === true
-    ? pass(`validateWebhookRequest: stale event replay-rejected (age: ${Math.round((staleResult.timestampAgeMs || 0) / 1000)}s)`)
-    : fail("validateWebhookRequest: stale event should be replay-rejected but was not");
+  const staleSigEd = cryptoSign(null, Buffer.from(stalePayloadEd, "utf8"), privKeyPem).toString("base64");
+  const r_A4 = validateWebhookRequest(stalePayloadEd, { "x-ghl-signature": staleSigEd });
+  r_A4.replayRejected === true
+    ? pass(`A4 Ed25519 stale event replay-rejected (age: ${Math.round((r_A4.timestampAgeMs || 0) / 1000)}s)`)
+    : fail("A4 Ed25519 stale event should be replay-rejected");
 
-  // Test: validateWebhookRequest — no timestamp in payload, valid sig → passes
-  const noTsPayload = JSON.stringify({ type: "ContactCreate", contactId: "test-no-ts" });
-  const noTsSig    = createHmac("sha256", secret).update(noTsPayload).digest("hex");
-  const noTsResult = validateWebhookRequest(noTsPayload, noTsSig);
-  noTsResult.valid && !noTsResult.replayRejected
-    ? pass("validateWebhookRequest: payload without timestamp passes (no replay signal available)")
-    : fail(`validateWebhookRequest: payload without timestamp should pass: ${noTsResult.error}`);
+  // Test A5: x-ghl-timestamp header replay protection
+  const noTsPayloadEd = JSON.stringify({ type: "ContactCreate", contactId: "test-ed25519-no-ts" });
+  const noTsSigEd     = cryptoSign(null, Buffer.from(noTsPayloadEd, "utf8"), privKeyPem).toString("base64");
+  const staleTs       = String(Math.floor((Date.now() - 6 * 60 * 1000) / 1000));
+  const r_A5 = validateWebhookRequest(noTsPayloadEd, { "x-ghl-signature": noTsSigEd, "x-ghl-timestamp": staleTs });
+  r_A5.replayRejected === true
+    ? pass("A5 x-ghl-timestamp stale header triggers Ed25519 replay rejection")
+    : fail("A5 stale x-ghl-timestamp should trigger replay rejection");
 
-  // Test: validateWebhookRequest — tampered payload (sig mismatch)
-  const tamperedResult = validateWebhookRequest("tampered-payload", validSig);
-  !tamperedResult.valid && !tamperedResult.replayRejected
-    ? pass("validateWebhookRequest: tampered payload rejected (HMAC mismatch)")
-    : fail("validateWebhookRequest: tampered payload should be rejected");
+  // Test A6: no timestamp → accept (dedup covers GHL retries)
+  const r_A6 = validateWebhookRequest(noTsPayloadEd, { "x-ghl-signature": noTsSigEd });
+  r_A6.valid && r_A6.replayRejected === false
+    ? pass("A6 Ed25519 payload without timestamp accepted (no replay signal)")
+    : fail(`A6 Ed25519 no-timestamp payload should pass: ${r_A6.error}`);
 
-  // Test: x-ghl-timestamp header replay protection
-  const staleHeaderTs = String(Math.floor((Date.now() - 6 * 60 * 1000) / 1000));
-  const headerResult  = validateWebhookRequest(noTsPayload, noTsSig, { "x-ghl-timestamp": staleHeaderTs });
-  headerResult.replayRejected === true
-    ? pass(`validateWebhookRequest: x-ghl-timestamp header replay rejection works`)
-    : fail("validateWebhookRequest: x-ghl-timestamp stale header should trigger replay rejection");
+  // Test A7: missing x-ghl-signature when public key is set → reject
+  const r_A7 = validateWebhookRequest(freshPayload, {});
+  !r_A7.valid
+    ? pass("A7 missing signature rejected when Ed25519 key is configured")
+    : fail("A7 missing signature should be rejected when key is configured");
+
+  // ── Part B: HMAC-SHA256 legacy fallback (no public key set) ────────────────
+  head("Suite 6B — HMAC-SHA256 Legacy Fallback (GHL_WEBHOOK_SECRET only)");
+
+  if (!savedHmacSec) {
+    warn("GHL_WEBHOOK_SECRET not set — HMAC legacy fallback tests skipped (set GHL_WEBHOOK_SECRET to run)");
+  } else {
+    delete process.env.GHL_WEBHOOK_SIGNATURE_PUBLIC_KEY; // no Ed25519 key → fallback to HMAC
+    process.env.GHL_WEBHOOK_SECRET = savedHmacSec;
+
+    const hmacPayload = JSON.stringify({
+      type: "ContactCreate",
+      contactId: "test-hmac-legacy-001",
+      dateAdded: new Date().toISOString(),
+    });
+    const validHmacSig = createHmac("sha256", savedHmacSec).update(hmacPayload).digest("hex");
+
+    // Test B1: valid HMAC on x-ghl-signature → accept, method = hmac_sha256_legacy
+    const r_B1 = validateWebhookRequest(hmacPayload, { "x-ghl-signature": validHmacSig });
+    r_B1.valid && r_B1.method === "hmac_sha256_legacy"
+      ? pass(`B1 HMAC legacy accepted on x-ghl-signature (method=${r_B1.method})`)
+      : fail(`B1 HMAC legacy rejected — ${r_B1.error} (method=${r_B1.method})`);
+
+    // Test B2: sha256= prefix handled
+    const r_B2 = validateWebhookRequest(hmacPayload, { "x-ghl-signature": `sha256=${validHmacSig}` });
+    r_B2.valid
+      ? pass("B2 sha256= prefix on HMAC legacy stripped and accepted")
+      : fail(`B2 sha256= prefix should be handled: ${r_B2.error}`);
+
+    // Test B3: HMAC on x-wh-signature (oldest legacy header) → accept
+    const r_B3 = validateWebhookRequest(hmacPayload, { "x-wh-signature": validHmacSig });
+    r_B3.valid && r_B3.method === "hmac_sha256_legacy"
+      ? pass(`B3 HMAC on x-wh-signature accepted as legacy (method=${r_B3.method})`)
+      : fail(`B3 x-wh-signature HMAC should be accepted: ${r_B3.error}`);
+
+    // Test B4: invalid HMAC rejected
+    const r_B4 = validateWebhookRequest(hmacPayload, { "x-ghl-signature": "badhexdeadbeef" });
+    !r_B4.valid
+      ? pass("B4 invalid HMAC on x-ghl-signature correctly rejected")
+      : fail("B4 invalid HMAC should be rejected");
+
+    // Test B5: HMAC legacy stale event replay-rejected
+    const staleHmacPayload = JSON.stringify({
+      type: "ContactCreate",
+      contactId: "test-hmac-stale",
+      dateAdded: new Date(Date.now() - 6 * 60 * 1000).toISOString(),
+    });
+    const staleHmacSig = createHmac("sha256", savedHmacSec).update(staleHmacPayload).digest("hex");
+    const r_B5 = validateWebhookRequest(staleHmacPayload, { "x-ghl-signature": staleHmacSig });
+    r_B5.replayRejected === true
+      ? pass(`B5 HMAC legacy stale event replay-rejected (age: ${Math.round((r_B5.timestampAgeMs || 0) / 1000)}s)`)
+      : fail("B5 HMAC legacy stale event should be replay-rejected");
+
+    // Test B6: Ed25519 takes priority — when BOTH keys set, use Ed25519 not HMAC
+    process.env.GHL_WEBHOOK_SIGNATURE_PUBLIC_KEY = pubKeyPem;
+    process.env.GHL_WEBHOOK_SECRET = savedHmacSec;
+    // Use an Ed25519 signature; if method is ed25519_current, priority is correct
+    const priorityPayload = JSON.stringify({ type: "PriorityTest", contactId: "test-priority" });
+    const prioritySig = cryptoSign(null, Buffer.from(priorityPayload, "utf8"), privKeyPem).toString("base64");
+    const r_B6 = validateWebhookRequest(priorityPayload, { "x-ghl-signature": prioritySig });
+    r_B6.valid && r_B6.method === "ed25519_current"
+      ? pass("B6 Ed25519 takes priority over HMAC when both keys are configured")
+      : fail(`B6 Ed25519 should have priority but got method=${r_B6.method}`);
+    // Reset for next part
+    delete process.env.GHL_WEBHOOK_SIGNATURE_PUBLIC_KEY;
+  }
+
+  // ── Part C: validateWebhookSignature shim (delegates to validateWebhookRequest) ──
+  head("Suite 6C — validateWebhookSignature shim");
+
+  if (!savedHmacSec) {
+    warn("GHL_WEBHOOK_SECRET not set — shim tests skipped");
+  } else {
+    delete process.env.GHL_WEBHOOK_SIGNATURE_PUBLIC_KEY;
+    process.env.GHL_WEBHOOK_SECRET = savedHmacSec;
+    const shimPayload = JSON.stringify({ type: "ShimTest", contactId: "test-shim-001" });
+    const validShimSig = createHmac("sha256", savedHmacSec).update(shimPayload).digest("hex");
+
+    validateWebhookSignature(shimPayload, validShimSig)
+      ? pass("C1 validateWebhookSignature shim: valid HMAC accepted")
+      : fail("C1 validateWebhookSignature shim: valid HMAC should be accepted");
+    !validateWebhookSignature(shimPayload, "invalid-sig-here")
+      ? pass("C2 validateWebhookSignature shim: invalid sig rejected")
+      : fail("C2 validateWebhookSignature shim: invalid sig should be rejected");
+    validateWebhookSignature(shimPayload, `sha256=${validShimSig}`)
+      ? pass("C3 validateWebhookSignature shim: sha256= prefix handled")
+      : fail("C3 validateWebhookSignature shim: sha256= prefix should be handled");
+  }
+
+  restore();
+  pass("Environment restored to original state after Suite 6");
 }
 
 // ── Suite 7: Webhook Deduplication ────────────────────────────────────────────

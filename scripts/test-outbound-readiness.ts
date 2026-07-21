@@ -40,25 +40,61 @@ async function main() {
   }
 
   // ── 2. Per-channel pause controls ─────────────────────────────────────────
-  INFO("2. Per-Channel Pause Controls");
+  // Fail-closed: null/undefined → paused (matches sequence-worker logic).
+  // Only an explicit "false" value releases a channel. Open channels are FAIL
+  // because the global kill switch is then the only guard — single point of failure.
+  INFO("2. Per-Channel Pause Controls (fail-closed)");
   const emailPausedRaw     = await storage.getSystemSetting("emailChannelPaused");
   const smsPausedRaw       = await storage.getSystemSetting("smsChannelPaused");
   const coldEmailPausedRaw = await storage.getSystemSetting("coldEmailChannelPaused");
-  const emailPaused        = emailPausedRaw === true     || emailPausedRaw === "true";
-  const smsPaused          = smsPausedRaw === true       || smsPausedRaw === "true";
-  const coldEmailPaused    = coldEmailPausedRaw === true || coldEmailPausedRaw === "true";
-  emailPaused     ? OK("emailChannelPaused = true")        : WARN("emailChannelPaused not set (defaults to false — relying on global pause)");
-  smsPaused       ? OK("smsChannelPaused = true")          : WARN("smsChannelPaused not set (defaults to false — relying on global pause)");
-  coldEmailPaused ? OK("coldEmailChannelPaused = true")    : WARN("coldEmailChannelPaused not set (defaults to false — relying on global pause)");
+  const emailPaused     = emailPausedRaw     !== "false" && emailPausedRaw     !== false;
+  const smsPaused       = smsPausedRaw       !== "false" && smsPausedRaw       !== false;
+  const coldEmailPaused = coldEmailPausedRaw !== "false" && coldEmailPausedRaw !== false;
 
-  // ── 3. GHL connectivity ────────────────────────────────────────────────────
-  INFO("3. GHL Connectivity");
+  const chanNote = (raw: unknown): string => {
+    if (raw === "true"  || raw === true)  return "explicitly paused";
+    if (raw === "false" || raw === false) return "EXPLICITLY OPEN";
+    return "paused by fail-closed default (unset in DB)";
+  };
+
+  emailPaused
+    ? OK("emailChannelPaused — PAUSED",     chanNote(emailPausedRaw))
+    : FAIL("emailChannelPaused is explicitly false — email channel OPEN", "Set to 'true' at /dashboard/activation before any batch send");
+  smsPaused
+    ? OK("smsChannelPaused — PAUSED",       chanNote(smsPausedRaw))
+    : FAIL("smsChannelPaused is explicitly false — SMS channel OPEN",   "Set to 'true' at /dashboard/activation before any batch send");
+  coldEmailPaused
+    ? OK("coldEmailChannelPaused — PAUSED", chanNote(coldEmailPausedRaw))
+    : FAIL("coldEmailChannelPaused is explicitly false — cold-email channel OPEN", "Set to 'true' at /dashboard/activation before any batch send");
+
+  // ── 3. GHL Connectivity & Webhook Verification ────────────────────────────
+  // Primary:  GHL_WEBHOOK_SIGNATURE_PUBLIC_KEY — Ed25519 (current HighLevel standard)
+  // Fallback: GHL_WEBHOOK_SECRET               — HMAC-SHA256 (legacy, during transition)
+  // Both:     Accepted simultaneously; Ed25519 takes priority when both are present.
+  INFO("3. GHL Connectivity & Webhook Verification");
   const ghlToken    = process.env.GHL_PRIVATE_INTEGRATION_TOKEN;
   const ghlLocation = process.env.GHL_LOCATION_ID;
+  const ghlEd25519  = process.env.GHL_WEBHOOK_SIGNATURE_PUBLIC_KEY;
   const ghlWebhook  = process.env.GHL_WEBHOOK_SECRET;
   ghlToken    ? OK("GHL_PRIVATE_INTEGRATION_TOKEN — present")  : FAIL("GHL_PRIVATE_INTEGRATION_TOKEN — missing");
   ghlLocation ? OK("GHL_LOCATION_ID — present")                : FAIL("GHL_LOCATION_ID — missing");
-  ghlWebhook  ? OK("GHL_WEBHOOK_SECRET — present (HMAC-SHA256 webhook verification enabled)") : FAIL("GHL_WEBHOOK_SECRET — missing (webhook signature verification disabled)");
+
+  if (ghlEd25519) {
+    OK("GHL_WEBHOOK_SIGNATURE_PUBLIC_KEY — present (Ed25519 public-key, current HighLevel standard)");
+    ghlWebhook
+      ? OK("GHL_WEBHOOK_SECRET — present (HMAC-SHA256 legacy fallback also active)")
+      : WARN("GHL_WEBHOOK_SECRET — not set (Ed25519 is primary; legacy fallback inactive — acceptable)");
+  } else if (ghlWebhook) {
+    WARN("GHL_WEBHOOK_SIGNATURE_PUBLIC_KEY — missing",
+      "Ed25519 public-key (current HighLevel standard) not configured. " +
+      "Obtain from GHL Marketplace developer portal and set GHL_WEBHOOK_SIGNATURE_PUBLIC_KEY. " +
+      "HMAC-SHA256 legacy fallback is active via GHL_WEBHOOK_SECRET.");
+    OK("GHL_WEBHOOK_SECRET — present (HMAC-SHA256 legacy fallback active)");
+  } else {
+    FAIL("No webhook verification key configured",
+      "Set GHL_WEBHOOK_SIGNATURE_PUBLIC_KEY (Ed25519, current) from GHL Marketplace portal. " +
+      "GHL_WEBHOOK_SECRET (HMAC-SHA256) is an acceptable legacy fallback.");
+  }
 
   // ── 4. Credential encryption (required for Gmail OAuth) ───────────────────
   INFO("4. Credential Encryption (CREDENTIAL_ENCRYPTION_KEY)");
@@ -224,13 +260,19 @@ async function main() {
   }
 
   // ── 13. Webhook verification mode ───────────────────────────────────────────
-  INFO("13. Webhook Verification — HMAC-SHA256 + Replay Protection");
-  ghlWebhook
-    ? OK("GHL_WEBHOOK_SECRET set — HMAC-SHA256 verification active on all /api/webhooks/ghl/* routes")
-    : FAIL("GHL_WEBHOOK_SECRET not set — webhook verification DISABLED");
-  OK("Replay protection active: events with dateAdded/createdAt/x-ghl-timestamp > 5 min old are rejected");
+  INFO("13. Webhook Verification — Ed25519 (primary) / HMAC-SHA256 (legacy) + Replay Protection");
+  const secWh13 = process.env.GHL_WEBHOOK_SIGNATURE_PUBLIC_KEY;
+  const hmcWh13 = process.env.GHL_WEBHOOK_SECRET;
+  if (secWh13) {
+    OK("Ed25519 public-key verification active (current HighLevel standard) on all /api/webhooks/ghl/* routes");
+    hmcWh13 ? OK("HMAC-SHA256 legacy fallback also active (GHL_WEBHOOK_SECRET present)") : OK("HMAC-SHA256 legacy fallback inactive (acceptable — Ed25519 is primary)");
+  } else if (hmcWh13) {
+    WARN("Ed25519 not configured — HMAC-SHA256 legacy fallback active via GHL_WEBHOOK_SECRET", "Set GHL_WEBHOOK_SIGNATURE_PUBLIC_KEY (Ed25519 PEM from GHL Marketplace portal) to use current standard");
+  } else {
+    FAIL("No webhook verification active — set GHL_WEBHOOK_SIGNATURE_PUBLIC_KEY (Ed25519) or GHL_WEBHOOK_SECRET (HMAC legacy)");
+  }
+  OK("Replay protection: events with dateAdded/createdAt/x-ghl-timestamp > 5 min old are rejected");
   OK("Dedup middleware: SHA-256(event_type + body) → webhook_event_log unique constraint");
-  OK("Signing method: HMAC-SHA256 (current HighLevel standard for webhook subscriptions)");
 
   // ── 14. Suppression counts ──────────────────────────────────────────────────
   INFO("14. Suppression / DNC Counts");
