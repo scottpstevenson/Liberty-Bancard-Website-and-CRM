@@ -1,5 +1,5 @@
 import type { Express } from "express";
-import { isAuthenticated, requireRole } from "../replit_integrations/auth";
+import { isAuthenticated, isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { z } from "zod";
 import { contacts, insertCalendarEventSchema, insertCallLogSchema, insertCommentSchema, insertEmailLogSchema, insertNoteSchema } from "@shared/schema";
@@ -39,7 +39,7 @@ export function registerActivityRoutes(app: Express) {
   });
 
   // === ACTIVITY TIMELINE ===
-  app.get("/api/activity", isAuthenticated, async (req, res) => {
+  app.get("/api/activity", isDashboardUser, async (req, res) => {
     try {
       const { entityType, entityId } = req.query;
       const allLogs = await storage.getAuditLogs();
@@ -79,7 +79,7 @@ export function registerActivityRoutes(app: Express) {
 
 
   // === CONTACT ACTIVITY TIMELINE ===
-  app.get("/api/contacts/:id/activity", isAuthenticated, async (req, res) => {
+  app.get("/api/contacts/:id/activity", isDashboardUser, async (req, res) => {
     try {
       const contactId = Number(req.params.id);
       const events: any[] = [];
@@ -149,7 +149,7 @@ export function registerActivityRoutes(app: Express) {
 
 
   // === NOTES ===
-  app.get("/api/notes", isAuthenticated, async (req, res) => {
+  app.get("/api/notes", isDashboardUser, async (req, res) => {
     try {
       const { entityType, entityId } = req.query;
       if (!entityType || !entityId) return res.status(400).json({ message: "entityType and entityId required" });
@@ -160,7 +160,7 @@ export function registerActivityRoutes(app: Express) {
     }
   });
 
-  app.post("/api/notes", isAuthenticated, async (req, res) => {
+  app.post("/api/notes", isDashboardUser, async (req, res) => {
     try {
       const input = insertNoteSchema.parse(req.body);
       const note = await storage.createNote(input);
@@ -171,7 +171,7 @@ export function registerActivityRoutes(app: Express) {
     }
   });
 
-  app.delete("/api/notes/:id", isAuthenticated, async (req, res) => {
+  app.delete("/api/notes/:id", isDashboardUser, async (req, res) => {
     try {
       await storage.deleteNote(Number(req.params.id));
       res.json({ success: true });
@@ -182,14 +182,14 @@ export function registerActivityRoutes(app: Express) {
 
 
   // === COMMENTS (Threaded) ===
-  app.get("/api/comments", isAuthenticated, async (req, res) => {
+  app.get("/api/comments", isDashboardUser, async (req, res) => {
     const { entityType, entityId } = req.query;
     if (!entityType || !entityId) return res.status(400).json({ message: "entityType and entityId required" });
     const result = await storage.getComments(String(entityType), Number(entityId));
     res.json(result);
   });
 
-  app.post("/api/comments", isAuthenticated, async (req, res) => {
+  app.post("/api/comments", isDashboardUser, async (req, res) => {
     try {
       const input = insertCommentSchema.parse(req.body);
       const comment = await storage.createComment({
@@ -204,12 +204,12 @@ export function registerActivityRoutes(app: Express) {
     }
   });
 
-  app.delete("/api/comments/:id", isAuthenticated, async (req, res) => {
+  app.delete("/api/comments/:id", isDashboardUser, async (req, res) => {
     await storage.deleteComment(Number(req.params.id));
     res.json({ success: true });
   });
 
-  app.put("/api/comments/:id", isAuthenticated, async (req, res) => {
+  app.put("/api/comments/:id", isDashboardUser, async (req, res) => {
     const updated = await storage.updateComment(Number(req.params.id), req.body);
     if (!updated) return res.status(404).json({ message: "Not found" });
     res.json(updated);
@@ -217,18 +217,18 @@ export function registerActivityRoutes(app: Express) {
 
 
   // === EMAIL LOGS ===
-  app.get("/api/email-logs", isAuthenticated, async (req, res) => {
+  app.get("/api/email-logs", isDashboardUser, async (req, res) => {
     const contactId = req.query.contactId ? Number(req.query.contactId) : undefined;
     const logs = await storage.getEmailLogs(contactId);
     res.json(logs);
   });
 
-  app.get("/api/email-logs/contact/:contactId", isAuthenticated, async (req, res) => {
+  app.get("/api/email-logs/contact/:contactId", isDashboardUser, async (req, res) => {
     const logs = await storage.getEmailLogs(Number(req.params.contactId));
     res.json(logs);
   });
 
-  app.post("/api/email-logs", isAuthenticated, async (req, res) => {
+  app.post("/api/email-logs", isDashboardUser, async (req, res) => {
     try {
       const input = insertEmailLogSchema.parse(req.body);
       const log = await storage.createEmailLog(input);
@@ -242,18 +242,18 @@ export function registerActivityRoutes(app: Express) {
 
 
   // === CALL LOGS ===
-  app.get("/api/call-logs", isAuthenticated, async (req, res) => {
+  app.get("/api/call-logs", isDashboardUser, async (req, res) => {
     const contactId = req.query.contactId ? Number(req.query.contactId) : undefined;
     const logs = await storage.getCallLogs(contactId);
     res.json(logs);
   });
 
-  app.get("/api/call-logs/contact/:contactId", isAuthenticated, async (req, res) => {
+  app.get("/api/call-logs/contact/:contactId", isDashboardUser, async (req, res) => {
     const logs = await storage.getCallLogs(Number(req.params.contactId));
     res.json(logs);
   });
 
-  app.post("/api/call-logs", isAuthenticated, async (req, res) => {
+  app.post("/api/call-logs", isDashboardUser, async (req, res) => {
     try {
       const input = insertCallLogSchema.parse(req.body);
       const log = await storage.createCallLog(input);
@@ -268,7 +268,7 @@ export function registerActivityRoutes(app: Express) {
     }
   });
 
-  app.post("/api/call-follow-ups/generate", isAuthenticated, async (req, res) => {
+  app.post("/api/call-follow-ups/generate", isDashboardUser, async (req, res) => {
     try {
       const { contactId, dealId, outcome, callNotes, firefliesRecap, duration } = req.body;
       if (!contactId || !outcome) return res.status(400).json({ message: "contactId and outcome are required" });
@@ -390,7 +390,7 @@ Respond in this exact JSON format:
     }
   });
 
-  app.post("/api/call-follow-ups/send", isAuthenticated, async (req, res) => {
+  app.post("/api/call-follow-ups/send", isDashboardUser, async (req, res) => {
     try {
       const {
         contactId, dealId, outcome, callNotes, firefliesRecap, duration,
@@ -637,7 +637,7 @@ Respond in this exact JSON format:
 
 
   // === CALENDAR EVENTS ===
-  app.get("/api/calendar-events", isAuthenticated, async (req, res) => {
+  app.get("/api/calendar-events", isDashboardUser, async (req, res) => {
     try {
       const { start, end } = req.query;
       if (start && end) {
@@ -652,7 +652,7 @@ Respond in this exact JSON format:
     }
   });
 
-  app.post("/api/calendar-events", isAuthenticated, async (req, res) => {
+  app.post("/api/calendar-events", isDashboardUser, async (req, res) => {
     try {
       const input = insertCalendarEventSchema.parse(req.body);
       const event = await storage.createCalendarEvent(input);
@@ -663,7 +663,7 @@ Respond in this exact JSON format:
     }
   });
 
-  app.put("/api/calendar-events/:id", isAuthenticated, async (req, res) => {
+  app.put("/api/calendar-events/:id", isDashboardUser, async (req, res) => {
     try {
       const updated = await storage.updateCalendarEvent(Number(req.params.id), req.body);
       if (!updated) return res.status(404).json({ message: "Not found" });
@@ -673,7 +673,7 @@ Respond in this exact JSON format:
     }
   });
 
-  app.delete("/api/calendar-events/:id", isAuthenticated, async (req, res) => {
+  app.delete("/api/calendar-events/:id", isDashboardUser, async (req, res) => {
     try {
       await storage.deleteCalendarEvent(Number(req.params.id));
       res.json({ success: true });

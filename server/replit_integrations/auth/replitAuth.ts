@@ -18,7 +18,8 @@ import { eq } from "drizzle-orm";
 import { csrfProtection } from "../../middleware/csrf";
 import { merchantAuthRateLimit, verifyEmailRateLimit } from "../../middleware/public-rate-limit";
 
-const APP_URL = process.env.APP_URL || "https://libertybancard.com";
+import { getCanonicalUrl } from "../../lib/canonical-url";
+const APP_URL = getCanonicalUrl();
 
 function buildPasswordResetEmail(firstName: string, resetUrl: string): string {
   const displayName = firstName || "there";

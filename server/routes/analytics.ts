@@ -1,5 +1,5 @@
 import type { Express } from "express";
-import { isAuthenticated } from "../replit_integrations/auth";
+import { isAuthenticated, isDashboardUser } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { pool } from "../db";
 import { contacts, toolClickEvents } from "@shared/schema";
@@ -43,7 +43,7 @@ export function registerAnalyticsRoutes(app: Express) {
     ]);
   });
 
-  app.get("/api/analytics/tool-clicks", isAuthenticated, async (req, res) => {
+  app.get("/api/analytics/tool-clicks", isDashboardUser, async (req, res) => {
     try {
       const rows = await db
         .select({
@@ -61,7 +61,7 @@ export function registerAnalyticsRoutes(app: Express) {
   });
 
   // Upload attribution by utm_content — shows which agent-shared tool links drove statement uploads
-  app.get("/api/analytics/tool-upload-attribution", isAuthenticated, async (req, res) => {
+  app.get("/api/analytics/tool-upload-attribution", isDashboardUser, async (req, res) => {
     try {
       const rows = await db
         .select({
@@ -84,7 +84,7 @@ export function registerAnalyticsRoutes(app: Express) {
   });
 
   // === KPI DASHBOARD ===
-  app.get("/api/kpi/summary", isAuthenticated, async (req, res) => {
+  app.get("/api/kpi/summary", isDashboardUser, async (req, res) => {
     try {
       const now = new Date();
       const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
@@ -237,7 +237,7 @@ export function registerAnalyticsRoutes(app: Express) {
 
 
   // === KPI COMPARATIVE ===
-  app.get("/api/kpi/comparative", isAuthenticated, async (req, res) => {
+  app.get("/api/kpi/comparative", isDashboardUser, async (req, res) => {
     try {
       const now = new Date();
       const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -312,7 +312,7 @@ export function registerAnalyticsRoutes(app: Express) {
 
 
   // === ANALYTICS / REPORTING ===
-  app.get("/api/analytics/pipeline", isAuthenticated, async (req, res) => {
+  app.get("/api/analytics/pipeline", isDashboardUser, async (req, res) => {
     try {
       const { data: allDeals } = await storage.getDeals({ limit: 500 });
       const salesDeals = allDeals.filter(d => d.pipeline === "sales");
@@ -359,7 +359,7 @@ export function registerAnalyticsRoutes(app: Express) {
     }
   });
 
-  app.get("/api/analytics/support", isAuthenticated, async (req, res) => {
+  app.get("/api/analytics/support", isDashboardUser, async (req, res) => {
     try {
       const { data: allTickets } = await storage.getTickets({ limit: 500 });
       const now = new Date();
@@ -393,7 +393,7 @@ export function registerAnalyticsRoutes(app: Express) {
     }
   });
 
-  app.get("/api/analytics/tasks", isAuthenticated, async (req, res) => {
+  app.get("/api/analytics/tasks", isDashboardUser, async (req, res) => {
     try {
       const allTasks = await storage.getTasks();
       const now = new Date();
@@ -418,7 +418,7 @@ export function registerAnalyticsRoutes(app: Express) {
     }
   });
 
-  app.get("/api/analytics/lead-sources", isAuthenticated, async (req, res) => {
+  app.get("/api/analytics/lead-sources", isDashboardUser, async (req, res) => {
     try {
       const { data: allContacts } = await storage.getContacts({ limit: 500 });
       const { data: allDeals } = await storage.getDeals({ limit: 500 });
@@ -460,7 +460,7 @@ export function registerAnalyticsRoutes(app: Express) {
   });
 
   // === GROWTH KPI — weekly channel breakdown ===
-  app.get("/api/analytics/growth-kpi", isAuthenticated, async (req, res) => {
+  app.get("/api/analytics/growth-kpi", isDashboardUser, async (req, res) => {
     const role = (req.user as any)?.role;
     if (!["admin", "manager"].includes(role)) {
       return res.status(403).json({ message: "Admin/Manager only" });
@@ -657,7 +657,7 @@ export function registerAnalyticsRoutes(app: Express) {
     }
   });
 
-  app.get("/api/analytics/conversion-funnel", isAuthenticated, async (req, res) => {
+  app.get("/api/analytics/conversion-funnel", isDashboardUser, async (req, res) => {
     try {
       const { data: allDeals } = await storage.getDeals({ limit: 500 });
       const { data: allContacts } = await storage.getContacts({ limit: 500 });
@@ -687,7 +687,7 @@ export function registerAnalyticsRoutes(app: Express) {
     }
   });
 
-  app.get("/api/analytics/daily-leads", isAuthenticated, async (req, res) => {
+  app.get("/api/analytics/daily-leads", isDashboardUser, async (req, res) => {
     try {
       const { data: allContacts } = await storage.getContacts({ limit: 500 });
       const { data: allDeals } = await storage.getDeals({ limit: 500 });
@@ -727,7 +727,7 @@ export function registerAnalyticsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/analytics/weekly-digest", isAuthenticated, async (req, res) => {
+  app.post("/api/analytics/weekly-digest", isDashboardUser, async (req, res) => {
     if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
     try {
       const { html, summary } = await buildWeeklyDigest();
@@ -751,7 +751,7 @@ export function registerAnalyticsRoutes(app: Express) {
 
 
   // === FORECASTING ===
-  app.get("/api/forecasting/summary", isAuthenticated, async (req, res) => {
+  app.get("/api/forecasting/summary", isDashboardUser, async (req, res) => {
     try {
       const { data: deals } = await storage.getDeals({ limit: 500 });
       const activeDeals = deals.filter(d => d.pipeline === "sales" && d.stage !== "Closed Lost");
@@ -799,7 +799,7 @@ export function registerAnalyticsRoutes(app: Express) {
 
 
   // === PIPELINE STATS (contacts by tier, deals by stage, outreach stats) ===
-  app.get("/api/kpi/pipeline-stats", isAuthenticated, async (req, res) => {
+  app.get("/api/kpi/pipeline-stats", isDashboardUser, async (req, res) => {
     try {
       const tierResult = await pool.query(`
         SELECT
@@ -881,7 +881,7 @@ export function registerAnalyticsRoutes(app: Express) {
 
 
   // === LEADERBOARD ===
-  app.get("/api/leaderboard", isAuthenticated, async (req, res) => {
+  app.get("/api/leaderboard", isDashboardUser, async (req, res) => {
     try {
       const { period = "month" } = req.query as { period?: string };
       const now = new Date();
@@ -1029,7 +1029,7 @@ export function registerAnalyticsRoutes(app: Express) {
 
 
   // === LEADERBOARD SETTINGS ===
-  app.get("/api/leaderboard/settings", isAuthenticated, async (req, res) => {
+  app.get("/api/leaderboard/settings", isDashboardUser, async (req, res) => {
     try {
       const [row] = await db.select().from(leaderboardSettings).limit(1);
       res.json(row || {
@@ -1041,7 +1041,7 @@ export function registerAnalyticsRoutes(app: Express) {
     }
   });
 
-  app.put("/api/leaderboard/settings", isAuthenticated, async (req, res) => {
+  app.put("/api/leaderboard/settings", isDashboardUser, async (req, res) => {
     const role = (req.user as any)?.role;
     if (role !== "admin" && role !== "manager") return res.status(403).json({ message: "Admin/Manager only" });
     try {
@@ -1064,7 +1064,7 @@ export function registerAnalyticsRoutes(app: Express) {
 
   // ─── Wave 8: Conversion Analytics Endpoints ───────────────────────────────
 
-  app.get("/api/analytics/conversion-funnel", isAuthenticated, async (req, res) => {
+  app.get("/api/analytics/conversion-funnel", isDashboardUser, async (req, res) => {
     try {
       const { analyticsEvents } = await import("@shared/schema");
       const { gte, count, sql: drizzleSql } = await import("drizzle-orm");
@@ -1100,7 +1100,7 @@ export function registerAnalyticsRoutes(app: Express) {
     }
   });
 
-  app.get("/api/analytics/utm-attribution", isAuthenticated, async (req, res) => {
+  app.get("/api/analytics/utm-attribution", isDashboardUser, async (req, res) => {
     try {
       const { analyticsEvents } = await import("@shared/schema");
       const { gte, count } = await import("drizzle-orm");
@@ -1125,7 +1125,7 @@ export function registerAnalyticsRoutes(app: Express) {
     }
   });
 
-  app.get("/api/analytics/form-events", isAuthenticated, async (req, res) => {
+  app.get("/api/analytics/form-events", isDashboardUser, async (req, res) => {
     try {
       const { analyticsEvents } = await import("@shared/schema");
       const { gte, count } = await import("drizzle-orm");
@@ -1149,7 +1149,7 @@ export function registerAnalyticsRoutes(app: Express) {
     }
   });
 
-  app.get("/api/analytics/conversion-events", isAuthenticated, async (req, res) => {
+  app.get("/api/analytics/conversion-events", isDashboardUser, async (req, res) => {
     try {
       const { analyticsEvents } = await import("@shared/schema");
       const { gte, desc } = await import("drizzle-orm");
@@ -1174,7 +1174,7 @@ export function registerAnalyticsRoutes(app: Express) {
     }
   });
 
-  app.get("/api/analytics/channel-block-summary", isAuthenticated, async (req, res) => {
+  app.get("/api/analytics/channel-block-summary", isDashboardUser, async (req, res) => {
     try {
       const { analyticsEvents } = await import("@shared/schema");
       const { gte, count, inArray } = await import("drizzle-orm");
@@ -1198,7 +1198,7 @@ export function registerAnalyticsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/analytics/record-event", isAuthenticated, async (req, res) => {
+  app.post("/api/analytics/record-event", isDashboardUser, async (req, res) => {
     try {
       const { recordAnalyticsEvent } = await import("../services/analytics-events");
       const { ALL_CANONICAL_EVENTS } = await import("@shared/analytics-events");

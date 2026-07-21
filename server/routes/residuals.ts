@@ -64,7 +64,7 @@ async function parseFileBuffer(buffer: Buffer, mimetype: string): Promise<Record
 }
 
 export function registerResidualsRoutes(app: Express) {
-  app.post("/api/residuals/import", isAuthenticated, upload.single("file"), async (req, res) => {
+  app.post("/api/residuals/import", requireRole("admin", "manager"), upload.single("file"), async (req, res) => {
     try {
       const user = req.user as any;
       if (user?.role !== "admin" && user?.role !== "manager") {
@@ -295,7 +295,7 @@ export function registerResidualsRoutes(app: Express) {
     }
   });
 
-  app.get("/api/residuals/imports", isAuthenticated, async (req, res) => {
+  app.get("/api/residuals/imports", requireRole("admin", "manager"), async (req, res) => {
     try {
       const user = req.user as any;
       if (user?.role !== "admin" && user?.role !== "manager") {
@@ -308,7 +308,7 @@ export function registerResidualsRoutes(app: Express) {
     }
   });
 
-  app.get("/api/residuals/imports/:id", isAuthenticated, async (req, res) => {
+  app.get("/api/residuals/imports/:id", requireRole("admin", "manager"), async (req, res) => {
     try {
       const user = req.user as any;
       if (user?.role !== "admin" && user?.role !== "manager") {
@@ -323,7 +323,7 @@ export function registerResidualsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/residuals/imports/:id/confirm", isAuthenticated, async (req, res) => {
+  app.post("/api/residuals/imports/:id/confirm", requireRole("admin", "manager"), async (req, res) => {
     try {
       const user = req.user as any;
       if (user?.role !== "admin" && user?.role !== "manager") {
@@ -437,7 +437,7 @@ export function registerResidualsRoutes(app: Express) {
     }
   });
 
-  app.delete("/api/residuals/imports/:id", isAuthenticated, async (req, res) => {
+  app.delete("/api/residuals/imports/:id", requireRole("admin", "manager"), async (req, res) => {
     try {
       const user = req.user as any;
       if (user?.role !== "admin" && user?.role !== "manager") {
@@ -452,7 +452,7 @@ export function registerResidualsRoutes(app: Express) {
     }
   });
 
-  app.patch("/api/residuals/imports/:importId/rows/:rowId/match", isAuthenticated, async (req, res) => {
+  app.patch("/api/residuals/imports/:importId/rows/:rowId/match", requireRole("admin", "manager"), async (req, res) => {
     try {
       const user = req.user as any;
       if (user?.role !== "admin" && user?.role !== "manager") {
@@ -562,7 +562,7 @@ export function registerResidualsRoutes(app: Express) {
     }
   });
 
-  app.patch("/api/residuals/imports/:id/settings", isAuthenticated, async (req, res) => {
+  app.patch("/api/residuals/imports/:id/settings", requireRole("admin", "manager"), async (req, res) => {
     try {
       const user = req.user as any;
       if (user?.role !== "admin") {

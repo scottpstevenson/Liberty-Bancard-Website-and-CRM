@@ -58,6 +58,12 @@ export async function sendSmtpEmail(params: {
   html: string;
   from?: string;
   /**
+   * Reply-To address. When set, recipient replies go to this address instead
+   * of the From address. Use for department/rep routing (e.g., the assigned
+   * sales rep's email so replies reach them directly, not the shared SMTP user).
+   */
+  replyTo?: string;
+  /**
    * Fully-qualified mailto: and/or https:// unsubscribe URLs for the
    * List-Unsubscribe header (RFC 2369). Providing an https URL also enables
    * one-click unsubscribe (RFC 8058) via List-Unsubscribe-Post, which Gmail
@@ -91,6 +97,7 @@ export async function sendSmtpEmail(params: {
       to: params.to,
       subject: params.subject,
       html: params.html,
+      ...(params.replyTo ? { replyTo: params.replyTo } : {}),
       ...(Object.keys(headers).length > 0 ? { headers } : {}),
     });
 

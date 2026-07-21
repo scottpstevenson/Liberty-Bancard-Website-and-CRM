@@ -2335,9 +2335,130 @@ export function registerAdminRoutes(app: Express) {
       const { runDatabaseBackup } = await import("../services/db-backup");
       const user = _req.user as any;
       const result = await runDatabaseBackup(`manual:${user?.email || "admin"}`);
-      if (!result.ok) return res.status(500).json({ ok: false, error: result.error });
+      if (!result.ok) {
+        const { persistAlert } = await import("../services/alert-feed");
+        await persistAlert({ severity: "critical", subsystem: "db-backup", summary: `Backup failed: ${result.error}` });
+        return res.status(500).json({ ok: false, error: result.error });
+      }
       const _pathMod = await import("path");
       res.json({ ok: true, filePath: result.filePath ? _pathMod.basename(result.filePath) : null, sizeBytes: result.sizeBytes, durationMs: result.durationMs });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Queue Metrics ─────────────────────────────────────────────────────────
+  app.get("/api/admin/queue-metrics", requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const { getQueueManager } = await import("../services/queue-manager");
+      const qm = await getQueueManager();
+      const { queues, usingMock } = await qm.getAllQueueMetrics();
+      res.json({ queues, usingMock, timestamp: new Date().toISOString() });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Alert Feed ────────────────────────────────────────────────────────────
+  app.get("/api/admin/alerts", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const { getRecentAlerts } = await import("../services/alert-feed");
+      const limit = Math.min(Number(req.query.limit) || 50, 200);
+      const alerts = await getRecentAlerts(limit);
+      res.json(alerts);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/admin/alerts/:id/acknowledge", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const { acknowledgeAlert } = await import("../services/alert-feed");
+      const ok = await acknowledgeAlert(Number(req.params.id));
+      if (!ok) return res.status(404).json({ message: "Alert not found" });
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Launch Readiness ──────────────────────────────────────────────────────
+  app.get("/api/admin/launch-readiness", requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const { getCanonicalUrlInfo } = await import("../lib/canonical-url");
+      const { isGhlConfigured } = await import("../services/ghl");
+      const { isSmtpConfigured, getSmtpStatus } = await import("../services/smtp-email");
+      const { getQueueManager } = await import("../services/queue-manager");
+      const { listBackups } = await import("../services/db-backup");
+      const { getRecentAlerts } = await import("../services/alert-feed");
+      const { pool } = await import("../db");
+
+      const urlInfo = getCanonicalUrlInfo();
+      const ghlOk = isGhlConfigured();
+      const smtpStatus = getSmtpStatus();
+      const smtpOk = isSmtpConfigured();
+
+      let queueMetrics: any[] = [];
+      let queueMock = false;
+      try {
+        const qm = await getQueueManager();
+        const m = await qm.getAllQueueMetrics();
+        queueMetrics = m.queues;
+        queueMock = m.usingMock;
+      } catch {}
+
+      let backups: any[] = [];
+      try { backups = await listBackups(); } catch {}
+
+      let dbOk = false;
+      let dbMs = 0;
+      try {
+        const t0 = Date.now();
+        await pool.query("SELECT 1");
+        dbMs = Date.now() - t0;
+        dbOk = true;
+      } catch {}
+
+      const alerts = await getRecentAlerts(20);
+      const criticalAlerts = alerts.filter((a) => a.severity === "critical" && !a.acknowledged);
+
+      const envChecks = {
+        APP_URL: { set: !!process.env.APP_URL, value: process.env.APP_URL ? "***set***" : null },
+        SLACK_AUDIT_WEBHOOK_URL: { set: !!process.env.SLACK_AUDIT_WEBHOOK_URL },
+        SMTP_PASS: { set: smtpOk },
+        REDIS_URL: { set: !!process.env.REDIS_URL },
+        GHL_LOCATION_ID: { set: !!process.env.GHL_LOCATION_ID },
+        GHL_PRIVATE_INTEGRATION_TOKEN: { set: !!process.env.GHL_PRIVATE_INTEGRATION_TOKEN },
+        GHL_WEBHOOK_SECRET: { set: !!process.env.GHL_WEBHOOK_SECRET },
+      };
+
+      const gates = [
+        { id: "canonical_url", label: "Canonical URL resolved", pass: urlInfo.source !== "static_fallback", detail: `${urlInfo.url} (source: ${urlInfo.source})`, ownerAction: urlInfo.warning },
+        { id: "database", label: "PostgreSQL responding", pass: dbOk, detail: dbOk ? `${dbMs}ms` : "Connection failed" },
+        { id: "redis", label: "Redis / BullMQ", pass: !queueMock, detail: queueMock ? "Using in-memory mock (set REDIS_URL for production)" : "Live Redis connected" },
+        { id: "ghl", label: "GHL integration configured", pass: ghlOk, detail: ghlOk ? "GHL_LOCATION_ID + token present" : "Missing GHL credentials", ownerAction: ghlOk ? undefined : "Set GHL_LOCATION_ID and GHL_PRIVATE_INTEGRATION_TOKEN in Replit Secrets" },
+        { id: "smtp", label: "SMTP fallback configured", pass: smtpOk, detail: smtpOk ? `host=${smtpStatus.host}` : "SMTP not configured — GHL is primary delivery path", ownerAction: smtpOk ? undefined : "Set SMTP_HOST, SMTP_USER, SMTP_PASS in Replit Secrets (optional but required for transactional email fallback)" },
+        { id: "queues", label: "All queues registered", pass: queueMetrics.length >= 8, detail: `${queueMetrics.length} queues registered` },
+        { id: "backups", label: "Backup artifact exists", pass: backups.length > 0, detail: backups.length > 0 ? `${backups.length} backup(s) — latest: ${backups[0]?.filename}` : "No backups yet — run a manual backup", ownerAction: backups.length === 0 ? "Trigger POST /api/admin/backups/run to create first backup" : undefined },
+        { id: "no_critical_alerts", label: "No unacknowledged critical alerts", pass: criticalAlerts.length === 0, detail: criticalAlerts.length > 0 ? `${criticalAlerts.length} critical alert(s) need acknowledgement` : "Clean" },
+        { id: "app_url_secret", label: "APP_URL secret set", pass: !!process.env.APP_URL, detail: process.env.APP_URL ? "Set" : "Not set — email links may point to wrong host", ownerAction: !process.env.APP_URL ? "Set APP_URL=https://<your-deployment-domain> in Replit Secrets" : undefined },
+      ];
+
+      const allPass = gates.every((g) => g.pass);
+      const p0Failures = gates.filter((g) => !g.pass);
+
+      res.json({
+        verdict: allPass ? "GO" : "NO-GO",
+        timestamp: new Date().toISOString(),
+        canonicalUrl: urlInfo,
+        gates,
+        p0Failures,
+        queues: queueMetrics,
+        backups: backups.slice(0, 5),
+        recentAlerts: alerts,
+        envChecks,
+        ownerActions: gates.filter((g) => g.ownerAction).map((g) => ({ gate: g.label, action: g.ownerAction })),
+      });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

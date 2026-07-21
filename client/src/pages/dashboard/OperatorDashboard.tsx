@@ -28,6 +28,7 @@ import {
 import StatementChainPanel from "@/components/operator/StatementChainPanel";
 import { ALeadQueue } from "./sdr/ALeadQueue";
 import { ProcessorIntelligence } from "./sdr/ProcessorIntelligence";
+import LaunchReadinessPage from "./LaunchReadiness";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, PieChart, Pie, Cell, Legend, LineChart, Line } from "recharts";
 import type { LifecycleStageCountsResponse, OperatorSdrStatsResponse } from "@shared/operator-dashboard-types";
 
@@ -2751,6 +2752,7 @@ const OPERATOR_NAV_GROUPS: OperatorNavGroup[] = [
       { value: "queue-metrics", label: "Job Queue", icon: Zap },
       { value: "deleted-records", label: "Deleted Records", icon: XCircle },
       { value: "system-audit", label: "System Audit", icon: Shield },
+      { value: "launch-readiness", label: "Launch Readiness", icon: CheckCircle2 },
     ],
   },
 ];
@@ -2825,6 +2827,8 @@ function renderOperatorView(view: string, onNavigate: (v: string) => void) {
       return <QueueMetricsPanel />;
     case "deleted-records":
       return <DeletedRecordsPanel />;
+    case "launch-readiness":
+      return <LaunchReadinessPage />;
     case "system-audit":
       return (
         <div className="flex flex-col items-center justify-center h-64 gap-4">

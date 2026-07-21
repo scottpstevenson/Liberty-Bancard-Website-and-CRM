@@ -191,6 +191,7 @@ const UnderwritingPage = lazy(() => import("@/pages/dashboard/Underwriting"));
 const SystemReadiness = lazy(() => import("@/pages/dashboard/SystemReadiness"));
 const EmailHealth = lazy(() => import("@/pages/dashboard/EmailHealth"));
 const SystemAudit = lazy(() => import("@/pages/dashboard/SystemAudit"));
+const LaunchReadiness = lazy(() => import("@/pages/dashboard/LaunchReadiness"));
 const SetupWizard = lazy(() => import("@/pages/dashboard/SetupWizard"));
 
 // ─── Dashboard Hub Pages ───────────────────────────────────────────────────────
@@ -735,6 +736,9 @@ function Router() {
         </Route>
         <Route path="/dashboard/merchant-risk">
           <ProtectedRoute component={MerchantRiskHub} allowedRoles={["admin", "manager"]} />
+        </Route>
+        <Route path="/dashboard/launch-readiness">
+          <ProtectedRoute component={LaunchReadiness} allowedRoles={["admin", "manager"]} />
         </Route>
         <Route path="/dashboard/system-audit">
           <ProtectedRoute component={SystemAudit} allowedRoles={["admin", "manager"]} />

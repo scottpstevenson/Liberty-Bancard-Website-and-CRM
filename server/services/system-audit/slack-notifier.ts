@@ -103,6 +103,17 @@ export async function sendAuditReport(opts: {
 }
 
 export async function sendCriticalAlert(probe: ProbeResult, context?: string): Promise<void> {
+  // Always persist to the admin alert feed regardless of Slack config
+  try {
+    const { persistAlert } = await import("../alert-feed");
+    await persistAlert({
+      severity: "critical",
+      subsystem: probe.name ?? "unknown",
+      summary: context ?? probe.error ?? "Critical alert fired",
+      details: { probe },
+    });
+  } catch (_) {}
+
   const url = webhookUrl();
   if (!url) return;
 

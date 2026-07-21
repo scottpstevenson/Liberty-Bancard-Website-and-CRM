@@ -133,6 +133,15 @@ const CASES: GuardCase[] = [
   { method: "GET",    path: "/api/admin/health",                     anon: [401], merchant: [403], admin: [200], description: "admin health check (isDashboardUser)" },
   { method: "GET",    path: "/api/sdr/compliance-channel-status",    anon: [401], merchant: [403], admin: [200], description: "SDR compliance channel status (isDashboardUser)" },
 
+  // ── Auth-gate hardening (launch remediation) — formerly isAuthenticated, now isDashboardUser/requireRole ──
+  { method: "GET",    path: "/api/notes?entityType=contact&entityId=1",      anon: [401], merchant: [403], admin: [200], description: "notes list (isDashboardUser — merchants blocked)" },
+  { method: "GET",    path: "/api/forecasting/summary",               anon: [401], merchant: [403], admin: [200], description: "forecasting summary (isDashboardUser — merchants blocked)" },
+  { method: "GET",    path: "/api/residuals/imports",                 anon: [401], merchant: [403], admin: [200], description: "residuals import list (requireRole admin/manager — merchants blocked)" },
+  { method: "GET",    path: "/api/kpi/summary",                      anon: [401], merchant: [403], admin: [200], description: "KPI summary (isDashboardUser — merchants blocked)" },
+  { method: "GET",    path: "/api/admin/launch-readiness",           anon: [401], merchant: [403], admin: [200], description: "launch readiness (requireRole admin/manager)" },
+  { method: "GET",    path: "/api/admin/queue-metrics",              anon: [401], merchant: [403], admin: [200], description: "queue metrics (requireRole admin/manager)" },
+  { method: "GET",    path: "/api/admin/alerts",                     anon: [401], merchant: [403], admin: [200], description: "alert feed (requireRole admin/manager)" },
+
   // ── Task #695: Voice/SMS/Ringless Go-Live Audit — Approval Gate (admin-only) ──
   // All three routes require requireRole("admin"); merchant/agent → 403.
   // POST routes are audit-only writes (never touch env/secrets) but still go

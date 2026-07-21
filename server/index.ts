@@ -41,12 +41,8 @@ if (process.env.SENTRY_DSN) {
 
 // Build CORS origin allowlist from ALLOWED_ORIGINS env var (comma-separated).
 // Falls back to the production domain so the app is safe out of the box.
-const _allowedOrigins: string[] = (
-  process.env.ALLOWED_ORIGINS || process.env.APP_URL || "https://libertybancard.com"
-)
-  .split(",")
-  .map((o) => o.trim())
-  .filter(Boolean);
+import { getCorsOrigins, getCanonicalUrl } from "./lib/canonical-url";
+const _allowedOrigins: string[] = getCorsOrigins();
 
 function validateCriticalEnvVars() {
   const criticalVars = [
