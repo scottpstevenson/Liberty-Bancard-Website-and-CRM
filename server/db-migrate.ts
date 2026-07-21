@@ -51,6 +51,10 @@ import { pool } from "./db";
 const db = drizzle(pool);
 
 const MIGRATIONS_FOLDER = path.join(process.cwd(), "migrations");
+// Guarded migrations are SQL files intentionally kept outside the Drizzle journal
+// because they have runtime precondition checks. drizzle-kit does not scan
+// subdirectories, so files here are invisible to automatic migration generation.
+const GUARDED_MIGRATIONS_FOLDER = path.join(MIGRATIONS_FOLDER, "guarded");
 
 const DRIZZLE_SCHEMA = "drizzle";
 const DRIZZLE_TABLE = "__drizzle_migrations";
@@ -70,7 +74,11 @@ const PHASE3_INDEX_TAG = "0054_sla_task_stalling_unique_index";
 const PHASE3_INDEX_NAME = "tasks_sla_stalling_active_unique";
 
 function computeMigrationHash(tag: string): string | null {
-  const filePath = path.join(MIGRATIONS_FOLDER, `${tag}.sql`);
+  // Check the guarded subfolder first (for intentionally-gated migrations like 0054).
+  const guardedPath = path.join(GUARDED_MIGRATIONS_FOLDER, `${tag}.sql`);
+  const filePath = fs.existsSync(guardedPath)
+    ? guardedPath
+    : path.join(MIGRATIONS_FOLDER, `${tag}.sql`);
   if (!fs.existsSync(filePath)) return null;
   const content = fs.readFileSync(filePath, "utf8");
   return crypto.createHash("sha256").update(content).digest("hex");
@@ -148,8 +156,8 @@ async function applyPhase3IndexIfReady(): Promise<void> {
       return;
     }
 
-    // 3. Precondition met: apply 0054 SQL directly.
-    const sqlPath = path.join(MIGRATIONS_FOLDER, `${PHASE3_INDEX_TAG}.sql`);
+    // 3. Precondition met: apply 0054 SQL directly (file lives in guarded/ subfolder).
+    const sqlPath = path.join(GUARDED_MIGRATIONS_FOLDER, `${PHASE3_INDEX_TAG}.sql`);
     if (!fs.existsSync(sqlPath)) {
       console.error(`[DB Migrate] PHASE 3 ERROR: SQL file not found at ${sqlPath}`);
       return;

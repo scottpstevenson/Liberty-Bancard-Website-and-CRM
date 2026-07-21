@@ -575,6 +575,20 @@
       "when": 1787000000000,
       "tag": "0077_outbound_attestations",
       "breakpoints": false
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1787100000000,
+      "tag": "0014_dedup_sdr_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 83,
+      "version": "7",
+      "when": 1787200000000,
+      "tag": "0016_share_view_count",
+      "breakpoints": true
     }
   ]
 }
