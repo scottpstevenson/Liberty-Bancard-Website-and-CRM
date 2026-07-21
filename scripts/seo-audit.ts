@@ -266,8 +266,24 @@ async function auditRoute(spec: RouteSpec): Promise<AuditResult> {
   return { path: spec.path, status, errors, warnings };
 }
 
+async function waitForServer(maxWaitMs = 30_000): Promise<void> {
+  const deadline = Date.now() + maxWaitMs;
+  while (Date.now() < deadline) {
+    try {
+      await fetch(`${BASE}/api/health`, { signal: AbortSignal.timeout(2000) });
+      return; // server is up
+    } catch {
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+  }
+  throw new Error(`Server at ${BASE} did not become ready within ${maxWaitMs / 1000}s`);
+}
+
 async function main() {
   console.log(`SEO audit against ${BASE}\n`);
+  console.log("Waiting for server to be ready…");
+  await waitForServer(45_000);
+  console.log("Server ready.\n");
   const results: AuditResult[] = [];
   for (const spec of ROUTES) {
     const r = await auditRoute(spec);

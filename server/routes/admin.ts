@@ -2464,4 +2464,122 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // ── Integration Readiness — per-secret safe probe endpoints ─────────────────
+
+  // Per-user in-memory rate limit for retest: max 10 per minute
+  const retestCounts = new Map<string, { count: number; resetAt: number }>();
+  function checkRetestRateLimit(userId: string): boolean {
+    const now = Date.now();
+    const entry = retestCounts.get(userId);
+    if (!entry || now > entry.resetAt) {
+      retestCounts.set(userId, { count: 1, resetAt: now + 60_000 });
+      return true;
+    }
+    if (entry.count >= 10) return false;
+    entry.count++;
+    return true;
+  }
+
+  app.get("/api/admin/integration-readiness", requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const { runFullValidation } = await import("../services/integration-validator");
+      const report = await runFullValidation(false);
+      res.json(report);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/admin/integration-readiness/retest", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const userId = String((req.user as any)?.id || "unknown");
+      if (!checkRetestRateLimit(userId)) {
+        return res.status(429).json({ message: "Rate limit: max 10 retests per minute" });
+      }
+      const category = req.body?.category as string | undefined;
+      await storage.createAuditLog({
+        action: "integration_readiness_retest",
+        entityType: "system",
+        actorId: (req.user as any)?.id,
+        actorType: "admin",
+        details: { category: category || "all" },
+      });
+      const { runFullValidation } = await import("../services/integration-validator");
+      const report = await runFullValidation(true);
+      // If category filter requested, still return full report (filtering is UI-side)
+      res.json(report);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/admin/integration-readiness/test-email", requireRole("admin"), async (req, res) => {
+    try {
+      const { to, channel } = req.body as { to?: string; channel?: "smtp" | "ghl" };
+      const actor = req.user as any;
+
+      if (!to || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
+        return res.status(400).json({ success: false, error: "Invalid or missing 'to' address" });
+      }
+      // Only allow test sends to @libertybancard.com or explicitly configured SMTP_TEST_RECIPIENT
+      const allowedDomains = ["libertybancard.com"];
+      const toTestRecipient = process.env.SMTP_TEST_RECIPIENT;
+      const toDomain = to.split("@")[1]?.toLowerCase();
+      const allowed = allowedDomains.includes(toDomain) || (toTestRecipient && to === toTestRecipient);
+      if (!allowed) {
+        return res.status(403).json({
+          success: false,
+          error: `Test emails can only be sent to @libertybancard.com addresses or the configured SMTP_TEST_RECIPIENT. Received domain: ${toDomain}`,
+        });
+      }
+
+      await storage.createAuditLog({
+        action: "integration_readiness_test_email",
+        entityType: "system",
+        actorId: actor?.id,
+        actorType: "admin",
+        details: { to, channel: channel || "smtp", triggeredBy: actor?.email },
+      });
+
+      if (channel === "ghl") {
+        return res.json({ success: false, error: "GHL test send not implemented — use GHL's built-in test workflow feature" });
+      }
+
+      const { sendSmtpEmail, isSmtpConfigured } = await import("../services/smtp-email");
+      if (!isSmtpConfigured()) {
+        return res.json({ success: false, error: "SMTP not configured — set SMTP_HOST, SMTP_USER, SMTP_PASS" });
+      }
+      const result = await sendSmtpEmail({
+        to,
+        subject: `Liberty Bancard — Integration Readiness SMTP Test (${new Date().toLocaleString()})`,
+        html: `<p>This is a controlled SMTP integration test sent by <strong>${actor?.email || "admin"}</strong> from the Liberty Bancard Integration Readiness panel.</p><p>Sent at: ${new Date().toISOString()}</p><p>If you received this, SMTP is working correctly.</p>`,
+      });
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // GHL field bootstrap (POST — creates missing lb_* fields in GHL)
+  app.post("/api/admin/ghl/bootstrap-fields", requireRole("admin"), async (req, res) => {
+    try {
+      const actor = req.user as any;
+      await storage.createAuditLog({
+        action: "ghl_field_bootstrap",
+        entityType: "system",
+        actorId: actor?.id,
+        actorType: "admin",
+        details: { triggeredBy: actor?.email },
+      });
+      const { bootstrapGhlCustomFieldsAndTags } = await import("../services/sdr/ghl-client");
+      const result = await bootstrapGhlCustomFieldsAndTags();
+      // Clear the integration readiness cache so next poll shows updated field status
+      const { clearValidationCache } = await import("../services/integration-validator");
+      clearValidationCache();
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
 }

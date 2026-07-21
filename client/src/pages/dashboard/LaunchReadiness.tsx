@@ -6,6 +6,7 @@ import { Separator } from "@/components/ui/separator";
 import { CheckCircle, XCircle, AlertTriangle, RefreshCw, Play, Clock } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { IntegrationReadiness } from "@/components/dashboard/IntegrationReadiness";
 
 interface Gate {
   id: string;
@@ -289,6 +290,11 @@ export default function LaunchReadiness() {
           </div>
         </CardContent>
       </Card>
+
+      <div>
+        <h2 className="text-base font-semibold mb-3">Secrets &amp; Integration Readiness</h2>
+        <IntegrationReadiness />
+      </div>
 
       <Separator />
       <p className="text-xs text-muted-foreground text-center">
