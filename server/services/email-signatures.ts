@@ -1,6 +1,7 @@
 import { storage } from "../storage";
 import { generateUnsubscribeToken } from "./unsubscribe-token";
 import type { FollowUpSequence } from "@shared/schema";
+import type { SignatureType } from "./sender-policy";
 
 export interface EmailSignature {
   name: string;
@@ -26,12 +27,18 @@ const DEFAULT_PROMO: PromoOffer = {
   description: "Sign up this month and receive a free Clover terminal — no hidden fees, no long-term contract.",
 };
 
-const DEFAULT_SIGNATURES: Record<string, EmailSignature> = {
+/**
+ * Default sender profiles — all From/email addresses are aligned with the
+ * sender policy registry (sender-policy.ts). Any change here must mirror the
+ * policy registry and vice versa.
+ */
+const DEFAULT_SIGNATURES: Record<SignatureType, EmailSignature> = {
+  /** Cold SDR outreach — uses dedicated cold-outreach mailbox. */
   sales: {
     name: "Scott Stevenson",
     title: "Business Development",
     phone: "954-266-8214",
-    email: "scott@libertybancard.com",
+    email: "Scott@mail.libertybancard.com",
     calendlyLink: "https://api.leadconnectorhq.com/widget/booking/liberty-bancard",
   },
   support: {
@@ -41,10 +48,28 @@ const DEFAULT_SIGNATURES: Record<string, EmailSignature> = {
     email: "support@libertybancard.com",
   },
   onboarding: {
-    name: "Scott Stevenson",
+    name: "Liberty Bancard Onboarding",
     title: "New Merchant Activation",
     phone: "954-266-8214",
-    email: "scott@libertybancard.com",
+    email: "onboarding@libertybancard.com",
+  },
+  security: {
+    name: "Liberty Bancard Security",
+    title: "Account Security",
+    phone: "954-266-8214",
+    email: "security@libertybancard.com",
+  },
+  partners: {
+    name: "Liberty Bancard Partner Program",
+    title: "Partner Relations",
+    phone: "954-266-8214",
+    email: "partners@libertybancard.com",
+  },
+  accounts: {
+    name: "Liberty Bancard Accounts",
+    title: "Account Services",
+    phone: "954-266-8214",
+    email: "accounts@libertybancard.com",
   },
 };
 
@@ -63,12 +88,13 @@ export function getCurrentPromo(): PromoOffer {
 }
 
 export function getEmailSignatureHtml(
-  type: "sales" | "support" | "onboarding" = "sales",
+  type: SignatureType = "sales",
   customSig?: Partial<EmailSignature>,
   promo?: PromoOffer | null,
 ): string {
-  const sig = { ...DEFAULT_SIGNATURES[type], ...customSig };
-  const activePromo = promo === null ? null : promo || DEFAULT_PROMO;
+  const base = DEFAULT_SIGNATURES[type] ?? DEFAULT_SIGNATURES.sales;
+  const sig = { ...base, ...customSig };
+  const activePromo = promo === null ? null : promo || (type === "sales" ? DEFAULT_PROMO : null);
   const name = escapeHtml(sig.name);
   const title = escapeHtml(sig.title);
   const phone = escapeHtml(sig.phone);
@@ -90,6 +116,21 @@ export function getEmailSignatureHtml(
     console.warn("[email-signatures] APP_URL is not set — logo omitted from email signature");
   }
 
+  // Sales/cold-outreach signatures include the promo CTA and booking link.
+  // Department signatures (support, onboarding, security, partners, accounts)
+  // are narrower — no promo CTA, no booking link.
+  const isColdSales = type === "sales";
+
+  const actionRows = isColdSales
+    ? `
+  <tr>
+    <td style="padding-top:10px;">
+      <a href="${quizUrl}" style="display:inline-block;background-color:#1e3a5f;color:#ffffff;padding:10px 20px;border-radius:4px;text-decoration:none;font-size:13px;font-weight:bold;">Get Your Free Savings Analysis</a>
+    </td>
+  </tr>
+  ${promoLine}`
+    : "";
+
   return `
 <br/><br/>
 ${logoBlock}<table style="font-family:Arial,sans-serif;font-size:13px;color:#333;border-collapse:collapse;">
@@ -99,34 +140,32 @@ ${logoBlock}<table style="font-family:Arial,sans-serif;font-size:13px;color:#333
       <span style="color:#666;">${title} | Liberty Bancard</span><br/>
       <span style="color:#666;">${phone} | ${email}</span><br/>
       ${link ? `<a href="${link}" style="color:#1e3a5f;text-decoration:none;">Schedule a Free Statement Review</a><br/>` : ""}
-      <a href="${shopUrl}" style="color:#1e3a5f;text-decoration:none;">Browse Terminals &amp; Equipment</a><br/>
+      ${isColdSales ? `<a href="${shopUrl}" style="color:#1e3a5f;text-decoration:none;">Browse Terminals &amp; Equipment</a><br/>` : ""}
       <span style="font-size:11px;color:#999;margin-top:4px;display:inline-block;">Eligibility, underwriting, card brand rules, and applicable laws apply.</span>
     </td>
   </tr>
-  <tr>
-    <td style="padding-top:10px;">
-      <a href="${quizUrl}" style="display:inline-block;background-color:#1e3a5f;color:#ffffff;padding:10px 20px;border-radius:4px;text-decoration:none;font-size:13px;font-weight:bold;">Get Your Free Savings Analysis</a>
-    </td>
-  </tr>
-  ${promoLine}
+  ${actionRows}
 </table>`;
 }
 
 export function getEmailSignaturePlainText(
-  type: "sales" | "support" | "onboarding" = "sales",
+  type: SignatureType = "sales",
   customSig?: Partial<EmailSignature>,
   promo?: PromoOffer | null,
 ): string {
-  const sig = { ...DEFAULT_SIGNATURES[type], ...customSig };
-  const activePromo = promo === null ? null : promo || DEFAULT_PROMO;
+  const base = DEFAULT_SIGNATURES[type] ?? DEFAULT_SIGNATURES.sales;
+  const sig = { ...base, ...customSig };
+  const activePromo = promo === null ? null : promo || (type === "sales" ? DEFAULT_PROMO : null);
   const quizUrl = buildLink(QUIZ_PATH, sig.refCode);
   const shopUrl = buildLink(SHOP_PATH, sig.refCode);
 
   let text = `Liberty Bancard — https://libertybancard.com\n\n--\n${sig.name}\n${sig.title} | Liberty Bancard\n${sig.phone} | ${sig.email}`;
   if (sig.calendlyLink) text += `\nSchedule a Review: ${sig.calendlyLink}`;
-  text += `\n\nGet Your Free Savings Analysis: ${quizUrl}`;
-  text += `\nBrowse Terminals & Equipment: ${shopUrl}`;
-  if (activePromo) text += `\n\nP.S. ${activePromo.headline} — ${activePromo.description}`;
+  if (type === "sales") {
+    text += `\n\nGet Your Free Savings Analysis: ${quizUrl}`;
+    text += `\nBrowse Terminals & Equipment: ${shopUrl}`;
+    if (activePromo) text += `\n\nP.S. ${activePromo.headline} — ${activePromo.description}`;
+  }
   text += `\nEligibility, underwriting, card brand rules, and applicable laws apply.`;
   return text;
 }
@@ -186,8 +225,11 @@ export function getComplianceFooterHtml(contactId: number, mailingAddress: strin
 
 export async function getStoredSignature(type: string): Promise<EmailSignature> {
   const stored = await storage.getSystemSetting(`email_signature_${type}`);
-  if (stored) return { ...DEFAULT_SIGNATURES[type] || DEFAULT_SIGNATURES.sales, ...stored };
-  return DEFAULT_SIGNATURES[type] || DEFAULT_SIGNATURES.sales;
+  if (stored) {
+    const fallback = (DEFAULT_SIGNATURES as Record<string, EmailSignature>)[type] ?? DEFAULT_SIGNATURES.sales;
+    return { ...fallback, ...stored };
+  }
+  return (DEFAULT_SIGNATURES as Record<string, EmailSignature>)[type] ?? DEFAULT_SIGNATURES.sales;
 }
 
 export async function saveSignature(type: string, sig: Partial<EmailSignature>): Promise<void> {
@@ -197,7 +239,6 @@ export async function saveSignature(type: string, sig: Partial<EmailSignature>):
 /**
  * Seed default sender profiles into system_settings on first startup.
  * Safe to call multiple times — only writes keys that are not yet set.
- * Call from server startup (after DB is ready) to guarantee defaults exist.
  */
 export async function seedDefaultSignatures(): Promise<void> {
   for (const [type, sig] of Object.entries(DEFAULT_SIGNATURES)) {
@@ -216,7 +257,7 @@ export async function seedDefaultSignatures(): Promise<void> {
  * falls back to DEFAULT_SIGNATURES. Use this in async contexts (workers, background jobs).
  */
 export async function getEmailSignatureHtmlAsync(
-  type: "sales" | "support" | "onboarding" = "sales",
+  type: SignatureType = "sales",
   customSig?: Partial<EmailSignature>,
   promo?: PromoOffer | null,
 ): Promise<string> {
@@ -229,7 +270,7 @@ export async function getEmailSignatureHtmlAsync(
  */
 export async function getAllSenderProfiles(): Promise<Record<string, EmailSignature>> {
   const result: Record<string, EmailSignature> = {};
-  for (const type of ["sales", "support", "onboarding"]) {
+  for (const type of Object.keys(DEFAULT_SIGNATURES) as SignatureType[]) {
     result[type] = await getStoredSignature(type);
   }
   return result;

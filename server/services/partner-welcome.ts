@@ -14,12 +14,7 @@ function buildPartnerWelcomeEmail(partner: Partner, referralLink: string, portal
   const affiliateCode = partner.affiliateCode || "";
   const commissionPercent = partner.commissionPercent ?? 10;
 
-  const signature = getEmailSignatureHtml("onboarding", {
-    name: "Scott Stevenson",
-    title: "Liberty Bancard",
-    phone: "954-266-8214",
-    email: "scott@libertybancard.com",
-  }, null);
+  const signature = getEmailSignatureHtml("partners", undefined, null);
 
   return `
 <div style="font-family:Arial,sans-serif;font-size:14px;color:#333;max-width:600px;">
@@ -121,7 +116,7 @@ export async function sendPartnerWelcomeEmail(partner: Partner): Promise<void> {
       if (ghlContactId) {
         const subject = `Welcome to Liberty Bancard's Partner Program — you're approved!`;
         const htmlBody = buildPartnerWelcomeEmail(partner, referralLink, portalUrl);
-        await sendEmailReply({ contactId: ghlContactId, subject, htmlBody });
+        await sendEmailReply({ contactId: ghlContactId, subject, htmlBody, fromEmail: "partners@libertybancard.com", fromName: "Liberty Bancard Partner Program" });
         method = "direct_email";
         console.log(`[Partner Welcome] Email sent to partner #${partner.id} via direct_email`);
       } else {

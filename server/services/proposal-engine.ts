@@ -653,6 +653,8 @@ export async function sendProposalEmail(dealId: number): Promise<boolean> {
           dealId,
           subject,
           body,
+          fromEmail: "accounts@libertybancard.com",
+          fromName: "Liberty Bancard Accounts",
         });
         if (ghlDirectResult.success) {
           emailSent = true;
@@ -688,7 +690,7 @@ export async function sendProposalEmail(dealId: number): Promise<boolean> {
       const { isSmtpConfigured, sendSmtpEmail } = await import("./smtp-email");
       if (isSmtpConfigured()) {
         try {
-          const smtpResult = await sendSmtpEmail({ to: contact.email, subject, html: body });
+          const smtpResult = await sendSmtpEmail({ to: contact.email, subject, html: body, category: "accounts" });
           if (smtpResult.success) {
             emailSent = true;
             emailChannel = "SMTP-Fallback";

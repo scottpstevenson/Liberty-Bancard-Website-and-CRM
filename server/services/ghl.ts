@@ -541,6 +541,13 @@ export async function sendGhlEmail(params: {
   fromEmail?: string;
   fromName?: string;
   /**
+   * Reply-To address. GHL's conversation API does not expose a dedicated
+   * Reply-To header at enrollment time; this field is recorded in the
+   * activity log for audit purposes but is not forwarded to the wire payload.
+   * Use SMTP when a true Reply-To header is required.
+   */
+  replyTo?: string;
+  /**
    * When true, skips the `createGhlActivityLog` DB write on both success and failure.
    * Used by deliver-only helpers (e.g. `sendConfirmationEmail`) that must remain
    * side-effect free — the caller is responsible for all audit/activity logging.
@@ -568,13 +575,13 @@ export async function sendGhlEmail(params: {
     };
 
     if (params.fromEmail) {
-      emailPayload.emailFrom = params.fromEmail;
-    }
-    if (params.fromName) {
+      // Format as "Display Name <email>" when fromName is also provided
+      emailPayload.emailFrom = params.fromName
+        ? `${params.fromName} <${params.fromEmail}>`
+        : params.fromEmail;
       emailPayload.emailReplyMode = "custom";
-      if (params.fromEmail) {
-        emailPayload.emailFrom = params.fromEmail;
-      }
+    } else if (params.fromName) {
+      emailPayload.emailReplyMode = "custom";
     }
 
     const result = await ghlFetch("/conversations/messages", {
@@ -622,17 +629,26 @@ export async function sendGhlEmailForMerchant(params: {
   email: string;
   subject: string;
   body: string;
+  fromEmail?: string;
+  fromName?: string;
 }): Promise<{ success: boolean; error?: string }> {
   try {
     const config = getConfig();
     if (!config) throw new Error("GHL not configured");
 
-    const emailPayload = {
+    const emailPayload: Record<string, unknown> = {
       type: "Email",
       email: params.email,
       subject: params.subject,
       html: params.body,
     };
+
+    if (params.fromEmail) {
+      emailPayload.emailFrom = params.fromName
+        ? `${params.fromName} <${params.fromEmail}>`
+        : params.fromEmail;
+      emailPayload.emailReplyMode = "custom";
+    }
 
     const result = await ghlFetch("/conversations/messages", {
       method: "POST",
@@ -641,7 +657,7 @@ export async function sendGhlEmailForMerchant(params: {
 
     if (result?.messageId) trackOutboundMessageId(result.messageId);
 
-    console.log(`[GHL] Welcome email sent to ${params.email} - Subject: ${params.subject}`);
+    console.log(`[GHL] Email sent to ${params.email} from ${params.fromEmail || "GHL-location-default"} — Subject: ${params.subject}`);
 
     return { success: true };
   } catch (err: any) {

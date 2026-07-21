@@ -43,13 +43,20 @@ async function unifiedUpsertContact(contact: { id: number; ghlContactId?: string
   return null;
 }
 
-async function unifiedSendEmail(params: { contactId: number; ghlContactId: string; subject: string; body: string }): Promise<void> {
+async function unifiedSendEmail(params: {
+  contactId: number;
+  ghlContactId: string;
+  subject: string;
+  body: string;
+  fromEmail?: string;
+  fromName?: string;
+}): Promise<void> {
   if (isGhlConfigured()) {
-    await sendGhlEmail({ contactId: params.contactId, subject: params.subject, body: params.body });
+    await sendGhlEmail({ contactId: params.contactId, subject: params.subject, body: params.body, fromEmail: params.fromEmail, fromName: params.fromName });
     return;
   }
   if (isSdrGhlConfigured()) {
-    await sdrSendEmail({ contactId: params.ghlContactId, subject: params.subject, htmlBody: params.body });
+    await sdrSendEmail({ contactId: params.ghlContactId, subject: params.subject, htmlBody: params.body, fromEmail: params.fromEmail, fromName: params.fromName });
     return;
   }
   throw new Error("No GHL client configured for sending email");
@@ -113,7 +120,7 @@ async function sendConfirmationEmail(params: {
   // Provider 2: SMTP (contact.email used directly, no GHL contact ID required)
   if (isSmtpConfigured()) {
     try {
-      const result = await sendSmtpEmail({ to: params.email, subject: params.subject, html: params.body });
+      const result = await sendSmtpEmail({ to: params.email, subject: params.subject, html: params.body, category: "accounts" });
       if (result.success) {
         return { sent: true, provider: "smtp", providerMessageId: result.messageId ?? null };
       }

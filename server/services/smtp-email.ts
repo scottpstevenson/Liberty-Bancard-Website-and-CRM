@@ -1,4 +1,6 @@
 import nodemailer from "nodemailer";
+import { resolvePolicy, assertNotProhibitedSync, isProhibitedAddress } from "./sender-policy";
+import type { MessageCategory } from "./sender-policy";
 
 let transporter: nodemailer.Transporter | null = null;
 
@@ -52,22 +54,41 @@ export function isSmtpConfigured(): boolean {
   return !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
 }
 
+/**
+ * Send an email via SMTP.
+ *
+ * Sender resolution order (when `category` is supplied):
+ *   1. From/Reply-To are resolved from the sender policy registry.
+ *   2. The explicit `from` param is ignored — policy is authoritative.
+ *
+ * When `category` is absent (legacy callers still migrating):
+ *   From resolves as: params.from → SMTP_FROM env → SMTP_USER env → "support@libertybancard.com"
+ *   A deprecation warning is logged. Callers MUST be updated to pass `category`.
+ *
+ * Either way, the resolved From address is checked against the prohibition
+ * guard — no-reply/noreply on any Liberty Bancard domain throws immediately.
+ */
 export async function sendSmtpEmail(params: {
   to: string;
   subject: string;
   html: string;
+  /** Preferred: supply message category; From/Reply-To are resolved from the policy registry. */
+  category?: MessageCategory;
+  /**
+   * @deprecated Pass `category` instead. Only used when `category` is absent.
+   * Will be removed once all callers are updated.
+   */
   from?: string;
   /**
-   * Reply-To address. When set, recipient replies go to this address instead
-   * of the From address. Use for department/rep routing (e.g., the assigned
-   * sales rep's email so replies reach them directly, not the shared SMTP user).
+   * Reply-To address override. When `category` is supplied, the policy's
+   * replyTo is used automatically; this param is ignored. Only effective
+   * for legacy callers that do not pass `category`.
    */
   replyTo?: string;
   /**
    * Fully-qualified mailto: and/or https:// unsubscribe URLs for the
    * List-Unsubscribe header (RFC 2369). Providing an https URL also enables
-   * one-click unsubscribe (RFC 8058) via List-Unsubscribe-Post, which Gmail
-   * and Yahoo require for bulk senders as of 2024.
+   * one-click unsubscribe (RFC 8058) via List-Unsubscribe-Post.
    */
   unsubscribeMailto?: string;
   unsubscribeUrl?: string;
@@ -77,7 +98,34 @@ export async function sendSmtpEmail(params: {
     return { success: false, error: "SMTP not configured (set SMTP_HOST, SMTP_USER, SMTP_PASS)" };
   }
 
-  const fromAddress = params.from || process.env.SMTP_FROM || process.env.SMTP_USER || "support@libertybancard.com";
+  let fromAddress: string;
+  let replyToAddress: string | undefined;
+
+  if (params.category) {
+    const policy = resolvePolicy(params.category);
+    fromAddress = policy.from;
+    replyToAddress = policy.replyTo;
+  } else {
+    // Legacy path — warn and fall back
+    console.warn(
+      `[SMTP] sendSmtpEmail called without 'category' for subject="${params.subject}" to=${params.to}. ` +
+      "Pass a MessageCategory so From/Reply-To are resolved from the sender policy. " +
+      "This fallback will be removed in a future release.",
+    );
+    fromAddress = params.from || process.env.SMTP_FROM || process.env.SMTP_USER || "support@libertybancard.com";
+    replyToAddress = params.replyTo;
+  }
+
+  // Prohibition guard — fail closed, never silently substitute
+  try {
+    assertNotProhibitedSync(fromAddress, `SMTP sendSmtpEmail From (subject="${params.subject}")`);
+    if (replyToAddress) {
+      assertNotProhibitedSync(replyToAddress, `SMTP sendSmtpEmail Reply-To (subject="${params.subject}")`);
+    }
+  } catch (prohibitErr: any) {
+    console.error(`[SMTP] ${prohibitErr.message}`);
+    return { success: false, error: prohibitErr.message };
+  }
 
   const listUnsubscribeParts: string[] = [];
   if (params.unsubscribeMailto) listUnsubscribeParts.push(`<mailto:${params.unsubscribeMailto}>`);
@@ -97,11 +145,11 @@ export async function sendSmtpEmail(params: {
       to: params.to,
       subject: params.subject,
       html: params.html,
-      ...(params.replyTo ? { replyTo: params.replyTo } : {}),
+      ...(replyToAddress ? { replyTo: replyToAddress } : {}),
       ...(Object.keys(headers).length > 0 ? { headers } : {}),
     });
 
-    console.log(`[SMTP] Email sent to ${params.to} — messageId: ${info.messageId}`);
+    console.log(`[SMTP] Email sent to ${params.to} from ${fromAddress} — messageId: ${info.messageId}`);
     return { success: true, messageId: info.messageId };
   } catch (err: any) {
     console.error(`[SMTP] Failed to send email to ${params.to}:`, err.message);

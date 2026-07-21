@@ -10,12 +10,7 @@ const APPLICATION_SEQUENCE_NAME = "3. Fast Approval — Application Completion";
 function buildMerchantWelcomeEmail(firstName: string, companyName: string): string {
   const displayName = firstName || "there";
   const displayBiz = companyName || "your business";
-  const signature = getEmailSignatureHtml("onboarding", {
-    name: "Scott Stevenson",
-    title: "Liberty Bancard",
-    phone: "954-266-8214",
-    email: "scott@libertybancard.com",
-  }, null);
+  const signature = getEmailSignatureHtml("onboarding", undefined, null);
 
   return `
 <div style="font-family:Arial,sans-serif;font-size:14px;color:#333;max-width:600px;">
@@ -97,12 +92,7 @@ function buildPortalWelcomeEmail(
   const displayName = firstName || "there";
   const displayBiz = companyName || "your business";
   const midLine = mid ? `<p><strong>Your Merchant ID (MID):</strong> ${mid}</p>` : "";
-  const signature = getEmailSignatureHtml("onboarding", {
-    name: "Scott Stevenson",
-    title: "Liberty Bancard",
-    phone: "954-266-8214",
-    email: "scott@libertybancard.com",
-  }, null);
+  const signature = getEmailSignatureHtml("onboarding", undefined, null);
 
   return `
 <div style="font-family:Arial,sans-serif;font-size:14px;color:#333;max-width:600px;">
@@ -218,7 +208,7 @@ export async function sendMerchantPortalWelcomeEmail(profile: MerchantProfile): 
   // GHL-Direct: direct email via GHL contact ID
   if (!method && ghlContactId) {
     try {
-      await sendEmailReply({ contactId: ghlContactId, subject: portalSubject, htmlBody: portalHtml });
+      await sendEmailReply({ contactId: ghlContactId, subject: portalSubject, htmlBody: portalHtml, fromEmail: "onboarding@libertybancard.com", fromName: "Liberty Bancard Onboarding" });
       method = "ghl_direct_email";
       console.log(`${TAG} Portal welcome email sent to contact #${contact.id} via ghl_direct_email`);
     } catch (ghlErr) {
@@ -229,7 +219,7 @@ export async function sendMerchantPortalWelcomeEmail(profile: MerchantProfile): 
   // SMTP-Fallback: used when GHL is unavailable or unconfigured
   if (!method) {
     if (isSmtpConfigured()) {
-      const result = await sendSmtpEmail({ to: contact.email, subject: portalSubject, html: portalHtml });
+      const result = await sendSmtpEmail({ to: contact.email, subject: portalSubject, html: portalHtml, category: "onboarding" });
       if (!result.success) {
         throw new Error(`SMTP fallback failed for contact #${contact.id}: ${result.error}`);
       }
@@ -278,7 +268,7 @@ export async function sendMerchantWelcomeEmail(contact: Contact, deal: Deal): Pr
       const companyName = contact.companyName || "your business";
       const subject = `Welcome to Liberty Bancard, ${firstName} — here's what happens next`;
       const htmlBody = buildMerchantWelcomeEmail(firstName, companyName);
-      const result = await sendSmtpEmail({ to: contact.email, subject, html: htmlBody });
+      const result = await sendSmtpEmail({ to: contact.email, subject, html: htmlBody, category: "onboarding" });
       if (result.success) {
         console.log(`${TAG} Merchant welcome sent via SMTP fallback for contact #${contact.id}`);
         await storage.createAuditLog({
@@ -332,7 +322,7 @@ export async function sendMerchantWelcomeEmail(contact: Contact, deal: Deal): Pr
 
   // SMTP-Fallback: used when GHL fails
   if (!method && contact.email && isSmtpConfigured()) {
-    const smtpResult = await sendSmtpEmail({ to: contact.email, subject: welcomeSubject, html: welcomeHtml });
+    const smtpResult = await sendSmtpEmail({ to: contact.email, subject: welcomeSubject, html: welcomeHtml, category: "onboarding" });
     if (smtpResult.success) {
       method = "smtp_fallback";
       console.log(`[Closed Won] Merchant welcome sent via SMTP-Fallback for contact #${contact.id}`);

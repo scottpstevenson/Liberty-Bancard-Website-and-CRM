@@ -650,7 +650,7 @@ export async function sendCoBrandedProposalEmail(proposalId: number, baseUrl: st
 
   if (isGhlConfigured() && proposal.contactId && proposal.dealId && merchantGhlContactId) {
     try {
-      const ghlDirectResult = await sendGhlEmail({ contactId: proposal.contactId, dealId: proposal.dealId, subject, body: html });
+      const ghlDirectResult = await sendGhlEmail({ contactId: proposal.contactId, dealId: proposal.dealId, subject, body: html, fromEmail: "accounts@libertybancard.com", fromName: "Liberty Bancard Accounts" });
       if (ghlDirectResult.success) {
         sent = true;
         sentChannel = "ghl_direct";
@@ -664,7 +664,7 @@ export async function sendCoBrandedProposalEmail(proposalId: number, baseUrl: st
 
   if (!sent && isGhlConfigured() && merchantEmail) {
     try {
-      const ghlEmailResult = await sendGhlEmailForMerchant({ email: merchantEmail, subject, body: html });
+      const ghlEmailResult = await sendGhlEmailForMerchant({ email: merchantEmail, subject, body: html, fromEmail: "accounts@libertybancard.com", fromName: "Liberty Bancard Accounts" });
       if (ghlEmailResult.success) {
         sent = true;
         sentChannel = "ghl_email";
@@ -678,7 +678,7 @@ export async function sendCoBrandedProposalEmail(proposalId: number, baseUrl: st
 
   if (!sent) {
     try {
-      const smtpResult = await sendSmtpEmail({ to: merchantEmail!, subject, html });
+      const smtpResult = await sendSmtpEmail({ to: merchantEmail!, subject, html, category: "accounts" });
       if (smtpResult.success) {
         sent = true;
         sentChannel = "SMTP-Fallback";

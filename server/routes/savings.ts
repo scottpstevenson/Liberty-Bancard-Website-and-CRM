@@ -201,6 +201,8 @@ export function registerSavingsRoutes(app: Express) {
               dealId,
               subject,
               body: html,
+              fromEmail: "accounts@libertybancard.com",
+              fromName: "Liberty Bancard Accounts",
             });
             if (result.success) {
               emailSent = true;
@@ -212,7 +214,7 @@ export function registerSavingsRoutes(app: Express) {
         }
 
         if (!emailSent && isSmtpConfigured()) {
-          const result = await sendSmtpEmail({ to: contact.email, subject, html });
+          const result = await sendSmtpEmail({ to: contact.email, subject, html, category: "accounts" });
           if (result.success) {
             emailSent = true;
             deliveryMethod = "smtp";

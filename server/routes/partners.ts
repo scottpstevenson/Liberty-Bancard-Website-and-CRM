@@ -164,6 +164,8 @@ export function registerPartnersRoutes(app: Express) {
                   email: updated.email,
                   subject: "You're approved — set your partner portal password",
                   body: html,
+                  fromEmail: "partners@libertybancard.com",
+                  fromName: "Liberty Bancard Partner Program",
                 });
                 console.log(`[Partners] Invite email sent to partner #${partnerId}`);
               }
@@ -413,10 +415,10 @@ export function registerPartnersRoutes(app: Express) {
   <p style="margin:0;">— Scott Stevenson<br/><span style="color:#666;font-size:13px;">Liberty Bancard | 954-266-8214 | support@libertybancard.com</span></p>
 </div>`;
           if (isGhlConfigured()) {
-            sendGhlEmailForMerchant({ email: partner.email, subject, body: html })
+            sendGhlEmailForMerchant({ email: partner.email, subject, body: html, fromEmail: "partners@libertybancard.com", fromName: "Liberty Bancard Partner Program" })
               .catch(err => console.error("[Partner Auth] Reset email (GHL) error:", err));
           } else if (isSmtpConfigured()) {
-            sendSmtpEmail({ to: partner.email, subject, html })
+            sendSmtpEmail({ to: partner.email, subject, html, category: "partners" })
               .catch(err => console.error("[Partner Auth] Reset email (SMTP) error:", err));
           } else {
             console.warn(`[Partner Auth] No email provider configured — reset link for partner #${partner.id}: ${resetUrl}`);
@@ -561,10 +563,10 @@ export function registerPartnersRoutes(app: Express) {
   <p style="margin:0;">— Scott Stevenson<br/><span style="color:#666;font-size:13px;">Liberty Bancard | 954-266-8214 | support@libertybancard.com</span></p>
 </div>`;
           if (isGhlConfigured()) {
-            sendGhlEmailForMerchant({ email: partner.email, subject, body: html })
+            sendGhlEmailForMerchant({ email: partner.email, subject, body: html, fromEmail: "partners@libertybancard.com", fromName: "Liberty Bancard Partner Program" })
               .catch(err => console.error("[Partner Auth] Reset email (GHL) error:", err));
           } else if (isSmtpConfigured()) {
-            sendSmtpEmail({ to: partner.email, subject, html })
+            sendSmtpEmail({ to: partner.email, subject, html, category: "partners" })
               .catch(err => console.error("[Partner Auth] Reset email (SMTP) error:", err));
           } else {
             console.warn(`[Partner Auth] No email provider configured — reset link for partner #${partner.id}: ${resetUrl}`);

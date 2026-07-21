@@ -1077,6 +1077,7 @@ export function registerAdminRoutes(app: Express) {
         to: toEmail,
         subject: "Liberty Bancard — SMTP Test",
         html: `<p>This is a test email sent from the Liberty Bancard Email Health admin panel at ${new Date().toLocaleString()}.</p><p>If you received this, SMTP is configured correctly.</p>`,
+        category: "internal_ops",
       });
       res.json(result);
     } catch (err: any) {
@@ -2553,6 +2554,7 @@ export function registerAdminRoutes(app: Express) {
         to,
         subject: `Liberty Bancard — Integration Readiness SMTP Test (${new Date().toLocaleString()})`,
         html: `<p>This is a controlled SMTP integration test sent by <strong>${actor?.email || "admin"}</strong> from the Liberty Bancard Integration Readiness panel.</p><p>Sent at: ${new Date().toISOString()}</p><p>If you received this, SMTP is working correctly.</p>`,
+        category: "internal_ops",
       });
       res.json(result);
     } catch (err: any) {

@@ -135,6 +135,8 @@ export async function sendSdrDailyDigest(digest: { html: string; summary: Record
           email,
           subject: `SDR Pilot Daily Digest — ${digest.summary.date}`,
           body: digest.html,
+          fromEmail: "accounts@libertybancard.com",
+          fromName: "Liberty Bancard",
         });
         console.log(`[SDR Digest] Delivered via GHL to ${email}`);
         continue;
@@ -143,7 +145,7 @@ export async function sendSdrDailyDigest(digest: { html: string; summary: Record
       }
     }
     if (isSmtpConfigured()) {
-      const result = await sendSmtpEmail({ to: email, subject: `SDR Pilot Daily Digest — ${digest.summary.date}`, html: digest.html });
+      const result = await sendSmtpEmail({ to: email, subject: `SDR Pilot Daily Digest — ${digest.summary.date}`, html: digest.html, category: "internal_ops" });
       if (result.success) {
         console.log(`[SDR Digest] Delivered via SMTP to ${email}`);
       } else {

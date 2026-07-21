@@ -175,6 +175,7 @@ export function registerRateReviewRoutes(app: Express) {
           to: contact.email,
           subject: "We received your rate review request",
           html: confirmationHtml,
+          category: "accounts",
         }).catch(err => console.error("[RateReview] Confirmation email error:", err));
       }
 

@@ -897,14 +897,15 @@ export async function processSendQueue(maxToSend?: number): Promise<{ sent: numb
           to: prospect.email!,
           subject,
           html: bodyWithSig,
+          category: "cold_outreach",
           unsubscribeUrl,
-          unsubscribeMailto: process.env.SMTP_FROM || process.env.SMTP_USER,
+          unsubscribeMailto: "Scott@mail.libertybancard.com",
         });
         if (!result.success) {
           throw new Error(result.error || "SMTP send failed");
         }
       } else {
-        await sendGhlEmail({ contactId: prospect.contactId, subject, body: bodyWithSig });
+        await sendGhlEmail({ contactId: prospect.contactId, subject, body: bodyWithSig, fromEmail: "Scott@mail.libertybancard.com", fromName: "Scott Stevenson" });
       }
 
       await storage.updateOutboundMessage(msg.id, {
@@ -1037,8 +1038,9 @@ async function sendContactCampaignMessage(
     to: contact.email,
     subject,
     html: bodyWithSig,
+    category: "cold_outreach",
     unsubscribeUrl,
-    unsubscribeMailto: process.env.SMTP_FROM || process.env.SMTP_USER,
+    unsubscribeMailto: "Scott@mail.libertybancard.com",
   });
 
   if (!result.success) {

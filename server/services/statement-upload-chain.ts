@@ -503,7 +503,7 @@ export async function runStatementUploadChain(
 <p>— Liberty Bancard Automated Alerts</p>`;
 
       if (isSmtpConfigured()) {
-        const smtpResult = await sendSmtpEmail({ to: repEmail, subject, html: body });
+        const smtpResult = await sendSmtpEmail({ to: repEmail, subject, html: body, category: "internal_ops" });
         if (smtpResult.success) {
           emailChannel = "smtp";
         } else {
@@ -513,7 +513,7 @@ export async function runStatementUploadChain(
       } else if (isGhlConfigured()) {
         try {
           const { sendGhlEmailForMerchant } = await import("./ghl");
-          await sendGhlEmailForMerchant({ email: repEmail, subject, body });
+          await sendGhlEmailForMerchant({ email: repEmail, subject, body, fromEmail: "accounts@libertybancard.com", fromName: "Liberty Bancard" });
           emailChannel = "ghl";
         } catch (ghlErr: any) {
           emailWarn = `GHL send failed: ${ghlErr.message}`;
@@ -624,6 +624,7 @@ export async function runStatementUploadChain(
         to: merchantEmail,
         subject: confirmSubject,
         html: confirmBody,
+        category: "accounts",
       });
       confirmed = smtpResult.success;
       steps.push(makeStep(9, "Merchant confirmation sent", smtpResult.success,

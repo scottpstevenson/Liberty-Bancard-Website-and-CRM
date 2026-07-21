@@ -7,7 +7,7 @@ import type { InsertNotification } from "@shared/schema";
 async function deliverDigestEmail(to: string, subject: string, html: string): Promise<void> {
   if (isGhlConfigured()) {
     try {
-      await sendGhlEmailForMerchant({ email: to, subject, body: html });
+      await sendGhlEmailForMerchant({ email: to, subject, body: html, fromEmail: "accounts@libertybancard.com", fromName: "Liberty Bancard" });
       console.log(`[Digest] Delivered via GHL to ${to}`);
       return;
     } catch (err) {
@@ -15,7 +15,7 @@ async function deliverDigestEmail(to: string, subject: string, html: string): Pr
     }
   }
   if (isSmtpConfigured()) {
-    const result = await sendSmtpEmail({ to, subject, html });
+    const result = await sendSmtpEmail({ to, subject, html, category: "internal_ops" });
     if (result.success) {
       console.log(`[Digest] Delivered via SMTP to ${to}`);
     } else {

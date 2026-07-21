@@ -73,12 +73,27 @@ async function sendAuthEmail(params: {
   html: string;
   label: string;
 }): Promise<void> {
+  // All account-security / auth messages use security@libertybancard.com per sender policy.
+  const SECURITY_FROM = "security@libertybancard.com";
+  const SECURITY_NAME = "Liberty Bancard Security";
+
   if (isSmtpConfigured()) {
-    const result = await sendSmtpEmail({ to: params.to, subject: params.subject, html: params.html });
+    const result = await sendSmtpEmail({
+      to: params.to,
+      subject: params.subject,
+      html: params.html,
+      category: "security",
+    });
     if (result.success) return;
     console.error(`[Auth] SMTP send failed for ${params.label} to ${params.to}: ${result.error} — attempting GHL fallback`);
     if (isGhlConfigured()) {
-      const ghlResult = await sendGhlEmail({ email: params.to, subject: params.subject, body: params.html });
+      const ghlResult = await sendGhlEmail({
+        email: params.to,
+        subject: params.subject,
+        body: params.html,
+        fromEmail: SECURITY_FROM,
+        fromName: SECURITY_NAME,
+      });
       if (ghlResult.success) return;
       console.error(`[Auth] GHL fallback also failed for ${params.label} to ${params.to}: ${ghlResult.error}`);
     }
@@ -86,14 +101,20 @@ async function sendAuthEmail(params: {
   }
 
   if (isGhlConfigured()) {
-    const result = await sendGhlEmail({ email: params.to, subject: params.subject, body: params.html });
+    const result = await sendGhlEmail({
+      email: params.to,
+      subject: params.subject,
+      body: params.html,
+      fromEmail: SECURITY_FROM,
+      fromName: SECURITY_NAME,
+    });
     if (!result.success) {
       console.error(`[Auth] GHL send failed for ${params.label} to ${params.to}: ${result.error}`);
     }
     return;
   }
 
-  console.warn(`[Auth] WARNING: No email transport configured (set SMTP_HOST/SMTP_USER/SMTP_PASS or GHL_API_KEY/GHL_LOCATION_ID). ${params.label} email NOT sent to ${params.to}`);
+  console.warn(`[Auth] WARNING: No email transport configured (set SMTP_HOST/SMTP_USER/SMTP_PASS or GHL credentials). ${params.label} email NOT sent to ${params.to}`);
 }
 
 export function getSession() {

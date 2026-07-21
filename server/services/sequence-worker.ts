@@ -642,17 +642,21 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
                     to: contact.email,
                     subject: interpolate(subjectToSend),
                     html: emailBody,
+                    category: "cold_outreach",
                     unsubscribeUrl,
-                    unsubscribeMailto: process.env.SMTP_FROM || process.env.SMTP_USER,
+                    unsubscribeMailto: "Scott@mail.libertybancard.com",
                   });
                   if (!result.success) {
                     throw new Error(result.error || "SMTP send failed");
                   }
                 } else {
+                  const seqIsCold = isColdOutreachSequence(sequence);
                   await sendGhlEmail({
                     contactId: enrollment.contactId,
                     subject: interpolate(subjectToSend),
                     body: emailBody,
+                    fromEmail: seqIsCold ? "Scott@mail.libertybancard.com" : "accounts@libertybancard.com",
+                    fromName: seqIsCold ? "Scott Stevenson" : "Liberty Bancard Accounts",
                   });
                 }
                 stepExecuted = true;

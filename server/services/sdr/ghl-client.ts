@@ -344,15 +344,26 @@ export async function sendEmailReply(params: {
   contactId: string;
   subject: string;
   htmlBody: string;
+  /** From email address (e.g. "onboarding@libertybancard.com"). */
+  fromEmail?: string;
+  /** From display name (combined with fromEmail as "Name <email>" when both present). */
+  fromName?: string;
 }): Promise<SendMessageResult> {
+  const payload: Record<string, unknown> = {
+    type: "Email",
+    contactId: params.contactId,
+    subject: params.subject,
+    html: params.htmlBody,
+  };
+  if (params.fromEmail) {
+    payload.emailFrom = params.fromName
+      ? `${params.fromName} <${params.fromEmail}>`
+      : params.fromEmail;
+    payload.emailReplyMode = "custom";
+  }
   return sdrGhlFetch("/conversations/messages", {
     method: "POST",
-    body: JSON.stringify({
-      type: "Email",
-      contactId: params.contactId,
-      subject: params.subject,
-      html: params.htmlBody,
-    }),
+    body: JSON.stringify(payload),
   }) as unknown as SendMessageResult;
 }
 
