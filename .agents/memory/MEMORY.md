@@ -60,3 +60,4 @@
 - [BullMQ infra requirements](bullmq-infra-requirements.md) — maxRetriesPerRequest:null + lockDuration:120000 are critical; missing either causes silent job stall or lock-renewal failures.
 - [Merchant portal access gaps](merchant-portal-access-gaps.md) — ProtectedRoute must redirect merchant→/dashboard/merchant-portal; onboarding-steps and checklist routes must use isAuthenticated+ownership, not isDashboardUser.
 - [GHL fetch timeout](ghl-fetch-timeout.md) — AbortController per fetch attempt (20 s default); clearTimeout in both success and catch; AbortError is retryable.
+- [tsx hot-reload stale route registration](tsx-stale-route.md) — new Express routes added to large route files may return 404 (even for anon) until a full server restart; probe with curl and restart to confirm.

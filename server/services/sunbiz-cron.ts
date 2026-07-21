@@ -52,7 +52,11 @@ export async function runSunbizAutoConvert(): Promise<{ converted: number; promo
 }
 
 async function autoConvertEnrichedEntities(): Promise<number> {
-  const enriched = await storage.getSunbizEntitiesByStatus("enriched");
+  // Fetch only BATCH_SIZE * 10 enriched records — getSunbizEntitiesByStatus without a
+  // limit previously returned ALL enriched rows (potentially thousands), which combined
+  // with the N+1 getProspects call inside the loop was the root cause of the
+  // statement_timeout seen in production logs (2026-07-21).
+  const enriched = await storage.getSunbizEntitiesByStatus("enriched", BATCH_SIZE * 10);
 
   const qualifiedEntities = enriched.filter(e =>
     !e.prospectId &&
@@ -60,15 +64,27 @@ async function autoConvertEnrichedEntities(): Promise<number> {
     (e.email || e.phone || e.ownerEmail || e.ownerPhone)
   );
 
+  if (qualifiedEntities.length === 0) return 0;
+
+  // Load the dedup sets ONCE, before the loop.
+  // Previously this query ran inside each iteration — for 10 entities that was
+  // 10 × getProspects(limit:500) = 10 sequential full-table scans.
+  const { data: existingProspects } = await storage.getProspects(undefined, { limit: 10_000 });
+  const existingEmails = new Set(
+    existingProspects.map(p => p.email?.trim().toLowerCase()).filter(Boolean) as string[]
+  );
+  const existingNames = new Set(
+    existingProspects.map(p => p.companyName?.trim().toLowerCase()).filter(Boolean) as string[]
+  );
+
   let converted = 0;
   for (const entity of qualifiedEntities.slice(0, BATCH_SIZE)) {
     try {
-      const { data: existingProspects } = await storage.getProspects(undefined, { limit: 500 });
-      const alreadyExists = existingProspects.some(p =>
-        (p.companyName && entity.entityName &&
-          p.companyName.toLowerCase() === entity.entityName.toLowerCase()) ||
-        (p.email && entity.email && p.email.toLowerCase() === entity.email.toLowerCase())
-      );
+      const emailKey = entity.email?.trim().toLowerCase();
+      const nameKey = entity.entityName?.trim().toLowerCase();
+      const alreadyExists =
+        (emailKey && existingEmails.has(emailKey)) ||
+        (nameKey && existingNames.has(nameKey));
 
       if (alreadyExists) {
         await storage.updateSunbizEntity(entity.id, { enrichmentStatus: "duplicate" });
@@ -109,6 +125,16 @@ async function autoPromoteProspects(): Promise<number> {
     p.companyName
   );
 
+  if (qualified.length === 0) return 0;
+
+  // Load companies ONCE before the loop — previously storage.getCompanies() was called
+  // per prospect inside the loop, performing an unbounded full-table scan each iteration.
+  const allCompanies = await storage.getCompanies();
+  const companyByName = new Map(allCompanies.map(c => [c.legalName.toLowerCase(), c]));
+  const companyByWebsite = new Map(
+    allCompanies.filter(c => c.website).map(c => [c.website!.toLowerCase(), c])
+  );
+
   let promoted = 0;
 
   for (const prospect of qualified.slice(0, BATCH_SIZE)) {
@@ -137,11 +163,10 @@ async function autoPromoteProspects(): Promise<number> {
 
       let companyId: number | undefined;
       if (prospect.companyName) {
-        const existingCompanies = await storage.getCompanies();
-        const existingCompany = existingCompanies.find(c =>
-          c.legalName.toLowerCase() === prospect.companyName!.toLowerCase() ||
-          (prospect.website && c.website && c.website.toLowerCase() === prospect.website.toLowerCase())
-        );
+        const nameKey = prospect.companyName.toLowerCase();
+        const siteKey = prospect.website?.toLowerCase();
+        const existingCompany = companyByName.get(nameKey) ||
+          (siteKey ? companyByWebsite.get(siteKey) : undefined);
         if (existingCompany) {
           companyId = existingCompany.id;
         } else {

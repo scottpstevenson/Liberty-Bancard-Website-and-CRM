@@ -141,6 +141,7 @@ const CASES: GuardCase[] = [
   { method: "GET",    path: "/api/admin/launch-readiness",           anon: [401], merchant: [403], admin: [200], description: "launch readiness (requireRole admin/manager)" },
   { method: "GET",    path: "/api/admin/queue-metrics",              anon: [401], merchant: [403], admin: [200], description: "queue metrics (requireRole admin/manager)" },
   { method: "GET",    path: "/api/admin/alerts",                     anon: [401], merchant: [403], admin: [200], description: "alert feed (requireRole admin/manager)" },
+  { method: "GET",    path: "/api/admin/ghl/identity-conflicts",     anon: [401], merchant: [403], admin: [200], description: "GHL identity conflict queue (requireRole admin/manager)" },
 
   // ── Task #695: Voice/SMS/Ringless Go-Live Audit — Approval Gate (admin-only) ──
   // All three routes require requireRole("admin"); merchant/agent → 403.

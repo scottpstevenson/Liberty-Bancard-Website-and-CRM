@@ -233,6 +233,25 @@ export async function syncContactToGhl(contactId: number): Promise<{ success: bo
         console.warn(
           `[GHL Sync] Contact #${contactId} identity conflict — GHL ID ${upsertErr.ghlContactId} owned by contact ${upsertErr.owningContactId} — skipping (not a failure)`
         );
+        // Record to syncConflicts queue for staff review. Dedup: skip if a pending
+        // conflict already exists for this contactId + ghl_contact_id field.
+        try {
+          const pendingConflicts = await storage.getSyncConflicts("pending");
+          const alreadyQueued = pendingConflicts.some(
+            c => c.contactId === contactId && c.fieldName === "ghl_contact_id"
+          );
+          if (!alreadyQueued) {
+            await storage.createSyncConflict({
+              contactId,
+              fieldName: "ghl_contact_id",
+              internalValue: upsertErr.ghlContactId,
+              ghlValue: String(upsertErr.owningContactId),
+              resolution: "pending",
+            });
+          }
+        } catch (conflictLogErr: any) {
+          console.warn(`[GHL Sync] Could not record identity conflict to queue: ${conflictLogErr.message}`);
+        }
         return { success: false, error: "ghl_identity_conflict" };
       }
       throw upsertErr;

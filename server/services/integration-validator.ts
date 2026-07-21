@@ -751,6 +751,56 @@ async function checkBackups(): Promise<CheckResult> {
   }
 }
 
+// ── 5b. BULLMQ INCIDENT TRACKING ──────────────────────────────────────────────
+// Surfaces recent BullMQ job-lock failures so operators know if the queue had
+// incidents even after the server has recovered. Reads audit_logs for entries
+// written when acquireJobLock fails (action = "JOB_LOCK_FAILED").
+
+async function checkBullmqIncidents(): Promise<CheckResult> {
+  try {
+    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000); // last 24 h
+    const result = await pool.query<{ count: string; last_at: string }>(
+      `SELECT COUNT(*)::text AS count, MAX(created_at)::text AS last_at
+       FROM audit_logs
+       WHERE action = 'JOB_LOCK_FAILED' AND created_at > $1`,
+      [cutoff]
+    );
+    const row = result.rows[0];
+    const failCount = parseInt(row?.count ?? "0", 10);
+    const lastAt = row?.last_at ? new Date(row.last_at).toISOString() : null;
+
+    if (failCount === 0) {
+      return {
+        key: "BULLMQ_LOCK_INCIDENTS", category: "CORE", label: "BullMQ Job-Lock Health (24 h)",
+        present: true, formatValid: true, liveStatus: "pass",
+        identity: "0 lock failures in last 24 h",
+        diagnosisHint: null, ownerAction: null,
+        lastTestedAt: ts(), importance: "optional",
+      };
+    }
+
+    return {
+      key: "BULLMQ_LOCK_INCIDENTS", category: "CORE", label: "BullMQ Job-Lock Health (24 h)",
+      present: true, formatValid: true,
+      liveStatus: failCount > 5 ? "fail" : "unverified",
+      identity: `${failCount} lock failure${failCount !== 1 ? "s" : ""} — last: ${lastAt ?? "unknown"}`,
+      diagnosisHint: failCount > 5
+        ? "More than 5 job-lock failures in 24 h — check Redis latency or REDIS_URL credentials"
+        : `${failCount} transient lock failure${failCount !== 1 ? "s" : ""} detected — likely startup race; monitor for recurrence`,
+      ownerAction: failCount > 5 ? "Check Redis connectivity and REDIS_URL config; review server logs around the failure times" : null,
+      lastTestedAt: ts(), importance: "optional",
+    };
+  } catch (err: any) {
+    return {
+      key: "BULLMQ_LOCK_INCIDENTS", category: "CORE", label: "BullMQ Job-Lock Health (24 h)",
+      present: false, formatValid: null, liveStatus: "skipped",
+      identity: null,
+      diagnosisHint: `Could not query audit_logs: ${sanitizeError(err.message)}`,
+      ownerAction: null, lastTestedAt: ts(), importance: "optional",
+    };
+  }
+}
+
 // ── 6. COVERAGE ───────────────────────────────────────────────────────────────
 
 function checkCoverageItems(): CheckResult[] {
@@ -798,17 +848,17 @@ export async function runFullValidation(forceRefresh = false): Promise<Validatio
   }
 
   const [
-    dbResult, redisResult,
+    dbResult, redisResult, bullmqResult,
     ghlTokenResults, ghlCapResults,
     smtpResults, serperResult, slackResult, backupResult,
   ] = await Promise.all([
-    checkDatabase(), checkRedis(),
+    checkDatabase(), checkRedis(), checkBullmqIncidents(),
     checkGhlToken(), checkGhlCapabilities(),
     checkSmtp(), checkSerper(), checkSlack(), checkBackups(),
   ]);
 
   const checks: CheckResult[] = [
-    dbResult, redisResult,
+    dbResult, redisResult, bullmqResult,
     checkAppUrl(),
     checkCryptoSecret("SESSION_SECRET", "Session Secret (SESSION_SECRET)", 32),
     checkCryptoSecret("UNSUBSCRIBE_TOKEN_SECRET", "Unsubscribe Token Secret", 16, "required_launch"),

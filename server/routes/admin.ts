@@ -2582,4 +2582,57 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // ── GHL Identity Conflict Queue ─────────────────────────────────────────────
+  // Lists contacts whose GHL identity conflicts with another local contact.
+  // Staff can review and choose to keep the internal link or the GHL link.
+
+  app.get("/api/admin/ghl/identity-conflicts", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const resolution = req.query.resolution as string | undefined;
+      const conflicts = await storage.getSyncConflicts(resolution);
+      // Enrich each row with contact display names so the UI can show them
+      const enriched = await Promise.all(conflicts.map(async (c) => {
+        const contact = c.contactId ? await storage.getContact(c.contactId) : undefined;
+        const ownerContactId = c.ghlValue ? parseInt(c.ghlValue, 10) : undefined;
+        const ownerContact = ownerContactId && !isNaN(ownerContactId)
+          ? await storage.getContact(ownerContactId)
+          : undefined;
+        return {
+          ...c,
+          contactName: contact ? `${contact.firstName ?? ""} ${contact.lastName ?? ""}`.trim() || contact.email : "Unknown",
+          contactEmail: contact?.email ?? "",
+          ownerContactName: ownerContact
+            ? `${ownerContact.firstName ?? ""} ${ownerContact.lastName ?? ""}`.trim() || ownerContact.email
+            : `Contact #${ownerContactId}`,
+          ownerContactEmail: ownerContact?.email ?? "",
+          ghlId: c.internalValue ?? "",
+        };
+      }));
+      res.json(enriched);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/admin/ghl/identity-conflicts/:id/resolve", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const { resolution } = req.body as { resolution: "kept-internal" | "kept-ghl" | "manual" };
+      if (!["kept-internal", "kept-ghl", "manual"].includes(resolution)) {
+        return res.status(400).json({ message: "resolution must be kept-internal, kept-ghl, or manual" });
+      }
+      const conflict = await storage.resolveSyncConflict(id, resolution);
+      if (!conflict) return res.status(404).json({ message: "Conflict not found" });
+      storage.createAuditLog({
+        action: "ghl_identity_conflict_resolved",
+        entityType: "contact",
+        entityId: conflict.contactId ?? undefined,
+        details: `GHL identity conflict #${id} resolved as "${resolution}" — GHL ID ${conflict.internalValue}`,
+      }).catch(() => {});
+      res.json(conflict);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
 }

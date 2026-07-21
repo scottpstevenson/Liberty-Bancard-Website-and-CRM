@@ -62,27 +62,58 @@ export function getCanonicalUrlInfo(): CanonicalUrlInfo {
 
 /**
  * Build the CORS allowed-origins list.
- * ALLOWED_ORIGINS env var (comma-separated) always wins if present.
- * Otherwise, the canonical URL is the sole allowed origin.
- * localhost:* is added automatically in non-production environments.
+ *
+ * Priority / inclusion rules:
+ *   1. ALLOWED_ORIGINS env var (comma-separated) — explicit override; always wins.
+ *      In production, non-HTTPS entries are rejected with a warning.
+ *   2. Canonical URL (APP_URL or first REPLIT_DOMAINS entry) — always included.
+ *   3. ALL REPLIT_DOMAINS entries — Replit can inject multiple domains
+ *      (e.g. autoscale host + custom domain); all should be trusted.
+ *   4. localhost variants — added automatically in non-production only.
+ *
+ * To allow dev.libertybancard.com or similar staging surfaces in production,
+ * set: ALLOWED_ORIGINS=https://libertybancard.com,https://dev.libertybancard.com
  */
 export function getCorsOrigins(): string[] {
-  const origins: string[] = [];
+  const isProd = process.env.NODE_ENV === "production";
+  const origins = new Set<string>();
 
   if (process.env.ALLOWED_ORIGINS) {
     process.env.ALLOWED_ORIGINS.split(",")
       .map((o) => o.trim())
       .filter(Boolean)
-      .forEach((o) => origins.push(o));
-  } else {
-    origins.push(getCanonicalUrl());
+      .forEach((o) => {
+        if (isProd && !o.startsWith("https://")) {
+          console.warn(`[CORS] ⚠ Rejected non-HTTPS origin in ALLOWED_ORIGINS (production): ${o}`);
+          return;
+        }
+        origins.add(o);
+      });
   }
 
-  if (!process.env.NODE_ENV || process.env.NODE_ENV !== "production") {
-    origins.push("http://localhost:5000", "http://localhost:3000");
+  // Always include the canonical URL (won't duplicate if already in ALLOWED_ORIGINS).
+  origins.add(getCanonicalUrl());
+
+  // Include ALL REPLIT_DOMAINS entries. Replit may inject multiple hostnames
+  // (autoscale deployment host, custom domain, preview host). Only the first is
+  // used for the canonical URL — but all should be trusted for CORS.
+  if (process.env.REPLIT_DOMAINS) {
+    process.env.REPLIT_DOMAINS.split(",")
+      .map((d) => d.trim())
+      .filter(Boolean)
+      .forEach((d) => origins.add(`https://${d}`));
   }
 
-  return origins;
+  if (!isProd) {
+    origins.add("http://localhost:5000");
+    origins.add("http://localhost:3000");
+  }
+
+  const list = Array.from(origins);
+  if (isProd) {
+    console.log(`[CORS] Allowed origins (${list.length}): ${list.join(", ")}`);
+  }
+  return list;
 }
 
 /** Reset cached value (for tests only). */
