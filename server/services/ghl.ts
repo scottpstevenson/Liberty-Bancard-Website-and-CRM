@@ -176,13 +176,23 @@ export function validateGhlWebhookSignatureEd25519(
   payload: string,
   signature: string,
 ): boolean {
-  const pubKeyRaw = process.env.GHL_WEBHOOK_PUBLIC_KEY;
+  // Accept both env var names for backward compatibility.
+  // GHL_WEBHOOK_SIGNATURE_PUBLIC_KEY is the current standard name (matches the
+  // SDR/ghl-client path and GHL's Marketplace SDK naming convention).
+  // GHL_WEBHOOK_PUBLIC_KEY is the legacy name kept for existing deployments.
+  const pubKeyRaw =
+    process.env.GHL_WEBHOOK_SIGNATURE_PUBLIC_KEY ||
+    process.env.GHL_WEBHOOK_PUBLIC_KEY;
   if (!pubKeyRaw) {
     if (!isLocalhostEnv()) {
-      console.error("[GHL] GHL_WEBHOOK_PUBLIC_KEY not set — cannot verify Ed25519 signature in production");
+      console.error(
+        "[GHL] Neither GHL_WEBHOOK_SIGNATURE_PUBLIC_KEY nor GHL_WEBHOOK_PUBLIC_KEY is set — " +
+        "cannot verify Ed25519 signature in production. Set GHL_WEBHOOK_SIGNATURE_PUBLIC_KEY " +
+        "to the Ed25519 public key from GHL → Settings → Integrations → Webhooks → Public Key."
+      );
       return false;
     }
-    console.warn("[GHL] GHL_WEBHOOK_PUBLIC_KEY not set — skipping Ed25519 verification (localhost dev mode only)");
+    console.warn("[GHL] GHL_WEBHOOK_SIGNATURE_PUBLIC_KEY not set — skipping Ed25519 verification (localhost dev mode only)");
     return true;
   }
 

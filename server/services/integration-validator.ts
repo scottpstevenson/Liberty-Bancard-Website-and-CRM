@@ -625,15 +625,24 @@ async function checkSmtp(): Promise<CheckResult[]> {
   const fromDomain = from ? from.split("@")[1] || null : null;
 
   if (!host || !user || !pass) {
+    const anySet = !!(host || user || pass);
     results.push({
-      key: "SMTP", category: "EMAIL", label: "SMTP Configuration",
-      present: !!(host || user || pass), formatValid: false, liveStatus: "fail",
+      key: "SMTP", category: "EMAIL",
+      label: "SMTP (optional — GHL is primary cold-email transport)",
+      present: anySet, formatValid: false,
+      // Not configured at all = skipped (not a blocker; GHL handles cold outreach).
+      // Partially configured = fail (incomplete config is worse than no config).
+      liveStatus: anySet ? "fail" : "skipped",
       identity: host ? `host=${host}` : null,
-      diagnosisHint: !host ? "SMTP_HOST not set"
-        : !user ? "SMTP_USER not set"
-        : "SMTP_PASS not set — GHL is sole delivery path; transactional emails skip if GHL unavailable",
-      ownerAction: "Set SMTP_HOST, SMTP_USER, SMTP_PASS (and optionally SMTP_PORT, SMTP_FROM) in Replit Secrets",
-      lastTestedAt: ts(), importance: "required_feature", featureName: "Transactional email fallback",
+      diagnosisHint: !anySet
+        ? "SMTP not configured — GHL handles all cold outreach; SMTP is an optional backup for transactional fallback only"
+        : !host ? "SMTP_HOST not set (partial config)"
+        : !user ? "SMTP_USER not set (partial config)"
+        : "SMTP_PASS not set (partial config)",
+      ownerAction: anySet
+        ? "Complete SMTP config: set SMTP_HOST, SMTP_USER, and SMTP_PASS"
+        : null,
+      lastTestedAt: ts(), importance: "optional", featureName: "SMTP transactional email fallback",
     });
     return results;
   }
@@ -671,13 +680,14 @@ async function checkSmtp(): Promise<CheckResult[]> {
   }
 
   results.push({
-    key: "SMTP", category: "EMAIL", label: "SMTP Connection",
+    key: "SMTP", category: "EMAIL",
+    label: "SMTP Connection (optional backup — GHL is primary cold-email transport)",
     present: true, formatValid: portValid,
     liveStatus,
     identity: `host=${host} port=${portNum} tls=${portNum === 465 ? "SSL" : "STARTTLS"} from=${from || user}`,
     diagnosisHint,
     ownerAction,
-    lastTestedAt: ts(), importance: "required_feature", featureName: "Transactional email fallback",
+    lastTestedAt: ts(), importance: "optional", featureName: "SMTP transactional email fallback",
   });
 
   if (userDomain && fromDomain && userDomain !== fromDomain) {
@@ -687,7 +697,7 @@ async function checkSmtp(): Promise<CheckResult[]> {
       identity: `auth-domain=${userDomain} from-domain=${fromDomain}`,
       diagnosisHint: "SMTP_FROM domain differs from SMTP_USER domain — may trigger spam filters and SPF failures",
       ownerAction: "Set SMTP_FROM to match SMTP_USER domain, or remove SMTP_FROM to default to SMTP_USER",
-      lastTestedAt: ts(), importance: "required_feature", featureName: "Email deliverability",
+      lastTestedAt: ts(), importance: "optional", featureName: "SMTP email deliverability",
     });
   }
 

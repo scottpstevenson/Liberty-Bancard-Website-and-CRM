@@ -936,8 +936,12 @@ export async function processSunbizEnrichmentBatch(limit: number = 10): Promise<
   }
   sunbizQueueRunning = true;
   try {
-    const pending = await storage.getSunbizEntitiesByStatus("pending");
-    const toProcess = pending.slice(0, limit);
+    // Pass `limit` directly to the storage layer so the database emits
+    // `LIMIT ${limit}` and the index idx_sunbiz_enrichment_status is used for
+    // an index seek + N-row fetch, not a full 968 k-row scan.
+    // The previous pattern of fetching all pending rows then .slice()-ing was
+    // the cause of PG statement-timeout (57014) errors.
+    const toProcess = await storage.getSunbizEntitiesByStatus("pending", limit);
 
     for (const entity of toProcess) {
       const outcome = await enrichSunbizEntitySafe(entity.id);
@@ -1172,8 +1176,10 @@ export async function processSunbizEnrichmentQueue(limit: number = 5): Promise<n
   }
   sunbizQueueRunning = true;
   try {
-    const pending = await storage.getSunbizEntitiesByStatus("pending");
-    const toProcess = pending.slice(0, limit);
+    // Forward `limit` to the DB query so the index is used for a bounded seek.
+    // Fetching all pending rows then slicing caused a full 968 k-row scan and
+    // PG statement-timeout (57014). See getSunbizEntitiesByStatus in storage.
+    const toProcess = await storage.getSunbizEntitiesByStatus("pending", limit);
     let processed = 0;
 
     for (const entity of toProcess) {

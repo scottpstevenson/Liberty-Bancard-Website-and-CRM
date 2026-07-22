@@ -12,6 +12,7 @@ import { sendGmailEmail, isGmailOAuthConnected } from "./gmail-oauth";
 import type { SendChannel } from "./outbound-send-log";
 import type { VoiceBotMode } from "./sdr/voice-orchestrator";
 import type { AbTestConfig, AbTestResults } from "@shared/schema";
+import { getCanonicalUrl } from "../lib/canonical-url";
 
 const GHL_WORKFLOW_ONLY = process.env.GHL_WORKFLOW_ONLY_MODE === "true";
 
@@ -515,15 +516,16 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
 
             let complianceFooter = "";
             if (isColdOutreachSequence(sequence) && enrollment.contactId) {
-              const appUrl = process.env.APP_URL;
+              // getCanonicalUrl() always resolves — APP_URL → REPLIT_DOMAINS →
+              // https://libertybancard.com static fallback — so a missing APP_URL
+              // env var no longer blocks unsubscribe link generation.
+              const appUrl = getCanonicalUrl();
               const testMode = process.env.TEST_MODE === "true";
               const mailingAddress = await storage.getSystemSetting("compliance_mailing_address") as string | null | undefined;
               let blockReason: string | null = null;
 
               if (!mailingAddress) {
                 blockReason = "sequence_send_blocked_no_mailing_address";
-              } else if (!appUrl) {
-                blockReason = "sequence_send_blocked_no_unsubscribe_base_url";
               } else {
                 try {
                   const { getUnsubscribeTokenSecret } = await import("./unsubscribe-token");
@@ -556,7 +558,7 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
                 break;
               }
 
-              if (!blockReason && mailingAddress && appUrl) {
+              if (!blockReason && mailingAddress) {
                 complianceFooter = getComplianceFooterHtml(enrollment.contactId, mailingAddress, appUrl);
               }
             }
@@ -713,11 +715,10 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
               try {
                 if (useGmailForThisStep && contact?.email) {
                   // Gmail API: department/staff email via OAuth2 (non-cold sequences)
-                  const appUrlForToken = process.env.APP_URL;
+                  // getCanonicalUrl() always resolves — no undefined risk.
+                  const appUrlForToken = getCanonicalUrl();
                   const token = generateUnsubscribeToken(enrollment.contactId);
-                  const unsubscribeUrl = appUrlForToken
-                    ? `${appUrlForToken}/unsubscribe?t=${encodeURIComponent(token)}`
-                    : undefined;
+                  const unsubscribeUrl = `${appUrlForToken}/unsubscribe?t=${encodeURIComponent(token)}`;
                   const result = await sendGmailEmail({
                     to: contact.email,
                     subject: interpolate(subjectToSend),
@@ -729,11 +730,10 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
                   await markSendSent({ idempotencyKey: emailIdemKey, providerMessageId: result.messageId, fromAddress: "gmail_oauth" });
                 } else if (useSmtpForThisStep && contact?.email) {
                   // SMTP: cold outreach with List-Unsubscribe header
-                  const appUrlForToken = process.env.APP_URL;
+                  // getCanonicalUrl() always resolves — no undefined risk.
+                  const appUrlForToken = getCanonicalUrl();
                   const token = generateUnsubscribeToken(enrollment.contactId);
-                  const unsubscribeUrl = appUrlForToken
-                    ? `${appUrlForToken}/unsubscribe?t=${encodeURIComponent(token)}`
-                    : undefined;
+                  const unsubscribeUrl = `${appUrlForToken}/unsubscribe?t=${encodeURIComponent(token)}`;
                   const result = await sendSmtpEmail({
                     to: contact.email,
                     subject: interpolate(subjectToSend),

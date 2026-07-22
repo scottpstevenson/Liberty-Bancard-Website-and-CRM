@@ -45,18 +45,30 @@ export async function getRedisConnection(): Promise<ConnectionOptions> {
     // Send TCP keepalive probes so the OS doesn't silently drop idle
     // connections (root cause of ECONNRESET on lock renewal commands).
     keepAlive: 30_000,
-    // Re-connect automatically on ECONNRESET / ETIMEDOUT.
+    // Re-connect automatically on ECONNRESET / ETIMEDOUT / EPIPE.
+    // EPIPE (broken-pipe) fires when the TCP write buffer is flushed to a
+    // server that already closed its socket — common on Upstash when an idle
+    // connection is culled server-side without a FIN. Without "epipe" here
+    // ioredis would surface the error to callers instead of reconnecting.
     reconnectOnError: (err: Error) => {
       const msg = err.message.toLowerCase();
-      return msg.includes("econnreset") || msg.includes("etimedout") || msg.includes("econnrefused");
+      return (
+        msg.includes("econnreset") ||
+        msg.includes("etimedout") ||
+        msg.includes("econnrefused") ||
+        msg.includes("epipe")
+      );
     },
     // How long to wait between reconnect attempts (capped at 5 s).
     retryStrategy: (times: number) => Math.min(times * 500, 5000),
     // Queue commands during brief disconnects so in-flight BullMQ operations
     // survive transient Redis blips without needing a full job re-queue.
     enableOfflineQueue: true,
-    // Give up waiting for a command after 10 s when offline queue is disabled
-    // for non-BullMQ callers (probe below).
+    // Hard deadline for any single Redis command.  Without this, a stalled
+    // command (e.g. a BullMQ WAIT on a freed-but-not-yet-reconnected socket)
+    // can hang indefinitely and block the Node.js event loop.
+    commandTimeout: 10_000,
+    // Give up waiting for the initial TCP connection after 10 s.
     connectTimeout: 10_000,
     lazyConnect: true,
   };
@@ -96,4 +108,78 @@ export async function getRedisConnection(): Promise<ConnectionOptions> {
   _usingMock = false;
 
   return _connection;
+}
+
+// ── Redis connection-capacity diagnostic ───────────────────────────────────────
+
+export interface RedisCapacityDiagnosis {
+  /** Maximum concurrent connections on the Upstash free tier. */
+  upstashFreeTierMax: number;
+  /** Number of BullMQ queues being diagnosed. */
+  queues: number;
+  /**
+   * Estimated ioredis connections BullMQ will open.
+   *
+   * BullMQ opens connections per queue as follows:
+   *   • 1 producer  connection per Queue instance
+   *   • 1 worker    connection per Worker instance
+   *   • 1 events    connection per QueueEvents instance (optional but common)
+   *   • 1 scheduler connection shared across all repeat-job queues
+   *
+   * Minimum estimate: queues × 3 + 1 scheduler.
+   * Upstash free tier cap: 20 simultaneous connections.
+   * With 7 named queues (ghl-sync, sla-checks, sequences, enrichment,
+   * discovery, digests, mid-ingestion): 7 × 3 + 1 = 22 connections →
+   * EXCEEDS the free tier limit.  Upgrade to Upstash Pay-As-You-Go or
+   * reduce queue count by consolidating low-frequency queues.
+   */
+  estimatedBullMqConnections: number;
+  /** Whether the estimated connection count fits within the Upstash free tier. */
+  safeForUpstashFree: boolean;
+  /** Human-readable recommendation. */
+  recommendation: string;
+}
+
+/**
+ * Explain the expected BullMQ ioredis connection fan-out for a given number
+ * of queues.  Used by the Operator Dashboard and pre-deploy diagnostics to
+ * surface capacity issues before they cause ETIMEDOUT / EPIPE loops.
+ *
+ * The system fails closed when capacity is insufficient: if the Redis
+ * connection smoke-test fails (wrong password, connection limit exceeded,
+ * unreachable host), getRedisConnection() throws and server/index.ts falls
+ * back to setInterval workers — no BullMQ queue processing occurs and all
+ * outbound sends remain paused by the channel-gate flags.
+ *
+ * @param queueCount  Number of BullMQ named queues to account for.
+ */
+export function diagnoseRedisCapacity(queueCount: number): RedisCapacityDiagnosis {
+  const UPSTASH_FREE_MAX = 20;
+  // Per-queue: 1 producer + 1 worker + 1 events listener = 3 connections.
+  // +1 for the shared repeat-job scheduler connection.
+  const estimated = queueCount * 3 + 1;
+  const safe = estimated <= UPSTASH_FREE_MAX;
+
+  let recommendation: string;
+  if (safe) {
+    recommendation =
+      `${queueCount} queue(s) × 3 connections + 1 scheduler = ${estimated} connections — ` +
+      `within Upstash free-tier limit (${UPSTASH_FREE_MAX}).`;
+  } else {
+    const overage = estimated - UPSTASH_FREE_MAX;
+    recommendation =
+      `${queueCount} queue(s) × 3 connections + 1 scheduler = ${estimated} connections — ` +
+      `EXCEEDS Upstash free-tier limit (${UPSTASH_FREE_MAX}) by ${overage}. ` +
+      `Options: (1) upgrade to Upstash Pay-As-You-Go or Pro, ` +
+      `(2) consolidate low-frequency queues (discovery + mid-ingestion share one queue), ` +
+      `(3) use a self-hosted Redis instance with no connection cap.`;
+  }
+
+  return {
+    upstashFreeTierMax: UPSTASH_FREE_MAX,
+    queues: queueCount,
+    estimatedBullMqConnections: estimated,
+    safeForUpstashFree: safe,
+    recommendation,
+  };
 }

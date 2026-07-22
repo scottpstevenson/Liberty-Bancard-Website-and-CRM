@@ -99,7 +99,13 @@ export function registerIntegrationsRoutes(app: Express) {
       const legacySig = (req.headers["x-wh-signature"] || req.headers["x-hub-signature-256"] || "") as string;
 
       const isProd = process.env.NODE_ENV === "production";
-      const pubKeyConfigured = !!process.env.GHL_WEBHOOK_PUBLIC_KEY;
+      // Accept both env var names — GHL_WEBHOOK_SIGNATURE_PUBLIC_KEY is the
+      // current standard (matches SDR path + GHL Marketplace SDK convention);
+      // GHL_WEBHOOK_PUBLIC_KEY is the legacy alias kept for existing deployments.
+      const pubKeyConfigured = !!(
+        process.env.GHL_WEBHOOK_SIGNATURE_PUBLIC_KEY ||
+        process.env.GHL_WEBHOOK_PUBLIC_KEY
+      );
 
       if (ed25519Sig) {
         // Prefer Ed25519 when X-GHL-Signature header is present
