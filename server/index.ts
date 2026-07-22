@@ -459,6 +459,26 @@ app.use((req, res, next) => {
         console.error("[Seed] Failed to seed inbound message workflows:", err);
       });
 
+      // Seed outbound pause flags as explicit persisted DB rows (fail-closed).
+      // Seeding only writes a row when the key does not already exist, so a
+      // previously saved value (true=paused or false=unpaused) is never overwritten.
+      // This lets the pre-deploy gate distinguish "persisted pause" from "code default".
+      (async () => {
+        const PAUSE_KEYS = [
+          "outboundGlobalPaused",
+          "emailChannelPaused",
+          "smsChannelPaused",
+          "coldEmailChannelPaused",
+        ] as const;
+        for (const key of PAUSE_KEYS) {
+          const existing = await storage.getSystemSetting(key);
+          if (existing === null) {
+            await storage.setSystemSetting(key, true);
+            log(`[PauseSeed] ${key}=true seeded (fail-closed default)`);
+          }
+        }
+      })().catch(err => console.warn("[PauseSeed] Non-critical seeding error:", err.message));
+
       startDailyMaintenanceScheduler();
 
       // Task #179 — Content Engine: scheduled blog publish + LinkedIn drafts

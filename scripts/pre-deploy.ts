@@ -104,6 +104,17 @@ const MANDATORY_SUITES: Suite[] = [
     script: "scripts/seo-audit.ts",
     timeoutSecs: 60,
   },
+  {
+    name: "Chat Business Hours (AI 24/7, human-handoff hours-gated)",
+    script: "scripts/test-chat-business-hours.ts",
+    timeoutSecs: 30,
+    requiresServer: true,
+  },
+  {
+    name: "Outbound Pause Fence (persisted DB rows, not code defaults)",
+    script: "scripts/test-pause-fence.ts",
+    timeoutSecs: 30,
+  },
   // ── Server-required suites ────────────────────────────────────────────────
   {
     name: "AI Assistant Boundaries (auth/role/schema/no-action)",
@@ -127,21 +138,33 @@ interface ConfigItem {
   key: string;
   label: string;
   category: string;
+  /** Alternative env var whose presence satisfies this requirement (e.g. Replit integration key). */
+  satisfiedByEnv?: string;
+  /** When this env var is set, the item is optional (not a gap) — shown as covered, not missing. */
+  optionalWhenEnv?: string;
+  /** Note displayed when optionalWhenEnv is present. */
+  optionalNote?: string;
 }
 
 const EXTERNAL_CONFIG: ConfigItem[] = [
   // Email / transport
-  { key: "GOOGLE_CLIENT_ID",     label: "Gmail OAuth client ID (non-cold transactional sends)", category: "email" },
+  { key: "GOOGLE_CLIENT_ID",     label: "Gmail OAuth client ID (staff transactional sends)",   category: "email" },
   { key: "GOOGLE_CLIENT_SECRET", label: "Gmail OAuth client secret",                            category: "email" },
-  { key: "SMTP_HOST",            label: "SMTP host (cold outreach transport)",                  category: "email" },
-  { key: "SMTP_USER",            label: "SMTP username",                                        category: "email" },
-  { key: "SMTP_PASS",            label: "SMTP password",                                        category: "email" },
+  // SMTP is the cold-email fallback when GHL is the primary transport.
+  // When GHL_PRIVATE_INTEGRATION_TOKEN is set, SMTP items are optional — not gaps.
+  { key: "SMTP_HOST",            label: "SMTP host (cold-email fallback; optional when GHL configured)",  category: "email",
+    optionalWhenEnv: "GHL_PRIVATE_INTEGRATION_TOKEN", optionalNote: "GHL is primary cold-email transport" },
+  { key: "SMTP_USER",            label: "SMTP username (optional when GHL configured)",         category: "email",
+    optionalWhenEnv: "GHL_PRIVATE_INTEGRATION_TOKEN", optionalNote: "GHL is primary cold-email transport" },
+  { key: "SMTP_PASS",            label: "SMTP password (optional when GHL configured)",         category: "email",
+    optionalWhenEnv: "GHL_PRIVATE_INTEGRATION_TOKEN", optionalNote: "GHL is primary cold-email transport" },
   // GHL
   { key: "GHL_PRIVATE_INTEGRATION_TOKEN", label: "GHL Private Integration Token",              category: "ghl" },
   { key: "GHL_LOCATION_ID",               label: "GHL location ID",                            category: "ghl" },
   { key: "GHL_WEBHOOK_SECRET",            label: "GHL webhook signing secret",                 category: "ghl" },
-  // OpenAI
-  { key: "OPENAI_API_KEY",       label: "OpenAI API key",                                      category: "openai" },
+  // OpenAI — Replit AI integration (AI_INTEGRATIONS_OPENAI_API_KEY) satisfies this requirement.
+  { key: "OPENAI_API_KEY",       label: "OpenAI API key",                                      category: "openai",
+    satisfiedByEnv: "AI_INTEGRATIONS_OPENAI_API_KEY" },
   // Sender domain / compliance
   { key: "APP_URL",              label: "APP_URL (required for unsubscribe links in emails)",   category: "sender-domain" },
   { key: "SENDER_DOMAIN_SPF_VERIFIED",    label: "Sender domain SPF/DKIM verified (manual check)", category: "sender-domain" },
@@ -313,9 +336,25 @@ async function main() {
     console.log(`\n  [${cat.toUpperCase()}]`);
     for (const item of items) {
       const set = !!process.env[item.key];
-      const icon = set ? "✓" : "○";
-      console.log(`  ${icon} ${item.key.padEnd(34)} ${set ? "SET" : "not set"} — ${item.label}`);
-      if (!set) missingConfig.push(`${item.key} (${item.label})`);
+      // Alternative env var (e.g. Replit integration key) satisfies the requirement
+      const satisfiedByAlt = !set && item.satisfiedByEnv && !!process.env[item.satisfiedByEnv];
+      // Item is optional when a gating env var is present (e.g. GHL configured → SMTP optional)
+      const coveredByPrimary = !set && !satisfiedByAlt && item.optionalWhenEnv && !!process.env[item.optionalWhenEnv];
+
+      let icon: string;
+      let status: string;
+
+      if (set) {
+        icon = "✓"; status = "SET";
+      } else if (satisfiedByAlt) {
+        icon = "✓"; status = `SET via ${item.satisfiedByEnv}`;
+      } else if (coveredByPrimary) {
+        icon = "◌"; status = `optional — ${item.optionalNote ?? item.optionalWhenEnv + " is configured"}`;
+      } else {
+        icon = "○"; status = "not set";
+        missingConfig.push(`${item.key} (${item.label})`);
+      }
+      console.log(`  ${icon} ${item.key.padEnd(34)} ${status} — ${item.label}`);
     }
   }
 
@@ -323,7 +362,7 @@ async function main() {
     console.log(`\n  ⚠ ${missingConfig.length} provider config item(s) not set.`);
     console.log("    These are NOT test failures — configure before first live traffic.");
   } else {
-    console.log("\n  ✓ All external config items are set.");
+    console.log("\n  ✓ All required external config items are set or covered.");
   }
 
   // ── 5. Summary ─────────────────────────────────────────────────────────────

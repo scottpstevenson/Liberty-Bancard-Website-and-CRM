@@ -18,7 +18,7 @@ type WidgetState = "bubble" | "open";
 type ChatPhase = "pre-identify" | "chatting" | "offline";
 type ChatMode = "ai" | "human";
 
-const BUSINESS_HOURS_MSG = "Mon–Fri, 9 AM–6 PM ET · We typically reply in under 5 minutes.";
+const BUSINESS_HOURS_MSG = "Liberty AI is available 24/7. Human agents: Mon–Fri, 9 AM–6 PM ET.";
 const GREETING = "Hi! 👋 Thanks for reaching out. Our team typically replies within a few minutes during business hours. What can we help you with?";
 const OFFLINE_GREETING = "We're offline right now. Leave us a message and we'll get back to you by next business day.";
 const AI_GREETING = "Hi! 👋 I'm Liberty Bancard's AI assistant. I can answer questions about payment processing, our programs, pricing, and more. How can I help you today?";
@@ -34,7 +34,9 @@ function checkBusinessHours(): boolean {
 export default function ChatWidget() {
   const [mounted, setMounted] = useState(false);
   const [widgetState, setWidgetState] = useState<WidgetState>("bubble");
-  const [phase, setPhase] = useState<ChatPhase>(checkBusinessHours() ? "pre-identify" : "offline");
+  // Liberty AI is available 24/7 — always start with the AI consent/identify flow.
+  // Business hours only gate the live-human escalation path (escalateToHuman).
+  const [phase, setPhase] = useState<ChatPhase>("pre-identify");
   // AI mode is the default; visitor can escalate to human chat
   const [chatMode, setChatMode] = useState<ChatMode>("ai");
   // AI session state
@@ -187,7 +189,14 @@ export default function ChatWidget() {
   };
 
   // ── Escalate to human chat ────────────────────────────────────────────────
+  // Outside business hours: show the offline contact form — no agent is
+  // available in real time, but the AI continues serving the visitor
+  // until they choose to leave a message.
   const escalateToHuman = async () => {
+    if (!checkBusinessHours()) {
+      setPhase("offline");
+      return;
+    }
     setChatMode("human");
     const humanMsg: ChatMessage = {
       id: -(Date.now()),

@@ -861,6 +861,55 @@ function renderActivationChecklist() {
 ╚══════════════════════════════════════════════════════════════════════════════╝`);
 }
 
+// ─── STAGE 9 — Outbound pause fence: persisted rows vs code default ────────────
+
+async function checkStage9(): Promise<StageResult> {
+  const steps: ReturnType<typeof step>[] = [];
+
+  // The four canonical pause keys seeded by server/index.ts on startup (fail-closed).
+  const PAUSE_KEYS: Array<{ key: string; label: string }> = [
+    { key: "outboundGlobalPaused",   label: "Global outbound kill-switch" },
+    { key: "emailChannelPaused",     label: "Email channel" },
+    { key: "smsChannelPaused",       label: "SMS channel" },
+    { key: "coldEmailChannelPaused", label: "Cold-email channel" },
+  ];
+
+  let allPersisted = true;
+  let allPaused = true;
+
+  for (const { key, label } of PAUSE_KEYS) {
+    const [row] = await db.select().from(systemSettings).where(eq(systemSettings.key, key));
+    const persisted = !!row;
+    const value = row?.value;
+    const isPaused = value === true || value === "true";
+
+    if (!persisted) allPersisted = false;
+    if (!isPaused) allPaused = false;
+
+    const stateTag = persisted ? "PERSISTED" : "CODE-DEFAULT";
+    const valueTag = isPaused ? "paused=true ✓" : `paused=${JSON.stringify(value)} ✗`;
+
+    steps.push(step(
+      `${label}: ${stateTag} · ${valueTag}`,
+      persisted && isPaused,
+      persisted
+        ? `DB row exists for key="${key}"`
+        : `No DB row for key="${key}" — value derived from code default (still paused, but not auditable)`
+    ));
+  }
+
+  // Summary step
+  steps.push(step(
+    "All pause flags PERSISTED and paused=true",
+    allPersisted && allPaused,
+    allPersisted
+      ? "Every channel pause is an explicit DB row — readiness gate can distinguish persisted from default"
+      : "One or more flags are code-default-only. Restart the server to trigger startup seeder."
+  ));
+
+  return stage(9, "Outbound pause fence — persisted rows vs code default", steps);
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -893,6 +942,9 @@ async function main() {
 
   console.log("\n▶ Stage 8: SEO, role-guard, API coverage & cleanup...");
   results.push(await checkStage8());
+
+  console.log("\n▶ Stage 9: Outbound pause fence — persisted rows vs code default...");
+  results.push(await checkStage9());
 
   // ── Print stage results ──
   console.log("\n\n════════════════════════════════════════════════════════════════════");
