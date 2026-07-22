@@ -4,6 +4,7 @@ import { db } from "../db";
 import { tasks } from "@shared/schema";
 import { isNull, inArray, eq, or, and, sql as drizzleSql } from "drizzle-orm";
 import { sendGhlEmail, isGhlConfigured, createGhlTask } from "./ghl";
+import { getEmailSignatureHtml } from "./email-signatures";
 import { advanceDealStage } from "./deal-stage-service";
 import { processSequenceEnrollments } from "./sequence-worker";
 import { processSendQueue } from "./campaign-engine";
@@ -246,9 +247,9 @@ async function checkDealSla(rule: typeof DEFAULT_SLA_RULES[0]) {
           subject: `Following up on your processing review - ${contact.companyName || contact.firstName}`,
           body: `<p>Hi ${contact.firstName},</p>
 <p>Just wanted to check in regarding the processing analysis we sent over. Did you have a chance to review the numbers?</p>
-<p>Happy to walk through everything on a quick 10-minute call at your convenience.</p>
-<p>Best,<br/>Liberty Bancard Team</p>
-<p style="font-size:11px;color:#999;">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>`,
+<p>Happy to walk through everything on a quick 10-minute call at your convenience.</p>${getEmailSignatureHtml("accounts")}`,
+          fromEmail: "accounts@libertybancard.com",
+          fromName: "Liberty Bancard Accounts",
         });
       }
       if (contact?.ghlContactId) {
@@ -644,9 +645,9 @@ async function checkDocumentReadiness() {
               body: `<p>Hi ${contact.firstName},</p>
 <p>We're making great progress on your processing setup! To keep things moving, we just need a few more items:</p>
 <ul>${missing.map(m => `<li>${m.charAt(0).toUpperCase() + m.slice(1)}</li>`).join("")}</ul>
-<p>You can reply to this email with the documents or give us a call and we'll walk you through it.</p>
-<p>Best,<br/>Liberty Bancard Team</p>
-<p style="font-size:11px;color:#999;">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>`,
+<p>You can reply to this email with the documents or give us a call and we'll walk you through it.</p>${getEmailSignatureHtml("accounts")}`,
+              fromEmail: "accounts@libertybancard.com",
+              fromName: "Liberty Bancard Accounts",
             });
           } catch (emailErr) {
             console.error(`Doc nudge email failed for deal ${deal.id}:`, emailErr);

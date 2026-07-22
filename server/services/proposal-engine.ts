@@ -1,6 +1,7 @@
 import { storage } from "../storage";
 import type { Deal, Contact } from "@shared/schema";
 import { advanceDealStage } from "./deal-stage-service";
+import { getEmailSignatureHtml } from "./email-signatures";
 import OpenAI from "openai";
 import crypto from "crypto";
 import fs from "fs";
@@ -629,7 +630,7 @@ export async function sendProposalEmail(dealId: number): Promise<boolean> {
     </p>
     <p style="font-size: 14px; color: #475569; margin: 4px 0;">
       📞 <a href="tel:9542668214" style="color: #0ea5e9;">954-266-8214</a> | 
-      📧 <a href="mailto:sales@libertybancard.com" style="color: #0ea5e9;">sales@libertybancard.com</a>
+      📧 <a href="mailto:accounts@libertybancard.com" style="color: #0ea5e9;">accounts@libertybancard.com</a>
     </p>
   </div>
 </div>
@@ -639,6 +640,7 @@ export async function sendProposalEmail(dealId: number): Promise<boolean> {
     ${proposal.complianceDisclaimer || "Eligibility, underwriting, card brand rules, and applicable laws apply. Savings estimates based on statement data provided. Actual results may vary."}
   </p>
 </div>
+${getEmailSignatureHtml("accounts")}
 </div>`;
 
     const { sendGhlEmail, sendGhlEmailForMerchant, isGhlConfigured } = await import("./ghl");

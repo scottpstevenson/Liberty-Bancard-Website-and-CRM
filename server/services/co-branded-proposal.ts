@@ -7,6 +7,7 @@ import type { PartnerOrganization, Deal, Contact } from "@shared/schema";
 import { contacts } from "@shared/schema";
 import { isGhlConfigured, sendGhlEmailForMerchant, upsertGhlContact, sendGhlEmail } from "./ghl";
 import { sendSmtpEmail } from "./smtp-email";
+import { getEmailSignatureHtml } from "./email-signatures";
 import { addNote } from "./sdr/ghl-client";
 
 export interface CoBrandedProposalInput {
@@ -643,6 +644,7 @@ export async function sendCoBrandedProposalEmail(proposalId: number, baseUrl: st
   ${org.contactName ? `<p>Questions? Reach out to your advisor, <strong>${org.contactName}</strong>${org.phone ? `, at ${org.phone}` : ""}${org.email ? ` or ${org.email}` : ""}.</p>` : ""}
   <hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0;" />
   <p style="font-size:11px;color:#94a3b8;">This proposal is powered by Liberty Bancard. ${proposal.merchantName || "Your business"} information is kept confidential.</p>
+${getEmailSignatureHtml("accounts")}
 </div>`;
 
   let sent = false;

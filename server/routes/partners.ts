@@ -1,6 +1,7 @@
 import type { Express } from "express";
 import { isAuthenticated, isDashboardUser, requireRole, isAffiliate, isPartnerAuthenticated } from "../replit_integrations/auth";
 import rateLimit from "express-rate-limit";
+import { getEmailSignatureHtml } from "../services/email-signatures";
 import { storage } from "../storage";
 import { publicLeadRateLimit } from "../middleware/public-rate-limit";
 import { authStorage } from "../replit_integrations/auth/storage";
@@ -158,7 +159,7 @@ export function registerPartnersRoutes(app: Express) {
   <p>This link expires in 72 hours. Once you set your password, you'll have full access to your partner dashboard with referral tracking, commission reports, and marketing materials.</p>
   <p>Questions? Reply to this email, call us at <a href="tel:9542668214" style="color:#1e3a5f;">954-266-8214</a>, or email <a href="mailto:scott@libertybancard.com" style="color:#1e3a5f;">scott@libertybancard.com</a>.</p>
   <p>Welcome aboard!</p>
-  <p style="margin:0;">— Scott Stevenson<br/><span style="color:#666;font-size:13px;">Liberty Bancard | 954-266-8214 | scott@libertybancard.com</span></p>
+${getEmailSignatureHtml("partners")}
 </div>`;
                 await sendGhlEmailForMerchant({
                   email: updated.email,
@@ -411,8 +412,7 @@ export function registerPartnersRoutes(app: Express) {
   <p><a href="${resetUrl}" style="display:inline-block;background-color:#1e3a5f;color:#ffffff;padding:10px 20px;border-radius:4px;text-decoration:none;font-size:13px;font-weight:bold;">Reset Your Password</a></p>
   <p>Or copy and paste this link into your browser:<br/><span style="font-family:monospace;font-size:12px;color:#555;">${resetUrl}</span></p>
   <p>This link will expire in 1 hour. If you didn't request a password reset, you can safely ignore this email.</p>
-  <p>Questions? Call us at <a href="tel:9542668214" style="color:#1e3a5f;">954-266-8214</a> or email <a href="mailto:support@libertybancard.com" style="color:#1e3a5f;">support@libertybancard.com</a>.</p>
-  <p style="margin:0;">— Scott Stevenson<br/><span style="color:#666;font-size:13px;">Liberty Bancard | 954-266-8214 | support@libertybancard.com</span></p>
+${getEmailSignatureHtml("partners")}
 </div>`;
           if (isGhlConfigured()) {
             sendGhlEmailForMerchant({ email: partner.email, subject, body: html, fromEmail: "partners@libertybancard.com", fromName: "Liberty Bancard Partner Program" })
@@ -559,8 +559,7 @@ export function registerPartnersRoutes(app: Express) {
   <p><a href="${resetUrl}" style="display:inline-block;background-color:#1e3a5f;color:#ffffff;padding:10px 20px;border-radius:4px;text-decoration:none;font-size:13px;font-weight:bold;">Reset Your Password</a></p>
   <p>Or copy and paste this link into your browser:<br/><span style="font-family:monospace;font-size:12px;color:#555;">${resetUrl}</span></p>
   <p>This link will expire in 1 hour. If you didn't request a password reset, you can safely ignore this email.</p>
-  <p>Questions? Call us at <a href="tel:9542668214" style="color:#1e3a5f;">954-266-8214</a> or email <a href="mailto:support@libertybancard.com" style="color:#1e3a5f;">support@libertybancard.com</a>.</p>
-  <p style="margin:0;">— Scott Stevenson<br/><span style="color:#666;font-size:13px;">Liberty Bancard | 954-266-8214 | support@libertybancard.com</span></p>
+${getEmailSignatureHtml("partners")}
 </div>`;
           if (isGhlConfigured()) {
             sendGhlEmailForMerchant({ email: partner.email, subject, body: html, fromEmail: "partners@libertybancard.com", fromName: "Liberty Bancard Partner Program" })

@@ -115,6 +115,11 @@ const MANDATORY_SUITES: Suite[] = [
     script: "scripts/test-pause-fence.ts",
     timeoutSecs: 30,
   },
+  {
+    name: "Email Signature Coverage (all 6 types, CAN-SPAM footer, sender policy, call-site checks)",
+    script: "scripts/test-email-signatures.ts",
+    timeoutSecs: 30,
+  },
   // ── Server-required suites ────────────────────────────────────────────────
   {
     name: "AI Assistant Boundaries (auth/role/schema/no-action)",

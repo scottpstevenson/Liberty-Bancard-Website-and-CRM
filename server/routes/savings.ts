@@ -6,6 +6,7 @@ import { db } from "../db";
 import { deals, contacts, partners } from "@shared/schema";
 import { eq, sql } from "drizzle-orm";
 import { sendSmtpEmail, isSmtpConfigured } from "../services/smtp-email";
+import { getEmailSignatureHtml } from "../services/email-signatures";
 
 function getBaseUrl(req: any): string {
   const replitDomain = process.env.REPLIT_DOMAINS?.split(",")[0]?.trim();
@@ -188,7 +189,7 @@ export function registerSavingsRoutes(app: Express) {
           recommendedPlan: shareData.recommendedPlan || "our recommended plan",
           savingsPercent: shareData.savingsPercent ?? 0,
           complianceDisclaimer: proposal.complianceDisclaimer,
-        });
+        }) + getEmailSignatureHtml("accounts");
 
         let emailSent = false;
         let deliveryMethod = "none";

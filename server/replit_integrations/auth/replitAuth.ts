@@ -11,6 +11,7 @@ import QRCode from "qrcode";
 import { authStorage, getSessionLimitForRole, IDLE_TIMEOUT_MS, ABSOLUTE_TTL_MS } from "./storage";
 import { storage } from "../../storage";
 import { isGhlConfigured, sendGhlEmailForMerchant as sendGhlEmail } from "../../services/ghl";
+import { getEmailSignatureHtml } from "../../services/email-signatures";
 import { sendSmtpEmail, isSmtpConfigured } from "../../services/smtp-email";
 import { db } from "../../db";
 import { systemSettings, users } from "@shared/schema";
@@ -432,7 +433,9 @@ export async function setupAuth(app: Express) {
             sendGhlEmail({
               email: user.email!,
               subject: "New Trusted Device Added – Liberty Bancard",
-              body: `<p>Hi ${user.firstName},</p><p>A new device has been added to your list of trusted devices on your Liberty Bancard account.</p><p><strong>Device:</strong> ${trustedDeviceName}<br/><strong>When:</strong> ${timestamp} ET</p><p>If this wasn't you, please contact us immediately at <a href="mailto:security@libertybancard.com">security@libertybancard.com</a> so we can secure your account.</p><p>Best regards,<br/>Liberty Bancard Security Team</p><p style="font-size:11px;color:#888;">This is an automated security notification from Liberty Bancard.</p>`,
+              body: `<p>Hi ${user.firstName},</p><p>A new device has been added to your list of trusted devices on your Liberty Bancard account.</p><p><strong>Device:</strong> ${trustedDeviceName}<br/><strong>When:</strong> ${timestamp} ET</p><p>If this wasn't you, please contact us immediately at <a href="mailto:security@libertybancard.com">security@libertybancard.com</a> so we can secure your account.</p>${getEmailSignatureHtml("security")}`,
+              fromEmail: SECURITY_FROM,
+              fromName: "Liberty Bancard Security",
             }).catch(err => console.error("[Auth] Trusted device email error:", err));
           }
         }
@@ -488,7 +491,9 @@ export async function setupAuth(app: Express) {
         sendGhlEmail({
           email: user.email!,
           subject: "Two-Factor Authentication Enabled – Liberty Bancard",
-          body: `<p>Hi ${user.firstName},</p><p>Two-factor authentication (2FA) has been <strong>enabled</strong> on your Liberty Bancard account.</p><p><strong>When:</strong> ${timestamp} ET<br/><strong>Device:</strong> ${deviceInfo}</p><p>If this wasn't you, please contact us immediately at <a href="mailto:security@libertybancard.com">security@libertybancard.com</a> so we can secure your account.</p><p>Best regards,<br/>Liberty Bancard Security Team</p><p style="font-size:11px;color:#888;">This is an automated security notification from Liberty Bancard.</p>`,
+          body: `<p>Hi ${user.firstName},</p><p>Two-factor authentication (2FA) has been <strong>enabled</strong> on your Liberty Bancard account.</p><p><strong>When:</strong> ${timestamp} ET<br/><strong>Device:</strong> ${deviceInfo}</p><p>If this wasn't you, please contact us immediately at <a href="mailto:security@libertybancard.com">security@libertybancard.com</a> so we can secure your account.</p>${getEmailSignatureHtml("security")}`,
+          fromEmail: SECURITY_FROM,
+          fromName: "Liberty Bancard Security",
         }).catch(err => console.error("[Auth] 2FA-enabled email error:", err));
       }
 
@@ -519,7 +524,9 @@ export async function setupAuth(app: Express) {
         sendGhlEmail({
           email: user.email!,
           subject: "Two-Factor Authentication Disabled – Liberty Bancard",
-          body: `<p>Hi ${fullUser.firstName || user.firstName},</p><p>Two-factor authentication (2FA) has been <strong>disabled</strong> on your Liberty Bancard account.</p><p><strong>When:</strong> ${timestamp} ET<br/><strong>Device:</strong> ${deviceInfo}</p><p>If this wasn't you, please contact us immediately at <a href="mailto:security@libertybancard.com">security@libertybancard.com</a> so we can secure your account.</p><p>Best regards,<br/>Liberty Bancard Security Team</p><p style="font-size:11px;color:#888;">This is an automated security notification from Liberty Bancard.</p>`,
+          body: `<p>Hi ${fullUser.firstName || user.firstName},</p><p>Two-factor authentication (2FA) has been <strong>disabled</strong> on your Liberty Bancard account.</p><p><strong>When:</strong> ${timestamp} ET<br/><strong>Device:</strong> ${deviceInfo}</p><p>If this wasn't you, please contact us immediately at <a href="mailto:security@libertybancard.com">security@libertybancard.com</a> so we can secure your account.</p>${getEmailSignatureHtml("security")}`,
+          fromEmail: SECURITY_FROM,
+          fromName: "Liberty Bancard Security",
         }).catch(err => console.error("[Auth] 2FA-disabled email error:", err));
       }
 

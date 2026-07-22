@@ -496,11 +496,11 @@ export async function runStatementUploadChain(
 
     if (repEmail) {
       const subject = `New Statement Uploaded — ${merchantName}`;
+      const { getEmailSignatureHtml } = await import("./email-signatures");
       const body = `<p>Hi ${repName || "there"},</p>
 <p><strong>${merchantName}</strong> just uploaded a processing statement and is ready for review.</p>
 <p><a href="${dealLink}">View Deal #${dealId}</a></p>
-<p>Log in to Liberty Bancard and review the statement to kick off the proposal.</p>
-<p>— Liberty Bancard Automated Alerts</p>`;
+<p>Log in to Liberty Bancard and review the statement to kick off the proposal.</p>${getEmailSignatureHtml("accounts")}`;
 
       if (isSmtpConfigured()) {
         const smtpResult = await sendSmtpEmail({ to: repEmail, subject, html: body, category: "internal_ops" });
