@@ -40,6 +40,37 @@ const testContactIds: number[] = [];
 const testConsentLogIds: number[] = [];
 const testSequenceIds: number[] = [];
 
+// ── Pause snapshot / restore ─────────────────────────────────────────────────
+// Capture the ORIGINAL pause state before any test mutation so that SIGTERM,
+// SIGINT, uncaughtException, and unhandledRejection all restore it correctly.
+let snapshotPaused: boolean = true;  // safe default; overwritten by runTests()
+let snapshotPausedReason: string | null = null;
+let cleaningUpGlobal = false;
+
+async function emergencyCleanup(signal: string): Promise<void> {
+  if (cleaningUpGlobal) return;
+  cleaningUpGlobal = true;
+  console.error(`\n[${signal}] Signal received — running emergency cleanup...`);
+  try {
+    await storage.setSystemSetting("outboundGlobalPaused", snapshotPaused).catch(() => {});
+    await storage.setSystemSetting("outboundGlobalPausedReason", snapshotPausedReason).catch(() => {});
+    await cleanup();
+  } catch (_) {}
+  try { await pool.end(); } catch (_) {}
+  process.exit(1);
+}
+
+process.on("SIGTERM", () => emergencyCleanup("SIGTERM").catch(() => process.exit(1)));
+process.on("SIGINT",  () => emergencyCleanup("SIGINT").catch(() => process.exit(1)));
+process.on("uncaughtException", (err: unknown) => {
+  console.error("[uncaughtException]", err);
+  emergencyCleanup("uncaughtException").catch(() => process.exit(1));
+});
+process.on("unhandledRejection", (reason: unknown) => {
+  console.error("[unhandledRejection]", reason);
+  emergencyCleanup("unhandledRejection").catch(() => process.exit(1));
+});
+
 function assert(label: string, condition: boolean, detail?: string) {
   if (condition) {
     console.log(`  ✓ ${label}`);
@@ -114,6 +145,10 @@ async function insertPewcEvidence(contactId: number): Promise<void> {
 }
 
 async function cleanup(): Promise<void> {
+  // Restore global pause to safe/enabled state regardless of what tests left it as
+  await storage.setSystemSetting("outboundGlobalPaused", true).catch(() => {});
+  await storage.setSystemSetting("outboundGlobalPausedReason", null).catch(() => {});
+
   // Clean sequence enrollments before sequences (FK)
   if (testSequenceIds.length > 0) {
     for (const id of testSequenceIds) {
@@ -269,12 +304,13 @@ async function testCase12(): Promise<void> {
     sourceCategory: "inbound",
     emailStatus: "active",
   });
+  const triggerType12 = `test_gate_email_only_${Date.now()}_${Math.random().toString(36).slice(2)}`;
   const seqId = await makeAutoTriggerSequence({
-    triggerType: "test_gate_email_only",
+    triggerType: triggerType12,
     stepActionTypes: ["email"],
   });
 
-  const result = await autoEnrollFromTrigger("test_gate_email_only", { contactId });
+  const result = await autoEnrollFromTrigger(triggerType12, { contactId });
   assert("eligible contact: autoEnrollFromTrigger returns 1 enrolled", result.count === 1, `enrolled=${result.count}`);
 
   const rowExists = await enrollmentRowExists(contactId, seqId);
@@ -358,8 +394,14 @@ async function testCase14(): Promise<void> {
     `UPDATE background_jobs SET status = 'idle' WHERE job_name = 'sequence-worker' AND status = 'running'`
   );
 
-  const { processSequenceEnrollments } = await import("../server/services/sequence-worker");
-  await processSequenceEnrollments();
+  // Disable global pause so Gate (a) is reached (cleanup always restores it to true)
+  await storage.setSystemSetting("outboundGlobalPaused", false);
+  try {
+    const { processSequenceEnrollments } = await import("../server/services/sequence-worker");
+    await processSequenceEnrollments();
+  } finally {
+    await storage.setSystemSetting("outboundGlobalPaused", true);
+  }
 
   // Brief pause to let any async audit-log writes settle
   await new Promise(r => setTimeout(r, 300));
@@ -771,8 +813,12 @@ async function testCase23(): Promise<void> {
   process.env.APP_URL = "https://test.libertybancard.com";
 
   try {
-    const contactId = await makeContact({ emailStatus: "active", consentTier: "warm_no_pewc" });
     const tag = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const contactId = await makeContact({
+      emailStatus: "active",
+      consentTier: "warm_no_pewc",
+      ghlContactId: `test-mock-ghl-23-${tag}` as any,
+    });
 
     const [seq] = await db
       .insert(followUpSequences)
@@ -820,8 +866,14 @@ async function testCase23(): Promise<void> {
       `UPDATE background_jobs SET status = 'idle' WHERE job_name = 'sequence-worker' AND status = 'running'`
     );
 
+    // Disable global pause so the mailing-address gate is reached (cleanup restores it to true)
+    await storage.setSystemSetting("outboundGlobalPaused", false);
     const { processSequenceEnrollments: pse } = await import("../server/services/sequence-worker");
-    await pse();
+    try {
+      await pse();
+    } finally {
+      await storage.setSystemSetting("outboundGlobalPaused", true);
+    }
 
     await new Promise(r => setTimeout(r, 300));
 
@@ -1189,7 +1241,11 @@ async function testCase29(): Promise<void> {
     );
 
     const { seqId } = await makeDailyCapSequence();
-    const contactId = await makeContact({ emailStatus: "active", consentTier: "pewc_full_automation" });
+    const contactId = await makeContact({
+      emailStatus: "active",
+      consentTier: "pewc_full_automation",
+      ghlContactId: `test-mock-ghl-29-${Date.now()}` as any,
+    });
     const enrollId = await makeEnrollment(contactId, seqId);
 
     await processSequenceEnrollments();
@@ -1509,7 +1565,11 @@ async function testCase34(): Promise<void> {
     );
 
     const { seqId } = await makeDailyCapSequence();
-    const contactId = await makeContact({ emailStatus: "active", consentTier: "pewc_full_automation" });
+    const contactId = await makeContact({
+      emailStatus: "active",
+      consentTier: "pewc_full_automation",
+      ghlContactId: `test-mock-ghl-34b-${Date.now()}` as any,
+    });
     const enrollId = await makeEnrollment(contactId, seqId);
 
     await processSequenceEnrollments();
@@ -1543,6 +1603,18 @@ async function testCase34(): Promise<void> {
 async function runTests(): Promise<void> {
   console.log("=== Wave 12 Sequence Compliance Tests ===\n");
   console.log("Mode: dryRun — no real messages sent, no audit logs written\n");
+
+  // Snapshot the original pause state before any test mutation so that all
+  // exit paths (normal, SIGTERM, SIGINT, uncaughtException) restore it correctly.
+  try {
+    const rawPaused = await storage.getSystemSetting("outboundGlobalPaused");
+    snapshotPaused = rawPaused === true || rawPaused === "true" || String(rawPaused) === "true";
+    const rawReason = await storage.getSystemSetting("outboundGlobalPausedReason");
+    snapshotPausedReason = rawReason != null ? String(rawReason) : null;
+  } catch (_) {
+    snapshotPaused = true;
+    snapshotPausedReason = null;
+  }
 
   try {
     await testCase1();

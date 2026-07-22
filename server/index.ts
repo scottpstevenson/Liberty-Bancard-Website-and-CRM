@@ -171,7 +171,9 @@ app.set("trust proxy", 1);
     if (
       req.path.startsWith("/api") ||
       req.path.startsWith("/webhooks") ||
-      req.path === "/health"
+      req.path === "/health" ||
+      req.path.startsWith("/unsubscribe") ||
+      req.path.startsWith("/nps")
     ) return next();
     return res.redirect(301, `${_canonicalUrl}${req.originalUrl}`);
   });

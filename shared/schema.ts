@@ -4648,3 +4648,6 @@ export const insertSystemAuditRunSchema = createInsertSchema(systemAuditRuns).om
 
 export type SystemAuditRun = typeof systemAuditRuns.$inferSelect;
 export type InsertSystemAuditRun = z.infer<typeof insertSystemAuditRunSchema>;
+
+// AI Assistant tables (migration 0084)
+export * from "./schema-ai-assistant";

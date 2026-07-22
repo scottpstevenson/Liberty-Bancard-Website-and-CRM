@@ -63,3 +63,4 @@
 - [GHL fetch timeout](ghl-fetch-timeout.md) — AbortController per fetch attempt (20 s default); clearTimeout in both success and catch; AbortError is retryable.
 - [tsx hot-reload stale route registration](tsx-stale-route.md) — new Express routes added to large route files may return 404 (even for anon) until a full server restart; probe with curl and restart to confirm.
 - [Drizzle-kit orphaned file deploy hang](drizzle-kit-orphaned-hang.md) — SQL files in migrations/ root without _journal.json entries cause drizzle-kit generate to hang indefinitely; fix: journal them or move to migrations/guarded/ (subdirectories are not scanned by drizzle-kit).
+- [Test phone isolation in form tests](test-phone-isolation.md) — hardcoded phones cause GHL contact ID uniqueness violations across test runs; always use uniquePhone().

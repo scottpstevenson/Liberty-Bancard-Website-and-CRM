@@ -130,7 +130,7 @@ const CASES: GuardCase[] = [
   // Bulk download: admin/manager only; agent and merchant → 403; admin may get 403 from CSRF in test env
   { method: "POST",   path: "/api/documents/bulk-download",         anon: [401], merchant: [403], admin: [400, 200, 403], agent: [403], description: "bulk download (admin/manager only; agent→403; 403 expected on admin from CSRF in test env)" },
   // SDR / admin health endpoints — isDashboardUser guard; merchant → 403
-  { method: "GET",    path: "/api/admin/health",                     anon: [401], merchant: [403], admin: [200], description: "admin health check (isDashboardUser)" },
+  { method: "GET",    path: "/api/admin/health",                     anon: [401], merchant: [403], admin: [200, 503], description: "admin health check (isDashboardUser; 503 when services degraded in dev)" },
   { method: "GET",    path: "/api/sdr/compliance-channel-status",    anon: [401], merchant: [403], admin: [200], description: "SDR compliance channel status (isDashboardUser)" },
 
   // ── Auth-gate hardening (launch remediation) — formerly isAuthenticated, now isDashboardUser/requireRole ──

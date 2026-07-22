@@ -1,7 +1,8 @@
 import type { Express } from "express";
 import { storage } from "../storage";
 import { z } from "zod";
-import { and } from "drizzle-orm";
+import { and, sql as sqlTag } from "drizzle-orm";
+import { db as publicDb } from "../db";
 import { verifyUnsubscribeToken } from "../services/unsubscribe-token";
 import { sendGhlEmail, sendGhlSms } from "../services/ghl";
 import { enqueuePromotionalEnrollment } from "../services/promotional-enrollment-eligibility";
@@ -1287,11 +1288,15 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         contact.emailStatus === "opted_out" || contact.consentTier === "opted_out";
 
       if (!alreadyOptedOut) {
-        await storage.updateContact(contactId, {
-          optedOutEmail: true,
-          emailStatus: "opted_out",
-          consentTier: "opted_out",
-        } as any);
+        // Raw SQL: bypass Drizzle set() cast which can silently drop boolean/enum cols
+        await publicDb.execute(sqlTag`
+          UPDATE contacts
+          SET opted_out_email = true,
+              email_status    = 'opted_out',
+              consent_tier    = 'opted_out',
+              updated_at      = now()
+          WHERE id = ${contactId}
+        `);
 
         await storage.createAuditLog({
           action: "contact_email_unsubscribed_via_link",

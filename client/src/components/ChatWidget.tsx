@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { X, MessageCircle, Send, ChevronDown, Loader2 } from "lucide-react";
+import { X, MessageCircle, Send, ChevronDown, Loader2, Bot, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -7,18 +7,21 @@ import { cn } from "@/lib/utils";
 
 interface ChatMessage {
   id: number;
-  senderType: "visitor" | "agent";
+  senderType: "visitor" | "agent" | "ai";
   senderName: string | null;
   content: string;
   createdAt: string;
+  sources?: Array<{ title: string; relevance?: number }>;
 }
 
 type WidgetState = "bubble" | "open";
 type ChatPhase = "pre-identify" | "chatting" | "offline";
+type ChatMode = "ai" | "human";
 
 const BUSINESS_HOURS_MSG = "Mon–Fri, 9 AM–6 PM ET · We typically reply in under 5 minutes.";
 const GREETING = "Hi! 👋 Thanks for reaching out. Our team typically replies within a few minutes during business hours. What can we help you with?";
 const OFFLINE_GREETING = "We're offline right now. Leave us a message and we'll get back to you by next business day.";
+const AI_GREETING = "Hi! 👋 I'm Liberty Bancard's AI assistant. I can answer questions about payment processing, our programs, pricing, and more. How can I help you today?";
 
 function checkBusinessHours(): boolean {
   const now = new Date();
@@ -32,11 +35,17 @@ export default function ChatWidget() {
   const [mounted, setMounted] = useState(false);
   const [widgetState, setWidgetState] = useState<WidgetState>("bubble");
   const [phase, setPhase] = useState<ChatPhase>(checkBusinessHours() ? "pre-identify" : "offline");
+  // AI mode is the default; visitor can escalate to human chat
+  const [chatMode, setChatMode] = useState<ChatMode>("ai");
+  // AI session state
+  const [aiSessionId, setAiSessionId] = useState<string | null>(null);
+  const [aiThinking, setAiThinking] = useState(false);
+  // Human session state (for escalation)
   const [sessionId, setSessionId] = useState<string | null>(null);
   const sessionIdRef = useRef<string | null>(null);
   const [chatId, setChatId] = useState<number | null>(null);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [lastMessageId, setLastMessageId] = useState<number>(0);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [visitorName, setVisitorName] = useState("");
@@ -72,49 +81,48 @@ export default function ChatWidget() {
     setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
   }, []);
 
+  // ── Human chat session polling (only in human mode) ──────────────────────
   const pollMessages = useCallback(async () => {
-    if (!sessionId) return;
+    if (!sessionId || chatMode !== "human") return;
     try {
       const res = await fetch(`/api/public/chat/session/${sessionId}/messages?afterId=${lastMessageId}`);
       if (!res.ok) return;
       const data = await res.json();
       if (data.messages && data.messages.length > 0) {
-        setMessages(prev => {
-          const existingIds = new Set(prev.map(m => m.id));
-          const newMsgs = data.messages.filter((m: ChatMessage) => !existingIds.has(m.id));
-          if (newMsgs.length > 0) {
-            const newLastId = Math.max(...data.messages.map((m: ChatMessage) => m.id));
-            setLastMessageId(newLastId);
-            const agentNew = newMsgs.filter((m: ChatMessage) => m.senderType === "agent");
-            if (agentNew.length > 0 && widgetState !== "open") {
-              setUnreadCount(c => c + agentNew.length);
-            }
-            return [...prev, ...newMsgs];
+        const existingIds = new Set(messages.map(m => m.id));
+        const newMsgs = data.messages.filter((m: ChatMessage) => !existingIds.has(m.id));
+        if (newMsgs.length > 0) {
+          const newLastId = Math.max(...data.messages.map((m: ChatMessage) => m.id));
+          setLastMessageId(newLastId);
+          setMessages(prev => [...prev, ...newMsgs]);
+          const agentNew = newMsgs.filter((m: ChatMessage) => m.senderType === "agent");
+          if (agentNew.length > 0 && widgetState !== "open") {
+            setUnreadCount(prev => prev + agentNew.length);
           }
-          return prev;
-        });
-        scrollToBottom();
+          scrollToBottom();
+        }
       }
     } catch (_) {}
-  }, [sessionId, lastMessageId, widgetState, scrollToBottom]);
+  }, [sessionId, lastMessageId, messages, chatMode, widgetState, scrollToBottom]);
 
   useEffect(() => {
-    if (sessionId && phase === "chatting") {
+    if (chatMode === "human" && sessionId) {
+      if (pollRef.current) clearInterval(pollRef.current);
       pollRef.current = setInterval(pollMessages, 4000);
-      return () => { if (pollRef.current) clearInterval(pollRef.current); };
+      return () => {
+        if (pollRef.current) clearInterval(pollRef.current);
+      };
+    } else {
+      if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
     }
-  }, [sessionId, phase, pollMessages]);
+  }, [chatMode, sessionId, pollMessages]);
 
   useEffect(() => {
-    if (widgetState === "open") {
-      setUnreadCount(0);
-      scrollToBottom();
-      setTimeout(() => inputRef.current?.focus(), 150);
-    }
-  }, [widgetState, scrollToBottom]);
+    if (widgetState === "open") setUnreadCount(0);
+  }, [widgetState]);
 
-  const startSession = async (): Promise<string | null> => {
-    if (sessionStarted && sessionIdRef.current) return sessionIdRef.current;
+  // ── Human session start ──────────────────────────────────────────────────
+  const startHumanSession = async (): Promise<string | null> => {
     try {
       const res = await fetch("/api/public/chat/session", {
         method: "POST",
@@ -134,54 +142,127 @@ export default function ChatWidget() {
 
   const openWidget = () => {
     setWidgetState("open");
-    if (!sessionStarted && phase !== "offline") {
-      startSession();
+    if (!sessionStarted && phase !== "offline" && chatMode === "human") {
+      startHumanSession();
     }
   };
 
+  // ── Identify (enter chatting phase) ────────────────────────────────────────
   const handleIdentify = async () => {
     if (!visitorName.trim()) { setIdentifyError("Please enter your name."); return; }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(visitorEmail)) { setIdentifyError("Please enter a valid email address."); return; }
     setIdentifyError("");
     setSending(true);
 
+    // Start human session in background (for escalation readiness)
     let activeSessionId = sessionIdRef.current || sessionId;
     if (!activeSessionId) {
-      activeSessionId = await startSession();
+      activeSessionId = await startHumanSession();
     }
 
-    if (!activeSessionId) {
-      setIdentifyError("Unable to connect. Please try again.");
-      setSending(false);
-      return;
+    if (activeSessionId) {
+      try {
+        await fetch(`/api/public/chat/session/${activeSessionId}/identify`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: visitorName, email: visitorEmail }),
+        });
+      } catch (_) {}
     }
-
-    try {
-      await fetch(`/api/public/chat/session/${activeSessionId}/identify`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: visitorName, email: visitorEmail }),
-      });
-    } catch (_) {}
 
     setPhase("chatting");
+    // Default to AI mode with AI greeting
     setMessages([{
       id: -1,
-      senderType: "agent",
-      senderName: "Liberty Bancard",
-      content: GREETING,
+      senderType: "ai",
+      senderName: "Liberty AI",
+      content: AI_GREETING,
       createdAt: new Date().toISOString(),
     }]);
     scrollToBottom();
     setSending(false);
   };
 
-  const handleSend = async () => {
-    const text = input.trim();
-    if (!text || sending || !sessionId) return;
-    setSending(true);
-    setInput("");
+  // ── Escalate to human chat ────────────────────────────────────────────────
+  const escalateToHuman = async () => {
+    setChatMode("human");
+    const humanMsg: ChatMessage = {
+      id: -(Date.now()),
+      senderType: "agent",
+      senderName: "Liberty Bancard",
+      content: GREETING,
+      createdAt: new Date().toISOString(),
+    };
+    setMessages(prev => [...prev, humanMsg]);
+    scrollToBottom();
+    // Ensure human session is started
+    if (!sessionId) await startHumanSession();
+  };
 
+  // ── AI send ────────────────────────────────────────────────────────────────
+  const handleAiSend = async (text: string) => {
+    const tempId = -(Date.now());
+    const tempMsg: ChatMessage = {
+      id: tempId,
+      senderType: "visitor",
+      senderName: visitorName || "You",
+      content: text,
+      createdAt: new Date().toISOString(),
+    };
+    setMessages(prev => [...prev, tempMsg]);
+    scrollToBottom();
+    setAiThinking(true);
+
+    try {
+      const res = await fetch("/api/assistant/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: text,
+          sessionId: aiSessionId || undefined,
+          visitorName: visitorName || undefined,
+          visitorEmail: visitorEmail || undefined,
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.sessionId && !aiSessionId) setAiSessionId(data.sessionId);
+
+        const aiReply: ChatMessage = {
+          id: -(Date.now() + 1),
+          senderType: "ai",
+          senderName: "Liberty AI",
+          content: data.reply || data.message || "I'm not sure about that. Would you like to speak with a team member?",
+          createdAt: new Date().toISOString(),
+          sources: data.sources,
+        };
+        setMessages(prev => [...prev, aiReply]);
+      } else {
+        setMessages(prev => [...prev, {
+          id: -(Date.now() + 2),
+          senderType: "ai",
+          senderName: "Liberty AI",
+          content: "I'm having trouble answering right now. Would you like to talk to a team member?",
+          createdAt: new Date().toISOString(),
+        }]);
+      }
+    } catch (_) {
+      setMessages(prev => [...prev, {
+        id: -(Date.now() + 3),
+        senderType: "ai",
+        senderName: "Liberty AI",
+        content: "Connection issue. Please try again or click 'Talk to a human' below.",
+        createdAt: new Date().toISOString(),
+      }]);
+    } finally {
+      setAiThinking(false);
+    }
+    scrollToBottom();
+  };
+
+  // ── Human send ─────────────────────────────────────────────────────────────
+  const handleHumanSend = async (text: string) => {
     const tempId = -(Date.now());
     const tempMsg: ChatMessage = {
       id: tempId,
@@ -193,18 +274,33 @@ export default function ChatWidget() {
     setMessages(prev => [...prev, tempMsg]);
     scrollToBottom();
 
+    const activeSessionId = sessionIdRef.current || sessionId;
+    if (!activeSessionId) return;
+
     try {
-      const res = await fetch(`/api/public/chat/session/${sessionId}/message`, {
+      const res = await fetch(`/api/public/chat/session/${activeSessionId}/message`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content: text }),
       });
       if (res.ok) {
         const saved = await res.json();
-        setMessages(prev => prev.map(m => m.id === tempId ? saved : m));
+        setMessages(prev => prev.map(m => m.id === tempId ? { ...saved, senderType: "visitor" } : m));
         setLastMessageId(prev => Math.max(prev, saved.id));
       }
     } catch (_) {}
+  };
+
+  const handleSend = async () => {
+    const text = input.trim();
+    if (!text || sending || aiThinking) return;
+    setSending(true);
+    setInput("");
+    if (chatMode === "ai") {
+      await handleAiSend(text);
+    } else {
+      await handleHumanSend(text);
+    }
     setSending(false);
   };
 
@@ -239,7 +335,7 @@ export default function ChatWidget() {
       {widgetState === "open" && (
         <div
           className="flex flex-col rounded-2xl shadow-2xl border border-border bg-white dark:bg-gray-900 overflow-hidden"
-          style={{ width: "min(360px, calc(100vw - 32px))", maxHeight: "min(540px, calc(100vh - 96px))" }}
+          style={{ width: "min(360px, calc(100vw - 32px))", maxHeight: "min(560px, calc(100vh - 96px))" }}
           data-testid="chat-widget-panel"
         >
           {/* Header */}
@@ -254,7 +350,9 @@ export default function ChatWidget() {
               </div>
               <div>
                 <p className="text-sm font-semibold leading-none">Liberty Bancard</p>
-                <p className="text-[10px] text-white/60 mt-0.5">{online ? "● Online now" : "● Away"}</p>
+                <p className="text-[10px] text-white/60 mt-0.5">
+                  {chatMode === "ai" ? "● AI Assistant" : online ? "● Online now" : "● Away"}
+                </p>
               </div>
             </div>
             <div className="flex items-center gap-1">
@@ -335,7 +433,9 @@ export default function ChatWidget() {
             {phase === "pre-identify" && (
               <div className="space-y-3">
                 <div className="flex gap-2 items-start">
-                  <div className="w-7 h-7 rounded-full bg-[hsl(222,47%,11%)] flex items-center justify-center text-[9px] text-white font-bold shrink-0 mt-0.5">LB</div>
+                  <div className="w-7 h-7 rounded-full bg-sky-500 flex items-center justify-center shrink-0 mt-0.5">
+                    <Bot className="w-3.5 h-3.5 text-white" />
+                  </div>
                   <div className="bg-white dark:bg-gray-800 rounded-xl rounded-tl-sm px-3 py-2 text-sm text-foreground shadow-sm border border-border">
                     Hi there! 👋 Before we start, may I get your name and email so we can follow up if needed?
                   </div>
@@ -379,21 +479,70 @@ export default function ChatWidget() {
                     className={cn("flex gap-2 items-end", msg.senderType === "visitor" ? "flex-row-reverse" : "flex-row")}
                     data-testid={`chat-message-${i}`}
                   >
+                    {msg.senderType === "ai" && (
+                      <div className="w-6 h-6 rounded-full bg-sky-500 flex items-center justify-center shrink-0">
+                        <Bot className="w-3 h-3 text-white" />
+                      </div>
+                    )}
                     {msg.senderType === "agent" && (
                       <div className="w-6 h-6 rounded-full bg-[hsl(222,47%,11%)] flex items-center justify-center text-[9px] text-white font-bold shrink-0">LB</div>
                     )}
-                    <div
-                      className={cn(
-                        "rounded-xl px-3 py-2 text-sm max-w-[80%] shadow-sm break-words",
-                        msg.senderType === "visitor"
-                          ? "bg-[hsl(222,47%,11%)] text-white rounded-br-sm"
-                          : "bg-white dark:bg-gray-800 text-foreground border border-border rounded-bl-sm"
+                    {msg.senderType === "visitor" && (
+                      <div className="w-6 h-6 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center shrink-0">
+                        <User className="w-3 h-3 text-gray-600 dark:text-gray-300" />
+                      </div>
+                    )}
+                    <div className="flex flex-col gap-0.5 max-w-[80%]">
+                      <div
+                        className={cn(
+                          "rounded-xl px-3 py-2 text-sm shadow-sm break-words",
+                          msg.senderType === "visitor"
+                            ? "bg-[hsl(222,47%,11%)] text-white rounded-br-sm"
+                            : msg.senderType === "ai"
+                            ? "bg-sky-50 dark:bg-sky-900/20 text-foreground border border-sky-100 dark:border-sky-800 rounded-bl-sm"
+                            : "bg-white dark:bg-gray-800 text-foreground border border-border rounded-bl-sm"
+                        )}
+                      >
+                        {msg.content}
+                      </div>
+                      {msg.senderType === "ai" && msg.sources && msg.sources.length > 0 && (
+                        <p className="text-[9px] text-muted-foreground pl-1">
+                          Source: {msg.sources[0].title}
+                        </p>
                       )}
-                    >
-                      {msg.content}
                     </div>
                   </div>
                 ))}
+
+                {/* AI typing indicator */}
+                {aiThinking && (
+                  <div className="flex gap-2 items-end" data-testid="chat-ai-thinking">
+                    <div className="w-6 h-6 rounded-full bg-sky-500 flex items-center justify-center shrink-0">
+                      <Bot className="w-3 h-3 text-white" />
+                    </div>
+                    <div className="bg-sky-50 dark:bg-sky-900/20 border border-sky-100 dark:border-sky-800 rounded-xl rounded-bl-sm px-3 py-2 text-sm">
+                      <span className="flex gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-bounce [animation-delay:0ms]" />
+                        <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-bounce [animation-delay:150ms]" />
+                        <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-bounce [animation-delay:300ms]" />
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Escalate to human button (only in AI mode) */}
+                {chatMode === "ai" && !aiThinking && messages.length > 1 && (
+                  <div className="flex justify-center">
+                    <button
+                      onClick={escalateToHuman}
+                      className="text-[11px] text-muted-foreground underline hover:text-foreground transition-colors"
+                      data-testid="chat-escalate-human"
+                    >
+                      Talk to a human
+                    </button>
+                  </div>
+                )}
+
                 <div ref={messagesEndRef} />
               </>
             )}
@@ -405,11 +554,11 @@ export default function ChatWidget() {
               <div className="flex gap-2 items-center">
                 <Input
                   ref={inputRef}
-                  placeholder="Type a message…"
+                  placeholder={chatMode === "ai" ? "Ask me anything…" : "Type a message…"}
                   value={input}
                   onChange={e => setInput(e.target.value)}
                   onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-                  disabled={sending}
+                  disabled={sending || aiThinking}
                   className="flex-1"
                   data-testid="chat-message-input"
                 />
@@ -417,14 +566,16 @@ export default function ChatWidget() {
                   size="icon"
                   className="bg-[hsl(222,47%,11%)] text-white hover:bg-[hsl(222,47%,18%)] shrink-0"
                   onClick={handleSend}
-                  disabled={sending || !input.trim()}
+                  disabled={sending || aiThinking || !input.trim()}
                   aria-label="Send message"
                   data-testid="chat-send-button"
                 >
-                  {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                  {(sending || aiThinking) ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                 </Button>
               </div>
-              <p className="text-[10px] text-muted-foreground text-center mt-1.5">Liberty Bancard · Secure Chat</p>
+              <p className="text-[10px] text-muted-foreground text-center mt-1.5">
+                {chatMode === "ai" ? "Liberty AI · Powered by Liberty Bancard" : "Liberty Bancard · Secure Chat"}
+              </p>
             </div>
           )}
         </div>

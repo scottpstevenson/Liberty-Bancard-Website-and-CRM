@@ -176,15 +176,20 @@ async function main() {
     WARN("SMS probe threw", e.message);
   }
 
-  // ── 8. SMTP ────────────────────────────────────────────────────────────────
-  INFO("8. SMTP (Direct Mail Transport — cold outreach List-Unsubscribe)");
+  // ── 8. SMTP (optional secondary transport) ────────────────────────────────
+  INFO("8. SMTP (optional — GHL is the primary cold-outreach executor)");
   const smtpHost = process.env.SMTP_HOST;
   const smtpUser = process.env.SMTP_USER;
   const smtpPass = process.env.SMTP_PASS;
   if (smtpHost && smtpUser && smtpPass) {
-    OK(`SMTP configured — host=${smtpHost} user=${smtpUser}`);
+    OK(`SMTP configured — host=${smtpHost} user=${smtpUser} (optional secondary transport)`);
   } else {
-    WARN("SMTP not configured", "Cold email goes via GHL (Scott@mail.libertybancard.com) — SMTP needed for List-Unsubscribe header compliance");
+    // SMTP is not a launch blocker. Architecture: GHL sends cold outreach from
+    // Scott@mail.libertybancard.com (mail.libertybancard.com sender domain) with
+    // native GHL unsubscribe and event handling.  SMTP is only used when
+    // explicitly configured as an alternative transport (sequence useSmtpForThisStep
+    // flag or explicit fallback). Not required for go-live.
+    OK("SMTP not configured — GHL (Scott@mail.libertybancard.com) is the primary cold-outreach executor; SMTP is optional");
   }
 
   // ── 9. Cold email compliance gates ────────────────────────────────────────

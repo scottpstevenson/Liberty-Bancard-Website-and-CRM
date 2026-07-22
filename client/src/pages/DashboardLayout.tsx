@@ -1,10 +1,11 @@
-import { ReactNode, useState, useMemo, useEffect } from "react";
+import { ReactNode, useState, useMemo, useEffect, useCallback } from "react";
 import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { countUnreadSessions } from "@/lib/chatNotifications";
 import logoBlue from "@assets/logo-blue.png";
 import UniversalSearch from "@/components/UniversalSearch";
+import { InternalSidebarChat } from "@/components/InternalSidebarChat";
 import { EmailComposer } from "@/components/EmailComposer";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import {
@@ -140,6 +141,7 @@ const merchantOpsItems: MenuItem[] = [
   { icon: ShieldAlert, label: "Merchant Risk", href: "/dashboard/merchant-risk", roles: ["admin", "manager"] },
   { icon: FolderOpen, label: "Document Vault", href: "/dashboard/document-vault", roles: ["admin", "manager"] },
   { icon: HelpCircle, label: "Knowledge Base", href: "/dashboard/knowledge-base" },
+  { icon: Bot, label: "AI Knowledge Admin", href: "/dashboard/knowledge-admin", roles: ["admin", "manager"] },
   { icon: GraduationCap, label: "Training", href: "/dashboard/training", roles: ["admin", "manager", "agent"] },
 ];
 
@@ -336,6 +338,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const [location] = useLocation();
   const { logout, user } = useAuth();
   const [emailOpen, setEmailOpen] = useState(false);
+  const [aiChatOpen, setAiChatOpen] = useState(false);
   const role = (user?.role as UserRole) || "merchant";
 
   const { data: smsUnreadData } = useQuery<{ count: number }>({
@@ -537,6 +540,9 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                 <Button size="icon" variant="ghost" onClick={() => setEmailOpen(true)} aria-label="Compose email" data-testid="button-compose-email">
                   <Mail className="w-4 h-4" />
                 </Button>
+                <Button size="icon" variant={aiChatOpen ? "default" : "ghost"} onClick={() => setAiChatOpen(o => !o)} aria-label="Toggle AI Assistant" data-testid="button-ai-assistant-toggle">
+                  <Bot className="w-4 h-4" />
+                </Button>
               </div>
             </div>
           </header>
@@ -545,11 +551,19 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
             <TwoFaBanner role={role} />
           )}
           <GhlAlertBanner role={role} />
-          <main className="flex-1 overflow-auto p-3 sm:p-6 max-w-7xl mx-auto w-full" data-testid="dashboard-main">
-            <ErrorBoundary key={location}>
-              {children}
-            </ErrorBoundary>
-          </main>
+          <div className="flex flex-1 overflow-hidden min-h-0">
+            <main className="flex-1 overflow-auto p-3 sm:p-6 max-w-7xl mx-auto w-full" data-testid="dashboard-main">
+              <ErrorBoundary key={location}>
+                {children}
+              </ErrorBoundary>
+            </main>
+            {aiChatOpen && (
+              <InternalSidebarChat
+                collapsed={false}
+                onToggle={() => setAiChatOpen(false)}
+              />
+            )}
+          </div>
         </div>
       </div>
     </SidebarProvider>

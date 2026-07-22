@@ -144,17 +144,20 @@ async function main() {
   }
 
   // ── 3. PROVENANCE_FIELDS constant integrity ───────────────────────────────
-  console.log("\n3. PROVENANCE_FIELDS constant has exactly 4 correct entries");
+  console.log("\n3. PROVENANCE_FIELDS constant has exactly 7 correct entries");
   {
     const expected = [
       "sourceCategory",
       "primarySourceCategory",
       "primarySourceType",
       "primarySourceEventId",
+      "verticalSource",
+      "verticalConfidence",
+      "manualVerticalOverride",
     ];
     assert(
-      "PROVENANCE_FIELDS length === 4",
-      PROVENANCE_FIELDS.length === 4,
+      "PROVENANCE_FIELDS length === 7",
+      PROVENANCE_FIELDS.length === 7,
       `got ${PROVENANCE_FIELDS.length}`
     );
     for (const f of expected) {

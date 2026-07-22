@@ -561,6 +561,35 @@ const CALL_SITE_ALLOWLIST: Array<{
     reason: "Sequence-worker voice AI step — executed only after canEnrollContactInSequence passes; each step is individually gated. Reviewed 2026-06-26.",
     reviewDate: "2026-06-26",
   },
+  // ── Sequence-worker SMTP path — reviewed 2026-07-22 ──────────────────────
+  {
+    file: "server/services/sequence-worker.ts",
+    lineContains: "sendSmtpEmail",
+    channel: "email",
+    category: "sequence_worker",
+    reason: "Sequence-worker SMTP cold-outreach branch (useSmtpForThisStep) — executed only after canEnrollContactInSequence passes and the sequence step is gated. SMTP is an optional transport; GHL is the primary executor. Architecture reviewed 2026-07-22.",
+    reviewDate: "2026-07-22",
+  },
+  // ── Setup Wizard admin-gated test sends — reviewed 2026-07-22 ────────────
+  // Routes are protected by requireRole("admin","manager") + wizardTestRateLimit.
+  // Sends go only to the wizard_test_contact created and tagged in Phase 2 of
+  // the wizard flow — not to any real merchant or prospect contact.
+  {
+    file: "server/routes/wizard.ts",
+    lineContains: "sendGhlEmail",
+    channel: "email",
+    category: "admin_gated",
+    reason: "Setup Wizard live channel test — POST /api/wizard/test-send/email requires admin or manager role and wizardTestRateLimit; recipient is always the wizard_test_contact (tagged wizard_test_contact). Not automated outreach. Reviewed 2026-07-22.",
+    reviewDate: "2026-07-22",
+  },
+  {
+    file: "server/routes/wizard.ts",
+    lineContains: "sendGhlSms",
+    channel: "sms",
+    category: "admin_gated",
+    reason: "Setup Wizard live channel test — POST /api/wizard/test-send/sms requires admin or manager role, wizardTestRateLimit, and SMS_ENABLED feature flag; recipient is always the wizard_test_contact. Not automated outreach. Reviewed 2026-07-22.",
+    reviewDate: "2026-07-22",
+  },
 ];
 
 

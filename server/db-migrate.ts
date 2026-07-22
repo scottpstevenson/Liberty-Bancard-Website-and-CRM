@@ -265,4 +265,13 @@ export async function runDrizzleMigrations(): Promise<void> {
   // Apply Phase 3 (0054) only after verifying Phase 2 backfill preconditions.
   // This call is a no-op if the index already exists or if conflicts remain.
   await applyPhase3IndexIfReady();
+
+  // Seed the AI assistant knowledge base (idempotent — skips if data exists).
+  try {
+    const { seedKnowledgeBase } = await import("./services/knowledge-seed");
+    await seedKnowledgeBase();
+  } catch (e: any) {
+    // Non-fatal — assistant still works with keyword fallback
+    console.warn("[DB Migrate] Knowledge base seed skipped:", e.message);
+  }
 }

@@ -157,6 +157,7 @@ const MerchantHealth = lazy(() => import("@/pages/dashboard/MerchantHealth"));
 const Chargebacks = lazy(() => import("@/pages/dashboard/Chargebacks"));
 const ReferralProgram = lazy(() => import("@/pages/dashboard/ReferralProgram"));
 const KnowledgeBase = lazy(() => import("@/pages/dashboard/KnowledgeBase"));
+const KnowledgeAdmin = lazy(() => import("@/pages/dashboard/KnowledgeAdmin"));
 const ResidualRevenue = lazy(() => import("@/pages/dashboard/ResidualRevenue"));
 const ConsentAudit = lazy(() => import("@/pages/dashboard/ConsentAudit"));
 const UserManagement = lazy(() => import("@/pages/dashboard/UserManagement"));
@@ -575,6 +576,9 @@ function Router() {
         </Route>
         <Route path="/dashboard/knowledge-base">
           <ProtectedRoute component={KnowledgeBase} />
+        </Route>
+        <Route path="/dashboard/knowledge-admin">
+          <ProtectedRoute component={KnowledgeAdmin} allowedRoles={["admin", "manager"]} />
         </Route>
         <Route path="/dashboard/consent-audit">
           <Redirect to="/dashboard/admin-hub?tab=consent" />

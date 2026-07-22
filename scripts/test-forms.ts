@@ -108,6 +108,18 @@ function uniqueEmail(prefix = "qa-release-test-form"): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}@libertybancard.test`;
 }
 
+/**
+ * Generates a unique 10-digit US phone number per test run.
+ * Uses a 555-01XX prefix (reserved for fictional use) + timestamp tail
+ * to prevent GHL from matching a previous test run's phone number and
+ * returning a stale ghlContactId → unique constraint violation.
+ */
+function uniquePhone(): string {
+  const tail = (Date.now() % 100000).toString().padStart(5, "0");
+  const rand = Math.floor(Math.random() * 10).toString();
+  return `55501${rand}${tail}`;  // 10 digits, 555-01X-XXXXX pattern
+}
+
 async function cleanup(): Promise<void> {
   console.log("\n── Cleanup ─────────────────────────────────────────────────");
 
@@ -195,7 +207,7 @@ async function testStatementUpload(): Promise<void> {
   const form = new FormData();
   form.append("contactName", "StmtTest QAUser");
   form.append("email", email);
-  form.append("mobile", "3055550011");
+  form.append("mobile", uniquePhone());
   form.append("businessName", "QA_RELEASE_TEST Statement Co");
   form.append("currentProvider", "Square");
   form.append("consentSms", "false");
@@ -295,7 +307,7 @@ async function testEstimateForm(): Promise<void> {
     firstName: "EstTest",
     lastName: "QAUser",
     email,
-    phone: "3055550022",
+    phone: uniquePhone(),
     businessName: "QA_RELEASE_TEST Estimate Co",
     monthlyVolume: "15000",
     currentRate: "3.5",
@@ -374,7 +386,7 @@ async function testGetStartedForm(): Promise<void> {
     firstName: "GetStarted",
     lastName: "QAUser",
     email,
-    phone: "3055550033",
+    phone: uniquePhone(),
     businessName: "QA_RELEASE_TEST GetStarted Co",
     businessType: "restaurant",
     monthlyVolume: "10000",
@@ -475,7 +487,7 @@ async function testMerchantApplication(): Promise<void> {
         ownerFirstName: "AppTest",
         ownerLastName: "QAUser",
         legalBusinessName: "QA_RELEASE_TEST App Co",
-        businessPhone: "3055550044",
+        businessPhone: uniquePhone(),
         vertical: "restaurant",
         pewcConsent: true,
         ein: testEin,
@@ -544,7 +556,7 @@ async function testMerchantApplication(): Promise<void> {
           ownerFirstName: "Dup",
           ownerLastName: "Test",
           legalBusinessName: "QA_DUP_FINALIZE Co",
-          businessPhone: "3055550055",
+          businessPhone: uniquePhone(),
           vertical: "restaurant",
           pewcConsent: false,
           ein: testEin,
