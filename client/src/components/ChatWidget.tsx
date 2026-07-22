@@ -56,6 +56,8 @@ export default function ChatWidget() {
   const [offlineSent, setOfflineSent] = useState(false);
   const [offlineSubmitting, setOfflineSubmitting] = useState(false);
   const [identifyError, setIdentifyError] = useState("");
+  const [consentGiven, setConsentGiven] = useState(false);
+  const [offlineConsent, setOfflineConsent] = useState(false);
   const [sessionStarted, setSessionStarted] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -151,6 +153,7 @@ export default function ChatWidget() {
   const handleIdentify = async () => {
     if (!visitorName.trim()) { setIdentifyError("Please enter your name."); return; }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(visitorEmail)) { setIdentifyError("Please enter a valid email address."); return; }
+    if (!consentGiven) { setIdentifyError("Please accept the privacy consent to continue."); return; }
     setIdentifyError("");
     setSending(true);
 
@@ -417,10 +420,24 @@ export default function ChatWidget() {
                     className="resize-none h-24"
                     data-testid="offline-message-input"
                   />
+                  <div className="flex items-start gap-2">
+                    <input
+                      type="checkbox"
+                      id="offline-consent"
+                      checked={offlineConsent}
+                      onChange={e => setOfflineConsent(e.target.checked)}
+                      className="mt-0.5 h-3.5 w-3.5 rounded border-gray-300 accent-sky-600 cursor-pointer"
+                      data-testid="offline-consent-checkbox"
+                    />
+                    <label htmlFor="offline-consent" className="text-[10px] text-muted-foreground leading-tight cursor-pointer">
+                      I agree Liberty Bancard may contact me about payment processing services per the{" "}
+                      <a href="/privacy-policy" className="underline hover:text-foreground" target="_blank" rel="noopener noreferrer">Privacy Policy</a>.
+                    </label>
+                  </div>
                   <Button
                     className="w-full bg-[hsl(222,47%,11%)] text-white hover:bg-[hsl(222,47%,18%)]"
                     onClick={handleOfflineSubmit}
-                    disabled={offlineSubmitting || !offlineName || !offlineEmail || !offlineMsg}
+                    disabled={offlineSubmitting || !offlineName || !offlineEmail || !offlineMsg || !offlineConsent}
                     data-testid="offline-submit-button"
                   >
                     {offlineSubmitting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
@@ -437,7 +454,11 @@ export default function ChatWidget() {
                     <Bot className="w-3.5 h-3.5 text-white" />
                   </div>
                   <div className="bg-white dark:bg-gray-800 rounded-xl rounded-tl-sm px-3 py-2 text-sm text-foreground shadow-sm border border-border">
-                    Hi there! 👋 Before we start, may I get your name and email so we can follow up if needed?
+                    <span className="inline-flex items-center gap-1 text-[10px] font-medium text-sky-600 dark:text-sky-400 mb-1">
+                      <Bot className="w-3 h-3" /> AI Assistant — not a human
+                    </span>
+                    <br />
+                    Hi! 👋 I'm Liberty Bancard's AI assistant. I can answer questions about payment processing, our programs, and pricing. Please share your name and email so we can follow up if you'd like to talk to a person.
                   </div>
                 </div>
                 <Input
@@ -455,13 +476,27 @@ export default function ChatWidget() {
                   onKeyDown={e => e.key === "Enter" && handleIdentify()}
                   data-testid="chat-email-input"
                 />
+                <div className="flex items-start gap-2">
+                  <input
+                    type="checkbox"
+                    id="chat-consent"
+                    checked={consentGiven}
+                    onChange={e => setConsentGiven(e.target.checked)}
+                    className="mt-0.5 h-3.5 w-3.5 rounded border-gray-300 accent-sky-600 cursor-pointer"
+                    data-testid="chat-consent-checkbox"
+                  />
+                  <label htmlFor="chat-consent" className="text-[10px] text-muted-foreground leading-tight cursor-pointer">
+                    I agree Liberty Bancard may contact me about payment processing services and understand my info is handled per the{" "}
+                    <a href="/privacy-policy" className="underline hover:text-foreground" target="_blank" rel="noopener noreferrer">Privacy Policy</a>.
+                  </label>
+                </div>
                 {identifyError && (
                   <p className="text-xs text-destructive" data-testid="chat-identify-error">{identifyError}</p>
                 )}
                 <Button
                   className="w-full bg-[hsl(222,47%,11%)] text-white hover:bg-[hsl(222,47%,18%)]"
                   onClick={handleIdentify}
-                  disabled={sending}
+                  disabled={sending || !consentGiven}
                   data-testid="chat-start-button"
                 >
                   {sending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}

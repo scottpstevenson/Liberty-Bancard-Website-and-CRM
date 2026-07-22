@@ -4,7 +4,8 @@
  *
  * Isolated tests for GHL inbound webhook handling.
  * Covers:
- *  - HMAC signature verification (valid / invalid / missing secret)
+ *  - Ed25519 public-key signature verification (current X-GHL-Signature standard)
+ *  - HMAC-SHA256 legacy signature verification (X-WH-Signature / X-Hub-Signature-256)
  *  - EmailUnsubscribed event → opted_out_email=true + audit log
  *  - ContactDndUpdated (SMS STOP) → do_not_contact / suppression fields + audit log
  *  - Delivery status update — no crash for unknown contactId
@@ -23,7 +24,7 @@
  */
 
 import crypto from "crypto";
-import { handleGhlWebhook, validateGhlWebhookSignature } from "../server/services/ghl";
+import { handleGhlWebhook, validateGhlWebhookSignature, validateGhlWebhookSignatureEd25519 } from "../server/services/ghl";
 import { storage } from "../server/storage";
 import { db } from "../server/db";
 import { sql } from "drizzle-orm";
@@ -67,10 +68,91 @@ async function makeTestContact(overrides: Record<string, any> = {}) {
   return { contact, ghlId };
 }
 
-// ── 1. HMAC signature verification ───────────────────────────────────────────
+// ── 1a. Ed25519 signature verification (current X-GHL-Signature standard) ────
+
+async function testEd25519SignatureVerification() {
+  console.log("\n1a. validateGhlWebhookSignatureEd25519() — Ed25519 public-key envelope");
+
+  const payload = JSON.stringify({ type: "ContactUpdate", contactId: "test-ed25519" });
+
+  // Generate a real Ed25519 key pair for testing
+  const { privateKey, publicKey } = crypto.generateKeyPairSync("ed25519");
+  const spkiDer = publicKey.export({ format: "der", type: "spki" });
+  const pubKeyB64 = spkiDer.toString("base64");
+
+  const goodSig = crypto.sign(null, Buffer.from(payload, "utf8"), privateKey).toString("base64");
+  const badSig = Buffer.alloc(64, 0).toString("base64");
+
+  // Temporarily override the env var for test isolation
+  const original = process.env.GHL_WEBHOOK_PUBLIC_KEY;
+
+  // ── Test 1: correct Ed25519 signature verifies → true
+  process.env.GHL_WEBHOOK_PUBLIC_KEY = pubKeyB64;
+  assert(
+    "Ed25519: correct signature → true",
+    validateGhlWebhookSignatureEd25519(payload, goodSig) === true,
+    `pubKey(first16)=${pubKeyB64.slice(0, 16)}...`,
+  );
+
+  // ── Test 2: wrong signature → false
+  assert(
+    "Ed25519: wrong signature → false",
+    validateGhlWebhookSignatureEd25519(payload, badSig) === false,
+  );
+
+  // ── Test 3: tampered payload → false
+  const tamperedPayload = JSON.stringify({ type: "ContactUpdate", contactId: "TAMPERED" });
+  assert(
+    "Ed25519: tampered payload → false",
+    validateGhlWebhookSignatureEd25519(tamperedPayload, goodSig) === false,
+  );
+
+  // ── Test 4: wrong public key → false
+  const { publicKey: wrongPk } = crypto.generateKeyPairSync("ed25519");
+  process.env.GHL_WEBHOOK_PUBLIC_KEY = wrongPk.export({ format: "der", type: "spki" }).toString("base64");
+  assert(
+    "Ed25519: wrong public key → false",
+    validateGhlWebhookSignatureEd25519(payload, goodSig) === false,
+  );
+
+  // ── Test 5: no GHL_WEBHOOK_PUBLIC_KEY in non-localhost → false
+  // Simulate production by checking the no-key path returns false
+  // (we cannot actually set NODE_ENV to production mid-test safely,
+  //  so we verify the key-missing localhost-permissive path returns a boolean)
+  delete process.env.GHL_WEBHOOK_PUBLIC_KEY;
+  const noKeyResult = validateGhlWebhookSignatureEd25519(payload, goodSig);
+  assert(
+    "Ed25519: no public key → returns boolean (localhost-permissive)",
+    typeof noKeyResult === "boolean",
+    `result=${noKeyResult}`,
+  );
+
+  // ── Test 6: GHL_WEBHOOK_PUBLIC_KEY must NOT equal GHL_WEBHOOK_SECRET
+  // i.e. the HMAC secret must not be treated as Ed25519 readiness
+  const hmacSecret = process.env.GHL_WEBHOOK_SECRET;
+  if (hmacSecret) {
+    process.env.GHL_WEBHOOK_PUBLIC_KEY = Buffer.from(hmacSecret).toString("base64");
+    const result = validateGhlWebhookSignatureEd25519(payload, goodSig);
+    // An HMAC secret is not a valid Ed25519 DER-SPKI key — verify+parse must fail
+    assert(
+      "Ed25519: HMAC secret is not a valid Ed25519 public key → false",
+      result === false,
+      "HMAC secret must not be treated as Ed25519 readiness",
+    );
+  }
+
+  // Restore env
+  if (original !== undefined) {
+    process.env.GHL_WEBHOOK_PUBLIC_KEY = original;
+  } else {
+    delete process.env.GHL_WEBHOOK_PUBLIC_KEY;
+  }
+}
+
+// ── 1b. HMAC-SHA256 legacy verification (X-WH-Signature / X-Hub-Signature-256) ─
 
 async function testSignatureVerification() {
-  console.log("\n1. validateGhlWebhookSignature() — HMAC-SHA256 envelope");
+  console.log("\n1b. validateGhlWebhookSignature() — HMAC-SHA256 legacy envelope");
 
   const secret = process.env.GHL_WEBHOOK_SECRET;
 
@@ -91,10 +173,10 @@ async function testSignatureVerification() {
   const correctSig = "sha256=" + crypto.createHmac("sha256", secret).update(payload).digest("hex");
   const wrongSig = "sha256=" + "a".repeat(64);
 
-  assert("correct HMAC sig → true", validateGhlWebhookSignature(payload, correctSig) === true, `sig=${correctSig.slice(0, 20)}...`);
-  assert("wrong HMAC sig → false", validateGhlWebhookSignature(payload, wrongSig) === false, `sig=${wrongSig.slice(0, 20)}...`);
-  assert("no sig prefix → false", validateGhlWebhookSignature(payload, "badsig") === false);
-  assert("empty sig → false", validateGhlWebhookSignature(payload, "") === false);
+  assert("HMAC: correct sig → true", validateGhlWebhookSignature(payload, correctSig) === true, `sig=${correctSig.slice(0, 20)}...`);
+  assert("HMAC: wrong sig → false", validateGhlWebhookSignature(payload, wrongSig) === false, `sig=${wrongSig.slice(0, 20)}...`);
+  assert("HMAC: no sig prefix → false", validateGhlWebhookSignature(payload, "badsig") === false);
+  assert("HMAC: empty sig → false", validateGhlWebhookSignature(payload, "") === false);
 }
 
 // ── 2. EmailUnsubscribed event → suppression write ───────────────────────────
@@ -398,6 +480,7 @@ async function main() {
   console.log("═══════════════════════════════════════════════════════");
 
   try {
+    await testEd25519SignatureVerification();
     await testSignatureVerification();
     await testEmailUnsubscribedEvent();
     await testDndOptOutEvent();

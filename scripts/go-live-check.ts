@@ -205,11 +205,16 @@ async function checkStage1(): Promise<StageResult> {
     smtpFallbackNote = smtpPass
       ? "SMTP_HOST or SMTP_USER missing"
       : "SMTP_PASS not set";
-    const fallbackBehavior = ghlStatus === "connected"
-      ? "Emails will be sent via GHL when a GHL contact ID exists. Falls back to silent skip if no GHL contact."
-      : "Neither SMTP nor GHL is configured. Transactional emails (rep alerts, proposals) will be silently skipped.";
-    steps.push(step("SMTP: configured", false,
-      `${smtpFallbackNote}. ${fallbackBehavior}`));
+    const ghlCoversEmail = ghlStatus === "connected";
+    const fallbackBehavior = ghlCoversEmail
+      ? "GHL is the configured primary email transport — SMTP is an optional fallback only."
+      : "Neither SMTP nor GHL is configured. Transactional emails will be silently skipped.";
+    // SMTP absence is NOT a blocker when GHL is the primary transport
+    steps.push(step(
+      ghlCoversEmail ? "SMTP: optional (GHL is primary transport)" : "SMTP: configured",
+      ghlCoversEmail,
+      `${smtpFallbackNote}. ${fallbackBehavior}`,
+    ));
   } else {
     smtpStatus = "configured";
     steps.push(step("SMTP: SMTP_HOST + SMTP_USER + SMTP_PASS all set", true,

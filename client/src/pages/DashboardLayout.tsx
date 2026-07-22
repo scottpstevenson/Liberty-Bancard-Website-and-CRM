@@ -540,9 +540,11 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                 <Button size="icon" variant="ghost" onClick={() => setEmailOpen(true)} aria-label="Compose email" data-testid="button-compose-email">
                   <Mail className="w-4 h-4" />
                 </Button>
-                <Button size="icon" variant={aiChatOpen ? "default" : "ghost"} onClick={() => setAiChatOpen(o => !o)} aria-label="Toggle AI Assistant" data-testid="button-ai-assistant-toggle">
-                  <Bot className="w-4 h-4" />
-                </Button>
+                {["admin", "manager", "agent"].includes(role) && (
+                  <Button size="icon" variant={aiChatOpen ? "default" : "ghost"} onClick={() => setAiChatOpen(o => !o)} aria-label="Toggle AI Assistant" data-testid="button-ai-assistant-toggle">
+                    <Bot className="w-4 h-4" />
+                  </Button>
+                )}
               </div>
             </div>
           </header>

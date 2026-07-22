@@ -3,7 +3,7 @@ import { isAuthenticated, isAdmin, isDashboardUser, requireRole } from "../repli
 import { storage } from "../storage";
 import { contacts } from "@shared/schema";
 import { and } from "drizzle-orm";
-import { checkGhlHealth, getCalendarBookingUrl, getGhlStatus, handleGhlWebhook, isGhlConfigured, sendGhlEmail, sendGhlSms, sendTemplatedMessage, upsertGhlContact, validateGhlWebhookSignature } from "../services/ghl";
+import { checkGhlHealth, getCalendarBookingUrl, getGhlStatus, handleGhlWebhook, isGhlConfigured, sendGhlEmail, sendGhlSms, sendTemplatedMessage, upsertGhlContact, validateGhlWebhookSignature, validateGhlWebhookSignatureEd25519 } from "../services/ghl";
 import { routeContact } from "../services/smart-router";
 import { fullSyncFromGhl, fullSyncToGhl, getGhlSyncStatus, getFullSyncDashboard, syncContactToGhl, syncDealToGhl, syncCompanyToGhl, syncTaskToGhl, syncTicketToGhl, syncNoteToGhl, syncTagsToGhl } from "../services/ghl-sync";
 import { getWorkflowStatus, GHL_WORKFLOW_REGISTRY, getPlatformEmailConfig, getWorkflowRegistryWithStatus, setWorkflowEnvValue } from "../services/ghl-workflows";
@@ -91,17 +91,39 @@ export function registerIntegrationsRoutes(app: Express) {
 
   app.post("/api/webhooks/ghl", async (req, res) => {
     try {
-      const webhookSecret = process.env.GHL_WEBHOOK_SECRET;
-      if (!webhookSecret && process.env.NODE_ENV === "production") {
-        console.error("[GHL Webhook] GHL_WEBHOOK_SECRET not configured — rejecting webhook in production");
-        return res.status(503).json({ received: false, error: "Webhook signing not configured" });
-      }
-      const signature = (req.headers["x-ghl-signature"] || req.headers["x-hub-signature-256"] || "") as string;
       const rawBody = req.rawBody instanceof Buffer ? req.rawBody.toString("utf8") : JSON.stringify(req.body);
 
-      if (!validateGhlWebhookSignature(rawBody, signature)) {
-        console.error("[GHL Webhook] Signature verification failed");
-        return res.status(401).json({ message: "Invalid webhook signature" });
+      // Current GHL standard: Ed25519 public-key signature in X-GHL-Signature
+      const ed25519Sig = req.headers["x-ghl-signature"] as string | undefined;
+      // Legacy HMAC-SHA256 fallback: X-WH-Signature or X-Hub-Signature-256
+      const legacySig = (req.headers["x-wh-signature"] || req.headers["x-hub-signature-256"] || "") as string;
+
+      const isProd = process.env.NODE_ENV === "production";
+      const pubKeyConfigured = !!process.env.GHL_WEBHOOK_PUBLIC_KEY;
+
+      if (ed25519Sig) {
+        // Prefer Ed25519 when X-GHL-Signature header is present
+        if (!pubKeyConfigured && isProd) {
+          console.error("[GHL Webhook] X-GHL-Signature received but GHL_WEBHOOK_PUBLIC_KEY not set — rejecting in production");
+          return res.status(503).json({ received: false, error: "Webhook Ed25519 public key not configured" });
+        }
+        if (!validateGhlWebhookSignatureEd25519(rawBody, ed25519Sig)) {
+          console.error("[GHL Webhook] Ed25519 signature verification failed");
+          return res.status(401).json({ message: "Invalid Ed25519 webhook signature" });
+        }
+      } else if (legacySig) {
+        // Legacy HMAC-SHA256 fallback (X-WH-Signature / X-Hub-Signature-256)
+        if (!validateGhlWebhookSignature(rawBody, legacySig)) {
+          console.error("[GHL Webhook] Legacy HMAC-SHA256 signature verification failed");
+          return res.status(401).json({ message: "Invalid legacy webhook signature" });
+        }
+      } else {
+        // No recognisable signature header
+        if (isProd) {
+          console.error("[GHL Webhook] No X-GHL-Signature or X-WH-Signature header — rejecting in production");
+          return res.status(401).json({ message: "Missing webhook signature" });
+        }
+        console.warn("[GHL Webhook] No signature header — allowing in non-production environment");
       }
 
       await handleGhlWebhook(req.body);

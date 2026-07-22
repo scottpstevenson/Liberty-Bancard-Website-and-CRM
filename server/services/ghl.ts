@@ -159,6 +159,56 @@ export function validateGhlWebhookSignature(payload: string, signature: string):
   }
 }
 
+/**
+ * Verify a GHL webhook signed with the current Ed25519 public-key standard.
+ *
+ * GHL signs the raw request body with their private Ed25519 key and sets
+ *   X-GHL-Signature: <base64-encoded-signature>
+ *
+ * Configure GHL_WEBHOOK_PUBLIC_KEY in Replit Secrets with the base64-encoded
+ * DER-SPKI public key (or PEM) obtained from your GHL account →
+ * Settings → Integrations → Webhooks → Public Key.
+ *
+ * Returns true on localhost when the key is not set (dev permissive mode).
+ * Always returns false in production when the key is not configured.
+ */
+export function validateGhlWebhookSignatureEd25519(
+  payload: string,
+  signature: string,
+): boolean {
+  const pubKeyRaw = process.env.GHL_WEBHOOK_PUBLIC_KEY;
+  if (!pubKeyRaw) {
+    if (!isLocalhostEnv()) {
+      console.error("[GHL] GHL_WEBHOOK_PUBLIC_KEY not set — cannot verify Ed25519 signature in production");
+      return false;
+    }
+    console.warn("[GHL] GHL_WEBHOOK_PUBLIC_KEY not set — skipping Ed25519 verification (localhost dev mode only)");
+    return true;
+  }
+
+  try {
+    let publicKey: crypto.KeyObject;
+    if (pubKeyRaw.trim().startsWith("-----")) {
+      publicKey = crypto.createPublicKey(pubKeyRaw.trim());
+    } else {
+      publicKey = crypto.createPublicKey({
+        key: Buffer.from(pubKeyRaw, "base64"),
+        format: "der",
+        type: "spki",
+      });
+    }
+    return crypto.verify(
+      null,
+      Buffer.from(payload, "utf8"),
+      publicKey,
+      Buffer.from(signature, "base64"),
+    );
+  } catch (err: any) {
+    console.error("[GHL] Ed25519 signature verification error:", err.message);
+    return false;
+  }
+}
+
 export async function checkGhlHealth(): Promise<{
   connected: boolean;
   latencyMs: number;

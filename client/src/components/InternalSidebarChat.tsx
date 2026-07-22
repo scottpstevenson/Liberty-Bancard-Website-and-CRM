@@ -159,7 +159,9 @@ export function InternalSidebarChat({ collapsed, onToggle }: { collapsed: boolea
 
   return (
     <aside
-      className="flex flex-col h-full border-l border-border bg-background w-80 shrink-0"
+      className="flex flex-col border-l border-border bg-background shrink-0
+                 fixed inset-0 z-50 w-full
+                 md:relative md:inset-auto md:h-full md:w-80 md:z-auto"
       data-testid="internal-sidebar-chat"
     >
       {/* Header */}
