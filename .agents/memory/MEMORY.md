@@ -8,6 +8,7 @@
 - [Dashboard route map](dashboard-route-map.md) — AI advisors are at /dashboard/chat (not /dashboard/ai-advisors); full route list documented.
 - [Sequence control policy](sequence-control-policy.md) — All sequences default to `paused`; storage layer blocks enrollment into non-active sequences at creation time.
 - [Redis BullMQ smoke-test pattern](redis-bullmq-smoketest.md) — probe Redis with ioredis ping before handing ConnectionOptions to BullMQ; WRONGPASS loops forever otherwise; setInterval fallback only triggers on throw.
+- [BullMQ commandTimeout removal](bullmq-commandtimeout-removal.md) — commandTimeout MUST be absent; use singleton IORedis (1+N connections); commandTimeout + maxRetriesPerRequest:null → "Command timed out" storm when Upstash cap exceeded.
 - [GHL token ops](ghl-token-ops.md) — GHL Private Integration Token 401 on all endpoints when expired; authTest in ActivationPanel shows N/A; user must regenerate in GHL Settings → Private Integrations.
 - [GHL circuit breaker false-trip](ghl-circuit-false-trip.md) — deals sync returns "No GHL contact linked" (data skip, not API failure); was counted as consecutiveGhlFailures, tripping circuit every tick; fix: treat those 3 error strings as skips, not failures.
 - [Idempotent migration FK pattern](idempotent-migration-fk.md) — duplicate FK migrations: wrap ADD CONSTRAINT with DROP CONSTRAINT IF EXISTS first; both 0020 and 0023 had the same multi_location_fk name.

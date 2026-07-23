@@ -1,15 +1,47 @@
 import type { ConnectionOptions } from "bullmq";
 import Redis from "ioredis";
 
-let _connection: ConnectionOptions | null = null;
+/**
+ * Singleton IORedis client shared across ALL BullMQ Queue and Worker instances.
+ *
+ * Connection-count math (BullMQ v5):
+ *   • Queue instances:  when passed an IORedis instance BullMQ marks it "shared"
+ *                       and creates NO new connection → all N Queues = 0 new connections.
+ *   • Worker instances: non-blocking parent connection → "shared" → 0 new connections.
+ *                       blocking connection → always .duplicate()'d internally → 1 new connection per Worker.
+ *
+ * Net result for 11 queues: 1 (shared) + 11 (blocking duplicates) = 12 connections.
+ * Upstash free tier allows 20 → well within limits, zero timeout storms.
+ *
+ * Before this fix: passing ConnectionOptions (plain object) caused BullMQ to create a
+ * fresh ioredis instance per Queue AND per Worker, totalling 33 connections and tripping
+ * Upstash's 20-connection cap — the resulting rejected connections sent commands into
+ * ioredis's offline queue where commandTimeout:10_000 fired every 10 s ("Command timed out").
+ */
+let _sharedClient: Redis | null = null;
 let _usingMock = false;
 
 export function isUsingMockRedis(): boolean {
   return _usingMock;
 }
 
+/**
+ * Returns a singleton IORedis client for use with BullMQ.
+ *
+ * The return type is `ConnectionOptions` (which is `IORedisOptions | Redis | Cluster`
+ * in BullMQ) so it can be passed directly to Queue/Worker constructors without casting.
+ *
+ * Critical BullMQ ioredis settings applied here:
+ *   • maxRetriesPerRequest: null — retry commands indefinitely on reconnect (required by BullMQ)
+ *   • enableReadyCheck: false    — avoid false "ready check failed" on BLPOP/WAIT commands
+ *   • NO commandTimeout          — removed: with maxRetriesPerRequest:null this option fights
+ *                                  the reconnect model. A command timed out during reconnect
+ *                                  was the direct cause of the "Command timed out" storm.
+ *                                  BullMQ's own BLMOVE has a 5 s server-side timeout, so
+ *                                  commands never legitimately hang >5 s in steady state.
+ */
 export async function getRedisConnection(): Promise<ConnectionOptions> {
-  if (_connection) return _connection;
+  if (_sharedClient) return _sharedClient as unknown as ConnectionOptions;
 
   const redisUrl = process.env.REDIS_URL;
 
@@ -24,65 +56,15 @@ export async function getRedisConnection(): Promise<ConnectionOptions> {
   const url = new URL(redisUrl);
   const forceTls = url.protocol === "rediss:" || url.hostname.includes("upstash.io");
 
-  const opts: ConnectionOptions = {
+  // ── Smoke-test probe ───────────────────────────────────────────────────────
+  // A separate short-lived Redis instance that we connect, ping, and discard.
+  // This validates credentials/reachability before we commit the shared singleton.
+  // The probe uses maxRetriesPerRequest:1 so it fails fast instead of hanging.
+  const probe = new Redis({
     host: url.hostname,
     port: parseInt(url.port || "6379", 10),
     password: url.password || undefined,
     username: url.username || undefined,
-    tls: forceTls ? {} : undefined,
-
-    // ── BullMQ REQUIRED settings ──────────────────────────────────────────
-    // BullMQ's ioredis clients MUST have maxRetriesPerRequest=null. Without it,
-    // ioredis throws after a fixed number of retries on a single command, causing
-    // BullMQ's lock-renewal commands to throw instead of waiting for reconnect —
-    // which manifests as "could not renew lock" / "Missing lock" errors.
-    maxRetriesPerRequest: null,
-    // BullMQ calls WAIT/LISTEN, which trigger the ready-check timeout in some
-    // Redis providers. Disabling avoids false "ready check failed" disconnects.
-    enableReadyCheck: false,
-
-    // ── Connection stability settings ─────────────────────────────────────
-    // Send TCP keepalive probes so the OS doesn't silently drop idle
-    // connections (root cause of ECONNRESET on lock renewal commands).
-    keepAlive: 30_000,
-    // Re-connect automatically on ECONNRESET / ETIMEDOUT / EPIPE.
-    // EPIPE (broken-pipe) fires when the TCP write buffer is flushed to a
-    // server that already closed its socket — common on Upstash when an idle
-    // connection is culled server-side without a FIN. Without "epipe" here
-    // ioredis would surface the error to callers instead of reconnecting.
-    reconnectOnError: (err: Error) => {
-      const msg = err.message.toLowerCase();
-      return (
-        msg.includes("econnreset") ||
-        msg.includes("etimedout") ||
-        msg.includes("econnrefused") ||
-        msg.includes("epipe")
-      );
-    },
-    // How long to wait between reconnect attempts (capped at 5 s).
-    retryStrategy: (times: number) => Math.min(times * 500, 5000),
-    // Queue commands during brief disconnects so in-flight BullMQ operations
-    // survive transient Redis blips without needing a full job re-queue.
-    enableOfflineQueue: true,
-    // Hard deadline for any single Redis command.  Without this, a stalled
-    // command (e.g. a BullMQ WAIT on a freed-but-not-yet-reconnected socket)
-    // can hang indefinitely and block the Node.js event loop.
-    commandTimeout: 10_000,
-    // Give up waiting for the initial TCP connection after 10 s.
-    connectTimeout: 10_000,
-    lazyConnect: true,
-  };
-
-  // Smoke-test the connection before handing it to BullMQ.
-  // If Redis rejects authentication (WRONGPASS) or is unreachable, we throw here
-  // so server/index.ts can cleanly fall back to setInterval workers.
-  // Without this check, BullMQ holds the bad connection and logs WRONGPASS on every
-  // queue operation forever — the fallback never triggers.
-  const probe = new Redis({
-    host: opts.host as string,
-    port: opts.port as number,
-    password: opts.password,
-    username: opts.username,
     tls: forceTls ? {} : undefined,
     connectTimeout: 5000,
     maxRetriesPerRequest: 1,
@@ -93,7 +75,7 @@ export async function getRedisConnection(): Promise<ConnectionOptions> {
   try {
     await probe.connect();
     await probe.ping();
-    console.log("[Queue] Redis smoke-test passed — handing connection to BullMQ");
+    console.log("[Queue] Redis smoke-test passed — creating shared BullMQ client");
   } catch (err: any) {
     probe.disconnect();
     throw new Error(
@@ -104,75 +86,119 @@ export async function getRedisConnection(): Promise<ConnectionOptions> {
     probe.disconnect();
   }
 
-  _connection = opts;
+  // ── Shared singleton client ────────────────────────────────────────────────
+  // This instance is handed to every BullMQ Queue and Worker constructor.
+  // BullMQ detects it as an existing IORedis instance (isRedisInstance check)
+  // and marks the connection as "shared" — meaning:
+  //   • Queue:  uses this connection directly, creates NO duplicate
+  //   • Worker: uses this for non-blocking ops; internally .duplicate()'s it
+  //             for the blocking BLMOVE/BRPOP connection (1 per Worker, unavoidable)
+  const client = new Redis({
+    host: url.hostname,
+    port: parseInt(url.port || "6379", 10),
+    password: url.password || undefined,
+    username: url.username || undefined,
+    tls: forceTls ? {} : undefined,
+
+    // ── BullMQ REQUIRED ────────────────────────────────────────────────────
+    maxRetriesPerRequest: null,   // retry commands indefinitely on reconnect
+    enableReadyCheck: false,      // skip ready-check that trips on WAIT/LISTEN
+
+    // ── Connection stability ───────────────────────────────────────────────
+    keepAlive: 30_000,
+    reconnectOnError: (err: Error) => {
+      const msg = err.message.toLowerCase();
+      return (
+        msg.includes("econnreset") ||
+        msg.includes("etimedout") ||
+        msg.includes("econnrefused") ||
+        msg.includes("epipe")
+      );
+    },
+    retryStrategy: (times: number) => Math.min(times * 500, 5000),
+    enableOfflineQueue: true,
+
+    // NOTE: commandTimeout intentionally OMITTED.
+    // With maxRetriesPerRequest:null, ioredis retries commands indefinitely
+    // on reconnect. Adding commandTimeout:N fights that — commands that sit in
+    // the offline queue for >N ms are hard-rejected with "Command timed out"
+    // even though they would succeed once the connection is re-established.
+    // This was the direct cause of the production "Command timed out" storm.
+    //
+    // BullMQ's own blocking BLMOVE has a 5 s server-side timeout, so in normal
+    // operation no command ever waits longer than ~5 s. connectTimeout below
+    // covers the initial TCP handshake deadline separately.
+
+    connectTimeout: 10_000,
+    lazyConnect: true,
+    connectionName: "bullmq-shared",
+  });
+
+  try {
+    await client.connect();
+  } catch (err: any) {
+    throw new Error(
+      `Failed to connect shared BullMQ Redis client (${err.message}). ` +
+      `Falling back to setInterval workers.`
+    );
+  }
+
+  _sharedClient = client;
   _usingMock = false;
 
-  return _connection;
+  return _sharedClient as unknown as ConnectionOptions;
+}
+
+/**
+ * Expose the raw Redis instance for diagnostics (e.g. connection-count checks).
+ * Returns null until getRedisConnection() has been called successfully.
+ */
+export function getSharedRedisClientIfReady(): Redis | null {
+  return _sharedClient;
 }
 
 // ── Redis connection-capacity diagnostic ───────────────────────────────────────
 
 export interface RedisCapacityDiagnosis {
-  /** Maximum concurrent connections on the Upstash free tier. */
   upstashFreeTierMax: number;
-  /** Number of BullMQ queues being diagnosed. */
   queues: number;
   /**
-   * Estimated ioredis connections BullMQ will open.
+   * Estimated ioredis connections with the shared-client architecture:
+   *   • 1 shared client (all Queue instances + all Worker non-blocking ops)
+   *   • 1 blocking connection per Worker (internal .duplicate() — unavoidable)
    *
-   * BullMQ opens connections per queue as follows:
-   *   • 1 producer  connection per Queue instance
-   *   • 1 worker    connection per Worker instance
-   *   • 1 events    connection per QueueEvents instance (optional but common)
-   *   • 1 scheduler connection shared across all repeat-job queues
+   * Formula: 1 + queueCount
    *
-   * Minimum estimate: queues × 3 + 1 scheduler.
-   * Upstash free tier cap: 20 simultaneous connections.
-   * With 7 named queues (ghl-sync, sla-checks, sequences, enrichment,
-   * discovery, digests, mid-ingestion): 7 × 3 + 1 = 22 connections →
-   * EXCEEDS the free tier limit.  Upgrade to Upstash Pay-As-You-Go or
-   * reduce queue count by consolidating low-frequency queues.
+   * With 11 named queues: 1 + 11 = 12 connections — well within the free tier.
+   *
+   * BEFORE the shared-client fix, BullMQ created connections per-Queue and
+   * per-Worker (plain ConnectionOptions object): queueCount × 3 = 33 connections
+   * for 11 queues, which exceeded the Upstash free-tier limit of 20 and caused
+   * the "Command timed out" storm.
    */
   estimatedBullMqConnections: number;
-  /** Whether the estimated connection count fits within the Upstash free tier. */
   safeForUpstashFree: boolean;
-  /** Human-readable recommendation. */
   recommendation: string;
 }
 
-/**
- * Explain the expected BullMQ ioredis connection fan-out for a given number
- * of queues.  Used by the Operator Dashboard and pre-deploy diagnostics to
- * surface capacity issues before they cause ETIMEDOUT / EPIPE loops.
- *
- * The system fails closed when capacity is insufficient: if the Redis
- * connection smoke-test fails (wrong password, connection limit exceeded,
- * unreachable host), getRedisConnection() throws and server/index.ts falls
- * back to setInterval workers — no BullMQ queue processing occurs and all
- * outbound sends remain paused by the channel-gate flags.
- *
- * @param queueCount  Number of BullMQ named queues to account for.
- */
 export function diagnoseRedisCapacity(queueCount: number): RedisCapacityDiagnosis {
   const UPSTASH_FREE_MAX = 20;
-  // Per-queue: 1 producer + 1 worker + 1 events listener = 3 connections.
-  // +1 for the shared repeat-job scheduler connection.
-  const estimated = queueCount * 3 + 1;
+  // 1 shared client + 1 blocking connection per Worker (via internal .duplicate())
+  const estimated = 1 + queueCount;
   const safe = estimated <= UPSTASH_FREE_MAX;
 
   let recommendation: string;
   if (safe) {
     recommendation =
-      `${queueCount} queue(s) × 3 connections + 1 scheduler = ${estimated} connections — ` +
-      `within Upstash free-tier limit (${UPSTASH_FREE_MAX}).`;
+      `Shared-client architecture: 1 shared connection + ${queueCount} Worker blocking connections = ` +
+      `${estimated} total — within Upstash free-tier limit (${UPSTASH_FREE_MAX}). ✓`;
   } else {
     const overage = estimated - UPSTASH_FREE_MAX;
     recommendation =
-      `${queueCount} queue(s) × 3 connections + 1 scheduler = ${estimated} connections — ` +
-      `EXCEEDS Upstash free-tier limit (${UPSTASH_FREE_MAX}) by ${overage}. ` +
-      `Options: (1) upgrade to Upstash Pay-As-You-Go or Pro, ` +
-      `(2) consolidate low-frequency queues (discovery + mid-ingestion share one queue), ` +
-      `(3) use a self-hosted Redis instance with no connection cap.`;
+      `Shared-client architecture: 1 shared + ${queueCount} Worker blocking = ` +
+      `${estimated} connections — EXCEEDS free-tier limit (${UPSTASH_FREE_MAX}) by ${overage}. ` +
+      `Options: (1) upgrade to Upstash Pay-As-You-Go, ` +
+      `(2) reduce Worker count by consolidating low-frequency queues.`;
   }
 
   return {

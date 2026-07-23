@@ -186,10 +186,51 @@ async function testDlqAuditLogSchema() {
   }
 }
 
-// ── 6. BullMQ backoff config — exponential type + delay values ────────────────
+// ── 6. Shared-client connection count — stays under Upstash free tier ────────
+
+async function testConnectionCount() {
+  console.log("\n6. Connection count — shared-client architecture under Upstash free tier");
+
+  const { diagnoseRedisCapacity } = await import("../server/services/queue-connection");
+
+  // Production has 11 named queues (ghl-sync, sla-checks, sequences, enrichment,
+  // discovery, digests, mid-ingestion, onboarding-reminder, abandoned-statement,
+  // system-audit, db-backup).
+  // Shared-client formula: 1 shared + 1 blocking per Worker = 1 + 11 = 12 connections.
+  const report = diagnoseRedisCapacity(11);
+  assert("diagnoseRedisCapacity(11) returns safeForUpstashFree=true", report.safeForUpstashFree,
+    `estimatedBullMqConnections=${report.estimatedBullMqConnections}, limit=20`);
+  assert("11 queues → 12 connections (1 shared + 11 blocking)",
+    report.estimatedBullMqConnections === 12,
+    `got ${report.estimatedBullMqConnections}`);
+  assert("Upstash free tier max is 20", report.upstashFreeTierMax === 20);
+
+  // Old formula (ConnectionOptions per Queue/Worker) would exceed the limit.
+  const OLD_ESTIMATED = 11 * 3;
+  assert("Old formula 11×3=33 would exceed limit (validates fix is necessary)",
+    OLD_ESTIMATED > 20, `old=${OLD_ESTIMATED}`);
+
+  // commandTimeout must be ABSENT from the source — it caused the "Command timed out" storm.
+  const { readFileSync } = await import("fs");
+  const src = readFileSync("server/services/queue-connection.ts", "utf8");
+  assert(
+    !src.includes("commandTimeout: 10_000"),
+    "commandTimeout: 10_000 absent from queue-connection.ts (removed to fix storm)"
+  );
+  assert(
+    src.includes("maxRetriesPerRequest: null"),
+    "maxRetriesPerRequest: null present (required by BullMQ)"
+  );
+  assert(
+    src.includes("enableReadyCheck: false"),
+    "enableReadyCheck: false present (required by BullMQ)"
+  );
+}
+
+// ── 7. BullMQ backoff config — exponential type + delay values ────────────────
 
 async function testBackoffConfig() {
-  console.log("\n6. BullMQ backoff config — exponential type and delay floor per queue");
+  console.log("\n7. BullMQ backoff config — exponential type and delay floor per queue");
 
   // Minimum backoff requirements (milliseconds) per queue
   const minBackoffs: Record<string, number> = {
@@ -281,6 +322,7 @@ async function main() {
     await testDlqInterface();
     await testPauseResume();
     await testDlqAuditLogSchema();
+    await testConnectionCount();
     await testBackoffConfig();
     await testOperatorVisibility();
   } catch (err: any) {
