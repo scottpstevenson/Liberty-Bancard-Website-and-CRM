@@ -168,7 +168,14 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
 
 
   async getSunbizEntitiesByStatus(status: string, limit?: number) {
-    if (limit) {
+    // Guard: treat 0 (and any non-positive value) as "return nothing" — callers
+    // that pass 0 mean an intentional no-op, not "fetch all rows".  The old
+    // `if (limit)` check was falsy for 0, which dropped the LIMIT clause and
+    // produced an unbounded full-table scan over the ~968 k pending rows.
+    if (limit != null && limit <= 0) {
+      return [];
+    }
+    if (limit != null && limit > 0) {
       return await db.select().from(sunbizEntities).where(eq(sunbizEntities.enrichmentStatus, status)).orderBy(sunbizEntities.id).limit(limit);
     }
     return await db.select().from(sunbizEntities).where(eq(sunbizEntities.enrichmentStatus, status)).orderBy(desc(sunbizEntities.createdAt));

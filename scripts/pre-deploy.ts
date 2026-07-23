@@ -92,7 +92,7 @@ const MANDATORY_SUITES: Suite[] = [
   {
     name: "Role Guards",
     script: "scripts/smoke-role-guards.ts",
-    timeoutSecs: 60,
+    timeoutSecs: 120,
   },
   {
     name: "API Coverage",

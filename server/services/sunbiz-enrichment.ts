@@ -931,6 +931,13 @@ export interface SunbizEnrichmentBatchResult {
 // with a per-record + summary breakdown.
 export async function processSunbizEnrichmentBatch(limit: number = 10): Promise<SunbizEnrichmentBatchResult> {
   const results: SunbizEnrichmentOutcome[] = [];
+  // Short-circuit immediately for zero or negative limits — callers that pass 0
+  // mean "do nothing now" (e.g. test harness queue-guard check).  Without this
+  // guard the storage layer's `if (limit)` falsy check drops the LIMIT clause
+  // and triggers an unbounded 968 k-row scan that causes a 60 s spawnSync kill.
+  if (limit <= 0) {
+    return { results, summary: { total: 0, success: 0, partial_success: 0, skipped: 0, failed: 0 } };
+  }
   if (sunbizQueueRunning) {
     return { results, summary: { total: 0, success: 0, partial_success: 0, skipped: 0, failed: 0 } };
   }

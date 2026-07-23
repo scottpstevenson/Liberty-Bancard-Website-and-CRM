@@ -168,6 +168,10 @@ app.set("trust proxy", 1);
     const reqHost = (req.headers["x-forwarded-host"] as string | undefined)?.split(",")[0].trim()
       || req.hostname;
     if (reqHost === _canonicalHost) return next();
+    // Never redirect loopback — local dev, CI scripts (SEO audit, pre-deploy
+    // gate), and any in-process healthcheck must reach the actual server
+    // without being bounced to the canonical HTTPS domain.
+    if (reqHost === "localhost" || reqHost === "127.0.0.1") return next();
     if (
       req.path.startsWith("/api") ||
       req.path.startsWith("/webhooks") ||
