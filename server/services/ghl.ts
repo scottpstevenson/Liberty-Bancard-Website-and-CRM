@@ -635,13 +635,20 @@ export async function sendGhlEmail(params: {
     };
 
     if (params.fromEmail) {
-      // Format as "Display Name <email>" when fromName is also provided
+      // Format as "Display Name <email>" when fromName is also provided.
+      // NOTE: emailReplyMode is NOT included — "custom" is not a valid GHL enum
+      // value and causes 422 CONVERSATIONS_VALIDATION_ERROR. emailFrom alone
+      // is sufficient to override the sender address.
       emailPayload.emailFrom = params.fromName
         ? `${params.fromName} <${params.fromEmail}>`
         : params.fromEmail;
-      emailPayload.emailReplyMode = "custom";
-    } else if (params.fromName) {
-      emailPayload.emailReplyMode = "custom";
+    }
+
+    if (params.replyTo) {
+      // GHL conversations API supports emailReplyTo to set the Reply-To header.
+      // Critical for cold outreach from dedicated mailboxes (Scott@mail.libertybancard.com)
+      // so prospect replies land in a monitored inbox (scott@libertybancard.com).
+      emailPayload.emailReplyTo = params.replyTo;
     }
 
     const result = await ghlFetch("/conversations/messages", {
@@ -704,10 +711,12 @@ export async function sendGhlEmailForMerchant(params: {
     };
 
     if (params.fromEmail) {
+      // NOTE: emailReplyMode is NOT included — "custom" is not a valid GHL enum
+      // value and causes 422 CONVERSATIONS_VALIDATION_ERROR. emailFrom alone
+      // is sufficient to override the sender address.
       emailPayload.emailFrom = params.fromName
         ? `${params.fromName} <${params.fromEmail}>`
         : params.fromEmail;
-      emailPayload.emailReplyMode = "custom";
     }
 
     const result = await ghlFetch("/conversations/messages", {

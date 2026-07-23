@@ -747,13 +747,18 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
                 } else {
                   // GHL: cold outreach from Scott@mail.libertybancard.com
                   const fromEmail = isColdEmail ? "Scott@mail.libertybancard.com" : "accounts@libertybancard.com";
-                  const fromName  = isColdEmail ? "Scott Stevenson" : "Liberty Bancard Accounts";
+                  const fromName  = isColdEmail ? "Scott Stevenson" : "Your Liberty Bancard Account Team";
+                  // replyTo ensures prospect replies land in a monitored inbox:
+                  //   cold outreach → scott@libertybancard.com (not the dedicated send mailbox)
+                  //   accounts      → accounts@libertybancard.com (monitored alias)
+                  const replyTo   = isColdEmail ? "scott@libertybancard.com" : "accounts@libertybancard.com";
                   const ghlResult = await sendGhlEmail({
                     contactId: enrollment.contactId,
                     subject: interpolate(subjectToSend),
                     body: emailBody,
                     fromEmail,
                     fromName,
+                    replyTo,
                   }) as any;
                   await markSendSent({ idempotencyKey: emailIdemKey, providerMessageId: ghlResult?.messageId, fromAddress: fromEmail });
                 }

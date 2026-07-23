@@ -47,13 +47,11 @@ import {
   Calendar,
   Loader2,
   CheckCircle2,
-  ArrowRight,
   Sparkles,
   AlertCircle,
   Phone,
+  Monitor,
 } from "lucide-react";
-import imgCloverFlex3 from "@assets/images/terminal-clover-flex-3.png";
-import heroSecure from "@assets/images/hero-secure.jpg";
 
 const uploadSchema = z.object({
   businessName: z.string().min(1, "Business name is required"),
@@ -362,67 +360,63 @@ export default function UploadStatement() {
       <Navbar />
 
       <main className="flex-grow pt-28" ref={containerRef}>
-        <section className="relative overflow-hidden" data-testid="section-upload-hero">
-          <div className="absolute inset-0">
-            <img src={heroSecure} alt="Secure payment statement analysis and digital security" className="w-full h-full object-cover" width="1408" height="792" />
-            <div className="absolute inset-0 bg-gradient-to-r from-[hsl(222,47%,6%)/0.97] via-[hsl(222,47%,6%)/0.93] to-[hsl(222,47%,6%)/0.85]" />
-          </div>
-          <div className="glow-blob w-64 h-64 bg-sky-500 top-10 right-1/4" />
-          <div className="glow-blob glow-blob-2 w-48 h-48 bg-blue-600 bottom-10 left-1/4" />
-          <div className="relative max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-20 lg:py-28">
-            <div className="text-center mb-10 reveal">
-              <h1
-                className="text-3xl sm:text-4xl lg:text-5xl font-bold text-white mb-4"
-                data-testid="text-upload-heading"
-              >
-                Upload Your Statement (<span className="text-sky-400">Secure</span>)
-              </h1>
-              <p
-                className="text-lg text-white/70 max-w-2xl mx-auto mb-4"
-                data-testid="text-upload-subheadline"
-              >
-                PDF, JPG, PNG, or CSV. Redact account numbers if you want — totals and fee lines are all we need.
-              </p>
-              <p className="text-sm text-white/50 max-w-xl mx-auto mb-8" data-testid="text-upload-privacy">
-                Your statement is used only to prepare your Liberty Bancard rate review. It is not sold or shared for unrelated marketing.
-              </p>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 reveal reveal-delay-1 mb-6">
-                {trustBullets.map((bullet) => (
-                  <div
-                    key={bullet.text}
-                    className="glass-dark rounded-md px-4 py-3 flex items-center gap-3 justify-center"
-                    data-testid={`trust-bullet-${bullet.text.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
-                  >
-                    <bullet.icon className="w-5 h-5 text-sky-400 shrink-0" />
-                    <span className="text-sm text-white/80">{bullet.text}</span>
-                  </div>
-                ))}
-              </div>
-              <div className="flex flex-col sm:flex-row gap-3 justify-center reveal reveal-delay-2">
-                <a
-                  href={CALENDAR_URL}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  data-testid="link-upload-hero-book"
-                  onClick={() => trackBookingCtaClick({ page: "/upload-statement", ctaLabel: "Book a 10-Min Call", ctaLocation: "hero" })}
+        {/* Hero — clean solid navy, no photo overlay, no glow blobs */}
+        <section className="bg-[#0d1b2e]" data-testid="section-upload-hero">
+          <div className="max-w-2xl mx-auto px-4 sm:px-6 py-12 sm:py-16 text-center reveal">
+            <h1
+              className="text-2xl sm:text-3xl lg:text-4xl font-bold text-white mb-3 leading-tight"
+              data-testid="text-upload-heading"
+            >
+              Upload Your Statement
+            </h1>
+            <p
+              className="text-base text-white/70 max-w-lg mx-auto mb-2"
+              data-testid="text-upload-subheadline"
+            >
+              PDF, JPG, PNG, or CSV. We'll send back a written savings breakdown — no pressure, no commitment.
+            </p>
+            <p className="text-xs text-white/40 max-w-md mx-auto mb-7" data-testid="text-upload-privacy">
+              Redact account numbers if you prefer — totals and fee lines are all we need. Your statement is not sold or shared.
+            </p>
+
+            {/* Trust bullets — quiet inline row, not glassmorphic cards */}
+            <div className="flex flex-wrap justify-center gap-x-6 gap-y-2 mb-7 reveal reveal-delay-1">
+              {trustBullets.map((bullet) => (
+                <div
+                  key={bullet.text}
+                  className="flex items-center gap-1.5"
+                  data-testid={`trust-bullet-${bullet.text.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
                 >
-                  <Button variant="outline" size="sm" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white hover:bg-white/10">
-                    <Calendar className="w-4 h-4" />
-                    Book a 10-Min Call
-                  </Button>
-                </a>
-                <a
-                  href={PHONE_TEL}
-                  aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`}
-                  data-testid="link-upload-hero-phone"
-                  onClick={() => trackPhoneCtaClick({ page: "/upload-statement", ctaLabel: PHONE_NUMBER, ctaLocation: "hero" })}
-                >
-                  <Button variant="ghost" size="sm" className="gap-2 text-white/70 hover:text-white hover:bg-white/10 border border-white/20">
-                    <Phone className="w-4 h-4" />
-                    {PHONE_NUMBER}
-                  </Button>
-                </a>
-              </div>
+                  <bullet.icon className="w-4 h-4 text-sky-400 shrink-0" />
+                  <span className="text-sm text-white/60">{bullet.text}</span>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-3 justify-center reveal reveal-delay-2">
+              <a
+                href={CALENDAR_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                data-testid="link-upload-hero-book"
+                onClick={() => trackBookingCtaClick({ page: "/upload-statement", ctaLabel: "Book a 10-Min Call", ctaLocation: "hero" })}
+              >
+                <Button variant="outline" size="sm" className="gap-2 border-white/20 text-white hover:bg-white/10 hover:text-white">
+                  <Calendar className="w-4 h-4" />
+                  Book a 10-Min Call
+                </Button>
+              </a>
+              <a
+                href={PHONE_TEL}
+                aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`}
+                data-testid="link-upload-hero-phone"
+                onClick={() => trackPhoneCtaClick({ page: "/upload-statement", ctaLabel: PHONE_NUMBER, ctaLocation: "hero" })}
+              >
+                <Button variant="ghost" size="sm" className="gap-2 text-white/60 hover:text-white hover:bg-white/10">
+                  <Phone className="w-4 h-4" />
+                  {PHONE_NUMBER}
+                </Button>
+              </a>
             </div>
           </div>
         </section>
@@ -933,24 +927,24 @@ export default function UploadStatement() {
         </section>
 
         <section className="bg-background py-16" data-testid="section-terminal-promo">
-          <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 reveal">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
-              <div className="flex justify-center reveal reveal-delay-1">
-                <img src={imgCloverFlex3} alt="Clover Flex 3 payment terminal" className="w-full max-w-[240px] rounded-md object-contain" loading="lazy" width="240" height="240" data-testid="img-upload-terminal" />
+          <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 reveal">
+            <div className="flex flex-col sm:flex-row gap-8 items-center">
+              <div className="flex-shrink-0 flex items-center justify-center w-28 h-28 rounded-2xl bg-primary/10 reveal reveal-delay-1" aria-hidden="true">
+                <Monitor className="w-14 h-14 text-primary" />
               </div>
               <div className="reveal reveal-delay-2">
-                <h2 className="text-2xl font-bold text-foreground mb-3" data-testid="text-terminal-promo-heading">
-                  Need a Terminal Too?
+                <h2 className="text-2xl font-bold text-foreground mb-2" data-testid="text-terminal-promo-heading">
+                  Free Terminal this Month
                 </h2>
                 <p className="text-muted-foreground mb-4 leading-relaxed">
-                  Your statement review also qualifies you for the Liberty Smart Terminal - free for qualifying merchants.* Tap, dip, swipe, and manual key entry included.
+                  Qualifying merchants who sign up this month receive a free terminal. Tap, dip, swipe, and manual key entry — cash discount and surcharge programs supported.
                 </p>
-                <ul className="space-y-2 mb-4">
+                <ul className="space-y-2 mb-3">
                   <li className="flex items-start gap-2 text-sm text-muted-foreground"><CheckCircle2 className="w-4 h-4 text-primary mt-0.5 shrink-0" />Same-day setup available</li>
                   <li className="flex items-start gap-2 text-sm text-muted-foreground"><CheckCircle2 className="w-4 h-4 text-primary mt-0.5 shrink-0" />Cash discount and surcharge ready</li>
                   <li className="flex items-start gap-2 text-sm text-muted-foreground"><CheckCircle2 className="w-4 h-4 text-primary mt-0.5 shrink-0" />Guided onboarding and dedicated support</li>
                 </ul>
-                <p className="text-xs text-muted-foreground">*Eligibility, underwriting, card brand rules, and applicable laws apply.</p>
+                <p className="text-xs text-muted-foreground">Subject to eligibility and equipment program terms.</p>
               </div>
             </div>
           </div>

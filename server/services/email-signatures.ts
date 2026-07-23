@@ -24,8 +24,8 @@ const QUIZ_PATH = "/free-analysis";
 const SHOP_PATH = "/shop";
 
 const DEFAULT_PROMO: PromoOffer = {
-  headline: "Free Terminal with Signup",
-  description: "Sign up this month and receive a free Clover terminal — subject to eligibility and equipment program terms.",
+  headline: "Free Terminal this month",
+  description: "Sign up this month and receive a free terminal — subject to eligibility and equipment program terms.",
 };
 
 /**
@@ -72,7 +72,7 @@ const DEFAULT_SIGNATURES: Record<SignatureType, EmailSignature> = {
     website: BASE_URL,
   },
   accounts: {
-    name: "Liberty Bancard Accounts",
+    name: "Your Liberty Bancard Account Team",
     title: "Account Services",
     phone: "954-266-8214",
     email: "accounts@libertybancard.com",
@@ -141,7 +141,7 @@ export function getEmailSignatureHtml(
   let logoBlock = "";
   if (appUrl) {
     const logoUrl = escapeHtml(`${appUrl}/logo-blue.png`);
-    logoBlock = `<img src="${logoUrl}" alt="Liberty Bancard" width="200" style="max-width:200px;height:auto;display:block;margin-bottom:8px;border:none;outline:none;text-decoration:none;" />\n`;
+    logoBlock = `<img src="${logoUrl}" alt="Liberty Bancard" width="140" style="max-width:140px;width:100%;height:auto;display:block;margin-bottom:10px;border:none;outline:none;text-decoration:none;" />\n`;
   } else {
     console.warn("[email-signatures] APP_URL is not set — logo omitted from email signature");
   }
@@ -151,29 +151,33 @@ export function getEmailSignatureHtml(
   const actionRows = isColdSales
     ? `
   <tr>
-    <td style="padding-top:10px;">
-      <a href="${quizUrl}" style="display:inline-block;background-color:#1e3a5f;color:#ffffff;padding:10px 20px;border-radius:4px;text-decoration:none;font-size:13px;font-weight:bold;">Get Your Free Savings Analysis</a>
+    <td style="padding-top:14px;">
+      <a href="${quizUrl}" style="display:inline-block;background-color:#1e3a5f;color:#ffffff;padding:10px 22px;border-radius:5px;text-decoration:none;font-size:13px;font-weight:bold;line-height:1.4;">Get Your Free Savings Analysis</a>
     </td>
   </tr>
   ${promoLine}`
     : "";
 
   return `
-<br/><br/>
-${logoBlock}<table style="font-family:Arial,sans-serif;font-size:13px;color:#333;border-collapse:collapse;">
+<br/>
+<div style="max-width:560px;">
+${logoBlock}<table style="font-family:Arial,sans-serif;font-size:13px;color:#333;border-collapse:collapse;width:100%;">
   <tr>
-    <td style="border-left:3px solid #1e3a5f;padding-left:12px;">
-      <strong style="font-size:14px;color:#1e3a5f;">${name}</strong><br/>
-      <span style="color:#666;">${title} | Liberty Bancard</span><br/>
-      <span style="color:#666;">${phone} | ${email}</span><br/>
-      <a href="${website}" style="color:#1e3a5f;text-decoration:none;">${website}</a><br/>
-      ${link ? `<a href="${link}" style="color:#1e3a5f;text-decoration:none;">Schedule a Free Statement Review</a><br/>` : ""}
-      ${isColdSales ? `<a href="${shopUrl}" style="color:#1e3a5f;text-decoration:none;">Browse Terminals &amp; Equipment</a><br/>` : ""}
-      <span style="font-size:11px;color:#999;margin-top:4px;display:inline-block;">${disclaimer}</span>
+    <td style="border-left:3px solid #1e3a5f;padding-left:12px;line-height:1.6;">
+      <strong style="font-size:14px;color:#1e3a5f;display:block;margin-bottom:2px;">${name}</strong>
+      <span style="color:#666;font-size:12px;">${title} | Liberty Bancard</span><br/>
+      <span style="color:#555;font-size:12px;">${phone}</span>
+      &nbsp;·&nbsp;
+      <a href="mailto:${email}" style="color:#1e3a5f;font-size:12px;text-decoration:none;">${email}</a><br/>
+      <a href="${website}" style="color:#1e3a5f;font-size:12px;text-decoration:none;">${website}</a><br/>
+      ${link ? `<a href="${link}" style="color:#1e3a5f;font-size:12px;text-decoration:underline;font-weight:600;">📅 Schedule a Free Statement Review</a><br/>` : ""}
+      ${isColdSales ? `<a href="${shopUrl}" style="color:#1e3a5f;font-size:12px;text-decoration:underline;">Browse Terminals &amp; Equipment</a><br/>` : ""}
+      <span style="font-size:11px;color:#aaa;margin-top:6px;display:inline-block;">${disclaimer}</span>
     </td>
   </tr>
   ${actionRows}
-</table>`;
+</table>
+</div>`;
 }
 
 export function getEmailSignaturePlainText(
