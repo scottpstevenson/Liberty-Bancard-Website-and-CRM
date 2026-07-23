@@ -34,7 +34,7 @@ const PROOFS = [
   {
     label:     "Accounts",
     fromEmail: "accounts@libertybancard.com",
-    fromName:  "Liberty Bancard Accounts",
+    fromName:  "Your Liberty Bancard Account Team",
     sigType:   "accounts" as const,
     subject:   "[TEST PROOF 4/4] Accounts sender — accounts@libertybancard.com",
   },

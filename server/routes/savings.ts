@@ -203,7 +203,7 @@ export function registerSavingsRoutes(app: Express) {
               subject,
               body: html,
               fromEmail: "accounts@libertybancard.com",
-              fromName: "Liberty Bancard Accounts",
+              fromName: "Your Liberty Bancard Account Team",
             });
             if (result.success) {
               emailSent = true;

@@ -652,7 +652,7 @@ ${getEmailSignatureHtml("accounts")}
 
   if (isGhlConfigured() && proposal.contactId && proposal.dealId && merchantGhlContactId) {
     try {
-      const ghlDirectResult = await sendGhlEmail({ contactId: proposal.contactId, dealId: proposal.dealId, subject, body: html, fromEmail: "accounts@libertybancard.com", fromName: "Liberty Bancard Accounts" });
+      const ghlDirectResult = await sendGhlEmail({ contactId: proposal.contactId, dealId: proposal.dealId, subject, body: html, fromEmail: "accounts@libertybancard.com", fromName: "Your Liberty Bancard Account Team" });
       if (ghlDirectResult.success) {
         sent = true;
         sentChannel = "ghl_direct";
@@ -666,7 +666,7 @@ ${getEmailSignatureHtml("accounts")}
 
   if (!sent && isGhlConfigured() && merchantEmail) {
     try {
-      const ghlEmailResult = await sendGhlEmailForMerchant({ email: merchantEmail, subject, body: html, fromEmail: "accounts@libertybancard.com", fromName: "Liberty Bancard Accounts" });
+      const ghlEmailResult = await sendGhlEmailForMerchant({ email: merchantEmail, subject, body: html, fromEmail: "accounts@libertybancard.com", fromName: "Your Liberty Bancard Account Team" });
       if (ghlEmailResult.success) {
         sent = true;
         sentChannel = "ghl_email";

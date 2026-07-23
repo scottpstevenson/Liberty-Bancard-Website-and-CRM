@@ -162,7 +162,7 @@ const CATEGORY_CHECKS: Array<{ category: MessageCategory; expectedFrom: string; 
   { category: "onboarding",    expectedFrom: "onboarding@libertybancard.com", expectedReplyTo: "onboarding@libertybancard.com", expectedDisplayName: "Liberty Bancard Onboarding" },
   { category: "security",      expectedFrom: "security@libertybancard.com",   expectedReplyTo: "security@libertybancard.com",   expectedDisplayName: "Liberty Bancard Security" },
   { category: "partners",      expectedFrom: "partners@libertybancard.com",   expectedReplyTo: "partners@libertybancard.com",   expectedDisplayName: "Liberty Bancard Partner Program" },
-  { category: "accounts",      expectedFrom: "accounts@libertybancard.com",   expectedReplyTo: "accounts@libertybancard.com",   expectedDisplayName: "Liberty Bancard Accounts" },
+  { category: "accounts",      expectedFrom: "accounts@libertybancard.com",   expectedReplyTo: "accounts@libertybancard.com",   expectedDisplayName: "Your Liberty Bancard Account Team" },
   { category: "internal_ops",  expectedFrom: "accounts@libertybancard.com",   expectedReplyTo: "accounts@libertybancard.com",   expectedDisplayName: "Liberty Bancard" },
 ];
 
@@ -218,7 +218,7 @@ console.log("\n── Section 10: Call-site surface checks ───────
     `<p>You can reply to this email with the documents or give us a call and we'll walk you through it.</p>` +
     getEmailSignatureHtml("accounts");
 
-  assertContains("sla doc-nudge: accounts sig injected (name)", docNudgeBody, "Liberty Bancard Accounts");
+  assertContains("sla doc-nudge: accounts sig injected (name)", docNudgeBody, "Your Liberty Bancard Account Team");
   assertContains("sla doc-nudge: accounts email", docNudgeBody, "accounts@libertybancard.com");
   assertContains("sla doc-nudge: website link", docNudgeBody, "libertybancard.com");
   assertNotContains("sla doc-nudge: no stale 'Best, Liberty Bancard Team'", docNudgeBody, "Best,\nLiberty Bancard Team");
@@ -240,7 +240,7 @@ console.log("\n── Section 10: Call-site surface checks ───────
 // proposal-engine.ts + savings.ts + co-branded — accounts signature appended
 {
   const proposalBody = `<div>...proposal HTML...</div>${getEmailSignatureHtml("accounts")}`;
-  assertContains("proposal: accounts sig injected (name)", proposalBody, "Liberty Bancard Accounts");
+  assertContains("proposal: accounts sig injected (name)", proposalBody, "Your Liberty Bancard Account Team");
   assertContains("proposal: accounts email present", proposalBody, "accounts@libertybancard.com");
   assertNotContains("proposal: no stale sales@ reference in sig", proposalBody, "sales@libertybancard.com");
 }

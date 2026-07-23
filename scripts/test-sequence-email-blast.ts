@@ -64,7 +64,7 @@ function getSenderProfile(name: string): {
   if (name.includes("Account Management Ops")) {
     return {
       fromEmail: "accounts@libertybancard.com",
-      fromName: "Liberty Bancard Accounts",
+      fromName: "Your Liberty Bancard Account Team",
       sigType: "accounts",
       category: "department_accounts",
     };
