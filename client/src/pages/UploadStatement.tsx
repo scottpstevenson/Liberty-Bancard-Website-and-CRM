@@ -51,6 +51,8 @@ import {
   AlertCircle,
   Phone,
   Monitor,
+  Upload,
+  ChevronRight,
 } from "lucide-react";
 
 const uploadSchema = z.object({
@@ -68,6 +70,15 @@ const uploadSchema = z.object({
 });
 
 type UploadFormData = z.infer<typeof uploadSchema>;
+
+const WHAT_WE_REVIEW = [
+  "Effective rate & total monthly fees",
+  "Hidden surcharges and assessments",
+  "Interchange optimization opportunities",
+  "Equipment costs vs. better alternatives",
+];
+
+const TRUST_CHIPS = ["Free", "No commitment", "Secure upload", "~30 seconds"];
 
 export default function UploadStatement() {
   const [, setLocation] = useLocation();
@@ -155,12 +166,8 @@ export default function UploadStatement() {
   useEffect(() => {
     if (authUser) {
       const fullName = [authUser.firstName, authUser.lastName].filter(Boolean).join(" ");
-      if (fullName && !form.getValues("contactName")) {
-        form.setValue("contactName", fullName);
-      }
-      if (authUser.email && !form.getValues("email")) {
-        form.setValue("email", authUser.email);
-      }
+      if (fullName && !form.getValues("contactName")) form.setValue("contactName", fullName);
+      if (authUser.email && !form.getValues("email")) form.setValue("email", authUser.email);
     }
   }, [authUser, form]);
 
@@ -214,9 +221,7 @@ export default function UploadStatement() {
       Object.entries(utmParams).forEach(([key, value]) => {
         if (value) formData.append(key, String(value));
       });
-      if (selectedFile) {
-        formData.append("statementFile", selectedFile);
-      }
+      if (selectedFile) formData.append("statementFile", selectedFile);
 
       return new Promise<unknown>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
@@ -236,7 +241,6 @@ export default function UploadStatement() {
         xhr.addEventListener("load", () => {
           if (xhr.status >= 200 && xhr.status < 300) {
             setUploadProgress(100);
-            // Simulate server-side processing steps so the merchant sees meaningful feedback
             let step = 1;
             setProcessingStep(step);
             const stepInterval = setInterval(() => {
@@ -315,9 +319,7 @@ export default function UploadStatement() {
         }),
       });
       if (!res.ok) {
-        if (res.status === 401) {
-          throw new Error("Please log in to use the AI analysis feature.");
-        }
+        if (res.status === 401) throw new Error("Please log in to use the AI analysis feature.");
         throw new Error("Analysis failed. Please try again.");
       }
       const data = await res.json();
@@ -339,246 +341,262 @@ export default function UploadStatement() {
     "Other",
   ];
 
-  const trustBullets = [
-    {
-      icon: FileSearch,
-      text: "Written breakdown you keep",
-    },
-    {
-      icon: ShieldCheck,
-      text: "Proof-first, no pressure",
-    },
-    {
-      icon: Clock,
-      text: "Fast turnaround during business hours",
-    },
-  ];
-
   return (
-    <div className="min-h-screen flex flex-col bg-background">
-      <SEO title="Upload Your Processing Statement" description="Upload your merchant processing statement for a free, no-obligation rate analysis. See exactly where your fees are going." path="/upload-statement" keywords="upload processing statement, free statement review, merchant fee analysis" breadcrumbs={[{ name: "Upload Statement", path: "/upload-statement" }]} structuredData={[getServiceSchema("Free Statement Review", "Upload your merchant processing statement for a free, no-obligation rate analysis.", "/upload-statement")]} />
+    <div className="min-h-screen flex flex-col bg-white">
+      <SEO
+        title="Upload Your Processing Statement"
+        description="Upload your merchant processing statement for a free, no-obligation rate analysis. See exactly where your fees are going."
+        path="/upload-statement"
+        keywords="upload processing statement, free statement review, merchant fee analysis"
+        breadcrumbs={[{ name: "Upload Statement", path: "/upload-statement" }]}
+        structuredData={[getServiceSchema("Free Statement Review", "Upload your merchant processing statement for a free, no-obligation rate analysis.", "/upload-statement")]}
+      />
       <Navbar />
 
-      <main className="flex-grow pt-28" ref={containerRef}>
-        {/* Hero — clean solid navy, no photo overlay, no glow blobs */}
-        <section className="bg-[#0d1b2e]" data-testid="section-upload-hero">
-          <div className="max-w-2xl mx-auto px-4 sm:px-6 py-12 sm:py-16 text-center reveal">
+      <main className="flex-grow pt-20" ref={containerRef}>
+
+        {/* ═══════════════════════════════════════════════════
+            HERO — white bg, strong headline, trust chips
+        ═══════════════════════════════════════════════════ */}
+        <section className="bg-white px-5 pt-8 pb-5" data-testid="section-upload-hero">
+          <div className="max-w-lg mx-auto">
+            {/* Eyebrow */}
+            <p className="text-xs font-bold tracking-widest text-sky-600 uppercase mb-2">
+              Free Statement Review
+            </p>
+
+            {/* Headline */}
             <h1
-              className="text-2xl sm:text-3xl lg:text-4xl font-bold text-white mb-3 leading-tight"
+              className="text-[28px] sm:text-3xl font-extrabold text-gray-900 leading-[1.2] mb-3"
               data-testid="text-upload-heading"
             >
-              Upload Your Statement
+              See exactly what you're paying — and what you could save.
             </h1>
+
+            {/* Subheadline */}
             <p
-              className="text-base text-white/70 max-w-lg mx-auto mb-2"
+              className="text-base text-gray-500 leading-relaxed mb-5"
               data-testid="text-upload-subheadline"
             >
-              PDF, JPG, PNG, or CSV. We'll send back a written savings breakdown — no pressure, no commitment.
-            </p>
-            <p className="text-xs text-white/40 max-w-md mx-auto mb-7" data-testid="text-upload-privacy">
-              Redact account numbers if you prefer — totals and fee lines are all we need. Your statement is not sold or shared.
+              Upload a PDF or photo of your processing statement. We'll send back a written savings breakdown — no processor login, no commitment.
             </p>
 
-            {/* Trust bullets — quiet inline row, not glassmorphic cards */}
-            <div className="flex flex-wrap justify-center gap-x-6 gap-y-2 mb-7 reveal reveal-delay-1">
-              {trustBullets.map((bullet) => (
-                <div
-                  key={bullet.text}
-                  className="flex items-center gap-1.5"
-                  data-testid={`trust-bullet-${bullet.text.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
+            {/* Trust chips */}
+            <div className="flex flex-wrap gap-2" data-testid="trust-chips">
+              {TRUST_CHIPS.map((chip) => (
+                <span
+                  key={chip}
+                  className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-xs font-medium text-gray-600"
+                  data-testid={`chip-${chip.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
                 >
-                  <bullet.icon className="w-4 h-4 text-sky-400 shrink-0" />
-                  <span className="text-sm text-white/60">{bullet.text}</span>
-                </div>
+                  <CheckCircle2 className="w-3 h-3 text-sky-500 shrink-0" />
+                  {chip}
+                </span>
               ))}
-            </div>
-
-            <div className="flex flex-col sm:flex-row gap-3 justify-center reveal reveal-delay-2">
-              <a
-                href={CALENDAR_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                data-testid="link-upload-hero-book"
-                onClick={() => trackBookingCtaClick({ page: "/upload-statement", ctaLabel: "Book a 10-Min Call", ctaLocation: "hero" })}
-              >
-                <Button variant="outline" size="sm" className="gap-2 border-white/20 text-white hover:bg-white/10 hover:text-white">
-                  <Calendar className="w-4 h-4" />
-                  Book a 10-Min Call
-                </Button>
-              </a>
-              <a
-                href={PHONE_TEL}
-                aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`}
-                data-testid="link-upload-hero-phone"
-                onClick={() => trackPhoneCtaClick({ page: "/upload-statement", ctaLabel: PHONE_NUMBER, ctaLocation: "hero" })}
-              >
-                <Button variant="ghost" size="sm" className="gap-2 text-white/60 hover:text-white hover:bg-white/10">
-                  <Phone className="w-4 h-4" />
-                  {PHONE_NUMBER}
-                </Button>
-              </a>
             </div>
           </div>
         </section>
 
-        <section className="bg-muted/30 bg-dots py-12">
-          <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 reveal">
-            <Card data-testid="card-upload-form">
-              <CardContent className="pt-6">
-                {uploadSucceeded ? (
-                  <div className="text-center py-10 space-y-5" data-testid="section-upload-success">
-                    <CheckCircle2 className="h-14 w-14 text-green-500 mx-auto" />
-                    <div>
-                      <h2 className="text-2xl font-bold text-foreground mb-2" data-testid="text-success-heading">
-                        Statement Received!
-                      </h2>
-                      <p className="text-muted-foreground max-w-md mx-auto">
-                        We've got your statement and our AI is analyzing it now. A team member will follow up with your personalized savings report — typically within 1 business day.
-                      </p>
-                    </div>
-                    <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
-                      <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                      <span data-testid="text-analyzing">Analyzing your statement…</span>
-                    </div>
-                    <div className="pt-2">
-                      <Button asChild variant="outline" data-testid="button-view-portal">
-                        <Link href="/merchant-portal">View My Portal</Link>
-                      </Button>
-                    </div>
-                  </div>
-                ) : (
-                  <>
-                    <h2
-                      className="text-2xl font-bold text-foreground mb-6"
-                      data-testid="text-form-title"
-                    >
-                      Submit Your Statement for Review
-                    </h2>
+        {/* ═══════════════════════════════════════════════════
+            WHAT WE REVIEW — objection-removing mini-card
+        ═══════════════════════════════════════════════════ */}
+        <section className="bg-gray-50 px-5 py-4" data-testid="section-what-we-review">
+          <div className="max-w-lg mx-auto">
+            <div className="bg-white rounded-2xl border border-gray-200 shadow-sm px-4 py-4">
+              <p className="text-[10px] font-bold tracking-widest text-gray-400 uppercase mb-3">
+                What we review
+              </p>
+              <ul className="space-y-2">
+                {WHAT_WE_REVIEW.map((item) => (
+                  <li key={item} className="flex items-center gap-2.5 text-sm text-gray-700">
+                    <CheckCircle2 className="w-4 h-4 text-sky-500 shrink-0" />
+                    {item}
+                  </li>
+                ))}
+              </ul>
+              <p className="text-[11px] text-gray-400 mt-3 leading-snug">
+                Redact account numbers if you prefer — totals and fee lines are all we need. Your statement is never sold or shared.
+              </p>
+            </div>
+          </div>
+        </section>
 
-                    <Form {...form}>
-                  <form
-                    onSubmit={form.handleSubmit(onSubmit)}
-                    className="space-y-6"
-                    data-testid="form-upload-statement"
-                  >
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <FormField
-                        control={form.control}
-                        name="businessName"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Business Name</FormLabel>
-                            <FormControl>
-                              <Input
-                                placeholder="Your business name"
-                                data-testid="input-business-name"
-                                {...field}
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
+        {/* ═══════════════════════════════════════════════════
+            MAIN FORM — mobile-optimized, upload dominant
+        ═══════════════════════════════════════════════════ */}
+        <section className="bg-white px-5 pt-6 pb-10" data-testid="section-upload-form">
+          <div className="max-w-lg mx-auto">
 
-                      <FormField
-                        control={form.control}
-                        name="contactName"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Your Name</FormLabel>
-                            <FormControl>
-                              <Input
-                                placeholder="Your full name"
-                                data-testid="input-contact-name"
-                                {...field}
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
+            {uploadSucceeded ? (
+              /* ── SUCCESS STATE ── */
+              <div className="text-center py-12 space-y-5" data-testid="section-upload-success">
+                <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center mx-auto">
+                  <CheckCircle2 className="h-9 w-9 text-green-500" />
+                </div>
+                <div>
+                  <h2 className="text-2xl font-bold text-gray-900 mb-2" data-testid="text-success-heading">
+                    Statement Received!
+                  </h2>
+                  <p className="text-gray-500 max-w-sm mx-auto text-sm leading-relaxed">
+                    Our AI is analyzing it now. A team member will follow up with your personalized savings report — typically within 1 business day.
+                  </p>
+                </div>
+                <div className="flex items-center justify-center gap-2 text-sm text-gray-400">
+                  <Loader2 className="h-4 w-4 animate-spin text-sky-500" />
+                  <span data-testid="text-analyzing">Analyzing your statement…</span>
+                </div>
+                <Button asChild variant="outline" className="rounded-xl" data-testid="button-view-portal">
+                  <Link href="/merchant-portal">View My Portal</Link>
+                </Button>
+              </div>
+            ) : (
+              <Form {...form}>
+                <form
+                  onSubmit={form.handleSubmit(onSubmit)}
+                  className="space-y-4"
+                  data-testid="form-upload-statement"
+                >
+                  <p className="text-sm font-semibold text-gray-700 mb-1" data-testid="text-form-title">
+                    Your information
+                  </p>
 
-                      <FormField
-                        control={form.control}
-                        name="email"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Email</FormLabel>
-                            <FormControl>
-                              <Input
-                                type="email"
-                                placeholder="you@business.com"
-                                data-testid="input-email"
-                                {...field}
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-
-                      <FormField
-                        control={form.control}
-                        name="mobile"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Mobile Number</FormLabel>
-                            <FormControl>
-                              <Input
-                                type="tel"
-                                placeholder="(555) 123-4567"
-                                data-testid="input-mobile"
-                                {...field}
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    </div>
-
+                  {/* ── Row: Business + Name ── */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <FormField
                       control={form.control}
-                      name="vertical"
+                      name="businessName"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Industry / Vertical</FormLabel>
-                          <Select
-                            onValueChange={field.onChange}
-                            defaultValue={field.value}
-                          >
-                            <FormControl>
-                              <SelectTrigger data-testid="select-vertical">
-                                <SelectValue placeholder="Select your industry" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              {verticals.map((v) => (
-                                <SelectItem
-                                  key={v}
-                                  value={v}
-                                  data-testid={`select-item-${v.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
-                                >
-                                  {v}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                          <FormLabel className="text-xs font-medium text-gray-600">Business Name</FormLabel>
+                          <FormControl>
+                            <Input
+                              className="h-12 text-base rounded-xl border-gray-200 focus:border-sky-500 focus:ring-sky-500"
+                              placeholder="Your business"
+                              data-testid="input-business-name"
+                              {...field}
+                            />
+                          </FormControl>
                           <FormMessage />
                         </FormItem>
                       )}
                     />
-
                     <FormField
                       control={form.control}
-                      name="fileName"
+                      name="contactName"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Upload Statement (PDF or Photo)</FormLabel>
+                          <FormLabel className="text-xs font-medium text-gray-600">Your Name</FormLabel>
                           <FormControl>
                             <Input
+                              className="h-12 text-base rounded-xl border-gray-200 focus:border-sky-500"
+                              placeholder="Full name"
+                              data-testid="input-contact-name"
+                              {...field}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+
+                  {/* ── Row: Email + Mobile ── */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <FormField
+                      control={form.control}
+                      name="email"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="text-xs font-medium text-gray-600">Email</FormLabel>
+                          <FormControl>
+                            <Input
+                              type="email"
+                              className="h-12 text-base rounded-xl border-gray-200 focus:border-sky-500"
+                              placeholder="you@business.com"
+                              data-testid="input-email"
+                              {...field}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="mobile"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="text-xs font-medium text-gray-600">Mobile</FormLabel>
+                          <FormControl>
+                            <Input
+                              type="tel"
+                              className="h-12 text-base rounded-xl border-gray-200 focus:border-sky-500"
+                              placeholder="(555) 123-4567"
+                              data-testid="input-mobile"
+                              {...field}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+
+                  {/* ── Industry ── */}
+                  <FormField
+                    control={form.control}
+                    name="vertical"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-xs font-medium text-gray-600">Industry</FormLabel>
+                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                          <FormControl>
+                            <SelectTrigger
+                              className="h-12 text-base rounded-xl border-gray-200 focus:border-sky-500"
+                              data-testid="select-vertical"
+                            >
+                              <SelectValue placeholder="Select your industry" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {verticals.map((v) => (
+                              <SelectItem
+                                key={v}
+                                value={v}
+                                data-testid={`select-item-${v.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
+                              >
+                                {v}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  {/* ── File Upload — styled tap target ── */}
+                  <FormField
+                    control={form.control}
+                    name="fileName"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-xs font-medium text-gray-600">
+                          Statement (PDF or photo)
+                        </FormLabel>
+                        <FormControl>
+                          <label
+                            className={`flex flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed cursor-pointer transition-colors min-h-[96px] px-4 py-5
+                              ${selectedFile
+                                ? "border-sky-400 bg-sky-50"
+                                : "border-gray-200 bg-gray-50 hover:border-sky-300 hover:bg-sky-50/50"
+                              }`}
+                            data-testid="label-file-upload"
+                          >
+                            <input
                               type="file"
                               accept=".pdf,.png,.jpg,.jpeg"
+                              className="sr-only"
                               data-testid="input-file"
                               onChange={(e) => {
                                 const file = e.target.files?.[0];
@@ -586,44 +604,65 @@ export default function UploadStatement() {
                                 setSelectedFile(file || null);
                               }}
                             />
-                          </FormControl>
-                          <div className="flex items-center gap-1.5 mt-1">
-                            <Lock className="w-3.5 h-3.5 text-muted-foreground" />
-                            <span
-                              className="text-xs text-muted-foreground"
-                              data-testid="text-secure-upload"
-                            >
-                              Secure upload
-                            </span>
-                          </div>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
+                            {selectedFile ? (
+                              <>
+                                <CheckCircle2 className="w-6 h-6 text-sky-500" />
+                                <span className="text-sm font-medium text-sky-700 text-center break-all">
+                                  {selectedFile.name}
+                                </span>
+                                <span className="text-xs text-sky-500">Tap to change file</span>
+                              </>
+                            ) : (
+                              <>
+                                <Upload className="w-6 h-6 text-gray-400" />
+                                <span className="text-sm font-medium text-gray-700">
+                                  Tap to upload statement
+                                </span>
+                                <span className="text-xs text-gray-400">PDF, JPG, PNG — up to 10 MB</span>
+                              </>
+                            )}
+                          </label>
+                        </FormControl>
+                        <div className="flex items-center gap-1.5 mt-1">
+                          <Lock className="w-3 h-3 text-gray-400 shrink-0" />
+                          <span className="text-[11px] text-gray-400" data-testid="text-secure-upload">
+                            Encrypted upload — your statement is never sold or shared
+                          </span>
+                        </div>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
 
-                    <FormField
-                      control={form.control}
-                      name="currentProvider"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Current Provider (optional)</FormLabel>
-                          <FormControl>
-                            <Input
-                              placeholder="e.g. Square, Stripe, Clover"
-                              data-testid="input-current-provider"
-                              {...field}
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
+                  {/* ── Current Provider (optional) ── */}
+                  <FormField
+                    control={form.control}
+                    name="currentProvider"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-xs font-medium text-gray-600">
+                          Current provider <span className="text-gray-400 font-normal">(optional)</span>
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            className="h-12 text-base rounded-xl border-gray-200"
+                            placeholder="e.g. Square, Stripe, Clover"
+                            data-testid="input-current-provider"
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
 
+                  {/* ── Optional checkboxes ── */}
+                  <div className="space-y-3 py-1">
                     <FormField
                       control={form.control}
                       name="interestedIn0Percent"
                       render={({ field }) => (
-                        <FormItem className="flex items-start gap-3">
+                        <FormItem className="flex items-center gap-3">
                           <FormControl>
                             <Checkbox
                               checked={field.value}
@@ -631,19 +670,17 @@ export default function UploadStatement() {
                               data-testid="checkbox-interested-0-percent"
                             />
                           </FormControl>
-                          <FormLabel className="text-sm font-normal">
-                            Interested in a compliant 0% program? (optional)
+                          <FormLabel className="text-sm font-normal text-gray-600 leading-snug cursor-pointer">
+                            Interested in a compliant 0% processing program?
                           </FormLabel>
-                          <FormMessage />
                         </FormItem>
                       )}
                     />
-
                     <FormField
                       control={form.control}
                       name="needTerminal"
                       render={({ field }) => (
-                        <FormItem className="flex items-start gap-3">
+                        <FormItem className="flex items-center gap-3">
                           <FormControl>
                             <Checkbox
                               checked={field.value}
@@ -651,153 +688,281 @@ export default function UploadStatement() {
                               data-testid="checkbox-need-terminal"
                             />
                           </FormControl>
-                          <FormLabel className="text-sm font-normal">
-                            Do you need a terminal? (optional)
+                          <FormLabel className="text-sm font-normal text-gray-600 leading-snug cursor-pointer">
+                            Do you need a terminal?
                           </FormLabel>
-                          <FormMessage />
                         </FormItem>
                       )}
                     />
-
-                    <FormField
-                      control={form.control}
-                      name="notes"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Anything you want us to focus on? (optional)</FormLabel>
-                          <FormControl>
-                            <Textarea
-                              placeholder="Tell us what matters most to you"
-                              className="resize-none"
-                              rows={3}
-                              data-testid="textarea-notes"
-                              {...field}
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <PewcCheckbox
-                      checked={form.watch("pewcConsent") ?? false}
-                      onCheckedChange={(val) => form.setValue("pewcConsent", val)}
-                    />
-
-                    {submitError && (
-                      <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-4 py-3" data-testid="alert-submit-error" role="alert">
-                        <AlertCircle className="w-4 h-4 text-destructive mt-0.5 shrink-0" />
-                        <p className="text-sm text-destructive">{submitError}</p>
-                      </div>
-                    )}
-
-                    {isUploading && (
-                      <div className="space-y-3" data-testid="upload-progress-container" role="status" aria-label="Upload in progress">
-                        {/* Phase 1: uploading bytes */}
-                        {uploadProgress < 100 && (
-                          <div className="space-y-1.5">
-                            <div className="flex items-center justify-between text-xs text-muted-foreground">
-                              <span className="flex items-center gap-1.5">
-                                <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
-                                {PROCESSING_STEPS[0]}
-                              </span>
-                              <span data-testid="text-upload-progress-percent">{uploadProgress}%</span>
-                            </div>
-                            <div className="h-2 w-full rounded-full bg-muted overflow-hidden" data-testid="upload-progress-bar-track">
-                              <div
-                                className="h-full rounded-full bg-primary transition-all duration-200"
-                                style={{ width: `${uploadProgress}%` }}
-                                data-testid="upload-progress-bar-fill"
-                              />
-                            </div>
-                          </div>
-                        )}
-                        {/* Phase 2: processing steps (after bytes are uploaded) */}
-                        {uploadProgress >= 100 && (
-                          <div className="space-y-1.5" data-testid="upload-processing-steps">
-                            {PROCESSING_STEPS.slice(1).map((label, idx) => {
-                              const stepNum = idx + 1;
-                              const done = processingStep > stepNum;
-                              const active = processingStep === stepNum;
-                              return (
-                                <div
-                                  key={label}
-                                  className={`flex items-center gap-2 text-xs transition-all duration-300 ${done ? "text-green-600 dark:text-green-400" : active ? "text-primary" : "text-muted-foreground opacity-50"}`}
-                                  data-testid={`step-processing-${stepNum}`}
-                                >
-                                  {done ? (
-                                    <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                                  ) : active ? (
-                                    <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
-                                  ) : (
-                                    <span className="w-3.5 h-3.5 shrink-0 rounded-full border border-muted-foreground/30 inline-block" />
-                                  )}
-                                  {label}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    <Button
-                      type="submit"
-                      className="w-full"
-                      disabled={submitMutation.isPending || isUploading}
-                      data-testid="button-upload-submit"
-                    >
-                      {submitMutation.isPending || isUploading ? (
-                        <>
-                          <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                          {isUploading ? "Uploading…" : "Submitting…"}
-                        </>
-                      ) : (
-                        "Upload My Statement"
-                      )}
-                    </Button>
-                  </form>
-                </Form>
-                  </>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card className="mt-6" data-testid="card-ai-analysis">
-              <CardHeader>
-                <CardTitle className="text-lg">AI Statement Analysis</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <p className="text-sm text-muted-foreground">
-                  Enter your monthly processing volume and current effective rate for an instant AI-powered analysis of your fees.
-                </p>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>Monthly Volume ($)</Label>
-                    <Input placeholder="e.g. 50000" data-testid="input-analysis-volume" value={analysisVolume} onChange={e => setAnalysisVolume(e.target.value)} />
                   </div>
-                  <div className="space-y-2">
-                    <Label>Current Effective Rate (%)</Label>
-                    <Input placeholder="e.g. 3.2" data-testid="input-analysis-rate" value={analysisRate} onChange={e => setAnalysisRate(e.target.value)} />
+
+                  {/* ── Notes ── */}
+                  <FormField
+                    control={form.control}
+                    name="notes"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-xs font-medium text-gray-600">
+                          Anything you want us to focus on?{" "}
+                          <span className="text-gray-400 font-normal">(optional)</span>
+                        </FormLabel>
+                        <FormControl>
+                          <Textarea
+                            className="text-base rounded-xl border-gray-200 resize-none"
+                            placeholder="Tell us what matters most to you"
+                            rows={3}
+                            data-testid="textarea-notes"
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  {/* ── PEWC ── */}
+                  <PewcCheckbox
+                    checked={form.watch("pewcConsent") ?? false}
+                    onCheckedChange={(val) => form.setValue("pewcConsent", val)}
+                  />
+
+                  {/* ── Error banner ── */}
+                  {submitError && (
+                    <div
+                      className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3"
+                      data-testid="alert-submit-error"
+                      role="alert"
+                    >
+                      <AlertCircle className="w-4 h-4 text-red-500 mt-0.5 shrink-0" />
+                      <p className="text-sm text-red-700">{submitError}</p>
+                    </div>
+                  )}
+
+                  {/* ── Upload progress ── */}
+                  {isUploading && (
+                    <div className="space-y-3 rounded-xl bg-gray-50 border border-gray-100 px-4 py-4" data-testid="upload-progress-container" role="status" aria-label="Upload in progress">
+                      {uploadProgress < 100 && (
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between text-xs text-gray-500">
+                            <span className="flex items-center gap-1.5">
+                              <Loader2 className="w-3.5 h-3.5 animate-spin text-sky-500" />
+                              {PROCESSING_STEPS[0]}
+                            </span>
+                            <span data-testid="text-upload-progress-percent" className="font-semibold">{uploadProgress}%</span>
+                          </div>
+                          <div className="h-1.5 w-full rounded-full bg-gray-200 overflow-hidden" data-testid="upload-progress-bar-track">
+                            <div
+                              className="h-full rounded-full bg-sky-500 transition-all duration-200"
+                              style={{ width: `${uploadProgress}%` }}
+                              data-testid="upload-progress-bar-fill"
+                            />
+                          </div>
+                        </div>
+                      )}
+                      {uploadProgress >= 100 && (
+                        <div className="space-y-1.5" data-testid="upload-processing-steps">
+                          {PROCESSING_STEPS.slice(1).map((label, idx) => {
+                            const stepNum = idx + 1;
+                            const done = processingStep > stepNum;
+                            const active = processingStep === stepNum;
+                            return (
+                              <div
+                                key={label}
+                                className={`flex items-center gap-2 text-xs transition-all duration-300 ${done ? "text-green-600" : active ? "text-sky-600 font-medium" : "text-gray-400 opacity-50"}`}
+                                data-testid={`step-processing-${stepNum}`}
+                              >
+                                {done ? (
+                                  <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                                ) : active ? (
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+                                ) : (
+                                  <span className="w-3.5 h-3.5 shrink-0 rounded-full border border-gray-300 inline-block" />
+                                )}
+                                {label}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* ═══════════════════════════════════════
+                      PRIMARY CTA — dominant dark button
+                  ═══════════════════════════════════════ */}
+                  <Button
+                    type="submit"
+                    className="w-full h-14 text-base font-bold rounded-2xl bg-[#0d1b2e] hover:bg-[#162840] text-white shadow-lg shadow-gray-900/20 transition-all active:scale-[0.98]"
+                    disabled={submitMutation.isPending || isUploading}
+                    data-testid="button-upload-submit"
+                  >
+                    {submitMutation.isPending || isUploading ? (
+                      <>
+                        <Loader2 className="w-5 h-5 animate-spin mr-2" />
+                        {isUploading ? "Uploading…" : "Submitting…"}
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="w-5 h-5 mr-2" />
+                        Upload My Statement
+                      </>
+                    )}
+                  </Button>
+
+                  {/* ═══════════════════════════════════════
+                      SECONDARY CTAs — book + phone
+                  ═══════════════════════════════════════ */}
+                  <a
+                    href={CALENDAR_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    data-testid="link-upload-hero-book"
+                    onClick={() => trackBookingCtaClick({ page: "/upload-statement", ctaLabel: "Book a 10-Min Review Call", ctaLocation: "form" })}
+                  >
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full h-12 rounded-2xl border-gray-200 text-gray-700 font-medium hover:bg-gray-50 hover:border-gray-300"
+                    >
+                      <Calendar className="w-4 h-4 mr-2 text-gray-500" />
+                      Book a 10-Min Review Call
+                    </Button>
+                  </a>
+
+                  <a
+                    href={PHONE_TEL}
+                    aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`}
+                    data-testid="link-upload-hero-phone"
+                    onClick={() => trackPhoneCtaClick({ page: "/upload-statement", ctaLabel: PHONE_NUMBER, ctaLocation: "form" })}
+                    className="flex items-center justify-center gap-2 text-sm text-gray-400 hover:text-gray-600 transition-colors py-1"
+                  >
+                    <Phone className="w-4 h-4" />
+                    Or call {PHONE_NUMBER}
+                  </a>
+
+                  {/* Compliance microcopy */}
+                  <p className="text-[10px] text-gray-400 text-center leading-snug" data-testid="text-compliance-microcopy">
+                    Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review.
+                  </p>
+                </form>
+              </Form>
+            )}
+          </div>
+        </section>
+
+        {/* ═══════════════════════════════════════════════════
+            WHAT HAPPENS NEXT — 3 steps
+        ═══════════════════════════════════════════════════ */}
+        <section className="bg-gray-50 px-5 py-10" data-testid="section-what-happens-next">
+          <div className="max-w-lg mx-auto reveal">
+            <h2
+              className="text-xl font-bold text-gray-900 mb-6"
+              data-testid="text-what-happens-next"
+            >
+              What happens next
+            </h2>
+            <div className="space-y-3">
+              {[
+                {
+                  n: "1",
+                  title: "Confirmation",
+                  body: "We confirm we received your file right away.",
+                  delay: "reveal-delay-1",
+                },
+                {
+                  n: "2",
+                  title: "Analysis",
+                  body: "We calculate your effective rate and identify cost drivers line-by-line.",
+                  delay: "reveal-delay-2",
+                },
+                {
+                  n: "3",
+                  title: "Clear options",
+                  body: "We send 2-3 options with apples-to-apples math and next steps.",
+                  delay: "reveal-delay-3",
+                },
+              ].map(({ n, title, body, delay }) => (
+                <div
+                  key={n}
+                  className={`flex items-start gap-4 bg-white rounded-2xl border border-gray-100 px-4 py-4 shadow-sm reveal ${delay}`}
+                  data-testid={`card-step-${n}`}
+                >
+                  <div className="w-9 h-9 rounded-full bg-sky-500 text-white flex items-center justify-center text-sm font-bold shrink-0">
+                    {n}
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-gray-900">{title}</p>
+                    <p className="text-sm text-gray-500 mt-0.5">{body}</p>
                   </div>
                 </div>
-                <div className="space-y-2">
-                  <Label>Industry / Vertical <span className="text-muted-foreground font-normal">(optional — unlocks tailored output)</span></Label>
+              ))}
+            </div>
+
+            <div className="text-center mt-6 reveal reveal-delay-4">
+              <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="button-book-call-next">
+                <Button variant="outline" className="rounded-xl gap-2 border-gray-200 text-gray-700">
+                  <Calendar className="w-4 h-4" />
+                  Get My Free Analysis
+                </Button>
+              </a>
+            </div>
+          </div>
+        </section>
+
+        {/* ═══════════════════════════════════════════════════
+            AI QUICK ANALYSIS — power-user tool
+        ═══════════════════════════════════════════════════ */}
+        <section className="bg-white px-5 py-8" data-testid="section-ai-analysis">
+          <div className="max-w-lg mx-auto">
+            <Card data-testid="card-ai-analysis" className="rounded-2xl border-gray-200">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base font-bold text-gray-900 flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-sky-500" />
+                  Quick AI rate estimate
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <p className="text-sm text-gray-500">
+                  Don't have your statement handy? Enter your volume and rate for an instant estimate.
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-gray-600">Monthly Volume ($)</Label>
+                    <Input
+                      className="h-11 text-base rounded-xl border-gray-200"
+                      placeholder="e.g. 50000"
+                      data-testid="input-analysis-volume"
+                      value={analysisVolume}
+                      onChange={(e) => setAnalysisVolume(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-gray-600">Effective Rate (%)</Label>
+                    <Input
+                      className="h-11 text-base rounded-xl border-gray-200"
+                      placeholder="e.g. 3.2"
+                      data-testid="input-analysis-rate"
+                      value={analysisRate}
+                      onChange={(e) => setAnalysisRate(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-gray-600">
+                    Industry{" "}
+                    <span className="text-gray-400 font-normal">(optional — unlocks tailored output)</span>
+                  </Label>
                   <Select
                     value={analysisVertical || "_none"}
                     onValueChange={(v) => setAnalysisVertical(v === "_none" ? "" : v)}
                   >
-                    <SelectTrigger data-testid="select-analysis-vertical">
+                    <SelectTrigger className="h-11 text-base rounded-xl border-gray-200" data-testid="select-analysis-vertical">
                       <SelectValue placeholder="Select vertical for tailored analysis" />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="_none">No vertical (generic analysis)</SelectItem>
                       {ANALYSIS_VERTICALS.map(({ label, slug }) => (
-                        <SelectItem
-                          key={slug}
-                          value={slug}
-                          data-testid={`select-analysis-item-${slug}`}
-                        >
+                        <SelectItem key={slug} value={slug} data-testid={`select-analysis-item-${slug}`}>
                           {label}
                         </SelectItem>
                       ))}
@@ -805,16 +970,16 @@ export default function UploadStatement() {
                   </Select>
                 </div>
                 <Button
-                  className="gap-2"
+                  className="gap-2 rounded-xl w-full sm:w-auto"
                   onClick={handleAnalysis}
                   disabled={analyzing || !analysisVolume}
                   data-testid="button-analyze-statement"
                 >
                   {analyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                  Analyze My Statement
+                  Analyze My Rate
                 </Button>
                 {analysisError && (
-                  <div className="text-sm text-destructive" data-testid="text-analysis-error">
+                  <div className="text-sm text-red-600" data-testid="text-analysis-error">
                     {analysisError}
                   </div>
                 )}
@@ -822,29 +987,29 @@ export default function UploadStatement() {
                   <div className="space-y-3 border-t pt-4" data-testid="analysis-results">
                     {(analysisResult._vertical as string | null | undefined) && (
                       <div className="flex items-center gap-2" data-testid="text-analysis-vertical">
-                        <span className="text-xs text-muted-foreground">Vertical context applied:</span>
-                        <span className="inline-flex items-center rounded-full bg-sky-100 dark:bg-sky-900/40 px-2.5 py-0.5 text-xs font-medium text-sky-700 dark:text-sky-300">
-                          {ANALYSIS_VERTICALS.find(v => v.slug === (analysisResult._vertical as string))?.label ?? (analysisResult._vertical as string)}
+                        <span className="text-xs text-gray-400">Vertical context applied:</span>
+                        <span className="inline-flex items-center rounded-full bg-sky-100 px-2.5 py-0.5 text-xs font-medium text-sky-700">
+                          {ANALYSIS_VERTICALS.find((v) => v.slug === (analysisResult._vertical as string))?.label ?? (analysisResult._vertical as string)}
                         </span>
                       </div>
                     )}
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <div className="text-xs text-muted-foreground">Effective Rate</div>
-                        <div className="text-lg font-bold" data-testid="text-effective-rate">{analysisResult.effectiveRate}</div>
+                        <div className="text-xs text-gray-400">Effective Rate</div>
+                        <div className="text-lg font-bold text-gray-900" data-testid="text-effective-rate">{analysisResult.effectiveRate}</div>
                       </div>
                       <div>
-                        <div className="text-xs text-muted-foreground">Recommended Program</div>
-                        <div className="text-lg font-bold" data-testid="text-recommended-path">{analysisResult.recommendedPath}</div>
+                        <div className="text-xs text-gray-400">Recommended Program</div>
+                        <div className="text-lg font-bold text-gray-900" data-testid="text-recommended-path">{analysisResult.recommendedPath}</div>
                       </div>
                     </div>
                     {analysisResult.keyFindings && (
                       <div>
-                        <div className="text-sm font-medium mb-2">Key Findings</div>
+                        <div className="text-sm font-medium text-gray-900 mb-2">Key Findings</div>
                         <ul className="space-y-1">
                           {analysisResult.keyFindings.map((f: string, i: number) => (
-                            <li key={i} className="text-sm text-muted-foreground flex items-start gap-2">
-                              <CheckCircle2 className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+                            <li key={i} className="text-sm text-gray-500 flex items-start gap-2">
+                              <CheckCircle2 className="w-4 h-4 text-sky-500 shrink-0 mt-0.5" />
                               {f}
                             </li>
                           ))}
@@ -852,11 +1017,11 @@ export default function UploadStatement() {
                       </div>
                     )}
                     {analysisResult.overallAssessment && (
-                      <div className="bg-muted/50 p-3 rounded-md">
-                        <div className="text-sm">{analysisResult.overallAssessment}</div>
+                      <div className="bg-gray-50 p-3 rounded-xl">
+                        <div className="text-sm text-gray-700">{analysisResult.overallAssessment}</div>
                       </div>
                     )}
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-[10px] text-gray-400">
                       Eligibility, underwriting, card brand rules, and applicable laws apply.
                     </p>
                   </div>
@@ -866,112 +1031,78 @@ export default function UploadStatement() {
           </div>
         </section>
 
-        <section className="bg-background bg-dots py-16" data-testid="section-what-happens-next">
-          <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 reveal">
-            <h2
-              className="text-2xl sm:text-3xl font-bold text-foreground text-center mb-10"
-              data-testid="text-what-happens-next"
-            >
-              What Happens Next
-            </h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <Card className="reveal reveal-delay-1" data-testid="card-step-1">
-                <CardContent className="pt-8 pb-8 text-center space-y-4">
-                  <div className="w-14 h-14 rounded-full bg-sky-500 text-white flex items-center justify-center mx-auto text-2xl font-bold">
-                    1
-                  </div>
-                  <h3 className="text-base font-semibold text-foreground">Confirmation</h3>
-                  <p className="text-sm text-muted-foreground">
-                    We confirm we received your file (SMS/email).
-                  </p>
-                </CardContent>
-              </Card>
-              <Card className="reveal reveal-delay-2" data-testid="card-step-2">
-                <CardContent className="pt-8 pb-8 text-center space-y-4">
-                  <div className="w-14 h-14 rounded-full bg-sky-500 text-white flex items-center justify-center mx-auto text-2xl font-bold">
-                    2
-                  </div>
-                  <h3 className="text-base font-semibold text-foreground">Analysis</h3>
-                  <p className="text-sm text-muted-foreground">
-                    We calculate your effective rate and identify cost drivers line-by-line.
-                  </p>
-                </CardContent>
-              </Card>
-              <Card className="reveal reveal-delay-3" data-testid="card-step-3">
-                <CardContent className="pt-8 pb-8 text-center space-y-4">
-                  <div className="w-14 h-14 rounded-full bg-sky-500 text-white flex items-center justify-center mx-auto text-2xl font-bold">
-                    3
-                  </div>
-                  <h3 className="text-base font-semibold text-foreground">Clear Options</h3>
-                  <p className="text-sm text-muted-foreground">
-                    We send you 2-3 clear options with apples-to-apples math and next steps.
-                  </p>
-                </CardContent>
-              </Card>
-            </div>
-            <p
-              className="text-[10px] text-muted-foreground text-center mt-6"
-              data-testid="text-compliance-microcopy"
-            >
-              Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review.
-            </p>
-            <div className="text-center mt-6 reveal reveal-delay-4">
-              <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="button-book-call-next">
-                <Button variant="outline" className="gap-2">
-                  <Calendar className="w-4 h-4" />
-                  Get My Free Analysis
-                </Button>
-              </a>
-            </div>
-          </div>
-        </section>
-
-        <section className="bg-background py-16" data-testid="section-terminal-promo">
-          <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 reveal">
-            <div className="flex flex-col sm:flex-row gap-8 items-center">
-              <div className="flex-shrink-0 flex items-center justify-center w-28 h-28 rounded-2xl bg-primary/10 reveal reveal-delay-1" aria-hidden="true">
-                <Monitor className="w-14 h-14 text-primary" />
+        {/* ═══════════════════════════════════════════════════
+            TERMINAL PROMO
+        ═══════════════════════════════════════════════════ */}
+        <section className="bg-gray-50 px-5 py-8" data-testid="section-terminal-promo">
+          <div className="max-w-lg mx-auto">
+            <div className="flex items-start gap-4 bg-white rounded-2xl border border-gray-200 shadow-sm px-5 py-5 reveal">
+              <div className="flex-shrink-0 flex items-center justify-center w-12 h-12 rounded-xl bg-sky-50" aria-hidden="true">
+                <Monitor className="w-6 h-6 text-sky-500" />
               </div>
-              <div className="reveal reveal-delay-2">
-                <h2 className="text-2xl font-bold text-foreground mb-2" data-testid="text-terminal-promo-heading">
+              <div className="min-w-0">
+                <h2 className="text-base font-bold text-gray-900 mb-1" data-testid="text-terminal-promo-heading">
                   Free Terminal this Month
                 </h2>
-                <p className="text-muted-foreground mb-4 leading-relaxed">
-                  Qualifying merchants who sign up this month receive a free terminal. Tap, dip, swipe, and manual key entry — cash discount and surcharge programs supported.
+                <p className="text-sm text-gray-500 leading-relaxed mb-3">
+                  Qualifying merchants who sign up this month receive a free terminal — tap, dip, swipe, and manual key entry supported.
                 </p>
-                <ul className="space-y-2 mb-3">
-                  <li className="flex items-start gap-2 text-sm text-muted-foreground"><CheckCircle2 className="w-4 h-4 text-primary mt-0.5 shrink-0" />Same-day setup available</li>
-                  <li className="flex items-start gap-2 text-sm text-muted-foreground"><CheckCircle2 className="w-4 h-4 text-primary mt-0.5 shrink-0" />Cash discount and surcharge ready</li>
-                  <li className="flex items-start gap-2 text-sm text-muted-foreground"><CheckCircle2 className="w-4 h-4 text-primary mt-0.5 shrink-0" />Guided onboarding and dedicated support</li>
+                <ul className="space-y-1.5 mb-2">
+                  {["Same-day setup available", "Cash discount and surcharge ready", "Guided onboarding + dedicated support"].map((item) => (
+                    <li key={item} className="flex items-start gap-2 text-xs text-gray-500">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-sky-500 mt-0.5 shrink-0" />
+                      {item}
+                    </li>
+                  ))}
                 </ul>
-                <p className="text-xs text-muted-foreground">Subject to eligibility and equipment program terms.</p>
+                <p className="text-[10px] text-gray-400">Subject to eligibility and equipment program terms.</p>
               </div>
             </div>
           </div>
         </section>
 
-        <section className="bg-muted/30 py-16" data-testid="section-secondary-cta">
-          <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center reveal">
+        {/* ═══════════════════════════════════════════════════
+            SECONDARY CTA — sticky-feel bottom panel
+        ═══════════════════════════════════════════════════ */}
+        <section
+          className="bg-[#0d1b2e] px-5 py-10 pb-[calc(2.5rem+env(safe-area-inset-bottom,0px))]"
+          data-testid="section-secondary-cta"
+        >
+          <div className="max-w-lg mx-auto text-center reveal">
             <h2
-              className="text-2xl font-bold text-foreground mb-3"
+              className="text-xl font-bold text-white mb-2"
               data-testid="text-prefer-talk"
             >
-              Prefer to Talk First?
+              Prefer to talk first?
             </h2>
             <p
-              className="text-muted-foreground mb-6"
+              className="text-sm text-white/60 mb-6"
               data-testid="text-prefer-talk-description"
             >
               Book a quick 10-minute call. We'll tell you exactly what to upload and what to look for.
             </p>
             <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="button-book-call-secondary">
-              <Button className="gap-2">
+              <Button
+                className="gap-2 rounded-2xl h-12 px-6 bg-white text-gray-900 font-semibold hover:bg-gray-100 w-full sm:w-auto"
+              >
                 <Calendar className="w-4 h-4" />
-                Get My Free Analysis
+                Book a Free 10-Min Call
               </Button>
             </a>
+            <div className="mt-4">
+              <a
+                href={PHONE_TEL}
+                onClick={() => trackPhoneCtaClick({ page: "/upload-statement", ctaLabel: PHONE_NUMBER, ctaLocation: "footer-cta" })}
+                className="flex items-center justify-center gap-2 text-sm text-white/50 hover:text-white/80 transition-colors"
+                data-testid="link-footer-phone"
+              >
+                <Phone className="w-4 h-4" />
+                {PHONE_NUMBER}
+              </a>
+            </div>
           </div>
         </section>
+
       </main>
 
       <Footer />
