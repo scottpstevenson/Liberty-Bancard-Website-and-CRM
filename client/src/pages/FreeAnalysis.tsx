@@ -406,6 +406,7 @@ export default function FreeAnalysis() {
         utmCampaign: utmParams.utm_campaign,
         utmContent: utmParams.utm_content,
         utmTerm: utmParams.utm_term,
+        gclid: utmParams.gclid,
       });
       setSubmitted(true);
       trackQuizComplete();

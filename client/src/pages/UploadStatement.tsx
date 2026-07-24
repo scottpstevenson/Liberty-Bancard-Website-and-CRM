@@ -207,6 +207,7 @@ export default function UploadStatement() {
     mutationFn: (data: UploadFormData) => {
       const refCode = localStorage.getItem("lb_ref_code") || undefined;
       const utmParams = getStoredUTMParams();
+      const gclidFromUrl = new URLSearchParams(window.location.search).get("gclid") || utmParams.gclid;
       const formData = new FormData();
       formData.append("businessName", data.businessName);
       formData.append("contactName", data.contactName);
@@ -219,6 +220,7 @@ export default function UploadStatement() {
       if (data.notes) formData.append("notes", data.notes);
       formData.append("pewcConsent", String(data.pewcConsent));
       if (refCode) formData.append("referralCode", refCode);
+      if (gclidFromUrl) formData.append("gclid", gclidFromUrl);
       Object.entries(utmParams).forEach(([key, value]) => {
         if (value) formData.append(key, String(value));
       });

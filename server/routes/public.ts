@@ -179,7 +179,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       // Per-request UUID: each HTTP submission is a distinct event. BullMQ job retries
       // use this same UUID (stored in job data), ensuring intra-retry dedup stability.
       const submissionId = crypto.randomUUID();
-      const { businessName, contactName, email, mobile, vertical, currentProvider, interestedIn0Percent, needTerminal, notes, consentSms, referralCode, utmSource, utmMedium, utmCampaign, utmContent, utmTerm, landingPage } = req.body;
+      const { businessName, contactName, email, mobile, vertical, currentProvider, interestedIn0Percent, needTerminal, notes, consentSms, referralCode, utmSource, utmMedium, utmCampaign, utmContent, utmTerm, landingPage, gclid } = req.body;
       const nameParts = (contactName || "").split(" ");
       const firstName = nameParts[0] || "";
       const lastName = nameParts.slice(1).join(" ") || "";
@@ -224,6 +224,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
               needTerminal: parseBool(needTerminal),
               notes, utmSource, utmMedium, utmCampaign, utmContent, utmTerm,
               landingPage: landingPage || "/upload-statement",
+              gclid: gclid || undefined,
             }),
             incomingConsent: { consentSms: parseBool(consentSms) },
             submissionId,
@@ -248,6 +249,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
               utmContent: utmContent || undefined,
               utmTerm: utmTerm || undefined,
               landingPage: landingPage || "/upload-statement",
+              gclid: gclid || undefined,
               status: "New",
               tags,
             },
@@ -349,7 +351,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
   app.post("/api/public/estimate", publicLeadRateLimit, async (req, res) => {
     try {
       const submissionId = crypto.randomUUID();
-      const { contactName, email, phone, monthlyVolume, totalFees, currentProvider, notes, pewcConsent: estimatePewcRaw, referralCode, utmSource, utmMedium, utmCampaign, utmContent, utmTerm, landingPage } = req.body;
+      const { contactName, email, phone, monthlyVolume, totalFees, currentProvider, notes, pewcConsent: estimatePewcRaw, referralCode, utmSource, utmMedium, utmCampaign, utmContent, utmTerm, landingPage, gclid } = req.body;
       const nameParts = (contactName || "").split(" ");
       const firstName = nameParts[0] || "";
       const lastName = nameParts.slice(1).join(" ") || "";
@@ -368,6 +370,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
             monthlyVolume, currentProvider, notes,
             utmSource, utmMedium, utmCampaign, utmContent, utmTerm,
             landingPage: landingPage || "/estimate",
+            gclid: gclid || undefined,
           }),
           incomingConsent: {},
           submissionId,
@@ -389,6 +392,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
             utmContent: utmContent || undefined,
             utmTerm: utmTerm || undefined,
             landingPage: landingPage || "/estimate",
+            gclid: gclid || undefined,
             status: "New",
             tags,
           },
@@ -570,7 +574,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
   app.post("/api/public/get-started", publicLeadRateLimit, async (req, res) => {
     try {
       const submissionId = crypto.randomUUID();
-      const { goal, vertical, monthlyVolume, needTerminal, interestedIn0Percent, firstName, lastName, email, phone, pewcConsent, referralCode, utmSource, utmMedium, utmCampaign, utmContent, utmTerm, landingPage } = req.body;
+      const { goal, vertical, monthlyVolume, needTerminal, interestedIn0Percent, firstName, lastName, email, phone, pewcConsent, referralCode, utmSource, utmMedium, utmCampaign, utmContent, utmTerm, landingPage, gclid } = req.body;
 
       let offerPath = "Not Sure";
       if (goal === "0% interest" || interestedIn0Percent) offerPath = "0% Program";
@@ -596,6 +600,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
             needTerminal: needTerminal === true,
             utmSource, utmMedium, utmCampaign, utmContent, utmTerm,
             landingPage: landingPage || "/get-started",
+            gclid: gclid || undefined,
           }),
           incomingConsent: { consentSms: pewcConsent === true },
           submissionId,
@@ -620,6 +625,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
             utmContent: utmContent || undefined,
             utmTerm: utmTerm || undefined,
             landingPage: landingPage || "/get-started",
+            gclid: gclid || undefined,
             status: "New",
             tags,
           },

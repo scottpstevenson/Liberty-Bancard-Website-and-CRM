@@ -50,6 +50,136 @@ interface PartnerData {
   referralLink: string;
 }
 
+interface QuickStartTabProps {
+  partner: { name: string; code: string; status: string };
+  kpis: { totalClicks: number; totalReferrals: number; totalMerchants: number };
+  referralLink: string;
+  copyLink: (link: string) => void;
+}
+
+function QuickStartTab({ partner, kpis, referralLink, copyLink }: QuickStartTabProps) {
+  const milestones = [
+    {
+      day: "Day 1",
+      title: "Get your referral link live",
+      description: "Copy your referral link and share it with at least 3 business owners you know. Add it to your email signature, LinkedIn bio, and any social profiles.",
+      done: partner.status === "active",
+      action: (
+        <Button size="sm" variant="outline" className="gap-1.5 mt-2" onClick={() => copyLink(referralLink)} data-testid="button-qs-copy-link">
+          <Copy className="w-3.5 h-3.5" /> Copy Referral Link
+        </Button>
+      ),
+    },
+    {
+      day: "Day 3",
+      title: "Send your first 5 outreach messages",
+      description: "Use the templated emails in your Collateral tab to reach out to 5 business owner contacts. Personalize the subject line with their business name.",
+      done: kpis.totalClicks > 0,
+      action: (
+        <a href="/partner-portal#collateral">
+          <Button size="sm" variant="outline" className="gap-1.5 mt-2" data-testid="button-qs-collateral">
+            <FileText className="w-3.5 h-3.5" /> View Collateral
+          </Button>
+        </a>
+      ),
+    },
+    {
+      day: "Day 7",
+      title: "Submit your first referral",
+      description: "Send at least one merchant to your pre-tagged application link. The merchant fills out the form — Liberty Bancard does the rest. You earn residual from day one of processing.",
+      done: kpis.totalReferrals > 0,
+      action: (
+        <a href={`/merchant-application?ref=${partner.code}`} target="_blank" rel="noopener noreferrer">
+          <Button size="sm" variant="outline" className="gap-1.5 mt-2" data-testid="button-qs-application">
+            <ArrowRight className="w-3.5 h-3.5" /> Open Application Link
+          </Button>
+        </a>
+      ),
+    },
+    {
+      day: "Day 14",
+      title: "First merchant goes live",
+      description: "Your referred merchant is approved, boarded, and processing. You start earning residual. Review the Merchants tab and follow up with your next 5 prospects.",
+      done: kpis.totalMerchants > 0,
+      action: null,
+    },
+  ];
+
+  const completedCount = milestones.filter(m => m.done).length;
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <CardTitle className="text-lg">14-Day Activation Playbook</CardTitle>
+              <p className="text-sm text-muted-foreground mt-1">Follow these 4 steps to earn your first residual check.</p>
+            </div>
+            <div className="text-right shrink-0">
+              <p className="text-2xl font-bold text-foreground">{completedCount}/4</p>
+              <p className="text-xs text-muted-foreground">milestones complete</p>
+            </div>
+          </div>
+          <div className="w-full bg-muted rounded-full h-2 mt-3">
+            <div
+              className="bg-primary h-2 rounded-full transition-all"
+              style={{ width: `${(completedCount / 4) * 100}%` }}
+            />
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {milestones.map((m, i) => (
+            <div key={i} className={`flex gap-4 p-4 rounded-lg border ${m.done ? "bg-green-50/50 dark:bg-green-950/10 border-green-200 dark:border-green-800" : "border-border"}`} data-testid={`card-milestone-${i}`}>
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${m.done ? "bg-green-600" : "bg-muted"}`}>
+                {m.done ? <CheckCircle className="w-4 h-4 text-white" /> : <span className="text-xs font-bold text-muted-foreground">{i + 1}</span>}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="text-sm font-semibold text-foreground">{m.title}</p>
+                  <span className="text-xs text-muted-foreground font-mono">{m.day}</span>
+                  {m.done && <span className="text-xs text-green-700 dark:text-green-400 font-medium">Done</span>}
+                </div>
+                <p className="text-sm text-muted-foreground mt-1 leading-relaxed">{m.description}</p>
+                {!m.done && m.action}
+              </div>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-semibold">Quick Tips for Your First 14 Days</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+            {[
+              { icon: <MousePointerClick className="w-4 h-4 text-primary shrink-0" />, tip: "Always use your pre-tagged link so referrals are automatically attributed to your account." },
+              { icon: <CalendarDays className="w-4 h-4 text-primary shrink-0" />, tip: "Follow up with referred merchants within 24 hours — your introduction increases approval rates." },
+              { icon: <DollarSign className="w-4 h-4 text-primary shrink-0" />, tip: "Merchants processing $20K+/month are your highest-value referrals. Prioritize restaurants, retail, and med-spas." },
+              { icon: <Users className="w-4 h-4 text-primary shrink-0" />, tip: "Your commission is recurring — every month your merchant processes, you earn. Refer more to build a passive income stream." },
+            ].map((item, i) => (
+              <div key={i} className="flex items-start gap-2.5 p-3 bg-muted/30 rounded-lg border border-border/50">
+                {item.icon}
+                <p className="text-muted-foreground text-xs leading-relaxed">{item.tip}</p>
+              </div>
+            ))}
+          </div>
+          <div className="mt-4 pt-4 border-t border-border text-center">
+            <p className="text-sm text-muted-foreground mb-2">Questions? Your partner rep is here to help.</p>
+            <a href="mailto:partners@libertybancard.com">
+              <Button variant="outline" size="sm" className="gap-2" data-testid="button-qs-contact-rep">
+                <Handshake className="w-3.5 h-3.5" /> Contact Partner Team
+              </Button>
+            </a>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 const getCollateral = (refCode: string) => [
   {
     title: "Pre-Tagged Merchant Application",
@@ -435,12 +565,17 @@ export default function PartnerPortal() {
             </Card>
 
             {/* Tabs */}
-            <Tabs defaultValue="merchants" className="space-y-4">
-              <TabsList className="grid grid-cols-3 w-full max-w-md">
+            <Tabs defaultValue="quickstart" className="space-y-4">
+              <TabsList className="flex h-auto flex-wrap gap-1 w-full max-w-lg">
+                <TabsTrigger value="quickstart" data-testid="tab-quickstart">Quick Start</TabsTrigger>
                 <TabsTrigger value="merchants" data-testid="tab-merchants">Merchants</TabsTrigger>
                 <TabsTrigger value="collateral" data-testid="tab-collateral">Collateral</TabsTrigger>
                 <TabsTrigger value="account" data-testid="tab-account">Account</TabsTrigger>
               </TabsList>
+
+              <TabsContent value="quickstart">
+                <QuickStartTab partner={partner} kpis={kpis} referralLink={referralLink} copyLink={copyLink} />
+              </TabsContent>
 
               <TabsContent value="merchants">
                 <Card>

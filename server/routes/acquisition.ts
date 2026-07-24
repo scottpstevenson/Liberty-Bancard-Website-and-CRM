@@ -863,4 +863,52 @@ export function registerAcquisitionRoutes(app: Express): void {
       ],
     });
   });
+
+  // ── Statement upload → call SLA alert ────────────────────────────────────
+  app.get("/api/acquisition/statement-sla", isDashboardUser, async (_req, res) => {
+    try {
+      const SLA_MINUTES = 120; // 2-hour same-day follow-up SLA
+
+      const rows = await pool.query<{
+        deal_id: number; contact_name: string; company_name: string;
+        email: string; stage: string; updated_at: Date; created_at: Date;
+      }>(
+        `SELECT d.id AS deal_id,
+                CONCAT(c.first_name, ' ', c.last_name) AS contact_name,
+                COALESCE(c.company_name, '') AS company_name,
+                c.email,
+                d.stage,
+                d.updated_at,
+                d.created_at
+           FROM deals d
+           JOIN contacts c ON c.id = d.contact_id
+          WHERE d.stage = 'Statement Received'
+            AND d.updated_at < NOW() - INTERVAL '${SLA_MINUTES} minutes'
+            AND d.stage NOT IN ('Closed Won','Closed Lost')
+          ORDER BY d.updated_at ASC
+          LIMIT 50`,
+      );
+
+      const alerts = rows.rows.map(r => ({
+        dealId: r.deal_id,
+        contactName: r.contact_name,
+        companyName: r.company_name,
+        email: r.email,
+        hoursStuck: Math.round((Date.now() - new Date(r.updated_at).getTime()) / 3_600_000),
+        updatedAt: r.updated_at,
+      }));
+
+      res.json({
+        slaMinutes: SLA_MINUTES,
+        breachCount: alerts.length,
+        alerts,
+        message: alerts.length === 0
+          ? "All statement uploads followed up within SLA."
+          : `${alerts.length} statement upload${alerts.length === 1 ? "" : "s"} past ${SLA_MINUTES / 60}-hour call SLA.`,
+      });
+    } catch (err: any) {
+      console.error("[Acquisition] /statement-sla error:", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
 }

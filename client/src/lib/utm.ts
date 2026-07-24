@@ -10,6 +10,7 @@ export interface UTMParams {
   utmContent?: string;
   utmTerm?: string;
   landingPage?: string;
+  gclid?: string;
   gclidPresent?: boolean;
   fbclidPresent?: boolean;
   msclkidPresent?: boolean;
@@ -37,13 +38,14 @@ export function captureUTMParams(): void {
     sessionStorage.setItem(LANDING_PAGE_KEY, window.location.pathname + window.location.search);
   }
 
-  const gclidPresent = params.has("gclid");
+  const gclidVal = params.get("gclid");
+  const gclidPresent = !!gclidVal;
   const fbclidPresent = params.has("fbclid");
   const msclkidPresent = params.has("msclkid");
   if (gclidPresent || fbclidPresent || msclkidPresent) {
     sessionStorage.setItem(
       CLICK_IDS_KEY,
-      JSON.stringify({ gclidPresent, fbclidPresent, msclkidPresent })
+      JSON.stringify({ gclid: gclidVal || undefined, gclidPresent, fbclidPresent, msclkidPresent })
     );
   }
 }
@@ -57,6 +59,7 @@ export function getStoredUTMParams(): UTMParams {
     if (landingPage) params.landingPage = landingPage;
     if (clickIds) {
       const ids = JSON.parse(clickIds);
+      if (ids.gclid) params.gclid = ids.gclid;
       if (ids.gclidPresent) params.gclidPresent = true;
       if (ids.fbclidPresent) params.fbclidPresent = true;
       if (ids.msclkidPresent) params.msclkidPresent = true;

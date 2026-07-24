@@ -5,7 +5,7 @@ import {
   Target, TrendingUp, BarChart3, Zap, CheckCircle2, AlertTriangle,
   XCircle, Download, ExternalLink, Info, DollarSign, Users,
   PhoneCall, Upload, FileCheck, LineChart, MapPin, Megaphone,
-  Activity, PauseCircle,
+  Activity, PauseCircle, CheckCircle, AlertCircle,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -561,6 +561,65 @@ function SequencesTab({ days }: { days: number }) {
   );
 }
 
+// ─── Statement SLA Alert Widget ───────────────────────────────────────────────
+
+function StatementSlaAlert() {
+  const { data, isLoading } = useQuery<{
+    breachCount: number;
+    message: string;
+    slaMinutes: number;
+    alerts: Array<{ dealId: number; contactName: string; companyName: string; email: string; hoursStuck: number }>;
+  }>({ queryKey: ["/api/acquisition/statement-sla"] });
+
+  if (isLoading || !data) return null;
+  if (data.breachCount === 0) return (
+    <div className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 text-sm text-green-800 dark:text-green-300">
+      <CheckCircle className="w-4 h-4 shrink-0" />
+      Statement upload SLA: All followed up within {data.slaMinutes / 60} hours.
+    </div>
+  );
+
+  return (
+    <Card className="border-red-300 dark:border-red-800 bg-red-50/50 dark:bg-red-950/10">
+      <CardHeader className="pb-2">
+        <div className="flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+          <CardTitle className="text-sm text-red-700 dark:text-red-400">Statement Upload SLA Breach — {data.breachCount} deal{data.breachCount !== 1 ? "s" : ""} need immediate follow-up</CardTitle>
+        </div>
+        <CardDescription className="text-xs">Deals in &quot;Statement Received&quot; with no call booked in the last {data.slaMinutes / 60} hours</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-red-200 dark:border-red-800">
+                <th className="text-left py-1.5 text-xs font-medium text-muted-foreground">Contact / Company</th>
+                <th className="text-left py-1.5 text-xs font-medium text-muted-foreground">Email</th>
+                <th className="text-right py-1.5 text-xs font-medium text-muted-foreground">Hours Waiting</th>
+                <th className="text-right py-1.5 text-xs font-medium text-muted-foreground">Deal</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.alerts.map(a => (
+                <tr key={a.dealId} className="border-b border-red-100 dark:border-red-900/30">
+                  <td className="py-2 font-medium">{a.contactName}{a.companyName ? <span className="text-muted-foreground font-normal"> · {a.companyName}</span> : null}</td>
+                  <td className="py-2 text-muted-foreground text-xs">{a.email}</td>
+                  <td className="py-2 text-right">
+                    <Badge variant="destructive" className="text-xs">{a.hoursStuck}h</Badge>
+                  </td>
+                  <td className="py-2 text-right">
+                    <a href={`/dashboard/deals/${a.dealId}`} className="text-xs text-primary hover:underline" data-testid={`link-deal-${a.dealId}`}>View</a>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 // ─── Tab: Offline Conversions ─────────────────────────────────────────────────
 
 function OfflineConversionsTab({ days }: { days: number }) {
@@ -596,13 +655,14 @@ function OfflineConversionsTab({ days }: { days: number }) {
         <Card>
           <CardContent className="pt-5">
             <p className="text-xs text-muted-foreground">gclid Capture</p>
-            <Badge className="mt-2" variant={d.gclidCaptureActive ? "default" : "secondary"}>
-              {d.gclidCaptureActive ? "✓ Active" : "Not Enabled"}
-            </Badge>
-            {!d.gclidCaptureActive && <p className="text-xs text-muted-foreground mt-1">Enable GCLID_CAPTURE=true</p>}
+            <Badge className="mt-2 bg-green-600" variant="default">Active</Badge>
+            <p className="text-xs text-muted-foreground mt-1">Wired to all 3 lead forms — stored per contact</p>
           </CardContent>
         </Card>
       </div>
+
+      <StatementSlaAlert />
+
 
       <Card>
         <CardHeader className="pb-3">

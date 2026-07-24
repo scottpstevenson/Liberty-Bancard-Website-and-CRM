@@ -61,6 +61,7 @@ export const contacts = pgTable("contacts", {
   utmContent: text("utm_content"),
   utmTerm: text("utm_term"),
   landingPage: text("landing_page"),
+  gclid: text("gclid"),
   promoCode: text("promo_code"),
   tags: text("tags").array(),
   notes: text("notes"),
