@@ -64,9 +64,10 @@ const QUEUE_CONFIGS: QueueConfig[] = [
   },
   {
     name: QUEUE_NAMES.SEQUENCES,
-    // concurrency=3: each enrollment step is I/O-bound (DB + GHL email/SMS); 3 lets
-    // independent contact sequences advance in parallel without overwhelming GHL.
-    concurrency: 3,
+    // concurrency=2: reduced from 3 to ease DB pool pressure in production.
+    // Sequence steps are GHL-bound not DB-bound, but each step still opens a
+    // DB connection for enrollment updates. 2 concurrent = safe headroom.
+    concurrency: 2,
     attempts: 3,
     backoffDelay: 10000,
     repeatEveryMs: IS_DEV ? 5 * 60 * 1000 : 30 * 1000, // dev: 5 min, prod: 30 s
@@ -74,9 +75,12 @@ const QUEUE_CONFIGS: QueueConfig[] = [
   },
   {
     name: QUEUE_NAMES.ENRICHMENT,
-    // concurrency=5: enrichment calls Serper/Apify/Apollo which are independent per
-    // contact; higher parallelism is safe and reduces the 10-min backlog window.
-    concurrency: 5,
+    // concurrency=2: reduced from 5 to ease DB pool pressure in production.
+    // Each enrichment job runs several storage queries; 5 concurrent jobs
+    // consumed ~10 pool slots simultaneously alongside HTTP handlers and other
+    // workers, pushing total near the pool max=20 and triggering ETIMEDOUT.
+    // 2 concurrent enrichment jobs = ~4 pool slots, safe headroom restored.
+    concurrency: 2,
     attempts: 3,
     backoffDelay: 15000,
     repeatEveryMs: 10 * 60 * 1000,

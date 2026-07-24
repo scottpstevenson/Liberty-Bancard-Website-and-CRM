@@ -1543,12 +1543,12 @@ export async function createGhlTask(params: {
   try {
     if (!isGhlConfigured()) return { success: false, error: "GHL not configured" };
     const dueDate = params.dueDate || new Date(Date.now() + 24 * 60 * 60 * 1000);
+    // GHL Tasks API (v1/v2) only accepts: title, dueDate, assignedTo, completed.
+    // Sending description / status / taskType causes 422 "Unprocessable Entity".
     const body: Record<string, unknown> = {
       title: params.title,
       dueDate: dueDate.toISOString(),
-      description: params.description || "",
-      status: "incompleted",
-      taskType: params.taskType || "FOLLOW_UP",
+      completed: false,
     };
     if (params.assignedTo) body.assignedTo = params.assignedTo;
     const result = await ghlFetch(`/contacts/${params.contactId}/tasks`, {

@@ -102,7 +102,7 @@ function computeMigrationHash(tag: string): string | null {
  *     on pre-Phase-4 path (isPhase3IndexPresent() returns false).
  */
 async function applyPhase3IndexIfReady(): Promise<void> {
-  const client = await pool.connect();
+  const client = await connectWithRetry();
   try {
     // 1. Check if the index already exists (idempotent).
     const { rows: indexRows } = await client.query<{ exists: number }>(`
@@ -183,8 +183,41 @@ async function applyPhase3IndexIfReady(): Promise<void> {
   }
 }
 
+/**
+ * Attempt pool.connect() up to maxAttempts times, sleeping retryDelayMs between
+ * tries. ETIMEDOUT / ECONNRESET / ECONNREFUSED are treated as transient — common
+ * on Neon serverless where the first connection after an idle period can time out.
+ */
+async function connectWithRetry(
+  maxAttempts = 4,
+  retryDelayMs = 5000,
+): Promise<ReturnType<typeof pool.connect>> {
+  let lastErr: Error | undefined;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await pool.connect();
+    } catch (err: any) {
+      lastErr = err as Error;
+      const msg: string = (err?.message ?? "").toLowerCase();
+      const isTransient =
+        msg.includes("etimedout") ||
+        msg.includes("econnreset") ||
+        msg.includes("econnrefused") ||
+        msg.includes("connection terminated") ||
+        msg.includes("timeout");
+      if (!isTransient || attempt === maxAttempts) throw err;
+      console.warn(
+        `[DB Migrate] pool.connect() transient error on attempt ${attempt}/${maxAttempts}: ${err.message}. ` +
+        `Retrying in ${retryDelayMs / 1000}s…`,
+      );
+      await new Promise<void>((resolve) => setTimeout(resolve, retryDelayMs));
+    }
+  }
+  throw lastErr;
+}
+
 export async function runDrizzleMigrations(): Promise<void> {
-  const client = await pool.connect();
+  const client = await connectWithRetry();
   try {
     // Ensure the drizzle schema and migrations tracking table exist.
     await client.query(`CREATE SCHEMA IF NOT EXISTS "${DRIZZLE_SCHEMA}"`);

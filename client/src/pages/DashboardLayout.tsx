@@ -71,6 +71,7 @@ import {
   Monitor,
   Database,
   FlaskConical,
+  LineChart,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -180,6 +181,7 @@ const automationItems: MenuItem[] = [
 
 // ─── INTELLIGENCE ─────────────────────────────────────────────────────────────
 const intelligenceItems: MenuItem[] = [
+  { icon: LineChart, label: "Acquisition Hub", href: "/dashboard/acquisition-hub", roles: ["admin", "manager"] },
   { icon: PieChart, label: "Reporting", href: "/dashboard/reporting", roles: ["admin", "manager"] },
   { icon: DollarSign, label: "Financial Hub", href: "/dashboard/financial-hub", roles: ["admin", "manager"] },
   { icon: Activity, label: "System Health", href: "/dashboard/system-health", roles: ["admin", "manager"] },

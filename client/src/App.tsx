@@ -214,6 +214,7 @@ const SystemHealthHub = lazy(() => import("@/pages/dashboard/SystemHealthHub"));
 const AdminHub = lazy(() => import("@/pages/dashboard/AdminHub"));
 const MerchantRiskHub = lazy(() => import("@/pages/dashboard/MerchantRiskHub"));
 const SequenceReport = lazy(() => import("@/pages/dashboard/SequenceReport"));
+const AcquisitionHub = lazy(() => import("@/pages/dashboard/AcquisitionHub"));
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -501,6 +502,9 @@ function Router() {
         </Route>
         <Route path="/dashboard/reporting">
           <ProtectedRoute component={ReportingHub} allowedRoles={["admin", "manager"]} />
+        </Route>
+        <Route path="/dashboard/acquisition-hub">
+          <ProtectedRoute component={AcquisitionHub} allowedRoles={["admin", "manager"]} />
         </Route>
         <Route path="/dashboard/win-loss">
           <Redirect to="/dashboard/reporting?tab=win-loss" />
