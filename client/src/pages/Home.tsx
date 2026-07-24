@@ -183,12 +183,20 @@ export default function Home() {
                   <BadgeCheck className="w-3.5 h-3.5 text-accent" />
                   South Florida Merchant Services
                 </div>
-                <h1 className="si-load si-load-2 text-xl sm:text-3xl md:text-4xl lg:text-[3.5rem] leading-tight md:leading-[1.04] font-bold text-foreground mb-4 max-w-[20ch]" data-testid="text-hero-heading">
+                <h1 className="si-load si-load-2 text-[28px] sm:text-3xl md:text-4xl lg:text-[3.5rem] leading-tight md:leading-[1.04] font-bold text-foreground mb-4 max-w-[20ch]" data-testid="text-hero-heading">
                   <span className="text-accent">Credit Card Processing</span> Without the Rate Games
                 </h1>
-                <p className="si-load si-load-3 text-base sm:text-lg text-muted-foreground leading-relaxed mb-8 max-w-xl" data-testid="text-hero-subheadline">
+                <p className="si-load si-load-3 text-base sm:text-lg text-muted-foreground leading-relaxed mb-5 max-w-xl" data-testid="text-hero-subheadline">
                   Upload a recent processing statement and we'll show your effective rate, markup, monthly fees, and hidden charges — before you switch.
                 </p>
+                {/* Mobile-only savings hook */}
+                <div className="si-load si-load-3b lg:hidden flex items-center gap-3 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 rounded-xl px-4 py-3 mb-5">
+                  <TrendingUp className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                  <div>
+                    <p className="text-sm font-bold text-emerald-700 dark:text-emerald-400 leading-snug">Most merchants save $600–$3,200/year after a review</p>
+                    <p className="text-[11px] text-emerald-600/70 dark:text-emerald-500/70 mt-0.5">Actual savings depend on your volume and current rates.</p>
+                  </div>
+                </div>
                 {/* Compact "What we review" proof card — mobile primary, desktop secondary */}
                 <div className="si-load si-load-3b mb-5 rounded-xl border border-border bg-card shadow-sm overflow-hidden" data-testid="card-what-we-review">
                   <div className="px-4 py-2.5 border-b border-border/60 bg-muted/30">
@@ -208,14 +216,14 @@ export default function Home() {
                 </div>
                 <div className="si-load si-load-4 flex flex-col sm:flex-row gap-3 flex-wrap" data-testid="hero-cta-block">
                   <Link href="/upload-statement" data-testid="link-hero-upload">
-                    <Button size="lg" className="gap-2 w-full sm:w-auto" onClick={() => trackStatementUploadCtaClick({ page: "/", ctaLabel: "Upload My Statement — Free", ctaLocation: "hero" })}>
-                      <Upload className="w-4 h-4" />
+                    <Button size="lg" className="gap-2 w-full sm:w-auto h-12 sm:h-auto text-base sm:text-sm font-bold" onClick={() => trackStatementUploadCtaClick({ page: "/", ctaLabel: "Upload My Statement — Free", ctaLocation: "hero" })}>
+                      <Upload className="w-4 h-4 shrink-0" />
                       Upload My Statement — Free
                     </Button>
                   </Link>
                   <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="link-hero-book" onClick={() => trackBookingCtaClick({ page: "/", ctaLabel: "Book a 15-Minute Review", ctaLocation: "hero" })}>
-                    <Button size="lg" variant="outline" className="gap-2 w-full sm:w-auto border-border">
-                      <Calendar className="w-4 h-4" />
+                    <Button size="lg" variant="outline" className="gap-2 w-full sm:w-auto h-12 sm:h-auto border-border">
+                      <Calendar className="w-4 h-4 shrink-0" />
                       Book a 15-Minute Review
                     </Button>
                   </a>

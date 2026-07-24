@@ -44,6 +44,7 @@ import {
   sequenceSteps,
   auditLogs,
   ghlActivityLog,
+  syncConflicts,
 } from "../shared/schema";
 import { eq, and, desc, inArray } from "drizzle-orm";
 import {
@@ -233,6 +234,7 @@ async function cleanup(): Promise<void> {
   if (testContactIds.length) {
     // Delete child rows that FK-reference contacts before deleting contacts
     await db.delete(ghlActivityLog).where(inArray(ghlActivityLog.contactId, testContactIds));
+    await db.delete(syncConflicts).where(inArray(syncConflicts.contactId, testContactIds));
     await db.delete(contacts).where(inArray(contacts.id, testContactIds));
   }
 }

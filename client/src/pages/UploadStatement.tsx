@@ -53,6 +53,9 @@ import {
   Monitor,
   Upload,
   ChevronRight,
+  DollarSign,
+  TrendingDown,
+  Zap,
 } from "lucide-react";
 
 const uploadSchema = z.object({
@@ -72,13 +75,11 @@ const uploadSchema = z.object({
 type UploadFormData = z.infer<typeof uploadSchema>;
 
 const WHAT_WE_REVIEW = [
-  "Effective rate & total monthly fees",
-  "Hidden surcharges and assessments",
-  "Interchange optimization opportunities",
-  "Equipment costs vs. better alternatives",
+  { label: "Your actual effective rate", note: "vs. what you were quoted" },
+  { label: "Every fixed monthly fee", note: "PCI, batch, statement & service fees" },
+  { label: "Interchange downgrades", note: "where certain cards cost you extra" },
+  { label: "Your processor's markup", note: "what they earn above interchange" },
 ];
-
-const TRUST_CHIPS = ["Free", "No commitment", "Secure upload", "~30 seconds"];
 
 export default function UploadStatement() {
   const [, setLocation] = useLocation();
@@ -353,78 +354,246 @@ export default function UploadStatement() {
       />
       <Navbar />
 
-      <main className="flex-grow pt-20" ref={containerRef}>
+      <main className="flex-grow pt-20 pb-20 sm:pb-0" ref={containerRef}>
 
         {/* ═══════════════════════════════════════════════════
-            HERO — white bg, strong headline, trust chips
+            PROMO STRIP — amber offer bar
         ═══════════════════════════════════════════════════ */}
-        <section className="bg-white px-5 pt-8 pb-5" data-testid="section-upload-hero">
-          <div className="max-w-lg mx-auto">
-            {/* Eyebrow */}
-            <p className="text-xs font-bold tracking-widest text-sky-600 uppercase mb-2">
-              Free Statement Review
-            </p>
+        <div className="bg-amber-500 px-4 py-2.5 text-center" data-testid="promo-strip">
+          <p className="text-xs font-bold text-white tracking-wide">
+            🎁 Free payment terminal this month — with approved account.{" "}
+            <span className="opacity-75 font-normal">Subject to eligibility &amp; equipment terms.</span>
+          </p>
+        </div>
+
+        {/* ═══════════════════════════════════════════════════
+            HERO — dark navy, high-energy, branded
+        ═══════════════════════════════════════════════════ */}
+        <section
+          className="relative bg-[#0d1b2e] px-5 pt-10 pb-12 overflow-hidden"
+          data-testid="section-upload-hero"
+        >
+          {/* Dot grid texture */}
+          <div
+            className="absolute inset-0 pointer-events-none"
+            style={{
+              backgroundImage:
+                "radial-gradient(circle, rgba(255,255,255,0.055) 1px, transparent 1px)",
+              backgroundSize: "20px 20px",
+            }}
+            aria-hidden="true"
+          />
+          {/* Accent glow top-right */}
+          <div
+            className="absolute -top-16 -right-16 w-64 h-64 bg-sky-500 opacity-[0.07] rounded-full blur-3xl pointer-events-none"
+            aria-hidden="true"
+          />
+          {/* Accent glow bottom-left */}
+          <div
+            className="absolute -bottom-10 -left-10 w-48 h-48 bg-indigo-500 opacity-[0.06] rounded-full blur-2xl pointer-events-none"
+            aria-hidden="true"
+          />
+
+          <div className="max-w-lg mx-auto relative">
+
+            {/* Badge */}
+            <div className="inline-flex items-center gap-2 rounded-full bg-white/10 border border-white/15 px-3.5 py-1.5 mb-5">
+              <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              <span className="text-[11px] font-bold text-white/90 tracking-wider uppercase">
+                Free Statement Review
+              </span>
+            </div>
 
             {/* Headline */}
             <h1
-              className="text-[28px] sm:text-3xl font-extrabold text-gray-900 leading-[1.2] mb-3"
+              className="text-[34px] sm:text-4xl font-extrabold text-white leading-[1.08] mb-4 tracking-tight"
               data-testid="text-upload-heading"
             >
-              See exactly what you're paying — and what you could save.
+              Stop overpaying<br />for card processing.
             </h1>
 
             {/* Subheadline */}
             <p
-              className="text-base text-gray-500 leading-relaxed mb-5"
+              className="text-[15px] text-white/65 leading-relaxed mb-5"
               data-testid="text-upload-subheadline"
             >
-              Upload a PDF or photo of your processing statement. We'll send back a written savings breakdown — no processor login, no commitment.
+              Upload your statement in 30 seconds — no processor login needed. We'll show your exact rate, every hidden fee, and where your money is going.
             </p>
 
+            {/* Savings hook */}
+            <div className="flex items-start gap-3 bg-emerald-500/15 border border-emerald-400/20 rounded-xl px-4 py-3.5 mb-6">
+              <div className="w-8 h-8 rounded-full bg-emerald-400/20 flex items-center justify-center shrink-0 mt-0.5">
+                <TrendingDown className="w-4 h-4 text-emerald-300" />
+              </div>
+              <div>
+                <p className="text-sm font-bold text-emerald-300 leading-snug">
+                  Most merchants we review save $600–$3,200/year
+                </p>
+                <p className="text-[11px] text-white/40 leading-snug mt-1">
+                  Based on statement reviews completed. Actual savings depend on your volume, mix, and current rates.
+                </p>
+              </div>
+            </div>
+
+            {/* Primary CTA — white button on navy */}
+            <a href="#upload-form" className="block mb-3" data-testid="link-hero-scroll-cta">
+              <button
+                className="w-full h-14 bg-white text-[#0d1b2e] font-extrabold text-base rounded-2xl shadow-xl flex items-center justify-center gap-2.5 hover:bg-white/95 active:scale-[0.98] transition-all"
+                type="button"
+              >
+                <Upload className="w-5 h-5 shrink-0" />
+                Get My Free Statement Review
+              </button>
+            </a>
+
+            {/* Secondary CTA — book a call */}
+            <a
+              href={CALENDAR_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block mb-6"
+              data-testid="link-upload-hero-book"
+              onClick={() =>
+                trackBookingCtaClick({
+                  page: "/upload-statement",
+                  ctaLabel: "Book a 10-Min Review Call",
+                  ctaLocation: "hero",
+                })
+              }
+            >
+              <button
+                className="w-full h-12 border border-white/20 bg-white/5 text-white font-semibold text-sm rounded-2xl flex items-center justify-center gap-2 hover:bg-white/10 transition-all"
+                type="button"
+              >
+                <Calendar className="w-4 h-4 shrink-0" />
+                Book a 10-Min Review Call
+              </button>
+            </a>
+
             {/* Trust chips */}
-            <div className="flex flex-wrap gap-2" data-testid="trust-chips">
-              {TRUST_CHIPS.map((chip) => (
+            <div className="flex flex-wrap gap-2 mb-8" data-testid="trust-chips">
+              {[
+                { icon: ShieldCheck, label: "Free" },
+                { icon: Clock, label: "~30 seconds" },
+                { icon: Lock, label: "Secure upload" },
+                { icon: CheckCircle2, label: "No processor login" },
+              ].map(({ icon: Icon, label }) => (
                 <span
-                  key={chip}
-                  className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-xs font-medium text-gray-600"
-                  data-testid={`chip-${chip.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
+                  key={label}
+                  className="inline-flex items-center gap-1.5 rounded-full bg-white/8 border border-white/12 px-3 py-1.5 text-[11px] font-medium text-white/75"
+                  data-testid={`chip-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
                 >
-                  <CheckCircle2 className="w-3 h-3 text-sky-500 shrink-0" />
-                  {chip}
+                  <Icon className="w-3 h-3 shrink-0 text-sky-400" />
+                  {label}
                 </span>
               ))}
             </div>
-          </div>
-        </section>
 
-        {/* ═══════════════════════════════════════════════════
-            WHAT WE REVIEW — objection-removing mini-card
-        ═══════════════════════════════════════════════════ */}
-        <section className="bg-gray-50 px-5 py-4" data-testid="section-what-we-review">
-          <div className="max-w-lg mx-auto">
-            <div className="bg-white rounded-2xl border border-gray-200 shadow-sm px-4 py-4">
-              <p className="text-[10px] font-bold tracking-widest text-gray-400 uppercase mb-3">
-                What we review
-              </p>
-              <ul className="space-y-2">
-                {WHAT_WE_REVIEW.map((item) => (
-                  <li key={item} className="flex items-center gap-2.5 text-sm text-gray-700">
-                    <CheckCircle2 className="w-4 h-4 text-sky-500 shrink-0" />
-                    {item}
-                  </li>
-                ))}
-              </ul>
-              <p className="text-[11px] text-gray-400 mt-3 leading-snug">
-                Redact account numbers if you prefer — totals and fee lines are all we need. Your statement is never sold or shared.
-              </p>
+            {/* Scroll hint */}
+            <div className="flex justify-center">
+              <a
+                href="#upload-form"
+                className="flex flex-col items-center gap-1 opacity-35 hover:opacity-60 transition-opacity"
+                aria-label="Scroll to form"
+              >
+                <span className="text-[9px] text-white uppercase tracking-widest font-semibold">
+                  Send us your statement
+                </span>
+                <ChevronRight className="w-4 h-4 text-white rotate-90" />
+              </a>
             </div>
           </div>
         </section>
 
         {/* ═══════════════════════════════════════════════════
-            MAIN FORM — mobile-optimized, upload dominant
+            WHAT WE REVEAL + FREE TERMINAL OFFER
         ═══════════════════════════════════════════════════ */}
-        <section className="bg-white px-5 pt-6 pb-10" data-testid="section-upload-form">
+        <section className="bg-gray-50 px-5 py-6" data-testid="section-what-we-review">
+          <div className="max-w-lg mx-auto space-y-4">
+
+            {/* What we reveal card */}
+            <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+              <div className="bg-[#0d1b2e] px-4 py-2.5">
+                <p className="text-[10px] font-bold tracking-widest text-white/55 uppercase">
+                  What we reveal in your statement
+                </p>
+              </div>
+              <ul className="divide-y divide-gray-100">
+                {WHAT_WE_REVIEW.map(({ label, note }) => (
+                  <li key={label} className="flex items-start gap-3 px-4 py-3">
+                    <CheckCircle2 className="w-4 h-4 text-sky-500 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-sm font-semibold text-gray-800">{label}</p>
+                      <p className="text-xs text-gray-400 mt-0.5">{note}</p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+              <div className="bg-sky-50 border-t border-sky-100 px-4 py-2.5">
+                <p className="text-[11px] text-sky-700 font-medium leading-snug">
+                  You can redact account numbers — totals and fee lines are all we need. Your statement is never sold or shared.
+                </p>
+              </div>
+            </div>
+
+            {/* Quick fee-comparison card */}
+            <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+              <div className="px-4 py-3 border-b border-gray-100">
+                <p className="text-[10px] font-bold tracking-widest text-gray-400 uppercase">
+                  Where merchants overpay (by industry avg.)
+                </p>
+              </div>
+              <div className="divide-y divide-gray-100">
+                {[
+                  { label: "Restaurants", rate: "2.8–3.5%", flag: "Surcharge opp." },
+                  { label: "Medical / Dental", rate: "2.5–3.2%", flag: "High fixed fees" },
+                  { label: "Retail / Salon", rate: "2.2–3.0%", flag: "Downgrade risk" },
+                  { label: "Auto / Services", rate: "2.8–4.0%", flag: "Keyed-in markup" },
+                ].map(({ label, rate, flag }) => (
+                  <div key={label} className="flex items-center justify-between px-4 py-2.5 gap-3">
+                    <span className="text-sm text-gray-700 font-medium">{label}</span>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-xs font-bold text-red-500">{rate}</span>
+                      <span className="text-[10px] bg-orange-100 text-orange-700 rounded px-1.5 py-0.5 font-medium whitespace-nowrap">{flag}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="bg-gray-50 border-t border-gray-100 px-4 py-2.5">
+                <p className="text-[10px] text-gray-400 leading-snug">
+                  Rates shown are illustrative industry averages, not a guarantee of savings. Upload your statement for an actual analysis.
+                </p>
+              </div>
+            </div>
+
+            {/* Free terminal promo */}
+            <div className="bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-2xl px-4 py-4">
+              <div className="flex items-center gap-2 mb-2">
+                <Monitor className="w-4 h-4 text-amber-600 shrink-0" />
+                <p className="text-sm font-bold text-amber-800">Free Terminal This Month</p>
+                <span className="ml-auto text-[9px] font-bold bg-amber-200 text-amber-800 rounded px-1.5 py-0.5 uppercase tracking-wide whitespace-nowrap">
+                  Limited Offer
+                </span>
+              </div>
+              <p className="text-[12px] text-amber-700 leading-snug mb-2">
+                Approved new merchant accounts may qualify for a free payment terminal — no upfront equipment cost on eligible models.
+              </p>
+              <p className="text-[10px] text-amber-500 leading-snug">
+                Subject to eligibility, credit approval, underwriting, equipment availability, and applicable card-brand and equipment terms. Ask your rep for details.
+              </p>
+            </div>
+
+          </div>
+        </section>
+
+        {/* ═══════════════════════════════════════════════════
+            MAIN FORM
+        ═══════════════════════════════════════════════════ */}
+        <section
+          id="upload-form"
+          className="bg-white px-5 pt-7 pb-10"
+          data-testid="section-upload-form"
+        >
           <div className="max-w-lg mx-auto">
 
             {uploadSucceeded ? (
@@ -456,9 +625,15 @@ export default function UploadStatement() {
                   className="space-y-4"
                   data-testid="form-upload-statement"
                 >
-                  <p className="text-sm font-semibold text-gray-700 mb-1" data-testid="text-form-title">
-                    Your information
-                  </p>
+                  {/* Form header */}
+                  <div className="mb-2">
+                    <p className="text-lg font-bold text-gray-900" data-testid="text-form-title">
+                      Send us your statement
+                    </p>
+                    <p className="text-sm text-gray-500 mt-0.5">
+                      Takes about 30 seconds. We'll do the rest.
+                    </p>
+                  </div>
 
                   {/* ── Row: Business + Name ── */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -582,11 +757,11 @@ export default function UploadStatement() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel className="text-xs font-medium text-gray-600">
-                          Statement (PDF or photo)
+                          Statement <span className="text-gray-400 font-normal">(PDF or photo)</span>
                         </FormLabel>
                         <FormControl>
                           <label
-                            className={`flex flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed cursor-pointer transition-colors min-h-[96px] px-4 py-5
+                            className={`flex flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed cursor-pointer transition-colors min-h-[100px] px-4 py-5
                               ${selectedFile
                                 ? "border-sky-400 bg-sky-50"
                                 : "border-gray-200 bg-gray-50 hover:border-sky-300 hover:bg-sky-50/50"
@@ -606,16 +781,18 @@ export default function UploadStatement() {
                             />
                             {selectedFile ? (
                               <>
-                                <CheckCircle2 className="w-6 h-6 text-sky-500" />
-                                <span className="text-sm font-medium text-sky-700 text-center break-all">
+                                <CheckCircle2 className="w-7 h-7 text-sky-500" />
+                                <span className="text-sm font-semibold text-sky-700 text-center break-all">
                                   {selectedFile.name}
                                 </span>
                                 <span className="text-xs text-sky-500">Tap to change file</span>
                               </>
                             ) : (
                               <>
-                                <Upload className="w-6 h-6 text-gray-400" />
-                                <span className="text-sm font-medium text-gray-700">
+                                <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center">
+                                  <Upload className="w-5 h-5 text-gray-500" />
+                                </div>
+                                <span className="text-sm font-semibold text-gray-700">
                                   Tap to upload statement
                                 </span>
                                 <span className="text-xs text-gray-400">PDF, JPG, PNG — up to 10 MB</span>
@@ -623,7 +800,7 @@ export default function UploadStatement() {
                             )}
                           </label>
                         </FormControl>
-                        <div className="flex items-center gap-1.5 mt-1">
+                        <div className="flex items-center gap-1.5 mt-1.5">
                           <Lock className="w-3 h-3 text-gray-400 shrink-0" />
                           <span className="text-[11px] text-gray-400" data-testid="text-secure-upload">
                             Encrypted upload — your statement is never sold or shared
@@ -740,7 +917,12 @@ export default function UploadStatement() {
 
                   {/* ── Upload progress ── */}
                   {isUploading && (
-                    <div className="space-y-3 rounded-xl bg-gray-50 border border-gray-100 px-4 py-4" data-testid="upload-progress-container" role="status" aria-label="Upload in progress">
+                    <div
+                      className="space-y-3 rounded-xl bg-gray-50 border border-gray-100 px-4 py-4"
+                      data-testid="upload-progress-container"
+                      role="status"
+                      aria-label="Upload in progress"
+                    >
                       {uploadProgress < 100 && (
                         <div className="space-y-2">
                           <div className="flex items-center justify-between text-xs text-gray-500">
@@ -748,9 +930,14 @@ export default function UploadStatement() {
                               <Loader2 className="w-3.5 h-3.5 animate-spin text-sky-500" />
                               {PROCESSING_STEPS[0]}
                             </span>
-                            <span data-testid="text-upload-progress-percent" className="font-semibold">{uploadProgress}%</span>
+                            <span data-testid="text-upload-progress-percent" className="font-semibold">
+                              {uploadProgress}%
+                            </span>
                           </div>
-                          <div className="h-1.5 w-full rounded-full bg-gray-200 overflow-hidden" data-testid="upload-progress-bar-track">
+                          <div
+                            className="h-1.5 w-full rounded-full bg-gray-200 overflow-hidden"
+                            data-testid="upload-progress-bar-track"
+                          >
                             <div
                               className="h-full rounded-full bg-sky-500 transition-all duration-200"
                               style={{ width: `${uploadProgress}%` }}
@@ -787,9 +974,7 @@ export default function UploadStatement() {
                     </div>
                   )}
 
-                  {/* ═══════════════════════════════════════
-                      PRIMARY CTA — dominant dark button
-                  ═══════════════════════════════════════ */}
+                  {/* ══ PRIMARY SUBMIT CTA ══ */}
                   <Button
                     type="submit"
                     className="w-full h-14 text-base font-bold rounded-2xl bg-[#0d1b2e] hover:bg-[#162840] text-white shadow-lg shadow-gray-900/20 transition-all active:scale-[0.98]"
@@ -804,20 +989,24 @@ export default function UploadStatement() {
                     ) : (
                       <>
                         <Upload className="w-5 h-5 mr-2" />
-                        Upload My Statement
+                        Upload My Statement — Free
                       </>
                     )}
                   </Button>
 
-                  {/* ═══════════════════════════════════════
-                      SECONDARY CTAs — book + phone
-                  ═══════════════════════════════════════ */}
+                  {/* ── Secondary: book ── */}
                   <a
                     href={CALENDAR_URL}
                     target="_blank"
                     rel="noopener noreferrer"
-                    data-testid="link-upload-hero-book"
-                    onClick={() => trackBookingCtaClick({ page: "/upload-statement", ctaLabel: "Book a 10-Min Review Call", ctaLocation: "form" })}
+                    data-testid="link-upload-form-book"
+                    onClick={() =>
+                      trackBookingCtaClick({
+                        page: "/upload-statement",
+                        ctaLabel: "Book a 10-Min Review Call",
+                        ctaLocation: "form",
+                      })
+                    }
                   >
                     <Button
                       type="button"
@@ -829,11 +1018,18 @@ export default function UploadStatement() {
                     </Button>
                   </a>
 
+                  {/* ── Tertiary: phone ── */}
                   <a
                     href={PHONE_TEL}
                     aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`}
                     data-testid="link-upload-hero-phone"
-                    onClick={() => trackPhoneCtaClick({ page: "/upload-statement", ctaLabel: PHONE_NUMBER, ctaLocation: "form" })}
+                    onClick={() =>
+                      trackPhoneCtaClick({
+                        page: "/upload-statement",
+                        ctaLabel: PHONE_NUMBER,
+                        ctaLocation: "form",
+                      })
+                    }
                     className="flex items-center justify-center gap-2 text-sm text-gray-400 hover:text-gray-600 transition-colors py-1"
                   >
                     <Phone className="w-4 h-4" />
@@ -841,7 +1037,10 @@ export default function UploadStatement() {
                   </a>
 
                   {/* Compliance microcopy */}
-                  <p className="text-[10px] text-gray-400 text-center leading-snug" data-testid="text-compliance-microcopy">
+                  <p
+                    className="text-[10px] text-gray-400 text-center leading-snug"
+                    data-testid="text-compliance-microcopy"
+                  >
                     Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review.
                   </p>
                 </form>
@@ -856,29 +1055,30 @@ export default function UploadStatement() {
         <section className="bg-gray-50 px-5 py-10" data-testid="section-what-happens-next">
           <div className="max-w-lg mx-auto reveal">
             <h2
-              className="text-xl font-bold text-gray-900 mb-6"
+              className="text-xl font-bold text-gray-900 mb-1"
               data-testid="text-what-happens-next"
             >
               What happens next
             </h2>
+            <p className="text-sm text-gray-400 mb-6">Usually within 1 business day.</p>
             <div className="space-y-3">
               {[
                 {
                   n: "1",
-                  title: "Confirmation",
-                  body: "We confirm we received your file right away.",
+                  title: "Instant confirmation",
+                  body: "We confirm receipt right away and queue AI analysis on your file.",
                   delay: "reveal-delay-1",
                 },
                 {
                   n: "2",
-                  title: "Analysis",
-                  body: "We calculate your effective rate and identify cost drivers line-by-line.",
+                  title: "Line-by-line fee audit",
+                  body: "We calculate your effective rate and surface every cost driver — hidden fees included.",
                   delay: "reveal-delay-2",
                 },
                 {
                   n: "3",
-                  title: "Clear options",
-                  body: "We send 2-3 options with apples-to-apples math and next steps.",
+                  title: "Your options, in plain math",
+                  body: "We present 2–3 specific options with apples-to-apples savings estimates and no pressure.",
                   delay: "reveal-delay-3",
                 },
               ].map(({ n, title, body, delay }) => (
@@ -887,7 +1087,7 @@ export default function UploadStatement() {
                   className={`flex items-start gap-4 bg-white rounded-2xl border border-gray-100 px-4 py-4 shadow-sm reveal ${delay}`}
                   data-testid={`card-step-${n}`}
                 >
-                  <div className="w-9 h-9 rounded-full bg-sky-500 text-white flex items-center justify-center text-sm font-bold shrink-0">
+                  <div className="w-9 h-9 rounded-full bg-[#0d1b2e] text-white flex items-center justify-center text-sm font-bold shrink-0">
                     {n}
                   </div>
                   <div>
@@ -899,10 +1099,15 @@ export default function UploadStatement() {
             </div>
 
             <div className="text-center mt-6 reveal reveal-delay-4">
-              <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="button-book-call-next">
+              <a
+                href={CALENDAR_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                data-testid="button-book-call-next"
+              >
                 <Button variant="outline" className="rounded-xl gap-2 border-gray-200 text-gray-700">
                   <Calendar className="w-4 h-4" />
-                  Get My Free Analysis
+                  Prefer to talk? Book a Call
                 </Button>
               </a>
             </div>
@@ -956,13 +1161,20 @@ export default function UploadStatement() {
                     value={analysisVertical || "_none"}
                     onValueChange={(v) => setAnalysisVertical(v === "_none" ? "" : v)}
                   >
-                    <SelectTrigger className="h-11 text-base rounded-xl border-gray-200" data-testid="select-analysis-vertical">
+                    <SelectTrigger
+                      className="h-11 text-base rounded-xl border-gray-200"
+                      data-testid="select-analysis-vertical"
+                    >
                       <SelectValue placeholder="Select vertical for tailored analysis" />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="_none">No vertical (generic analysis)</SelectItem>
                       {ANALYSIS_VERTICALS.map(({ label, slug }) => (
-                        <SelectItem key={slug} value={slug} data-testid={`select-analysis-item-${slug}`}>
+                        <SelectItem
+                          key={slug}
+                          value={slug}
+                          data-testid={`select-analysis-item-${slug}`}
+                        >
                           {label}
                         </SelectItem>
                       ))}
@@ -975,7 +1187,11 @@ export default function UploadStatement() {
                   disabled={analyzing || !analysisVolume}
                   data-testid="button-analyze-statement"
                 >
-                  {analyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                  {analyzing ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Sparkles className="w-4 h-4" />
+                  )}
                   Analyze My Rate
                 </Button>
                 {analysisError && (
@@ -989,26 +1205,41 @@ export default function UploadStatement() {
                       <div className="flex items-center gap-2" data-testid="text-analysis-vertical">
                         <span className="text-xs text-gray-400">Vertical context applied:</span>
                         <span className="inline-flex items-center rounded-full bg-sky-100 px-2.5 py-0.5 text-xs font-medium text-sky-700">
-                          {ANALYSIS_VERTICALS.find((v) => v.slug === (analysisResult._vertical as string))?.label ?? (analysisResult._vertical as string)}
+                          {ANALYSIS_VERTICALS.find(
+                            (v) => v.slug === (analysisResult._vertical as string)
+                          )?.label ?? (analysisResult._vertical as string)}
                         </span>
                       </div>
                     )}
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <div className="text-xs text-gray-400">Effective Rate</div>
-                        <div className="text-lg font-bold text-gray-900" data-testid="text-effective-rate">{analysisResult.effectiveRate}</div>
+                        <div
+                          className="text-lg font-bold text-gray-900"
+                          data-testid="text-effective-rate"
+                        >
+                          {analysisResult.effectiveRate}
+                        </div>
                       </div>
                       <div>
                         <div className="text-xs text-gray-400">Recommended Program</div>
-                        <div className="text-lg font-bold text-gray-900" data-testid="text-recommended-path">{analysisResult.recommendedPath}</div>
+                        <div
+                          className="text-lg font-bold text-gray-900"
+                          data-testid="text-recommended-path"
+                        >
+                          {analysisResult.recommendedPath}
+                        </div>
                       </div>
                     </div>
                     {analysisResult.keyFindings && (
                       <div>
                         <div className="text-sm font-medium text-gray-900 mb-2">Key Findings</div>
                         <ul className="space-y-1">
-                          {analysisResult.keyFindings.map((f: string, i: number) => (
-                            <li key={i} className="text-sm text-gray-500 flex items-start gap-2">
+                          {(analysisResult.keyFindings as string[]).map((f, i) => (
+                            <li
+                              key={i}
+                              className="text-sm text-gray-500 flex items-start gap-2"
+                            >
                               <CheckCircle2 className="w-4 h-4 text-sky-500 shrink-0 mt-0.5" />
                               {f}
                             </li>
@@ -1017,13 +1248,20 @@ export default function UploadStatement() {
                       </div>
                     )}
                     {analysisResult.overallAssessment && (
-                      <div className="bg-gray-50 p-3 rounded-xl">
-                        <div className="text-sm text-gray-700">{analysisResult.overallAssessment}</div>
+                      <div className="rounded-xl bg-sky-50 border border-sky-100 p-3">
+                        <p className="text-sm text-sky-800">{analysisResult.overallAssessment as string}</p>
                       </div>
                     )}
-                    <p className="text-[10px] text-gray-400">
-                      Eligibility, underwriting, card brand rules, and applicable laws apply.
+                    <p className="text-[11px] text-gray-400 leading-snug">
+                      This is an AI estimate, not a formal quote. Upload your actual statement for a
+                      precise, line-item analysis.
                     </p>
+                    <a href="#upload-form" className="block">
+                      <Button size="sm" className="gap-2 rounded-xl w-full">
+                        <Upload className="w-3.5 h-3.5" />
+                        Upload My Actual Statement
+                      </Button>
+                    </a>
                   </div>
                 )}
               </CardContent>
@@ -1032,80 +1270,67 @@ export default function UploadStatement() {
         </section>
 
         {/* ═══════════════════════════════════════════════════
-            TERMINAL PROMO
+            BOTTOM CTA PANEL
         ═══════════════════════════════════════════════════ */}
-        <section className="bg-gray-50 px-5 py-8" data-testid="section-terminal-promo">
-          <div className="max-w-lg mx-auto">
-            <div className="flex items-start gap-4 bg-white rounded-2xl border border-gray-200 shadow-sm px-5 py-5 reveal">
-              <div className="flex-shrink-0 flex items-center justify-center w-12 h-12 rounded-xl bg-sky-50" aria-hidden="true">
-                <Monitor className="w-6 h-6 text-sky-500" />
-              </div>
-              <div className="min-w-0">
-                <h2 className="text-base font-bold text-gray-900 mb-1" data-testid="text-terminal-promo-heading">
-                  Free Terminal this Month
-                </h2>
-                <p className="text-sm text-gray-500 leading-relaxed mb-3">
-                  Qualifying merchants who sign up this month receive a free terminal — tap, dip, swipe, and manual key entry supported.
-                </p>
-                <ul className="space-y-1.5 mb-2">
-                  {["Same-day setup available", "Cash discount and surcharge ready", "Guided onboarding + dedicated support"].map((item) => (
-                    <li key={item} className="flex items-start gap-2 text-xs text-gray-500">
-                      <CheckCircle2 className="w-3.5 h-3.5 text-sky-500 mt-0.5 shrink-0" />
-                      {item}
-                    </li>
-                  ))}
-                </ul>
-                <p className="text-[10px] text-gray-400">Subject to eligibility and equipment program terms.</p>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* ═══════════════════════════════════════════════════
-            SECONDARY CTA — sticky-feel bottom panel
-        ═══════════════════════════════════════════════════ */}
-        <section
-          className="bg-[#0d1b2e] px-5 py-10 pb-[calc(2.5rem+env(safe-area-inset-bottom,0px))]"
-          data-testid="section-secondary-cta"
-        >
-          <div className="max-w-lg mx-auto text-center reveal">
-            <h2
-              className="text-xl font-bold text-white mb-2"
-              data-testid="text-prefer-talk"
-            >
-              Prefer to talk first?
-            </h2>
-            <p
-              className="text-sm text-white/60 mb-6"
-              data-testid="text-prefer-talk-description"
-            >
-              Book a quick 10-minute call. We'll tell you exactly what to upload and what to look for.
+        <section className="bg-[#0d1b2e] px-5 py-10">
+          <div className="max-w-lg mx-auto text-center space-y-4">
+            <p className="text-xs font-bold tracking-widest text-white/40 uppercase">
+              Ready to see your numbers?
             </p>
-            <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="button-book-call-secondary">
-              <Button
-                className="gap-2 rounded-2xl h-12 px-6 bg-white text-gray-900 font-semibold hover:bg-gray-100 w-full sm:w-auto"
+            <h2 className="text-2xl font-extrabold text-white leading-tight">
+              Get your free statement<br />review today.
+            </h2>
+            <p className="text-sm text-white/55 leading-relaxed max-w-xs mx-auto">
+              Upload takes 30 seconds. No processor login, no pressure, no obligation.
+            </p>
+            <a href="#upload-form" className="block max-w-xs mx-auto">
+              <button
+                className="w-full h-13 bg-white text-[#0d1b2e] font-extrabold text-base rounded-2xl py-3.5 flex items-center justify-center gap-2.5 hover:bg-white/95 active:scale-[0.98] transition-all shadow-xl"
+                type="button"
               >
-                <Calendar className="w-4 h-4" />
-                Book a Free 10-Min Call
-              </Button>
+                <Upload className="w-5 h-5 shrink-0" />
+                Upload My Statement
+              </button>
             </a>
-            <div className="mt-4">
-              <a
-                href={PHONE_TEL}
-                onClick={() => trackPhoneCtaClick({ page: "/upload-statement", ctaLabel: PHONE_NUMBER, ctaLocation: "footer-cta" })}
-                className="flex items-center justify-center gap-2 text-sm text-white/50 hover:text-white/80 transition-colors"
-                data-testid="link-footer-phone"
-              >
-                <Phone className="w-4 h-4" />
-                {PHONE_NUMBER}
-              </a>
-            </div>
+            <a
+              href={PHONE_TEL}
+              aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`}
+              className="inline-flex items-center gap-2 text-sm text-white/45 hover:text-white/70 transition-colors"
+            >
+              <Phone className="w-4 h-4" />
+              Or call {PHONE_NUMBER}
+            </a>
+            <p className="text-[10px] text-white/25 leading-snug max-w-sm mx-auto"
+              style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
+              Eligibility, underwriting, card brand rules, and applicable laws apply.
+            </p>
           </div>
         </section>
 
       </main>
 
       <Footer />
+
+      {/* ═══════════════════════════════════════════════════
+          STICKY BOTTOM BAR — mobile only
+          (App.tsx disables StickyMobileCTA on /upload-statement)
+      ═══════════════════════════════════════════════════ */}
+      {!uploadSucceeded && (
+        <div
+          className="fixed bottom-0 left-0 right-0 z-40 sm:hidden bg-white/95 backdrop-blur-sm border-t border-gray-200 px-4 pt-3 shadow-[0_-4px_20px_rgba(0,0,0,0.08)]"
+          style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom, 0px))" }}
+          data-testid="sticky-upload-cta"
+        >
+          <a
+            href="#upload-form"
+            className="flex items-center justify-center gap-2.5 w-full bg-[#0d1b2e] text-white font-bold text-sm rounded-xl py-3 active:scale-[0.98] transition-all"
+            data-testid="link-sticky-upload-statement"
+          >
+            <Upload className="w-4 h-4 shrink-0" />
+            Upload My Statement — Free
+          </a>
+        </div>
+      )}
     </div>
   );
 }
