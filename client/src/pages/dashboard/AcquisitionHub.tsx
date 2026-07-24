@@ -92,9 +92,9 @@ function StatusBadge({ status }: { status: "pass" | "warn" | "fail" }) {
 }
 
 function ScaleBadge({ signal }: { signal: string }) {
-  if (signal === "scale") return <Badge className="bg-green-600 text-white">📈 Scale</Badge>;
-  if (signal === "optimize") return <Badge className="bg-yellow-500 text-white">⚡ Optimize</Badge>;
-  return <Badge variant="secondary">🔬 Test</Badge>;
+  if (signal === "scale") return <Badge className="bg-green-600 text-white">Scale</Badge>;
+  if (signal === "optimize") return <Badge className="bg-yellow-500 text-white">Optimize</Badge>;
+  return <Badge variant="secondary">Test</Badge>;
 }
 
 function fmt$(n: number) {
@@ -273,7 +273,7 @@ function RoiByVerticalTab({ days }: { days: number }) {
               <TableHead>Vertical</TableHead>
               <TableHead>Source</TableHead>
               <TableHead className="text-right">Leads</TableHead>
-              <TableHead className="text-right">🔥Hot</TableHead>
+              <TableHead className="text-right">Hot Leads</TableHead>
               <TableHead className="text-right">Deals</TableHead>
               <TableHead className="text-right">Won</TableHead>
               <TableHead className="text-right">Book Rate</TableHead>
@@ -315,9 +315,9 @@ function LeadQualityTab({ days }: { days: number }) {
   const total = d.distribution.hot + d.distribution.warm + d.distribution.cold;
 
   const tiers = [
-    { tier: "hot", label: "🔥 Hot (score ≥70)", count: d.distribution.hot, color: "bg-red-500", textColor: "text-red-700 dark:text-red-400" },
-    { tier: "warm", label: "🌡 Warm (score 40–69)", count: d.distribution.warm, color: "bg-yellow-500", textColor: "text-yellow-700 dark:text-yellow-400" },
-    { tier: "cold", label: "❄ Cold (score <40)", count: d.distribution.cold, color: "bg-blue-400", textColor: "text-blue-700 dark:text-blue-400" },
+    { tier: "hot", label: "Hot (score ≥70)", count: d.distribution.hot, color: "bg-red-500", textColor: "text-red-700 dark:text-red-400" },
+    { tier: "warm", label: "Warm (score 40–69)", count: d.distribution.warm, color: "bg-yellow-500", textColor: "text-yellow-700 dark:text-yellow-400" },
+    { tier: "cold", label: "Cold (score <40)", count: d.distribution.cold, color: "bg-blue-400", textColor: "text-blue-700 dark:text-blue-400" },
   ];
 
   const sourceGroups: Record<string, { hot: number; warm: number; cold: number }> = {};
@@ -667,7 +667,7 @@ function BudgetPlannerTab() {
               <div className="flex items-start justify-between gap-2">
                 <CardTitle className="text-base">{s.label}</CardTitle>
                 <Badge variant={s.verdict === "scale" ? "default" : s.verdict === "viable" ? "secondary" : s.verdict === "enterprise" ? "outline" : "destructive"}>
-                  {s.verdict === "too_small" ? "⚠ Too Small" : s.verdict === "viable" ? "✓ Viable" : s.verdict === "scale" ? "📈 Scale" : "🏢 Enterprise"}
+                  {s.verdict === "too_small" ? "Too Small" : s.verdict === "viable" ? "Viable" : s.verdict === "scale" ? "Scale" : "Enterprise"}
                 </Badge>
               </div>
               <CardDescription className="text-xs">{s.note}</CardDescription>
@@ -732,7 +732,7 @@ function ReadinessAuditTab() {
             <p className="text-sm font-semibold mb-2">
               Google Ads Status:{" "}
               <Badge variant={d.readyToRunGoogleAds ? "default" : "secondary"} className={d.readyToRunGoogleAds ? "bg-green-600" : ""}>
-                {d.readyToRunGoogleAds ? "✓ Ready" : "⚠ Pre-Launch"}
+                {d.readyToRunGoogleAds ? "Ready" : "Pre-Launch"}
               </Badge>
             </p>
             {d.scalingBlockers.length > 0 ? (
