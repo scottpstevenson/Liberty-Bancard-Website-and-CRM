@@ -9,6 +9,7 @@ import { ingestBusinessFromContact } from "./sdr/dedupe";
 import { detectProcessors } from "./sdr/processor-detector";
 import { detectAds } from "./sdr/ad-detector";
 import { updateContactGhlFirst } from "./contact-writer";
+import { enqueueReadinessRecalculation } from "./contact-readiness";
 import { logAiCall } from "./ai-audit-logger";
 import { scoreDecisionMaker } from "./bounce-feedback";
 
@@ -394,6 +395,7 @@ export async function enrichContactBatch(
 
           if (Object.keys(updates).length > 0) {
             await updateContactGhlFirst(contactId, updates);
+            enqueueReadinessRecalculation(contactId).catch(() => {});
           } else {
             processed++;
             continue;
