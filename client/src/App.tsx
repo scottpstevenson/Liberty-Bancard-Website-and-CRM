@@ -11,7 +11,7 @@ import { Loader2 } from "lucide-react";
 import { StickyMobileCTA } from "@/components/StickyMobileCTA";
 import { ExitIntentPopup } from "@/components/ExitIntentPopup";
 import { CookieConsent } from "@/components/CookieConsent";
-import ChatWidget from "@/components/ChatWidget";
+// ChatWidget replaced by GHL chat widget (index.html)
 import { trackPageView } from "@/lib/tracking";
 import { captureUTMParams } from "@/lib/utm";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
@@ -822,7 +822,7 @@ function PublicLayout() {
       {!isDashboard && !isThanksPage && !isAuthPage && !isMobile && !isUploadStatement && <StickyMobileCTA />}
       {!isDashboard && !isAuthPage && !isMobile && <ExitIntentPopup />}
             {!isDashboard && !isAuthPage && !isMobile && <CookieConsent />}
-      {!isDashboard && !isThanksPage && !isAuthPage && !isMobile && <ChatWidget />}
+      {/* GHL chat widget loaded via index.html script tag */}
     </>
   );
 }
