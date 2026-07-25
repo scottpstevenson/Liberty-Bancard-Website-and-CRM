@@ -143,7 +143,7 @@ export function ssrHtmlShell({
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="" />
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,400..700;1,9..40,400..700&display=swap" rel="stylesheet" />
   <!-- GHL Chat Widget (Trust Center / SMS opt-in compliance) -->
-  <script src="https://widgets.leadconnectorhq.com/loader.js" data-resources-url="https://widgets.leadconnectorhq.com/chat-widget/loader.js" data-widget-id="6a652e52b92307bb1e78f953" data-source="WEB_USER"></script>
+  <script src="https://widgets.leadconnectorhq.com/loader.js" data-resources-url="https://widgets.leadconnectorhq.com/chat-widget/loader.js" data-widget-id="6a652f1fc4dda61f3fbae5f8" data-source="WEB_USER"></script>
 
   ${schemaBlocks}
   <style>
