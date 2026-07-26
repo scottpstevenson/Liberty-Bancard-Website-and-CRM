@@ -1,10 +1,11 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, getCsrfToken } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Progress } from "@/components/ui/progress";
 import { DataState } from "@/components/ui/data-state";
@@ -19,9 +20,10 @@ import {
   TrendingUp, Users, Database, BarChart3, Flame, Thermometer, Snowflake,
   Calendar, ArrowRight, FileText, RefreshCw, ListChecks, OctagonAlert,
   ShieldCheck, Trash2, ChevronRight, Archive, ClipboardList,
+  Sparkles, CloudDownload, Info, ExternalLink,
 } from "lucide-react";
 import type { ProspectList } from "@shared/schema";
-import type { CsvImport } from "@shared/schema";
+import type { CsvImport, MasterLeadBatch } from "@shared/schema";
 
 /** Normalize opt-out counts from either camelCase or snake_case API responses. */
 function normalizeOptOut(data: Record<string, unknown>): { optOutPreserved: number; optOutApplied: number } {
@@ -252,6 +254,404 @@ function ReadinessPipeline({ list, onAdvance, isPending }: {
     </div>
   );
 }
+
+// ─── Master Lead Import Component ───────────────────────────────────────────
+
+function statusColor(status: string) {
+  switch (status) {
+    case "completed": return "bg-green-600";
+    case "processing": return "bg-blue-600";
+    case "failed": return "bg-red-600";
+    default: return "bg-gray-400";
+  }
+}
+
+function MasterLeadImportSection() {
+  const { toast } = useToast();
+  const [sheetId, setSheetId] = useState("");
+  const [tabName, setTabName] = useState("CRM Staging");
+  const [apiTestResult, setApiTestResult] = useState<{
+    success?: boolean;
+    apiError?: string;
+    rowCount?: number;
+    headers?: string[];
+  } | null>(null);
+  const [testingApi, setTestingApi] = useState(false);
+  const [csvDragging, setCsvDragging] = useState(false);
+  const [csvFile, setCsvFile] = useState<File | null>(null);
+  const csvRef = useRef<HTMLInputElement>(null);
+  const [activeBatchId, setActiveBatchId] = useState<string | null>(null);
+
+  // Poll active batch
+  const { data: activeBatch } = useQuery<MasterLeadBatch>({
+    queryKey: ["/api/master-leads/batches", activeBatchId],
+    queryFn: async () => {
+      if (!activeBatchId) throw new Error("no batch");
+      const r = await fetch(`/api/master-leads/batches/${activeBatchId}`, { credentials: "include" });
+      if (!r.ok) throw new Error("failed");
+      return r.json();
+    },
+    enabled: !!activeBatchId,
+    refetchInterval: (q) => {
+      const data = q.state.data as MasterLeadBatch | undefined;
+      return data?.status === "processing" ? 2000 : false;
+    },
+  });
+
+  // All batches list
+  const { data: batches = [], refetch: refetchBatches } = useQuery<MasterLeadBatch[]>({
+    queryKey: ["/api/master-leads/batches"],
+  });
+
+  useEffect(() => {
+    if (activeBatch && activeBatch.status !== "processing") {
+      refetchBatches();
+    }
+  }, [activeBatch?.status]);
+
+  // Test Sheets API
+  async function testSheetsApi() {
+    if (!sheetId.trim()) {
+      toast({ title: "Sheet ID required", variant: "destructive" });
+      return;
+    }
+    setTestingApi(true);
+    setApiTestResult(null);
+    try {
+      const csrf = getCsrfToken();
+      const r = await fetch("/api/master-leads/try-sheets-api", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(csrf ? { "X-CSRF-Token": csrf } : {}),
+        },
+        credentials: "include",
+        body: JSON.stringify({ sheetId: sheetId.trim(), tabName }),
+      });
+      const data = await r.json();
+      setApiTestResult(data);
+    } catch (err: any) {
+      setApiTestResult({ success: false, apiError: err.message });
+    } finally {
+      setTestingApi(false);
+    }
+  }
+
+  // Import from Sheets API
+  const sheetImportMutation = useMutation({
+    mutationFn: async () => {
+      const csrf = getCsrfToken();
+      const r = await fetch("/api/master-leads/import-from-sheet", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(csrf ? { "X-CSRF-Token": csrf } : {}),
+        },
+        credentials: "include",
+        body: JSON.stringify({
+          sheetId: sheetId.trim(),
+          tabName,
+          sheetName: "Liberty Bancard Priority Domain Enrichment - 2026-07-20",
+        }),
+      });
+      if (!r.ok) throw new Error((await r.json()).message);
+      return r.json() as Promise<{ batchId: string }>;
+    },
+    onSuccess: (data) => {
+      setActiveBatchId(data.batchId);
+      toast({ title: "Import started", description: "Processing 23,464 rows in the background…" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Import failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  // CSV upload mutation
+  const csvImportMutation = useMutation({
+    mutationFn: async (file: File) => {
+      const csrf = getCsrfToken();
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("sheetName", "Liberty Bancard Priority Domain Enrichment - 2026-07-20");
+      fd.append("tabName", "CRM Staging");
+      const r = await fetch("/api/master-leads/import-csv", {
+        method: "POST",
+        headers: csrf ? { "X-CSRF-Token": csrf } : {},
+        credentials: "include",
+        body: fd,
+      });
+      if (!r.ok) throw new Error((await r.json()).message);
+      return r.json() as Promise<{ batchId: string; totalRows: number }>;
+    },
+    onSuccess: (data) => {
+      setActiveBatchId(data.batchId);
+      setCsvFile(null);
+      toast({ title: "CSV import started", description: `${data.totalRows.toLocaleString()} rows processing…` });
+    },
+    onError: (err: Error) => {
+      toast({ title: "CSV import failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const handleCsvFile = (f: File | null) => {
+    if (!f) return;
+    if (!/\.(csv|xlsx|xls)$/i.test(f.name)) {
+      toast({ title: "Invalid file", description: "Please upload a CSV or Excel file", variant: "destructive" });
+      return;
+    }
+    setCsvFile(f);
+  };
+
+  return (
+    <Card data-testid="card-master-lead-import" className="border-2 border-blue-200 dark:border-blue-900">
+      <CardHeader className="bg-blue-50 dark:bg-blue-950/30 rounded-t-lg">
+        <CardTitle className="flex items-center gap-2 text-blue-800 dark:text-blue-300">
+          <Sparkles className="h-5 w-5" />
+          Priority Lead Sheet Import — Liberty Bancard 2026-07-20
+          <Badge className="bg-blue-600 text-white ml-2">23,464 rows</Badge>
+        </CardTitle>
+        <p className="text-sm text-blue-700 dark:text-blue-400 mt-1">
+          Staged import only — no enrollment or outbound. Rows land in <code className="bg-blue-100 dark:bg-blue-900 px-1 rounded">master_leads</code> with deduplication and suppression checks.
+        </p>
+      </CardHeader>
+      <CardContent className="pt-5 space-y-5">
+
+        {/* Step 1 — Try Google Sheets API */}
+        <div className="space-y-3">
+          <h3 className="font-semibold flex items-center gap-2">
+            <span className="flex items-center justify-center w-6 h-6 rounded-full bg-blue-600 text-white text-xs">1</span>
+            Attempt Direct Google Sheets Access
+          </h3>
+          <p className="text-sm text-muted-foreground">
+            Enter the Sheet ID (from the URL: <code className="bg-muted px-1 rounded">…/spreadsheets/d/<strong>SHEET_ID</strong>/edit</code>) and test API access.
+          </p>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <Input
+              placeholder="Google Sheet ID (e.g. 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms)"
+              value={sheetId}
+              onChange={(e) => setSheetId(e.target.value)}
+              className="flex-1 font-mono text-sm"
+              data-testid="input-sheet-id"
+            />
+            <Input
+              placeholder="Tab name"
+              value={tabName}
+              onChange={(e) => setTabName(e.target.value)}
+              className="w-40"
+              data-testid="input-tab-name"
+            />
+            <Button
+              onClick={testSheetsApi}
+              disabled={testingApi || !sheetId.trim()}
+              variant="outline"
+              data-testid="btn-test-sheets-api"
+            >
+              {testingApi ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <ExternalLink className="h-4 w-4 mr-2" />}
+              Test API Access
+            </Button>
+          </div>
+
+          {apiTestResult && (
+            <div className={`rounded-lg p-4 border ${apiTestResult.success ? "bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800" : "bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800"}`}>
+              {apiTestResult.success ? (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 text-green-700 dark:text-green-400 font-medium">
+                    <CheckCircle2 className="h-4 w-4" />
+                    API access confirmed — {apiTestResult.rowCount?.toLocaleString()} rows found
+                  </div>
+                  <p className="text-xs text-muted-foreground">Headers: {apiTestResult.headers?.join(", ")}</p>
+                  <Button
+                    onClick={() => sheetImportMutation.mutate()}
+                    disabled={sheetImportMutation.isPending}
+                    className="mt-2"
+                    data-testid="btn-import-from-sheet"
+                  >
+                    {sheetImportMutation.isPending
+                      ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />Starting…</>
+                      : <><CloudDownload className="h-4 w-4 mr-2" />Import All {apiTestResult.rowCount?.toLocaleString()} Rows</>}
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400 font-medium">
+                    <AlertCircle className="h-4 w-4" />
+                    Google Sheets API access failed — use CSV export below
+                  </div>
+                  <p className="text-xs font-mono bg-amber-100 dark:bg-amber-900/40 rounded p-2 mt-1 break-all">
+                    {apiTestResult.apiError}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Step 2 — CSV Fallback */}
+        <div className="space-y-3 border-t pt-4">
+          <h3 className="font-semibold flex items-center gap-2">
+            <span className="flex items-center justify-center w-6 h-6 rounded-full bg-slate-500 text-white text-xs">2</span>
+            CSV Fallback — Export &amp; Upload
+          </h3>
+
+          <div className="bg-slate-50 dark:bg-slate-900/30 rounded-lg p-4 border space-y-3">
+            <div className="flex items-start gap-2 text-sm">
+              <Info className="h-4 w-4 mt-0.5 text-blue-500 shrink-0" />
+              <div className="space-y-1">
+                <p className="font-medium">How to export the sheet as CSV:</p>
+                <ol className="list-decimal list-inside space-y-1 text-muted-foreground text-xs">
+                  <li>Open the sheet: <strong>Liberty Bancard Priority Domain Enrichment - 2026-07-20</strong></li>
+                  <li>Switch to the <strong>CRM Staging</strong> tab</li>
+                  <li>Click <strong>File → Download → Comma Separated Values (.csv)</strong></li>
+                  <li>Drag and drop the downloaded file into the upload zone below</li>
+                </ol>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Expected columns (auto-mapped): Company, Normalized_Company, Domain, Email, Email_Type, Phone, Normalized_Phone, Contact_Name, Contact_Title, Merchant_Vertical, Liberty_Quality_Score, Liberty_Fit_Tier, Outreach_Readiness, Readiness_Reason, Source, Source_Path, Source_Modified_Date
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div
+            className={`border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors ${csvDragging ? "border-blue-500 bg-blue-50 dark:bg-blue-950/20" : "border-border hover:border-muted-foreground/50"}`}
+            onDragOver={(e) => { e.preventDefault(); setCsvDragging(true); }}
+            onDragLeave={(e) => { e.preventDefault(); setCsvDragging(false); }}
+            onDrop={(e) => { e.preventDefault(); setCsvDragging(false); handleCsvFile(e.dataTransfer.files[0] || null); }}
+            onClick={() => csvRef.current?.click()}
+            data-testid="dropzone-master-leads-csv"
+          >
+            <input ref={csvRef} type="file" accept=".csv,.xlsx,.xls" className="hidden"
+              onChange={(e) => handleCsvFile(e.target.files?.[0] || null)} />
+            {csvFile ? (
+              <div className="flex items-center justify-center gap-3">
+                <FileSpreadsheet className="h-8 w-8 text-green-600" />
+                <div>
+                  <p className="font-medium" data-testid="text-master-leads-filename">{csvFile.name}</p>
+                  <p className="text-sm text-muted-foreground">{(csvFile.size / 1024 / 1024).toFixed(2)} MB</p>
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center gap-2">
+                <Upload className="h-10 w-10 text-muted-foreground" />
+                <p className="font-medium">Drop the exported CSV here, or click to browse</p>
+              </div>
+            )}
+          </div>
+
+          <div className="flex gap-2">
+            <Button
+              onClick={() => csvFile && csvImportMutation.mutate(csvFile)}
+              disabled={!csvFile || csvImportMutation.isPending}
+              data-testid="btn-import-master-leads-csv"
+            >
+              {csvImportMutation.isPending
+                ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />Importing…</>
+                : <><Upload className="h-4 w-4 mr-2" />Import CSV</>}
+            </Button>
+            {csvFile && (
+              <Button variant="outline" onClick={() => setCsvFile(null)}>Clear</Button>
+            )}
+          </div>
+        </div>
+
+        {/* Active batch progress */}
+        {activeBatch && (
+          <div className="border-t pt-4 space-y-3" data-testid="card-active-batch-progress">
+            <h3 className="font-semibold flex items-center gap-2">
+              {activeBatch.status === "processing"
+                ? <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
+                : activeBatch.status === "completed"
+                ? <CheckCircle2 className="h-4 w-4 text-green-500" />
+                : <AlertCircle className="h-4 w-4 text-red-500" />}
+              Import Progress — {activeBatch.batchName}
+            </h3>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {[
+                { label: "Staged", value: activeBatch.stagedCount ?? 0, color: "text-green-600 dark:text-green-400" },
+                { label: "Duplicate", value: activeBatch.duplicateCount ?? 0, color: "text-blue-600 dark:text-blue-400" },
+                { label: "Suppressed", value: activeBatch.suppressedCount ?? 0, color: "text-amber-600 dark:text-amber-400" },
+                { label: "Invalid", value: activeBatch.invalidCount ?? 0, color: "text-red-600 dark:text-red-400" },
+              ].map(({ label, value, color }) => (
+                <div key={label} className="rounded-lg border p-3 space-y-1">
+                  <p className="text-xs text-muted-foreground">{label}</p>
+                  <p className={`text-xl font-bold ${color}`}>{value.toLocaleString()}</p>
+                </div>
+              ))}
+            </div>
+            {activeBatch.totalRows && activeBatch.totalRows > 0 && (
+              <div className="space-y-1">
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>Staged</span>
+                  <span>{((activeBatch.stagedCount ?? 0) / activeBatch.totalRows * 100).toFixed(1)}% of {activeBatch.totalRows.toLocaleString()} rows</span>
+                </div>
+                <Progress value={((activeBatch.stagedCount ?? 0) + (activeBatch.duplicateCount ?? 0) + (activeBatch.suppressedCount ?? 0) + (activeBatch.invalidCount ?? 0)) / activeBatch.totalRows * 100} />
+              </div>
+            )}
+            {activeBatch.status === "failed" && (
+              <p className="text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/20 rounded p-2">
+                Error: {activeBatch.errorMessage}
+              </p>
+            )}
+            {activeBatch.status === "completed" && (
+              <p className="text-xs text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-950/20 rounded p-2">
+                ✓ Import complete. Batch ID: <code className="font-mono">{activeBatch.id}</code> · Sheet: {activeBatch.sheetName} · Tab: {activeBatch.tabName}
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Batch history */}
+        {batches.length > 0 && (
+          <div className="border-t pt-4 space-y-3" data-testid="card-master-lead-batches">
+            <h3 className="font-semibold flex items-center gap-2">
+              <Database className="h-4 w-4" />
+              Import Batch History
+            </h3>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Batch Name</TableHead>
+                    <TableHead>Source</TableHead>
+                    <TableHead>Total</TableHead>
+                    <TableHead>Staged</TableHead>
+                    <TableHead>Duplicate</TableHead>
+                    <TableHead>Suppressed</TableHead>
+                    <TableHead>Invalid</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Date</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {batches.map((b) => (
+                    <TableRow key={b.id} className="cursor-pointer hover:bg-muted/50" onClick={() => setActiveBatchId(b.id)}>
+                      <TableCell className="max-w-[200px] truncate font-medium">{b.batchName}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline">{(b.sourceMethod ?? "csv_upload").replace(/_/g, " ")}</Badge>
+                      </TableCell>
+                      <TableCell>{(b.totalRows ?? 0).toLocaleString()}</TableCell>
+                      <TableCell className="text-green-600 dark:text-green-400 font-medium">{(b.stagedCount ?? 0).toLocaleString()}</TableCell>
+                      <TableCell className="text-blue-600 dark:text-blue-400">{(b.duplicateCount ?? 0).toLocaleString()}</TableCell>
+                      <TableCell className="text-amber-600 dark:text-amber-400">{(b.suppressedCount ?? 0).toLocaleString()}</TableCell>
+                      <TableCell className="text-red-600 dark:text-red-400">{(b.invalidCount ?? 0).toLocaleString()}</TableCell>
+                      <TableCell>
+                        <Badge className={statusColor(b.status ?? "processing")}>{b.status}</Badge>
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {b.importedAt ? new Date(b.importedAt).toLocaleString() : "--"}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ─── Main LeadImports Page ───────────────────────────────────────────────────
 
 export default function LeadImports() {
   const { toast } = useToast();
@@ -521,6 +921,9 @@ export default function LeadImports() {
           Import leads from Outscraper, Apollo, or any CSV/Excel file. Auto-detects format, deduplicates, classifies verticals, scores leads, and creates deals for hot prospects.
         </p>
       </div>
+
+      {/* Priority Lead Sheet Import — staged, no outbound */}
+      <MasterLeadImportSection />
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         <Card data-testid="card-stat-total-imports">

@@ -4694,3 +4694,73 @@ export type InsertSystemAuditRun = z.infer<typeof insertSystemAuditRunSchema>;
 
 // AI Assistant tables (migration 0084)
 export * from "./schema-ai-assistant";
+
+// ---------------------------------------------------------------------------
+// Master Lead Database — staged import pipeline (migration 0087)
+// Rows land here first (status=staged) before any CRM enrollment/outbound.
+// ---------------------------------------------------------------------------
+export const masterLeadBatches = pgTable("master_lead_batches", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  batchName: text("batch_name").notNull(),
+  sheetId: text("sheet_id"),
+  sheetName: text("sheet_name"),
+  tabName: text("tab_name"),
+  sourceMethod: text("source_method").notNull().default("csv_upload"), // sheets_api | csv_upload
+  totalRows: integer("total_rows").default(0),
+  stagedCount: integer("staged_count").default(0),
+  duplicateCount: integer("duplicate_count").default(0),
+  suppressedCount: integer("suppressed_count").default(0),
+  invalidCount: integer("invalid_count").default(0),
+  status: text("status").notNull().default("processing"), // processing | completed | failed
+  errorMessage: text("error_message"),
+  importedBy: text("imported_by"),
+  importedAt: timestamp("imported_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export type MasterLeadBatch = typeof masterLeadBatches.$inferSelect;
+export type InsertMasterLeadBatch = typeof masterLeadBatches.$inferInsert;
+
+export const masterLeads = pgTable("master_leads", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  importBatchId: uuid("import_batch_id").references(() => masterLeadBatches.id),
+  status: text("status").notNull().default("staged"), // staged | duplicate | suppressed | invalid
+
+  // Source columns (verbatim from sheet)
+  company: text("company"),
+  normalizedCompany: text("normalized_company"),
+  domain: text("domain"),
+  email: text("email"),
+  emailType: text("email_type"),
+  phone: text("phone"),
+  normalizedPhone: text("normalized_phone"),
+  contactName: text("contact_name"),
+  contactTitle: text("contact_title"),
+  vertical: text("vertical"),
+  qualityScore: real("quality_score"),
+  fitTier: text("fit_tier"),
+  outreachReadiness: text("outreach_readiness"),
+  readinessReason: text("readiness_reason"),
+  source: text("source"),
+  sourcePath: text("source_path"),
+  sourceModifiedDate: text("source_modified_date"),
+
+  // Provenance
+  sheetId: text("sheet_id"),
+  sheetName: text("sheet_name"),
+  tabName: text("tab_name"),
+  rowNumber: integer("row_number"),
+
+  // Dedup / suppression metadata
+  canonicalLeadId: uuid("canonical_lead_id"),
+  duplicateOfId: uuid("duplicate_of_id").references((): any => masterLeads.id),
+  suppressionReason: text("suppression_reason"),
+
+  importedAt: timestamp("imported_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("master_leads_batch_id_idx").on(table.importBatchId),
+  index("master_leads_domain_idx").on(table.domain),
+  index("master_leads_email_idx").on(table.email),
+  index("master_leads_status_idx").on(table.status),
+]);

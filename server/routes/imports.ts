@@ -2135,4 +2135,184 @@ Guidelines:
     }
   });
 
+  // ============================================================
+  // MASTER LEAD DATABASE — staged import pipeline (Task 1052)
+  // ============================================================
+
+  // Attempt to read a Google Sheet via Sheets API (proxy through google-drive connector).
+  // Returns rows if successful; returns { apiError } if access fails.
+  app.post("/api/master-leads/try-sheets-api", isAuthenticated, async (req, res) => {
+    if ((req.user as any)?.role !== "admin") return res.status(403).json({ message: "Admin only" });
+    const { sheetId, tabName = "CRM Staging" } = req.body;
+    if (!sheetId || typeof sheetId !== "string") {
+      return res.status(400).json({ message: "sheetId is required" });
+    }
+    try {
+      const { fetchSheetViaApi } = await import("../services/master-lead-import");
+      const { rows, headers } = await fetchSheetViaApi(sheetId, tabName);
+      res.json({ success: true, rowCount: rows.length, headers, preview: rows.slice(0, 3) });
+    } catch (err: any) {
+      console.warn("[MasterLeadImport] Sheets API attempt failed:", err.message);
+      res.json({
+        success: false,
+        apiError: err.message || "Unknown error accessing Google Sheets API",
+      });
+    }
+  });
+
+  // Trigger full import from Google Sheets API (async, fires in background)
+  app.post("/api/master-leads/import-from-sheet", isAuthenticated, async (req, res) => {
+    if ((req.user as any)?.role !== "admin") return res.status(403).json({ message: "Admin only" });
+    const { sheetId, sheetName, tabName = "CRM Staging" } = req.body;
+    if (!sheetId) return res.status(400).json({ message: "sheetId required" });
+    try {
+      const { fetchSheetViaApi, processMasterLeadBatch } = await import("../services/master-lead-import");
+      const { masterLeadBatches } = await import("@shared/schema");
+      const batchName = sheetName || `Liberty Bancard Priority Domain Enrichment - ${new Date().toISOString().slice(0, 10)}`;
+      const [batch] = await db.insert(masterLeadBatches).values({
+        batchName,
+        sheetId,
+        sheetName: batchName,
+        tabName,
+        sourceMethod: "sheets_api",
+        status: "processing",
+        importedBy: String((req.user as any)?.id ?? "admin"),
+      }).returning();
+      res.json({ batchId: batch.id, message: "Import started", batchName });
+      // Fire-and-forget background import
+      (async () => {
+        try {
+          const { rows } = await fetchSheetViaApi(sheetId, tabName);
+          await processMasterLeadBatch(batch.id, rows, { sheetId, sheetName: batchName, tabName });
+        } catch (err: any) {
+          console.error("[MasterLeadImport] Sheet import failed:", err.message);
+          const { eq } = await import("drizzle-orm");
+          const { masterLeadBatches: mlb } = await import("@shared/schema");
+          await db.update(mlb).set({ status: "failed", errorMessage: err.message }).where(eq(mlb.id, batch.id));
+        }
+      })().catch(console.error);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Import from uploaded CSV/Excel (fallback path when Sheets API is unavailable)
+  app.post("/api/master-leads/import-csv", isAuthenticated, uploadLarge.single("file"), async (req, res) => {
+    if ((req.user as any)?.role !== "admin") return res.status(403).json({ message: "Admin only" });
+    if (!req.file) return res.status(400).json({ message: "No file uploaded" });
+
+    const filePath = req.file.path;
+    const fileName = req.file.originalname || "upload.csv";
+    const isExcel = /\.(xlsx|xls)$/i.test(fileName);
+
+    let csvContent: string;
+    try {
+      if (isExcel) {
+        const workbook = XLSX.readFile(filePath, { cellDates: true });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        if (!sheet) throw new Error("Excel file has no sheets");
+        csvContent = XLSX.utils.sheet_to_csv(sheet);
+      } else {
+        csvContent = fs.readFileSync(filePath, "utf-8");
+      }
+    } catch (err: any) {
+      try { fs.unlinkSync(filePath); } catch {}
+      return res.status(400).json({ message: `Could not read uploaded file: ${err.message}` });
+    } finally {
+      try { fs.unlinkSync(filePath); } catch {}
+    }
+
+    const records = parse(csvContent, {
+      columns: true,
+      skip_empty_lines: true,
+      trim: true,
+      relax_column_count: true,
+      relax_quotes: true,
+    }) as Record<string, string>[];
+
+    if (records.length === 0) {
+      return res.status(400).json({ message: "File is empty or could not be parsed" });
+    }
+
+    try {
+      const { processMasterLeadBatch } = await import("../services/master-lead-import");
+      const { masterLeadBatches } = await import("@shared/schema");
+      const sheetName = (req.body.sheetName as string) || "Liberty Bancard Priority Domain Enrichment - 2026-07-20";
+      const tabName = (req.body.tabName as string) || "CRM Staging";
+      const [batch] = await db.insert(masterLeadBatches).values({
+        batchName: fileName,
+        sheetName,
+        tabName,
+        sourceMethod: "csv_upload",
+        status: "processing",
+        totalRows: records.length,
+        importedBy: String((req.user as any)?.id ?? "admin"),
+      }).returning();
+
+      res.json({ batchId: batch.id, message: "Import started", totalRows: records.length });
+
+      // Fire-and-forget
+      (async () => {
+        try {
+          await processMasterLeadBatch(batch.id, records, {
+            sheetName,
+            tabName,
+          });
+        } catch (err: any) {
+          console.error("[MasterLeadImport] CSV import failed:", err.message);
+          const { eq } = await import("drizzle-orm");
+          const { masterLeadBatches: mlb } = await import("@shared/schema");
+          await db.update(mlb).set({ status: "failed", errorMessage: err.message }).where(eq(mlb.id, batch.id));
+        }
+      })().catch(console.error);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // List all master lead batches
+  app.get("/api/master-leads/batches", isAuthenticated, async (req, res) => {
+    if ((req.user as any)?.role !== "admin") return res.status(403).json({ message: "Admin only" });
+    try {
+      const { masterLeadBatches } = await import("@shared/schema");
+      const { desc } = await import("drizzle-orm");
+      const batches = await db.select().from(masterLeadBatches).orderBy(desc(masterLeadBatches.createdAt)).limit(50);
+      res.json(batches);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Get a single batch status + counts
+  app.get("/api/master-leads/batches/:id", isAuthenticated, async (req, res) => {
+    if ((req.user as any)?.role !== "admin") return res.status(403).json({ message: "Admin only" });
+    try {
+      const { masterLeadBatches } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      const [batch] = await db.select().from(masterLeadBatches).where(eq(masterLeadBatches.id, req.params.id));
+      if (!batch) return res.status(404).json({ message: "Batch not found" });
+      res.json(batch);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // List staged leads for a batch
+  app.get("/api/master-leads/batches/:id/leads", isAuthenticated, async (req, res) => {
+    if ((req.user as any)?.role !== "admin") return res.status(403).json({ message: "Admin only" });
+    try {
+      const { masterLeads } = await import("@shared/schema");
+      const { eq, and } = await import("drizzle-orm");
+      const status = (req.query.status as string) || "staged";
+      const limit = Math.min(Number(req.query.limit) || 100, 500);
+      const offset = Number(req.query.offset) || 0;
+      const rows = await db.select().from(masterLeads)
+        .where(and(eq(masterLeads.importBatchId, req.params.id), eq(masterLeads.status, status as any)))
+        .limit(limit).offset(offset);
+      res.json(rows);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
 }
