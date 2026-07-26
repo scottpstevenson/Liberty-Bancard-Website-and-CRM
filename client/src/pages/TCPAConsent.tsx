@@ -6,7 +6,7 @@ import { Link } from "wouter";
 
 export default function TCPAConsent() {
   return (
-    <div className="min-h-screen flex flex-col font-body">
+    <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO
         title="TCPA Consent Policy | Liberty Bancard"
         description="Liberty Bancard TCPA consent policy for telephone calls and text messages. Understand your rights under the Telephone Consumer Protection Act."

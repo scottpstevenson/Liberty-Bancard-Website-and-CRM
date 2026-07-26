@@ -217,7 +217,7 @@ export default function RateComparison() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col font-body">
+    <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO
         title="Compare Payment Processor Rates"
         description="Compare payment processing fees and features. See how Liberty Bancard interchange-plus pricing stacks up against Square, Stripe, Clover, and Toast."

@@ -245,7 +245,7 @@ export default function GetStarted() {
   if (submitted) {
     const RecIcon = recommendation.icon;
     return (
-      <div className="min-h-screen flex flex-col font-body">
+      <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
         <Navbar />
         <main className="marketing-surface flex-grow pt-28" ref={resultsRef}>
           <section className="marketing-surface relative overflow-hidden bg-background border-b border-border" data-testid="section-get-started-results-hero">
@@ -376,7 +376,7 @@ export default function GetStarted() {
   ];
 
   return (
-    <div className="min-h-screen flex flex-col font-body">
+    <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO title="Get Started - Free Statement Analysis" description="Answer a few questions and get a personalized processing recommendation. Free statement review, no obligation." path="/get-started" breadcrumbs={[{ name: "Get Started", path: "/get-started" }]} />
       <Navbar />
       <main className="marketing-surface flex-grow pt-28">

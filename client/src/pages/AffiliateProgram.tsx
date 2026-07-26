@@ -328,7 +328,7 @@ export default function AffiliateProgram() {
 
   if (view === "dashboard" && stats) {
     return (
-      <div className="min-h-screen flex flex-col font-body">
+      <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
         <SEO title="Affiliate Dashboard" description="Track your referrals and earnings" path="/affiliate" noindex={true} />
         <Navbar />
         <main className="flex-grow pt-28 pb-16">
@@ -798,7 +798,7 @@ export default function AffiliateProgram() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col font-body">
+    <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO
         title="Affiliate Program — Earn Commissions Referring Merchants"
         description="Join the Liberty Bancard Affiliate Program. Earn commissions and monthly residuals by referring businesses to our payment processing solutions. Free to join."

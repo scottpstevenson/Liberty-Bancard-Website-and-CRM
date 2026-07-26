@@ -578,7 +578,7 @@ export default function IndustryPage() {
 
   if (!industry) {
     return (
-      <div className="min-h-screen flex flex-col font-body">
+      <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
         <Navbar />
         <main className="flex-grow pt-28 flex items-center justify-center">
           <div className="text-center">
@@ -632,7 +632,7 @@ export default function IndustryPage() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col font-body">
+    <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO
         title={industry.metaTitle}
         description={industry.metaDescription}

@@ -197,7 +197,7 @@ const bookkeeperFaqJsonLd = {
 
 export default function PartnerBookkeeper() {
   return (
-    <div className="min-h-screen flex flex-col font-body">
+    <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO
         title="Bookkeeper Partner Program — Earn 30% Residuals | Liberty Bancard"
         description="Bookkeepers: you see your clients' processing fees every month. Refer them to Liberty Bancard for a free statement review and earn 30% monthly residuals — no sales required."

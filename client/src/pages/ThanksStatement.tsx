@@ -172,7 +172,7 @@ export default function ThanksStatement() {
   useEffect(() => { trackThankYouPageView("statement_upload"); }, []);
 
   return (
-    <div className="min-h-screen flex flex-col font-body">
+    <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO title="Statement Received" description="We received your processing statement. Liberty Bancard will deliver your free line-by-line analysis during business hours." path="/thanks-statement" noindex />
       <Navbar />
       <main className="flex-grow pt-28">

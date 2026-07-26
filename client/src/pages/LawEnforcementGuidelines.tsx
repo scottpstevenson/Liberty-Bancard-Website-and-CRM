@@ -5,7 +5,7 @@ import { Mail, Phone } from "lucide-react";
 
 export default function LawEnforcementGuidelines() {
   return (
-    <div className="min-h-screen flex flex-col font-body">
+    <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO title="Law Enforcement & Subpoena Guidelines" description="Liberty Bancard guidelines for law enforcement agencies and legal process for data and records requests." path="/law-enforcement" />
       <Navbar />
       <main className="flex-grow pt-16">

@@ -398,7 +398,7 @@ export default function PartnerPortal() {
     const nextPayment = kpis.nextPaymentDate ? new Date(kpis.nextPaymentDate).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : "—";
 
     return (
-      <div className="min-h-screen flex flex-col font-body">
+      <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
         <SEO title="Partner Dashboard | Liberty Bancard" description="Your Liberty Bancard partner dashboard" path="/partner-portal" noindex={true} />
         <Navbar />
         <main className="flex-grow pt-28 pb-16">
@@ -742,7 +742,7 @@ export default function PartnerPortal() {
 
   if (view === "forgot") {
     return (
-      <div className="min-h-screen flex flex-col font-body">
+      <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
         <SEO title="Forgot Password | Partner Portal" description="Reset your Liberty Bancard partner password" path="/partner-portal" noindex={true} />
         <Navbar />
         <main className="flex-grow pt-28 pb-16">
@@ -815,7 +815,7 @@ export default function PartnerPortal() {
 
   if (view === "reset") {
     return (
-      <div className="min-h-screen flex flex-col font-body">
+      <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
         <SEO title="Reset Password | Partner Portal" description="Set a new password for your Liberty Bancard partner account" path="/partner-portal" noindex={true} />
         <Navbar />
         <main className="flex-grow pt-28 pb-16">
@@ -897,7 +897,7 @@ export default function PartnerPortal() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col font-body">
+    <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO title="Partner Portal Login | Liberty Bancard" description="Log in to your Liberty Bancard partner dashboard" path="/partner-portal" noindex={true} />
       <Navbar />
       <main className="flex-grow pt-28 pb-16">

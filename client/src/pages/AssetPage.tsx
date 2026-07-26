@@ -1153,7 +1153,7 @@ export default function AssetPage() {
   const content = contentMap[path];
 
   return (
-    <div className="min-h-screen flex flex-col font-body">
+    <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO title="Sales Asset" description="Liberty Bancard sales enablement asset for prospect education and proposal walkthroughs." path="/assets" noindex />
       <Navbar />
       <main className="flex-grow pt-28 pb-16">

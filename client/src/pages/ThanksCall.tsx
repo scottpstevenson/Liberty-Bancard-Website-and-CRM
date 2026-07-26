@@ -13,7 +13,7 @@ export default function ThanksCall() {
   useEffect(() => { trackThankYouPageView("book_call"); }, []);
 
   return (
-    <div className="min-h-screen flex flex-col font-body">
+    <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO title="Callback Request Received" description="We received your callback request. A Liberty Bancard payments specialist will reach out shortly during business hours." path="/thanks-call" noindex />
       <Navbar />
       <main className="flex-grow pt-16">

@@ -6,7 +6,7 @@ import { Link } from "wouter";
 
 export default function SurchargingDisclosure() {
   return (
-    <div className="min-h-screen flex flex-col font-body">
+    <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO title="Surcharging & Cash Discount Disclosures" description="Liberty Bancard surcharging and cash discount program disclosures, state-by-state compliance, and card brand requirements." path="/surcharging-disclosure" />
       <Navbar />
       <main className="flex-grow pt-16">

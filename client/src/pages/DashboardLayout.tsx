@@ -381,6 +381,8 @@ function TwoFaBanner({ role }: { role: UserRole }) {
   );
 }
 
+const MOBILE_REDIRECT_KEY = "desktop_preferred";
+
 export function DashboardLayout({ children }: DashboardLayoutProps) {
   const [location, setLocation] = useLocation();
   const isMobile = useIsMobile();

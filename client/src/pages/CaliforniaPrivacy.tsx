@@ -6,7 +6,7 @@ import { Link } from "wouter";
 
 export default function CaliforniaPrivacy() {
   return (
-    <div className="min-h-screen flex flex-col font-body">
+    <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO
         title="California Privacy Rights (CCPA/CPRA)"
         description="Liberty Bancard California Consumer Privacy Act (CCPA) and California Privacy Rights Act (CPRA) disclosure. Your privacy rights as a California resident."

@@ -6,7 +6,7 @@ import { Link } from "wouter";
 
 export default function RefundPolicy() {
   return (
-    <div className="min-h-screen flex flex-col font-body">
+    <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO
         title="Refund & Cancellation Policy | Liberty Bancard"
         description="Liberty Bancard refund and cancellation policy. Understand our policies for account cancellation, early termination, equipment returns, and fee refunds."

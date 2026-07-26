@@ -6,7 +6,7 @@ import { Link } from "wouter";
 
 export default function TestimonialsDisclosure() {
   return (
-    <div className="min-h-screen flex flex-col font-body">
+    <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO title="Testimonials & Reviews Disclosure" description="Liberty Bancard FTC testimonials and reviews disclosure. Understand how we use customer testimonials and endorsements." path="/testimonials-disclosure" />
       <Navbar />
       <main className="flex-grow pt-16">

@@ -6,7 +6,7 @@ import { Link } from "wouter";
 
 export default function SmsTerms() {
   return (
-    <div className="min-h-screen flex flex-col font-body">
+    <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO title="SMS Terms & Conditions | Liberty Bancard" description="Liberty Bancard SMS text messaging terms and conditions. Covers carrier compliance, message frequency, opt-out instructions, and applicable data rates." path="/sms-terms" />
       <Navbar />
       <main className="flex-grow pt-16">

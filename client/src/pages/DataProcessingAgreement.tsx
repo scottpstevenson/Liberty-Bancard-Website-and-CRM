@@ -6,7 +6,7 @@ import { Link } from "wouter";
 
 export default function DataProcessingAgreement() {
   return (
-    <div className="min-h-screen flex flex-col font-body">
+    <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO title="Data Processing Agreement (DPA)" description="Liberty Bancard Data Processing Agreement for GDPR and international data protection law compliance. Outlines how we process and protect personal data." path="/data-processing-agreement" />
       <Navbar />
       <main className="flex-grow pt-16">

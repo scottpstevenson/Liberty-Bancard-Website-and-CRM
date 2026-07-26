@@ -198,7 +198,7 @@ export default function SavingsCalculator() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col font-body">
+    <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO
         title="Credit Card Processing Savings Calculator"
         description="Calculate your credit card processing savings. Enter monthly volume and current rate to see estimated savings with Liberty Bancard's interchange-plus pricing."

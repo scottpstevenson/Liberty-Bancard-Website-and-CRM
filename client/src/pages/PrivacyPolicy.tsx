@@ -6,7 +6,7 @@ import { Link } from "wouter";
 
 export default function PrivacyPolicy() {
   return (
-    <div className="min-h-screen flex flex-col font-body">
+    <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO title="Privacy Policy | Liberty Bancard" description="Liberty Bancard privacy policy. How we collect, use, and protect your information under GDPR, CCPA, and international data protection laws." path="/privacy-policy" />
       <Navbar />
       <main className="flex-grow pt-16">

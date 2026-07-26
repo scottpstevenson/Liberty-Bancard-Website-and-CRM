@@ -164,7 +164,7 @@ export default function Home() {
   }, [effectiveRate, volume]);
 
   return (
-    <div className="min-h-screen flex flex-col font-body">
+    <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO title="Merchant Payment Processing | Liberty Bancard" description="Liberty Bancard — credit card processing and merchant services for South Florida businesses. Transparent rates, free statement review, no hidden fees." path="/" keywords="payment processing, merchant services, credit card processing, statement review, interchange plus pricing, wholesale rates" structuredData={[getLocalBusinessSchema(), getWebSiteSchema()]} />
       <Navbar />
       <WelcomePopup />

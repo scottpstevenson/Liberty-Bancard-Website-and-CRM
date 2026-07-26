@@ -293,7 +293,7 @@ export default function ISOPartnerProgram() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col font-body">
+    <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO
         title="ISO & Partner Program — Earn Residuals | Liberty Bancard"
         description="Join the Liberty Bancard ISO and partner program. Earn 30–50% residual income for every merchant you refer. Designed for ISOs, CPAs, bookkeepers, consultants, and financial advisors."

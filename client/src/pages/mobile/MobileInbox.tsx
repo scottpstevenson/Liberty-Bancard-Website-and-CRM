@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { Search, MessageSquare, Loader2, Send, ChevronLeft, User, Clock } from "lucide-react";
+import { Search, MessageSquare, Loader2, Send, ChevronLeft, Clock } from "lucide-react";
 
 function timeAgo(ts: string | null | undefined): string {
   if (!ts) return "";
@@ -16,6 +16,19 @@ function timeAgo(ts: string | null | undefined): string {
 
 function stripHtml(html: string): string {
   return html?.replace(/<[^>]*>/g, "").trim() || "";
+}
+
+const AVATAR_COLORS = [
+  "bg-blue-500", "bg-purple-500", "bg-green-500", "bg-orange-500",
+  "bg-pink-500", "bg-teal-500", "bg-indigo-500", "bg-red-500",
+];
+function avatarColor(name: string): string {
+  let hash = 0;
+  for (const c of name) hash = (hash * 31 + c.charCodeAt(0)) % AVATAR_COLORS.length;
+  return AVATAR_COLORS[Math.abs(hash)];
+}
+function getInitials(name: string): string {
+  return name.trim().split(" ").map((p) => p[0] || "").slice(0, 2).join("").toUpperCase();
 }
 
 interface InboxItem {
@@ -59,6 +72,9 @@ function ThreadView({ item, onBack }: { item: InboxItem; onBack: () => void }) {
   });
 
   const body = stripHtml(fullItem?.body || fullItem?.preview || item.preview || "");
+  const name = item.contactName || "Unknown";
+  const color = avatarColor(name);
+  const initials = getInitials(name);
 
   return (
     <div className="flex flex-col h-full">
@@ -66,15 +82,20 @@ function ThreadView({ item, onBack }: { item: InboxItem; onBack: () => void }) {
         className="bg-white dark:bg-gray-900 px-4 pb-3 border-b border-gray-100 dark:border-gray-800 sticky top-0 z-10"
         style={{ paddingTop: "calc(env(safe-area-inset-top) + 12px)" }}
       >
+        <button
+          data-testid="button-back-inbox"
+          onClick={onBack}
+          className="flex items-center gap-1 text-blue-600 mb-2 active:opacity-70"
+        >
+          <ChevronLeft className="w-5 h-5" />
+          <span className="text-sm">Inbox</span>
+        </button>
         <div className="flex items-center gap-3">
-          <button data-testid="button-back-inbox" onClick={onBack}
-            className="w-8 h-8 flex items-center justify-center text-gray-500 -ml-1">
-            <ChevronLeft className="w-5 h-5" />
-          </button>
+          <div className={`w-9 h-9 rounded-full ${color} flex items-center justify-center shrink-0`}>
+            <span className="text-white text-xs font-semibold">{initials}</span>
+          </div>
           <div className="flex-1 min-w-0">
-            <div className="font-semibold text-gray-900 dark:text-white text-sm truncate">
-              {item.contactName || "Unknown"}
-            </div>
+            <div className="font-semibold text-gray-900 dark:text-white text-sm truncate">{name}</div>
             <div className="text-xs text-gray-400 truncate">{item.subject || "No subject"}</div>
           </div>
         </div>
@@ -88,11 +109,11 @@ function ThreadView({ item, onBack }: { item: InboxItem; onBack: () => void }) {
         ) : (
           <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 border border-gray-100 dark:border-gray-700">
             <div className="flex items-center gap-2 mb-3">
-              <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center shrink-0">
-                <User className="w-4 h-4 text-white" />
+              <div className={`w-8 h-8 rounded-full ${color} flex items-center justify-center shrink-0`}>
+                <span className="text-white text-xs font-semibold">{initials}</span>
               </div>
               <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium text-gray-900 dark:text-white">{item.contactName || "Unknown"}</div>
+                <div className="text-sm font-medium text-gray-900 dark:text-white">{name}</div>
                 <div className="text-xs text-gray-400">{timeAgo(item.createdAt)}</div>
               </div>
             </div>
@@ -108,12 +129,20 @@ function ThreadView({ item, onBack }: { item: InboxItem; onBack: () => void }) {
           className="bg-white dark:bg-gray-900 border-t border-gray-100 dark:border-gray-800 px-4 py-3 flex gap-2 items-end"
           style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 12px)" }}
         >
-          <textarea data-testid="input-inbox-reply" value={reply}
-            onChange={(e) => setReply(e.target.value)} placeholder="Reply via email..." rows={2}
-            className="flex-1 resize-none rounded-xl bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 border-0" />
-          <button data-testid="button-send-reply" onClick={() => sendMutation.mutate()}
+          <textarea
+            data-testid="input-inbox-reply"
+            value={reply}
+            onChange={(e) => setReply(e.target.value)}
+            placeholder="Reply via email..."
+            rows={2}
+            className="flex-1 resize-none rounded-xl bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 border-0"
+          />
+          <button
+            data-testid="button-send-reply"
+            onClick={() => sendMutation.mutate()}
             disabled={!reply.trim() || sendMutation.isPending}
-            className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center disabled:opacity-40 active:scale-90 transition-transform shrink-0">
+            className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center disabled:opacity-40 active:scale-90 transition-transform shrink-0"
+          >
             {sendMutation.isPending
               ? <Loader2 className="w-4 h-4 text-white animate-spin" />
               : <Send className="w-4 h-4 text-white" />}
@@ -162,9 +191,14 @@ export default function MobileInbox() {
         </div>
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-          <input data-testid="input-search-inbox" type="search" value={search}
-            onChange={(e) => setSearch(e.target.value)} placeholder="Search inbox..."
-            className="w-full pl-9 pr-4 py-2.5 rounded-xl bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 border-0" />
+          <input
+            data-testid="input-search-inbox"
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search inbox..."
+            className="w-full pl-9 pr-4 py-2.5 rounded-xl bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 border-0"
+          />
         </div>
       </div>
 
@@ -182,39 +216,47 @@ export default function MobileInbox() {
           </div>
         ) : (
           <div className="bg-white dark:bg-gray-800 divide-y divide-gray-100 dark:divide-gray-700">
-            {filtered.map((item) => (
-              <div key={item.id} data-testid={`inbox-item-${item.id}`} onClick={() => setSelected(item)}
-                className={`flex items-start gap-3 px-4 py-3.5 cursor-pointer active:bg-gray-50 dark:active:bg-gray-700 ${
-                  !item.isRead ? "bg-blue-50/50 dark:bg-blue-900/10" : ""}`}>
-                <div className="w-9 h-9 rounded-full bg-blue-500 flex items-center justify-center shrink-0 mt-0.5">
-                  <span className="text-white text-xs font-semibold">
-                    {((item.contactName || "?")[0] || "?").toUpperCase()}
-                  </span>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className={`text-sm truncate ${!item.isRead
-                      ? "font-semibold text-gray-900 dark:text-white"
-                      : "font-medium text-gray-700 dark:text-gray-300"}`}>
-                      {item.contactName || "Unknown"}
-                    </span>
-                    <span className="text-xs text-gray-400 shrink-0 flex items-center gap-1">
-                      <Clock className="w-3 h-3" />{timeAgo(item.updatedAt || item.createdAt)}
-                    </span>
+            {filtered.map((item) => {
+              const name = item.contactName || "Unknown";
+              const color = avatarColor(name);
+              const initials = getInitials(name);
+              return (
+                <div
+                  key={item.id}
+                  data-testid={`inbox-item-${item.id}`}
+                  onClick={() => setSelected(item)}
+                  className={`flex items-start gap-3 px-4 py-3.5 cursor-pointer active:bg-gray-50 dark:active:bg-gray-700 ${
+                    !item.isRead ? "bg-blue-50/50 dark:bg-blue-900/10" : ""
+                  }`}
+                >
+                  <div className={`w-9 h-9 rounded-full ${color} flex items-center justify-center shrink-0 mt-0.5`}>
+                    <span className="text-white text-xs font-semibold">{initials}</span>
                   </div>
-                  <div className={`text-xs truncate mt-0.5 ${!item.isRead
-                    ? "text-gray-800 dark:text-gray-200" : "text-gray-500 dark:text-gray-400"}`}>
-                    {item.subject || "(No subject)"}
-                  </div>
-                  {item.preview && (
-                    <div className="text-xs text-gray-400 dark:text-gray-500 truncate mt-0.5">
-                      {stripHtml(item.preview).slice(0, 80)}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className={`text-sm truncate ${!item.isRead
+                        ? "font-semibold text-gray-900 dark:text-white"
+                        : "font-medium text-gray-700 dark:text-gray-300"}`}>
+                        {name}
+                      </span>
+                      <span className="text-xs text-gray-400 shrink-0 flex items-center gap-1">
+                        <Clock className="w-3 h-3" />{timeAgo(item.updatedAt || item.createdAt)}
+                      </span>
                     </div>
-                  )}
+                    <div className={`text-xs truncate mt-0.5 ${!item.isRead
+                      ? "text-gray-800 dark:text-gray-200" : "text-gray-500 dark:text-gray-400"}`}>
+                      {item.subject || "(No subject)"}
+                    </div>
+                    {item.preview && (
+                      <div className="text-xs text-gray-400 dark:text-gray-500 truncate mt-0.5">
+                        {stripHtml(item.preview).slice(0, 80)}
+                      </div>
+                    )}
+                  </div>
+                  {!item.isRead && <div className="w-2 h-2 rounded-full bg-blue-500 shrink-0 mt-2" />}
                 </div>
-                {!item.isRead && <div className="w-2 h-2 rounded-full bg-blue-500 shrink-0 mt-2" />}
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

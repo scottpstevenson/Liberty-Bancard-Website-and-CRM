@@ -67,7 +67,7 @@ export default function DataRetention() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col font-body">
+    <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO title="Data Retention & Deletion Policy" description="Liberty Bancard data retention periods and how to request data deletion, access, correction, or portability." path="/data-retention" />
       <Navbar />
       <main className="flex-grow pt-16">

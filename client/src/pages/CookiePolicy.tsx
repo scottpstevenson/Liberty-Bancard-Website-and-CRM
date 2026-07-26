@@ -5,7 +5,7 @@ import { Mail, Phone } from "lucide-react";
 
 export default function CookiePolicy() {
   return (
-    <div className="min-h-screen flex flex-col font-body">
+    <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO title="Cookie Policy | Liberty Bancard" description="Liberty Bancard cookie policy explains how we use cookies and similar tracking technologies. Learn how to manage your preferences and opt-out options." path="/cookie-policy" />
       <Navbar />
       <main className="flex-grow pt-16">

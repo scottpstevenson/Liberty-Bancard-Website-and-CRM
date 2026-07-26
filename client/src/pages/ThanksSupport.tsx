@@ -12,7 +12,7 @@ export default function ThanksSupport() {
   useEffect(() => { trackThankYouPageView("support_request"); }, []);
 
   return (
-    <div className="min-h-screen flex flex-col font-body">
+    <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO title="Support Request Received" description="We received your Liberty Bancard support request. A real human will respond shortly during business hours." path="/thanks-support" noindex />
       <Navbar />
       <main className="flex-grow pt-28">

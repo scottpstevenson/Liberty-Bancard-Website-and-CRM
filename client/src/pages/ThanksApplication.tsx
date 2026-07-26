@@ -73,7 +73,7 @@ export default function ThanksApplication() {
   ];
 
   return (
-    <div className="min-h-screen flex flex-col font-body">
+    <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO title="Application Received" description="We received your Liberty Bancard merchant application. Our underwriting team will reach out within one business day with next steps." path="/thanks/application" noindex />
       <Navbar />
       <main className="flex-grow pt-28">

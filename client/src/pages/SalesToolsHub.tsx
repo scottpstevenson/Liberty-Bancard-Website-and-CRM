@@ -200,7 +200,7 @@ export default function SalesToolsHub() {
   });
 
   return (
-    <div className="min-h-screen flex flex-col font-body">
+    <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO
         title="Sales Tools Hub — Liberty Bancard"
         description="All merchant-facing sales tools in one place. Share calculator links, comparison pages, and conversion tools with prospects using UTM-tracked URLs."

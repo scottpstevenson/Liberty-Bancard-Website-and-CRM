@@ -198,7 +198,7 @@ const cpaFaqJsonLd = {
 
 export default function PartnerCPA() {
   return (
-    <div className="min-h-screen flex flex-col font-body">
+    <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO
         title="CPA Partner Program — Earn 30% Lifetime Residuals | Liberty Bancard"
         description="CPAs: your clients are overpaying on credit card processing fees. Refer them to Liberty Bancard and earn 30% lifetime residual income every month — no sales effort required."

@@ -5,7 +5,7 @@ import { Mail, Phone } from "lucide-react";
 
 export default function ESignConsent() {
   return (
-    <div className="min-h-screen flex flex-col font-body">
+    <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO title="E-Sign Consent & Electronic Communications" description="Liberty Bancard electronic signature consent and electronic communications disclosure under the E-Sign Act." path="/esign-consent" />
       <Navbar />
       <main className="flex-grow pt-16">

@@ -6,7 +6,7 @@ import { Link } from "wouter";
 
 export default function DisputeResolution() {
   return (
-    <div className="min-h-screen flex flex-col font-body">
+    <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO title="Dispute Resolution - How to File a Dispute" description="Liberty Bancard dispute resolution process. Learn how to file a complaint, our response timeline, and how arbitration works for merchant disputes." path="/dispute-resolution" />
       <Navbar />
       <main className="flex-grow pt-16">

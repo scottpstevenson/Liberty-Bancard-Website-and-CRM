@@ -1142,7 +1142,8 @@ export default function ContactDetail() {
             )}
           </div>
 
-          <div className="flex gap-2 flex-wrap">
+          {/* Desktop action buttons — hidden on mobile (mobile uses sticky bottom bar) */}
+          <div className="hidden sm:flex gap-2 flex-wrap">
             <Button
               variant="outline"
               onClick={() => {
@@ -1417,10 +1418,58 @@ export default function ContactDetail() {
         </Button>
       </div>
 
+      {/* Mobile sticky action bar — only visible on small screens */}
+      <div className="fixed bottom-0 left-0 right-0 z-40 block sm:hidden bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 px-4 py-2 flex items-center gap-2" style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 8px)" }}>
+        <button
+          onClick={() => setEmailComposerOpen(true)}
+          className="flex-1 flex flex-col items-center justify-center gap-0.5 min-h-[44px] text-blue-600 dark:text-blue-400 active:opacity-70"
+          data-testid="mobile-action-email"
+        >
+          <Mail className="h-5 w-5" />
+          <span className="text-[10px] font-medium">Email</span>
+        </button>
+        <button
+          onClick={startEdit}
+          className="flex-1 flex flex-col items-center justify-center gap-0.5 min-h-[44px] text-gray-600 dark:text-gray-400 active:opacity-70"
+          data-testid="mobile-action-edit"
+        >
+          <Edit2 className="h-5 w-5" />
+          <span className="text-[10px] font-medium">Edit</span>
+        </button>
+        <button
+          onClick={() => setShowDealDialog(true)}
+          className="flex-1 flex flex-col items-center justify-center gap-0.5 min-h-[44px] text-gray-600 dark:text-gray-400 active:opacity-70"
+          data-testid="mobile-action-deal"
+        >
+          <TrendingUp className="h-5 w-5" />
+          <span className="text-[10px] font-medium">Deal</span>
+        </button>
+        <button
+          onClick={() => setShowTaskDialog(true)}
+          className="flex-1 flex flex-col items-center justify-center gap-0.5 min-h-[44px] text-gray-600 dark:text-gray-400 active:opacity-70"
+          data-testid="mobile-action-task"
+        >
+          <CheckSquare className="h-5 w-5" />
+          <span className="text-[10px] font-medium">Task</span>
+        </button>
+        <button
+          onClick={() => {
+            const v = contact.vertical ? encodeURIComponent(contact.vertical) : null;
+            setLocation(`/dashboard/chat${v ? `?vertical=${v}` : ""}`);
+          }}
+          className="flex-1 flex flex-col items-center justify-center gap-0.5 min-h-[44px] text-gray-600 dark:text-gray-400 active:opacity-70"
+          data-testid="mobile-action-ai"
+        >
+          <Bot className="h-5 w-5" />
+          <span className="text-[10px] font-medium">AI</span>
+        </button>
+      </div>
+
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} data-testid="contact-tabs">
-        <div className="overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0 pb-0.5">
-        <TabsList className="flex flex-nowrap h-auto gap-1 w-max" data-testid="contact-tabs-list">
+        <div className="sticky top-0 z-20 bg-background -mx-4 px-4 md:mx-0 md:px-0 pt-1 pb-1 border-b border-border/50 md:border-0 md:static md:z-auto md:bg-transparent">
+        <div className="overflow-x-auto">
+        <TabsList className="flex flex-nowrap md:flex-wrap h-auto gap-1 w-max md:w-auto" data-testid="contact-tabs-list">
           <TabsTrigger value="overview" data-testid="tab-overview">Overview</TabsTrigger>
           <TabsTrigger value="deals" data-testid="tab-deals">Deals ({deals.length})</TabsTrigger>
           <TabsTrigger value="tickets" data-testid="tab-tickets">Tickets ({tickets.length})</TabsTrigger>
@@ -1476,6 +1525,7 @@ export default function ContactDetail() {
             </TabsTrigger>
           )}
         </TabsList>
+        </div>
         </div>
 
         <TabsContent value="overview" data-testid="tab-content-overview">

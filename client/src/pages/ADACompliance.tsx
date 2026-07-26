@@ -6,7 +6,7 @@ import { Link } from "wouter";
 
 export default function ADACompliance() {
   return (
-    <div className="min-h-screen flex flex-col font-body">
+    <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO
         title="ADA & WCAG Compliance Notice | Liberty Bancard"
         description="Liberty Bancard ADA compliance and WCAG accessibility commitment. Our digital accessibility standards, accommodations, and how to request assistance."

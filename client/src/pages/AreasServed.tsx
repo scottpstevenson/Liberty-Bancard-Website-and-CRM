@@ -19,7 +19,7 @@ const breadcrumbStructuredData = {
 
 export default function AreasServed() {
   return (
-    <div className="min-h-screen flex flex-col font-body">
+    <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO
         title="Payment Processing by City & Industry | Liberty Bancard"
         description="Liberty Bancard provides transparent interchange-plus payment processing across Florida and beyond. Browse all cities and industries we serve — restaurants, retail, healthcare, salons, and auto repair."

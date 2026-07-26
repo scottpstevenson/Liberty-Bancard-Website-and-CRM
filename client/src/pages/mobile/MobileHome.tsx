@@ -245,6 +245,20 @@ export default function MobileHome() {
         </div>
       </div>
 
+      {/* Switch to desktop */}
+      <div className="px-4 mt-6 mb-2 text-center">
+        <button
+          onClick={() => {
+            localStorage.setItem("prefer_desktop", "true");
+            window.location.href = "/dashboard";
+          }}
+          className="text-xs text-gray-400 dark:text-gray-500 underline underline-offset-2 active:opacity-70"
+          data-testid="button-switch-to-desktop"
+        >
+          Switch to desktop view
+        </button>
+      </div>
+
       <MobileQuickLog open={quickLogOpen} onClose={() => setQuickLogOpen(false)} />
     </div>
   );

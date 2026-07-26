@@ -89,7 +89,7 @@ const qualifyingBusinessTypes = [
 export default function ZeroPercent() {
   const containerRef = useScrollReveal();
   return (
-    <div className="min-h-screen flex flex-col font-body">
+    <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO
         title="Liberty Zero — Pay $0 to Accept Credit Cards"
         description="Liberty Zero eliminates credit card processing costs for qualifying merchants. Compliant cash discount and surcharging programs handled the right way."

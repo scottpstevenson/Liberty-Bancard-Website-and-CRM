@@ -5,7 +5,7 @@ import { Mail, Phone } from "lucide-react";
 
 export default function SecurityCompliance() {
   return (
-    <div className="min-h-screen flex flex-col font-body">
+    <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO title="Security & Compliance - AML/KYC & PCI" description="Liberty Bancard security and compliance posture including AML/KYC procedures and PCI DSS compliance." path="/security-compliance" breadcrumbs={[{ name: "Security & Compliance", path: "/security-compliance" }]} />
       <Navbar />
       <main className="flex-grow pt-16">

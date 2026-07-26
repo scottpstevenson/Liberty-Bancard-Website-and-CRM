@@ -126,7 +126,7 @@ export default function BlogPost() {
 
   if (!post && isLoading) {
     return (
-      <div className="min-h-screen flex flex-col font-body">
+      <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
         <Navbar />
         <main className="flex-grow pt-28 flex items-center justify-center">
           <div className="text-center p-8">
@@ -140,7 +140,7 @@ export default function BlogPost() {
 
   if (!post) {
     return (
-      <div className="min-h-screen flex flex-col font-body">
+      <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
         <Navbar />
         <main className="flex-grow pt-28 flex items-center justify-center">
           <div className="text-center p-8">
@@ -170,7 +170,7 @@ export default function BlogPost() {
     .slice(0, 3);
 
   return (
-    <div className="min-h-screen flex flex-col font-body">
+    <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO
         title={post.title}
         description={post.metaDescription}

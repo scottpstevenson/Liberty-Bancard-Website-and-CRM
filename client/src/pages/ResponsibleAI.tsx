@@ -6,7 +6,7 @@ import { Link } from "wouter";
 
 export default function ResponsibleAI() {
   return (
-    <div className="min-h-screen flex flex-col font-body">
+    <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO title="Responsible AI Disclosure | Liberty Bancard" description="Liberty Bancard's responsible AI practices, transparency disclosures, and human oversight commitments for AI-powered services." path="/responsible-ai" />
       <Navbar />
       <main className="flex-grow pt-16">

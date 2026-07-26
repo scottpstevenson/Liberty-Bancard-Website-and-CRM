@@ -216,7 +216,7 @@ const insuranceFaqJsonLd = {
 
 export default function PartnerInsurance() {
   return (
-    <div className="min-h-screen flex flex-col font-body">
+    <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO
         title="Insurance Agent Partner Program — Earn 30% Residuals | Liberty Bancard"
         description="Insurance agents: your business clients are overpaying on card processing. Introduce them to Liberty Bancard's free review and earn 30% lifetime monthly residuals."

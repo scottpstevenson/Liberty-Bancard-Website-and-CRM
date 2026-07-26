@@ -6,7 +6,7 @@ import { Link } from "wouter";
 
 export default function DoNotSell() {
   return (
-    <div className="min-h-screen flex flex-col font-body">
+    <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO title="Do Not Sell or Share My Personal Information" description="Liberty Bancard California Consumer Privacy Act (CCPA/CPRA) opt-out page. Exercise your right to opt out of the sale or sharing of personal information." path="/do-not-sell" />
       <Navbar />
       <main className="flex-grow pt-16">

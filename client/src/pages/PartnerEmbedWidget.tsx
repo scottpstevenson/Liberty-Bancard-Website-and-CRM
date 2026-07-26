@@ -87,7 +87,7 @@ export default function PartnerEmbedWidget() {
   const exampleSnippet = `<div id="lb-widget"></div>\n<script src="${domain}/widget/savings-calculator.js"\n  data-ref="YOUR_CODE"\n  data-theme="light">\n<\/script>`;
 
   return (
-    <div className="min-h-screen flex flex-col font-body">
+    <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO
         title="Embed the Savings Calculator Widget — Liberty Bancard Partners"
         description="Add a free processing savings calculator to your website in one script tag. Show your clients how much they could save on merchant services. For CPA firms, bookkeepers, and ISO partners."

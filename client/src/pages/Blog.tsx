@@ -56,7 +56,7 @@ export default function Blog() {
   const hasMore = visibleCount < displayPosts.length;
 
   return (
-    <div className="min-h-screen flex flex-col font-body">
+    <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO
         title="Blog - Payment Processing Insights"
         description="Expert guides on credit card processing, merchant services, PCI compliance, and saving money on payment fees. 50+ free resources for business owners."

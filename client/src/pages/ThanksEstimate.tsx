@@ -13,7 +13,7 @@ export default function ThanksEstimate() {
   useEffect(() => { trackThankYouPageView("savings_estimate"); }, []);
 
   return (
-    <div className="min-h-screen flex flex-col font-body">
+    <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO title="Estimate Received" description="We received your processing estimate request. Liberty Bancard will follow up shortly with your custom rate breakdown." path="/thanks-estimate" noindex />
       <Navbar />
       <main className="flex-grow pt-28">

@@ -6,7 +6,7 @@ import { Link } from "wouter";
 
 export default function Terms() {
   return (
-    <div className="min-h-screen flex flex-col font-body">
+    <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO title="Terms of Service | Liberty Bancard" description="Liberty Bancard terms of service. Covers advertising disclaimers, TCPA compliance, conditions of use, and your rights when using our website." path="/terms" />
       <Navbar />
       <main className="flex-grow pt-16">

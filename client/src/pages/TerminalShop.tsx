@@ -337,7 +337,7 @@ export default function TerminalShop() {
 
   if (submitted) {
     return (
-      <div className="min-h-screen flex flex-col font-body">
+      <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
         <SEO title="Order Received" description="Your equipment order has been submitted." path="/shop" noindex={true} />
         <Navbar />
         <main className="flex-grow pt-28">
@@ -405,7 +405,7 @@ export default function TerminalShop() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col font-body">
+    <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO
         title="Payment Terminals — Buy or Lease-Free Equipment"
         description="Shop payment terminals from Clover, Dejavoo, PAX, and SwipeSimple. No leases, no hidden fees. Buy outright or get free placement with a processing agreement."

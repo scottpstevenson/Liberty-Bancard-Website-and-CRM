@@ -5,7 +5,7 @@ import { Mail, Phone } from "lucide-react";
 
 export default function AdvertisingDisclosure() {
   return (
-    <div className="min-h-screen flex flex-col font-body">
+    <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO title="Advertising & Earnings Disclosure" description="Liberty Bancard advertising and earnings disclosure. FTC-compliant disclosures on testimonials, savings claims, and affiliate or referral relationships." path="/advertising-disclosure" />
       <Navbar />
       <main className="flex-grow pt-16">

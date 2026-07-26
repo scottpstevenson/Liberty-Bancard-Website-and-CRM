@@ -3,6 +3,23 @@ import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { Search, Phone, MessageSquare, ChevronRight, Plus, Loader2, User } from "lucide-react";
 
+function formatRelativeTime(ts: string | null | undefined): string {
+  if (!ts) return "";
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) return "";
+  const diffMs = Date.now() - d.getTime();
+  const diffMin = Math.floor(diffMs / 60000);
+  const diffHr = Math.floor(diffMin / 60);
+  const diffDay = Math.floor(diffHr / 24);
+  const diffWeek = Math.floor(diffDay / 7);
+  if (diffMin < 1) return "just now";
+  if (diffMin < 60) return `${diffMin}m ago`;
+  if (diffHr < 24) return `${diffHr}h ago`;
+  if (diffDay < 7) return `${diffDay}d ago`;
+  if (diffWeek < 5) return `${diffWeek}w ago`;
+  return d.toLocaleDateString([], { month: "short", day: "numeric" });
+}
+
 const CACHE_KEY = "mobile_contacts_cache";
 
 function getCached() {
@@ -114,11 +131,18 @@ export default function MobileContacts() {
                     <div className="text-xs text-gray-500 dark:text-gray-400 line-clamp-1">
                       {contact.companyName || contact.email || contact.phone}
                     </div>
-                    {contact.status && contact.status !== "New" && (
-                      <span className="inline-block text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 px-1.5 py-0.5 rounded-full mt-0.5">
-                        {contact.status}
-                      </span>
-                    )}
+                    <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                      {contact.status && (
+                        <span className="inline-block text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 px-1.5 py-0.5 rounded-full">
+                          {contact.status}
+                        </span>
+                      )}
+                      {(contact.updatedAt || contact.lastContactedAt) && (
+                        <span className="text-[10px] text-gray-400 dark:text-gray-500">
+                          {formatRelativeTime(contact.lastContactedAt || contact.updatedAt)}
+                        </span>
+                      )}
+                    </div>
                   </div>
                   <div className="flex items-center gap-1 flex-shrink-0">
                     {contact.phone && (

@@ -5,7 +5,7 @@ import { Mail, Phone } from "lucide-react";
 
 export default function MerchantPolicies() {
   return (
-    <div className="min-h-screen flex flex-col font-body">
+    <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO title="Merchant Policies - Chargebacks, Refunds & Cancellation" description="Liberty Bancard merchant policies covering chargeback procedures, dispute resolution, refund policy, and account cancellation." path="/merchant-policies" />
       <Navbar />
       <main className="flex-grow pt-16">

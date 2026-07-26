@@ -700,7 +700,7 @@ export default function MerchantApplication() {
 
   if (submitted) {
     return (
-      <div className="min-h-screen flex flex-col font-body">
+      <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
         <Navbar />
         <main className="flex-grow pt-28">
           <section className="relative overflow-hidden" data-testid="section-application-success-hero">
@@ -815,7 +815,7 @@ export default function MerchantApplication() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col font-body">
+    <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO
         title="Apply for Merchant Payment Processing"
         description="Complete your merchant application for payment processing with Liberty Bancard. Fast approval, competitive rates, modern terminals."
