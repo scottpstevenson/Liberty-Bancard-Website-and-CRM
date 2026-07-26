@@ -403,7 +403,7 @@ export default function UnderwritingPage() {
                     />
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-1">
                       <Label htmlFor="minVol">Min Monthly Volume ($)</Label>
                       <Input
@@ -426,7 +426,7 @@ export default function UnderwritingPage() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-1">
                       <Label htmlFor="rateCeil">Effective Rate Ceiling (%)</Label>
                       <Input
@@ -453,7 +453,7 @@ export default function UnderwritingPage() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-1">
                       <Label htmlFor="cbHard">Chargeback Hard Limit (%)</Label>
                       <Input

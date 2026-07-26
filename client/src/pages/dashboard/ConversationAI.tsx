@@ -199,7 +199,7 @@ function BotContextDialog({
         </DialogHeader>
 
         <div className="space-y-5 py-2">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <Label>Display Name</Label>
               <Input value={name} onChange={e => setName(e.target.value)} data-testid="input-bot-name" />
@@ -220,7 +220,7 @@ function BotContextDialog({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4 rounded-lg border p-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 rounded-lg border p-4">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium">Active</p>
@@ -237,7 +237,7 @@ function BotContextDialog({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <Label>Auto-reply Delay (seconds)</Label>
               <Input
@@ -289,7 +289,7 @@ function BotContextDialog({
               <div className="space-y-2">
                 {faqItems.map((item, i) => (
                   <div key={i} className="flex gap-2 items-start rounded-lg border p-2">
-                    <div className="flex-1 grid grid-cols-2 gap-2">
+                    <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <Input
                         placeholder="Question"
                         value={item.question}

@@ -441,8 +441,8 @@ export default function TerminalROI() {
                     <tr key={m.id} className="border-b last:border-0" data-testid={`row-model-${m.id}`}>
                       {editModel?.id === m.id ? (
                         <td colSpan={6} className="py-3 px-3">
-                          <div className="grid grid-cols-2 gap-3">
-                            <div className="col-span-2">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div className="col-span-2 sm:col-span-2">
                               <Label className="text-xs">Name</Label>
                               <Input value={editModel.name} onChange={(e) => setEditModel({ ...editModel, name: e.target.value })} data-testid="input-edit-model-name" />
                             </div>
@@ -465,7 +465,7 @@ export default function TerminalROI() {
                               <Label className="text-xs">Our Cost ($)</Label>
                               <Input type="number" value={editModel.libertyCost} onChange={(e) => setEditModel({ ...editModel, libertyCost: Number(e.target.value) })} data-testid="input-edit-model-cost" />
                             </div>
-                            <div className="col-span-2 flex gap-2 justify-end pt-1">
+                            <div className="col-span-2 sm:col-span-2 flex gap-2 justify-end pt-1">
                               <Button size="sm" variant="outline" onClick={() => setEditModel(null)}>Cancel</Button>
                               <Button
                                 size="sm"
@@ -514,8 +514,8 @@ export default function TerminalROI() {
 
             <div className="border rounded-lg p-4 space-y-3 bg-muted/20">
               <h4 className="text-sm font-semibold flex items-center gap-1.5"><Plus className="w-4 h-4" /> Add New Model</h4>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="col-span-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="col-span-2 sm:col-span-2">
                   <Label className="text-xs">Name</Label>
                   <Input value={newModelForm.name} onChange={(e) => setNewModelForm({ ...newModelForm, name: e.target.value })} placeholder="e.g. Clover Flex 3" data-testid="input-new-model-name" />
                 </div>
