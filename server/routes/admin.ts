@@ -2465,6 +2465,27 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // ── Full 25-subsystem Launch Readiness Audit ────────────────────────────────
+  app.get("/api/admin/launch-readiness-full", requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const { runAllLaunchReadinessChecks } = await import("../services/launch-readiness-full");
+      const report = await runAllLaunchReadinessChecks();
+      res.json(report);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/admin/launch-readiness-full/run", requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const { runAllLaunchReadinessChecks } = await import("../services/launch-readiness-full");
+      const report = await runAllLaunchReadinessChecks();
+      res.json(report);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // ── Integration Readiness — per-secret safe probe endpoints ─────────────────
 
   // Per-user in-memory rate limit for retest: max 10 per minute
