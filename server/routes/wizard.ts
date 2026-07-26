@@ -723,7 +723,7 @@ export function registerWizardRoutes(app: Express): void {
   <strong>Step:</strong> ${step.stepOrder}<br>
   <strong>Action type:</strong> ${step.actionType}<br>
   <strong>Route:</strong> ${route}<br>
-  <strong>Sender policy applied:</strong> internal_ops → accounts@libertybancard.com<br>
+  <strong>Sender policy applied:</strong> cold_outreach → Scott@mail.libertybancard.com<br>
   <strong>outboundGlobalPaused:</strong> ${outboundGlobalPaused}<br>
   <strong>Test recipient:</strong> ${TEST_EMAIL}<br>
   <strong>Timestamp:</strong> ${new Date().toISOString()}<br>
@@ -755,7 +755,7 @@ export function registerWizardRoutes(app: Express): void {
               to: TEST_EMAIL,
               subject: testSubject,
               html: testBody,
-              category: "internal_ops",
+              category: "cold_outreach",
             });
           } else {
             // GHL path requires a local contact record
