@@ -78,14 +78,29 @@ export function EmailComposer({ contactId, prospectId, initialVertical, onClose,
     },
   })
 
+  const sendMutation = useMutation({
+    mutationFn: async () => {
+      if (!contactId) throw new Error("No contact selected")
+      const res = await apiRequest("POST", `/api/contacts/${contactId}/send-email`, { subject, body })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error((err as any).message ?? "Send failed")
+      }
+      return res.json() as Promise<{ success: boolean; messageId?: string }>
+    },
+    onSuccess: () => {
+      toast({ title: "Email sent", description: "The email was delivered via GHL." })
+      onClose()
+    },
+    onError: (error: Error) => {
+      toast({ title: "Send failed", description: error.message, variant: "destructive" })
+    },
+  })
+
   const handleCopy = async () => {
     const fullEmail = `Subject: ${subject}\n\n${body}`
     await navigator.clipboard.writeText(fullEmail)
     toast({ title: "Copied to clipboard", description: "The email has been copied." })
-  }
-
-  const handleSendGhl = () => {
-    toast({ title: "Send via GHL", description: "This would send the email via GoHighLevel." })
   }
 
   const hasGenerated = subject.length > 0 || body.length > 0
@@ -215,10 +230,20 @@ export function EmailComposer({ contactId, prospectId, initialVertical, onClose,
                 </Button>
                 <Button
                   data-testid="button-send-email"
-                  onClick={handleSendGhl}
+                  onClick={() => sendMutation.mutate()}
+                  disabled={sendMutation.isPending || !contactId}
                 >
-                  <Send className="mr-2 h-4 w-4" />
-                  Send via GHL
+                  {sendMutation.isPending ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Sending...
+                    </>
+                  ) : (
+                    <>
+                      <Send className="mr-2 h-4 w-4" />
+                      Send via GHL
+                    </>
+                  )}
                 </Button>
               </div>
             </div>

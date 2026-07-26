@@ -1491,6 +1491,47 @@ export function registerContactsRoutes(app: Express) {
     }
   });
 
+  // POST /api/contacts/:id/send-email — send a composed email via GHL
+  app.post("/api/contacts/:id/send-email", isDashboardUser, async (req, res) => {
+    try {
+      const contactId = Number(req.params.id);
+      const schema = z.object({
+        subject: z.string().min(1, "Subject is required"),
+        body: z.string().min(1, "Body is required"),
+      });
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: parsed.error.errors[0].message });
+      }
+      const { subject, body } = parsed.data;
+
+      const contact = await storage.getContact(contactId);
+      if (!contact) return res.status(404).json({ message: "Contact not found" });
+      if (!contact.email) return res.status(400).json({ message: "Contact has no email address" });
+      if (!isGhlConfigured()) return res.status(503).json({ message: "GHL is not configured" });
+
+      const { sendGhlEmail } = await import("../services/ghl");
+      const result = await sendGhlEmail({ contactId, subject, body });
+
+      if (!result.success) {
+        return res.status(502).json({ message: result.error ?? "GHL send failed" });
+      }
+
+      await storage.createAuditLog({
+        action: "email_sent_via_composer",
+        entityType: "contact",
+        entityId: contactId,
+        actorType: "admin",
+        actorId: String((req.user as any)?.id ?? "unknown"),
+        details: { subject, toEmail: contact.email, messageId: result.messageId ?? null },
+      });
+
+      res.json({ success: true, messageId: result.messageId ?? null });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
 }
 
 /**
