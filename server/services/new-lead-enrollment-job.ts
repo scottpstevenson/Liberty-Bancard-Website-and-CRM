@@ -603,6 +603,23 @@ async function _runAsync(opts: {
       } catch (err) {
         console.error(`[NewLeadEnrollJob] Error processing deal ${row.deal?.id}:`, err);
         progress.errors++;
+        // Write a review queue item for operator visibility so failed enrollments
+        // don't silently disappear — the operator can investigate and re-trigger.
+        storage.createReviewQueueItem({
+          sourceType: "dead_letter_job" as any,
+          sourceId: row.deal?.id ?? 0,
+          status: "pending",
+          notes: `New-lead enrollment failed for deal ${row.deal?.id} (contact ${row.contact?.id ?? "unknown"}): ${err instanceof Error ? err.message : String(err)}`,
+          metadata: {
+            alertType: "new_lead_enrollment_error",
+            dealId: row.deal?.id ?? null,
+            contactId: row.contact?.id ?? null,
+            vertical: row.deal?.vertical ?? null,
+            error: err instanceof Error ? err.message : String(err),
+          },
+        }).catch((e) =>
+          console.error("[NewLeadEnrollJob] Failed to write review queue item for deal", row.deal?.id, e)
+        );
       }
 
       if (progress.processed % 50 === 0) {

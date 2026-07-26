@@ -7064,6 +7064,33 @@ function NewLeadEnrollPanel() {
         </CardHeader>
         <CardContent className="space-y-3">
           <p className="text-xs text-muted-foreground">Run a one-off enrollment sweep of all current New Lead deals. Preview first to review eligibility breakdown.</p>
+
+          {/* Enroll Backlog quick-action — shows the live unenrolled count from stage health */}
+          {(stageHealth?.newLeadNoActiveEnrollment ?? 0) > 0 && !isRunning && (
+            <div className="flex items-start gap-3 p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-md">
+              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-600" />
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-medium text-amber-800 dark:text-amber-300">
+                  {stageHealth!.newLeadNoActiveEnrollment.toLocaleString()} unenrolled New Lead contact{stageHealth!.newLeadNoActiveEnrollment !== 1 ? "s" : ""} detected
+                </p>
+                <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
+                  Preview the backlog to see eligibility details, then enroll. DNC, opt-out, PEWC, and contactability gates enforced. Safe to run multiple times.
+                </p>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="mt-2 text-xs h-7 border-amber-300 hover:bg-amber-100 dark:border-amber-700 dark:hover:bg-amber-900/50"
+                  onClick={() => { setPreview(null); previewMutation.mutate(); }}
+                  disabled={previewMutation.isPending || isRunning}
+                  data-testid="button-enroll-backlog"
+                >
+                  {previewMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1.5" /> : <Play className="w-3 h-3 mr-1.5" />}
+                  Enroll Backlog ({stageHealth!.newLeadNoActiveEnrollment.toLocaleString()} unenrolled)
+                </Button>
+              </div>
+            </div>
+          )}
+
           <div className="flex gap-2 flex-wrap">
             <Button
               variant="outline"
