@@ -1,0 +1,221 @@
+## Verdict: **PREFLIGHT REQUIRED**
+
+The copy direction is good, but this is not safe to execute as “rewrite 20 sequences and write them directly to production.”
+
+The task mixes inbound confirmations, nurture, cold SDR outreach, high-intent application reminders, and regulated payment-processing claims. Those do **not** share one copy standard or one compliance boundary.
+
+### Corrections to send back
+
+```txt
+Run a read-only Sequence Copy Ownership & Claims Preflight before rewriting anything.
+
+1. Inventory every targeted sequence with exact evidence:
+
+- sequence ID
+- sequence family/name
+- active/inactive status
+- trigger source
+- audience type
+- step count
+- current subject/body
+- delay timing
+- CTA label and URL
+- template variables
+- sender identity
+- enrollment volume
+- whether currently sending in production
+
+Do not rely on the numbering and names in this brief until they are matched to actual DB rows.
+
+2. Classify every sequence before writing:
+
+- Transactional confirmation
+- Inbound nurture
+- Application completion
+- Existing-lead reactivation
+- Cold outbound
+- Educational/product nurture
+- Vertical-specific SDR outreach
+
+Do not apply curiosity-gap cold-email tactics to transactional confirmations or required application communications.
+
+3. Verify claim authority.
+
+Do not invent or publish claims such as:
+
+- “Most FL restaurants pay 2.7–3.1%”
+- “A client like yours saved $340/mo”
+- approval speed claims
+- savings percentages
+- chargeback reductions
+- “no hidden fees”
+- “lowest rates”
+- surcharge/legal claims
+
+Every quantitative or outcome claim must have:
+- an approved source;
+- applicable audience/context;
+- required qualification/disclaimer;
+- legal/compliance approval.
+
+If evidence is unavailable, use non-quantified copy.
+
+4. Preserve actual sender ownership.
+
+Do not force every sequence to sign “— Scott” unless Scott is the verified sender for that sequence and mailbox.
+
+Copy must match:
+- assigned rep;
+- shared brand sender;
+- automated transactional sender;
+- existing dynamic signature logic.
+
+5. Do not write directly to production as the first step.
+
+Required workflow:
+
+A. Export current sequence-step snapshot.
+B. Draft proposed subjects and bodies in a review artifact/table.
+C. Review by sequence family.
+D. Preview rendered HTML with every supported template variable.
+E. Send test emails.
+F. Approve exact changes.
+G. Apply through a versioned, auditable update.
+H. Verify production rows after apply.
+
+6. Add rollback.
+
+Before mutation, persist:
+- sequence ID
+- step ID
+- prior subject
+- prior body
+- updated subject
+- updated body
+- actor
+- timestamp
+- change batch ID
+
+Rollback must restore the exact prior copy.
+
+7. Protect non-copy behavior.
+
+The apply must not change:
+- CTA URLs
+- CTA labels
+- delays
+- step order
+- trigger rules
+- audience filters
+- sequence ownership
+- enrollment status
+- unsubscribe/footer logic
+- sender routing
+- template variable names
+
+8. Verify templates before rewriting.
+
+List every supported variable used by each family.
+
+STOP if proposed copy references variables that are absent or inconsistently populated.
+
+Required fallback behavior:
+- missing firstName
+- missing companyName
+- missing rep name
+- missing vertical
+
+No email may render “Hi ,” or expose raw template syntax.
+
+9. Separate Tier 1 into smaller approval batches.
+
+Recommended release groups:
+
+A. Transactional / inbound confirmation
+B. New-lead inbound nurture
+C. Statement audit / switch-and-save
+D. Core SDR cold outbound
+E. Education/product sequences
+F. Reactivation / objections / chargebacks
+
+Do not change 50+ steps in one unreviewable production mutation.
+
+10. Define conversion measurement before launch.
+
+Capture baseline per sequence:
+- delivered
+- opens, if still considered reliable
+- replies
+- positive replies
+- CTA clicks
+- unsubscribes
+- spam complaints
+- booked meetings
+- applications started/completed
+
+Assign a copy version/change batch so results can be compared after launch.
+```
+
+### Copy corrections
+
+```txt
+Do not require every subject to use a curiosity gap.
+
+Use the appropriate subject style by sequence:
+
+- Transactional: clear and expected
+- Application completion: direct and action-oriented
+- Cold outbound: specific, relevant, low-hype
+- Education: benefit or question-led
+- Reactivation: contextual and conversational
+
+Do not force social proof into every email.
+
+Use proof only where verified and relevant. Unsupported “client like yours” stories are not acceptable.
+
+Avoid writing all messages around assumed merchant pain such as overcharging unless the sequence context supports it.
+
+Keep one primary idea and one CTA per email.
+```
+
+### Kill lines
+
+```txt
+STOP if active sequence IDs and current production content are not verified first.
+
+STOP if unverified savings, pricing, approval, legal, or customer-outcome claims are added.
+
+STOP if transactional confirmations are rewritten like cold sales emails.
+
+STOP if sender/signature identity is changed or hardcoded without ownership verification.
+
+STOP if production copy is overwritten without a snapshot, change batch, and rollback.
+
+STOP if HTML, CTA, delays, routing, variables, or compliance footer are modified unintentionally.
+
+STOP if all sequence families are applied in one broad database update.
+
+STOP if test sends use real prospects or trigger live enrollment.
+
+STOP if copy changes launch without baseline metrics and version attribution.
+```
+
+### Validation
+
+```txt
+- Exact sequence and step inventory reconciles to the database.
+- Current copy snapshot is exportable and restorable.
+- Every proposed subject/body maps to one verified step ID.
+- All template variables render with populated and missing-value fixtures.
+- HTML renders correctly on desktop and mobile.
+- CTA labels and URLs are byte-for-byte unchanged.
+- Footer/unsubscribe content remains present.
+- No prohibited or unsupported claims appear.
+- Tier 1 tests are sent only to approved internal addresses.
+- Production apply updates only approved subject/body fields.
+- Post-apply query matches the approved copy manifest.
+```
+
+## Final status: **PREFLIGHT REQUIRED**
+
+The correct next deliverable is a **sequence inventory + claims audit + reviewable copy manifest**, not direct rewrites into the production database.
