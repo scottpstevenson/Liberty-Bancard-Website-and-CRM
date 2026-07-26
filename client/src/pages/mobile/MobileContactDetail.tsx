@@ -4,7 +4,8 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useLocation, useParams } from "wouter";
 import {
   ChevronLeft, Phone, MessageSquare, Mail, Building, MapPin,
-  Zap, Loader2, CheckCircle, Clock, Activity, ChevronRight,
+  Zap, Loader2, CheckCircle, Activity, Edit2, Save, X,
+  DollarSign, User, Hash, Globe,
 } from "lucide-react";
 import MobileQuickLog from "./MobileQuickLog";
 
@@ -27,7 +28,40 @@ function formatTime(ts: string | null | undefined): string {
 }
 
 function getInitials(first: string, last: string): string {
-  return `${first?.[0] || ""}${last?.[0] || ""}`.toUpperCase();
+  return `${first?.[0] || ""}${last?.[0] || ""}`.toUpperCase() || "?";
+}
+
+function Field({ label, value }: { label: string; value?: string | null }) {
+  if (!value) return null;
+  return (
+    <div>
+      <span className="text-xs text-gray-400 uppercase tracking-wide">{label}</span>
+      <div className="text-sm text-gray-800 dark:text-gray-200 mt-0.5">{value}</div>
+    </div>
+  );
+}
+
+function EditField({
+  label, value, onChange, type = "text", placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  type?: string;
+  placeholder?: string;
+}) {
+  return (
+    <div>
+      <label className="text-xs text-gray-400 uppercase tracking-wide block mb-1">{label}</label>
+      <input
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder || label}
+        className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+      />
+    </div>
+  );
 }
 
 export default function MobileContactDetail() {
@@ -37,6 +71,8 @@ export default function MobileContactDetail() {
   const [logCallOpen, setLogCallOpen] = useState(false);
   const [selectedOutcome, setSelectedOutcome] = useState("");
   const [callNotes, setCallNotes] = useState("");
+  const [editing, setEditing] = useState(false);
+  const [editForm, setEditForm] = useState<Record<string, string>>({});
 
   const contactId = Number(params.id);
 
@@ -60,6 +96,28 @@ export default function MobileContactDetail() {
     enabled: !!contactId,
   });
 
+  const { data: deals } = useQuery<any[]>({
+    queryKey: ["/api/contacts", contactId, "deals"],
+    queryFn: async () => {
+      const res = await fetch(`/api/contacts/${contactId}/deals`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!contactId,
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async (data: Record<string, string>) => {
+      const res = await apiRequest("PUT", `/api/contacts/${contactId}`, data);
+      if (!res.ok) throw new Error("Update failed");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/contacts", contactId] });
+      setEditing(false);
+    },
+  });
+
   const logCallMutation = useMutation({
     mutationFn: async (data: { outcome: string; notes: string }) => {
       const res = await apiRequest("POST", "/api/call-logs", {
@@ -78,6 +136,30 @@ export default function MobileContactDetail() {
     },
   });
 
+  function startEdit() {
+    setEditForm({
+      firstName: contact?.firstName || "",
+      lastName: contact?.lastName || "",
+      email: contact?.email || "",
+      phone: contact?.phone || "",
+      companyName: contact?.companyName || "",
+      vertical: contact?.vertical || "",
+      city: contact?.city || "",
+      state: contact?.state || "",
+      monthlyVolume: contact?.monthlyVolume || "",
+      website: contact?.website || "",
+    });
+    setEditing(true);
+  }
+
+  function field(key: string) {
+    return editForm[key] ?? "";
+  }
+
+  function set(key: string) {
+    return (v: string) => setEditForm((f) => ({ ...f, [key]: v }));
+  }
+
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -95,31 +177,63 @@ export default function MobileContactDetail() {
     );
   }
 
-  const name = `${contact.firstName} ${contact.lastName}`.trim();
-  const initials = getInitials(contact.firstName, contact.lastName);
+  const name = `${contact.firstName || ""} ${contact.lastName || ""}`.trim() || "Unknown";
+  const initials = getInitials(contact.firstName || "", contact.lastName || "");
 
   return (
     <div className="pb-4">
+      {/* Header */}
       <div className="bg-blue-600 px-4 pb-6" style={{ paddingTop: "calc(env(safe-area-inset-top) + 12px)" }}>
-        <button
-          data-testid="button-back"
-          onClick={() => setLocation("/mobile/contacts")}
-          className="flex items-center gap-1 text-blue-200 mb-4 active:opacity-70"
-        >
-          <ChevronLeft className="w-5 h-5" />
-          <span className="text-sm">Contacts</span>
-        </button>
+        <div className="flex items-center justify-between mb-4">
+          <button
+            data-testid="button-back"
+            onClick={() => setLocation("/mobile/contacts")}
+            className="flex items-center gap-1 text-blue-200 active:opacity-70"
+          >
+            <ChevronLeft className="w-5 h-5" />
+            <span className="text-sm">Contacts</span>
+          </button>
+          {!editing ? (
+            <button
+              data-testid="button-edit-contact"
+              onClick={startEdit}
+              className="flex items-center gap-1.5 bg-white/20 text-white text-sm px-3 py-1.5 rounded-full active:bg-white/30"
+            >
+              <Edit2 className="w-3.5 h-3.5" />
+              Edit
+            </button>
+          ) : (
+            <div className="flex items-center gap-2">
+              <button
+                data-testid="button-cancel-edit"
+                onClick={() => setEditing(false)}
+                className="text-blue-200 text-sm px-3 py-1.5 active:opacity-70"
+              >
+                Cancel
+              </button>
+              <button
+                data-testid="button-save-contact"
+                disabled={updateMutation.isPending}
+                onClick={() => updateMutation.mutate(editForm)}
+                className="flex items-center gap-1.5 bg-white text-blue-600 font-semibold text-sm px-3 py-1.5 rounded-full active:scale-95 transition-transform disabled:opacity-50"
+              >
+                {updateMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                Save
+              </button>
+            </div>
+          )}
+        </div>
 
         <div className="flex items-center gap-4">
-          <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center">
+          <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center shrink-0">
             <span className="text-white text-xl font-bold">{initials}</span>
           </div>
-          <div>
-            <h1 className="text-white text-xl font-bold" data-testid="text-contact-name">{name}</h1>
+          <div className="min-w-0">
+            <h1 className="text-white text-xl font-bold truncate" data-testid="text-contact-name">{name}</h1>
             {contact.companyName && (
               <p className="text-blue-200 text-sm flex items-center gap-1">
-                <Building className="w-3 h-3" />
-                {contact.companyName}
+                <Building className="w-3 h-3 shrink-0" />
+                <span className="truncate">{contact.companyName}</span>
               </p>
             )}
             {contact.status && (
@@ -128,140 +242,190 @@ export default function MobileContactDetail() {
           </div>
         </div>
 
-        <div className="flex gap-2 mt-4">
-          {contact.phone && (
-            <a
-              data-testid="link-call-contact"
-              href={`tel:${contact.phone}`}
-              className="flex-1 bg-white text-blue-600 rounded-xl py-2.5 flex items-center justify-center gap-2 font-semibold text-sm active:scale-95 transition-transform"
-            >
-              <Phone className="w-4 h-4" />
-              Call
-            </a>
-          )}
-          {contact.phone && (
-            <a
-              data-testid="link-sms-contact"
-              href={`sms:${contact.phone}`}
-              className="flex-1 bg-blue-500/50 text-white rounded-xl py-2.5 flex items-center justify-center gap-2 font-semibold text-sm active:scale-95 transition-transform"
-            >
-              <MessageSquare className="w-4 h-4" />
-              Text
-            </a>
-          )}
-          {contact.email && (
-            <a
-              data-testid="link-email-contact"
-              href={`mailto:${contact.email}`}
-              className="flex-1 bg-blue-500/50 text-white rounded-xl py-2.5 flex items-center justify-center gap-2 font-semibold text-sm active:scale-95 transition-transform"
-            >
-              <Mail className="w-4 h-4" />
-              Email
-            </a>
-          )}
-        </div>
-      </div>
-
-      <div className="px-4 mt-4 space-y-3">
-        <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-4">
-          <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">Contact Info</h3>
-          <div className="space-y-2">
+        {!editing && (
+          <div className="flex gap-2 mt-4">
             {contact.phone && (
-              <div className="flex items-center gap-2 text-sm">
-                <Phone className="w-4 h-4 text-gray-400 flex-shrink-0" />
-                <a href={`tel:${contact.phone}`} className="text-blue-600 dark:text-blue-400" data-testid="text-contact-phone">{contact.phone}</a>
-              </div>
+              <a data-testid="link-call-contact" href={`tel:${contact.phone}`}
+                className="flex-1 bg-white text-blue-600 rounded-xl py-2.5 flex items-center justify-center gap-2 font-semibold text-sm active:scale-95 transition-transform">
+                <Phone className="w-4 h-4" />Call
+              </a>
+            )}
+            {contact.phone && (
+              <a data-testid="link-sms-contact" href={`sms:${contact.phone}`}
+                className="flex-1 bg-blue-500/50 text-white rounded-xl py-2.5 flex items-center justify-center gap-2 font-semibold text-sm active:scale-95 transition-transform">
+                <MessageSquare className="w-4 h-4" />Text
+              </a>
             )}
             {contact.email && (
-              <div className="flex items-center gap-2 text-sm">
-                <Mail className="w-4 h-4 text-gray-400 flex-shrink-0" />
-                <a href={`mailto:${contact.email}`} className="text-blue-600 dark:text-blue-400 truncate" data-testid="text-contact-email">{contact.email}</a>
-              </div>
+              <a data-testid="link-email-contact" href={`mailto:${contact.email}`}
+                className="flex-1 bg-blue-500/50 text-white rounded-xl py-2.5 flex items-center justify-center gap-2 font-semibold text-sm active:scale-95 transition-transform">
+                <Mail className="w-4 h-4" />Email
+              </a>
             )}
-            {contact.vertical && (
-              <div className="flex items-center gap-2 text-sm">
-                <Building className="w-4 h-4 text-gray-400 flex-shrink-0" />
-                <span className="text-gray-700 dark:text-gray-300">{contact.vertical}</span>
-              </div>
-            )}
-            {(contact.city || contact.state) && (
-              <div className="flex items-center gap-2 text-sm">
-                <MapPin className="w-4 h-4 text-gray-400 flex-shrink-0" />
-                <span className="text-gray-700 dark:text-gray-300">{[contact.city, contact.state].filter(Boolean).join(", ")}</span>
-              </div>
-            )}
-            {contact.monthlyVolume && (
-              <div className="flex items-center gap-2 text-sm">
-                <Activity className="w-4 h-4 text-gray-400 flex-shrink-0" />
-                <span className="text-gray-700 dark:text-gray-300">Monthly Volume: {contact.monthlyVolume}</span>
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <button
-            data-testid="button-log-call"
-            onClick={() => setLogCallOpen(true)}
-            className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl p-4 flex flex-col items-center gap-2 active:scale-95 transition-transform"
-          >
-            <div className="w-10 h-10 bg-green-100 dark:bg-green-900/30 rounded-xl flex items-center justify-center">
-              <Phone className="w-5 h-5 text-green-600 dark:text-green-400" />
-            </div>
-            <span className="text-xs font-medium text-gray-700 dark:text-gray-300">Log Call</span>
-          </button>
-          <button
-            data-testid="button-quick-log-contact"
-            onClick={() => setQuickLogOpen(true)}
-            className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl p-4 flex flex-col items-center gap-2 active:scale-95 transition-transform"
-          >
-            <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900/30 rounded-xl flex items-center justify-center">
-              <Zap className="w-5 h-5 text-blue-600 dark:text-blue-400" />
-            </div>
-            <span className="text-xs font-medium text-gray-700 dark:text-gray-300">Quick Log</span>
-          </button>
-        </div>
-
-        {(activity || []).length > 0 && (
-          <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-4" data-testid="card-activity">
-            <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">Recent Activity</h3>
-            <div className="space-y-3">
-              {(activity || []).slice(0, 5).map((event: any) => (
-                <div key={event.id} className="flex items-start gap-2">
-                  <div className="w-7 h-7 bg-gray-100 dark:bg-gray-700 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
-                    {event.type === "call" ? <Phone className="w-3 h-3 text-gray-500" /> : <Activity className="w-3 h-3 text-gray-500" />}
-                  </div>
-                  <div>
-                    <div className="text-xs font-medium text-gray-700 dark:text-gray-300">
-                      {event.type === "call" ? `Call: ${event.details?.outcome || "Logged"}` :
-                       event.type === "note" ? "Note added" :
-                       event.action?.replace(/_/g, " ") || "Activity"}
-                    </div>
-                    <div className="text-xs text-gray-400">{formatTime(event.createdAt)}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
           </div>
         )}
       </div>
 
+      <div className="px-4 mt-4 space-y-3">
+        {/* Edit form */}
+        {editing ? (
+          <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-4 space-y-3">
+            <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Edit Contact</h3>
+            <div className="grid grid-cols-2 gap-3">
+              <EditField label="First Name" value={field("firstName")} onChange={set("firstName")} />
+              <EditField label="Last Name" value={field("lastName")} onChange={set("lastName")} />
+            </div>
+            <EditField label="Company Name" value={field("companyName")} onChange={set("companyName")} />
+            <EditField label="Email" value={field("email")} onChange={set("email")} type="email" />
+            <EditField label="Phone" value={field("phone")} onChange={set("phone")} type="tel" />
+            <EditField label="Industry / Vertical" value={field("vertical")} onChange={set("vertical")} />
+            <div className="grid grid-cols-2 gap-3">
+              <EditField label="City" value={field("city")} onChange={set("city")} />
+              <EditField label="State" value={field("state")} onChange={set("state")} />
+            </div>
+            <EditField label="Monthly Volume ($)" value={field("monthlyVolume")} onChange={set("monthlyVolume")} placeholder="e.g. 50000" />
+            <EditField label="Website" value={field("website")} onChange={set("website")} type="url" />
+            {updateMutation.isError && (
+              <p className="text-xs text-red-500">Failed to save. Please try again.</p>
+            )}
+            <button
+              data-testid="button-save-contact-bottom"
+              disabled={updateMutation.isPending}
+              onClick={() => updateMutation.mutate(editForm)}
+              className="w-full bg-blue-600 disabled:opacity-50 text-white font-semibold py-3 rounded-xl flex items-center justify-center gap-2 text-sm"
+            >
+              {updateMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              Save Changes
+            </button>
+          </div>
+        ) : (
+          <>
+            {/* Contact Info */}
+            <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-4">
+              <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">Contact Info</h3>
+              <div className="space-y-2">
+                {contact.phone && (
+                  <div className="flex items-center gap-2 text-sm">
+                    <Phone className="w-4 h-4 text-gray-400 shrink-0" />
+                    <a href={`tel:${contact.phone}`} className="text-blue-600 dark:text-blue-400" data-testid="text-contact-phone">{contact.phone}</a>
+                  </div>
+                )}
+                {contact.email && (
+                  <div className="flex items-center gap-2 text-sm">
+                    <Mail className="w-4 h-4 text-gray-400 shrink-0" />
+                    <a href={`mailto:${contact.email}`} className="text-blue-600 dark:text-blue-400 truncate" data-testid="text-contact-email">{contact.email}</a>
+                  </div>
+                )}
+                {contact.vertical && (
+                  <div className="flex items-center gap-2 text-sm">
+                    <Hash className="w-4 h-4 text-gray-400 shrink-0" />
+                    <span className="text-gray-700 dark:text-gray-300">{contact.vertical}</span>
+                  </div>
+                )}
+                {(contact.city || contact.state) && (
+                  <div className="flex items-center gap-2 text-sm">
+                    <MapPin className="w-4 h-4 text-gray-400 shrink-0" />
+                    <span className="text-gray-700 dark:text-gray-300">{[contact.city, contact.state].filter(Boolean).join(", ")}</span>
+                  </div>
+                )}
+                {contact.monthlyVolume && (
+                  <div className="flex items-center gap-2 text-sm">
+                    <DollarSign className="w-4 h-4 text-gray-400 shrink-0" />
+                    <span className="text-gray-700 dark:text-gray-300">Monthly Volume: {contact.monthlyVolume}</span>
+                  </div>
+                )}
+                {contact.website && (
+                  <div className="flex items-center gap-2 text-sm">
+                    <Globe className="w-4 h-4 text-gray-400 shrink-0" />
+                    <a href={contact.website} target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 truncate">{contact.website}</a>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Deals */}
+            {deals && deals.length > 0 && (
+              <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-4" data-testid="card-deals">
+                <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">Deals ({deals.length})</h3>
+                <div className="space-y-2">
+                  {deals.slice(0, 5).map((deal: any) => (
+                    <div key={deal.id} className="flex items-center justify-between py-1">
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">
+                          {deal.companyName || name || `Deal #${deal.id}`}
+                        </div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400">{deal.stage}</div>
+                      </div>
+                      {deal.totalVolume && (
+                        <span className="text-xs font-medium text-gray-600 dark:text-gray-400 ml-2 shrink-0">${deal.totalVolume}</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Quick actions */}
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                data-testid="button-log-call"
+                onClick={() => setLogCallOpen(true)}
+                className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl p-4 flex flex-col items-center gap-2 active:scale-95 transition-transform"
+              >
+                <div className="w-10 h-10 bg-green-100 dark:bg-green-900/30 rounded-xl flex items-center justify-center">
+                  <Phone className="w-5 h-5 text-green-600 dark:text-green-400" />
+                </div>
+                <span className="text-xs font-medium text-gray-700 dark:text-gray-300">Log Call</span>
+              </button>
+              <button
+                data-testid="button-quick-log-contact"
+                onClick={() => setQuickLogOpen(true)}
+                className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl p-4 flex flex-col items-center gap-2 active:scale-95 transition-transform"
+              >
+                <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900/30 rounded-xl flex items-center justify-center">
+                  <Zap className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                </div>
+                <span className="text-xs font-medium text-gray-700 dark:text-gray-300">Quick Log</span>
+              </button>
+            </div>
+
+            {/* Recent Activity */}
+            {(activity || []).length > 0 && (
+              <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-4" data-testid="card-activity">
+                <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">Recent Activity</h3>
+                <div className="space-y-3">
+                  {(activity || []).slice(0, 5).map((event: any) => (
+                    <div key={event.id} className="flex items-start gap-2">
+                      <div className="w-7 h-7 bg-gray-100 dark:bg-gray-700 rounded-full flex items-center justify-center shrink-0 mt-0.5">
+                        {event.type === "call" ? <Phone className="w-3 h-3 text-gray-500" /> : <Activity className="w-3 h-3 text-gray-500" />}
+                      </div>
+                      <div>
+                        <div className="text-xs font-medium text-gray-700 dark:text-gray-300">
+                          {event.type === "call" ? `Call: ${event.details?.outcome || "Logged"}` :
+                           event.type === "note" ? "Note added" :
+                           event.action?.replace(/_/g, " ") || "Activity"}
+                        </div>
+                        <div className="text-xs text-gray-400">{formatTime(event.createdAt)}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* Log Call sheet */}
       {logCallOpen && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-end" onClick={() => setLogCallOpen(false)}>
-          <div
-            className="bg-white dark:bg-gray-900 rounded-t-3xl w-full p-6 max-h-[80vh] overflow-y-auto"
-            onClick={(e) => e.stopPropagation()}
-          >
+          <div className="bg-white dark:bg-gray-900 rounded-t-3xl w-full p-6 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="w-10 h-1 bg-gray-300 dark:bg-gray-600 rounded-full mx-auto mb-5" />
-            <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Log Call Outcome</h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-              With {name}
-            </p>
-
+            <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-1">Log Call Outcome</h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">With {name}</p>
             <div className="space-y-2 mb-4">
               {OUTCOMES.map((outcome) => (
-                <button
-                  key={outcome}
+                <button key={outcome}
                   data-testid={`button-outcome-${outcome.replace(/\s+/g, "-").toLowerCase()}`}
                   onClick={() => setSelectedOutcome(outcome)}
                   className={`w-full text-left px-4 py-3 rounded-xl border text-sm font-medium transition-colors ${
@@ -275,22 +439,14 @@ export default function MobileContactDetail() {
                 </button>
               ))}
             </div>
-
-            <textarea
-              data-testid="input-call-notes"
-              value={callNotes}
+            <textarea data-testid="input-call-notes" value={callNotes}
               onChange={(e) => setCallNotes(e.target.value)}
-              placeholder="Call notes (optional)..."
-              rows={3}
-              className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 mb-4"
-            />
-
-            <button
-              data-testid="button-submit-call-log"
+              placeholder="Call notes (optional)..." rows={3}
+              className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 mb-4" />
+            <button data-testid="button-submit-call-log"
               disabled={!selectedOutcome || logCallMutation.isPending}
               onClick={() => logCallMutation.mutate({ outcome: selectedOutcome, notes: callNotes })}
-              className="w-full bg-blue-600 disabled:opacity-50 text-white font-semibold py-3 rounded-xl flex items-center justify-center gap-2"
-            >
+              className="w-full bg-blue-600 disabled:opacity-50 text-white font-semibold py-3 rounded-xl flex items-center justify-center gap-2">
               {logCallMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
               Save Call Log
             </button>

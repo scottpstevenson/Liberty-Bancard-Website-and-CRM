@@ -104,7 +104,29 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
     async getDeals(params?: PaginationParams) {
     const { limit, offset } = normalizePagination(params);
     const [totalResult] = await db.select({ count: count() }).from(deals);
-    const data = await db.select().from(deals).orderBy(desc(deals.createdAt)).limit(limit).offset(offset);
+    const rows = await db
+      .select({
+        deal: deals,
+        contactFirstName: contacts.firstName,
+        contactLastName: contacts.lastName,
+        contactCompanyName: contacts.companyName,
+        contactEmail: contacts.email,
+        contactPhone: contacts.phone,
+      })
+      .from(deals)
+      .leftJoin(contacts, eq(deals.contactId, contacts.id))
+      .orderBy(desc(deals.createdAt))
+      .limit(limit)
+      .offset(offset);
+    const data = rows.map(({ deal, contactFirstName, contactLastName, contactCompanyName, contactEmail, contactPhone }) => ({
+      ...deal,
+      contactName: (contactFirstName || contactLastName)
+        ? `${contactFirstName || ""} ${contactLastName || ""}`.trim()
+        : null,
+      companyName: contactCompanyName || null,
+      contactEmail: contactEmail || null,
+      contactPhone: contactPhone || null,
+    }));
     return { data, total: totalResult.count, limit, offset };
   }
 
@@ -123,7 +145,30 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
   async getDealsByPipeline(pipeline: string, params?: PaginationParams) {
     const { limit, offset } = normalizePagination(params);
     const [totalResult] = await db.select({ count: count() }).from(deals).where(eq(deals.pipeline, pipeline));
-    const data = await db.select().from(deals).where(eq(deals.pipeline, pipeline)).orderBy(desc(deals.createdAt)).limit(limit).offset(offset);
+    const rows = await db
+      .select({
+        deal: deals,
+        contactFirstName: contacts.firstName,
+        contactLastName: contacts.lastName,
+        contactCompanyName: contacts.companyName,
+        contactEmail: contacts.email,
+        contactPhone: contacts.phone,
+      })
+      .from(deals)
+      .leftJoin(contacts, eq(deals.contactId, contacts.id))
+      .where(eq(deals.pipeline, pipeline))
+      .orderBy(desc(deals.createdAt))
+      .limit(limit)
+      .offset(offset);
+    const data = rows.map(({ deal, contactFirstName, contactLastName, contactCompanyName, contactEmail, contactPhone }) => ({
+      ...deal,
+      contactName: (contactFirstName || contactLastName)
+        ? `${contactFirstName || ""} ${contactLastName || ""}`.trim()
+        : null,
+      companyName: contactCompanyName || null,
+      contactEmail: contactEmail || null,
+      contactPhone: contactPhone || null,
+    }));
     return { data, total: totalResult.count, limit, offset };
   }
 
