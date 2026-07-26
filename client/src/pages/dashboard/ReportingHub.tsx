@@ -4,8 +4,9 @@ import Reporting from "./Reporting";
 import GrowthKPI from "./GrowthKPI";
 import WinLoss from "./WinLoss";
 import OutreachAnalytics from "./OutreachAnalytics";
+import OperationsReport from "./OperationsReport";
 
-const VALID_TABS = ["overview", "growth", "win-loss", "outreach-analytics"] as const;
+const VALID_TABS = ["overview", "growth", "win-loss", "outreach-analytics", "operations"] as const;
 type Tab = typeof VALID_TABS[number];
 
 export default function ReportingHub() {
@@ -17,16 +18,18 @@ export default function ReportingHub() {
 
   return (
     <Tabs value={tab} onValueChange={goTab} className="space-y-4">
-      <TabsList>
+      <TabsList className="flex-wrap h-auto gap-1">
         <TabsTrigger value="overview" data-testid="tab-reporting-overview">Overview</TabsTrigger>
         <TabsTrigger value="growth" data-testid="tab-reporting-growth">Growth Metrics</TabsTrigger>
         <TabsTrigger value="win-loss" data-testid="tab-reporting-win-loss">Win/Loss</TabsTrigger>
         <TabsTrigger value="outreach-analytics" data-testid="tab-reporting-outreach">Outreach Analytics</TabsTrigger>
+        <TabsTrigger value="operations" data-testid="tab-reporting-operations">Operations Report</TabsTrigger>
       </TabsList>
       <TabsContent value="overview"><Reporting /></TabsContent>
       <TabsContent value="growth"><GrowthKPI /></TabsContent>
       <TabsContent value="win-loss"><WinLoss /></TabsContent>
       <TabsContent value="outreach-analytics"><OutreachAnalytics /></TabsContent>
+      <TabsContent value="operations"><OperationsReport /></TabsContent>
     </Tabs>
   );
 }

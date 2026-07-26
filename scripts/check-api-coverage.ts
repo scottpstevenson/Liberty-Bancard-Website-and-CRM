@@ -86,6 +86,9 @@ const KNOWN_MISMATCHES = new Set<string>([
   // GHL workflow ID test — server handler exists at POST /api/admin/ghl-workflows/:workflowId/test
   // coverage script sees template literal prefix rather than the full resolved path
   "/api/admin/ghl-workflows/${encodeURIComponent",
+  // Dead-letter job retry — server handler exists at POST /api/admin/system-health/jobs/:compositeId/retry
+  // coverage script sees encodeURIComponent template literal instead of the resolved :compositeId param
+  "/api/admin/system-health/jobs/${encodeURIComponent",
   // Wizard channel test — server handlers exist at POST /api/wizard/test-send/{email,sms,voice,voicemail}
   // coverage script sees template literal variable (`/${channel}`) as `:param`
   "/api/wizard/test-send/:param",

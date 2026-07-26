@@ -2658,4 +2658,122 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // ── System Health: Incidents + DLQ ─────────────────────────────────────────
+
+  app.get("/api/admin/system-health/incidents", requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+      // BullMQ dead-letter items
+      let dlqItems: any[] = [];
+      let queueSummary: any[] = [];
+      try {
+        const { getQueueManager } = await import("../services/queue-manager");
+        const qm = await getQueueManager();
+        dlqItems = await qm.getDeadLetterItems();
+        const metrics = await qm.getAllQueueMetrics();
+        queueSummary = (metrics.queues ?? []).map((q: any) => ({
+          name: q.name,
+          failed: q.failed ?? 0,
+          waiting: q.waiting ?? 0,
+          active: q.active ?? 0,
+        }));
+      } catch (_err) {
+        // Redis unavailable — return empty gracefully
+      }
+
+      // GHL sync failures (audit_logs, last 24h)
+      const ghlRows = await db
+        .select({
+          id: auditLogs.id,
+          action: auditLogs.action,
+          entityKey: auditLogs.entityKey,
+          details: auditLogs.details,
+          createdAt: auditLogs.createdAt,
+        })
+        .from(auditLogs)
+        .where(
+          and(
+            eq(auditLogs.entityType, "ghl_sync"),
+            or(like(auditLogs.action, "%fail%"), like(auditLogs.action, "%error%")),
+            gte(auditLogs.createdAt, since24h),
+          ),
+        )
+        .orderBy(desc(auditLogs.createdAt))
+        .limit(20);
+
+      res.json({
+        dlqItems,
+        dlqCount: dlqItems.length,
+        ghlFailures: ghlRows,
+        ghlFailureCount: ghlRows.length,
+        queueSummary,
+        checkedAt: new Date().toISOString(),
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Retry a dead-letter job by composite ID (queueName::jobId)
+  app.post("/api/admin/system-health/jobs/:compositeId/retry", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const compositeId = decodeURIComponent(req.params.compositeId);
+      const { getQueueManager } = await import("../services/queue-manager");
+      const qm = await getQueueManager();
+      await qm.retryDeadLetterJob(compositeId);
+
+      auditChange({
+        actorType: "user",
+        userId: (req.user as any)?.id ?? null,
+        action: "manual_job_retry",
+        entityType: "queue",
+        entityKey: compositeId,
+        details: { compositeId, retriedBy: (req.user as any)?.email ?? "admin" },
+      }).catch(() => {});
+
+      res.json({ success: true, compositeId });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Retry GHL sync for a contact identified by entityKey (email or contact id)
+  app.post("/api/admin/ghl-failures/retry", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const { entityKey } = req.body ?? {};
+      if (!entityKey) return res.status(400).json({ message: "entityKey is required" });
+
+      const numId = parseInt(entityKey, 10);
+      const [contact] = await db
+        .select({ id: contacts.id, email: contacts.email, ghlContactId: contacts.ghlContactId })
+        .from(contacts)
+        .where(
+          isNaN(numId)
+            ? eq(contacts.email, entityKey)
+            : eq(contacts.id, numId),
+        )
+        .limit(1);
+
+      if (!contact) return res.status(404).json({ message: "Contact not found for entityKey" });
+
+      const { syncContactToGhl } = await import("../services/ghl-sync");
+      const result = await syncContactToGhl(contact.id);
+
+      auditChange({
+        actorType: "user",
+        userId: (req.user as any)?.id ?? null,
+        action: "ghl_sync_manual_retry",
+        entityType: "ghl_sync",
+        entityId: contact.id,
+        entityKey: contact.email ?? String(contact.id),
+        details: { triggeredBy: (req.user as any)?.email ?? "admin", result },
+      }).catch(() => {});
+
+      res.json({ success: true, contactId: contact.id, result });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
 }

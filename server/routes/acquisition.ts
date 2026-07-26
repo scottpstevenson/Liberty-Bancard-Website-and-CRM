@@ -16,8 +16,10 @@ import {
   analyticsEvents,
   sequences,
   sequenceEnrollments,
+  tasks,
+  auditLogs,
 } from "@shared/schema";
-import { eq, and, gte, sql, count, avg, desc, isNotNull } from "drizzle-orm";
+import { eq, and, gte, sql, count, avg, desc, isNotNull, lt, isNull, or, like } from "drizzle-orm";
 import { isGhlConfigured } from "../services/ghl";
 
 const DEFAULT_DAYS = 30;
@@ -966,6 +968,228 @@ export function registerAcquisitionRoutes(app: Express): void {
       });
     } catch (err: any) {
       console.error("[Acquisition] /statement-sla error:", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Operations Report ──────────────────────────────────────────────────────
+  // All-in-one report: CPL/CPB/CPS by source, close rate by vertical, sequence
+  // reply rates, funnel conversion, overdue tasks, incident summary.
+  app.get("/api/reporting/operations", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const days = parseDays(req.query.days);
+      const adSpend = Math.max(0, parseFloat(String(req.query.adSpend ?? "0")) || 0);
+      const since = new Date(Date.now() - days * 86_400_000);
+      const since7d = new Date(Date.now() - 7 * 86_400_000);
+      const now = new Date();
+
+      const [
+        cplRows,
+        verticalRows,
+        seqRows,
+        funnelRows,
+        overdueRows,
+        queueFailures7d,
+        ghlFailures7d,
+        recentQueueErr,
+        recentGhlErr,
+      ] = await Promise.all([
+        // CPL: leads + booked calls + signed merchants by source
+        pool.query<{
+          source: string; leads: string; booked: string; signed: string;
+        }>(
+          `SELECT
+             COALESCE(c.utm_source, 'organic/direct') AS source,
+             COUNT(DISTINCT c.id)::text AS leads,
+             COUNT(DISTINCT CASE WHEN d.stage = 'Call Booked' THEN d.id END)::text AS booked,
+             COUNT(DISTINCT CASE WHEN d.stage = 'Closed Won' THEN d.id END)::text AS signed
+           FROM contacts c
+           LEFT JOIN deals d ON d.contact_id = c.id
+           WHERE c.created_at >= $1 AND c.archived_at IS NULL
+           GROUP BY source ORDER BY leads::int DESC LIMIT 20`,
+          [since],
+        ),
+        // Close rate by vertical: leads → booked → signed
+        pool.query<{
+          vertical: string; leads: string; booked: string; signed: string;
+        }>(
+          `SELECT
+             COALESCE(c.industry, 'Unknown') AS vertical,
+             COUNT(DISTINCT c.id)::text AS leads,
+             COUNT(DISTINCT CASE WHEN d.stage = 'Call Booked' THEN d.id END)::text AS booked,
+             COUNT(DISTINCT CASE WHEN d.stage = 'Closed Won' THEN d.id END)::text AS signed
+           FROM contacts c
+           LEFT JOIN deals d ON d.contact_id = c.id
+           WHERE c.created_at >= $1 AND c.archived_at IS NULL
+           GROUP BY vertical ORDER BY leads::int DESC LIMIT 20`,
+          [since],
+        ),
+        // Sequence reply rates (converted ÷ enrolled)
+        pool.query<{
+          seq_id: string; seq_name: string; status: string;
+          enrolled: string; converted: string;
+        }>(
+          `SELECT
+             s.id::text AS seq_id, s.name AS seq_name, s.status,
+             COUNT(se.id)::text AS enrolled,
+             COUNT(CASE WHEN se.status = 'converted' THEN 1 END)::text AS converted
+           FROM sequences s
+           LEFT JOIN sequence_enrollments se ON se.sequence_id = s.id
+             AND se.created_at >= $1
+           GROUP BY s.id, s.name, s.status
+           ORDER BY enrolled::int DESC LIMIT 25`,
+          [since],
+        ),
+        // Funnel by lifecycle stage
+        pool.query<{ stage: string; cnt: string }>(
+          `SELECT
+             COALESCE(lifecycle_stage, 'prospect') AS stage,
+             COUNT(*)::text AS cnt
+           FROM contacts
+           WHERE created_at >= $1 AND archived_at IS NULL
+           GROUP BY stage`,
+          [since],
+        ),
+        // Overdue tasks (status pending/in_progress, past due, not deleted)
+        pool.query<{
+          id: string; title: string; assigned_to: string | null;
+          due_date: string;
+        }>(
+          `SELECT id::text, title, assigned_to, due_date
+           FROM tasks
+           WHERE due_date < $1
+             AND status NOT IN ('completed','cancelled')
+             AND deleted_at IS NULL
+           ORDER BY due_date ASC LIMIT 50`,
+          [now],
+        ),
+        // Queue failures (last 7d) from audit_logs
+        pool.query<{ cnt: string }>(
+          `SELECT COUNT(*)::text AS cnt FROM audit_logs
+           WHERE entity_type = 'queue' AND action LIKE '%fail%'
+             AND created_at >= $1`,
+          [since7d],
+        ),
+        // GHL sync failures (last 7d)
+        pool.query<{ cnt: string }>(
+          `SELECT COUNT(*)::text AS cnt FROM audit_logs
+           WHERE entity_type = 'ghl_sync'
+             AND (action LIKE '%fail%' OR action LIKE '%error%')
+             AND created_at >= $1`,
+          [since7d],
+        ),
+        // Most recent queue error message
+        pool.query<{ details: any }>(
+          `SELECT details FROM audit_logs
+           WHERE entity_type = 'queue' AND action LIKE '%fail%'
+             AND created_at >= $1
+           ORDER BY created_at DESC LIMIT 1`,
+          [since7d],
+        ),
+        // Most recent GHL error message
+        pool.query<{ details: any; action: string }>(
+          `SELECT details, action FROM audit_logs
+           WHERE entity_type = 'ghl_sync'
+             AND (action LIKE '%fail%' OR action LIKE '%error%')
+             AND created_at >= $1
+           ORDER BY created_at DESC LIMIT 1`,
+          [since7d],
+        ),
+      ]);
+
+      // ── CPL by source ──
+      const totalLeads = cplRows.rows.reduce((s, r) => s + parseInt(r.leads, 10), 0);
+      const cplBySource = cplRows.rows.map(r => {
+        const leads = parseInt(r.leads, 10);
+        const booked = parseInt(r.booked, 10);
+        const signed = parseInt(r.signed, 10);
+        const sourceFrac = totalLeads > 0 ? leads / totalLeads : 0;
+        const allocatedSpend = adSpend * sourceFrac;
+        return {
+          source: r.source,
+          leads,
+          bookedCalls: booked,
+          signedMerchants: signed,
+          cpl: adSpend > 0 && leads > 0 ? Math.round(allocatedSpend / leads) : null,
+          cpb: adSpend > 0 && booked > 0 ? Math.round(allocatedSpend / booked) : null,
+          cps: adSpend > 0 && signed > 0 ? Math.round(allocatedSpend / signed) : null,
+        };
+      });
+
+      // ── Close rate by vertical ──
+      const closeRateByVertical = verticalRows.rows.map(r => {
+        const leads = parseInt(r.leads, 10);
+        const booked = parseInt(r.booked, 10);
+        const signed = parseInt(r.signed, 10);
+        return {
+          vertical: r.vertical,
+          leads,
+          booked,
+          signed,
+          leadToBooked: leads > 0 ? Math.round((booked / leads) * 1000) / 1000 : 0,
+          bookedToSigned: booked > 0 ? Math.round((signed / booked) * 1000) / 1000 : 0,
+          leadToSigned: leads > 0 ? Math.round((signed / leads) * 1000) / 1000 : 0,
+        };
+      });
+
+      // ── Sequence reply rates ──
+      const sequenceReplyRates = seqRows.rows.map(r => {
+        const enrolled = parseInt(r.enrolled, 10);
+        const converted = parseInt(r.converted, 10);
+        return {
+          id: r.seq_id,
+          name: r.seq_name,
+          status: r.status,
+          enrolled,
+          converted,
+          replyRate: enrolled > 0 ? Math.round((converted / enrolled) * 1000) / 1000 : 0,
+        };
+      });
+
+      // ── Funnel ──
+      const FUNNEL_ORDER = [
+        "prospect", "lead", "contacted", "replied", "booked",
+        "applied", "approved", "active",
+      ];
+      const stageCounts: Record<string, number> = {};
+      for (const r of funnelRows.rows) stageCounts[r.stage] = parseInt(r.cnt, 10);
+      const topCount = Math.max(1, Object.values(stageCounts).reduce((s, v) => s + v, 0));
+      const funnel = FUNNEL_ORDER.map(stage => {
+        const count = stageCounts[stage] ?? 0;
+        return { stage: stage.charAt(0).toUpperCase() + stage.slice(1), count, pct: count / topCount };
+      });
+
+      // ── Overdue tasks ──
+      const overdueTasks = overdueRows.rows.map(r => ({
+        id: parseInt(r.id, 10),
+        title: r.title,
+        assignedTo: r.assigned_to,
+        dueDate: r.due_date,
+        daysOverdue: Math.round((now.getTime() - new Date(r.due_date).getTime()) / 86_400_000),
+      }));
+
+      // ── Incident summary ──
+      const queueErr = recentQueueErr.rows[0]?.details as any;
+      const ghlErr = recentGhlErr.rows[0];
+      const incidentSummary = {
+        queueFailures7d: parseInt(queueFailures7d.rows[0]?.cnt ?? "0", 10),
+        ghlSyncFailures7d: parseInt(ghlFailures7d.rows[0]?.cnt ?? "0", 10),
+        mostRecentQueueError: queueErr?.error ?? queueErr?.message ?? null,
+        mostRecentGhlError: (ghlErr?.details as any)?.error ?? ghlErr?.action ?? null,
+      };
+
+      res.json({
+        days,
+        adSpend,
+        cplBySource,
+        closeRateByVertical,
+        sequenceReplyRates,
+        funnel,
+        overdueTasks,
+        incidentSummary,
+      });
+    } catch (err: any) {
+      console.error("[Acquisition] /reporting/operations error:", err.message);
       res.status(500).json({ message: err.message });
     }
   });

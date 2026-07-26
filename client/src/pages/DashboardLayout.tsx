@@ -1,5 +1,6 @@
 import { ReactNode, useState, useMemo, useEffect, useCallback } from "react";
 import { Link, useLocation } from "wouter";
+import Forbidden from "@/pages/Forbidden";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { countUnreadSessions } from "@/lib/chatNotifications";
@@ -214,6 +215,44 @@ function filterByRole(items: MenuItem[], role: UserRole): MenuItem[] {
   return items.filter((item) => !item.roles || item.roles.includes(role));
 }
 
+// ─── Route-level role guard ───────────────────────────────────────────────────
+// EXPLICIT allowlist: only pages intentionally restricted are listed here.
+// Routes not in this map are accessible to ALL authenticated dashboard users.
+// Use exact path matching only — prefix matching causes false positives on
+// sub-routes and sidebar-hidden pages like /dashboard/notifications.
+//
+// Rule: a route goes here only when the server-side API also enforces the same
+// restriction via requireRole(). Client-side guard adds a friendly 403 message;
+// the server is the real enforcement layer.
+const RESTRICTED_ROUTES: Partial<Record<string, UserRole[]>> = {
+  // Admin-only sections
+  "/dashboard/activation":           ["admin"],
+  "/dashboard/settings/integrations":["admin"],
+  "/dashboard/partner-orgs":        ["admin"],
+  // Admin + Manager (blocked for agent, merchant, support, onboarding)
+  "/dashboard/acquisition-hub":     ["admin", "manager"],
+  "/dashboard/financial-hub":       ["admin", "manager"],
+  "/dashboard/system-health":       ["admin", "manager"],
+  "/dashboard/reporting":           ["admin", "manager"],
+  "/dashboard/admin-hub":           ["admin", "manager"],
+  "/dashboard/lead-imports":        ["admin", "manager"],
+  "/dashboard/sequences":           ["admin", "manager"],
+  "/dashboard/ghl-integration":     ["admin", "manager"],
+  "/dashboard/outreach-hub":        ["admin", "manager"],
+  "/dashboard/lead-command-center": ["admin", "manager"],
+  "/dashboard/automation":          ["admin", "manager"],
+  "/dashboard/stage-rules":         ["admin", "manager"],
+  "/dashboard/campaigns":           ["admin", "manager"],
+};
+
+function isRouteAllowed(pathname: string, role: UserRole): boolean {
+  // Only check exact path matches — never do prefix matching to avoid
+  // accidentally blocking sub-routes or sidebar-hidden pages.
+  const allowed = RESTRICTED_ROUTES[pathname];
+  if (!allowed) return true; // not restricted → allow
+  return allowed.includes(role);
+}
+
 const TWO_FA_BANNER_KEY = "2fa_banner_dismissed";
 
 function GhlAlertBanner({ role }: { role: UserRole }) {
@@ -342,6 +381,11 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const [emailOpen, setEmailOpen] = useState(false);
   const [aiChatOpen, setAiChatOpen] = useState(false);
   const role = (user?.role as UserRole) || "merchant";
+
+  // Route-level access guard: render the Forbidden page inline when the current
+  // route has explicit role restrictions and the user's role is not in them.
+  // This avoids navigate-during-render issues while still blocking access.
+  const routeAllowed = isRouteAllowed(location, role);
 
   const { data: smsUnreadData } = useQuery<{ count: number }>({
     queryKey: ["/api/sms-inbox/unread-count"],
@@ -558,7 +602,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
           <div className="flex flex-1 overflow-hidden min-h-0">
             <main className="flex-1 overflow-auto p-3 sm:p-6 max-w-7xl mx-auto w-full" data-testid="dashboard-main">
               <ErrorBoundary key={location}>
-                {children}
+                {routeAllowed ? children : <Forbidden />}
               </ErrorBoundary>
             </main>
             {aiChatOpen && (

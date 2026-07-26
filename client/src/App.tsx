@@ -118,6 +118,7 @@ const MobileApp = lazy(() => import("@/pages/mobile/MobileApp"));
 
 // ─── Misc ─────────────────────────────────────────────────────────────────────
 const NotFound = lazy(() => import("@/pages/not-found"));
+const Forbidden = lazy(() => import("@/pages/Forbidden"));
 
 // ─── Dashboard Pages ──────────────────────────────────────────────────────────
 const Overview = lazy(() => import("@/pages/dashboard/Overview"));
@@ -773,6 +774,7 @@ function Router() {
           <Redirect to="/dashboard/content-hub?tab=blaze" />
         </Route>
 
+        <Route path="/dashboard/forbidden" component={Forbidden} />
         <Route component={NotFound} />
       </Switch>
     </Suspense>

@@ -3,8 +3,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import OperatorDashboard from "./OperatorDashboard";
 import SystemReadiness from "./SystemReadiness";
 import SeoHealth from "./SeoHealth";
+import IncidentsDashboard from "./IncidentsDashboard";
 
-const VALID_TABS = ["monitor", "readiness", "seo"] as const;
+const VALID_TABS = ["monitor", "readiness", "seo", "incidents"] as const;
 type Tab = typeof VALID_TABS[number];
 
 export default function SystemHealthHub() {
@@ -16,14 +17,16 @@ export default function SystemHealthHub() {
 
   return (
     <Tabs value={tab} onValueChange={goTab} className="space-y-4">
-      <TabsList>
+      <TabsList className="flex-wrap h-auto gap-1">
         <TabsTrigger value="monitor" data-testid="tab-system-monitor">System Monitor</TabsTrigger>
         <TabsTrigger value="readiness" data-testid="tab-system-readiness">System Readiness</TabsTrigger>
         <TabsTrigger value="seo" data-testid="tab-system-seo">SEO Health</TabsTrigger>
+        <TabsTrigger value="incidents" data-testid="tab-system-incidents">Incidents &amp; DLQ</TabsTrigger>
       </TabsList>
       <TabsContent value="monitor"><OperatorDashboard /></TabsContent>
       <TabsContent value="readiness"><SystemReadiness /></TabsContent>
       <TabsContent value="seo"><SeoHealth /></TabsContent>
+      <TabsContent value="incidents"><IncidentsDashboard /></TabsContent>
     </Tabs>
   );
 }
