@@ -1,3 +1,32 @@
+/**
+ * ╔══════════════════════════════════════════════════════════════════════════╗
+ * ║  ARCHITECTURE BOUNDARY — Replit Orchestrates, GHL Transports            ║
+ * ║                                                                          ║
+ * ║  Replit owns ALL sequence scheduling and gate-checking:                  ║
+ * ║    • BullMQ ticks drive every step                                       ║
+ * ║    • Contactability, daily-cap, DNC, quiet-hours guards run in Replit    ║
+ * ║    • Step advancement (currentStep++) happens in sequence-worker.ts      ║
+ * ║                                                                          ║
+ * ║  GHL is a TRANSPORT layer only:                                          ║
+ * ║    • sendGhlEmail / sendGhlSms — deliver a message Replit composed       ║
+ * ║    • upsertGhlContact          — keep CRM contact record in sync         ║
+ * ║    • addTag / addNote          — label contact for inbox organisation     ║
+ * ║                                                                          ║
+ * ║  The ONE allowed GHL workflow trigger is GHL_WORKFLOW_INBOUND_CONFIRMATION║
+ * ║  (see enrollInInboundConfirmation below). It fires on inbound web-form   ║
+ * ║  submissions to deliver an instant transactional confirmation email.     ║
+ * ║  GHL is used here because the confirmation must be immediate and does    ║
+ * ║  not depend on Replit's BullMQ tick cadence. GHL does NOT drive any     ║
+ * ║  follow-on sequence steps; Replit enrolls those separately.             ║
+ * ║                                                                          ║
+ * ║  enrollContactInGhlWorkflow() NEVER triggers a GHL workflow. It syncs   ║
+ * ║  the contact to GHL (upsert + tags + note) and returns method:          ║
+ * ║  "replit_direct" so sequence-worker can proceed with BullMQ-scheduled   ║
+ * ║  steps. GHL_DEFAULT_WORKFLOW_ID and per-sequence env vars are ignored   ║
+ * ║  for outbound sequences.                                                 ║
+ * ╚══════════════════════════════════════════════════════════════════════════╝
+ */
+
 import { storage } from "../storage";
 import { isGhlConfigured, upsertGhlContact, sendGhlEmail, sendGhlSms, getCalendarBookingUrl } from "./ghl";
 import {
@@ -415,54 +444,25 @@ export async function enrollContactInGhlWorkflow(params: {
     console.warn(`[GHL Enrollment] Failed to add note for contact ${ghlContactId}:`, noteErr);
   }
 
-  const ghlWorkflowId = await resolveGhlWorkflowId(sequenceName);
-
-  if (ghlWorkflowId) {
-    try {
-      await triggerWorkflow({
-        workflowId: ghlWorkflowId,
-        contactId: ghlContactId,
-        metadata: {
-          sequenceName,
-          sequenceId,
-          vertical: vertical || mapping?.vertical || "all",
-          dealId,
-          source: "replit_sequence_worker",
-          enrolledAt: new Date().toISOString(),
-        },
-      });
-
-      await storage.createAuditLog({
-        action: "ghl_workflow_enrolled",
-        entityType: "contact",
-        entityId: contactId,
-        details: {
-          sequenceName,
-          sequenceId,
-          ghlWorkflowId,
-          ghlContactId,
-          tags: allTags,
-        },
-      });
-
-      console.log(`[GHL Enrollment] Contact ${contactId} enrolled in GHL workflow ${ghlWorkflowId} for sequence "${sequenceName}"`);
-
-      return {
-        enrolled: true,
-        method: "ghl_workflow",
-        ghlWorkflowId,
-        contactGhlId: ghlContactId,
-      };
-    } catch (err) {
-      console.error(`[GHL Enrollment] Failed to trigger GHL workflow ${ghlWorkflowId} for contact ${contactId}:`, err);
-      return { enrolled: false, method: "replit_direct", reason: `GHL workflow trigger failed: ${err}` };
-    }
-  }
-
+  // ── Architecture boundary: Replit orchestrates, GHL transports ────────────
+  // This function intentionally does NOT trigger any GHL workflow for outbound
+  // sequences. After syncing the contact to GHL (upsert + tags + note above),
+  // control always returns to Replit's BullMQ-scheduled sequence-worker, which
+  // owns every step decision, timing, and gate check.
+  //
+  // GHL workflow IDs (GHL_DEFAULT_WORKFLOW_ID, per-sequence env vars, DB entries)
+  // are deliberately NOT resolved or used here. Triggering a GHL workflow would
+  // hand orchestration authority to GHL, bypassing Replit's contactability gates,
+  // daily-cap enforcement, and step tracking — creating a compliance blind spot.
+  //
+  // The ONE allowed GHL workflow trigger is GHL_WORKFLOW_INBOUND_CONFIRMATION,
+  // which lives in enrollInInboundConfirmation() below. That trigger is
+  // transactional (not a drip sequence), fires once on inbound form submission,
+  // and does not drive any follow-on sequence steps.
   return {
     enrolled: false,
     method: "replit_direct",
-    reason: "No GHL workflow ID configured for this sequence — using Replit direct sends",
+    reason: "Replit direct sends — sequence orchestrated locally via BullMQ; GHL is transport only",
     contactGhlId: ghlContactId,
   };
 }

@@ -14,6 +14,27 @@ import type { VoiceBotMode } from "./sdr/voice-orchestrator";
 import type { AbTestConfig, AbTestResults } from "@shared/schema";
 import { getCanonicalUrl } from "../lib/canonical-url";
 
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║  ARCHITECTURE BOUNDARY — Replit Orchestrates, GHL Transports            ║
+// ║                                                                          ║
+// ║  This worker is the SOLE orchestration authority for all outbound        ║
+// ║  sequence steps. It owns:                                                ║
+// ║    • Step scheduling (BullMQ ticks, delayDays advancement)               ║
+// ║    • Gate evaluation (global pause, contactability, daily-cap, DNC,      ║
+// ║      quiet-hours, bounce guard, reply-stop)                              ║
+// ║    • Step dispatch (email/SMS/task/call/voicemail action execution)       ║
+// ║                                                                          ║
+// ║  GHL is a TRANSPORT layer only in this file:                             ║
+// ║    • sendGhlEmail / sendGhlSms   — deliver a message Replit composed     ║
+// ║    • upsertGhlContact            — keep CRM contact record in sync       ║
+// ║    • addTag / addNote            — label contact for inbox organisation   ║
+// ║                                                                          ║
+// ║  enrollContactInGhlWorkflow() is called at step 0 ONLY to sync the      ║
+// ║  contact to GHL (upsert + inbox tags + note). It always returns          ║
+// ║  method:"replit_direct" — it never triggers a GHL native workflow.       ║
+// ║  See ghl-workflow-enrollment.ts for the full boundary documentation.     ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
+
 const GHL_WORKFLOW_ONLY = process.env.GHL_WORKFLOW_ONLY_MODE === "true";
 
 export async function processSequenceEnrollments(): Promise<{ processed: number; errors: number }> {
@@ -174,32 +195,12 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
             outboundChannels: triggerConfig.outboundChannels,
           });
 
-          if (enrollResult.enrolled && enrollResult.method === "ghl_workflow") {
-            await storage.updateSequenceEnrollment(enrollment.id, {
-              status: "completed",
-              completedAt: new Date(),
-            });
-            await storage.createAuditLog({
-              action: "sequence_delegated_to_ghl",
-              entityType: "contact",
-              entityId: enrollment.contactId,
-              details: {
-                sequenceId: sequence.id,
-                sequenceName: sequence.name,
-                ghlWorkflowId: enrollResult.ghlWorkflowId,
-                method: enrollResult.method,
-              },
-            });
-            await createPreferenceAwareNotification({
-              channel: "internal",
-              title: "Sequence Delegated to GHL",
-              message: `Sequence "${sequence.name}" for contact #${enrollment.contactId} delegated to GHL workflow.`,
-              type: "info",
-              metadata: { sequenceId: sequence.id, contactId: enrollment.contactId, eventType: "sequence_delegated_ghl" },
-            }, "sequence_delegated_ghl");
-            processed++;
-            continue;
-          }
+          // NOTE: enrollResult.method === "ghl_workflow" can never occur after the
+          // architecture refactor in ghl-workflow-enrollment.ts. enrollContactInGhlWorkflow()
+          // always returns method:"replit_direct" — it syncs the contact to GHL (upsert +
+          // tags + note) but never triggers a GHL native workflow for outbound sequences.
+          // Sequence orchestration stays entirely in Replit. See the architecture boundary
+          // comment block at the top of this file and in ghl-workflow-enrollment.ts.
 
           if (enrollResult.method === "skipped") {
             await storage.updateSequenceEnrollment(enrollment.id, {
