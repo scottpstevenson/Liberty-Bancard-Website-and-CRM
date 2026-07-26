@@ -1707,12 +1707,23 @@ export default function GhlWorkflowManager() {
         <div>
           <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
             <Workflow className="w-6 h-6 text-primary" />
-            GHL Workflows
+            GHL Workflow Reference &amp; Sequence Blueprints
           </h1>
           <p className="text-muted-foreground text-sm mt-1">
-            Manage GHL workflow IDs and access copy-paste-ready prompts for all sequences.
+            Replit controls all sequences, cadences, enrollment, and suppression. GHL is the transport and conversation layer.
           </p>
         </div>
+      </div>
+
+      {/* Architecture statement */}
+      <div className="flex items-start gap-3 px-4 py-3 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/60 dark:bg-blue-900/10" data-testid="banner-ghl-arch-statement">
+        <Info className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+        <p className="text-xs text-blue-800 dark:text-blue-300 leading-relaxed">
+          <span className="font-semibold">Architecture note:</span> Replit owns all sequence cadences, routing logic, enrollment gates, suppression, sender policy, and audit.
+          GHL is used only for email/SMS delivery, the conversation inbox, contact sync, and inbound webhook events.
+          The workflow IDs below are <span className="font-semibold">reference only</span> — outbound sequence execution happens inside Replit's sequence engine, not GHL native workflows.
+          Only the <span className="font-semibold">Inbound Confirmation</span> slot in Settings → Integrations → GHL Workflow IDs needs to be configured.
+        </p>
       </div>
 
       <Tabs defaultValue="id-manager">
@@ -1758,11 +1769,8 @@ export default function GhlWorkflowManager() {
                   />
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">
-                  {configuredCount === 0
-                    ? "No sequences are wired to GHL yet. Follow the setup guide above."
-                    : configuredCount < ALL_SEQUENCES.length
-                    ? "Sequences without a GHL workflow ID fall back to Replit direct sends (email/SMS only — no voicemail or calls)."
-                    : "All sequences are connected. GHL handles all email, SMS, voicemail, and call execution."}
+                  Replit's sequence engine schedules and sends all outbound messages. These workflow IDs are for reference only —
+                  only the inbound confirmation slot in Settings → Integrations needs to be active.
                 </p>
               </CardContent>
             </Card>

@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useToast } from "@/hooks/use-toast";
-import { CheckCircle2, XCircle, Plus, Trash2, Settings, Workflow, Mail, Edit2, Save, X, Loader2, ShieldCheck, Linkedin, Info, Cpu, RefreshCw, AlertTriangle, Activity, ChevronDown, ChevronRight, ExternalLink, Copy, Tag, Clock, MessageSquare } from "lucide-react";
+import { CheckCircle2, XCircle, Plus, Trash2, Settings, Workflow, Mail, Edit2, Save, X, Loader2, ShieldCheck, Linkedin, Info, Cpu, RefreshCw, AlertTriangle, Activity, ChevronDown, ChevronRight, ExternalLink, Copy, Tag, Clock, MessageSquare, Lock, Server, ArrowRight } from "lucide-react";
 
 interface WorkflowEnvEntry {
   id: string;
@@ -553,67 +553,112 @@ Eligibility, underwriting, card brand rules, and applicable laws apply.`;
   );
 }
 
+// Architecture classification for GHL workflow slots
+const REQUIRED_CATEGORIES = new Set(["inbound_lead"]);
+const OPTIONAL_CATEGORIES = new Set(["scheduling", "support"]);
+// sdr_outbound, onboarding, nurture, and anything else → Replit-owned
+
+function getArchRole(category: string): "required" | "optional" | "replit_owned" {
+  if (REQUIRED_CATEGORIES.has(category)) return "required";
+  if (OPTIONAL_CATEGORIES.has(category)) return "optional";
+  return "replit_owned";
+}
+
 function GhlWorkflowEnvTab() {
   const { data: registry = [], isLoading, refetch } = useQuery<WorkflowEnvEntry[]>({
     queryKey: ["/api/ghl/workflow-env-ids"],
   });
 
-  const grouped: Record<string, WorkflowEnvEntry[]> = {};
-  for (const entry of registry) {
-    const cat = entry.category || "other";
-    if (!grouped[cat]) grouped[cat] = [];
-    grouped[cat].push(entry);
-  }
+  const [optionalOpen, setOptionalOpen] = useState(false);
+  const [replitOwnedOpen, setReplitOwnedOpen] = useState(false);
 
-  const total = registry.length;
-  const configured = registry.filter(e => e.isSet).length;
+  const requiredEntries = registry.filter(e => getArchRole(e.category) === "required");
+  const optionalEntries = registry.filter(e => getArchRole(e.category) === "optional");
+  const replitOwnedEntries = registry.filter(e => getArchRole(e.category) === "replit_owned");
 
-  const inboundConfirmationEntry = registry.find(e => e.envKey === "GHL_WORKFLOW_INBOUND_CONFIRMATION");
-  const inboundConfirmationMissing = !inboundConfirmationEntry?.isSet;
+  const requiredConfigured = requiredEntries.filter(e => e.isSet).length;
+  const optionalConfigured = optionalEntries.filter(e => e.isSet).length;
 
   return (
-    <div className="space-y-4">
-      {inboundConfirmationMissing && (
-        <div className="flex items-start gap-3 p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800" data-testid="alert-inbound-confirmation-missing">
-          <AlertTriangle className="w-4 h-4 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-red-800 dark:text-red-300">
-              Inbound Confirmation Workflow Not Set — New leads get no instant response
-            </p>
-            <p className="text-xs text-red-700 dark:text-red-400 mt-0.5">
-              <strong>GHL_WORKFLOW_INBOUND_CONFIRMATION</strong> is unset. Every estimate, statement upload, get-started, and callback form submission sends a direct email/SMS fallback, but no GHL native workflow fires. To fix: follow the setup guide below to create the workflow in GHL, then paste the GHL Workflow ID into the <em>Inbound Lead — Instant Confirmation</em> row.
-            </p>
-          </div>
-        </div>
-      )}
+    <div className="space-y-5">
 
-      <GhlWorkflowSetupGuide />
-
-      <div className="flex items-center gap-4">
-        <div className="text-sm text-muted-foreground flex-1">
-          Wire up the GHL workflow IDs that the SDR orchestrator uses to trigger outreach sequences.
-          Values saved here take effect immediately without a code change.
+      {/* Architecture Summary Card */}
+      <div className="rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/60 dark:bg-blue-900/10 p-4 space-y-3" data-testid="card-ghl-architecture-summary">
+        <div className="flex items-center gap-2">
+          <Server className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
+          <p className="text-sm font-semibold text-blue-900 dark:text-blue-200">
+            Architecture: Replit owns orchestration — GHL is the transport and webhook layer
+          </p>
         </div>
-        <div className="flex gap-3 text-sm">
-          <span className="text-green-600 font-medium">{configured} configured</span>
-          <span className="text-muted-foreground">/</span>
-          <span className="text-muted-foreground">{total} total</span>
+        <p className="text-xs text-blue-800 dark:text-blue-300 leading-relaxed">
+          Replit controls all sequence cadences, enrollment, suppression, sender-policy gating, and attribution.
+          GHL is used only for email/SMS delivery, the conversation inbox, contact sync, and inbound webhook events.
+          Outbound sequence logic is <strong>never</strong> delegated to GHL native workflows.
+        </p>
+        <div className="flex flex-wrap items-center gap-1 text-[11px] text-blue-700 dark:text-blue-300 font-medium">
+          <span className="bg-blue-100 dark:bg-blue-900/40 px-2 py-0.5 rounded">Replit CRM</span>
+          <ArrowRight className="w-3 h-3 shrink-0" />
+          <span className="bg-blue-100 dark:bg-blue-900/40 px-2 py-0.5 rounded">Replit Sequence Engine</span>
+          <ArrowRight className="w-3 h-3 shrink-0" />
+          <span className="bg-blue-100 dark:bg-blue-900/40 px-2 py-0.5 rounded">Replit Send Gate</span>
+          <ArrowRight className="w-3 h-3 shrink-0" />
+          <span className="bg-blue-100 dark:bg-blue-900/40 px-2 py-0.5 rounded">GHL Transport</span>
+          <ArrowRight className="w-3 h-3 shrink-0" />
+          <span className="bg-blue-100 dark:bg-blue-900/40 px-2 py-0.5 rounded">GHL Reply/Bounce Webhook</span>
+          <ArrowRight className="w-3 h-3 shrink-0" />
+          <span className="bg-blue-100 dark:bg-blue-900/40 px-2 py-0.5 rounded">Replit CRM/Audit</span>
         </div>
       </div>
+
+      {/* Operator Readiness Summary */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3" data-testid="panel-operator-readiness">
+        {/* Required */}
+        <div className={`rounded-lg border p-3 space-y-1 ${requiredConfigured === requiredEntries.length && requiredEntries.length > 0 ? "border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-900/10" : "border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-900/10"}`}>
+          <div className="flex items-center gap-1.5">
+            {requiredConfigured === requiredEntries.length && requiredEntries.length > 0
+              ? <CheckCircle2 className="w-4 h-4 text-green-600 dark:text-green-400 shrink-0" />
+              : <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />}
+            <p className="text-xs font-semibold text-foreground">Required Handoffs</p>
+          </div>
+          <p className="text-xs text-muted-foreground">Inbound webhook handoffs GHL fires when a lead arrives. Must be configured for instant lead confirmation.</p>
+          <p className="text-xs font-medium">{requiredConfigured}/{requiredEntries.length} configured</p>
+        </div>
+        {/* Optional */}
+        <div className="rounded-lg border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900/10 p-3 space-y-1">
+          <div className="flex items-center gap-1.5">
+            <Info className="w-4 h-4 text-slate-500 shrink-0" />
+            <p className="text-xs font-semibold text-foreground">Optional Handoffs</p>
+          </div>
+          <p className="text-xs text-muted-foreground">Scheduling and support workflows that Replit can optionally hand off to GHL for native execution.</p>
+          <p className="text-xs font-medium">{optionalConfigured}/{optionalEntries.length} configured</p>
+        </div>
+        {/* Replit-Owned */}
+        <div className="rounded-lg border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900/10 p-3 space-y-1">
+          <div className="flex items-center gap-1.5">
+            <Lock className="w-4 h-4 text-slate-400 shrink-0" />
+            <p className="text-xs font-semibold text-foreground">Replit-Owned</p>
+          </div>
+          <p className="text-xs text-muted-foreground">All outbound sequence slots. Replit's sequence engine handles enrollment, timing, and suppression — GHL is not involved.</p>
+          <p className="text-xs font-medium text-slate-500">{replitOwnedEntries.length} slots intentionally unused</p>
+        </div>
+      </div>
+
+      <GhlWorkflowSetupGuide />
 
       {isLoading ? (
         <div className="flex items-center justify-center py-12">
           <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
         </div>
       ) : (
-        <div className="space-y-6">
-          {Object.entries(grouped).map(([category, entries]) => (
-            <div key={category}>
+        <div className="space-y-4">
+
+          {/* Required Handoffs */}
+          {requiredEntries.length > 0 && (
+            <div data-testid="section-required-handoffs">
               <div className="flex items-center gap-2 mb-2">
-                <Badge className={CATEGORY_COLORS[category] || "bg-gray-100 text-gray-700"}>
-                  {CATEGORY_LABELS[category] || category}
-                </Badge>
-                <span className="text-xs text-muted-foreground">{entries.filter(e => e.isSet).length}/{entries.length} set</span>
+                <CheckCircle2 className="w-4 h-4 text-green-600 dark:text-green-400" />
+                <span className="text-sm font-semibold text-foreground">Required — Inbound Webhook Handoffs</span>
+                <span className="text-xs text-muted-foreground">{requiredConfigured}/{requiredEntries.length} set</span>
               </div>
               <div className="rounded-md border overflow-auto">
                 <Table>
@@ -627,14 +672,87 @@ function GhlWorkflowEnvTab() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {entries.map((entry) => (
+                    {requiredEntries.map((entry) => (
                       <WorkflowEnvRow key={entry.envKey} entry={entry} onSaved={() => refetch()} />
                     ))}
                   </TableBody>
                 </Table>
               </div>
             </div>
-          ))}
+          )}
+
+          {/* Optional Handoffs — collapsible */}
+          {optionalEntries.length > 0 && (
+            <Collapsible open={optionalOpen} onOpenChange={setOptionalOpen} data-testid="section-optional-handoffs">
+              <CollapsibleTrigger asChild>
+                <button className="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/20 text-left hover:bg-slate-100 dark:hover:bg-slate-800/30 transition-colors">
+                  {optionalOpen ? <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" /> : <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />}
+                  <Info className="w-4 h-4 text-slate-500 shrink-0" />
+                  <span className="text-sm font-medium flex-1">Optional — Scheduling &amp; Support Handoffs</span>
+                  <span className="text-xs text-muted-foreground">{optionalConfigured}/{optionalEntries.length} configured</span>
+                </button>
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <div className="mt-2 rounded-md border overflow-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Workflow</TableHead>
+                        <TableHead>Category</TableHead>
+                        <TableHead className="hidden md:table-cell">Description</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>GHL Workflow ID</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {optionalEntries.map((entry) => (
+                        <WorkflowEnvRow key={entry.envKey} entry={entry} onSaved={() => refetch()} />
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
+          )}
+
+          {/* Replit-Owned Slots — collapsed, read-only */}
+          {replitOwnedEntries.length > 0 && (
+            <Collapsible open={replitOwnedOpen} onOpenChange={setReplitOwnedOpen} data-testid="section-replit-owned-slots">
+              <CollapsibleTrigger asChild>
+                <button className="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/10 text-left hover:bg-slate-100 dark:hover:bg-slate-800/20 transition-colors">
+                  {replitOwnedOpen ? <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" /> : <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />}
+                  <Lock className="w-4 h-4 text-slate-400 shrink-0" />
+                  <span className="text-sm font-medium text-muted-foreground flex-1">
+                    Intentionally Disabled — Replit-Owned Outbound Slots ({replitOwnedEntries.length})
+                  </span>
+                  <span className="text-xs text-muted-foreground italic">Not used — Replit schedules locally</span>
+                </button>
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <div className="mt-2 p-3 rounded-md border border-dashed border-slate-300 dark:border-slate-700 bg-slate-50/30 dark:bg-slate-900/5">
+                  <p className="text-xs text-muted-foreground mb-3 flex items-center gap-1.5">
+                    <Lock className="w-3 h-3 shrink-0" />
+                    These slots are shown for reference only. Replit's sequence engine owns all enrollment, timing, and suppression for these categories — no GHL native workflow ID is needed or used.
+                  </p>
+                  <div className="space-y-1.5">
+                    {replitOwnedEntries.map((entry) => (
+                      <div key={entry.envKey} className="flex items-center gap-3 px-3 py-2 rounded-md bg-slate-100/60 dark:bg-slate-800/20 opacity-60" data-testid={`row-replit-owned-${entry.envKey}`}>
+                        <Lock className="w-3 h-3 text-slate-400 shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <span className="text-xs font-medium text-foreground">{entry.name}</span>
+                          <span className="text-xs text-muted-foreground font-mono ml-2">{entry.envKey}</span>
+                        </div>
+                        <Badge variant="outline" className="text-xs text-muted-foreground border-slate-300 dark:border-slate-600 shrink-0">
+                          Not used — Replit controls this
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
+          )}
+
         </div>
       )}
     </div>
@@ -871,10 +989,14 @@ export default function SettingsIntegrations() {
         <TabsContent value="ghl-workflows" className="pt-4">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">GHL Workflow ID Registry</CardTitle>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Workflow className="w-4 h-4" />
+                GHL Transport &amp; Webhook Handoffs
+              </CardTitle>
               <CardDescription>
-                All 20 GHL workflow slots grouped by category. Paste the GHL workflow ID from your GoHighLevel account to activate each sequence.
-                Values are stored in the database and take effect immediately.
+                Replit controls all sequence cadences, routing, enrollment, suppression, sender policy, and attribution.
+                GHL is used as the transport layer (email/SMS delivery), conversation inbox, contact sync, and inbound webhook events only.
+                Only configure slots in the <strong>Required</strong> and <strong>Optional</strong> categories below — outbound sequence slots are intentionally unused.
               </CardDescription>
             </CardHeader>
             <CardContent>
