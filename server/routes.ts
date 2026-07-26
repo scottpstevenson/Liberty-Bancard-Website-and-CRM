@@ -63,6 +63,8 @@ import { registerKnowledgeAdminRoutes } from "./routes/knowledge-admin";
 import { registerAcquisitionRoutes } from "./routes/acquisition";
 import { registerInboxRoutes } from "./routes/inbox";
 import { registerInformationFlowRoutes } from "./routes/information-flow";
+import { registerInboxOwnershipRoutes } from "./routes/inbox-ownership";
+import { registerStatementReviewRoutes } from "./routes/statement-review";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -194,6 +196,8 @@ export async function registerRoutes(
   registerAcquisitionRoutes(app);
   registerInboxRoutes(app);
   registerInformationFlowRoutes(app);
+  registerInboxOwnershipRoutes(app);
+  registerStatementReviewRoutes(app);
 
   // Must be registered before the API 404 catch-all — extracts route
   // permissions by walking the already-populated express router stack

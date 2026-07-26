@@ -229,6 +229,65 @@ export function registerDocumentsRoutes(app: Express) {
         })().catch(() => {});
       }
 
+      // ── Statement upload → create inbox item + statement review ──────────
+      if ((category === "Processing Statement" || category === "Rate Review Statement") && contactId) {
+        (async () => {
+          try {
+            const cid = Number(contactId);
+            const { upsertInboxItem, createStatementReview, getStatementReviewByDocument } = await import("../storage/inbox");
+
+            // Create/update inbox item assigned to analyst queue
+            const inboxSourceId = `statement-doc-${doc.id}`;
+            await upsertInboxItem({
+              sourceItemId: inboxSourceId,
+              sourceItemType: "statement",
+              contactId: cid,
+              dealId: dealId ? Number(dealId) : null,
+              department: "accounts",
+              status: "new",
+              priority: "high",
+              slaDueAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24h SLA
+              nextAction: "review_statement",
+            });
+
+            // Create statement review record (if not already exists)
+            const existing = await getStatementReviewByDocument(doc.id).catch(() => null);
+            if (!existing) {
+              await createStatementReview({
+                documentId: doc.id,
+                contactId: cid,
+                dealId: dealId ? Number(dealId) : null,
+                status: "received",
+              });
+            }
+
+            // Create analyst review task
+            await storage.createTask({
+              title: `Review statement — ${fileName}`,
+              description: `Processing statement uploaded by ${uploadedBy}. Document ID: ${doc.id}. Review and prepare savings proposal.`,
+              contactId: cid,
+              dealId: dealId ? Number(dealId) : null,
+              status: "pending",
+              priority: "high",
+              dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
+              assignedTo: "Scott Stevenson",
+              source: "statement_upload",
+              automationKey: `statement_review_doc_${doc.id}`,
+            });
+
+            await storage.createAuditLog({
+              action: "statement_review_created_on_upload",
+              entityType: "document",
+              entityId: doc.id,
+              actorType: "system",
+              details: { contactId: cid, documentId: doc.id, fileName, category },
+            });
+          } catch (e: any) {
+            console.warn("[doc-upload] statement review creation failed (non-critical):", e.message);
+          }
+        })().catch(() => {});
+      }
+
       res.status(201).json(doc);
     } catch (err: any) {
       res.status(500).json({ message: err.message });

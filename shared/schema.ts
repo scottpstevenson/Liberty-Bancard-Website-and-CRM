@@ -4723,6 +4723,66 @@ export const masterLeadBatches = pgTable("master_lead_batches", {
 export type MasterLeadBatch = typeof masterLeadBatches.$inferSelect;
 export type InsertMasterLeadBatch = typeof masterLeadBatches.$inferInsert;
 
+// ---------------------------------------------------------------------------
+// Inbox Items — ownership / routing metadata for AI inbox entries
+// ---------------------------------------------------------------------------
+export const inboxItems = pgTable("inbox_items", {
+  id: serial("id").primaryKey(),
+  sourceItemId: text("source_item_id").notNull(), // e.g. "email-123", "sms-456"
+  sourceItemType: text("source_item_type").notNull().default("email"), // email|sms|ghl_chat|statement
+  contactId: integer("contact_id").references(() => contacts.id),
+  dealId: integer("deal_id").references(() => deals.id),
+  ownerId: text("owner_id"),
+  ownerName: text("owner_name"),
+  department: text("department").default("sales"), // sales|support|onboarding|accounts
+  status: text("status").default("new"), // new|in_progress|waiting|resolved|escalated
+  priority: text("priority").default("normal"), // low|normal|high|urgent
+  slaDueAt: timestamp("sla_due_at"),
+  nextAction: text("next_action"),
+  escalationPath: text("escalation_path"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("inbox_items_source_item_id_uidx").on(table.sourceItemId),
+  index("inbox_items_status_idx").on(table.status),
+  index("inbox_items_contact_id_idx").on(table.contactId),
+  index("inbox_items_sla_due_at_idx").on(table.slaDueAt),
+]);
+
+export const insertInboxItemSchema = createInsertSchema(inboxItems).omit({ id: true, createdAt: true, updatedAt: true });
+export type InboxItemRow = typeof inboxItems.$inferSelect;
+export type InsertInboxItem = z.infer<typeof insertInboxItemSchema>;
+
+// ---------------------------------------------------------------------------
+// Statement Reviews — analyst workflow for processing statement reviews
+// ---------------------------------------------------------------------------
+export const statementReviews = pgTable("statement_reviews", {
+  id: serial("id").primaryKey(),
+  documentId: integer("document_id").references(() => documents.id),
+  contactId: integer("contact_id").references(() => contacts.id),
+  dealId: integer("deal_id").references(() => deals.id),
+  status: text("status").default("received"), // received|in_review|ai_analyzed|reviewed|follow_up_sent|complete
+  analystId: text("analyst_id"),
+  analystName: text("analyst_name"),
+  aiSummary: jsonb("ai_summary"),
+  analystNotes: text("analyst_notes"),
+  savingsEstimateOverride: text("savings_estimate_override"),
+  followUpDraft: text("follow_up_draft"),
+  followUpSentAt: timestamp("follow_up_sent_at"),
+  reviewedAt: timestamp("reviewed_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("statement_reviews_contact_id_idx").on(table.contactId),
+  index("statement_reviews_status_idx").on(table.status),
+  index("statement_reviews_document_id_idx").on(table.documentId),
+]);
+
+export const insertStatementReviewSchema = createInsertSchema(statementReviews).omit({ id: true, createdAt: true, updatedAt: true });
+export type StatementReview = typeof statementReviews.$inferSelect;
+export type InsertStatementReview = z.infer<typeof insertStatementReviewSchema>;
+
 export const masterLeads = pgTable("master_leads", {
   id: uuid("id").primaryKey().defaultRandom(),
   importBatchId: uuid("import_batch_id").references(() => masterLeadBatches.id),

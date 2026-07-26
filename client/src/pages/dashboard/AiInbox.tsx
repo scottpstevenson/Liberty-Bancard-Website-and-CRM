@@ -1,14 +1,21 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { Loader2, Inbox, RefreshCw, AlertTriangle, Mail, MessageSquare, Bot, ArrowLeft, CheckCircle2, Ban, UserCheck, Phone, Calendar, Upload, Zap, Users, ShieldAlert, ExternalLink } from "lucide-react";
-import { apiRequest } from "@/lib/queryClient";
+import { Loader2, Inbox, RefreshCw, AlertTriangle, Mail, MessageSquare, Bot, ArrowLeft, CheckCircle2, Ban, UserCheck, Phone, Calendar, Upload, Zap, Users, ShieldAlert, ExternalLink, Clock, Flag, User } from "lucide-react";
+import { apiRequest, getCsrfToken } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 interface InboxItem {
@@ -52,6 +59,27 @@ interface ClassifyResult {
   bookingUrl: string | null;
 }
 
+interface InboxOwnership {
+  sourceItemId?: string;
+  ownerId?: string | null;
+  ownerName?: string | null;
+  department?: string;
+  status?: string;
+  priority?: string;
+  slaDueAt?: string | null;
+  nextAction?: string | null;
+  escalationPath?: string | null;
+  notes?: string | null;
+}
+
+interface StaffUser {
+  id: string;
+  email: string | null;
+  role: string | null;
+  firstName: string | null;
+  lastName: string | null;
+}
+
 // ─── Intent metadata ─────────────────────────────────────────────────────────
 const INTENT_META: Record<string, { label: string; color: string; emoji: string }> = {
   interested: { label: "Interested", color: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200", emoji: "✅" },
@@ -76,6 +104,21 @@ const CHANNEL_META: Record<string, { label: string; icon: React.ReactNode }> = {
   ghl_chat: { label: "GHL Chat", icon: <MessageSquare className="w-3 h-3" /> },
 };
 
+const PRIORITY_META: Record<string, { label: string; color: string }> = {
+  low: { label: "Low", color: "text-gray-500" },
+  normal: { label: "Normal", color: "text-blue-500" },
+  high: { label: "High", color: "text-amber-500" },
+  urgent: { label: "Urgent", color: "text-red-500" },
+};
+
+const STATUS_META: Record<string, { label: string; color: string }> = {
+  new: { label: "New", color: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200" },
+  in_progress: { label: "In Progress", color: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200" },
+  waiting: { label: "Waiting", color: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300" },
+  resolved: { label: "Resolved", color: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200" },
+  escalated: { label: "Escalated 🚨", color: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200" },
+};
+
 const UPLOAD_INSTRUCTIONS = `Please upload your most recent processing statement using this secure link:
 https://libertybancard.com/upload-statement
 
@@ -93,6 +136,30 @@ function formatTime(dateStr: string): string {
   return d.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
+function SlaCountdown({ slaDueAt }: { slaDueAt: string | null | undefined }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 60000);
+    return () => clearInterval(t);
+  }, []);
+
+  if (!slaDueAt) return null;
+  const due = new Date(slaDueAt).getTime();
+  const diff = due - now;
+  const breached = diff < 0;
+  const absDiff = Math.abs(diff);
+  const hours = Math.floor(absDiff / 3600000);
+  const mins = Math.floor((absDiff % 3600000) / 60000);
+  const label = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+
+  return (
+    <div className={`flex items-center gap-1 text-xs font-medium ${breached ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400"}`}>
+      <Clock className="w-3 h-3" />
+      {breached ? `SLA breached ${label} ago` : `SLA in ${label}`}
+    </div>
+  );
+}
+
 function ConfidenceBar({ confidence }: { confidence: number }) {
   const pct = Math.round(confidence * 100);
   const color = pct >= 85 ? "bg-green-500" : pct >= 65 ? "bg-yellow-500" : "bg-red-400";
@@ -102,6 +169,264 @@ function ConfidenceBar({ confidence }: { confidence: number }) {
         <div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%` }} />
       </div>
       <span className="text-xs text-muted-foreground w-8">{pct}%</span>
+    </div>
+  );
+}
+
+// ─── Ownership Panel ───────────────────────────────────────────────────────────
+function OwnershipPanel({
+  itemId,
+  contactId,
+  intent,
+  classifyResult,
+  onEscalated,
+}: {
+  itemId: string;
+  contactId: number | null;
+  intent: string | undefined;
+  classifyResult: ClassifyResult | null;
+  onEscalated?: () => void;
+}) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const { data: ownership, isLoading: ownershipLoading } = useQuery<InboxOwnership>({
+    queryKey: ["/api/inbox/items", itemId, "ownership"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/inbox/items/${itemId}/ownership`);
+      return res.json();
+    },
+    enabled: !!itemId,
+  });
+
+  const { data: staffList = [] } = useQuery<StaffUser[]>({
+    queryKey: ["/api/inbox/staff"],
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const [ownerId, setOwnerId] = useState("");
+  const [department, setDepartment] = useState("sales");
+  const [status, setStatus] = useState("new");
+  const [priority, setPriority] = useState("normal");
+
+  useEffect(() => {
+    if (ownership) {
+      setOwnerId(ownership.ownerId || "");
+      setDepartment(ownership.department || "sales");
+      setStatus(ownership.status || "new");
+      setPriority(ownership.priority || "normal");
+    }
+  }, [ownership]);
+
+  const assignMutation = useMutation({
+    mutationFn: async () => {
+      const selectedStaff = staffList.find((s) => s.id === ownerId);
+      const res = await apiRequest("PATCH", `/api/inbox/items/${itemId}/ownership`, {
+        ownerId: ownerId || undefined,
+        ownerName: selectedStaff
+          ? `${selectedStaff.firstName || ""} ${selectedStaff.lastName || ""}`.trim() || selectedStaff.email || undefined
+          : undefined,
+        department,
+        status,
+        priority,
+        contactId: contactId || undefined,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/inbox/items", itemId, "ownership"] });
+      toast({ title: "Assignment saved" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Save failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const escalateMutation = useMutation({
+    mutationFn: async () => {
+      const csrf = getCsrfToken();
+      const res = await fetch(`/api/inbox/items/${itemId}/escalate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(csrf ? { "x-csrf-token": csrf } : {}) },
+        body: JSON.stringify({ contactId, intent, reason: "Manual escalation from inbox" }),
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error((await res.json()).message || "Failed");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/inbox/items", itemId, "ownership"] });
+      toast({ title: "🚨 Escalated to Scott", description: "Priority set to urgent, task + notification sent" });
+      onEscalated?.();
+    },
+    onError: (err: any) => {
+      toast({ title: "Escalation failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const noShowMutation = useMutation({
+    mutationFn: async () => {
+      const csrf = getCsrfToken();
+      const res = await fetch(`/api/inbox/items/${itemId}/no-show`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(csrf ? { "x-csrf-token": csrf } : {}) },
+        body: JSON.stringify({ contactId }),
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error((await res.json()).message || "Failed");
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/inbox/items", itemId, "ownership"] });
+      toast({ title: "No-show recorded", description: "Reschedule task created" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  if (ownershipLoading) {
+    return (
+      <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
+        <Loader2 className="w-3 h-3 animate-spin" /> Loading ownership…
+      </div>
+    );
+  }
+
+  const slaDue = ownership?.slaDueAt;
+  const statusMeta = STATUS_META[ownership?.status || "new"] || STATUS_META.new;
+  const priorityMeta = PRIORITY_META[ownership?.priority || "normal"] || PRIORITY_META.normal;
+
+  return (
+    <div className="space-y-3" data-testid="panel-ownership">
+      {/* Current state badges */}
+      <div className="flex items-center flex-wrap gap-2">
+        <Badge className={`text-[10px] ${statusMeta.color}`}>
+          {statusMeta.label}
+        </Badge>
+        <span className={`text-xs font-medium flex items-center gap-0.5 ${priorityMeta.color}`}>
+          <Flag className="w-3 h-3" />
+          {priorityMeta.label}
+        </span>
+        {ownership?.ownerName && (
+          <span className="text-xs text-muted-foreground flex items-center gap-0.5">
+            <User className="w-3 h-3" />
+            {ownership.ownerName}
+          </span>
+        )}
+        <SlaCountdown slaDueAt={slaDue} />
+      </div>
+
+      {/* Assignment form */}
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <p className="text-[10px] text-muted-foreground mb-0.5">Assign to</p>
+          <Select value={ownerId} onValueChange={setOwnerId}>
+            <SelectTrigger className="h-7 text-xs" data-testid="select-owner">
+              <SelectValue placeholder="Choose owner…" />
+            </SelectTrigger>
+            <SelectContent>
+              {staffList.map((s) => (
+                <SelectItem key={s.id} value={s.id}>
+                  {s.firstName ? `${s.firstName} ${s.lastName || ""}`.trim() : s.email || s.id}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div>
+          <p className="text-[10px] text-muted-foreground mb-0.5">Department</p>
+          <Select value={department} onValueChange={setDepartment}>
+            <SelectTrigger className="h-7 text-xs" data-testid="select-department">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="sales">Sales</SelectItem>
+              <SelectItem value="support">Support</SelectItem>
+              <SelectItem value="onboarding">Onboarding</SelectItem>
+              <SelectItem value="accounts">Accounts</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div>
+          <p className="text-[10px] text-muted-foreground mb-0.5">Status</p>
+          <Select value={status} onValueChange={setStatus}>
+            <SelectTrigger className="h-7 text-xs" data-testid="select-status">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="new">New</SelectItem>
+              <SelectItem value="in_progress">In Progress</SelectItem>
+              <SelectItem value="waiting">Waiting</SelectItem>
+              <SelectItem value="resolved">Resolved</SelectItem>
+              <SelectItem value="escalated">Escalated</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div>
+          <p className="text-[10px] text-muted-foreground mb-0.5">Priority</p>
+          <Select value={priority} onValueChange={setPriority}>
+            <SelectTrigger className="h-7 text-xs" data-testid="select-priority">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="low">Low</SelectItem>
+              <SelectItem value="normal">Normal</SelectItem>
+              <SelectItem value="high">High</SelectItem>
+              <SelectItem value="urgent">Urgent</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap gap-1.5">
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 text-xs"
+          onClick={() => assignMutation.mutate()}
+          disabled={assignMutation.isPending}
+          data-testid="button-save-ownership"
+        >
+          {assignMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : null}
+          Save Assignment
+        </Button>
+
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 text-xs border-orange-200 text-orange-700 hover:bg-orange-50 dark:border-orange-800 dark:text-orange-400"
+          onClick={() => escalateMutation.mutate()}
+          disabled={escalateMutation.isPending}
+          data-testid="button-escalate-ownership"
+        >
+          {escalateMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <ShieldAlert className="w-3 h-3 mr-1" />}
+          Escalate to Scott
+        </Button>
+
+        {(intent === "meeting_intent" || intent === "call_me" || intent === "booked") && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-xs border-red-200 text-red-700 hover:bg-red-50 dark:border-red-800 dark:text-red-400"
+            onClick={() => noShowMutation.mutate()}
+            disabled={noShowMutation.isPending}
+            data-testid="button-mark-no-show"
+          >
+            {noShowMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : null}
+            Mark No-Show
+          </Button>
+        )}
+      </div>
+
+      {ownership?.escalationPath && (
+        <p className="text-[10px] text-orange-600 dark:text-orange-400 italic">
+          Escalation: {ownership.escalationPath}
+        </p>
+      )}
     </div>
   );
 }
@@ -140,14 +465,12 @@ export default function AiInbox() {
         ...extra,
       });
       const body = await res.json();
-      // Surface explicit delivery failures even on non-5xx codes
       if (!res.ok || body?.ok === false) {
         throw new Error(body?.message || `Action "${action}" failed`);
       }
       return body;
     },
     onSuccess: (data: any, { action }) => {
-      // send_reply distinguishes delivered vs draft-only
       if (action === "send_reply") {
         if (data?.delivered === false) {
           toast({ title: "Draft saved (not sent)", description: data?.deliveryNote || "GHL not configured.", variant: "default" });
@@ -170,6 +493,43 @@ export default function AiInbox() {
     },
     onError: (err: any) => {
       toast({ title: "Action failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const bookAppointmentMutation = useMutation({
+    mutationFn: async () => {
+      if (!selected) throw new Error("No item selected");
+      const csrf = getCsrfToken();
+      const res = await fetch(`/api/inbox/items/${selected.id}/book-appointment`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(csrf ? { "x-csrf-token": csrf } : {}) },
+        body: JSON.stringify({
+          contactId: selected.contactId,
+          contactName: selected.contactName,
+          companyName: selected.companyName,
+          intent: classifyResult?.classification.intent,
+        }),
+        credentials: "include",
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.message || "Failed");
+      return body;
+    },
+    onSuccess: (data: any) => {
+      if (data.bookingUrl) {
+        // Insert booking link into reply draft
+        setReplyDraft((prev) => {
+          const link = `\n\nBook a time here: ${data.bookingUrl}`;
+          return prev.includes(data.bookingUrl) ? prev : prev + link;
+        });
+        if (data.hasCalendar) {
+          window.open(data.bookingUrl, "_blank");
+        }
+      }
+      toast({ title: data.taskCreated ? "Booking task created" : "Booking link generated", description: data.hasCalendar ? "Calendar link inserted into reply" : "Manual booking task created" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Book Appointment failed", description: err.message, variant: "destructive" });
     },
   });
 
@@ -211,6 +571,7 @@ export default function AiInbox() {
   const intent = classifyResult?.classification.intent;
   const sendBlocked = classifyResult?.sendBlocked;
   const nextAction = classifyResult?.nextAction;
+  const showBookAppointment = intent === "meeting_intent" || intent === "call_me" || intent === "interested";
 
   return (
     <div className="space-y-4" data-testid="page-ai-inbox">
@@ -226,7 +587,7 @@ export default function AiInbox() {
             )}
           </h2>
           <p className="text-muted-foreground text-sm">
-            Inbound messages with AI intent classification and draft replies
+            Inbound messages with AI intent classification, ownership routing, and draft replies
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={() => refetch()}>
@@ -436,6 +797,26 @@ export default function AiInbox() {
                   ) : null}
                 </div>
 
+                {/* Ownership & routing panel */}
+                <div className="p-4 border-b">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Users className="w-4 h-4 text-purple-500" />
+                    <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Ownership & Routing</span>
+                  </div>
+                  <OwnershipPanel
+                    itemId={selected.id}
+                    contactId={selected.contactId}
+                    intent={intent}
+                    classifyResult={classifyResult}
+                    onEscalated={() => {
+                      setClassifyResult(prev => prev ? {
+                        ...prev,
+                        nextAction: "escalated_to_scott",
+                      } : prev);
+                    }}
+                  />
+                </div>
+
                 {/* Reply draft */}
                 <div className="p-4 border-b">
                   <p className="text-xs font-medium text-muted-foreground mb-2">Reply Draft (editable)</p>
@@ -488,22 +869,31 @@ export default function AiInbox() {
                       )}
                     </Tooltip>
 
-                    {/* Book Appointment */}
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => {
-                        if (classifyResult?.hasCalendar && classifyResult.bookingUrl) {
-                          window.open(classifyResult.bookingUrl, "_blank");
-                        }
-                        actionMutation.mutate({ action: "book_appointment" });
-                      }}
-                      disabled={actionMutation.isPending}
-                      data-testid="button-book-appointment"
-                    >
-                      <Calendar className="w-3.5 h-3.5 mr-1" />
-                      Book Appointment
-                    </Button>
+                    {/* Book Appointment — shown prominently when intent warrants it */}
+                    {showBookAppointment ? (
+                      <Button
+                        size="sm"
+                        variant="default"
+                        className="bg-blue-600 hover:bg-blue-700"
+                        onClick={() => bookAppointmentMutation.mutate()}
+                        disabled={bookAppointmentMutation.isPending}
+                        data-testid="button-book-appointment"
+                      >
+                        {bookAppointmentMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : <Calendar className="w-3.5 h-3.5 mr-1" />}
+                        Book Appointment
+                      </Button>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => bookAppointmentMutation.mutate()}
+                        disabled={bookAppointmentMutation.isPending}
+                        data-testid="button-book-appointment"
+                      >
+                        <Calendar className="w-3.5 h-3.5 mr-1" />
+                        Book Appointment
+                      </Button>
+                    )}
 
                     {/* Send Upload Instructions */}
                     <Button

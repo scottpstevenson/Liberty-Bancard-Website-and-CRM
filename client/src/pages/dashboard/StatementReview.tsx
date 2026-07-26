@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -43,9 +44,456 @@ import {
   Eye,
   Mail,
   ChevronDown,
+  ClipboardList,
+  UserCheck,
+  ArrowRightCircle,
+  Bot,
+  Pencil,
 } from "lucide-react";
 import type { Deal, Contact } from "@shared/schema";
 import { formatTimeAgo } from "@/lib/utils";
+
+// ─── Statement Review Types ────────────────────────────────────────────────────
+interface StatementReviewRecord {
+  id: number;
+  documentId: number | null;
+  contactId: number | null;
+  dealId: number | null;
+  status: string;
+  analystId: string | null;
+  analystName: string | null;
+  aiSummary: any;
+  analystNotes: string | null;
+  savingsEstimateOverride: string | null;
+  followUpDraft: string | null;
+  followUpSentAt: string | null;
+  reviewedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  // enriched
+  contactName?: string;
+  companyName?: string;
+  documentName?: string;
+}
+
+// ─── Status pipeline display ──────────────────────────────────────────────────
+const REVIEW_STATUS_STEPS = [
+  { key: "received",       label: "Received",       icon: FileText },
+  { key: "in_review",      label: "In Review",      icon: Eye },
+  { key: "ai_analyzed",   label: "AI Analyzed",    icon: Bot },
+  { key: "reviewed",       label: "Reviewed",       icon: CheckCircle2 },
+  { key: "follow_up_sent", label: "Follow-Up Sent", icon: Send },
+  { key: "complete",       label: "Complete",       icon: Star },
+];
+
+const STATUS_INDEX: Record<string, number> = Object.fromEntries(
+  REVIEW_STATUS_STEPS.map((s, i) => [s.key, i])
+);
+
+function ReviewStatusPipeline({ status }: { status: string }) {
+  const current = STATUS_INDEX[status] ?? 0;
+  return (
+    <div className="flex items-center gap-1 flex-wrap">
+      {REVIEW_STATUS_STEPS.map((step, i) => {
+        const done = i < current;
+        const active = i === current;
+        const Icon = step.icon;
+        return (
+          <div key={step.key} className="flex items-center gap-1">
+            <div
+              className={`flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full transition-colors ${
+                done
+                  ? "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300"
+                  : active
+                  ? "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300 ring-1 ring-blue-300"
+                  : "bg-muted text-muted-foreground"
+              }`}
+            >
+              <Icon className="w-2.5 h-2.5" />
+              {step.label}
+            </div>
+            {i < REVIEW_STATUS_STEPS.length - 1 && (
+              <ArrowRightCircle className="w-3 h-3 text-muted-foreground/40 shrink-0" />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── Statement Operations Panel ────────────────────────────────────────────────
+function StatementOperationsPanel() {
+  const { toast } = useToast();
+  const [selectedReview, setSelectedReview] = useState<StatementReviewRecord | null>(null);
+  const [analystNotes, setAnalystNotes] = useState("");
+  const [savingsOverride, setSavingsOverride] = useState("");
+  const [followUpDraft, setFollowUpDraft] = useState("");
+
+  const { data: reviews = [], isLoading, refetch } = useQuery<StatementReviewRecord[]>({
+    queryKey: ["/api/statement-reviews"],
+    refetchInterval: 60000,
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async (updates: Record<string, any>) => {
+      if (!selectedReview) throw new Error("No review selected");
+      const res = await apiRequest("PATCH", `/api/statement-reviews/${selectedReview.id}`, updates);
+      return res.json();
+    },
+    onSuccess: (updated) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/statement-reviews"] });
+      setSelectedReview(updated);
+      toast({ title: "Review updated" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Update failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const generateDraftMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedReview) throw new Error("No review selected");
+      const res = await apiRequest("POST", `/api/statement-reviews/${selectedReview.id}/follow-up-draft`);
+      return res.json();
+    },
+    onSuccess: (data: { draft: string }) => {
+      setFollowUpDraft(data.draft);
+      queryClient.invalidateQueries({ queryKey: ["/api/statement-reviews"] });
+      toast({ title: "Follow-up draft generated" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Draft generation failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const handleSelectReview = (r: StatementReviewRecord) => {
+    setSelectedReview(r);
+    setAnalystNotes(r.analystNotes || "");
+    setSavingsOverride(r.savingsEstimateOverride || "");
+    setFollowUpDraft(r.followUpDraft || "");
+  };
+
+  const handleAdvanceStatus = (newStatus: string) => {
+    updateMutation.mutate({ status: newStatus });
+  };
+
+  const handleSaveNotes = () => {
+    updateMutation.mutate({
+      analystNotes,
+      savingsEstimateOverride: savingsOverride || undefined,
+    });
+  };
+
+  const nextStatus = (current: string): string | null => {
+    const idx = STATUS_INDEX[current] ?? 0;
+    return REVIEW_STATUS_STEPS[idx + 1]?.key ?? null;
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-xl font-bold flex items-center gap-2">
+            <ClipboardList className="w-5 h-5 text-teal-500" />
+            Statement Review Operations
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            Track analyst workflow from statement receipt through merchant follow-up
+          </p>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => refetch()}>
+          <ArrowRightCircle className="w-4 h-4 mr-1" />
+          Refresh
+        </Button>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {/* Left: review list */}
+        <Card data-testid="card-statement-reviews-list">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">
+              Reviews ({reviews.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            {isLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+              </div>
+            ) : reviews.length === 0 ? (
+              <p className="text-xs text-muted-foreground p-4">
+                No statement reviews yet. Reviews are created automatically when a Processing Statement is uploaded.
+              </p>
+            ) : (
+              <div className="divide-y max-h-96 overflow-y-auto">
+                {reviews.map((r) => (
+                  <button
+                    key={r.id}
+                    className={`w-full text-left px-3 py-2.5 hover:bg-muted/50 transition-colors text-sm ${selectedReview?.id === r.id ? "bg-muted" : ""}`}
+                    onClick={() => handleSelectReview(r)}
+                    data-testid={`review-row-${r.id}`}
+                  >
+                    <div className="font-medium text-xs truncate">{r.contactName || r.documentName || `Review #${r.id}`}</div>
+                    {r.companyName && <div className="text-[10px] text-muted-foreground truncate">{r.companyName}</div>}
+                    <div className="flex items-center gap-1.5 mt-1">
+                      <Badge
+                        className={`text-[9px] px-1 h-4 ${
+                          r.status === "complete" ? "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300" :
+                          r.status === "received" ? "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300" :
+                          r.status === "follow_up_sent" ? "bg-teal-100 text-teal-700 dark:bg-teal-900 dark:text-teal-300" :
+                          "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300"
+                        }`}
+                      >
+                        {r.status.replace(/_/g, " ")}
+                      </Badge>
+                      {r.analystName && (
+                        <span className="text-[9px] text-muted-foreground flex items-center gap-0.5">
+                          <UserCheck className="w-2.5 h-2.5" />
+                          {r.analystName}
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[9px] text-muted-foreground mt-0.5">
+                      {new Date(r.createdAt).toLocaleDateString()}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Right: review detail */}
+        <div className="lg:col-span-2">
+          {!selectedReview ? (
+            <Card>
+              <CardContent className="flex items-center justify-center py-16 text-muted-foreground">
+                <div className="text-center">
+                  <ClipboardList className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                  <p className="text-sm">Select a review to see details</p>
+                </div>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-3">
+              {/* Status pipeline */}
+              <Card data-testid="card-review-pipeline">
+                <CardContent className="pt-4 pb-3">
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <p className="font-semibold text-sm">{selectedReview.contactName || `Review #${selectedReview.id}`}</p>
+                      {selectedReview.companyName && (
+                        <p className="text-xs text-muted-foreground">{selectedReview.companyName}</p>
+                      )}
+                      {selectedReview.documentName && (
+                        <p className="text-xs text-muted-foreground flex items-center gap-1">
+                          <FileText className="w-3 h-3" />
+                          {selectedReview.documentName}
+                        </p>
+                      )}
+                    </div>
+                    {selectedReview.analystName && (
+                      <span className="text-xs text-muted-foreground flex items-center gap-1">
+                        <UserCheck className="w-3 h-3 text-blue-500" />
+                        {selectedReview.analystName}
+                      </span>
+                    )}
+                  </div>
+                  <ReviewStatusPipeline status={selectedReview.status} />
+
+                  {nextStatus(selectedReview.status) && (
+                    <div className="mt-3 flex gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="text-xs h-7"
+                        onClick={() => handleAdvanceStatus(nextStatus(selectedReview.status)!)}
+                        disabled={updateMutation.isPending}
+                        data-testid="button-advance-status"
+                      >
+                        {updateMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <ArrowRightCircle className="w-3 h-3 mr-1" />}
+                        Advance to {nextStatus(selectedReview.status)!.replace(/_/g, " ")}
+                      </Button>
+                      <Select
+                        value={selectedReview.status}
+                        onValueChange={(v) => handleAdvanceStatus(v)}
+                      >
+                        <SelectTrigger className="h-7 text-xs w-40">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {REVIEW_STATUS_STEPS.map((s) => (
+                            <SelectItem key={s.key} value={s.key}>
+                              {s.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* AI Summary */}
+              {selectedReview.aiSummary && (
+                <Card data-testid="card-ai-summary">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm flex items-center gap-2">
+                      <Bot className="w-4 h-4 text-blue-500" />
+                      AI Analysis Summary
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                      {Object.entries(selectedReview.aiSummary as Record<string, any>)
+                        .filter(([k]) => !["raw", "fullText"].includes(k))
+                        .slice(0, 9)
+                        .map(([k, v]) => (
+                          <div key={k} className="space-y-0.5">
+                            <p className="text-[10px] text-muted-foreground uppercase font-medium">
+                              {k.replace(/([A-Z])/g, " $1").trim()}
+                            </p>
+                            <p className="text-sm font-semibold">{String(v)}</p>
+                          </div>
+                        ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Analyst notes + savings override */}
+              <Card data-testid="card-analyst-notes">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <Pencil className="w-4 h-4" />
+                    Analyst Notes & Savings Override
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs">Analyst Notes</Label>
+                    <Textarea
+                      value={analystNotes}
+                      onChange={(e) => setAnalystNotes(e.target.value)}
+                      rows={3}
+                      placeholder="Add review notes, observations, or key findings…"
+                      className="text-sm resize-none"
+                      data-testid="textarea-analyst-notes"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Savings Estimate Override</Label>
+                    <Input
+                      value={savingsOverride}
+                      onChange={(e) => setSavingsOverride(e.target.value)}
+                      placeholder="e.g. $4,200/year or 22%"
+                      className="text-sm h-8"
+                      data-testid="input-savings-override"
+                    />
+                    <p className="text-[10px] text-muted-foreground">
+                      Overrides the AI estimate in the merchant follow-up email
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleSaveNotes}
+                    disabled={updateMutation.isPending}
+                    className="h-7 text-xs"
+                    data-testid="button-save-analyst-notes"
+                  >
+                    {updateMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <CheckCircle2 className="w-3 h-3 mr-1" />}
+                    Save Notes
+                  </Button>
+                </CardContent>
+              </Card>
+
+              {/* Follow-up draft */}
+              <Card data-testid="card-follow-up-draft">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <Send className="w-4 h-4 text-teal-500" />
+                    Merchant Follow-Up Draft
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => generateDraftMutation.mutate()}
+                    disabled={generateDraftMutation.isPending}
+                    className="h-7 text-xs gap-1.5"
+                    data-testid="button-generate-follow-up"
+                  >
+                    {generateDraftMutation.isPending ? (
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                    ) : (
+                      <Sparkles className="w-3 h-3 text-blue-500" />
+                    )}
+                    Generate Follow-Up Draft
+                  </Button>
+
+                  {followUpDraft && (
+                    <>
+                      <Textarea
+                        value={followUpDraft}
+                        onChange={(e) => setFollowUpDraft(e.target.value)}
+                        rows={8}
+                        className="text-sm resize-none font-mono text-xs"
+                        data-testid="textarea-follow-up-draft"
+                      />
+                      <div className="flex gap-2 flex-wrap">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 text-xs"
+                          onClick={async () => {
+                            try {
+                              await navigator.clipboard.writeText(followUpDraft);
+                              toast({ title: "Copied to clipboard" });
+                            } catch {
+                              toast({ title: "Copy failed", description: "Use Ctrl+A, Ctrl+C to copy manually", variant: "destructive" });
+                            }
+                          }}
+                          data-testid="button-copy-follow-up"
+                        >
+                          <Copy className="w-3 h-3 mr-1" />
+                          Copy to Clipboard
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 text-xs"
+                          onClick={() => {
+                            updateMutation.mutate({
+                              followUpDraft,
+                              status: "follow_up_sent",
+                            });
+                          }}
+                          disabled={updateMutation.isPending}
+                          data-testid="button-mark-follow-up-sent"
+                        >
+                          <Mail className="w-3 h-3 mr-1" />
+                          Mark Follow-Up Sent
+                        </Button>
+                      </div>
+                      {selectedReview.followUpSentAt && (
+                        <p className="text-[10px] text-green-600 dark:text-green-400">
+                          ✓ Follow-up sent {new Date(selectedReview.followUpSentAt).toLocaleDateString()}
+                        </p>
+                      )}
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 interface PlanData {
   name: string;
@@ -244,6 +692,9 @@ export default function StatementReview() {
           Analyze merchant statements and generate competitive pricing proposals with real savings breakdowns.
         </p>
       </div>
+
+      {/* Statement Operations section */}
+      <StatementOperationsPanel />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card data-testid="card-generate-proposal">
