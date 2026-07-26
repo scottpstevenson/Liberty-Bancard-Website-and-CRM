@@ -443,17 +443,24 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
         const serviceType = contact?.vertical || industry;
         const estimatedVolume = contact?.monthlyVolume || monthlyVolume;
         let agentName = "Liberty Bancard";
+        let agentEmail = "Scott@mail.libertybancard.com";
+        let agentPhone = "954-266-8214";
         if (contact?.agentId) {
           try {
             const assignedAgent = await storage.getAgent(contact.agentId);
             if (assignedAgent) {
               const fullName = [assignedAgent.firstName, assignedAgent.lastName].filter(Boolean).join(" ");
               if (fullName) agentName = fullName;
+              if ((assignedAgent as any).email) agentEmail = (assignedAgent as any).email;
+              if ((assignedAgent as any).phone) agentPhone = (assignedAgent as any).phone;
             }
           } catch {
-            // fallback to default
+            // fallback to defaults
           }
         }
+
+        // businessName is the same concept as companyName — alias for template compat
+        const businessName = companyName;
 
         const calendarLink =
           process.env.GHL_CALENDAR_BOOKING_URL ||
@@ -480,6 +487,9 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
             .replace(/\{\{serviceType\}\}/g, serviceType)
             .replace(/\{\{estimatedVolume\}\}/g, estimatedVolume)
             .replace(/\{\{agentName\}\}/g, agentName)
+            .replace(/\{\{agentEmail\}\}/g, agentEmail)
+            .replace(/\{\{agentPhone\}\}/g, agentPhone)
+            .replace(/\{\{businessName\}\}/g, businessName)
             .replace(/\{\{calendarLink\}\}/g, calendarLink)
             .replace(/\{\{contact\.vertical\}\}/g, industry)
             .replace(/\{\{vertical\}\}/g, industry);
