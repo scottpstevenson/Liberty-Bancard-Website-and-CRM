@@ -603,6 +603,19 @@ const CALL_SITE_ALLOWLIST: Array<{
     reason: "Internal test send for all active sequence templates — admin-only, wizardTestRateLimit, recipient hardcoded to scott@libertybancard.com. SMTP preferred transport path. Never sends to real prospects. Reviewed 2026-07-26.",
     reviewDate: "2026-07-26",
   },
+  // ── CRM one-off email composer — reviewed 2026-07-26 ─────────────────────
+  // POST /api/contacts/:id/send-email — gated by isDashboardUser (no merchants).
+  // Rep-initiated manual send via GHL to a specific known contact. Not automated
+  // outreach; the rep selects the recipient explicitly in the UI. Subject and body
+  // are entered by the rep at send time.
+  {
+    file: "server/routes/contacts.ts",
+    lineContains: "sendGhlEmail({ contactId, subject, body })",
+    channel: "email",
+    category: "admin_gated",
+    reason: "CRM email composer — POST /api/contacts/:id/send-email requires isDashboardUser; rep manually composes and sends to a specific contact via GHL. Not automated outreach; no bulk or sequence path. Reviewed 2026-07-26.",
+    reviewDate: "2026-07-26",
+  },
 ];
 
 

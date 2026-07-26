@@ -237,10 +237,14 @@ function RateReviewCard({ profile }: { profile: MerchantProfile }) {
       const formData = new FormData();
       formData.append("file", selectedFile);
       if (notes) formData.append("notes", notes);
+      const rateReviewHeaders: Record<string, string> = {};
+      const csrfRateReview = getCsrfToken();
+      if (csrfRateReview) rateReviewHeaders["X-CSRF-Token"] = csrfRateReview;
       const res = await fetch("/api/merchant-portal/rate-review", {
         method: "POST",
         body: formData,
         credentials: "include",
+        headers: rateReviewHeaders,
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({ message: "Upload failed" }));
