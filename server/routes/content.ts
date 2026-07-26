@@ -177,7 +177,6 @@ Guidelines:
         () => openai.chat.completions.create({
           model: "gpt-5",
           messages: contentMessages,
-          temperature: 0.7,
           response_format: { type: "json_object" },
         })
       );

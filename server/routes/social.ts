@@ -200,7 +200,6 @@ Return ONLY JSON:
         () => openai.chat.completions.create({
           model: "gpt-5",
           messages: socialMessages,
-          temperature: 0.8,
           response_format: { type: "json_object" },
         })
       );

@@ -211,7 +211,6 @@ Return JSON with:
         messages: stmtEngineMessages,
         max_completion_tokens: 10000,
         response_format: { type: "json_object" },
-        temperature: 0.3,
       }));
 
     const raw = completion.choices[0]?.message?.content || "";
@@ -413,7 +412,6 @@ STATEMENT ANALYSIS RESULTS (use these findings):
         messages: propEngineMessages,
         max_completion_tokens: 8000,
         response_format: { type: "json_object" },
-        temperature: 0.4,
       }));
 
     const raw = completion.choices[0]?.message?.content || "";
