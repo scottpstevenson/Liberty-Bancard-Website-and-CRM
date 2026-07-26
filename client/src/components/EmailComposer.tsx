@@ -107,7 +107,7 @@ export function EmailComposer({ contactId, prospectId, initialVertical, onClose,
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) onClose() }}>
-      <DialogContent className="max-w-2xl" data-testid="dialog-email-composer">
+      <DialogContent className="max-w-2xl max-sm:fixed max-sm:inset-0 max-sm:!max-w-none max-sm:rounded-none max-sm:h-dvh max-sm:overflow-y-auto" data-testid="dialog-email-composer">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Mail className="h-5 w-5" />

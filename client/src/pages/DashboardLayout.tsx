@@ -1,5 +1,6 @@
 import { ReactNode, useState, useMemo, useEffect, useCallback } from "react";
 import { Link, useLocation } from "wouter";
+import { useIsMobile } from "@/hooks/use-mobile";
 import Forbidden from "@/pages/Forbidden";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
@@ -381,8 +382,16 @@ function TwoFaBanner({ role }: { role: UserRole }) {
 }
 
 export function DashboardLayout({ children }: DashboardLayoutProps) {
-  const [location] = useLocation();
+  const [location, setLocation] = useLocation();
+  const isMobile = useIsMobile();
   const { logout, user } = useAuth();
+
+  // Redirect mobile browsers to the native mobile shell unless the user
+  // has explicitly opted into desktop view.
+  useEffect(() => {
+    const optedOut = localStorage.getItem("prefer_desktop") === "true";
+    if (isMobile && !optedOut) setLocation("/mobile");
+  }, [isMobile, setLocation]);
   const [emailOpen, setEmailOpen] = useState(false);
   const [aiChatOpen, setAiChatOpen] = useState(false);
   const [resourcesOpen, setResourcesOpen] = useState(false);

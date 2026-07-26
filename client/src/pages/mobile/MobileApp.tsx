@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Switch, Route, useLocation, Redirect } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
-import { Loader2, Home, Users, LayoutList, CheckSquare, User, WifiOff } from "lucide-react";
+import { Loader2, Home, Users, LayoutList, CheckSquare, MessageSquare, Monitor, WifiOff } from "lucide-react";
 import { useOfflineQueue } from "@/hooks/use-offline-queue";
 import MobileLogin from "./MobileLogin";
 import MobileHome from "./MobileHome";
@@ -10,6 +10,9 @@ import MobileContactDetail from "./MobileContactDetail";
 import MobilePipeline from "./MobilePipeline";
 import MobileTasks from "./MobileTasks";
 import MobileProfile from "./MobileProfile";
+import MobileInbox from "./MobileInbox";
+
+const PREFER_DESKTOP_KEY = "prefer_desktop";
 
 function useOnlineStatus() {
   const [online, setOnline] = useState(navigator.onLine);
@@ -30,8 +33,8 @@ const TABS = [
   { path: "/mobile", label: "Home", icon: Home },
   { path: "/mobile/contacts", label: "Contacts", icon: Users },
   { path: "/mobile/pipeline", label: "Pipeline", icon: LayoutList },
+  { path: "/mobile/inbox", label: "Inbox", icon: MessageSquare },
   { path: "/mobile/tasks", label: "Tasks", icon: CheckSquare },
-  { path: "/mobile/profile", label: "Profile", icon: User },
 ];
 
 function BottomNav() {
@@ -43,7 +46,10 @@ function BottomNav() {
   }
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 flex z-50 safe-bottom" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
+    <nav
+      className="fixed bottom-0 left-0 right-0 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 flex z-50"
+      style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+    >
       {TABS.map(({ path, label, icon: Icon }) => (
         <button
           key={path}
@@ -85,10 +91,21 @@ function MobileShell() {
 
   if (!user) return null;
 
+  function switchToDesktop() {
+    localStorage.setItem(PREFER_DESKTOP_KEY, "true");
+    window.location.href = "/dashboard";
+  }
+
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950 max-w-md mx-auto relative" style={{ paddingBottom: "calc(64px + env(safe-area-inset-bottom))" }}>
+    <div
+      className="min-h-screen bg-gray-50 dark:bg-gray-950 max-w-md mx-auto relative"
+      style={{ paddingBottom: "calc(64px + env(safe-area-inset-bottom))" }}
+    >
       {!online && (
-        <div className="bg-amber-500 text-white text-xs text-center py-1.5 px-3 flex items-center justify-center gap-1.5 sticky top-0 z-40" data-testid="offline-banner">
+        <div
+          className="bg-amber-500 text-white text-xs text-center py-1.5 px-3 flex items-center justify-center gap-1.5 sticky top-0 z-40"
+          data-testid="offline-banner"
+        >
           <WifiOff className="w-3 h-3" />
           Offline — showing cached data
           {queueCount > 0 && (
@@ -98,15 +115,30 @@ function MobileShell() {
           )}
         </div>
       )}
+
       <Switch>
         <Route path="/mobile" component={MobileHome} />
         <Route path="/mobile/contacts" component={MobileContacts} />
         <Route path="/mobile/contacts/:id" component={MobileContactDetail} />
         <Route path="/mobile/pipeline" component={MobilePipeline} />
+        <Route path="/mobile/inbox" component={MobileInbox} />
         <Route path="/mobile/tasks" component={MobileTasks} />
         <Route path="/mobile/profile" component={MobileProfile} />
         <Route><Redirect to="/mobile" /></Route>
       </Switch>
+
+      {/* Desktop switch — discreet footer link */}
+      <div className="text-center py-2 pb-0">
+        <button
+          data-testid="button-switch-desktop"
+          onClick={switchToDesktop}
+          className="inline-flex items-center gap-1 text-xs text-gray-400 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-400"
+        >
+          <Monitor className="w-3 h-3" />
+          Switch to desktop view
+        </button>
+      </div>
+
       <BottomNav />
     </div>
   );

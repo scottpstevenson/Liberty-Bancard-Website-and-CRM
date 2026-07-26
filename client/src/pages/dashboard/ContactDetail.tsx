@@ -967,7 +967,7 @@ export default function ContactDetail() {
   };
 
   return (
-    <div className="space-y-6 p-4 md:p-6 max-w-6xl mx-auto" data-testid="contact-detail-page">
+    <div className="space-y-6 p-4 md:p-6 max-w-6xl mx-auto pb-20 md:pb-6" data-testid="contact-detail-page">
       {/* Header */}
       <div className="flex flex-col gap-4">
         <Button variant="ghost" className="self-start" onClick={() => setLocation("/dashboard/contacts")} data-testid="button-back">
@@ -1419,7 +1419,8 @@ export default function ContactDetail() {
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} data-testid="contact-tabs">
-        <TabsList className="flex flex-wrap h-auto gap-1" data-testid="contact-tabs-list">
+        <div className="overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0 pb-0.5">
+        <TabsList className="flex flex-nowrap h-auto gap-1 w-max" data-testid="contact-tabs-list">
           <TabsTrigger value="overview" data-testid="tab-overview">Overview</TabsTrigger>
           <TabsTrigger value="deals" data-testid="tab-deals">Deals ({deals.length})</TabsTrigger>
           <TabsTrigger value="tickets" data-testid="tab-tickets">Tickets ({tickets.length})</TabsTrigger>
@@ -1475,6 +1476,7 @@ export default function ContactDetail() {
             </TabsTrigger>
           )}
         </TabsList>
+        </div>
 
         <TabsContent value="overview" data-testid="tab-content-overview">
           <OverviewTab
@@ -1579,6 +1581,45 @@ export default function ContactDetail() {
           </TabsContent>
         )}
       </Tabs>
+
+      {/* Mobile sticky action bar — replaces scattered quick-action buttons on small screens */}
+      <div
+        className="md:hidden fixed bottom-0 left-0 right-0 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800 flex items-center z-40"
+        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+      >
+        <button
+          data-testid="mobile-action-note"
+          onClick={() => setActiveTab("notes")}
+          className="flex-1 flex flex-col items-center gap-0.5 py-2.5 text-gray-600 dark:text-gray-400 active:bg-gray-100 dark:active:bg-gray-800"
+        >
+          <StickyNote className="w-5 h-5" />
+          <span className="text-[10px] font-medium">Note</span>
+        </button>
+        <button
+          data-testid="mobile-action-deal"
+          onClick={() => setShowDealDialog(true)}
+          className="flex-1 flex flex-col items-center gap-0.5 py-2.5 text-gray-600 dark:text-gray-400 active:bg-gray-100 dark:active:bg-gray-800"
+        >
+          <TrendingUp className="w-5 h-5" />
+          <span className="text-[10px] font-medium">Deal</span>
+        </button>
+        <button
+          data-testid="mobile-action-email"
+          onClick={() => setEmailComposerOpen(true)}
+          className="flex-1 flex flex-col items-center gap-0.5 py-2.5 text-gray-600 dark:text-gray-400 active:bg-gray-100 dark:active:bg-gray-800"
+        >
+          <Mail className="w-5 h-5" />
+          <span className="text-[10px] font-medium">Email</span>
+        </button>
+        <button
+          data-testid="mobile-action-task"
+          onClick={() => setShowTaskDialog(true)}
+          className="flex-1 flex flex-col items-center gap-0.5 py-2.5 text-gray-600 dark:text-gray-400 active:bg-gray-100 dark:active:bg-gray-800"
+        >
+          <CheckSquare className="w-5 h-5" />
+          <span className="text-[10px] font-medium">Task</span>
+        </button>
+      </div>
 
       <CreateDialogs
           showDealDialog={showDealDialog}
