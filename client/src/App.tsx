@@ -199,6 +199,11 @@ const DeliverabilitySettings = lazy(() => import("@/pages/dashboard/Deliverabili
 const GhlConflicts = lazy(() => import("@/pages/dashboard/GhlConflicts"));
 const SetupWizard = lazy(() => import("@/pages/dashboard/SetupWizard"));
 
+// ─── Unified CRM Console Pages ─────────────────────────────────────────────────
+const ContactsAndLeads = lazy(() => import("@/pages/dashboard/ContactsAndLeads"));
+const TasksAppointments = lazy(() => import("@/pages/dashboard/TasksAppointments"));
+const OutboundCenter = lazy(() => import("@/pages/dashboard/OutboundCenter"));
+
 // ─── Dashboard Hub Pages ───────────────────────────────────────────────────────
 const OnboardingHub = lazy(() => import("@/pages/dashboard/OnboardingHub"));
 const OutreachHub = lazy(() => import("@/pages/dashboard/OutreachHub"));
@@ -446,7 +451,7 @@ function Router() {
           <Redirect to="/dashboard/support-hub?tab=tickets" />
         </Route>
         <Route path="/dashboard/tasks">
-          <ProtectedRoute component={Tasks} />
+          <Redirect to="/dashboard/tasks-appointments?tab=tasks" />
         </Route>
         <Route path="/dashboard/notifications">
           <ProtectedRoute component={Notifications} />
@@ -487,8 +492,19 @@ function Router() {
         <Route path="/dashboard/automation">
           <ProtectedRoute component={Automation} />
         </Route>
+        {/* ─── Unified CRM Console Routes ───────────────────────────────── */}
+        <Route path="/dashboard/contacts-leads">
+          <ProtectedRoute component={ContactsAndLeads} />
+        </Route>
+        <Route path="/dashboard/tasks-appointments">
+          <ProtectedRoute component={TasksAppointments} />
+        </Route>
+        <Route path="/dashboard/outbound-center">
+          <ProtectedRoute component={OutboundCenter} allowedRoles={["admin", "manager"]} />
+        </Route>
+        {/* Legacy routes redirect to unified views with correct tab */}
         <Route path="/dashboard/prospects">
-          <ProtectedRoute component={Prospects} />
+          <Redirect to="/dashboard/contacts-leads?tab=leads" />
         </Route>
         <Route path="/dashboard/prospects/import">
           <ProtectedRoute component={ProspectImport} />
@@ -497,7 +513,7 @@ function Router() {
           <ProtectedRoute component={LeadImports} />
         </Route>
         <Route path="/dashboard/campaigns">
-          <ProtectedRoute component={Campaigns} />
+          <Redirect to="/dashboard/outbound-center?tab=campaigns" />
         </Route>
         <Route path="/dashboard/outreach-analytics">
           <Redirect to="/dashboard/reporting?tab=outreach-analytics" />
@@ -506,7 +522,7 @@ function Router() {
           <ProtectedRoute component={ReportingHub} allowedRoles={["admin", "manager"]} />
         </Route>
         <Route path="/dashboard/acquisition-hub">
-          <ProtectedRoute component={AcquisitionHub} allowedRoles={["admin", "manager"]} />
+          <Redirect to="/dashboard/outbound-center?tab=analytics" />
         </Route>
         <Route path="/dashboard/win-loss">
           <Redirect to="/dashboard/reporting?tab=win-loss" />
@@ -515,7 +531,7 @@ function Router() {
           <ProtectedRoute component={StageRules} allowedRoles={["admin", "manager"]} />
         </Route>
         <Route path="/dashboard/sequences">
-          <ProtectedRoute component={Sequences} />
+          <Redirect to="/dashboard/outbound-center?tab=sequences" />
         </Route>
         <Route path="/dashboard/lead-gen">
           <ProtectedRoute component={LeadGenCleaner} />
@@ -590,7 +606,7 @@ function Router() {
           <Redirect to="/dashboard/admin-hub?tab=consent" />
         </Route>
         <Route path="/dashboard/calendar">
-          <ProtectedRoute component={Calendar} />
+          <Redirect to="/dashboard/tasks-appointments?tab=calendar" />
         </Route>
         <Route path="/dashboard/user-management">
           <Redirect to="/dashboard/admin-hub?tab=users" />

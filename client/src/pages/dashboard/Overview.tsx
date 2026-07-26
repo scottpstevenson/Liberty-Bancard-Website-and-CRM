@@ -2,14 +2,17 @@ import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Progress } from "@/components/ui/progress";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import { Link } from "wouter";
 import {
   Users, Ticket, TrendingUp, CheckCircle, AlertTriangle, Clock,
   Target, ArrowUpRight, ArrowDownRight, Loader2, Brain, Sparkles,
   RefreshCw, DollarSign, Banknote, CalendarDays, BarChart3, Globe,
-  Mail, Flame, Thermometer, Snowflake, Ban,
+  Mail, Flame, Thermometer, Snowflake, Ban, PauseCircle, Activity,
+  MessageSquare, Upload, Wifi, WifiOff,
 } from "lucide-react";
 import type { Contact, Deal } from "@shared/schema";
 
@@ -42,6 +45,13 @@ interface DailyTrend {
   deals: number;
 }
 
+interface OutboundSettings {
+  outboundGlobalPaused: boolean;
+  outboundGlobalPausedReason: string | null;
+  outboundDailyEmailCap: number | null;
+  ghlSyncEnabled: boolean;
+}
+
 export default function Overview() {
   const [insights, setInsights] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
@@ -60,6 +70,12 @@ export default function Overview() {
     overdueTaskCount: number;
     sourceBreakdown: Record<string, number>;
   } | null>(null);
+
+  const { data: outboundSettings } = useQuery<OutboundSettings>({
+    queryKey: ["/api/system/outbound-settings"],
+    refetchInterval: 60000,
+    retry: false,
+  });
 
   const insightsMutation = useMutation({
     mutationFn: async () => {
@@ -155,6 +171,33 @@ export default function Overview() {
 
   return (
     <div className="space-y-8">
+      {/* ── OUTBOUND PAUSED BANNER ── */}
+      {outboundSettings?.outboundGlobalPaused && (
+        <Alert
+          variant="destructive"
+          className="border-orange-400 bg-orange-50 dark:bg-orange-950 text-orange-900 dark:text-orange-100"
+          data-testid="banner-outbound-paused"
+        >
+          <PauseCircle className="h-4 w-4 text-orange-600 dark:text-orange-400" />
+          <AlertDescription className="flex items-center justify-between gap-4 flex-wrap">
+            <span>
+              <strong>Outbound is globally paused.</strong>
+              {outboundSettings.outboundGlobalPausedReason && (
+                <span className="ml-1 opacity-80">{outboundSettings.outboundGlobalPausedReason}</span>
+              )}{" "}
+              No emails, SMS, or sequences will be sent until outbound is re-enabled.
+            </span>
+            <Link
+              href="/dashboard/activation"
+              className="underline underline-offset-2 font-semibold text-orange-800 dark:text-orange-200 hover:opacity-80 whitespace-nowrap shrink-0"
+              data-testid="link-outbound-paused-go-live"
+            >
+              Go-Live Controls →
+            </Link>
+          </AlertDescription>
+        </Alert>
+      )}
+
       <Card className="bg-primary/5 dark:bg-primary/10" data-testid="card-ai-copilot">
         <CardHeader className="flex flex-row items-center justify-between gap-2 flex-wrap">
           <div className="flex items-center gap-2">
