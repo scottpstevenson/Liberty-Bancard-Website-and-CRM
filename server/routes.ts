@@ -61,6 +61,7 @@ import { registerGmailOAuthRoutes } from "./routes/gmail-oauth";
 import { registerChatAssistantRoutes } from "./routes/chat-assistant";
 import { registerKnowledgeAdminRoutes } from "./routes/knowledge-admin";
 import { registerAcquisitionRoutes } from "./routes/acquisition";
+import { registerInboxRoutes } from "./routes/inbox";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -190,6 +191,7 @@ export async function registerRoutes(
   registerChatAssistantRoutes(app);
   registerKnowledgeAdminRoutes(app);
   registerAcquisitionRoutes(app);
+  registerInboxRoutes(app);
 
   // Must be registered before the API 404 catch-all — extracts route
   // permissions by walking the already-populated express router stack
