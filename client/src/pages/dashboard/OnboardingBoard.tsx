@@ -7,16 +7,19 @@ import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { CheckCircle, Clock, AlertTriangle, FileText, Users, Activity, RefreshCw } from "lucide-react";
+import { CheckCircle, Clock, AlertTriangle, FileText, Users, Activity, RefreshCw, ClipboardList } from "lucide-react";
 import { useState } from "react";
 import type {
   OnboardingChecklistItem,
   OnboardingChecklistItemKey,
   OnboardingChecklistItemStatus,
+  MerchantOnboardingStage,
 } from "@shared/schema";
 import {
   ONBOARDING_CHECKLIST_ITEM_KEYS,
   ONBOARDING_CHECKLIST_ITEM_LABELS,
+  MERCHANT_ONBOARDING_STAGE_KEYS,
+  MERCHANT_ONBOARDING_STAGE_LABELS,
 } from "@shared/schema";
 import { useAuth } from "@/hooks/use-auth";
 import { getDealCardIdentity } from "@/lib/deal-identity";
@@ -150,6 +153,50 @@ function ChecklistRow({
   );
 }
 
+function WorkflowStageProgress({ dealId }: { dealId: number }) {
+  const { data: stages = [] } = useQuery<MerchantOnboardingStage[]>({
+    queryKey: [`/api/deals/${dealId}/onboarding-stages`],
+    queryFn: async () => {
+      const res = await fetch(`/api/deals/${dealId}/onboarding-stages`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+  });
+
+  if (stages.length === 0) return null;
+
+  const complete = stages.filter(s => s.status === "complete").length;
+  const total = MERCHANT_ONBOARDING_STAGE_KEYS.length;
+  const pct = Math.round((complete / total) * 100);
+  const inProgress = stages.find(s => s.status === "in_progress");
+  const blocked = stages.filter(s => s.status === "blocked").length;
+
+  return (
+    <div className="space-y-1.5" data-testid={`workflow-stages-${dealId}`}>
+      <div className="flex items-center justify-between text-xs">
+        <span className="flex items-center gap-1 text-muted-foreground font-medium">
+          <ClipboardList className="w-3 h-3" />
+          Onboarding Workflow
+        </span>
+        <span className="text-muted-foreground">{complete}/{total} stages</span>
+      </div>
+      <Progress value={pct} className="h-1" data-testid={`workflow-progress-${dealId}`} />
+      <div className="flex flex-wrap gap-1.5">
+        {inProgress && (
+          <Badge variant="secondary" className="text-[10px] h-4 px-1.5">
+            ▶ {MERCHANT_ONBOARDING_STAGE_LABELS[inProgress.stageKey as keyof typeof MERCHANT_ONBOARDING_STAGE_LABELS] || inProgress.stageKey}
+          </Badge>
+        )}
+        {blocked > 0 && (
+          <Badge variant="destructive" className="text-[10px] h-4 px-1.5">
+            {blocked} blocked
+          </Badge>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function DealChecklistCard({ entry, canApprove }: { entry: BoardEntry; canApprove: boolean }) {
   const { deal, contact, checklistItems, stats } = entry;
   const { toast } = useToast();
@@ -250,7 +297,10 @@ function DealChecklistCard({ entry, canApprove }: { entry: BoardEntry; canApprov
         </div>
         <Progress value={stats.progressPct} className="h-1.5 mt-2" data-testid={`progress-bar-${deal.id}`} />
       </CardHeader>
-      <CardContent className="px-4 pb-4">
+      <CardContent className="px-4 pb-4 space-y-4">
+        {/* Workflow Stage Progress */}
+        <WorkflowStageProgress dealId={deal.id} />
+
         {checklistItems.length === 0 ? (
           <div className="text-center py-2">
             <p className="text-xs text-muted-foreground mb-2">No checklist initialized</p>

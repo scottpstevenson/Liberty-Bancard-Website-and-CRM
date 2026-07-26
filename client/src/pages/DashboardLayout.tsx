@@ -165,31 +165,36 @@ const reportsSettingsItems: MenuItem[] = [
   { icon: Settings,    label: "Integrations",     href: "/dashboard/settings/integrations", roles: ["admin"] },
 ];
 
-// ─── ADMIN / DEVELOPER TOOLS (hidden by default) ──────────────────────────────
-const adminToolsItems: MenuItem[] = [
-  { icon: Workflow,      label: "GHL Integration",       href: "/dashboard/ghl-integration",    roles: ["admin", "manager"] },
-  { icon: BarChart3,     label: "Automation",            href: "/dashboard/automation",         roles: ["admin", "manager"] },
-  { icon: GitBranch,     label: "Stage Rules",           href: "/dashboard/stage-rules",        roles: ["admin", "manager"] },
-  { icon: ListOrdered,   label: "Sequence Report",       href: "/dashboard/sequence-report",    roles: ["admin", "manager"] },
-  { icon: ArrowRightLeft, label: "Round-Robin",          href: "/dashboard/round-robin",        roles: ["admin", "manager"] },
-  { icon: RocketIcon,    label: "Go-Live Controls",      href: "/dashboard/activation",         roles: ["admin"] },
-  { icon: FlaskConical,  label: "Setup Wizard",          href: "/dashboard/setup-wizard",       roles: ["admin", "manager"] },
-  { icon: Mail,          label: "Deliverability Hub",    href: "/dashboard/deliverability-hub", roles: ["admin", "manager"] },
-  { icon: Activity,      label: "System Audit",          href: "/dashboard/system-audit",       roles: ["admin", "manager"] },
-  { icon: Monitor,       label: "Queue Health",          href: "/dashboard/system-health",      roles: ["admin", "manager"] },
-  { icon: Bot,           label: "Inbox AI Config",       href: "/dashboard/sdr-hub",            roles: ["admin", "manager"] },
-  { icon: RocketIcon,    label: "Outbound Health",       href: "/dashboard/outreach-hub",       roles: ["admin", "manager"] },
-  { icon: FileText,      label: "Content Hub",           href: "/dashboard/content-hub",        roles: ["admin", "manager"] },
-  { icon: UserCog,       label: "Admin Hub",             href: "/dashboard/admin-hub",          roles: ["admin", "manager"] },
-  { icon: Database,      label: "Data Requests",         href: "/dashboard/data-requests",      roles: ["admin", "manager"] },
-  { icon: ShieldAlert,   label: "Merchant Risk",         href: "/dashboard/merchant-risk",      roles: ["admin", "manager"] },
-  { icon: HeartPulse,    label: "Merchant Success",      href: "/dashboard/merchant-success",   roles: ["admin", "manager"] },
-  { icon: Ticket,        label: "Support Hub",           href: "/dashboard/support-hub",        roles: ["admin", "manager"] },
-  { icon: BookOpen,      label: "Playbooks",             href: "/dashboard/playbooks",          roles: ["admin", "manager", "agent"] },
-  { icon: Code2,         label: "Widget Generator",      href: "/dashboard/widget-generator",   roles: ["admin", "manager"] },
-  { icon: Bot,           label: "AI Knowledge Admin",    href: "/dashboard/knowledge-admin",    roles: ["admin", "manager"] },
-  { icon: Sparkles,      label: "Lead Intelligence",     href: "/dashboard/lead-intelligence",  roles: ["admin", "manager"] },
-  { icon: Brain,         label: "Lead Command Center",   href: "/dashboard/lead-command-center", roles: ["admin", "manager"] },
+// ─── INTELLIGENCE ─────────────────────────────────────────────────────────────
+const intelligenceItems: MenuItem[] = [
+  { icon: LineChart, label: "Acquisition Hub", href: "/dashboard/acquisition-hub", roles: ["admin", "manager"] },
+  { icon: PieChart, label: "Reporting", href: "/dashboard/reporting", roles: ["admin", "manager"] },
+  { icon: DollarSign, label: "Financial Hub", href: "/dashboard/financial-hub", roles: ["admin", "manager"] },
+  { icon: Activity, label: "System Health", href: "/dashboard/system-health", roles: ["admin", "manager"] },
+  { icon: Trophy, label: "Leaderboard", href: "/dashboard/leaderboard", roles: ["admin", "manager", "agent"] },
+];
+
+// ─── GROWTH & PARTNERS ────────────────────────────────────────────────────────
+// Marketing Playbook + Growth Playbook here per spec. Collateral is agent-only.
+const growthItems: MenuItem[] = [
+  { icon: UserPlus, label: "Agent Management", href: "/dashboard/agent-management", roles: ["admin", "manager"] },
+  { icon: Handshake, label: "Referral Program", href: "/dashboard/referral-program", roles: ["admin", "manager"] },
+  { icon: Link2, label: "Partner Orgs", href: "/dashboard/partner-orgs", roles: ["admin"] },
+  { icon: Link2, label: "Partner Referrals", href: "/dashboard/partner-referral-pipeline", roles: ["admin", "manager"] },
+  { icon: FileCheck, label: "Co-Branded Proposals", href: "/dashboard/co-branded-proposals", roles: ["admin", "manager"] },
+  { icon: Code2, label: "Widget Generator", href: "/dashboard/widget-generator", roles: ["admin", "manager"] },
+  { icon: HeartPulse, label: "Merchant Success", href: "/dashboard/merchant-success", roles: ["admin", "manager"] },
+  { icon: BookOpen, label: "Playbooks", href: "/dashboard/playbooks", roles: ["admin", "manager", "agent"] },
+  { icon: BookOpen, label: "Case Study Intake", href: "/dashboard/case-study-intake", roles: ["admin", "manager"] },
+  { icon: BookOpen, label: "Collateral", href: "/assets", roles: ["agent"] },
+];
+
+// ─── SYSTEM ───────────────────────────────────────────────────────────────────
+const systemItems: MenuItem[] = [
+  { icon: Workflow, label: "GHL Integration", href: "/dashboard/ghl-integration", roles: ["admin", "manager"] },
+  { icon: FileText, label: "Content Hub", href: "/dashboard/content-hub", roles: ["admin", "manager"] },
+  { icon: UserCog, label: "Admin Hub", href: "/dashboard/admin-hub", roles: ["admin", "manager"] },
+  { icon: ShieldCheck, label: "Security Settings", href: "/dashboard/security", roles: ["admin", "manager", "agent", "merchant"] },
 ];
 
 function filterByRole(items: MenuItem[], role: UserRole): MenuItem[] {

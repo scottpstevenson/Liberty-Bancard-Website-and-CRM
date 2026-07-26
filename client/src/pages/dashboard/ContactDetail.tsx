@@ -22,7 +22,7 @@ import {
   Activity, Link2, Trash2, Star,
   RefreshCw, CheckCircle2, AlertCircle, Linkedin, FolderOpen, Info,
   ChevronDown, ChevronUp, Brain, AlertOctagon, ShieldCheck, GitFork, Bot, MapPin, Store,
-  FileSearch2, Merge, SendHorizonal,
+  FileSearch2, Merge, SendHorizonal, ClipboardList,
 } from "lucide-react";
 import {
   labelForConfirmationStatus,
@@ -40,6 +40,7 @@ import {
   type ContactDetailData,
   statusColor,
 } from "./contact-detail-tabs/shared";
+import { OnboardingStagesChecklist } from "@/components/OnboardingStagesChecklist";
 import { OverviewTab } from "./contact-detail-tabs/OverviewTab";
 import { DealsTab } from "./contact-detail-tabs/DealsTab";
 import { LiveProcessingTabBody } from "./contact-detail-tabs/LiveProcessingTabBody";
@@ -1467,6 +1468,12 @@ export default function ContactDetail() {
               Sales Prep
             </TabsTrigger>
           )}
+          {deals.some(d => d.pipeline === "onboarding" && !d.archivedAt) && (
+            <TabsTrigger value="onboarding-stages" data-testid="tab-onboarding-stages">
+              <ClipboardList className="h-3.5 w-3.5 mr-1" />
+              Onboarding Checklist
+            </TabsTrigger>
+          )}
         </TabsList>
 
         <TabsContent value="overview" data-testid="tab-content-overview">
@@ -1562,6 +1569,13 @@ export default function ContactDetail() {
         {salesPrepStatus?.sdrSourced && (
           <TabsContent value="sales-prep" data-testid="tab-content-sales-prep">
             <SalesPrepTab contactId={contactId} />
+          </TabsContent>
+        )}
+        {deals.some(d => d.pipeline === "onboarding" && !d.archivedAt) && (
+          <TabsContent value="onboarding-stages" data-testid="tab-content-onboarding-stages">
+            {deals.filter(d => d.pipeline === "onboarding" && !d.archivedAt).map(deal => (
+              <OnboardingStagesChecklist key={deal.id} dealId={deal.id} />
+            ))}
           </TabsContent>
         )}
       </Tabs>

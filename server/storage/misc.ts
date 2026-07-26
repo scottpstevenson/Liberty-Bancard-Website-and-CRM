@@ -14,7 +14,8 @@ import {
   emailLogs, callLogs, stageAutomationRules, followUpSequences, sequenceSteps, sequenceEnrollments,
   sunbizEntities, consentAuditLogs, calendarEvents,
   merchantApplications, merchantProfiles, equipmentOrders, agents, agentQuotas, agentMerchants, residualReports, merchantResiduals,
-  healthAlerts, dealCompetitors, partners, referrals, commissionTiers, knowledgeBase, reviewRequests, testimonialSubmissions, onboardingSteps, midDailyStats, onboardingChecklistItems,
+  healthAlerts, dealCompetitors, partners, referrals, commissionTiers, knowledgeBase, reviewRequests, testimonialSubmissions, onboardingSteps, midDailyStats, onboardingChecklistItems, merchantOnboardingStages,
+  MERCHANT_ONBOARDING_STAGE_KEYS,
   sdrMerchants, sdrMerchantContacts, sdrLeadState, sdrLeadEvents, sdrChannelAttempts, sdrComplianceState,
   sendingIdentities,
   leadDiscoveryJobs, leadDiscoveryResults,
@@ -533,6 +534,49 @@ import { coerceDateFields } from "../utils/date-coerce";
     const [row] = await db.update(syncConflicts)
       .set({ resolution, resolvedAt: new Date() })
       .where(eq(syncConflicts.id, id))
+      .returning();
+    return row;
+  }
+
+  // ── Merchant Onboarding Workflow Stages ──────────────────────────────────
+
+  async getMerchantOnboardingStages(dealId: number) {
+    return db.select().from(merchantOnboardingStages)
+      .where(eq(merchantOnboardingStages.dealId, dealId))
+      .orderBy(asc(merchantOnboardingStages.id));
+  }
+
+  async initializeMerchantOnboardingStages(dealId: number) {
+    const rows: typeof merchantOnboardingStages.$inferSelect[] = [];
+    for (const stageKey of MERCHANT_ONBOARDING_STAGE_KEYS) {
+      const [row] = await db.insert(merchantOnboardingStages)
+        .values({ dealId, stageKey, status: "pending", updatedAt: new Date() } as any)
+        .onConflictDoNothing()
+        .returning();
+      if (row) rows.push(row);
+    }
+    // Return all stages (including pre-existing)
+    if (rows.length === 0) {
+      return this.getMerchantOnboardingStages(dealId);
+    }
+    return rows;
+  }
+
+  async upsertMerchantOnboardingStage(dealId: number, stageKey: string, updates: Record<string, any>) {
+    const existing = await db.select().from(merchantOnboardingStages)
+      .where(and(eq(merchantOnboardingStages.dealId, dealId), eq(merchantOnboardingStages.stageKey, stageKey)))
+      .limit(1);
+
+    if (existing.length === 0) {
+      const [row] = await db.insert(merchantOnboardingStages)
+        .values({ dealId, stageKey, status: "pending", ...updates } as any)
+        .returning();
+      return row;
+    }
+
+    const [row] = await db.update(merchantOnboardingStages)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(and(eq(merchantOnboardingStages.dealId, dealId), eq(merchantOnboardingStages.stageKey, stageKey)))
       .returning();
     return row;
   }

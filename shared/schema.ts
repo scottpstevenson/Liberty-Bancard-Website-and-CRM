@@ -2121,6 +2121,14 @@ export const partners = pgTable("partners", {
   website: text("website"),
   howHeard: text("how_heard"),
   notes: text("notes"),
+  // Enhanced partner tracking (added in migration 0087)
+  referralOwner: text("referral_owner"),
+  commissionStatus: text("commission_status").default("pending"),
+  lastContactAt: timestamp("last_contact_at"),
+  partnerCategory: text("partner_category").default("referral"),
+  referredCount: integer("referred_count").default(0),
+  pipelineValue: text("pipeline_value").default("0"),
+  nextFollowupTaskId: integer("next_followup_task_id"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -4230,6 +4238,74 @@ export const ONBOARDING_CHECKLIST_ITEM_KEYS = [
   "bank_letter",
   "business_license",
 ] as const;
+
+// ---------------------------------------------------------------------------
+// Merchant Onboarding Workflow Stages (10-stage pipeline tracker)
+// Separate from onboarding_checklist_items (document tracking)
+// ---------------------------------------------------------------------------
+export const MERCHANT_ONBOARDING_STAGE_KEYS = [
+  "application_started",
+  "docs_requested",
+  "docs_received",
+  "underwriting",
+  "approved",
+  "equipment_terminal",
+  "training",
+  "go_live",
+  "first_batch_processed",
+  "support_handoff",
+] as const;
+
+export type MerchantOnboardingStageKey = typeof MERCHANT_ONBOARDING_STAGE_KEYS[number];
+
+export const MERCHANT_ONBOARDING_STAGE_LABELS: Record<MerchantOnboardingStageKey, string> = {
+  application_started: "Application Started",
+  docs_requested: "Docs Requested",
+  docs_received: "Docs Received",
+  underwriting: "Underwriting",
+  approved: "Approved",
+  equipment_terminal: "Equipment / Terminal",
+  training: "Training",
+  go_live: "Go-Live",
+  first_batch_processed: "First Batch Processed",
+  support_handoff: "Support Handoff",
+};
+
+export const MERCHANT_ONBOARDING_STAGE_STATUSES = [
+  "pending",
+  "in_progress",
+  "complete",
+  "blocked",
+] as const;
+
+export type MerchantOnboardingStageStatus = typeof MERCHANT_ONBOARDING_STAGE_STATUSES[number];
+
+export const merchantOnboardingStages = pgTable("merchant_onboarding_stages", {
+  id: serial("id").primaryKey(),
+  dealId: integer("deal_id").references(() => deals.id).notNull(),
+  stageKey: text("stage_key").notNull(),
+  status: text("status").notNull().default("pending"),
+  owner: text("owner"),
+  dueDate: timestamp("due_date"),
+  completedAt: timestamp("completed_at"),
+  notes: text("notes"),
+  equipmentOrderRef: text("equipment_order_ref"),
+  ghlStageSyncedAt: timestamp("ghl_stage_synced_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("merchant_onboarding_stages_deal_id_idx").on(table.dealId),
+  uniqueIndex("merchant_onboarding_stages_deal_key_unique").on(table.dealId, table.stageKey),
+]);
+
+export const insertMerchantOnboardingStageSchema = createInsertSchema(merchantOnboardingStages).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type MerchantOnboardingStage = typeof merchantOnboardingStages.$inferSelect;
+export type InsertMerchantOnboardingStage = z.infer<typeof insertMerchantOnboardingStageSchema>;
 
 export type OnboardingChecklistItemKey = typeof ONBOARDING_CHECKLIST_ITEM_KEYS[number];
 

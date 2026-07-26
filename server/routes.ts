@@ -65,6 +65,7 @@ import { registerInboxRoutes } from "./routes/inbox";
 import { registerInformationFlowRoutes } from "./routes/information-flow";
 import { registerInboxOwnershipRoutes } from "./routes/inbox-ownership";
 import { registerStatementReviewRoutes } from "./routes/statement-review";
+import { registerOnboardingStagesRoutes } from "./routes/onboarding-stages";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -198,6 +199,7 @@ export async function registerRoutes(
   registerInformationFlowRoutes(app);
   registerInboxOwnershipRoutes(app);
   registerStatementReviewRoutes(app);
+  registerOnboardingStagesRoutes(app);
 
   // Must be registered before the API 404 catch-all — extracts route
   // permissions by walking the already-populated express router stack

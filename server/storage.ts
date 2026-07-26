@@ -478,6 +478,9 @@ export interface IStorage {
   getReferral(id: number): Promise<Referral | undefined>;
   getReferralsByPartner(partnerId: number): Promise<Referral[]>;
   createReferral(referral: InsertReferral): Promise<Referral>;
+  getMerchantOnboardingStages(dealId: number): Promise<typeof import("@shared/schema").merchantOnboardingStages.$inferSelect[]>;
+  initializeMerchantOnboardingStages(dealId: number): Promise<typeof import("@shared/schema").merchantOnboardingStages.$inferSelect[]>;
+  upsertMerchantOnboardingStage(dealId: number, stageKey: string, updates: Record<string, any>): Promise<typeof import("@shared/schema").merchantOnboardingStages.$inferSelect>;
   updateReferral(id: number, updates: Partial<InsertReferral>): Promise<Referral | undefined>;
 
   getCommissionTiers(): Promise<CommissionTier[]>;

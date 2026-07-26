@@ -186,6 +186,7 @@ const LiveChatDashboard = lazy(() => import("@/pages/dashboard/LiveChat"));
 const DocumentVault = lazy(() => import("@/pages/dashboard/DocumentVault"));
 const VirtualTerminal = lazy(() => import("@/pages/dashboard/VirtualTerminal"));
 const PartnerOrgs = lazy(() => import("@/pages/dashboard/PartnerOrgs"));
+const PartnerReferralPipeline = lazy(() => import("@/pages/dashboard/PartnerReferralPipeline"));
 const CoBrandedProposals = lazy(() => import("@/pages/dashboard/CoBrandedProposals"));
 const WidgetGenerator = lazy(() => import("@/pages/dashboard/WidgetGenerator"));
 const PartnerEmbedWidget = lazy(() => import("@/pages/PartnerEmbedWidget"));
@@ -589,6 +590,9 @@ function Router() {
         </Route>
         <Route path="/dashboard/referral-program">
           <ProtectedRoute component={ReferralProgram} />
+        </Route>
+        <Route path="/dashboard/partner-referral-pipeline">
+          <ProtectedRoute component={PartnerReferralPipeline} allowedRoles={["admin", "manager"]} />
         </Route>
         <Route path="/dashboard/partner-orgs">
           <ProtectedRoute component={PartnerOrgs} allowedRoles={["admin"]} />
