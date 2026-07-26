@@ -183,6 +183,11 @@ export async function seedStageRules() {
 }
 
 export async function seedDemoProspects() {
+  // Guard: demo seed only runs when explicitly opted-in via DEV_SEED_DEMO=true.
+  // Never auto-seeds in production so launch-facing UI stays clean.
+  if (process.env.DEV_SEED_DEMO !== "true") {
+    return;
+  }
   const lists = await storage.getProspectLists();
   const demoList = lists.find(l => l.name === "Florida Business Leads - Demo");
   if (demoList && (demoList.totalRecords || 0) >= 20) {
@@ -206,8 +211,8 @@ export async function seedDemoProspects() {
     listId = newList.id;
   }
 
-  const existingProspects = await storage.getProspects(listId);
-  const existingEmails = new Set(existingProspects.map(p => p.email));
+  const existingProspectsResult = await storage.getProspects(listId);
+  const existingEmails = new Set(existingProspectsResult.data.map((p: any) => p.email));
 
   let created = 0;
   for (const p of DEMO_PROSPECTS) {

@@ -36,8 +36,73 @@ export function registerProspectsRoutes(app: Express) {
   // === PROSPECT LISTS ===
   app.get("/api/prospect-lists", isAuthenticated, async (req, res) => {
     try {
-      const lists = await storage.getProspectLists();
+      const includeArchived = req.query.includeArchived === "true";
+      const lists = await storage.getProspectLists({ includeArchived });
       res.json(lists);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Archive a specific prospect list (soft-delete)
+  app.post("/api/prospect-lists/:id/archive", isAuthenticated, async (req, res) => {
+    try {
+      const user = req.user as any;
+      if (user?.role !== "admin") return res.status(403).json({ message: "Admin only" });
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid list ID" });
+      const reason = (req.body?.reason as string) || "manual_archive";
+      const list = await storage.archiveProspectList(id, reason);
+      if (!list) return res.status(404).json({ message: "List not found" });
+      res.json(list);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Advance readiness state for a prospect list (staged pipeline)
+  app.post("/api/prospect-lists/:id/readiness", isAuthenticated, async (req, res) => {
+    try {
+      const user = req.user as any;
+      if (user?.role !== "admin") return res.status(403).json({ message: "Admin only" });
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid list ID" });
+
+      const VALID_STATES = ["uploaded", "mapped", "validated", "scored", "suppressed", "ready"];
+      const state = req.body?.state as string;
+      if (!VALID_STATES.includes(state)) {
+        return res.status(400).json({ message: `state must be one of: ${VALID_STATES.join(", ")}` });
+      }
+
+      const list = await storage.updateProspectList(id, { readinessState: state });
+      if (!list) return res.status(404).json({ message: "List not found" });
+
+      await storage.createAuditLog({
+        action: "prospect_list_readiness_updated",
+        entityType: "prospect_list",
+        entityId: id,
+        details: { newState: state, actorId: user?.id } as any,
+      });
+
+      res.json(list);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Run demo data cleanup — archives all lists/records matching demo markers
+  app.post("/api/prospect-lists/demo-cleanup", isAuthenticated, async (req, res) => {
+    try {
+      const user = req.user as any;
+      if (user?.role !== "admin") return res.status(403).json({ message: "Admin only" });
+      const report = await storage.archiveDemoData();
+      await storage.createAuditLog({
+        action: "demo_data_cleanup",
+        entityType: "prospect_list",
+        entityId: 0,
+        details: { ...report, actorId: user?.id },
+      });
+      res.json(report);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

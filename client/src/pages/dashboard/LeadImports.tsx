@@ -9,14 +9,18 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Progress } from "@/components/ui/progress";
 import { DataState } from "@/components/ui/data-state";
 import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import {
   Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Loader2,
   TrendingUp, Users, Database, BarChart3, Flame, Thermometer, Snowflake,
   Calendar, ArrowRight, FileText, RefreshCw, ListChecks, OctagonAlert,
-  ShieldCheck,
+  ShieldCheck, Trash2, ChevronRight, Archive, ClipboardList,
 } from "lucide-react";
+import type { ProspectList } from "@shared/schema";
 import type { CsvImport } from "@shared/schema";
 
 /** Normalize opt-out counts from either camelCase or snake_case API responses. */
@@ -171,11 +175,91 @@ function VerticalBreakdownChart({ breakdown }: { breakdown: Record<string, numbe
   );
 }
 
+const LEAD_SOURCES = [
+  { value: "google_ads", label: "Google Ads" },
+  { value: "sunbiz", label: "Sunbiz / FL Secretary of State" },
+  { value: "imported_list", label: "Purchased / Imported List" },
+  { value: "referral", label: "Referral" },
+  { value: "outbound", label: "Outbound Prospecting" },
+] as const;
+
+const READINESS_STAGES = [
+  { key: "uploaded", label: "Uploaded", description: "File received, not yet mapped" },
+  { key: "mapped", label: "Mapped", description: "Columns mapped to contact fields" },
+  { key: "validated", label: "Validated", description: "Email/phone validation complete" },
+  { key: "scored", label: "Scored", description: "Lead scoring applied" },
+  { key: "suppressed", label: "Suppressed", description: "DNC, duplicates, and unsubscribes removed" },
+  { key: "ready", label: "Ready", description: "Approved for controlled cohort enrollment" },
+] as const;
+
+type ReadinessState = typeof READINESS_STAGES[number]["key"];
+
+function ReadinessPipeline({ list, onAdvance, isPending }: {
+  list: ProspectList;
+  onAdvance: (state: ReadinessState) => void;
+  isPending: boolean;
+}) {
+  const currentIdx = READINESS_STAGES.findIndex(s => s.key === (list as any).readinessState);
+  const effectiveIdx = currentIdx >= 0 ? currentIdx : 0;
+
+  return (
+    <div className="space-y-2" data-testid={`pipeline-${list.id}`}>
+      <div className="flex items-center gap-1 flex-wrap">
+        {READINESS_STAGES.map((stage, idx) => {
+          const done = idx < effectiveIdx;
+          const current = idx === effectiveIdx;
+          return (
+            <div key={stage.key} className="flex items-center gap-1">
+              <div
+                className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium border ${
+                  done
+                    ? "bg-green-100 border-green-300 text-green-800 dark:bg-green-900/30 dark:border-green-700 dark:text-green-300"
+                    : current
+                    ? "bg-blue-100 border-blue-300 text-blue-800 dark:bg-blue-900/30 dark:border-blue-700 dark:text-blue-300"
+                    : "bg-muted border-muted text-muted-foreground"
+                }`}
+                title={stage.description}
+                data-testid={`stage-${stage.key}-${list.id}`}
+              >
+                {done ? <CheckCircle2 className="h-3 w-3" /> : current ? <ClipboardList className="h-3 w-3" /> : null}
+                {stage.label}
+              </div>
+              {idx < READINESS_STAGES.length - 1 && (
+                <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0" />
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {effectiveIdx < READINESS_STAGES.length - 1 && (
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 text-xs"
+          onClick={() => onAdvance(READINESS_STAGES[effectiveIdx + 1].key)}
+          disabled={isPending}
+          data-testid={`btn-advance-${list.id}`}
+        >
+          {isPending ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <ArrowRight className="h-3 w-3 mr-1" />}
+          Advance to {READINESS_STAGES[effectiveIdx + 1].label}
+        </Button>
+      )}
+      {effectiveIdx === READINESS_STAGES.length - 1 && (
+        <Badge className="bg-green-600 text-xs" data-testid={`badge-ready-${list.id}`}>
+          <CheckCircle2 className="h-3 w-3 mr-1" />Ready for controlled cohort
+        </Badge>
+      )}
+    </div>
+  );
+}
+
 export default function LeadImports() {
   const { toast } = useToast();
   const [isDragging, setIsDragging] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedLeadSource, setSelectedLeadSource] = useState<string>("");
   const [expandedImport, setExpandedImport] = useState<number | null>(null);
+  const [showArchivedLists, setShowArchivedLists] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const {
@@ -204,6 +288,100 @@ export default function LeadImports() {
     verticalBreakdown: Record<string, number>;
   }>({
     queryKey: ["/api/csv-imports/stats"],
+  });
+
+  const { data: prospectListsRaw, isLoading: prospectListsLoading } = useQuery<ProspectList[]>({
+    queryKey: ["/api/prospect-lists", showArchivedLists ? "archived" : "active"],
+    queryFn: async () => {
+      const url = showArchivedLists ? "/api/prospect-lists?includeArchived=true" : "/api/prospect-lists";
+      const res = await fetch(url, { credentials: "include" });
+      if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+      return res.json();
+    },
+  });
+  const prospectLists = Array.isArray(prospectListsRaw) ? prospectListsRaw : [];
+
+  const advanceReadinessMutation = useMutation({
+    mutationFn: async ({ listId, state }: { listId: number; state: string }) => {
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      const csrf = getCsrfToken();
+      if (csrf) headers["X-CSRF-Token"] = csrf;
+      const res = await fetch(`/api/prospect-lists/${listId}/readiness`, {
+        method: "POST",
+        headers,
+        credentials: "include",
+        body: JSON.stringify({ state }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: "Request failed" }));
+        throw new Error(err.message);
+      }
+      return res.json();
+    },
+    onSuccess: (_, { state }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/prospect-lists"] });
+      const stage = READINESS_STAGES.find(s => s.key === state);
+      toast({ title: "Stage advanced", description: `List moved to: ${stage?.label || state}` });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to advance stage", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const archiveListMutation = useMutation({
+    mutationFn: async (listId: number) => {
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      const csrf = getCsrfToken();
+      if (csrf) headers["X-CSRF-Token"] = csrf;
+      const res = await fetch(`/api/prospect-lists/${listId}/archive`, {
+        method: "POST",
+        headers,
+        credentials: "include",
+        body: JSON.stringify({ reason: "manual_archive" }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: "Request failed" }));
+        throw new Error(err.message);
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/prospect-lists"] });
+      toast({ title: "List archived", description: "The prospect list has been archived." });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to archive", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const demoCleanupMutation = useMutation({
+    mutationFn: async () => {
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      const csrf = getCsrfToken();
+      if (csrf) headers["X-CSRF-Token"] = csrf;
+      const res = await fetch("/api/prospect-lists/demo-cleanup", {
+        method: "POST",
+        headers,
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: "Request failed" }));
+        throw new Error(err.message);
+      }
+      return res.json() as Promise<{ listsArchived: number; archivedListNames: string[] }>;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/prospect-lists"] });
+      toast({
+        title: `Demo cleanup complete`,
+        description: data.listsArchived === 0
+          ? "No demo lists found to archive."
+          : `${data.listsArchived} demo list(s) archived: ${data.archivedListNames.slice(0, 3).join(", ")}${data.archivedListNames.length > 3 ? "…" : ""}`,
+      });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Cleanup failed", description: err.message, variant: "destructive" });
+    },
   });
 
   const markInterruptedMutation = useMutation({
@@ -254,6 +432,7 @@ export default function LeadImports() {
       queryClient.invalidateQueries({ queryKey: ["/api/contacts"] });
       queryClient.invalidateQueries({ queryKey: ["/api/deals"] });
       setSelectedFile(null);
+      setSelectedLeadSource("");
       if (fileInputRef.current) fileInputRef.current.value = "";
 
       const inserted = data.inserted || 0;
@@ -304,8 +483,13 @@ export default function LeadImports() {
 
   const handleUpload = () => {
     if (!selectedFile) return;
+    if (!selectedLeadSource) {
+      toast({ title: "Source required", description: "Please select the lead source before importing.", variant: "destructive" });
+      return;
+    }
     const formData = new FormData();
     formData.append("file", selectedFile);
+    formData.append("leadSource", selectedLeadSource);
     uploadMutation.mutate(formData);
   };
 
@@ -436,6 +620,24 @@ export default function LeadImports() {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
+          {/* Required: lead source selection */}
+          <div>
+            <label className="text-sm font-medium mb-1.5 block" htmlFor="lead-source-select">
+              Lead Source <span className="text-destructive">*</span>
+            </label>
+            <Select value={selectedLeadSource} onValueChange={setSelectedLeadSource}>
+              <SelectTrigger id="lead-source-select" className="w-full md:w-64" data-testid="select-lead-source">
+                <SelectValue placeholder="Select source…" />
+              </SelectTrigger>
+              <SelectContent>
+                {LEAD_SOURCES.map(s => (
+                  <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground mt-1">Required for compliance attribution — where did this list come from?</p>
+          </div>
+
           <div
             className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
               isDragging
@@ -484,7 +686,7 @@ export default function LeadImports() {
           <div className="flex items-center gap-3 flex-wrap">
             <Button
               onClick={handleUpload}
-              disabled={!selectedFile || uploadMutation.isPending}
+              disabled={!selectedFile || !selectedLeadSource || uploadMutation.isPending}
               data-testid="button-import-csv"
             >
               {uploadMutation.isPending ? (
@@ -546,6 +748,137 @@ export default function LeadImports() {
           </CardContent>
         </Card>
       )}
+
+      {/* ===== STAGED LEAD PIPELINE ===== */}
+      <Card data-testid="card-staged-pipeline">
+        <CardHeader>
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <CardTitle className="flex items-center gap-2">
+              <ListChecks className="h-5 w-5" />
+              Lead List Staging Pipeline
+            </CardTitle>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowArchivedLists(!showArchivedLists)}
+                data-testid="button-toggle-archived-lists"
+              >
+                <Archive className="h-4 w-4 mr-1" />
+                {showArchivedLists ? "Hide Archived" : "Show Archived"}
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => {
+                  if (confirm("Archive all prospect lists that appear to be demo/test data? This is reversible via the Show Archived toggle.")) {
+                    demoCleanupMutation.mutate();
+                  }
+                }}
+                disabled={demoCleanupMutation.isPending}
+                data-testid="button-demo-cleanup"
+              >
+                {demoCleanupMutation.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Trash2 className="h-4 w-4 mr-1" />}
+                Archive Demo Data
+              </Button>
+            </div>
+          </div>
+          <p className="text-sm text-muted-foreground mt-1">
+            Each imported list moves through a readiness pipeline before leads can be enrolled. No list auto-enrolls — explicit admin approval required at each stage.
+          </p>
+        </CardHeader>
+        <CardContent className="p-0">
+          {prospectListsLoading ? (
+            <div className="p-6 space-y-4">
+              {Array.from({ length: 2 }).map((_, i) => <Skeleton key={i} className="h-16 w-full" />)}
+            </div>
+          ) : prospectLists.length === 0 ? (
+            <div className="p-6 text-center text-muted-foreground text-sm" data-testid="text-no-prospect-lists">
+              {showArchivedLists ? "No prospect lists found." : "No active prospect lists. Upload a CSV above to start the pipeline."}
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>List Name</TableHead>
+                  <TableHead>Source</TableHead>
+                  <TableHead>Records</TableHead>
+                  <TableHead>Pipeline Stage</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {prospectLists.map(list => {
+                  const isArchived = !!(list as any).archivedAt;
+                  const leadSource = (list as any).leadSource as string | null;
+                  return (
+                    <TableRow key={list.id} data-testid={`row-pl-${list.id}`} className={isArchived ? "opacity-60" : ""}>
+                      <TableCell className="font-medium" data-testid={`text-pl-name-${list.id}`}>
+                        {list.name}
+                        {isArchived && (
+                          <Badge variant="outline" className="ml-2 text-xs border-amber-500 text-amber-700 dark:text-amber-400">Archived</Badge>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {leadSource ? (
+                          <Badge variant="outline" className="text-xs capitalize" data-testid={`badge-source-${list.id}`}>
+                            {LEAD_SOURCES.find(s => s.value === leadSource)?.label ?? leadSource.replace(/_/g, " ")}
+                          </Badge>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell data-testid={`text-pl-records-${list.id}`}>
+                        {(list.totalRecords ?? 0).toLocaleString()}
+                      </TableCell>
+                      <TableCell>
+                        {isArchived ? (
+                          <span className="text-xs text-muted-foreground">Archived — {(list as any).archivedReason ?? "manual"}</span>
+                        ) : (
+                          <ReadinessPipeline
+                            list={list}
+                            onAdvance={(state) => advanceReadinessMutation.mutate({ listId: list.id, state })}
+                            isPending={advanceReadinessMutation.isPending}
+                          />
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant="outline"
+                          className={`text-xs ${list.status === "completed" ? "border-green-500 text-green-700 dark:text-green-400" : "border-muted"}`}
+                          data-testid={`badge-pl-status-${list.id}`}
+                        >
+                          {list.status ?? "unknown"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {!isArchived && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 text-xs text-muted-foreground hover:text-destructive"
+                            onClick={() => {
+                              if (confirm(`Archive "${list.name}"? It will be hidden from the main view but recoverable.`)) {
+                                archiveListMutation.mutate(list.id);
+                              }
+                            }}
+                            disabled={archiveListMutation.isPending}
+                            data-testid={`btn-archive-pl-${list.id}`}
+                          >
+                            <Archive className="h-3 w-3 mr-1" />
+                            Archive
+                          </Button>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
 
       <Card data-testid="card-import-history">
         <CardHeader>

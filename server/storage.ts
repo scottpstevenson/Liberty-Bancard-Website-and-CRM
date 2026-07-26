@@ -280,10 +280,12 @@ export interface IStorage {
   getDealsStuckInStage(stage: string, maxMinutes: number): Promise<typeof deals.$inferSelect[]>;
   getTicketsBreachingSla(): Promise<typeof tickets.$inferSelect[]>;
 
-  getProspectLists(): Promise<typeof prospectLists.$inferSelect[]>;
+  getProspectLists(opts?: { includeArchived?: boolean }): Promise<typeof prospectLists.$inferSelect[]>;
   getProspectList(id: number): Promise<typeof prospectLists.$inferSelect | undefined>;
   createProspectList(list: InsertProspectList): Promise<typeof prospectLists.$inferSelect>;
   updateProspectList(id: number, updates: Partial<InsertProspectList>): Promise<typeof prospectLists.$inferSelect | undefined>;
+  archiveProspectList(id: number, reason: string): Promise<typeof prospectLists.$inferSelect | undefined>;
+  archiveDemoData(): Promise<{ listsArchived: number; archivedListNames: string[] }>;
 
   getProspects(listId?: number, params?: PaginationParams): Promise<PaginatedResult<typeof prospects.$inferSelect>>;
   getProspect(id: number): Promise<typeof prospects.$inferSelect | undefined>;

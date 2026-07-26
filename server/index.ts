@@ -402,7 +402,10 @@ app.use((req, res, next) => {
       seedSequences();
       seedVerticalCampaigns();
       seedStageRules();
-      seedDemoProspects();
+      // Demo prospects only run when DEV_SEED_DEMO=true (never in production).
+      if (process.env.DEV_SEED_DEMO === "true") {
+        seedDemoProspects();
+      }
 
       // BullMQ durable job queue — replaces setInterval workers for GHL sync,
       // SLA checks, sequence processing, enrichment, discovery, and digests.

@@ -102,8 +102,38 @@ import { coerceDateFields } from "../utils/date-coerce";
   import { type PaginationParams, type PaginatedResult, normalizePagination } from "./_shared";
 
   export class ProspectsStorage {
-    async getProspectLists() {
-    return await db.select().from(prospectLists).orderBy(desc(prospectLists.createdAt));
+    async getProspectLists(opts?: { includeArchived?: boolean }) {
+    const condition = opts?.includeArchived ? undefined : isNull(prospectLists.archivedAt);
+    return await db.select().from(prospectLists).where(condition).orderBy(desc(prospectLists.createdAt));
+  }
+
+  async archiveProspectList(id: number, reason: string) {
+    const [updated] = await db
+      .update(prospectLists)
+      .set({ archivedAt: new Date(), archivedReason: reason, updatedAt: new Date() })
+      .where(eq(prospectLists.id, id))
+      .returning();
+    return updated;
+  }
+
+  async archiveDemoData(): Promise<{ listsArchived: number; archivedListNames: string[] }> {
+    const DEMO_MARKERS = ["%demo%", "%test%", "%sample%", "%fake%", "%internal%"];
+    const conditions = DEMO_MARKERS.map(m => ilike(prospectLists.name, m));
+    const demoLists = await db
+      .select()
+      .from(prospectLists)
+      .where(and(isNull(prospectLists.archivedAt), or(...conditions)));
+
+    const now = new Date();
+    const archivedNames: string[] = [];
+    for (const list of demoLists) {
+      await db
+        .update(prospectLists)
+        .set({ archivedAt: now, archivedReason: "demo_cleanup", updatedAt: now })
+        .where(eq(prospectLists.id, list.id));
+      archivedNames.push(list.name);
+    }
+    return { listsArchived: demoLists.length, archivedListNames: archivedNames };
   }
 
 

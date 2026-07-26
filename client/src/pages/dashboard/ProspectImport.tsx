@@ -90,8 +90,16 @@ export default function ProspectImport() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
+  const [showArchived, setShowArchived] = useState(false);
+
   const { data: prospectLists, isLoading: listsLoading } = useQuery<ProspectList[]>({
-    queryKey: ["/api/prospect-lists"],
+    queryKey: ["/api/prospect-lists", showArchived ? "archived" : "active"],
+    queryFn: async () => {
+      const url = showArchived ? "/api/prospect-lists?includeArchived=true" : "/api/prospect-lists";
+      const res = await fetch(url, { credentials: "include" });
+      if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+      return res.json();
+    },
   });
 
   const uploadMutation = useMutation({
@@ -287,10 +295,20 @@ export default function ProspectImport() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2 flex-wrap">
-            <FileSpreadsheet className="h-5 w-5" />
-            Prospect Lists
-          </CardTitle>
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <CardTitle className="flex items-center gap-2 flex-wrap">
+              <FileSpreadsheet className="h-5 w-5" />
+              Prospect Lists
+            </CardTitle>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowArchived(!showArchived)}
+              data-testid="button-toggle-archived"
+            >
+              {showArchived ? "Hide Archived" : "Show Archived"}
+            </Button>
+          </div>
         </CardHeader>
         <CardContent className="p-0">
           <Table>

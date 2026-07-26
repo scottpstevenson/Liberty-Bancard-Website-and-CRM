@@ -889,6 +889,14 @@ export const prospectLists = pgTable("prospect_lists", {
   actor: text("actor"),
   status: text("status").default("processing"),
   uploadedBy: text("uploaded_by"),
+  // Archival fields — set when a list is soft-deleted (e.g. demo cleanup)
+  archivedAt: timestamp("archived_at"),
+  archivedReason: text("archived_reason"),
+  // Staged import pipeline — tracks where in the readiness lifecycle this list sits
+  // Values: uploaded | mapped | validated | scored | suppressed | ready
+  readinessState: text("readiness_state").notNull().default("uploaded"),
+  // Required lead source for compliance and attribution tracking
+  leadSource: text("lead_source"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
@@ -896,6 +904,7 @@ export const prospectLists = pgTable("prospect_lists", {
   uniqueIndex("prospect_lists_import_type_hash_uidx")
     .on(table.importType, table.fileHash)
     .where(sql`status IN ('running', 'complete')`),
+  index("prospect_lists_archived_at_idx").on(table.archivedAt),
 ]);
 
 export const insertProspectListSchema = createInsertSchema(prospectLists).omit({
