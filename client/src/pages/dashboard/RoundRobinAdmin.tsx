@@ -265,6 +265,7 @@ export default function RoundRobinAdmin() {
               No reps in pool yet. Add reps below to start auto-assigning leads.
             </p>
           ) : (
+            <div className="overflow-x-auto">
             <Table data-testid="table-rep-pool">
               <TableHeader>
                 <TableRow>
@@ -317,6 +318,7 @@ export default function RoundRobinAdmin() {
                 ))}
               </TableBody>
             </Table>
+            </div>
           )}
 
           {/* Add rep form */}
@@ -498,6 +500,7 @@ export default function RoundRobinAdmin() {
                   <Badge variant="secondary" className="text-xs">Filtered</Badge>
                 )}
               </div>
+              <div className="overflow-x-auto">
               <Table data-testid="table-assignment-log">
                 <TableHeader>
                   <TableRow>
@@ -518,6 +521,7 @@ export default function RoundRobinAdmin() {
                   ))}
                 </TableBody>
               </Table>
+              </div>
 
               {/* Pagination */}
               {totalPages > 1 && (

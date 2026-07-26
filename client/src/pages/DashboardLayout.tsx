@@ -704,7 +704,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
           )}
           <GhlAlertBanner role={role} />
           <div className="flex flex-1 overflow-hidden min-h-0">
-            <main className="flex-1 overflow-auto p-3 sm:p-6 max-w-7xl mx-auto w-full" data-testid="dashboard-main">
+            <main className="flex-1 overflow-y-auto overflow-x-hidden p-3 sm:p-6 max-w-7xl mx-auto w-full" data-testid="dashboard-main">
               <ErrorBoundary key={location}>
                 {routeAllowed ? children : <Forbidden />}
               </ErrorBoundary>

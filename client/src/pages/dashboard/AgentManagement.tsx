@@ -550,7 +550,7 @@ export default function AgentManagement() {
           </div>
 
           <Card>
-            <CardContent className="p-0">
+            <CardContent className="p-0 overflow-x-auto">
               <Table data-testid="table-agents">
                 <TableHeader>
                   <TableRow>

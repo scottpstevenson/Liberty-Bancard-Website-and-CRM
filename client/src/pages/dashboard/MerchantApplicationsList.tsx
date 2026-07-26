@@ -822,7 +822,7 @@ export default function MerchantApplicationsList() {
       </Tabs>
 
       <Card data-testid="card-applications-table">
-        <CardContent className="p-0">
+        <CardContent className="p-0 overflow-x-auto">
           {isLoading ? (
             <div className="p-6 space-y-3" data-testid="applications-loading">
               {[1, 2, 3, 4, 5].map((i) => (

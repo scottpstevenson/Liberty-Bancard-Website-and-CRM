@@ -851,7 +851,7 @@ function PartnerPipelineTab() {
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         {[
           { label: "Active Partners", value: summary.active, color: "text-green-600 dark:text-green-400" },
           { label: "In Pipeline", value: summary.pipeline, color: "text-blue-600 dark:text-blue-400" },
@@ -1518,7 +1518,7 @@ function ScorecardTab() {
         <Button size="sm" variant="outline" onClick={resetWeek} className="gap-1.5 text-xs" data-testid="button-scorecard-reset"><RefreshCw className="h-3.5 w-3.5" /> Reset to New Week</Button>
       </div>
 
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <Card><CardContent className="pt-4 pb-3 text-center">
           <div className={`text-2xl font-bold ${summary.pct >= 80 ? "text-green-600" : summary.pct >= 50 ? "text-yellow-600" : "text-red-600"}`}>{summary.pct}%</div>
           <div className="text-xs text-muted-foreground">Targets Hit This Week</div>

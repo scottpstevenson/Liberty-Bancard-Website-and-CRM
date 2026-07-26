@@ -416,7 +416,7 @@ export default function OutreachAnalytics() {
                 Campaign Performance
               </CardTitle>
             </CardHeader>
-            <CardContent className="p-0">
+            <CardContent className="p-0 overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -540,7 +540,7 @@ export default function OutreachAnalytics() {
                 Recent Outbound Messages
               </CardTitle>
             </CardHeader>
-            <CardContent className="p-0">
+            <CardContent className="p-0 overflow-x-auto">
               {messagesLoading ? (
                 <div className="p-6 space-y-3">
                   {Array.from({ length: 5 }).map((_, i) => (

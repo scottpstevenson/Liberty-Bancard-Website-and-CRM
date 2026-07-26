@@ -153,7 +153,7 @@ export default function SocialComposer() {
         <p className="text-muted-foreground mt-1">Draft, schedule, and track LinkedIn posts. Approved posts can be copied to clipboard or auto-published when LinkedIn API is enabled.</p>
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <Card><CardContent className="pt-6 text-center">
           <div className="text-3xl font-bold" data-testid="text-soc-drafts">{counts.drafts}</div>
           <div className="text-sm text-muted-foreground">Drafts</div>

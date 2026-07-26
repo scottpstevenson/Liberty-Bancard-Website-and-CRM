@@ -715,6 +715,7 @@ export default function ResidualRevenue() {
               </div>
             </CardHeader>
             <CardContent>
+              <div className="overflow-x-auto">
               <Table data-testid="table-merchant-residuals">
                 <TableHeader>
                   <TableRow>
@@ -777,6 +778,7 @@ export default function ResidualRevenue() {
                   )}
                 </TableBody>
               </Table>
+              </div>
             </CardContent>
           </Card>
 
@@ -906,6 +908,7 @@ export default function ResidualRevenue() {
               <CardTitle className="text-base">Agent Commission Summary</CardTitle>
             </CardHeader>
             <CardContent>
+              <div className="overflow-x-auto">
               <Table data-testid="table-agent-commissions">
                 <TableHeader>
                   <TableRow>
@@ -934,6 +937,7 @@ export default function ResidualRevenue() {
                   )}
                 </TableBody>
               </Table>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -1128,6 +1132,7 @@ export default function ResidualRevenue() {
                 {agentReconciliation.length > 0 && (
                   <div>
                     <h3 className="text-sm font-semibold mb-2 flex items-center gap-1.5"><Users className="w-4 h-4 text-primary" />Per-Agent Reconciliation</h3>
+                    <div className="overflow-x-auto">
                     <Table data-testid="table-agent-reconciliation">
                       <TableHeader>
                         <TableRow>
@@ -1152,6 +1157,7 @@ export default function ResidualRevenue() {
                         ))}
                       </TableBody>
                     </Table>
+                    </div>
                   </div>
                 )}
 
@@ -1274,6 +1280,7 @@ export default function ResidualRevenue() {
               </CardTitle>
             </CardHeader>
             <CardContent>
+              <div className="overflow-x-auto">
               {importsLoading ? (
                 <Table><TableBody><TableSkeleton rows={5} cols={8} /></TableBody></Table>
               ) : imports && imports.length > 0 ? (
@@ -1323,6 +1330,7 @@ export default function ResidualRevenue() {
                   <p className="text-sm">No reconciliation history yet. Import your first processor report to get started.</p>
                 </div>
               )}
+              </div>
             </CardContent>
           </Card>
         </TabsContent>

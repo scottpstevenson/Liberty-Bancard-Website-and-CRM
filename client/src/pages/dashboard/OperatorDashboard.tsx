@@ -1588,8 +1588,8 @@ function JobHealthPanel() {
         </div>
       )}
 
-      <div className="rounded-md border overflow-hidden">
-        <table className="w-full text-sm" data-testid="table-job-health">
+      <div className="rounded-md border overflow-x-auto">
+        <table className="w-full text-sm min-w-[600px]" data-testid="table-job-health">
           <thead className="bg-muted/50">
             <tr>
               <th className="text-left px-4 py-3 font-medium text-muted-foreground">Job</th>

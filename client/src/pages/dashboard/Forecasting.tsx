@@ -100,7 +100,7 @@ export default function Forecasting() {
         <CardHeader>
           <CardTitle>Forecast by Stage</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="overflow-x-auto">
           {isLoading ? (
             <div className="space-y-2">
               {[1, 2, 3].map(i => <Skeleton key={i} className="h-10 w-full" />)}
@@ -196,7 +196,7 @@ export default function Forecasting() {
         <CardHeader>
           <CardTitle>Top Deals by Value</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="overflow-x-auto">
           {isLoading ? (
             <div className="space-y-2">
               {[1, 2, 3].map(i => <Skeleton key={i} className="h-10 w-full" />)}
