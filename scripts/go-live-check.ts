@@ -177,20 +177,32 @@ async function checkStage1(): Promise<StageResult> {
   } else {
     // The Replit AI Integration token is NOT a standard OpenAI API key — it must be validated
     // against the Replit proxy (AI_INTEGRATIONS_OPENAI_BASE_URL), not api.openai.com.
-    // We probe the /models endpoint on the configured base URL.
+    // GET /models returns 405 from the Replit proxy, so we use a minimal POST /chat/completions
+    // probe (max_tokens=1) instead — the smallest possible real request to confirm auth works.
     const baseUrl = openaiBaseUrl.replace(/\/+$/, "");
-    const modelsUrl = `${baseUrl}/models`;
+    const completionsUrl = `${baseUrl}/chat/completions`;
     try {
-      const res = await fetch(modelsUrl, {
-        headers: { Authorization: `Bearer ${openaiKey}` },
+      const res = await fetch(completionsUrl, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${openaiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          messages: [{ role: "user", content: "ping" }],
+          max_tokens: 1,
+        }),
       });
       if (res.ok) {
         openaiStatus = "connected";
         steps.push(step("OpenAI: API key valid", true));
       } else {
         openaiStatus = `error ${res.status}`;
+        const errBody = await res.text().catch(() => "");
         steps.push(step("OpenAI: API key valid", false,
-          `HTTP ${res.status} from ${modelsUrl}. If this is a Replit AI Integrations token, re-propose the integration via the Replit Integrations panel to refresh it.`));
+          `HTTP ${res.status} from ${completionsUrl}. ${errBody.slice(0, 120)}. ` +
+          "If this is a Replit AI Integrations token, re-propose the integration via the Replit Integrations panel to refresh it."));
       }
     } catch (err: any) {
       openaiStatus = `unreachable: ${err.message.slice(0, 60)}`;
