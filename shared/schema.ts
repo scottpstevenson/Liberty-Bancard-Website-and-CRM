@@ -4789,6 +4789,8 @@ export const masterLeadBatches = pgTable("master_lead_batches", {
   duplicateCount: integer("duplicate_count").default(0),
   suppressedCount: integer("suppressed_count").default(0),
   invalidCount: integer("invalid_count").default(0),
+  promotedCount: integer("promoted_count").default(0),
+  readyCount: integer("ready_count").default(0),
   status: text("status").notNull().default("processing"), // processing | completed | failed
   errorMessage: text("error_message"),
   importedBy: text("imported_by"),
@@ -4862,9 +4864,13 @@ export type InsertStatementReview = z.infer<typeof insertStatementReviewSchema>;
 export const masterLeads = pgTable("master_leads", {
   id: uuid("id").primaryKey().defaultRandom(),
   importBatchId: uuid("import_batch_id").references(() => masterLeadBatches.id),
-  status: text("status").notNull().default("staged"), // staged | duplicate | suppressed | invalid
+  // Lifecycle status pipeline (text field — not an enum so values can be added without migrations):
+  //   staged | imported | duplicate | suppressed | needs_website_check | needs_mx_verification
+  //   | ready_for_internal_test | ready_for_controlled_cohort | enrolled | paused
+  //   | bounced | unsubscribed | client_customer
+  status: text("status").notNull().default("staged"),
 
-  // Source columns (verbatim from sheet)
+  // Source columns (verbatim from sheet / CSV)
   company: text("company"),
   normalizedCompany: text("normalized_company"),
   domain: text("domain"),
@@ -4883,6 +4889,17 @@ export const masterLeads = pgTable("master_leads", {
   sourcePath: text("source_path"),
   sourceModifiedDate: text("source_modified_date"),
 
+  // Address / location (from backfill or enrichment)
+  address: text("address"),
+  city: text("city"),
+  state: text("state"),
+  website: text("website"),
+
+  // Channel status flags (set during validation / suppression check)
+  emailValid: boolean("email_valid"),   // null=unchecked, true=valid, false=invalid
+  phoneValid: boolean("phone_valid"),   // null=unchecked, true=valid, false=invalid
+  smsEligible: boolean("sms_eligible"), // false until GHL_PHONE_NUMBER_ID + A2P_REGISTRATION_ID set
+
   // Provenance
   sheetId: text("sheet_id"),
   sheetName: text("sheet_name"),
@@ -4894,6 +4911,13 @@ export const masterLeads = pgTable("master_leads", {
   duplicateOfId: uuid("duplicate_of_id").references((): any => masterLeads.id),
   suppressionReason: text("suppression_reason"),
 
+  // Promotion tracking (ready_for_internal_test → ready_for_controlled_cohort requires admin click)
+  promotedAt: timestamp("promoted_at"),
+  promotedBy: text("promoted_by"),
+
+  // Admin notes
+  notes: text("notes"),
+
   importedAt: timestamp("imported_at").defaultNow(),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
@@ -4901,4 +4925,11 @@ export const masterLeads = pgTable("master_leads", {
   index("master_leads_domain_idx").on(table.domain),
   index("master_leads_email_idx").on(table.email),
   index("master_leads_status_idx").on(table.status),
+  index("master_leads_status_source_idx").on(table.status, table.source),
+  index("master_leads_vertical_idx").on(table.vertical),
+  index("master_leads_fit_tier_idx").on(table.fitTier),
+  index("master_leads_promoted_at_idx").on(table.promotedAt),
 ]);
+
+export type MasterLead = typeof masterLeads.$inferSelect;
+export type InsertMasterLead = typeof masterLeads.$inferInsert;

@@ -203,23 +203,26 @@ function filterByRole(items: MenuItem[], role: UserRole): MenuItem[] {
 
 // ─── Route-level role guard ────────────────────────────────────────────────────
 const RESTRICTED_ROUTES: Partial<Record<string, UserRole[]>> = {
-  "/dashboard/activation":              ["admin"],
-  "/dashboard/settings/integrations":   ["admin"],
-  "/dashboard/partner-orgs":            ["admin"],
-  "/dashboard/acquisition-hub":         ["admin", "manager"],
-  "/dashboard/outbound-center":         ["admin", "manager"],
-  "/dashboard/financial-hub":           ["admin", "manager"],
-  "/dashboard/system-health":           ["admin", "manager"],
-  "/dashboard/reporting":               ["admin", "manager"],
-  "/dashboard/admin-hub":               ["admin", "manager"],
-  "/dashboard/lead-imports":            ["admin", "manager"],
-  "/dashboard/sequences":               ["admin", "manager"],
-  "/dashboard/ghl-integration":         ["admin", "manager"],
-  "/dashboard/outreach-hub":            ["admin", "manager"],
-  "/dashboard/lead-command-center":     ["admin", "manager"],
-  "/dashboard/automation":              ["admin", "manager"],
-  "/dashboard/stage-rules":             ["admin", "manager"],
-  "/dashboard/campaigns":               ["admin", "manager"],
+  // Admin-only sections
+  "/dashboard/partner-orgs":           ["admin"],
+  // Admin + Manager (must match ProtectedRoute allowedRoles in App.tsx)
+  "/dashboard/activation":             ["admin", "manager"],
+  "/dashboard/settings/integrations":  ["admin", "manager"],
+  // Admin + Manager (blocked for agent, merchant, support, onboarding)
+  "/dashboard/acquisition-hub":        ["admin", "manager"],
+  "/dashboard/outbound-center":        ["admin", "manager"],
+  "/dashboard/financial-hub":          ["admin", "manager"],
+  "/dashboard/system-health":          ["admin", "manager"],
+  "/dashboard/reporting":              ["admin", "manager"],
+  "/dashboard/admin-hub":              ["admin", "manager"],
+  "/dashboard/lead-imports":           ["admin", "manager"],
+  "/dashboard/sequences":              ["admin", "manager"],
+  "/dashboard/ghl-integration":        ["admin", "manager"],
+  "/dashboard/outreach-hub":           ["admin", "manager"],
+  "/dashboard/lead-command-center":    ["admin", "manager"],
+  "/dashboard/automation":             ["admin", "manager"],
+  "/dashboard/stage-rules":            ["admin", "manager"],
+  "/dashboard/campaigns":              ["admin", "manager"],
 };
 
 function isRouteAllowed(pathname: string, role: UserRole): boolean {

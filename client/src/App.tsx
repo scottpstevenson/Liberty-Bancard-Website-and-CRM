@@ -150,6 +150,7 @@ const LeadIntelligence = lazy(() => import("@/pages/dashboard/LeadIntelligence")
 const StatementReview = lazy(() => import("@/pages/dashboard/StatementReview"));
 const LeadCommandCenter = lazy(() => import("@/pages/dashboard/LeadCommandCenter"));
 const LeadImports = lazy(() => import("@/pages/dashboard/LeadImports"));
+const MasterLeadDatabase = lazy(() => import("@/pages/dashboard/MasterLeadDatabase"));
 const MerchantPortal = lazy(() => import("@/pages/dashboard/MerchantPortal"));
 const MerchantApplicationsList = lazy(() => import("@/pages/dashboard/MerchantApplicationsList"));
 const BoardingTracker = lazy(() => import("@/pages/dashboard/BoardingTracker"));
@@ -512,6 +513,9 @@ function Router() {
         </Route>
         <Route path="/dashboard/lead-imports">
           <ProtectedRoute component={LeadImports} />
+        </Route>
+        <Route path="/dashboard/master-lead-database">
+          <ProtectedRoute component={MasterLeadDatabase} allowedRoles={["admin"]} />
         </Route>
         <Route path="/dashboard/campaigns">
           <Redirect to="/dashboard/outbound-center?tab=campaigns" />

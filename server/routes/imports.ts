@@ -2292,7 +2292,7 @@ Guidelines:
     try {
       const { masterLeadBatches } = await import("@shared/schema");
       const { eq } = await import("drizzle-orm");
-      const [batch] = await db.select().from(masterLeadBatches).where(eq(masterLeadBatches.id, req.params.id));
+      const [batch] = await db.select().from(masterLeadBatches).where(eq(masterLeadBatches.id, req.params.id as any));
       if (!batch) return res.status(404).json({ message: "Batch not found" });
       res.json(batch);
     } catch (err: any) {
@@ -2310,12 +2310,229 @@ Guidelines:
       const limit = Math.min(Number(req.query.limit) || 100, 500);
       const offset = Number(req.query.offset) || 0;
       const rows = await db.select().from(masterLeads)
-        .where(and(eq(masterLeads.importBatchId, req.params.id), eq(masterLeads.status, status as any)))
+        .where(and(eq(masterLeads.importBatchId, req.params.id as any), eq(masterLeads.status, status as any)))
         .limit(limit).offset(offset);
       res.json(rows);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
+  });
+
+  // ─── Master Lead Database admin endpoints ─────────────────────────────────
+
+  // Aggregate stats: counts by status, source breakdown, fit-tier breakdown, vertical breakdown
+  app.get("/api/master-leads/stats", isAuthenticated, async (req, res) => {
+    if ((req.user as any)?.role !== "admin") return res.status(403).json({ message: "Admin only" });
+    try {
+      const [byStatus, bySource, byFitTier, byVertical, totalRow] = await Promise.all([
+        db.execute(sql`SELECT status, COUNT(*)::int AS count FROM master_leads GROUP BY status ORDER BY count DESC`),
+        db.execute(sql`SELECT source, COUNT(*)::int AS count FROM master_leads WHERE source IS NOT NULL GROUP BY source ORDER BY count DESC LIMIT 20`),
+        db.execute(sql`SELECT fit_tier, COUNT(*)::int AS count FROM master_leads WHERE fit_tier IS NOT NULL GROUP BY fit_tier ORDER BY count DESC`),
+        db.execute(sql`SELECT vertical, COUNT(*)::int AS count FROM master_leads WHERE vertical IS NOT NULL GROUP BY vertical ORDER BY count DESC LIMIT 20`),
+        db.execute(sql`SELECT COUNT(*)::int AS total FROM master_leads`),
+      ]);
+      const suppressionRows = await db.execute(sql`
+        SELECT suppression_reason, COUNT(*)::int AS count
+        FROM master_leads
+        WHERE status = 'suppressed' AND suppression_reason IS NOT NULL
+        GROUP BY suppression_reason ORDER BY count DESC
+      `);
+      res.json({
+        total: (totalRow.rows[0] as any)?.total ?? 0,
+        byStatus: byStatus.rows,
+        bySource: bySource.rows,
+        byFitTier: byFitTier.rows,
+        byVertical: byVertical.rows,
+        suppressionReport: suppressionRows.rows,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Filterable lead list for the admin Master Lead Database page
+  app.get("/api/master-leads/leads", isAuthenticated, async (req, res) => {
+    if ((req.user as any)?.role !== "admin") return res.status(403).json({ message: "Admin only" });
+    try {
+      const { masterLeads } = await import("@shared/schema");
+      const { eq, and, ilike, desc } = await import("drizzle-orm");
+      const status = req.query.status as string | undefined;
+      const vertical = req.query.vertical as string | undefined;
+      const fitTier = req.query.fitTier as string | undefined;
+      const source = req.query.source as string | undefined;
+      const batchId = req.query.batchId as string | undefined;
+      const search = req.query.search as string | undefined;
+      const limit = Math.min(Number(req.query.limit) || 50, 200);
+      const offset = Number(req.query.offset) || 0;
+
+      // Build a single raw-SQL WHERE clause so the same predicate applies to
+      // both the rows query and the count query (avoids mismatch on search).
+      let whereClause = sql`TRUE`;
+      if (status)   whereClause = sql`${whereClause} AND status = ${status}`;
+      if (vertical) whereClause = sql`${whereClause} AND vertical = ${vertical}`;
+      if (fitTier)  whereClause = sql`${whereClause} AND fit_tier = ${fitTier}`;
+      if (source)   whereClause = sql`${whereClause} AND source = ${source}`;
+      if (batchId)  whereClause = sql`${whereClause} AND import_batch_id = ${batchId}::uuid`;
+      if (search) {
+        const p = `%${search}%`;
+        whereClause = sql`${whereClause} AND (
+          company ILIKE ${p} OR email ILIKE ${p}
+          OR domain ILIKE ${p} OR contact_name ILIKE ${p}
+        )`;
+      }
+
+      const [rowsResult, countResult] = await Promise.all([
+        db.execute(sql`
+          SELECT
+            id, import_batch_id AS "importBatchId", status,
+            company, normalized_company AS "normalizedCompany",
+            domain, email, email_type AS "emailType",
+            phone, normalized_phone AS "normalizedPhone",
+            contact_name AS "contactName", contact_title AS "contactTitle",
+            vertical, quality_score AS "qualityScore",
+            fit_tier AS "fitTier", outreach_readiness AS "outreachReadiness",
+            readiness_reason AS "readinessReason",
+            source, source_path AS "sourcePath",
+            source_modified_date AS "sourceModifiedDate",
+            address, city, state, website,
+            email_valid AS "emailValid", phone_valid AS "phoneValid",
+            sms_eligible AS "smsEligible",
+            sheet_id AS "sheetId", sheet_name AS "sheetName",
+            tab_name AS "tabName", row_number AS "rowNumber",
+            canonical_lead_id AS "canonicalLeadId",
+            duplicate_of_id AS "duplicateOfId",
+            suppression_reason AS "suppressionReason",
+            promoted_at AS "promotedAt", promoted_by AS "promotedBy",
+            notes, imported_at AS "importedAt", created_at AS "createdAt"
+          FROM master_leads
+          WHERE ${whereClause}
+          ORDER BY created_at DESC
+          LIMIT ${limit} OFFSET ${offset}
+        `),
+        db.execute(sql`SELECT COUNT(*)::int AS total FROM master_leads WHERE ${whereClause}`),
+      ]);
+      res.json({ rows: rowsResult.rows, total: (countResult.rows[0] as any)?.total ?? 0, limit, offset });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // SMS-blocked status: check whether GHL_PHONE_NUMBER_ID and A2P_REGISTRATION_ID are configured
+  app.get("/api/master-leads/sms-status", isAuthenticated, async (req, res) => {
+    if ((req.user as any)?.role !== "admin") return res.status(403).json({ message: "Admin only" });
+    const ghlPhoneSet = !!(process.env.GHL_PHONE_NUMBER_ID && process.env.GHL_PHONE_NUMBER_ID.trim());
+    const a2pSet = !!(process.env.A2P_REGISTRATION_ID && process.env.A2P_REGISTRATION_ID.trim());
+    res.json({
+      smsEligible: ghlPhoneSet && a2pSet,
+      ghlPhoneNumberIdSet: ghlPhoneSet,
+      a2pRegistrationIdSet: a2pSet,
+      blockedReason: !ghlPhoneSet && !a2pSet
+        ? "GHL_PHONE_NUMBER_ID and A2P_REGISTRATION_ID are not set"
+        : !ghlPhoneSet
+          ? "GHL_PHONE_NUMBER_ID is not set"
+          : !a2pSet
+            ? "A2P_REGISTRATION_ID is not set"
+            : null,
+    });
+  });
+
+  // Promote a lead from ready_for_internal_test → ready_for_controlled_cohort
+  // Requires explicit admin confirmation — never automatic.
+  app.post("/api/master-leads/leads/:id/promote", isAuthenticated, async (req, res) => {
+    if ((req.user as any)?.role !== "admin") return res.status(403).json({ message: "Admin only" });
+    const { confirmed } = req.body;
+    if (!confirmed) return res.status(400).json({ message: "confirmed: true is required" });
+    try {
+      const { masterLeads, masterLeadBatches, auditLogs } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      const [lead] = await db.select().from(masterLeads).where(eq(masterLeads.id, req.params.id as any));
+      if (!lead) return res.status(404).json({ message: "Lead not found" });
+      if (lead.status !== "ready_for_internal_test") {
+        return res.status(409).json({
+          message: `Lead is '${lead.status}' — only leads in ready_for_internal_test can be promoted`,
+        });
+      }
+      const now = new Date();
+      const actorId = String((req.user as any)?.id ?? "admin");
+      await db.update(masterLeads)
+        .set({ status: "ready_for_controlled_cohort", promotedAt: now, promotedBy: actorId })
+        .where(eq(masterLeads.id, req.params.id as any));
+      // Increment batch promoted_count
+      if (lead.importBatchId) {
+        await db.execute(sql`
+          UPDATE master_lead_batches SET promoted_count = COALESCE(promoted_count, 0) + 1
+          WHERE id = ${lead.importBatchId}
+        `);
+      }
+      // Audit log
+      await db.execute(sql`
+        INSERT INTO audit_logs (user_id, action, entity_type, entity_key, actor_type, actor_id, details)
+        VALUES (
+          ${actorId}, 'master_lead_promoted', 'master_lead', ${lead.id}, 'user', ${actorId},
+          ${JSON.stringify({ leadId: lead.id, company: lead.company, email: lead.email, domain: lead.domain, fromStatus: "ready_for_internal_test", toStatus: "ready_for_controlled_cohort", batchId: lead.importBatchId })}::jsonb
+        )
+      `);
+      res.json({ success: true, leadId: lead.id, status: "ready_for_controlled_cohort" });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Bulk promote: promote all ready_for_internal_test leads in a batch
+  app.post("/api/master-leads/batches/:id/promote-all", isAuthenticated, async (req, res) => {
+    if ((req.user as any)?.role !== "admin") return res.status(403).json({ message: "Admin only" });
+    const { confirmed } = req.body;
+    if (!confirmed) return res.status(400).json({ message: "confirmed: true is required" });
+    try {
+      const now = new Date();
+      const actorId = String((req.user as any)?.id ?? "admin");
+      const result = await db.execute(sql`
+        UPDATE master_leads
+        SET status = 'ready_for_controlled_cohort', promoted_at = ${now}, promoted_by = ${actorId}
+        WHERE import_batch_id = ${req.params.id}
+          AND status = 'ready_for_internal_test'
+        RETURNING id
+      `);
+      const count = result.rows.length;
+      if (count > 0) {
+        await db.execute(sql`
+          UPDATE master_lead_batches SET promoted_count = COALESCE(promoted_count, 0) + ${count}
+          WHERE id = ${req.params.id}
+        `);
+        await db.execute(sql`
+          INSERT INTO audit_logs (user_id, action, entity_type, entity_key, actor_type, actor_id, details)
+          VALUES (
+            ${actorId}, 'master_leads_bulk_promoted', 'master_lead_batch', ${req.params.id},
+            'user', ${actorId},
+            ${JSON.stringify({ batchId: req.params.id, promotedCount: count })}::jsonb
+          )
+        `);
+      }
+      res.json({ success: true, promotedCount: count });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Trigger backfill: copy existing imported contacts into master_leads
+  app.post("/api/master-leads/backfill", isAuthenticated, async (req, res) => {
+    if ((req.user as any)?.role !== "admin") return res.status(403).json({ message: "Admin only" });
+    res.json({ message: "Backfill started in background", started: true });
+    setImmediate(async () => {
+      try {
+        const { runMasterLeadBackfill } = await import("../services/master-lead-backfill");
+        await runMasterLeadBackfill();
+      } catch (err: any) {
+        console.error("[MasterLeadBackfill] Error:", err.message);
+      }
+    });
+  });
+
+  // Backfill progress
+  app.get("/api/master-leads/backfill-progress", isAuthenticated, async (req, res) => {
+    if ((req.user as any)?.role !== "admin") return res.status(403).json({ message: "Admin only" });
+    const progress = await storage.getSystemSetting("master_lead_backfill_progress");
+    res.json(progress || { status: "idle" });
   });
 
 }
