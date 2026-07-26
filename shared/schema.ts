@@ -180,6 +180,8 @@ export const contacts = pgTable("contacts", {
   // ── Attribution extras ────────────────────────────────────────────────────
   referrerUrl: text("referrer_url"),
   sourcePath: text("source_path"),
+  // importBatchId links every contact to its import_executions record so
+  // admins can query "all contacts from batch X" without joining tables.
   importBatchId: text("import_batch_id"),
   rowProvenance: jsonb("row_provenance"),
 }, (table) => [

@@ -757,6 +757,9 @@ function Router() {
         <Route path="/dashboard/ghl-conflicts">
           <ProtectedRoute component={GhlConflicts} allowedRoles={["admin", "manager"]} />
         </Route>
+        <Route path="/dashboard/information-flow">
+          <Redirect to="/dashboard/admin-hub?tab=info-flow" />
+        </Route>
         <Route path="/dashboard/system-audit">
           <ProtectedRoute component={SystemAudit} allowedRoles={["admin", "manager"]} />
         </Route>

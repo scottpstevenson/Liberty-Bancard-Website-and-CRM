@@ -62,6 +62,7 @@ import { registerChatAssistantRoutes } from "./routes/chat-assistant";
 import { registerKnowledgeAdminRoutes } from "./routes/knowledge-admin";
 import { registerAcquisitionRoutes } from "./routes/acquisition";
 import { registerInboxRoutes } from "./routes/inbox";
+import { registerInformationFlowRoutes } from "./routes/information-flow";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -192,6 +193,7 @@ export async function registerRoutes(
   registerKnowledgeAdminRoutes(app);
   registerAcquisitionRoutes(app);
   registerInboxRoutes(app);
+  registerInformationFlowRoutes(app);
 
   // Must be registered before the API 404 catch-all — extracts route
   // permissions by walking the already-populated express router stack

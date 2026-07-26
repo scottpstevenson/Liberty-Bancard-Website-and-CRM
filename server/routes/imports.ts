@@ -1895,6 +1895,9 @@ Guidelines:
           sourceCategory: "csv_import",
           primarySourceCategory: "csv_import",
           primarySourceType: csvSourceType,
+          // importBatchId links every contact to its import_executions record so
+          // admins can query "all contacts from batch X" without joining tables.
+          importBatchId: importExecution.id,
         });
       }
 
