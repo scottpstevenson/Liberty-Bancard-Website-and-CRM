@@ -391,6 +391,14 @@ const CALL_SITE_ALLOWLIST: Array<{
     reviewDate: "2026-06-26",
   },
   {
+    file: "server/routes/contacts.ts",
+    lineContains: "sendGhlEmail({ contactId, subject, body",
+    channel: "email",
+    category: "admin_gated",
+    reason: "CRM email composer — POST /api/contacts/:id/send-email protected by isDashboardUser; authenticated dashboard rep manually composes and sends an email to a specific contact. Not automated outreach. Reviewed 2026-07-26.",
+    reviewDate: "2026-07-26",
+  },
+  {
     file: "server/routes/helpers.ts",
     lineContains: "sendGhlSms",
     channel: "sms",
