@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { PageHeader } from "@/components/ui/page-header";
 import {
-  CheckCircle2,
+  CheckCircle2, CheckCircle,
   XCircle,
   AlertTriangle,
   RefreshCw,
@@ -38,12 +38,21 @@ import {
   PauseCircle,
   BookOpen,
   BarChart3,
+  AlertCircle,
+  Phone,
+  Search,
+  Brain,
+  Radio,
+  Gauge,
+  Inbox,
+  TestTube,
+  Cpu,
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { IntegrationReadiness } from "@/components/dashboard/IntegrationReadiness";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+// ─── Types (25-subsystem audit) ───────────────────────────────────────────────
 type SubsystemStatus = "pass" | "warn" | "fail" | "disabled";
 
 interface SubsystemResult {
@@ -62,7 +71,8 @@ interface FullReport {
   checkedAt: string;
 }
 
-// Legacy gate types (from existing /api/admin/launch-readiness)
+// ── Types (infrastructure gates + deliverability) ─────────────────────────────
+
 interface Gate {
   id: string;
   label: string;
@@ -71,7 +81,83 @@ interface Gate {
   ownerAction?: string;
 }
 
-// ─── Icons map ───────────────────────────────────────────────────────────────
+interface QueueMetric {
+  name: string;
+  waiting: number;
+  active: number;
+  completed: number;
+  failed: number;
+  delayed: number;
+  isPaused: boolean;
+}
+
+interface Alert {
+  id: number;
+  severity: string;
+  subsystem: string;
+  summary: string;
+  acknowledged: boolean;
+  createdAt: string;
+}
+
+interface SubsystemCardData {
+  id: string;
+  label: string;
+  icon: string;
+  status: "pass" | "warn" | "fail" | "unknown";
+  metrics?: Array<{ key: string; value: string | number | null }>;
+  detail?: string;
+  ownerAction?: string;
+}
+
+interface VerdictItem {
+  label: string;
+  status: "pass" | "warn" | "fail" | "blocked";
+  detail: string;
+  blockers?: string[];
+}
+
+interface LaunchData {
+  verdict: "GO" | "NO-GO";
+  timestamp: string;
+  canonicalUrl: { url: string; source: string; warning?: string };
+  gates: Gate[];
+  p0Failures: Gate[];
+  queues: QueueMetric[];
+  backups: { filename: string; sizeBytes: number; triggeredBy?: string; timestamp?: string }[];
+  recentAlerts: Alert[];
+  ownerActions: { gate: string; action?: string }[];
+  envChecks?: Record<string, { set: boolean; value?: string | null }>;
+  subsystems?: SubsystemCardData[];
+  blockers?: string[];
+  verdictBanner?: VerdictItem[];
+  outboundState?: {
+    globalPaused: boolean;
+    globalPausedReason: string | null;
+    emailChannelPaused: boolean;
+    smsChannelPaused: boolean;
+    dailyCap: number;
+    sendsToday: number;
+    remaining: number;
+  };
+  deliverability?: {
+    warmupEnabled: boolean;
+    warmupStartDate: string | null;
+    warmupDay: number | null;
+    warmupCap: number | null;
+    bounceThreshold: number;
+    complaintThreshold: number;
+    unsubThreshold: number;
+    noProspectSendEmail: boolean;
+    noProspectSendSms: boolean;
+  };
+  activeCohortSize?: number;
+  lastTestEmail?: { createdAt: string | null; details: any };
+  lastWebhookEvent?: { createdAt: string | null; details: any };
+  lastQueueFailure?: { timestamp: string; jobType: string; error: string } | null;
+}
+
+// ─── Icons map (25-subsystem) ─────────────────────────────────────────────────
 const SUBSYSTEM_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   staff_roles: Users,
   contacts: Database,
@@ -100,8 +186,20 @@ const SUBSYSTEM_ICONS: Record<string, React.ComponentType<{ className?: string }
   reporting: BarChart3,
 };
 
-// ─── Status helpers ───────────────────────────────────────────────────────────
-function statusColor(s: SubsystemStatus): string {
+// ── Icon map (infra/deliverability cards) ─────────────────────────────────────
+const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
+  Globe, Database, Cpu, Mail, Phone, Search, Brain, Radio, Shield,
+  Activity, Gauge, Inbox, AlertTriangle, AlertCircle, TestTube, Webhook,
+  RefreshCw,
+};
+
+function SubsystemIcon({ name, className }: { name: string; className?: string }) {
+  const Icon = ICON_MAP[name] ?? Activity;
+  return <Icon className={className} />;
+}
+
+// ─── Status helpers (25-subsystem) ───────────────────────────────────────────
+function subsystemStatusColor(s: SubsystemStatus): string {
   if (s === "pass") return "text-green-600 dark:text-green-400";
   if (s === "warn") return "text-yellow-600 dark:text-yellow-400";
   if (s === "fail") return "text-red-600 dark:text-red-400";
@@ -122,7 +220,30 @@ function StatusBadge({ status }: { status: SubsystemStatus }) {
   return <Badge variant="outline" className="text-xs font-semibold text-muted-foreground">⏸ Disabled</Badge>;
 }
 
-// ─── Subsystem Card ───────────────────────────────────────────────────────────
+// ── Status helpers (infra/deliverability cards) ───────────────────────────────
+function infraStatusColor(status: string) {
+  if (status === "pass") return "text-green-600 bg-green-50 border-green-200";
+  if (status === "warn") return "text-amber-600 bg-amber-50 border-amber-200";
+  if (status === "fail") return "text-red-600 bg-red-50 border-red-200";
+  return "text-muted-foreground bg-muted border";
+}
+
+function infraStatusBadge(status: string) {
+  if (status === "pass") return <Badge className="bg-green-100 text-green-700 border-green-300 text-xs font-semibold">PASS</Badge>;
+  if (status === "warn") return <Badge className="bg-amber-100 text-amber-700 border-amber-300 text-xs font-semibold">WARN</Badge>;
+  if (status === "fail") return <Badge className="bg-red-100 text-red-700 border-red-300 text-xs font-semibold">FAIL</Badge>;
+  if (status === "blocked") return <Badge className="bg-orange-100 text-orange-700 border-orange-300 text-xs font-semibold">BLOCKED</Badge>;
+  return <Badge variant="outline" className="text-xs">UNKNOWN</Badge>;
+}
+
+function infraStatusIcon(status: string, cls = "h-5 w-5") {
+  if (status === "pass") return <CheckCircle className={`${cls} text-green-500`} />;
+  if (status === "warn") return <AlertTriangle className={`${cls} text-amber-500`} />;
+  if (status === "fail" || status === "blocked") return <XCircle className={`${cls} text-red-500`} />;
+  return <AlertCircle className={`${cls} text-muted-foreground`} />;
+}
+
+// ─── Subsystem Card (25-subsystem, uses SubsystemResult) ─────────────────────
 function SubsystemCard({ result }: { result: SubsystemResult }) {
   const [expanded, setExpanded] = useState(false);
   const Icon = SUBSYSTEM_ICONS[result.id] ?? Activity;
@@ -137,7 +258,7 @@ function SubsystemCard({ result }: { result: SubsystemResult }) {
       <CardHeader className="pb-2 pt-4">
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
-            <Icon className={`h-4 w-4 shrink-0 ${statusColor(result.status)}`} />
+            <Icon className={`h-4 w-4 shrink-0 ${subsystemStatusColor(result.status)}`} />
             <span className="font-medium text-sm leading-tight">{result.name}</span>
           </div>
           <StatusBadge status={result.status} />
@@ -170,7 +291,40 @@ function SubsystemCard({ result }: { result: SubsystemResult }) {
   );
 }
 
-// ─── Copy Report ─────────────────────────────────────────────────────────────
+// ── Subsystem card view (infra/deliverability, uses SubsystemCardData) ────────
+function SubsystemCardView({ s }: { s: SubsystemCardData }) {
+  return (
+    <Card className={`border ${infraStatusColor(s.status)}`}>
+      <CardHeader className="pb-2 pt-4 px-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <SubsystemIcon name={s.icon} className="h-4 w-4 opacity-70" />
+            <CardTitle className="text-sm font-semibold">{s.label}</CardTitle>
+          </div>
+          {infraStatusBadge(s.status)}
+        </div>
+      </CardHeader>
+      <CardContent className="px-4 pb-4 space-y-1">
+        {s.metrics && s.metrics.map((m) => (
+          <div key={m.key} className="flex items-center justify-between text-xs">
+            <span className="text-muted-foreground">{m.key}</span>
+            <span className="font-medium truncate max-w-[55%] text-right" title={String(m.value ?? "—")}>
+              {m.value === null || m.value === undefined ? "—" : String(m.value)}
+            </span>
+          </div>
+        ))}
+        {s.detail && (
+          <p className="text-xs text-muted-foreground mt-1 pt-1 border-t border-current/10 leading-snug">{s.detail}</p>
+        )}
+        {s.ownerAction && (
+          <p className="text-xs text-amber-700 font-medium mt-1">⚠ {s.ownerAction}</p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ─── Copy Report (25-subsystem) ───────────────────────────────────────────────
 function buildMarkdownReport(report: FullReport): string {
   const lines: string[] = [
     "# CRM Launch-Readiness Audit Report",
@@ -283,7 +437,7 @@ export default function LaunchReadiness() {
           onClick={() => setActiveTab("infra")}
           className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${activeTab === "infra" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
         >
-          Infrastructure Gates
+          Infrastructure Gates &amp; Outbound
         </button>
       </div>
 
@@ -407,12 +561,12 @@ export default function LaunchReadiness() {
   );
 }
 
-// ─── Infrastructure gates tab (legacy P0 gates) ───────────────────────────────
+// ─── Infrastructure gates + outbound/deliverability tab ───────────────────────
 function InfraGates() {
   const qc = useQueryClient();
   const { toast } = useToast();
 
-  const { data, isLoading, refetch } = useQuery<any>({
+  const { data, isLoading, refetch, isFetching } = useQuery<LaunchData>({
     queryKey: ["/api/admin/launch-readiness"],
     refetchInterval: 60_000,
   });
@@ -431,6 +585,39 @@ function InfraGates() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/admin/launch-readiness"] }),
   });
 
+  function copyInfraReport() {
+    if (!data) return;
+    const lines: string[] = [
+      `# Liberty Bancard Launch Control Report`,
+      `Generated: ${new Date(data.timestamp).toLocaleString()}`,
+      `Verdict: ${data.verdict}`,
+      ``,
+    ];
+    if (data.verdictBanner) {
+      lines.push("## Operator Verdict");
+      for (const v of data.verdictBanner) {
+        const sym = v.status === "pass" ? "✅" : v.status === "warn" ? "⚠" : "❌";
+        lines.push(`${sym} ${v.label} — ${v.detail}`);
+        if (v.blockers?.length) v.blockers.forEach((b) => lines.push(`  • ${b}`));
+      }
+      lines.push("");
+    }
+    if (data.blockers?.length) {
+      lines.push("## Launch Blockers");
+      data.blockers.forEach((b) => lines.push(`❌ ${b}`));
+      lines.push("");
+    }
+    lines.push("## P0 Gates");
+    for (const g of data.gates ?? []) {
+      lines.push(`${g.pass ? "✅" : "❌"} ${g.label}: ${g.detail ?? ""}`);
+    }
+    navigator.clipboard.writeText(lines.join("\n")).then(() => {
+      toast({ title: "Report copied", description: "Markdown launch report copied to clipboard." });
+    }).catch(() => {
+      toast({ title: "Copy failed", description: "Unable to write to clipboard.", variant: "destructive" });
+    });
+  }
+
   if (isLoading) {
     return (
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -446,18 +633,101 @@ function InfraGates() {
 
   return (
     <div className="space-y-6">
+      {/* Header row */}
       <div className={`flex items-center gap-4 rounded-lg border px-5 py-4 ${isGo ? "bg-green-50 border-green-200 dark:bg-green-950/30 dark:border-green-800" : "bg-red-50 border-red-200 dark:bg-red-950/30 dark:border-red-800"}`}>
         {isGo ? <CheckCircle2 className="h-7 w-7 text-green-600" /> : <XCircle className="h-7 w-7 text-red-600" />}
         <div>
           <p className="font-semibold">{data.verdict} — P0 Infrastructure Gates</p>
           <p className="text-xs text-muted-foreground mt-0.5">Checked at {new Date(data.timestamp).toLocaleString()}</p>
         </div>
-        <Button variant="outline" size="sm" className="ml-auto" onClick={() => refetch()}>
-          <RefreshCw className="h-4 w-4 mr-2" />
-          Refresh
-        </Button>
+        <div className="flex items-center gap-2 ml-auto">
+          <Button variant="outline" size="sm" onClick={copyInfraReport} data-testid="btn-copy-report">
+            <Copy className="h-3.5 w-3.5 mr-1.5" /> Copy Report
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching} data-testid="btn-run-checks">
+            <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${isFetching ? "animate-spin" : ""}`} />
+            Run All Checks
+          </Button>
+        </div>
       </div>
 
+      {/* URL warning */}
+      {data.canonicalUrl?.warning && (
+        <div className="bg-amber-50 border border-amber-300 rounded-lg p-3 text-sm text-amber-800">
+          <AlertTriangle className="inline h-4 w-4 mr-1" />
+          {data.canonicalUrl.warning}
+        </div>
+      )}
+
+      {/* Operator Verdict Banner */}
+      {data.verdictBanner && data.verdictBanner.length > 0 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Shield className="h-4 w-4" /> Operator Verdict
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {data.verdictBanner.map((v, i) => (
+              <div key={i} className={`flex items-start gap-3 p-3 rounded-lg border ${
+                v.status === "pass" ? "bg-green-50 border-green-200" :
+                v.status === "warn" ? "bg-amber-50 border-amber-200" :
+                "bg-red-50 border-red-200"
+              }`}>
+                {infraStatusIcon(v.status, "h-4 w-4 mt-0.5 shrink-0")}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-semibold text-sm">{v.label}</span>
+                    {infraStatusBadge(v.status)}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-0.5">{v.detail}</p>
+                  {v.blockers && v.blockers.length > 0 && (
+                    <ul className="mt-1 space-y-0.5">
+                      {v.blockers.map((b, bi) => (
+                        <li key={bi} className="text-xs text-red-700 font-medium">• {b}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Launch Blockers */}
+      {data.blockers && data.blockers.length > 0 && (
+        <Card className="border-red-200">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2 text-red-700">
+              <XCircle className="h-4 w-4" /> Current Launch Blockers ({data.blockers.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ul className="space-y-1">
+              {data.blockers.map((b, i) => (
+                <li key={i} className="flex items-start gap-2 text-sm text-red-700">
+                  <span className="mt-0.5 shrink-0">❌</span>{b}
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Subsystem Card Grid (from LaunchData) */}
+      {data.subsystems && data.subsystems.length > 0 && (
+        <div>
+          <h2 className="text-base font-semibold mb-3">Subsystem Health</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {data.subsystems.map((s) => (
+              <SubsystemCardView key={s.id} s={s} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* P0 Gates */}
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base">P0 Launch Gates</CardTitle>
@@ -481,6 +751,26 @@ function InfraGates() {
         </CardContent>
       </Card>
 
+      {/* Owner Actions */}
+      {(data.ownerActions ?? []).length > 0 && (
+        <Card className="border-amber-300">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2 text-amber-700">
+              <AlertTriangle className="h-4 w-4" /> Owner Actions Required
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {(data.ownerActions ?? []).map((a, i) => (
+              <div key={i} className="text-sm">
+                <span className="font-medium">{a.gate}:</span>{" "}
+                <span className="text-muted-foreground">{a.action}</span>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Queue + Backup row */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <Card>
           <CardHeader className="pb-3">
@@ -540,6 +830,104 @@ function InfraGates() {
         </Card>
       </div>
 
+      {/* Outbound State */}
+      {data.outboundState && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Shield className="h-4 w-4" /> Outbound State
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
+              <div>
+                <p className="text-xs text-muted-foreground">Global pause</p>
+                <p className={`font-semibold ${data.outboundState.globalPaused ? "text-green-600" : "text-red-600"}`}>
+                  {data.outboundState.globalPaused ? "PAUSED (safe)" : "LIVE ⚠"}
+                </p>
+              </div>
+              {data.outboundState.globalPausedReason && (
+                <div className="col-span-2">
+                  <p className="text-xs text-muted-foreground">Pause reason</p>
+                  <p className="font-medium text-xs">{data.outboundState.globalPausedReason}</p>
+                </div>
+              )}
+              <div>
+                <p className="text-xs text-muted-foreground">Email channel</p>
+                <p className={`font-semibold ${data.outboundState.emailChannelPaused ? "text-amber-600" : "text-green-600"}`}>
+                  {data.outboundState.emailChannelPaused ? "paused" : "live"}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">SMS channel</p>
+                <p className={`font-semibold ${data.outboundState.smsChannelPaused ? "text-amber-600" : "text-green-600"}`}>
+                  {data.outboundState.smsChannelPaused ? "paused" : "live"}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Sends today / cap</p>
+                <p className="font-semibold">{data.outboundState.sendsToday} / {data.outboundState.dailyCap}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Remaining today</p>
+                <p className="font-semibold">{data.outboundState.remaining}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Deliverability Controls summary */}
+      {data.deliverability && (
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Activity className="h-4 w-4" /> Deliverability Controls
+              </CardTitle>
+              <a href="/dashboard/deliverability-settings" className="text-xs text-primary underline">
+                Configure →
+              </a>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
+              <div>
+                <p className="text-xs text-muted-foreground">Warmup mode</p>
+                <p className={`font-semibold ${data.deliverability.warmupEnabled ? "text-blue-600" : "text-muted-foreground"}`}>
+                  {data.deliverability.warmupEnabled ? `Day ${data.deliverability.warmupDay} — cap: ${data.deliverability.warmupCap}/day` : "Off"}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Bounce threshold</p>
+                <p className="font-semibold">{data.deliverability.bounceThreshold}%</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Complaint threshold</p>
+                <p className="font-semibold">{data.deliverability.complaintThreshold}%</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Unsubscribe alert</p>
+                <p className="font-semibold">{data.deliverability.unsubThreshold}%</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">No-prospect guard (email)</p>
+                <p className={`font-semibold ${data.deliverability.noProspectSendEmail ? "text-green-600" : "text-red-600"}`}>
+                  {data.deliverability.noProspectSendEmail ? "Active" : "⚠ Off"}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">No-prospect guard (SMS)</p>
+                <p className={`font-semibold ${data.deliverability.noProspectSendSms ? "text-green-600" : "text-muted-foreground"}`}>
+                  {data.deliverability.noProspectSendSms ? "Active" : "Off"}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Alert Feed */}
       {(data.recentAlerts ?? []).length > 0 && (
         <Card>
           <CardHeader className="pb-3">
@@ -573,6 +961,28 @@ function InfraGates() {
         </Card>
       )}
 
+      {/* Env checks */}
+      {data.envChecks && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Environment Checks</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {Object.entries(data.envChecks).map(([k, v]: [string, any]) => (
+                <div key={k} className="flex items-center gap-2 text-sm">
+                  {v.set
+                    ? <CheckCircle className="h-4 w-4 text-green-500 shrink-0" />
+                    : <XCircle className="h-4 w-4 text-red-400 shrink-0" />}
+                  <span className="font-mono text-xs">{k}</span>
+                  {!v.set && <span className="text-xs text-muted-foreground">not set</span>}
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <Separator />
       <div>
         <h2 className="text-base font-semibold mb-3">Secrets &amp; Integration Readiness</h2>
@@ -582,6 +992,7 @@ function InfraGates() {
       {data.canonicalUrl && (
         <p className="text-xs text-muted-foreground text-center">
           Canonical URL: <strong>{data.canonicalUrl.url}</strong> · Source: <strong>{data.canonicalUrl.source}</strong>
+          {" "}· Active cohort: <strong>{data.activeCohortSize ?? "—"}</strong>
         </p>
       )}
     </div>

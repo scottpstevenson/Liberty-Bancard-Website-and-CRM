@@ -2753,6 +2753,7 @@ const OPERATOR_NAV_GROUPS: OperatorNavGroup[] = [
       { value: "deleted-records", label: "Deleted Records", icon: XCircle },
       { value: "system-audit", label: "System Audit", icon: Shield },
       { value: "launch-readiness", label: "Launch Readiness", icon: CheckCircle2 },
+      { value: "deliverability-settings", label: "Deliverability Settings", icon: Activity },
     ],
   },
 ];
@@ -2829,6 +2830,22 @@ function renderOperatorView(view: string, onNavigate: (v: string) => void) {
       return <DeletedRecordsPanel />;
     case "launch-readiness":
       return <LaunchReadinessPage />;
+    case "deliverability-settings":
+      return (
+        <div className="flex flex-col items-center justify-center h-64 gap-4">
+          <Activity className="w-12 h-12 text-muted-foreground" />
+          <p className="text-lg font-medium">Deliverability Settings</p>
+          <p className="text-sm text-muted-foreground text-center max-w-md">
+            Configure warmup mode, send caps, bounce/complaint auto-pause thresholds, and no-prospect-send guard.
+          </p>
+          <a
+            href="/dashboard/deliverability-settings"
+            className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+          >
+            Open Deliverability Settings
+          </a>
+        </div>
+      );
     case "system-audit":
       return (
         <div className="flex flex-col items-center justify-center h-64 gap-4">

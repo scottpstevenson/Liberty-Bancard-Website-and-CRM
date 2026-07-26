@@ -195,6 +195,7 @@ const EmailHealth = lazy(() => import("@/pages/dashboard/EmailHealth"));
 const SystemAudit = lazy(() => import("@/pages/dashboard/SystemAudit"));
 const LaunchReadiness = lazy(() => import("@/pages/dashboard/LaunchReadiness"));
 const OutboundReadiness = lazy(() => import("@/pages/dashboard/OutboundReadiness"));
+const DeliverabilitySettings = lazy(() => import("@/pages/dashboard/DeliverabilitySettings"));
 const GhlConflicts = lazy(() => import("@/pages/dashboard/GhlConflicts"));
 const SetupWizard = lazy(() => import("@/pages/dashboard/SetupWizard"));
 
@@ -753,6 +754,9 @@ function Router() {
         </Route>
         <Route path="/dashboard/outbound-readiness">
           <ProtectedRoute component={OutboundReadiness} allowedRoles={["admin", "manager"]} />
+        </Route>
+        <Route path="/dashboard/deliverability-settings">
+          <ProtectedRoute component={DeliverabilitySettings} allowedRoles={["admin", "manager"]} />
         </Route>
         <Route path="/dashboard/ghl-conflicts">
           <ProtectedRoute component={GhlConflicts} allowedRoles={["admin", "manager"]} />

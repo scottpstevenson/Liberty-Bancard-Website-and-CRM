@@ -1,6 +1,7 @@
 import { db } from "../../db";
 import { dailyFunnelMetrics, sendingIdentities, identityPerformanceDaily, sdrChannelAttempts } from "@shared/schema";
 import { sql, and, gte, eq } from "drizzle-orm";
+import { storage } from "../../storage";
 
 export interface AnomalyAlert {
   id: string;
@@ -224,6 +225,152 @@ async function checkInboxDegradation(): Promise<AnomalyAlert[]> {
   return alerts;
 }
 
+/**
+ * Checks bounce and complaint rates against configurable thresholds stored in
+ * system_settings.  When either threshold is breached, auto-pauses the email
+ * channel (sets emailChannelPaused = true) and writes an audit log entry so
+ * the Launch Control page surfaced the event.
+ *
+ * Unsubscribe rate is alert-only — no auto-pause.
+ */
+async function checkDeliverabilityThresholds(): Promise<AnomalyAlert[]> {
+  const alerts: AnomalyAlert[] = [];
+
+  try {
+    const [bounceThreshRaw, complaintThreshRaw, unsubThreshRaw] = await Promise.all([
+      storage.getSystemSetting("deliveryBounceThresholdPct"),
+      storage.getSystemSetting("deliveryComplaintThresholdPct"),
+      storage.getSystemSetting("deliveryUnsubscribeThresholdPct"),
+    ]);
+
+    const bounceThreshPct = typeof bounceThreshRaw === "number" ? bounceThreshRaw : parseFloat(String(bounceThreshRaw ?? "5")) || 5;
+    const complaintThreshPct = typeof complaintThreshRaw === "number" ? complaintThreshRaw : parseFloat(String(complaintThreshRaw ?? "0.1")) || 0.1;
+    const unsubThreshPct = typeof unsubThreshRaw === "number" ? unsubThreshRaw : parseFloat(String(unsubThreshRaw ?? "5")) || 5;
+
+    // Rolling 24h window across all identities
+    const windowStart = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const windowStartStr = windowStart.toISOString().slice(0, 10);
+
+    const stats = await db.select({
+      totalSent: sql<number>`COALESCE(SUM(${identityPerformanceDaily.emailsSent}), 0)`,
+      totalBounced: sql<number>`COALESCE(SUM(${identityPerformanceDaily.bounced}), 0)`,
+      totalComplaints: sql<number>`COALESCE(SUM(${identityPerformanceDaily.complaints}), 0)`,
+    }).from(identityPerformanceDaily).where(
+      gte(identityPerformanceDaily.date, windowStartStr)
+    );
+
+    const s = stats[0];
+    if (!s || s.totalSent < 10) return alerts; // Too little data to be meaningful
+
+    const bounceRatePct = (s.totalBounced / s.totalSent) * 100;
+    const complaintRatePct = (s.totalComplaints / s.totalSent) * 100;
+    const today = getEstDateString();
+
+    // Bounce threshold breach → auto-pause email channel
+    if (bounceRatePct >= bounceThreshPct) {
+      const alertId = `delivery_bounce_threshold_${today}`;
+      alerts.push({
+        id: alertId,
+        type: "inbox_bounce_spike",
+        severity: bounceRatePct >= bounceThreshPct * 2 ? "critical" : "warning",
+        title: "Bounce rate exceeded configured threshold — email channel auto-paused",
+        description: `24h bounce rate: ${bounceRatePct.toFixed(2)}% (threshold: ${bounceThreshPct}%). Email channel has been automatically paused. Investigate delivery issues before resuming.`,
+        metric: "aggregate_bounce_rate",
+        currentValue: Math.round(bounceRatePct * 100) / 100,
+        expectedValue: bounceThreshPct,
+        threshold: bounceThreshPct,
+        detectedAt: new Date().toISOString(),
+      });
+      // Auto-pause email channel
+      const currentPaused = await storage.getSystemSetting("emailChannelPaused");
+      if (currentPaused !== true && currentPaused !== "true") {
+        await storage.setSystemSetting("emailChannelPaused", true);
+        await storage.createAuditLog({
+          action: "email_channel_auto_paused_bounce_threshold",
+          entityType: "system",
+          entityId: 0,
+          actorType: "system",
+          details: {
+            bounceRatePct,
+            threshold: bounceThreshPct,
+            sentLast24h: s.totalSent,
+            bouncedLast24h: s.totalBounced,
+            reason: "Bounce rate exceeded configured threshold in deliverability settings",
+          },
+        });
+        console.warn(`[AnomalyDetection] Email channel auto-paused: bounce rate ${bounceRatePct.toFixed(2)}% >= threshold ${bounceThreshPct}%`);
+      }
+    }
+
+    // Complaint threshold breach → auto-pause email channel
+    if (complaintRatePct >= complaintThreshPct) {
+      const alertId = `delivery_complaint_threshold_${today}`;
+      alerts.push({
+        id: alertId,
+        type: "inbox_bounce_spike",
+        severity: "critical",
+        title: "Complaint rate exceeded configured threshold — email channel auto-paused",
+        description: `24h complaint rate: ${complaintRatePct.toFixed(3)}% (threshold: ${complaintThreshPct}%). Email channel has been automatically paused. Investigate spam complaints before resuming.`,
+        metric: "aggregate_complaint_rate",
+        currentValue: Math.round(complaintRatePct * 1000) / 1000,
+        expectedValue: complaintThreshPct,
+        threshold: complaintThreshPct,
+        detectedAt: new Date().toISOString(),
+      });
+      const currentPaused = await storage.getSystemSetting("emailChannelPaused");
+      if (currentPaused !== true && currentPaused !== "true") {
+        await storage.setSystemSetting("emailChannelPaused", true);
+        await storage.createAuditLog({
+          action: "email_channel_auto_paused_complaint_threshold",
+          entityType: "system",
+          entityId: 0,
+          actorType: "system",
+          details: {
+            complaintRatePct,
+            threshold: complaintThreshPct,
+            sentLast24h: s.totalSent,
+            complaintsLast24h: s.totalComplaints,
+            reason: "Complaint rate exceeded configured threshold in deliverability settings",
+          },
+        });
+        console.warn(`[AnomalyDetection] Email channel auto-paused: complaint rate ${complaintRatePct.toFixed(3)}% >= threshold ${complaintThreshPct}%`);
+      }
+    }
+
+    // Unsubscribe rate — query from audit_logs (alert only, no auto-pause)
+    try {
+      const { sql: rawSql } = await import("drizzle-orm");
+      const unsubRows = await db.execute(rawSql.raw(`
+        SELECT COUNT(*) as c FROM audit_logs
+        WHERE action IN ('unsubscribe_recorded','contact_unsubscribed','list_unsubscribe_processed')
+          AND created_at >= NOW() - INTERVAL '24 hours'
+      `));
+      const unsubCount = parseInt(String((unsubRows.rows[0] as any)?.c ?? "0"), 10) || 0;
+      const unsubRatePct = s.totalSent > 0 ? (unsubCount / s.totalSent) * 100 : 0;
+      if (unsubRatePct >= unsubThreshPct && unsubCount >= 5) {
+        alerts.push({
+          id: `delivery_unsub_threshold_${today}`,
+          type: "reply_rate_drop",
+          severity: "warning",
+          title: "Unsubscribe rate above alert threshold",
+          description: `24h unsubscribe rate: ${unsubRatePct.toFixed(2)}% (${unsubCount} unsubs / ${s.totalSent} sent). Alert threshold: ${unsubThreshPct}%. No auto-pause — review list quality.`,
+          metric: "aggregate_unsubscribe_rate",
+          currentValue: Math.round(unsubRatePct * 100) / 100,
+          expectedValue: unsubThreshPct,
+          threshold: unsubThreshPct,
+          detectedAt: new Date().toISOString(),
+        });
+      }
+    } catch {
+      // Non-fatal
+    }
+  } catch (err: any) {
+    console.error("[AnomalyDetection] Threshold check failed:", err);
+  }
+
+  return alerts;
+}
+
 export async function runAnomalyDetection(): Promise<AnomalyAlert[]> {
   const { acquireJobLock, releaseJobLock, JOB_NAMES } = await import("../job-registry");
   const acquired = await acquireJobLock(JOB_NAMES.ANOMALY_DETECTION);
@@ -232,14 +379,15 @@ export async function runAnomalyDetection(): Promise<AnomalyAlert[]> {
   const allAlerts: AnomalyAlert[] = [];
 
   try {
-    const [volumeAlerts, replyAlerts, bounceAlerts, degradedAlerts] = await Promise.all([
+    const [volumeAlerts, replyAlerts, bounceAlerts, degradedAlerts, thresholdAlerts] = await Promise.all([
       checkSendVolumeAnomaly(),
       checkReplyRateDrop(),
       checkInboxBounceSpikes(),
       checkInboxDegradation(),
+      checkDeliverabilityThresholds(),
     ]);
 
-    allAlerts.push(...volumeAlerts, ...replyAlerts, ...bounceAlerts, ...degradedAlerts);
+    allAlerts.push(...volumeAlerts, ...replyAlerts, ...bounceAlerts, ...degradedAlerts, ...thresholdAlerts);
 
     if (allAlerts.length > 0) {
       console.log(`[AnomalyDetection] Found ${allAlerts.length} alerts: ${allAlerts.map(a => a.type).join(", ")}`);

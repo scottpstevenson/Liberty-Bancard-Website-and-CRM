@@ -2383,7 +2383,7 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  // ── Launch Readiness ──────────────────────────────────────────────────────
+  // ── Launch Readiness (extended — full operator launch control panel) ─────────
   app.get("/api/admin/launch-readiness", requireRole("admin", "manager"), async (_req, res) => {
     try {
       const { getCanonicalUrlInfo } = await import("../lib/canonical-url");
@@ -2393,12 +2393,16 @@ export function registerAdminRoutes(app: Express) {
       const { listBackups } = await import("../services/db-backup");
       const { getRecentAlerts } = await import("../services/alert-feed");
       const { pool } = await import("../db");
+      const { getGhlCircuitStatus } = await import("../services/ghl-sync");
+      const { isGmailOAuthConnected, getGmailOAuthStatus } = await import("../services/gmail-oauth");
 
       const urlInfo = getCanonicalUrlInfo();
       const ghlOk = isGhlConfigured();
       const smtpStatus = getSmtpStatus();
       const smtpOk = isSmtpConfigured();
+      const ghlCircuit = getGhlCircuitStatus();
 
+      // ── Queue metrics ─────────────────────────────────────────────────────────
       let queueMetrics: any[] = [];
       let queueMock = false;
       try {
@@ -2408,9 +2412,16 @@ export function registerAdminRoutes(app: Express) {
         queueMock = m.usingMock;
       } catch {}
 
+      const dlqCount = queueMetrics.reduce((sum, q) => sum + (q.failed || 0), 0);
+      const lastQueueFailure = queueMetrics
+        .filter((q) => q.lastFailedAt)
+        .sort((a, b) => new Date(b.lastFailedAt).getTime() - new Date(a.lastFailedAt).getTime())[0];
+
+      // ── Backups ───────────────────────────────────────────────────────────────
       let backups: any[] = [];
       try { backups = await listBackups(); } catch {}
 
+      // ── DB health ─────────────────────────────────────────────────────────────
       let dbOk = false;
       let dbMs = 0;
       try {
@@ -2420,9 +2431,108 @@ export function registerAdminRoutes(app: Express) {
         dbOk = true;
       } catch {}
 
+      // ── Alert feed ────────────────────────────────────────────────────────────
       const alerts = await getRecentAlerts(20);
       const criticalAlerts = alerts.filter((a) => a.severity === "critical" && !a.acknowledged);
 
+      // ── Audit log probes ──────────────────────────────────────────────────────
+      const { sql: auditSql } = await import("drizzle-orm");
+      async function lastAuditEntry(actions: string[]): Promise<{ createdAt: string | null; details: any }> {
+        try {
+          const actionList = actions.map(a => `'${a}'`).join(",");
+          const rows = await db.execute(auditSql.raw(`
+            SELECT created_at, details FROM audit_logs
+            WHERE action IN (${actionList})
+            ORDER BY created_at DESC LIMIT 1
+          `));
+          const row = rows.rows[0] as any;
+          return { createdAt: row?.created_at?.toISOString?.() ?? row?.created_at ?? null, details: row?.details ?? null };
+        } catch { return { createdAt: null, details: null }; }
+      }
+
+      const [lastGhlSync, lastTestEmail, lastWebhookEvent, lastSunbizRun, lastClassification] = await Promise.all([
+        lastAuditEntry(["ghl_sync_completed", "GHL_SYNC_TICK_COMPLETE", "ghl_sync_contacts"]),
+        lastAuditEntry(["integration_readiness_test_email"]),
+        lastAuditEntry(["webhook_received", "ghl_webhook_received", "inbound_message_processed"]),
+        lastAuditEntry(["sunbiz_enrichment_completed", "sunbiz_batch_enriched", "sunbiz_enrichment_run"]),
+        lastAuditEntry(["inbox_classified", "intent_classified", "reply_classified"]),
+      ]);
+
+      // ── Active cohort size ────────────────────────────────────────────────────
+      let activeCohortSize = 0;
+      try {
+        const cohortRows = await db.execute(auditSql.raw(`
+          SELECT COUNT(*) as c FROM contacts
+          WHERE lifecycle_stage IN ('prospect','warm_lead','qualified')
+          AND email_status NOT IN ('bounced','invalid','unsubscribed')
+          AND do_not_contact = false
+          LIMIT 1
+        `));
+        activeCohortSize = parseInt(String((cohortRows.rows[0] as any)?.c ?? "0"), 10) || 0;
+      } catch {}
+
+      // ── Gmail OAuth status ────────────────────────────────────────────────────
+      const gmailConnected = isGmailOAuthConnected();
+      let gmailEmail: string | null = null;
+      try {
+        const gmailStatus = await getGmailOAuthStatus();
+        gmailEmail = gmailStatus?.email ?? null;
+      } catch {}
+
+      // ── Outbound settings ─────────────────────────────────────────────────────
+      const { outboundSendCounters } = await import("@shared/schema");
+      const { eq: eqOp, and: andOp } = await import("drizzle-orm");
+      const [
+        globalPausedRaw, globalPausedReasonRaw, dailyCapRaw,
+        emailChannelPausedRaw, smsChannelPausedRaw, coldEmailChannelPausedRaw,
+      ] = await Promise.all([
+        storage.getSystemSetting("outboundGlobalPaused"),
+        storage.getSystemSetting("outboundGlobalPausedReason"),
+        storage.getSystemSetting("outboundDailyEmailCap"),
+        storage.getSystemSetting("emailChannelPaused"),
+        storage.getSystemSetting("smsChannelPaused"),
+        storage.getSystemSetting("coldEmailChannelPaused"),
+      ]);
+      const globalPaused = globalPausedRaw === true || globalPausedRaw === "true";
+      const globalPausedReason = typeof globalPausedReasonRaw === "string" ? globalPausedReasonRaw : null;
+      const dailyCap = typeof dailyCapRaw === "number" ? dailyCapRaw : parseInt(String(dailyCapRaw ?? "200"), 10) || 200;
+      const emailChannelPaused = emailChannelPausedRaw === true || emailChannelPausedRaw === "true";
+      const smsChannelPaused = smsChannelPausedRaw === true || smsChannelPausedRaw === "true";
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const [capRow] = await db.select({ count: outboundSendCounters.count }).from(outboundSendCounters)
+        .where(andOp(eqOp(outboundSendCounters.date, todayStr), eqOp(outboundSendCounters.channel, "email"), eqOp(outboundSendCounters.scope, "cold_outreach")));
+      const sendsToday = capRow?.count ?? 0;
+
+      // ── Deliverability settings ───────────────────────────────────────────────
+      const [warmupEnabledRaw, warmupStartDateRaw, bounceThresholdRaw, complaintThresholdRaw, unsubThresholdRaw, noProspectEmailRaw, noProspectSmsRaw, testAllowlistRaw] = await Promise.all([
+        storage.getSystemSetting("deliveryWarmupEnabled"),
+        storage.getSystemSetting("deliveryWarmupStartDate"),
+        storage.getSystemSetting("deliveryBounceThresholdPct"),
+        storage.getSystemSetting("deliveryComplaintThresholdPct"),
+        storage.getSystemSetting("deliveryUnsubscribeThresholdPct"),
+        storage.getSystemSetting("deliveryNoProspectSendEmail"),
+        storage.getSystemSetting("deliveryNoProspectSendSms"),
+        storage.getSystemSetting("deliveryTestEmailAllowlist"),
+      ]);
+      const warmupEnabled = warmupEnabledRaw === true || warmupEnabledRaw === "true";
+      const warmupStartDate = typeof warmupStartDateRaw === "string" ? warmupStartDateRaw : null;
+      let warmupDay: number | null = null;
+      let warmupCap: number | null = null;
+      if (warmupEnabled && warmupStartDate) {
+        const daysSince = Math.max(1, Math.floor((Date.now() - new Date(warmupStartDate).getTime()) / 86400000) + 1);
+        warmupDay = daysSince;
+        if (daysSince >= 30) warmupCap = 250;
+        else if (daysSince >= 14) warmupCap = 100;
+        else if (daysSince >= 7) warmupCap = 50;
+        else warmupCap = 20;
+      }
+      const bounceThreshold = typeof bounceThresholdRaw === "number" ? bounceThresholdRaw : parseFloat(String(bounceThresholdRaw ?? "5")) || 5;
+      const complaintThreshold = typeof complaintThresholdRaw === "number" ? complaintThresholdRaw : parseFloat(String(complaintThresholdRaw ?? "0.1")) || 0.1;
+      const unsubThreshold = typeof unsubThresholdRaw === "number" ? unsubThresholdRaw : parseFloat(String(unsubThresholdRaw ?? "5")) || 5;
+      const noProspectSendEmail = noProspectEmailRaw === true || noProspectEmailRaw === "true";
+      const noProspectSendSms = noProspectSmsRaw === true || noProspectSmsRaw === "true";
+
+      // ── Build legacy gates (keep backward compat) ─────────────────────────────
       const envChecks = {
         APP_URL: { set: !!process.env.APP_URL, value: process.env.APP_URL ? "***set***" : null },
         SLACK_AUDIT_WEBHOOK_URL: { set: !!process.env.SLACK_AUDIT_WEBHOOK_URL },
@@ -2431,6 +2541,9 @@ export function registerAdminRoutes(app: Express) {
         GHL_LOCATION_ID: { set: !!process.env.GHL_LOCATION_ID },
         GHL_PRIVATE_INTEGRATION_TOKEN: { set: !!process.env.GHL_PRIVATE_INTEGRATION_TOKEN },
         GHL_WEBHOOK_SECRET: { set: !!process.env.GHL_WEBHOOK_SECRET },
+        GOOGLE_CLIENT_ID: { set: !!process.env.GOOGLE_CLIENT_ID },
+        AI_INTEGRATIONS_OPENAI_API_KEY: { set: !!process.env.AI_INTEGRATIONS_OPENAI_API_KEY },
+        A2P_REGISTRATION_ID: { set: !!process.env.A2P_REGISTRATION_ID },
       };
 
       const gates = [
@@ -2438,17 +2551,219 @@ export function registerAdminRoutes(app: Express) {
         { id: "database", label: "PostgreSQL responding", pass: dbOk, detail: dbOk ? `${dbMs}ms` : "Connection failed" },
         { id: "redis", label: "Redis / BullMQ", pass: !queueMock, detail: queueMock ? "Using in-memory mock (set REDIS_URL for production)" : "Live Redis connected" },
         { id: "ghl", label: "GHL integration configured", pass: ghlOk, detail: ghlOk ? "GHL_LOCATION_ID + token present" : "Missing GHL credentials", ownerAction: ghlOk ? undefined : "Set GHL_LOCATION_ID and GHL_PRIVATE_INTEGRATION_TOKEN in Replit Secrets" },
+        { id: "ghl_circuit", label: "GHL circuit breaker closed", pass: !ghlCircuit.circuitOpen, detail: ghlCircuit.circuitOpen ? `Circuit open — ${ghlCircuit.consecutiveFailures} consecutive failures` : `Closed (${ghlCircuit.consecutiveFailures}/${ghlCircuit.threshold} failures)` },
         { id: "smtp", label: "SMTP fallback configured", pass: smtpOk, detail: smtpOk ? `host=${smtpStatus.host}` : "SMTP not configured — GHL is primary delivery path", ownerAction: smtpOk ? undefined : "Set SMTP_HOST, SMTP_USER, SMTP_PASS in Replit Secrets (optional but required for transactional email fallback)" },
+        { id: "gmail_oauth", label: "Gmail OAuth connected", pass: gmailConnected, detail: gmailConnected ? `Connected: ${gmailEmail ?? "email not retrieved"}` : "OAuth not completed", ownerAction: !gmailConnected ? "Complete Gmail OAuth on Outbound Readiness page" : undefined },
         { id: "queues", label: "All queues registered", pass: queueMetrics.length >= 8, detail: `${queueMetrics.length} queues registered` },
+        { id: "dlq_clean", label: "Dead letter queue empty", pass: dlqCount === 0, detail: dlqCount > 0 ? `${dlqCount} failed jobs in DLQ — investigate before launch` : "No failed jobs" },
         { id: "backups", label: "Backup artifact exists", pass: backups.length > 0, detail: backups.length > 0 ? `${backups.length} backup(s) — latest: ${backups[0]?.filename}` : "No backups yet — run a manual backup", ownerAction: backups.length === 0 ? "Trigger POST /api/admin/backups/run to create first backup" : undefined },
         { id: "no_critical_alerts", label: "No unacknowledged critical alerts", pass: criticalAlerts.length === 0, detail: criticalAlerts.length > 0 ? `${criticalAlerts.length} critical alert(s) need acknowledgement` : "Clean" },
         { id: "app_url_secret", label: "APP_URL secret set", pass: !!process.env.APP_URL, detail: process.env.APP_URL ? "Set" : "Not set — email links may point to wrong host", ownerAction: !process.env.APP_URL ? "Set APP_URL=https://<your-deployment-domain> in Replit Secrets" : undefined },
+        { id: "ai_key", label: "AI / OpenAI key set", pass: !!process.env.AI_INTEGRATIONS_OPENAI_API_KEY, detail: process.env.AI_INTEGRATIONS_OPENAI_API_KEY ? "Set" : "Not set — AI enrichment, intent classification, proposals will fail", ownerAction: !process.env.AI_INTEGRATIONS_OPENAI_API_KEY ? "Set AI_INTEGRATIONS_OPENAI_API_KEY in Replit Secrets" : undefined },
+        { id: "sms_a2p", label: "SMS / A2P registration", pass: !!process.env.A2P_REGISTRATION_ID, detail: process.env.A2P_REGISTRATION_ID ? `Attested (${process.env.A2P_REGISTRATION_ID})` : "A2P_REGISTRATION_ID not set — SMS blocked for compliance", ownerAction: !process.env.A2P_REGISTRATION_ID ? "Complete A2P 10DLC registration and attest in Outbound Readiness" : undefined },
+        { id: "global_pause", label: "Global outbound pause active (safe start)", pass: globalPaused, detail: globalPaused ? `Paused — ${globalPausedReason || "no reason recorded"}` : "⚠ Outbound is LIVE — all active enrollments will fire" },
       ];
 
-      const allPass = gates.every((g) => g.pass);
+      const p0Gates = gates.filter((g) => !["global_pause", "sms_a2p", "gmail_oauth"].includes(g.id));
+      const allPass = p0Gates.every((g) => g.pass);
       const p0Failures = gates.filter((g) => !g.pass);
 
+      // ── Subsystem cards (structured, for new UI) ──────────────────────────────
+      const subsystems = [
+        {
+          id: "website_forms", label: "Website / Public Forms", icon: "Globe",
+          status: urlInfo.source !== "static_fallback" ? "pass" : "warn",
+          metrics: [
+            { key: "Canonical URL", value: urlInfo.url },
+            { key: "Source", value: urlInfo.source },
+          ],
+          detail: urlInfo.warning ?? "Public URL resolved",
+        },
+        {
+          id: "crm_db", label: "CRM Database", icon: "Database",
+          status: dbOk ? "pass" : "fail",
+          metrics: [
+            { key: "PostgreSQL", value: dbOk ? `${dbMs}ms` : "unreachable" },
+            { key: "Active cohort", value: activeCohortSize },
+          ],
+          detail: dbOk ? `Responding in ${dbMs}ms · ${activeCohortSize} contactable prospects` : "Database connection failed",
+        },
+        {
+          id: "redis_bullmq", label: "Redis / BullMQ Queues", icon: "Cpu",
+          status: queueMock ? "fail" : dlqCount > 0 ? "warn" : "pass",
+          metrics: [
+            { key: "Queues", value: queueMetrics.length },
+            { key: "DLQ failures", value: dlqCount },
+            { key: "Last failure", value: lastQueueFailure?.lastFailedAt ?? "None" },
+          ],
+          detail: queueMock ? "Using in-memory mock — set REDIS_URL for production" : dlqCount > 0 ? `${dlqCount} failed jobs need attention` : "Live Redis · all queues healthy",
+        },
+        {
+          id: "ghl_sync", label: "GHL Sync", icon: "RefreshCw",
+          status: ghlCircuit.circuitOpen ? "fail" : ghlOk ? "pass" : "warn",
+          metrics: [
+            { key: "Circuit", value: ghlCircuit.circuitOpen ? "OPEN" : "closed" },
+            { key: "Consecutive failures", value: ghlCircuit.consecutiveFailures },
+            { key: "Last sync", value: lastGhlSync.createdAt ?? "Never" },
+          ],
+          detail: ghlCircuit.circuitOpen ? `Circuit open — ${ghlCircuit.consecutiveFailures} consecutive API failures` : lastGhlSync.createdAt ? `Last synced ${new Date(lastGhlSync.createdAt).toLocaleString()}` : "No sync recorded yet",
+        },
+        {
+          id: "ghl_email", label: "GHL Email Transport", icon: "Mail",
+          status: ghlOk ? "pass" : "fail",
+          metrics: [
+            { key: "GHL configured", value: ghlOk ? "Yes" : "No" },
+            { key: "SMTP fallback", value: smtpOk ? `${smtpStatus.host}` : "Not configured" },
+          ],
+          detail: ghlOk ? `GHL primary · SMTP fallback ${smtpOk ? "ready" : "not configured"}` : "GHL not configured — email delivery blocked",
+        },
+        {
+          id: "gmail_oauth", label: "Gmail OAuth / Inbox", icon: "Inbox",
+          status: gmailConnected ? "pass" : process.env.GOOGLE_CLIENT_ID ? "warn" : "fail",
+          metrics: [
+            { key: "Client ID", value: process.env.GOOGLE_CLIENT_ID ? "Set" : "Missing" },
+            { key: "OAuth status", value: gmailConnected ? `Connected: ${gmailEmail}` : "Not connected" },
+          ],
+          detail: gmailConnected ? `OAuth connected as ${gmailEmail}` : "Gmail OAuth not completed — department email send will fail",
+          ownerAction: !gmailConnected ? "Complete Gmail OAuth in Outbound Readiness → Gmail OAuth" : undefined,
+        },
+        {
+          id: "sms_a2p", label: "SMS / A2P / GHL Phone", icon: "Phone",
+          status: process.env.A2P_REGISTRATION_ID ? "pass" : "fail",
+          metrics: [
+            { key: "A2P Registration", value: process.env.A2P_REGISTRATION_ID ? "Attested" : "Missing" },
+            { key: "GHL Calendar", value: process.env.GHL_CALENDAR_ID ? "Set" : "Not set" },
+          ],
+          detail: process.env.A2P_REGISTRATION_ID ? "A2P 10DLC attested — SMS capable" : "A2P_REGISTRATION_ID not set — SMS blocked for compliance",
+          ownerAction: !process.env.A2P_REGISTRATION_ID ? "Complete A2P 10DLC registration and set A2P_REGISTRATION_ID" : undefined,
+        },
+        {
+          id: "sunbiz", label: "Sunbiz Lookup", icon: "Search",
+          status: lastSunbizRun.createdAt ? "pass" : "warn",
+          metrics: [
+            { key: "Last enrichment", value: lastSunbizRun.createdAt ?? "Never" },
+          ],
+          detail: lastSunbizRun.createdAt ? `Last run: ${new Date(lastSunbizRun.createdAt).toLocaleString()}` : "No enrichment runs recorded — run a Sunbiz batch to populate",
+        },
+        {
+          id: "ai_inbox", label: "AI Inbox / Classification", icon: "Brain",
+          status: process.env.AI_INTEGRATIONS_OPENAI_API_KEY ? (lastClassification.createdAt ? "pass" : "warn") : "fail",
+          metrics: [
+            { key: "API key", value: process.env.AI_INTEGRATIONS_OPENAI_API_KEY ? "Set" : "Missing" },
+            { key: "Last classification", value: lastClassification.createdAt ?? "None recorded" },
+          ],
+          detail: !process.env.AI_INTEGRATIONS_OPENAI_API_KEY ? "OpenAI key missing — intent classification and AI enrichment will fail" : lastClassification.createdAt ? `Last classified: ${new Date(lastClassification.createdAt).toLocaleString()}` : "No classification events yet",
+          ownerAction: !process.env.AI_INTEGRATIONS_OPENAI_API_KEY ? "Set AI_INTEGRATIONS_OPENAI_API_KEY in Replit Secrets" : undefined,
+        },
+        {
+          id: "webhooks", label: "Webhooks", icon: "Webhook",
+          status: process.env.GHL_WEBHOOK_SECRET ? (lastWebhookEvent.createdAt ? "pass" : "warn") : "fail",
+          metrics: [
+            { key: "Webhook secret", value: process.env.GHL_WEBHOOK_SECRET ? "Set" : "Missing" },
+            { key: "Last event", value: lastWebhookEvent.createdAt ?? "None recorded" },
+          ],
+          detail: !process.env.GHL_WEBHOOK_SECRET ? "GHL_WEBHOOK_SECRET not set — webhook validation will fail" : lastWebhookEvent.createdAt ? `Last event: ${new Date(lastWebhookEvent.createdAt).toLocaleString()}` : "No webhook events recorded yet",
+        },
+        {
+          id: "outbound_pause", label: "Outbound Global Pause", icon: "Shield",
+          status: globalPaused ? "pass" : "warn",
+          metrics: [
+            { key: "State", value: globalPaused ? "PAUSED (safe)" : "LIVE — outbound firing" },
+            { key: "Reason", value: globalPausedReason ?? "—" },
+            { key: "Email channel", value: emailChannelPaused ? "paused" : "live" },
+            { key: "SMS channel", value: smsChannelPaused ? "paused" : "live" },
+          ],
+          detail: globalPaused ? `Paused — safe for testing. ${globalPausedReason ?? ""}` : "⚠ Global pause is OFF — all active enrollments will send",
+        },
+        {
+          id: "send_caps", label: "Daily Send Caps", icon: "Gauge",
+          status: sendsToday >= dailyCap ? "fail" : sendsToday > dailyCap * 0.8 ? "warn" : "pass",
+          metrics: [
+            { key: "Daily cap", value: warmupCap != null ? `${warmupCap} (warmup override)` : String(dailyCap) },
+            { key: "Sends today", value: sendsToday },
+            { key: "Remaining", value: Math.max(0, (warmupCap ?? dailyCap) - sendsToday) },
+            { key: "Warmup mode", value: warmupEnabled ? `Day ${warmupDay}` : "Off" },
+          ],
+          detail: warmupEnabled ? `Warmup mode — day ${warmupDay}, cap=${warmupCap}/day (configured: ${dailyCap})` : `${sendsToday}/${dailyCap} sends today`,
+        },
+        {
+          id: "deliverability", label: "Deliverability Controls", icon: "Activity",
+          status: noProspectSendEmail ? "pass" : "warn",
+          metrics: [
+            { key: "Bounce threshold", value: `${bounceThreshold}%` },
+            { key: "Complaint threshold", value: `${complaintThreshold}%` },
+            { key: "Unsubscribe threshold", value: `${unsubThreshold}%` },
+            { key: "No-prospect guard (email)", value: noProspectSendEmail ? "Active" : "⚠ Off" },
+            { key: "No-prospect guard (SMS)", value: noProspectSendSms ? "Active" : "Off" },
+          ],
+          detail: noProspectSendEmail ? "No-prospect guard active — only allowlisted recipients can receive sends" : "⚠ No-prospect-send guard is off — real prospects can receive sends",
+        },
+        {
+          id: "last_test_email", label: "Last Internal Test Email", icon: "TestTube",
+          status: lastTestEmail.createdAt ? "pass" : "warn",
+          metrics: [
+            { key: "Sent at", value: lastTestEmail.createdAt ?? "Never" },
+            { key: "To", value: (lastTestEmail.details as any)?.to ?? "—" },
+          ],
+          detail: lastTestEmail.createdAt ? `Last test: ${new Date(lastTestEmail.createdAt).toLocaleString()} → ${(lastTestEmail.details as any)?.to ?? "unknown"}` : "No test emails sent yet",
+        },
+        {
+          id: "last_webhook_event", label: "Last Webhook Event", icon: "Radio",
+          status: lastWebhookEvent.createdAt ? "pass" : "warn",
+          metrics: [
+            { key: "Event at", value: lastWebhookEvent.createdAt ?? "Never" },
+          ],
+          detail: lastWebhookEvent.createdAt ? `Last webhook: ${new Date(lastWebhookEvent.createdAt).toLocaleString()}` : "No webhook events yet",
+        },
+        {
+          id: "last_queue_failure", label: "Last Queue Failure", icon: "AlertTriangle",
+          status: lastQueueFailure ? "warn" : "pass",
+          metrics: [
+            { key: "Failed at", value: lastQueueFailure?.lastFailedAt ?? "None" },
+            { key: "Queue", value: lastQueueFailure?.name ?? "—" },
+            { key: "Error", value: lastQueueFailure?.lastError ?? "—" },
+          ],
+          detail: lastQueueFailure ? `Last failure: ${lastQueueFailure.name} @ ${lastQueueFailure.lastFailedAt}` : "No queue failures",
+        },
+      ];
+
+      // ── Operator verdict banner ────────────────────────────────────────────────
+      const blockers: string[] = [];
+      if (!dbOk) blockers.push("CRM database unreachable");
+      if (!ghlOk) blockers.push("GHL integration not configured");
+      if (ghlCircuit.circuitOpen) blockers.push(`GHL circuit breaker open (${ghlCircuit.consecutiveFailures} consecutive failures)`);
+      if (queueMock) blockers.push("Redis not connected — BullMQ using in-memory mock");
+      if (!process.env.AI_INTEGRATIONS_OPENAI_API_KEY) blockers.push("AI/OpenAI API key missing");
+      if (dlqCount > 5) blockers.push(`${dlqCount} dead-letter queue failures need attention`);
+      if (criticalAlerts.length > 0) blockers.push(`${criticalAlerts.length} unacknowledged critical alerts`);
+
+      const verdictBanner = [
+        {
+          label: "Website / CRM ready",
+          status: dbOk && urlInfo.source !== "static_fallback" ? "pass" : "fail",
+          detail: !dbOk ? "Database unreachable" : urlInfo.source === "static_fallback" ? "Canonical URL fallback" : "OK",
+        },
+        {
+          label: "Controlled email test ready (internal only)",
+          status: ghlOk && smtpOk && noProspectSendEmail ? "pass" : "warn",
+          detail: !noProspectSendEmail ? "No-prospect guard is off — enable in Deliverability Settings" : !smtpOk ? "SMTP not configured" : "Ready for internal test sends",
+        },
+        {
+          label: "Real outbound ready",
+          status: globalPaused ? "blocked" : blockers.length === 0 ? "pass" : "fail",
+          detail: globalPaused ? "Blocked — global pause is ON (safe start)" : blockers.length > 0 ? blockers.join("; ") : "All gates passing",
+          blockers: globalPaused ? ["Global outbound pause is active — toggle off in Outbound Readiness when ready"] : blockers,
+        },
+        {
+          label: "SMS ready",
+          status: process.env.A2P_REGISTRATION_ID && !smsChannelPaused ? "pass" : "blocked",
+          detail: !process.env.A2P_REGISTRATION_ID ? "A2P 10DLC registration required" : smsChannelPaused ? "SMS channel paused" : "Ready",
+          blockers: !process.env.A2P_REGISTRATION_ID ? ["Complete A2P 10DLC registration and set A2P_REGISTRATION_ID"] : [],
+        },
+      ];
+
       res.json({
+        // Legacy (backward compat)
         verdict: allPass ? "GO" : "NO-GO",
         timestamp: new Date().toISOString(),
         canonicalUrl: urlInfo,
@@ -2458,7 +2773,40 @@ export function registerAdminRoutes(app: Express) {
         backups: backups.slice(0, 5),
         recentAlerts: alerts,
         envChecks,
-        ownerActions: gates.filter((g) => g.ownerAction).map((g) => ({ gate: g.label, action: g.ownerAction })),
+        ownerActions: gates.filter((g) => g.ownerAction).map((g) => ({ gate: g.label, action: (g as any).ownerAction })),
+        // Extended
+        subsystems,
+        blockers,
+        verdictBanner,
+        outboundState: {
+          globalPaused,
+          globalPausedReason,
+          emailChannelPaused,
+          smsChannelPaused,
+          dailyCap,
+          sendsToday,
+          remaining: Math.max(0, dailyCap - sendsToday),
+        },
+        deliverability: {
+          warmupEnabled,
+          warmupStartDate,
+          warmupDay,
+          warmupCap,
+          bounceThreshold,
+          complaintThreshold,
+          unsubThreshold,
+          noProspectSendEmail,
+          noProspectSendSms,
+          testAllowlist: typeof testAllowlistRaw === "string" ? testAllowlistRaw.split(",").map((e: string) => e.trim()).filter(Boolean) : [],
+        },
+        activeCohortSize,
+        lastTestEmail,
+        lastWebhookEvent,
+        lastQueueFailure: lastQueueFailure ? {
+          timestamp: lastQueueFailure.lastFailedAt,
+          jobType: lastQueueFailure.name,
+          error: lastQueueFailure.lastError,
+        } : null,
       });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -2481,6 +2829,64 @@ export function registerAdminRoutes(app: Express) {
       const { runAllLaunchReadinessChecks } = await import("../services/launch-readiness-full");
       const report = await runAllLaunchReadinessChecks();
       res.json(report);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Deliverability Settings (GET/PATCH) ───────────────────────────────────────
+  app.get("/api/admin/deliverability-settings", requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const [warmupEnabled, warmupStartDate, bounceThreshold, complaintThreshold, unsubThreshold, noProspectEmail, noProspectSms, testAllowlist] = await Promise.all([
+        storage.getSystemSetting("deliveryWarmupEnabled"),
+        storage.getSystemSetting("deliveryWarmupStartDate"),
+        storage.getSystemSetting("deliveryBounceThresholdPct"),
+        storage.getSystemSetting("deliveryComplaintThresholdPct"),
+        storage.getSystemSetting("deliveryUnsubscribeThresholdPct"),
+        storage.getSystemSetting("deliveryNoProspectSendEmail"),
+        storage.getSystemSetting("deliveryNoProspectSendSms"),
+        storage.getSystemSetting("deliveryTestEmailAllowlist"),
+      ]);
+      res.json({
+        warmupEnabled: warmupEnabled === true || warmupEnabled === "true",
+        warmupStartDate: typeof warmupStartDate === "string" ? warmupStartDate : null,
+        bounceThresholdPct: typeof bounceThreshold === "number" ? bounceThreshold : parseFloat(String(bounceThreshold ?? "5")) || 5,
+        complaintThresholdPct: typeof complaintThreshold === "number" ? complaintThreshold : parseFloat(String(complaintThreshold ?? "0.1")) || 0.1,
+        unsubscribeThresholdPct: typeof unsubThreshold === "number" ? unsubThreshold : parseFloat(String(unsubThreshold ?? "5")) || 5,
+        noProspectSendEmail: noProspectEmail === true || noProspectEmail === "true",
+        noProspectSendSms: noProspectSms === true || noProspectSms === "true",
+        testEmailAllowlist: typeof testAllowlist === "string" ? testAllowlist.split(",").map((e: string) => e.trim()).filter(Boolean) : [],
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/admin/deliverability-settings", requireRole("admin"), async (req, res) => {
+    try {
+      const {
+        warmupEnabled, warmupStartDate, bounceThresholdPct, complaintThresholdPct, unsubscribeThresholdPct,
+        noProspectSendEmail, noProspectSendSms, testEmailAllowlist,
+      } = req.body ?? {};
+      const saves: Promise<void>[] = [];
+      if (typeof warmupEnabled === "boolean") saves.push(storage.setSystemSetting("deliveryWarmupEnabled", warmupEnabled));
+      if (typeof warmupStartDate === "string" || warmupStartDate === null) saves.push(storage.setSystemSetting("deliveryWarmupStartDate", warmupStartDate ?? null));
+      if (typeof bounceThresholdPct === "number") saves.push(storage.setSystemSetting("deliveryBounceThresholdPct", bounceThresholdPct));
+      if (typeof complaintThresholdPct === "number") saves.push(storage.setSystemSetting("deliveryComplaintThresholdPct", complaintThresholdPct));
+      if (typeof unsubscribeThresholdPct === "number") saves.push(storage.setSystemSetting("deliveryUnsubscribeThresholdPct", unsubscribeThresholdPct));
+      if (typeof noProspectSendEmail === "boolean") saves.push(storage.setSystemSetting("deliveryNoProspectSendEmail", noProspectSendEmail));
+      if (typeof noProspectSendSms === "boolean") saves.push(storage.setSystemSetting("deliveryNoProspectSendSms", noProspectSendSms));
+      if (Array.isArray(testEmailAllowlist)) saves.push(storage.setSystemSetting("deliveryTestEmailAllowlist", testEmailAllowlist.join(",")));
+      await Promise.all(saves);
+      await storage.createAuditLog({
+        action: "deliverability_settings_updated",
+        entityType: "system",
+        entityId: 0,
+        actorType: "user",
+        actorId: (req.user as any)?.id ?? null,
+        details: { actorEmail: (req.user as any)?.email, changes: req.body },
+      });
+      res.json({ ok: true });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

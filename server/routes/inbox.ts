@@ -469,7 +469,11 @@ export function registerInboxRoutes(app: Express) {
       }
 
       const userId = (req.user as any)?.id?.toString() ?? null;
-      const channelStr = channel || "email";
+      const channelRaw = channel || "email";
+      // Normalize effective transport channel: ghl_chat sends via GHL Email API,
+      // so treat it identically to "email" for all pause and policy checks.
+      const effectiveChannel = channelRaw === "sms" ? "sms" : "email";
+      const channelStr = effectiveChannel;
 
       // ── Gate: send_reply must check pause state ───────────────────────────
       if (action === "send_reply") {
@@ -483,12 +487,13 @@ export function registerInboxRoutes(app: Express) {
             entityId: contactId || 0,
             actorType: "user",
             actorId: userId,
-            details: { inboxItemId: req.params.id, channel: channelStr, intent, reason: "outboundGlobalPaused" },
+            details: { inboxItemId: req.params.id, channel: channelStr, rawChannel: channelRaw, intent, reason: "outboundGlobalPaused" },
           });
           return res.status(409).json({ message: "Outbound paused — send blocked. Review mode only." });
         }
 
         if (channelStr === "email") {
+          // Covers both "email" and "ghl_chat" (normalized above)
           const emailPausedRaw = await storage.getSystemSetting("emailChannelPaused");
           const emailPaused = emailPausedRaw !== "false" && emailPausedRaw !== false && emailPausedRaw != null;
           if (emailPaused) {
@@ -507,6 +512,56 @@ export function registerInboxRoutes(app: Express) {
             return res.status(409).json({
               message: "SMS unavailable — A2P registration not complete. Use email channel.",
             });
+          }
+        }
+
+        // ── No-prospect-send guard ────────────────────────────────────────
+        // If the guard is active, block any send where the recipient email
+        // is not on the allowlist. Fail-closed: missing identity = blocked.
+        {
+          const guardKey = channelStr === "sms" ? "deliveryNoProspectSendSms" : "deliveryNoProspectSendEmail";
+          const guardRaw = await storage.getSystemSetting(guardKey);
+          const guardActive = guardRaw === true || guardRaw === "true";
+          if (guardActive) {
+            const allowlistRaw = await storage.getSystemSetting("deliveryTestEmailAllowlist");
+            const allowlist: string[] = typeof allowlistRaw === "string"
+              ? allowlistRaw.split(",").map((e: string) => e.trim().toLowerCase()).filter(Boolean)
+              : [];
+            // Resolve recipient identity from contact record (fail-closed when absent)
+            let recipientEmail: string | null = null;
+            if (contactId) {
+              const guardContact = await storage.getContact(contactId);
+              recipientEmail = guardContact?.email?.trim().toLowerCase() ?? null;
+            }
+            // Internal domain (@libertybancard.com) is always allowed — matches
+            // the same exception used in sequence-worker no-prospect guards.
+            const isInternalDomain = recipientEmail !== null && recipientEmail.endsWith("@libertybancard.com");
+            const allowed = isInternalDomain || (recipientEmail !== null && allowlist.includes(recipientEmail));
+            if (!allowed) {
+              await storage.createAuditLog({
+                action: "inbox_send_blocked_no_prospect_guard",
+                entityType: "contact",
+                entityId: contactId || 0,
+                actorType: "user",
+                actorId: userId,
+                details: {
+                  inboxItemId: req.params.id,
+                  channel: channelStr,
+                  recipientEmail,
+                  allowlistSize: allowlist.length,
+                  reason: recipientEmail
+                    ? "recipient not on test allowlist"
+                    : "contact has no email — cannot verify identity (fail-closed)",
+                  guardKey,
+                  timestamp: new Date().toISOString(),
+                },
+              });
+              return res.status(409).json({
+                message: `No-prospect-send guard active — ${recipientEmail ? `${recipientEmail} is not on the test allowlist` : "contact has no verified email identity"}. Disable the guard in Deliverability Settings or add this address to the allowlist.`,
+                blocked: true,
+                guardKey,
+              });
+            }
           }
         }
 

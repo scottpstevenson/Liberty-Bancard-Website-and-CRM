@@ -290,13 +290,31 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
         // isGhlConfigured() block — only when a real send is about to occur.
         // Both checks read the same DB row; the fast-path is purely an optimisation
         // to skip all the downstream work when the cap is visibly exhausted.
+        // Warmup mode overrides the configured cap with a ramp schedule (cannot
+        // be manually raised while warmup is active — safety property).
         if (step.actionType === "email" && isColdOutreachSequence(sequence)) {
           const { db: capDb } = await import("../db");
           const { outboundSendCounters } = await import("@shared/schema");
           const { eq, and } = await import("drizzle-orm");
 
           const capRaw = await storage.getSystemSetting("outboundDailyEmailCap");
-          const dailyCap = typeof capRaw === "number" ? capRaw : parseInt(String(capRaw ?? "200"), 10) || 200;
+          let dailyCap = typeof capRaw === "number" ? capRaw : parseInt(String(capRaw ?? "200"), 10) || 200;
+
+          // Warmup mode: override cap with ramp schedule (day 1→20, day7→50, day14→100, day30→250)
+          const warmupEnabledRaw = await storage.getSystemSetting("deliveryWarmupEnabled");
+          if (warmupEnabledRaw === true || warmupEnabledRaw === "true") {
+            const warmupStartDateRaw = await storage.getSystemSetting("deliveryWarmupStartDate");
+            if (typeof warmupStartDateRaw === "string" && warmupStartDateRaw) {
+              const daysSince = Math.max(1, Math.floor((Date.now() - new Date(warmupStartDateRaw).getTime()) / 86400000) + 1);
+              let warmupCap: number;
+              if (daysSince >= 30) warmupCap = 250;
+              else if (daysSince >= 14) warmupCap = 100;
+              else if (daysSince >= 7) warmupCap = 50;
+              else warmupCap = 20;
+              // Warmup cap cannot be overridden upward — take the lower value
+              dailyCap = Math.min(dailyCap, warmupCap);
+            }
+          }
 
           const todayStr = new Date().toISOString().slice(0, 10);
           const [capRow] = await capDb
@@ -687,6 +705,52 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
               break;
             }
 
+            // ── Gate (no-prospect-send): Test mode guard ─────────────────────
+            // When deliveryNoProspectSendEmail is true, only allowlisted test addresses
+            // can receive sends. Designed to be default-on before go-live, so accidental
+            // sends to real prospects during testing are impossible.
+            //
+            // FAIL-CLOSED: guard runs unconditionally for all email step types.
+            // If the guard is active and the contact has no resolvable email (including
+            // when GHL would dispatch via contactId alone), we block the send — we never
+            // let an unverifiable recipient slip through to any provider.
+            {
+              const noProspectRaw = await storage.getSystemSetting("deliveryNoProspectSendEmail");
+              const noProspectGuard = noProspectRaw === true || noProspectRaw === "true";
+              if (noProspectGuard) {
+                const allowlistRaw = await storage.getSystemSetting("deliveryTestEmailAllowlist");
+                const allowlist: string[] = typeof allowlistRaw === "string"
+                  ? allowlistRaw.split(",").map((e: string) => e.trim().toLowerCase()).filter(Boolean)
+                  : [];
+                // Fail closed: no email on contact record → cannot verify → block.
+                const recipientEmail = contact?.email?.toLowerCase() ?? "";
+                const isAllowed = recipientEmail.length > 0 &&
+                  (allowlist.includes(recipientEmail) || recipientEmail.endsWith("@libertybancard.com"));
+                if (!isAllowed) {
+                  await storage.createAuditLog({
+                    action: "sequence_step_blocked_no_prospect_guard",
+                    entityType: "contact",
+                    entityId: enrollment.contactId ?? 0,
+                    actorType: "system",
+                    details: {
+                      enrollmentId: enrollment.id,
+                      sequenceId: sequence.id,
+                      sequenceName: sequence.name,
+                      stepOrder: step.stepOrder,
+                      recipient: recipientEmail || "(no email on record)",
+                      reason: recipientEmail
+                        ? "no_prospect_send_email guard active — recipient not in allowlist"
+                        : "no_prospect_send_email guard active — contact has no email (fail-closed)",
+                    },
+                  });
+                  await storage.updateSequenceEnrollment(enrollment.id, { status: "paused" });
+                  processed++;
+                  stepExecuted = false;
+                  break;
+                }
+              }
+            }
+
             if ((useGmailForThisStep || useSmtpForThisStep || isGhlConfigured()) && enrollment.contactId) {
               // ── Atomic cap reservation (cold outreach only) ───────────────────
               // Reserve a send slot via a single conditional upsert.  The WHERE
@@ -701,8 +765,26 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
                   const { sql: rsvSql } = await import("drizzle-orm");
                   const todayRsv = new Date().toISOString().slice(0, 10);
                   const capRawRsv = await storage.getSystemSetting("outboundDailyEmailCap");
-                  const dailyCapRsv = typeof capRawRsv === "number" ? capRawRsv : parseInt(String(capRawRsv ?? "200"), 10) || 200;
-                  // Conditional upsert: only increment if count < cap (atomic guard against race overshoot)
+                  let dailyCapRsv = typeof capRawRsv === "number" ? capRawRsv : parseInt(String(capRawRsv ?? "200"), 10) || 200;
+
+                  // Warmup mode: apply the same ramp cap at the atomic reservation level so
+                  // concurrent workers cannot race past the warmup limit.
+                  const warmupEnabledRsv = await storage.getSystemSetting("deliveryWarmupEnabled");
+                  if (warmupEnabledRsv === true || warmupEnabledRsv === "true") {
+                    const warmupStartRsv = await storage.getSystemSetting("deliveryWarmupStartDate");
+                    if (typeof warmupStartRsv === "string" && warmupStartRsv) {
+                      const daysSinceRsv = Math.max(1, Math.floor((Date.now() - new Date(warmupStartRsv).getTime()) / 86400000) + 1);
+                      let warmupCapRsv: number;
+                      if (daysSinceRsv >= 30) warmupCapRsv = 250;
+                      else if (daysSinceRsv >= 14) warmupCapRsv = 100;
+                      else if (daysSinceRsv >= 7) warmupCapRsv = 50;
+                      else warmupCapRsv = 20;
+                      // Warmup cap is a hard ceiling — never allow more than schedule allows
+                      dailyCapRsv = Math.min(dailyCapRsv, warmupCapRsv);
+                    }
+                  }
+
+                  // Conditional upsert: only increment if count < effective cap (atomic guard against race overshoot)
                   const rsvResult = await rsvDb.execute(rsvSql`
                     INSERT INTO outbound_send_counters (date, channel, scope, count, updated_at)
                     VALUES (${todayRsv}, 'email', 'cold_outreach', 1, now())
@@ -746,7 +828,32 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
                   }
                   coldCapReserved = true;
                 } catch (reserveErr) {
-                  console.error(`[Sequence Worker] Cold cap reservation failed for enrollment ${enrollment.id}:`, reserveErr);
+                  // FAIL-CLOSED: if the atomic reservation query throws for any reason
+                  // (DB error, transient fault, SQL error), we must NOT continue to send.
+                  // Pause the enrollment and write an audit log so operators can investigate.
+                  console.error(`[Sequence Worker] Cold cap reservation failed for enrollment ${enrollment.id} — pausing (fail-closed):`, reserveErr);
+                  try {
+                    await storage.updateSequenceEnrollment(enrollment.id, { status: "paused" });
+                    await storage.createAuditLog({
+                      action: "sequence_step_deferred_cap_reservation_error",
+                      entityType: "contact",
+                      entityId: enrollment.contactId ?? 0,
+                      actorType: "system",
+                      details: {
+                        enrollmentId: enrollment.id,
+                        sequenceId: sequence.id,
+                        sequenceName: sequence.name,
+                        stepOrder: step.stepOrder,
+                        error: reserveErr instanceof Error ? reserveErr.message : String(reserveErr),
+                        reason: "Daily cap reservation query failed — send blocked (fail-closed) to preserve warmup/cap enforcement integrity",
+                      },
+                    });
+                  } catch (auditErr) {
+                    console.error(`[Sequence Worker] Failed to write audit log for reservation error (enrollment ${enrollment.id}):`, auditErr);
+                  }
+                  processed++;
+                  stepExecuted = false;
+                  break;
                 }
               }
 
@@ -916,6 +1023,55 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
                 });
                 await storage.updateSequenceEnrollment(enrollment.id, { status: "paused" });
                 processed++; stepExecuted = false; break;
+              }
+            }
+
+            // ── Gate (no-prospect-send): SMS test mode guard ──────────────────
+            // When deliveryNoProspectSendSms is true, only allowlisted contacts
+            // can receive SMS sends. Uses the email-based allowlist since phone
+            // numbers are not individually listed.
+            //
+            // FAIL-CLOSED: guard runs unconditionally regardless of whether the
+            // contact has a local phone/email record. A GHL send dispatched via
+            // contactId alone bypasses local field checks — so we verify identity
+            // here before any provider call.  Missing email → cannot confirm
+            // allowlist membership → block (do not let GHL dispatch unverified).
+            {
+              const noProspectSmRaw = await storage.getSystemSetting("deliveryNoProspectSendSms");
+              const noProspectSmsGuard = noProspectSmRaw === true || noProspectSmRaw === "true";
+              if (noProspectSmsGuard) {
+                const allowlistRaw = await storage.getSystemSetting("deliveryTestEmailAllowlist");
+                const allowlist: string[] = typeof allowlistRaw === "string"
+                  ? allowlistRaw.split(",").map((e: string) => e.trim().toLowerCase()).filter(Boolean)
+                  : [];
+                // Identity verified via email (authoritative field on contact record).
+                // Fail closed when email is absent — we cannot confirm allowlist membership.
+                const recipientEmail = (contact?.email ?? "").toLowerCase();
+                const isSmsAllowed = recipientEmail.length > 0 &&
+                  (allowlist.includes(recipientEmail) || recipientEmail.endsWith("@libertybancard.com"));
+                if (!isSmsAllowed) {
+                  await storage.createAuditLog({
+                    action: "sequence_step_blocked_no_prospect_guard_sms",
+                    entityType: "contact",
+                    entityId: enrollment.contactId ?? 0,
+                    actorType: "system",
+                    details: {
+                      enrollmentId: enrollment.id,
+                      sequenceId: sequence.id,
+                      sequenceName: sequence.name,
+                      stepOrder: step.stepOrder,
+                      recipientPhone: contact?.phone ?? null,
+                      recipientEmail: contact?.email ?? null,
+                      reason: recipientEmail
+                        ? "no_prospect_send_sms guard active — contact not in allowlist"
+                        : "no_prospect_send_sms guard active — contact has no email for allowlist verification (fail-closed)",
+                    },
+                  });
+                  await storage.updateSequenceEnrollment(enrollment.id, { status: "paused" });
+                  processed++;
+                  stepExecuted = false;
+                  break;
+                }
               }
             }
 
