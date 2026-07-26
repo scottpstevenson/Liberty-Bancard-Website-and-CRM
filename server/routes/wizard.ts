@@ -663,4 +663,412 @@ export function registerWizardRoutes(app: Express): void {
 
     return res.json({ ok: true, flag, enabled, source: "db_override" });
   });
+
+  // ── Internal Test Email Sends ────────────────────────────────────────────────
+  // Sends [TEST]-labeled emails to scott@libertybancard.com for every email step
+  // across all active sequences. Never sends to real prospects. SMS stays closed.
+  app.post("/api/wizard/test-sequence-emails", requireRole("admin"), wizardTestRateLimit, async (req, res) => {
+    const TEST_EMAIL = "scott@libertybancard.com";
+
+    const { sendSmtpEmail, isSmtpConfigured } = await import("../services/smtp-email");
+    const { sendGhlEmail, isGhlConfigured } = await import("../services/ghl");
+
+    // Read kill-switch state — included in every test email for transparency
+    const pausedRaw = await storage.getSystemSetting("outboundGlobalPaused");
+    const outboundGlobalPaused = pausedRaw === true || pausedRaw === "true";
+
+    // Determine send route upfront
+    const smtpAvailable = isSmtpConfigured();
+    const ghlAvailable  = isGhlConfigured();
+    const route = smtpAvailable ? "SMTP" : ghlAvailable ? "GHL" : "none";
+
+    // For GHL fallback we need a local contact whose email is scott@
+    let scottContactId: number | null = null;
+    if (!smtpAvailable && ghlAvailable) {
+      const all = await storage.getContacts({ limit: 5000 });
+      const found = all.data.find((c: any) => c.email?.toLowerCase() === TEST_EMAIL.toLowerCase());
+      scottContactId = found?.id ?? null;
+    }
+
+    // Fetch all active sequences and their email steps
+    const allSequences = await storage.getFollowUpSequences();
+    const activeSeqs = allSequences.filter((s: any) => s.status === "active");
+
+    interface TestResult {
+      sequenceId: number;
+      sequenceName: string;
+      stepOrder: number;
+      stepType: string;
+      subject: string;
+      status: "sent" | "failed" | "skipped";
+      detail: string;
+      route: string;
+      sentAt: string | null;
+    }
+
+    const results: TestResult[] = [];
+
+    for (const seq of activeSeqs) {
+      const steps = await storage.getSequenceSteps(seq.id);
+      const emailSteps = steps.filter((s: any) => s.actionType === "email");
+
+      for (const step of emailSteps) {
+        const originalSubject = (step as any).subject || `${seq.name} — Step ${step.stepOrder}`;
+        const testSubject = `[TEST] ${originalSubject}`;
+
+        const metadataHtml = `
+<div style="background:#fff3cd;border:2px solid #ffc107;border-radius:6px;padding:14px 18px;margin-bottom:20px;font-family:monospace;font-size:12px;line-height:1.6;">
+  <strong style="font-size:14px;">⚠️ INTERNAL TEST — NOT A REAL SEND</strong><br><br>
+  <strong>Cadence:</strong> ${seq.name}<br>
+  <strong>Step:</strong> ${step.stepOrder}<br>
+  <strong>Action type:</strong> ${step.actionType}<br>
+  <strong>Route:</strong> ${route}<br>
+  <strong>Sender policy applied:</strong> internal_ops → accounts@libertybancard.com<br>
+  <strong>outboundGlobalPaused:</strong> ${outboundGlobalPaused}<br>
+  <strong>Test recipient:</strong> ${TEST_EMAIL}<br>
+  <strong>Timestamp:</strong> ${new Date().toISOString()}<br>
+</div>`;
+
+        const originalBody = (step as any).body || "<p><em>(no body configured for this step)</em></p>";
+        const testBody = metadataHtml + originalBody;
+
+        if (route === "none") {
+          results.push({
+            sequenceId: seq.id,
+            sequenceName: seq.name,
+            stepOrder: step.stepOrder,
+            stepType: step.actionType,
+            subject: testSubject,
+            status: "skipped",
+            detail: "No send channel available — configure SMTP or GHL to enable test sends",
+            route,
+            sentAt: null,
+          });
+          continue;
+        }
+
+        try {
+          let sendResult: { success: boolean; messageId?: string; error?: string };
+
+          if (smtpAvailable) {
+            sendResult = await sendSmtpEmail({
+              to: TEST_EMAIL,
+              subject: testSubject,
+              html: testBody,
+              category: "internal_ops",
+            });
+          } else {
+            // GHL path requires a local contact record
+            if (!scottContactId) {
+              sendResult = {
+                success: false,
+                error: `No local contact found for ${TEST_EMAIL} — create a wizard test contact in Phase 2 first`,
+              };
+            } else {
+              sendResult = await sendGhlEmail({
+                contactId: scottContactId,
+                subject: testSubject,
+                body: testBody,
+                skipActivityLog: false,
+              });
+            }
+          }
+
+          results.push({
+            sequenceId: seq.id,
+            sequenceName: seq.name,
+            stepOrder: step.stepOrder,
+            stepType: step.actionType,
+            subject: testSubject,
+            status: sendResult.success ? "sent" : "failed",
+            detail: sendResult.success
+              ? (sendResult.messageId ? `Sent — messageId: ${sendResult.messageId}` : "Sent")
+              : (sendResult.error ?? "Send failed"),
+            route,
+            sentAt: sendResult.success ? new Date().toISOString() : null,
+          });
+        } catch (err: any) {
+          results.push({
+            sequenceId: seq.id,
+            sequenceName: seq.name,
+            stepOrder: step.stepOrder,
+            stepType: step.actionType,
+            subject: testSubject,
+            status: "failed",
+            detail: err.message ?? "Unexpected error during send",
+            route,
+            sentAt: null,
+          });
+        }
+      }
+    }
+
+    // Audit log
+    await storage.createAuditLog({
+      action: "internal_test_emails_sent",
+      entityType: "system",
+      entityId: 0,
+      actorType: "admin",
+      actorId: String((req.user as any)?.id ?? "admin"),
+      details: {
+        testRecipient: TEST_EMAIL,
+        activeSequences: activeSeqs.length,
+        totalEmailSteps: results.length,
+        sent: results.filter(r => r.status === "sent").length,
+        failed: results.filter(r => r.status === "failed").length,
+        skipped: results.filter(r => r.status === "skipped").length,
+        route,
+        outboundGlobalPaused,
+      },
+    });
+
+    // Persist last-run timestamp for the go/no-go report
+    await storage.setSystemSetting("lastInternalTestEmailsAt", new Date().toISOString());
+    await storage.setSystemSetting("lastInternalTestEmailsSummary", JSON.stringify({
+      sent: results.filter(r => r.status === "sent").length,
+      failed: results.filter(r => r.status === "failed").length,
+      skipped: results.filter(r => r.status === "skipped").length,
+      total: results.length,
+      route,
+    }));
+
+    return res.json({
+      ok: true,
+      testRecipient: TEST_EMAIL,
+      route,
+      outboundGlobalPaused,
+      activeSequences: activeSeqs.length,
+      summary: {
+        total: results.length,
+        sent: results.filter(r => r.status === "sent").length,
+        failed: results.filter(r => r.status === "failed").length,
+        skipped: results.filter(r => r.status === "skipped").length,
+      },
+      results,
+    });
+  });
+
+  // ── End-to-End Flow Audit ────────────────────────────────────────────────────
+  // Inspects the recent audit_log record for each pipeline stage and reports
+  // gaps with severity: blocker / warning / informational.
+  app.post("/api/wizard/flow-audit", requireRole("admin"), async (req, res) => {
+    const { db: _db } = await import("../db");
+    const { sql } = await import("drizzle-orm");
+
+    interface AuditStage {
+      stage: string;
+      description: string;
+      logAction: string;
+      severity: "blocker" | "warning" | "informational";
+    }
+
+    const PIPELINE_STAGES: AuditStage[] = [
+      // action emitted by: server/services/contact-writer.ts + server/storage/contacts.ts
+      { stage: "Inbound form submission",       description: "Contact created from a public form or import",                  logAction: "contact_created",                            severity: "blocker" },
+      // action emitted by: server/services/ghl-sync.ts (line 288 — contact upserted successfully)
+      { stage: "GHL sync",                      description: "Contact pushed to GoHighLevel CRM",                             logAction: "ghl_sync_success",                           severity: "warning" },
+      // action emitted by: server/services/sequence-worker.ts (contactability gate blocks enrollment)
+      { stage: "Sequence eligibility check",    description: "Contactability evaluated before enrollment",                    logAction: "sequence_enrollment_blocked_contactability", severity: "informational" },
+      // action emitted by: server/services/sequence-worker.ts (kill-switch gate fires)
+      { stage: "Global pause gate",             description: "outboundGlobalPaused evaluated before every send",              logAction: "sequence_step_skipped_global_pause",          severity: "informational" },
+      // action emitted by: server/services/sequence-worker.ts (auto-enrollment from trigger)
+      { stage: "Sequence enrollment",           description: "Contact auto-enrolled in a follow-up sequence",                 logAction: "sequence_auto_enrolled",                     severity: "warning" },
+      // action emitted by: server/services/sequence-worker.ts line 1263 (step executed successfully)
+      { stage: "Email step dispatch",           description: "Sequence email step executed and sent",                         logAction: "sequence_step_executed",                     severity: "blocker" },
+      // action emitted by: server/services/ghl.ts (inbound webhook processed)
+      { stage: "Reply / bounce webhook",        description: "Inbound message or bounce received and processed",              logAction: "inbound_message_processed",                  severity: "warning" },
+      // action emitted by: POST /api/wizard/test-sequence-emails in this file
+      { stage: "Internal test email send",      description: "Test emails sent to scott@ via wizard",                         logAction: "internal_test_emails_sent",                  severity: "informational" },
+    ];
+
+    interface StageResult {
+      stage: string;
+      description: string;
+      severity: "blocker" | "warning" | "informational";
+      found: boolean;
+      lastSeenAt: string | null;
+      note: string;
+    }
+
+    const stageResults: StageResult[] = [];
+
+    for (const ps of PIPELINE_STAGES) {
+      try {
+        const rows = await _db.execute(sql`
+          SELECT created_at FROM audit_logs
+          WHERE action = ${ps.logAction}
+          ORDER BY created_at DESC
+          LIMIT 1
+        `);
+        const found = rows.rows.length > 0;
+        const lastSeenAt = found ? String(rows.rows[0].created_at) : null;
+        stageResults.push({
+          stage: ps.stage,
+          description: ps.description,
+          severity: ps.severity,
+          found,
+          lastSeenAt,
+          note: found
+            ? `Last recorded: ${lastSeenAt}`
+            : ps.severity === "blocker"
+              ? `No audit record found — this stage has never fired or always silently fails`
+              : ps.severity === "warning"
+                ? `No record found — stage may not have run yet or uses a different action key`
+                : `No record yet — expected once the pipeline is active`,
+        });
+      } catch (err: any) {
+        stageResults.push({
+          stage: ps.stage,
+          description: ps.description,
+          severity: ps.severity,
+          found: false,
+          lastSeenAt: null,
+          note: `Audit query failed: ${err.message}`,
+        });
+      }
+    }
+
+    // Additional checks beyond audit_log inspection
+    const additionalChecks: Array<{ check: string; ok: boolean; severity: "blocker" | "warning" | "informational"; note: string }> = [];
+
+    // Check outboundGlobalPaused
+    const pausedRaw = await storage.getSystemSetting("outboundGlobalPaused");
+    const outboundGlobalPaused = pausedRaw === true || pausedRaw === "true";
+    additionalChecks.push({
+      check: "outboundGlobalPaused is set",
+      ok: outboundGlobalPaused,
+      severity: "blocker",
+      note: outboundGlobalPaused
+        ? "Kill switch is active — no bulk outbound will fire"
+        : "⚠️ Kill switch is OFF — bulk sequences will send if active sequences exist",
+    });
+
+    // Check contact count
+    let contactCount = 0;
+    try {
+      const r = await _db.execute(sql`SELECT COUNT(*) AS cnt FROM contacts`);
+      contactCount = Number(r.rows[0]?.cnt ?? 0);
+    } catch { /* ignore */ }
+    additionalChecks.push({
+      check: "Contacts exist in CRM",
+      ok: contactCount > 0,
+      severity: "informational",
+      note: `${contactCount} contacts in database`,
+    });
+
+    // Check active sequences
+    const allSeqs = await storage.getFollowUpSequences();
+    const activeCount = allSeqs.filter((s: any) => s.status === "active").length;
+    additionalChecks.push({
+      check: "At least one active sequence",
+      ok: activeCount > 0,
+      severity: "warning",
+      note: `${activeCount} active sequences (${allSeqs.length} total)`,
+    });
+
+    // Persist audit timestamp
+    const auditRanAt = new Date().toISOString();
+    await storage.setSystemSetting("lastFlowAuditAt", auditRanAt);
+
+    const blockers = stageResults.filter(r => !r.found && r.severity === "blocker").length
+      + additionalChecks.filter(c => !c.ok && c.severity === "blocker").length;
+    const warnings = stageResults.filter(r => !r.found && r.severity === "warning").length
+      + additionalChecks.filter(c => !c.ok && c.severity === "warning").length;
+
+    return res.json({
+      ok: true,
+      ranAt: auditRanAt,
+      blockers,
+      warnings,
+      pipelineStages: stageResults,
+      additionalChecks,
+    });
+  });
+
+  // ── Go/No-Go Report ──────────────────────────────────────────────────────────
+  // Structured readiness gate for each outbound channel. Saved in system_settings.
+  app.get("/api/wizard/gonogo-report", requireRole("admin", "manager"), async (_req, res) => {
+    const { isGhlConfigured } = await import("../services/ghl");
+    const { isSmtpConfigured } = await import("../services/smtp-email");
+
+    const ghlOk      = isGhlConfigured();
+    const smtpOk     = isSmtpConfigured();
+    const emailReady = ghlOk || smtpOk;
+
+    const pausedRaw = await storage.getSystemSetting("outboundGlobalPaused");
+    const outboundGlobalPaused = pausedRaw === true || pausedRaw === "true";
+
+    const lastTestAt  = await storage.getSystemSetting("lastInternalTestEmailsAt");
+    const lastAuditAt = await storage.getSystemSetting("lastFlowAuditAt");
+    const lastTestSummaryRaw = await storage.getSystemSetting("lastInternalTestEmailsSummary");
+    let lastTestSummary: Record<string, unknown> | null = null;
+    try {
+      if (typeof lastTestSummaryRaw === "string") {
+        lastTestSummary = JSON.parse(lastTestSummaryRaw);
+      }
+    } catch { /* ignore */ }
+
+    const allSeqs   = await storage.getFollowUpSequences();
+    const activeSeqCount = allSeqs.filter((s: any) => s.status === "active").length;
+
+    interface GoNoGoGate {
+      gate: string;
+      status: "go" | "no_go" | "blocked" | "warning";
+      notes: string;
+    }
+
+    const gates: GoNoGoGate[] = [
+      {
+        gate: "Website + CRM",
+        status: ghlOk ? "go" : "warning",
+        notes: ghlOk
+          ? "GHL CRM connected and healthy"
+          : "GHL not configured — contact sync and CRM pipeline unavailable",
+      },
+      {
+        gate: "Controlled email outbound (internal test only)",
+        status: emailReady && lastTestAt ? "go" : emailReady ? "warning" : "no_go",
+        notes: !emailReady
+          ? "No email channel configured — set up SMTP or GHL to enable sends"
+          : lastTestAt
+            ? `Last internal test run: ${lastTestAt}${lastTestSummary ? ` — ${lastTestSummary.sent ?? 0}/${lastTestSummary.total ?? 0} emails sent` : ""}`
+            : "Email channel available but no internal test has been run yet — click 'Send Internal Test Emails' above",
+      },
+      {
+        gate: "Bulk sequence release (gated)",
+        // "blocked" = kill switch is ON — expected pre-launch state; counts as acceptable in overallGo.
+        // "no_go"   = kill switch is OFF with active sequences queued — bulk will fire, requires deliberate action.
+        // "warning" = kill switch is OFF but no active sequences — nothing will fire, but pause should be re-enabled.
+        status: outboundGlobalPaused ? "blocked" : activeSeqCount > 0 ? "no_go" : "warning",
+        notes: outboundGlobalPaused
+          ? `Kill switch is ON (outboundGlobalPaused=true) — ${activeSeqCount} active sequence(s) queued but cannot fire. Lift the pause deliberately when ready for live outbound.`
+          : activeSeqCount > 0
+          ? `Kill switch is OFF and ${activeSeqCount} active sequence(s) exist — bulk sequences will send. Re-enable outboundGlobalPaused until you are ready for live outbound.`
+          : "Kill switch is OFF but no active sequences exist — nothing will fire. Consider re-enabling outboundGlobalPaused for safety.",
+      },
+      {
+        gate: "SMS",
+        status: "blocked",
+        notes: "Permanently blocked — A2P 10DLC registration not completed. No SMS sends will occur regardless of feature flags.",
+      },
+      {
+        gate: "Lead-list import",
+        status: "go",
+        notes: "CSV import pipeline is functional. Suppression (DNC, unsubscribe, existing-contact) runs automatically on every import.",
+      },
+    ];
+
+    const reportGeneratedAt = new Date().toISOString();
+
+    return res.json({
+      generatedAt: reportGeneratedAt,
+      lastFlowAuditAt: typeof lastAuditAt === "string" ? lastAuditAt : null,
+      lastInternalTestEmailsAt: typeof lastTestAt === "string" ? lastTestAt : null,
+      lastTestSummary,
+      outboundGlobalPaused,
+      activeSequences: activeSeqCount,
+      gates,
+      overallGo: gates.every(g => g.status === "go" || g.status === "blocked"),
+    });
+  });
 }

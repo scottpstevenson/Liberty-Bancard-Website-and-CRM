@@ -203,6 +203,12 @@ const CASES: GuardCase[] = [
   // POST /api/wizard/feature-flag: admin-only; CSRF required for authenticated POSTs.
   // Manager and agent both → 403 (role gate). Admin → 403 (CSRF absent in test harness).
   { method: "POST",   path: "/api/wizard/feature-flag",             anon: [401], merchant: [403], admin: [403],      agent: [403], manager: [403], description: "wizard flag toggle (admin only; CSRF required — all auth roles 403 without token)" },
+  // Internal test email sends — admin only; CSRF required; rate-limited.
+  { method: "POST",   path: "/api/wizard/test-sequence-emails",     anon: [401], merchant: [403], admin: [403],      agent: [403], manager: [403], description: "wizard internal test email sends (admin only; CSRF required)" },
+  // End-to-end flow audit — admin only; CSRF required.
+  { method: "POST",   path: "/api/wizard/flow-audit",               anon: [401], merchant: [403], admin: [403],      agent: [403], manager: [403], description: "wizard end-to-end flow audit (admin only; CSRF required)" },
+  // Go/No-Go report — admin and manager readable.
+  { method: "GET",    path: "/api/wizard/gonogo-report",            anon: [401], merchant: [403], admin: [200],      agent: [403], manager: [200], description: "wizard go/no-go launch report (admin/manager read-only)" },
 ];
 
 async function ensureAgentUser(): Promise<void> {

@@ -1,9 +1,11 @@
-import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { apiRequest } from "@/lib/queryClient";
 import {
   CheckCircle2,
   XCircle,
@@ -17,6 +19,13 @@ import {
   Send,
   Server,
   ShieldAlert,
+  FlaskConical,
+  ClipboardList,
+  Activity,
+  Clock,
+  ChevronDown,
+  ChevronUp,
+  Loader2,
 } from "lucide-react";
 
 interface ReadinessData {
@@ -49,6 +58,68 @@ interface ReadinessData {
   actions: string[];
   overallHealthy: boolean;
   criticalIssues: number;
+}
+
+interface TestEmailResult {
+  sequenceId: number;
+  sequenceName: string;
+  stepOrder: number;
+  stepType: string;
+  subject: string;
+  status: "sent" | "failed" | "skipped";
+  detail: string;
+  route: string;
+  sentAt: string | null;
+}
+
+interface TestEmailsResponse {
+  ok: boolean;
+  testRecipient: string;
+  route: string;
+  outboundGlobalPaused: boolean;
+  activeSequences: number;
+  summary: { total: number; sent: number; failed: number; skipped: number };
+  results: TestEmailResult[];
+}
+
+interface GoNoGoGate {
+  gate: string;
+  status: "go" | "no_go" | "blocked" | "warning";
+  notes: string;
+}
+
+interface GoNoGoReport {
+  generatedAt: string;
+  lastFlowAuditAt: string | null;
+  lastInternalTestEmailsAt: string | null;
+  lastTestSummary: Record<string, unknown> | null;
+  outboundGlobalPaused: boolean;
+  activeSequences: number;
+  gates: GoNoGoGate[];
+  overallGo: boolean;
+}
+
+interface FlowStageResult {
+  stage: string;
+  description: string;
+  severity: "blocker" | "warning" | "informational";
+  found: boolean;
+  lastSeenAt: string | null;
+  note: string;
+}
+
+interface FlowAuditResponse {
+  ok: boolean;
+  ranAt: string;
+  blockers: number;
+  warnings: number;
+  pipelineStages: FlowStageResult[];
+  additionalChecks: Array<{
+    check: string;
+    ok: boolean;
+    severity: "blocker" | "warning" | "informational";
+    note: string;
+  }>;
 }
 
 function StatusIcon({ ok, warn }: { ok: boolean; warn?: boolean }) {
@@ -84,15 +155,91 @@ function EnvRow({ label, present }: { label: string; present: boolean }) {
   );
 }
 
+function GoNoGoBadge({ status }: { status: "go" | "no_go" | "blocked" | "warning" }) {
+  if (status === "go")
+    return <Badge className="bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300 font-mono text-xs">✅ GO</Badge>;
+  if (status === "blocked")
+    return <Badge className="bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400 font-mono text-xs">🚫 BLOCKED</Badge>;
+  if (status === "warning")
+    return <Badge className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300 font-mono text-xs">⚠️ REVIEW</Badge>;
+  return <Badge variant="destructive" className="font-mono text-xs">❌ NO-GO</Badge>;
+}
+
+function SeverityBadge({ severity }: { severity: "blocker" | "warning" | "informational" }) {
+  if (severity === "blocker")
+    return <Badge variant="destructive" className="text-xs shrink-0">Blocker</Badge>;
+  if (severity === "warning")
+    return <Badge className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300 text-xs shrink-0">Warning</Badge>;
+  return <Badge variant="outline" className="text-xs shrink-0 text-muted-foreground">Info</Badge>;
+}
+
+function TestResultRow({ r }: { r: TestEmailResult }) {
+  return (
+    <div className={`flex items-start gap-3 rounded-md px-3 py-2 text-sm ${
+      r.status === "sent" ? "bg-green-50 dark:bg-green-950/20"
+        : r.status === "failed" ? "bg-red-50 dark:bg-red-950/20"
+        : "bg-muted/40"
+    }`}>
+      {r.status === "sent"
+        ? <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0 mt-0.5" />
+        : r.status === "failed"
+        ? <XCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+        : <AlertTriangle className="w-4 h-4 text-yellow-500 shrink-0 mt-0.5" />}
+      <div className="min-w-0 flex-1">
+        <p className="font-medium truncate">{r.sequenceName} — Step {r.stepOrder}</p>
+        <p className="text-xs text-muted-foreground truncate">{r.subject}</p>
+        <p className="text-xs text-muted-foreground mt-0.5">{r.detail}</p>
+      </div>
+      <div className="text-right shrink-0">
+        <Badge variant="outline" className="text-xs">{r.route}</Badge>
+      </div>
+    </div>
+  );
+}
+
 export default function SystemReadiness() {
+  const queryClient = useQueryClient();
   const { data, isLoading, refetch, isFetching } = useQuery<ReadinessData>({
     queryKey: ["/api/admin/system-readiness"],
     refetchInterval: 30_000,
     staleTime: 25_000,
   });
 
+  const { data: goNoGo, refetch: refetchGoNoGo } = useQuery<GoNoGoReport>({
+    queryKey: ["/api/wizard/gonogo-report"],
+    staleTime: 60_000,
+  });
+
+  const [testEmailsResult, setTestEmailsResult] = useState<TestEmailsResponse | null>(null);
+  const [showAllResults, setShowAllResults] = useState(false);
+  const [flowAuditResult, setFlowAuditResult] = useState<FlowAuditResponse | null>(null);
+
+  const testEmailsMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/wizard/test-sequence-emails", {});
+      return res.json() as Promise<TestEmailsResponse>;
+    },
+    onSuccess: (data) => {
+      setTestEmailsResult(data);
+      refetchGoNoGo();
+    },
+  });
+
+  const flowAuditMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/wizard/flow-audit", {});
+      return res.json() as Promise<FlowAuditResponse>;
+    },
+    onSuccess: (data) => {
+      setFlowAuditResult(data);
+      refetchGoNoGo();
+    },
+  });
+
   const ghlStatus = data?.ghl.status === "ok" ? "ok" : data?.ghl.status === "expired" ? "warning" : "error";
   const smtpStatus = data?.smtp.configured ? "ok" : data?.smtp.host ? "warning" : "error";
+
+  const displayedResults = showAllResults ? (testEmailsResult?.results ?? []) : (testEmailsResult?.results ?? []).slice(0, 5);
 
   return (
     <div className="space-y-6 pb-12">
@@ -387,6 +534,285 @@ export default function SystemReadiness() {
               <EnvRow label="OUTSCRAPER_API_KEY" present={data.env.outscraperKey} />
               <EnvRow label="APP_URL" present={data.env.appUrl} />
               <EnvRow label="NMI_SECURITY_KEY" present={data.env.nmiKey} />
+            </CardContent>
+          </Card>
+
+          {/* ── Internal Test Email Sends ─────────────────────────────────────── */}
+          <Card data-testid="card-internal-test-emails">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <FlaskConical className="w-4 h-4 text-primary" />
+                  Internal Test Email Sends
+                </div>
+                <Button
+                  size="sm"
+                  onClick={() => testEmailsMutation.mutate()}
+                  disabled={testEmailsMutation.isPending}
+                  data-testid="button-send-test-emails"
+                >
+                  {testEmailsMutation.isPending
+                    ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Sending…</>
+                    : <><Send className="w-4 h-4 mr-2" />Send Internal Test Emails</>}
+                </Button>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="rounded-md bg-muted/50 px-4 py-3 text-sm space-y-1">
+                <p className="font-medium">What this does</p>
+                <p className="text-muted-foreground text-xs">
+                  Renders and sends a <code className="text-xs bg-muted px-1 rounded">[TEST]</code>-labeled email for every email step across all active sequences.
+                  All sends go to <strong>scott@libertybancard.com only</strong> — no prospects receive anything.
+                  SMS stays closed. Each test email includes the cadence name, step number, route used, sender policy applied, and the current outboundGlobalPaused status.
+                </p>
+              </div>
+
+              {testEmailsMutation.isError && (
+                <div className="flex items-center gap-2 text-sm text-red-600 bg-red-50 dark:bg-red-950/20 rounded-md px-3 py-2">
+                  <XCircle className="w-4 h-4 shrink-0" />
+                  <span>{(testEmailsMutation.error as Error)?.message ?? "Send failed"}</span>
+                </div>
+              )}
+
+              {testEmailsResult && (
+                <div className="space-y-3">
+                  {/* Summary bar */}
+                  <div className="flex flex-wrap gap-3 text-sm">
+                    <div className="flex items-center gap-1.5">
+                      <Mail className="w-4 h-4 text-muted-foreground" />
+                      <span className="font-medium">{testEmailsResult.summary.total}</span>
+                      <span className="text-muted-foreground">steps across {testEmailsResult.activeSequences} active sequences</span>
+                    </div>
+                    <Badge className="bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300">
+                      {testEmailsResult.summary.sent} sent
+                    </Badge>
+                    {testEmailsResult.summary.failed > 0 && (
+                      <Badge variant="destructive">{testEmailsResult.summary.failed} failed</Badge>
+                    )}
+                    {testEmailsResult.summary.skipped > 0 && (
+                      <Badge variant="outline" className="text-muted-foreground">{testEmailsResult.summary.skipped} skipped</Badge>
+                    )}
+                    <Badge variant="outline" className="font-mono text-xs">via {testEmailsResult.route}</Badge>
+                    <Badge variant="outline" className={`font-mono text-xs ${testEmailsResult.outboundGlobalPaused ? "text-green-700" : "text-red-700"}`}>
+                      outboundGlobalPaused: {String(testEmailsResult.outboundGlobalPaused)}
+                    </Badge>
+                  </div>
+
+                  <p className="text-xs text-muted-foreground">
+                    <strong>Recipient:</strong> {testEmailsResult.testRecipient}
+                  </p>
+
+                  {testEmailsResult.results.length === 0 ? (
+                    <p className="text-sm text-muted-foreground italic">No active sequences with email steps found. Activate a sequence first.</p>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {displayedResults.map((r, i) => <TestResultRow key={i} r={r} />)}
+                      {testEmailsResult.results.length > 5 && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="w-full text-muted-foreground"
+                          onClick={() => setShowAllResults(v => !v)}
+                        >
+                          {showAllResults
+                            ? <><ChevronUp className="w-4 h-4 mr-1" />Show fewer</>
+                            : <><ChevronDown className="w-4 h-4 mr-1" />Show all {testEmailsResult.results.length} results</>}
+                        </Button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {!testEmailsResult && !testEmailsMutation.isPending && (
+                <p className="text-sm text-muted-foreground italic">
+                  No test run yet. Click "Send Internal Test Emails" to begin the internal audit send.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* ── End-to-End Flow Audit ──────────────────────────────────────────── */}
+          <Card data-testid="card-flow-audit">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Activity className="w-4 h-4 text-primary" />
+                  End-to-End Flow Audit
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => flowAuditMutation.mutate()}
+                  disabled={flowAuditMutation.isPending}
+                  data-testid="button-run-flow-audit"
+                >
+                  {flowAuditMutation.isPending
+                    ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Auditing…</>
+                    : <><ClipboardList className="w-4 h-4 mr-2" />Run Flow Audit</>}
+                </Button>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-xs text-muted-foreground">
+                Inspects audit log records at every pipeline stage: inbound form → contact created → GHL sync → sequence eligibility → send gate → email dispatch → reply/bounce handling.
+                Reports gaps as <strong>Blocker</strong>, <strong>Warning</strong>, or <strong>Info</strong>.
+              </p>
+
+              {flowAuditMutation.isError && (
+                <div className="flex items-center gap-2 text-sm text-red-600 bg-red-50 dark:bg-red-950/20 rounded-md px-3 py-2">
+                  <XCircle className="w-4 h-4 shrink-0" />
+                  <span>{(flowAuditMutation.error as Error)?.message ?? "Audit failed"}</span>
+                </div>
+              )}
+
+              {flowAuditResult && (
+                <div className="space-y-3">
+                  {/* Summary */}
+                  <div className="flex flex-wrap gap-3 items-center text-sm">
+                    <div className="flex items-center gap-1.5">
+                      <Clock className="w-4 h-4 text-muted-foreground" />
+                      <span className="text-muted-foreground text-xs">{new Date(flowAuditResult.ranAt).toLocaleString()}</span>
+                    </div>
+                    {flowAuditResult.blockers > 0
+                      ? <Badge variant="destructive">{flowAuditResult.blockers} blocker{flowAuditResult.blockers > 1 ? "s" : ""}</Badge>
+                      : <Badge className="bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300">No blockers</Badge>}
+                    {flowAuditResult.warnings > 0 && (
+                      <Badge className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300">
+                        {flowAuditResult.warnings} warning{flowAuditResult.warnings > 1 ? "s" : ""}
+                      </Badge>
+                    )}
+                  </div>
+
+                  {/* Pipeline stages */}
+                  <div className="space-y-1">
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Pipeline Stages</p>
+                    {flowAuditResult.pipelineStages.map((s, i) => (
+                      <div key={i} className={`flex items-start gap-3 rounded-md px-3 py-2 text-sm ${
+                        s.found ? "bg-green-50 dark:bg-green-950/20"
+                          : s.severity === "blocker" ? "bg-red-50 dark:bg-red-950/20"
+                          : s.severity === "warning" ? "bg-yellow-50 dark:bg-yellow-950/20"
+                          : "bg-muted/40"
+                      }`}>
+                        {s.found
+                          ? <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0 mt-0.5" />
+                          : s.severity === "blocker"
+                          ? <XCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+                          : s.severity === "warning"
+                          ? <AlertTriangle className="w-4 h-4 text-yellow-500 shrink-0 mt-0.5" />
+                          : <AlertTriangle className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />}
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium">{s.stage}</p>
+                          <p className="text-xs text-muted-foreground">{s.note}</p>
+                        </div>
+                        {!s.found && <SeverityBadge severity={s.severity} />}
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Additional checks */}
+                  <div className="space-y-1">
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">System Checks</p>
+                    {flowAuditResult.additionalChecks.map((c, i) => (
+                      <div key={i} className={`flex items-start gap-3 rounded-md px-3 py-2 text-sm ${
+                        c.ok ? "bg-green-50 dark:bg-green-950/20"
+                          : c.severity === "blocker" ? "bg-red-50 dark:bg-red-950/20"
+                          : c.severity === "warning" ? "bg-yellow-50 dark:bg-yellow-950/20"
+                          : "bg-muted/40"
+                      }`}>
+                        {c.ok
+                          ? <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0 mt-0.5" />
+                          : c.severity === "blocker"
+                          ? <XCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+                          : <AlertTriangle className="w-4 h-4 text-yellow-500 shrink-0 mt-0.5" />}
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium">{c.check}</p>
+                          <p className="text-xs text-muted-foreground">{c.note}</p>
+                        </div>
+                        {!c.ok && <SeverityBadge severity={c.severity} />}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {!flowAuditResult && !flowAuditMutation.isPending && (
+                <p className="text-sm text-muted-foreground italic">
+                  No audit run yet. Click "Run Flow Audit" to inspect the full pipeline log trail.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* ── Go/No-Go Report ───────────────────────────────────────────────── */}
+          <Card data-testid="card-gonogo-report">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <ClipboardList className="w-4 h-4 text-primary" />
+                  Go / No-Go Launch Report
+                </div>
+                {goNoGo && (
+                  <Badge className={goNoGo.overallGo
+                    ? "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300 font-mono"
+                    : "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300 font-mono"
+                  }>
+                    {goNoGo.overallGo ? "✅ OVERALL GO" : "❌ NOT READY"}
+                  </Badge>
+                )}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {goNoGo ? (
+                <>
+                  <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
+                    {goNoGo.lastInternalTestEmailsAt && (
+                      <div className="flex items-center gap-1">
+                        <Clock className="w-3 h-3" />
+                        <span>Last test send: {new Date(goNoGo.lastInternalTestEmailsAt).toLocaleString()}</span>
+                      </div>
+                    )}
+                    {goNoGo.lastFlowAuditAt && (
+                      <div className="flex items-center gap-1">
+                        <Activity className="w-3 h-3" />
+                        <span>Last flow audit: {new Date(goNoGo.lastFlowAuditAt).toLocaleString()}</span>
+                      </div>
+                    )}
+                    <div className="flex items-center gap-1">
+                      <span className={`font-mono font-semibold ${goNoGo.outboundGlobalPaused ? "text-green-700 dark:text-green-400" : "text-red-700 dark:text-red-400"}`}>
+                        outboundGlobalPaused: {String(goNoGo.outboundGlobalPaused)}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    {goNoGo.gates.map((gate, i) => (
+                      <div key={i} className={`flex items-start gap-3 rounded-md border px-4 py-3 ${
+                        gate.status === "go" ? "border-green-200 bg-green-50/50 dark:border-green-800 dark:bg-green-950/20"
+                          : gate.status === "blocked" ? "border-gray-200 bg-gray-50/50 dark:border-gray-700 dark:bg-gray-900/20"
+                          : gate.status === "warning" ? "border-yellow-200 bg-yellow-50/50 dark:border-yellow-800 dark:bg-yellow-950/20"
+                          : "border-red-200 bg-red-50/50 dark:border-red-800 dark:bg-red-950/20"
+                      }`}>
+                        <GoNoGoBadge status={gate.status} />
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-sm">{gate.gate}</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">{gate.notes}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <p className="text-xs text-muted-foreground pt-1">
+                    Report generated: {new Date(goNoGo.generatedAt).toLocaleString()} · {goNoGo.activeSequences} active sequence{goNoGo.activeSequences !== 1 ? "s" : ""} queued
+                  </p>
+                </>
+              ) : (
+                <div className="space-y-2 animate-pulse">
+                  {[1, 2, 3, 4, 5].map(i => (
+                    <div key={i} className="h-14 rounded-md bg-muted" />
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </>

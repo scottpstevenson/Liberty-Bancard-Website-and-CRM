@@ -590,6 +590,19 @@ const CALL_SITE_ALLOWLIST: Array<{
     reason: "Setup Wizard live channel test — POST /api/wizard/test-send/sms requires admin or manager role, wizardTestRateLimit, and SMS_ENABLED feature flag; recipient is always the wizard_test_contact. Not automated outreach. Reviewed 2026-07-22.",
     reviewDate: "2026-07-22",
   },
+  // ── Internal test sequence email sends — reviewed 2026-07-26 ─────────────
+  // POST /api/wizard/test-sequence-emails: admin-only + wizardTestRateLimit.
+  // Recipient is hardcoded to scott@libertybancard.com — never a real prospect.
+  // SMTP is preferred transport; GHL (sendGhlEmail) is the fallback path.
+  // Both send calls are in the same route handler and share the same gate.
+  {
+    file: "server/routes/wizard.ts",
+    lineContains: "sendSmtpEmail",
+    channel: "email",
+    category: "internal_admin",
+    reason: "Internal test send for all active sequence templates — admin-only, wizardTestRateLimit, recipient hardcoded to scott@libertybancard.com. SMTP preferred transport path. Never sends to real prospects. Reviewed 2026-07-26.",
+    reviewDate: "2026-07-26",
+  },
 ];
 
 

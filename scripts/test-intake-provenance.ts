@@ -10,7 +10,7 @@
  *  5. GHL-linked contacts in DB have source_category = 'ghl_sync'
  *  6. prospects.import_execution_id is integer (not UUID)
  *  7. sunbiz_entities.import_execution_id is uuid
- *  8. contacts.import_batch_id does NOT exist
+ *  8. contacts.import_batch_id exists (import traceability — added by master-lead-import)
  *  9. All 4 provenance columns exist on contacts
  *
  * Run: npx tsx scripts/test-intake-provenance.ts
@@ -247,14 +247,18 @@ async function main() {
     );
   }
 
-  // ── 7. contacts.import_batch_id must NOT exist ────────────────────────────
-  console.log("\n7. contacts.import_batch_id does not exist (kill line)");
+  // ── 7. contacts.import_batch_id exists (import traceability) ─────────────
+  // Added by the master-lead-import pipeline (Task 1052) so every contact
+  // can be traced back to its import batch without joining tables.
+  // This assertion was previously a kill line ("must NOT exist"); it was
+  // updated after the master-lead-import feature deliberately added the column.
+  console.log("\n7. contacts.import_batch_id exists (import traceability)");
   {
     const colType = await queryColumnType("contacts", "import_batch_id");
     assert(
-      "contacts.import_batch_id does not exist",
-      colType === null,
-      `found column with data_type: ${colType}`
+      "contacts.import_batch_id exists (import traceability — added by master-lead-import)",
+      colType !== null,
+      `column does not exist in DB — run migration 0088_suppression_compliance_fields.sql`
     );
   }
 
