@@ -52,6 +52,7 @@ import {
   HelpCircle,
   UserCog,
   Calendar,
+  CalendarDays,
   Bot,
   Mailbox,
   Rocket as RocketIcon,
@@ -73,7 +74,6 @@ import {
   Database,
   FlaskConical,
   LineChart,
-  CalendarDays,
   ChevronDown,
   ChevronRight,
   Wrench,
@@ -111,44 +111,52 @@ interface MenuItem {
   badgeKey?: string;
 }
 
+const DEV_MODE_KEY = "sidebar_dev_mode";
+
 // ─── DAILY WORK ────────────────────────────────────────────────────────────────
 const dailyWorkItems: MenuItem[] = [
   // Admin/Manager
-  { icon: LayoutDashboard, label: "Overview",              href: "/dashboard",                      roles: ["admin", "manager"] },
-  { icon: Users,           label: "Contacts & Leads",      href: "/dashboard/contacts-leads",       roles: ["admin", "manager"] },
-  { icon: TrendingUp,      label: "Pipeline",              href: "/dashboard/pipeline",             roles: ["admin", "manager"] },
-  { icon: Inbox,           label: "Messages & Inbox",      href: "/dashboard/comms-hub",            roles: ["admin", "manager"], badgeKey: "smsUnread" },
-  { icon: ClipboardList,   label: "Tasks & Appointments",  href: "/dashboard/tasks-appointments",   roles: ["admin", "manager"] },
-  { icon: CreditCard,      label: "Virtual Terminal",      href: "/dashboard/virtual-terminal",     roles: ["admin", "manager"] },
-  { icon: Brain,           label: "AI Advisor",            href: "/dashboard/chat",                 roles: ["admin", "manager"] },
+  { icon: LayoutDashboard, label: "Overview",             href: "/dashboard",                    roles: ["admin", "manager"] },
+  { icon: Users,           label: "Contacts & Leads",     href: "/dashboard/contacts-leads",     roles: ["admin", "manager"] },
+  { icon: TrendingUp,      label: "Pipeline",             href: "/dashboard/pipeline",           roles: ["admin", "manager"] },
+  { icon: Inbox,           label: "Messages & Inbox",     href: "/dashboard/comms-hub",          roles: ["admin", "manager"], badgeKey: "smsUnread" },
+  { icon: ClipboardList,   label: "Tasks & Appointments", href: "/dashboard/tasks-appointments", roles: ["admin", "manager"] },
+  { icon: CreditCard,      label: "Virtual Terminal",     href: "/dashboard/virtual-terminal",   roles: ["admin", "manager"] },
+  { icon: Brain,           label: "AI Advisor",           href: "/dashboard/chat",               roles: ["admin", "manager"] },
   // Agent
-  { icon: Star,            label: "My Day",                href: "/dashboard/my-day",               roles: ["agent"] },
-  { icon: Users,           label: "My Contacts",           href: "/dashboard/contacts",             roles: ["agent"] },
-  { icon: TrendingUp,      label: "My Pipeline",           href: "/dashboard/pipeline",             roles: ["agent"] },
-  { icon: Inbox,           label: "Messages & Inbox",      href: "/dashboard/comms-hub",            roles: ["agent"], badgeKey: "smsUnread" },
-  { icon: ClipboardList,   label: "Tasks & Appointments",  href: "/dashboard/tasks-appointments",   roles: ["agent"] },
-  { icon: Brain,           label: "AI Advisor",            href: "/dashboard/chat",                 roles: ["agent"] },
+  { icon: Star,            label: "My Day",               href: "/dashboard/my-day",             roles: ["agent"] },
+  { icon: Users,           label: "My Contacts",          href: "/dashboard/contacts",           roles: ["agent"] },
+  { icon: TrendingUp,      label: "My Pipeline",          href: "/dashboard/pipeline",           roles: ["agent"] },
+  { icon: Inbox,           label: "Messages & Inbox",     href: "/dashboard/comms-hub",          roles: ["agent"], badgeKey: "smsUnread" },
+  { icon: ClipboardList,   label: "Tasks & Appointments", href: "/dashboard/tasks-appointments", roles: ["agent"] },
+  { icon: Brain,           label: "AI Advisor",           href: "/dashboard/chat",               roles: ["agent"] },
+];
+
+// Virtual Terminal for agents with permission (appended at render time)
+const toolsItems: MenuItem[] = [
+  { icon: CreditCard, label: "Virtual Terminal", href: "/dashboard/virtual-terminal", roles: ["agent"] },
 ];
 
 // ─── MERCHANT OPS ─────────────────────────────────────────────────────────────
 const merchantOpsItems: MenuItem[] = [
-  { icon: ShieldCheck,     label: "My Portal",             href: "/dashboard/merchant-portal",         roles: ["merchant"] },
-  { icon: ClipboardList,   label: "Applications",          href: "/dashboard/merchant-applications",   roles: ["admin", "manager"], badgeKey: "pendingApplications" },
-  { icon: FileBarChart,    label: "Statement Reviews",     href: "/dashboard/statement-review",        roles: ["admin", "manager"] },
-  { icon: FolderOpen,      label: "Documents",             href: "/dashboard/document-vault",          roles: ["admin", "manager"] },
-  { icon: ShieldCheck,     label: "Underwriting",          href: "/dashboard/underwriting",            roles: ["admin", "manager"] },
-  { icon: Package,         label: "Onboarding",            href: "/dashboard/onboarding",              roles: ["admin", "manager"] },
-  { icon: Send,            label: "Boarding",              href: "/dashboard/boarding",                roles: ["admin", "manager"] },
-  { icon: Rocket,          label: "Onboarding Kickoff",    href: "/dashboard/onboarding-kickoff",      roles: ["admin", "manager"] },
-  { icon: HelpCircle,      label: "Knowledge Base",        href: "/dashboard/knowledge-base" },
-  { icon: GraduationCap,   label: "Training",              href: "/dashboard/training",                roles: ["admin", "manager", "agent"] },
+  { icon: ShieldCheck,   label: "My Portal",          href: "/dashboard/merchant-portal",       roles: ["merchant"] },
+  { icon: ClipboardList, label: "Applications",        href: "/dashboard/merchant-applications", roles: ["admin", "manager"], badgeKey: "pendingApplications" },
+  { icon: FileBarChart,  label: "Statement Reviews",   href: "/dashboard/statement-review",      roles: ["admin", "manager"] },
+  { icon: FolderOpen,    label: "Documents",           href: "/dashboard/document-vault",        roles: ["admin", "manager"] },
+  { icon: ShieldCheck,   label: "Underwriting",        href: "/dashboard/underwriting",          roles: ["admin", "manager"] },
+  { icon: Package,       label: "Onboarding",          href: "/dashboard/onboarding",            roles: ["admin", "manager"] },
+  { icon: ShieldAlert,   label: "Merchant Risk",       href: "/dashboard/merchant-risk",         roles: ["admin", "manager"] },
+  { icon: Send,          label: "Boarding",            href: "/dashboard/boarding",              roles: ["admin", "manager"] },
+  { icon: Rocket,        label: "Onboarding Kickoff",  href: "/dashboard/onboarding-kickoff",    roles: ["admin", "manager"] },
+  { icon: HelpCircle,    label: "Knowledge Base",      href: "/dashboard/knowledge-base" },
+  { icon: GraduationCap, label: "Training",            href: "/dashboard/training",              roles: ["admin", "manager", "agent"] },
 ];
 
 // ─── OUTBOUND ─────────────────────────────────────────────────────────────────
 const outboundItems: MenuItem[] = [
-  { icon: Zap,    label: "Outbound Command Center",     href: "/dashboard/outbound-center",   roles: ["admin", "manager"] },
-  { icon: Upload, label: "Lead Imports / Master Lead DB", href: "/dashboard/lead-imports",   roles: ["admin", "manager"] },
-  { icon: FileSearch, label: "Sunbiz Lead Gen",         href: "/dashboard/lead-gen",          roles: ["admin", "manager"] },
+  { icon: Zap,        label: "Outbound Command Center",      href: "/dashboard/outbound-center", roles: ["admin", "manager"] },
+  { icon: Upload,     label: "Lead Imports / Master Lead DB", href: "/dashboard/lead-imports",   roles: ["admin", "manager"] },
+  { icon: FileSearch, label: "Sunbiz Lead Gen",              href: "/dashboard/lead-gen",        roles: ["admin", "manager"] },
 ];
 
 // ─── REPORTS & SETTINGS ───────────────────────────────────────────────────────
@@ -162,39 +170,60 @@ const reportsSettingsItems: MenuItem[] = [
   { icon: Link2,       label: "Partner Orgs",     href: "/dashboard/partner-orgs",          roles: ["admin"] },
   { icon: Settings,    label: "Settings",         href: "/dashboard/admin-hub",             roles: ["admin", "manager"] },
   { icon: ShieldCheck, label: "Security",         href: "/dashboard/security",              roles: ["admin", "manager", "agent", "merchant"] },
-  { icon: Settings,    label: "Integrations",     href: "/dashboard/settings/integrations", roles: ["admin"] },
+  { icon: Settings,    label: "Integrations",     href: "/dashboard/settings/integrations", roles: ["admin", "manager"] },
 ];
 
-// ─── INTELLIGENCE ─────────────────────────────────────────────────────────────
-const intelligenceItems: MenuItem[] = [
-  { icon: LineChart, label: "Acquisition Hub", href: "/dashboard/acquisition-hub", roles: ["admin", "manager"] },
-  { icon: PieChart, label: "Reporting", href: "/dashboard/reporting", roles: ["admin", "manager"] },
-  { icon: DollarSign, label: "Financial Hub", href: "/dashboard/financial-hub", roles: ["admin", "manager"] },
-  { icon: Activity, label: "System Health", href: "/dashboard/system-health", roles: ["admin", "manager"] },
-  { icon: Trophy, label: "Leaderboard", href: "/dashboard/leaderboard", roles: ["admin", "manager", "agent"] },
+// ─── RESOURCES (collapsible) ───────────────────────────────────────────────────
+const resourcesItems: MenuItem[] = [
+  { icon: BookOpen, label: "Playbooks",  href: "/dashboard/playbooks", roles: ["admin", "manager", "agent"] },
+  { icon: BookOpen, label: "Collateral", href: "/assets",              roles: ["agent"] },
 ];
 
-// ─── GROWTH & PARTNERS ────────────────────────────────────────────────────────
-// Marketing Playbook + Growth Playbook here per spec. Collateral is agent-only.
-const growthItems: MenuItem[] = [
-  { icon: UserPlus, label: "Agent Management", href: "/dashboard/agent-management", roles: ["admin", "manager"] },
-  { icon: Handshake, label: "Referral Program", href: "/dashboard/referral-program", roles: ["admin", "manager"] },
-  { icon: Link2, label: "Partner Orgs", href: "/dashboard/partner-orgs", roles: ["admin"] },
-  { icon: Link2, label: "Partner Referrals", href: "/dashboard/partner-referral-pipeline", roles: ["admin", "manager"] },
-  { icon: FileCheck, label: "Co-Branded Proposals", href: "/dashboard/co-branded-proposals", roles: ["admin", "manager"] },
-  { icon: Code2, label: "Widget Generator", href: "/dashboard/widget-generator", roles: ["admin", "manager"] },
-  { icon: HeartPulse, label: "Merchant Success", href: "/dashboard/merchant-success", roles: ["admin", "manager"] },
-  { icon: BookOpen, label: "Playbooks", href: "/dashboard/playbooks", roles: ["admin", "manager", "agent"] },
-  { icon: BookOpen, label: "Case Study Intake", href: "/dashboard/case-study-intake", roles: ["admin", "manager"] },
-  { icon: BookOpen, label: "Collateral", href: "/assets", roles: ["agent"] },
+// ─── DEV MODE: ADVANCED TOOLS ──────────────────────────────────────────────────
+// Shown only when admin dev-mode toggle is on. All routes still work when navigated directly.
+const devModeLeadEngineItems: MenuItem[] = [
+  { icon: Bot,        label: "SDR Hub",             href: "/dashboard/sdr-hub",             roles: ["admin", "manager"] },
+  { icon: Brain,      label: "Lead Command Center", href: "/dashboard/lead-command-center", roles: ["admin", "manager"] },
+  { icon: Sparkles,   label: "Lead Intelligence",   href: "/dashboard/lead-intelligence",   roles: ["admin", "manager"] },
+  { icon: CreditCard, label: "Card BIN Lookup",     href: "/dashboard/bin-lookup",          roles: ["admin", "manager", "agent"] },
+  { icon: PhoneCall,  label: "Call Outcome",        href: "/dashboard/call-outcome",        roles: ["admin", "manager", "agent"] },
+  { icon: FileCheck,  label: "Review Complete",     href: "/dashboard/review-complete",     roles: ["admin", "manager", "agent"] },
+  { icon: Target,     label: "Prospects",           href: "/dashboard/prospects",           roles: ["admin", "manager"] },
 ];
 
-// ─── SYSTEM ───────────────────────────────────────────────────────────────────
-const systemItems: MenuItem[] = [
-  { icon: Workflow, label: "GHL Integration", href: "/dashboard/ghl-integration", roles: ["admin", "manager"] },
-  { icon: FileText, label: "Content Hub", href: "/dashboard/content-hub", roles: ["admin", "manager"] },
-  { icon: UserCog, label: "Admin Hub", href: "/dashboard/admin-hub", roles: ["admin", "manager"] },
-  { icon: ShieldCheck, label: "Security Settings", href: "/dashboard/security", roles: ["admin", "manager", "agent", "merchant"] },
+const devModeAutomationItems: MenuItem[] = [
+  { icon: BarChart3,      label: "Automation Overview", href: "/dashboard/automation",         roles: ["admin", "manager"] },
+  { icon: Zap,            label: "GHL Workflows",       href: "/dashboard/workflows",          roles: ["admin", "manager"] },
+  { icon: ListOrdered,    label: "Sequences",           href: "/dashboard/sequences",          roles: ["admin", "manager"] },
+  { icon: Megaphone,      label: "Campaigns",           href: "/dashboard/campaigns",          roles: ["admin", "manager"] },
+  { icon: FileBarChart,   label: "Sequence Report",     href: "/dashboard/sequence-report",    roles: ["admin", "manager"] },
+  { icon: GitBranch,      label: "Stage Rules",         href: "/dashboard/stage-rules",        roles: ["admin", "manager"] },
+  { icon: Mail,           label: "Outbound Health",     href: "/dashboard/deliverability-hub", roles: ["admin", "manager"] },
+  { icon: RocketIcon,     label: "Go-Live Controls",    href: "/dashboard/activation",         roles: ["admin", "manager"] },
+  { icon: FlaskConical,   label: "Setup Wizard",        href: "/dashboard/setup-wizard",       roles: ["admin", "manager"] },
+  { icon: ArrowRightLeft, label: "Round-Robin",         href: "/dashboard/round-robin",        roles: ["admin", "manager"] },
+  { icon: Database,       label: "Data Requests",       href: "/dashboard/data-requests",      roles: ["admin", "manager"] },
+  { icon: Activity,       label: "System Audit",        href: "/dashboard/system-audit",       roles: ["admin", "manager"] },
+  { icon: Monitor,        label: "Queue Health",        href: "/dashboard/system-health",      roles: ["admin", "manager"] },
+];
+
+const devModeGrowthItems: MenuItem[] = [
+  { icon: UserPlus,   label: "Agent Management",   href: "/dashboard/agent-management",          roles: ["admin", "manager"] },
+  { icon: Handshake,  label: "Referral Program",   href: "/dashboard/referral-program",          roles: ["admin", "manager"] },
+  { icon: Link2,      label: "Partner Referrals",  href: "/dashboard/partner-referral-pipeline", roles: ["admin", "manager"] },
+  { icon: HeartPulse, label: "Merchant Success",   href: "/dashboard/merchant-success",          roles: ["admin", "manager"] },
+  { icon: BookOpen,   label: "Case Study Intake",  href: "/dashboard/case-study-intake",         roles: ["admin", "manager"] },
+  { icon: Code2,      label: "Widget Generator",   href: "/dashboard/widget-generator",          roles: ["admin", "manager"] },
+  { icon: Bot,        label: "AI Knowledge Admin", href: "/dashboard/knowledge-admin",           roles: ["admin", "manager"] },
+  { icon: Ticket,     label: "Support Hub",        href: "/dashboard/support-hub",               roles: ["admin", "manager"] },
+];
+
+const devModeSystemItems: MenuItem[] = [
+  { icon: Workflow,   label: "GHL Integration", href: "/dashboard/ghl-integration", roles: ["admin", "manager"] },
+  { icon: FileText,   label: "Content Hub",     href: "/dashboard/content-hub",     roles: ["admin", "manager"] },
+  { icon: UserCog,    label: "Admin Hub",       href: "/dashboard/admin-hub",       roles: ["admin", "manager"] },
+  { icon: Database,   label: "Data Requests",  href: "/dashboard/data-requests",   roles: ["admin", "manager"] },
+  { icon: RocketIcon, label: "Outreach Hub",   href: "/dashboard/outreach-hub",    roles: ["admin", "manager"] },
 ];
 
 function filterByRole(items: MenuItem[], role: UserRole): MenuItem[] {
@@ -202,27 +231,25 @@ function filterByRole(items: MenuItem[], role: UserRole): MenuItem[] {
 }
 
 // ─── Route-level role guard ────────────────────────────────────────────────────
+// MUST mirror allowedRoles in App.tsx ProtectedRoute declarations exactly.
+// Only list routes with explicit allowedRoles; omit routes that rely on isAuthenticated alone.
+// Routes not in this map are accessible to ALL authenticated dashboard users.
+// Use exact path matching only — prefix matching causes false positives.
 const RESTRICTED_ROUTES: Partial<Record<string, UserRole[]>> = {
-  // Admin-only sections
+  // Admin-only (matches allowedRoles={["admin"]} in App.tsx)
   "/dashboard/partner-orgs":           ["admin"],
-  // Admin + Manager (must match ProtectedRoute allowedRoles in App.tsx)
+  // Admin + Manager (matches allowedRoles={["admin", "manager"]} in App.tsx)
   "/dashboard/activation":             ["admin", "manager"],
   "/dashboard/settings/integrations":  ["admin", "manager"],
-  // Admin + Manager (blocked for agent, merchant, support, onboarding)
   "/dashboard/acquisition-hub":        ["admin", "manager"],
   "/dashboard/outbound-center":        ["admin", "manager"],
   "/dashboard/financial-hub":          ["admin", "manager"],
   "/dashboard/system-health":          ["admin", "manager"],
   "/dashboard/reporting":              ["admin", "manager"],
   "/dashboard/admin-hub":              ["admin", "manager"],
-  "/dashboard/lead-imports":           ["admin", "manager"],
-  "/dashboard/sequences":              ["admin", "manager"],
+  "/dashboard/stage-rules":            ["admin", "manager"],
   "/dashboard/ghl-integration":        ["admin", "manager"],
   "/dashboard/outreach-hub":           ["admin", "manager"],
-  "/dashboard/lead-command-center":    ["admin", "manager"],
-  "/dashboard/automation":             ["admin", "manager"],
-  "/dashboard/stage-rules":            ["admin", "manager"],
-  "/dashboard/campaigns":              ["admin", "manager"],
 };
 
 function isRouteAllowed(pathname: string, role: UserRole): boolean {
@@ -232,7 +259,6 @@ function isRouteAllowed(pathname: string, role: UserRole): boolean {
 }
 
 const TWO_FA_BANNER_KEY = "2fa_banner_dismissed";
-const DEV_TOOLS_KEY = "crm_show_dev_tools";
 
 function GhlAlertBanner({ role }: { role: UserRole }) {
   const isPrivileged = role === "admin" || role === "manager";
@@ -359,22 +385,26 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const { logout, user } = useAuth();
   const [emailOpen, setEmailOpen] = useState(false);
   const [aiChatOpen, setAiChatOpen] = useState(false);
+  const [resourcesOpen, setResourcesOpen] = useState(false);
   const role = (user?.role as UserRole) || "merchant";
-
-  // Admin dev-tools toggle — persisted in localStorage
-  const [showDevTools, setShowDevTools] = useState(() => {
-    if (typeof window === "undefined") return false;
-    return localStorage.getItem(DEV_TOOLS_KEY) === "true";
-  });
-
-  const toggleDevTools = () => {
-    const next = !showDevTools;
-    setShowDevTools(next);
-    localStorage.setItem(DEV_TOOLS_KEY, String(next));
-  };
 
   // Route-level access guard
   const routeAllowed = isRouteAllowed(location, role);
+
+  // Admin dev-mode toggle — persisted in localStorage; off by default
+  const [devMode, setDevMode] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return localStorage.getItem(DEV_MODE_KEY) === "true";
+  });
+  const isPrivileged = role === "admin" || role === "manager";
+
+  const toggleDevMode = useCallback(() => {
+    setDevMode((prev) => {
+      const next = !prev;
+      localStorage.setItem(DEV_MODE_KEY, String(next));
+      return next;
+    });
+  }, []);
 
   const { data: smsUnreadData } = useQuery<{ count: number }>({
     queryKey: ["/api/sms-inbox/unread-count"],
@@ -420,11 +450,20 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
     pendingApplications: pendingApplicationsCount,
   };
 
+  // Agent virtual terminal — only if user has permission
+  const filteredAgentTools = useMemo(() => {
+    if (role !== "agent") return [];
+    const perms: string[] = user?.permissions ?? [];
+    return perms.includes("virtual_terminal") ? toolsItems : [];
+  }, [role, user]);
+
   // All sidebar items flat list for header label lookup
-  const allItems = [
-    ...dailyWorkItems, ...merchantOpsItems, ...outboundItems,
-    ...reportsSettingsItems, ...adminToolsItems,
-  ];
+  const allItems = useMemo(() => [
+    ...dailyWorkItems, ...toolsItems, ...merchantOpsItems, ...outboundItems,
+    ...reportsSettingsItems, ...resourcesItems,
+    ...devModeLeadEngineItems, ...devModeAutomationItems,
+    ...devModeGrowthItems, ...devModeSystemItems,
+  ], []);
 
   const style = {
     "--sidebar-width": "16rem",
@@ -476,7 +515,54 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
     );
   };
 
-  const isPrivileged = role === "admin" || role === "manager";
+  // Resources group — collapsible
+  const renderResourcesGroup = () => {
+    const filtered = filterByRole(resourcesItems, role);
+    if (filtered.length === 0) return null;
+    return (
+      <SidebarGroup>
+        <button
+          onClick={() => setResourcesOpen((o) => !o)}
+          className="flex items-center w-full px-2 py-1 text-xs font-medium uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors"
+          aria-expanded={resourcesOpen}
+          data-testid="button-sidebar-resources-toggle"
+        >
+          <span className="flex-1 text-left">Resources</span>
+          {resourcesOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+        </button>
+        {resourcesOpen && (
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {filtered.map((item) => {
+                const Icon = item.icon;
+                const isActive = location === item.href;
+                return (
+                  <SidebarMenuItem key={item.href + item.label}>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={isActive}
+                      data-testid={`link-sidebar-${item.label.toLowerCase().replace(/\s+/g, "-")}`}
+                    >
+                      <Link href={item.href}>
+                        <Icon className="w-4 h-4" />
+                        <span className="flex-1">{item.label}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                );
+              })}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        )}
+      </SidebarGroup>
+    );
+  };
+
+  // Agent daily work includes their VT if permitted
+  const agentDailyWork = useMemo(
+    () => [...filterByRole(dailyWorkItems, role), ...filteredAgentTools],
+    [role, filteredAgentTools]
+  );
 
   return (
     <SidebarProvider style={style as React.CSSProperties}>
@@ -489,12 +575,23 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
           </SidebarHeader>
 
           <SidebarContent>
-            {renderGroup("DAILY WORK", dailyWorkItems)}
+            {role === "agent"
+              ? renderGroup("DAILY WORK", agentDailyWork)
+              : renderGroup("DAILY WORK", dailyWorkItems)}
             {renderGroup("MERCHANT OPS", merchantOpsItems)}
             {renderGroup("OUTBOUND", outboundItems)}
             {renderGroup("REPORTS & SETTINGS", reportsSettingsItems)}
-            {/* Admin Tools — only shown when dev-tools toggle is on */}
-            {isPrivileged && showDevTools && renderGroup("ADMIN TOOLS", adminToolsItems)}
+            {renderResourcesGroup()}
+
+            {/* Dev-mode extended sections — only visible when toggle is on */}
+            {isPrivileged && devMode && (
+              <>
+                {renderGroup("LEAD ENGINE", devModeLeadEngineItems)}
+                {renderGroup("AUTOMATION", devModeAutomationItems)}
+                {renderGroup("GROWTH & PARTNERS", devModeGrowthItems)}
+                {renderGroup("SYSTEM", devModeSystemItems)}
+              </>
+            )}
           </SidebarContent>
 
           <SidebarFooter className="p-4 border-t">
@@ -511,23 +608,28 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                 </div>
               </div>
             </div>
+
+            {/* Admin dev-mode toggle — reveals all legacy/technical pages in sidebar */}
+            {isPrivileged && (
+              <div className="px-2 mb-2">
+                <button
+                  onClick={toggleDevMode}
+                  data-testid="button-sidebar-dev-mode"
+                  title={devMode ? "Dev mode on — showing all pages. Click to hide advanced items." : "Dev mode off — click to show all pages including legacy tools."}
+                  className={`flex items-center gap-2 w-full rounded-md px-2 py-1.5 text-xs transition-colors ${
+                    devMode
+                      ? "bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-200 hover:bg-amber-200 dark:hover:bg-amber-900"
+                      : "text-muted-foreground hover:text-foreground hover:bg-accent"
+                  }`}
+                >
+                  <Wrench className="w-3.5 h-3.5 shrink-0" />
+                  <span className="flex-1 text-left">{devMode ? "Dev Mode: On" : "Dev Mode"}</span>
+                  <span className={`w-2 h-2 rounded-full shrink-0 ${devMode ? "bg-amber-500" : "bg-muted-foreground/40"}`} />
+                </button>
+              </div>
+            )}
+
             <SidebarMenu>
-              {isPrivileged && (
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    onClick={toggleDevTools}
-                    data-testid="button-toggle-dev-tools"
-                    className="text-muted-foreground hover:text-foreground"
-                  >
-                    {showDevTools
-                      ? <EyeOff className="w-4 h-4" />
-                      : <Wrench className="w-4 h-4" />}
-                    <span className="text-xs">
-                      {showDevTools ? "Hide Dev Tools" : "Show Dev Tools"}
-                    </span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              )}
               <SidebarMenuItem>
                 <SidebarMenuButton onClick={() => logout()} data-testid="button-logout">
                   <LogOut className="w-4 h-4" />
