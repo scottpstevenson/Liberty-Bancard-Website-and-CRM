@@ -364,6 +364,43 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
             processed++;
             continue;
           }
+
+          // ── Suppression gate: compliance fields pre-send check ──────────────
+          // Reads new compliance/suppression fields and blocks if contact is
+          // opted-out, unsubscribed, hard-bounced, complained, or SMS-unconsented.
+          if (contact) {
+            const suppressionReasons: string[] = [];
+            const c = contact as any;
+
+            if (c.optOutStatus === "opted_out") suppressionReasons.push(`opt_out_status=opted_out (channel: ${c.optOutChannel ?? "unknown"})`);
+            if (c.unsubscribeStatus === "unsubscribed") suppressionReasons.push("unsubscribe_status=unsubscribed");
+            if (c.bounceStatus === "hard") suppressionReasons.push(`bounce_status=hard (${c.bounceReason ?? "no reason recorded"})`);
+            if (c.complaintStatus === "reported") suppressionReasons.push("complaint_status=reported");
+            // SMS-only check — applied when the sequence step is SMS
+            if (step && step.actionType === "sms" && c.smsConsentStatus !== "opted_in" && c.smsConsentStatus !== undefined) {
+              suppressionReasons.push(`sms_consent_status=${c.smsConsentStatus ?? "not_collected"}`);
+            }
+
+            if (suppressionReasons.length > 0) {
+              const reason = suppressionReasons.join("; ");
+              await storage.updateSequenceEnrollment(enrollment.id, { status: "paused" });
+              await storage.createAuditLog({
+                action: "sequence_enrollment_suppressed",
+                entityType: "contact",
+                entityId: enrollment.contactId,
+                actorType: "system",
+                details: {
+                  enrollmentId: enrollment.id,
+                  sequenceId: sequence.id,
+                  sequenceName: sequence.name,
+                  reason,
+                  suppressionFields: suppressionReasons,
+                },
+              });
+              processed++;
+              continue;
+            }
+          }
         }
 
         let deal: any = null;

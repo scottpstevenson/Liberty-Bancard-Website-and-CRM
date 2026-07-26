@@ -1,10 +1,13 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Star } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Star, ShieldOff, AlertTriangle, CheckCircle2, XCircle, Ban } from "lucide-react";
+import { useState } from "react";
 import type { Contact } from "@shared/schema";
 import { DetailRow } from "./shared";
 
@@ -13,6 +16,137 @@ interface OverviewTabProps {
   dealsCount: number;
   openTicketsCount: number;
   pendingTasksCount: number;
+}
+
+// ── Suppression Status Card ───────────────────────────────────────────────────
+interface SuppressionStatus {
+  isSuppressed: boolean;
+  suppressionReasons: string[];
+  doNotContact: boolean;
+  dncReason?: string;
+  dncDate?: string;
+  dncSource?: string;
+  optOutStatus?: string;
+  optOutDate?: string;
+  unsubscribeStatus?: string;
+  unsubscribeDate?: string;
+  bounceStatus?: string;
+  bounceReason?: string;
+  complaintStatus?: string;
+  emailStatus?: string;
+  smsConsentStatus?: string;
+  suppressionHistory?: Array<{ reason: string; source: string; date: string }>;
+}
+
+function SuppressionStatusCard({ contact }: { contact: Contact }) {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [dncReason, setDncReason] = useState("");
+  const [showDncForm, setShowDncForm] = useState(false);
+
+  const { data: suppression, isLoading } = useQuery<SuppressionStatus>({
+    queryKey: [`/api/contacts/${contact.id}/suppression-status`],
+    staleTime: 30_000,
+  });
+
+  const markDnc = useMutation({
+    mutationFn: () => apiRequest("POST", `/api/contacts/${contact.id}/mark-dnc`, { reason: dncReason, source: "manual_crm" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [`/api/contacts/${contact.id}`] });
+      qc.invalidateQueries({ queryKey: [`/api/contacts/${contact.id}/suppression-status`] });
+      toast({ title: "Contact marked Do Not Contact", description: dncReason });
+      setDncReason("");
+      setShowDncForm(false);
+    },
+    onError: (err: any) => toast({ title: "Error", description: err?.message ?? "Could not update", variant: "destructive" }),
+  });
+
+  const statusBadge = (label: string, active: boolean, activeVariant: "destructive" | "secondary" = "destructive") => (
+    <Badge variant={active ? activeVariant : "outline"} className={active ? "" : "opacity-50"}>
+      {active ? <XCircle className="w-3 h-3 mr-1" /> : <CheckCircle2 className="w-3 h-3 mr-1" />}
+      {label}
+    </Badge>
+  );
+
+  if (isLoading) return null;
+  const s = suppression;
+
+  return (
+    <Card data-testid="card-suppression-status">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm font-semibold flex items-center gap-2">
+          <ShieldOff className="h-4 w-4 text-red-500" />
+          Compliance &amp; Suppression
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {s?.isSuppressed && (
+          <div className="flex items-center gap-2 p-2 rounded bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800">
+            <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+            <p className="text-xs text-red-700 dark:text-red-400 font-medium">
+              Suppressed — all automated sends blocked
+            </p>
+          </div>
+        )}
+
+        <div className="flex flex-wrap gap-1.5">
+          {statusBadge("Do Not Contact", !!s?.doNotContact)}
+          {statusBadge("Opted Out", s?.optOutStatus === "opted_out")}
+          {statusBadge("Unsubscribed", s?.unsubscribeStatus === "unsubscribed")}
+          {statusBadge("Hard Bounce", s?.bounceStatus === "hard")}
+          {statusBadge("Complaint", s?.complaintStatus === "reported")}
+          {statusBadge("SMS Consent", s?.smsConsentStatus === "opted_in", "secondary")}
+        </div>
+
+        {s?.doNotContact && s.dncReason && (
+          <p className="text-xs text-muted-foreground">
+            DNC reason: <span className="font-medium">{s.dncReason}</span>
+            {s.dncDate && ` — ${new Date(s.dncDate).toLocaleDateString()}`}
+          </p>
+        )}
+
+        {!s?.doNotContact && (
+          showDncForm ? (
+            <div className="space-y-2">
+              <Label className="text-xs">Reason for DNC (required)</Label>
+              <Input
+                value={dncReason}
+                onChange={e => setDncReason(e.target.value)}
+                placeholder="e.g. Requested no contact by phone"
+                className="text-sm h-8"
+                data-testid="input-dnc-reason"
+              />
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  disabled={dncReason.trim().length < 3 || markDnc.isPending}
+                  onClick={() => markDnc.mutate()}
+                  className="gap-1"
+                  data-testid="btn-confirm-dnc"
+                >
+                  <Ban className="w-3 h-3" /> Confirm DNC
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => { setShowDncForm(false); setDncReason(""); }}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1 text-red-600 border-red-200 hover:bg-red-50 dark:hover:bg-red-950/20"
+              onClick={() => setShowDncForm(true)}
+              data-testid="btn-mark-dnc"
+            >
+              <Ban className="w-3 h-3" /> Mark Do Not Contact
+            </Button>
+          )
+        )}
+      </CardContent>
+    </Card>
+  );
 }
 
 function DecisionMakerCard({ contact }: { contact: Contact }) {
@@ -113,6 +247,7 @@ export function OverviewTab({ contact, dealsCount, openTicketsCount, pendingTask
           </Card>
 
           <DecisionMakerCard contact={contact} />
+          <SuppressionStatusCard contact={contact} />
         </div>
       </div>
     </div>

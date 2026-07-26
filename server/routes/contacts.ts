@@ -1384,6 +1384,113 @@ export function registerContactsRoutes(app: Express) {
     }
   });
 
+  // ── Mark Do Not Contact ────────────────────────────────────────────────────
+  // POST /api/contacts/:id/mark-dnc
+  // Requires a reason. Records to audit_logs and updates suppression fields.
+  app.post("/api/contacts/:id/mark-dnc", isDashboardUser, async (req, res) => {
+    try {
+      const contactId = Number(req.params.id);
+      const schema = z.object({
+        reason: z.string().min(3).max(500),
+        source: z.string().optional().default("manual_crm"),
+      });
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: parsed.error.errors[0].message });
+      }
+      const { reason, source } = parsed.data;
+
+      const contact = await storage.getContact(contactId);
+      if (!contact) return res.status(404).json({ message: "Contact not found" });
+
+      const now = new Date();
+      const suppressionEvent = { reason, source, date: now.toISOString() };
+      const existingHistory: unknown[] = Array.isArray((contact as any).suppressionHistory) ? (contact as any).suppressionHistory : [];
+      const newHistory = [...existingHistory, suppressionEvent];
+
+      const { db: dncDb } = await import("../db");
+      const { sql: dncSql } = await import("drizzle-orm");
+      await dncDb.execute(dncSql`
+        UPDATE contacts SET
+          do_not_contact       = true,
+          dnc_reason           = ${reason},
+          dnc_date             = ${now},
+          dnc_source           = ${source},
+          suppression_reason   = ${"do_not_contact:" + reason},
+          suppression_history  = ${JSON.stringify(newHistory)}::jsonb,
+          opt_out_status       = 'opted_out',
+          opt_out_date         = ${now},
+          opt_out_channel      = ${source},
+          updated_at           = ${now}
+        WHERE id = ${contactId}
+      `);
+
+      await storage.createAuditLog({
+        action: "contact_marked_dnc",
+        entityType: "contact",
+        entityId: contactId,
+        actorType: "user",
+        actorId: String((req.user as any)?.id ?? "unknown"),
+        details: { reason, source, suppressionEvent },
+      });
+
+      // Suppress any active auto-enrollments
+      const { suppressNewLeadAutoEnrollmentForContact } = await import("../services/new-lead-enrollment-job");
+      suppressNewLeadAutoEnrollmentForContact(contactId, `dnc:${reason}`).catch((err: any) =>
+        console.error("[contacts/mark-dnc] suppression error:", err?.message)
+      );
+
+      res.json({ success: true, contactId, reason, markedAt: now.toISOString() });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Get suppression status ──────────────────────────────────────────────────
+  // GET /api/contacts/:id/suppression-status
+  app.get("/api/contacts/:id/suppression-status", isDashboardUser, async (req, res) => {
+    try {
+      const contactId = Number(req.params.id);
+      const contact = await storage.getContact(contactId) as any;
+      if (!contact) return res.status(404).json({ message: "Contact not found" });
+
+      const suppressionReasons: string[] = [];
+      if (contact.doNotContact) suppressionReasons.push("do_not_contact");
+      if (contact.optOutStatus === "opted_out") suppressionReasons.push("opt_out_status=opted_out");
+      if (contact.unsubscribeStatus === "unsubscribed") suppressionReasons.push("unsubscribed");
+      if (contact.bounceStatus === "hard") suppressionReasons.push("hard_bounce");
+      if (contact.complaintStatus === "reported") suppressionReasons.push("complaint_reported");
+      if (contact.emailStatus === "bounced" || contact.emailStatus === "invalid") suppressionReasons.push(`email_status=${contact.emailStatus}`);
+
+      res.json({
+        contactId,
+        isSuppressed: suppressionReasons.length > 0,
+        suppressionReasons,
+        suppressionReason: contact.suppressionReason || null,
+        doNotContact: contact.doNotContact,
+        dncReason: contact.dncReason,
+        dncDate: contact.dncDate,
+        dncSource: contact.dncSource,
+        optOutStatus: contact.optOutStatus || "active",
+        optOutDate: contact.optOutDate,
+        optOutChannel: contact.optOutChannel,
+        unsubscribeStatus: contact.unsubscribeStatus || "active",
+        unsubscribeDate: contact.unsubscribeDate,
+        bounceStatus: contact.bounceStatus || "none",
+        bounceDate: contact.bounceDate,
+        bounceReason: contact.bounceReason,
+        complaintStatus: contact.complaintStatus || "none",
+        complaintDate: contact.complaintDate,
+        emailStatus: contact.emailStatus,
+        smsConsentStatus: contact.smsConsentStatus || "not_collected",
+        suppressionHistory: contact.suppressionHistory || [],
+        nextAllowedContactDate: contact.nextAllowedContactDate || null,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
 }
 
 /**

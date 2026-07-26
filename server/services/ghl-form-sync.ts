@@ -65,6 +65,10 @@ export async function syncFormSubmissionToGhl(params: FormSyncParams): Promise<{
     if (contact.utmSource) customFields["lb_utm_source"] = contact.utmSource;
     if (contact.utmMedium) customFields["lb_utm_medium"] = contact.utmMedium;
     if (contact.utmCampaign) customFields["lb_utm_campaign"] = contact.utmCampaign;
+    if (contact.utmContent) customFields["lb_utm_content"] = contact.utmContent;
+    if (contact.utmTerm) customFields["lb_utm_term"] = contact.utmTerm;
+    if (contact.gclid) customFields["lb_gclid"] = contact.gclid;
+    if ((contact as any).referrerUrl) customFields["lb_referrer_url"] = (contact as any).referrerUrl;
     if (contact.promoCode) customFields["lb_promo_code"] = contact.promoCode;
     if (contact.landingPage) customFields["lb_landing_page"] = contact.landingPage;
     if (contact.estimatedResidual) customFields["lb_estimated_savings"] = contact.estimatedResidual;

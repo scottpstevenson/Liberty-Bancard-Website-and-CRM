@@ -76,6 +76,26 @@ export function registerDealsRoutes(app: Express) {
         await createPreferenceAwareNotification({ channel: "internal", title: "Deal Stage Changed", message: `Deal #${updated.id} moved from "${old.stage}" to "${updated.stage}"`, type: "info", metadata: { dealId: updated.id, eventType: "deal_stage_changed" } }, "deal_stage_changed");
         sendPushToAllReps({ title: "Deal Stage Changed", body: `Deal #${updated.id} moved from "${old.stage}" → "${updated.stage}"`, url: "/mobile/pipeline" }).catch(() => {});
 
+        // ── Attribution wiring: carry contact UTM/gclid onto deal at key milestones ──
+        if (["Call Booked", "Closed Won"].includes(updated.stage) && updated.contactId) {
+          storage.getContact(updated.contactId).then(async (attrContact) => {
+            if (!attrContact) return;
+            const { db: attrDb } = await import("../db");
+            const { sql: attrSql } = await import("drizzle-orm");
+            const now = new Date();
+            await attrDb.execute(attrSql`
+              UPDATE deals SET
+                attribution_gclid     = COALESCE(attribution_gclid, ${attrContact.gclid ?? null}),
+                attribution_source    = COALESCE(attribution_source, ${attrContact.utmSource ?? null}),
+                attribution_medium    = COALESCE(attribution_medium, ${attrContact.utmMedium ?? null}),
+                attribution_campaign  = COALESCE(attribution_campaign, ${attrContact.utmCampaign ?? null}),
+                booking_attributed_at   = CASE WHEN ${updated.stage} = 'Call Booked' AND booking_attributed_at IS NULL THEN ${now} ELSE booking_attributed_at END,
+                conversion_attributed_at = CASE WHEN ${updated.stage} = 'Closed Won' AND conversion_attributed_at IS NULL THEN ${now} ELSE conversion_attributed_at END
+              WHERE id = ${updated.id}
+            `);
+          }).catch(err => console.warn("[Deal Attribution] Wiring failed:", err.message));
+        }
+
         if (updated.stage === "Closed Won") {
           const closedWonAt = updated.updatedAt ? new Date(updated.updatedAt) : new Date();
           const closedContact = updated.contactId ? await storage.getContact(updated.contactId) : null;

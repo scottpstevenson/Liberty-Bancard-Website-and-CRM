@@ -179,7 +179,8 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       // Per-request UUID: each HTTP submission is a distinct event. BullMQ job retries
       // use this same UUID (stored in job data), ensuring intra-retry dedup stability.
       const submissionId = crypto.randomUUID();
-      const { businessName, contactName, email, mobile, vertical, currentProvider, interestedIn0Percent, needTerminal, notes, consentSms, referralCode, utmSource, utmMedium, utmCampaign, utmContent, utmTerm, landingPage, gclid } = req.body;
+      const { businessName, contactName, email, mobile, vertical, currentProvider, interestedIn0Percent, needTerminal, notes, consentSms, referralCode, utmSource, utmMedium, utmCampaign, utmContent, utmTerm, landingPage, gclid, referrerUrl: bodyReferrerUrl } = req.body;
+      const referrerUrl = bodyReferrerUrl || req.headers["referer"] || req.headers["referrer"] || undefined;
       const nameParts = (contactName || "").split(" ");
       const firstName = nameParts[0] || "";
       const lastName = nameParts.slice(1).join(" ") || "";
@@ -250,6 +251,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
               utmTerm: utmTerm || undefined,
               landingPage: landingPage || "/upload-statement",
               gclid: gclid || undefined,
+              referrerUrl: referrerUrl || undefined,
               status: "New",
               tags,
             },
@@ -351,7 +353,8 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
   app.post("/api/public/estimate", publicLeadRateLimit, async (req, res) => {
     try {
       const submissionId = crypto.randomUUID();
-      const { contactName, email, phone, monthlyVolume, totalFees, currentProvider, notes, pewcConsent: estimatePewcRaw, referralCode, utmSource, utmMedium, utmCampaign, utmContent, utmTerm, landingPage, gclid } = req.body;
+      const { contactName, email, phone, monthlyVolume, totalFees, currentProvider, notes, pewcConsent: estimatePewcRaw, referralCode, utmSource, utmMedium, utmCampaign, utmContent, utmTerm, landingPage, gclid, referrerUrl: estimateReferrerUrlBody } = req.body;
+      const estimateReferrerUrl = estimateReferrerUrlBody || req.headers["referer"] || req.headers["referrer"] || undefined;
       const nameParts = (contactName || "").split(" ");
       const firstName = nameParts[0] || "";
       const lastName = nameParts.slice(1).join(" ") || "";
@@ -371,6 +374,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
             utmSource, utmMedium, utmCampaign, utmContent, utmTerm,
             landingPage: landingPage || "/estimate",
             gclid: gclid || undefined,
+            referrerUrl: estimateReferrerUrl || undefined,
           }),
           incomingConsent: {},
           submissionId,
@@ -393,6 +397,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
             utmTerm: utmTerm || undefined,
             landingPage: landingPage || "/estimate",
             gclid: gclid || undefined,
+            referrerUrl: estimateReferrerUrl || undefined,
             status: "New",
             tags,
           },

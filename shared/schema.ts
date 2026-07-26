@@ -156,6 +156,32 @@ export const contacts = pgTable("contacts", {
   verticalSource: text("vertical_source"),
   verticalConfidence: integer("vertical_confidence"),
   manualVerticalOverride: boolean("manual_vertical_override"),
+  // ── Suppression / compliance metadata ────────────────────────────────────
+  leadConsentLevel: text("lead_consent_level").default("unknown"),     // unknown|implied|explicit|pewc
+  emailReadiness: text("email_readiness").default("unknown"),          // unknown|valid|invalid|bounced|unverifiable
+  smsConsentStatus: text("sms_consent_status").default("not_collected"), // not_collected|opted_in|opted_out|a2p_blocked
+  optOutStatus: text("opt_out_status").default("active"),              // active|opted_out
+  optOutDate: timestamp("opt_out_date"),
+  optOutChannel: text("opt_out_channel"),
+  unsubscribeStatus: text("unsubscribe_status").default("active"),     // active|unsubscribed
+  unsubscribeDate: timestamp("unsubscribe_date"),
+  bounceStatus: text("bounce_status").default("none"),                 // none|soft|hard
+  bounceDate: timestamp("bounce_date"),
+  bounceReason: text("bounce_reason"),
+  complaintStatus: text("complaint_status").default("none"),           // none|reported
+  complaintDate: timestamp("complaint_date"),
+  dncDate: timestamp("dnc_date"),
+  dncSource: text("dnc_source"),
+  existingMerchantCustomer: boolean("existing_merchant_customer").default(false),
+  suppressionReason: text("suppression_reason"),
+  suppressionHistory: jsonb("suppression_history").default(sql`'[]'::jsonb`),
+  nextAllowedContactDate: timestamp("next_allowed_contact_date"),
+  consentAuditTrail: jsonb("consent_audit_trail").default(sql`'[]'::jsonb`),
+  // ── Attribution extras ────────────────────────────────────────────────────
+  referrerUrl: text("referrer_url"),
+  sourcePath: text("source_path"),
+  importBatchId: text("import_batch_id"),
+  rowProvenance: jsonb("row_provenance"),
 }, (table) => [
   uniqueIndex("contacts_email_unique_idx").on(table.email).where(sql`archived_at IS NULL`),
   index("contacts_phone_idx").on(table.phone),
@@ -326,6 +352,13 @@ export const deals = pgTable("deals", {
   vertical: text("vertical"),
   autoEnrollmentSuppressedAt: timestamp("auto_enrollment_suppressed_at"),
   autoEnrollmentSuppressedReason: text("auto_enrollment_suppressed_reason"),
+  // ── Google Ads attribution ────────────────────────────────────────────────
+  attributionGclid: text("attribution_gclid"),
+  attributionSource: text("attribution_source"),
+  attributionMedium: text("attribution_medium"),
+  attributionCampaign: text("attribution_campaign"),
+  bookingAttributedAt: timestamp("booking_attributed_at"),
+  conversionAttributedAt: timestamp("conversion_attributed_at"),
 }, (table) => [
   index("deals_contact_id_idx").on(table.contactId),
   index("deals_pipeline_idx").on(table.pipeline),

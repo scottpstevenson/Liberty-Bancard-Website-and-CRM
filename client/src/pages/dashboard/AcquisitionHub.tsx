@@ -750,6 +750,170 @@ function BudgetPlannerTab() {
   );
 }
 
+// ─── Tab: ROI Calculator (CPL / CPB / CPS) ───────────────────────────────────
+
+interface RoiCalcData {
+  days: number;
+  totalLeads: number;
+  bookedCalls: number;
+  closedWon: number;
+  bySource: { source: string; leads: number; bookedCalls: number; closedWon: number }[];
+}
+
+function RoiCalculatorTab({ days }: { days: number }) {
+  const { data, isLoading } = useQuery<RoiCalcData>({ queryKey: ["/api/acquisition/roi-calculator", days] });
+  const [adSpend, setAdSpend] = useState(0);
+
+  if (isLoading) return <div className="py-12 text-center text-muted-foreground animate-pulse">Loading ROI data…</div>;
+  const d = data!;
+
+  const cpl = adSpend > 0 && d.totalLeads > 0 ? adSpend / d.totalLeads : null;
+  const cpb = adSpend > 0 && d.bookedCalls > 0 ? adSpend / d.bookedCalls : null;
+  const cps = adSpend > 0 && d.closedWon > 0 ? adSpend / d.closedWon : null;
+
+  const avgResidual = 35000 * (45 / 10000); // planning assumption
+  const estRoi = adSpend > 0 && d.closedWon > 0 ? ((d.closedWon * avgResidual * 12) - adSpend) / adSpend : null;
+
+  return (
+    <div className="space-y-5">
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Ad Spend Input</CardTitle>
+          <p className="text-xs text-muted-foreground">
+            Enter your total Google Ads spend for the selected period to calculate CPL, CPB, and CPS metrics.
+          </p>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center gap-3 max-w-xs">
+            <DollarSign className="w-4 h-4 text-muted-foreground shrink-0" />
+            <input
+              type="number"
+              min="0"
+              step="100"
+              value={adSpend || ""}
+              onChange={e => setAdSpend(Math.max(0, parseFloat(e.target.value) || 0))}
+              placeholder="0"
+              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              data-testid="input-ad-spend"
+            />
+            <span className="text-sm text-muted-foreground shrink-0">total spend</span>
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {[
+          { label: "Total Leads", value: d.totalLeads.toLocaleString(), sub: "in period", color: "text-blue-600" },
+          { label: "Booked Calls", value: d.bookedCalls.toLocaleString(), sub: "in period", color: "text-orange-600" },
+          { label: "Closed Won", value: d.closedWon.toLocaleString(), sub: "in period", color: "text-green-600" },
+          { label: "Ad Spend", value: adSpend > 0 ? fmt$(adSpend) : "—", sub: "entered above", color: "text-purple-600" },
+        ].map(k => (
+          <Card key={k.label}>
+            <CardContent className="pt-4 pb-3">
+              <p className="text-xs text-muted-foreground">{k.label}</p>
+              <p className={`text-2xl font-bold mt-0.5 ${k.color}`}>{k.value}</p>
+              <p className="text-xs text-muted-foreground">{k.sub}</p>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Card className={adSpend > 0 ? "" : "opacity-60"}>
+          <CardContent className="pt-5 pb-4 text-center">
+            <p className="text-xs text-muted-foreground mb-1">Cost Per Lead (CPL)</p>
+            <p className="text-3xl font-bold text-blue-600">{cpl !== null ? fmt$(cpl) : "—"}</p>
+            <p className="text-xs text-muted-foreground mt-1">{adSpend > 0 ? `${fmt$(adSpend)} ÷ ${d.totalLeads} leads` : "Enter spend above"}</p>
+          </CardContent>
+        </Card>
+        <Card className={adSpend > 0 ? "" : "opacity-60"}>
+          <CardContent className="pt-5 pb-4 text-center">
+            <p className="text-xs text-muted-foreground mb-1">Cost Per Booked Call (CPB)</p>
+            <p className="text-3xl font-bold text-orange-600">{cpb !== null ? fmt$(cpb) : "—"}</p>
+            <p className="text-xs text-muted-foreground mt-1">{adSpend > 0 ? `${fmt$(adSpend)} ÷ ${d.bookedCalls} calls` : "Enter spend above"}</p>
+          </CardContent>
+        </Card>
+        <Card className={adSpend > 0 ? "" : "opacity-60"}>
+          <CardContent className="pt-5 pb-4 text-center">
+            <p className="text-xs text-muted-foreground mb-1">Cost Per Signed Merchant (CPS)</p>
+            <p className="text-3xl font-bold text-green-600">{cps !== null ? fmt$(cps) : "—"}</p>
+            <p className="text-xs text-muted-foreground mt-1">{adSpend > 0 ? `${fmt$(adSpend)} ÷ ${d.closedWon} signups` : "Enter spend above"}</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {adSpend > 0 && estRoi !== null && (
+        <Card className={estRoi > 0 ? "border-green-200 bg-green-50/50 dark:bg-green-950/10" : "border-red-200 bg-red-50/50 dark:bg-red-950/10"}>
+          <CardContent className="pt-4 pb-4">
+            <div className="flex items-center gap-3">
+              <TrendingUp className={`w-5 h-5 ${estRoi > 0 ? "text-green-600" : "text-red-500"}`} />
+              <div>
+                <p className="text-sm font-semibold">
+                  Estimated 12-Month ROI:{" "}
+                  <span className={estRoi > 0 ? "text-green-700 dark:text-green-400" : "text-red-600"}>
+                    {estRoi > 0 ? "+" : ""}{Math.round(estRoi * 100)}%
+                  </span>
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Based on {d.closedWon} merchants × {fmt$(avgResidual)}/mo avg residual × 12 months vs {fmt$(adSpend)} spend.
+                  Assumes 45 bps on $35k avg volume. Validate against actual merchant data.
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {d.bySource.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">CPL/CPB/CPS by Source</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-xs text-muted-foreground">
+                    <th className="text-left pb-2 font-medium">Source</th>
+                    <th className="text-right pb-2 font-medium">Leads</th>
+                    <th className="text-right pb-2 font-medium">Booked</th>
+                    <th className="text-right pb-2 font-medium">Won</th>
+                    {adSpend > 0 && <>
+                      <th className="text-right pb-2 font-medium">Est. CPL</th>
+                      <th className="text-right pb-2 font-medium">Est. CPB</th>
+                      <th className="text-right pb-2 font-medium">Est. CPS</th>
+                    </>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {d.bySource.map((r, i) => {
+                    const totalLeads = d.bySource.reduce((s, x) => s + x.leads, 0);
+                    const shareOfLeads = totalLeads > 0 ? r.leads / totalLeads : 0;
+                    const sourceSpend = adSpend * shareOfLeads;
+                    return (
+                      <tr key={i} className="border-b border-muted/40">
+                        <td className="py-2 truncate max-w-[140px]">{r.source}</td>
+                        <td className="py-2 text-right">{r.leads}</td>
+                        <td className="py-2 text-right">{r.bookedCalls}</td>
+                        <td className="py-2 text-right text-green-600 font-medium">{r.closedWon}</td>
+                        {adSpend > 0 && <>
+                          <td className="py-2 text-right text-blue-600">{r.leads > 0 ? fmt$(sourceSpend / r.leads) : "—"}</td>
+                          <td className="py-2 text-right text-orange-600">{r.bookedCalls > 0 ? fmt$(sourceSpend / r.bookedCalls) : "—"}</td>
+                          <td className="py-2 text-right text-green-600">{r.closedWon > 0 ? fmt$(sourceSpend / r.closedWon) : "—"}</td>
+                        </>}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
 // ─── Tab: Readiness Audit ─────────────────────────────────────────────────────
 
 function ReadinessAuditTab() {
@@ -853,6 +1017,7 @@ export default function AcquisitionHub() {
   const tabs = [
     { id: "overview", label: "Funnel" },
     { id: "roi", label: "ROI by Vertical" },
+    { id: "roi-calc", label: "ROI Calculator" },
     { id: "quality", label: "Lead Quality" },
     { id: "keywords", label: "Keyword Map" },
     { id: "sequences", label: "Sequences" },
@@ -861,7 +1026,7 @@ export default function AcquisitionHub() {
     { id: "readiness", label: "Readiness Audit" },
   ];
 
-  const needsDays = ["overview", "roi", "quality", "sequences", "conversions"];
+  const needsDays = ["overview", "roi", "roi-calc", "quality", "sequences", "conversions"];
 
   return (
     <div className="flex flex-col gap-6 p-6">
@@ -900,6 +1065,7 @@ export default function AcquisitionHub() {
 
         <TabsContent value="overview" className="mt-4"><OverviewTab days={days} /></TabsContent>
         <TabsContent value="roi" className="mt-4"><RoiByVerticalTab days={days} /></TabsContent>
+        <TabsContent value="roi-calc" className="mt-4"><RoiCalculatorTab days={days} /></TabsContent>
         <TabsContent value="quality" className="mt-4"><LeadQualityTab days={days} /></TabsContent>
         <TabsContent value="keywords" className="mt-4"><KeywordMapTab /></TabsContent>
         <TabsContent value="sequences" className="mt-4"><SequencesTab days={days} /></TabsContent>

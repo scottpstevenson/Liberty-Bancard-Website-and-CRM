@@ -378,7 +378,8 @@ export function registerAcquisitionRoutes(app: Express): void {
       const days = parseDays(req.query.days);
       const since = new Date(Date.now() - days * 86_400_000);
 
-      // Export conversion events suitable for Google Ads offline conversion import
+      // Export conversion events suitable for Google Ads offline conversion import.
+      // Includes actual gclid from contacts table for direct Google Ads matching.
       const rows = await pool.query<{
         event_id: string;
         event_name: string;
@@ -388,6 +389,7 @@ export function registerAcquisitionRoutes(app: Express): void {
         utm_source: string;
         utm_medium: string;
         gclid_present: boolean;
+        gclid: string | null;
         vertical: string;
         conversion_value: string;
       }>(
@@ -396,11 +398,12 @@ export function registerAcquisitionRoutes(app: Express): void {
            ae.event_name,
            ae.occurred_at,
            COALESCE(c.email, '') AS contact_email,
-           COALESCE(ae.utm_campaign, '') AS utm_campaign,
-           COALESCE(ae.utm_source, '') AS utm_source,
-           COALESCE(ae.utm_medium, '') AS utm_medium,
-           COALESCE(ae.gclid_present, false) AS gclid_present,
-           COALESCE(ae.vertical, c.industry, '') AS vertical,
+           COALESCE(ae.utm_campaign, c.utm_campaign, '') AS utm_campaign,
+           COALESCE(ae.utm_source, c.utm_source, '') AS utm_source,
+           COALESCE(ae.utm_medium, c.utm_medium, '') AS utm_medium,
+           COALESCE(ae.gclid_present, c.gclid IS NOT NULL, false) AS gclid_present,
+           c.gclid AS gclid,
+           COALESCE(ae.vertical, c.industry, c.vertical, '') AS vertical,
            '1.00' AS conversion_value
          FROM analytics_events ae
          LEFT JOIN contacts c ON c.id = ae.contact_id
@@ -415,7 +418,9 @@ export function registerAcquisitionRoutes(app: Express): void {
       );
 
       if (req.query.format === "csv") {
-        const header = "Google Click ID Present,Conversion Name,Conversion Time,Conversion Value,Email,Campaign,Source,Medium,Vertical,Event ID\n";
+        // Google Ads offline conversion format:
+        // https://support.google.com/google-ads/answer/7014069
+        const header = "Google Click ID,Conversion Name,Conversion Time,Conversion Value,Conversion Currency,Email,Campaign,Source,Medium,Vertical,Event ID\n";
         const csvRows = rows.rows.map(r => {
           const convName = {
             statement_uploaded: "StatementUpload",
@@ -426,10 +431,11 @@ export function registerAcquisitionRoutes(app: Express): void {
           }[r.event_name] ?? r.event_name;
           const ts = new Date(r.occurred_at).toISOString();
           return [
-            r.gclid_present ? "Yes" : "No",
+            r.gclid ?? "",           // actual gclid for Google Ads matching
             convName,
             ts,
             r.conversion_value,
+            "USD",
             r.contact_email,
             r.utm_campaign,
             r.utm_source,
@@ -862,6 +868,58 @@ export function registerAcquisitionRoutes(app: Express): void {
         },
       ],
     });
+  });
+
+  // ── ROI Calculator: CPL / CPB / CPS data ─────────────────────────────────
+  app.get("/api/acquisition/roi-calculator", isDashboardUser, async (req, res) => {
+    try {
+      const days = parseDays(req.query.days);
+      const since = new Date(Date.now() - days * 86_400_000);
+
+      const [totals, bySource] = await Promise.all([
+        pool.query<{ total_leads: string; booked_calls: string; closed_won: string }>(
+          `SELECT
+             COUNT(DISTINCT c.id)::text AS total_leads,
+             COUNT(DISTINCT CASE WHEN d.stage = 'Call Booked' THEN d.id END)::text AS booked_calls,
+             COUNT(DISTINCT CASE WHEN d.stage = 'Closed Won' THEN d.id END)::text AS closed_won
+           FROM contacts c
+           LEFT JOIN deals d ON d.contact_id = c.id
+           WHERE c.created_at >= $1 AND c.archived_at IS NULL`,
+          [since],
+        ),
+        pool.query<{ source: string; leads: string; booked_calls: string; closed_won: string }>(
+          `SELECT
+             COALESCE(c.utm_source, 'organic/direct') AS source,
+             COUNT(DISTINCT c.id)::text AS leads,
+             COUNT(DISTINCT CASE WHEN d.stage = 'Call Booked' THEN d.id END)::text AS booked_calls,
+             COUNT(DISTINCT CASE WHEN d.stage = 'Closed Won' THEN d.id END)::text AS closed_won
+           FROM contacts c
+           LEFT JOIN deals d ON d.contact_id = c.id
+           WHERE c.created_at >= $1 AND c.archived_at IS NULL
+           GROUP BY source
+           ORDER BY leads::int DESC
+           LIMIT 15`,
+          [since],
+        ),
+      ]);
+
+      const t = totals.rows[0];
+      res.json({
+        days,
+        totalLeads: parseInt(t?.total_leads ?? "0", 10),
+        bookedCalls: parseInt(t?.booked_calls ?? "0", 10),
+        closedWon: parseInt(t?.closed_won ?? "0", 10),
+        bySource: bySource.rows.map(r => ({
+          source: r.source,
+          leads: parseInt(r.leads, 10),
+          bookedCalls: parseInt(r.booked_calls, 10),
+          closedWon: parseInt(r.closed_won, 10),
+        })),
+      });
+    } catch (err: any) {
+      console.error("[Acquisition] /roi-calculator error:", err.message);
+      res.status(500).json({ message: err.message });
+    }
   });
 
   // ── Statement upload → call SLA alert ────────────────────────────────────
