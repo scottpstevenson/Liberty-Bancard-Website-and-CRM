@@ -761,6 +761,21 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
               }
             }
 
+            // ── Test intercept: deliveryTestRedirectEmail ────────────────────────
+            // When set, every outbound sequence email is redirected to this address.
+            // Original recipient + sequence context are prepended to the subject so
+            // the operator can audit exactly who each email would have gone to.
+            // Safe to leave unset in production — null means no redirect.
+            const testRedirectRaw = await storage.getSystemSetting("deliveryTestRedirectEmail");
+            const testRedirectTo: string | null =
+              typeof testRedirectRaw === "string" && testRedirectRaw.trim()
+                ? testRedirectRaw.trim() : null;
+            const interpolatedSubject = interpolate(subjectToSend);
+            const deliverySubject = testRedirectTo
+              ? `[→ ${contact?.email ?? "no-email"} | ${sequence.name} | Step ${step.stepOrder}] ${interpolatedSubject}`
+              : interpolatedSubject;
+            const deliveryEmailTo = testRedirectTo ?? contact?.email ?? "";
+
             if ((useGmailForThisStep || useSmtpForThisStep || isGhlConfigured()) && enrollment.contactId) {
               // ── Atomic cap reservation (cold outreach only) ───────────────────
               // Reserve a send slot via a single conditional upsert.  The WHERE
@@ -875,8 +890,8 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
                   const token = generateUnsubscribeToken(enrollment.contactId);
                   const unsubscribeUrl = `${appUrlForToken}/unsubscribe?t=${encodeURIComponent(token)}`;
                   const result = await sendGmailEmail({
-                    to: contact.email,
-                    subject: interpolate(subjectToSend),
+                    to: deliveryEmailTo,
+                    subject: deliverySubject,
                     html: emailBody,
                     category: "department_accounts",
                     unsubscribeUrl,
@@ -890,8 +905,8 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
                   const token = generateUnsubscribeToken(enrollment.contactId);
                   const unsubscribeUrl = `${appUrlForToken}/unsubscribe?t=${encodeURIComponent(token)}`;
                   const result = await sendSmtpEmail({
-                    to: contact.email,
-                    subject: interpolate(subjectToSend),
+                    to: deliveryEmailTo,
+                    subject: deliverySubject,
                     html: emailBody,
                     category: "cold_outreach",
                     unsubscribeUrl,
@@ -901,21 +916,34 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
                   await markSendSent({ idempotencyKey: emailIdemKey, providerMessageId: result.messageId, fromAddress: "Scott@mail.libertybancard.com" });
                 } else {
                   // GHL: cold outreach from Scott@mail.libertybancard.com
+                  // When test intercept is active, fall back to SMTP to the redirect address
+                  // because GHL sends via contactId and would reach the real contact directly.
                   const fromEmail = isColdEmail ? "Scott@mail.libertybancard.com" : "accounts@libertybancard.com";
                   const fromName  = isColdEmail ? "Scott Stevenson" : "Your Liberty Bancard Account Team";
                   // replyTo ensures prospect replies land in a monitored inbox:
                   //   cold outreach → scott@libertybancard.com (not the dedicated send mailbox)
                   //   accounts      → accounts@libertybancard.com (monitored alias)
                   const replyTo   = isColdEmail ? "scott@libertybancard.com" : "accounts@libertybancard.com";
-                  const ghlResult = await sendGhlEmail({
-                    contactId: enrollment.contactId,
-                    subject: interpolate(subjectToSend),
-                    body: emailBody,
-                    fromEmail,
-                    fromName,
-                    replyTo,
-                  }) as any;
-                  await markSendSent({ idempotencyKey: emailIdemKey, providerMessageId: ghlResult?.messageId, fromAddress: fromEmail });
+                  if (testRedirectTo && isSmtpConfigured()) {
+                    const result = await sendSmtpEmail({
+                      to: testRedirectTo,
+                      subject: deliverySubject,
+                      html: emailBody,
+                      category: "cold_outreach",
+                    });
+                    if (!result.success) throw new Error(result.error || "SMTP redirect send failed");
+                    await markSendSent({ idempotencyKey: emailIdemKey, providerMessageId: result.messageId, fromAddress: fromEmail });
+                  } else {
+                    const ghlResult = await sendGhlEmail({
+                      contactId: enrollment.contactId,
+                      subject: deliverySubject,
+                      body: emailBody,
+                      fromEmail,
+                      fromName,
+                      replyTo,
+                    }) as any;
+                    await markSendSent({ idempotencyKey: emailIdemKey, providerMessageId: ghlResult?.messageId, fromAddress: fromEmail });
+                  }
                 }
                 stepExecuted = true;
               } catch (emailErr) {
