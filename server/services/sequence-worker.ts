@@ -1,6 +1,22 @@
 import { storage } from "../storage";
 import { sendGhlEmail, sendGhlSms, isGhlConfigured } from "./ghl";
 import { getEmailSignatureHtml, getComplianceFooterHtml, isColdOutreachSequence } from "./email-signatures";
+import type { SignatureType } from "./sender-policy";
+
+/**
+ * Map a sequence's triggerConfig.category to the correct email signature type.
+ * - "operations" (Account Management) → "accounts"  — no cold CTAs, no promo, account team identity
+ * - "support"                          → "support"
+ * - "onboarding"                       → "onboarding"
+ * - "sdr", "inbound", or unrecognized  → "sales"     — full cold outreach signature with CTAs
+ */
+function resolveSignatureType(triggerConfig: Record<string, unknown>): SignatureType {
+  const category = typeof triggerConfig.category === "string" ? triggerConfig.category : "";
+  if (category === "operations") return "accounts";
+  if (category === "support")    return "support";
+  if (category === "onboarding") return "onboarding";
+  return "sales";
+}
 import { createPreferenceAwareNotification } from "./digest-service";
 import { enrollContactInGhlWorkflow, tagContactForInboxOrganization } from "./ghl-workflow-enrollment";
 import { addNote as ghlAddNote, addTag as ghlAddTag, triggerWorkflow as ghlTriggerWorkflow, isSdrGhlConfigured } from "./sdr/ghl-client";
@@ -629,7 +645,8 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
               }
             }
 
-            const emailBody = interpolate(bodyToSend) + getEmailSignatureHtml("sales") + complianceFooter;
+            const sigType = resolveSignatureType((sequence.triggerConfig as any) || {});
+            const emailBody = interpolate(bodyToSend) + getEmailSignatureHtml(sigType) + complianceFooter;
 
             // ── Per-channel pause gate (email) ────────────────────────────────
             // Checked after global pause (already verified above) and contactability.
@@ -919,7 +936,7 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
                   // When test intercept is active, fall back to SMTP to the redirect address
                   // because GHL sends via contactId and would reach the real contact directly.
                   const fromEmail = isColdEmail ? "Scott@mail.libertybancard.com" : "accounts@libertybancard.com";
-                  const fromName  = isColdEmail ? "Scott Stevenson" : "Your Liberty Bancard Account Team";
+                  const fromName  = isColdEmail ? "Scott Stevenson" : "Liberty Bancard Account Management";
                   // replyTo ensures prospect replies land in a monitored inbox:
                   //   cold outreach → scott@libertybancard.com (not the dedicated send mailbox)
                   //   accounts      → accounts@libertybancard.com (monitored alias)

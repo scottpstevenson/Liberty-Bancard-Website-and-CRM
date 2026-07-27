@@ -72,8 +72,8 @@ const DEFAULT_SIGNATURES: Record<SignatureType, EmailSignature> = {
     website: BASE_URL,
   },
   accounts: {
-    name: "Your Liberty Bancard Account Team",
-    title: "Account Services",
+    name: "Liberty Bancard Account Management",
+    title: "Account Management",
     phone: "954-266-8214",
     email: "accounts@libertybancard.com",
     website: BASE_URL,
