@@ -79,8 +79,15 @@ async function main() {
     SELECT id FROM contacts
     WHERE
       email ILIKE '%@test.invalid'
+      OR email ILIKE '%@test.internal'
       OR email ILIKE '%@libertybancard.test'
-      OR email ILIKE 'qa-release-test-%'
+      OR email ILIKE '%@example.test'
+      OR email ILIKE 'wh-test-%'
+      OR email ILIKE 'no-op-%'
+      OR email ILIKE 'test-ca-%'
+      OR email ILIKE 'qa-release-%'
+      OR email ILIKE 'qa-appt-%'
+      OR first_name ILIKE 'WebhookTest%'
       OR first_name ILIKE 'testnle%'
       OR (first_name = 'StmtTest' AND last_name = 'QAUser')
   `);
