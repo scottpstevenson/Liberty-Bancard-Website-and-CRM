@@ -162,35 +162,6 @@ async function main() {
   });
   console.log();
 
-  // ── 2b. Patch triggerConfig: inject outboundChannels: ["email"] ───────────
-  // enrollContactInGhlWorkflow defaults to checking ALL channels (email+sms+voice).
-  // Cold contacts at cold_no_consent tier fail the SMS gate, blocking enrollment.
-  // Patching to email-only lets the enrollment through; SMS steps are skipped at
-  // the per-step gate. We restore the original config after the test.
-  const seqIds = sequences.map(s => s.id);
-  const originalTriggerConfigs = new Map(sequences.map(s => [s.id, s.trigger_config]));
-
-  for (const s of sequences) {
-    const patched = { ...(s.trigger_config ?? {}), outboundChannels: ["email"] };
-    await db.execute(sql`
-      UPDATE follow_up_sequences
-      SET trigger_config = ${JSON.stringify(patched)}::jsonb
-      WHERE id = ${s.id}
-    `);
-  }
-  console.log(`${INFO} Patched triggerConfig outboundChannels→["email"] on ${seqIds.length} sequences (restored after test)\n`);
-
-  async function restoreTriggerConfigs() {
-    for (const [seqId, origConfig] of originalTriggerConfigs) {
-      await db.execute(sql`
-        UPDATE follow_up_sequences
-        SET trigger_config = ${origConfig ? JSON.stringify(origConfig) : null}::jsonb
-        WHERE id = ${seqId}
-      `);
-    }
-    console.log("🔁 Sequence triggerConfigs restored.");
-  }
-
   // ── 3. Select contacts ─────────────────────────────────────────────────────
   const contactRows = await db.execute(sql`
     SELECT id, first_name, last_name, email, company_name, lifecycle_stage
@@ -206,7 +177,6 @@ async function main() {
 
   if (contactRows.rows.length < sequences.length) {
     console.error(`${FAIL} Not enough valid contacts (found ${contactRows.rows.length}, need ${sequences.length}).`);
-    await restoreTriggerConfigs();
     await restoreSettings();
     process.exit(1);
   }
@@ -399,7 +369,7 @@ async function main() {
     console.log(`  ${INFO} No sends recorded — template check skipped`);
   }
 
-  // ── 9. Cleanup test enrollments + restore triggerConfig ───────────────────
+  // ── 9. Cleanup test enrollments ───────────────────────────────────────────
   console.log("\n── Cleanup ────────────────────────────────────────────────");
   if (testEnrollmentIds.length > 0) {
     const idList = testEnrollmentIds.join(",");
@@ -409,7 +379,6 @@ async function main() {
     console.log("  ✓ No test enrollments to clean up");
   }
 
-  await restoreTriggerConfigs();
   await restoreSettings();
 
   // ── 10. Final verdict ─────────────────────────────────────────────────────

@@ -284,12 +284,17 @@ async function testCase10(): Promise<void> {
 async function testCase11(): Promise<void> {
   console.log("\nCase 11 (Pre-Enrollment Gate): cold/no-consent contact blocked for SMS sequence");
   const contactId = await makeContact({ consentTier: "cold_no_consent", sourceCategory: "scraped" });
+  // Use a unique trigger type per run to avoid stale sequences from previous test runs
+  // that may have been backfilled with outboundChannels:["email"] by migration 0092.
+  const triggerType11 = `test_gate_sms_cold_${Date.now()}_${Math.random().toString(36).slice(2)}`;
   const seqId = await makeAutoTriggerSequence({
-    triggerType: "test_gate_sms_cold",
+    triggerType: triggerType11,
     stepActionTypes: ["email", "sms"],
+    // No outboundChannels declared — gate uses step-derived channels {email, sms};
+    // cold contacts fail the SMS check and are blocked at enrollment.
   });
 
-  const result = await autoEnrollFromTrigger("test_gate_sms_cold", { contactId });
+  const result = await autoEnrollFromTrigger(triggerType11, { contactId });
   assert("cold contact: autoEnrollFromTrigger returns 0 for SMS sequence", result.count === 0, `enrolled=${result.count}`);
 
   const rowExists = await enrollmentRowExists(contactId, seqId);
@@ -326,42 +331,50 @@ async function testCase13(): Promise<void> {
     emailStatus: "active",
     smsStatus: "active",
   });
-  // Sequence has both email + sms steps; warm_no_pewc passes email but not SMS
+  // Use a unique trigger type per run to avoid stale sequences from previous test runs
+  // that may have been backfilled with outboundChannels:["email"] by migration 0092.
+  const triggerType13 = `test_gate_mixed_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  // No outboundChannels declared — gate uses step-derived channels {email, sms};
+  // warm_no_pewc contacts fail the SMS check and are blocked at enrollment.
   const seqId = await makeAutoTriggerSequence({
-    triggerType: "test_gate_mixed",
+    triggerType: triggerType13,
     stepActionTypes: ["email", "sms"],
   });
 
-  const result = await autoEnrollFromTrigger("test_gate_mixed", { contactId });
+  const result = await autoEnrollFromTrigger(triggerType13, { contactId });
   assert("warm contact: mixed-channel sequence blocked (SMS requires PEWC)", result.count === 0, `enrolled=${result.count}`);
 
   const rowExists = await enrollmentRowExists(contactId, seqId);
   assert("warm contact: no enrollment row for mixed sequence", !rowExists);
 
-  // ── Conflict scenario: triggerConfig.outboundChannels=["email"] but steps include sms ──
-  // The union approach must still check SMS even when the declared channels list is narrower.
-  console.log("  [Case 13b: outboundChannels=[email] but steps include sms — union still blocks]");
+  // ── Case 13b: declared outboundChannels=["email"] is authoritative — enrollment allowed ──
+  // When triggerConfig.outboundChannels is explicitly set, it is used as the sole
+  // authority for the enrollment gate; step-derived channels are NOT unioned in.
+  // The per-step gates (Gate b + SMS consent skip) handle SMS compliance at execution
+  // time, so the enrollment gate only needs to check the declared channels.
+  console.log("  [Case 13b: outboundChannels=[email] declared — warm contact CAN enroll; SMS handled per-step]");
   const contactId2 = await makeContact({
     consentTier: "warm_no_pewc",
     sourceCategory: "inbound",
     emailStatus: "active",
     smsStatus: "active",
   });
-  // Sequence declares only email in outboundChannels but has an sms step
+  // Sequence declares email-only in outboundChannels; has an sms step that will be
+  // skipped per-step by Gate (b) / SMS consent skip when the enrollment runs.
   const seqId2 = await makeAutoTriggerSequence({
-    triggerType: "test_gate_mixed_conflict",
+    triggerType: "test_gate_mixed_declared_email",
     stepActionTypes: ["email", "sms"],
-    outboundChannels: ["email"], // narrower than actual steps
+    outboundChannels: ["email"], // declared authority — gate checks email only
   });
 
-  const result2 = await autoEnrollFromTrigger("test_gate_mixed_conflict", { contactId: contactId2 });
+  const result2 = await autoEnrollFromTrigger("test_gate_mixed_declared_email", { contactId: contactId2 });
   assert(
-    "union: outboundChannels=[email] + sms step — warm contact still blocked (SMS requires PEWC)",
-    result2.count === 0,
-    `enrolled=${result2.count} — step-derived sms channel must be evaluated even when outboundChannels only declares email`
+    "declared outboundChannels=[email]: warm contact CAN enroll in mixed sequence (SMS skipped per-step)",
+    result2.count === 1,
+    `enrolled=${result2.count} — declared email-only outboundChannels should allow enrollment; SMS handled at step execution time`
   );
   const rowExists2 = await enrollmentRowExists(contactId2, seqId2);
-  assert("union: no enrollment row for conflict-scenario sequence", !rowExists2);
+  assert("declared outboundChannels=[email]: enrollment row created for mixed sequence", rowExists2);
 }
 
 // ── Case 14: processSequenceEnrollments Gate (a) still re-checks before first send ──

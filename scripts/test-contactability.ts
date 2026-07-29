@@ -366,51 +366,47 @@ async function runGateIntegrationTests() {
   assert("enrollContactInGhlWorkflow: doNotContact blocked before contactability gate", !dncGhlResult.enrolled, JSON.stringify(dncGhlResult));
   assert("enrollContactInGhlWorkflow: doNotContact reason is the existing DNC check", dncGhlResult.reason === "Contact is on do-not-contact list", `reason=${dncGhlResult.reason}`);
 
-  // ── Fail-closed default: omitting outboundChannels blocks warm contacts ──
-  console.log("\n  [enrollContactInGhlWorkflow gate — fail-closed default (no outboundChannels)]");
+  // ── Email-first default: omitting outboundChannels defaults to ["email"] ──
+  // The previous all-channels fail-closed default was changed so that cold/warm
+  // contacts can be enrolled in mixed email+SMS sequences without PEWC.  SMS steps
+  // are skipped per-step (sequence_step_skipped_sms_no_consent) until PEWC consent
+  // is obtained.  Callers that need to gate on SMS/voice at enrollment time must
+  // pass those channels explicitly in outboundChannels.
+  console.log("\n  [enrollContactInGhlWorkflow gate — email-first default (no outboundChannels)]");
   const warmGhlId = await createTestContact({ sourceCategory: "inbound", consentTier: "warm_no_pewc", leadSource: "website" });
 
-  // When outboundChannels is omitted, default is all automated channels (email + sms + voice_ai + ringless_vm).
-  // Warm contacts (warm_no_pewc) cannot receive SMS/voice — so enrollment must be blocked.
+  // When outboundChannels is omitted, default is ["email"].
+  // Warm contacts (warm_no_pewc) can receive email — the contactability gate passes.
+  // Enrollment may still be 'skipped' if GHL is not configured in the test env.
   const warmDefaultResult = await enrollContactInGhlWorkflow({
     contactId: warmGhlId,
-    sequenceName: "Wave 1A Fail-Closed Test",
+    sequenceName: "Wave 1A Default-Channels Test",
     sequenceId: 0,
   });
   assert(
-    "fail-closed default: warm_no_pewc contact blocked when outboundChannels is omitted",
-    !warmDefaultResult.enrolled,
-    `Expected enrollment blocked (SMS/voice require PEWC), got enrolled=${warmDefaultResult.enrolled}, reason=${warmDefaultResult.reason}`
-  );
-  assert(
-    "fail-closed default: block reason is consent/PEWC/feature-flag — NOT DNC or doNotAutoContact",
-    (warmDefaultResult.reason?.toLowerCase().includes("consent") ||
-     warmDefaultResult.reason?.toLowerCase().includes("pewc") ||
-     warmDefaultResult.reason?.toLowerCase().includes("flag") ||
-     warmDefaultResult.reason?.toLowerCase().includes("sms") ||
-     warmDefaultResult.reason?.toLowerCase().includes("voice")),
-    `reason=${warmDefaultResult.reason}`
+    "email-first default: warm_no_pewc contact NOT blocked by consent/PEWC gate when outboundChannels is omitted",
+    !warmDefaultResult.reason?.toLowerCase().includes("pewc") &&
+    !warmDefaultResult.reason?.toLowerCase().includes("consent tier") &&
+    !warmDefaultResult.reason?.toLowerCase().includes("sms requires") &&
+    !warmDefaultResult.reason?.toLowerCase().includes("voice requires"),
+    `Blocked by consent/channel gate when should pass email-only check: reason=${warmDefaultResult.reason}`
   );
 
-  // Explicitly email-only: warm contact CAN be enrolled when caller specifies email only
-  console.log("\n  [enrollContactInGhlWorkflow gate — email-only outboundChannels, warm contact]");
+  // Explicitly email-only: same outcome as default — warm contact passes the enrollment gate
+  console.log("\n  [enrollContactInGhlWorkflow gate — explicit email-only outboundChannels, warm contact]");
   const warmEmailResult = await enrollContactInGhlWorkflow({
     contactId: warmGhlId,
     sequenceName: "Wave 1A Email-Only Test",
     sequenceId: 0,
     outboundChannels: ["email"],
   });
+  // Note: may still be 'skipped' if GHL is not configured — that is fine;
+  // the contactability gate must NOT be the reason for blocking.
   assert(
-    "email-only outboundChannels: warm_no_pewc contact allowed for email-only workflow",
-    warmEmailResult.enrolled || warmEmailResult.reason !== "Contact is on do-not-contact list",
-    `Enrollment blocked for wrong reason: ${warmEmailResult.reason}`
-  );
-  // Note: may still be blocked due to GHL not configured in test env, which is fine —
-  // the contactability gate passes; the method will be 'skipped' only if GHL is unconfigured.
-  assert(
-    "email-only outboundChannels: not blocked by consent gate",
-    !warmEmailResult.reason?.toLowerCase().includes("pewc") && !warmEmailResult.reason?.toLowerCase().includes("consent tier"),
-    `Blocked by consent when should be allowed: ${warmEmailResult.reason}`
+    "explicit email-only outboundChannels: warm_no_pewc contact not blocked by consent gate",
+    !warmEmailResult.reason?.toLowerCase().includes("pewc") &&
+    !warmEmailResult.reason?.toLowerCase().includes("consent tier"),
+    `Blocked by consent when should be allowed: reason=${warmEmailResult.reason}`
   );
 }
 

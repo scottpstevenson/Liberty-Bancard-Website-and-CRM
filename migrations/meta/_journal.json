@@ -652,6 +652,13 @@
       "when": 1788300000000,
       "tag": "0091_merchant_onboarding_stages",
       "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1788400000000,
+      "tag": "0092_sequence_outbound_channels",
+      "breakpoints": true
     }
   ]
 }

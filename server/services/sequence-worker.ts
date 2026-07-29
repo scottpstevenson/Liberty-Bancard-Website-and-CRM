@@ -400,9 +400,83 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
             continue;
           }
 
+          // ── SMS-step consent skip ──────────────────────────────────────────
+          // When the current step is SMS and the contact is not eligible for SMS
+          // outreach (i.e. evaluateContactability returns !allowed for the "sms"
+          // channel), skip THIS STEP and advance to the next — do NOT pause the
+          // enrollment.  Cold contacts enrolled in mixed email+SMS sequences (e.g.
+          // SDR Outbound) continue receiving email steps; SMS steps resume
+          // automatically once the contact completes PEWC (consentTier advances to
+          // pewc_full_automation).  Contacts that ARE eligible fall through to the
+          // normal SMS send path below.
+          //
+          // Note: hard blocks (DNC, opt-out, hard-bounce, complaint) are caught
+          // earlier by the suppression gate and pause the enrollment before we ever
+          // reach this check, so anything failing here is purely a consent-tier
+          // (soft) block that is safe to skip.
+          if (contact && step && step.actionType === "sms" && enrollment.contactId) {
+            const { evaluateContactability: evalSmsContactability } = await import("./contactability");
+            const smsCheck = await evalSmsContactability({
+              contactId: enrollment.contactId,
+              channel: "sms",
+              campaignType: "sequence_step",
+              mode: "enforcement",
+            });
+            // Only skip-and-advance for consent-tier blocks (no PEWC).
+            // Non-consent failures (quiet hours, feature flag off, invalid phone,
+            // carrier blocks, etc.) fall through to Gate (b) below, which applies
+            // the normal per-step pause so the step can be retried later.
+            const SMS_CONSENT_SOFT_TIERS = new Set(["cold_no_consent", "warm_no_pewc"]);
+            const isSmsConsentBlock = !smsCheck.allowed && SMS_CONSENT_SOFT_TIERS.has(smsCheck.consentTier);
+            if (isSmsConsentBlock) {
+              await storage.createAuditLog({
+                action: "sequence_step_skipped_sms_no_consent",
+                entityType: "contact",
+                entityId: enrollment.contactId,
+                actorType: "system",
+                details: {
+                  enrollmentId: enrollment.id,
+                  sequenceId: sequence.id,
+                  sequenceName: sequence.name,
+                  stepOrder: step.stepOrder,
+                  consentTier: smsCheck.consentTier,
+                  reason: smsCheck.reason ?? "SMS step skipped — PEWC consent not collected for this contact",
+                },
+              });
+              // Advance to the next step
+              const skipNextIndex = currentStep + 1;
+              const skipSortedSteps = [...steps].sort((a, b) => a.stepOrder - b.stepOrder);
+              const skipNextStep = skipSortedSteps[skipNextIndex];
+              if (!skipNextStep) {
+                await storage.updateSequenceEnrollment(enrollment.id, {
+                  currentStep: skipNextIndex,
+                  status: "completed",
+                  completedAt: new Date(),
+                });
+                await storage.createAuditLog({
+                  action: "sequence_completed",
+                  entityType: "contact",
+                  entityId: enrollment.contactId || 0,
+                  details: { sequenceId: sequence.id, sequenceName: sequence.name, via: "sms_skip_final_step" },
+                });
+              } else {
+                const skipDelayMs = ((skipNextStep.delayDays || 0) * 86400000) + ((skipNextStep.delayHours || 0) * 3600000);
+                const skipNextActionAt = new Date(Date.now() + Math.max(skipDelayMs, 60000));
+                await storage.updateSequenceEnrollment(enrollment.id, {
+                  currentStep: skipNextIndex,
+                  nextActionAt: skipNextActionAt,
+                });
+              }
+              processed++;
+              continue;
+            }
+          }
+
           // ── Suppression gate: compliance fields pre-send check ──────────────
           // Reads new compliance/suppression fields and blocks if contact is
-          // opted-out, unsubscribed, hard-bounced, complained, or SMS-unconsented.
+          // opted-out, unsubscribed, hard-bounced, or complained.
+          // NOTE: SMS consent is handled above as a per-step skip — it is
+          // intentionally NOT included here to avoid pausing the enrollment.
           if (contact) {
             const suppressionReasons: string[] = [];
             const c = contact as any;
@@ -411,10 +485,6 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
             if (c.unsubscribeStatus === "unsubscribed") suppressionReasons.push("unsubscribe_status=unsubscribed");
             if (c.bounceStatus === "hard") suppressionReasons.push(`bounce_status=hard (${c.bounceReason ?? "no reason recorded"})`);
             if (c.complaintStatus === "reported") suppressionReasons.push("complaint_status=reported");
-            // SMS-only check — applied when the sequence step is SMS
-            if (step && step.actionType === "sms" && c.smsConsentStatus !== "opted_in" && c.smsConsentStatus !== undefined) {
-              suppressionReasons.push(`sms_consent_status=${c.smsConsentStatus ?? "not_collected"}`);
-            }
 
             if (suppressionReasons.length > 0) {
               const reason = suppressionReasons.join("; ");
@@ -1620,14 +1690,26 @@ export async function autoEnrollFromTrigger(triggerType: string, data: {
           }
         }
 
-        // Union — a contact must pass every channel the sequence could reach
-        const channelSet = new Set<AutomatedActionChannel>([...stepChannels, ...declaredChannels]);
-
-        // Fail-closed: no channels resolved from either source → require all automated channels
-        if (channelSet.size === 0) {
-          for (const ch of ["email", "sms", "voice_ai", "ringless_vm"] as AutomatedActionChannel[]) {
-            channelSet.add(ch);
-          }
+        // Channel set for enrollment gate.
+        //
+        // When outboundChannels is explicitly declared in triggerConfig, use it as
+        // the sole authority.  The per-step gates (SMS skip + Gate b) handle
+        // compliance for channels not listed here — so setting ["email"] allows cold
+        // contacts to enroll in mixed email+SMS sequences while SMS steps are skipped
+        // until PEWC consent is obtained.
+        //
+        // When outboundChannels is NOT declared (legacy sequences), fall back to the
+        // step-derived channel set so existing behaviour is preserved.  If neither
+        // source produces any channels, fail-closed to all automated channels.
+        let channelSet: Set<AutomatedActionChannel>;
+        if (declaredChannels.size > 0) {
+          // Explicit declaration wins — do NOT union with step-derived channels.
+          channelSet = declaredChannels;
+        } else if (stepChannels.size > 0) {
+          channelSet = stepChannels;
+        } else {
+          // Fail-closed: no channels declared or derivable → require all automated channels
+          channelSet = new Set(["email", "sms", "voice_ai", "ringless_vm"] as AutomatedActionChannel[]);
         }
 
         const { evaluateContactability } = await import("./contactability");

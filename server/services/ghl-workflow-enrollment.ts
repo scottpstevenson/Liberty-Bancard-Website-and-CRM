@@ -348,8 +348,19 @@ export async function enrollContactInGhlWorkflow(params: {
     // This prevents enrolling contacts that lack PEWC into workflows that could
     // trigger automated phone/SMS outreach. Callers that are certain their workflow
     // is email-only MUST pass outboundChannels: ["email"] explicitly.
+    // Fail-safe default: when caller does not declare outboundChannels, evaluate
+    // only "email" so cold contacts are not rejected for missing SMS/voice consent.
+    // Sequences that intentionally gate on SMS or voice MUST pass those channels
+    // explicitly in triggerConfig.outboundChannels — a console.warn fires to remind
+    // operators when the field is absent on a sequence that contains SMS/voice steps.
+    if (params.outboundChannels === undefined) {
+      console.warn(
+        `[GHL Enrollment] outboundChannels not declared for sequence "${sequenceName}" (id ${sequenceId}). ` +
+        `Defaulting to ["email"]. Set triggerConfig.outboundChannels in the sequence to suppress this warning.`
+      );
+    }
     const channelsToCheck: Array<import("./contactability").ContactabilityChannel> =
-      params.outboundChannels ?? ["email", "sms", "voice_ai", "ringless_vm"];
+      params.outboundChannels ?? ["email"];
 
     for (const ch of channelsToCheck) {
       const contactabilityCheck = await evaluateContactability({

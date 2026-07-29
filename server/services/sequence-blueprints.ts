@@ -178,6 +178,41 @@ export const NODE_ORDER: Record<string, string[]> = {
 
 export const NO_VOICEMAIL_CATEGORIES = new Set(["operations", "education", "nurture"]);
 
+/**
+ * Per-category outboundChannels declaration.
+ *
+ * These are the channels the contactability enrollment gate evaluates before
+ * allowing a contact into the sequence.  Keeping cold/SDR categories to
+ * ["email"] means cold_no_consent contacts can enroll; SMS steps are then
+ * skipped per-step (sequence_step_skipped_sms_no_consent) until the contact
+ * provides PEWC consent (smsConsentStatus = opted_in).
+ *
+ * Sequences that target warmer contacts with guaranteed SMS consent (e.g. post-
+ * PEWC inbound flows) should be updated directly on the DB row so the
+ * enrollment gate correctly rejects contacts that lack SMS consent before
+ * they ever enter the sequence.
+ */
+export const OUTBOUND_CHANNELS: Record<string, string[]> = {
+  // Cold SDR categories — only email channel checked at enrollment;
+  // SMS steps are handled per-step via the consent skip logic.
+  sdr:                  ["email"],
+  sdr_cold_outbound:    ["email"],
+  sdr_reply_engaged:    ["email"],
+  sdr_statement_chase:  ["email"],
+  sdr_proposal_followup:["email"],
+  sdr_noshow_recovery:  ["email"],
+  // Inbound — may be cold or warm; default email-only until PEWC confirmed.
+  inbound:              ["email"],
+  // Sales / nurture — warmer contacts, still default email-only for safety.
+  sales:                ["email"],
+  nurture:              ["email"],
+  reactivation:         ["email"],
+  // Ops categories — no SMS steps; email + optional call.
+  onboarding:           ["email"],
+  operations:           ["email"],
+  education:            ["email"],
+};
+
 export interface RawSequence {
   id: string;
   name: string;
@@ -196,6 +231,8 @@ export interface SequenceEntry {
   exitConditions: string[];
   hasVoicemail: boolean;
   trigger: string;
+  /** Channels evaluated by the enrollment gate. Passed as triggerConfig.outboundChannels. */
+  outboundChannels: string[];
 }
 
 export const RAW_SEQUENCES: RawSequence[] = [
@@ -275,6 +312,7 @@ export function buildSequenceList(): SequenceEntry[] {
     exitConditions: EXIT_CONDITIONS[s.category] || EXIT_CONDITIONS.sales,
     hasVoicemail: !NO_VOICEMAIL_CATEGORIES.has(s.category),
     trigger: s.trigger,
+    outboundChannels: OUTBOUND_CHANNELS[s.category] || ["email"],
   }));
 }
 
