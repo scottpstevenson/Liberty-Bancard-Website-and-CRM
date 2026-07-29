@@ -1,4 +1,5 @@
 - [Sender Policy Architecture](sender-policy-architecture.md) — Central registry in sender-policy.ts; every send site passes category: "X" to smtp/GHL wrappers; prohibition guard blocks noreply@ on LB domains; 82/82 test checks in scripts/test-sender-policy.ts.
+- [ZeroBounce email_status default](zerobounce-email-status-default.md) — contacts.email_status defaults to 'active' (not NULL); use `email_status = 'active'` to find unvalidated contacts, never IS NULL.
 - [Drizzle set() silent drop](drizzle-set-silent-drop.md) — db.update().set({...Record<string,unknown>} as cast) silently drops columns; use raw SQL db.execute(sql`UPDATE ...`) for critical single-field writes like ghlOpportunityId.
 - [Login rate limiter behavior](login-rate-limiter.md) — 401 "Invalid email or password" is returned for BOTH wrong password AND rate-limit hits — indistinguishable from logs.
 - [Admin password sync](admin-password-sync.md) — seedAdminUser now re-hashes and updates DB password on every startup; use env vars to control it.
