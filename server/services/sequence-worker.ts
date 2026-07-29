@@ -2,6 +2,7 @@ import { storage } from "../storage";
 import { sendGhlEmail, sendGhlSms, isGhlConfigured } from "./ghl";
 import { getEmailSignatureHtml, getComplianceFooterHtml, isColdOutreachSequence } from "./email-signatures";
 import type { SignatureType } from "./sender-policy";
+import { sanitizeFirstName } from "./contact-name-utils";
 
 /**
  * Map a sequence's triggerConfig.category to the correct email signature type.
@@ -442,7 +443,11 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
           deal = await storage.getDeal(enrollment.dealId);
         }
 
-        const firstName = contact?.firstName || "there";
+        const rawFirstName = contact?.firstName ?? "";
+        const firstName = sanitizeFirstName(rawFirstName) || "there";
+        if (rawFirstName && firstName === "there") {
+          console.warn(`[Sequence Worker] Contact ${contact?.id} has unsendable first_name "${rawFirstName}" — substituting "there"`);
+        }
         const lastName = contact?.lastName || "";
         const companyName = contact?.companyName || "your business";
         const email = contact?.email || "";

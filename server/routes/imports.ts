@@ -33,6 +33,7 @@ import { uploadLarge, trackReferral, normalizePhoneForImport, classifyVerticalFo
 import { recordPewcDecision } from "../services/consent-evidence";
 import { evaluateContactability } from "../services/contactability";
 import { syncAffiliateSignupToGhl } from "../services/ghl-form-sync";
+import { sanitizeFirstName } from "../services/contact-name-utils";
 import { publicLeadRateLimit } from "../middleware/public-rate-limit";
 
 export function registerImportsRoutes(app: Express) {
@@ -1730,14 +1731,18 @@ Guidelines:
         }
 
         let companyName = mapped.companyName || "";
-        let firstName = mapped.firstName || "";
+        let firstName = sanitizeFirstName(mapped.firstName || "");
         let lastName = mapped.lastName || "";
         const email = (mapped.email || "").toLowerCase().trim();
         let phone = normalizePhoneForImport(mapped.phone || "");
         const website = mapped.website || "";
 
+        // Google Maps Outscraper: use the business name as the display name when
+        // no personal name was provided — but only if the business name is NOT itself
+        // a URL (some data sources put the website in both fields).
         if (sourceFormat === "google_maps_outscraper" && companyName && !firstName) {
-          firstName = companyName;
+          const candidateName = sanitizeFirstName(companyName);
+          if (candidateName) firstName = candidateName;
         }
 
         if (!companyName && !email && !phone) { invalidRows++; continue; }
@@ -1859,7 +1864,7 @@ Guidelines:
         }
 
         contactInserts.push({
-          firstName: firstName || companyName || "Unknown",
+          firstName: firstName || "",   // already sanitized; blank is better than a URL
           lastName: lastName || "",
           // contacts.email is NOT NULL with a unique index (per non-archived
           // row). Persisting "" for every row lacking a real email would

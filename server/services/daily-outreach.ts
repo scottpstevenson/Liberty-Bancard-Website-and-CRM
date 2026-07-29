@@ -3,6 +3,7 @@ import { buildSafeEnrichmentFailureProgress } from "./enrichment-progress-helper
 import { enrichSunbizEntity, convertToProspect } from "./sunbiz-enrichment";
 import { queueCampaignMessages, processSendQueue } from "./campaign-engine";
 import { scoreContact } from "./lead-scoring";
+import { sanitizeFirstName } from "./contact-name-utils";
 import { routeContact } from "./smart-router";
 import { enqueuePromotionalEnrollment } from "./promotional-enrollment-eligibility";
 import { triggerWorkflowsByEvent } from "./workflow-executor";
@@ -602,11 +603,12 @@ export async function promoteQualifiedToContacts(): Promise<{
       ) || officers[0];
 
       const nameParts = (entity.ownerName || owner?.name || entity.entityName).split(" ");
-      const firstName = nameParts[0] || entity.entityName.split(" ")[0];
+      const rawFirstName = nameParts[0] || entity.entityName.split(" ")[0];
+      const firstName = sanitizeFirstName(rawFirstName) || entity.entityName.split(" ")[0] || "";
       const lastName = nameParts.slice(1).join(" ") || "";
 
       const contact = await createContactGhlFirst({
-        firstName: firstName.charAt(0).toUpperCase() + firstName.slice(1).toLowerCase(),
+        firstName: firstName ? firstName.charAt(0).toUpperCase() + firstName.slice(1).toLowerCase() : "",
         lastName: lastName ? lastName.charAt(0).toUpperCase() + lastName.slice(1).toLowerCase() : "(Business)",
         email: entity.email || entity.ownerEmail || "",
         phone: entity.phone || entity.ownerPhone || "",

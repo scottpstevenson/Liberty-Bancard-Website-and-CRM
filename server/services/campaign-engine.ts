@@ -3,6 +3,7 @@ import { createHash } from "crypto";
 import type { Prospect, Campaign, Contact, CampaignStep } from "@shared/schema";
 import OpenAI from "openai";
 import { sendGhlEmail, isGhlConfigured } from "./ghl";
+import { sanitizeFirstName } from "./contact-name-utils";
 import { getEmailSignatureHtml, getComplianceFooterHtml, type EmailSignature } from "./email-signatures";
 import { sendSmtpEmail, isSmtpConfigured } from "./smtp-email";
 import { logAiCall } from "./ai-audit-logger";
@@ -24,7 +25,7 @@ async function generatePersonalizedEmail(
   stepNumber: number
 ): Promise<{ subject: string; body: string }> {
   const mergeFields: Record<string, string> = {
-    "{{first_name}}": prospect.ownerFirstName || prospect.companyName?.split(" ")[0] || "there",
+    "{{first_name}}": sanitizeFirstName(prospect.ownerFirstName) || "there",
     "{{last_name}}": prospect.ownerLastName || "",
     "{{company_name}}": prospect.companyName || "your business",
     "{{vertical}}": prospect.vertical || "your industry",
@@ -107,7 +108,7 @@ async function generateContactCampaignEmail(
   stepNumber: number
 ): Promise<{ subject: string; body: string }> {
   const mergeFields: Record<string, string> = {
-    "{{first_name}}": contact.firstName || contact.companyName?.split(" ")[0] || "there",
+    "{{first_name}}": sanitizeFirstName(contact.firstName) || "there",
     "{{last_name}}": contact.lastName || "",
     "{{company_name}}": contact.companyName || "your business",
     "{{vertical}}": contact.vertical || "your industry",
