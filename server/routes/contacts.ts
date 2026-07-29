@@ -202,6 +202,92 @@ export function registerContactsRoutes(app: Express) {
     }
   });
 
+  // ── Data Quality Scanner ─────────────────────────────────────────────────
+  // NOTE: These two routes MUST be registered before the generic /:id handler
+  // below, otherwise Express matches "quality-summary" and "quality-scan" as
+  // contact IDs and returns 404.
+
+  // GET /api/contacts/quality-summary
+  // Returns aggregate counts for the quality health dashboard.
+  app.get("/api/contacts/quality-summary", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const result = await pool.query(`
+        SELECT
+          COUNT(*)::int                                                                          AS total_contacts,
+          COUNT(*) FILTER (WHERE COALESCE(TRIM(first_name), '') = '')::int                      AS blank_first_name,
+          COUNT(*) FILTER (WHERE email_status IS NULL OR email_status = 'active')::int          AS unvalidated_email,
+          COUNT(*) FILTER (WHERE email_status IN ('bounced', 'invalid', 'unsafe'))::int         AS bad_email,
+          COUNT(*) FILTER (WHERE COALESCE(TRIM(vertical), '') = '')::int                       AS missing_vertical,
+          COUNT(*) FILTER (WHERE COALESCE(TRIM(phone), '') = '')::int                          AS missing_phone,
+          COUNT(*) FILTER (WHERE email_status = 'valid')::int                                  AS verified_valid,
+          COUNT(*) FILTER (WHERE email_status = 'unverified')::int                             AS catch_all
+        FROM contacts
+        WHERE archived_at IS NULL
+      `);
+      const { data: zbData } = await import("../services/zerobounce-daily-limiter").then(m =>
+        m.checkZeroBounceBudget().then(b => ({ data: b }))
+      );
+      res.json({
+        ...result.rows[0],
+        zerobounce: {
+          usedToday: zbData.used,
+          dailyLimit: zbData.limit,
+          remainingToday: Math.max(0, zbData.limit - zbData.used),
+        },
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // GET /api/contacts/quality-scan?issue=blank_name|unvalidated_email|bad_email|missing_vertical|missing_phone&page=1&limit=50
+  app.get("/api/contacts/quality-scan", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const issue = req.query.issue as string | undefined;
+      const page  = Math.max(1, parseInt(String(req.query.page  ?? "1"),  10));
+      const limit = Math.min(200, Math.max(1, parseInt(String(req.query.limit ?? "50"), 10)));
+      const offset = (page - 1) * limit;
+      const minLeadScore = parseInt(String(req.query.minLeadScore ?? "0"), 10) || 0;
+
+      const issueFilters: Record<string, string> = {
+        blank_name:        `COALESCE(TRIM(first_name), '') = ''`,
+        unvalidated_email: `(email_status IS NULL OR email_status = 'active')`,
+        bad_email:         `email_status IN ('bounced', 'invalid', 'unsafe')`,
+        missing_vertical:  `COALESCE(TRIM(vertical), '') = ''`,
+        missing_phone:     `COALESCE(TRIM(phone), '') = ''`,
+      };
+
+      const whereClause = issue && issueFilters[issue]
+        ? `archived_at IS NULL AND (${issueFilters[issue]}) AND COALESCE(lead_score, 0) >= ${minLeadScore}`
+        : `archived_at IS NULL AND COALESCE(lead_score, 0) >= ${minLeadScore}`;
+
+      const countResult = await pool.query(
+        `SELECT COUNT(*)::int AS total FROM contacts WHERE ${whereClause}`,
+      );
+
+      const rowsResult = await pool.query(`
+        SELECT
+          id, first_name, last_name, email, email_status,
+          phone, vertical, company_name, lead_score,
+          created_at
+        FROM contacts
+        WHERE ${whereClause}
+        ORDER BY COALESCE(lead_score, 0) DESC, id DESC
+        LIMIT ${limit} OFFSET ${offset}
+      `);
+
+      res.json({
+        total: countResult.rows[0]?.total ?? 0,
+        page,
+        limit,
+        data: rowsResult.rows,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Generic contact lookup (must stay after all fixed-path /contacts/* routes) ──
   app.get("/api/contacts/:id", isDashboardUser, async (req, res) => {
     try {
       const contact = await storage.getContact(Number(req.params.id));
@@ -1537,87 +1623,6 @@ export function registerContactsRoutes(app: Express) {
       }));
 
       res.json(rows);
-    } catch (err: any) {
-      res.status(500).json({ message: err.message });
-    }
-  });
-
-  // ── Data Quality Scanner ──────────────────────────────────────────────────
-  // GET /api/contacts/quality-summary
-  // Returns aggregate counts for the quality health dashboard.
-  app.get("/api/contacts/quality-summary", requireRole("admin", "manager"), async (req, res) => {
-    try {
-      const result = await pool.query(`
-        SELECT
-          COUNT(*)::int                                                                          AS total_contacts,
-          COUNT(*) FILTER (WHERE COALESCE(TRIM(first_name), '') = '')::int                      AS blank_first_name,
-          COUNT(*) FILTER (WHERE email_status IS NULL OR email_status = 'active')::int          AS unvalidated_email,
-          COUNT(*) FILTER (WHERE email_status IN ('bounced', 'invalid', 'unsafe'))::int         AS bad_email,
-          COUNT(*) FILTER (WHERE COALESCE(TRIM(vertical), '') = '')::int                       AS missing_vertical,
-          COUNT(*) FILTER (WHERE COALESCE(TRIM(phone), '') = '')::int                          AS missing_phone,
-          COUNT(*) FILTER (WHERE email_status = 'valid')::int                                  AS verified_valid,
-          COUNT(*) FILTER (WHERE email_status = 'unverified')::int                             AS catch_all
-        FROM contacts
-        WHERE archived_at IS NULL
-      `);
-      const { data: zbData } = await import("../services/zerobounce-daily-limiter").then(m =>
-        m.checkZeroBounceBudget().then(b => ({ data: b }))
-      );
-      res.json({
-        ...result.rows[0],
-        zerobounce: {
-          usedToday: zbData.used,
-          dailyLimit: zbData.limit,
-          remainingToday: Math.max(0, zbData.limit - zbData.used),
-        },
-      });
-    } catch (err: any) {
-      res.status(500).json({ message: err.message });
-    }
-  });
-
-  // GET /api/contacts/quality-scan?issue=blank_name|unvalidated_email|bad_email|missing_vertical|missing_phone&page=1&limit=50
-  app.get("/api/contacts/quality-scan", requireRole("admin", "manager"), async (req, res) => {
-    try {
-      const issue = req.query.issue as string | undefined;
-      const page  = Math.max(1, parseInt(String(req.query.page  ?? "1"),  10));
-      const limit = Math.min(200, Math.max(1, parseInt(String(req.query.limit ?? "50"), 10)));
-      const offset = (page - 1) * limit;
-      const minLeadScore = parseInt(String(req.query.minLeadScore ?? "0"), 10) || 0;
-
-      const issueFilters: Record<string, string> = {
-        blank_name:        `COALESCE(TRIM(first_name), '') = ''`,
-        unvalidated_email: `(email_status IS NULL OR email_status = 'active')`,
-        bad_email:         `email_status IN ('bounced', 'invalid', 'unsafe')`,
-        missing_vertical:  `COALESCE(TRIM(vertical), '') = ''`,
-        missing_phone:     `COALESCE(TRIM(phone), '') = ''`,
-      };
-
-      const whereClause = issue && issueFilters[issue]
-        ? `archived_at IS NULL AND (${issueFilters[issue]}) AND COALESCE(lead_score, 0) >= ${minLeadScore}`
-        : `archived_at IS NULL AND COALESCE(lead_score, 0) >= ${minLeadScore}`;
-
-      const countResult = await pool.query(
-        `SELECT COUNT(*)::int AS total FROM contacts WHERE ${whereClause}`,
-      );
-
-      const rowsResult = await pool.query(`
-        SELECT
-          id, first_name, last_name, email, email_status,
-          phone, vertical, company_name, lead_score,
-          created_at
-        FROM contacts
-        WHERE ${whereClause}
-        ORDER BY COALESCE(lead_score, 0) DESC, id DESC
-        LIMIT ${limit} OFFSET ${offset}
-      `);
-
-      res.json({
-        total: countResult.rows[0]?.total ?? 0,
-        page,
-        limit,
-        data: rowsResult.rows,
-      });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

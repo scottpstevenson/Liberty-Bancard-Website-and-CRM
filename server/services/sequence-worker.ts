@@ -6,17 +6,79 @@ import { sanitizeFirstName } from "./contact-name-utils";
 
 /**
  * Map a sequence's triggerConfig.category to the correct email signature type.
- * - "operations" (Account Management) → "accounts"  — no cold CTAs, no promo, account team identity
- * - "support"                          → "support"
- * - "onboarding"                       → "onboarding"
- * - "sdr", "inbound", or unrecognized  → "sales"     — full cold outreach signature with CTAs
+ *
+ * | Category                | Signature   | Rationale                                                        |
+ * |-------------------------|-------------|------------------------------------------------------------------|
+ * | operations              | accounts    | Account mgmt team identity; no cold CTAs; existing relationship  |
+ * | reactivation            | accounts    | Re-engaging known contacts; cold CTA would feel inappropriate    |
+ * | education               | accounts    | Educational content for merchants/prospects already in pipeline  |
+ * | nurture                 | accounts    | Long-term nurture; contact knows us; no cold promo               |
+ * | support                 | support     | Ticket replies and merchant-service messages                     |
+ * | risk                    | support     | Account-risk / security notices routed through support team      |
+ * | onboarding              | onboarding  | Merchant activation and boarding milestones                      |
+ * | referral                | partners    | Referral / partner program communications                        |
+ * | sales                   | sales       | Explicit sales outreach — cold signature is intentional          |
+ * | cold_outreach           | sales       | SDR cold prospecting sequences                                   |
+ * | sdr                     | sales       | Legacy SDR category — cold outreach context                      |
+ * | sdr_cold_outbound       | sales       | SDR cold outbound sequences                                      |
+ * | sdr_outbound            | sales       | SDR outbound sequences                                           |
+ * | sdr_noshow_recovery     | sales       | SDR no-show recovery — still in cold pipeline                    |
+ * | sdr_proposal_followup   | sales       | SDR proposal follow-up — still Scott Stevenson sender            |
+ * | sdr_reply_engaged       | sales       | Engaged lead follow-up within SDR context                        |
+ * | sdr_statement_chase     | sales       | Chasing a statement upload — SDR cold context                    |
+ * | inbound                 | sales       | Inbound lead nurture — same cold CTA block applies               |
+ * | voicemail_followup_sms  | sales       | Voicemail follow-up SMS — sales pipeline                         |
+ * | hardware                | sales       | Hardware product outreach — cold CTA appropriate                 |
+ * | (unrecognized)          | sales       | Safe default; logs a warning so new categories are noticed       |
  */
-function resolveSignatureType(triggerConfig: Record<string, unknown>): SignatureType {
+export function resolveSignatureType(triggerConfig: Record<string, unknown>): SignatureType {
   const category = typeof triggerConfig.category === "string" ? triggerConfig.category : "";
-  if (category === "operations") return "accounts";
-  if (category === "support")    return "support";
-  if (category === "onboarding") return "onboarding";
-  return "sales";
+  switch (category) {
+    // ── Account-relationship signatures (no cold CTAs) ──────────────────────
+    case "operations":
+    case "reactivation":
+    case "education":
+    case "nurture":
+      return "accounts";
+
+    // ── Support / risk ───────────────────────────────────────────────────────
+    case "support":
+    case "risk":
+      return "support";
+
+    // ── Onboarding ───────────────────────────────────────────────────────────
+    case "onboarding":
+      return "onboarding";
+
+    // ── Partner / referral ───────────────────────────────────────────────────
+    case "referral":
+      return "partners";
+
+    // ── Sales / cold outreach (all SDR variants + explicit sales) ────────────
+    case "sales":
+    case "cold_outreach":
+    case "sdr":
+    case "sdr_cold_outbound":
+    case "sdr_outbound":
+    case "sdr_noshow_recovery":
+    case "sdr_proposal_followup":
+    case "sdr_reply_engaged":
+    case "sdr_statement_chase":
+    case "inbound":
+    case "voicemail_followup_sms":
+    case "hardware":
+      return "sales";
+
+    // ── Unknown category — warn and fall back to cold sales ──────────────────
+    default:
+      if (category) {
+        console.warn(
+          `[resolveSignatureType] Unknown sequence category "${category}" — defaulting to "sales" signature. ` +
+          `Add an explicit mapping in resolveSignatureType() to silence this warning.`
+        );
+      }
+      return "sales";
+  }
 }
 import { createPreferenceAwareNotification } from "./digest-service";
 import { enrollContactInGhlWorkflow, tagContactForInboxOrganization } from "./ghl-workflow-enrollment";
@@ -446,8 +508,16 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
                       },
                     });
 
-                    // Block the send if the result is bad
-                    if (zbResult.status === "unsafe") {
+                    // Block the send if the result is bad.
+                    // "unsafe" = spam traps, abuse, do_not_mail.
+                    // "invalid" and "bounced" are also undeliverable — treat them
+                    // identically so we never send to an address that ZeroBounce
+                    // just classified as bad in the same worker tick.
+                    if (
+                      zbResult.status === "unsafe" ||
+                      zbResult.status === "invalid" ||
+                      zbResult.status === "bounced"
+                    ) {
                       await storage.updateSequenceEnrollment(enrollment.id, { status: "paused" });
                       await storage.createAuditLog({
                         action: "sequence_step_blocked_email_invalid",

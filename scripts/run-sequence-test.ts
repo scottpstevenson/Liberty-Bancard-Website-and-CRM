@@ -26,7 +26,7 @@
 
 import { db } from "../server/db.js";
 import { sql } from "drizzle-orm";
-import { processSequenceEnrollments } from "../server/services/sequence-worker.js";
+import { processSequenceEnrollments, resolveSignatureType } from "../server/services/sequence-worker.js";
 import { storage } from "../server/storage.js";
 
 // ── Config ──────────────────────────────────────────────────────────────────
@@ -161,6 +161,53 @@ async function main() {
     console.log(`  ${i + 1}. [${type}] ${s.name} (ID ${s.id}, ${s.email_step_count} email, ${s.sms_step_count} SMS)`);
   });
   console.log();
+
+  // ── 2a. Signature-type smoke check ─────────────────────────────────────────
+  // Prints each selected sequence's resolved signature type so mismatches are
+  // immediately visible during test runs. Also checks ALL active sequences in
+  // the DB to surface any unrecognized categories before they affect sends.
+  console.log("── Signature type mapping (selected sequences) ──");
+  sequences.forEach((s) => {
+    const tc = typeof s.trigger_config === "string" ? JSON.parse(s.trigger_config) : (s.trigger_config ?? {});
+    const cat = tc.category ?? "(none)";
+    const sigType = resolveSignatureType(tc);
+    console.log(`  ${pad(s.name, 40)} category=${pad(String(cat), 25)} → signature="${sigType}"`);
+  });
+  console.log();
+
+  // Broader audit — enumerate every distinct category across ALL active sequences
+  const allCatRows = await db.execute(sql`
+    SELECT DISTINCT trigger_config->>'category' as category
+    FROM follow_up_sequences
+    WHERE status = 'active'
+    ORDER BY 1
+  `);
+  const unknownCategories: string[] = [];
+  console.log("── All active sequence categories → resolved signature ──");
+  for (const row of allCatRows.rows as Array<{ category: string | null }>) {
+    const cat = row.category ?? "";
+    const sigType = resolveSignatureType({ category: cat });
+    // Flag unrecognized categories (those that would trigger the default-warn branch)
+    const knownCategories = new Set([
+      "operations","reactivation","education","nurture",
+      "support","risk","onboarding","referral",
+      "sales","cold_outreach","sdr","sdr_cold_outbound","sdr_outbound",
+      "sdr_noshow_recovery","sdr_proposal_followup","sdr_reply_engaged",
+      "sdr_statement_chase","inbound","voicemail_followup_sms","hardware","",
+    ]);
+    const isUnknown = !knownCategories.has(cat);
+    if (isUnknown) unknownCategories.push(cat);
+    const flag = isUnknown ? ` ${WARN} UNMAPPED` : "";
+    console.log(`  ${pad(cat || "(none)", 30)} → "${sigType}"${flag}`);
+  }
+  console.log();
+  if (unknownCategories.length) {
+    console.log(`${WARN} ${unknownCategories.length} unmapped category(ies) found: ${unknownCategories.join(", ")}`);
+    console.log("   Add explicit entries in resolveSignatureType() in sequence-worker.ts.\n");
+  } else {
+    console.log(`${PASS} All active sequence categories have explicit signature mappings.\n`);
+  }
+  // ── end 2a ─────────────────────────────────────────────────────────────────
 
   // ── 3. Select contacts ─────────────────────────────────────────────────────
   const contactRows = await db.execute(sql`
