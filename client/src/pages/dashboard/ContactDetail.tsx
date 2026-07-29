@@ -60,6 +60,7 @@ import { CompanyIntelligenceTab } from "./contact-detail-tabs/CompanyIntelligenc
 import { CommunicationHealthTab } from "./contact-detail-tabs/CommunicationHealthTab";
 import { OfferIntelligenceTab } from "./contact-detail-tabs/OfferIntelligenceTab";
 import { SalesPrepTab } from "./contact-detail-tabs/SalesPrepTab";
+import { DeliveryLogTab } from "./contact-detail-tabs/DeliveryLogTab";
 
 // ── Confirmation Status Section ───────────────────────────────────────────────
 /**
@@ -1499,6 +1500,10 @@ export default function ContactDetail() {
             <Brain className="h-3.5 w-3.5 mr-1" />
             Churn Risk
           </TabsTrigger>
+          <TabsTrigger value="delivery-log" data-testid="tab-delivery-log">
+            <SendHorizonal className="h-3.5 w-3.5 mr-1" />
+            Delivery Log
+          </TabsTrigger>
           <TabsTrigger value="comm-health" data-testid="tab-comm-health">
             Comm. Health
           </TabsTrigger>
@@ -1602,6 +1607,10 @@ export default function ContactDetail() {
 
         <TabsContent value="churn-risk" data-testid="tab-content-churn-risk">
           <ChurnRiskPanel contactId={contactId} isManagerOrAdmin={isManagerOrAdmin} />
+        </TabsContent>
+
+        <TabsContent value="delivery-log" data-testid="tab-content-delivery-log">
+          <DeliveryLogTab contactId={contactId} />
         </TabsContent>
 
         <TabsContent value="comm-health" data-testid="tab-content-comm-health">

@@ -1491,6 +1491,57 @@ export function registerContactsRoutes(app: Express) {
     }
   });
 
+  // GET /api/contacts/:id/delivery-log — outbound send log for a contact
+  app.get("/api/contacts/:id/delivery-log", isDashboardUser, async (req, res) => {
+    try {
+      const contactId = Number(req.params.id);
+      if (isNaN(contactId)) return res.status(400).json({ message: "Invalid contact ID" });
+
+      const { db } = await import("../db");
+      const { sql } = await import("drizzle-orm");
+
+      const result = await db.execute(sql`
+        SELECT
+          l.id,
+          s.name            AS sequence_name,
+          l.step_order,
+          l.channel,
+          l.from_address,
+          l.to_address,
+          l.subject,
+          l.status,
+          l.failure_reason,
+          l.sent_at,
+          l.failed_at,
+          l.created_at
+        FROM outbound_send_log l
+        LEFT JOIN follow_up_sequences s ON s.id = l.sequence_id
+        WHERE l.contact_id = ${contactId}
+        ORDER BY l.created_at DESC
+        LIMIT 200
+      `);
+
+      const rows = (result.rows as any[]).map(r => ({
+        id:            r.id,
+        sequenceName:  r.sequence_name ?? null,
+        stepOrder:     r.step_order != null ? Number(r.step_order) : null,
+        channel:       r.channel,
+        fromAddress:   r.from_address ?? null,
+        toAddress:     r.to_address,
+        subject:       r.subject ?? null,
+        status:        r.status,
+        failureReason: r.failure_reason ?? null,
+        sentAt:        r.sent_at ? new Date(r.sent_at).toISOString() : null,
+        failedAt:      r.failed_at ? new Date(r.failed_at).toISOString() : null,
+        createdAt:     new Date(r.created_at).toISOString(),
+      }));
+
+      res.json(rows);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // POST /api/contacts/:id/send-email — send a composed email via GHL
   app.post("/api/contacts/:id/send-email", isDashboardUser, async (req, res) => {
     try {
