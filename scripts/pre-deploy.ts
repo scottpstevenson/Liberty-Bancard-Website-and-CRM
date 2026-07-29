@@ -14,8 +14,27 @@
  * Exits 0 only when every mandatory suite exits 0.
  * Exits 1 if any suite fails or if pre/post-suite pause checks fail.
  *
- * Usage:
+ * ── SERVER REQUIREMENT ────────────────────────────────────────────────────────
+ * Four suites (Role Guards, SEO Audit, Sequence Compliance, New-Lead Enrollment
+ * Policy) connect to the dev server at localhost:5000 and CANNOT be skipped.
+ * If the server is not reachable when this gate runs, those suites will cause a
+ * hard failure (exit 1) rather than being silently skipped.
+ *
+ * Run the gate through the provided wrapper instead of calling this script
+ * directly — the wrapper starts the server, waits for readiness, then runs the
+ * gate and tears the server down on exit:
+ *
+ *   bash scripts/run-pre-deploy.sh
+ *
+ * Alternatively, start the dev server first and then run this script:
+ *
+ *   npm run dev &           # or use the "Start application" workflow
  *   npx tsx scripts/pre-deploy.ts
+ *
+ * Three suites (Chat Business Hours, AI Assistant Boundaries, Public Forms) are
+ * also server-dependent but are skipped when the server is not in live mode —
+ * they test provider integrations that require real credentials.
+ * ─────────────────────────────────────────────────────────────────────────────
  *
  * The script never deploys. It only validates.
  */
@@ -35,6 +54,13 @@ interface Suite {
   env?: Record<string, string>;
   timeoutSecs?: number;
   requiresServer?: boolean;
+  /**
+   * When true, the suite is silently skipped if the server is unreachable (e.g.
+   * it tests live-mode provider integrations that need real credentials).
+   * When false/absent and requiresServer is true, an unreachable server causes
+   * a hard gate failure — the suite must not be silently skipped.
+   */
+  skipWhenServerDown?: boolean;
 }
 
 const MANDATORY_SUITES: Suite[] = [
@@ -113,6 +139,7 @@ const MANDATORY_SUITES: Suite[] = [
     script: "scripts/test-chat-business-hours.ts",
     timeoutSecs: 30,
     requiresServer: true,
+    skipWhenServerDown: true, // tests live-mode handoff timing; skipped when server absent
   },
   {
     name: "Outbound Pause Fence (persisted DB rows, not code defaults)",
@@ -124,13 +151,14 @@ const MANDATORY_SUITES: Suite[] = [
     script: "scripts/test-email-signatures.ts",
     timeoutSecs: 30,
   },
-  // ── Server-required suites ────────────────────────────────────────────────
+  // ── Server-required suites (skipped when server absent; need live credentials) ─
   {
     name: "AI Assistant Boundaries (auth/role/schema/no-action)",
     script: "scripts/test-ai-assistant-boundaries.ts",
     env: { BASE_URL },
     timeoutSecs: 120,
     requiresServer: true,
+    skipWhenServerDown: true, // tests live AI provider responses; skipped when server absent
   },
   {
     name: "Public Forms (GHL isolated)",
@@ -138,6 +166,7 @@ const MANDATORY_SUITES: Suite[] = [
     env: { GHL_TEST_MODE: "true", BASE_URL },
     timeoutSecs: 120,
     requiresServer: true,
+    skipWhenServerDown: true, // tests GHL-isolated form submission; skipped when server absent
   },
 ];
 
@@ -305,7 +334,10 @@ async function main() {
   console.log("  ✓ outboundGlobalPaused=true confirmed before suite run");
 
   // ── 1. Server reachability check ───────────────────────────────────────────
+  // Suites with requiresServer:true but skipWhenServerDown:false MUST run —
+  // an unreachable server is a hard gate failure, not a silent skip.
   const serverSuites = MANDATORY_SUITES.filter(s => s.requiresServer);
+  const mandatoryServerSuites = serverSuites.filter(s => !s.skipWhenServerDown);
   let serverReachable = false;
   if (serverSuites.length > 0) {
     printSectionHeader("Server health check");
@@ -314,7 +346,17 @@ async function main() {
       console.log(`  ✓ Server reachable at ${BASE_URL}`);
     } else {
       console.warn(`  ⚠ Server not reachable at ${BASE_URL}`);
-      console.warn("    Server-dependent suites will be SKIPPED.");
+      if (mandatoryServerSuites.length > 0) {
+        console.error("\n  ✗ KILL: The following suites REQUIRE a running server and cannot be skipped:");
+        for (const s of mandatoryServerSuites) {
+          console.error(`      • ${s.name}`);
+        }
+        console.error("\n  Start the dev server before running this gate, or use the wrapper:");
+        console.error("    bash scripts/run-pre-deploy.sh");
+        console.error("  See the header comment in scripts/pre-deploy.ts for details.\n");
+        process.exit(1);
+      }
+      console.warn("    Remaining server-dependent suites (live-mode only) will be SKIPPED.");
     }
   }
 
@@ -330,12 +372,16 @@ async function main() {
   }> = [];
 
   for (const suite of MANDATORY_SUITES) {
-    const skip = suite.requiresServer && !serverReachable;
+    // Only suites explicitly marked skipWhenServerDown may be skipped when the
+    // server is absent.  Suites without that flag that require a server have
+    // already caused a hard exit above, so this path is only reached for the
+    // soft-skip candidates.
+    const skip = suite.requiresServer && !serverReachable && !!suite.skipWhenServerDown;
 
     console.log(`\n▶  ${suite.name}`);
 
     if (skip) {
-      console.log("   (skipped — server not reachable)");
+      console.log("   (skipped — server not reachable; live-mode suite)");
       results.push({ suite, exitCode: 0, durationMs: 0, skipped: true, pauseAfter: true });
       continue;
     }
@@ -413,7 +459,7 @@ async function main() {
   const skipped = results.filter(r => r.skipped).length;
   const total = MANDATORY_SUITES.length;
 
-  console.log(`\n  Suites:  ${passed}/${total} passed  (${skipped} skipped — server unreachable)`);
+  console.log(`\n  Suites:  ${passed}/${total} passed  (${skipped} skipped — live-mode server suites)`);
   console.log(`  Pause state: ${finalPaused ? "TRUE ✓" : "RESTORED ✓"} after all suites`);
   console.log(`  External config: ${EXTERNAL_CONFIG.length - missingConfig.length}/${EXTERNAL_CONFIG.length} set`);
 
