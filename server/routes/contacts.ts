@@ -114,7 +114,6 @@ export function registerContactsRoutes(app: Express) {
           c.status,
           c.tags,
           c.ghl_contact_id AS "ghlContactId",
-          c.assigned_to    AS "assignedTo",
           COALESCE(c.last_contacted_at, c.created_at) AS "lastActivityDate",
           EXTRACT(DAY FROM NOW() - COALESCE(c.last_contacted_at, c.created_at))::int AS "daysDormant"
         FROM contacts c
@@ -290,7 +289,11 @@ export function registerContactsRoutes(app: Express) {
   // ── Generic contact lookup (must stay after all fixed-path /contacts/* routes) ──
   app.get("/api/contacts/:id", isDashboardUser, async (req, res) => {
     try {
-      const contact = await storage.getContact(Number(req.params.id));
+      const contactId = Number(req.params.id);
+      if (!Number.isInteger(contactId) || contactId <= 0) {
+        return res.status(404).json({ message: "Not found", code: "NOT_FOUND" });
+      }
+      const contact = await storage.getContact(contactId);
       if (!contact) return res.status(404).json({ message: "Not found" });
       if (!contact.ghlContactId && isGhlConfigured()) {
         syncContactToGhl(contact.id).then(result => {
