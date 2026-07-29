@@ -24,7 +24,7 @@ import { addNote as ghlAddNote, addTag as ghlAddTag, triggerWorkflow as ghlTrigg
 import { getWorkflowEnvValue } from "./ghl-workflows";
 import { sendSmtpEmail, isSmtpConfigured } from "./smtp-email";
 import { generateUnsubscribeToken } from "./unsubscribe-token";
-import { buildIdempotencyKey, hasSentStep, markSendSent, markSendFailed } from "./outbound-send-log";
+import { buildIdempotencyKey, hasSentStep, openSendAttempt, markSendSent, markSendFailed } from "./outbound-send-log";
 import { sendGmailEmail, isGmailOAuthConnected } from "./gmail-oauth";
 import type { SendChannel } from "./outbound-send-log";
 import type { VoiceBotMode } from "./sdr/voice-orchestrator";
@@ -903,6 +903,28 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
                   break;
                 }
               }
+
+              // Open a pending row before we attempt the send.
+              // ON CONFLICT DO NOTHING means a concurrent worker that already claimed
+              // this slot returns null here — that's fine, the UPDATE in markSendSent /
+              // markSendFailed will still find the row the first worker inserted.
+              const sendLogChannel: import("./outbound-send-log").SendChannel =
+                useGmailForThisStep ? "email_gmail"
+                : useSmtpForThisStep ? "email_smtp"
+                : (testRedirectTo && isSmtpConfigured()) ? "email_smtp"
+                : "email_ghl";
+              await openSendAttempt({
+                idempotencyKey:       emailIdemKey,
+                sequenceId:           sequence.id,
+                sequenceEnrollmentId: enrollment.id,
+                contactId:            enrollment.contactId ?? undefined,
+                stepOrder:            step.stepOrder ?? undefined,
+                channel:              sendLogChannel,
+                // For GHL sends the provider routes via contactId, not a direct address,
+                // but we still record the contact's stored email so the log row is queryable.
+                toAddress:            deliveryEmailTo || contact?.email || "",
+                subject:              deliverySubject,
+              });
 
               try {
                 if (useGmailForThisStep && contact?.email) {

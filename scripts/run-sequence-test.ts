@@ -285,19 +285,19 @@ async function main() {
   // ── 7. Results from audit logs ─────────────────────────────────────────────
   console.log("\n══ Results ════════════════════════════════════════════════");
 
-  // Sent emails tracked in analytics_events (sequence_step_sent)
-  // and failures in outbound_send_log (status='failed')
-  const sentEvtRows = await db.execute(sql`
-    SELECT ae.event_name, ae.metadata, ae.occurred_at,
-           ae.contact_id, ae.sequence_id,
+  // Sent and failed emails both read from outbound_send_log — the authoritative
+  // delivery log now that openSendAttempt() is called before every provider send.
+  const sentLogRows = await db.execute(sql`
+    SELECT osl.contact_id, osl.sequence_id, osl.step_order,
+           osl.from_address, osl.to_address, osl.subject, osl.sent_at,
            c.email as contact_email, c.first_name, c.last_name,
            fus.name as sequence_name
-    FROM analytics_events ae
-    LEFT JOIN contacts c ON c.id = ae.contact_id
-    LEFT JOIN follow_up_sequences fus ON fus.id = ae.sequence_id
-    WHERE ae.event_name = 'sequence_step_sent'
-      AND ae.occurred_at >= now() - interval '10 minutes'
-    ORDER BY ae.occurred_at DESC
+    FROM outbound_send_log osl
+    LEFT JOIN contacts c ON c.id = osl.contact_id
+    LEFT JOIN follow_up_sequences fus ON fus.id = osl.sequence_id
+    WHERE osl.status = 'sent'
+      AND osl.created_at >= now() - interval '10 minutes'
+    ORDER BY osl.sent_at DESC
     LIMIT 30
   `);
 
@@ -314,9 +314,10 @@ async function main() {
     LIMIT 30
   `);
 
-  const sent   = sentEvtRows.rows as Array<{
-    event_name: string; metadata: any; occurred_at: string;
-    contact_id: number; sequence_id: number;
+  const sent = sentLogRows.rows as Array<{
+    contact_id: number; sequence_id: number; step_order: number;
+    from_address: string | null; to_address: string | null;
+    subject: string | null; sent_at: string | null;
     contact_email: string | null; first_name: string | null; last_name: string | null;
     sequence_name: string | null;
   }>;
@@ -356,12 +357,11 @@ async function main() {
   if (sent.length > 0) {
     console.log(`\n── Sent emails (check ${REDIRECT_TO} inbox) ──────────────────`);
     for (const row of sent) {
-      const meta    = typeof row.metadata === "string" ? JSON.parse(row.metadata) : (row.metadata ?? {});
-      const seqName = row.sequence_name ?? meta.sequenceName ?? `seq#${row.sequence_id}`;
-      const step    = meta.stepOrder ?? "?";
+      const seqName = row.sequence_name ?? `seq#${row.sequence_id}`;
       const name    = [row.first_name, row.last_name].filter(Boolean).join(" ") || "?";
-      console.log(`\n  ${PASS} ${name} <${row.contact_email ?? "?"}>`);
-      console.log(`     Sequence: ${seqName} | Step ${step}`);
+      const toAddr  = row.to_address ?? row.contact_email ?? "?";
+      console.log(`\n  ${PASS} ${name} <${toAddr}>`);
+      console.log(`     Sequence: ${seqName} | Step ${row.step_order ?? "?"} | From: ${row.from_address ?? "?"}`);
     }
   }
 
