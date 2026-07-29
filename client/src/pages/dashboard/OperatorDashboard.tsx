@@ -2753,6 +2753,7 @@ const OPERATOR_NAV_GROUPS: OperatorNavGroup[] = [
       { value: "deleted-records", label: "Deleted Records", icon: XCircle },
       { value: "system-audit", label: "System Audit", icon: Shield },
       { value: "launch-readiness", label: "Launch Readiness", icon: CheckCircle2 },
+      { value: "data-quality", label: "Data Quality", icon: Database },
       { value: "deliverability-settings", label: "Deliverability Settings", icon: Activity },
     ],
   },
@@ -2859,6 +2860,22 @@ function renderOperatorView(view: string, onNavigate: (v: string) => void) {
             className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
           >
             Open System Audit
+          </a>
+        </div>
+      );
+    case "data-quality":
+      return (
+        <div className="flex flex-col items-center justify-center h-64 gap-4">
+          <Database className="w-12 h-12 text-muted-foreground" />
+          <p className="text-lg font-medium">Data Quality Scanner</p>
+          <p className="text-sm text-muted-foreground text-center max-w-md">
+            Surface contacts with blank names, unvalidated emails, missing verticals, or no phone number. Validate emails lazily via ZeroBounce.
+          </p>
+          <a
+            href="/dashboard/data-quality"
+            className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+          >
+            Open Data Quality Scanner
           </a>
         </div>
       );

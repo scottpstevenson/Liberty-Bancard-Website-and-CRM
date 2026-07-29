@@ -1542,6 +1542,245 @@ export function registerContactsRoutes(app: Express) {
     }
   });
 
+  // ── Data Quality Scanner ──────────────────────────────────────────────────
+  // GET /api/contacts/quality-summary
+  // Returns aggregate counts for the quality health dashboard.
+  app.get("/api/contacts/quality-summary", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const result = await pool.query(`
+        SELECT
+          COUNT(*)::int                                                                          AS total_contacts,
+          COUNT(*) FILTER (WHERE COALESCE(TRIM(first_name), '') = '')::int                      AS blank_first_name,
+          COUNT(*) FILTER (WHERE email_status IS NULL OR email_status = 'active')::int          AS unvalidated_email,
+          COUNT(*) FILTER (WHERE email_status IN ('bounced', 'invalid', 'unsafe'))::int         AS bad_email,
+          COUNT(*) FILTER (WHERE COALESCE(TRIM(vertical), '') = '')::int                       AS missing_vertical,
+          COUNT(*) FILTER (WHERE COALESCE(TRIM(phone), '') = '')::int                          AS missing_phone,
+          COUNT(*) FILTER (WHERE email_status = 'valid')::int                                  AS verified_valid,
+          COUNT(*) FILTER (WHERE email_status = 'unverified')::int                             AS catch_all
+        FROM contacts
+        WHERE archived_at IS NULL
+      `);
+      const { data: zbData } = await import("../services/zerobounce-daily-limiter").then(m =>
+        m.checkZeroBounceBudget().then(b => ({ data: b }))
+      );
+      res.json({
+        ...result.rows[0],
+        zerobounce: {
+          usedToday: zbData.used,
+          dailyLimit: zbData.limit,
+          remainingToday: Math.max(0, zbData.limit - zbData.used),
+        },
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // GET /api/contacts/quality-scan?issue=blank_name|unvalidated_email|bad_email|missing_vertical|missing_phone&page=1&limit=50
+  app.get("/api/contacts/quality-scan", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const issue = req.query.issue as string | undefined;
+      const page  = Math.max(1, parseInt(String(req.query.page  ?? "1"),  10));
+      const limit = Math.min(200, Math.max(1, parseInt(String(req.query.limit ?? "50"), 10)));
+      const offset = (page - 1) * limit;
+      const minLeadScore = parseInt(String(req.query.minLeadScore ?? "0"), 10) || 0;
+
+      const issueFilters: Record<string, string> = {
+        blank_name:        `COALESCE(TRIM(first_name), '') = ''`,
+        unvalidated_email: `(email_status IS NULL OR email_status = 'active')`,
+        bad_email:         `email_status IN ('bounced', 'invalid', 'unsafe')`,
+        missing_vertical:  `COALESCE(TRIM(vertical), '') = ''`,
+        missing_phone:     `COALESCE(TRIM(phone), '') = ''`,
+      };
+
+      const whereClause = issue && issueFilters[issue]
+        ? `archived_at IS NULL AND (${issueFilters[issue]}) AND COALESCE(lead_score, 0) >= ${minLeadScore}`
+        : `archived_at IS NULL AND COALESCE(lead_score, 0) >= ${minLeadScore}`;
+
+      const countResult = await pool.query(
+        `SELECT COUNT(*)::int AS total FROM contacts WHERE ${whereClause}`,
+      );
+
+      const rowsResult = await pool.query(`
+        SELECT
+          id, first_name, last_name, email, email_status,
+          phone, vertical, company_name, lead_score,
+          created_at
+        FROM contacts
+        WHERE ${whereClause}
+        ORDER BY COALESCE(lead_score, 0) DESC, id DESC
+        LIMIT ${limit} OFFSET ${offset}
+      `);
+
+      res.json({
+        total: countResult.rows[0]?.total ?? 0,
+        page,
+        limit,
+        data: rowsResult.rows,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/contacts/validate-emails-batch
+  // Runs ZeroBounce on a filtered set of contacts, respecting the daily cap.
+  app.post("/api/contacts/validate-emails-batch", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const schema = z.object({
+        issue:        z.string().optional().default("unvalidated_email"),
+        minLeadScore: z.number().int().min(0).max(100).optional().default(0),
+        limit:        z.number().int().min(1).max(500).optional().default(100),
+        contactIds:   z.array(z.number().int().positive()).optional().default([]),
+      });
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: parsed.error.errors[0].message });
+      }
+      const { issue, minLeadScore, limit: batchLimit, contactIds: explicitIds } = parsed.data;
+
+      const { checkZeroBounceBudget, claimZeroBounceCredit } = await import("../services/zerobounce-daily-limiter");
+      const { verifyEmail } = await import("../services/sdr/zerobounce");
+
+      const budget = await checkZeroBounceBudget();
+      if (!budget.allowed) {
+        return res.status(429).json({
+          message: `ZeroBounce daily cap reached (${budget.used}/${budget.limit}). Resets tomorrow.`,
+        });
+      }
+
+      // Determine candidate contact IDs
+      let candidateIds: number[];
+      if (explicitIds.length > 0) {
+        candidateIds = explicitIds.slice(0, batchLimit);
+      } else {
+        const issueFilters: Record<string, string> = {
+          blank_name:        `COALESCE(TRIM(first_name), '') = ''`,
+          unvalidated_email: `(email_status IS NULL OR email_status = 'active')`,
+          bad_email:         `email_status IN ('bounced', 'invalid', 'unsafe')`,
+          missing_vertical:  `COALESCE(TRIM(vertical), '') = ''`,
+          missing_phone:     `COALESCE(TRIM(phone), '') = ''`,
+        };
+        const whereClause = issueFilters[issue] ?? `(email_status IS NULL OR email_status = 'active')`;
+        const rows = await pool.query(`
+          SELECT id FROM contacts
+          WHERE archived_at IS NULL
+            AND COALESCE(TRIM(email), '') != ''
+            AND COALESCE(lead_score, 0) >= ${minLeadScore}
+            AND (${whereClause})
+          ORDER BY COALESCE(lead_score, 0) DESC
+          LIMIT ${batchLimit}
+        `);
+        candidateIds = rows.rows.map((r: any) => r.id);
+      }
+
+      const maxToProcess = Math.min(candidateIds.length, budget.limit - budget.used);
+      const toProcess = candidateIds.slice(0, maxToProcess);
+
+      // Fire-and-forget: process in background, return job handle immediately.
+      // Write initial state BEFORE setImmediate so the first poll never 404s.
+      const jobId = crypto.randomUUID();
+      const actorId = String((req.user as any)?.id ?? "system");
+
+      await storage.setSystemSetting(`zerobounce_batch_job_${jobId}`, {
+        done: false, processed: 0, valid: 0, blocked: 0, errors: 0,
+        queued: toProcess.length, startedAt: new Date().toISOString(),
+      });
+
+      setImmediate(async () => {
+        let processed = 0, valid = 0, blocked = 0, errors = 0;
+        for (const contactId of toProcess) {
+          try {
+            const contact = await storage.getContact(contactId);
+            if (!contact?.email) continue;
+            const credited = await claimZeroBounceCredit();
+            if (!credited) break;
+
+            const zbResult = await verifyEmail(contact.email);
+            await pool.query(`UPDATE contacts SET email_status = $1 WHERE id = $2`, [zbResult.status, contactId]);
+            await storage.createAuditLog({
+              action: "zerobounce_email_validated",
+              entityType: "contact",
+              entityId: contactId,
+              actorType: "admin",
+              actorId,
+              details: { email: contact.email, zbStatus: zbResult.status, zbSubStatus: zbResult.subStatus ?? null, source: "batch" },
+            });
+            processed++;
+            if (zbResult.status === "valid") valid++;
+            else if (zbResult.status === "unsafe") blocked++;
+          } catch (e) {
+            errors++;
+          }
+        }
+        // Overwrite with final done state
+        await storage.setSystemSetting(`zerobounce_batch_job_${jobId}`, {
+          done: true, processed, valid, blocked, errors,
+          queued: toProcess.length, completedAt: new Date().toISOString(),
+        });
+      });
+
+      res.json({
+        jobId,
+        queued: toProcess.length,
+        budgetRemaining: budget.limit - budget.used,
+        message: `Validating ${toProcess.length} email(s) in the background. Poll /api/contacts/validate-emails-batch/${jobId} for status.`,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // GET /api/contacts/validate-emails-batch/:jobId — poll batch job status
+  app.get("/api/contacts/validate-emails-batch/:jobId", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const jobId = req.params.jobId;
+      const status = await storage.getSystemSetting(`zerobounce_batch_job_${jobId}`);
+      if (!status) return res.status(404).json({ message: "Job not found or still starting" });
+      res.json(status);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/contacts/:id/validate-email — validate a single contact's email via ZeroBounce
+  app.post("/api/contacts/:id/validate-email", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const contactId = Number(req.params.id);
+      if (!Number.isFinite(contactId)) return res.status(400).json({ message: "Invalid contact ID" });
+
+      const contact = await storage.getContact(contactId);
+      if (!contact) return res.status(404).json({ message: "Contact not found" });
+      if (!contact.email) return res.status(400).json({ message: "Contact has no email address" });
+
+      const { checkZeroBounceBudget, claimZeroBounceCredit } = await import("../services/zerobounce-daily-limiter");
+      const { verifyEmail } = await import("../services/sdr/zerobounce");
+
+      const budget = await checkZeroBounceBudget();
+      if (!budget.allowed) {
+        return res.status(429).json({ message: `ZeroBounce daily cap reached (${budget.used}/${budget.limit})` });
+      }
+
+      const credited = await claimZeroBounceCredit();
+      if (!credited) return res.status(429).json({ message: "Could not claim ZeroBounce credit" });
+
+      const zbResult = await verifyEmail(contact.email);
+      await pool.query(`UPDATE contacts SET email_status = $1 WHERE id = $2`, [zbResult.status, contactId]);
+      await storage.createAuditLog({
+        action: "zerobounce_email_validated",
+        entityType: "contact",
+        entityId: contactId,
+        actorType: "admin",
+        actorId: String((req.user as any)?.id ?? "system"),
+        details: { email: contact.email, zbStatus: zbResult.status, zbSubStatus: zbResult.subStatus ?? null, source: "manual" },
+      });
+
+      res.json({ success: true, email: contact.email, status: zbResult.status, subStatus: zbResult.subStatus ?? null });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // POST /api/contacts/:id/send-email — send a composed email via GHL
   app.post("/api/contacts/:id/send-email", isDashboardUser, async (req, res) => {
     try {

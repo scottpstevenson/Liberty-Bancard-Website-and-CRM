@@ -30,6 +30,8 @@ import type { SendChannel } from "./outbound-send-log";
 import type { VoiceBotMode } from "./sdr/voice-orchestrator";
 import type { AbTestConfig, AbTestResults } from "@shared/schema";
 import { getCanonicalUrl } from "../lib/canonical-url";
+import { verifyEmail } from "./sdr/zerobounce";
+import { claimZeroBounceCredit, checkZeroBounceBudget } from "./zerobounce-daily-limiter";
 
 // ╔══════════════════════════════════════════════════════════════════════════╗
 // ║  ARCHITECTURE BOUNDARY — Replit Orchestrates, GHL Transports            ║
@@ -380,8 +382,10 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
         let contact: any = null;
         if (enrollment.contactId) {
           contact = await storage.getContact(enrollment.contactId);
-          // Bounce guard: skip email steps for bounced/invalid contacts
-          if (contact && (contact.emailStatus === "bounced" || contact.emailStatus === "invalid")) {
+          // Bounce guard: skip email steps for bounced/invalid/unsafe contacts.
+          // "unsafe" covers ZeroBounce-flagged spam traps, abuse addresses, and do_not_mail —
+          // including contacts that were validated by the batch/manual route before this send.
+          if (contact && (contact.emailStatus === "bounced" || contact.emailStatus === "invalid" || contact.emailStatus === "unsafe")) {
             await storage.updateSequenceEnrollment(enrollment.id, { status: "paused" });
             await storage.createAuditLog({
               action: "sequence_enrollment_skipped_bad_email",
@@ -398,6 +402,78 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
             });
             processed++;
             continue;
+          }
+
+          // ── ZeroBounce lazy validation gate ────────────────────────────────
+          // Fire once per contact, only for email steps, when emailStatus is unknown.
+          // Writes the result back to contacts.email_status so we never re-spend credits.
+          if (
+            contact &&
+            step &&
+            step.actionType === "email" &&
+            (contact.emailStatus == null || contact.emailStatus === "active")
+          ) {
+            const zbStatuses = new Set(["valid", "unsafe", "unverified", "unknown"]);
+            if (!zbStatuses.has(contact.emailStatus)) {
+              const budgetCheck = await checkZeroBounceBudget();
+              if (!budgetCheck.allowed) {
+                console.warn(
+                  `[SequenceWorker] ZeroBounce daily cap reached (${budgetCheck.used}/${budgetCheck.limit}), skipping validation for contact ${contact.id}`,
+                );
+              } else if (contact.email) {
+                const credited = await claimZeroBounceCredit();
+                if (credited) {
+                  try {
+                    const zbResult = await verifyEmail(contact.email);
+                    // Write result back via raw SQL — Drizzle update().set() silently drops
+                    // string columns when passed a union type; raw SQL is the safe path.
+                    const { db: zbDb, sql: zbSql } = await import("../db");
+                    await zbDb.execute(zbSql`UPDATE contacts SET email_status = ${zbResult.status} WHERE id = ${contact.id}`);
+                    contact = { ...contact, emailStatus: zbResult.status };
+
+                    await storage.createAuditLog({
+                      action: "zerobounce_email_validated",
+                      entityType: "contact",
+                      entityId: contact.id,
+                      actorType: "system",
+                      details: {
+                        enrollmentId: enrollment.id,
+                        sequenceId: sequence.id,
+                        email: contact.email,
+                        zbStatus: zbResult.status,
+                        zbSubStatus: zbResult.subStatus ?? null,
+                        skipped: zbResult.skipped ?? false,
+                      },
+                    });
+
+                    // Block the send if the result is bad
+                    if (zbResult.status === "unsafe") {
+                      await storage.updateSequenceEnrollment(enrollment.id, { status: "paused" });
+                      await storage.createAuditLog({
+                        action: "sequence_step_blocked_email_invalid",
+                        entityType: "contact",
+                        entityId: contact.id,
+                        actorType: "system",
+                        details: {
+                          enrollmentId: enrollment.id,
+                          sequenceId: sequence.id,
+                          sequenceName: sequence.name,
+                          email: contact.email,
+                          zbStatus: zbResult.status,
+                          zbSubStatus: zbResult.subStatus ?? null,
+                          reason: `ZeroBounce flagged email as '${zbResult.status}' — enrollment paused`,
+                        },
+                      });
+                      processed++;
+                      continue;
+                    }
+                  } catch (zbErr) {
+                    console.warn(`[SequenceWorker] ZeroBounce validation error for contact ${contact.id}:`, (zbErr as Error).message);
+                    // Non-fatal: proceed with the send if ZeroBounce itself fails
+                  }
+                }
+              }
+            }
           }
 
           // ── SMS-step consent skip ──────────────────────────────────────────
