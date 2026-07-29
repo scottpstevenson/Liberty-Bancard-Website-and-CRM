@@ -688,7 +688,7 @@ export async function enrollInInboundConfirmation(params: {
   // ── Durable 24-hour follow-up (BullMQ enrichment queue) ─────────────────────
   // Scheduling failure is isolated — inbound_confirmation_sent is preserved.
   if (dealId !== undefined) {
-    const followupJobId = `inbound_followup:${submissionId}`;
+    const followupJobId = `inbound_followup-${submissionId}`;
     const jobData = { contactId, dealId, formType, submissionId };
     const jobOpts = {
       delay: 24 * 60 * 60 * 1000,
