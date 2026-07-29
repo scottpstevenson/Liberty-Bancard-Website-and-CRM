@@ -218,7 +218,7 @@ console.log("\n── Section 10: Call-site surface checks ───────
     `<p>You can reply to this email with the documents or give us a call and we'll walk you through it.</p>` +
     getEmailSignatureHtml("accounts");
 
-  assertContains("sla doc-nudge: accounts sig injected (name)", docNudgeBody, "Your Liberty Bancard Account Team");
+  assertContains("sla doc-nudge: accounts sig injected (name)", docNudgeBody, "Liberty Bancard Account Management");
   assertContains("sla doc-nudge: accounts email", docNudgeBody, "accounts@libertybancard.com");
   assertContains("sla doc-nudge: website link", docNudgeBody, "libertybancard.com");
   assertNotContains("sla doc-nudge: no stale 'Best, Liberty Bancard Team'", docNudgeBody, "Best,\nLiberty Bancard Team");
@@ -240,7 +240,7 @@ console.log("\n── Section 10: Call-site surface checks ───────
 // proposal-engine.ts + savings.ts + co-branded — accounts signature appended
 {
   const proposalBody = `<div>...proposal HTML...</div>${getEmailSignatureHtml("accounts")}`;
-  assertContains("proposal: accounts sig injected (name)", proposalBody, "Your Liberty Bancard Account Team");
+  assertContains("proposal: accounts sig injected (name)", proposalBody, "Liberty Bancard Account Management");
   assertContains("proposal: accounts email present", proposalBody, "accounts@libertybancard.com");
   assertNotContains("proposal: no stale sales@ reference in sig", proposalBody, "sales@libertybancard.com");
 }

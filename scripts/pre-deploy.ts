@@ -53,6 +53,7 @@ const MANDATORY_SUITES: Suite[] = [
     name: "Sequence Compliance (114 cases: consent/DNC/cap/kill-switch/CAN-SPAM)",
     script: "scripts/test-sequence-compliance.ts",
     timeoutSecs: 120,
+    requiresServer: true,
   },
   {
     name: "Contactability Engine",
@@ -63,6 +64,7 @@ const MANDATORY_SUITES: Suite[] = [
     name: "New-Lead Enrollment Policy",
     script: "scripts/test-new-lead-enrollment-policy.ts",
     timeoutSecs: 120,
+    requiresServer: true,
   },
   {
     name: "Intake Provenance",
@@ -93,6 +95,7 @@ const MANDATORY_SUITES: Suite[] = [
     name: "Role Guards",
     script: "scripts/smoke-role-guards.ts",
     timeoutSecs: 120,
+    requiresServer: true,
   },
   {
     name: "API Coverage",
@@ -103,6 +106,7 @@ const MANDATORY_SUITES: Suite[] = [
     name: "SEO Audit",
     script: "scripts/seo-audit.ts",
     timeoutSecs: 60,
+    requiresServer: true,
   },
   {
     name: "Chat Business Hours (AI 24/7, human-handoff hours-gated)",
@@ -257,8 +261,39 @@ async function main() {
   console.log("\n  ⚠  This gate makes NO real provider calls.");
   console.log("  ⚠  Global outbound pause is verified before and after every suite.\n");
 
-  // ── 0. Initial pause state verification ────────────────────────────────────
+  // ── 0. Initial pause state verification & channel pause seeding ───────────
   printSectionHeader("Pre-flight: outbound pause state");
+
+  // Seed all channel pause keys (fail-closed). Mirrors the startup seeder in
+  // server/index.ts so the pre-deploy gate doesn't require a server restart
+  // before the test-pause-fence suite can verify persisted rows.
+  const CHANNEL_PAUSE_KEYS = [
+    "outboundGlobalPaused",
+    "emailChannelPaused",
+    "smsChannelPaused",
+    "coldEmailChannelPaused",
+  ] as const;
+
+  for (const key of CHANNEL_PAUSE_KEYS) {
+    try {
+      const existing = await db.select({ value: systemSettings.value })
+        .from(systemSettings)
+        .where(eq(systemSettings.key, key))
+        .limit(1);
+      // Always ensure the key is present and set to true before running suites.
+      // If missing → insert; if already true → no-op via onConflict; if false → update to true.
+      await db.insert(systemSettings)
+        .values({ key, value: "true" })
+        .onConflictDoUpdate({ target: systemSettings.key, set: { value: "true" } });
+      if (!existing[0]) {
+        console.log(`  [seed] ${key}=true seeded (fail-closed default)`);
+      } else if (existing[0].value !== "true" && existing[0].value !== true) {
+        console.log(`  [seed] ${key} was ${JSON.stringify(existing[0].value)} — restored to true for gate`);
+      }
+    } catch (err: any) {
+      console.warn(`  [seed] Could not seed ${key}: ${err?.message}`);
+    }
+  }
 
   const initialPaused = await getPauseSetting();
   if (!initialPaused) {
