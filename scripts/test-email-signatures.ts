@@ -162,7 +162,7 @@ const CATEGORY_CHECKS: Array<{ category: MessageCategory; expectedFrom: string; 
   { category: "onboarding",    expectedFrom: "onboarding@libertybancard.com", expectedReplyTo: "onboarding@libertybancard.com", expectedDisplayName: "Liberty Bancard Onboarding" },
   { category: "security",      expectedFrom: "security@libertybancard.com",   expectedReplyTo: "security@libertybancard.com",   expectedDisplayName: "Liberty Bancard Security" },
   { category: "partners",      expectedFrom: "partners@libertybancard.com",   expectedReplyTo: "partners@libertybancard.com",   expectedDisplayName: "Liberty Bancard Partner Program" },
-  { category: "accounts",      expectedFrom: "accounts@libertybancard.com",   expectedReplyTo: "accounts@libertybancard.com",   expectedDisplayName: "Your Liberty Bancard Account Team" },
+  { category: "accounts",      expectedFrom: "accounts@libertybancard.com",   expectedReplyTo: "accounts@libertybancard.com",   expectedDisplayName: "Liberty Bancard Account Management" },
   { category: "internal_ops",  expectedFrom: "accounts@libertybancard.com",   expectedReplyTo: "accounts@libertybancard.com",   expectedDisplayName: "Liberty Bancard" },
 ];
 

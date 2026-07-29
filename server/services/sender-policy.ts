@@ -94,7 +94,7 @@ const POLICY_REGISTRY: Record<MessageCategory, SenderPolicy> = {
     category: "accounts",
     from: "accounts@libertybancard.com",
     replyTo: "accounts@libertybancard.com",
-    displayName: "Your Liberty Bancard Account Team",
+    displayName: "Liberty Bancard Account Management",
     signatureType: "accounts",
   },
   internal_ops: {
