@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle, RefreshCw, RotateCcw, XCircle, CheckCircle2,
-  Clock, Activity, Zap, Database, Wifi,
+  Clock, Activity, Zap, Database, Wifi, Trash2,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -13,6 +13,17 @@ import {
 import {
   Collapsible, CollapsibleContent, CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
@@ -61,6 +72,10 @@ function relativeTime(ts: number | string) {
   return `${Math.round(diff / 86_400_000)}d ago`;
 }
 
+function isStale(timestamp: number, days = 7) {
+  return Date.now() - timestamp > days * 24 * 60 * 60 * 1000;
+}
+
 // ─── DLQ Panel ────────────────────────────────────────────────────────────────
 
 function DlqPanel({ items }: { items: DlqItem[] }) {
@@ -78,6 +93,28 @@ function DlqPanel({ items }: { items: DlqItem[] }) {
     onError: (e: any) => toast({ title: "Retry failed", description: e.message, variant: "destructive" }),
   });
 
+  const discardJob = useMutation({
+    mutationFn: (compositeId: string) =>
+      apiRequest("DELETE", `/api/admin/system-health/jobs/${encodeURIComponent(compositeId)}`),
+    onSuccess: () => {
+      toast({ title: "Job discarded" });
+      qc.invalidateQueries({ queryKey: ["/api/admin/system-health/incidents"] });
+    },
+    onError: (e: any) => toast({ title: "Discard failed", description: e.message, variant: "destructive" }),
+  });
+
+  const purgeAll = useMutation({
+    mutationFn: (olderThanDays: number) =>
+      apiRequest("DELETE", `/api/admin/system-health/jobs/dlq/purge?olderThanDays=${olderThanDays}`),
+    onSuccess: (data: any) => {
+      toast({ title: `Purged ${data.removed ?? 0} job(s) from the DLQ` });
+      qc.invalidateQueries({ queryKey: ["/api/admin/system-health/incidents"] });
+    },
+    onError: (e: any) => toast({ title: "Purge failed", description: e.message, variant: "destructive" }),
+  });
+
+  const staleCount = items.filter((i) => isStale(i.timestamp, 7)).length;
+
   if (items.length === 0) {
     return (
       <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground justify-center">
@@ -87,10 +124,92 @@ function DlqPanel({ items }: { items: DlqItem[] }) {
   }
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
+      {/* Bulk-action toolbar */}
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <p className="text-xs text-muted-foreground">
+          {items.length} exhausted job{items.length !== 1 ? "s" : ""}
+          {staleCount > 0 && (
+            <span className="ml-1 text-amber-600 dark:text-amber-400">
+              · {staleCount} older than 7 days
+            </span>
+          )}
+        </p>
+        <div className="flex gap-2">
+          {staleCount > 0 && (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="text-xs h-7 px-2 border-amber-400 text-amber-700 hover:bg-amber-50 dark:text-amber-300 dark:hover:bg-amber-950/30"
+                  disabled={purgeAll.isPending}
+                >
+                  <Trash2 className="w-3 h-3 mr-1" />
+                  Purge stale ({staleCount})
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Purge stale dead-letter jobs?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This will permanently delete {staleCount} job{staleCount !== 1 ? "s" : ""} older
+                    than 7 days that have already exhausted all retry attempts. These jobs failed due
+                    to past infrastructure issues (e.g. Redis timeouts) and cannot be retried
+                    successfully. This action cannot be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    className="bg-destructive hover:bg-destructive/90"
+                    onClick={() => purgeAll.mutate(7)}
+                  >
+                    Purge {staleCount} job{staleCount !== 1 ? "s" : ""}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button
+                size="sm"
+                variant="outline"
+                className="text-xs h-7 px-2 border-destructive text-destructive hover:bg-destructive/10"
+                disabled={purgeAll.isPending}
+              >
+                <Trash2 className="w-3 h-3 mr-1" />
+                Purge all ({items.length})
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Purge all dead-letter jobs?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This will permanently delete all {items.length} exhausted job{items.length !== 1 ? "s" : ""} from
+                  every queue. Use this to clear the backlog after a confirmed infrastructure outage.
+                  This action cannot be undone.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  className="bg-destructive hover:bg-destructive/90"
+                  onClick={() => purgeAll.mutate(0)}
+                >
+                  Purge all {items.length} job{items.length !== 1 ? "s" : ""}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </div>
+      </div>
+
+      {/* Per-item list */}
       {items.map((item) => (
         <Collapsible key={item.id} open={open[item.id]} onOpenChange={(v) => setOpen(s => ({ ...s, [item.id]: v }))}>
-          <div className="flex items-start gap-3 p-3 border rounded-lg bg-red-50 dark:bg-red-950/30">
+          <div className={`flex items-start gap-3 p-3 border rounded-lg ${isStale(item.timestamp, 7) ? "bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-900" : "bg-red-50 dark:bg-red-950/30"}`}>
             <XCircle className="w-4 h-4 text-red-500 mt-0.5 shrink-0" />
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
@@ -100,10 +219,13 @@ function DlqPanel({ items }: { items: DlqItem[] }) {
                   <Clock className="inline w-3 h-3 mr-0.5" />{relativeTime(item.timestamp)}
                 </span>
                 <Badge variant="secondary" className="text-xs">{item.attemptsMade} attempts</Badge>
+                {isStale(item.timestamp, 7) && (
+                  <Badge variant="outline" className="text-xs border-amber-400 text-amber-700 dark:text-amber-300">stale</Badge>
+                )}
               </div>
               <p className="text-xs text-red-700 dark:text-red-300 mt-1 truncate">{item.failedReason}</p>
             </div>
-            <div className="flex gap-2 shrink-0">
+            <div className="flex gap-1 shrink-0">
               <CollapsibleTrigger asChild>
                 <Button size="sm" variant="ghost" className="text-xs h-7 px-2">Details</Button>
               </CollapsibleTrigger>
@@ -111,11 +233,22 @@ function DlqPanel({ items }: { items: DlqItem[] }) {
                 size="sm"
                 variant="outline"
                 className="text-xs h-7 px-2"
-                disabled={retryJob.isPending}
+                disabled={retryJob.isPending || discardJob.isPending}
                 onClick={() => retryJob.mutate(item.id)}
                 data-testid={`button-retry-job-${item.id}`}
               >
                 <RotateCcw className="w-3 h-3 mr-1" /> Retry
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="text-xs h-7 px-2 text-muted-foreground hover:text-destructive"
+                disabled={retryJob.isPending || discardJob.isPending}
+                onClick={() => discardJob.mutate(item.id)}
+                title="Permanently delete this job"
+                data-testid={`button-discard-job-${item.id}`}
+              >
+                <Trash2 className="w-3 h-3" />
               </Button>
             </div>
           </div>
@@ -237,6 +370,7 @@ export default function IncidentsDashboard() {
   }
 
   const totalIssues = data.dlqCount + data.ghlFailureCount;
+  const staleCount = (data.dlqItems ?? []).filter((i) => isStale(i.timestamp, 7)).length;
 
   return (
     <div className="space-y-6">
@@ -253,6 +387,21 @@ export default function IncidentsDashboard() {
           <RefreshCw className="w-3 h-3 mr-1" /> Refresh
         </Button>
       </div>
+
+      {/* Stale DLQ alert banner */}
+      {staleCount > 0 && (
+        <div className="flex items-start gap-3 p-3 rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 text-sm">
+          <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+          <div>
+            <span className="font-semibold text-amber-800 dark:text-amber-300">
+              {staleCount} stale DLQ job{staleCount !== 1 ? "s" : ""} may be masking new failures.
+            </span>{" "}
+            <span className="text-amber-700 dark:text-amber-400">
+              These jobs are older than 7 days and exhausted all retry attempts. Use "Purge stale" below to clear them so real new failures become visible immediately.
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Queue Summary */}
       <Card>

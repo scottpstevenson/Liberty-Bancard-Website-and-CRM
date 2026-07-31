@@ -3144,6 +3144,53 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // Discard (permanently delete) a single dead-letter job
+  app.delete("/api/admin/system-health/jobs/:compositeId", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const compositeId = decodeURIComponent(req.params.compositeId);
+      const { getQueueManager } = await import("../services/queue-manager");
+      const qm = await getQueueManager();
+      await qm.discardDeadLetterJob(compositeId);
+
+      auditChange({
+        actorType: "user",
+        userId: (req.user as any)?.id ?? null,
+        action: "manual_job_discard",
+        entityType: "queue",
+        entityKey: compositeId,
+        details: { compositeId, discardedBy: (req.user as any)?.email ?? "admin" },
+      }).catch(() => {});
+
+      res.json({ success: true, compositeId });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Bulk-purge dead-letter jobs (optionally filtered to jobs older than N days)
+  // Query param: olderThanDays (number, default 0 = purge all exhausted jobs)
+  app.delete("/api/admin/system-health/jobs/dlq/purge", requireRole("admin"), async (req, res) => {
+    try {
+      const olderThanDays = Math.max(0, parseInt((req.query.olderThanDays as string) ?? "0", 10) || 0);
+      const { getQueueManager } = await import("../services/queue-manager");
+      const qm = await getQueueManager();
+      const removed = await qm.purgeDeadLetterItems(olderThanDays);
+
+      auditChange({
+        actorType: "user",
+        userId: (req.user as any)?.id ?? null,
+        action: "dlq_bulk_purge",
+        entityType: "queue",
+        entityKey: "dlq",
+        details: { removed, olderThanDays, purgedBy: (req.user as any)?.email ?? "admin" },
+      }).catch(() => {});
+
+      res.json({ success: true, removed, olderThanDays });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // Retry GHL sync for a contact identified by entityKey (email or contact id)
   app.post("/api/admin/ghl-failures/retry", requireRole("admin", "manager"), async (req, res) => {
     try {

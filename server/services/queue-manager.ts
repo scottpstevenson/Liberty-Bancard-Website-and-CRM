@@ -911,14 +911,89 @@ class QueueManager {
 
   async discardDeadLetterJob(compositeId: string): Promise<void> {
     const [queueName, jobId] = compositeId.split("::");
+    if (!queueName || !jobId) throw new Error(`Invalid compositeId: ${compositeId}`);
     const queue = this.queues.get(queueName as QueueName);
     if (!queue) throw new Error(`Queue not found: ${queueName}`);
 
     const job = await queue.getJob(jobId);
     if (!job) throw new Error(`Job not found: ${jobId}`);
 
+    // Guard: only allow removing jobs that are in the failed state AND have
+    // exhausted all retry attempts. This prevents the endpoint from being used
+    // to delete waiting, delayed, or still-retrying operational work.
+    const state = await job.getState();
+    if (state !== "failed") {
+      throw new Error(`Job ${jobId} is in state "${state}", not "failed" — refusing to discard`);
+    }
+    const attemptsAllowed = job.opts.attempts ?? 1;
+    if (job.attemptsMade < attemptsAllowed) {
+      throw new Error(
+        `Job ${jobId} has only made ${job.attemptsMade}/${attemptsAllowed} attempts — it may still be retried; refusing to discard`,
+      );
+    }
+
     await job.remove();
     console.log(`[QueueManager] Discarded dead-letter job ${jobId} from ${queueName}`);
+  }
+
+  /**
+   * Fetch ALL exhausted failed jobs from a single queue, paginating until
+   * the result set is fully drained.  BullMQ's getFailed(start, end) uses
+   * zero-based inclusive indexes, so we step through in PAGE_SIZE batches.
+   */
+  private async getAllExhaustedFailedJobs(queue: Queue): Promise<Job[]> {
+    const PAGE_SIZE = 500;
+    const exhausted: Job[] = [];
+    let start = 0;
+
+    while (true) {
+      const page = await queue.getFailed(start, start + PAGE_SIZE - 1);
+      for (const job of page) {
+        if (!job.id) continue;
+        const attemptsAllowed = job.opts.attempts ?? 1;
+        if (job.attemptsMade >= attemptsAllowed) {
+          exhausted.push(job);
+        }
+      }
+      if (page.length < PAGE_SIZE) break; // last page — we've seen everything
+      start += PAGE_SIZE;
+    }
+
+    return exhausted;
+  }
+
+  /**
+   * Bulk-purge dead-letter jobs from all queues.
+   * @param olderThanDays  Only remove jobs whose timestamp is older than this many days.
+   *                       Pass 0 (or omit) to remove ALL exhausted failed jobs.
+   * @returns Number of jobs removed.
+   */
+  async purgeDeadLetterItems(olderThanDays = 0): Promise<number> {
+    const cutoffMs = olderThanDays > 0 ? Date.now() - olderThanDays * 24 * 60 * 60 * 1000 : Infinity;
+    let removed = 0;
+
+    for (const config of QUEUE_CONFIGS) {
+      const queue = this.queues.get(config.name);
+      if (!queue) continue;
+
+      try {
+        const exhaustedJobs = await this.getAllExhaustedFailedJobs(queue);
+        for (const job of exhaustedJobs) {
+          if (olderThanDays > 0 && job.timestamp >= cutoffMs) continue; // too recent
+          try {
+            await job.remove();
+            removed++;
+          } catch {
+            // best-effort; job may already be gone
+          }
+        }
+      } catch {
+        // queue unavailable — skip
+      }
+    }
+
+    console.log(`[QueueManager] Purged ${removed} dead-letter job(s) (olderThanDays=${olderThanDays})`);
+    return removed;
   }
 
   async pauseQueue(name: string): Promise<void> {
