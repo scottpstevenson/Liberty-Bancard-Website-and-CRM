@@ -735,6 +735,11 @@ export async function processSendQueue(maxToSend?: number): Promise<{ sent: numb
     return { sent: 0, failed: 0 };
   }
 
+  // Recover any rows that were left in `sending` by a previous worker crash.
+  // They are older than 5 minutes so the send almost certainly never completed;
+  // surface them as `failed` so operators can see them.
+  await storage.markStaleInFlightMessagesFailed();
+
   const fetchLimit = maxToSend ? Math.min(maxToSend, 50) : 50;
   const messages = await storage.getQueuedMessages(fetchLimit);
   const now = new Date();
@@ -890,6 +895,15 @@ export async function processSendQueue(maxToSend?: number): Promise<{ sent: numb
       const signature = getEmailSignatureHtml("sales", storedSig);
       const bodyWithSig = body + signature + complianceFooter;
 
+      // Mark as in-flight BEFORE the network call so a crash between send and
+      // status-update leaves the row in `sending` (not `queued`).  A future
+      // tick will not re-pick it up; the stale-cleanup in processSendQueue
+      // will surface it as `failed` after 5 minutes instead.
+      await storage.updateOutboundMessage(msg.id, {
+        status: "sending",
+        sendingAt: new Date(),
+      });
+
       if (isSmtpConfigured()) {
         const { generateUnsubscribeToken } = await import("./unsubscribe-token");
         const token = generateUnsubscribeToken(prospect.contactId);
@@ -1034,6 +1048,15 @@ async function sendContactCampaignMessage(
   const { generateUnsubscribeToken } = await import("./unsubscribe-token");
   const token = generateUnsubscribeToken(contact.id);
   const unsubscribeUrl = `${appUrl}/unsubscribe?t=${encodeURIComponent(token)}`;
+
+  // Mark as in-flight BEFORE the network call so a crash between send and
+  // status-update leaves the row in `sending` (not `queued`).  A future
+  // tick will not re-pick it up; the stale-cleanup in processSendQueue
+  // will surface it as `failed` after 5 minutes instead.
+  await storage.updateOutboundMessage(msg.id, {
+    status: "sending",
+    sendingAt: new Date(),
+  });
 
   const result = await sendSmtpEmail({
     to: contact.email,

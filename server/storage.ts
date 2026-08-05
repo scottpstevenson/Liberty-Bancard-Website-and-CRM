@@ -326,6 +326,7 @@ export interface IStorage {
   createOutboundMessagesBulk(msgs: InsertOutboundMessage[]): Promise<typeof outboundMessages.$inferSelect[]>;
   updateOutboundMessage(id: number, updates: UpdateOutboundMessageRequest): Promise<typeof outboundMessages.$inferSelect | undefined>;
   getQueuedMessages(limit: number): Promise<typeof outboundMessages.$inferSelect[]>;
+  markStaleInFlightMessagesFailed(): Promise<number>;
   getOutboundStats(campaignId: number): Promise<{sent: number, opened: number, replied: number, bounced: number}>;
 
   getNotes(entityType: string, entityId: number): Promise<typeof notes.$inferSelect[]>;

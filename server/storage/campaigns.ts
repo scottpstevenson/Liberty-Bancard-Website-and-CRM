@@ -185,6 +185,25 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
       .limit(limit);
   }
 
+  /**
+   * Mark stale in-flight messages as failed.
+   * Any row that has been in `sending` status for more than 5 minutes is
+   * considered to have been lost in a worker crash/restart before its status
+   * update landed.  Surface it as `failed` so operators can see it rather
+   * than having it silently loop back into the queue.
+   * Returns the count of rows that were transitioned.
+   */
+  async markStaleInFlightMessagesFailed(): Promise<number> {
+    const result = await db.execute(sql`
+      UPDATE outbound_messages
+      SET status = 'failed',
+          error  = 'Worker crash detected: message was stuck in sending state for more than 5 minutes'
+      WHERE status = 'sending'
+        AND sending_at < NOW() - INTERVAL '5 minutes'
+    `);
+    return (result as any).rowCount ?? 0;
+  }
+
 
   async getOutboundStats(campaignId: number) {
     const result = await db.select({

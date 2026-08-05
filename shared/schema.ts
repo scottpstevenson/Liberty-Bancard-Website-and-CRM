@@ -1215,6 +1215,7 @@ export const outboundMessages = pgTable("outbound_messages", {
   personalizedBody: text("personalized_body"),
   status: text("status").default("queued"),
   scheduledFor: timestamp("scheduled_for"),
+  sendingAt: timestamp("sending_at"),
   sentAt: timestamp("sent_at"),
   openedAt: timestamp("opened_at"),
   repliedAt: timestamp("replied_at"),
