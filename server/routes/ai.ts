@@ -393,7 +393,7 @@ Respond ONLY with valid JSON.`
 
 
   // === AI COMMAND CENTER STATUS ===
-  app.get("/api/ai/command-center", isAuthenticated, async (req, res) => {
+  app.get("/api/ai/command-center", requireRole("admin", "manager"), async (req, res) => {
     try {
       const logs = await storage.getAuditLogs();
       const aiActions = [

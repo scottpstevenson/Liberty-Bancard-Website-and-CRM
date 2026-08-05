@@ -1,5 +1,5 @@
 import type { Express } from "express";
-import { isAuthenticated } from "../replit_integrations/auth";
+import { isAuthenticated, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { z } from "zod";
 import { insertRfiSchema, insertWorkflowSchema } from "@shared/schema";
@@ -153,7 +153,7 @@ export function registerWorkflowsRoutes(app: Express) {
     }
   });
 
-  app.delete("/api/workflows/:id", isAuthenticated, async (req, res) => {
+  app.delete("/api/workflows/:id", requireRole("admin", "manager"), async (req, res) => {
     try {
       await storage.deleteWorkflow(Number(req.params.id));
       res.json({ success: true });

@@ -1,5 +1,5 @@
 import type { Express } from "express";
-import { isAuthenticated, isDashboardUser } from "../replit_integrations/auth";
+import { isAuthenticated, isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { z } from "zod";
 import { contacts, insertContactCompanySchema } from "@shared/schema";
@@ -47,7 +47,7 @@ export function registerCrmOperationsRoutes(app: Express) {
 
 
   // === EXPORT CSV ===
-  app.get("/api/export/contacts", isAuthenticated, async (req, res) => {
+  app.get("/api/export/contacts", requireRole("admin", "manager"), async (req, res) => {
     try {
       const { data: allContacts } = await storage.getContacts({ limit: 500 });
       const headers = ["ID","First Name","Last Name","Email","Phone","Company","Status","Tags","Created"];
@@ -64,7 +64,7 @@ export function registerCrmOperationsRoutes(app: Express) {
     }
   });
 
-  app.get("/api/export/deals", isAuthenticated, async (req, res) => {
+  app.get("/api/export/deals", requireRole("admin", "manager"), async (req, res) => {
     try {
       const { data: allDeals } = await storage.getDeals({ limit: 500 });
       const { data: allContacts } = await storage.getContacts({ limit: 500 });
@@ -87,7 +87,7 @@ export function registerCrmOperationsRoutes(app: Express) {
     }
   });
 
-  app.get("/api/export/tickets", isAuthenticated, async (req, res) => {
+  app.get("/api/export/tickets", requireRole("admin", "manager"), async (req, res) => {
     try {
       const { data: allTickets } = await storage.getTickets({ limit: 500 });
       const headers = ["ID","Subject","Category","Priority","Status","Assigned To","SLA Deadline","Created"];

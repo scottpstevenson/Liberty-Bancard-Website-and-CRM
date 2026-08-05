@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import fs from "fs";
 import path from "path";
-import { isAdmin, isAuthenticated, requireRole } from "../replit_integrations/auth";
+import { isAdmin, isAuthenticated, isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { db } from "../db";
 import { sql, desc, and, gte, eq } from "drizzle-orm";
@@ -215,7 +215,7 @@ export async function evaluateChannelChecklist(channel: ChannelKey): Promise<Cha
 
 export function registerActivationRoutes(app: Express) {
   // === ACTIVATION DIAGNOSTICS ===
-  app.get("/api/operator/activation-status", isAuthenticated, async (_req, res) => {
+  app.get("/api/operator/activation-status", requireRole("admin", "manager"), async (_req, res) => {
     try {
       const identities = await storage.getSendingIdentities();
       const activeIdentities = identities.filter((i: any) => i.isActive !== false && i.status !== "paused");
@@ -348,7 +348,7 @@ export function registerActivationRoutes(app: Express) {
   });
 
   // === RECENT SENDS WIDGET ===
-  app.get("/api/operator/recent-sends", isAuthenticated, async (_req, res) => {
+  app.get("/api/operator/recent-sends", isDashboardUser, async (_req, res) => {
     try {
       const since = sql`NOW() - INTERVAL '24 hours'`;
 
@@ -393,7 +393,7 @@ export function registerActivationRoutes(app: Express) {
   });
 
   // === SEQUENCES NOT FIRING WIDGET ===
-  app.get("/api/operator/silent-sequences", isAuthenticated, async (_req, res) => {
+  app.get("/api/operator/silent-sequences", isDashboardUser, async (_req, res) => {
     try {
       const all = await storage.getActiveEnrollments();
       const cutoff = Date.now() - 24 * 60 * 60 * 1000;
@@ -441,7 +441,7 @@ export function registerActivationRoutes(app: Express) {
   // Server-side validation surfaced by the wizard before the user creates an
   // identity. Checks GHL readiness, email format, duplicates, and (when
   // possible) probes GHL to confirm the address can be used as a sender.
-  app.post("/api/operator/validate-identity", isAuthenticated, async (req, res) => {
+  app.post("/api/operator/validate-identity", isDashboardUser, async (req, res) => {
     try {
       const emailAddress = String(req.body?.emailAddress || "").trim().toLowerCase();
       const label = String(req.body?.label || "").trim();
@@ -511,7 +511,7 @@ export function registerActivationRoutes(app: Express) {
   });
 
   // === COMMUNICATIONS HEALTH ===
-  app.get("/api/operator/communications-health", isAuthenticated, async (_req, res) => {
+  app.get("/api/operator/communications-health", requireRole("admin", "manager"), async (_req, res) => {
     try {
       const { isSmtpConfigured, getSmtpStatus } = await import("../services/smtp-email");
       const { isSdrGhlConfigured } = await import("../services/sdr/ghl-client");
@@ -551,7 +551,7 @@ export function registerActivationRoutes(app: Express) {
   });
 
   // === GO-LIVE READINESS CHECKS ===
-  app.get("/api/operator/readiness-checks", isAuthenticated, async (_req, res) => {
+  app.get("/api/operator/readiness-checks", requireRole("admin", "manager"), async (_req, res) => {
     try {
       const { isSdrGhlConfigured, getSdrGhlConfig } = await import("../services/sdr/ghl-client");
       const { isSmtpConfigured } = await import("../services/smtp-email");
