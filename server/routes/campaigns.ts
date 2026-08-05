@@ -6,6 +6,7 @@ import { DateValidationError } from "../utils/date-coerce";
 import { contacts, followUpSequences, sequenceEnrollments, insertCampaignSchema, insertCampaignStepSchema, insertFollowUpSequenceSchema, insertSequenceEnrollmentSchema, insertSequenceStepSchema } from "@shared/schema";
 import type { AbTestConfig, AbTestResults } from "@shared/schema";
 import { getCampaignAnalytics, processSendQueue, queueCampaignMessages, queueContactCampaignMessages, startCampaignPreviewAsync, getCampaignPreviewState, computeTargetingHash } from "../services/campaign-engine";
+import { validateGhlWebhookSignature } from "../services/ghl";
 import { parse } from "csv-parse/sync";
 import { checkAbTestWinners } from "../services/ab-test-worker";
 import { pool, db } from "../db";
@@ -264,6 +265,20 @@ export function registerCampaignsRoutes(app: Express) {
   // === OUTBOUND WEBHOOK (for GHL tracking) ===
   app.post("/api/outbound/webhook", async (req, res) => {
     try {
+      // --- Signature verification (HMAC-SHA256) ---
+      // Always verify using the shared GHL HMAC helper.  It checks GHL_WEBHOOK_SECRET
+      // and uses isLocalhostEnv() (not NODE_ENV) to decide whether to allow unsigned
+      // requests.  When the secret is configured, an absent or wrong signature
+      // always fails regardless of environment.
+      const rawBody = req.rawBody instanceof Buffer ? req.rawBody.toString("utf8") : JSON.stringify(req.body);
+      const sig = (req.headers["x-wh-signature"] || req.headers["x-hub-signature-256"] || "") as string;
+
+      if (!validateGhlWebhookSignature(rawBody, sig)) {
+        console.error("[Outbound Webhook] Signature verification failed (missing or invalid)");
+        return res.status(401).json({ message: "Invalid or missing webhook signature" });
+      }
+      // --- End signature verification ---
+
       const { messageId, event } = req.body;
       if (!messageId || !event) return res.status(400).json({ message: "Missing messageId or event" });
 
