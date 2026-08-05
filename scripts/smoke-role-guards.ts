@@ -165,7 +165,7 @@ const CASES: GuardCase[] = [
   // POST routes hit CSRF middleware before the body is parsed, so authenticated
   // users without an x-csrf-token header get 403 (csrf_missing).  Anon still
   // gets 401 because CSRF short-circuits to isAuthenticated first.
-  { method: "POST", path: "/api/tasks/bulk-delete", anon: [401], merchant: [403], admin: [403], agent: [403], description: "task bulk-delete (isDashboardUser; CSRF required for POST — all auth roles hit 403 without token; merchant also blocked by role gate)" },
+  { method: "POST", path: "/api/tasks/bulk-delete", anon: [401], merchant: [403], admin: [403], agent: [403], manager: [403], description: "task bulk-delete (requireRole admin/manager; CSRF required for POST — all auth roles hit 403 without token; agent/merchant also blocked by role gate)" },
 
   // ── Task #917: Confirmation Status — isDashboardUser (blocks merchants/partners) ──
   // All three endpoints are read-only (no state produced here).
@@ -209,6 +209,15 @@ const CASES: GuardCase[] = [
   { method: "POST",   path: "/api/wizard/flow-audit",               anon: [401], merchant: [403], admin: [403],      agent: [403], manager: [403], description: "wizard end-to-end flow audit (admin only; CSRF required)" },
   // Go/No-Go report — admin and manager readable.
   { method: "GET",    path: "/api/wizard/gonogo-report",            anon: [401], merchant: [403], admin: [200],      agent: [403], manager: [200], description: "wizard go/no-go launch report (admin/manager read-only)" },
+
+  // ── Task #1169: Bulk op role guards (requireRole admin/manager) ──
+  // POST routes: CSRF fires before role gate for authenticated sessions → 403 without token.
+  // Anon gets 401 (not authenticated). Agent and merchant are blocked by role gate (would get 403
+  // even with a valid CSRF token). Manager/admin are role-allowed but still 403 without token.
+  { method: "POST", path: "/api/contacts/mass-score",        anon: [401], merchant: [403], admin: [403], agent: [403], manager: [403], description: "mass-score (requireRole admin/manager; CSRF required — agent blocked by role gate)" },
+  { method: "POST", path: "/api/contacts/mass-create-deals", anon: [401], merchant: [403], admin: [403], agent: [403], manager: [403], description: "mass-create-deals (requireRole admin/manager; CSRF required — agent blocked by role gate)" },
+  { method: "POST", path: "/api/deals/bulk-stage",           anon: [401], merchant: [403], admin: [403], agent: [403], manager: [403], description: "deal bulk-stage (requireRole admin/manager; CSRF required — agent blocked by role gate)" },
+  { method: "POST", path: "/api/tasks/bulk-assign",          anon: [401], merchant: [403], admin: [403], agent: [403], manager: [403], description: "task bulk-assign (requireRole admin/manager; CSRF required — agent blocked by role gate)" },
 ];
 
 async function ensureAgentUser(): Promise<void> {

@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import { randomUUID } from "crypto";
-import { isAuthenticated, isAdmin, isAffiliate, isDashboardUser } from "../replit_integrations/auth";
+import { isAuthenticated, isAdmin, isAffiliate, isDashboardUser, requireRole } from "../replit_integrations/auth";
 import rateLimit from "express-rate-limit";
 import { storage } from "../storage";
 import { logAiCall } from "../services/ai-audit-logger";
@@ -1021,7 +1021,7 @@ Guidelines:
 
 
   // === MASS SCORING ===
-  app.post("/api/contacts/mass-score", isDashboardUser, async (req, res) => {
+  app.post("/api/contacts/mass-score", requireRole("admin", "manager"), async (req, res) => {
     const batchSize = 500;
     let totalScored = 0;
     const tierCounts = { hot: 0, warm: 0, cold: 0, unqualified: 0 };
@@ -1115,7 +1115,7 @@ Guidelines:
 
 
   // === MASS DEAL CREATION ===
-  app.post("/api/contacts/mass-create-deals", isDashboardUser, async (req, res) => {
+  app.post("/api/contacts/mass-create-deals", requireRole("admin", "manager"), async (req, res) => {
     const batchSize = 500;
     let dealsCreated = 0;
     let skipped = 0;

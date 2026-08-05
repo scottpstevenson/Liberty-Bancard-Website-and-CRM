@@ -59,7 +59,7 @@ export function registerDealsRoutes(app: Express) {
   app.get("/api/deals/:id", isDashboardUser, async (req, res) => {
     try {
       const deal = await storage.getDeal(Number(req.params.id));
-      if (!deal) return res.status(404).json({ message: "Not found" });
+      if (!deal || deal.archivedAt) return res.status(404).json({ message: "Not found" });
       res.json(deal);
     } catch (err: any) {
       res.status(500).json({ message: err.message });

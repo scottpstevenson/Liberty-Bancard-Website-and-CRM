@@ -206,7 +206,7 @@ export function registerCrmOperationsRoutes(app: Express) {
 
 
   // === BULK OPERATIONS ===
-  app.post("/api/deals/bulk-stage", isAuthenticated, async (req, res) => {
+  app.post("/api/deals/bulk-stage", requireRole("admin", "manager"), async (req, res) => {
     try {
       const { dealIds, stage } = req.body;
       if (!Array.isArray(dealIds) || !stage) return res.status(400).json({ message: "dealIds array and stage required" });
@@ -226,7 +226,7 @@ export function registerCrmOperationsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/tasks/bulk-assign", isAuthenticated, async (req, res) => {
+  app.post("/api/tasks/bulk-assign", requireRole("admin", "manager"), async (req, res) => {
     try {
       const { taskIds, assignedTo } = req.body;
       if (!Array.isArray(taskIds) || !assignedTo) return res.status(400).json({ message: "taskIds array and assignedTo required" });
@@ -243,6 +243,11 @@ export function registerCrmOperationsRoutes(app: Express) {
       const taskId = Number(req.params.id);
       const allTasks = await storage.getTasks({ limit: 5000 });
       const task = allTasks.find(t => t.id === taskId);
+      const actor = req.user as any;
+      const isAdminOrManager = actor?.role === "admin" || actor?.role === "manager";
+      if (task && !isAdminOrManager && task.assignedTo !== actor?.id && task.assignedTo !== actor?.username) {
+        return res.status(403).json({ message: "You can only delete tasks assigned to you." });
+      }
       let ghlTaskId: string | null = null;
       let ghlContactId: string | null = null;
       if (task?.ghlTaskId && task.contactId) {
@@ -261,7 +266,7 @@ export function registerCrmOperationsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/tasks/bulk-delete", isDashboardUser, async (req, res) => {
+  app.post("/api/tasks/bulk-delete", requireRole("admin", "manager"), async (req, res) => {
     try {
       const { taskIds } = req.body;
       if (!Array.isArray(taskIds)) return res.status(400).json({ message: "taskIds must be an array" });

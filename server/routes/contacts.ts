@@ -895,7 +895,7 @@ export function registerContactsRoutes(app: Express) {
       const companyId = Number(req.params.id);
       const { db } = await import("../db");
       const { contactCompanies, contacts: contactsTable } = await import("@shared/schema");
-      const { eq, isNull } = await import("drizzle-orm");
+      const { eq, isNull, and } = await import("drizzle-orm");
       const rows = await db
         .select({
           id: contactsTable.id,
@@ -911,7 +911,7 @@ export function registerContactsRoutes(app: Express) {
         })
         .from(contactsTable)
         .innerJoin(contactCompanies, eq(contactCompanies.contactId, contactsTable.id))
-        .where(eq(contactCompanies.companyId, companyId));
+        .where(and(eq(contactCompanies.companyId, companyId), isNull(contactsTable.archivedAt)));
       res.json(rows);
     } catch (err: any) {
       res.status(500).json({ message: err.message });

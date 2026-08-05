@@ -1,6 +1,15 @@
 import type { Express } from "express";
 import { isAuthenticated, isDashboardUser } from "../replit_integrations/auth";
+import rateLimit from "express-rate-limit";
 import { publicLeadRateLimit } from "../middleware/public-rate-limit";
+
+const partnerOrgLoginRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: "Too many login attempts, please try again later." },
+});
 import { storage } from "../storage";
 import { z } from "zod";
 import { insertPartnerOrgSchema, insertPartnerOrgUserSchema } from "@shared/schema";
@@ -213,7 +222,7 @@ export function registerPartnerOrgsRoutes(app: Express) {
   });
 
   // ── Partner org login ───────────────────────────────────────────────────────
-  app.post("/api/partner-org/login", async (req, res) => {
+  app.post("/api/partner-org/login", partnerOrgLoginRateLimit, async (req, res) => {
     try {
       const { email, password, slug } = req.body;
       if (!email || !password) {

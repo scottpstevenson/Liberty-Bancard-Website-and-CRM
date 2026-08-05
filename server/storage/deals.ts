@@ -103,7 +103,7 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
   export class DealsStorage {
     async getDeals(params?: PaginationParams) {
     const { limit, offset } = normalizePagination(params);
-    const [totalResult] = await db.select({ count: count() }).from(deals);
+    const [totalResult] = await db.select({ count: count() }).from(deals).where(isNull(deals.archivedAt));
     const rows = await db
       .select({
         deal: deals,
@@ -115,6 +115,7 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
       })
       .from(deals)
       .leftJoin(contacts, eq(deals.contactId, contacts.id))
+      .where(isNull(deals.archivedAt))
       .orderBy(desc(deals.createdAt))
       .limit(limit)
       .offset(offset);
@@ -144,7 +145,7 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
 
   async getDealsByPipeline(pipeline: string, params?: PaginationParams) {
     const { limit, offset } = normalizePagination(params);
-    const [totalResult] = await db.select({ count: count() }).from(deals).where(eq(deals.pipeline, pipeline));
+    const [totalResult] = await db.select({ count: count() }).from(deals).where(and(eq(deals.pipeline, pipeline), isNull(deals.archivedAt)));
     const rows = await db
       .select({
         deal: deals,
@@ -156,7 +157,7 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
       })
       .from(deals)
       .leftJoin(contacts, eq(deals.contactId, contacts.id))
-      .where(eq(deals.pipeline, pipeline))
+      .where(and(eq(deals.pipeline, pipeline), isNull(deals.archivedAt)))
       .orderBy(desc(deals.createdAt))
       .limit(limit)
       .offset(offset);
@@ -174,7 +175,7 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
 
 
   async getDealsByContact(contactId: number) {
-    return await db.select().from(deals).where(eq(deals.contactId, contactId)).orderBy(desc(deals.createdAt));
+    return await db.select().from(deals).where(and(eq(deals.contactId, contactId), isNull(deals.archivedAt))).orderBy(desc(deals.createdAt));
   }
 
 
@@ -317,7 +318,7 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
     for (let i = 0; i < contactIds.length; i += CHUNK) {
       const chunk = contactIds.slice(i, i + CHUNK);
       const rows = await db.select().from(deals)
-        .where(inArray(deals.contactId, chunk))
+        .where(and(inArray(deals.contactId, chunk), isNull(deals.archivedAt)))
         .orderBy(desc(deals.createdAt));
       results.push(...rows);
     }
@@ -325,7 +326,7 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
   }
 
   async getDealsByPartnerOrg(partnerOrgId: number) {
-    return await db.select().from(deals).where(eq(deals.partnerOrgId, partnerOrgId)).orderBy(desc(deals.createdAt));
+    return await db.select().from(deals).where(and(eq(deals.partnerOrgId, partnerOrgId), isNull(deals.archivedAt))).orderBy(desc(deals.createdAt));
   }
 
   async getOrphanContactCount(filters: { source?: string; vertical?: string; minScore?: number }): Promise<number> {
