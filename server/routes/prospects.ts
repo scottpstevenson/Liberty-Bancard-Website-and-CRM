@@ -31,6 +31,7 @@ import {
   resolveConflictingContact,
 } from "../services/prospect-conversion";
 import { randomUUID } from "crypto";
+import { serverError, safeMessage } from "../utils/server-error";
 
 export function registerProspectsRoutes(app: Express) {
   // === PROSPECT LISTS ===
@@ -40,7 +41,7 @@ export function registerProspectsRoutes(app: Express) {
       const lists = await storage.getProspectLists({ includeArchived });
       res.json(lists);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -56,7 +57,7 @@ export function registerProspectsRoutes(app: Express) {
       if (!list) return res.status(404).json({ message: "List not found" });
       res.json(list);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -86,7 +87,7 @@ export function registerProspectsRoutes(app: Express) {
 
       res.json(list);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -104,7 +105,7 @@ export function registerProspectsRoutes(app: Express) {
       });
       res.json(report);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -114,7 +115,7 @@ export function registerProspectsRoutes(app: Express) {
       if (!list) return res.status(404).json({ message: "List not found" });
       res.json(list);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -125,7 +126,7 @@ export function registerProspectsRoutes(app: Express) {
       res.status(201).json(list);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -140,7 +141,7 @@ export function registerProspectsRoutes(app: Express) {
       res.json(result);
     } catch (err: any) {
       console.error("Get prospects error:", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -150,7 +151,7 @@ export function registerProspectsRoutes(app: Express) {
       if (!prospect) return res.status(404).json({ message: "Prospect not found" });
       res.json(prospect);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -161,7 +162,7 @@ export function registerProspectsRoutes(app: Express) {
       res.status(201).json(prospect);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -178,7 +179,7 @@ export function registerProspectsRoutes(app: Express) {
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join(".") });
       if (err instanceof DateValidationError) return res.status(400).json({ message: err.message, field: err.field });
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -409,7 +410,7 @@ export function registerProspectsRoutes(app: Express) {
           dealId: (err as any).dealId ?? undefined,
         });
       }
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -657,7 +658,7 @@ export function registerProspectsRoutes(app: Express) {
         },
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -904,7 +905,7 @@ export function registerProspectsRoutes(app: Express) {
       if (list) {
         await storage.updateProspectList(list.id, { status: "failed" }).catch(() => {});
       }
-      res.status(500).json({ message: err.message || "Import failed" });
+      serverError(res, err);
     }
   });
 
@@ -916,7 +917,7 @@ export function registerProspectsRoutes(app: Express) {
       const jobs = await storage.getEnrichmentJobs(listId);
       res.json(jobs);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -936,7 +937,7 @@ export function registerProspectsRoutes(app: Express) {
       res.status(201).json(job);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -945,7 +946,7 @@ export function registerProspectsRoutes(app: Express) {
       processEnrichmentQueue().catch(console.error);
       res.json({ message: "Enrichment queue processing started" });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -959,7 +960,7 @@ export function registerProspectsRoutes(app: Express) {
       res.json(result);
     } catch (err: any) {
       console.error("Get sunbiz entities error:", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -969,7 +970,7 @@ export function registerProspectsRoutes(app: Express) {
       if (!entity) return res.status(404).json({ message: "Entity not found" });
       res.json(entity);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -979,7 +980,7 @@ export function registerProspectsRoutes(app: Express) {
       const stats = await storage.getSunbizStats(listId);
       res.json(stats);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -990,7 +991,7 @@ export function registerProspectsRoutes(app: Express) {
       const results = await searchSunbiz(query, entityType);
       res.json(results);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1029,7 +1030,7 @@ export function registerProspectsRoutes(app: Express) {
 
       res.json(entity);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1111,7 +1112,7 @@ export function registerProspectsRoutes(app: Express) {
 
       res.json({ list, imported: created.length });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1266,7 +1267,7 @@ export function registerProspectsRoutes(app: Express) {
           .execute()
           .catch(() => {});
       }
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1279,7 +1280,7 @@ export function registerProspectsRoutes(app: Express) {
       // enrichSunbizEntitySafe is designed to never throw, but guard the
       // route anyway so a single bad record can never surface a bare 500.
       console.error("[Enrich] Unexpected error in single-entity enrich route:", err?.message || err);
-      res.status(200).json({ entityId: Number(req.params.id), status: "failed", reason: err?.message ? String(err.message).slice(0, 500) : "Unknown enrichment error" });
+      res.status(200).json({ entityId: Number(req.params.id), status: "failed", reason: safeMessage(err?.message, "Unknown enrichment error") });
     }
   });
 
@@ -1303,7 +1304,7 @@ export function registerProspectsRoutes(app: Express) {
       if (!prospectId) return res.status(404).json({ message: "Entity not found" });
       res.json({ prospectId });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1318,7 +1319,7 @@ export function registerProspectsRoutes(app: Express) {
       }
       res.json({ converted: results.length, prospectIds: results });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1328,7 +1329,7 @@ export function registerProspectsRoutes(app: Express) {
       if (!updated) return res.status(404).json({ message: "Entity not found" });
       res.json(updated);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1372,7 +1373,7 @@ export function registerProspectsRoutes(app: Express) {
       res.setHeader("Content-Disposition", `attachment; filename="sunbiz-leads-${Date.now()}.csv"`);
       res.send(csvRows.join("\n"));
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1385,7 +1386,7 @@ export function registerProspectsRoutes(app: Express) {
       if (!breakdown) return res.status(404).json({ message: "Contact not found" });
       res.json(breakdown);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1404,7 +1405,7 @@ export function registerProspectsRoutes(app: Express) {
         tier: (contact.leadScore || 0) >= 70 ? "hot" : (contact.leadScore || 0) >= 45 ? "warm" : (contact.leadScore || 0) >= 20 ? "cold" : "unqualified",
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1415,7 +1416,7 @@ export function registerProspectsRoutes(app: Express) {
       if (!blueprint) return res.status(404).json({ message: "Deal not found or blueprint generation failed" });
       res.json(blueprint);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1436,7 +1437,7 @@ export function registerProspectsRoutes(app: Express) {
         blueprintGeneratedAt: deal.blueprintGeneratedAt,
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1446,7 +1447,7 @@ export function registerProspectsRoutes(app: Express) {
       const result = await routeContact(contactId);
       res.json(result);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1456,7 +1457,7 @@ export function registerProspectsRoutes(app: Express) {
       const recommendation = await getRoutingRecommendation(contactId);
       res.json(recommendation);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1497,7 +1498,7 @@ export function registerProspectsRoutes(app: Express) {
         nextNudgeAt: deal.nextNudgeAt,
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1599,7 +1600,7 @@ export function registerProspectsRoutes(app: Express) {
         } : null,
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1616,7 +1617,7 @@ export function registerProspectsRoutes(app: Express) {
       }
       res.json({ scored, total: contactIds.length });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1634,7 +1635,7 @@ export function registerProspectsRoutes(app: Express) {
       const progress = await storage.getSystemSetting("enrichment_progress");
       res.json(progress || { status: "idle" });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1651,7 +1652,7 @@ export function registerProspectsRoutes(app: Express) {
       const progress = await storage.getSystemSetting("mass_enrichment_progress");
       res.json({ progress: progress || { status: "idle" }, running: isMassEnrichmentRunning() });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1661,7 +1662,7 @@ export function registerProspectsRoutes(app: Express) {
       const result = await promoteQualifiedToContacts();
       res.json(result);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1677,7 +1678,7 @@ export function registerProspectsRoutes(app: Express) {
       const progress = await storage.getSystemSetting("ai_classify_progress");
       res.json({ progress: progress || { status: "idle" } });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1695,7 +1696,7 @@ export function registerProspectsRoutes(app: Express) {
       const progress = await storage.getSystemSetting("daily_pipeline_progress");
       res.json({ progress: progress || { status: "idle" }, running: isPipelineRunning() });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1705,7 +1706,7 @@ export function registerProspectsRoutes(app: Express) {
       const result = await deepEnrichEntity(Number(req.params.id));
       res.json({ success: true, result });
     } catch (err: any) {
-      res.status(500).json({ message: err.message || "Enrichment failed" });
+      serverError(res, err);
     }
   });
 
@@ -1716,7 +1717,7 @@ export function registerProspectsRoutes(app: Express) {
       const result = await runAutoDeduplication(limit);
       res.json({ message: `Deduplication complete: checked ${result.checked} groups, merged ${result.merged} records.`, ...result });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1729,7 +1730,7 @@ export function registerProspectsRoutes(app: Express) {
         pipeline: { progress: pipelineProgress || { status: "idle" }, running: isPipelineRunning() },
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message || "Failed to fetch dashboard" });
+      serverError(res, err);
     }
   });
 
@@ -1747,7 +1748,7 @@ export function registerProspectsRoutes(app: Express) {
         .sort((a, b) => b.withContact - a.withContact);
       res.json({ verticals, totalClassified: dashboard.classified, readyForOutreach: dashboard.readyForOutreach });
     } catch (err: any) {
-      res.status(500).json({ message: err.message || "Failed to fetch verticals" });
+      serverError(res, err);
     }
   });
 

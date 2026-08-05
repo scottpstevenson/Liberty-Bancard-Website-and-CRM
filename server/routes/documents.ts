@@ -13,6 +13,7 @@ import path from "path";
 import fs from "fs";
 import { upload, parseId } from "./helpers";
 import { ZipArchive } from "archiver";
+import { serverError } from "../utils/server-error";
 
 export function registerDocumentsRoutes(app: Express) {
   // === MERCHANT DOCUMENT VAULT ===
@@ -113,7 +114,7 @@ export function registerDocumentsRoutes(app: Express) {
       }
       res.json(docs);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -130,7 +131,7 @@ export function registerDocumentsRoutes(app: Express) {
       const filtered = filterDocsByRole(docs, user?.role || '');
       res.json(filtered);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -291,7 +292,7 @@ export function registerDocumentsRoutes(app: Express) {
 
       res.status(201).json(doc);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -351,7 +352,7 @@ export function registerDocumentsRoutes(app: Express) {
 
       res.json(updated);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -399,7 +400,7 @@ export function registerDocumentsRoutes(app: Express) {
 
       return res.status(404).json({ message: "File not found on disk" });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -426,7 +427,7 @@ export function registerDocumentsRoutes(app: Express) {
       const serveUrl = `/api/merchant-documents/serve/${token}`;
       res.json({ url: serveUrl, expiresInSeconds: 900 });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -454,7 +455,7 @@ export function registerDocumentsRoutes(app: Express) {
       const archive = new ZipArchive({ zlib: { level: 6 } });
       archive.on("error", (err) => {
         console.error("[bulk-download] archiver error:", err);
-        if (!res.headersSent) res.status(500).json({ message: err.message });
+        if (!res.headersSent) serverError(res, err);
       });
       archive.pipe(res);
 
@@ -498,7 +499,7 @@ export function registerDocumentsRoutes(app: Express) {
 
       await archive.finalize();
     } catch (err: any) {
-      if (!res.headersSent) res.status(500).json({ message: err.message });
+      if (!res.headersSent) serverError(res, err);
     }
   });
 
@@ -574,7 +575,7 @@ export function registerDocumentsRoutes(app: Express) {
       }
       return res.status(207).json(result);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -605,7 +606,7 @@ export function registerDocumentsRoutes(app: Express) {
       await storage.deleteDocument(doc.id);
       res.json({ success: true });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -664,7 +665,7 @@ export function registerDocumentsRoutes(app: Express) {
 
       res.status(201).json(doc);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -716,7 +717,7 @@ export function registerDocumentsRoutes(app: Express) {
         res.status(404).json({ message: "File not found on disk" });
       }
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -771,7 +772,7 @@ export function registerDocumentsRoutes(app: Express) {
       }));
       res.json(safeTasks);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -964,7 +965,7 @@ export function registerDocumentsRoutes(app: Express) {
 
       res.status(201).json(doc);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -993,7 +994,7 @@ export function registerDocumentsRoutes(app: Express) {
       const articles = await storage.getPublishedArticles();
       res.json(articles);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1002,7 +1003,7 @@ export function registerDocumentsRoutes(app: Express) {
       const articles = await storage.getKnowledgeBaseByCategory(req.params.category);
       res.json(articles);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1014,7 +1015,7 @@ export function registerDocumentsRoutes(app: Express) {
       if (!article) return res.status(404).json({ message: "Not found" });
       res.json(article);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 

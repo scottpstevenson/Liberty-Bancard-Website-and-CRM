@@ -3,6 +3,7 @@ import { isAuthenticated } from "../replit_integrations/auth";
 import { pool } from "../db";
 import { storage } from "../storage";
 import { getGhlSyncStatus } from "../services/ghl-sync";
+import { serverError } from "../utils/server-error";
 
 export function registerInformationFlowRoutes(app: Express) {
   // GET /api/information-flow
@@ -385,7 +386,7 @@ export function registerInformationFlowRoutes(app: Express) {
       });
     } catch (err: any) {
       console.error("[information-flow]", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 }

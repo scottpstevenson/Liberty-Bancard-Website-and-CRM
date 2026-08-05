@@ -8,6 +8,7 @@ import {
   scanApplicationRisk,
   propagateRiskFlagToRelatedEntities,
 } from "../services/relationship-extractor";
+import { serverError } from "../utils/server-error";
 
 export function registerRelationshipsRoutes(app: Express) {
   app.get("/api/contacts/:id/relationships", isDashboardUser, async (req, res) => {
@@ -54,7 +55,7 @@ export function registerRelationshipsRoutes(app: Express) {
       );
       res.json(enriched);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -65,7 +66,7 @@ export function registerRelationshipsRoutes(app: Express) {
       const relationships = await storage.getEntityRelationships("contact", contactId);
       res.json({ message: "Relationship scan complete", count: relationships.length });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -75,7 +76,7 @@ export function registerRelationshipsRoutes(app: Express) {
       const result = await scanApplicationRisk(contactId);
       res.json(result);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -90,7 +91,7 @@ export function registerRelationshipsRoutes(app: Express) {
     } catch (err: any) {
       if (err instanceof z.ZodError)
         return res.status(400).json({ message: err.errors[0].message });
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -101,7 +102,7 @@ export function registerRelationshipsRoutes(app: Express) {
       await storage.dismissEntityRelationship(relId, (req.user as any)?.username || "admin", reason);
       res.json({ success: true });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -113,7 +114,7 @@ export function registerRelationshipsRoutes(app: Express) {
       const count = await propagateRiskFlagToRelatedEntities(contactId, riskReason);
       res.json({ success: true, flaggedRelationships: count });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -187,7 +188,7 @@ export function registerRelationshipsRoutes(app: Express) {
 
       res.json({ nodes, edges });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 }

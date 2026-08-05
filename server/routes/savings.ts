@@ -8,6 +8,7 @@ import { deals, contacts, partners } from "@shared/schema";
 import { eq, sql } from "drizzle-orm";
 import { sendSmtpEmail, isSmtpConfigured } from "../services/smtp-email";
 import { getEmailSignatureHtml } from "../services/email-signatures";
+import { serverError } from "../utils/server-error";
 
 function getBaseUrl(req: any): string {
   const replitDomain = process.env.REPLIT_DOMAINS?.split(",")[0]?.trim();
@@ -254,7 +255,7 @@ export function registerSavingsRoutes(app: Express) {
         res.json({ success: true, email: contact.email, shareUrl, deliveryMethod });
       } catch (err: any) {
         console.error("email-share-link error:", err);
-        res.status(500).json({ message: err.message });
+        serverError(res, err);
       }
     }
   );
@@ -310,7 +311,7 @@ export function registerSavingsRoutes(app: Express) {
       });
     } catch (err: any) {
       console.error("savings token lookup error:", err);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 }

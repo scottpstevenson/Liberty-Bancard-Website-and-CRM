@@ -5,6 +5,7 @@ import { z } from "zod";
 import { insertMessageTemplateSchema, insertSavedFilterSchema, insertSlaConfigSchema } from "@shared/schema";
 import { getEmailSignatureHtml, getEmailSignaturePlainText, getStoredSignature, saveSignature } from "../services/email-signatures";
 import { parse } from "csv-parse/sync";
+import { serverError } from "../utils/server-error";
 
 export function registerTemplatesSettingsRoutes(app: Express) {
   // === MESSAGE TEMPLATES ===
@@ -16,7 +17,7 @@ export function registerTemplatesSettingsRoutes(app: Express) {
         : await storage.getMessageTemplates();
       res.json(templates);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -26,7 +27,7 @@ export function registerTemplatesSettingsRoutes(app: Express) {
       if (!template) return res.status(404).json({ message: "Not found" });
       res.json(template);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -37,7 +38,7 @@ export function registerTemplatesSettingsRoutes(app: Express) {
       res.status(201).json(template);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -47,7 +48,7 @@ export function registerTemplatesSettingsRoutes(app: Express) {
       if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -58,7 +59,7 @@ export function registerTemplatesSettingsRoutes(app: Express) {
       const configs = await storage.getSlaConfigs();
       res.json(configs);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -69,7 +70,7 @@ export function registerTemplatesSettingsRoutes(app: Express) {
       res.status(201).json(config);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -79,7 +80,7 @@ export function registerTemplatesSettingsRoutes(app: Express) {
       if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -95,7 +96,7 @@ export function registerTemplatesSettingsRoutes(app: Express) {
         plainText: getEmailSignaturePlainText(type, sig),
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -111,7 +112,7 @@ export function registerTemplatesSettingsRoutes(app: Express) {
         plainText: getEmailSignaturePlainText(type as any, sig),
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -129,7 +130,7 @@ export function registerTemplatesSettingsRoutes(app: Express) {
       }
       res.json(signatures);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -142,7 +143,7 @@ export function registerTemplatesSettingsRoutes(app: Express) {
       const filters = await storage.getSavedFilters(userId, entityType);
       res.json(filters);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -154,7 +155,7 @@ export function registerTemplatesSettingsRoutes(app: Express) {
       res.status(201).json(filter);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -163,7 +164,7 @@ export function registerTemplatesSettingsRoutes(app: Express) {
       await storage.deleteSavedFilter(Number(req.params.id));
       res.json({ success: true });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 

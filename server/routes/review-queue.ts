@@ -4,6 +4,7 @@ import { storage } from "../storage";
 import { z } from "zod";
 import { enrollInGhlWorkflow } from "../services/ghl-workflows";
 import { REVIEW_CHECKLIST_ITEMS } from "@shared/schema";
+import { serverError } from "../utils/server-error";
 
 export function registerReviewQueueRoutes(app: Express) {
   app.get("/api/review-queue/checklist-items", isDashboardUser, requireRole("admin", "manager"), (_req, res) => {
@@ -15,7 +16,7 @@ export function registerReviewQueueRoutes(app: Express) {
       const agg = await storage.getReviewQueueAggregates();
       res.json({ count: agg.pending, pending: agg.pending, approved: agg.approved, total: agg.total });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -25,7 +26,7 @@ export function registerReviewQueueRoutes(app: Express) {
       const items = await storage.getReviewQueue(status);
       res.json(items);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -35,7 +36,7 @@ export function registerReviewQueueRoutes(app: Express) {
       if (!item) return res.status(404).json({ message: "Not found" });
       res.json(item);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -55,7 +56,7 @@ export function registerReviewQueueRoutes(app: Express) {
       res.json(updated);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -120,7 +121,7 @@ export function registerReviewQueueRoutes(app: Express) {
       res.json(updated);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 }

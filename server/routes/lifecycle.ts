@@ -5,6 +5,7 @@ import { storage } from "../storage";
 import { z } from "zod";
 import { randomBytes } from "crypto";
 import { publicLeadRateLimit } from "../middleware/public-rate-limit";
+import { serverError } from "../utils/server-error";
 
 function generateReferralCode(): string {
   return randomBytes(4).toString("hex").toUpperCase();
@@ -18,7 +19,7 @@ export function registerLifecycleRoutes(app: Express) {
       const stats = await storage.getNpsStats();
       res.json(stats);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -30,7 +31,7 @@ export function registerLifecycleRoutes(app: Express) {
       if (survey.submittedAt) return res.json({ status: "already_submitted", dayTrigger: survey.dayTrigger });
       res.json({ status: "pending", dayTrigger: survey.dayTrigger, token: survey.token });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -90,7 +91,7 @@ export function registerLifecycleRoutes(app: Express) {
 
       res.json({ status: "submitted", score, isPromoter: score >= 9, isDetractor: score <= 6 });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -100,7 +101,7 @@ export function registerLifecycleRoutes(app: Express) {
       const responses = await storage.getNpsResponses();
       res.json(responses);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -132,7 +133,7 @@ export function registerLifecycleRoutes(app: Express) {
       const requests = await storage.getReviewRequests(dealId);
       res.json(requests);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -144,7 +145,7 @@ export function registerLifecycleRoutes(app: Express) {
       const trustpilotClicked = all.filter(r => (r as any).trustpilotClickedAt).length;
       res.json({ total: all.length, sent, googleClicked, trustpilotClicked });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -159,7 +160,7 @@ export function registerLifecycleRoutes(app: Express) {
       await storage.updateReviewRequest(id, updateData);
       res.json({ tracked: true });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -182,7 +183,7 @@ export function registerLifecycleRoutes(app: Express) {
       const referrals = await storage.getMerchantReferrals(profileId);
       res.json(referrals);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -263,7 +264,7 @@ export function registerLifecycleRoutes(app: Express) {
       const updated = await storage.updateMerchantProfile(profile.id, { referralCode: code });
       res.json({ referralCode: updated?.referralCode });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -276,7 +277,7 @@ export function registerLifecycleRoutes(app: Express) {
       const referrals = await storage.getMerchantReferrals(profile.id);
       res.json({ profile: { referralCode: profile.referralCode, referralCredits: profile.referralCredits, referralCount: profile.referralCount }, referrals });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -286,7 +287,7 @@ export function registerLifecycleRoutes(app: Express) {
       const configs = await storage.getRetentionCampaignConfigs();
       res.json(configs);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -330,7 +331,7 @@ export function registerLifecycleRoutes(app: Express) {
       if (!deleted) return res.status(404).json({ message: "Not found" });
       res.json({ deleted: true });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 }

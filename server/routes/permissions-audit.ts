@@ -4,6 +4,7 @@ import { storage } from "../storage";
 import { db } from "../db";
 import { users } from "@shared/schema";
 import { desc } from "drizzle-orm";
+import { serverError } from "../utils/server-error";
 
 interface RoutePermission {
   method: string;
@@ -87,7 +88,7 @@ export function registerPermissionsAuditRoutes(app: Express) {
       }).from(users).orderBy(desc(users.createdAt));
       res.json(allUsers);
     } catch (err) {
-      res.status(500).json({ message: err instanceof Error ? err.message : "Failed to load users" });
+      serverError(res, err);
     }
   });
 
@@ -101,7 +102,7 @@ export function registerPermissionsAuditRoutes(app: Express) {
       const page = profiles.slice(offset, offset + limit);
       res.json({ data: page, total, limit, offset });
     } catch (err) {
-      res.status(500).json({ message: err instanceof Error ? err.message : "Failed to load merchants" });
+      serverError(res, err);
     }
   });
 
@@ -134,7 +135,7 @@ export function registerPermissionsAuditRoutes(app: Express) {
         tickets: { open: openTickets.length },
       });
     } catch (err) {
-      res.status(500).json({ message: err instanceof Error ? err.message : "Failed to load dashboard stats" });
+      serverError(res, err);
     }
   });
 }

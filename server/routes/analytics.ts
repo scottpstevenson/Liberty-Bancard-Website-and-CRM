@@ -9,6 +9,7 @@ import { db } from "../db";
 import { agents, deals, leaderboardSettings } from "@shared/schema";
 import { eq, and, gte, desc, sql, count } from "drizzle-orm";
 import { publicLeadRateLimit } from "../middleware/public-rate-limit";
+import { serverError } from "../utils/server-error";
 
 export function registerAnalyticsRoutes(app: Express) {
 
@@ -56,7 +57,7 @@ export function registerAnalyticsRoutes(app: Express) {
         .orderBy(desc(count(toolClickEvents.id)));
       res.json(rows);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -79,7 +80,7 @@ export function registerAnalyticsRoutes(app: Express) {
         .orderBy(desc(count(contacts.id)));
       res.json(rows);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -231,7 +232,7 @@ export function registerAnalyticsRoutes(app: Express) {
         },
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -306,7 +307,7 @@ export function registerAnalyticsRoutes(app: Express) {
         tickets: { ...tickets, change: calcChange(tickets.current, tickets.previous) },
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -355,7 +356,7 @@ export function registerAnalyticsRoutes(app: Express) {
         },
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -389,7 +390,7 @@ export function registerAnalyticsRoutes(app: Express) {
         priorityBreakdown,
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -414,7 +415,7 @@ export function registerAnalyticsRoutes(app: Express) {
         priorityBreakdown,
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -455,7 +456,7 @@ export function registerAnalyticsRoutes(app: Express) {
 
       res.json({ sources });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -653,7 +654,7 @@ export function registerAnalyticsRoutes(app: Express) {
         weekLabels,
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -683,7 +684,7 @@ export function registerAnalyticsRoutes(app: Express) {
         funnel,
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -723,7 +724,7 @@ export function registerAnalyticsRoutes(app: Express) {
 
       res.json({ todayLeads, todayDeals, trend });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -745,7 +746,7 @@ export function registerAnalyticsRoutes(app: Express) {
       }
       res.json({ ...summary, emailSent: false, emailError: !adminEmail ? "No admin email configured" : "GHL not configured" });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -793,7 +794,7 @@ export function registerAnalyticsRoutes(app: Express) {
 
       res.json({ totalPipeline, weightedForecast, thisMonthForecast: thisMonth, nextMonthForecast: nextMonth, stageBreakdown });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -875,7 +876,7 @@ export function registerAnalyticsRoutes(app: Express) {
         pipelineValue: parseFloat(pipelineValue.rows[0].total_value) || 0,
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1023,7 +1024,7 @@ export function registerAnalyticsRoutes(app: Express) {
 
       res.json({ entries, period, settings });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1037,7 +1038,7 @@ export function registerAnalyticsRoutes(app: Express) {
         showResponseRate: false, visibleToAgents: true, monthlyDealGoal: 10, monthlyRevenueGoal: "50000",
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1058,7 +1059,7 @@ export function registerAnalyticsRoutes(app: Express) {
         res.json(created);
       }
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1096,7 +1097,7 @@ export function registerAnalyticsRoutes(app: Express) {
 
       res.json({ funnel, byEvent, days });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1121,7 +1122,7 @@ export function registerAnalyticsRoutes(app: Express) {
 
       res.json({ rows, days });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1145,7 +1146,7 @@ export function registerAnalyticsRoutes(app: Express) {
 
       res.json({ rows, days });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1170,7 +1171,7 @@ export function registerAnalyticsRoutes(app: Express) {
 
       res.json({ events: filtered, days });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1194,7 +1195,7 @@ export function registerAnalyticsRoutes(app: Express) {
 
       res.json({ rows, days });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1209,7 +1210,7 @@ export function registerAnalyticsRoutes(app: Express) {
       await recordAnalyticsEvent({ eventName, ...rest });
       res.json({ ok: true });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 

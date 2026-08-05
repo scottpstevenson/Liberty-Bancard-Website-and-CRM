@@ -10,6 +10,7 @@ import {
   getLicenseBoardMapping,
   type ColumnMapping,
 } from "../services/sdr/registry-importer";
+import { serverError } from "../utils/server-error";
 
 const PRIORITY_STATES = ["FL", "TX", "CA", "NY", "GA", "NC", "AZ", "IL"];
 const LICENSE_BOARD_TYPES = ["dental", "medical", "cosmetology", "veterinary"];
@@ -63,9 +64,7 @@ export function registerRegistryImportRoutes(app: Express) {
         });
       } catch (err) {
         console.error("[Registry Import] Error:", err);
-        return res.status(500).json({
-          message: err instanceof Error ? err.message : "Import failed",
-        });
+        return serverError(res, err);
       }
     }
   );

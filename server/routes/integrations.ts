@@ -13,6 +13,7 @@ import { publicLeadRateLimit } from "../middleware/public-rate-limit";
 import { parseId, parsePagination } from "./helpers";
 import dns from "node:dns/promises";
 import net from "node:net";
+import { serverError, safeMessage } from "../utils/server-error";
 
 export function registerIntegrationsRoutes(app: Express) {
   // === GHL INTEGRATION ===
@@ -25,7 +26,7 @@ export function registerIntegrationsRoutes(app: Express) {
       const result = await checkGhlHealth();
       res.json(result);
     } catch (err: any) {
-      res.status(500).json({ connected: false, latencyMs: 0, error: err.message });
+      serverError(res, err);
     }
   });
 
@@ -36,7 +37,7 @@ export function registerIntegrationsRoutes(app: Express) {
       const result = await sendGhlEmail({ contactId, dealId, subject, body });
       res.json(result);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -47,7 +48,7 @@ export function registerIntegrationsRoutes(app: Express) {
       const result = await sendGhlSms({ contactId, dealId, body });
       res.json(result);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -58,7 +59,7 @@ export function registerIntegrationsRoutes(app: Express) {
       const result = await sendTemplatedMessage({ templateId, contactId, dealId, extraData });
       res.json(result);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -71,7 +72,7 @@ export function registerIntegrationsRoutes(app: Express) {
       const ghlId = await upsertGhlContact(contact);
       res.json({ success: true, ghlContactId: ghlId });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -137,7 +138,7 @@ export function registerIntegrationsRoutes(app: Express) {
       res.json({ success: true });
     } catch (err: any) {
       console.error("GHL webhook error:", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -184,7 +185,7 @@ export function registerIntegrationsRoutes(app: Express) {
         syncAgeMs: syncAge,
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -215,7 +216,7 @@ export function registerIntegrationsRoutes(app: Express) {
       const result = await syncCompanyToGhl(id);
       res.json(result);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -227,7 +228,7 @@ export function registerIntegrationsRoutes(app: Express) {
       const result = await syncTaskToGhl(id);
       res.json(result);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -239,7 +240,7 @@ export function registerIntegrationsRoutes(app: Express) {
       const result = await syncTicketToGhl(id);
       res.json(result);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -251,7 +252,7 @@ export function registerIntegrationsRoutes(app: Express) {
       const result = await syncNoteToGhl(id);
       res.json(result);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -263,7 +264,7 @@ export function registerIntegrationsRoutes(app: Express) {
       const result = await syncTagsToGhl(id);
       res.json(result);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -272,7 +273,7 @@ export function registerIntegrationsRoutes(app: Express) {
       const dashboard = await getFullSyncDashboard();
       res.json(dashboard);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -317,7 +318,7 @@ export function registerIntegrationsRoutes(app: Express) {
       const health = await checkGhlHealth();
       res.json(health);
     } catch (err: any) {
-      res.status(500).json({ connected: false, latencyMs: 0, error: err.message });
+      serverError(res, err);
     }
   });
 
@@ -333,7 +334,7 @@ export function registerIntegrationsRoutes(app: Express) {
       });
       res.json(result);
     } catch (err: any) {
-      res.status(500).json({ success: false, error: err.message });
+      serverError(res, err);
     }
   });
 
@@ -438,7 +439,7 @@ export function registerIntegrationsRoutes(app: Express) {
             details: { channel, subject },
           });
         } catch (err: any) {
-          results.push({ contactId, status: "error", error: err.message });
+          results.push({ contactId, status: "error", error: safeMessage(err.message, "Send failed") });
         }
       }
 
@@ -448,7 +449,7 @@ export function registerIntegrationsRoutes(app: Express) {
 
       res.json({ sent, skipped, errors, total: contactIds.length, results });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -696,7 +697,7 @@ export function registerIntegrationsRoutes(app: Express) {
       res.json({ success: true, received: true });
     } catch (err: any) {
       console.error("Blaze webhook error:", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -715,7 +716,7 @@ export function registerIntegrationsRoutes(app: Express) {
         })),
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -732,7 +733,7 @@ export function registerIntegrationsRoutes(app: Express) {
         description: w.description,
       })));
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -886,7 +887,7 @@ export function registerIntegrationsRoutes(app: Express) {
         ghlWebhookSecretConfigured: !!process.env.GHL_WEBHOOK_SECRET,
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -894,7 +895,7 @@ export function registerIntegrationsRoutes(app: Express) {
     try {
       res.json(getPlatformEmailConfig());
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -904,7 +905,7 @@ export function registerIntegrationsRoutes(app: Express) {
       const sequences = buildSequenceList();
       res.json({ sequences, total: sequences.length });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -921,7 +922,7 @@ export function registerIntegrationsRoutes(app: Express) {
       const sorted = [...steps].sort((a, b) => a.stepOrder - b.stepOrder);
       res.json({ sequence: { id: sequence.id, name: sequence.name, description: sequence.description }, steps: sorted });
     } catch (err: unknown) {
-      res.status(500).json({ message: err instanceof Error ? err.message : String(err) });
+      serverError(res, err);
     }
   });
 
@@ -931,7 +932,7 @@ export function registerIntegrationsRoutes(app: Express) {
       const mappings = await storage.getGhlWorkflowMappings();
       res.json(mappings);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -942,7 +943,7 @@ export function registerIntegrationsRoutes(app: Express) {
       const mapping = await storage.upsertGhlWorkflowMapping(sequenceName, ghlWorkflowId || null, category, description);
       res.json(mapping);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -952,7 +953,7 @@ export function registerIntegrationsRoutes(app: Express) {
       const registry = await getWorkflowRegistryWithStatus();
       res.json(registry);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -965,7 +966,7 @@ export function registerIntegrationsRoutes(app: Express) {
       await setWorkflowEnvValue(envKey, value);
       res.json({ envKey, value, isSet: !!value });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -998,7 +999,7 @@ export function registerIntegrationsRoutes(app: Express) {
       console.log("[Seed] Scott sending identity created:", identity.id);
       res.status(201).json({ created: true, identity, message: "Scott's sending identity seeded successfully" });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1021,7 +1022,7 @@ export function registerIntegrationsRoutes(app: Express) {
         }));
       res.json({ records: filtered, total: filtered.length });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 

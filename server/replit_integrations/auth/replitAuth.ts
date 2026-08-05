@@ -20,6 +20,7 @@ import { csrfProtection } from "../../middleware/csrf";
 import { merchantAuthRateLimit, verifyEmailRateLimit } from "../../middleware/public-rate-limit";
 
 import { getCanonicalUrl } from "../../lib/canonical-url";
+import { serverError } from "../../utils/server-error";
 const APP_URL = getCanonicalUrl();
 
 function buildPasswordResetEmail(firstName: string, resetUrl: string): string {
@@ -444,7 +445,7 @@ export async function setupAuth(app: Express) {
         return res.json(safeUser);
       });
     } catch (err: any) {
-      return res.status(500).json({ message: err.message });
+      return serverError(res, err);
     }
   });
 
@@ -459,7 +460,7 @@ export async function setupAuth(app: Express) {
       const qrDataUrl = await QRCode.toDataURL(otpauthUrl);
       res.json({ secret, qrDataUrl });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -499,7 +500,7 @@ export async function setupAuth(app: Express) {
 
       res.json({ success: true, backupCodes: plain });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -532,7 +533,7 @@ export async function setupAuth(app: Express) {
 
       res.json({ success: true });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -553,7 +554,7 @@ export async function setupAuth(app: Express) {
         backupCodesRemaining: totpData.backupCodes ? totpData.backupCodes.filter(bc => !bc.used).length : 0,
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -577,7 +578,7 @@ export async function setupAuth(app: Express) {
 
       res.json({ success: true, backupCodes: plain });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -590,7 +591,7 @@ export async function setupAuth(app: Express) {
       res.clearCookie("trusted_device_token");
       res.json({ success: true });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -616,7 +617,7 @@ export async function setupAuth(app: Express) {
       await authStorage.invalidateAllUserSessions(user.id, currentSessionId);
       res.json({ message: "Password changed successfully. Other sessions have been logged out." });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 

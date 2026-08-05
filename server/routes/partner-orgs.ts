@@ -31,6 +31,7 @@ import {
   generateCoBrandedProposalHtml,
   generateCoBrandedProposalPdf,
 } from "../services/co-branded-proposal";
+import { serverError, safeMessage } from "../utils/server-error";
 
 function isPartnerOrgAdmin(req: any) {
   return req.session?.partnerOrgUserId && req.session?.partnerOrgId;
@@ -52,7 +53,7 @@ export function registerPartnerOrgsRoutes(app: Express) {
         primaryColor: org.primaryColor,
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -121,7 +122,7 @@ export function registerPartnerOrgsRoutes(app: Express) {
       if (err?.code === "23505" || err?.message?.includes("unique")) {
         return res.status(409).json({ message: "A contact with this email already exists." });
       }
-      res.status(500).json({ message: err.message || "Submission failed." });
+      serverError(res, err);
     }
   });
 
@@ -217,7 +218,7 @@ export function registerPartnerOrgsRoutes(app: Express) {
         ...(commsAvailable ? {} : { warning: "Statement saved. Confirmation email may be delayed — communications not yet configured." }),
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message || "Upload failed." });
+      serverError(res, err);
     }
   });
 
@@ -271,7 +272,7 @@ export function registerPartnerOrgsRoutes(app: Express) {
         org: { id: org.id, name: org.name, slug: org.slug, logoUrl: org.logoUrl, primaryColor: org.primaryColor },
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -295,7 +296,7 @@ export function registerPartnerOrgsRoutes(app: Express) {
         org: { id: org.id, name: org.name, slug: org.slug, logoUrl: org.logoUrl, primaryColor: org.primaryColor },
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -378,7 +379,7 @@ export function registerPartnerOrgsRoutes(app: Express) {
         })),
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -432,7 +433,7 @@ export function registerPartnerOrgsRoutes(app: Express) {
       const users = await storage.getPartnerOrgUsers(partnerOrgId);
       res.json(users.map(({ passwordHash: _ph, ...u }) => u));
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -445,7 +446,7 @@ export function registerPartnerOrgsRoutes(app: Express) {
       const orgs = await storage.getPartnerOrgs();
       res.json(orgs);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -459,7 +460,7 @@ export function registerPartnerOrgsRoutes(app: Express) {
       if (!org) return res.status(404).json({ message: "Not found." });
       res.json(org);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -522,7 +523,7 @@ export function registerPartnerOrgsRoutes(app: Express) {
       const users = await storage.getPartnerOrgUsers(Number(req.params.id));
       res.json(users.map(({ passwordHash: _ph, ...u }) => u));
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -602,7 +603,7 @@ export function registerPartnerOrgsRoutes(app: Express) {
       );
       res.json(performance);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -649,7 +650,7 @@ export function registerPartnerOrgsRoutes(app: Express) {
 
       res.status(201).json(proposal);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -668,7 +669,7 @@ export function registerPartnerOrgsRoutes(app: Express) {
       }));
       res.json(enriched);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -698,7 +699,7 @@ export function registerPartnerOrgsRoutes(app: Express) {
       }
       res.json({ message: "Proposal sent successfully." });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -716,7 +717,7 @@ export function registerPartnerOrgsRoutes(app: Express) {
       await storage.deleteCoBrandedProposal(proposal.id);
       res.json({ message: "Deleted." });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -781,7 +782,7 @@ export function registerPartnerOrgsRoutes(app: Express) {
         },
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -832,7 +833,7 @@ export function registerPartnerOrgsRoutes(app: Express) {
       }
       res.json({ message: "Proposal accepted." });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -890,7 +891,7 @@ export function registerPartnerOrgsRoutes(app: Express) {
         viewerUrl: `${baseUrl}/co-branded-proposal/${proposal.token}`,
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -906,7 +907,7 @@ export function registerPartnerOrgsRoutes(app: Express) {
         viewerUrl: `${baseUrl}/co-branded-proposal/${p.token}`,
       })));
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -922,7 +923,7 @@ export function registerPartnerOrgsRoutes(app: Express) {
       }
       res.json({ message: "Proposal sent successfully." });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -953,12 +954,13 @@ export function registerPartnerOrgsRoutes(app: Express) {
       });
 
       if (!result.success) {
-        return res.status(500).json({ message: result.error || "Failed to enroll in workflow." });
+        console.error("[PartnerOrgs] Workflow enrollment failed:", result.error);
+        return res.status(500).json({ message: safeMessage(result.error, "Failed to enroll in workflow.") });
       }
 
       res.json({ message: "Enrolled in workflow successfully." });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -969,7 +971,7 @@ export function registerPartnerOrgsRoutes(app: Express) {
       const baseUrl = getBaseUrl(req);
       res.json(proposals.map(p => ({ ...p, viewerUrl: `${baseUrl}/co-branded-proposal/${p.token}` })));
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1006,7 +1008,7 @@ export function registerPartnerOrgsRoutes(app: Express) {
       });
       res.send(pdfBuffer);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 }

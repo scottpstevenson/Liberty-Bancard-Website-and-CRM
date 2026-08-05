@@ -5,6 +5,7 @@ import { storage } from "../storage";
 import { db } from "../db";
 import { merchantOnboardingStages, deals, contacts, tasks, MERCHANT_ONBOARDING_STAGE_KEYS } from "@shared/schema";
 import { eq, and, lt, isNull } from "drizzle-orm";
+import { serverError } from "../utils/server-error";
 
 export function registerOnboardingStagesRoutes(app: Express) {
   // ── GET all stages for a deal ──────────────────────────────────────────────
@@ -17,7 +18,7 @@ export function registerOnboardingStagesRoutes(app: Express) {
       const stages = await storage.getMerchantOnboardingStages(dealId);
       res.json(stages);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -37,7 +38,7 @@ export function registerOnboardingStagesRoutes(app: Express) {
       });
       res.json(stages);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -96,7 +97,7 @@ export function registerOnboardingStagesRoutes(app: Express) {
 
       res.json(stage);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -124,7 +125,7 @@ export function registerOnboardingStagesRoutes(app: Express) {
         .limit(100);
       res.json(overdue);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -224,7 +225,7 @@ export function registerOnboardingStagesRoutes(app: Express) {
         onboardingDealId: onboardingDeal?.id || null,
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -286,7 +287,7 @@ export function registerOnboardingStagesRoutes(app: Express) {
 
       res.json({ created: created.length, tasks: created });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -338,7 +339,7 @@ export function registerOnboardingStagesRoutes(app: Express) {
 
       res.json(enriched);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -368,7 +369,7 @@ export function registerOnboardingStagesRoutes(app: Express) {
       const updated = await storage.updatePartner(partnerId, updates as any);
       res.json(updated);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -441,7 +442,7 @@ export function registerOnboardingStagesRoutes(app: Express) {
 
       res.json({ referral, partner: matched, tasksCreated: true });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 }

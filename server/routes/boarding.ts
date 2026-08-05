@@ -2,6 +2,7 @@ import type { Express } from "express";
 import { isAuthenticated, isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { getProcessor, getDefaultProcessor, getEnabledAdapterNames, ingestMidDataForActiveMids } from "../services/processors/registry";
+import { serverError, safeMessage } from "../utils/server-error";
 
 const IN_FLIGHT_BOARDING_STATUSES = ["submitted", "under_review", "more_info_needed"];
 
@@ -271,7 +272,8 @@ export function registerBoardingRoutes(app: Express) {
       const result = await processor.boardMerchant(payload);
 
       if (!result.success) {
-        return res.status(500).json({ message: result.error || "Failed to submit to processor" });
+        console.error("[Boarding] Processor submit failed:", result.error);
+        return res.status(500).json({ message: safeMessage(result.error, "Failed to submit to processor") });
       }
 
       const logEntry = {
@@ -321,7 +323,7 @@ export function registerBoardingRoutes(app: Express) {
       });
     } catch (err: any) {
       console.error("[Boarding] Submit error:", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -335,7 +337,8 @@ export function registerBoardingRoutes(app: Express) {
         return res.status(status).json({ message: result.error });
       }
       if (result.outcome === "failed") {
-        return res.status(500).json({ message: result.error || "Failed to check boarding status" });
+        console.error("[Boarding] Status refresh failed:", result.error);
+        return res.status(500).json({ message: safeMessage(result.error, "Failed to check boarding status") });
       }
 
       res.json({
@@ -348,7 +351,7 @@ export function registerBoardingRoutes(app: Express) {
       });
     } catch (err: any) {
       console.error("[Boarding] Status refresh error:", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -405,7 +408,7 @@ export function registerBoardingRoutes(app: Express) {
       res.json({ resultState, attempted: results.length, succeeded, failed, skipped, results });
     } catch (err: any) {
       console.error("[Boarding] Bulk refresh error:", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -424,7 +427,7 @@ export function registerBoardingRoutes(app: Express) {
         boardingApprovedAt: deal.boardingApprovedAt,
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -450,7 +453,7 @@ export function registerBoardingRoutes(app: Express) {
         fetchedAt,
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -507,7 +510,7 @@ export function registerBoardingRoutes(app: Express) {
       res.json({ success: true, rowsUpserted: upserted, stats: freshStats, mid: deal.mid, fetchedAt: new Date().toISOString() });
     } catch (err: any) {
       console.error("[MID Stats] Refresh error:", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -516,7 +519,7 @@ export function registerBoardingRoutes(app: Express) {
       const names = getEnabledAdapterNames();
       res.json({ processors: names });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -525,7 +528,7 @@ export function registerBoardingRoutes(app: Express) {
       const result = await ingestMidDataForActiveMids();
       res.json({ success: true, ...result });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -584,7 +587,7 @@ export function registerBoardingRoutes(app: Express) {
       res.json({ summaries, days });
     } catch (err: any) {
       console.error("[MID Stats] Pipeline summary error:", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -662,7 +665,7 @@ export function registerBoardingRoutes(app: Express) {
       res.json({ submissions, counts, total: submissions.length });
     } catch (err: any) {
       console.error("[Boarding] List error:", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -719,7 +722,7 @@ export function registerBoardingRoutes(app: Express) {
         activeMids: recentStatsByMid.filter((s) => s.latestDate !== null).length,
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -742,7 +745,7 @@ export function registerBoardingRoutes(app: Express) {
       const items = await storage.getOnboardingChecklistItems(dealId);
       res.json(items);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -755,7 +758,7 @@ export function registerBoardingRoutes(app: Express) {
       const items = await storage.initializeOnboardingChecklist(dealId);
       res.json(items);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -786,7 +789,7 @@ export function registerBoardingRoutes(app: Express) {
       }
       res.json(item);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -820,7 +823,7 @@ export function registerBoardingRoutes(app: Express) {
 
       res.json(results);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -829,7 +832,7 @@ export function registerBoardingRoutes(app: Express) {
       const kpis = await storage.getOnboardingKpis();
       res.json(kpis);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -847,7 +850,7 @@ export function registerBoardingRoutes(app: Express) {
         .slice(0, limit);
       res.json(filtered);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 }

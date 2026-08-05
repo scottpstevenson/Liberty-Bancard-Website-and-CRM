@@ -9,6 +9,7 @@ import { triggerWorkflowsByEvent } from "../services/workflow-executor";
 import { enrollInGhlWorkflow } from "../services/ghl-workflows";
 import { createPreferenceAwareNotification } from "../services/digest-service";
 import { parse } from "csv-parse/sync";
+import { serverError } from "../utils/server-error";
 
 const updateTicketSchema = insertTicketSchema.partial().extend({
   slaDeadline: z.coerce.date().optional().nullable(),
@@ -30,7 +31,7 @@ export function registerTicketsTasksRoutes(app: Express) {
       const result = await storage.getTickets({ limit, offset });
       res.json(result);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -53,7 +54,7 @@ export function registerTicketsTasksRoutes(app: Express) {
       res.status(201).json(ticket);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -63,7 +64,7 @@ export function registerTicketsTasksRoutes(app: Express) {
       if (!ticket) return res.status(404).json({ message: "Not found" });
       res.json(ticket);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -116,7 +117,7 @@ export function registerTicketsTasksRoutes(app: Express) {
 
       res.json(updated);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -141,7 +142,7 @@ export function registerTicketsTasksRoutes(app: Express) {
       const tasks = await storage.getTasks({ source });
       res.json(tasks);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -155,7 +156,7 @@ export function registerTicketsTasksRoutes(app: Express) {
       res.status(201).json(task);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -174,7 +175,7 @@ export function registerTicketsTasksRoutes(app: Express) {
       if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -185,7 +186,7 @@ export function registerTicketsTasksRoutes(app: Express) {
       const result = await storage.getTicketComments(Number(req.params.id));
       res.json(result);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -203,7 +204,7 @@ export function registerTicketsTasksRoutes(app: Express) {
       res.status(201).json(comment);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 

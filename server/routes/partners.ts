@@ -19,6 +19,7 @@ import { syncFormSubmissionToGhl, syncAffiliateSignupToGhl } from "../services/g
 import { sendPartnerWelcomeEmail } from "../services/partner-welcome";
 import { isGhlConfigured, sendGhlEmailForMerchant } from "../services/ghl";
 import { sendSmtpEmail, isSmtpConfigured } from "../services/smtp-email";
+import { serverError } from "../utils/server-error";
 
 const partnerForgotPasswordRateLimit = rateLimit({
   windowMs: 60 * 60 * 1000,
@@ -43,7 +44,7 @@ export function registerPartnersRoutes(app: Express) {
       const partnersList = await storage.getPartners();
       res.json(partnersList);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -53,7 +54,7 @@ export function registerPartnersRoutes(app: Express) {
       if (!partner) return res.status(404).json({ message: "Not found" });
       res.json(partner);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -311,7 +312,7 @@ ${getEmailSignatureHtml("partners")}
         partnerType: mappedType,
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -359,7 +360,7 @@ ${getEmailSignatureHtml("partners")}
         });
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -376,7 +377,7 @@ ${getEmailSignatureHtml("partners")}
         partnerType: partner.partnerType,
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -505,7 +506,7 @@ ${getEmailSignatureHtml("partners")}
         });
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -525,7 +526,7 @@ ${getEmailSignatureHtml("partners")}
         companyName: partner.companyName,
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -678,7 +679,7 @@ ${getEmailSignatureHtml("partners")}
       await storage.incrementPartnerClicks(code);
       res.json({ ok: true });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -758,7 +759,7 @@ ${getEmailSignatureHtml("partners")}
         referralLink,
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -769,7 +770,7 @@ ${getEmailSignatureHtml("partners")}
       const referralsList = partnerId ? await storage.getReferralsByPartner(partnerId) : await storage.getReferrals();
       res.json(referralsList);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -814,7 +815,7 @@ ${getEmailSignatureHtml("partners")}
       const tiers = await storage.getCommissionTiers();
       res.json(tiers);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -947,7 +948,7 @@ ${getEmailSignatureHtml("partners")}
         currentPartnerId,
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 }

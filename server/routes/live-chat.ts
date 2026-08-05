@@ -6,6 +6,7 @@ import { randomUUID } from "crypto";
 import { createContactGhlFirst } from "../services/contact-writer";
 import { sendCriticalEmailNotification } from "../services/digest-service";
 import type { LiveChat } from "../../shared/schema";
+import { serverError } from "../utils/server-error";
 
 interface AuthUser {
   firstName?: string;
@@ -89,7 +90,7 @@ export function registerLiveChatRoutes(app: Express) {
       res.status(201).json({ sessionId, chatId: chat.id, isBusinessHours: isBusinessHours() });
     } catch (err: unknown) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      res.status(500).json({ message: err instanceof Error ? err.message : "Internal error" });
+      serverError(res, err);
     }
   });
 
@@ -122,7 +123,7 @@ export function registerLiveChatRoutes(app: Express) {
       res.json(message);
     } catch (err: unknown) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      res.status(500).json({ message: err instanceof Error ? err.message : "Internal error" });
+      serverError(res, err);
     }
   });
 
@@ -136,7 +137,7 @@ export function registerLiveChatRoutes(app: Express) {
       const messages = await storage.getLiveChatMessages(chat.id, afterId);
       res.json({ messages, status: chat.status, isBusinessHours: isBusinessHours() });
     } catch (err: unknown) {
-      res.status(500).json({ message: err instanceof Error ? err.message : "Internal error" });
+      serverError(res, err);
     }
   });
 
@@ -189,7 +190,7 @@ export function registerLiveChatRoutes(app: Express) {
       res.json({ success: true, contactId });
     } catch (err: unknown) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      res.status(500).json({ message: err instanceof Error ? err.message : "Internal error" });
+      serverError(res, err);
     }
   });
 
@@ -218,7 +219,7 @@ export function registerLiveChatRoutes(app: Express) {
       await storage.updateLiveChat(chat.id, { status: "closed", closedAt: new Date() });
       res.json({ success: true });
     } catch (err: unknown) {
-      res.status(500).json({ message: err instanceof Error ? err.message : "Internal error" });
+      serverError(res, err);
     }
   });
 
@@ -293,7 +294,7 @@ export function registerLiveChatRoutes(app: Express) {
       res.status(201).json({ success: true });
     } catch (err: unknown) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      res.status(500).json({ message: err instanceof Error ? err.message : "Internal error" });
+      serverError(res, err);
     }
   });
 
@@ -309,7 +310,7 @@ export function registerLiveChatRoutes(app: Express) {
       }
       res.json(chats);
     } catch (err: unknown) {
-      res.status(500).json({ message: err instanceof Error ? err.message : "Internal error" });
+      serverError(res, err);
     }
   });
 
@@ -322,7 +323,7 @@ export function registerLiveChatRoutes(app: Express) {
       const chat = await storage.getLiveChat(chatId);
       res.json({ messages, chat });
     } catch (err: unknown) {
-      res.status(500).json({ message: err instanceof Error ? err.message : "Internal error" });
+      serverError(res, err);
     }
   });
 
@@ -351,7 +352,7 @@ export function registerLiveChatRoutes(app: Express) {
       res.json(message);
     } catch (err: unknown) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      res.status(500).json({ message: err instanceof Error ? err.message : "Internal error" });
+      serverError(res, err);
     }
   });
 
@@ -402,7 +403,7 @@ export function registerLiveChatRoutes(app: Express) {
       res.json(updated);
     } catch (err: unknown) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      res.status(500).json({ message: err instanceof Error ? err.message : "Internal error" });
+      serverError(res, err);
     }
   });
 
@@ -427,7 +428,7 @@ export function registerLiveChatRoutes(app: Express) {
         }));
       res.json(matches);
     } catch (err: unknown) {
-      res.status(500).json({ message: err instanceof Error ? err.message : "Internal error" });
+      serverError(res, err);
     }
   });
 }

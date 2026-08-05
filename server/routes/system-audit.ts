@@ -2,6 +2,7 @@ import type { Express } from "express";
 import { isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { db } from "../db";
 import { sql } from "drizzle-orm";
+import { serverError } from "../utils/server-error";
 
 export function registerSystemAuditRoutes(app: Express) {
   app.get("/api/system-audit/runs", isDashboardUser, async (_req, res) => {
@@ -15,7 +16,7 @@ export function registerSystemAuditRoutes(app: Express) {
       `);
       res.json(rows.rows);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -33,7 +34,7 @@ export function registerSystemAuditRoutes(app: Express) {
       if (!rows.rows[0]) return res.status(404).json({ message: "Run not found" });
       res.json(rows.rows[0]);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -49,7 +50,7 @@ export function registerSystemAuditRoutes(app: Express) {
       if (!rows.rows[0]) return res.json(null);
       res.json(rows.rows[0]);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -71,7 +72,7 @@ export function registerSystemAuditRoutes(app: Express) {
         message: "System audit started — results will appear within 90 seconds",
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 }

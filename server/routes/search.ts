@@ -2,6 +2,7 @@ import type { Express } from "express";
 import { isAuthenticated } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { contacts } from "@shared/schema";
+import { serverError } from "../utils/server-error";
 
 export function registerSearchRoutes(app: Express) {
   // === UNIVERSAL SMART SEARCH ===
@@ -51,7 +52,7 @@ export function registerSearchRoutes(app: Express) {
 
       res.json({ results: results.slice(0, 20) });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -94,7 +95,7 @@ export function registerSearchRoutes(app: Express) {
       
       res.json({ contacts: matchContacts, deals: matchDeals, tickets: matchTickets, tasks: matchTasks });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -194,7 +195,7 @@ export function registerSearchRoutes(app: Express) {
 
       res.json({ campaignId: bestCampaign?.id, campaignName: bestCampaign?.name, prospectId: prospect.id });
     } catch (err: any) {
-      res.status(500).json({ message: err.message || "Routing error" });
+      serverError(res, err);
     }
   });
 
@@ -271,7 +272,7 @@ export function registerSearchRoutes(app: Express) {
 
       res.json({ routed: results.length, results, reason: noOpReason });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 

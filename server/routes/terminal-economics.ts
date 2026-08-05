@@ -3,6 +3,7 @@ import { isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { computeDealTerminalEconomics, getEconomicsConfig } from "../services/terminal-economics";
 import { normalizeTaskCompletionState } from "../services/task-normalization";
+import { serverError } from "../utils/server-error";
 
 export function registerTerminalEconomicsRoutes(app: Express) {
 
@@ -11,7 +12,7 @@ export function registerTerminalEconomicsRoutes(app: Express) {
       const models = await storage.getEquipmentModels();
       res.json(models);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -20,7 +21,7 @@ export function registerTerminalEconomicsRoutes(app: Express) {
       const models = await storage.getEquipmentModels(true);
       res.json(models);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -44,7 +45,7 @@ export function registerTerminalEconomicsRoutes(app: Express) {
       });
       res.status(201).json(model);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -60,7 +61,7 @@ export function registerTerminalEconomicsRoutes(app: Express) {
       });
       res.json(updated);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -69,7 +70,7 @@ export function registerTerminalEconomicsRoutes(app: Express) {
       await storage.deleteEquipmentModel(Number(req.params.id));
       res.json({ success: true });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -82,7 +83,7 @@ export function registerTerminalEconomicsRoutes(app: Express) {
       }
       res.json({ available: true, ...result });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -140,7 +141,7 @@ export function registerTerminalEconomicsRoutes(app: Express) {
 
       res.json({ approvalRequired: true, approvalStatus: "pending_approval", tier: "red", taskId: task.id });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -186,7 +187,7 @@ export function registerTerminalEconomicsRoutes(app: Express) {
 
       res.json({ success: true, terminalApprovalStatus: "approved" });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -229,7 +230,7 @@ export function registerTerminalEconomicsRoutes(app: Express) {
 
       res.json({ success: true, terminalApprovalStatus: "rejected" });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -238,7 +239,7 @@ export function registerTerminalEconomicsRoutes(app: Express) {
       const config = await getEconomicsConfig();
       res.json(config);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -259,7 +260,7 @@ export function registerTerminalEconomicsRoutes(app: Express) {
       });
       res.json({ success: true, greenThresholdMonths: green, yellowThresholdMonths: yellow });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -350,7 +351,7 @@ export function registerTerminalEconomicsRoutes(app: Express) {
         generatedAt: now.toISOString(),
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 }

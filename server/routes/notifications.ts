@@ -6,6 +6,7 @@ import { buildDailyDigest } from "../services/digest-service";
 import { isSmtpConfigured } from "../services/smtp-email";
 import { getQueueManager, QUEUE_NAMES } from "../services/queue-manager";
 import type { InsertNotificationPreference } from "@shared/schema";
+import { serverError } from "../utils/server-error";
 
 async function computeDigestHealth() {
   const ghlConfigured = isGhlConfigured();
@@ -59,7 +60,7 @@ export function registerNotificationsRoutes(app: Express) {
       const unread = await storage.getNotificationsUnreadCount(userId);
       res.json({ unread });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -79,7 +80,7 @@ export function registerNotificationsRoutes(app: Express) {
       res.json({ data, total, limit, offset, hasMore });
     } catch (err: any) {
       console.error("Get notifications error:", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -92,7 +93,7 @@ export function registerNotificationsRoutes(app: Express) {
       await storage.markAllNotificationsRead(userId);
       res.json({ success: true });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -104,7 +105,7 @@ export function registerNotificationsRoutes(app: Express) {
       res.json({ success: true });
     } catch (err: any) {
       console.error("Mark all read error:", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -116,7 +117,7 @@ export function registerNotificationsRoutes(app: Express) {
       res.json({ success: true, deleted });
     } catch (err: any) {
       console.error("Clear old read notifications error:", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -128,7 +129,7 @@ export function registerNotificationsRoutes(app: Express) {
       res.json({ success: true });
     } catch (err: any) {
       console.error("Clear all notifications error:", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -139,7 +140,7 @@ export function registerNotificationsRoutes(app: Express) {
       res.json({ success: true });
     } catch (err: any) {
       console.error("Mark notification read error:", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -154,7 +155,7 @@ export function registerNotificationsRoutes(app: Express) {
       res.json({ success: true });
     } catch (err: any) {
       console.error("Delete notification error:", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -177,7 +178,7 @@ export function registerNotificationsRoutes(app: Express) {
       res.json(logs);
     } catch (err: any) {
       console.error("Get audit logs error:", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -196,7 +197,7 @@ export function registerNotificationsRoutes(app: Express) {
       res.json(logs);
     } catch (err: any) {
       console.error("Get entity audit logs error:", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -209,7 +210,7 @@ export function registerNotificationsRoutes(app: Express) {
       res.json(prefs);
     } catch (err: any) {
       console.error("Get notification preferences error:", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -227,7 +228,7 @@ export function registerNotificationsRoutes(app: Express) {
       res.json(pref);
     } catch (err: any) {
       console.error("Update notification preference error:", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -239,7 +240,7 @@ export function registerNotificationsRoutes(app: Express) {
       res.json(health);
     } catch (err: any) {
       console.error("Get digest health error:", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -287,7 +288,7 @@ export function registerNotificationsRoutes(app: Express) {
       });
     } catch (err: any) {
       console.error("Get digest availability error:", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -310,7 +311,7 @@ export function registerNotificationsRoutes(app: Express) {
       res.json({ ...summary, emailSent: false, html });
     } catch (err: any) {
       console.error("Daily digest error:", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 }

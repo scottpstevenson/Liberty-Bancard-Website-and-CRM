@@ -10,6 +10,7 @@ import { featureFlags } from "../services/feature-flags";
 import { runStageProgressionSweep } from "../services/stage-progression";
 import { getGhlCircuitState } from "../services/ghl-sync";
 import { createPreferenceAwareNotification, sendCriticalEmailNotification } from "../services/digest-service";
+import { serverError, safeMessage } from "../utils/server-error";
 
 const CHANNEL_LABEL: Record<string, string> = {
   sms: "SMS",
@@ -343,7 +344,7 @@ export function registerActivationRoutes(app: Express) {
         },
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -388,7 +389,7 @@ export function registerActivationRoutes(app: Express) {
         })),
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -433,7 +434,7 @@ export function registerActivationRoutes(app: Express) {
         })),
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -478,7 +479,7 @@ export function registerActivationRoutes(app: Express) {
             detail: `GHL auth confirmed (${Array.isArray(calendars) ? calendars.length : 0} calendars visible) — sender address can be saved`,
           };
         } catch (err: any) {
-          ghlProbe = { ok: false, detail: `GHL auth failed: ${err.message}` };
+          ghlProbe = { ok: false, detail: safeMessage(err.message, "GHL auth failed") };
           errors.push(ghlProbe.detail);
         }
       } else if (!ghlConfigured) {
@@ -495,7 +496,7 @@ export function registerActivationRoutes(app: Express) {
         existingCount: existing.length,
       });
     } catch (err: any) {
-      res.status(500).json({ ok: false, errors: [err.message] });
+      serverError(res, err);
     }
   });
 
@@ -506,7 +507,7 @@ export function registerActivationRoutes(app: Express) {
       const result = await runStageProgressionSweep({ limit });
       res.json(result);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -546,7 +547,7 @@ export function registerActivationRoutes(app: Express) {
         allHealthy: smtpStatus.configured && ghlEmail && !warnings.length,
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -582,7 +583,7 @@ export function registerActivationRoutes(app: Express) {
           ghlAuthOk = false;
           ghlAuthDetail = msg.includes("401") || msg.includes("unauthorized") || msg.includes("403")
             ? "Token rejected (401/403) — regenerate in GHL Settings → Private Integrations"
-            : `Auth probe error: ${(err.message || "unknown").substring(0, 80)}`;
+            : safeMessage(err.message, "Auth probe error");
         }
       }
 
@@ -716,7 +717,7 @@ export function registerActivationRoutes(app: Express) {
 
       res.json({ ready, passCount, totalChecks: checks.length, checks });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -730,7 +731,7 @@ export function registerActivationRoutes(app: Express) {
         .limit(200);
       res.json(rows);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -813,7 +814,7 @@ export function registerActivationRoutes(app: Express) {
         warning: "Stuck count uses updatedAt as approximate proxy — any field update resets the clock.",
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1078,7 +1079,7 @@ export function registerActivationRoutes(app: Express) {
         warnings,
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1145,7 +1146,7 @@ export function registerActivationRoutes(app: Express) {
         offset: filters.offset ?? 0,
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1194,7 +1195,7 @@ export function registerActivationRoutes(app: Express) {
         res.setHeader("Content-Disposition", `attachment; filename=channel-audit-${channel}.pdf`);
         res.send(buffer);
       });
-      doc.on("error", (err: any) => res.status(500).json({ message: err.message }));
+      doc.on("error", (err: any) => serverError(res, err));
 
       doc.fontSize(16).font("Helvetica-Bold").text(`Channel Approval Audit Trail — ${channel}`);
       doc.fontSize(9).font("Helvetica").fillColor("#555").text(`Generated ${new Date().toLocaleString()}`);
@@ -1233,7 +1234,7 @@ export function registerActivationRoutes(app: Express) {
 
       doc.end();
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1254,7 +1255,7 @@ export function registerActivationRoutes(app: Express) {
       });
       res.json(checklist);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1312,7 +1313,7 @@ export function registerActivationRoutes(app: Express) {
         manualStep,
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1407,7 +1408,7 @@ export function registerActivationRoutes(app: Express) {
         note: "This is a preview only. No SMS, call, ringless voicemail, email, or sequence step was sent or queued.",
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1458,7 +1459,7 @@ export function registerActivationRoutes(app: Express) {
         coldEmailChannelPaused,
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1507,7 +1508,7 @@ export function registerActivationRoutes(app: Express) {
 
       res.json({ ok: true });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 }

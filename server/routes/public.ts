@@ -29,6 +29,7 @@ import { recordPewcDecision } from "../services/consent-evidence";
 import { evaluateContactability } from "../services/contactability";
 import { StatementChainTracker } from "../services/statement-upload-chain";
 import { resolveReferralAttribution } from "../services/attribution";
+import { serverError } from "../utils/server-error";
 
 export function registerPublicRoutes(app: Express) {
   const autoProposalRateLimit = new Map<string, number>();
@@ -1094,7 +1095,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       });
       res.json(sanitized);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 

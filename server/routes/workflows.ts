@@ -6,6 +6,7 @@ import { insertRfiSchema, insertWorkflowSchema } from "@shared/schema";
 import { executeWorkflowActions, triggerWorkflowsByEvent } from "../services/workflow-executor";
 import { parse } from "csv-parse/sync";
 import { requireInternalWebhookSecret } from "../middleware/internal-webhook-auth";
+import { serverError } from "../utils/server-error";
 
 export function registerWorkflowsRoutes(app: Express) {
   // === RFIs ===
@@ -14,7 +15,7 @@ export function registerWorkflowsRoutes(app: Express) {
       const allRfis = await storage.getRfis();
       res.json(allRfis);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -24,7 +25,7 @@ export function registerWorkflowsRoutes(app: Express) {
       if (!rfi) return res.status(404).json({ message: "Not found" });
       res.json(rfi);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -79,7 +80,7 @@ export function registerWorkflowsRoutes(app: Express) {
       res.status(201).json(rfi);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -104,7 +105,7 @@ export function registerWorkflowsRoutes(app: Express) {
       res.json(updated);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -115,7 +116,7 @@ export function registerWorkflowsRoutes(app: Express) {
       const wfs = await storage.getWorkflows();
       res.json(wfs);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -125,7 +126,7 @@ export function registerWorkflowsRoutes(app: Express) {
       if (!wf) return res.status(404).json({ message: "Not found" });
       res.json(wf);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -137,7 +138,7 @@ export function registerWorkflowsRoutes(app: Express) {
       res.status(201).json(wf);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -149,7 +150,7 @@ export function registerWorkflowsRoutes(app: Express) {
       res.json(updated);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -158,7 +159,7 @@ export function registerWorkflowsRoutes(app: Express) {
       await storage.deleteWorkflow(Number(req.params.id));
       res.json({ success: true });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -170,7 +171,7 @@ export function registerWorkflowsRoutes(app: Express) {
         : await storage.getWorkflowRuns();
       res.json(runs);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -188,7 +189,7 @@ export function registerWorkflowsRoutes(app: Express) {
 
       res.json({ success: true, runId: result.runId, status: result.status, steps: result.log });
     } catch (err: any) {
-      res.status(500).json({ message: err.message || "Workflow execution failed" });
+      serverError(res, err);
     }
   });
 
@@ -207,7 +208,7 @@ export function registerWorkflowsRoutes(app: Express) {
 
       res.json({ triggered: results.length, workflows: results.map(r => r.workflowName), results });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 

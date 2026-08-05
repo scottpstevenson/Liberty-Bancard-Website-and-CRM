@@ -19,6 +19,7 @@ import { recordPewcDecision } from "../services/consent-evidence";
 import { parse } from "csv-parse/sync";
 import path from "path";
 import { publicLeadRateLimit, webhookRateLimit } from "../middleware/public-rate-limit";
+import { serverError, safeMessage } from "../utils/server-error";
 
 const EMAIL_COOLDOWN_MS = 5 * 60 * 1000;
 
@@ -138,7 +139,7 @@ export function registerMerchantsRoutes(app: Express) {
       );
       res.json({ id: application.id, draftToken });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -165,7 +166,7 @@ export function registerMerchantsRoutes(app: Express) {
         .limit(1);
       res.json({ exists: !!dup });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -209,7 +210,7 @@ export function registerMerchantsRoutes(app: Express) {
       await db.update(merchantApplications).set(safeUpdate).where(eq(merchantApplications.id, appId));
       res.json({ ok: true });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -240,7 +241,7 @@ export function registerMerchantsRoutes(app: Express) {
       }
       res.json(safe);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -374,7 +375,7 @@ export function registerMerchantsRoutes(app: Express) {
 
       res.json(updated || { id: appId, status: "submitted" });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -429,7 +430,7 @@ export function registerMerchantsRoutes(app: Express) {
       const baseUrl = process.env.APP_URL || `${req.protocol}://${req.get("host")}`;
       res.json({ token, url: `${baseUrl}/merchant-application?prefillToken=${token}` });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -583,7 +584,7 @@ export function registerMerchantsRoutes(app: Express) {
 
       res.json({ applications: paginated, total, limit: Number(limit), offset: Number(offset) });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -595,7 +596,7 @@ export function registerMerchantsRoutes(app: Express) {
       ).length;
       res.json({ count });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -605,7 +606,7 @@ export function registerMerchantsRoutes(app: Express) {
       if (!application) return res.status(404).json({ message: "Not found" });
       res.json(application);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -618,7 +619,7 @@ export function registerMerchantsRoutes(app: Express) {
       }
       res.json(application);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -763,7 +764,8 @@ export function registerMerchantsRoutes(app: Express) {
       });
 
       if (!result.success) {
-        return res.status(500).json({ message: result.error || "Failed to send document for e-signature" });
+        console.error("[Merchants] E-signature send failed:", result.error);
+        return res.status(500).json({ message: safeMessage(result.error, "Failed to send document for e-signature") });
       }
 
       await storage.updateMerchantApplication(appId, {
@@ -785,7 +787,7 @@ export function registerMerchantsRoutes(app: Express) {
         message: "E-signature document sent via GoHighLevel",
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -849,7 +851,7 @@ export function registerMerchantsRoutes(app: Express) {
 
       res.json({ status: "pending", message: "Your agreement will be sent for signature shortly" });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -888,7 +890,7 @@ export function registerMerchantsRoutes(app: Express) {
         lastSentAt: lastSentAt?.toISOString() ?? null,
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -947,7 +949,7 @@ export function registerMerchantsRoutes(app: Express) {
       }
       res.json({ ...profile, businessName });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1022,7 +1024,7 @@ export function registerMerchantsRoutes(app: Express) {
         cooldownRemaining,
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1052,7 +1054,7 @@ export function registerMerchantsRoutes(app: Express) {
       res.json({ success: true, message: "Welcome email has been resent", lastSentAt: sentAt.toISOString() });
     } catch (err: any) {
       console.error(`[Resend Welcome] Error for profile #${req.params.id}:`, err);
-      res.status(500).json({ message: err.message || "Failed to send welcome email" });
+      serverError(res, err);
     }
   });
 
@@ -1061,7 +1063,7 @@ export function registerMerchantsRoutes(app: Express) {
       const profiles = await storage.getMerchantProfiles();
       res.json(profiles);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1071,7 +1073,7 @@ export function registerMerchantsRoutes(app: Express) {
       if (!profile) return res.status(404).json({ message: "Not found" });
       res.json(profile);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1085,7 +1087,7 @@ export function registerMerchantsRoutes(app: Express) {
       const welcomeLogs = logs.filter(l => l.action === "merchant_portal_welcome_sent");
       res.json(welcomeLogs);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1339,7 +1341,7 @@ export function registerMerchantsRoutes(app: Express) {
       });
     } catch (err: any) {
       console.error("[Financial Overview] Error:", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1350,7 +1352,7 @@ export function registerMerchantsRoutes(app: Express) {
       const orders = dealId ? await storage.getEquipmentOrdersByDeal(dealId) : await storage.getEquipmentOrders();
       res.json(orders);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1360,7 +1362,7 @@ export function registerMerchantsRoutes(app: Express) {
       if (!order) return res.status(404).json({ message: "Not found" });
       res.json(order);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1485,7 +1487,7 @@ export function registerMerchantsRoutes(app: Express) {
       const steps = await storage.getOnboardingStepsByDeal(dealId);
       res.json(steps);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1494,7 +1496,7 @@ export function registerMerchantsRoutes(app: Express) {
       const steps = await storage.getOnboardingStepsByApplication(Number(req.params.applicationId));
       res.json(steps);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 

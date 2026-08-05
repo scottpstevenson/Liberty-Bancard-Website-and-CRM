@@ -9,6 +9,7 @@ import { enrollInGhlWorkflow } from "../services/ghl-workflows";
 import { runStatementUploadChain } from "../services/statement-upload-chain";
 import path from "path";
 import fs from "fs";
+import { serverError } from "../utils/server-error";
 
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -194,7 +195,7 @@ export function registerRateReviewRoutes(app: Express) {
       res.status(201).json({ rateReview, document: doc });
     } catch (err: any) {
       console.error("[RateReview] Error:", err);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -217,7 +218,7 @@ export function registerRateReviewRoutes(app: Express) {
 
       res.json({ reviews: reviewsWithDocs, eligible: isEligible });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -236,7 +237,7 @@ export function registerRateReviewRoutes(app: Express) {
 
       res.json(enriched);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -265,7 +266,7 @@ export function registerRateReviewRoutes(app: Express) {
 
       res.json(review);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -301,7 +302,7 @@ export function registerRateReviewRoutes(app: Express) {
 
       res.json(updated);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -358,7 +359,7 @@ export function registerRateReviewRoutes(app: Express) {
 
       res.json({ message: "Retention proposal generation started", dealId: review.dealId });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 }

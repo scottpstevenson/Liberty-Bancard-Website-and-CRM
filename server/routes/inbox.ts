@@ -13,6 +13,7 @@ import { desc, eq, and, gte, inArray } from "drizzle-orm";
 import { sql } from "drizzle-orm";
 import { classifyIntent, mapIntentToAction } from "../services/sdr/reply-intelligence";
 import { resolvePolicy } from "../services/sender-policy";
+import { serverError, safeMessage } from "../utils/server-error";
 
 const GHL_API_BASE = "https://services.leadconnectorhq.com";
 
@@ -334,7 +335,7 @@ export function registerInboxRoutes(app: Express) {
       });
     } catch (err: any) {
       console.error("[Inbox] items error:", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -425,7 +426,7 @@ export function registerInboxRoutes(app: Express) {
       });
     } catch (err: any) {
       console.error("[Inbox] classify error:", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -629,7 +630,7 @@ export function registerInboxRoutes(app: Express) {
           });
           return res.status(502).json({
             ok: false,
-            message: `Reply delivery failed: ${sendErr.message}`,
+            message: safeMessage(sendErr.message, "Reply delivery failed"),
             deliveryOutcome: "failed",
           });
         }
@@ -741,7 +742,7 @@ export function registerInboxRoutes(app: Express) {
           });
           return res.status(500).json({
             ok: false,
-            message: `Failed to suppress contact: ${suppErr.message}`,
+            message: safeMessage(suppErr.message, "Failed to suppress contact"),
             deliveryOutcome: "failed",
           });
         }
@@ -802,7 +803,7 @@ export function registerInboxRoutes(app: Express) {
       res.json({ ok: true, action, message: `Action "${action}" executed successfully.` });
     } catch (err: any) {
       console.error("[Inbox] action error:", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 }

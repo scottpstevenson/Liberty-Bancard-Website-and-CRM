@@ -10,6 +10,7 @@ import { parse } from "csv-parse/sync";
 import { checkAbTestWinners } from "../services/ab-test-worker";
 import { pool, db } from "../db";
 import { eq, and, count } from "drizzle-orm";
+import { serverError } from "../utils/server-error";
 
 interface AbTestResultRow {
   sequenceId: number;
@@ -30,7 +31,7 @@ export function registerCampaignsRoutes(app: Express) {
       const campaigns = await storage.getCampaigns();
       res.json(campaigns);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -40,7 +41,7 @@ export function registerCampaignsRoutes(app: Express) {
       if (!campaign) return res.status(404).json({ message: "Campaign not found" });
       res.json(campaign);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -51,7 +52,7 @@ export function registerCampaignsRoutes(app: Express) {
       res.status(201).json(campaign);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -61,7 +62,7 @@ export function registerCampaignsRoutes(app: Express) {
       if (!updated) return res.status(404).json({ message: "Campaign not found" });
       res.json(updated);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -70,7 +71,7 @@ export function registerCampaignsRoutes(app: Express) {
       const analytics = await getCampaignAnalytics(Number(req.params.id));
       res.json(analytics);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -81,7 +82,7 @@ export function registerCampaignsRoutes(app: Express) {
       const steps = await storage.getCampaignSteps(Number(req.params.id));
       res.json(steps);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -92,7 +93,7 @@ export function registerCampaignsRoutes(app: Express) {
       res.status(201).json(step);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -110,7 +111,7 @@ export function registerCampaignsRoutes(app: Express) {
       if (!updated) return res.status(404).json({ message: "Step not found" });
       res.json(updated);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -119,7 +120,7 @@ export function registerCampaignsRoutes(app: Express) {
       await storage.deleteCampaignStep(Number(req.params.id));
       res.json({ message: "Step deleted" });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -131,7 +132,7 @@ export function registerCampaignsRoutes(app: Express) {
       const messages = await storage.getOutboundMessages(campaignId);
       res.json(messages);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -217,7 +218,7 @@ export function registerCampaignsRoutes(app: Express) {
       }
       res.json({ queued, mode, message: `${queued} messages queued for sending` });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -233,7 +234,7 @@ export function registerCampaignsRoutes(app: Express) {
       const previewId = await startCampaignPreviewAsync(campaignId, requestedBy);
       res.json({ status: "running", previewId });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -246,7 +247,7 @@ export function registerCampaignsRoutes(app: Express) {
       const state = await getCampaignPreviewState(Number(req.params.id));
       res.json(state);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -255,7 +256,7 @@ export function registerCampaignsRoutes(app: Express) {
       const result = await processSendQueue();
       res.json(result);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -286,7 +287,7 @@ export function registerCampaignsRoutes(app: Express) {
 
       res.json({ message: "Webhook processed" });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -297,7 +298,7 @@ export function registerCampaignsRoutes(app: Express) {
       const sequences = await storage.getFollowUpSequences();
       res.json(sequences);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -357,7 +358,7 @@ export function registerCampaignsRoutes(app: Express) {
         client.release();
       }
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -375,7 +376,7 @@ export function registerCampaignsRoutes(app: Express) {
       }));
       res.json(meta);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -389,7 +390,7 @@ export function registerCampaignsRoutes(app: Express) {
       await storage.createAuditLog({ action: `sequence_${newStatus}`, entityType: "sequence", entityId: id, details: { name: seq.name, previousStatus: seq.status } });
       res.json(updated);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -399,7 +400,7 @@ export function registerCampaignsRoutes(app: Express) {
       if (!seq) return res.status(404).json({ message: "Not found" });
       res.json(seq);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -411,7 +412,7 @@ export function registerCampaignsRoutes(app: Express) {
       res.status(201).json(seq);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -421,7 +422,7 @@ export function registerCampaignsRoutes(app: Express) {
       if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -430,7 +431,7 @@ export function registerCampaignsRoutes(app: Express) {
       await storage.deleteFollowUpSequence(Number(req.params.id));
       res.json({ success: true });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -450,7 +451,7 @@ export function registerCampaignsRoutes(app: Express) {
       const result = await startReadinessBackfill(force);
       res.status(202).json(result);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -462,7 +463,7 @@ export function registerCampaignsRoutes(app: Express) {
       const status = await getReadinessBackfillStatus();
       res.json(status);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -588,7 +589,7 @@ export function registerCampaignsRoutes(app: Express) {
           : null,
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -598,7 +599,7 @@ export function registerCampaignsRoutes(app: Express) {
       const steps = await storage.getSequenceSteps(Number(req.params.sequenceId));
       res.json(steps);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -614,7 +615,7 @@ export function registerCampaignsRoutes(app: Express) {
       res.status(201).json(step);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -624,7 +625,7 @@ export function registerCampaignsRoutes(app: Express) {
       if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -633,7 +634,7 @@ export function registerCampaignsRoutes(app: Express) {
       await storage.deleteSequenceStep(Number(req.params.id));
       res.json({ success: true });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -672,7 +673,7 @@ export function registerCampaignsRoutes(app: Express) {
 
       return res.json(normalized);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -683,7 +684,7 @@ export function registerCampaignsRoutes(app: Express) {
       const enrollments = await storage.getSequenceEnrollments(sequenceId);
       res.json(enrollments);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -730,7 +731,7 @@ export function registerCampaignsRoutes(app: Express) {
       res.status(201).json(enrollment);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -748,7 +749,7 @@ export function registerCampaignsRoutes(app: Express) {
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join(".") });
       if (err instanceof DateValidationError) return res.status(400).json({ message: err.message, field: err.field });
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -757,7 +758,7 @@ export function registerCampaignsRoutes(app: Express) {
       const enrollments = await storage.getContactEnrollments(Number(req.params.contactId));
       res.json(enrollments);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -768,7 +769,7 @@ export function registerCampaignsRoutes(app: Express) {
       const suggestions = await suggestSequenceFamiliesForContact(contactId);
       res.json(suggestions);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -816,7 +817,7 @@ export function registerCampaignsRoutes(app: Express) {
       }
       res.json(results);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -859,7 +860,7 @@ export function registerCampaignsRoutes(app: Express) {
       if (!step) return res.status(404).json({ message: "Step not found" });
       res.json(step);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -868,7 +869,7 @@ export function registerCampaignsRoutes(app: Express) {
       const result = await checkAbTestWinners();
       res.json({ message: "A/B test check complete", ...result });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -879,7 +880,7 @@ export function registerCampaignsRoutes(app: Express) {
       const verticals = await storage.getContactVerticalCounts();
       res.json(verticals);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -942,7 +943,7 @@ export function registerCampaignsRoutes(app: Express) {
       res.json({ totalMatching, eligible, alreadyEnrolled, notEligible, skippedBreakdown, previewContacts });
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1050,7 +1051,7 @@ export function registerCampaignsRoutes(app: Express) {
       });
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1061,7 +1062,7 @@ export function registerCampaignsRoutes(app: Express) {
       await storage.updateEmailLog(id, { clickedAt: new Date(), status: "clicked" });
       res.json({ message: "Click recorded" });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1152,7 +1153,7 @@ export function registerCampaignsRoutes(app: Express) {
         client.release();
       }
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1215,7 +1216,7 @@ Please provide:
       const analysis = completion.choices[0]?.message?.content ?? "No analysis generated.";
       res.json({ analysis, generatedAt: new Date().toISOString() });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 

@@ -5,6 +5,7 @@ import { z } from "zod";
 import { insertChargebackSchema, CHARGEBACK_DEADLINE_DAYS } from "@shared/schema";
 import { createPreferenceAwareNotification } from "../services/digest-service";
 import { generateChargebackEvidencePdf } from "../services/chargeback-pdf";
+import { serverError } from "../utils/server-error";
 
 export function registerChargebacksRoutes(app: Express) {
   app.get("/api/chargebacks", isDashboardUser, async (req, res) => {
@@ -16,7 +17,7 @@ export function registerChargebacksRoutes(app: Express) {
       const chargebackList = await storage.getChargebacks({ status, contactId, cardBrand, overdueOnly: overdueOnly || undefined });
       res.json(chargebackList);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -25,7 +26,7 @@ export function registerChargebacksRoutes(app: Express) {
       const stats = await storage.getChargebackStats();
       res.json(stats);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -34,7 +35,7 @@ export function registerChargebacksRoutes(app: Express) {
       const overdue = await storage.getOverdueChargebacks();
       res.json(overdue);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -43,7 +44,7 @@ export function registerChargebacksRoutes(app: Express) {
       const list = await storage.getChargebacksByContact(Number(req.params.contactId));
       res.json(list);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -52,7 +53,7 @@ export function registerChargebacksRoutes(app: Express) {
       const list = await storage.getChargebacksByDeal(Number(req.params.dealId));
       res.json(list);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -62,7 +63,7 @@ export function registerChargebacksRoutes(app: Express) {
       if (!cb) return res.status(404).json({ message: "Not found" });
       res.json(cb);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -149,7 +150,7 @@ export function registerChargebacksRoutes(app: Express) {
       await storage.deleteChargeback(Number(req.params.id));
       res.json({ success: true });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 

@@ -4,6 +4,7 @@ import { storage } from "../storage";
 import { z } from "zod";
 import { runContentSchedulerTick } from "../services/content-scheduler";
 import { logAiCall } from "../services/ai-audit-logger";
+import { serverError } from "../utils/server-error";
 
 const PILLARS = [
   "Cost & Pricing",
@@ -233,7 +234,7 @@ Guidelines:
       res.json(saved);
     } catch (err: any) {
       console.error("[ContentDraft] Error:", err);
-      res.status(500).json({ error: err.message || "AI drafting failed" });
+      serverError(res, err);
     }
   });
 

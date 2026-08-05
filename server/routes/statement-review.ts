@@ -14,6 +14,7 @@ import {
   updateStatementReview,
 } from "../storage/inbox";
 import { z } from "zod";
+import { serverError } from "../utils/server-error";
 
 const VALID_STATUSES = [
   "received",
@@ -98,7 +99,7 @@ export function registerStatementReviewRoutes(app: Express) {
 
       res.json(enriched);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -138,7 +139,7 @@ export function registerStatementReviewRoutes(app: Express) {
 
       res.json({ ...review, contactName, companyName, documentName, deal });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -211,7 +212,7 @@ export function registerStatementReviewRoutes(app: Express) {
 
       res.json(updated);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -272,7 +273,7 @@ export function registerStatementReviewRoutes(app: Express) {
 
       res.json({ draft });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -297,7 +298,7 @@ export function registerStatementReviewRoutes(app: Express) {
 
       res.status(201).json(review);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 }

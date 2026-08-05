@@ -7,6 +7,7 @@ import { eq, and, desc, gte, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { getAllBotContexts } from "../services/sdr/conversation-ai";
 import { addTag, updateCustomFields, disableConversationAi, isSdrGhlConfigured } from "../services/sdr/ghl-client";
+import { serverError } from "../utils/server-error";
 
 const DEFAULT_BOT_SEEDS = [
   {
@@ -185,7 +186,7 @@ export function registerConversationAiConfigRoutes(app: Express) {
       const rows = await db.select().from(botContexts).orderBy(botContexts.id);
       res.json(rows);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -195,7 +196,7 @@ export function registerConversationAiConfigRoutes(app: Express) {
       if (!row) return res.status(404).json({ message: "Not found" });
       res.json(row);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -228,7 +229,7 @@ export function registerConversationAiConfigRoutes(app: Express) {
       res.json(updated);
     } catch (err: any) {
       if (err.name === "ZodError") return res.status(400).json({ message: "Validation error", errors: err.errors });
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -244,7 +245,7 @@ export function registerConversationAiConfigRoutes(app: Express) {
       }
       res.json({ ok: true, message: "Bot contexts and handoff rules reset to defaults" });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -254,7 +255,7 @@ export function registerConversationAiConfigRoutes(app: Express) {
       const rows = await db.select().from(handoffRules).orderBy(handoffRules.type, handoffRules.id);
       res.json(rows);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -271,7 +272,7 @@ export function registerConversationAiConfigRoutes(app: Express) {
       res.status(201).json(row);
     } catch (err: any) {
       if (err.name === "ZodError") return res.status(400).json({ message: "Validation error", errors: err.errors });
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -289,7 +290,7 @@ export function registerConversationAiConfigRoutes(app: Express) {
       res.json(row);
     } catch (err: any) {
       if (err.name === "ZodError") return res.status(400).json({ message: "Validation error", errors: err.errors });
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -298,7 +299,7 @@ export function registerConversationAiConfigRoutes(app: Express) {
       await db.delete(handoffRules).where(eq(handoffRules.id, Number(req.params.id)));
       res.json({ ok: true });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -357,7 +358,7 @@ export function registerConversationAiConfigRoutes(app: Express) {
 
       res.json(sessions.sort((a, b) => new Date(b.lastAt).getTime() - new Date(a.lastAt).getTime()));
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -384,7 +385,7 @@ export function registerConversationAiConfigRoutes(app: Express) {
 
       res.json({ ok: true });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -399,7 +400,7 @@ export function registerConversationAiConfigRoutes(app: Express) {
         .orderBy(desc(maEvents.createdAt));
       res.json(rows);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -455,7 +456,7 @@ export function registerConversationAiConfigRoutes(app: Express) {
       res.status(201).json(row);
     } catch (err: any) {
       if (err.name === "ZodError") return res.status(400).json({ message: "Validation error", errors: err.errors });
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -464,7 +465,7 @@ export function registerConversationAiConfigRoutes(app: Express) {
       await db.delete(maEvents).where(eq(maEvents.id, Number(req.params.id)));
       res.json({ ok: true });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -480,7 +481,7 @@ export function registerConversationAiConfigRoutes(app: Express) {
       res.json(updated);
     } catch (err: any) {
       if (err.name === "ZodError") return res.status(400).json({ message: "Validation error" });
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -495,7 +496,7 @@ export function registerConversationAiConfigRoutes(app: Express) {
       res.json(updated);
     } catch (err: any) {
       if (err.name === "ZodError") return res.status(400).json({ message: "Validation error" });
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -510,7 +511,7 @@ export function registerConversationAiConfigRoutes(app: Express) {
       res.json(updated);
     } catch (err: any) {
       if (err.name === "ZodError") return res.status(400).json({ message: "Validation error" });
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -554,7 +555,7 @@ export function registerConversationAiConfigRoutes(app: Express) {
         })),
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -572,7 +573,7 @@ export function registerConversationAiConfigRoutes(app: Express) {
       }
       res.json({ total: allLogs.length, byIdentity });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 }

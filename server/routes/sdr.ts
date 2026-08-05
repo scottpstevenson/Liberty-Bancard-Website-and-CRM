@@ -17,6 +17,7 @@ import { handleContactUpdated, handleMessageReceived, handleCallOutcome, handleA
 import { handleConversationCreated, handleChatMessage, handleSmsThread, handleEmailThread, handleChatBooking } from "../services/sdr/chat-handlers";
 import { parse } from "csv-parse/sync";
 import { createContactGhlFirst } from "../services/contact-writer";
+import { serverError, safeMessage } from "../utils/server-error";
 
 export function registerSdrRoutes(app: Express) {
   // === HEALTH ENDPOINTS ===
@@ -117,7 +118,7 @@ export function registerSdrRoutes(app: Express) {
       const circuit = getGhlCircuitStatus();
       res.json({ ...config, authTest, ...circuit });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -128,7 +129,7 @@ export function registerSdrRoutes(app: Express) {
       await storage.createAuditLog({ action: "GHL_CIRCUIT_RESET", entityType: "system", details: "GHL circuit breaker manually reset via Activation Panel" });
       res.json({ ok: true, message: "GHL circuit breaker reset — consecutive failure count cleared" });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -165,7 +166,7 @@ export function registerSdrRoutes(app: Express) {
         flags: getAllFlags(),
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -362,7 +363,7 @@ export function registerSdrRoutes(app: Express) {
         res.status(400).json({ message: "source must be 'contacts' or 'sunbiz'" });
       }
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -560,7 +561,7 @@ export function registerSdrRoutes(app: Express) {
         ],
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -574,7 +575,7 @@ export function registerSdrRoutes(app: Express) {
         .limit(limit);
       res.json(attempts);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -587,7 +588,7 @@ export function registerSdrRoutes(app: Express) {
         .limit(limit);
       res.json(events);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -606,7 +607,7 @@ export function registerSdrRoutes(app: Express) {
         .limit(100);
       res.json(stuckLeads);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -703,7 +704,7 @@ export function registerSdrRoutes(app: Express) {
       const errMsg = err instanceof Error ? err.message : String(err);
       console.error("[SDR Webhook] contact-updated error:", errMsg);
       trackWebhookFailure();
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -720,7 +721,7 @@ export function registerSdrRoutes(app: Express) {
       const errMsg = err instanceof Error ? err.message : String(err);
       console.error("[SDR Webhook] message-received error:", errMsg);
       trackWebhookFailure();
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -737,7 +738,7 @@ export function registerSdrRoutes(app: Express) {
       const errMsg = err instanceof Error ? err.message : String(err);
       console.error("[SDR Webhook] call-outcome error:", errMsg);
       trackWebhookFailure();
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -754,7 +755,7 @@ export function registerSdrRoutes(app: Express) {
       const errMsg = err instanceof Error ? err.message : String(err);
       console.error("[SDR Webhook] appointment-booked error:", errMsg);
       trackWebhookFailure();
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -771,7 +772,7 @@ export function registerSdrRoutes(app: Express) {
       const errMsg = err instanceof Error ? err.message : String(err);
       console.error("[SDR Webhook] appointment-canceled error:", errMsg);
       trackWebhookFailure();
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -788,7 +789,7 @@ export function registerSdrRoutes(app: Express) {
       const errMsg = err instanceof Error ? err.message : String(err);
       console.error("[SDR Webhook] opt-out error:", errMsg);
       trackWebhookFailure();
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -805,7 +806,7 @@ export function registerSdrRoutes(app: Express) {
       const errMsg = err instanceof Error ? err.message : String(err);
       console.error("[SDR Webhook] conversation-created error:", errMsg);
       trackWebhookFailure();
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -822,7 +823,7 @@ export function registerSdrRoutes(app: Express) {
       const errMsg = err instanceof Error ? err.message : String(err);
       console.error("[SDR Webhook] chat-message error:", errMsg);
       trackWebhookFailure();
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -839,7 +840,7 @@ export function registerSdrRoutes(app: Express) {
       const errMsg = err instanceof Error ? err.message : String(err);
       console.error("[SDR Webhook] sms-thread error:", errMsg);
       trackWebhookFailure();
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -856,7 +857,7 @@ export function registerSdrRoutes(app: Express) {
       const errMsg = err instanceof Error ? err.message : String(err);
       console.error("[SDR Webhook] email-thread error:", errMsg);
       trackWebhookFailure();
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -873,7 +874,7 @@ export function registerSdrRoutes(app: Express) {
       const errMsg = err instanceof Error ? err.message : String(err);
       console.error("[SDR Webhook] chat-booking error:", errMsg);
       trackWebhookFailure();
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -885,7 +886,7 @@ export function registerSdrRoutes(app: Express) {
       res.json(summary);
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -895,7 +896,7 @@ export function registerSdrRoutes(app: Express) {
       res.json(funnel);
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -905,7 +906,7 @@ export function registerSdrRoutes(app: Express) {
       res.json(stuck);
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -915,7 +916,7 @@ export function registerSdrRoutes(app: Express) {
       res.json(activity);
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -926,7 +927,7 @@ export function registerSdrRoutes(app: Express) {
       res.json(analytics);
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -937,7 +938,7 @@ export function registerSdrRoutes(app: Express) {
       res.json(matrix);
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -949,7 +950,7 @@ export function registerSdrRoutes(app: Express) {
       res.json(updated);
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -967,7 +968,7 @@ export function registerSdrRoutes(app: Express) {
       );
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -1001,7 +1002,7 @@ export function registerSdrRoutes(app: Express) {
       res.json({ message: "Pilot discovery started", jobId: job.id, safeLimit });
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -1095,7 +1096,7 @@ export function registerSdrRoutes(app: Express) {
       res.json({ performance, pilotJobCount: pilotJobs.length });
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -1108,7 +1109,7 @@ export function registerSdrRoutes(app: Express) {
       });
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -1120,7 +1121,7 @@ export function registerSdrRoutes(app: Express) {
       res.json({ message: "Nightly discovery scheduler started" });
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -1132,7 +1133,7 @@ export function registerSdrRoutes(app: Express) {
       res.json({ message: "Nightly discovery scheduler stopped" });
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -1143,7 +1144,7 @@ export function registerSdrRoutes(app: Express) {
       res.json(jobs);
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -1155,7 +1156,7 @@ export function registerSdrRoutes(app: Express) {
       res.json({ ...job, results });
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -1165,7 +1166,7 @@ export function registerSdrRoutes(app: Express) {
       res.json(stats);
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -1176,7 +1177,7 @@ export function registerSdrRoutes(app: Express) {
       res.json(coverage);
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -1205,7 +1206,7 @@ export function registerSdrRoutes(app: Express) {
       });
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -1221,7 +1222,7 @@ export function registerSdrRoutes(app: Express) {
       return res.status(400).json({ success: false, message: `Test not supported for source: ${source}` });
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      return res.status(500).json({ success: false, message: errMsg });
+      return res.status(500).json({ success: false, message: safeMessage(errMsg) });
     }
   });
 
@@ -1244,7 +1245,7 @@ export function registerSdrRoutes(app: Express) {
       res.json(result);
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -1261,7 +1262,7 @@ export function registerSdrRoutes(app: Express) {
       res.json(result);
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -1273,7 +1274,7 @@ export function registerSdrRoutes(app: Express) {
       res.json({ success: true });
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -1286,7 +1287,7 @@ export function registerSdrRoutes(app: Express) {
       res.json(result);
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -1304,7 +1305,7 @@ export function registerSdrRoutes(app: Express) {
       res.json(result);
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -1319,7 +1320,7 @@ export function registerSdrRoutes(app: Express) {
       res.json(result);
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -1336,7 +1337,7 @@ export function registerSdrRoutes(app: Express) {
       res.json(result);
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -1347,7 +1348,7 @@ export function registerSdrRoutes(app: Express) {
       res.json(dashboard);
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -1359,7 +1360,7 @@ export function registerSdrRoutes(app: Express) {
       res.json(blocked);
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -1376,7 +1377,7 @@ export function registerSdrRoutes(app: Express) {
       res.json({ success: true });
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -1392,7 +1393,7 @@ export function registerSdrRoutes(app: Express) {
       res.json({ success: true });
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -1408,7 +1409,7 @@ export function registerSdrRoutes(app: Express) {
       res.json({ success: true });
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -1421,7 +1422,7 @@ export function registerSdrRoutes(app: Express) {
       res.json({ success: result });
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -1434,7 +1435,7 @@ export function registerSdrRoutes(app: Express) {
       res.json({ success: result });
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -1450,7 +1451,7 @@ export function registerSdrRoutes(app: Express) {
       res.json({ success: result });
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -1477,7 +1478,7 @@ export function registerSdrRoutes(app: Express) {
       res.json({ merchantId: lead.merchantId, companyName: lead.companyName, valid: true, source: "sdr" });
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -1545,7 +1546,7 @@ export function registerSdrRoutes(app: Express) {
         return res.json({ success: result });
       } catch (err: unknown) {
         const errMsg = err instanceof Error ? err.message : String(err);
-        return res.status(500).json({ message: errMsg });
+        return res.status(500).json({ message: safeMessage(errMsg) });
       }
     });
   });
@@ -1570,7 +1571,7 @@ export function registerSdrRoutes(app: Express) {
       const stats = await getSdrDashboardStats();
       res.json(stats);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1584,7 +1585,7 @@ export function registerSdrRoutes(app: Express) {
       });
       res.json(leads);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1612,7 +1613,7 @@ export function registerSdrRoutes(app: Express) {
       });
       res.json({ scores, lead: updated });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1629,7 +1630,7 @@ export function registerSdrRoutes(app: Express) {
       if (!updated) return res.status(404).json({ message: "Lead not found" });
       res.json(updated);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1639,7 +1640,7 @@ export function registerSdrRoutes(app: Express) {
       const result = await sweepLeads();
       res.json(result);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1702,7 +1703,7 @@ export function registerSdrRoutes(app: Express) {
       const ghlPayload = buildGhlVoicePayload(script, lead, agentName || "a team member");
       res.json({ script: personalized, ghlPayload });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1711,7 +1712,7 @@ export function registerSdrRoutes(app: Express) {
       const identities = await storage.getSendingIdentities();
       res.json(identities);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1721,7 +1722,7 @@ export function registerSdrRoutes(app: Express) {
       if (!identity) return res.status(404).json({ message: "Not found" });
       res.json(identity);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1738,7 +1739,7 @@ export function registerSdrRoutes(app: Express) {
     } catch (err: unknown) {
       const error = err as { name?: string; message?: string; errors?: unknown[] };
       if (error.name === "ZodError") return res.status(400).json({ message: "Validation error", errors: error.errors });
-      res.status(500).json({ message: error.message });
+      serverError(res, error);
     }
   });
 
@@ -1757,7 +1758,7 @@ export function registerSdrRoutes(app: Express) {
     } catch (err: unknown) {
       const error = err as { name?: string; message?: string; errors?: unknown[] };
       if (error.name === "ZodError") return res.status(400).json({ message: "Validation error", errors: error.errors });
-      res.status(500).json({ message: error.message });
+      serverError(res, error);
     }
   });
 
@@ -1767,7 +1768,7 @@ export function registerSdrRoutes(app: Express) {
       if (!deleted) return res.status(404).json({ message: "Not found" });
       res.json({ success: true });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1777,7 +1778,7 @@ export function registerSdrRoutes(app: Express) {
       const dashboard = await getInboxHealthDashboard();
       res.json(dashboard);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1787,7 +1788,7 @@ export function registerSdrRoutes(app: Express) {
       const result = await runDailyMaintenance();
       res.json(result);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1797,7 +1798,7 @@ export function registerSdrRoutes(app: Express) {
       const result = await calculateHealthScores();
       res.json(result);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1813,7 +1814,7 @@ export function registerSdrRoutes(app: Express) {
       ]);
       res.json({ processorDistribution: distribution, coverage, adDistribution: adDist, conversionByProcessor });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1825,7 +1826,7 @@ export function registerSdrRoutes(app: Express) {
       const signals = await getProcessorSignals(businessId);
       res.json(signals);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1837,7 +1838,7 @@ export function registerSdrRoutes(app: Express) {
       const results = await detectProcessors(businessId);
       res.json({ detected: results.length, results });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1849,7 +1850,7 @@ export function registerSdrRoutes(app: Express) {
       const signals = await getAdSignals(businessId);
       res.json(signals);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1861,7 +1862,7 @@ export function registerSdrRoutes(app: Express) {
       const results = await detectAds(businessId);
       res.json({ detected: results.length, results });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1875,7 +1876,7 @@ export function registerSdrRoutes(app: Express) {
       });
       res.json(result);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1886,7 +1887,7 @@ export function registerSdrRoutes(app: Express) {
       res.status(201).json(biz);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1895,7 +1896,7 @@ export function registerSdrRoutes(app: Express) {
       const result = await ingestBusiness(req.body);
       res.json(result);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1908,7 +1909,7 @@ export function registerSdrRoutes(app: Express) {
       const stats = await getDedupeStats();
       res.json(stats);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1918,7 +1919,7 @@ export function registerSdrRoutes(app: Express) {
       if (!biz) return res.status(404).json({ message: "Business not found" });
       res.json(biz);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1930,7 +1931,7 @@ export function registerSdrRoutes(app: Express) {
       res.json(biz);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1939,7 +1940,7 @@ export function registerSdrRoutes(app: Express) {
       const aliases = await storage.getBusinessAliases(Number(req.params.id));
       res.json(aliases);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1950,7 +1951,7 @@ export function registerSdrRoutes(app: Express) {
       res.status(201).json(alias);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1959,7 +1960,7 @@ export function registerSdrRoutes(app: Express) {
       const locations = await storage.getBusinessLocations(Number(req.params.id));
       res.json(locations);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1970,7 +1971,7 @@ export function registerSdrRoutes(app: Express) {
       res.status(201).json(loc);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1979,7 +1980,7 @@ export function registerSdrRoutes(app: Express) {
       const sources = await storage.getLeadSources(Number(req.params.id));
       res.json(sources);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1988,7 +1989,7 @@ export function registerSdrRoutes(app: Express) {
       const runs = await storage.getEnrichmentRuns(Number(req.params.id));
       res.json(runs);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1997,7 +1998,7 @@ export function registerSdrRoutes(app: Express) {
       const sources = await storage.getLeadSources();
       res.json(sources);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -2008,7 +2009,7 @@ export function registerSdrRoutes(app: Express) {
       res.status(201).json(source);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -2017,7 +2018,7 @@ export function registerSdrRoutes(app: Express) {
       const sources = await storage.getLeadSourcesByBatch(req.params.batchId as string);
       res.json(sources);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -2028,7 +2029,7 @@ export function registerSdrRoutes(app: Express) {
       res.json(profile);
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -2040,7 +2041,7 @@ export function registerSdrRoutes(app: Express) {
       res.json(top);
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -2052,7 +2053,7 @@ export function registerSdrRoutes(app: Express) {
       res.json(result);
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -2063,7 +2064,7 @@ export function registerSdrRoutes(app: Express) {
       res.json(stats);
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -2078,7 +2079,7 @@ export function registerSdrRoutes(app: Express) {
       runReEnrichmentCycle().catch(err => console.error("[ReEnrich API] Error:", err));
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -2095,7 +2096,7 @@ export function registerSdrRoutes(app: Express) {
       res.json(metrics);
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -2108,7 +2109,7 @@ export function registerSdrRoutes(app: Express) {
       res.json({ message: "Aggregation complete" });
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -2119,7 +2120,7 @@ export function registerSdrRoutes(app: Express) {
       res.json(report);
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -2130,7 +2131,7 @@ export function registerSdrRoutes(app: Express) {
       res.json(report);
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -2141,7 +2142,7 @@ export function registerSdrRoutes(app: Express) {
       res.json(data);
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -2152,7 +2153,7 @@ export function registerSdrRoutes(app: Express) {
       res.json(data);
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -2164,7 +2165,7 @@ export function registerSdrRoutes(app: Express) {
       res.json(data);
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -2175,7 +2176,7 @@ export function registerSdrRoutes(app: Express) {
       res.json(data);
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -2188,7 +2189,7 @@ export function registerSdrRoutes(app: Express) {
       res.json(data);
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -2199,7 +2200,7 @@ export function registerSdrRoutes(app: Express) {
       res.json(data);
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -2210,7 +2211,7 @@ export function registerSdrRoutes(app: Express) {
       res.json(data);
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -2223,7 +2224,7 @@ export function registerSdrRoutes(app: Express) {
       res.json({ message: "Daily digest sent", summary: digest.summary });
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -2234,7 +2235,7 @@ export function registerSdrRoutes(app: Express) {
       res.json(data);
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -2245,7 +2246,7 @@ export function registerSdrRoutes(app: Express) {
       res.json({ jobs });
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -2256,7 +2257,7 @@ export function registerSdrRoutes(app: Express) {
       res.json(metrics);
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -2269,7 +2270,7 @@ export function registerSdrRoutes(app: Express) {
       res.json(stats);
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -2282,7 +2283,7 @@ export function registerSdrRoutes(app: Express) {
       res.json(result);
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -2315,7 +2316,7 @@ export function registerSdrRoutes(app: Express) {
       res.json({ message: `${action}d ${identityIds.length} identities`, count: identityIds.length });
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -2331,7 +2332,7 @@ export function registerSdrRoutes(app: Express) {
       });
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -2343,7 +2344,7 @@ export function registerSdrRoutes(app: Express) {
       res.json(updated);
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -2368,7 +2369,7 @@ export function registerSdrRoutes(app: Express) {
       });
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -2400,7 +2401,7 @@ export function registerSdrRoutes(app: Express) {
       });
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -2410,7 +2411,7 @@ export function registerSdrRoutes(app: Express) {
       res.json(status);
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -2421,7 +2422,7 @@ export function registerSdrRoutes(app: Express) {
       res.json({ mappings, smartListTags });
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -2453,7 +2454,7 @@ export function registerSdrRoutes(app: Express) {
       res.json(rows);
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -2482,7 +2483,7 @@ export function registerSdrRoutes(app: Express) {
       res.json(rows);
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -2546,7 +2547,7 @@ export function registerSdrRoutes(app: Express) {
       });
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -2574,7 +2575,7 @@ export function registerSdrRoutes(app: Express) {
       });
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -2587,7 +2588,7 @@ export function registerSdrRoutes(app: Express) {
       res.json(conflicts);
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -2625,7 +2626,7 @@ export function registerSdrRoutes(app: Express) {
           } catch (ghlErr: unknown) {
             const msg = ghlErr instanceof Error ? ghlErr.message : String(ghlErr);
             console.error(`[Sync Conflict] GHL write failed for kept-ghl resolution #${id}: ${msg}`);
-            return res.status(502).json({ message: `DB updated but GHL sync failed: ${msg}` });
+            return res.status(502).json({ message: safeMessage(msg, "DB updated but GHL sync failed") });
           }
         }
       } else if (resolution === "kept-internal") {
@@ -2636,7 +2637,7 @@ export function registerSdrRoutes(app: Express) {
           } catch (ghlErr: unknown) {
             const msg = ghlErr instanceof Error ? ghlErr.message : String(ghlErr);
             console.error(`[Sync Conflict] GHL write failed for kept-internal resolution #${id}: ${msg}`);
-            return res.status(502).json({ message: `GHL sync failed — conflict remains pending: ${msg}` });
+            return res.status(502).json({ message: safeMessage(msg, "GHL sync failed — conflict remains pending") });
           }
         }
       }
@@ -2646,7 +2647,7 @@ export function registerSdrRoutes(app: Express) {
       res.json(updated);
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -2745,7 +2746,7 @@ export function registerSdrRoutes(app: Express) {
       });
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
+      res.status(500).json({ message: safeMessage(errMsg) });
     }
   });
 
@@ -2894,7 +2895,7 @@ export function registerSdrRoutes(app: Express) {
         warnings,
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -2905,7 +2906,7 @@ export function registerSdrRoutes(app: Express) {
       const leads = await storage.getALeadQueue();
       res.json(leads);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -3027,7 +3028,7 @@ export function registerSdrRoutes(app: Express) {
       res.json({ ok: true, contactId, dedupResult });
     } catch (err: any) {
       console.error("[A-Lead Promote] Error:", err);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -3071,7 +3072,7 @@ export function registerSdrRoutes(app: Express) {
       res.json({ ok: true });
     } catch (err: any) {
       console.error("[A-Lead Discard] Error:", err);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -3115,7 +3116,7 @@ export function registerSdrRoutes(app: Express) {
       res.json({ ok: true });
     } catch (err: any) {
       console.error("[A-Lead Suppress] Error:", err);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -3141,7 +3142,7 @@ export function registerSdrRoutes(app: Express) {
       res.json(metric);
     } catch (err: any) {
       console.error("[confirmation-metric GET]", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -3187,7 +3188,7 @@ export function registerSdrRoutes(app: Express) {
       res.json(result);
     } catch (err: any) {
       console.error("[confirmation-failures GET]", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 

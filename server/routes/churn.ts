@@ -3,6 +3,7 @@ import { isAuthenticated, isDashboardUser, requireRole } from "../replit_integra
 import { storage } from "../storage";
 import { z } from "zod";
 import { computeAndPersistChurnScore } from "../services/churn-score";
+import { serverError } from "../utils/server-error";
 
 export function registerChurnRoutes(app: Express) {
   // GET all merchant health scores (with optional filters)
@@ -39,7 +40,7 @@ export function registerChurnRoutes(app: Express) {
 
       res.json(enriched);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -49,7 +50,7 @@ export function registerChurnRoutes(app: Express) {
       const summary = await storage.getChurnRiskSummary();
       res.json(summary);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -60,7 +61,7 @@ export function registerChurnRoutes(app: Express) {
       const score = await storage.getMerchantHealthScoreByContact(contactId);
       res.json(score || null);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -73,7 +74,7 @@ export function registerChurnRoutes(app: Express) {
       const score = await computeAndPersistChurnScore(contactId);
       res.json(score);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -132,7 +133,7 @@ export function registerChurnRoutes(app: Express) {
 
       res.json(updated);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -160,7 +161,7 @@ export function registerChurnRoutes(app: Express) {
 
       res.json(updated);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -170,7 +171,7 @@ export function registerChurnRoutes(app: Express) {
       const weights = await storage.getChurnScoreWeights();
       res.json(weights);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -185,7 +186,7 @@ export function registerChurnRoutes(app: Express) {
       const updated = await storage.upsertChurnScoreWeight(signalKey, weight);
       res.json(updated);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 }

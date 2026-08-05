@@ -3,6 +3,7 @@ import { isAuthenticated } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { z } from "zod";
 import { logAiCall } from "../services/ai-audit-logger";
+import { serverError, safeMessage } from "../utils/server-error";
 
 const createSchema = z.object({
   platform: z.string().min(1).max(20).default("linkedin"),
@@ -127,7 +128,7 @@ export function registerSocialRoutes(app: Express) {
         if (!liRes.ok) {
           const errText = await liRes.text();
           console.error(`[LinkedIn] UGC post failed (${liRes.status}): ${errText}`);
-          return res.status(502).json({ error: `LinkedIn API error ${liRes.status}`, detail: errText });
+          return res.status(502).json({ error: "LinkedIn API error", detail: safeMessage(errText, "LinkedIn request failed") });
         }
 
         const liData = await liRes.json() as any;
@@ -140,7 +141,7 @@ export function registerSocialRoutes(app: Express) {
         return res.json({ post: updated, linkedInPostId, note: "Published to LinkedIn via UGC Posts API." });
       } catch (err: any) {
         console.error("[LinkedIn] Publish error:", err.message);
-        return res.status(500).json({ error: "Failed to publish to LinkedIn", detail: err.message });
+        return serverError(res, err);
       }
     }
 
@@ -225,7 +226,7 @@ Return ONLY JSON:
       res.json({ posts: created });
     } catch (err: any) {
       console.error("[SocialGenerate] Error:", err);
-      res.status(500).json({ error: err.message || "Generation failed" });
+      serverError(res, err);
     }
   });
 }

@@ -22,6 +22,7 @@ import {
 } from "../services/knowledge-base";
 import { db } from "../db";
 import { sql } from "drizzle-orm";
+import { serverError } from "../utils/server-error";
 
 const adminOrManager = requireRole("admin", "manager");
 
@@ -32,7 +33,7 @@ export function registerKnowledgeAdminRoutes(app: Express) {
       const stats = await getKnowledgeStats();
       res.json(stats);
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      serverError(res, e);
     }
   });
 
@@ -46,7 +47,7 @@ export function registerKnowledgeAdminRoutes(app: Express) {
       });
       res.json({ sources });
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      serverError(res, e);
     }
   });
 
@@ -57,7 +58,7 @@ export function registerKnowledgeAdminRoutes(app: Express) {
       if (!source) return res.status(404).json({ error: "Source not found." });
       res.json({ source });
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      serverError(res, e);
     }
   });
 
@@ -83,7 +84,7 @@ export function registerKnowledgeAdminRoutes(app: Express) {
 
       res.json({ source });
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      serverError(res, e);
     }
   });
 
@@ -104,7 +105,7 @@ export function registerKnowledgeAdminRoutes(app: Express) {
       if (!updated) return res.status(404).json({ error: "Source not found." });
       res.json({ source: updated });
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      serverError(res, e);
     }
   });
 
@@ -115,7 +116,7 @@ export function registerKnowledgeAdminRoutes(app: Express) {
       if (!source) return res.status(404).json({ error: "Source not found." });
       res.json({ source });
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      serverError(res, e);
     }
   });
 
@@ -125,7 +126,7 @@ export function registerKnowledgeAdminRoutes(app: Express) {
       await archiveSource(Number(req.params.id));
       res.json({ ok: true });
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      serverError(res, e);
     }
   });
 
@@ -135,7 +136,7 @@ export function registerKnowledgeAdminRoutes(app: Express) {
       await deleteKnowledgeSource(Number(req.params.id));
       res.json({ ok: true });
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      serverError(res, e);
     }
   });
 
@@ -145,7 +146,7 @@ export function registerKnowledgeAdminRoutes(app: Express) {
       const result = await indexSource(Number(req.params.id));
       res.json({ ok: true, ...result });
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      serverError(res, e);
     }
   });
 
@@ -155,7 +156,7 @@ export function registerKnowledgeAdminRoutes(app: Express) {
       const result = await reindexAll();
       res.json({ ok: true, ...result });
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      serverError(res, e);
     }
   });
 
@@ -171,7 +172,7 @@ export function registerKnowledgeAdminRoutes(app: Express) {
       `);
       res.json({ questions: rows });
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      serverError(res, e);
     }
   });
 
@@ -186,7 +187,7 @@ export function registerKnowledgeAdminRoutes(app: Express) {
       `);
       res.json({ ok: true });
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      serverError(res, e);
     }
   });
 
@@ -203,7 +204,7 @@ export function registerKnowledgeAdminRoutes(app: Express) {
       `);
       res.json({ feedback: rows });
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      serverError(res, e);
     }
   });
 
@@ -219,7 +220,7 @@ export function registerKnowledgeAdminRoutes(app: Express) {
       `);
       res.json({ chunks: rows });
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      serverError(res, e);
     }
   });
 }

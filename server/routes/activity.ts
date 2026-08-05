@@ -9,6 +9,7 @@ import { advanceDealStage } from "../services/deal-stage-service";
 import { parse } from "csv-parse/sync";
 import { logAiCall } from "../services/ai-audit-logger";
 import { resolveCollateralPacket } from "../services/workflow-executor";
+import { serverError } from "../utils/server-error";
 
 export function registerActivityRoutes(app: Express) {
 
@@ -34,7 +35,7 @@ export function registerActivityRoutes(app: Express) {
         });
       res.json(failures);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -73,7 +74,7 @@ export function registerActivityRoutes(app: Express) {
       timeline.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
       res.json(timeline.slice(0, 100));
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -143,7 +144,7 @@ export function registerActivityRoutes(app: Express) {
       events.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       res.json(events);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -156,7 +157,7 @@ export function registerActivityRoutes(app: Express) {
       const notesList = await storage.getNotes(String(entityType), Number(entityId));
       res.json(notesList);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -167,7 +168,7 @@ export function registerActivityRoutes(app: Express) {
       res.status(201).json(note);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -176,7 +177,7 @@ export function registerActivityRoutes(app: Express) {
       await storage.deleteNote(Number(req.params.id));
       res.json({ success: true });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -386,7 +387,7 @@ Respond in this exact JSON format:
       });
     } catch (err: any) {
       console.error("Follow-up generation error:", err);
-      res.status(500).json({ message: err.message || "Failed to generate follow-ups" });
+      serverError(res, err);
     }
   });
 
@@ -631,7 +632,7 @@ Respond in this exact JSON format:
       });
     } catch (err: any) {
       console.error("Call follow-up send error:", err);
-      res.status(500).json({ message: err.message || "Failed to process call follow-up" });
+      serverError(res, err);
     }
   });
 
@@ -648,7 +649,7 @@ Respond in this exact JSON format:
         res.json(events);
       }
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -669,7 +670,7 @@ Respond in this exact JSON format:
       if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -678,7 +679,7 @@ Respond in this exact JSON format:
       await storage.deleteCalendarEvent(Number(req.params.id));
       res.json({ success: true });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 

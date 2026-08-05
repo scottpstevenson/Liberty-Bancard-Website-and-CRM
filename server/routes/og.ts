@@ -11,6 +11,7 @@
  */
 
 import type { Express, Response } from "express";
+import { safeMessage } from "../utils/server-error";
 import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
@@ -220,7 +221,8 @@ export function registerOgRoutes(app: Express) {
       await servePngResponse(key, template, slug, customTitle, res);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "OG image render failed";
-      res.status(500).json({ error: msg });
+      console.error("[OG] Render error:", msg);
+      res.status(500).json({ error: safeMessage(msg, "OG image render failed") });
     }
   });
 

@@ -38,6 +38,7 @@ import {
   recordAdminAttestation,
   getLatestAttestation,
 } from "../services/ghl-channel-probes";
+import { serverError } from "../utils/server-error";
 
 export function registerGmailOAuthRoutes(app: Express): void {
   // ── Status ──────────────────────────────────────────────────────────────────
@@ -46,7 +47,7 @@ export function registerGmailOAuthRoutes(app: Express): void {
       const status = await getGmailOAuthStatus();
       res.json(status);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -67,7 +68,7 @@ export function registerGmailOAuthRoutes(app: Express): void {
       if (!authUrl) return res.status(500).json({ message: "Could not generate authorization URL" });
       res.json({ authUrl, redirectUri });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -105,7 +106,7 @@ export function registerGmailOAuthRoutes(app: Express): void {
       const result = await verifyGmailConnection();
       res.json(result);
     } catch (err: any) {
-      res.status(500).json({ success: false, error: err.message });
+      serverError(res, err);
     }
   });
 
@@ -115,7 +116,7 @@ export function registerGmailOAuthRoutes(app: Express): void {
       const aliases = await refreshSendAsAliases();
       res.json({ aliases });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -156,7 +157,7 @@ export function registerGmailOAuthRoutes(app: Express): void {
       });
       res.json(result);
     } catch (err: any) {
-      res.status(500).json({ success: false, error: err.message });
+      serverError(res, err);
     }
   });
 
@@ -166,7 +167,7 @@ export function registerGmailOAuthRoutes(app: Express): void {
       await revokeGmailAccess();
       res.json({ ok: true, message: "Gmail access revoked and tokens cleared" });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -180,7 +181,7 @@ export function registerGmailOAuthRoutes(app: Express): void {
       const result = await probeGhlColdEmail();
       res.json(result);
     } catch (err: any) {
-      res.status(500).json({ ok: false, error: err.message });
+      serverError(res, err);
     }
   });
 
@@ -190,7 +191,7 @@ export function registerGmailOAuthRoutes(app: Express): void {
       const result = await probeGhlSms();
       res.json(result);
     } catch (err: any) {
-      res.status(500).json({ ok: false, error: err.message });
+      serverError(res, err);
     }
   });
 
@@ -213,7 +214,7 @@ export function registerGmailOAuthRoutes(app: Express): void {
       });
       res.json({ ok: true, id: row.id, attestedBy: row.attestedBy, attestedAt: row.attestedAt });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -225,7 +226,7 @@ export function registerGmailOAuthRoutes(app: Express): void {
       if (!attestation) return res.json({ found: false });
       res.json({ found: true, ...attestation });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 }

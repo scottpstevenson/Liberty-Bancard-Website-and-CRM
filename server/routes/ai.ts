@@ -9,6 +9,7 @@ import { parse } from "csv-parse/sync";
 import path from "path";
 import type { ProposalData, ProposalPlan } from "./helpers";
 import { buildVerticalSystemPromptBlock, isVerticalSupported } from "../services/vertical-advisor-prompts";
+import { serverError } from "../utils/server-error";
 
 export function registerAiRoutes(app: Express) {
   // === AI ADVISOR ===
@@ -70,7 +71,7 @@ OUTPUT FORMAT:
 
       res.json({ response: completion.choices[0]?.message?.content || "No response generated." });
     } catch (err: any) {
-      res.status(500).json({ message: err.message || "AI service error" });
+      serverError(res, err);
     }
   });
 
@@ -161,7 +162,7 @@ RULES:
 
       res.json({ insights: insightsContent });
     } catch (err: any) {
-      res.status(500).json({ message: err.message || "AI insights error" });
+      serverError(res, err);
     }
   });
 
@@ -237,7 +238,7 @@ FORMAT your response as JSON: {"subject": "...", "body": "..."}${verticalBlock}`
         res.json({ subject: "Liberty Bancard - Let's Talk Processing", body: raw, _flagged: composeFlagged, _reviewQueueId: composeReviewId });
       }
     } catch (err: any) {
-      res.status(500).json({ message: err.message || "Email compose error" });
+      serverError(res, err);
     }
   });
 
@@ -322,7 +323,7 @@ FORMAT your response as JSON: {"subject": "...", "body": "..."}${verticalBlock}`
 
       res.json({ generated: created.length, tasks: created, reason: noOpReason });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -387,7 +388,7 @@ Respond ONLY with valid JSON.`
 
       res.json(result);
     } catch (err: any) {
-      res.status(500).json({ message: err.message || "Classification error" });
+      serverError(res, err);
     }
   });
 
@@ -427,7 +428,7 @@ Respond ONLY with valid JSON.`
         workflowStats: { totalRuns: totalWorkflowRuns, last24h: recentRuns },
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -522,7 +523,7 @@ Return JSON with:
 
       res.json({ ...analysis, _flagged: stmtFlagged, _reviewQueueId: stmtReviewId, _vertical: resolvedVertical });
     } catch (err: any) {
-      res.status(500).json({ message: err.message || "Analysis error" });
+      serverError(res, err);
     }
   });
 
@@ -744,7 +745,7 @@ Notes: ${deal.notes || "None"}`
       res.json({ ...proposal, _flagged: proposalFlagged, _reviewQueueId: proposalReviewId });
     } catch (err: any) {
       console.error("Proposal generation error:", err);
-      res.status(500).json({ message: err.message || "Proposal generation error" });
+      serverError(res, err);
     }
   });
 
@@ -755,7 +756,7 @@ Notes: ${deal.notes || "None"}`
       if (!deal.savingsProposal) return res.status(404).json({ message: "No proposal generated yet" });
       res.json(deal.savingsProposal);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -805,7 +806,7 @@ Notes: ${deal.notes || "None"}`
         } : undefined,
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -851,7 +852,7 @@ Notes: ${deal.notes || "None"}`
 
       res.json({ success: true, proposal: existing });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -873,7 +874,7 @@ Notes: ${deal.notes || "None"}`
         res.status(500).json({ message: "Failed to send proposal email" });
       }
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -882,7 +883,7 @@ Notes: ${deal.notes || "None"}`
       const setting = await storage.getSystemSetting("proposal_auto_send");
       res.json({ enabled: setting?.enabled === true });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -895,7 +896,7 @@ Notes: ${deal.notes || "None"}`
       await storage.setSystemSetting("proposal_auto_send", { enabled: enabled === true });
       res.json({ success: true, enabled: enabled === true });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -980,7 +981,7 @@ Notes: ${deal.notes || "None"}`
 
       res.json(statuses);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -998,7 +999,7 @@ Notes: ${deal.notes || "None"}`
       ]);
       res.json({ summary, dailyRollup });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1226,7 +1227,7 @@ Based on the above, generate the evidence packet. For the evidenceChecklist, che
 
       res.json({ packet: aiEvidencePacket, chargeback: updated, _flagged: cbFlagged, _reviewQueueId: cbReviewId });
     } catch (err: any) {
-      res.status(500).json({ message: err.message || "Chargeback copilot error" });
+      serverError(res, err);
     }
   });
 
@@ -1273,7 +1274,7 @@ Based on the above, generate the evidence packet. For the evidenceChecklist, che
 
       res.json({ chargeback: updated });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1301,7 +1302,7 @@ Based on the above, generate the evidence packet. For the evidenceChecklist, che
       ]);
       res.json({ logs, totals });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1332,7 +1333,7 @@ Based on the above, generate the evidence packet. For the evidenceChecklist, che
       const metrics = await storage.getAiHealthMetrics(start, end);
       res.json(metrics);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1344,7 +1345,7 @@ Based on the above, generate the evidence packet. For the evidenceChecklist, che
       if (!log) return res.status(404).json({ message: "Log not found" });
       res.json(log);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1404,7 +1405,7 @@ Based on the above, generate the evidence packet. For the evidenceChecklist, che
         },
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message || "Replay failed" });
+      serverError(res, err);
     }
   });
 

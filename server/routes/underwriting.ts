@@ -5,6 +5,7 @@ import { runUnderwritingEngine } from "../services/underwriting-engine";
 import { z } from "zod";
 import { pool } from "../db";
 import { isGhlConfigured, createGhlTask } from "../services/ghl";
+import { serverError } from "../utils/server-error";
 
 export function registerUnderwritingRoutes(app: Express) {
   // ── GET current rules config ─────────────────────────────────────────────
@@ -13,7 +14,7 @@ export function registerUnderwritingRoutes(app: Express) {
       const rules = await storage.getUnderwritingRules();
       res.json(rules);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -53,7 +54,7 @@ export function registerUnderwritingRoutes(app: Express) {
         if (err.name === "ZodError") {
           return res.status(400).json({ message: "Validation error", errors: err.errors });
         }
-        res.status(500).json({ message: err.message });
+        serverError(res, err);
       }
     },
   );
@@ -106,7 +107,7 @@ export function registerUnderwritingRoutes(app: Express) {
 
       res.json(rows);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -137,7 +138,7 @@ export function registerUnderwritingRoutes(app: Express) {
 
       res.json(rows);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -169,7 +170,7 @@ export function registerUnderwritingRoutes(app: Express) {
         allTime,
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -229,7 +230,7 @@ export function registerUnderwritingRoutes(app: Express) {
 
         res.json({ ok: true, decision: updated });
       } catch (err: any) {
-        res.status(500).json({ message: err.message });
+        serverError(res, err);
       }
     },
   );
@@ -299,7 +300,7 @@ export function registerUnderwritingRoutes(app: Express) {
 
         res.json({ ok: true, decision: updated });
       } catch (err: any) {
-        res.status(500).json({ message: err.message });
+        serverError(res, err);
       }
     },
   );
@@ -327,7 +328,7 @@ export function registerUnderwritingRoutes(app: Express) {
 
         res.json({ decision: result.decision, score: result.score, reasons: result.reasons, record: decision });
       } catch (err: any) {
-        res.status(500).json({ message: err.message });
+        serverError(res, err);
       }
     },
   );

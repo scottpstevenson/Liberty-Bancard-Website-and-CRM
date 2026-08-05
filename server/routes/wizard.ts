@@ -18,6 +18,7 @@ import {
 import { analyzeStatementBuffer } from "../services/statement-analyzer";
 import { writeContact } from "../services/contact-writer";
 import { getQueueManager } from "../services/queue-manager";
+import { serverError, safeMessage } from "../utils/server-error";
 
 const wizardUpload = multer({
   storage: multer.memoryStorage(),
@@ -125,7 +126,7 @@ export function registerWizardRoutes(app: Express): void {
             detail: result === "PONG" ? "Connected" : "Unexpected PING response",
           };
         } catch (err: any) {
-          return { ok: false, usingMock, detail: err.message ?? "Ping failed" };
+          return { ok: false, usingMock, detail: safeMessage(err.message, "Ping failed") };
         }
       })(),
 
@@ -294,7 +295,7 @@ export function registerWizardRoutes(app: Express): void {
         detail: result.success ? "Email sent successfully" : (result.error ?? "Send failed"),
       });
     } catch (err: any) {
-      return res.json({ ok: false, detail: err.message ?? "Send failed" });
+      return res.json({ ok: false, detail: safeMessage(err.message, "Send failed") });
     }
   });
 
@@ -311,7 +312,7 @@ export function registerWizardRoutes(app: Express): void {
       await sendGhlSms({ contactId, body: "Liberty Bancard setup wizard test SMS — please ignore." });
       return res.json({ ok: true, detail: "SMS sent successfully" });
     } catch (err: any) {
-      return res.json({ ok: false, detail: err.message ?? "SMS send failed" });
+      return res.json({ ok: false, detail: safeMessage(err.message, "SMS send failed") });
     }
   });
 
@@ -346,7 +347,7 @@ export function registerWizardRoutes(app: Express): void {
           : (result.reason ?? "GHL voice workflow not configured — set GHL_WORKFLOW_VOICE_AI_OUTREACH in env or via the Workflow ID Manager"),
       });
     } catch (err: any) {
-      return res.json({ ok: false, detail: err.message ?? "Voice AI initiation failed" });
+      return res.json({ ok: false, detail: safeMessage(err.message, "Voice AI initiation failed") });
     }
   });
 
@@ -381,7 +382,7 @@ export function registerWizardRoutes(app: Express): void {
           : (result.reason ?? "GHL ringless VM workflow not configured — set GHL_WORKFLOW_RINGLESS_VM in env or via the Workflow ID Manager"),
       });
     } catch (err: any) {
-      return res.json({ ok: false, detail: err.message ?? "Ringless VM initiation failed" });
+      return res.json({ ok: false, detail: safeMessage(err.message, "Ringless VM initiation failed") });
     }
   });
 
@@ -498,7 +499,7 @@ export function registerWizardRoutes(app: Express): void {
         const result = await analyzeStatementBuffer(req.file.buffer, req.file.originalname);
         return res.json(result);
       } catch (err: any) {
-        return res.status(500).json({ error: err.message ?? "Analysis failed" });
+        return serverError(res, err);
       }
     }
   );
@@ -619,7 +620,7 @@ export function registerWizardRoutes(app: Express): void {
 
       return res.json({ queues: enrichedQueues, usingMock });
     } catch (err: any) {
-      return res.status(500).json({ error: err.message ?? "Failed to fetch queue metrics" });
+      return serverError(res, err);
     }
   });
 
@@ -633,7 +634,7 @@ export function registerWizardRoutes(app: Express): void {
       const states = await getAllFlagStates();
       return res.json(states);
     } catch (err: any) {
-      return res.status(500).json({ error: err.message });
+      return serverError(res, err);
     }
   });
 
@@ -795,7 +796,7 @@ export function registerWizardRoutes(app: Express): void {
             stepType: step.actionType,
             subject: testSubject,
             status: "failed",
-            detail: err.message ?? "Unexpected error during send",
+            detail: safeMessage(err.message, "Unexpected error during send"),
             route,
             sentAt: null,
           });

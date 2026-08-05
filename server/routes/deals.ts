@@ -23,6 +23,7 @@ import { sendPushToAllReps } from "../services/push-service";
 import { computeDealTerminalEconomics } from "../services/terminal-economics";
 import { enrollInGhlWorkflow } from "../services/ghl-workflows";
 import { updateCustomFields } from "../services/sdr/ghl-client";
+import { serverError } from "../utils/server-error";
 
 export function registerDealsRoutes(app: Express) {
   // === DEALS ===
@@ -36,7 +37,7 @@ export function registerDealsRoutes(app: Express) {
         : await storage.getDeals({ limit, offset });
       res.json(result);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -52,7 +53,7 @@ export function registerDealsRoutes(app: Express) {
       res.status(201).json(deal);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -62,7 +63,7 @@ export function registerDealsRoutes(app: Express) {
       if (!deal || deal.archivedAt) return res.status(404).json({ message: "Not found" });
       res.json(deal);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -335,7 +336,7 @@ export function registerDealsRoutes(app: Express) {
 
       res.json(updated);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -360,7 +361,7 @@ export function registerDealsRoutes(app: Express) {
       }
       res.json({ success: true, estimate });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -376,7 +377,7 @@ export function registerDealsRoutes(app: Express) {
       });
       res.json({ success: true, estimate });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -392,7 +393,7 @@ export function registerDealsRoutes(app: Express) {
       });
       res.json({ success: true, estimate });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -439,7 +440,7 @@ export function registerDealsRoutes(app: Express) {
 
       res.json({ success: true });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -449,7 +450,7 @@ export function registerDealsRoutes(app: Express) {
       const competitors = await storage.getDealCompetitors();
       res.json(competitors);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -458,7 +459,7 @@ export function registerDealsRoutes(app: Express) {
       const competitors = await storage.getDealCompetitorsByDeal(Number(req.params.dealId));
       res.json(competitors);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -491,7 +492,7 @@ export function registerDealsRoutes(app: Express) {
       const rules = await storage.getStageAutomationRules(pipeline);
       res.json(rules);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -501,7 +502,7 @@ export function registerDealsRoutes(app: Express) {
       if (!rule) return res.status(404).json({ message: "Not found" });
       res.json(rule);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -513,7 +514,7 @@ export function registerDealsRoutes(app: Express) {
       res.status(201).json(rule);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -523,7 +524,7 @@ export function registerDealsRoutes(app: Express) {
       if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -532,7 +533,7 @@ export function registerDealsRoutes(app: Express) {
       await storage.deleteStageAutomationRule(Number(req.params.id));
       res.json({ success: true });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -544,7 +545,7 @@ export function registerDealsRoutes(app: Express) {
       const stages = await storage.getPipelineStages(pipeline);
       res.json(stages);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -555,7 +556,7 @@ export function registerDealsRoutes(app: Express) {
       res.status(201).json(stage);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -565,7 +566,7 @@ export function registerDealsRoutes(app: Express) {
       if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -574,7 +575,7 @@ export function registerDealsRoutes(app: Express) {
       await storage.deletePipelineStage(Number(req.params.id));
       res.json({ success: true });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -587,7 +588,7 @@ export function registerDealsRoutes(app: Express) {
       }
       res.json({ success: true });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -647,7 +648,7 @@ export function registerDealsRoutes(app: Express) {
 
       res.json({ progressed: progressions.length, progressions, reason: noOpReason });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -671,7 +672,7 @@ export function registerDealsRoutes(app: Express) {
         proposal: proposal ?? null,
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 

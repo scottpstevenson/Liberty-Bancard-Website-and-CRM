@@ -7,6 +7,7 @@ import { db } from "../db";
 import { roleplaySessions, roleplayExchanges, users } from "@shared/schema";
 import { eq, desc, inArray } from "drizzle-orm";
 import { createMasterVault, getVaultStatus } from "../services/business-vault";
+import { serverError } from "../utils/server-error";
 
 // Admin or manager role required for write operations
 const isAdminOrManager: RequestHandler = (req, res, next) => {
@@ -27,7 +28,7 @@ export function registerTrainingRoutes(app: Express) {
       res.json(status);
     } catch (error: any) {
       console.error("Training hub status error:", error);
-      res.status(500).json({ message: error.message || "Failed to get training hub status" });
+      serverError(res, error);
     }
   });
 
@@ -38,7 +39,7 @@ export function registerTrainingRoutes(app: Express) {
       res.json(result);
     } catch (error: any) {
       console.error("Training hub setup error:", error);
-      res.status(500).json({ message: error.message || "Failed to create training hub" });
+      serverError(res, error);
     }
   });
 
@@ -51,7 +52,7 @@ export function registerTrainingRoutes(app: Express) {
       res.json(result);
     } catch (error: any) {
       console.error("Append GHL blueprints error:", error);
-      res.status(500).json({ message: error.message || "Failed to append GHL blueprints to doc" });
+      serverError(res, error);
     }
   });
 
@@ -64,7 +65,7 @@ export function registerTrainingRoutes(app: Express) {
       res.json({ ...result, docId: LIBERTY_BANCARD_GHL_DOC_ID });
     } catch (error: any) {
       console.error("Sync main GHL doc error:", error);
-      res.status(500).json({ message: error.message || "Failed to sync GHL blueprints to main doc" });
+      serverError(res, error);
     }
   });
 
@@ -123,7 +124,7 @@ DIFFICULTY: EXPERT MODE — You are an extremely tough, sophisticated merchant w
       }).returning();
       res.json(session);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -210,7 +211,7 @@ Stay in character as the merchant. Be realistic, not a pushover. Don't make it t
         score: scoreData,
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -294,7 +295,7 @@ Return valid JSON with:
 
       res.json({ ...coachingResult, overallScore, avgTone, avgClarity, objectionRate });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -308,7 +309,7 @@ Return valid JSON with:
         .limit(20);
       res.json(sessions);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -324,7 +325,7 @@ Return valid JSON with:
         .orderBy(roleplayExchanges.createdAt);
       res.json(exchanges);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -388,7 +389,7 @@ Return valid JSON with:
       res.json(sessions);
     } catch (err: any) {
       console.error("Admin roleplay sessions error:", err);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -403,7 +404,7 @@ Return valid JSON with:
         .orderBy(roleplayExchanges.createdAt);
       res.json(exchanges);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -416,7 +417,7 @@ Return valid JSON with:
       res.json(status);
     } catch (error: any) {
       console.error("Vault status error:", error);
-      res.status(500).json({ message: error.message || "Failed to get vault status" });
+      serverError(res, error);
     }
   });
 
@@ -429,7 +430,7 @@ Return valid JSON with:
       res.json(result);
     } catch (error: any) {
       console.error("Vault setup error:", error);
-      res.status(500).json({ message: error.message || "Failed to create Master Business Vault" });
+      serverError(res, error);
     }
   });
 }

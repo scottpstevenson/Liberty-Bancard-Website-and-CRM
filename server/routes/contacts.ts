@@ -26,6 +26,7 @@ import { parse } from "csv-parse/sync";
 import path from "path";
 import { sendPushToAllReps } from "../services/push-service";
 import { extractRelationshipsForContact, extractRelationshipsForContactsBatch, propagateRiskFlagToRelatedEntities } from "../services/relationship-extractor";
+import { serverError, safeMessage } from "../utils/server-error";
 
 function isUniqueEmailViolation(err: any): boolean {
   return err?.code === "23505" && (err?.constraint?.includes("email") || err?.message?.includes("contacts_email_unique_idx"));
@@ -42,7 +43,7 @@ export function registerContactsRoutes(app: Express) {
       res.json(result);
     } catch (err: any) {
       console.error("Get contacts error:", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -86,7 +87,7 @@ export function registerContactsRoutes(app: Express) {
           existingContactId: existing?.id ?? null,
         });
       }
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -151,7 +152,7 @@ export function registerContactsRoutes(app: Express) {
         pageSize,
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -169,7 +170,7 @@ export function registerContactsRoutes(app: Express) {
       `);
       res.json(result.rows[0]);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -197,7 +198,7 @@ export function registerContactsRoutes(app: Express) {
       res.json(result);
     } catch (err: any) {
       console.error("[confirmation-status batch POST]", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -235,7 +236,7 @@ export function registerContactsRoutes(app: Express) {
         },
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -282,7 +283,7 @@ export function registerContactsRoutes(app: Express) {
         data: rowsResult.rows,
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -306,7 +307,7 @@ export function registerContactsRoutes(app: Express) {
       }
       res.json(contact);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -408,7 +409,7 @@ export function registerContactsRoutes(app: Express) {
           existingContactId: existing?.id ?? null,
         });
       }
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -448,7 +449,7 @@ export function registerContactsRoutes(app: Express) {
       res.json({ enrolled, skipped, errors, total: contactIds.length });
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -479,7 +480,7 @@ export function registerContactsRoutes(app: Express) {
 
       res.json({ success: true, enrolled: result.enrolled, method: result.method, reason: result.reason });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -528,7 +529,7 @@ export function registerContactsRoutes(app: Express) {
         console.error("[ContactEnrich API] Error:", err)
       );
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -537,7 +538,7 @@ export function registerContactsRoutes(app: Express) {
       const progress = await storage.getSystemSetting("contact_enrich_batch_progress");
       res.json(progress || { status: "idle" });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -547,7 +548,7 @@ export function registerContactsRoutes(app: Express) {
       const usage = await getSerperUsage();
       res.json({ configured, usage });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -556,7 +557,7 @@ export function registerContactsRoutes(app: Express) {
       await resetSerperUsage();
       res.json({ success: true, message: "Serper usage stats reset" });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -577,7 +578,7 @@ export function registerContactsRoutes(app: Express) {
       }
       res.json(result);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -595,7 +596,7 @@ export function registerContactsRoutes(app: Express) {
         console.error("[LinkedIn Bulk Enrich] Error:", err)
       );
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -632,7 +633,7 @@ export function registerContactsRoutes(app: Express) {
 
       res.json({ contact: updated, offerRouting: result });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -669,7 +670,7 @@ export function registerContactsRoutes(app: Express) {
       const wasBlocked = updateContact === true && dryRun !== true && !result.shouldUpdateContact;
       res.json({ offerRouting: result, updated: false, dryRun: dryRun === true || updateContact !== true, skippedManualOverride: wasBlocked });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -714,7 +715,7 @@ export function registerContactsRoutes(app: Express) {
 
       res.json(updated);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -724,7 +725,7 @@ export function registerContactsRoutes(app: Express) {
       const companies = await storage.getCompanies();
       res.json(companies);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -735,7 +736,7 @@ export function registerContactsRoutes(app: Express) {
       res.status(201).json(company);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -747,7 +748,7 @@ export function registerContactsRoutes(app: Express) {
       const locations = await storage.getChildLocations(contactId);
       res.json(locations);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -825,7 +826,7 @@ export function registerContactsRoutes(app: Express) {
       res.status(201).json(updated);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -855,7 +856,7 @@ export function registerContactsRoutes(app: Express) {
 
       res.json({ success: true });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -865,7 +866,7 @@ export function registerContactsRoutes(app: Express) {
       const kpis = await storage.getGroupKpis(contactId);
       res.json(kpis);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -875,7 +876,7 @@ export function registerContactsRoutes(app: Express) {
       const parent = await storage.getParentAccount(contactId);
       res.json(parent ?? null);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -886,7 +887,7 @@ export function registerContactsRoutes(app: Express) {
       if (!company) return res.status(404).json({ message: "Not found" });
       res.json(company);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -914,7 +915,7 @@ export function registerContactsRoutes(app: Express) {
         .where(and(eq(contactCompanies.companyId, companyId), isNull(contactsTable.archivedAt)));
       res.json(rows);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -937,7 +938,7 @@ export function registerContactsRoutes(app: Express) {
       res.json(company);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -955,7 +956,7 @@ export function registerContactsRoutes(app: Express) {
       res.json(updated);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -970,7 +971,7 @@ export function registerContactsRoutes(app: Express) {
       res.json(updated);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -984,7 +985,7 @@ export function registerContactsRoutes(app: Express) {
       res.json(updated);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1007,7 +1008,7 @@ export function registerContactsRoutes(app: Express) {
       }
       res.json(rows);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1056,7 +1057,7 @@ export function registerContactsRoutes(app: Express) {
       res.json(event);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1069,7 +1070,7 @@ export function registerContactsRoutes(app: Express) {
       await db.delete(maEvents).where(eq(maEvents.id, eventId));
       res.json({ success: true });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1104,7 +1105,7 @@ export function registerContactsRoutes(app: Express) {
       };
       res.json(summary);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1119,7 +1120,7 @@ export function registerContactsRoutes(app: Express) {
       const result = await evaluateAllChannels(contactId);
       res.json(result);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1193,7 +1194,7 @@ export function registerContactsRoutes(app: Express) {
         })),
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1252,7 +1253,7 @@ export function registerContactsRoutes(app: Express) {
       res.json({ statementRequest, uploadUrl });
     } catch (err: any) {
       console.error("[RequestStatement]", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1286,7 +1287,7 @@ export function registerContactsRoutes(app: Express) {
       });
     } catch (err: any) {
       console.error("[SalesPrep GET]", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1310,7 +1311,7 @@ export function registerContactsRoutes(app: Express) {
       res.json(result);
     } catch (err: any) {
       console.error("[SalesPrep POST generate]", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1342,7 +1343,7 @@ export function registerContactsRoutes(app: Express) {
       });
     } catch (err: any) {
       console.error("[SDR contactability-status GET]", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1448,7 +1449,7 @@ export function registerContactsRoutes(app: Express) {
       return res.json({ enrolled: true, sequenceId, sequenceName: sequence.name });
     } catch (err: any) {
       console.error("[SDR sdr-enroll POST]", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1469,7 +1470,7 @@ export function registerContactsRoutes(app: Express) {
       res.json(result);
     } catch (err: any) {
       console.error("[confirmation-status GET]", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1531,7 +1532,7 @@ export function registerContactsRoutes(app: Express) {
 
       res.json({ success: true, contactId, reason, markedAt: now.toISOString() });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1576,7 +1577,7 @@ export function registerContactsRoutes(app: Express) {
         nextAllowedContactDate: contact.nextAllowedContactDate || null,
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1627,7 +1628,7 @@ export function registerContactsRoutes(app: Express) {
 
       res.json(rows);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1735,7 +1736,7 @@ export function registerContactsRoutes(app: Express) {
         message: `Validating ${toProcess.length} email(s) in the background. Poll /api/contacts/validate-emails-batch/${jobId} for status.`,
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1747,7 +1748,7 @@ export function registerContactsRoutes(app: Express) {
       if (!status) return res.status(404).json({ message: "Job not found or still starting" });
       res.json(status);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1785,7 +1786,7 @@ export function registerContactsRoutes(app: Express) {
 
       res.json({ success: true, email: contact.email, status: zbResult.status, subStatus: zbResult.subStatus ?? null });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1812,7 +1813,8 @@ export function registerContactsRoutes(app: Express) {
       const result = await sendGhlEmail({ contactId, subject, body });
 
       if (!result.success) {
-        return res.status(502).json({ message: result.error ?? "GHL send failed" });
+        console.error("[Contacts] GHL email send failed:", result.error);
+        return res.status(502).json({ message: safeMessage(result.error, "GHL send failed") });
       }
 
       await storage.createAuditLog({
@@ -1826,7 +1828,7 @@ export function registerContactsRoutes(app: Express) {
 
       res.json({ success: true, messageId: result.messageId ?? null });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 

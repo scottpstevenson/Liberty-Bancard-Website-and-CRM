@@ -6,6 +6,7 @@ import { upload } from "./helpers";
 import { parse } from "csv-parse/sync";
 import { sendGhlEmailForMerchant } from "../services/ghl";
 import { sql, eq, isNotNull } from "drizzle-orm";
+import { serverError } from "../utils/server-error";
 
 function parseNum(v: any): number {
   if (v === null || v === undefined || v === "") return 0;
@@ -291,7 +292,7 @@ export function registerResidualsRoutes(app: Express) {
       res.status(201).json(updated);
     } catch (err: any) {
       console.error("[Residuals Import]", err);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -304,7 +305,7 @@ export function registerResidualsRoutes(app: Express) {
       const imports = await storage.getResidualImports();
       res.json(imports);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -319,7 +320,7 @@ export function registerResidualsRoutes(app: Express) {
       const rows = await storage.getResidualImportRows(importRecord.id);
       res.json({ ...importRecord, rows });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -433,7 +434,7 @@ export function registerResidualsRoutes(app: Express) {
       res.json(confirmed);
     } catch (err: any) {
       console.error("[Residuals Confirm]", err);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -448,7 +449,7 @@ export function registerResidualsRoutes(app: Express) {
       await storage.deleteResidualImport(importRecord.id);
       res.status(204).send();
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -558,7 +559,7 @@ export function registerResidualsRoutes(app: Express) {
       res.json(updatedRow);
     } catch (err: any) {
       console.error("[Residuals Match]", err);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -576,7 +577,7 @@ export function registerResidualsRoutes(app: Express) {
       if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -605,7 +606,7 @@ export function registerResidualsRoutes(app: Express) {
       res.json(rows);
     } catch (err: any) {
       console.error("[Residuals ByPartner]", err);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 }

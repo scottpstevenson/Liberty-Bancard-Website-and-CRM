@@ -4,6 +4,7 @@ import { db } from "../db";
 import { z } from "zod";
 import { desc, eq } from "drizzle-orm";
 import { chargeCard, refundTransaction } from "../services/nmi-gateway";
+import { serverError, safeMessage } from "../utils/server-error";
 
 const chargeSchema = z.object({
   cardholderName: z.string().min(2, "Cardholder name is required"),
@@ -87,7 +88,7 @@ export function registerVirtualTerminalRoutes(app: Express) {
       if (err instanceof z.ZodError) {
         return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join(".") });
       }
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -127,7 +128,8 @@ export function registerVirtualTerminalRoutes(app: Express) {
           amount: input.amount,
         });
         if (!refundResult.success) {
-          return res.status(500).json({ message: refundResult.responseText || "Refund failed" });
+          console.error("[VirtualTerminal] Refund failed:", refundResult.responseText);
+          return res.status(500).json({ message: safeMessage(refundResult.responseText, "Refund failed") });
         }
         refundGatewayTxId = refundResult.gatewayTransactionId || txn.gatewayTransactionId;
         refundText = refundResult.responseText || "Refund processed";
@@ -155,7 +157,7 @@ export function registerVirtualTerminalRoutes(app: Express) {
       if (err instanceof z.ZodError) {
         return res.status(400).json({ message: err.errors[0].message });
       }
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -173,7 +175,7 @@ export function registerVirtualTerminalRoutes(app: Express) {
         : await query.where(eq(virtualTerminalTransactions.processedBy, user.id)).orderBy(desc(virtualTerminalTransactions.createdAt)).limit(200);
       res.json(transactions);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -193,7 +195,7 @@ export function registerVirtualTerminalRoutes(app: Express) {
       const { passwordHash, ...safeUser } = updated;
       res.json(safeUser);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 }

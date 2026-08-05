@@ -1,4 +1,5 @@
 import type { Express } from "express";
+import { safeMessage } from "../utils/server-error";
 import { storage } from "../storage";
 import { requireRole } from "../replit_integrations/auth";
 import { SEO_ROUTE_DEFAULTS, type SeoRouteDefault } from "@shared/seo-routes";
@@ -175,7 +176,8 @@ export function registerSeoAdminRoutes(app: Express) {
       });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Failed to compute SEO coverage";
-      res.status(500).json({ error: msg });
+      console.error("[SEO Admin] Coverage error:", msg);
+      res.status(500).json({ error: safeMessage(msg, "Failed to compute SEO coverage") });
     }
   });
 }

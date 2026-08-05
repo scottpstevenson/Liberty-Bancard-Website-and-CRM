@@ -21,6 +21,7 @@ import {
 } from "@shared/schema";
 import { eq, and, gte, sql, count, avg, desc, isNotNull, lt, isNull, or, like } from "drizzle-orm";
 import { isGhlConfigured } from "../services/ghl";
+import { serverError } from "../utils/server-error";
 
 const DEFAULT_DAYS = 30;
 const MAX_DAYS = 365;
@@ -155,7 +156,7 @@ export function registerAcquisitionRoutes(app: Express): void {
       });
     } catch (err: any) {
       console.error("[Acquisition] /funnel error:", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -234,7 +235,7 @@ export function registerAcquisitionRoutes(app: Express): void {
       res.json({ days, since: since.toISOString(), verticals: result });
     } catch (err: any) {
       console.error("[Acquisition] /roi-by-vertical error:", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -309,7 +310,7 @@ export function registerAcquisitionRoutes(app: Express): void {
       });
     } catch (err: any) {
       console.error("[Acquisition] /lead-quality error:", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -370,7 +371,7 @@ export function registerAcquisitionRoutes(app: Express): void {
       });
     } catch (err: any) {
       console.error("[Acquisition] /sequence-performance error:", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -468,7 +469,7 @@ export function registerAcquisitionRoutes(app: Express): void {
       });
     } catch (err: any) {
       console.error("[Acquisition] /offline-conversions/export error:", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -632,7 +633,7 @@ export function registerAcquisitionRoutes(app: Express): void {
       });
     } catch (err: any) {
       console.error("[Acquisition] /readiness error:", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -811,7 +812,7 @@ export function registerAcquisitionRoutes(app: Express): void {
 
       res.json({ verticalMap, geoTargets, planning: PLANNING });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -920,7 +921,7 @@ export function registerAcquisitionRoutes(app: Express): void {
       });
     } catch (err: any) {
       console.error("[Acquisition] /roi-calculator error:", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -968,7 +969,7 @@ export function registerAcquisitionRoutes(app: Express): void {
       });
     } catch (err: any) {
       console.error("[Acquisition] /statement-sla error:", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1190,7 +1191,7 @@ export function registerAcquisitionRoutes(app: Express): void {
       });
     } catch (err: any) {
       console.error("[Acquisition] /reporting/operations error:", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 }

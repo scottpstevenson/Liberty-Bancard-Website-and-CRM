@@ -14,6 +14,7 @@ import { sendSmtpEmail, getSmtpStatus, isSmtpConfigured } from "../services/smtp
 import { getWorkflowRegistryWithStatus } from "../services/ghl-workflows";
 import { summarizeChannelSafety } from "../services/contactability";
 import { classifyEligibility } from "../services/deal-eligibility";
+import { serverError, safeMessage } from "../utils/server-error";
 
 export function registerAdminRoutes(app: Express) {
   // === ADMIN: SESSION MANAGEMENT ===
@@ -22,7 +23,7 @@ export function registerAdminRoutes(app: Express) {
       const sessions = await authStorage.getActiveSessionsForUser(String(req.params.id));
       res.json(sessions);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -31,7 +32,7 @@ export function registerAdminRoutes(app: Express) {
       await authStorage.revokeSessionById(String(req.params.sessionRecordId));
       res.json({ success: true });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -40,7 +41,7 @@ export function registerAdminRoutes(app: Express) {
       await authStorage.invalidateAllUserSessions(String(req.params.id));
       res.json({ success: true });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -61,7 +62,7 @@ export function registerAdminRoutes(app: Express) {
       }).from(users).orderBy(desc(users.createdAt));
       res.json(allUsers);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -72,7 +73,7 @@ export function registerAdminRoutes(app: Express) {
       const [setting] = await db.select().from(systemSettings).where(eqOp(systemSettings.key, "mfa_required"));
       res.json({ mfaRequired: setting?.value === true });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -88,7 +89,7 @@ export function registerAdminRoutes(app: Express) {
       });
       res.json({ mfaRequired });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -107,7 +108,7 @@ export function registerAdminRoutes(app: Express) {
         updatedBy: value?.updatedBy ?? null,
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -135,7 +136,7 @@ export function registerAdminRoutes(app: Express) {
       });
       res.json(value);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -154,7 +155,7 @@ export function registerAdminRoutes(app: Express) {
       const { passwordHash, ...safeUser } = updated;
       res.json(safeUser);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -184,7 +185,7 @@ export function registerAdminRoutes(app: Express) {
       const { passwordHash, ...safeUser } = updated;
       res.json(safeUser);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -195,7 +196,7 @@ export function registerAdminRoutes(app: Express) {
       const agentsList = await storage.getAgents();
       res.json(agentsList);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -205,7 +206,7 @@ export function registerAdminRoutes(app: Express) {
       if (!agent) return res.status(404).json({ message: "Not found" });
       res.json(agent);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -218,7 +219,7 @@ export function registerAdminRoutes(app: Express) {
       res.status(201).json(agent);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -230,7 +231,7 @@ export function registerAdminRoutes(app: Express) {
       if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -241,7 +242,7 @@ export function registerAdminRoutes(app: Express) {
       await storage.updateAgent(Number(req.params.id), { status: "inactive" });
       res.status(204).send();
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -252,7 +253,7 @@ export function registerAdminRoutes(app: Express) {
       const quotas = await storage.getAgentQuotas();
       res.json(quotas);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -263,7 +264,7 @@ export function registerAdminRoutes(app: Express) {
       res.status(201).json(quota);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -273,7 +274,7 @@ export function registerAdminRoutes(app: Express) {
       if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -285,7 +286,7 @@ export function registerAdminRoutes(app: Express) {
       const rows = await storage.getAgentMerchants(agentId);
       res.json(rows);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -294,7 +295,7 @@ export function registerAdminRoutes(app: Express) {
       const rows = await storage.getAgentMerchantsByDeal(Number(req.params.dealId));
       res.json(rows[0] ?? null);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -334,7 +335,7 @@ export function registerAdminRoutes(app: Express) {
       });
       res.json({ success: true, assignment: row });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -349,7 +350,7 @@ export function registerAdminRoutes(app: Express) {
       res.status(201).json(row);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -364,7 +365,7 @@ export function registerAdminRoutes(app: Express) {
       if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -373,7 +374,7 @@ export function registerAdminRoutes(app: Express) {
       await storage.unassignMerchantFromAgent(Number(req.params.id));
       res.status(204).send();
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -445,7 +446,7 @@ export function registerAdminRoutes(app: Express) {
         breakdownSource: breakdown.length > 0 ? breakdown[0].source : "estimated",
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -455,7 +456,7 @@ export function registerAdminRoutes(app: Express) {
       const reports = await storage.getResidualReports();
       res.json(reports);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -466,7 +467,7 @@ export function registerAdminRoutes(app: Express) {
       res.status(201).json(report);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -476,7 +477,7 @@ export function registerAdminRoutes(app: Express) {
       if (!report) return res.status(404).json({ message: "Not found" });
       res.json(report);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -502,7 +503,7 @@ export function registerAdminRoutes(app: Express) {
         res.json(residuals);
       }
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -513,7 +514,7 @@ export function registerAdminRoutes(app: Express) {
       const alerts = await storage.getActiveHealthAlerts();
       res.json(alerts);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -522,7 +523,7 @@ export function registerAdminRoutes(app: Express) {
       const alerts = await storage.getHealthAlertsByDeal(Number(req.params.dealId));
       res.json(alerts);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -533,7 +534,7 @@ export function registerAdminRoutes(app: Express) {
       res.status(201).json(alert);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -543,7 +544,7 @@ export function registerAdminRoutes(app: Express) {
       if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -554,7 +555,7 @@ export function registerAdminRoutes(app: Express) {
       const logs = await storage.getConsentAuditLogs();
       res.json(logs);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -563,7 +564,7 @@ export function registerAdminRoutes(app: Express) {
       const logs = await storage.getConsentAuditLogsByContact(Number(req.params.contactId));
       res.json(logs);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -574,7 +575,7 @@ export function registerAdminRoutes(app: Express) {
       res.status(201).json(log);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -588,7 +589,7 @@ export function registerAdminRoutes(app: Express) {
       res.status(201).json(request);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -597,7 +598,7 @@ export function registerAdminRoutes(app: Express) {
       const requests = await storage.getDataDeleteRequests();
       res.json(requests);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -607,7 +608,7 @@ export function registerAdminRoutes(app: Express) {
       if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -618,7 +619,7 @@ export function registerAdminRoutes(app: Express) {
       const requests = await storage.getReviewRequests();
       res.json(requests);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -627,7 +628,7 @@ export function registerAdminRoutes(app: Express) {
       const requests = await storage.getReviewRequestsByDeal(Number(req.params.dealId));
       res.json(requests);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -638,7 +639,7 @@ export function registerAdminRoutes(app: Express) {
       res.status(201).json(request);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -648,7 +649,7 @@ export function registerAdminRoutes(app: Express) {
       if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -659,7 +660,7 @@ export function registerAdminRoutes(app: Express) {
       const submissions = await storage.getTestimonialSubmissions(status);
       res.json(submissions);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -669,7 +670,7 @@ export function registerAdminRoutes(app: Express) {
       if (!submission) return res.status(404).json({ message: "Not found" });
       res.json(submission);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -689,7 +690,7 @@ export function registerAdminRoutes(app: Express) {
       if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -699,7 +700,7 @@ export function registerAdminRoutes(app: Express) {
       const statuses = getAllAdapterStatuses();
       res.json({ adapters: statuses });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -710,7 +711,7 @@ export function registerAdminRoutes(app: Express) {
       const statuses = getAllAdapterStatuses();
       res.json({ ping: pingResults, adapters: statuses });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -744,14 +745,14 @@ export function registerAdminRoutes(app: Express) {
           }
         } catch (err: any) {
           results.errors++;
-          log.push({ id: contact.id, email: contact.email, status: "error", error: err.message });
+          log.push({ id: contact.id, email: contact.email, status: "error", error: safeMessage(err.message, "GHL lookup failed") });
         }
         await new Promise(r => setTimeout(r, 120));
       }
 
       res.json({ results, log });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -761,7 +762,7 @@ export function registerAdminRoutes(app: Express) {
       const nullCount = await db.select({ id: contacts.id }).from(contacts).where(isNull(contacts.ghlContactId));
       res.json({ totalContacts: allCount.length, missingGhlId: nullCount.length });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -814,7 +815,7 @@ export function registerAdminRoutes(app: Express) {
       _ghlHealthCache = { data: payload, at: now };
       res.json(payload);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -835,7 +836,7 @@ export function registerAdminRoutes(app: Express) {
       await auditChange({ entityType: "ghl_sync", entityId: contact.id, entityKey: contact.email || String(contact.id), action: "ghl_sync_retry_success", details: { ghlContactId: result } });
       res.json({ success: true, ghlContactId: result });
     } catch (err: any) {
-      res.status(500).json({ success: false, error: err.message });
+      serverError(res, err);
     }
   });
 
@@ -879,7 +880,7 @@ export function registerAdminRoutes(app: Express) {
         return res.json({ valid: false, error: `GHL returned HTTP ${resp.status}` });
       }
     } catch (err: any) {
-      res.status(500).json({ valid: false, error: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1012,7 +1013,7 @@ export function registerAdminRoutes(app: Express) {
         criticalIssues: actions.filter(a => a.toLowerCase().includes("silently failing") || a.toLowerCase().includes("fail") || a.toLowerCase().includes("expired") || a.toLowerCase().includes("security")).length,
       });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1042,7 +1043,7 @@ export function registerAdminRoutes(app: Express) {
         .limit(50);
       res.json({ logs: failures });
     } catch (err: any) {
-      res.status(500).json({ logs: [], error: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1061,7 +1062,7 @@ export function registerAdminRoutes(app: Express) {
         from: status.from,
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1081,7 +1082,7 @@ export function registerAdminRoutes(app: Express) {
       });
       res.json(result);
     } catch (err: any) {
-      res.status(500).json({ success: false, error: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1092,7 +1093,7 @@ export function registerAdminRoutes(app: Express) {
       const configuredCount = workflows.filter(w => w.isSet).length;
       res.json({ workflows, total: workflows.length, configuredCount });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1102,7 +1103,7 @@ export function registerAdminRoutes(app: Express) {
       const identities = await storage.getSendingIdentities();
       res.json(identities);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1128,7 +1129,7 @@ export function registerAdminRoutes(app: Express) {
       const identity = await storage.createSendingIdentity(parsed.data);
       res.status(201).json(identity);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1148,7 +1149,7 @@ export function registerAdminRoutes(app: Express) {
       if (!identity) return res.status(404).json({ message: "Identity not found" });
       res.json(identity);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1160,7 +1161,7 @@ export function registerAdminRoutes(app: Express) {
       if (!deleted) return res.status(404).json({ message: "Identity not found" });
       res.json({ success: true });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1169,7 +1170,7 @@ export function registerAdminRoutes(app: Express) {
       const summary = await summarizeChannelSafety();
       res.json(summary);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1263,7 +1264,7 @@ export function registerAdminRoutes(app: Express) {
         sampleCandidates: sampleDisplay,
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1381,7 +1382,7 @@ export function registerAdminRoutes(app: Express) {
         ...(prev ?? {}),
         status: "failed",
         updatedAt: new Date().toISOString(),
-        error: err.message,
+        error: safeMessage(err.message, "Backfill failed"),
       });
       await storage.createAuditLog({ action: "contacts_deal_backfill_failed", entityType: "system", userId: opts.adminUserId, details: { error: err.message } });
     }
@@ -1477,7 +1478,7 @@ export function registerAdminRoutes(app: Express) {
 
       res.status(202).json({ message: isRunning ? "Backfill resumed" : "Backfill started", totalCandidates: initialTotal });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1487,7 +1488,7 @@ export function registerAdminRoutes(app: Express) {
       const progress = await storage.getBackfillProgress();
       res.json(progress ?? { status: "idle", processed: 0, total: 0, dealsCreated: 0, skipped: 0, skippedBreakdown: {}, lastProcessedContactId: null, startedAt: null, updatedAt: null, completedAt: null, error: null });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1503,7 +1504,7 @@ export function registerAdminRoutes(app: Express) {
         details: { cancelledAt: new Date().toISOString() } });
       res.json({ message: "Cancel requested. The running backfill will stop after its current batch." });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1513,7 +1514,7 @@ export function registerAdminRoutes(app: Express) {
       const val = await storage.getSystemSetting("auto_create_deals_for_warm_contacts");
       res.json({ autoCreateDealsForWarmContacts: val === true });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1525,7 +1526,7 @@ export function registerAdminRoutes(app: Express) {
       await storage.createAuditLog({ action: "setting_auto_create_deals_updated", entityType: "system", userId: (req.user as any)?.id ?? null, details: { autoCreateDealsForWarmContacts: enabled } });
       res.json({ autoCreateDealsForWarmContacts: enabled });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1539,7 +1540,7 @@ export function registerAdminRoutes(app: Express) {
       const result = await previewScoringJob(mode);
       res.json(result);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1584,7 +1585,7 @@ export function registerAdminRoutes(app: Express) {
           return res.status(409).json({ message: err.message });
         }
       }
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1594,7 +1595,7 @@ export function registerAdminRoutes(app: Express) {
       const progress = await getScoringProgress();
       res.json({ ...progress, jobRunning: isScoringJobRunning() });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1607,7 +1608,7 @@ export function registerAdminRoutes(app: Express) {
       await cancelScoringJob();
       res.json({ message: "Cancel requested. The job will stop after the current batch." });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1678,7 +1679,7 @@ export function registerAdminRoutes(app: Express) {
       const progress = await getBulkEnrollProgress();
       res.json({ ...progress, jobRunning: isBulkEnrollJobRunning() });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1691,7 +1692,7 @@ export function registerAdminRoutes(app: Express) {
       await cancelBulkEnrollJob();
       res.json({ message: "Cancel requested. The job will stop after the current contact." });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1874,7 +1875,7 @@ export function registerAdminRoutes(app: Express) {
         defaultSequenceId: defaultSeqId ?? null,
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -2099,7 +2100,7 @@ export function registerAdminRoutes(app: Express) {
         },
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -2119,7 +2120,7 @@ export function registerAdminRoutes(app: Express) {
       }
       res.json({ saved: true });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -2133,7 +2134,7 @@ export function registerAdminRoutes(app: Express) {
       await setAutoEnrollEnabled(enabled);
       res.json({ autoEnrollNewLeadDeals: enabled });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -2144,7 +2145,7 @@ export function registerAdminRoutes(app: Express) {
       const result = await previewNewLeadEnroll();
       res.json(result);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -2176,7 +2177,7 @@ export function registerAdminRoutes(app: Express) {
       if (err.message === "A new-lead enrollment job is already running.") {
         return res.status(409).json({ message: err.message });
       }
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -2187,7 +2188,7 @@ export function registerAdminRoutes(app: Express) {
       const progress = await getNewLeadEnrollProgress();
       res.json({ ...progress, jobRunning: isNewLeadEnrollJobRunning() });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -2201,7 +2202,7 @@ export function registerAdminRoutes(app: Express) {
       await cancelNewLeadEnroll();
       res.json({ cancelled: true });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -2226,7 +2227,7 @@ export function registerAdminRoutes(app: Express) {
         coldEmailReady,
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -2282,7 +2283,7 @@ export function registerAdminRoutes(app: Express) {
         senderProfiles,
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -2294,7 +2295,7 @@ export function registerAdminRoutes(app: Express) {
       const { getAllSenderProfiles } = await import("../services/email-signatures");
       res.json(await getAllSenderProfiles());
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -2317,7 +2318,7 @@ export function registerAdminRoutes(app: Express) {
       await storage.createAuditLog({ action: "sender_profile_updated", entityType: "system", actorType: "user", actorId: String(user?.id || ""), details: { type, name, email } });
       res.json({ ok: true, type, profile: updated });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -2327,7 +2328,7 @@ export function registerAdminRoutes(app: Express) {
       const { listBackups } = await import("../services/db-backup");
       res.json(await listBackups());
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -2339,12 +2340,13 @@ export function registerAdminRoutes(app: Express) {
       if (!result.ok) {
         const { persistAlert } = await import("../services/alert-feed");
         await persistAlert({ severity: "critical", subsystem: "db-backup", summary: `Backup failed: ${result.error}` });
-        return res.status(500).json({ ok: false, error: result.error });
+        console.error("[Admin] Manual backup failed:", result.error);
+        return res.status(500).json({ ok: false, error: safeMessage(result.error, "Backup failed") });
       }
       const _pathMod = await import("path");
       res.json({ ok: true, filePath: result.filePath ? _pathMod.basename(result.filePath) : null, sizeBytes: result.sizeBytes, durationMs: result.durationMs });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -2356,7 +2358,7 @@ export function registerAdminRoutes(app: Express) {
       const { queues, usingMock } = await qm.getAllQueueMetrics();
       res.json({ queues, usingMock, timestamp: new Date().toISOString() });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -2368,7 +2370,7 @@ export function registerAdminRoutes(app: Express) {
       const alerts = await getRecentAlerts(limit);
       res.json(alerts);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -2379,7 +2381,7 @@ export function registerAdminRoutes(app: Express) {
       if (!ok) return res.status(404).json({ message: "Alert not found" });
       res.json({ ok: true });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -2809,7 +2811,7 @@ export function registerAdminRoutes(app: Express) {
         } : null,
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -2820,7 +2822,7 @@ export function registerAdminRoutes(app: Express) {
       const report = await runAllLaunchReadinessChecks();
       res.json(report);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -2830,7 +2832,7 @@ export function registerAdminRoutes(app: Express) {
       const report = await runAllLaunchReadinessChecks();
       res.json(report);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -2858,7 +2860,7 @@ export function registerAdminRoutes(app: Express) {
         testEmailAllowlist: typeof testAllowlist === "string" ? testAllowlist.split(",").map((e: string) => e.trim()).filter(Boolean) : [],
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -2888,7 +2890,7 @@ export function registerAdminRoutes(app: Express) {
       });
       res.json({ ok: true });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -2914,7 +2916,7 @@ export function registerAdminRoutes(app: Express) {
       const report = await runFullValidation(false);
       res.json(report);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -2937,7 +2939,7 @@ export function registerAdminRoutes(app: Express) {
       // If category filter requested, still return full report (filtering is UI-side)
       res.json(report);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -2985,7 +2987,7 @@ export function registerAdminRoutes(app: Express) {
       });
       res.json(result);
     } catch (err: any) {
-      res.status(500).json({ success: false, error: err.message });
+      serverError(res, err);
     }
   });
 
@@ -3007,7 +3009,7 @@ export function registerAdminRoutes(app: Express) {
       clearValidationCache();
       res.json(result);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -3039,7 +3041,7 @@ export function registerAdminRoutes(app: Express) {
       }));
       res.json(enriched);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -3060,7 +3062,7 @@ export function registerAdminRoutes(app: Express) {
       }).catch(() => {});
       res.json(conflict);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -3117,7 +3119,7 @@ export function registerAdminRoutes(app: Express) {
         checkedAt: new Date().toISOString(),
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -3140,7 +3142,7 @@ export function registerAdminRoutes(app: Express) {
 
       res.json({ success: true, compositeId });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -3163,7 +3165,7 @@ export function registerAdminRoutes(app: Express) {
 
       res.json({ success: true, compositeId });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -3187,7 +3189,7 @@ export function registerAdminRoutes(app: Express) {
 
       res.json({ success: true, removed, olderThanDays });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -3225,7 +3227,7 @@ export function registerAdminRoutes(app: Express) {
 
       res.json({ success: true, contactId: contact.id, result });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 

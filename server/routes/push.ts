@@ -1,13 +1,14 @@
 import type { Express } from "express";
 import { isAuthenticated } from "../replit_integrations/auth";
 import { getVapidPublicKey, saveSubscription, removeSubscription } from "../services/push-service";
+import { serverError } from "../utils/server-error";
 
 export function registerPushRoutes(app: Express) {
   app.get("/api/push/vapid-public-key", isAuthenticated, (_req, res) => {
     try {
       res.json({ publicKey: getVapidPublicKey() });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -23,7 +24,7 @@ export function registerPushRoutes(app: Express) {
       saveSubscription(userId, subscription);
       res.status(201).json({ message: "Subscribed" });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -36,7 +37,7 @@ export function registerPushRoutes(app: Express) {
       removeSubscription(userId, endpoint);
       res.json({ message: "Unsubscribed" });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 }

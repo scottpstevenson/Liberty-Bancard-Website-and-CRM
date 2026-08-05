@@ -1,6 +1,7 @@
 import type { Express } from "express";
 import { isAuthenticated, isAdmin, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
+import { serverError, safeMessage } from "../utils/server-error";
 
 const GHL_API_BASE = "https://services.leadconnectorhq.com";
 
@@ -111,7 +112,7 @@ export function registerToolkitRoutes(app: Express) {
       res.json({ threads, configured: true, totalUnread });
     } catch (err: any) {
       console.error("[SMS Inbox] threads error:", err.message);
-      res.json({ threads: [], configured: false, error: err.message });
+      res.json({ threads: [], configured: false, error: safeMessage(err.message, "SMS inbox unavailable") });
     }
   });
 
@@ -126,7 +127,7 @@ export function registerToolkitRoutes(app: Express) {
       res.json({ messages });
     } catch (err: any) {
       console.error("[SMS Inbox] thread error:", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -156,7 +157,7 @@ export function registerToolkitRoutes(app: Express) {
       res.json({ success: true, messageId: result?.messageId });
     } catch (err: any) {
       console.error("[SMS Inbox] reply error:", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -196,7 +197,7 @@ export function registerToolkitRoutes(app: Express) {
       res.json({ success: true });
     } catch (err: any) {
       console.error("[SMS Inbox] mark-read error:", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -255,7 +256,7 @@ export function registerToolkitRoutes(app: Express) {
       res.json({ appointments, configured: true });
     } catch (err: any) {
       console.error("[Appointments] error:", err.message);
-      res.json({ appointments: [], configured: false, error: err.message });
+      res.json({ appointments: [], configured: false, error: safeMessage(err.message, "Appointments unavailable") });
     }
   });
 
@@ -328,7 +329,7 @@ export function registerToolkitRoutes(app: Express) {
       });
     } catch (err: any) {
       console.error("[BIN Lookup] error:", err.message);
-      res.status(500).json({ message: "BIN lookup failed: " + err.message });
+      serverError(res, err);
     }
   });
 
@@ -360,7 +361,7 @@ export function registerToolkitRoutes(app: Express) {
       await storage.setSystemSetting(ROUND_ROBIN_KEY, updated);
       res.json(updated);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -377,7 +378,7 @@ export function registerToolkitRoutes(app: Express) {
       await storage.setSystemSetting(ROUND_ROBIN_KEY, pool);
       res.json(pool);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -389,7 +390,7 @@ export function registerToolkitRoutes(app: Express) {
       await storage.setSystemSetting(ROUND_ROBIN_KEY, pool);
       res.json(pool);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -405,7 +406,7 @@ export function registerToolkitRoutes(app: Express) {
       await storage.setSystemSetting(ROUND_ROBIN_KEY, pool);
       res.json(pool);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 

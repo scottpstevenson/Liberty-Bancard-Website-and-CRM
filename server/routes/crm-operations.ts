@@ -9,6 +9,7 @@ import { isGhlConfigured, upsertGhlContact } from "../services/ghl";
 import { syncContactToGhl, syncDealToGhl } from "../services/ghl-sync";
 import { extractRelationshipsForContact } from "../services/relationship-extractor";
 import { propagateContactDeleteToGhl, propagateDealDeleteToGhl, propagateTaskDeleteToGhl } from "../services/ghl-delete-sync";
+import { serverError } from "../utils/server-error";
 
 export function registerCrmOperationsRoutes(app: Express) {
   // === CONTACT DETAIL AGGREGATE ===
@@ -41,7 +42,7 @@ export function registerCrmOperationsRoutes(app: Express) {
       
       res.json({ contact, deals: contactDeals, tickets: contactTickets, tasks: contactTasks, notes: contactNotes });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -60,7 +61,7 @@ export function registerCrmOperationsRoutes(app: Express) {
       res.setHeader("Content-Disposition", "attachment; filename=contacts.csv");
       res.send(csv);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -83,7 +84,7 @@ export function registerCrmOperationsRoutes(app: Express) {
       res.setHeader("Content-Disposition", "attachment; filename=deals.csv");
       res.send(csv);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -101,7 +102,7 @@ export function registerCrmOperationsRoutes(app: Express) {
       res.setHeader("Content-Disposition", "attachment; filename=tickets.csv");
       res.send(csv);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -113,7 +114,7 @@ export function registerCrmOperationsRoutes(app: Express) {
       res.json(result);
     } catch (err: any) {
       console.error("Get contact companies error:", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -132,7 +133,7 @@ export function registerCrmOperationsRoutes(app: Express) {
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
       console.error("Add contact company error:", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -142,7 +143,7 @@ export function registerCrmOperationsRoutes(app: Express) {
       res.json({ success: true });
     } catch (err: any) {
       console.error("Remove contact company error:", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -160,7 +161,7 @@ export function registerCrmOperationsRoutes(app: Express) {
       });
     } catch (err: any) {
       console.error("Archive contact error:", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -172,7 +173,7 @@ export function registerCrmOperationsRoutes(app: Express) {
       res.json(result);
     } catch (err: any) {
       console.error("Restore contact error:", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -188,7 +189,7 @@ export function registerCrmOperationsRoutes(app: Express) {
       });
     } catch (err: any) {
       console.error("Archive deal error:", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -200,7 +201,7 @@ export function registerCrmOperationsRoutes(app: Express) {
       res.json(result);
     } catch (err: any) {
       console.error("Restore deal error:", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -222,7 +223,7 @@ export function registerCrmOperationsRoutes(app: Express) {
       res.json({ success: true, count: dealIds.length });
     } catch (err: any) {
       console.error("Bulk stage update error:", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -234,7 +235,7 @@ export function registerCrmOperationsRoutes(app: Express) {
       res.json({ success: true, count: taskIds.length });
     } catch (err: any) {
       console.error("Bulk assign tasks error:", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -262,7 +263,7 @@ export function registerCrmOperationsRoutes(app: Express) {
       });
     } catch (err: any) {
       console.error("Delete task error:", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -300,7 +301,7 @@ export function registerCrmOperationsRoutes(app: Express) {
       res.json({ deleted: actualDeleted });
     } catch (err: any) {
       console.error("Bulk delete tasks error:", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -312,7 +313,7 @@ export function registerCrmOperationsRoutes(app: Express) {
       res.json(duplicates);
     } catch (err: any) {
       console.error("Find duplicates error:", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -326,7 +327,7 @@ export function registerCrmOperationsRoutes(app: Express) {
       res.json(result);
     } catch (err: any) {
       console.error("Merge contacts error:", err.message);
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 

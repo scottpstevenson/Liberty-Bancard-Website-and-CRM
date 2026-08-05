@@ -2,6 +2,7 @@ import type { Express } from "express";
 import { isAuthenticated } from "../replit_integrations/auth";
 import { isAdmin } from "../replit_integrations/auth";
 import { getQueueManager } from "../services/queue-manager";
+import { serverError } from "../utils/server-error";
 
 const DLQ_ALERT_WARN = 5;
 const DLQ_ALERT_ERROR = 20;
@@ -30,7 +31,7 @@ export function registerQueueMetricsRoutes(app: Express) {
       const metrics = await qm.getAllQueueMetrics();
       res.json(metrics);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -40,7 +41,7 @@ export function registerQueueMetricsRoutes(app: Express) {
       const history = qm.getJobHistory();
       res.json(history);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -51,7 +52,7 @@ export function registerQueueMetricsRoutes(app: Express) {
       maybeSendDlqThresholdAlert(dlqItems.length).catch(() => {});
       res.json(dlqItems);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -62,7 +63,7 @@ export function registerQueueMetricsRoutes(app: Express) {
       await qm.retryDeadLetterJob(id);
       res.json({ success: true, message: "Job requeued for retry" });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -73,7 +74,7 @@ export function registerQueueMetricsRoutes(app: Express) {
       await qm.discardDeadLetterJob(id);
       res.json({ success: true, message: "Job discarded" });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -84,7 +85,7 @@ export function registerQueueMetricsRoutes(app: Express) {
       await qm.pauseQueue(name);
       res.json({ success: true, message: `Queue ${name} paused` });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -95,7 +96,7 @@ export function registerQueueMetricsRoutes(app: Express) {
       await qm.resumeQueue(name);
       res.json({ success: true, message: `Queue ${name} resumed` });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 }

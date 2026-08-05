@@ -12,6 +12,7 @@ import { isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { z } from "zod";
 import { upsertInboxItem, getInboxItem, updateInboxItem } from "../storage/inbox";
+import { serverError } from "../utils/server-error";
 
 const DEPARTMENT_SLA_HOURS: Record<string, number> = {
   sales: 4,
@@ -32,7 +33,7 @@ export function registerInboxOwnershipRoutes(app: Express) {
       const staff = await storage.getUsersByRole(["admin", "manager", "agent"]);
       res.json(staff);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -57,7 +58,7 @@ export function registerInboxOwnershipRoutes(app: Express) {
       }
       res.json(item);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -128,7 +129,7 @@ export function registerInboxOwnershipRoutes(app: Express) {
 
         res.json(updated);
       } catch (err: any) {
-        res.status(500).json({ message: err.message });
+        serverError(res, err);
       }
     }
   );
@@ -204,7 +205,7 @@ export function registerInboxOwnershipRoutes(app: Express) {
 
         res.json({ ok: true, item: updated });
       } catch (err: any) {
-        res.status(500).json({ message: err.message });
+        serverError(res, err);
       }
     }
   );
@@ -297,7 +298,7 @@ export function registerInboxOwnershipRoutes(app: Express) {
 
         res.json({ ok: true, bookingUrl, hasCalendar: !!calendarId, taskCreated: !!contactId });
       } catch (err: any) {
-        res.status(500).json({ message: err.message });
+        serverError(res, err);
       }
     }
   );
@@ -368,7 +369,7 @@ export function registerInboxOwnershipRoutes(app: Express) {
 
         res.json({ ok: true, rescheduleDraft: `Here's our booking link to reschedule at your convenience: ${bookingUrl}` });
       } catch (err: any) {
-        res.status(500).json({ message: err.message });
+        serverError(res, err);
       }
     }
   );
@@ -404,7 +405,7 @@ export function registerInboxOwnershipRoutes(app: Express) {
 
       res.json({ breaches: breaches.length, itemIds: breaches.map((b) => b.sourceItemId) });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 }

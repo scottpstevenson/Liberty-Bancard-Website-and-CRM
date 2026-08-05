@@ -35,6 +35,7 @@ import { evaluateContactability } from "../services/contactability";
 import { syncAffiliateSignupToGhl } from "../services/ghl-form-sync";
 import { sanitizeFirstName } from "../services/contact-name-utils";
 import { publicLeadRateLimit } from "../middleware/public-rate-limit";
+import { serverError } from "../utils/server-error";
 
 export function registerImportsRoutes(app: Express) {
   // === FULL COREVT IMPORT ===
@@ -287,7 +288,7 @@ Guidelines:
       res.json(saved);
     } catch (err: any) {
       console.error("Blog generation error:", err);
-      res.status(500).json({ error: err.message || "Blog generation failed" });
+      serverError(res, err);
     }
   });
 
@@ -571,7 +572,7 @@ Guidelines:
         });
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -616,7 +617,7 @@ Guidelines:
         });
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -633,7 +634,7 @@ Guidelines:
         email: partner.email,
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -685,7 +686,7 @@ Guidelines:
         })),
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -700,7 +701,7 @@ Guidelines:
         company: partner.companyName || undefined,
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -713,7 +714,7 @@ Guidelines:
       await storage.updatePartner(partner.id, { totalClicks: (partner.totalClicks || 0) + 1 } as any);
       res.json({ success: true });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1015,7 +1016,7 @@ Guidelines:
       await storage.updatePartner(partner.id, { totalReferrals: (partner.totalReferrals || 0) + 1 } as any);
       res.status(201).json({ success: true, referralId: referral.id });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1105,7 +1106,7 @@ Guidelines:
     } catch (err: any) {
       console.error("Mass scoring error:", err);
       if (!res.headersSent) {
-        res.status(500).json({ message: err.message });
+        serverError(res, err);
       } else {
         res.write(`data: ${JSON.stringify({ type: "error", message: err.message })}\n\n`);
         res.end();
@@ -1186,7 +1187,7 @@ Guidelines:
     } catch (err: any) {
       console.error("Mass deal creation error:", err);
       if (!res.headersSent) {
-        res.status(500).json({ message: err.message });
+        serverError(res, err);
       } else {
         res.write(`data: ${JSON.stringify({ type: "error", message: err.message })}\n\n`);
         res.end();
@@ -1239,7 +1240,7 @@ Guidelines:
     } catch (err: any) {
       console.error("Deduplication error:", err);
       if (!res.headersSent) {
-        res.status(500).json({ message: err.message });
+        serverError(res, err);
       } else {
         res.write(`data: ${JSON.stringify({ type: "error", message: err.message })}\n\n`);
         res.end();
@@ -1306,7 +1307,7 @@ Guidelines:
       });
       res.json(updated);
     } catch (err: any) {
-      res.status(500).json({ message: err.message || "Failed to mark interrupted" });
+      serverError(res, err);
     }
   });
 
@@ -1355,7 +1356,7 @@ Guidelines:
         verticalBreakdown: allVerticals,
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1370,7 +1371,7 @@ Guidelines:
         earnings: p.totalPayouts || "0",
       })));
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1431,7 +1432,7 @@ Guidelines:
         totalEarnings: grandTotal.toFixed(2),
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1440,7 +1441,7 @@ Guidelines:
       const tiers = await storage.getCommissionTiers();
       res.json(tiers);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1461,7 +1462,7 @@ Guidelines:
       }, { actorType: "user", userId: (req.user as any)?.id ?? null });
       res.status(201).json(tier);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1471,7 +1472,7 @@ Guidelines:
       if (!updated) return res.status(404).json({ message: "Tier not found" });
       res.json(updated);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -1480,7 +1481,7 @@ Guidelines:
       await storage.deleteCommissionTier(Number(req.params.id), { actorType: "user", userId: (req.user as any)?.id ?? null });
       res.json({ success: true });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -2138,7 +2139,7 @@ Guidelines:
           await storage.updateCsvImport(processingImport.id, { status: "failed" });
         }
       } catch {}
-      res.status(500).json({ message: err.message || "Import failed" });
+      serverError(res, err);
     }
   });
 
@@ -2199,7 +2200,7 @@ Guidelines:
         }
       })().catch(console.error);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -2273,7 +2274,7 @@ Guidelines:
         }
       })().catch(console.error);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -2286,7 +2287,7 @@ Guidelines:
       const batches = await db.select().from(masterLeadBatches).orderBy(desc(masterLeadBatches.createdAt)).limit(50);
       res.json(batches);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -2300,7 +2301,7 @@ Guidelines:
       if (!batch) return res.status(404).json({ message: "Batch not found" });
       res.json(batch);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -2318,7 +2319,7 @@ Guidelines:
         .limit(limit).offset(offset);
       res.json(rows);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -2350,7 +2351,7 @@ Guidelines:
         suppressionReport: suppressionRows.rows,
       });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -2417,7 +2418,7 @@ Guidelines:
       ]);
       res.json({ rows: rowsResult.rows, total: (countResult.rows[0] as any)?.total ?? 0, limit, offset });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -2478,7 +2479,7 @@ Guidelines:
       `);
       res.json({ success: true, leadId: lead.id, status: "ready_for_controlled_cohort" });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -2514,7 +2515,7 @@ Guidelines:
       }
       res.json({ success: true, promotedCount: count });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
