@@ -22,9 +22,19 @@ const LOCAL_STAGE_NAMES = [
   "Live (First Batch)", "Active (7 Days)", "Active (30 Days)",
 ];
 
+interface AlignmentRow {
+  localName: string;
+  ghlId: string | null;
+  ghlName: string | null;
+  score: number;
+  method: "exact" | "fuzzy" | "none";
+  override?: string;
+}
+
 interface PipelineStagesResult {
   pipelineId: string | null;
-  stages: Array<{ name: string; id: string }>;
+  ghlStages: Array<{ name: string; id: string }>;
+  alignment: AlignmentRow[];
   dbOverrides: Record<string, string>;
   envOverrides: Record<string, string>;
 }
@@ -280,6 +290,21 @@ export default function GhlSettings() {
       toast({ title: "Stage Map Saved", description: "GHL pipeline stage mapping updated." });
     },
     onError: () => toast({ title: "Save Failed", description: "Could not save stage mapping.", variant: "destructive" }),
+  });
+
+  const syncStagesToGhlMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/admin/ghl/sync-stages");
+      return res.json() as Promise<{ created: number; skipped: number; failed: number }>;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/ghl/pipeline-stages"] });
+      toast({
+        title: "Stages Synced",
+        description: `${data.created} created in GHL, ${data.skipped} already matched, ${data.failed} failed.`,
+      });
+    },
+    onError: (err: any) => toast({ title: "Sync Failed", description: err.message || "Could not sync stages to GHL.", variant: "destructive" }),
   });
 
   if (statusLoading) {
@@ -956,7 +981,7 @@ export default function GhlSettings() {
               <GitBranch className="w-4 h-4 text-muted-foreground" />
               <CardTitle className="text-base">Pipeline Stage Mapping</CardTitle>
             </div>
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
               <Button
                 variant="outline"
                 size="sm"
@@ -966,31 +991,52 @@ export default function GhlSettings() {
                 data-testid="button-refresh-stages"
               >
                 {stagesLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-                Refresh from GHL
+                Refresh
               </Button>
-              <Button
-                size="sm"
-                onClick={() => saveStageMapMutation.mutate(draftStageMap)}
-                disabled={saveStageMapMutation.isPending}
-                className="gap-2"
-                data-testid="button-save-stage-map"
-              >
-                {saveStageMapMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-                Save Mapping
-              </Button>
+              {user?.role === "admin" && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => syncStagesToGhlMutation.mutate()}
+                  disabled={syncStagesToGhlMutation.isPending}
+                  className="gap-2 border-blue-300 text-blue-700 hover:bg-blue-50"
+                  data-testid="button-sync-stages-to-ghl"
+                >
+                  {syncStagesToGhlMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <GitBranch className="w-4 h-4" />}
+                  Sync Stages to GHL
+                </Button>
+              )}
+              {Object.keys(draftStageMap).length > 0 && (
+                <Button
+                  size="sm"
+                  onClick={() => saveStageMapMutation.mutate(draftStageMap)}
+                  disabled={saveStageMapMutation.isPending}
+                  className="gap-2"
+                  data-testid="button-save-stage-map"
+                >
+                  {saveStageMapMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                  Save Overrides
+                </Button>
+              )}
             </div>
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            Map each local pipeline stage to its GHL stage UUID so deals sync to the correct stage.
-            Click <strong>Refresh from GHL</strong> to load your live pipeline stages, then select the matching GHL stage for each local stage.
+            Stages are matched automatically to your GHL pipeline by name. If any stages show as unmatched
+            (red), click <strong>Sync Stages to GHL</strong> — it pushes the missing stages directly into
+            your GHL pipeline and wires up the IDs automatically. No manual UUID entry needed.
           </p>
 
           {pipelineStages?.pipelineId && (
-            <div className="text-xs text-muted-foreground bg-muted/50 rounded px-3 py-2" data-testid="text-pipeline-id">
-              GHL Pipeline ID: <code className="font-mono">{pipelineStages.pipelineId}</code>
-              {" · "}{pipelineStages.stages.length} stage{pipelineStages.stages.length !== 1 ? "s" : ""} discovered
+            <div className="text-xs text-muted-foreground bg-muted/50 rounded px-3 py-2 flex gap-4 flex-wrap" data-testid="text-pipeline-id">
+              <span>Pipeline: <code className="font-mono">{pipelineStages.pipelineId}</code></span>
+              <span>{pipelineStages.ghlStages.length} GHL stage{pipelineStages.ghlStages.length !== 1 ? "s" : ""} discovered</span>
+              {(() => {
+                const matched = pipelineStages.alignment.filter(r => r.ghlId || r.override).length;
+                const total = pipelineStages.alignment.length;
+                return <span className={matched === total ? "text-green-600" : "text-yellow-600"}>{matched}/{total} local stages resolved</span>;
+              })()}
             </div>
           )}
 
@@ -998,67 +1044,104 @@ export default function GhlSettings() {
             <Alert data-testid="alert-env-overrides">
               <AlertTriangle className="w-4 h-4" />
               <AlertDescription className="text-xs">
-                <strong>GHL_STAGE_ID_MAP</strong> env var is set and takes precedence over these settings for {Object.keys(pipelineStages.envOverrides).length} stage(s).
+                <strong>GHL_STAGE_ID_MAP</strong> env var overrides {Object.keys(pipelineStages.envOverrides).length} stage(s) — env takes highest priority.
               </AlertDescription>
             </Alert>
           )}
 
-          <Table data-testid="table-stage-map">
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-1/2">Local Stage Name</TableHead>
-                <TableHead>GHL Stage (select or type UUID)</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {LOCAL_STAGE_NAMES.map((localStage) => {
-                const currentVal = draftStageMap[localStage] || "";
-                const ghlStages = pipelineStages?.stages || [];
-                return (
-                  <TableRow key={localStage} data-testid={`row-stage-${localStage.replace(/\W+/g, "-").toLowerCase()}`}>
-                    <TableCell className="text-sm font-medium">{localStage}</TableCell>
-                    <TableCell>
-                      <div className="flex gap-2 items-center">
-                        {ghlStages.length > 0 ? (
-                          <Select
-                            value={currentVal}
-                            onValueChange={(val) => setDraftStageMap(prev => ({ ...prev, [localStage]: val }))}
-                          >
-                            <SelectTrigger className="h-8 text-xs min-w-[200px]" data-testid={`select-stage-${localStage.replace(/\W+/g, "-").toLowerCase()}`}>
-                              <SelectValue placeholder="Select GHL stage…" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="">— not mapped —</SelectItem>
-                              {ghlStages.map((s) => (
-                                <SelectItem key={s.id} value={s.id}>
-                                  {s.name} <span className="text-muted-foreground ml-1 text-xs font-mono">{s.id.slice(0, 8)}…</span>
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+          {stagesLoading && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
+              <Loader2 className="w-4 h-4 animate-spin" /> Loading GHL pipeline stages…
+            </div>
+          )}
+
+          {pipelineStages && !stagesLoading && (
+            <Table data-testid="table-stage-map">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Local Stage</TableHead>
+                  <TableHead>Auto-matched GHL Stage</TableHead>
+                  <TableHead className="w-8">Conf.</TableHead>
+                  <TableHead>Override UUID (if needed)</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {pipelineStages.alignment.map((row) => {
+                  const effectiveId = row.override || row.ghlId;
+                  const isExact = row.method === "exact";
+                  const isFuzzy = row.method === "fuzzy";
+                  const isNone = row.method === "none" && !row.override;
+                  const hasEnvOverride = !!pipelineStages.envOverrides[row.localName];
+                  const slug = row.localName.replace(/\W+/g, "-").toLowerCase();
+                  return (
+                    <TableRow
+                      key={row.localName}
+                      data-testid={`row-stage-${slug}`}
+                      className={isNone && !row.override ? "bg-red-50/40 dark:bg-red-950/20" : ""}
+                    >
+                      <TableCell className="text-sm font-medium">{row.localName}</TableCell>
+                      <TableCell>
+                        {hasEnvOverride ? (
+                          <span className="text-xs text-blue-600 font-mono">{pipelineStages.envOverrides[row.localName].slice(0, 12)}… (env)</span>
+                        ) : effectiveId ? (
+                          <div>
+                            <span className="text-xs font-medium">{row.ghlName || "override"}</span>
+                            <span className="text-xs text-muted-foreground font-mono ml-2">{effectiveId.slice(0, 10)}…</span>
+                          </div>
                         ) : (
+                          <span className="text-xs text-red-500">⚠ Not matched — enter UUID below</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {hasEnvOverride ? (
+                          <Badge variant="outline" className="text-xs text-blue-600 border-blue-300">env</Badge>
+                        ) : isExact ? (
+                          <Badge variant="outline" className="text-xs text-green-600 border-green-300">exact</Badge>
+                        ) : isFuzzy ? (
+                          <Badge variant="outline" className="text-xs text-yellow-600 border-yellow-300">{Math.round(row.score * 100)}%</Badge>
+                        ) : row.override ? (
+                          <Badge variant="outline" className="text-xs text-purple-600 border-purple-300">manual</Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-xs text-red-500 border-red-300">none</Badge>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex gap-1 items-center">
                           <Input
-                            className="h-8 text-xs font-mono"
-                            placeholder="GHL stage UUID"
-                            value={currentVal}
-                            onChange={(e) => setDraftStageMap(prev => ({ ...prev, [localStage]: e.target.value }))}
-                            data-testid={`input-stage-${localStage.replace(/\W+/g, "-").toLowerCase()}`}
+                            className="h-7 text-xs font-mono w-52"
+                            placeholder={isNone ? "Paste GHL stage UUID…" : "Override (optional)"}
+                            value={draftStageMap[row.localName] || ""}
+                            onChange={(e) => {
+                              const val = e.target.value.trim();
+                              setDraftStageMap(prev => {
+                                const n = { ...prev };
+                                if (val) n[row.localName] = val; else delete n[row.localName];
+                                return n;
+                              });
+                            }}
+                            data-testid={`input-override-${slug}`}
                           />
-                        )}
-                        {currentVal && (
-                          <button
-                            className="text-muted-foreground hover:text-foreground text-xs"
-                            onClick={() => setDraftStageMap(prev => { const n = { ...prev }; delete n[localStage]; return n; })}
-                            title="Clear"
-                          >✕</button>
-                        )}
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
+                          {draftStageMap[row.localName] && (
+                            <button
+                              className="text-muted-foreground hover:text-foreground text-xs px-1"
+                              onClick={() => setDraftStageMap(prev => { const n = { ...prev }; delete n[row.localName]; return n; })}
+                              title="Clear override"
+                            >✕</button>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          )}
+
+          {!pipelineStages && !stagesLoading && (
+            <div className="text-sm text-muted-foreground py-4 text-center">
+              GHL not connected or pipeline not yet discovered. Click <strong>Refresh from GHL</strong> to load.
+            </div>
+          )}
         </CardContent>
       </Card>
 

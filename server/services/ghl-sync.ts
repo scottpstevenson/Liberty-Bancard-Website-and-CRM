@@ -635,6 +635,60 @@ async function loadDbStageMapOverrides(): Promise<void> {
   }
 }
 
+// ── Auto-alignment helpers ────────────────────────────────────────────────────
+
+/** Normalize a stage name for fuzzy comparison: lowercase, strip non-alphanumeric, collapse spaces. */
+function normalizeStage(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+/** Score how well two strings overlap (0–1). Uses word-overlap Jaccard similarity. */
+function stageSimilarity(a: string, b: string): number {
+  const na = normalizeStage(a);
+  const nb = normalizeStage(b);
+  if (na === nb) return 1;
+  const wa = new Set(na.split(" "));
+  const wb = new Set(nb.split(" "));
+  const intersection = [...wa].filter(w => wb.has(w)).length;
+  const union = new Set([...wa, ...wb]).size;
+  if (union === 0) return 0;
+  const jaccard = intersection / union;
+  // Bonus: one is a substring of the other
+  const subBonus = na.includes(nb) || nb.includes(na) ? 0.15 : 0;
+  return Math.min(1, jaccard + subBonus);
+}
+
+/** Auto-align local stage names to live GHL stage UUIDs by best-match scoring.
+ *  Returns an array of alignment results for each local stage. */
+export function autoAlignStages(
+  localStages: string[],
+  ghlStages: Array<{ name: string; id: string }>,
+): Array<{ localName: string; ghlId: string | null; ghlName: string | null; score: number; method: "exact" | "fuzzy" | "none" }> {
+  return localStages.map(local => {
+    // 1. Exact match (case-insensitive, trimmed)
+    const exact = ghlStages.find(s => s.name.toLowerCase().trim() === local.toLowerCase().trim());
+    if (exact) return { localName: local, ghlId: exact.id, ghlName: exact.name, score: 1, method: "exact" as const };
+
+    // 2. Normalized exact match
+    const normLocal = normalizeStage(local);
+    const normExact = ghlStages.find(s => normalizeStage(s.name) === normLocal);
+    if (normExact) return { localName: local, ghlId: normExact.id, ghlName: normExact.name, score: 0.95, method: "exact" as const };
+
+    // 3. Best fuzzy match above threshold
+    let best = { score: 0, stage: null as { name: string; id: string } | null };
+    for (const gs of ghlStages) {
+      const score = stageSimilarity(local, gs.name);
+      if (score > best.score) best = { score, stage: gs };
+    }
+    const THRESHOLD = 0.5;
+    if (best.stage && best.score >= THRESHOLD) {
+      return { localName: local, ghlId: best.stage.id, ghlName: best.stage.name, score: best.score, method: "fuzzy" as const };
+    }
+
+    return { localName: local, ghlId: null, ghlName: null, score: 0, method: "none" as const };
+  });
+}
+
 function isPipelineCacheValid(): boolean {
   return (
     cachedPipelineId !== null &&
@@ -670,14 +724,28 @@ async function ensurePipeline(): Promise<string> {
     }
     if (chosenPipeline) {
       cachedPipelineId = chosenPipeline.id;
-      const stages = chosenPipeline.stages || [];
+      const stages: Array<{ name: string; id: string }> = (chosenPipeline.stages || []).filter(
+        (s: any) => s.name && s.id,
+      );
+      // Store raw GHL stages by their own name first
       for (const stage of stages) {
-        if (stage.name && stage.id) {
-          cachedStageIdMap[stage.name] = stage.id;
+        cachedStageIdMap[stage.name] = stage.id;
+      }
+      // Auto-align: map every local stage name → best-match GHL UUID
+      const localNames = Object.keys(GHL_PIPELINE_STAGE_MAP);
+      const aligned = autoAlignStages(localNames, stages);
+      let matchCount = 0;
+      for (const r of aligned) {
+        if (r.ghlId) {
+          cachedStageIdMap[r.localName] = r.ghlId;
+          matchCount++;
         }
       }
       cachedPipelineAt = Date.now();
-      console.log(`[GHL Sync] Using pipeline: "${chosenPipeline.name}" (${chosenPipeline.id}) with ${stages.length} stages`);
+      console.log(
+        `[GHL Sync] Using pipeline: "${chosenPipeline.name}" (${chosenPipeline.id}) — ` +
+        `${stages.length} GHL stages, ${matchCount}/${localNames.length} local stages auto-aligned`,
+      );
       // Warm DB overrides in background so mapDealStageToGhl has them available
       loadDbStageMapOverrides().catch(() => {});
       return chosenPipeline.id;
@@ -739,10 +807,21 @@ function getGhlStageIdOverrides(): Record<string, string> {
   return overrides;
 }
 
-/** Returns the live GHL pipeline stages (name → uuid) from cache, refreshing if stale. */
+/** Returns the live GHL pipeline stages and auto-alignment status for the admin UI. */
 export async function getGhlPipelineStages(): Promise<{
   pipelineId: string | null;
-  stages: Array<{ name: string; id: string }>;
+  /** Raw GHL stages returned from the API */
+  ghlStages: Array<{ name: string; id: string }>;
+  /** Auto-alignment result for each local stage */
+  alignment: Array<{
+    localName: string;
+    ghlId: string | null;
+    ghlName: string | null;
+    score: number;
+    method: "exact" | "fuzzy" | "none";
+    /** If a DB or env override is active, this overrides the auto-match */
+    override?: string;
+  }>;
   dbOverrides: Record<string, string>;
   envOverrides: Record<string, string>;
 }> {
@@ -760,12 +839,104 @@ export async function getGhlPipelineStages(): Promise<{
     try { envOverrides = JSON.parse(envRaw); } catch { /* ignore */ }
   }
 
+  // Reconstruct raw GHL stages (entries where both key and value look non-local)
+  // We stored GHL stage names → IDs AND local stage names → IDs in cachedStageIdMap.
+  // Pull only entries whose key matches a known local stage to build the raw GHL list separately.
+  const localNameSet = new Set(Object.keys(GHL_PIPELINE_STAGE_MAP));
+  const ghlStages = Object.entries(cachedStageIdMap)
+    .filter(([name]) => !localNameSet.has(name))
+    .map(([name, id]) => ({ name, id }));
+
+  // Compute fresh alignment from whatever GHL stages we have
+  const localNames = Object.keys(GHL_PIPELINE_STAGE_MAP);
+  const baseAlignment = autoAlignStages(localNames, ghlStages.length > 0 ? ghlStages : []);
+
+  // Annotate with overrides
+  const mergedOverrides = { ...cachedDbStageMapOverrides, ...envOverrides };
+  const alignment = baseAlignment.map(r => ({
+    ...r,
+    override: mergedOverrides[r.localName] || undefined,
+  }));
+
   return {
     pipelineId: cachedPipelineId,
-    stages: Object.entries(cachedStageIdMap).map(([name, id]) => ({ name, id })),
+    ghlStages,
+    alignment,
     dbOverrides: { ...cachedDbStageMapOverrides },
     envOverrides,
   };
+}
+
+/**
+ * Push any local stage names that don't yet exist in GHL into the pipeline,
+ * then re-run auto-alignment so all stages get a real UUID.
+ * Returns how many stages were created and the updated alignment.
+ */
+export async function syncLocalStagesToGhl(): Promise<{
+  created: number;
+  skipped: number;
+  failed: number;
+  alignment: Awaited<ReturnType<typeof getGhlPipelineStages>>["alignment"];
+}> {
+  const pipelineId = await ensurePipeline();
+  if (!pipelineId || pipelineId === "default") {
+    throw new Error("GHL pipeline not available — check GHL configuration");
+  }
+
+  const localNames = Object.keys(GHL_PIPELINE_STAGE_MAP);
+  const localNameSet = new Set(localNames);
+
+  // Get current raw GHL stages from cache (entries not in localNameSet)
+  const existingGhlStages = Object.entries(cachedStageIdMap)
+    .filter(([name]) => !localNameSet.has(name))
+    .map(([name, id]) => ({ name, id }));
+
+  // Find local stages that are unmatched (no GHL UUID via auto-align or override)
+  const currentAlignment = autoAlignStages(localNames, existingGhlStages);
+  const mergedOverrides: Record<string, string> = { ...cachedDbStageMapOverrides };
+  const envRaw = process.env.GHL_STAGE_ID_MAP;
+  if (envRaw) { try { Object.assign(mergedOverrides, JSON.parse(envRaw)); } catch { /**/ } }
+
+  const unmatched = currentAlignment.filter(r => !r.ghlId && !mergedOverrides[r.localName]);
+  let created = 0;
+  let skipped = 0;
+  let failed = 0;
+
+  for (let i = 0; i < unmatched.length; i++) {
+    const localStage = unmatched[i].localName;
+    try {
+      // Try to add the stage to the existing pipeline
+      const result = await ghlFetch(`/opportunities/pipelines/${pipelineId}/stages`, {
+        method: "POST",
+        body: JSON.stringify({
+          name: localStage,
+          position: existingGhlStages.length + i,
+        }),
+      });
+      const newId = result?.stage?.id || result?.id;
+      if (newId) {
+        cachedStageIdMap[localStage] = newId;
+        // Also store under the GHL name (same in this case)
+        cachedStageIdMap[localStage] = newId;
+        created++;
+        console.log(`[GHL Sync] Created pipeline stage "${localStage}" → ${newId}`);
+      } else {
+        console.warn(`[GHL Sync] Stage creation for "${localStage}" returned no ID:`, result);
+        failed++;
+      }
+    } catch (err: any) {
+      console.warn(`[GHL Sync] Could not create stage "${localStage}":`, err.message);
+      failed++;
+    }
+  }
+
+  skipped = localNames.length - unmatched.length;
+
+  // Invalidate pipeline cache so next ensurePipeline re-fetches fresh stage list
+  cachedPipelineAt = null;
+  // Re-run alignment with updated map
+  const { alignment } = await getGhlPipelineStages();
+  return { created, skipped, failed, alignment };
 }
 
 export function mapDealStageToGhl(stage: string): { pipelineStageId: string; status: "open" | "won" | "lost" | "abandoned" } {

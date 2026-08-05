@@ -3087,6 +3087,16 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  app.post("/api/admin/ghl/sync-stages", requireRole("admin"), async (_req, res) => {
+    try {
+      const { syncLocalStagesToGhl } = await import("../services/ghl-sync");
+      const result = await syncLocalStagesToGhl();
+      res.json(result);
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
   app.post("/api/admin/ghl/stage-map", requireRole("admin", "manager"), async (req, res) => {
     try {
       const { stageMap } = req.body as { stageMap: Record<string, string> };
