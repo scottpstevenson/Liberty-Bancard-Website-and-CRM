@@ -1,5 +1,6 @@
 import type { Express } from "express";
 import { isAuthenticated } from "../replit_integrations/auth";
+import { parseId } from "./helpers";
 import { storage } from "../storage";
 import { z } from "zod";
 import { randomBytes } from "crypto";
@@ -127,7 +128,7 @@ export function registerLifecycleRoutes(app: Express) {
   // ── Review Collection ────────────────────────────────────────────────────────
   app.get("/api/review-requests", isAuthenticated, async (req, res) => {
     try {
-      const dealId = req.query.dealId ? Number(req.query.dealId) : undefined;
+      const dealId = req.query.dealId ? (parseId(req.query.dealId as string) ?? undefined) : undefined;
       const requests = await storage.getReviewRequests(dealId);
       res.json(requests);
     } catch (err: any) {
@@ -150,7 +151,8 @@ export function registerLifecycleRoutes(app: Express) {
   app.post("/api/review-requests/:id/track-click", publicLeadRateLimit, async (req, res) => {
     try {
       const { platform } = req.body;
-      const id = Number(req.params.id);
+      const id = parseId(req.params.id);
+      if (id === null) return res.status(404).json({ message: "Not found" });
       const updateData: Record<string, any> = {};
       if (platform === "google") updateData.googleClickedAt = new Date();
       if (platform === "trustpilot") updateData.trustpilotClickedAt = new Date();
@@ -163,7 +165,9 @@ export function registerLifecycleRoutes(app: Express) {
 
   app.patch("/api/review-requests/:id", isAuthenticated, async (req, res) => {
     try {
-      const updated = await storage.updateReviewRequest(Number(req.params.id), req.body);
+      const rrId = parseId(req.params.id);
+      if (rrId === null) return res.status(404).json({ message: "Not found" });
+      const updated = await storage.updateReviewRequest(rrId, req.body);
       if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
     } catch (err: any) {
@@ -174,7 +178,7 @@ export function registerLifecycleRoutes(app: Express) {
   // ── Merchant Referrals ───────────────────────────────────────────────────────
   app.get("/api/merchant-referrals", isAuthenticated, async (req, res) => {
     try {
-      const profileId = req.query.profileId ? Number(req.query.profileId) : undefined;
+      const profileId = req.query.profileId ? (parseId(req.query.profileId as string) ?? undefined) : undefined;
       const referrals = await storage.getMerchantReferrals(profileId);
       res.json(referrals);
     } catch (err: any) {
@@ -213,7 +217,9 @@ export function registerLifecycleRoutes(app: Express) {
 
   app.patch("/api/merchant-referrals/:id", isAuthenticated, async (req, res) => {
     try {
-      const updated = await storage.updateMerchantReferral(Number(req.params.id), req.body);
+      const refId = parseId(req.params.id);
+      if (refId === null) return res.status(404).json({ message: "Not found" });
+      const updated = await storage.updateMerchantReferral(refId, req.body);
       if (!updated) return res.status(404).json({ message: "Not found" });
 
       // If activating, credit the referrer
@@ -306,7 +312,9 @@ export function registerLifecycleRoutes(app: Express) {
 
   app.patch("/api/retention-campaign-configs/:id", isAuthenticated, async (req, res) => {
     try {
-      const updated = await storage.updateRetentionCampaignConfig(Number(req.params.id), req.body);
+      const cfgId = parseId(req.params.id);
+      if (cfgId === null) return res.status(404).json({ message: "Not found" });
+      const updated = await storage.updateRetentionCampaignConfig(cfgId, req.body);
       if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
     } catch (err: any) {
@@ -316,7 +324,9 @@ export function registerLifecycleRoutes(app: Express) {
 
   app.delete("/api/retention-campaign-configs/:id", isAuthenticated, async (req, res) => {
     try {
-      const deleted = await storage.deleteRetentionCampaignConfig(Number(req.params.id));
+      const delCfgId = parseId(req.params.id);
+      if (delCfgId === null) return res.status(404).json({ message: "Not found" });
+      const deleted = await storage.deleteRetentionCampaignConfig(delCfgId);
       if (!deleted) return res.status(404).json({ message: "Not found" });
       res.json({ deleted: true });
     } catch (err: any) {

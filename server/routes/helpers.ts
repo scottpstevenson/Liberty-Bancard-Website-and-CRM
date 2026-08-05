@@ -3,6 +3,47 @@ import os from "os";
 import { storage } from "../storage";
 import { sendGhlSms } from "../services/ghl";
 
+/**
+ * parseId — parses a route/query param into a positive integer.
+ * Accepts the Express param type (string | string[]) as well as body values.
+ * Returns null when the value is absent, empty, non-numeric, zero, or negative.
+ * Callers should return 404 for a missing path param or 400 for a bad query param.
+ */
+export function parseId(val: string | string[] | undefined | null): number | null {
+  const v = Array.isArray(val) ? val[0] : val;
+  if (v === undefined || v === null || v === "") return null;
+  const n = Number(v);
+  if (!Number.isInteger(n) || n <= 0) return null;
+  return n;
+}
+
+/**
+ * parsePagination — safely coerces limit/offset/page query params.
+ * - limit is clamped to [1, maxLimit] (default max 500).
+ * - offset is clamped to ≥ 0.
+ * - If page is provided, offset = (page - 1) * limit.
+ */
+export function parsePagination(
+  query: Record<string, any>,
+  maxLimit = 500,
+): { limit: number; offset: number } {
+  let limit = query.limit !== undefined ? Number(query.limit) : 50;
+  if (!Number.isFinite(limit) || limit < 1) limit = 50;
+  if (limit > maxLimit) limit = maxLimit;
+
+  let offset = 0;
+  if (query.page !== undefined) {
+    let page = Number(query.page);
+    if (!Number.isFinite(page) || page < 1) page = 1;
+    offset = (page - 1) * limit;
+  } else if (query.offset !== undefined) {
+    offset = Number(query.offset);
+    if (!Number.isFinite(offset) || offset < 0) offset = 0;
+  }
+
+  return { limit, offset };
+}
+
 export const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 export const uploadLarge = multer({ dest: os.tmpdir(), limits: { fileSize: 300 * 1024 * 1024 } });
 

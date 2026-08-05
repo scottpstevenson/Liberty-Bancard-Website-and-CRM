@@ -10,6 +10,7 @@ import { getWorkflowStatus, GHL_WORKFLOW_REGISTRY, getPlatformEmailConfig, getWo
 import { buildSequenceList } from "../services/sequence-blueprints";
 import { requireInternalWebhookSecret } from "../middleware/internal-webhook-auth";
 import { publicLeadRateLimit } from "../middleware/public-rate-limit";
+import { parseId, parsePagination } from "./helpers";
 import dns from "node:dns/promises";
 import net from "node:net";
 
@@ -84,7 +85,7 @@ export function registerIntegrationsRoutes(app: Express) {
   });
 
   app.get("/api/ghl/activity", isAuthenticated, async (req, res) => {
-    const contactId = req.query.contactId ? Number(req.query.contactId) : undefined;
+    const contactId = req.query.contactId ? (parseId(req.query.contactId as string) ?? undefined) : undefined;
     const logs = await storage.getGhlActivityLogs(contactId);
     res.json(logs);
   });
@@ -165,7 +166,8 @@ export function registerIntegrationsRoutes(app: Express) {
 
   app.get("/api/ghl/sync-status/contact/:id", isAuthenticated, async (req, res) => {
     try {
-      const contactId = Number(req.params.id);
+      const contactId = parseId(req.params.id);
+      if (contactId === null) return res.status(404).json({ message: "Not found" });
       const contact = await storage.getContact(contactId);
       if (!contact) return res.status(404).json({ message: "Not found" });
       const logs = await storage.getGhlActivityLogs(contactId);
@@ -191,20 +193,24 @@ export function registerIntegrationsRoutes(app: Express) {
     if (!userRole || !['admin', 'manager', 'agent'].includes(userRole)) {
       return res.status(403).json({ message: "Insufficient permissions to trigger GHL sync" });
     }
-    const result = await syncContactToGhl(Number(req.params.id));
+    const syncContactId = parseId(req.params.id);
+    if (syncContactId === null) return res.status(404).json({ message: "Not found" });
+    const result = await syncContactToGhl(syncContactId);
     res.json(result);
   });
 
   app.post("/api/ghl/sync-deal/:id", isAuthenticated, async (req, res) => {
     if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
-    const result = await syncDealToGhl(Number(req.params.id));
+    const syncDealId = parseId(req.params.id);
+    if (syncDealId === null) return res.status(404).json({ message: "Not found" });
+    const result = await syncDealToGhl(syncDealId);
     res.json(result);
   });
 
   app.post("/api/ghl/sync-company/:id", isAuthenticated, async (req, res) => {
     if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
-    const id = Number(req.params.id);
-    if (isNaN(id)) return res.status(400).json({ message: "Invalid company ID" });
+    const id = parseId(req.params.id);
+    if (id === null) return res.status(400).json({ message: "Invalid company ID" });
     try {
       const result = await syncCompanyToGhl(id);
       res.json(result);
@@ -215,8 +221,8 @@ export function registerIntegrationsRoutes(app: Express) {
 
   app.post("/api/ghl/sync-task/:id", isAuthenticated, async (req, res) => {
     if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
-    const id = Number(req.params.id);
-    if (isNaN(id)) return res.status(400).json({ message: "Invalid task ID" });
+    const id = parseId(req.params.id);
+    if (id === null) return res.status(400).json({ message: "Invalid task ID" });
     try {
       const result = await syncTaskToGhl(id);
       res.json(result);
@@ -227,8 +233,8 @@ export function registerIntegrationsRoutes(app: Express) {
 
   app.post("/api/ghl/sync-ticket/:id", isAuthenticated, async (req, res) => {
     if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
-    const id = Number(req.params.id);
-    if (isNaN(id)) return res.status(400).json({ message: "Invalid ticket ID" });
+    const id = parseId(req.params.id);
+    if (id === null) return res.status(400).json({ message: "Invalid ticket ID" });
     try {
       const result = await syncTicketToGhl(id);
       res.json(result);
@@ -239,8 +245,8 @@ export function registerIntegrationsRoutes(app: Express) {
 
   app.post("/api/ghl/sync-note/:id", isAuthenticated, async (req, res) => {
     if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
-    const id = Number(req.params.id);
-    if (isNaN(id)) return res.status(400).json({ message: "Invalid note ID" });
+    const id = parseId(req.params.id);
+    if (id === null) return res.status(400).json({ message: "Invalid note ID" });
     try {
       const result = await syncNoteToGhl(id);
       res.json(result);
@@ -251,8 +257,8 @@ export function registerIntegrationsRoutes(app: Express) {
 
   app.post("/api/ghl/sync-tags/:contactId", isAuthenticated, async (req, res) => {
     if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
-    const id = Number(req.params.contactId);
-    if (isNaN(id)) return res.status(400).json({ message: "Invalid contact ID" });
+    const id = parseId(req.params.contactId);
+    if (id === null) return res.status(400).json({ message: "Invalid contact ID" });
     try {
       const result = await syncTagsToGhl(id);
       res.json(result);
@@ -272,7 +278,7 @@ export function registerIntegrationsRoutes(app: Express) {
 
   app.post("/api/ghl/sync-hot-leads", isAuthenticated, async (req, res) => {
     if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
-    const maxContacts = Number(req.body.limit) || 100;
+    const maxContacts = Math.min(Math.max(1, Number(req.body.limit) || 100), 500);
     res.json({ message: `Syncing up to ${maxContacts} hot lead contacts to GHL...`, started: true });
 
     (async () => {
@@ -333,7 +339,7 @@ export function registerIntegrationsRoutes(app: Express) {
 
   app.post("/api/outreach/enroll-hot-leads", isAuthenticated, async (req, res) => {
     if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
-    const maxLeads = Number(req.body.limit) || 100;
+    const maxLeads = Math.min(Math.max(1, Number(req.body.limit) || 100), 500);
     res.json({ message: `Enrolling up to ${maxLeads} hot leads into sequences...`, started: true });
 
     (async () => {
@@ -998,7 +1004,7 @@ export function registerIntegrationsRoutes(app: Express) {
 
   app.get("/api/ghl/deleted-records", isAuthenticated, async (req, res) => {
     try {
-      const limit = Math.min(Number(req.query.limit) || 50, 200);
+      const { limit } = parsePagination(req.query as Record<string, any>, 200);
       const auditLogs = await storage.getAuditLogs();
       const deleteActions = ["ghl_delete_received", "ghl_delete_detected", "ghl_delete_propagated", "ghl_delete_failed"];
       const filtered = auditLogs

@@ -1,5 +1,6 @@
 import type { Express } from "express";
 import { isAuthenticated, requireRole } from "../replit_integrations/auth";
+import { parseId } from "./helpers";
 import { storage } from "../storage";
 import crypto from "crypto";
 import { db } from "../db";
@@ -144,7 +145,8 @@ export function registerSavingsRoutes(app: Express) {
     requireRole("admin", "manager"),
     async (req, res) => {
       try {
-        const dealId = Number(req.params.id);
+        const dealId = parseId(req.params.id);
+        if (dealId === null) return res.status(404).json({ message: "Deal not found" });
         const { token, shareUrl } = await generateShareTokenForDeal(dealId, req);
         res.json({ token, shareUrl });
       } catch (err: any) {
@@ -160,7 +162,8 @@ export function registerSavingsRoutes(app: Express) {
     requireRole("admin", "manager"),
     async (req, res) => {
       try {
-        const dealId = Number(req.params.id);
+        const dealId = parseId(req.params.id);
+        if (dealId === null) return res.status(404).json({ message: "Deal not found" });
         const deal = await storage.getDeal(dealId);
         if (!deal) return res.status(404).json({ message: "Deal not found" });
 

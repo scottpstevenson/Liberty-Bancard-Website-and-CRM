@@ -11,7 +11,7 @@ import { generateDocumentToken, verifyDocumentToken } from "../services/document
 import { generateCoBrandedProposalPdf } from "../services/co-branded-proposal";
 import path from "path";
 import fs from "fs";
-import { upload } from "./helpers";
+import { upload, parseId } from "./helpers";
 import { ZipArchive } from "archiver";
 
 export function registerDocumentsRoutes(app: Express) {
@@ -98,7 +98,7 @@ export function registerDocumentsRoutes(app: Express) {
       }
       const allDocs = await storage.getDocuments();
       const category = req.query.category as string | undefined;
-      const contactId = req.query.contactId ? Number(req.query.contactId) : undefined;
+      const contactId = req.query.contactId ? parseId(req.query.contactId as string) : undefined;
       const status = req.query.status as string | undefined;
 
       let docs = allDocs;
@@ -121,7 +121,8 @@ export function registerDocumentsRoutes(app: Express) {
   app.get("/api/merchant-documents/contact/:contactId", isAuthenticated, async (req, res) => {
     try {
       const user = req.user as any;
-      const cid = Number(req.params.contactId);
+      const cid = parseId(req.params.contactId);
+      if (cid === null) return res.status(404).json({ message: "Contact not found" });
       if (!await canAccessContactDocs(user, cid)) {
         return res.status(403).json({ message: "Access denied" });
       }
@@ -152,7 +153,7 @@ export function registerDocumentsRoutes(app: Express) {
         if (category && !MERCHANT_ALLOWED_CATEGORIES.has(category)) {
           return res.status(400).json({ message: "Invalid document category" });
         }
-      } else if (contactId && !await canAccessContactDocs(user, Number(contactId))) {
+      } else if (contactId && !await canAccessContactDocs(user, parseId(contactId))) {
         return res.status(403).json({ message: "Access denied" });
       }
 
@@ -303,7 +304,9 @@ export function registerDocumentsRoutes(app: Express) {
         return res.status(400).json({ message: "Invalid status. Must be: pending, approved, rejected, or archived" });
       }
 
-      const doc = await storage.getDocumentById(Number(req.params.id));
+      const docStatusId = parseId(req.params.id);
+      if (docStatusId === null) return res.status(404).json({ message: "Document not found" });
+      const doc = await storage.getDocumentById(docStatusId);
       if (!doc) return res.status(404).json({ message: "Document not found" });
 
       const user = req.user as any;
@@ -404,7 +407,9 @@ export function registerDocumentsRoutes(app: Express) {
   app.get("/api/merchant-documents/:id/access-token", isAuthenticated, async (req, res) => {
     try {
       const user = req.user as any;
-      const doc = await storage.getDocumentById(Number(req.params.id));
+      const accessTokenDocId = parseId(req.params.id);
+      if (accessTokenDocId === null) return res.status(404).json({ message: "Document not found" });
+      const doc = await storage.getDocumentById(accessTokenDocId);
       if (!doc) return res.status(404).json({ message: "Document not found" });
       // Contact-level check: user must be able to access this contact's documents
       if (!await canAccessContactDocs(user, doc.contactId)) {
@@ -577,7 +582,9 @@ export function registerDocumentsRoutes(app: Express) {
   app.delete("/api/merchant-documents/:id", isAuthenticated, async (req, res) => {
     try {
       const user = req.user as any;
-      const doc = await storage.getDocumentById(Number(req.params.id));
+      const deleteDocId = parseId(req.params.id);
+      if (deleteDocId === null) return res.status(404).json({ message: "Document not found" });
+      const doc = await storage.getDocumentById(deleteDocId);
       if (!doc) return res.status(404).json({ message: "Document not found" });
       if (!await canAccessContactDocs(user, doc.contactId)) {
         return res.status(403).json({ message: "Access denied" });
@@ -595,7 +602,7 @@ export function registerDocumentsRoutes(app: Express) {
         }
       }
 
-      await storage.deleteDocument(Number(req.params.id));
+      await storage.deleteDocument(doc.id);
       res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -664,7 +671,9 @@ export function registerDocumentsRoutes(app: Express) {
   app.get("/api/documents/download/:id", requireRole("admin", "manager"), async (req, res) => {
     try {
       const docs = await storage.getDocuments();
-      const doc = docs.find(d => d.id === Number(req.params.id));
+      const dlDocId = parseId(req.params.id);
+      if (dlDocId === null) return res.status(404).json({ message: "Document not found" });
+      const doc = docs.find(d => d.id === dlDocId);
       if (!doc) return res.status(404).json({ message: "Document not found" });
 
       // ── Co-branded proposal: generate PDF on the fly from the token ──────────
@@ -713,14 +722,16 @@ export function registerDocumentsRoutes(app: Express) {
 
   app.get("/api/documents/contact/:contactId", requireRole("admin", "manager"), async (req, res) => {
     const docs = await storage.getDocuments();
-    const contactDocs = docs.filter(d => d.contactId === Number(req.params.contactId));
+    const legacyCid = parseId(req.params.contactId);
+    if (legacyCid === null) return res.status(404).json({ message: "Contact not found" });
+    const contactDocs = docs.filter(d => d.contactId === legacyCid);
     res.json(contactDocs);
   });
 
   app.get("/api/merchant-portal/onboarding-tasks", isAuthenticated, async (req, res) => {
     try {
       const user = req.user as any;
-      const requestedDealId = req.query.dealId ? Number(req.query.dealId) : null;
+      const requestedDealId = req.query.dealId ? parseId(req.query.dealId as string) : null;
       if (!requestedDealId) return res.json([]);
 
       const role = user?.role;
@@ -807,7 +818,7 @@ export function registerDocumentsRoutes(app: Express) {
 
       // For processing statements run the full 11-step chain; for other doc types use legacy path
       if (docType === "merchant_statement" && uploaderContactId) {
-        const targetDealId = req.body?.dealId ? Number(req.body.dealId) : null;
+        const targetDealId = req.body?.dealId ? parseId(req.body.dealId) : null;
 
         // Run the full conversion chain (non-blocking — always respond 201)
         runStatementUploadChain({
@@ -896,7 +907,7 @@ export function registerDocumentsRoutes(app: Express) {
       if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
       fs.writeFileSync(path.join(uploadsDir, `${Date.now()}_${fileName}`), req.file.buffer);
 
-      const targetDealId = req.body?.dealId ? Number(req.body.dealId) : null;
+      const targetDealId = req.body?.dealId ? parseId(req.body.dealId) : null;
       let associatedDealId: number | null = null;
       let dealId: number | undefined;
 
@@ -997,7 +1008,9 @@ export function registerDocumentsRoutes(app: Express) {
 
   app.get("/api/knowledge-base/:id", isDashboardUser, async (req, res) => {
     try {
-      const article = await storage.getKnowledgeBaseArticle(Number(req.params.id));
+      const kbId = parseId(req.params.id);
+      if (kbId === null) return res.status(404).json({ message: "Not found" });
+      const article = await storage.getKnowledgeBaseArticle(kbId);
       if (!article) return res.status(404).json({ message: "Not found" });
       res.json(article);
     } catch (err: any) {
@@ -1018,7 +1031,9 @@ export function registerDocumentsRoutes(app: Express) {
 
   app.patch("/api/knowledge-base/:id", requireRole("admin", "manager"), async (req, res) => {
     try {
-      const updated = await storage.updateKnowledgeBaseArticle(Number(req.params.id), req.body);
+      const kbUpdateId = parseId(req.params.id);
+      if (kbUpdateId === null) return res.status(404).json({ message: "Not found" });
+      const updated = await storage.updateKnowledgeBaseArticle(kbUpdateId, req.body);
       if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
     } catch (err: any) {

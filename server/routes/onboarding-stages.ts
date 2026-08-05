@@ -1,5 +1,6 @@
 import type { Express } from "express";
 import { isDashboardUser, requireRole } from "../replit_integrations/auth";
+import { parseId } from "./helpers";
 import { storage } from "../storage";
 import { db } from "../db";
 import { merchantOnboardingStages, deals, contacts, tasks, MERCHANT_ONBOARDING_STAGE_KEYS } from "@shared/schema";
@@ -9,7 +10,8 @@ export function registerOnboardingStagesRoutes(app: Express) {
   // ── GET all stages for a deal ──────────────────────────────────────────────
   app.get("/api/deals/:id/onboarding-stages", isDashboardUser, async (req, res) => {
     try {
-      const dealId = Number(req.params.id);
+      const dealId = parseId(req.params.id);
+      if (dealId === null) return res.status(404).json({ message: "Deal not found" });
       const deal = await storage.getDeal(dealId);
       if (!deal) return res.status(404).json({ message: "Deal not found" });
       const stages = await storage.getMerchantOnboardingStages(dealId);
@@ -22,7 +24,8 @@ export function registerOnboardingStagesRoutes(app: Express) {
   // ── Initialize stages for a deal (idempotent) ──────────────────────────────
   app.post("/api/deals/:id/onboarding-stages/initialize", isDashboardUser, async (req, res) => {
     try {
-      const dealId = Number(req.params.id);
+      const dealId = parseId(req.params.id);
+      if (dealId === null) return res.status(404).json({ message: "Deal not found" });
       const deal = await storage.getDeal(dealId);
       if (!deal) return res.status(404).json({ message: "Deal not found" });
       const stages = await storage.initializeMerchantOnboardingStages(dealId);
@@ -41,7 +44,8 @@ export function registerOnboardingStagesRoutes(app: Express) {
   // ── PATCH a single stage ───────────────────────────────────────────────────
   app.patch("/api/deals/:id/onboarding-stages/:stageKey", isDashboardUser, async (req, res) => {
     try {
-      const dealId = Number(req.params.id);
+      const dealId = parseId(req.params.id);
+      if (dealId === null) return res.status(404).json({ message: "Deal not found" });
       const stageKey = req.params.stageKey;
       const deal = await storage.getDeal(dealId);
       if (!deal) return res.status(404).json({ message: "Deal not found" });
@@ -127,7 +131,8 @@ export function registerOnboardingStagesRoutes(app: Express) {
   // ── GET account health summary for a contact ──────────────────────────────
   app.get("/api/contacts/:contactId/account-health", isDashboardUser, async (req, res) => {
     try {
-      const contactId = Number(req.params.contactId);
+      const contactId = parseId(req.params.contactId);
+      if (contactId === null) return res.status(404).json({ message: "Contact not found" });
       const contact = await storage.getContact(contactId);
       if (!contact) return res.status(404).json({ message: "Contact not found" });
 
@@ -226,7 +231,8 @@ export function registerOnboardingStagesRoutes(app: Express) {
   // ── POST: Create scheduled retention touchpoints for a contact ────────────
   app.post("/api/contacts/:contactId/retention-touchpoints", requireRole("admin", "manager"), async (req, res) => {
     try {
-      const contactId = Number(req.params.contactId);
+      const contactId = parseId(req.params.contactId);
+      if (contactId === null) return res.status(404).json({ message: "Contact not found" });
       const contact = await storage.getContact(contactId);
       if (!contact) return res.status(404).json({ message: "Contact not found" });
 
@@ -339,7 +345,8 @@ export function registerOnboardingStagesRoutes(app: Express) {
   // ── PATCH partner (enhanced fields: referralOwner, commissionStatus, etc.) ─
   app.patch("/api/partners/:id/tracking", requireRole("admin", "manager"), async (req, res) => {
     try {
-      const partnerId = Number(req.params.id);
+      const partnerId = parseId(req.params.id);
+      if (partnerId === null) return res.status(404).json({ message: "Partner not found" });
       const partner = await storage.getPartner(partnerId);
       if (!partner) return res.status(404).json({ message: "Partner not found" });
 
