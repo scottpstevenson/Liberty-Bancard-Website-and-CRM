@@ -621,6 +621,20 @@ let cachedStageIdMap: Record<string, string> = {};
 let cachedPipelineAt: number | null = null;
 const PIPELINE_CACHE_TTL_MS = 5 * 60 * 1000;
 
+// DB-backed stage ID overrides (set via admin UI → system_settings).
+// Merged with env-var overrides in getGhlStageIdOverrides(); env var takes precedence.
+let cachedDbStageMapOverrides: Record<string, string> = {};
+async function loadDbStageMapOverrides(): Promise<void> {
+  try {
+    const raw = await storage.getSystemSetting("ghl_stage_id_map");
+    if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+      cachedDbStageMapOverrides = raw as Record<string, string>;
+    }
+  } catch {
+    // non-fatal: fall back to empty
+  }
+}
+
 function isPipelineCacheValid(): boolean {
   return (
     cachedPipelineId !== null &&
@@ -664,6 +678,8 @@ async function ensurePipeline(): Promise<string> {
       }
       cachedPipelineAt = Date.now();
       console.log(`[GHL Sync] Using pipeline: "${chosenPipeline.name}" (${chosenPipeline.id}) with ${stages.length} stages`);
+      // Warm DB overrides in background so mapDealStageToGhl has them available
+      loadDbStageMapOverrides().catch(() => {});
       return chosenPipeline.id;
     }
 
@@ -703,19 +719,53 @@ async function ensurePipeline(): Promise<string> {
 }
 
 function getGhlStageIdOverrides(): Record<string, string> {
+  // Start with DB-backed overrides (lower priority)
+  const overrides: Record<string, string> = { ...cachedDbStageMapOverrides };
+
+  // Env var overrides take precedence over DB setting
   const raw = process.env.GHL_STAGE_ID_MAP;
-  if (!raw) return {};
-  try {
-    const parsed = JSON.parse(raw);
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-      console.warn(`[GHL Sync] GHL_STAGE_ID_MAP parsed but is not a plain object (got ${Array.isArray(parsed) ? "array" : typeof parsed}): ${raw}`);
-      return {};
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+        Object.assign(overrides, parsed);
+      } else {
+        console.warn(`[GHL Sync] GHL_STAGE_ID_MAP parsed but is not a plain object (got ${Array.isArray(parsed) ? "array" : typeof parsed}): ${raw}`);
+      }
+    } catch {
+      console.warn(`[GHL Sync] GHL_STAGE_ID_MAP failed to parse as JSON — env override disabled. Bad value: ${raw}`);
     }
-    return parsed;
-  } catch {
-    console.warn(`[GHL Sync] GHL_STAGE_ID_MAP failed to parse as JSON — stage ID overrides disabled. Bad value: ${raw}`);
-    return {};
   }
+  return overrides;
+}
+
+/** Returns the live GHL pipeline stages (name → uuid) from cache, refreshing if stale. */
+export async function getGhlPipelineStages(): Promise<{
+  pipelineId: string | null;
+  stages: Array<{ name: string; id: string }>;
+  dbOverrides: Record<string, string>;
+  envOverrides: Record<string, string>;
+}> {
+  // Warm the cache
+  try {
+    await ensurePipeline();
+  } catch {
+    // non-fatal if GHL is unconfigured
+  }
+  await loadDbStageMapOverrides();
+
+  const envRaw = process.env.GHL_STAGE_ID_MAP;
+  let envOverrides: Record<string, string> = {};
+  if (envRaw) {
+    try { envOverrides = JSON.parse(envRaw); } catch { /* ignore */ }
+  }
+
+  return {
+    pipelineId: cachedPipelineId,
+    stages: Object.entries(cachedStageIdMap).map(([name, id]) => ({ name, id })),
+    dbOverrides: { ...cachedDbStageMapOverrides },
+    envOverrides,
+  };
 }
 
 export function mapDealStageToGhl(stage: string): { pipelineStageId: string; status: "open" | "won" | "lost" | "abandoned" } {
@@ -1656,6 +1706,11 @@ export async function runGhlFullSyncTick(): Promise<void> {
         } else if (result.error === "No GHL contact linked" || result.error === "GHL not configured" || result.error === "Deal not found") {
           // Data-dependency skip — not a GHL API failure; do not trip the circuit.
           console.log(`[Queue:ghl-sync] Deal ${deal.id} skipped (${result.error}) — not counted as GHL failure`);
+        } else if (result.error?.includes("OPPORTUNITY_STAGE_ID_INVALID")) {
+          // Stage name mismatch — our internal stage names don't match GHL pipeline stage
+          // names. This is a one-time config fix (set GHL_STAGE_ID_MAP), not a transient
+          // API failure — skip without counting toward the circuit breaker threshold.
+          console.warn(`[Queue:ghl-sync] Deal ${deal.id} stage ID rejected by GHL (name mismatch) — skipping. Fix: set GHL_STAGE_ID_MAP env var with a JSON map of stage names → GHL stage UUIDs.`);
         } else {
           consecutiveGhlFailures++;
           console.warn(`[Queue:ghl-sync] Deal ${deal.id} sync failed: ${result.error}`);

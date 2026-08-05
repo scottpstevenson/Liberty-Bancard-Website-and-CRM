@@ -20,7 +20,6 @@ import { DashboardLayout } from "@/pages/DashboardLayout";
 
 // ─── Auth / Identity ──────────────────────────────────────────────────────────
 const Login = lazy(() => import("@/pages/Login"));
-const Signup = lazy(() => import("@/pages/Signup"));
 const ForgotPassword = lazy(() => import("@/pages/ForgotPassword"));
 const ResetPassword = lazy(() => import("@/pages/ResetPassword"));
 const VerifyEmail = lazy(() => import("@/pages/VerifyEmail"));
@@ -308,7 +307,7 @@ function Router() {
     <Suspense fallback={<PageSkeleton />}>
       <Switch>
         <Route path="/login" component={Login} />
-        <Route path="/signup" component={Signup} />
+        <Route path="/signup"><Redirect to="/login" /></Route>
         <Route path="/forgot-password" component={ForgotPassword} />
         <Route path="/reset-password" component={ResetPassword} />
         <Route path="/verify-email" component={VerifyEmail} />
@@ -847,7 +846,7 @@ function PublicLayout() {
   usePageTracking();
   const isDashboard = location.startsWith("/dashboard");
   const isThanksPage = location.startsWith("/thanks");
-  const isAuthPage = location === "/login" || location === "/signup" || location === "/forgot-password" || location === "/reset-password" || location === "/verify-email";
+  const isAuthPage = location === "/login" || location === "/forgot-password" || location === "/reset-password" || location === "/verify-email";
   const isMobile = location.startsWith("/mobile");
   const isUploadStatement = location.startsWith("/upload-statement");
 

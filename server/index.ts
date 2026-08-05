@@ -273,6 +273,8 @@ app.use(
           "'self'",
           "*.leadconnectorhq.com",
           "*.ghl.io",
+          "*.msgsndr.com",
+          "services.msgsndr.com",
           "*.googletagmanager.com",
           "*.google-analytics.com",
           "*.facebook.com",

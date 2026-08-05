@@ -521,9 +521,9 @@ export default function Contacts() {
   ];
 
   const filteredContacts = contacts?.filter((c: any) => {
-    const matchesSearch = c.firstName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      c.lastName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      c.companyName?.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesSearch = (c.firstName?.toLowerCase() ?? "").includes(searchTerm.toLowerCase()) ||
+      (c.lastName?.toLowerCase() ?? "").includes(searchTerm.toLowerCase()) ||
+      (c.companyName?.toLowerCase() ?? "").includes(searchTerm.toLowerCase());
     const isArchived = !!c.archivedAt;
     if (!showArchived && isArchived) return false;
     if (statusFilter && c.status !== statusFilter) return false;

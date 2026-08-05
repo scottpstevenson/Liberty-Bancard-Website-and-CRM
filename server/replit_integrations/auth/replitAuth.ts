@@ -621,7 +621,13 @@ export async function setupAuth(app: Express) {
     }
   });
 
-  app.post("/api/auth/signup", signupRateLimit, async (req, res) => {
+  app.post("/api/auth/signup", signupRateLimit, async (_req, res) => {
+    // Public self-registration is disabled for this B2B platform.
+    // Merchant accounts are created by admins or via the merchant application flow.
+    return res.status(404).json({ message: "Not found" });
+  });
+
+  app.post("/api/auth/signup-internal-disabled", signupRateLimit, async (req, res) => {
     try {
       const { email, password, firstName, lastName } = req.body;
       if (!email || !password || !firstName || !lastName) {

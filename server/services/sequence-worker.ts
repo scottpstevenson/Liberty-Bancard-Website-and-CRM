@@ -489,7 +489,8 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
                     const zbResult = await verifyEmail(contact.email);
                     // Write result back via raw SQL — Drizzle update().set() silently drops
                     // string columns when passed a union type; raw SQL is the safe path.
-                    const { db: zbDb, sql: zbSql } = await import("../db");
+                    const { db: zbDb } = await import("../db");
+                    const { sql: zbSql } = await import("drizzle-orm");
                     await zbDb.execute(zbSql`UPDATE contacts SET email_status = ${zbResult.status} WHERE id = ${contact.id}`);
                     contact = { ...contact, emailStatus: zbResult.status };
 

@@ -1,16 +1,37 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Loader2, Settings, CheckCircle2, XCircle, Key, MapPin, Calendar, Activity, Mail, Clock, Zap, ArrowRightLeft, Send, Database, AlertTriangle, RefreshCw, Shield, ShieldAlert, ShieldCheck } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Loader2, Settings, CheckCircle2, XCircle, Key, MapPin, Calendar, Activity, Mail, Clock, Zap, ArrowRightLeft, Send, Database, AlertTriangle, RefreshCw, Shield, ShieldAlert, ShieldCheck, GitBranch } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { GhlActivityLog, MessageTemplate, SlaConfig } from "@shared/schema";
+
+// Local stage names that map to GHL pipeline stages
+const LOCAL_STAGE_NAMES = [
+  "New Lead", "Statement Received", "Review In Progress", "Call Booked",
+  "Proposal Sent", "Negotiation / Follow-Up", "Verbal Commit", "Nurture / Not Now",
+  "Closed Won", "Closed Lost", "Contract Sent", "Application Started",
+  "Underwriting Submitted", "Approved", "Terminal Ordered", "Go-Live Scheduled",
+  "Live (First Batch)", "Active (7 Days)", "Active (30 Days)",
+];
+
+interface PipelineStagesResult {
+  pipelineId: string | null;
+  stages: Array<{ name: string; id: string }>;
+  dbOverrides: Record<string, string>;
+  envOverrides: Record<string, string>;
+}
+
+interface StageMapResult {
+  stageMap: Record<string, string>;
+}
 
 interface GhlStatus {
   configured: boolean;
@@ -118,6 +139,7 @@ export default function GhlSettings() {
   const isAdminOrManager = user?.role === "admin" || user?.role === "manager";
   const [backfillResult, setBackfillResult] = useState<BackfillResult | null>(null);
   const [forceSyncContactId, setForceSyncContactId] = useState("");
+  const [draftStageMap, setDraftStageMap] = useState<Record<string, string>>({});
 
   const { data: status, isLoading: statusLoading } = useQuery<GhlStatus>({
     queryKey: ["/api/ghl/status"],
@@ -229,6 +251,35 @@ export default function GhlSettings() {
       });
     },
     onError: () => toast({ title: "Backfill Failed", description: "Could not run GHL contact ID backfill", variant: "destructive" }),
+  });
+
+  // ── Stage Mapping ──────────────────────────────────────────────────────────
+  const { data: pipelineStages, isLoading: stagesLoading, refetch: refetchStages } = useQuery<PipelineStagesResult>({
+    queryKey: ["/api/admin/ghl/pipeline-stages"],
+    retry: false,
+  });
+
+  const { data: savedStageMap } = useQuery<StageMapResult>({
+    queryKey: ["/api/admin/ghl/stage-map"],
+  });
+
+  // Seed draft from saved DB map whenever it loads
+  useEffect(() => {
+    if (savedStageMap?.stageMap) {
+      setDraftStageMap(savedStageMap.stageMap);
+    }
+  }, [savedStageMap]);
+
+  const saveStageMapMutation = useMutation({
+    mutationFn: async (stageMap: Record<string, string>) => {
+      const res = await apiRequest("POST", "/api/admin/ghl/stage-map", { stageMap });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/ghl/stage-map"] });
+      toast({ title: "Stage Map Saved", description: "GHL pipeline stage mapping updated." });
+    },
+    onError: () => toast({ title: "Save Failed", description: "Could not save stage mapping.", variant: "destructive" }),
   });
 
   if (statusLoading) {
@@ -894,6 +945,120 @@ export default function GhlSettings() {
               )}
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      {/* ── GHL Pipeline Stage Mapping ───────────────────────────────────────── */}
+      <Card data-testid="card-ghl-stage-map">
+        <CardHeader>
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <GitBranch className="w-4 h-4 text-muted-foreground" />
+              <CardTitle className="text-base">Pipeline Stage Mapping</CardTitle>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => refetchStages()}
+                disabled={stagesLoading}
+                className="gap-2"
+                data-testid="button-refresh-stages"
+              >
+                {stagesLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                Refresh from GHL
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => saveStageMapMutation.mutate(draftStageMap)}
+                disabled={saveStageMapMutation.isPending}
+                className="gap-2"
+                data-testid="button-save-stage-map"
+              >
+                {saveStageMapMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                Save Mapping
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Map each local pipeline stage to its GHL stage UUID so deals sync to the correct stage.
+            Click <strong>Refresh from GHL</strong> to load your live pipeline stages, then select the matching GHL stage for each local stage.
+          </p>
+
+          {pipelineStages?.pipelineId && (
+            <div className="text-xs text-muted-foreground bg-muted/50 rounded px-3 py-2" data-testid="text-pipeline-id">
+              GHL Pipeline ID: <code className="font-mono">{pipelineStages.pipelineId}</code>
+              {" · "}{pipelineStages.stages.length} stage{pipelineStages.stages.length !== 1 ? "s" : ""} discovered
+            </div>
+          )}
+
+          {pipelineStages && Object.keys(pipelineStages.envOverrides).length > 0 && (
+            <Alert data-testid="alert-env-overrides">
+              <AlertTriangle className="w-4 h-4" />
+              <AlertDescription className="text-xs">
+                <strong>GHL_STAGE_ID_MAP</strong> env var is set and takes precedence over these settings for {Object.keys(pipelineStages.envOverrides).length} stage(s).
+              </AlertDescription>
+            </Alert>
+          )}
+
+          <Table data-testid="table-stage-map">
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-1/2">Local Stage Name</TableHead>
+                <TableHead>GHL Stage (select or type UUID)</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {LOCAL_STAGE_NAMES.map((localStage) => {
+                const currentVal = draftStageMap[localStage] || "";
+                const ghlStages = pipelineStages?.stages || [];
+                return (
+                  <TableRow key={localStage} data-testid={`row-stage-${localStage.replace(/\W+/g, "-").toLowerCase()}`}>
+                    <TableCell className="text-sm font-medium">{localStage}</TableCell>
+                    <TableCell>
+                      <div className="flex gap-2 items-center">
+                        {ghlStages.length > 0 ? (
+                          <Select
+                            value={currentVal}
+                            onValueChange={(val) => setDraftStageMap(prev => ({ ...prev, [localStage]: val }))}
+                          >
+                            <SelectTrigger className="h-8 text-xs min-w-[200px]" data-testid={`select-stage-${localStage.replace(/\W+/g, "-").toLowerCase()}`}>
+                              <SelectValue placeholder="Select GHL stage…" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="">— not mapped —</SelectItem>
+                              {ghlStages.map((s) => (
+                                <SelectItem key={s.id} value={s.id}>
+                                  {s.name} <span className="text-muted-foreground ml-1 text-xs font-mono">{s.id.slice(0, 8)}…</span>
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <Input
+                            className="h-8 text-xs font-mono"
+                            placeholder="GHL stage UUID"
+                            value={currentVal}
+                            onChange={(e) => setDraftStageMap(prev => ({ ...prev, [localStage]: e.target.value }))}
+                            data-testid={`input-stage-${localStage.replace(/\W+/g, "-").toLowerCase()}`}
+                          />
+                        )}
+                        {currentVal && (
+                          <button
+                            className="text-muted-foreground hover:text-foreground text-xs"
+                            onClick={() => setDraftStageMap(prev => { const n = { ...prev }; delete n[localStage]; return n; })}
+                            title="Clear"
+                          >✕</button>
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
         </CardContent>
       </Card>
 

@@ -244,12 +244,6 @@ export default function Login() {
               </Button>
             </form>
 
-            <p className="text-center text-sm text-muted-foreground">
-              Don't have an account?{" "}
-              <Link href="/signup" className="text-primary underline-offset-4 hover:underline" data-testid="link-signup">
-                Sign up
-              </Link>
-            </p>
           </CardContent>
         </Card>
 

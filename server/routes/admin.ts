@@ -3066,6 +3066,52 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // ── GHL Pipeline Stage Mapping ─────────────────────────────────────────────
+
+  app.get("/api/admin/ghl/pipeline-stages", requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const { getGhlPipelineStages } = await import("../services/ghl-sync");
+      const result = await getGhlPipelineStages();
+      res.json(result);
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  app.get("/api/admin/ghl/stage-map", requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const dbMap = await storage.getSystemSetting("ghl_stage_id_map");
+      res.json({ stageMap: dbMap || {} });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  app.post("/api/admin/ghl/stage-map", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const { stageMap } = req.body as { stageMap: Record<string, string> };
+      if (!stageMap || typeof stageMap !== "object" || Array.isArray(stageMap)) {
+        return res.status(400).json({ message: "stageMap must be a plain object mapping local stage name → GHL stage UUID" });
+      }
+      // Validate all values look like UUIDs or short IDs (non-empty strings)
+      for (const [k, v] of Object.entries(stageMap)) {
+        if (typeof k !== "string" || typeof v !== "string" || !k.trim() || !v.trim()) {
+          return res.status(400).json({ message: `Invalid entry: key="${k}" value="${v}" — both must be non-empty strings` });
+        }
+      }
+      await storage.setSystemSetting("ghl_stage_id_map", stageMap);
+      storage.createAuditLog({
+        action: "ghl_stage_map_updated",
+        entityType: "system",
+        entityId: 0,
+        details: { stageMappingCount: Object.keys(stageMap).length },
+      }).catch(() => {});
+      res.json({ ok: true, count: Object.keys(stageMap).length });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
   // ── System Health: Incidents + DLQ ─────────────────────────────────────────
 
   app.get("/api/admin/system-health/incidents", requireRole("admin", "manager"), async (_req, res) => {
