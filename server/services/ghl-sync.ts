@@ -724,7 +724,7 @@ async function ensurePipeline(): Promise<string> {
     }
     if (chosenPipeline) {
       cachedPipelineId = chosenPipeline.id;
-      const stages: Array<{ name: string; id: string }> = (chosenPipeline.stages || []).filter(
+      let stages: Array<{ name: string; id: string }> = (chosenPipeline.stages || []).filter(
         (s: any) => s.name && s.id,
       );
       // Store raw GHL stages by their own name first
@@ -734,17 +734,60 @@ async function ensurePipeline(): Promise<string> {
       // Auto-align: map every local stage name → best-match GHL UUID
       const localNames = Object.keys(GHL_PIPELINE_STAGE_MAP);
       const aligned = autoAlignStages(localNames, stages);
-      let matchCount = 0;
       for (const r of aligned) {
-        if (r.ghlId) {
-          cachedStageIdMap[r.localName] = r.ghlId;
-          matchCount++;
+        if (r.ghlId) cachedStageIdMap[r.localName] = r.ghlId;
+      }
+
+      // Push any unmatched local stages into GHL by PUTting the full pipeline with all stages merged in
+      const unmatched = aligned.filter(r => !r.ghlId);
+      if (unmatched.length > 0) {
+        console.log(`[GHL Sync] ${unmatched.length} local stages missing from GHL — updating pipeline now…`);
+        try {
+          const config2 = getConfig()!;
+          const updatedStages = [
+            // Keep existing GHL stages (with their IDs so GHL doesn't re-create them)
+            ...stages.map((s, i) => ({ id: s.id, name: s.name, position: i })),
+            // Add each missing local stage at the end
+            ...unmatched.map((r, i) => ({ name: r.localName, position: stages.length + i })),
+          ];
+          const putResult = await ghlFetch(`/opportunities/pipelines/${chosenPipeline.id}`, {
+            method: "PUT",
+            body: JSON.stringify({
+              name: chosenPipeline.name,
+              stages: updatedStages,
+            }),
+          });
+          // GHL returns the updated pipeline; extract stage IDs for newly created stages
+          const returnedStages: Array<{ id: string; name: string }> =
+            putResult?.pipeline?.stages || putResult?.stages || [];
+          let added = 0;
+          for (const rs of returnedStages) {
+            if (rs.id && rs.name && !cachedStageIdMap[rs.name]) {
+              cachedStageIdMap[rs.name] = rs.id;
+              stages = [...stages, { name: rs.name, id: rs.id }];
+            }
+            // Also wire to local name if it matches exactly
+            if (rs.id && rs.name) {
+              const localMatch = unmatched.find(
+                u => u.localName.toLowerCase().trim() === rs.name.toLowerCase().trim(),
+              );
+              if (localMatch && !cachedStageIdMap[localMatch.localName]) {
+                cachedStageIdMap[localMatch.localName] = rs.id;
+                added++;
+              }
+            }
+          }
+          console.log(`[GHL Sync] Pipeline PUT complete — ${added} new stages wired`);
+        } catch (err: any) {
+          console.warn(`[GHL Sync] Could not update pipeline with missing stages: ${err.message}`);
         }
       }
+
+      const matchCount = localNames.filter(n => cachedStageIdMap[n]).length;
       cachedPipelineAt = Date.now();
       console.log(
-        `[GHL Sync] Using pipeline: "${chosenPipeline.name}" (${chosenPipeline.id}) — ` +
-        `${stages.length} GHL stages, ${matchCount}/${localNames.length} local stages auto-aligned`,
+        `[GHL Sync] Pipeline ready: "${chosenPipeline.name}" (${chosenPipeline.id}) — ` +
+        `${stages.length} GHL stages, ${matchCount}/${localNames.length} local stages resolved`,
       );
       // Warm DB overrides in background so mapDealStageToGhl has them available
       loadDbStageMapOverrides().catch(() => {});
@@ -868,75 +911,21 @@ export async function getGhlPipelineStages(): Promise<{
 }
 
 /**
- * Push any local stage names that don't yet exist in GHL into the pipeline,
- * then re-run auto-alignment so all stages get a real UUID.
- * Returns how many stages were created and the updated alignment.
+ * Force a full pipeline re-sync: invalidates the cache so ensurePipeline()
+ * re-fetches from GHL and pushes any still-missing local stages automatically.
  */
 export async function syncLocalStagesToGhl(): Promise<{
-  created: number;
-  skipped: number;
-  failed: number;
+  resolved: number;
+  total: number;
   alignment: Awaited<ReturnType<typeof getGhlPipelineStages>>["alignment"];
 }> {
-  const pipelineId = await ensurePipeline();
-  if (!pipelineId || pipelineId === "default") {
-    throw new Error("GHL pipeline not available — check GHL configuration");
-  }
-
-  const localNames = Object.keys(GHL_PIPELINE_STAGE_MAP);
-  const localNameSet = new Set(localNames);
-
-  // Get current raw GHL stages from cache (entries not in localNameSet)
-  const existingGhlStages = Object.entries(cachedStageIdMap)
-    .filter(([name]) => !localNameSet.has(name))
-    .map(([name, id]) => ({ name, id }));
-
-  // Find local stages that are unmatched (no GHL UUID via auto-align or override)
-  const currentAlignment = autoAlignStages(localNames, existingGhlStages);
-  const mergedOverrides: Record<string, string> = { ...cachedDbStageMapOverrides };
-  const envRaw = process.env.GHL_STAGE_ID_MAP;
-  if (envRaw) { try { Object.assign(mergedOverrides, JSON.parse(envRaw)); } catch { /**/ } }
-
-  const unmatched = currentAlignment.filter(r => !r.ghlId && !mergedOverrides[r.localName]);
-  let created = 0;
-  let skipped = 0;
-  let failed = 0;
-
-  for (let i = 0; i < unmatched.length; i++) {
-    const localStage = unmatched[i].localName;
-    try {
-      // Try to add the stage to the existing pipeline
-      const result = await ghlFetch(`/opportunities/pipelines/${pipelineId}/stages`, {
-        method: "POST",
-        body: JSON.stringify({
-          name: localStage,
-          position: existingGhlStages.length + i,
-        }),
-      });
-      const newId = result?.stage?.id || result?.id;
-      if (newId) {
-        cachedStageIdMap[localStage] = newId;
-        // Also store under the GHL name (same in this case)
-        cachedStageIdMap[localStage] = newId;
-        created++;
-        console.log(`[GHL Sync] Created pipeline stage "${localStage}" → ${newId}`);
-      } else {
-        console.warn(`[GHL Sync] Stage creation for "${localStage}" returned no ID:`, result);
-        failed++;
-      }
-    } catch (err: any) {
-      console.warn(`[GHL Sync] Could not create stage "${localStage}":`, err.message);
-      failed++;
-    }
-  }
-
-  skipped = localNames.length - unmatched.length;
-
-  // Invalidate pipeline cache so next ensurePipeline re-fetches fresh stage list
+  // Bust the cache so ensurePipeline() does a full re-fetch + auto-push
   cachedPipelineAt = null;
-  // Re-run alignment with updated map
-  const { alignment } = await getGhlPipelineStages();
-  return { created, skipped, failed, alignment };
+  cachedStageIdMap = {};
+  await getGhlPipelineStages(); // warms everything
+  const result = await getGhlPipelineStages();
+  const resolved = result.alignment.filter(r => r.ghlId || r.override).length;
+  return { resolved, total: result.alignment.length, alignment: result.alignment };
 }
 
 export function mapDealStageToGhl(stage: string): { pipelineStageId: string; status: "open" | "won" | "lost" | "abandoned" } {

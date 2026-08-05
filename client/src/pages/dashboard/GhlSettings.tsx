@@ -295,13 +295,13 @@ export default function GhlSettings() {
   const syncStagesToGhlMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("POST", "/api/admin/ghl/sync-stages");
-      return res.json() as Promise<{ created: number; skipped: number; failed: number }>;
+      return res.json() as Promise<{ resolved: number; total: number }>;
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/ghl/pipeline-stages"] });
       toast({
-        title: "Stages Synced",
-        description: `${data.created} created in GHL, ${data.skipped} already matched, ${data.failed} failed.`,
+        title: "Pipeline Synced",
+        description: `${data.resolved}/${data.total} stages now resolved in GHL.`,
       });
     },
     onError: (err: any) => toast({ title: "Sync Failed", description: err.message || "Could not sync stages to GHL.", variant: "destructive" }),
@@ -1003,7 +1003,7 @@ export default function GhlSettings() {
                   data-testid="button-sync-stages-to-ghl"
                 >
                   {syncStagesToGhlMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <GitBranch className="w-4 h-4" />}
-                  Sync Stages to GHL
+                  Re-sync Now
                 </Button>
               )}
               {Object.keys(draftStageMap).length > 0 && (
@@ -1023,9 +1023,10 @@ export default function GhlSettings() {
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            Stages are matched automatically to your GHL pipeline by name. If any stages show as unmatched
-            (red), click <strong>Sync Stages to GHL</strong> — it pushes the missing stages directly into
-            your GHL pipeline and wires up the IDs automatically. No manual UUID entry needed.
+            Every sync cycle, any local stage that doesn't exist in GHL is automatically created there
+            so the two systems stay in lockstep. The table below shows the current resolved state.
+            Use <strong>Re-sync Now</strong> to force an immediate refresh, or paste a UUID override
+            only if you need to point a stage at a specific existing GHL stage ID.
           </p>
 
           {pipelineStages?.pipelineId && (

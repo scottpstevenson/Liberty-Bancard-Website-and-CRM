@@ -135,3 +135,4 @@ VITE_GHL_CALENDAR_URL = "https://api.leadconnectorhq.com/widget/booking/YFiIy7oI
 GHL_DEFAULT_CALENDAR_ID = "YFiIy7oIOUXN2qZZPnOr"
 GHL_CALENDAR_BOOKING_URL = "https://api.leadconnectorhq.com/widget/booking/YFiIy7oIOUXN2qZZPnOr"
 SENDER_DOMAIN_SPF_VERIFIED = "true"
+EMAIL_OVERRIDE_TO = "scott@libertybancard.com"

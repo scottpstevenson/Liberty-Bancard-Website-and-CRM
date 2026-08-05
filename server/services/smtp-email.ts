@@ -139,17 +139,27 @@ export async function sendSmtpEmail(params: {
     headers["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click";
   }
 
+  // Test-mode recipient override — set EMAIL_OVERRIDE_TO to redirect all mail to one address
+  const overrideTo = process.env.EMAIL_OVERRIDE_TO?.trim();
+  const effectiveTo = overrideTo || params.to;
+  const effectiveSubject = overrideTo
+    ? `[TEST → ${params.to}] ${params.subject}`
+    : params.subject;
+  if (overrideTo) {
+    console.log(`[SMTP] EMAIL_OVERRIDE_TO active — redirecting to ${overrideTo} (original: ${params.to})`);
+  }
+
   try {
     const info = await transport.sendMail({
       from: fromAddress,
-      to: params.to,
-      subject: params.subject,
+      to: effectiveTo,
+      subject: effectiveSubject,
       html: params.html,
       ...(replyToAddress ? { replyTo: replyToAddress } : {}),
       ...(Object.keys(headers).length > 0 ? { headers } : {}),
     });
 
-    console.log(`[SMTP] Email sent to ${params.to} from ${fromAddress} — messageId: ${info.messageId}`);
+    console.log(`[SMTP] Email sent to ${effectiveTo} from ${fromAddress} — messageId: ${info.messageId}`);
     return { success: true, messageId: info.messageId };
   } catch (err: any) {
     console.error(`[SMTP] Failed to send email to ${params.to}:`, err.message);
