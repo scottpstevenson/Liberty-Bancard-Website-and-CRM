@@ -219,6 +219,15 @@ const CASES: GuardCase[] = [
   { method: "POST", path: "/api/deals/bulk-stage",           anon: [401], merchant: [403], admin: [403], agent: [403], manager: [403], description: "deal bulk-stage (requireRole admin/manager; CSRF required — agent blocked by role gate)" },
   { method: "POST", path: "/api/tasks/bulk-assign",          anon: [401], merchant: [403], admin: [403], agent: [403], manager: [403], description: "task bulk-assign (requireRole admin/manager; CSRF required — agent blocked by role gate)" },
   { method: "POST", path: "/api/documents/bulk-delete",      anon: [401], merchant: [403], admin: [403], agent: [403], manager: [403], description: "document bulk-delete (requireRole admin/manager; CSRF required — agent blocked by role gate)" },
+
+  // ── Blocked-contact CSV export — requireRole admin/manager ──────────────────
+  // GET route: requireRole("admin","manager") applied; agent and merchant → 403.
+  // Content-type is verified separately below (must be text/csv on 200).
+  { method: "GET",  path: "/api/contacts/blocked/export-csv",          anon: [401], merchant: [403], admin: [200], agent: [403], manager: [200], description: "blocked-contact CSV export (requireRole admin/manager; agent→403)" },
+
+  // ── ZeroBounce validation history — isDashboardUser (blocks merchant) ────────
+  // GET route: isDashboardUser; agent/manager/admin pass through; contact 1 may not exist → 404.
+  { method: "GET",  path: "/api/contacts/1/zerobounce-history",         anon: [401], merchant: [403], admin: [200, 404], agent: [200, 404], manager: [200, 404], description: "ZeroBounce validation history (isDashboardUser; merchant→403)" },
 ];
 
 async function ensureAgentUser(): Promise<void> {
@@ -609,7 +618,116 @@ async function run(): Promise<void> {
     if (merchantOwnerContact !== null) await db.delete(contacts).where(eq(contacts.id, merchantOwnerContact)).catch(() => {});
   }
 
-  const totalCases = CASES.length + 2; // +1 ownership (unrelated) +1 merchant positive path
+  // ── Deal reanalyze-statement: isDashboardUser role guard (with CSRF token) ──────
+  // POST /api/deals/:id/reanalyze-statement is guarded by isDashboardUser (not requireRole).
+  // To prove the *role* gate fires (not just CSRF middleware), we fetch a real CSRF token
+  // per session so authenticated non-merchant users can reach the guard and get a
+  // meaningful application response (404 when the deal does not exist) rather than a
+  // blanket CSRF 403.
+  // Expected: anon→401, merchant→403, agent/admin/manager→non-401/403 (404 or 202/429/503).
+  console.log("\n── Deal reanalyze-statement: isDashboardUser role guard (CSRF-aware) ──");
+  try {
+    // Fetch a CSRF token for a given session; capture the csrf_token cookie too.
+    async function getCsrfForSession(sessionCookie: string): Promise<{ csrfToken: string; fullCookie: string }> {
+      const r = await fetch(`${BASE_URL}/api/csrf-token`, { headers: { cookie: sessionCookie } });
+      const body = (await r.json()) as { token: string };
+      // Merge the csrf_token Set-Cookie value into the session cookie string.
+      const rawHeaders = r.headers as unknown as { getSetCookie?: () => string[] };
+      const setCookieArr: string[] = typeof rawHeaders.getSetCookie === "function"
+        ? rawHeaders.getSetCookie()
+        : [r.headers.get("set-cookie") ?? ""];
+      const csrfCookiePart = setCookieArr
+        .map((c) => c.split(";")[0].trim())
+        .filter((c) => c.startsWith("csrf_token="))
+        .join("; ");
+      const fullCookie = csrfCookiePart ? `${sessionCookie}; ${csrfCookiePart}` : sessionCookie;
+      return { csrfToken: body.token, fullCookie };
+    }
+
+    const [adminCsrf, merchantCsrf, agentCsrf, managerCsrf] = await Promise.all([
+      getCsrfForSession(adminCookie),
+      getCsrfForSession(merchantCookie),
+      getCsrfForSession(agentCookie),
+      getCsrfForSession(managerCookie),
+    ]);
+
+    const REANALYZE_PATH = "/api/deals/1/reanalyze-statement";
+    // Permitted application responses: the role gate passed and the handler ran.
+    // Deal #1 likely does not exist in the test DB → 404.  Other valid outcomes:
+    // 202 (queued), 429 (rate-limited), 503 (queue unavailable).
+    const PERMITTED = [202, 404, 429, 503];
+
+    const [anonStatus, merchantStatus, agentStatus, adminStatus, managerStatus] =
+      await Promise.all([
+        // Anon — no cookie, no CSRF token → isAuthenticated fires → 401
+        fetch(`${BASE_URL}${REANALYZE_PATH}`, { method: "POST" }).then((r) => r.status),
+        // Merchant — isDashboardUser blocks → 403
+        fetch(`${BASE_URL}${REANALYZE_PATH}`, {
+          method: "POST",
+          headers: { cookie: merchantCsrf.fullCookie, "x-csrf-token": merchantCsrf.csrfToken },
+        }).then((r) => r.status),
+        // Agent — isDashboardUser permits → handler response
+        fetch(`${BASE_URL}${REANALYZE_PATH}`, {
+          method: "POST",
+          headers: { cookie: agentCsrf.fullCookie, "x-csrf-token": agentCsrf.csrfToken },
+        }).then((r) => r.status),
+        // Admin — isDashboardUser permits → handler response
+        fetch(`${BASE_URL}${REANALYZE_PATH}`, {
+          method: "POST",
+          headers: { cookie: adminCsrf.fullCookie, "x-csrf-token": adminCsrf.csrfToken },
+        }).then((r) => r.status),
+        // Manager — isDashboardUser permits → handler response
+        fetch(`${BASE_URL}${REANALYZE_PATH}`, {
+          method: "POST",
+          headers: { cookie: managerCsrf.fullCookie, "x-csrf-token": managerCsrf.csrfToken },
+        }).then((r) => r.status),
+      ]);
+
+    const anonOk    = anonStatus    === 401;
+    const merchantOk = merchantStatus === 403;
+    const agentOk   = PERMITTED.includes(agentStatus);
+    const adminOk   = PERMITTED.includes(adminStatus);
+    const managerOk = PERMITTED.includes(managerStatus);
+    const allOk = anonOk && merchantOk && agentOk && adminOk && managerOk;
+
+    if (allOk) {
+      console.log(
+        `✓ POST ${REANALYZE_PATH}: anon→${anonStatus}(401✓)  merchant→${merchantStatus}(403✓)  ` +
+        `agent→${agentStatus}(✓)  admin→${adminStatus}(✓)  manager→${managerStatus}(✓)`
+      );
+    } else {
+      if (!anonOk)    { console.log(`  ✗ anon→${anonStatus} (expected 401)`);                                         failures++; }
+      if (!merchantOk){ console.log(`  ✗ merchant→${merchantStatus} (expected 403 from isDashboardUser)`);            failures++; }
+      if (!agentOk)   { console.log(`  ✗ agent→${agentStatus} (expected ${PERMITTED.join("/")} — role gate must pass)`); failures++; }
+      if (!adminOk)   { console.log(`  ✗ admin→${adminStatus} (expected ${PERMITTED.join("/")} — role gate must pass)`);  failures++; }
+      if (!managerOk) { console.log(`  ✗ manager→${managerStatus} (expected ${PERMITTED.join("/")} — role gate must pass)`); failures++; }
+    }
+  } catch (err) {
+    console.log(`✗ reanalyze-statement CSRF test threw: ${err instanceof Error ? err.message : String(err)}`);
+    failures++;
+  }
+
+  // ── Blocked-contact CSV export: Content-Type header ─────────────────────────
+  // The route must set Content-Type: text/csv (not application/json or text/html).
+  // Verified independently because the CASES loop only inspects status codes.
+  console.log("\n── Blocked-contact CSV export: Content-Type header ──");
+  try {
+    const csvRes = await fetch(`${BASE_URL}/api/contacts/blocked/export-csv`, {
+      headers: { cookie: adminCookie },
+    });
+    const ct = csvRes.headers.get("content-type") ?? "";
+    if (ct.startsWith("text/csv")) {
+      console.log(`✓ Content-Type: ${ct}`);
+    } else {
+      console.log(`✗ Content-Type: ${ct} (expected text/csv)`);
+      failures++;
+    }
+  } catch (err) {
+    console.log(`✗ CSV export content-type check threw: ${err instanceof Error ? err.message : String(err)}`);
+    failures++;
+  }
+
+  const totalCases = CASES.length + 4; // +1 ownership (unrelated) +1 merchant positive path +1 reanalyze CSRF +1 CSV content-type
   const totalPassed = totalCases - failures;
   console.log(`\n${totalPassed}/${totalCases} guarded routes/tests passed.`);
   process.exit(failures === 0 ? 0 : 1);

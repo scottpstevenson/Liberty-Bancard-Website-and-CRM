@@ -48,6 +48,7 @@ if (process.argv.includes("--help") || process.argv.includes("-h")) {
   process.exit(0);
 }
 
+
 const BASE_URL = process.env.BASE_URL ?? "http://localhost:5000";
 
 if (!process.env.ADMIN_SEED_EMAIL || !process.env.ADMIN_SEED_PASSWORD) {
