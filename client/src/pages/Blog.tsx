@@ -24,9 +24,11 @@ export default function Blog() {
 
   const combinedPosts = useMemo(() => {
     const dbPosts = (publishedPosts || []).map(dbPostToBlogPost);
-    const staticSlugs = new Set(allBlogPosts.map(p => p.slug));
-    const uniqueDbPosts = dbPosts.filter(p => !staticSlugs.has(p.slug));
-    return [...allBlogPosts, ...uniqueDbPosts];
+    // DB posts are the source of truth — build a slug set from them first
+    const dbSlugs = new Set(dbPosts.map(p => p.slug));
+    // Keep static posts only when there is no DB version for that slug
+    const staticOnly = allBlogPosts.filter(p => !dbSlugs.has(p.slug));
+    return [...dbPosts, ...staticOnly];
   }, [publishedPosts]);
 
   const allCategories = useMemo(() => {

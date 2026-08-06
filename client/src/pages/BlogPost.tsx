@@ -112,9 +112,9 @@ export default function BlogPost() {
   const params = useParams<{ slug: string }>();
   const staticPost = allBlogPosts.find((p) => p.slug === params.slug);
 
+  // Always fetch published posts so a DB version can override a matching static post
   const { data: dbPost, isLoading } = useQuery<GeneratedBlogPostResponse[], Error, BlogPostType | null>({
     queryKey: ["/api/blog/generated/published"],
-    enabled: !staticPost,
     select: (data: GeneratedBlogPostResponse[]) => {
       const found = data?.find((p) => p.slug === params.slug);
       if (!found) return null;
@@ -122,8 +122,10 @@ export default function BlogPost() {
     },
   });
 
-  const post = staticPost || dbPost;
+  // DB post takes precedence; fall back to static only when no DB version exists
+  const post = dbPost || staticPost;
 
+  // Show spinner only when there is no static fallback and we are still fetching
   if (!post && isLoading) {
     return (
       <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
