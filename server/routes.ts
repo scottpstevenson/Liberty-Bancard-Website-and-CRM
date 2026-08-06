@@ -56,6 +56,7 @@ import { registerUnderwritingRoutes } from "./routes/underwriting";
 import { registerConversationAiConfigRoutes } from "./routes/conversation-ai-config";
 import { registerRegistryImportRoutes } from "./routes/registry-import";
 import { registerSystemAuditRoutes } from "./routes/system-audit";
+import { registerExecutiveRoutes } from "./routes/executive";
 import { registerWizardRoutes } from "./routes/wizard";
 import { registerGmailOAuthRoutes } from "./routes/gmail-oauth";
 import { registerChatAssistantRoutes } from "./routes/chat-assistant";
@@ -190,6 +191,7 @@ export async function registerRoutes(
   registerConversationAiConfigRoutes(app);
   registerRegistryImportRoutes(app);
   registerSystemAuditRoutes(app);
+  registerExecutiveRoutes(app);
   registerWizardRoutes(app);
   registerGmailOAuthRoutes(app);
   registerChatAssistantRoutes(app);

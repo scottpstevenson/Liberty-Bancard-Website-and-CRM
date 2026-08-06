@@ -12,7 +12,9 @@ import { trackPhoneCallClick } from "@/lib/analytics";
 import { buildAttributedBookingUrl } from "@/lib/utm";
 
 const solutionLinks = [
-  { name: "Liberty Zero™ — Pay $0 to Process", href: "/0-percent-processing", featured: true },
+  { name: "Cash Discount — Pay $0 to Process", href: "/0-percent-processing", featured: true },
+  { name: "Compliant Surcharging", href: "/0-percent-processing", featured: true },
+  { name: "Interchange Plus — Lower Your Rate", href: "/compare-rates", featured: false },
   { name: "Beat Square & Stripe", href: "/beat-square-stripe", featured: false },
   { name: "Payment Terminals & Equipment", href: "/shop", featured: false },
   { name: "Upload Statement", href: "/upload-statement", featured: false },

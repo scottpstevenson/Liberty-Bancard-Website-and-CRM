@@ -21,6 +21,7 @@ export const QUEUE_NAMES = {
   ENROLLMENT_RECOVERY: "enrollment-recovery",
   GHL_ENROLLMENT_RECOVERY: "ghl-enrollment-recovery",
   HEALTH_MONITOR: "health-monitor",
+  EXECUTIVE_SNAPSHOT: "executive-snapshot",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -131,6 +132,17 @@ const QUEUE_CONFIGS: QueueConfig[] = [
     attempts: 3,
     backoffDelay: 60000,
     repeatEveryMs: 24 * 60 * 60 * 1000,
+    jobName: "run",
+  },
+  {
+    name: QUEUE_NAMES.EXECUTIVE_SNAPSHOT,
+    // concurrency=1: Monday 12 PM UTC (7 AM ET) weekly KPI snapshot + AI briefings.
+    // Override with EXEC_SNAPSHOT_CRON env var.
+    concurrency: 1,
+    attempts: 2,
+    backoffDelay: 60000,
+    repeatEveryMs: 7 * 24 * 60 * 60 * 1000,
+    cronPattern: process.env.EXEC_SNAPSHOT_CRON ?? "0 12 * * 1",
     jobName: "run",
   },
   {
@@ -697,6 +709,17 @@ class QueueManager {
             const { runAbandonedStatementCheck } = await import("./abandoned-statement-worker");
             await runAbandonedStatementCheck();
           }
+          break;
+        }
+        case QUEUE_NAMES.EXECUTIVE_SNAPSHOT: {
+          const { computeExecSnapshot, persistSnapshot } = await import("./executive-kpi");
+          const { generateGptBriefing, generateClaudeCoaching } = await import("./executive-ai");
+          const snap = await computeExecSnapshot(new Date());
+          const [gptBriefing, claudeCoaching] = await Promise.all([
+            generateGptBriefing(snap),
+            generateClaudeCoaching(snap),
+          ]);
+          await persistSnapshot(snap, gptBriefing, claudeCoaching);
           break;
         }
         case QUEUE_NAMES.SYSTEM_AUDIT: {

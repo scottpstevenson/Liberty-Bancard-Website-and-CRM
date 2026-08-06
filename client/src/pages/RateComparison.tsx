@@ -136,7 +136,7 @@ const featureRows: { label: string; key: keyof typeof processors[0]; tooltip?: s
   { label: "Dedicated Human Support", key: "dedicatedSupport" },
   { label: "Free Statement Review", key: "statementReview" },
   { label: "Free Terminal*", key: "freeTerminal" },
-  { label: "Liberty Zero™ Program*", key: "cashDiscount" },
+  { label: "Cash Discount / Surcharging*", key: "cashDiscount" },
   { label: "Interchange Passthrough", key: "transparentPricing" },
   { label: "Guided Onboarding", key: "onboardingSupport" },
 ];

@@ -119,13 +119,13 @@ export default function ZeroPercent() {
                   className="text-4xl md:text-5xl font-display font-bold text-white leading-tight mb-6"
                   data-testid="text-zero-heading"
                 >
-                  Accept Credit Cards.<br /><span className="text-sky-400">Explore the Liberty Zero™ Fee-Offset Program.</span>
+                  Pay $0 to Accept Cards.<br /><span className="text-sky-400">Cash Discount & Compliant Surcharging.</span>
                 </h1>
                 <p
                   className="text-lg text-white/75 mb-4 leading-relaxed"
                   data-testid="text-zero-subheadline"
                 >
-                  Liberty Zero is our branded fee-offset program. Instead of paying 2–3% on every card transaction, that cost shifts to the card-paying customer through a transparent service fee at checkout — with proper disclosures and full compliance handled by us.
+                  Two legal paths. One outcome: your processing fees go to $0. <strong className="text-white/90">Cash discount</strong> posts a lower price for cash customers (legal in all 50 states). <strong className="text-white/90">Compliant surcharging</strong> adds a disclosed fee on eligible credit card transactions where state law permits. We determine the right fit, handle every compliance requirement, and get you set up correctly from day one.
                 </p>
                 <p className="text-lg text-white/90 font-medium mb-8" data-testid="text-zero-wallet-impact">
                   For a merchant processing $10,000/month, that's $250–$350 back in your pocket. Every month.
@@ -204,10 +204,10 @@ export default function ZeroPercent() {
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="reveal text-center mb-12">
               <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4" data-testid="text-how-heading">
-                How Liberty Zero Works
+                Two Programs. Both Get You to $0.
               </h2>
               <p className="text-muted-foreground max-w-2xl mx-auto">
-                There are two compliant structures. We recommend the right one for your business — you don't have to figure it out alone.
+                Cash Discount and Compliant Surcharging are distinct programs with different rules. We recommend the right one based on your state, card mix, and business type — then handle every compliance detail.
               </p>
             </div>
             <div className="reveal grid grid-cols-1 md:grid-cols-2 gap-8 max-w-4xl mx-auto">

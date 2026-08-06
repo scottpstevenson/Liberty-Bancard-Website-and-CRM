@@ -898,53 +898,54 @@ export default function Home() {
           <div className="hidden md:block absolute top-0 left-0 right-0 h-[3px] bg-accent" aria-hidden="true" />
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <h2 className="reveal text-3xl md:text-4xl font-display font-bold text-foreground md:text-white text-center mb-4" data-testid="text-choose-path-heading">
-              Choose the Strategy That Fits
+              Three Proven Ways to Cut Your Processing Costs
             </h2>
-            <p className="text-center text-muted-foreground md:text-white/70 mb-12 max-w-xl mx-auto">Every business is different. Here are the most common paths our merchants take.</p>
+            <p className="text-center text-muted-foreground md:text-white/70 mb-12 max-w-xl mx-auto">Cash Discount and Compliant Surcharging can bring your fees to $0. Interchange Plus delivers the best rate if you prefer to keep things simple.</p>
             {/* Mobile: Accordion — Upload-focused, collapsed by default except Wholesale */}
             <Accordion type="single" collapsible defaultValue="wholesale" className="md:hidden rounded-lg border border-border overflow-hidden" data-testid="accordion-choose-path">
-              <AccordionItem value="wholesale" className="border-b border-border last:border-0" data-testid="card-wholesale-mobile">
+              <AccordionItem value="cash-discount" className="border-b border-border last:border-0" data-testid="card-cash-discount-mobile">
                 <AccordionTrigger className="px-4 py-3 hover:no-underline [&>svg]:shrink-0">
                   <div className="text-left mr-2">
                     <div className="flex items-center gap-2 mb-1">
-                      <span className="bg-primary text-primary-foreground text-[10px] font-semibold px-2 py-0.5 rounded">Most Popular</span>
+                      <span className="bg-emerald-600 text-white text-[10px] font-semibold px-2 py-0.5 rounded">Most Popular</span>
+                      <span className="text-[10px] text-muted-foreground">All 50 States</span>
                     </div>
-                    <div className="font-display font-semibold text-foreground">Wholesale / Interchange-Plus</div>
-                    <div className="text-xs text-muted-foreground font-normal mt-0.5">Transparent fee on top of interchange — see every penny of markup</div>
+                    <div className="font-display font-semibold text-foreground">Cash Discount</div>
+                    <div className="text-xs text-muted-foreground font-normal mt-0.5">Post a cash price — card customers pay a small service fee that covers your processing</div>
                   </div>
                 </AccordionTrigger>
                 <AccordionContent className="px-4 pb-4">
-                  <p className="text-sm text-muted-foreground mb-4">Real interchange passthrough — transparent fee on top, no bundled tiers, no guesswork on every line.</p>
-                  <Link href="/upload-statement" data-testid="link-wholesale-cta-mobile">
-                    <Button className="gap-2 w-full">Run My Review <ArrowRight className="w-4 h-4" /></Button>
+                  <p className="text-sm text-muted-foreground mb-4">Your posted price is the cash price. Card-paying customers see a slightly higher price that covers your processing cost. Legal in all 50 states with proper signage and receipts.*</p>
+                  <Link href="/0-percent-processing" data-testid="link-cash-discount-cta-mobile">
+                    <Button className="gap-2 w-full">Check Cash Discount Fit <ArrowRight className="w-4 h-4" /></Button>
                   </Link>
                 </AccordionContent>
               </AccordionItem>
-              <AccordionItem value="zero-percent" className="border-b border-border last:border-0" data-testid="card-zero-percent-mobile">
+              <AccordionItem value="surcharging" className="border-b border-border last:border-0" data-testid="card-surcharging-mobile">
                 <AccordionTrigger className="px-4 py-3 hover:no-underline [&>svg]:shrink-0">
                   <div className="text-left mr-2">
-                    <div className="font-display font-semibold text-foreground">Compliant 0% Programs*</div>
-                    <div className="text-xs text-muted-foreground font-normal mt-0.5">Pass fees to the cardholder where permitted by law and card brand rules</div>
+                    <div className="font-display font-semibold text-foreground">Compliant Surcharging</div>
+                    <div className="text-xs text-muted-foreground font-normal mt-0.5">Add a disclosed credit card fee at checkout — permitted in most states</div>
                   </div>
                 </AccordionTrigger>
                 <AccordionContent className="px-4 pb-4">
-                  <p className="text-sm text-muted-foreground mb-4">Cash discount or surcharging where permitted — proper disclosures, receipts, and staff scripts included.*</p>
-                  <Link href="/0-percent-processing" data-testid="link-zero-percent-cta-mobile">
-                    <Button variant="outline" className="gap-2 w-full">Check 0% Fit <ArrowRight className="w-4 h-4" /></Button>
+                  <p className="text-sm text-muted-foreground mb-4">A transparent service fee on eligible credit card transactions is shown at checkout. We handle state eligibility, card brand registration, receipts, and signage.*</p>
+                  <Link href="/0-percent-processing" data-testid="link-surcharging-cta-mobile">
+                    <Button variant="outline" className="gap-2 w-full">Check Surcharging Fit <ArrowRight className="w-4 h-4" /></Button>
                   </Link>
                 </AccordionContent>
               </AccordionItem>
-              <AccordionItem value="terminal" className="border-b border-border last:border-0" data-testid="card-terminal-mobile">
+              <AccordionItem value="interchange-plus" className="border-b border-border last:border-0" data-testid="card-interchange-plus-mobile">
                 <AccordionTrigger className="px-4 py-3 hover:no-underline [&>svg]:shrink-0">
                   <div className="text-left mr-2">
-                    <div className="font-display font-semibold text-foreground">Liberty Smart Terminal</div>
-                    <div className="text-xs text-muted-foreground font-normal mt-0.5">Modern checkout with guided onboarding and dedicated support</div>
+                    <div className="font-display font-semibold text-foreground">Interchange Plus</div>
+                    <div className="text-xs text-muted-foreground font-normal mt-0.5">Just want a better rate? Pay actual interchange cost + a small transparent markup</div>
                   </div>
                 </AccordionTrigger>
                 <AccordionContent className="px-4 pb-4">
-                  <p className="text-sm text-muted-foreground mb-4">Tap, dip, swipe, and key entry — free for qualifying merchants, same-day setup when eligible.*</p>
-                  <Link href="/upload-statement?terminal=yes" data-testid="link-terminal-cta-mobile">
-                    <Button variant="outline" className="gap-2 w-full">Check Eligibility <ArrowRight className="w-4 h-4" /></Button>
+                  <p className="text-sm text-muted-foreground mb-4">No bundled tiers. No mystery fees. You see every penny of markup — most merchants save 30–50% vs. Square or Stripe without changing how they take payment.*</p>
+                  <Link href="/compare-rates" data-testid="link-interchange-cta-mobile">
+                    <Button variant="outline" className="gap-2 w-full">Compare My Rates <ArrowRight className="w-4 h-4" /></Button>
                   </Link>
                 </AccordionContent>
               </AccordionItem>
@@ -952,20 +953,77 @@ export default function Home() {
 
             {/* Desktop: three-column Card grid — unchanged */}
             <div className="reveal hidden md:grid md:grid-cols-3 gap-6 items-stretch">
-              <Card className="relative overflow-visible h-full flex flex-col border-primary/40 shadow-card-hover" data-testid="card-wholesale">
+              <Card className="relative overflow-visible h-full flex flex-col border-emerald-500/40 shadow-card-hover" data-testid="card-cash-discount">
                 <div className="absolute -top-3 left-4">
-                  <span className="bg-primary text-primary-foreground text-xs font-semibold px-3 py-1 rounded-md">Most Popular</span>
+                  <span className="bg-emerald-600 text-white text-xs font-semibold px-3 py-1 rounded-md">Most Popular</span>
                 </div>
                 <CardHeader className="gap-1">
-                  <span className="report-chip report-chip-neutral w-fit">Best For: High-volume, transparency-first</span>
-                  <CardTitle className="text-lg">Wholesale / Interchange-Plus</CardTitle>
-                  <CardDescription>See every penny of markup. Pay interchange + a transparent fee.</CardDescription>
+                  <span className="report-chip report-chip-neutral w-fit">All 50 States · Brick & Mortar</span>
+                  <CardTitle className="text-lg">Cash Discount</CardTitle>
+                  <CardDescription>Post a cash price. Card customers pay a small service fee — your processing cost disappears.</CardDescription>
+                </CardHeader>
+                <CardContent className="flex-1">
+                  <ul className="space-y-2 text-sm text-muted-foreground">
+                    <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> Legal in all 50 states</li>
+                    <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> Compliant signage + receipts provided</li>
+                    <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> Staff script included</li>
+                  </ul>
+                  <div className="mt-4 rounded-md border border-border bg-card px-3 py-2">
+                    <div className="text-xs uppercase tracking-wider text-muted-foreground">Result</div>
+                    <div className="num text-sm font-semibold text-emerald-600">$0 in processor fees*</div>
+                  </div>
+                </CardContent>
+                <CardFooter>
+                  <Link href="/0-percent-processing" data-testid="link-cash-discount-cta">
+                    <Button className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600">
+                      Check My Eligibility
+                      <ArrowRight className="w-4 h-4" />
+                    </Button>
+                  </Link>
+                </CardFooter>
+              </Card>
+
+              <Card className="relative overflow-visible h-full flex flex-col border-sky-500/30" data-testid="card-surcharging">
+                <div className="absolute -top-3 left-4">
+                  <span className="bg-sky-600 text-white text-xs font-semibold px-3 py-1 rounded-md">Most States</span>
+                </div>
+                <CardHeader className="gap-1">
+                  <span className="report-chip report-chip-neutral w-fit">B2B · Professional Services · High Ticket</span>
+                  <CardTitle className="text-lg">Compliant Surcharging</CardTitle>
+                  <CardDescription>Add a disclosed credit card fee at checkout. We handle registration, receipts, and compliance.</CardDescription>
+                </CardHeader>
+                <CardContent className="flex-1">
+                  <ul className="space-y-2 text-sm text-muted-foreground">
+                    <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> Visa & Mastercard registration handled</li>
+                    <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> State eligibility verified before setup</li>
+                    <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> Receipt & signage requirements met</li>
+                  </ul>
+                  <div className="mt-4 rounded-md border border-border bg-card px-3 py-2">
+                    <div className="text-xs uppercase tracking-wider text-muted-foreground">Result</div>
+                    <div className="num text-sm font-semibold text-sky-600">$0 in processor fees*</div>
+                  </div>
+                </CardContent>
+                <CardFooter>
+                  <Link href="/0-percent-processing" data-testid="link-surcharging-cta">
+                    <Button variant="outline" className="gap-2 border-sky-500/50 text-sky-700 hover:bg-sky-50 dark:text-sky-400 dark:hover:bg-sky-950/20">
+                      Check Surcharging Fit
+                      <ArrowRight className="w-4 h-4" />
+                    </Button>
+                  </Link>
+                </CardFooter>
+              </Card>
+
+              <Card className="h-full flex flex-col" data-testid="card-interchange-plus">
+                <CardHeader className="gap-1">
+                  <span className="report-chip report-chip-neutral w-fit">Just want a better rate? Start here.</span>
+                  <CardTitle className="text-lg">Interchange Plus</CardTitle>
+                  <CardDescription>Pay actual card-network cost + a small transparent markup. No bundled tiers, no mystery fees.</CardDescription>
                 </CardHeader>
                 <CardContent className="flex-1">
                   <ul className="space-y-2 text-sm text-muted-foreground">
                     <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> Real interchange passthrough</li>
-                    <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> No bundled "qualified" tiers</li>
-                    <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> Full cost transparency</li>
+                    <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> Full statement transparency</li>
+                    <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> Save 30–50% vs. Square/Stripe*</li>
                   </ul>
                   <div className="mt-4 rounded-md border border-border bg-card px-3 py-2">
                     <div className="text-xs uppercase tracking-wider text-muted-foreground">Illustrative structure</div>
@@ -973,68 +1031,9 @@ export default function Home() {
                   </div>
                 </CardContent>
                 <CardFooter>
-                  <Link href="/upload-statement" data-testid="link-wholesale-cta">
-                    <Button className="gap-2">
-                      Run My Review
-                      <ArrowRight className="w-4 h-4" />
-                    </Button>
-                  </Link>
-                </CardFooter>
-              </Card>
-
-              <Card className="h-full flex flex-col" data-testid="card-zero-percent">
-                <CardHeader className="gap-1">
-                  <span className="report-chip report-chip-neutral w-fit">Best For: Offsetting processing costs</span>
-                  <CardTitle className="text-lg">Compliant 0% Programs*</CardTitle>
-                  <CardDescription>Pass fees to the cardholder where permitted by law and card brand rules.</CardDescription>
-                </CardHeader>
-                <CardContent className="flex-1">
-                  <ul className="space-y-2 text-sm text-muted-foreground">
-                    <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> Cash discount or surcharging</li>
-                    <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> Proper disclosures + receipts</li>
-                    <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> Staff scripts included</li>
-                  </ul>
-                  <div className="mt-4 grid grid-cols-2 gap-2">
-                    <div className="rounded-md border border-border bg-card px-2 py-2 text-center">
-                      <div className="text-xs font-semibold text-foreground">Cash Discount</div>
-                      <div className="text-[11px] text-muted-foreground">Lower posted price for cash</div>
-                    </div>
-                    <div className="rounded-md border border-border bg-card px-2 py-2 text-center">
-                      <div className="text-xs font-semibold text-foreground">Surcharging</div>
-                      <div className="text-[11px] text-muted-foreground">Card fee where permitted</div>
-                    </div>
-                  </div>
-                </CardContent>
-                <CardFooter>
-                  <Link href="/0-percent-processing" data-testid="link-zero-percent-cta">
+                  <Link href="/compare-rates" data-testid="link-interchange-cta">
                     <Button variant="outline" className="gap-2">
-                      Check 0% Fit
-                      <ArrowRight className="w-4 h-4" />
-                    </Button>
-                  </Link>
-                </CardFooter>
-              </Card>
-
-              <Card className="relative overflow-visible h-full flex flex-col" data-testid="card-terminal">
-                <CardHeader className="gap-1">
-                  <span className="report-chip report-chip-neutral w-fit">Best For: Modern in-person checkout</span>
-                  <CardTitle className="text-lg">Liberty Smart Terminal</CardTitle>
-                  <CardDescription>Modern checkout with guided onboarding and dedicated support.</CardDescription>
-                </CardHeader>
-                <CardContent className="flex-1">
-                  <div className="rounded-md overflow-hidden mb-3">
-                    <img src={imgCloverFlex3} alt="Clover Flex 3 payment terminal" className="w-full h-32 object-contain bg-muted/50 p-2" loading="lazy" width="400" height="128" data-testid="img-home-terminal" />
-                  </div>
-                  <ul className="space-y-2 text-sm text-muted-foreground">
-                    <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> Tap, dip, swipe, manual key</li>
-                    <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> Free for qualifying merchants*</li>
-                    <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> Same-day setup when eligible</li>
-                  </ul>
-                </CardContent>
-                <CardFooter>
-                  <Link href="/upload-statement?terminal=yes" data-testid="link-terminal-cta">
-                    <Button variant="outline" className="gap-2">
-                      Check Eligibility
+                      Compare My Rates
                       <ArrowRight className="w-4 h-4" />
                     </Button>
                   </Link>
