@@ -12,7 +12,8 @@ import { computeOrderEconomics } from "../services/terminal-economics";
 import { syncMerchantApplicationToGhl } from "../services/ghl-form-sync";
 import { enrollInGhlWorkflow } from "../services/ghl-workflows";
 import { createContactGhlFirst } from "../services/contact-writer";
-import { sendMerchantWelcomeEmail, sendMerchantPortalWelcomeEmail } from "../services/merchant-welcome";
+import { sendMerchantPortalWelcomeEmail } from "../services/merchant-welcome";
+import { advanceDealStage } from "../services/deal-stage-service";
 import { sendApplicationApprovedEmail, sendApplicationDeclinedEmail } from "../services/merchant-application-status";
 import { scanApplicationRisk } from "../services/relationship-extractor";
 import { recordPewcDecision } from "../services/consent-evidence";
@@ -698,24 +699,11 @@ export function registerMerchantsRoutes(app: Express) {
       }
 
       if (wasApproved && updated.dealId) {
-        (async () => {
-          try {
-            const deal = await storage.getDeal(updated.dealId!);
-            if (deal && deal.stage !== "Closed Won") {
-              const closedDeal = await storage.updateDeal(updated.dealId!, { stage: "Closed Won" });
-              if (closedDeal && closedDeal.contactId) {
-                const contact = await storage.getContact(closedDeal.contactId);
-                if (contact?.ghlContactId) {
-                  sendMerchantWelcomeEmail(contact, closedDeal).catch((err) =>
-                    console.error("[Application Approval] Merchant welcome email error:", err)
-                  );
-                }
-              }
-            }
-          } catch (err) {
-            console.error("[Application Approval] Deal advancement error:", err);
-          }
-        })();
+        // Route the stage transition through the service so the Closed Won onboarding kickoff
+        // (onboarding deal + SLA tasks + GHL merchant welcome) fires automatically.
+        advanceDealStage(updated.dealId, "Closed Won", "merchant_approval").catch((err: Error) =>
+          console.error("[Application Approval] Deal stage advancement error:", err.message)
+        );
       }
 
       res.json(updated);

@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, boolean, timestamp, jsonb, varchar, real, numeric, index, uniqueIndex, unique, date, uuid, check } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, jsonb, varchar, real, numeric, index, uniqueIndex, unique, date, uuid, check, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -354,6 +354,10 @@ export const deals = pgTable("deals", {
   vertical: text("vertical"),
   autoEnrollmentSuppressedAt: timestamp("auto_enrollment_suppressed_at"),
   autoEnrollmentSuppressedReason: text("auto_enrollment_suppressed_reason"),
+  // ── Onboarding linkage ───────────────────────────────────────────────────
+  // Set on onboarding pipeline deals to point back to the sales deal that
+  // triggered the Closed Won → Onboarding auto-kickoff.
+  salesDealId: integer("sales_deal_id").references((): AnyPgColumn => deals.id),
   // ── Google Ads attribution ────────────────────────────────────────────────
   attributionGclid: text("attribution_gclid"),
   attributionSource: text("attribution_source"),
@@ -367,6 +371,7 @@ export const deals = pgTable("deals", {
   index("deals_stage_idx").on(table.stage),
   index("deals_pipeline_stage_idx").on(table.pipeline, table.stage),
   index("deals_created_at_idx").on(table.createdAt),
+  index("deals_sales_deal_id_idx").on(table.salesDealId),
 ]);
 
 export const insertDealSchema = createInsertSchema(deals).omit({

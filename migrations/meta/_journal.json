@@ -680,6 +680,27 @@
       "when": 1788800000000,
       "tag": "0096_residual_partner_commission",
       "breakpoints": true
+    },
+    {
+      "idx": 97,
+      "version": "7",
+      "when": 1789000000000,
+      "tag": "0095_closed_won_onboarding",
+      "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1789100000000,
+      "tag": "0096_onboarding_deal_unique",
+      "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1789200000000,
+      "tag": "0097_onboarding_sla_task_unique",
+      "breakpoints": true
     }
   ]
 }

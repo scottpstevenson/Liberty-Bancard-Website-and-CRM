@@ -2,8 +2,8 @@ import type { Express } from "express";
 import { isAuthenticated, isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { db } from "../db";
-import { tasks, statementProposals } from "@shared/schema";
-import { eq, and, isNull, desc } from "drizzle-orm";
+import { statementProposals } from "@shared/schema";
+import { eq, desc } from "drizzle-orm";
 import { z } from "zod";
 import { contacts, insertDealCompetitorSchema, insertDealSchema, insertPipelineStageSchema, insertStageAutomationRuleSchema } from "@shared/schema";
 import { autoEnrollFromTrigger } from "../services/sequence-worker";
@@ -13,9 +13,7 @@ import { generateDealBlueprint } from "../services/deal-blueprint";
 import { estimateFromContact, estimateFromDeal, estimateFromProspect } from "../services/volume-estimator";
 import { createPreferenceAwareNotification, sendCriticalEmailNotification } from "../services/digest-service";
 import { sendGhlEmailForMerchant, isGhlConfigured } from "../services/ghl";
-import { syncDealToGhl } from "../services/ghl-sync";
 import { advanceDealStage } from "../services/deal-stage-service";
-import { sendMerchantWelcomeEmail } from "../services/merchant-welcome";
 import { updateContactGhlFirst } from "../services/contact-writer";
 import { parse } from "csv-parse/sync";
 import path from "path";
@@ -69,10 +67,34 @@ export function registerDealsRoutes(app: Express) {
 
   app.put("/api/deals/:id", isDashboardUser, async (req, res) => {
     try {
-      const old = await storage.getDeal(Number(req.params.id));
-      const updated = await storage.updateDeal(Number(req.params.id), req.body, { userId: (req.user as any)?.id ?? null });
-      if (!updated) return res.status(404).json({ message: "Not found" });
-      if (old && old.stage !== updated.stage) {
+      const dealId = Number(req.params.id);
+      const userId = (req.user as any)?.id ?? null;
+      const old = await storage.getDeal(dealId);
+      if (!old || old.archivedAt) return res.status(404).json({ message: "Not found" });
+
+      // Split stage from the rest so stage transitions always go through the service layer,
+      // which guarantees GHL sync + Closed Won onboarding kickoff for every code path.
+      const { stage: newStageRaw, ...otherFields } = req.body as Record<string, unknown>;
+      const newStage = typeof newStageRaw === "string" ? newStageRaw : undefined;
+      const stageChanging = newStage !== undefined && newStage !== old.stage;
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let updated: any;
+      if (!stageChanging) {
+        // No stage change — apply the full body update directly
+        updated = await storage.updateDeal(dealId, req.body, { userId });
+        if (!updated) return res.status(404).json({ message: "Not found" });
+      } else {
+        // Stage is changing — apply non-stage field changes first (if any), then route the
+        // stage transition through advanceDealStage (handles GHL sync + Closed Won kickoff).
+        if (Object.keys(otherFields).length > 0) {
+          await storage.updateDeal(dealId, otherFields, { userId });
+        }
+        updated = await advanceDealStage(dealId, newStage!, "put_route");
+        if (!updated) return res.status(404).json({ message: "Not found" });
+      }
+
+      if (stageChanging) {
         await storage.createAuditLog({ action: "deal_stage_changed", entityType: "deal", entityId: updated.id, details: { from: old.stage, to: updated.stage } });
         await createPreferenceAwareNotification({ channel: "internal", title: "Deal Stage Changed", message: `Deal #${updated.id} moved from "${old.stage}" to "${updated.stage}"`, type: "info", metadata: { dealId: updated.id, eventType: "deal_stage_changed" } }, "deal_stage_changed");
         sendPushToAllReps({ title: "Deal Stage Changed", body: `Deal #${updated.id} moved from "${old.stage}" → "${updated.stage}"`, url: "/mobile/pipeline" }).catch(() => {});
@@ -98,81 +120,11 @@ export function registerDealsRoutes(app: Express) {
         }
 
         if (updated.stage === "Closed Won") {
-          const closedWonAt = updated.updatedAt ? new Date(updated.updatedAt) : new Date();
           const closedContact = updated.contactId ? await storage.getContact(updated.contactId) : null;
           await createPreferenceAwareNotification({ channel: "internal", title: "Deal Closed Won!", message: `Deal #${updated.id}${closedContact ? ` — ${closedContact.firstName} ${closedContact.lastName}` : ""} has been closed won.`, type: "alert", metadata: { dealId: updated.id, eventType: "deal_closed_won" } }, "deal_closed_won");
           sendCriticalEmailNotification({ eventType: "deal_closed_won", subject: `Closed Won: Deal #${updated.id}${closedContact ? ` — ${closedContact.companyName || closedContact.firstName}` : ""}`, body: `<h3>Deal Closed Won</h3><p>Deal #${updated.id} has moved to <strong>Closed Won</strong>.</p>${closedContact ? `<p>Contact: ${closedContact.firstName} ${closedContact.lastName}${closedContact.companyName ? ` (${closedContact.companyName})` : ""}</p>` : ""}<p>Owner: ${updated.owner || "Unassigned"}</p>`, ownerName: updated.owner }).catch(err => console.error("Closed won email error:", err));
 
-          if (closedContact?.ghlContactId) {
-            // Deal-level guard only: prevents re-fire on the same deal (sendMerchantWelcomeEmail also writes this)
-            const alreadyWelcomedDeal = await storage.getLastAuditLogByAction("merchant_welcome_sent", "deal", updated.id).catch(() => null);
-            if (!alreadyWelcomedDeal) {
-              sendMerchantWelcomeEmail(closedContact, updated)
-                .catch(err => console.error("[Closed Won] Merchant welcome email error:", err));
-            } else {
-              console.log(`[Closed Won] Welcome email skipped — already sent for deal #${updated.id}`);
-            }
-          }
-
-          // Auto-onboarding kickoff (idempotent — reuse existing deal or create new one)
-          (async () => {
-            const ONBOARDING_SLA_TASKS = [
-              { title: "Collect & verify merchant application", dueDays: 2, priority: "high" },
-              { title: "Request voided check & processing statement", dueDays: 3, priority: "high" },
-              { title: "Submit for underwriting review", dueDays: 7, priority: "medium" },
-              { title: "Provision MID & configure terminal", dueDays: 10, priority: "medium" },
-              { title: "Schedule go-live confirmation call", dueDays: 30, priority: "medium" },
-            ] as const;
-
-            const ensureSLATasks = async (dealId: number, contactId: number | null, owner: string | null) => {
-              const existingTasks = await db
-                .select({ title: tasks.title })
-                .from(tasks)
-                .where(and(eq(tasks.dealId, dealId), isNull(tasks.deletedAt)));
-              const existingTitles = new Set(existingTasks.map(t => t.title));
-              for (const slaTask of ONBOARDING_SLA_TASKS) {
-                if (!existingTitles.has(slaTask.title)) {
-                  await storage.createTask({
-                    title: slaTask.title,
-                    priority: slaTask.priority,
-                    dueDate: new Date(closedWonAt.getTime() + slaTask.dueDays * 86400000),
-                    dealId,
-                    contactId: contactId || undefined,
-                    assignedTo: owner || "Unassigned",
-                  });
-                }
-              }
-            };
-
-            try {
-              if (updated.contactId) {
-                const existingDeals = await storage.getDealsByContact(updated.contactId);
-                const existingOnboardingDeal = existingDeals.find(d => d.pipeline === "onboarding" && !d.archivedAt);
-
-                if (existingOnboardingDeal) {
-                  // Reuse existing deal — still enforce SLA tasks idempotently
-                  console.log(`[Onboarding] Reusing existing onboarding deal #${existingOnboardingDeal.id} for contact #${updated.contactId}`);
-                  await ensureSLATasks(existingOnboardingDeal.id, updated.contactId, updated.owner);
-                  return;
-                }
-              }
-
-              const onboardingDeal = await storage.createDeal({
-                contactId: updated.contactId || undefined,
-                pipeline: "onboarding",
-                stage: "Application Submitted",
-                offerPath: updated.offerPath || undefined,
-                owner: updated.owner || undefined,
-                leadSource: updated.leadSource || "closed_won",
-                notes: `Onboarding started from Closed Won deal #${updated.id}${closedContact ? ` — ${closedContact.companyName || closedContact.firstName + " " + closedContact.lastName}` : ""}`,
-              });
-              await storage.createAuditLog({ action: "onboarding_deal_created", entityType: "deal", entityId: onboardingDeal.id, details: { sourceDealsId: updated.id, contactId: updated.contactId } });
-              await createPreferenceAwareNotification({ channel: "internal", title: "Onboarding Deal Created", message: `Onboarding pipeline deal #${onboardingDeal.id} created for ${closedContact ? closedContact.companyName || closedContact.firstName : "merchant"}.`, type: "info", metadata: { dealId: onboardingDeal.id, eventType: "onboarding_started" } }, "onboarding_started");
-              await ensureSLATasks(onboardingDeal.id, updated.contactId, updated.owner);
-            } catch (onboardErr) {
-              console.error("[Onboarding] Auto-kickoff error:", onboardErr);
-            }
-          })();
+          // Onboarding kickoff (deal + SLA tasks + GHL welcome) is fired by advanceDealStage.
         }
 
         try {
@@ -265,16 +217,7 @@ export function registerDealsRoutes(app: Express) {
           dealId: updated.id,
         }, { toStage: updated.stage, fromStage: old.stage }).catch(err => console.error("Workflow trigger error:", err));
 
-        syncDealToGhl(updated.id).then(ghlResult => {
-          if (!ghlResult.success) {
-            console.error(`[GHL Deal Stage] Failed to push stage change for deal ${updated.id} to GHL: ${ghlResult.error}`);
-            storage.createAuditLog({ action: "ghl_opportunity_sync_failed", entityType: "deal", entityId: updated.id, details: { error: ghlResult.error, stage: updated.stage } }).catch(() => {});
-          } else {
-            console.log(`[GHL Deal Stage] Deal ${updated.id} stage "${updated.stage}" pushed to GHL opportunity ${ghlResult.ghlOpportunityId}`);
-          }
-        }).catch((ghlErr: Error) => {
-          console.error(`[GHL Deal Stage] Exception syncing deal ${updated.id} stage to GHL:`, ghlErr.message);
-        });
+        // GHL sync is handled by advanceDealStage (which was called above for the stage transition).
       }
       // === Terminal Economics: auto-trigger approval task when recommendation changes to a red-tier terminal ===
       const terminalStatus = (updated as any).terminalApprovalStatus as string | null | undefined;
