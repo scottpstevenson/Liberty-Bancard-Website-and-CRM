@@ -1392,10 +1392,12 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         // Raw SQL: bypass Drizzle set() cast which can silently drop boolean/enum cols
         await publicDb.execute(sqlTag`
           UPDATE contacts
-          SET opted_out_email = true,
-              email_status    = 'opted_out',
-              consent_tier    = 'opted_out',
-              updated_at      = now()
+          SET opted_out_email      = true,
+              email_status         = 'opted_out',
+              consent_tier         = 'opted_out',
+              consent_email        = false,
+              do_not_auto_contact  = true,
+              updated_at           = now()
           WHERE id = ${contactId}
         `);
 
@@ -1410,6 +1412,18 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
             email: contact.email,
           },
         });
+
+        // CAN-SPAM compliance: write consent audit log so the contactability
+        // gate has a durable record of this opt-out.
+        storage.createConsentAuditLog({
+          contactId,
+          channel: "email",
+          action: "campaign_unsubscribe",
+          consented: false,
+          consentType: "general_optin",
+          source: "campaign_unsubscribe",
+          details: { source: "email_footer", email: contact.email },
+        }).catch(() => {});
 
         // Suppress New Lead auto-enrollment so the next hourly sweep won't re-enroll
         const { suppressNewLeadAutoEnrollmentForContact } = await import("../services/new-lead-enrollment-job");

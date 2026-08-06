@@ -10,7 +10,7 @@ import { validateGhlWebhookSignature } from "../services/ghl";
 import { parse } from "csv-parse/sync";
 import { checkAbTestWinners } from "../services/ab-test-worker";
 import { pool, db } from "../db";
-import { eq, and, count } from "drizzle-orm";
+import { eq, and, count, sql as sqlRaw } from "drizzle-orm";
 import { serverError } from "../utils/server-error";
 
 interface AbTestResultRow {
@@ -306,6 +306,30 @@ export function registerCampaignsRoutes(app: Express) {
         updates.status = "unsubscribed";
         if (msg.prospectId) {
           await storage.updateProspect(msg.prospectId, { doNotContact: true, status: "do_not_contact" });
+        }
+        // CAN-SPAM: contact-mode campaigns target the contacts table directly.
+        // Apply the same suppression to the linked contacts record so the
+        // contactability gate blocks future automated email to this address.
+        // Raw SQL: bypass Drizzle set() cast which can silently drop boolean/enum cols.
+        if (msg.contactId) {
+          const contactId = msg.contactId;
+          await db.execute(sqlRaw`
+            UPDATE contacts
+            SET consent_email       = false,
+                email_status        = 'opted_out',
+                do_not_auto_contact = true,
+                updated_at          = now()
+            WHERE id = ${contactId}
+          `);
+          storage.createConsentAuditLog({
+            contactId,
+            channel: "email",
+            action: "campaign_unsubscribe",
+            consented: false,
+            consentType: "general_optin",
+            source: "campaign_unsubscribe",
+            details: { messageId: msg.id, campaignId: msg.campaignId },
+          }).catch(() => {});
         }
       }
 
