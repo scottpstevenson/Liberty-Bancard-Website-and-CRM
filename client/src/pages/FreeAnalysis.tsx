@@ -10,7 +10,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { trackQuizStart, trackQuizStep, trackQuizComplete, trackConversion, trackFormSubmission } from "@/lib/tracking";
-import { trackConversion as trackConversionV2 } from "@/lib/analytics";
+import { trackConversion as trackConversionV2, trackPhoneCallClick } from "@/lib/analytics";
 import { CALENDAR_URL, PHONE_TEL, PHONE_NUMBER } from "@/lib/constants";
 import {
   ArrowLeft,
@@ -1230,7 +1230,7 @@ export default function FreeAnalysis() {
 
           <div className="mt-8 text-center">
             <p className="text-sm text-muted-foreground mb-3" data-testid="text-bottom-cta">
-              Still have questions? Call us at <a href={PHONE_TEL} className="text-primary font-semibold underline">{PHONE_NUMBER}</a> or{" "}
+              Still have questions? Call us at <a href={PHONE_TEL} className="text-primary font-semibold underline" onClick={() => trackPhoneCallClick({ sourcePage: "/free-analysis" })}>{PHONE_NUMBER}</a> or{" "}
               <Link href="/get-started" className="text-primary font-semibold underline">book a free 10-minute call</Link>.
             </p>
           </div>

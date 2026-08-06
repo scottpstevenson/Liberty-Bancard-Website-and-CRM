@@ -41,7 +41,8 @@ import {
   Calendar,
 } from "lucide-react";
 import { CALENDAR_URL, PHONE_TEL, PHONE_NUMBER } from "@/lib/constants";
-import { trackPhoneCtaClick, trackBookingCtaClick, trackStatementUploadCtaClick } from "@/lib/tracking";
+import { trackBookingCtaClick, trackStatementUploadCtaClick } from "@/lib/tracking";
+import { trackPhoneCallClick } from "@/lib/analytics";
 
 import verticalRestaurant from "@assets/images/vertical-restaurant.jpg";
 import verticalRetail from "@assets/images/vertical-retail.jpg";
@@ -679,7 +680,7 @@ export default function IndustryPage() {
                     Book a 10-Min Call
                   </Button>
                 </a>
-                <a href={PHONE_TEL} aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`} data-testid="link-industry-hero-phone" onClick={() => trackPhoneCtaClick({ page: `/industries/${industry.slug}`, ctaLabel: PHONE_NUMBER, industry: industry.slug })}>
+                <a href={PHONE_TEL} aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`} data-testid="link-industry-hero-phone" onClick={() => trackPhoneCallClick({})}>
                   <Button size="lg" variant="ghost" className="gap-2">
                     <Phone className="w-4 h-4" />
                     {PHONE_NUMBER}

@@ -2,6 +2,7 @@ import { SEO } from "@/components/SEO";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { Mail, Phone } from "lucide-react";
+import { trackPhoneCallClick } from "@/lib/analytics";
 import { Link } from "wouter";
 
 export default function DisputeResolution() {
@@ -39,7 +40,7 @@ export default function DisputeResolution() {
                   <Mail className="w-4 h-4 shrink-0" />
                   <span>support@libertybancard.com</span>
                 </a>
-                <a href="tel:9542668214" className="flex items-center gap-2 text-foreground hover:text-primary transition-colors">
+                <a href="tel:9542668214" className="flex items-center gap-2 text-foreground hover:text-primary transition-colors" onClick={() => trackPhoneCallClick({ sourcePage: "/dispute-resolution" })}>
                   <Phone className="w-4 h-4 shrink-0" />
                   <span>954-266-8214 (Mon-Fri 9 AM - 6 PM ET)</span>
                 </a>

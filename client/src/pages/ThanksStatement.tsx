@@ -7,6 +7,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Link } from "wouter";
 import { Calendar, Calculator, BarChart3, Send, CheckCircle, Clock, Phone, Users, ArrowRight, ShieldCheck, Star, MapPin, UtensilsCrossed, Store, Copy, MessageSquare, Gift } from "lucide-react";
 import { trackCalendarBooking, trackThankYouPageView } from "@/lib/tracking";
+import { trackPhoneCallClick } from "@/lib/analytics";
 import { CALENDAR_URL } from "@/lib/constants";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery } from "@tanstack/react-query";
@@ -194,7 +195,7 @@ export default function ThanksStatement() {
                   Book a 10-Minute Walkthrough
                 </Button>
               </a>
-              <a href="tel:9542668214" data-testid="link-thanks-statement-call">
+              <a href="tel:9542668214" data-testid="link-thanks-statement-call" onClick={() => trackPhoneCallClick({ sourcePage: "/thanks-statement" })}>
                 <Button size="lg" variant="outline" className="gap-2 bg-transparent border-primary-foreground/30 text-primary-foreground">
                   <Phone className="w-4 h-4" />
                   Call/Text 954-266-8214

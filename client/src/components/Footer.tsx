@@ -2,7 +2,8 @@ import { Link } from "wouter";
 import { Phone, Mail, Calendar } from "lucide-react";
 import logoWhite from "@assets/logo-white.png";
 import { CALENDAR_URL } from "@/lib/constants";
-import { trackPhoneCtaClick, trackBookingCtaClick } from "@/lib/tracking";
+import { trackBookingCtaClick } from "@/lib/tracking";
+import { trackPhoneCallClick } from "@/lib/analytics";
 import { buildAttributedBookingUrl } from "@/lib/utm";
 
 export function Footer() {
@@ -116,7 +117,7 @@ export function Footer() {
                   href="tel:9542668214"
                   className="flex items-center gap-2 text-primary-foreground/70 text-sm hover:text-primary-foreground transition-colors"
                   data-testid="link-footer-phone"
-                  onClick={() => trackPhoneCtaClick("footer")}
+                  onClick={() => trackPhoneCallClick({})}
                 >
                   <Phone className="w-4 h-4 shrink-0" />
                   <span>Call/Text 954-266-8214</span>

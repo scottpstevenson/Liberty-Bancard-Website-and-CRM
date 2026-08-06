@@ -16,6 +16,7 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { trackPhoneCallClick } from "@/lib/analytics";
 
 const deleteRequestSchema = z.object({
   fullName: z.string().min(1, "Full name is required"),
@@ -248,7 +249,7 @@ export default function DataRetention() {
                   <Mail className="w-4 h-4 shrink-0" />
                   <span>privacy@libertybancard.com</span>
                 </a>
-                <a href="tel:9542668214" className="flex items-center gap-2 text-foreground hover:text-primary transition-colors" data-testid="link-data-retention-phone">
+                <a href="tel:9542668214" className="flex items-center gap-2 text-foreground hover:text-primary transition-colors" data-testid="link-data-retention-phone" onClick={() => trackPhoneCallClick({ sourcePage: "/data-retention" })}>
                   <Phone className="w-4 h-4 shrink-0" />
                   <span>954-266-8214</span>
                 </a>

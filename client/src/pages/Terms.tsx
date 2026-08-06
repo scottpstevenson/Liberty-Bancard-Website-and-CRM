@@ -2,6 +2,7 @@ import { SEO } from "@/components/SEO";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { Mail, Phone } from "lucide-react";
+import { trackPhoneCallClick } from "@/lib/analytics";
 import { Link } from "wouter";
 
 export default function Terms() {
@@ -227,7 +228,7 @@ export default function Terms() {
                   <Mail className="w-4 h-4 shrink-0" />
                   <span>legal@libertybancard.com</span>
                 </a>
-                <a href="tel:9542668214" className="flex items-center gap-2 text-foreground hover:text-primary transition-colors" data-testid="link-terms-phone">
+                <a href="tel:9542668214" className="flex items-center gap-2 text-foreground hover:text-primary transition-colors" data-testid="link-terms-phone" onClick={() => trackPhoneCallClick({ sourcePage: "/terms" })}>
                   <Phone className="w-4 h-4 shrink-0" />
                   <span>954-266-8214</span>
                 </a>

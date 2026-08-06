@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Link } from "wouter";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import { trackPhoneCallClick } from "@/lib/analytics";
 import { useToast } from "@/hooks/use-toast";
 import {
   Monitor,
@@ -559,7 +560,7 @@ export default function Integrations() {
                     <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto mb-3" />
                     <h3 className="text-lg font-semibold mb-2">Thanks — we got your request</h3>
                     <p className="text-sm text-muted-foreground mb-4 max-w-md mx-auto">
-                      A Liberty Bancard specialist will follow up about your software shortly. Need it sooner? Call <a href="tel:9542668214" className="text-primary hover:underline">954-266-8214</a>.
+                      A Liberty Bancard specialist will follow up about your software shortly. Need it sooner? Call <a href="tel:9542668214" className="text-primary hover:underline" onClick={() => trackPhoneCallClick({ sourcePage: "/integrations" })}>954-266-8214</a>.
                     </p>
                     <Button
                       variant="outline"

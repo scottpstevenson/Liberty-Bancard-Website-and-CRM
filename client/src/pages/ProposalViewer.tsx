@@ -20,6 +20,7 @@ import {
   XCircle,
   ArrowRight,
 } from "lucide-react";
+import { trackPhoneCallClick } from "@/lib/analytics";
 
 interface PlanData {
   name: string;
@@ -134,7 +135,7 @@ export default function ProposalViewer() {
           <p className="text-slate-600 mb-6">
             This proposal link may have expired or is invalid. Please contact us for a new proposal.
           </p>
-          <a href="tel:9542668214">
+          <a href="tel:9542668214" onClick={() => trackPhoneCallClick({ sourcePage: "/proposal" })}>
             <Button className="gap-2" data-testid="button-call-us">
               <Phone className="w-4 h-4" />
               Call 954-266-8214
@@ -376,7 +377,7 @@ export default function ProposalViewer() {
             )}
 
             <div className="flex flex-col sm:flex-row gap-3 justify-center">
-              <a href="tel:9542668214" data-testid="link-proposal-call">
+              <a href="tel:9542668214" data-testid="link-proposal-call" onClick={() => trackPhoneCallClick({ sourcePage: "/proposal" })}>
                 <Button size="lg" className="gap-2 bg-sky-600 hover:bg-sky-700 w-full sm:w-auto">
                   <Phone className="w-4 h-4" />
                   Call 954-266-8214

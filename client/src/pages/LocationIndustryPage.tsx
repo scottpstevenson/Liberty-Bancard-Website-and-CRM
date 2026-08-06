@@ -21,7 +21,8 @@ import {
   Calendar,
 } from "lucide-react";
 import { CALENDAR_URL, PHONE_TEL, PHONE_NUMBER } from "@/lib/constants";
-import { trackPhoneCtaClick, trackBookingCtaClick, trackStatementUploadCtaClick } from "@/lib/tracking";
+import { trackBookingCtaClick, trackStatementUploadCtaClick } from "@/lib/tracking";
+import { trackPhoneCallClick } from "@/lib/analytics";
 
 interface LocationIndustryData {
   citySlug: string;
@@ -345,7 +346,7 @@ export default function LocationIndustryPage() {
                     Book a 10-Min Call
                   </Button>
                 </a>
-                <a href={PHONE_TEL} aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`} data-testid="link-location-hero-phone" onClick={() => trackPhoneCtaClick({ page: `/locations/${data.citySlug}/${data.industrySlug}`, ctaLabel: PHONE_NUMBER, city: data.citySlug, industry: data.industrySlug })}>
+                <a href={PHONE_TEL} aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`} data-testid="link-location-hero-phone" onClick={() => trackPhoneCallClick({})}>
                   <Button size="lg" variant="ghost" className="gap-2">
                     <Phone className="w-4 h-4" />
                     {PHONE_NUMBER}
@@ -441,7 +442,7 @@ export default function LocationIndustryPage() {
                   Book a 10-Min Call
                 </Button>
               </a>
-              <a href={PHONE_TEL} aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`} data-testid="link-cta-call" onClick={() => trackPhoneCtaClick({ page: `/locations/${data.citySlug}/${data.industrySlug}`, ctaLabel: PHONE_NUMBER, city: data.cityName, industry: data.industryName })}>
+              <a href={PHONE_TEL} aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`} data-testid="link-cta-call" onClick={() => trackPhoneCallClick({})}>
                 <Button size="lg" variant="ghost" className="gap-2 text-white/70 hover:text-white hover:bg-white/10 border border-white/20">
                   <Phone className="w-4 h-4" />
                   {PHONE_NUMBER}

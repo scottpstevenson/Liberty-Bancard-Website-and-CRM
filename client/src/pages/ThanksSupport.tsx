@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Link } from "wouter";
 import { Phone, FileText, CreditCard, Shield, CheckCircle, Clock, ArrowRight, MessageSquare } from "lucide-react";
 import { trackThankYouPageView } from "@/lib/tracking";
+import { trackPhoneCallClick } from "@/lib/analytics";
 import { useEffect } from "react";
 
 export default function ThanksSupport() {
@@ -32,7 +33,7 @@ export default function ThanksSupport() {
               <span>Average response time: under 2 hours during business hours</span>
             </div>
             <div className="flex flex-col sm:flex-row gap-4 justify-center flex-wrap">
-              <a href="tel:9542668214" data-testid="link-thanks-support-call">
+              <a href="tel:9542668214" data-testid="link-thanks-support-call" onClick={() => trackPhoneCallClick({ sourcePage: "/thanks-support" })}>
                 <Button size="lg" variant="secondary" className="gap-2">
                   <Phone className="w-4 h-4" />
                   Need It Faster? Call 954-266-8214

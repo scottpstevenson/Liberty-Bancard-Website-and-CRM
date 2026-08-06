@@ -9,7 +9,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { apiRequest } from "@/lib/queryClient";
 import { getStoredUTMParams } from "@/lib/utm";
 import { trackMerchantApplication } from "@/lib/tracking";
-import { trackConversion } from "@/lib/analytics";
+import { trackConversion, trackPhoneCallClick } from "@/lib/analytics";
 import { useToast } from "@/hooks/use-toast";
 import {
   Select,
@@ -787,7 +787,7 @@ export default function MerchantApplication() {
                     </div>
                   </div>
                   <p className="text-muted-foreground mb-6">
-                    For questions, call us at <a href="tel:9542668214" className="text-primary font-medium">954-266-8214</a>.
+                    For questions, call us at <a href="tel:9542668214" className="text-primary font-medium" onClick={() => trackPhoneCallClick({ sourcePage: "/merchant-application" })}>954-266-8214</a>.
                   </p>
                   <p className="text-xs text-muted-foreground border-t pt-4" data-testid="text-success-disclaimer">
                     Liberty Bancard is a registered ISO of [Bank Partner]. All applications are subject to underwriting approval. 

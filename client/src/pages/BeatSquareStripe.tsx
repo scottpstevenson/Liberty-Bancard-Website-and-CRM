@@ -27,7 +27,8 @@ import {
 } from "lucide-react";
 
 import { CALENDAR_URL, PHONE_TEL, PHONE_NUMBER } from "@/lib/constants";
-import { trackBookingCtaClick, trackPhoneCtaClick, trackStatementUploadCtaClick } from "@/lib/tracking";
+import { trackBookingCtaClick, trackStatementUploadCtaClick } from "@/lib/tracking";
+import { trackPhoneCallClick } from "@/lib/analytics";
 import imgCloverFlex3 from "@assets/images/terminal-clover-flex-3.png";
 import imgPaxA920 from "@assets/images/terminal-pax-a920.png";
 
@@ -168,7 +169,7 @@ export default function BeatSquareStripe() {
                       Book a 10-Min Call
                     </Button>
                   </a>
-                  <a href={PHONE_TEL} aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`} onClick={() => trackPhoneCtaClick({ page: "/beat-square-stripe", ctaLabel: "Call" })} data-testid="link-beat-phone-cta">
+                  <a href={PHONE_TEL} aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`} onClick={() => trackPhoneCallClick({ sourcePage: "/beat-square-stripe" })} data-testid="link-beat-phone-cta">
                     <Button size="lg" variant="ghost" className="gap-2 text-white/70 hover:text-white hover:bg-white/10 border border-white/20">
                       {PHONE_NUMBER}
                     </Button>

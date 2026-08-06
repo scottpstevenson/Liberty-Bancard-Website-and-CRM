@@ -33,7 +33,8 @@ import {
   Zap,
 } from "lucide-react";
 import { PHONE_TEL, PHONE_NUMBER, CALENDAR_URL } from "@/lib/constants";
-import { trackCashDiscountReviewClick, trackSurchargeReviewClick, trackPhoneCtaClick } from "@/lib/tracking";
+import { trackCashDiscountReviewClick, trackSurchargeReviewClick } from "@/lib/tracking";
+import { trackPhoneCallClick } from "@/lib/analytics";
 import imgCloverFlex3 from "@assets/images/terminal-clover-flex-3.png";
 import imgPaxA920 from "@assets/images/terminal-pax-a920.png";
 
@@ -140,7 +141,7 @@ export default function ZeroPercent() {
                       Check Eligibility — Free Review
                     </Button>
                   </Link>
-                  <a href={PHONE_TEL} data-testid="link-zero-secondary-cta">
+                  <a href={PHONE_TEL} data-testid="link-zero-secondary-cta" onClick={() => trackPhoneCallClick({ sourcePage: "/0-percent-processing" })}>
                     <Button size="lg" variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white">
                       <Phone className="w-4 h-4" />
                       Talk to a Specialist
@@ -494,7 +495,7 @@ export default function ZeroPercent() {
                         <ArrowRight className="w-4 h-4" />
                       </Button>
                     </Link>
-                    <a href={PHONE_TEL} aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`} data-testid="link-zero-call-cta" onClick={() => trackPhoneCtaClick({ page: "/0-percent-processing", ctaLabel: PHONE_NUMBER, ctaLocation: "terminal" })}>
+                    <a href={PHONE_TEL} aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`} data-testid="link-zero-call-cta" onClick={() => trackPhoneCallClick({ sourcePage: "/0-percent-processing" })}>
                       <Button variant="outline" className="gap-2">
                         <Phone className="w-4 h-4" />
                         Call {PHONE_NUMBER}
@@ -572,7 +573,7 @@ export default function ZeroPercent() {
                   Upload Statement — Check Eligibility
                 </Button>
               </Link>
-              <a href={PHONE_TEL} aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`} data-testid="link-zero-final-call" onClick={() => trackPhoneCtaClick({ page: "/0-percent-processing", ctaLabel: PHONE_NUMBER, ctaLocation: "final_cta" })}>
+              <a href={PHONE_TEL} aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`} data-testid="link-zero-final-call" onClick={() => trackPhoneCallClick({ sourcePage: "/0-percent-processing" })}>
                 <Button size="lg" variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white">
                   <Phone className="w-4 h-4" />
                   Call {PHONE_NUMBER}

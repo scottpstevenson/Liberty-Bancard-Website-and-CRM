@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { CALENDAR_URL } from "@/lib/constants";
 import { trackCalendarBooking } from "@/lib/tracking";
+import { trackPhoneCallClick } from "@/lib/analytics";
 
 interface Message {
   role: "user" | "assistant";
@@ -201,7 +202,7 @@ function CallbackPanel() {
         Request Callback
       </Button>
       <div className="text-center space-y-1">
-        <a href="tel:9542668214" className="text-sm text-primary font-medium" data-testid="help-call-direct">
+        <a href="tel:9542668214" className="text-sm text-primary font-medium" data-testid="help-call-direct" onClick={() => trackPhoneCallClick({ sourcePage: "/help-center" })}>
           Or call 954-266-8214
         </a>
         <p className="text-xs text-muted-foreground">Mon–Fri 9am–6pm ET</p>
@@ -302,7 +303,7 @@ export function HelpCenter({ context, department, className }: HelpCenterProps) 
                       Book a Meeting
                     </Button>
                   </a>
-                  <a href="tel:9542668214">
+                  <a href="tel:9542668214" onClick={() => trackPhoneCallClick({ sourcePage: "/help-center" })}>
                     <Button variant="outline" className="w-full max-w-xs gap-2 mt-2" data-testid="help-book-call-btn">
                       <Phone className="w-4 h-4" />
                       Call to Schedule: 954-266-8214

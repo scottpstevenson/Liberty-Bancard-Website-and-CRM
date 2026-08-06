@@ -3,11 +3,11 @@ import { Button } from "@/components/ui/button";
 import { Phone, Calendar, Upload } from "lucide-react";
 import { PHONE_NUMBER, PHONE_TEL, CALENDAR_URL } from "@/lib/constants";
 import {
-  trackPhoneCtaClick,
   trackBookingCtaClick,
   trackStatementUploadCtaClick,
   type CtaTrackParams,
 } from "@/lib/tracking";
+import { trackPhoneCallClick } from "@/lib/analytics";
 
 interface ConversionCTAGroupProps {
   offer?: string;
@@ -57,7 +57,7 @@ export function ConversionCTAGroup({
           href={PHONE_TEL}
           aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`}
           data-testid="cta-call"
-          onClick={() => trackPhoneCtaClick({ ...meta, ctaLabel: phoneLabel })}
+          onClick={() => trackPhoneCallClick({})}
         >
           <Button variant="ghost" className="gap-2">
             <Phone className="w-4 h-4" />
@@ -96,7 +96,7 @@ export function ConversionCTAGroup({
         href={PHONE_TEL}
         aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`}
         data-testid="cta-call"
-        onClick={() => trackPhoneCtaClick({ ...meta, ctaLabel: phoneLabel })}
+        onClick={() => trackPhoneCallClick({})}
       >
         <Button size="lg" variant="ghost" className="gap-2 text-white/80 hover:text-white hover:bg-white/10 border border-white/20">
           <Phone className="w-4 h-4" />

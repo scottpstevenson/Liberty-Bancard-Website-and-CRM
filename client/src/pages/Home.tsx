@@ -9,7 +9,8 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter }
 import { Input } from "@/components/ui/input";
 import { Link } from "wouter";
 import { CALENDAR_URL, PHONE_TEL, PHONE_NUMBER } from "@/lib/constants";
-import { trackPhoneCtaClick, trackBookingCtaClick, trackStatementUploadCtaClick } from "@/lib/tracking";
+import { trackBookingCtaClick, trackStatementUploadCtaClick } from "@/lib/tracking";
+import { trackPhoneCallClick } from "@/lib/analytics";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { PewcCheckbox } from "@/components/PewcCheckbox";
@@ -232,7 +233,7 @@ export default function Home() {
                   Upload a PDF or photo. Takes 30 seconds. You can redact account numbers — totals and fee lines are enough.
                 </p>
                 <div className="si-load si-load-5 flex flex-wrap items-center gap-x-5 gap-y-2 mt-2">
-                  <a href={PHONE_TEL} aria-label="Call Liberty Bancard" className="text-sm font-medium text-foreground hover:text-primary flex items-center gap-1.5 transition-colors" data-testid="link-hero-phone" onClick={() => trackPhoneCtaClick({ page: "/", ctaLabel: PHONE_NUMBER, ctaLocation: "hero" })}>
+                  <a href={PHONE_TEL} aria-label="Call Liberty Bancard" className="text-sm font-medium text-foreground hover:text-primary flex items-center gap-1.5 transition-colors" data-testid="link-hero-phone" onClick={() => trackPhoneCallClick({ sourcePage: "/" })}>
                     <Phone className="w-4 h-4 text-primary" />
                     Call {PHONE_NUMBER}
                   </a>
@@ -1615,7 +1616,7 @@ export default function Home() {
                   ))}
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Or call us directly: <a href={PHONE_TEL} className="text-primary font-medium" data-testid="link-callback-phone" onClick={() => trackPhoneCtaClick({ page: "/", ctaLabel: PHONE_NUMBER, ctaLocation: "callback" })}>{PHONE_NUMBER}</a>
+                  Or call us directly: <a href={PHONE_TEL} className="text-primary font-medium" data-testid="link-callback-phone" onClick={() => trackPhoneCallClick({ sourcePage: "/" })}>{PHONE_NUMBER}</a>
                 </p>
               </div>
               <div>

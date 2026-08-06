@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Link } from "wouter";
 import { Upload, FileText, BarChart3, AlertCircle, Phone, Calendar, CheckCircle, Clock, Star, MapPin, UtensilsCrossed, Store } from "lucide-react";
 import { trackCalendarBooking, trackThankYouPageView } from "@/lib/tracking";
+import { trackPhoneCallClick } from "@/lib/analytics";
 import { CALENDAR_URL } from "@/lib/constants";
 import { useEffect } from "react";
 
@@ -177,7 +178,7 @@ export default function ThanksCall() {
                   Reschedule Online
                 </Button>
               </a>
-              <a href="tel:9542668214" data-testid="link-thanks-call-phone">
+              <a href="tel:9542668214" data-testid="link-thanks-call-phone" onClick={() => trackPhoneCallClick({ sourcePage: "/thanks-call" })}>
                 <Button variant="outline" className="gap-2">
                   <Phone className="w-4 h-4" />
                   Call/Text 954-266-8214

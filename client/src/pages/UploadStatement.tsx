@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { getCsrfToken } from "@/lib/queryClient";
-import { trackStatementUploadStarted, trackStatementUploadFailed, trackPhoneCtaClick, trackBookingCtaClick } from "@/lib/tracking";
+import { trackStatementUploadStarted, trackStatementUploadFailed, trackBookingCtaClick } from "@/lib/tracking";
 import { useFormAbandonment } from "@/hooks/use-form-abandonment";
 import { SEO, getServiceSchema } from "@/components/SEO";
 import { useLocation, Link } from "wouter";
@@ -37,7 +37,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { useScrollReveal } from "@/hooks/use-scroll-reveal";
 import { trackStatementUploadCompleted, trackFormSubmission } from "@/lib/tracking";
 import { CALENDAR_URL, PHONE_TEL, PHONE_NUMBER } from "@/lib/constants";
-import { trackConversion } from "@/lib/analytics";
+import { trackConversion, trackPhoneCallClick } from "@/lib/analytics";
 import { getStoredUTMParams } from "@/lib/utm";
 import {
   FileSearch,
@@ -1025,13 +1025,7 @@ export default function UploadStatement() {
                     href={PHONE_TEL}
                     aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`}
                     data-testid="link-upload-hero-phone"
-                    onClick={() =>
-                      trackPhoneCtaClick({
-                        page: "/upload-statement",
-                        ctaLabel: PHONE_NUMBER,
-                        ctaLocation: "form",
-                      })
-                    }
+                    onClick={() => trackPhoneCallClick({ sourcePage: "/upload-statement" })}
                     className="flex items-center justify-center gap-2 text-sm text-gray-400 hover:text-gray-600 transition-colors py-1"
                   >
                     <Phone className="w-4 h-4" />
@@ -1298,6 +1292,7 @@ export default function UploadStatement() {
               href={PHONE_TEL}
               aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`}
               className="inline-flex items-center gap-2 text-sm text-white/45 hover:text-white/70 transition-colors"
+              onClick={() => trackPhoneCallClick({ sourcePage: "/upload-statement" })}
             >
               <Phone className="w-4 h-4" />
               Or call {PHONE_NUMBER}

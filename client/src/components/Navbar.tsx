@@ -7,7 +7,8 @@ import { cn } from "@/lib/utils";
 import logoBlue from "@assets/logo-blue.png";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { CALENDAR_URL } from "@/lib/constants";
-import { trackCalendarBooking, trackPhoneCtaClick, trackBookingCtaClick } from "@/lib/tracking";
+import { trackCalendarBooking, trackBookingCtaClick } from "@/lib/tracking";
+import { trackPhoneCallClick } from "@/lib/analytics";
 import { buildAttributedBookingUrl } from "@/lib/utm";
 
 const solutionLinks = [
@@ -62,7 +63,7 @@ export function Navbar() {
               href="tel:9542668214"
               className="flex items-center gap-1.5 hover:opacity-80 transition-opacity"
               data-testid="link-phone"
-              onClick={() => trackPhoneCtaClick("navbar_top")}
+              onClick={() => trackPhoneCallClick({})}
             >
               <Phone className="w-3 h-3" />
               <span>Call/Text 954-266-8214</span>
@@ -442,7 +443,7 @@ export function Navbar() {
                   href="tel:9542668214"
                   className="text-sm text-muted-foreground flex items-center gap-2"
                   data-testid="link-mobile-phone"
-                  onClick={() => trackPhoneCtaClick("navbar_mobile")}
+                  onClick={() => trackPhoneCallClick({})}
                 >
                   <Phone className="w-4 h-4" />
                   Call/Text 954-266-8214

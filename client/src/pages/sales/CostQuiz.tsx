@@ -7,6 +7,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { trackPhoneCallClick } from "@/lib/analytics";
 import {
   ArrowLeft,
   ArrowRight,
@@ -513,7 +514,7 @@ export default function CostQuiz() {
                         Upload Statement for Free Review
                       </Button>
                     </Link>
-                    <a href="tel:9542668214" data-testid="link-quiz-call">
+                    <a href="tel:9542668214" data-testid="link-quiz-call" onClick={() => trackPhoneCallClick({ sourcePage: "/sales/cost-quiz" })}>
                       <Button size="lg" variant="outline" className="gap-2 w-full">
                         <Phone className="w-4 h-4" />
                         Call 954-266-8214

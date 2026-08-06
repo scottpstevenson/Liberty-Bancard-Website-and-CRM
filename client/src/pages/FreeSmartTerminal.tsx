@@ -28,7 +28,8 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { PHONE_TEL, PHONE_NUMBER, CALENDAR_URL } from "@/lib/constants";
-import { trackFreeTerminalEligibilityClick, trackStatementUploadCtaClick, trackBookingCtaClick, trackPhoneCtaClick } from "@/lib/tracking";
+import { trackFreeTerminalEligibilityClick, trackStatementUploadCtaClick, trackBookingCtaClick } from "@/lib/tracking";
+import { trackPhoneCallClick } from "@/lib/analytics";
 import imgCloverFlex3 from "@assets/images/terminal-clover-flex-3.png";
 import imgPaxA920 from "@assets/images/terminal-pax-a920.png";
 import {
@@ -241,7 +242,7 @@ export default function FreeSmartTerminal() {
                         href={PHONE_TEL}
                         aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`}
                         data-testid="link-cta-card-phone"
-                        onClick={() => trackPhoneCtaClick({ page: "/free-smart-terminal", ctaLabel: "Call Us" })}
+                        onClick={() => trackPhoneCallClick({ sourcePage: "/free-smart-terminal" })}
                       >
                         <Button variant="outline" className="w-full gap-2">
                           <Phone className="w-4 h-4" />
@@ -349,7 +350,7 @@ export default function FreeSmartTerminal() {
                 href={PHONE_TEL}
                 aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`}
                 data-testid="link-final-phone"
-                onClick={() => trackPhoneCtaClick({ page: "/free-smart-terminal", ctaLabel: "Call", ctaLocation: "final_cta" })}
+                onClick={() => trackPhoneCallClick({ sourcePage: "/free-smart-terminal" })}
               >
                 <Button size="lg" variant="ghost" className="gap-2 text-white hover:bg-white/10">
                   <Phone className="w-4 h-4" />
