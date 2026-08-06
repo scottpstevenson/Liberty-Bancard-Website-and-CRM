@@ -21,7 +21,8 @@ import { getGhlSyncStatus } from "../services/ghl-sync";
 import { runBulkFastClassification } from "../services/sunbiz-enrichment";
 import { ingestBusiness, ingestBusinessFromContact } from "../services/sdr/dedupe";
 import { syncFormSubmissionToGhl } from "../services/ghl-form-sync";
-import { updateContactGhlFirst } from "../services/contact-writer";
+import { enrollInInboundConfirmation } from "../services/ghl-workflow-enrollment";
+import { updateContactGhlFirst, createContactGhlFirst } from "../services/contact-writer";
 import { importExecutions, contactSourceEvents } from "@shared/schema";
 import { computeFileHash } from "../services/import-normalizer";
 import { parse } from "csv-parse/sync";
@@ -719,9 +720,10 @@ Guidelines:
     }
   });
 
-  app.post("/api/public/free-analysis", async (req, res) => {
+  app.post("/api/public/free-analysis", publicLeadRateLimit, async (req, res) => {
     if (req.query.probe === "1") return res.json({ probe: true, endpoint: "/api/public/free-analysis" });
     try {
+      const submissionId = randomUUID();
       const {
         businessType, industry, monthlyVolume, currentProcessor,
         painPoint, painPoints: painPointsArr,
@@ -953,6 +955,8 @@ Guidelines:
           lb_business_type: businessType || "",
         },
       }).catch(err => console.error("GHL form sync error:", err));
+
+      enrollInInboundConfirmation({ contactId: contact.id, formType: "free_analysis", dealId: deal.id, submissionId }).catch(err => console.error("GHL inbound confirmation error:", err));
 
       storage.createReviewQueueItem({
         sourceType: "quiz",
