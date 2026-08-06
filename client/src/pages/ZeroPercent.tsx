@@ -113,7 +113,7 @@ export default function ZeroPercent() {
               <div>
                 <div className="inline-flex items-center gap-2 bg-emerald-500/20 text-emerald-300 text-sm font-semibold px-3 py-1.5 rounded-md mb-6 border border-emerald-500/30" data-testid="badge-liberty-zero-hero">
                   <Zap className="w-4 h-4" />
-                  Liberty Zero™ Program
+                  Cash Discount &amp; Surcharging
                 </div>
                 <h1
                   className="text-4xl md:text-5xl font-display font-bold text-white leading-tight mb-6"
@@ -169,7 +169,7 @@ export default function ZeroPercent() {
                     <div className="space-y-3">
                       {[
                         { label: "Current processing cost", value: "$300/mo", flag: true },
-                        { label: "With Liberty Zero", value: "$0/mo", flag: false },
+                        { label: "With our program", value: "$0/mo", flag: false },
                         { label: "Monthly savings", value: "$300", flag: false },
                         { label: "Annual savings", value: "$3,600+", flag: false },
                       ].map((item, i) => (
@@ -328,7 +328,7 @@ export default function ZeroPercent() {
                 Compliance Is Our Job, Not Yours
               </h2>
               <p className="text-muted-foreground max-w-2xl mx-auto">
-                Most providers hand you a brochure and call it a day. Liberty Zero includes everything required to run a fully compliant program — from the first sign to the last receipt.
+                Most providers hand you a brochure and call it a day. Our programs include everything required to run fully compliant — from the first sign to the last receipt.
               </p>
             </div>
             <div className="reveal grid grid-cols-1 sm:grid-cols-2 gap-6 max-w-4xl mx-auto mb-10">
@@ -378,7 +378,7 @@ export default function ZeroPercent() {
                 The Math, Plainly
               </h2>
               <p className="text-white/70 max-w-xl mx-auto">
-                Here's exactly what Liberty Zero looks like at $10,000/month in card volume — a common volume for restaurants, retail shops, and service businesses.
+                Here's exactly what this looks like at $10,000/month in card volume — a common volume for restaurants, retail shops, and service businesses.
               </p>
             </div>
 
@@ -387,7 +387,7 @@ export default function ZeroPercent() {
                 <CardContent className="p-8">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                     <div>
-                      <div className="text-sm font-semibold text-white/50 uppercase tracking-wider mb-4">WITHOUT Liberty Zero</div>
+                      <div className="text-sm font-semibold text-white/50 uppercase tracking-wider mb-4">WITHOUT OUR PROGRAM</div>
                       <div className="space-y-3">
                         <div className="flex justify-between text-sm border-b border-white/10 pb-2">
                           <span className="text-white/70">Monthly card volume</span>
@@ -408,7 +408,7 @@ export default function ZeroPercent() {
                       </div>
                     </div>
                     <div>
-                      <div className="text-sm font-semibold text-emerald-400 uppercase tracking-wider mb-4">WITH Liberty Zero</div>
+                      <div className="text-sm font-semibold text-emerald-400 uppercase tracking-wider mb-4">WITH OUR PROGRAM</div>
                       <div className="space-y-3">
                         <div className="flex justify-between text-sm border-b border-white/10 pb-2">
                           <span className="text-white/70">Monthly card volume</span>
@@ -462,15 +462,15 @@ export default function ZeroPercent() {
             <div className="reveal max-w-5xl mx-auto">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-10 items-center">
                 <div className="flex flex-col gap-4 items-center order-2 md:order-1">
-                  <img src={imgCloverFlex3} alt="Clover Flex 3 payment terminal configured for Liberty Zero" className="w-full max-w-xs rounded-md object-contain" data-testid="img-zero-terminal-hero" />
-                  <img src={imgPaxA920} alt="PAX A920 smart payment terminal with Liberty Zero" className="w-full max-w-xs rounded-md object-cover" data-testid="img-zero-terminal-tap" />
+                  <img src={imgCloverFlex3} alt="Clover Flex 3 payment terminal configured for cash discount processing" className="w-full max-w-xs rounded-md object-contain" data-testid="img-zero-terminal-hero" />
+                  <img src={imgPaxA920} alt="PAX A920 smart payment terminal with compliant surcharging" className="w-full max-w-xs rounded-md object-cover" data-testid="img-zero-terminal-tap" />
                 </div>
                 <div className="order-1 md:order-2">
                   <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4" data-testid="text-terminal-heading">
                     Ready to Go in 48 Hours
                   </h2>
                   <p className="text-muted-foreground mb-6 leading-relaxed" data-testid="text-terminal-description">
-                    Every Liberty Zero deployment is configured directly on your terminal. Dual-pricing, compliant receipts, and disclosures are handled automatically at checkout — no manual math, no workarounds.
+                    Every deployment is configured directly on your terminal. Dual-pricing, compliant receipts, and disclosures are handled automatically — no manual math, no workarounds.
                   </p>
                   <ul className="space-y-3 mb-6">
                     {[
@@ -517,7 +517,7 @@ export default function ZeroPercent() {
                 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-8"
                 data-testid="text-zero-faq-heading"
               >
-                Liberty Zero — Common Questions
+                Cash Discount &amp; Surcharging — Common Questions
               </h2>
               <Accordion type="single" collapsible className="w-full">
                 {faqItems.map((item, i) => (

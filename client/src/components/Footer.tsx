@@ -36,7 +36,7 @@ export function Footer() {
   ];
 
   const solutionLinks = [
-    { label: "Liberty Zero™ — 0% Processing", href: "/0-percent-processing" },
+    { label: "Cash Discount & Surcharging", href: "/0-percent-processing" },
     { label: "Beat Square & Stripe", href: "/beat-square-stripe" },
     { label: "Compare Rates", href: "/compare-rates" },
     { label: "vs Square", href: "/compare/square" },

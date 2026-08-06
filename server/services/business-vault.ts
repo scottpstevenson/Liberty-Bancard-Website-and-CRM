@@ -292,7 +292,7 @@ THE LIBERTY BANCARD DIFFERENCE
    Compare this to tiered pricing (the industry default) where the processor decides which "tier" to assign each transaction — often routing premium rewards cards to non-qualified at 3.5%+ without explanation.
 
 3. LIBERTY ZERO™ — 0% PROCESSING PROGRAM
-   For qualifying merchants, Liberty Zero shifts the processing cost to card-paying customers through a disclosed service fee at checkout — the same way gas stations have priced cash vs. card for decades. Cash customers pay the listed price; card customers see a disclosed service fee.
+   For qualifying merchants, our fee-offset programs (cash discount or compliant surcharging) can bring processing costs to $0 — with compliant disclosures, signage, and receipts handled entirely by us.
 
    When properly implemented (compliant signage, receipt formatting, staff script, and card brand registration where required), merchants process thousands of dollars per month at $0 in processor fees.
 
