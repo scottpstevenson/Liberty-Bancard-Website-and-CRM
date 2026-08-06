@@ -3866,7 +3866,7 @@ function VerticalCoveragePanel() {
 
   const toggleMutation = useMutation({
     mutationFn: async (id: number) => {
-      const res = await fetch(`/api/sequences/${id}/toggle-status`, { method: "PUT", credentials: "include" });
+      const res = await apiRequest("PUT", `/api/sequences/${id}/toggle-status`);
       if (!res.ok) throw new Error("Failed to toggle sequence status");
       return res.json();
     },

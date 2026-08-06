@@ -76,6 +76,13 @@ export function registerDealsRoutes(app: Express) {
     try {
       const deal = await storage.getDeal(Number(req.params.id));
       if (!deal || deal.archivedAt) return res.status(404).json({ message: "Not found" });
+      // Agent-scope ownership guard: agents may only view their own deals.
+      // Admin/manager retain full access; unassigned deals are visible to all.
+      const role = (req.user as any)?.role;
+      const userEmail = (req.user as any)?.email;
+      if (role === "agent" && deal.owner && deal.owner !== userEmail) {
+        return res.status(403).json({ message: "Forbidden", code: "NOT_YOUR_DEAL" });
+      }
       res.json(deal);
     } catch (err: any) {
       serverError(res, err);

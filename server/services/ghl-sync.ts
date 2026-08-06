@@ -1,7 +1,7 @@
 import { storage } from "../storage";
 import { db } from "../db";
 import type { Contact, Deal, Company, Task, Ticket, Note, UpdateContactRequest } from "@shared/schema";
-import { ghlSyncStatus, GHL_PIPELINE_STAGE_MAP, GHL_PIPELINE_STAGE_REVERSE, ACTIVE_DEAL_STAGES } from "@shared/schema";
+import { ghlSyncStatus, GHL_PIPELINE_STAGE_MAP, GHL_PIPELINE_STAGE_REVERSE, ACTIVE_DEAL_STAGES, systemSettings } from "@shared/schema";
 import { upsertGhlContact, isGhlConfigured, sendGhlEmail, GhlIdentityConflictError } from "./ghl";
 import { normalizeGhlId } from "../utils/normalize";
 import { getEmailSignatureHtml } from "./email-signatures";
@@ -1694,6 +1694,50 @@ let consecutiveGhlFailures = 0;
 let ghlCircuitOpen = false;
 let lastCircuitAlertAt = 0;
 
+// ── Circuit-breaker persistence (survives process restarts) ─────────────────
+const GHL_CIRCUIT_STATE_KEY = "ghl_circuit_state";
+let circuitStateRestored = false;
+
+/** Fire-and-forget upsert of current circuit state to system_settings. */
+function persistGhlCircuit(): void {
+  // systemSettings.value is jsonb — store the object directly, no JSON.stringify.
+  const value = {
+    open: ghlCircuitOpen,
+    consecutiveFailures: consecutiveGhlFailures,
+    updatedAt: new Date().toISOString(),
+  };
+  db.insert(systemSettings)
+    .values({ key: GHL_CIRCUIT_STATE_KEY, value })
+    .onConflictDoUpdate({ target: systemSettings.key, set: { value } })
+    .catch(() => {});
+}
+
+/**
+ * Restore circuit state saved by a previous process.  Runs at most once per
+ * process lifetime so the very first tick knows whether GHL was unhealthy at
+ * shutdown.  The tick still resets counters immediately after restoring, so
+ * operational behaviour is unchanged — this only improves logging accuracy.
+ */
+async function restoreGhlCircuit(): Promise<void> {
+  if (circuitStateRestored) return;
+  circuitStateRestored = true;
+  try {
+    const [row] = await db.select().from(systemSettings).where(eq(systemSettings.key, GHL_CIRCUIT_STATE_KEY));
+    if (row?.value) {
+      // value is jsonb — already a parsed object, no JSON.parse needed.
+      const saved = row.value as { open?: boolean; consecutiveFailures?: number };
+      if (saved.open) {
+        ghlCircuitOpen = true;
+        consecutiveGhlFailures = saved.consecutiveFailures ?? GHL_CIRCUIT_THRESHOLD;
+        console.log(`[GHL Sync] Restored circuit state from DB — open=true, failures=${consecutiveGhlFailures} (will reset this tick)`);
+      }
+    }
+  } catch {
+    // Non-critical: start fresh on DB read failure
+  }
+}
+// ────────────────────────────────────────────────────────────────────────────
+
 function maybeSendCircuitAlert(): void {
   const now = Date.now();
   if (now - lastCircuitAlertAt < 60 * 60 * 1000) return;
@@ -1778,12 +1822,15 @@ export function resetGhlCircuit(): void {
  */
 export async function runGhlFullSyncTick(): Promise<void> {
   if (!isGhlConfigured()) return;
+  // Restore persisted circuit state on first tick after a process restart.
+  await restoreGhlCircuit();
   if (ghlCircuitOpen) {
     console.log("[Queue:ghl-sync] GHL_CIRCUIT_RESET — new tick detected, resetting circuit breaker to allow recovery");
     storage.createAuditLog({ action: "GHL_CIRCUIT_RESET", entityType: "system", details: "Circuit breaker reset at start of new sync tick — GHL will be retried" }).catch(() => {});
   }
   consecutiveGhlFailures = 0;
   ghlCircuitOpen = false;
+  persistGhlCircuit(); // persist the reset state
   const { acquireJobLock, releaseJobLock, JOB_NAMES } = await import("./job-registry");
   const acquired = await acquireJobLock(JOB_NAMES.GHL_SYNC);
   if (!acquired) return;
@@ -1797,6 +1844,7 @@ export async function runGhlFullSyncTick(): Promise<void> {
         storage.createAuditLog({ action: "GHL_CIRCUIT_OPEN", entityType: "system", details: `Circuit opened: ${consecutiveGhlFailures} consecutive GHL failures in contacts phase — tick aborted` }).catch(() => {});
         maybeSendCircuitAlert();
         ghlCircuitOpen = true;
+        persistGhlCircuit();
         await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN");
         return;
       }
@@ -1823,6 +1871,7 @@ export async function runGhlFullSyncTick(): Promise<void> {
       storage.createAuditLog({ action: "GHL_CIRCUIT_OPEN", entityType: "system", details: `Circuit opened: ${consecutiveGhlFailures} consecutive GHL failures after contacts phase — tick aborted` }).catch(() => {});
       maybeSendCircuitAlert();
       ghlCircuitOpen = true;
+      persistGhlCircuit();
       await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN");
       return;
     }
@@ -1868,6 +1917,7 @@ export async function runGhlFullSyncTick(): Promise<void> {
       storage.createAuditLog({ action: "GHL_CIRCUIT_OPEN", entityType: "system", details: `Circuit opened: ${consecutiveGhlFailures} consecutive GHL failures before deals phase — tick aborted` }).catch(() => {});
       maybeSendCircuitAlert();
       ghlCircuitOpen = true;
+      persistGhlCircuit();
       await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN");
       return;
     }
