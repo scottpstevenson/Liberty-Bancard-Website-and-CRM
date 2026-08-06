@@ -234,6 +234,12 @@ const CASES: GuardCase[] = [
   // so admin/agent/manager may see 403 (csrf_missing) instead of 404 in the test harness.
   // anon → 401 (not authenticated); merchant → 403 (role gate).
   { method: "DELETE", path: "/api/sequences/99999/enrollments/99999", anon: [401], merchant: [403], admin: [404, 403], agent: [404, 403], manager: [404, 403], description: "cancel sequence enrollment (isDashboardUser; 404 when enrollment not found or 403 CSRF; merchant→403)" },
+
+  // ── Partner org dashboard — partner-org session guard (anon → 401) ──────────
+  // This endpoint backs /partner-org/:slug. It uses a dedicated partner-org session
+  // system (req.session.partnerOrgUserId) independent of the main Passport.js auth,
+  // so the expected 401 applies to ALL unauthenticated callers regardless of role.
+  { method: "GET",  path: "/api/partner-org/dashboard",                 anon: [401], merchant: [401], admin: [401], description: "partner-org dashboard data (partner-org session required; 401 for all without partner-org session)" },
 ];
 
 async function ensureAgentUser(): Promise<void> {

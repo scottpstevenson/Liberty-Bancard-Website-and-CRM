@@ -79,6 +79,7 @@ export default function PartnerOrgDashboard() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [loginForm, setLoginForm] = useState({ email: "", password: "" });
+  const [wrongOrg, setWrongOrg] = useState(false);
 
   // Team management state
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
@@ -110,6 +111,8 @@ export default function PartnerOrgDashboard() {
           setSession(data);
           loadDashboard();
         } else {
+          // Logged in, but to a different org — show 403 rather than the login form
+          setWrongOrg(true);
           setLoading(false);
         }
       })
@@ -307,6 +310,36 @@ export default function PartnerOrgDashboard() {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+      </div>
+    );
+  }
+
+  // Logged in but wrong org — show 403 instead of silently falling to the login form
+  if (wrongOrg) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
+        <Card className="w-full max-w-sm shadow-lg border-0">
+          <CardContent className="p-8 text-center">
+            <div className="w-14 h-14 rounded-xl flex items-center justify-center mx-auto mb-4 bg-red-50">
+              <Building2 className="w-7 h-7 text-red-500" />
+            </div>
+            <h1 className="text-xl font-bold text-gray-900 mb-2">Access Denied</h1>
+            <p className="text-sm text-gray-500 mb-6">
+              You are logged in to a different partner organization and cannot access this dashboard.
+            </p>
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={async () => {
+                await fetch("/api/partner-org/logout", { method: "POST", credentials: "include" });
+                setWrongOrg(false);
+                setSession(null);
+              }}
+            >
+              Log out and switch organization
+            </Button>
+          </CardContent>
+        </Card>
       </div>
     );
   }
