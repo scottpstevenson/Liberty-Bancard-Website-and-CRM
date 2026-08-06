@@ -169,10 +169,17 @@ function CopyShareButton({ tool, className }: { tool: SalesTool; className?: str
 }
 
 function trackToolClick(tool: SalesTool) {
+  // Write to toolClickEvents table (UTM attribution)
   apiRequest("POST", "/api/analytics/tool-click", {
     toolId: tool.id,
     toolTitle: tool.title,
     source: "sales-tools-hub",
+  }).catch(() => {});
+  // Also write to analytics_events table (sales_tool_click event)
+  apiRequest("POST", "/api/analytics/record-event", {
+    eventName: "sales_tool_click",
+    pagePath: "/sales-tools",
+    metadata: { source: tool.title, toolId: tool.id },
   }).catch(() => {});
 }
 

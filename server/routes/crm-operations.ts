@@ -51,9 +51,11 @@ export function registerCrmOperationsRoutes(app: Express) {
   app.get("/api/export/contacts", requireRole("admin", "manager"), async (req, res) => {
     try {
       const { data: allContacts } = await storage.getContacts({ limit: 500 });
-      const headers = ["ID","First Name","Last Name","Email","Phone","Company","Status","Tags","Created"];
+      const headers = ["ID","First Name","Last Name","Email","Phone","Company","Status","Decision Maker","Email Status","Tags","Created"];
       const rows = allContacts.map(c => [
-        c.id, c.firstName, c.lastName, c.email, c.phone, c.companyName || "", c.status || "", 
+        c.id, c.firstName, c.lastName, c.email, c.phone, c.companyName || "", c.status || "",
+        (c as any).isDecisionMaker === true ? "true" : "false",
+        (c as any).emailStatus || "",
         (c.tags || []).join(";"), c.createdAt ? new Date(c.createdAt).toISOString() : ""
       ]);
       const csv = [headers.join(","), ...rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(","))].join("\n");

@@ -58,6 +58,10 @@ export const OFFER_ROUTE_ASSIGNED = "offer_route_assigned";
 export const SEQUENCE_STEP_SENT = "sequence_step_sent";
 export const SEQUENCE_STEP_BLOCKED = "sequence_step_blocked";
 export const CHANNEL_ALLOWED = "channel_allowed";
+
+// ─── Sales Tool Events ────────────────────────────────────────────────────────
+/** Fired when a rep clicks "Open Tool" on the Sales Tools Hub page */
+export const SALES_TOOL_CLICK = "sales_tool_click";
 export const CHANNEL_BLOCKED = "channel_blocked";
 
 // ─── All canonical event names (for validation) ───────────────────────────────
@@ -91,6 +95,7 @@ export const ALL_CANONICAL_EVENTS = new Set([
   CHANNEL_ALLOWED,
   CHANNEL_BLOCKED,
   PHONE_CALL_CLICK,
+  SALES_TOOL_CLICK,
 ]);
 
 // ─── Payload Type ─────────────────────────────────────────────────────────────
