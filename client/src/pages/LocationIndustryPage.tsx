@@ -26,6 +26,8 @@ import { trackPhoneCtaClick, trackBookingCtaClick, trackStatementUploadCtaClick 
 interface LocationIndustryData {
   citySlug: string;
   cityName: string;
+  cityState: string;
+  cityStateName: string;
   industrySlug: string;
   industryName: string;
   metaTitle: string;
@@ -39,23 +41,23 @@ interface LocationIndustryData {
 }
 
 export const cities = [
-  { slug: "miami", name: "Miami" },
-  { slug: "fort-lauderdale", name: "Fort Lauderdale" },
-  { slug: "tampa", name: "Tampa" },
-  { slug: "orlando", name: "Orlando" },
-  { slug: "jacksonville", name: "Jacksonville" },
-  { slug: "gainesville", name: "Gainesville" },
-  { slug: "pensacola", name: "Pensacola" },
-  { slug: "houston", name: "Houston" },
-  { slug: "dallas", name: "Dallas" },
-  { slug: "atlanta", name: "Atlanta" },
-  { slug: "las-vegas", name: "Las Vegas" },
-  { slug: "phoenix", name: "Phoenix" },
-  { slug: "nashville", name: "Nashville" },
-  { slug: "charlotte", name: "Charlotte" },
-  { slug: "denver", name: "Denver" },
-  { slug: "austin", name: "Austin" },
-  { slug: "chicago", name: "Chicago" },
+  { slug: "miami", name: "Miami", state: "FL" },
+  { slug: "fort-lauderdale", name: "Fort Lauderdale", state: "FL" },
+  { slug: "tampa", name: "Tampa", state: "FL" },
+  { slug: "orlando", name: "Orlando", state: "FL" },
+  { slug: "jacksonville", name: "Jacksonville", state: "FL" },
+  { slug: "gainesville", name: "Gainesville", state: "FL" },
+  { slug: "pensacola", name: "Pensacola", state: "FL" },
+  { slug: "houston", name: "Houston", state: "TX" },
+  { slug: "dallas", name: "Dallas", state: "TX" },
+  { slug: "atlanta", name: "Atlanta", state: "GA" },
+  { slug: "las-vegas", name: "Las Vegas", state: "NV" },
+  { slug: "phoenix", name: "Phoenix", state: "AZ" },
+  { slug: "nashville", name: "Nashville", state: "TN" },
+  { slug: "charlotte", name: "Charlotte", state: "NC" },
+  { slug: "denver", name: "Denver", state: "CO" },
+  { slug: "austin", name: "Austin", state: "TX" },
+  { slug: "chicago", name: "Chicago", state: "IL" },
 ];
 
 export const topVerticals = [
@@ -66,7 +68,22 @@ export const topVerticals = [
   { slug: "retail", name: "Retail", industryPageSlug: "retail-payment-processing" },
 ];
 
+const STATE_NAMES: Record<string, string> = {
+  FL: "Florida",
+  TX: "Texas",
+  GA: "Georgia",
+  NV: "Nevada",
+  AZ: "Arizona",
+  TN: "Tennessee",
+  NC: "North Carolina",
+  CO: "Colorado",
+  IL: "Illinois",
+};
+
 function generateLocationData(city: typeof cities[0], vertical: typeof topVerticals[0]): LocationIndustryData {
+  const stateName = STATE_NAMES[city.state] ?? city.state;
+  const isFL = city.state === "FL";
+
   const cityPopData: Record<string, { businesses: string; metro: string }> = {
     miami: { businesses: "12,000+", metro: "6.1 million" },
     "fort-lauderdale": { businesses: "8,500+", metro: "1.9 million" },
@@ -97,15 +114,15 @@ function generateLocationData(city: typeof cities[0], vertical: typeof topVertic
     restaurant: {
       avgRate: "2.4%",
       avgSavings: "$3,200",
-      localStat: "Florida's restaurant industry generates over $67 billion in annual sales",
+      localStat: isFL ? "Florida's restaurant industry generates over $67 billion in annual sales" : "The US restaurant industry generates over $1 trillion in annual sales",
       benefits: [
         { title: "Interchange-plus pricing for restaurants", description: `${city.name} restaurants process high volumes of card transactions daily. Interchange-plus pricing reveals your true costs and saves on every swipe, dip, and tap.` },
-        { title: "Next-day funding for FL restaurants", description: `Keep your cash flow moving with next-day deposits. Buy ingredients, pay staff, and manage daily operations without waiting days for your money.` },
+        { title: "Next-day funding for restaurants", description: `Keep your cash flow moving with next-day deposits. Buy ingredients, pay staff, and manage daily operations without waiting days for your money.` },
         { title: "Tip adjustment optimization", description: `Tip adjustments inflate processing costs for restaurants. We configure your terminals to minimize the interchange impact of gratuity adjustments.` },
-        { title: "Local support when you need it", description: `Based in Fort Lauderdale, our team understands the ${city.name} restaurant scene and provides responsive support during your busiest hours.` },
+        { title: "Local support when you need it", description: `Our team understands the ${city.name} restaurant scene and provides responsive support during your busiest hours.` },
       ],
       faqs: [
-        { question: `What is the best payment processor for restaurants in ${city.name}?`, answer: `The best processor for ${city.name} restaurants is one that offers interchange-plus pricing, understands tip adjustments, and provides next-day funding. Liberty Bancard specializes in restaurant payment processing with transparent pricing and local Florida support.` },
+        { question: `What is the best payment processor for restaurants in ${city.name}?`, answer: `The best processor for ${city.name} restaurants is one that offers interchange-plus pricing, understands tip adjustments, and provides next-day funding. Liberty Bancard specializes in restaurant payment processing with transparent pricing and dedicated support.` },
         { question: `How much can ${city.name} restaurants save on processing fees?`, answer: `We typically identify $3,200 or more in annual savings for restaurants in the ${city.name} area. Your actual savings depend on your volume, average ticket, and current pricing structure — which we'll identify in your free statement review.` },
         { question: "Do you serve restaurants throughout the metro area?", answer: `Yes. We serve restaurants across the greater ${city.name} metropolitan area, including all surrounding neighborhoods and suburbs.` },
         { question: "Can I keep my current POS system?", answer: "In most cases, yes. We integrate with major restaurant POS systems and aren't tied to any single platform. We'll confirm compatibility during your statement review." },
@@ -114,7 +131,7 @@ function generateLocationData(city: typeof cities[0], vertical: typeof topVertic
     "auto-repair": {
       avgRate: "3.0%",
       avgSavings: "$4,800",
-      localStat: "Florida has over 15,000 auto repair and service establishments",
+      localStat: isFL ? "Florida has over 15,000 auto repair and service establishments" : "The US has over 160,000 auto repair and service establishments",
       benefits: [
         { title: "High-ticket transaction optimization", description: `${city.name} auto shops process large repair invoices. Interchange-plus pricing saves significantly more on $1,000+ transactions than flat-rate pricing.` },
         { title: "Keyed-entry rate management", description: "Phone orders and fleet account payments get competitive keyed-entry rates, reducing the premium you pay on manually entered transactions." },
@@ -131,7 +148,7 @@ function generateLocationData(city: typeof cities[0], vertical: typeof topVertic
     healthcare: {
       avgRate: "2.6%",
       avgSavings: "$4,100",
-      localStat: "Florida's healthcare sector employs over 1.2 million workers",
+      localStat: isFL ? "Florida's healthcare sector employs over 1.2 million workers" : "Healthcare is one of the largest and fastest-growing employment sectors in the US",
       benefits: [
         { title: "Optimized pricing for patient payments", description: `${city.name} medical practices handle co-pays, procedure payments, and balances of varying sizes. Interchange-plus pricing optimizes costs across all transaction types.` },
         { title: "PCI-compliant payment solutions", description: "Secure, encrypted terminals and PCI-compliant processing infrastructure to protect patient payment data." },
@@ -148,7 +165,7 @@ function generateLocationData(city: typeof cities[0], vertical: typeof topVertic
     salon: {
       avgRate: "2.8%",
       avgSavings: "$2,400",
-      localStat: "Florida's beauty and personal care industry serves millions of residents and tourists",
+      localStat: isFL ? "Florida's beauty and personal care industry serves millions of residents and tourists" : "The US beauty and personal care industry serves over 300 million consumers nationwide",
       benefits: [
         { title: "Tip-optimized processing", description: `${city.name} salons and spas process tips on nearly every transaction. We configure terminals to minimize the interchange cost of tip adjustments.` },
         { title: "Card-on-file for no-shows", description: "Protect your schedule with secure card-on-file storage for appointment deposits and no-show fee collection." },
@@ -165,7 +182,7 @@ function generateLocationData(city: typeof cities[0], vertical: typeof topVertic
     retail: {
       avgRate: "2.3%",
       avgSavings: "$2,800",
-      localStat: "Florida retail sales exceed $300 billion annually",
+      localStat: isFL ? "Florida retail sales exceed $300 billion annually" : "US retail sales exceed $7 trillion annually",
       benefits: [
         { title: "True interchange-plus for retail", description: `${city.name} retailers save significantly on debit card transactions with interchange-plus pricing versus flat-rate processors.` },
         { title: "Terminal purchase options", description: "Own your equipment outright instead of paying inflated lease costs. Modern EMV and NFC terminals at competitive prices." },
@@ -187,17 +204,19 @@ function generateLocationData(city: typeof cities[0], vertical: typeof topVertic
   return {
     citySlug: city.slug,
     cityName: city.name,
+    cityState: city.state,
+    cityStateName: stateName,
     industrySlug: vertical.slug,
     industryName: vertical.name,
-    metaTitle: `${vertical.name} Payment Processing in ${city.name}, FL`,
+    metaTitle: `${vertical.name} Payment Processing in ${city.name}, ${city.state}`,
     metaDescription: `${city.name} ${vertical.name.toLowerCase()} businesses save on processing fees with Liberty Bancard's interchange-plus pricing. Free statement review, no obligation.`,
-    keywords: `${vertical.name.toLowerCase()} payment processing ${city.name}, ${city.name} ${vertical.name.toLowerCase()} credit card processing, ${vertical.name.toLowerCase()} merchant services ${city.name} FL, payment processing ${city.name} Florida`,
-    heroTitle: `${vertical.name} Payment Processing in ${city.name}, FL`,
+    keywords: `${vertical.name.toLowerCase()} payment processing ${city.name}, ${city.name} ${vertical.name.toLowerCase()} credit card processing, ${vertical.name.toLowerCase()} merchant services ${city.name} ${city.state}, payment processing ${city.name} ${stateName}`,
+    heroTitle: `${vertical.name} Payment Processing in ${city.name}, ${city.state}`,
     heroSubtitle: `Serving ${pop.businesses} ${vertical.name.toLowerCase()} businesses in the greater ${city.name} metro area (population ${pop.metro}). Local support, transparent pricing, and real savings on every transaction.`,
     localStats: [
       { value: vd.avgRate, label: `Average effective rate on ${city.name} ${vertical.name.toLowerCase()} statements` },
       { value: vd.avgSavings, label: `Average annual savings identified per ${city.name} location` },
-      { value: "FL-Based", label: "Local Fort Lauderdale headquarters with Florida support team" },
+      { value: isFL ? "FL-Based" : "US-Based", label: isFL ? "Local Fort Lauderdale headquarters with Florida support team" : "Dedicated support team serving businesses nationwide" },
     ],
     benefits: vd.benefits,
     faqs: vd.faqs,
@@ -252,7 +271,7 @@ export default function LocationIndustryPage() {
     itemListElement: [
       { "@type": "ListItem", position: 1, name: "Home", item: "https://libertybancard.com/" },
       { "@type": "ListItem", position: 2, name: `${data.industryName} Processing`, item: `https://libertybancard.com/industries/${vertical?.industryPageSlug || ""}` },
-      { "@type": "ListItem", position: 3, name: `${data.cityName}, FL`, item: `https://libertybancard.com/locations/${key}` },
+      { "@type": "ListItem", position: 3, name: `${data.cityName}, ${data.cityState}`, item: `https://libertybancard.com/locations/${key}` },
     ],
   };
 
@@ -268,7 +287,7 @@ export default function LocationIndustryPage() {
       name: data.cityName,
       containedInPlace: {
         "@type": "State",
-        name: "Florida",
+        name: data.cityStateName,
       },
     },
     address: {
@@ -299,13 +318,13 @@ export default function LocationIndustryPage() {
               <Breadcrumbs
                 items={[
                   { name: `${data.industryName} Processing`, path: `/industries/${vertical?.industryPageSlug || ""}` },
-                  { name: `${data.cityName}, FL`, path: `/locations/${data.citySlug}` },
+                  { name: `${data.cityName}, ${data.cityState}`, path: `/locations/${data.citySlug}` },
                 ]}
                 className="mb-4"
               />
               <div className="flex items-center gap-2 text-accent mb-4">
                 <MapPin className="w-5 h-5" />
-                <span className="text-sm font-medium" data-testid="text-location-badge">{data.cityName}, Florida</span>
+                <span className="text-sm font-medium" data-testid="text-location-badge">{data.cityName}, {data.cityStateName}</span>
               </div>
               <h1 className="text-3xl md:text-4xl lg:text-5xl font-display font-bold text-foreground mb-6 max-w-3xl leading-tight" data-testid="text-location-hero-title">
                 {data.heroTitle}
@@ -435,7 +454,7 @@ export default function LocationIndustryPage() {
         <section className="bg-background py-12" data-testid="section-location-crosslinks">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <h3 className="text-lg font-display font-bold text-foreground text-center mb-4" data-testid="text-crosslinks-heading">
-              More {data.industryName} Processing Locations in Florida
+              More {data.industryName} Processing Locations We Serve
             </h3>
             <div className="flex flex-wrap justify-center gap-3 mb-8">
               {cities
