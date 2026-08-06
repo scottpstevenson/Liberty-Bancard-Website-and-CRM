@@ -150,6 +150,19 @@ export function registerCampaignsRoutes(app: Express) {
     }
   });
 
+  // GET /api/outbound-messages/stuck-sending
+  // Returns messages that have been in `sending` status for more than 60 seconds.
+  // Used by the campaign dashboard to warn operators before the 5-minute
+  // stale-cleanup fires and marks them `failed`.
+  app.get("/api/outbound-messages/stuck-sending", isAuthenticated, async (_req, res) => {
+    try {
+      const messages = await storage.getStuckSendingMessages();
+      res.json({ count: messages.length, messages });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
   app.post("/api/campaigns/:id/queue", isAuthenticated, async (req, res) => {
     try {
       const campaignId = Number(req.params.id);

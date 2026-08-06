@@ -51,7 +51,7 @@ import {
   TabsList,
   TabsTrigger,
 } from "@/components/ui/tabs";
-import { Send, Plus, Play, Pause, Trash2, Mail, Clock, Pencil, Eye, Users, List, BarChart2 } from "lucide-react";
+import { Send, Plus, Play, Pause, Trash2, Mail, Clock, Pencil, Eye, Users, List, BarChart2, AlertTriangle, X } from "lucide-react";
 import DashboardErrorState from "@/components/DashboardErrorState";
 import EmailPreviewModal, { EmailPreviewContent } from "@/components/EmailPreviewModal";
 import ReadinessIntelligencePanel from "@/components/ReadinessIntelligencePanel";
@@ -846,11 +846,128 @@ function CampaignDetail({ campaign }: { campaign: Campaign }) {
   );
 }
 
+type StuckSendingMessage = {
+  id: number;
+  campaignId: number | null;
+  toEmail: string | null;
+  toPhone: string | null;
+  subject: string | null;
+  status: string | null;
+  sendingAt: string | null;
+  error: string | null;
+};
+
+type StuckSendingResponse = {
+  count: number;
+  messages: StuckSendingMessage[];
+};
+
+function StuckSendingBanner({ onDismiss }: { onDismiss: () => void }) {
+  const [showDetail, setShowDetail] = useState(false);
+  const { data } = useQuery<StuckSendingResponse>({
+    queryKey: ["/api/outbound-messages/stuck-sending"],
+    refetchInterval: 30_000,
+  });
+
+  const count = data?.count ?? 0;
+  if (count === 0) return null;
+
+  return (
+    <>
+      <div
+        className="flex items-center justify-between gap-3 rounded-md border border-amber-300 bg-amber-50 dark:border-amber-700 dark:bg-amber-950/30 px-4 py-2.5"
+        data-testid="banner-stuck-sending"
+        role="alert"
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+          <span className="text-sm font-medium text-amber-800 dark:text-amber-300">
+            {count} message{count !== 1 ? "s" : ""} stuck in&nbsp;
+            <span className="font-bold">sending</span> for &gt;60&nbsp;s
+          </span>
+          <span className="text-xs text-amber-600 dark:text-amber-400 hidden sm:inline">
+            — may indicate a worker crash before the 5-min cleanup fires
+          </span>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            className="text-xs font-medium text-amber-700 dark:text-amber-300 underline underline-offset-2 hover:no-underline"
+            onClick={() => setShowDetail(true)}
+            data-testid="button-view-stuck-sending"
+          >
+            View
+          </button>
+          <button
+            type="button"
+            aria-label="Dismiss"
+            onClick={onDismiss}
+            className="text-amber-500 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-200"
+            data-testid="button-dismiss-stuck-banner"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      <Dialog open={showDetail} onOpenChange={setShowDetail}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-amber-500" />
+              Messages stuck in sending ({count})
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            These rows have been in <code className="text-xs bg-muted px-1 rounded">sending</code> status for more than 60 seconds.
+            They will be marked <code className="text-xs bg-muted px-1 rounded">failed</code> automatically when the 5-minute cleanup runs.
+            Investigate worker health if this count is large or growing.
+          </p>
+          <div className="overflow-x-auto rounded border">
+            <table className="w-full text-xs" data-testid="table-stuck-sending">
+              <thead>
+                <tr className="border-b bg-muted/50">
+                  <th className="px-3 py-2 text-left font-medium">ID</th>
+                  <th className="px-3 py-2 text-left font-medium">Campaign</th>
+                  <th className="px-3 py-2 text-left font-medium">To</th>
+                  <th className="px-3 py-2 text-left font-medium">Subject</th>
+                  <th className="px-3 py-2 text-left font-medium">Sending At</th>
+                  <th className="px-3 py-2 text-left font-medium">Error</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data?.messages.map((msg) => {
+                  const sendingAgo = msg.sendingAt
+                    ? Math.round((Date.now() - new Date(msg.sendingAt).getTime()) / 1000)
+                    : null;
+                  return (
+                    <tr key={msg.id} className="border-b last:border-b-0 hover:bg-muted/30" data-testid={`row-stuck-${msg.id}`}>
+                      <td className="px-3 py-2 font-mono">{msg.id}</td>
+                      <td className="px-3 py-2">{msg.campaignId ?? "—"}</td>
+                      <td className="px-3 py-2 truncate max-w-[140px]">{msg.toEmail ?? msg.toPhone ?? "—"}</td>
+                      <td className="px-3 py-2 truncate max-w-[160px]">{msg.subject ?? "—"}</td>
+                      <td className="px-3 py-2 whitespace-nowrap text-amber-700 dark:text-amber-400">
+                        {sendingAgo != null ? `${sendingAgo}s ago` : "—"}
+                      </td>
+                      <td className="px-3 py-2 truncate max-w-[140px] text-destructive">{msg.error ?? "—"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
 export default function Campaigns() {
   const { toast } = useToast();
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [audienceSource, setAudienceSource] = useState<"prospect" | "crm">("prospect");
+  const [stuckBannerDismissed, setStuckBannerDismissed] = useState(false);
 
   const { data: campaigns, isLoading, isError, refetch } = useQuery<Campaign[]>({
     queryKey: ["/api/campaigns"],
@@ -892,6 +1009,9 @@ export default function Campaigns() {
 
   return (
     <div className="space-y-6">
+      {!stuckBannerDismissed && (
+        <StuckSendingBanner onDismiss={() => setStuckBannerDismissed(true)} />
+      )}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h2 className="text-2xl font-bold" data-testid="text-campaigns-title">Campaigns</h2>

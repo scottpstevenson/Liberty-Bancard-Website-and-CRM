@@ -215,6 +215,23 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
     return result[0] ?? { sent: 0, opened: 0, replied: 0, bounced: 0 };
   }
 
+  /**
+   * Return messages that are stuck in `sending` status for more than 60 seconds.
+   * These are in-flight rows that may have been orphaned by a worker crash before
+   * the 5-minute stale-cleanup fires.  Surfacing them early lets operators
+   * investigate a partial failure before it turns into a failure flood.
+   */
+  async getStuckSendingMessages() {
+    return await db.select().from(outboundMessages)
+      .where(
+        and(
+          eq(outboundMessages.status, "sending"),
+          lt(outboundMessages.sendingAt, sql`NOW() - INTERVAL '60 seconds'`),
+        )
+      )
+      .orderBy(asc(outboundMessages.sendingAt));
+  }
+
   // ---------------------------------------------------------------------------
   // Campaign Previews
   // ---------------------------------------------------------------------------
