@@ -359,15 +359,18 @@ async function testCase13(): Promise<void> {
     emailStatus: "active",
     smsStatus: "active",
   });
+  // Use a unique trigger type per run to avoid stale sequences from previous test runs
+  // accumulating under the same trigger type and inflating the enrollment count.
+  const triggerType13b = `test_gate_mixed_decl_${Date.now()}_${Math.random().toString(36).slice(2)}`;
   // Sequence declares email-only in outboundChannels; has an sms step that will be
   // skipped per-step by Gate (b) / SMS consent skip when the enrollment runs.
   const seqId2 = await makeAutoTriggerSequence({
-    triggerType: "test_gate_mixed_declared_email",
+    triggerType: triggerType13b,
     stepActionTypes: ["email", "sms"],
     outboundChannels: ["email"], // declared authority — gate checks email only
   });
 
-  const result2 = await autoEnrollFromTrigger("test_gate_mixed_declared_email", { contactId: contactId2 });
+  const result2 = await autoEnrollFromTrigger(triggerType13b, { contactId: contactId2 });
   assert(
     "declared outboundChannels=[email]: warm contact CAN enroll in mixed sequence (SMS skipped per-step)",
     result2.count === 1,
