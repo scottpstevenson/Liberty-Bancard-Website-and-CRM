@@ -284,7 +284,163 @@ function ByPartnerTab() {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Import History Row — lazy fetches detail when expanded
+// ---------------------------------------------------------------------------
+function ImportHistoryRow({ imp, onReimport }: { imp: ResidualImport; onReimport: (month: string) => void }) {
+  const [expanded, setExpanded] = useState(false);
+
+  const { data: detail, isLoading: detailLoading } = useQuery<ResidualImport>({
+    queryKey: ["/api/residuals/imports", imp.id],
+    queryFn: async () => {
+      const res = await fetch(`/api/residuals/imports/${imp.id}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load import detail");
+      return res.json() as Promise<ResidualImport>;
+    },
+    enabled: expanded,
+  });
+
+  const matchedDetailRows = detail?.rows?.filter(r => r.isMatched) ?? [];
+  const unmatchedDetailRows = detail?.rows?.filter(r => !r.isMatched) ?? [];
+
+  const uploadedDate = imp.createdAt
+    ? new Date(imp.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+    : "—";
+  const uploadedTime = imp.createdAt
+    ? new Date(imp.createdAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+    : "";
+
+  return (
+    <>
+      <TableRow
+        className="cursor-pointer hover:bg-muted/30"
+        onClick={() => setExpanded(v => !v)}
+        data-testid={`row-history-${imp.id}`}
+      >
+        <TableCell className="w-8 pr-0">
+          <ChevronRight className={`w-4 h-4 text-muted-foreground transition-transform duration-150 ${expanded ? "rotate-90" : ""}`} />
+        </TableCell>
+        <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
+          <div className="font-medium text-foreground">{uploadedDate}</div>
+          <div className="text-xs">{uploadedTime}</div>
+        </TableCell>
+        <TableCell className="font-medium">{imp.month}</TableCell>
+        <TableCell className="text-sm text-muted-foreground max-w-[180px] truncate" title={imp.fileName}>{imp.fileName}</TableCell>
+        <TableCell className="text-right">{imp.totalRows}</TableCell>
+        <TableCell className="text-right">{formatCurrencyDetailed(imp.totalGrossResidual)}</TableCell>
+        <TableCell className="text-right font-medium">{formatCurrencyDetailed(imp.totalNetResidual)}</TableCell>
+        <TableCell><ImportStatusBadge status={imp.status} /></TableCell>
+        <TableCell className="text-sm text-muted-foreground">{imp.importedBy || "—"}</TableCell>
+        <TableCell>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 text-xs gap-1"
+            onClick={e => { e.stopPropagation(); onReimport(imp.month); }}
+            data-testid={`button-reimport-${imp.id}`}
+          >
+            <RefreshCw className="w-3 h-3" /> Re-import
+          </Button>
+        </TableCell>
+      </TableRow>
+
+      {expanded && (
+        <TableRow data-testid={`row-history-detail-${imp.id}`}>
+          <TableCell colSpan={10} className="p-0 border-b bg-muted/10">
+            <div className="px-6 py-4 space-y-4">
+              {detailLoading ? (
+                <div className="space-y-2">
+                  {[1, 2, 3].map(i => <Skeleton key={i} className="h-8 w-full" />)}
+                </div>
+              ) : (
+                <>
+                  {/* Matched merchants */}
+                  {matchedDetailRows.length > 0 && (
+                    <div>
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-1">
+                        <CheckCircle className="w-3 h-3 text-green-600" />
+                        Matched Merchants ({matchedDetailRows.length})
+                      </p>
+                      <div className="rounded border overflow-hidden">
+                        <Table>
+                          <TableHeader>
+                            <TableRow className="bg-muted/50">
+                              <TableHead className="text-xs h-8">Merchant</TableHead>
+                              <TableHead className="text-xs h-8">MID</TableHead>
+                              <TableHead className="text-xs h-8 text-right">Gross</TableHead>
+                              <TableHead className="text-xs h-8 text-right">Net</TableHead>
+                              <TableHead className="text-xs h-8">Agent</TableHead>
+                              <TableHead className="text-xs h-8">Variance</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {matchedDetailRows.map(row => (
+                              <TableRow key={row.id} className="h-8">
+                                <TableCell className="text-xs py-1">{row.merchantName || "—"}</TableCell>
+                                <TableCell className="text-xs py-1 font-mono">{row.mid}</TableCell>
+                                <TableCell className="text-xs py-1 text-right">{formatCurrencyDetailed(row.grossResidual)}</TableCell>
+                                <TableCell className="text-xs py-1 text-right">{formatCurrencyDetailed(row.netResidual)}</TableCell>
+                                <TableCell className="text-xs py-1">{row.agentName || "—"}</TableCell>
+                                <TableCell className="text-xs py-1"><VarianceBadge status={row.varianceStatus} /></TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Unmatched / error rows */}
+                  {unmatchedDetailRows.length > 0 && (
+                    <div>
+                      <p className="text-xs font-semibold text-red-600 dark:text-red-400 uppercase tracking-wide mb-2 flex items-center gap-1">
+                        <AlertCircle className="w-3 h-3" />
+                        Unmatched / Error Rows ({unmatchedDetailRows.length})
+                      </p>
+                      <div className="rounded border border-red-200 dark:border-red-800 overflow-hidden">
+                        <Table>
+                          <TableHeader>
+                            <TableRow className="bg-red-50 dark:bg-red-950/30">
+                              <TableHead className="text-xs h-8">MID</TableHead>
+                              <TableHead className="text-xs h-8">Merchant Name in File</TableHead>
+                              <TableHead className="text-xs h-8 text-right">Gross</TableHead>
+                              <TableHead className="text-xs h-8 text-right">Net</TableHead>
+                              <TableHead className="text-xs h-8">Reason</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {unmatchedDetailRows.map(row => (
+                              <TableRow key={row.id} className="bg-red-50/50 dark:bg-red-950/10 h-8">
+                                <TableCell className="text-xs py-1 font-mono text-red-700 dark:text-red-400">{row.mid}</TableCell>
+                                <TableCell className="text-xs py-1">{row.merchantName || "—"}</TableCell>
+                                <TableCell className="text-xs py-1 text-right">{formatCurrencyDetailed(row.grossResidual)}</TableCell>
+                                <TableCell className="text-xs py-1 text-right">{formatCurrencyDetailed(row.netResidual)}</TableCell>
+                                <TableCell className="text-xs py-1 text-red-600 dark:text-red-400">
+                                  {row.agentId ? "Missing agent assignment" : "Unknown MID — not linked to any merchant"}
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </div>
+                  )}
+
+                  {matchedDetailRows.length === 0 && unmatchedDetailRows.length === 0 && (
+                    <p className="text-sm text-muted-foreground text-center py-2">No row detail available for this import.</p>
+                  )}
+                </>
+              )}
+            </div>
+          </TableCell>
+        </TableRow>
+      )}
+    </>
+  );
+}
+
 export default function ResidualRevenue() {
+  const [activeTab, setActiveTab] = useState("dashboard");
   const [searchQuery, setSearchQuery] = useState("");
   const [groupFilterParentId, setGroupFilterParentId] = useState<number | null>(null);
   const [uploadMonth, setUploadMonth] = useState(() => {
@@ -551,7 +707,7 @@ export default function ResidualRevenue() {
 
   return (
     <div className="space-y-6" data-testid="page-residual-revenue">
-      <Tabs defaultValue="dashboard" className="w-full">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-4">
           <div>
             <h1 className="text-2xl font-bold" data-testid="text-page-title">Residual Revenue</h1>
@@ -1278,58 +1434,53 @@ export default function ResidualRevenue() {
           <Card data-testid="card-history">
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
-                <FileText className="w-4 h-4 text-primary" /> Past Reconciliations
+                <FileText className="w-4 h-4 text-primary" /> Import History
               </CardTitle>
+              <p className="text-xs text-muted-foreground">
+                Full audit trail of every residual reconciliation run. Click any row to expand the per-merchant breakdown.
+              </p>
             </CardHeader>
             <CardContent>
               <div className="overflow-x-auto">
               {importsLoading ? (
-                <Table><TableBody><TableSkeleton rows={5} cols={8} /></TableBody></Table>
+                <Table><TableBody><TableSkeleton rows={5} cols={10} /></TableBody></Table>
               ) : imports && imports.length > 0 ? (
                 <Table data-testid="table-history">
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Month</TableHead>
+                      <TableHead className="w-8"></TableHead>
+                      <TableHead>Uploaded</TableHead>
+                      <TableHead>Period</TableHead>
                       <TableHead>File</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead className="text-right">Total Rows</TableHead>
-                      <TableHead className="text-right">Matched</TableHead>
-                      <TableHead className="text-right">Flagged</TableHead>
+                      <TableHead className="text-right">Merchants</TableHead>
+                      <TableHead className="text-right">Gross Residual</TableHead>
                       <TableHead className="text-right">Net Residual</TableHead>
-                      <TableHead className="text-right">Total Variance</TableHead>
-                      <TableHead>Confirmed By</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Uploaded By</TableHead>
+                      <TableHead></TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {imports.map(imp => (
-                      <TableRow key={imp.id} data-testid={`row-history-${imp.id}`}>
-                        <TableCell className="font-medium">{imp.month}</TableCell>
-                        <TableCell className="text-sm text-muted-foreground max-w-[180px] truncate">{imp.fileName}</TableCell>
-                        <TableCell><ImportStatusBadge status={imp.status} /></TableCell>
-                        <TableCell className="text-right">{imp.totalRows}</TableCell>
-                        <TableCell className="text-right text-green-600 font-medium">{imp.matchedRows}</TableCell>
-                        <TableCell className="text-right">
-                          {imp.flaggedRows > 0 ? (
-                            <span className="text-orange-500 font-medium flex items-center justify-end gap-1">
-                              <AlertCircle className="w-3 h-3" />{imp.flaggedRows}
-                            </span>
-                          ) : (
-                            <span className="text-green-600">0</span>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-right font-medium">{formatCurrencyDetailed(imp.totalNetResidual)}</TableCell>
-                        <TableCell className={`text-right font-medium ${parseFloat(imp.totalVariance) < 0 ? "text-red-600" : parseFloat(imp.totalVariance) > 0 ? "text-orange-500" : ""}`}>
-                          {parseFloat(imp.totalVariance) >= 0 ? "+" : ""}{formatCurrencyDetailed(imp.totalVariance)}
-                        </TableCell>
-                        <TableCell className="text-sm text-muted-foreground">{imp.confirmedBy || "—"}</TableCell>
-                      </TableRow>
+                      <ImportHistoryRow
+                        key={imp.id}
+                        imp={imp}
+                        onReimport={(month) => { setUploadMonth(month); setActiveTab("reconcile"); }}
+                      />
                     ))}
                   </TableBody>
                 </Table>
               ) : (
                 <div className="text-center py-12 text-muted-foreground" data-testid="text-no-history">
                   <FileText className="w-10 h-10 mx-auto mb-3 opacity-30" />
-                  <p className="text-sm">No reconciliation history yet. Import your first processor report to get started.</p>
+                  <p className="text-sm">No imports yet.</p>
+                  <button
+                    className="text-sm mt-1 text-primary underline underline-offset-2 hover:opacity-80"
+                    onClick={() => setActiveTab("reconcile")}
+                    data-testid="link-go-to-reconcile"
+                  >
+                    Go to Import &amp; Reconcile →
+                  </button>
                 </div>
               )}
               </div>
