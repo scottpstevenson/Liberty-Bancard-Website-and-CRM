@@ -6,6 +6,7 @@ import { db } from "../db";
 import { merchantOnboardingStages, deals, contacts, tasks, MERCHANT_ONBOARDING_STAGE_KEYS } from "@shared/schema";
 import { eq, and, lt, isNull } from "drizzle-orm";
 import { serverError } from "../utils/server-error";
+import { createAndSendNpsSurvey } from "../services/nps-email";
 
 export function registerOnboardingStagesRoutes(app: Express) {
   // ── GET all stages for a deal ──────────────────────────────────────────────
@@ -93,6 +94,17 @@ export function registerOnboardingStagesRoutes(app: Express) {
           entityId: dealId,
           details: { stageKey, label: MERCHANT_ONBOARDING_STAGE_KEYS.includes(stageKey as any) ? stageKey : stageKey },
         }).catch(() => {});
+      }
+
+      // Send NPS survey when "First Batch Processed" milestone is reached (non-blocking)
+      if (status === "complete" && stageKey === "first_batch_processed" && deal.contactId) {
+        createAndSendNpsSurvey({
+          contactId: deal.contactId,
+          dealId,
+          dayTrigger: 1,
+        }).catch((err: Error) =>
+          console.warn(`[OnboardingStages] NPS survey dispatch failed for deal ${dealId}:`, err.message)
+        );
       }
 
       res.json(stage);

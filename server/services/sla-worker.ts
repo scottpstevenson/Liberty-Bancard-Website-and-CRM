@@ -905,6 +905,7 @@ async function checkApplicationReminders() {
 
 async function checkNpsTriggers() {
   try {
+    const { createAndSendNpsSurvey } = await import("./nps-email");
     const { data: deals } = await storage.getDeals();
     const now = Date.now();
     for (const deal of deals) {
@@ -917,20 +918,11 @@ async function checkNpsTriggers() {
       for (const dayTrigger of triggerDays) {
         if (daysSinceLive < dayTrigger || daysSinceLive > dayTrigger + 3) continue;
 
-        const existingNps = await storage.getNpsResponsesByContact(deal.contactId);
-        const alreadySent = existingNps.some(n => n.dayTrigger === dayTrigger);
-        if (alreadySent) continue;
-
-        const { randomBytes } = await import("crypto");
-        const token = randomBytes(16).toString("hex");
-        await storage.createNpsResponse({
-          token,
+        await createAndSendNpsSurvey({
           contactId: deal.contactId,
           dealId: deal.id,
           dayTrigger,
-          emailSentAt: new Date(),
         });
-        console.log(`[NPS] Day-${dayTrigger} survey created for deal #${deal.id} (contact ${deal.contactId})`);
       }
     }
   } catch (err) {

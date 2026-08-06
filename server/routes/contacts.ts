@@ -1832,6 +1832,18 @@ export function registerContactsRoutes(app: Express) {
     }
   });
 
+  // ── GET NPS survey history for a contact ────────────────────────────────────
+  app.get("/api/contacts/:id/nps-responses", isDashboardUser, async (req, res) => {
+    try {
+      const contactId = Number(req.params.id);
+      if (!contactId) return res.status(404).json({ message: "Contact not found" });
+      const responses = await storage.getNpsResponsesByContact(contactId);
+      res.json(responses);
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
 }
 
 /**

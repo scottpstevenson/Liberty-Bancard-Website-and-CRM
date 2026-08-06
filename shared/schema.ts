@@ -3688,6 +3688,7 @@ export const npsResponses = pgTable("nps_responses", {
   comment: text("comment"),
   submittedAt: timestamp("submitted_at"),
   emailSentAt: timestamp("email_sent_at"),
+  sendAttemptedAt: timestamp("send_attempted_at"),
   reviewRequestQueued: boolean("review_request_queued").default(false),
   healthAlertCreated: boolean("health_alert_created").default(false),
   createdAt: timestamp("created_at").defaultNow(),

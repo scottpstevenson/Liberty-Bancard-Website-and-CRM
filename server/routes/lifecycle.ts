@@ -29,6 +29,14 @@ export function registerLifecycleRoutes(app: Express) {
       const survey = await storage.getNpsResponseByToken(req.params.token);
       if (!survey) return res.status(404).json({ message: "Survey not found or expired" });
       if (survey.submittedAt) return res.json({ status: "already_submitted", dayTrigger: survey.dayTrigger });
+
+      // 14-day expiry — measured from emailSentAt (or createdAt as fallback)
+      const sentAt = survey.emailSentAt ?? survey.createdAt;
+      const EXPIRY_MS = 14 * 24 * 60 * 60 * 1000;
+      if (sentAt && Date.now() - new Date(sentAt).getTime() > EXPIRY_MS) {
+        return res.status(404).json({ message: "Survey link has expired" });
+      }
+
       res.json({ status: "pending", dayTrigger: survey.dayTrigger, token: survey.token });
     } catch (err: any) {
       serverError(res, err);
@@ -40,6 +48,13 @@ export function registerLifecycleRoutes(app: Express) {
       const survey = await storage.getNpsResponseByToken(req.params.token);
       if (!survey) return res.status(404).json({ message: "Survey not found" });
       if (survey.submittedAt) return res.status(409).json({ message: "Survey already submitted" });
+
+      // Enforce 14-day expiry on submission — same rule as GET
+      const sentAt = survey.emailSentAt ?? survey.createdAt;
+      const EXPIRY_MS = 14 * 24 * 60 * 60 * 1000;
+      if (sentAt && Date.now() - new Date(sentAt).getTime() > EXPIRY_MS) {
+        return res.status(410).json({ message: "Survey link has expired" });
+      }
 
       const { score, comment } = req.body;
       if (typeof score !== "number" || score < 0 || score > 10) {
