@@ -22,6 +22,7 @@ export const QUEUE_NAMES = {
   GHL_ENROLLMENT_RECOVERY: "ghl-enrollment-recovery",
   HEALTH_MONITOR: "health-monitor",
   EXECUTIVE_SNAPSHOT: "executive-snapshot",
+  PIPELINE_SILENCE_CHECK: "pipeline-silence-check",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -196,6 +197,17 @@ const QUEUE_CONFIGS: QueueConfig[] = [
     attempts: 1,
     backoffDelay: 0,
     repeatEveryMs: IS_DEV ? 15 * 60 * 1000 : 5 * 60 * 1000, // dev: 15min, prod: 5min
+    jobName: "run",
+  },
+  {
+    name: QUEUE_NAMES.PIPELINE_SILENCE_CHECK,
+    // concurrency=1: daily scan for silent pipeline stages; single sequential pass is correct.
+    // Non-critical — skip retry if fails (attempts=1).
+    concurrency: 1,
+    attempts: 1,
+    backoffDelay: 0,
+    repeatEveryMs: 24 * 60 * 60 * 1000,
+    cronPattern: process.env.PIPELINE_SILENCE_CRON ?? "0 9 * * *", // 9 AM UTC daily
     jobName: "run",
   },
 ];
@@ -745,6 +757,11 @@ class QueueManager {
         case QUEUE_NAMES.HEALTH_MONITOR: {
           const { runHealthChecks } = await import("./health-monitor");
           await runHealthChecks();
+          break;
+        }
+        case QUEUE_NAMES.PIPELINE_SILENCE_CHECK: {
+          const { runPipelineSilenceCheck } = await import("./pipeline-silence-check");
+          await runPipelineSilenceCheck();
           break;
         }
         default:

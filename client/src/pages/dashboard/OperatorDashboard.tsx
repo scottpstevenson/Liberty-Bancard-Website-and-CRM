@@ -2822,7 +2822,12 @@ function renderOperatorView(view: string, onNavigate: (v: string) => void) {
     case "kpis":
       return <OperatorKpiPanel />;
     case "readiness":
-      return <ReadinessChecklistWidget />;
+      return (
+        <div className="space-y-4">
+          <ReadinessChecklistWidget />
+          <DeploymentReadinessCard />
+        </div>
+      );
     case "job-health":
       return <JobHealthPanel />;
     case "queue-metrics":
@@ -4784,7 +4789,7 @@ function AiCostPanel() {
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-sm flex items-center gap-2">
-            <BarChart3 className="w-4 h-4 text-muted-foreground" />
+            <TrendingUp className="w-4 h-4 text-muted-foreground" />
             30-Day AI Spend Trend
           </CardTitle>
         </CardHeader>
@@ -4795,7 +4800,7 @@ function AiCostPanel() {
             <div className="h-48 flex items-center justify-center text-muted-foreground text-sm">No data yet</div>
           ) : (
             <ResponsiveContainer width="100%" height={180} data-testid="chart-ai-spend-trend">
-              <BarChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+              <LineChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                 <XAxis
                   dataKey="date"
@@ -4812,17 +4817,143 @@ function AiCostPanel() {
                 <Tooltip
                   formatter={(value: number, name: string) => [
                     name === "cost" ? `$${value.toFixed(4)}` : value,
-                    name === "cost" ? "Cost" : "Calls",
+                    name === "cost" ? "Daily Cost" : "Calls",
                   ]}
                   labelFormatter={label => `Date: ${label}`}
                 />
-                <Bar dataKey="cost" fill="#22c55e" radius={[2, 2, 0, 0]} name="cost" />
-              </BarChart>
+                <Line
+                  type="monotone"
+                  dataKey="cost"
+                  stroke="#22c55e"
+                  strokeWidth={2}
+                  dot={false}
+                  activeDot={{ r: 4 }}
+                  name="cost"
+                />
+              </LineChart>
             </ResponsiveContainer>
           )}
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+// ── Deployment Readiness Card ─────────────────────────────────────────────────
+
+interface PreDeployResult {
+  ranAt: string;
+  passed: boolean;
+  passedCount: number;
+  totalCount: number;
+  skippedCount: number;
+  suites: Array<{ name: string; passed: boolean; skipped: boolean; durationMs: number }>;
+}
+
+function DeploymentReadinessCard() {
+  const { data, isLoading, isError, refetch } = useQuery<PreDeployResult | null>({
+    queryKey: ["/api/admin/pre-deploy-result"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/pre-deploy-result", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch pre-deploy result");
+      return res.json();
+    },
+    refetchInterval: 60000,
+  });
+
+  if (isLoading) {
+    return (
+      <Card data-testid="card-deployment-readiness">
+        <CardContent className="p-6">
+          <div className="h-32 bg-muted animate-pulse rounded" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (isError) {
+    return (
+      <Card data-testid="card-deployment-readiness-error">
+        <CardContent className="p-6 flex flex-col items-center gap-3">
+          <AlertTriangle className="w-8 h-8 text-red-500" />
+          <p className="text-sm text-muted-foreground">Failed to load deployment readiness</p>
+          <Button variant="outline" size="sm" onClick={() => refetch()}>
+            <RefreshCw className="w-4 h-4 mr-1" /> Retry
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!data) {
+    return (
+      <Card data-testid="card-deployment-readiness-empty">
+        <CardContent className="p-6 flex flex-col items-center gap-3 text-center">
+          <Shield className="w-10 h-10 text-muted-foreground opacity-40" />
+          <p className="text-sm font-medium">No gate result recorded yet</p>
+          <p className="text-xs text-muted-foreground">
+            Run the pre-deploy gate (<code className="font-mono">npx tsx scripts/pre-deploy.ts</code>) to populate this panel.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const failedSuites = data.suites.filter(s => !s.passed && !s.skipped);
+  const passedSuites = data.suites.filter(s => s.passed);
+  const skippedSuites = data.suites.filter(s => s.skipped);
+
+  return (
+    <Card
+      data-testid="card-deployment-readiness"
+      className={data.passed ? "border-green-500/50 bg-green-500/5" : "border-red-500/50 bg-red-500/5"}
+    >
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between gap-2">
+          <CardTitle className="text-base flex items-center gap-2">
+            {data.passed ? (
+              <CheckCircle2 className="w-5 h-5 text-green-600" />
+            ) : (
+              <XCircle className="w-5 h-5 text-red-600" />
+            )}
+            Deployment Readiness Gate
+          </CardTitle>
+          <Badge variant={data.passed ? "default" : "destructive"} data-testid="badge-deploy-status">
+            {data.passed ? "PASSED" : "FAILED"}
+          </Badge>
+        </div>
+        <p className="text-xs text-muted-foreground mt-1">
+          Last run: {new Date(data.ranAt).toLocaleString()} ·{" "}
+          {data.passedCount}/{data.totalCount} suites passed
+          {data.skippedCount > 0 && `, ${data.skippedCount} skipped`}
+        </p>
+      </CardHeader>
+      <CardContent className="pt-0">
+        <div className="space-y-1 max-h-64 overflow-y-auto">
+          {failedSuites.map((s, i) => (
+            <div key={i} className="flex items-center gap-2 text-xs text-red-700 dark:text-red-400" data-testid={`deploy-suite-failed-${i}`}>
+              <XCircle className="w-3 h-3 shrink-0" />
+              <span className="truncate">{s.name}</span>
+              <span className="ml-auto text-muted-foreground shrink-0">{(s.durationMs / 1000).toFixed(1)}s</span>
+            </div>
+          ))}
+          {passedSuites.map((s, i) => (
+            <div key={i} className="flex items-center gap-2 text-xs text-green-700 dark:text-green-400" data-testid={`deploy-suite-passed-${i}`}>
+              <CheckCircle2 className="w-3 h-3 shrink-0" />
+              <span className="truncate">{s.name}</span>
+              <span className="ml-auto text-muted-foreground shrink-0">{(s.durationMs / 1000).toFixed(1)}s</span>
+            </div>
+          ))}
+          {skippedSuites.map((s, i) => (
+            <div key={i} className="flex items-center gap-2 text-xs text-muted-foreground" data-testid={`deploy-suite-skipped-${i}`}>
+              <Clock className="w-3 h-3 shrink-0" />
+              <span className="truncate">{s.name}</span>
+              <span className="ml-auto shrink-0">skipped</span>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 

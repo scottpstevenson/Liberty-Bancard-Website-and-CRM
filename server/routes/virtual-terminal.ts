@@ -179,6 +179,58 @@ export function registerVirtualTerminalRoutes(app: Express) {
     }
   });
 
+  // === VT CSV EXPORT (admin/manager only) ===
+  app.get("/api/virtual-terminal/transactions/export-csv", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const { virtualTerminalTransactions } = await import("@shared/schema");
+      const { gte: gteOp, lte: lteOp, and: andOp } = await import("drizzle-orm");
+
+      const startDate = req.query.startDate ? new Date(String(req.query.startDate)) : null;
+      const endDate = req.query.endDate ? new Date(String(req.query.endDate)) : null;
+
+      // Build where clause for date range
+      const conditions: any[] = [];
+      if (startDate && !isNaN(startDate.getTime())) {
+        conditions.push(gteOp(virtualTerminalTransactions.createdAt, startDate));
+      }
+      if (endDate && !isNaN(endDate.getTime())) {
+        // Include full end day
+        const endOfDay = new Date(endDate);
+        endOfDay.setHours(23, 59, 59, 999);
+        conditions.push(lteOp(virtualTerminalTransactions.createdAt, endOfDay));
+      }
+
+      const query = db.select().from(virtualTerminalTransactions);
+      const transactions = conditions.length > 0
+        ? await query.where(andOp(...conditions)).orderBy(desc(virtualTerminalTransactions.createdAt))
+        : await query.orderBy(desc(virtualTerminalTransactions.createdAt));
+
+      // Build CSV
+      const headers = ["Date", "Amount", "Refunded Amount", "Merchant / Cardholder", "Card Type", "Last Four", "Status", "Auth Code", "Memo", "Gateway Transaction ID"];
+      const rows = transactions.map(txn => [
+        txn.createdAt ? new Date(txn.createdAt).toISOString() : "",
+        txn.amount ?? "",
+        txn.refundedAmount ?? "0",
+        txn.cardholderName ?? "",
+        txn.cardType ?? "",
+        txn.lastFour ?? "",
+        txn.status ?? "",
+        txn.authCode ?? "",
+        (txn.memo ?? "").replace(/"/g, '""'),
+        txn.gatewayTransactionId ?? "",
+      ].map(v => `"${v}"`).join(","));
+
+      const csv = [headers.map(h => `"${h}"`).join(","), ...rows].join("\r\n");
+
+      const filename = `vt-transactions-${new Date().toISOString().slice(0, 10)}.csv`;
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      res.send(csv);
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
   app.put("/api/admin/users/:id/permissions", requireRole("admin"), async (req, res) => {
     try {
       const { permissions } = req.body;

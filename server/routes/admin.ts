@@ -3533,4 +3533,15 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // === DEPLOYMENT READINESS ===
+  app.get("/api/admin/pre-deploy-result", requireRole("admin"), async (req, res) => {
+    try {
+      const result = await storage.getSystemSetting("pre_deploy_last_result");
+      if (!result) return res.json(null);
+      res.json(result);
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
 }

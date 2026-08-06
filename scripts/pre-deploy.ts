@@ -481,6 +481,33 @@ async function main() {
 
   console.log("");
 
+  // ── 6. Persist gate result to system_settings ─────────────────────────────
+  const gateResult = {
+    ranAt: new Date().toISOString(),
+    passed: failedSuites.length === 0,
+    passedCount: passed,
+    totalCount: total,
+    skippedCount: skipped,
+    suites: results.map(r => ({
+      name: r.suite.name,
+      passed: r.exitCode === 0,
+      skipped: r.skipped,
+      durationMs: r.durationMs,
+    })),
+  };
+  try {
+    const { systemSettings } = await import("@shared/schema");
+    await db.insert(systemSettings)
+      .values({ key: "pre_deploy_last_result", value: gateResult as any })
+      .onConflictDoUpdate({
+        target: systemSettings.key,
+        set: { value: gateResult as any, updatedAt: new Date() },
+      });
+    console.log("  ✓ Gate result written to system_settings.pre_deploy_last_result");
+  } catch (persistErr: any) {
+    console.warn(`  ⚠ Could not persist gate result: ${persistErr?.message}`);
+  }
+
   if (failedSuites.length > 0) {
     console.error(`\n❌  PRE-DEPLOY GATE FAILED — ${failedSuites.length} suite(s) failed:`);
     for (const r of failedSuites) {

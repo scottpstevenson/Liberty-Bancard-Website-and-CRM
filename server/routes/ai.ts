@@ -1004,6 +1004,30 @@ Notes: ${deal.notes || "None"}`
   });
 
 
+  // === AI COST TREND (30-day daily line chart data) ===
+  // Returns daily totals of AI cost (token cost × model rate) from audit_logs
+  // where action = "ai_request". Used by the Operator Dashboard AI Cost LineChart.
+  app.get("/api/operator/ai-cost-trend", isDashboardUser, async (req, res) => {
+    try {
+      const rawDays = parseInt(String(req.query.days ?? ""), 10);
+      const days = Number.isFinite(rawDays) && rawDays > 0 ? Math.min(rawDays, 90) : 30;
+      // Delegate to the same daily rollup storage method (already computes cost from audit_logs)
+      const dailyRollup = await storage.getAiCostDailyRollup(days);
+      // Normalize into a clean series for the LineChart
+      const trend = dailyRollup.map(d => ({
+        date: d.date,
+        cost: parseFloat((d.costCents / 100).toFixed(6)),
+        calls: d.calls,
+        promptTokens: d.promptTokens,
+        completionTokens: d.completionTokens,
+      }));
+      res.json({ trend, days });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+
   // === AI CHARGEBACK COPILOT ===
   app.post("/api/ai/chargeback-copilot/:id", isDashboardUser, async (req, res) => {
     try {

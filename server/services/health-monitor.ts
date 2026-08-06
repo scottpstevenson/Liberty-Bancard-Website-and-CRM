@@ -489,8 +489,44 @@ export async function runHealthChecks(): Promise<HealthReport> {
     }
   }
 
-  // One-line summary log
+  // Threshold alert: if fewer than 3 checks are ok, fire a separate cooldown-gated email
   const okCount = Object.values(checks).filter(c => c.status === "ok").length;
+  const HEALTH_LOW_OK_THRESHOLD = 3;
+  const HEALTH_LOW_OK_COOLDOWN_KEY = "health_monitor_low_ok_alert_at";
+  const HEALTH_LOW_OK_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
+
+  if (okCount < HEALTH_LOW_OK_THRESHOLD) {
+    (async () => {
+      try {
+        // Check cooldown
+        const lastAlertRaw = await storage.getSystemSetting(HEALTH_LOW_OK_COOLDOWN_KEY);
+        const lastAlertAt = lastAlertRaw ? new Date(lastAlertRaw as string).getTime() : 0;
+        if (Date.now() - lastAlertAt < HEALTH_LOW_OK_COOLDOWN_MS) {
+          return; // still in cooldown
+        }
+        // Update cooldown before sending to avoid double-fires
+        await storage.setSystemSetting(HEALTH_LOW_OK_COOLDOWN_KEY, new Date().toISOString());
+
+        const { sendSmtpEmail } = await import("./smtp-email");
+        const recipient = process.env.ADMIN_ALERT_EMAIL || "accounts@libertybancard.com";
+        const failingChecks = Object.entries(checks)
+          .filter(([, c]) => c.status !== "ok")
+          .map(([name, c]) => `  • ${name}: ${c.status} — ${c.message ?? ""}`)
+          .join("\n");
+        await sendSmtpEmail({
+          to: recipient,
+          subject: `[HealthMonitor] System health critical — only ${okCount}/9 checks ok`,
+          html: `<pre style="font-family:monospace">HealthMonitor: only ${okCount}/9 checks are OK at ${runAt} (threshold: ${HEALTH_LOW_OK_THRESHOLD}).\n\nFailing/degraded checks:\n${failingChecks}\n\nOverall ok: ${overallOk}\nCritical failures: ${criticalFailures.join(", ") || "none"}</pre>`,
+          category: "internal_ops",
+        });
+        console.warn(`[HealthMonitor] Low-ok alert sent: ok=${okCount}/9`);
+      } catch (alertErr: any) {
+        console.warn("[HealthMonitor] Low-ok alert email failed (non-fatal):", alertErr.message);
+      }
+    })().catch(() => {});
+  }
+
+  // One-line summary log
   const totalMs = Date.now() - t0;
   console.log(
     `[HealthMonitor] ok=${okCount}/9 critical=${CRITICAL_CHECKS.size - criticalFailures.length}/${CRITICAL_CHECKS.size} latencyMs=${totalMs} overallOk=${overallOk}${criticalFailures.length > 0 ? ` failures=[${criticalFailures.join(",")}]` : ""}`

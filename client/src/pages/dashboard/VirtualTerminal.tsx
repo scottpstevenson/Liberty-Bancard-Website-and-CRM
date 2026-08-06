@@ -17,7 +17,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
 import {
-  CreditCard, CheckCircle2, XCircle, Loader2, RefreshCw, Lock, Terminal, AlertTriangle,
+  CreditCard, CheckCircle2, XCircle, Loader2, RefreshCw, Lock, Terminal, AlertTriangle, Download,
 } from "lucide-react";
 
 interface VTTransaction {
@@ -124,6 +124,35 @@ export default function VirtualTerminal() {
   const [refundDialog, setRefundDialog] = useState<{ txn: VTTransaction; open: boolean } | null>(null);
   const [refundAmount, setRefundAmount] = useState("");
   const [cardRaw, setCardRaw] = useState("");
+  const [exportStartDate, setExportStartDate] = useState("");
+  const [exportEndDate, setExportEndDate] = useState("");
+  const [exportLoading, setExportLoading] = useState(false);
+
+  const handleExportCsv = async () => {
+    setExportLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (exportStartDate) params.set("startDate", exportStartDate);
+      if (exportEndDate) params.set("endDate", exportEndDate);
+      const url = `/api/virtual-terminal/transactions/export-csv?${params}`;
+      const res = await fetch(url, { credentials: "include" });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: "Export failed" }));
+        toast({ title: "Export failed", description: err.message, variant: "destructive" });
+        return;
+      }
+      const blob = await res.blob();
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = `vt-transactions-${new Date().toISOString().slice(0, 10)}.csv`;
+      link.click();
+      URL.revokeObjectURL(link.href);
+    } catch (err: any) {
+      toast({ title: "Export failed", description: err.message, variant: "destructive" });
+    } finally {
+      setExportLoading(false);
+    }
+  };
 
   const isAuthorized =
     user?.role === "admin" ||
@@ -471,15 +500,44 @@ export default function VirtualTerminal() {
       </div>
 
       <Card data-testid="card-transaction-history">
-        <CardHeader className="flex flex-row items-center justify-between">
+        <CardHeader className="flex flex-row items-center justify-between flex-wrap gap-2">
           <div>
             <CardTitle>Transaction History</CardTitle>
             <CardDescription>All virtual terminal transactions — most recent first</CardDescription>
           </div>
-          <Button variant="outline" size="sm" onClick={() => queryClient.invalidateQueries({ queryKey: ["/api/virtual-terminal/transactions"] })} data-testid="button-refresh-history">
-            <RefreshCw className="w-4 h-4 mr-1" />
-            Refresh
-          </Button>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Input
+              type="date"
+              className="w-36 h-8 text-xs"
+              value={exportStartDate}
+              onChange={e => setExportStartDate(e.target.value)}
+              placeholder="Start date"
+              data-testid="input-export-start-date"
+            />
+            <span className="text-xs text-muted-foreground">to</span>
+            <Input
+              type="date"
+              className="w-36 h-8 text-xs"
+              value={exportEndDate}
+              onChange={e => setExportEndDate(e.target.value)}
+              placeholder="End date"
+              data-testid="input-export-end-date"
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleExportCsv}
+              disabled={exportLoading}
+              data-testid="button-export-csv"
+            >
+              {exportLoading ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Download className="w-4 h-4 mr-1" />}
+              Export CSV
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => queryClient.invalidateQueries({ queryKey: ["/api/virtual-terminal/transactions"] })} data-testid="button-refresh-history">
+              <RefreshCw className="w-4 h-4 mr-1" />
+              Refresh
+            </Button>
+          </div>
         </CardHeader>
         <CardContent className="p-0">
           {txLoading ? (
