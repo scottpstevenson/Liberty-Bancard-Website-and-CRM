@@ -12,6 +12,7 @@ import {
   emailLogs, callLogs, stageAutomationRules, followUpSequences, sequenceSteps, sequenceEnrollments,
   sunbizEntities, consentAuditLogs, calendarEvents,
   merchantApplications, merchantProfiles, equipmentOrders, agents, agentQuotas, agentMerchants, residualReports, merchantResiduals,
+  partnerOrganizations,
   healthAlerts, dealCompetitors, partners, referrals, commissionTiers, knowledgeBase, reviewRequests, testimonialSubmissions, onboardingSteps, midDailyStats,
   sdrMerchants, sdrMerchantContacts, sdrLeadState, sdrLeadEvents, sdrChannelAttempts, sdrComplianceState,
   sendingIdentities,
@@ -286,6 +287,231 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
       return await this.updateMidDailyStat(existing.id, stat);
     }
     return await this.createMidDailyStat(stat);
+  }
+
+  // ── Agent Payout Ledger ───────────────────────────────────────────────────
+
+  async getAgentPayouts(filters?: { status?: string; periodMonth?: string }) {
+    const { agentPayouts } = await import("@shared/schema");
+    const conditions = [];
+    if (filters?.status) conditions.push(eq(agentPayouts.status, filters.status));
+    if (filters?.periodMonth) conditions.push(eq(agentPayouts.periodMonth, filters.periodMonth));
+    const query = conditions.length
+      ? db.select().from(agentPayouts).where(and(...conditions as any))
+      : db.select().from(agentPayouts);
+    return await query.orderBy(desc(agentPayouts.periodMonth));
+  }
+
+  async getAgentPayoutsForUser(agentUserId: string) {
+    const { agentPayouts } = await import("@shared/schema");
+    return await db.select().from(agentPayouts)
+      .where(eq(agentPayouts.agentUserId, agentUserId))
+      .orderBy(desc(agentPayouts.periodMonth));
+  }
+
+  async getAgentPayout(id: number) {
+    const { agentPayouts } = await import("@shared/schema");
+    const [row] = await db.select().from(agentPayouts).where(eq(agentPayouts.id, id));
+    return row;
+  }
+
+  async createAgentPayout(data: import("@shared/schema").InsertAgentPayout) {
+    const { agentPayouts } = await import("@shared/schema");
+    const [row] = await db.insert(agentPayouts).values(data).returning();
+    return row;
+  }
+
+  async updateAgentPayout(id: number, updates: Partial<import("@shared/schema").InsertAgentPayout> & { paidAt?: Date | null; updatedAt?: Date; partnerOrgId?: number | null }) {
+    const { agentPayouts } = await import("@shared/schema");
+    const [row] = await db.update(agentPayouts).set({ ...updates, updatedAt: new Date() })
+      .where(eq(agentPayouts.id, id)).returning();
+    return row;
+  }
+
+  /**
+   * Atomically transitions a payout from `fromStatus` → `toStatus`.
+   * The status predicate is part of the UPDATE WHERE clause, so concurrent
+   * requests cannot both succeed. Returns the updated row, or null if
+   * no row matched (i.e. the status already changed).
+   */
+  async transitionPayoutStatus(
+    id: number,
+    fromStatus: string,
+    toStatus: string,
+    extra: { paidAt?: Date; notes?: string },
+  ) {
+    const { agentPayouts } = await import("@shared/schema");
+    const setClause: Record<string, unknown> = { status: toStatus, updatedAt: new Date() };
+    if (extra.paidAt !== undefined) setClause.paidAt = extra.paidAt;
+    if (extra.notes !== undefined) setClause.notes = extra.notes;
+    const [row] = await db.update(agentPayouts)
+      .set(setClause as any)
+      .where(and(eq(agentPayouts.id, id), eq(agentPayouts.status, fromStatus)))
+      .returning();
+    return row ?? null;
+  }
+
+  async generatePayoutsForMonth(month: string) {
+    // Aggregate merchantResiduals for the month, grouped by (agentId, partnerOrgId).
+    // Each (agent, partnerOrg) pair gets its own ledger row so partner attribution is preserved.
+    // Residuals with no deal or a deal with no partner org land in the partnerOrgId=null bucket.
+    //
+    // CONCURRENCY SAFETY:
+    //   1. The entire generation is wrapped in a transaction that immediately acquires a
+    //      PostgreSQL session advisory lock keyed to this month. Concurrent generators block
+    //      at the lock and see the updated residual snapshot once they proceed.
+    //   2. Each upsert includes `WHERE agent_payouts.status = 'pending'` in the DO UPDATE
+    //      clause so approved/paid rows are never overwritten, even if a race occurs.
+
+    return db.transaction(async (tx) => {
+      // Acquire an exclusive advisory lock for this month's generation.
+      // pg_advisory_xact_lock blocks until no other session holds the same key
+      // and is released automatically at transaction end.
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('payouts_generate_' || ${month}))`);
+
+      // Resolve the canonical confirmed import for this month: the most recently confirmed one.
+      // Generation aggregates ONLY residuals stamped with this import_id (rows from earlier imports
+      // for the same month are excluded). This prevents double-counting when a month is re-imported.
+      const { residualImports: riTable } = await import("@shared/schema");
+      const [canonicalImport] = await tx.select({ id: riTable.id })
+        .from(riTable)
+        .where(and(eq(riTable.month, month), eq(riTable.status, "confirmed")))
+        .orderBy(desc(riTable.id))
+        .limit(1);
+
+      // Read the finalized residual snapshot inside the transaction.
+      // • When a confirmed import exists: use only its rows (import_id = canonicalImport.id).
+      // • When no confirmed import exists: use only legacy rows (import_id IS NULL).
+      //   This explicitly excludes rows tied to a pending import — those are not yet finalized.
+      const residualFilter = canonicalImport
+        ? and(eq(merchantResiduals.month, month), eq(merchantResiduals.importId, canonicalImport.id))
+        : and(eq(merchantResiduals.month, month), sql`${merchantResiduals.importId} IS NULL`);
+
+      const residualRows = await tx.select().from(merchantResiduals)
+        .where(residualFilter);
+
+      // Batch-resolve partnerOrgId for every unique dealId in one query.
+      const allDealIds = [...new Set(residualRows.map(r => r.dealId).filter((id): id is number => id != null))];
+      const dealPartnerMap = new Map<number, number | null>();
+      if (allDealIds.length > 0) {
+        const dealRows = await tx.select({ id: deals.id, partnerOrgId: deals.partnerOrgId })
+          .from(deals)
+          .where(inArray(deals.id, allDealIds));
+        for (const d of dealRows) dealPartnerMap.set(d.id, d.partnerOrgId ?? null);
+      }
+
+      // Group by (agentId, partnerOrgId) — one ledger row per unique combination.
+      const byAgentPartner = new Map<string, {
+        agentId: number;
+        partnerOrgId: number | null;
+        grossResidual: number;
+        agentCommission: number;
+        partnerCommission: number;
+      }>();
+
+      for (const row of residualRows) {
+        if (!row.agentId) continue;
+        const partnerOrgId = row.dealId != null ? (dealPartnerMap.get(row.dealId) ?? null) : null;
+        const key = `${row.agentId}:${partnerOrgId ?? "null"}`;
+        const existing = byAgentPartner.get(key) ?? { agentId: row.agentId, partnerOrgId, grossResidual: 0, agentCommission: 0, partnerCommission: 0 };
+        existing.grossResidual += parseFloat(row.revenue || "0");
+        existing.agentCommission += parseFloat(row.agentCommission || "0");
+        existing.partnerCommission += parseFloat(row.partnerCommission || "0");
+        byAgentPartner.set(key, existing);
+      }
+
+      // Resolve all agent user accounts in one batch to minimise round-trips.
+      const agentIds = [...new Set([...byAgentPartner.values()].map(t => t.agentId))];
+      const agentRecords = agentIds.length > 0
+        ? await tx.select().from(agents).where(inArray(agents.id, agentIds))
+        : [];
+      const agentUserMap = new Map(agentRecords.filter(a => a.userId).map(a => [a.id, a.userId!]));
+
+      type UpsertRow = { id: number; agent_user_id: string; partner_user_id: string | null; partner_org_id: number | null; period_month: string; gross_residual: string; agent_share: string; partner_share: string; status: string; paid_at: Date | null; notes: string | null; created_at: Date | null; updated_at: Date | null };
+      const { agentPayouts } = await import("@shared/schema");
+      const results = [];
+
+      for (const [, totals] of byAgentPartner) {
+        const agentUserId = agentUserMap.get(totals.agentId);
+        if (!agentUserId) continue;
+
+        const grossResidual = totals.grossResidual.toFixed(2);
+        const agentShare = totals.agentCommission.toFixed(2);
+        const partnerShare = totals.partnerCommission.toFixed(2);
+        const partnerOrgId = totals.partnerOrgId;
+
+        // Atomic upsert: insert or update pending rows only.
+        // The WHERE clause on DO UPDATE means approved/paid rows are never touched.
+        let upsertRows: UpsertRow[];
+
+        if (partnerOrgId == null) {
+          const { rows } = await tx.execute(sql`
+            INSERT INTO agent_payouts
+              (agent_user_id, partner_org_id, period_month, gross_residual, agent_share, partner_share, status, created_at, updated_at)
+            VALUES
+              (${agentUserId}, NULL, ${month}, ${grossResidual}, ${agentShare}, ${partnerShare}, 'pending', NOW(), NOW())
+            ON CONFLICT (agent_user_id, period_month) WHERE partner_org_id IS NULL
+            DO UPDATE SET
+              gross_residual = EXCLUDED.gross_residual,
+              agent_share    = EXCLUDED.agent_share,
+              partner_share  = EXCLUDED.partner_share,
+              updated_at     = NOW()
+            WHERE agent_payouts.status = 'pending'
+            RETURNING *
+          `);
+          upsertRows = rows as UpsertRow[];
+        } else {
+          const { rows } = await tx.execute(sql`
+            INSERT INTO agent_payouts
+              (agent_user_id, partner_org_id, period_month, gross_residual, agent_share, partner_share, status, created_at, updated_at)
+            VALUES
+              (${agentUserId}, ${partnerOrgId}, ${month}, ${grossResidual}, ${agentShare}, ${partnerShare}, 'pending', NOW(), NOW())
+            ON CONFLICT (agent_user_id, period_month, partner_org_id) WHERE partner_org_id IS NOT NULL
+            DO UPDATE SET
+              gross_residual = EXCLUDED.gross_residual,
+              agent_share    = EXCLUDED.agent_share,
+              partner_share  = EXCLUDED.partner_share,
+              updated_at     = NOW()
+            WHERE agent_payouts.status = 'pending'
+            RETURNING *
+          `);
+          upsertRows = rows as UpsertRow[];
+        }
+
+        if (upsertRows.length > 0) {
+          // Upsert succeeded (new insert or pending row updated) — map to camelCase.
+          const r = upsertRows[0];
+          results.push({
+            id: r.id,
+            agentUserId: r.agent_user_id,
+            partnerUserId: r.partner_user_id,
+            partnerOrgId: r.partner_org_id,
+            periodMonth: r.period_month,
+            grossResidual: r.gross_residual,
+            agentShare: r.agent_share,
+            partnerShare: r.partner_share,
+            status: r.status,
+            paidAt: r.paid_at,
+            notes: r.notes,
+            createdAt: r.created_at,
+            updatedAt: r.updated_at,
+          });
+        } else {
+          // DO UPDATE WHERE predicate didn't match → row is approved/paid; fetch and return it unchanged.
+          const conditions = [
+            eq(agentPayouts.agentUserId, agentUserId),
+            eq(agentPayouts.periodMonth, month),
+            partnerOrgId == null
+              ? sql`${agentPayouts.partnerOrgId} IS NULL`
+              : eq(agentPayouts.partnerOrgId, partnerOrgId),
+          ];
+          const [existingRow] = await tx.select().from(agentPayouts).where(and(...conditions as any));
+          if (existingRow) results.push(existingRow);
+        }
+      }
+
+      return results;
+    });
   }
 
   // ── Partner Organizations ─────────────────────────────────────────────────

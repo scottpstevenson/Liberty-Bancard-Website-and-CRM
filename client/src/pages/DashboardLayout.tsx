@@ -131,6 +131,7 @@ const dailyWorkItems: MenuItem[] = [
   { icon: Inbox,           label: "Messages & Inbox",     href: "/dashboard/comms-hub",          roles: ["agent"], badgeKey: "smsUnread" },
   { icon: ClipboardList,   label: "Tasks & Appointments", href: "/dashboard/tasks-appointments", roles: ["agent"] },
   { icon: Brain,           label: "AI Advisor",           href: "/dashboard/chat",               roles: ["agent"] },
+  { icon: DollarSign,      label: "My Earnings",          href: "/dashboard/my-earnings",        roles: ["agent"] },
 ];
 
 // Virtual Terminal for agents with permission (appended at render time)

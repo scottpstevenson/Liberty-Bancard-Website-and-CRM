@@ -337,12 +337,16 @@ export function registerResidualsRoutes(app: Express) {
         return res.status(400).json({ message: "Import already confirmed" });
       }
 
+      // ── Compute commissions before entering the lock (reads only, no writes) ──
       const rows = await storage.getResidualImportRows(importRecord.id);
 
       // Cache agent and deal/partnerOrg lookups to avoid redundant DB hits per row
       const agentCache = new Map<number, { commissionSplitPercent: number } | null>();
       const dealCache = new Map<number, { partnerOrgId: number | null } | null>();
       const partnerOrgCache = new Map<number, { commissionRate: number } | null>();
+
+      type ResidualPayload = { row: typeof rows[0]; agentCommission: string; partnerCommission: string };
+      const residualsToInsert: ResidualPayload[] = [];
 
       for (const row of rows) {
         if (row.isMatched && row.matchedDealId) {
@@ -383,26 +387,71 @@ export function registerResidualsRoutes(app: Express) {
             }
           }
 
-          await storage.createMerchantResidual({
-            reportId: null,
-            dealId: row.matchedDealId,
-            contactId: null,
-            merchantMid: row.mid,
-            merchantName: row.merchantName || "",
-            month: importRecord.month,
-            volume: row.volume || "0",
-            transactions: 0,
-            revenue: row.grossResidual || "0",
-            cost: "0",
-            netRevenue: row.netResidual || "0",
-            agentId: row.agentId || null,
-            agentCommission,
-            partnerCommission,
-            volumeChange: null,
-            revenueChange: null,
-            flags: row.varianceStatus !== "in_range" ? [row.varianceStatus ?? "flagged"] : [],
-          });
+          residualsToInsert.push({ row, agentCommission, partnerCommission });
         }
+      }
+
+      // ── Serialized, atomic write phase ─────────────────────────────────────────
+      // pg_advisory_xact_lock serializes concurrent confirmation requests for this import.
+      // It is transaction-scoped: automatically released when the transaction commits or rolls
+      // back — no separate unlock call needed, no pool-connection mismatch risk.
+      // All writes (residual inserts + status flip) are inside the same transaction, so a
+      // partial failure leaves no orphaned rows.
+      const { db: dbConn } = await import("../db");
+      const userId = user.id || user.email || "admin";
+
+      const confirmed = await dbConn.transaction(async (tx) => {
+        // Acquire xact-level advisory lock — blocks until no other tx holds it.
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(${importRecord.id})`);
+
+        // Re-verify status inside the lock (catches the race between initial check and lock).
+        const { rows: statusRows } = await tx.execute(sql`
+          SELECT status FROM residual_imports WHERE id = ${importRecord.id} FOR UPDATE
+        `);
+        if ((statusRows[0] as any)?.status === "confirmed") {
+          throw Object.assign(new Error("Import already confirmed"), { alreadyConfirmed: true });
+        }
+
+        // Insert residuals idempotently within the transaction.
+        // ON CONFLICT DO NOTHING on the (import_id, merchant_mid) partial unique index
+        // is the last line of defence against duplicate rows.
+        for (const { row, agentCommission, partnerCommission } of residualsToInsert) {
+          await tx.execute(sql`
+            INSERT INTO merchant_residuals
+              (report_id, import_id, deal_id, contact_id, merchant_mid, merchant_name, month,
+               volume, transactions, revenue, cost, net_revenue, agent_id, agent_commission,
+               partner_commission, volume_change, revenue_change, flags, created_at)
+            VALUES
+              (NULL, ${importRecord.id}, ${row.matchedDealId}, NULL, ${row.mid}, ${row.merchantName || ""},
+               ${importRecord.month}, ${row.volume || "0"}, 0, ${row.grossResidual || "0"}, '0',
+               ${row.netResidual || "0"}, ${row.agentId || null}, ${agentCommission}, ${partnerCommission},
+               NULL, NULL, ${(row.varianceStatus !== "in_range" ? [row.varianceStatus ?? "flagged"] : [])},
+               NOW())
+            ON CONFLICT (import_id, merchant_mid) WHERE import_id IS NOT NULL DO NOTHING
+          `);
+        }
+
+        // Conditionally flip status to confirmed (WHERE status = 'pending' as safety net).
+        await tx.execute(sql`
+          UPDATE residual_imports
+          SET status = 'confirmed', confirmed_at = NOW(), confirmed_by = ${userId}
+          WHERE id = ${importRecord.id} AND status = 'pending'
+        `);
+
+        // Return the updated record from within the transaction.
+        const { rows: updatedRows } = await tx.execute(sql`
+          SELECT * FROM residual_imports WHERE id = ${importRecord.id}
+        `);
+        return updatedRows[0] ?? null;
+      }).catch((err: any) => {
+        if (err?.alreadyConfirmed) {
+          return { __alreadyConfirmed: true } as const;
+        }
+        throw err;
+      });
+
+      if (confirmed && (confirmed as any).__alreadyConfirmed) {
+        return res.status(400).json({ message: "Import already confirmed" });
       }
 
       const flaggedRows = rows.filter(r => r.varianceStatus !== "in_range" && r.isMatched);
@@ -467,12 +516,6 @@ export function registerResidualsRoutes(app: Express) {
           }),
         ]);
       }
-
-      const confirmed = await storage.updateResidualImport(importRecord.id, {
-        status: "confirmed",
-        confirmedAt: new Date(),
-        confirmedBy: user.id || user.email || "admin",
-      });
 
       res.json(confirmed);
     } catch (err: any) {
@@ -618,6 +661,110 @@ export function registerResidualsRoutes(app: Express) {
         varianceThresholdAmt: varianceThresholdAmt !== undefined ? Number(varianceThresholdAmt) : undefined,
       });
       if (!updated) return res.status(404).json({ message: "Not found" });
+      res.json(updated);
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  // ── Payout Ledger Routes ────────────────────────────────────────────────
+
+  // Agent sees their own payouts
+  app.get("/api/payouts/my", isAuthenticated, async (req, res) => {
+    try {
+      const user = req.user as any;
+      const rows = await storage.getAgentPayoutsForUser(user.id);
+      res.json(rows);
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  // Admin/manager sees all payouts (filterable by month and status)
+  app.get("/api/payouts", requireRole("admin", "manager"), async (req, res) => {
+    const VALID_STATUSES = new Set(["pending", "approved", "paid"]);
+    try {
+      const statusRaw = typeof req.query.status === "string" ? req.query.status : undefined;
+      if (statusRaw && !VALID_STATUSES.has(statusRaw)) {
+        return res.status(400).json({ message: "Invalid status filter. Must be one of: pending, approved, paid" });
+      }
+      const month = typeof req.query.month === "string" ? req.query.month : undefined;
+      if (month && !/^\d{4}-\d{2}$/.test(month)) {
+        return res.status(400).json({ message: "Invalid month filter. Must be YYYY-MM format" });
+      }
+      const rows = await storage.getAgentPayouts({
+        status: statusRaw || undefined,
+        periodMonth: month || undefined,
+      });
+      res.json(rows);
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  // Admin generates payout rows for a given YYYY-MM period
+  app.post("/api/payouts/generate/:month", requireRole("admin"), async (req, res) => {
+    try {
+      const user = req.user as any;
+      if (user?.role !== "admin") {
+        return res.status(403).json({ message: "Admin role required" });
+      }
+      const month = String(req.params.month ?? "");
+      if (!/^\d{4}-\d{2}$/.test(month)) {
+        return res.status(400).json({ message: "month must be YYYY-MM format" });
+      }
+      const rows = await storage.generatePayoutsForMonth(month);
+      res.status(201).json({ generated: rows.length, rows });
+    } catch (err: any) {
+      console.error("[Payouts Generate]", err);
+      serverError(res, err);
+    }
+  });
+
+  // Admin approves a payout — enforces pending → approved atomically.
+  // The WHERE id=? AND status='pending' predicate is part of the UPDATE itself,
+  // so concurrent requests cannot both pass validation.
+  app.patch("/api/payouts/:id/approve", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid payout id" });
+      // Verify row exists first so we can distinguish 404 from 409.
+      const payout = await storage.getAgentPayout(id);
+      if (!payout) return res.status(404).json({ message: "Payout not found" });
+      // Atomic conditional update: only succeeds if status is still 'pending'.
+      const updated = await storage.transitionPayoutStatus(id, "pending", "approved", {});
+      if (!updated) {
+        return res.status(409).json({
+          message: `Cannot approve: payout is already '${payout.status}'. Only pending payouts can be approved.`,
+          currentStatus: payout.status,
+        });
+      }
+      res.json(updated);
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  // Admin marks a payout as paid — enforces approved → paid atomically.
+  app.patch("/api/payouts/:id/mark-paid", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid payout id" });
+      // Verify row exists first so we can distinguish 404 from 409.
+      const payout = await storage.getAgentPayout(id);
+      if (!payout) return res.status(404).json({ message: "Payout not found" });
+      const { notes } = req.body;
+      // Atomic conditional update: only succeeds if status is still 'approved'.
+      const updated = await storage.transitionPayoutStatus(id, "approved", "paid", {
+        paidAt: new Date(),
+        notes: notes || payout.notes || undefined,
+      });
+      if (!updated) {
+        return res.status(409).json({
+          message: `Cannot mark as paid: payout is '${payout.status}'. Only approved payouts can be marked paid.`,
+          currentStatus: payout.status,
+        });
+      }
       res.json(updated);
     } catch (err: any) {
       serverError(res, err);

@@ -201,6 +201,7 @@ const BlockedContacts = lazy(() => import("@/pages/dashboard/BlockedContacts"));
 const DeliverabilitySettings = lazy(() => import("@/pages/dashboard/DeliverabilitySettings"));
 const GhlConflicts = lazy(() => import("@/pages/dashboard/GhlConflicts"));
 const SetupWizard = lazy(() => import("@/pages/dashboard/SetupWizard"));
+const MyEarnings = lazy(() => import("@/pages/dashboard/MyEarnings"));
 
 // ─── Unified CRM Console Pages ─────────────────────────────────────────────────
 const ContactsAndLeads = lazy(() => import("@/pages/dashboard/ContactsAndLeads"));
@@ -615,6 +616,9 @@ function Router() {
         </Route>
         <Route path="/dashboard/agent-management">
           <ProtectedRoute component={AgentManagement} />
+        </Route>
+        <Route path="/dashboard/my-earnings">
+          <ProtectedRoute component={MyEarnings} allowedRoles={["agent"]} />
         </Route>
         <Route path="/dashboard/residual-revenue">
           <Redirect to="/dashboard/financial-hub?tab=revenue" />

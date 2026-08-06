@@ -49,6 +49,7 @@ import {
   AlertCircle,
   Activity,
   RefreshCw,
+  Banknote,
 } from "lucide-react";
 
 interface ResidualReport {
@@ -208,6 +209,7 @@ interface PartnerResidualRow {
   totalGrossResidual: string;
   totalNetResidual: string;
   activeMerchants: number;
+  totalPartnerCommission?: string;
 }
 
 function ByPartnerTab() {
@@ -282,6 +284,19 @@ function ByPartnerTab() {
       </Card>
     </TabsContent>
   );
+}
+
+interface AgentPayout {
+  id: number;
+  agentUserId: string;
+  periodMonth: string;
+  grossResidual: string;
+  agentShare: string;
+  partnerShare: string;
+  status: string;
+  paidAt: string | null;
+  notes: string | null;
+  createdAt: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -715,11 +730,12 @@ export default function ResidualRevenue() {
               Portfolio performance, reconciliation, and agent commissions
             </p>
           </div>
-          <TabsList data-testid="tabs-residual">
+          <TabsList data-testid="tabs-residual" className="flex-wrap h-auto gap-1">
             <TabsTrigger value="dashboard" data-testid="tab-dashboard"><BarChart3 className="w-4 h-4 mr-1" />Dashboard</TabsTrigger>
             <TabsTrigger value="by-partner" data-testid="tab-by-partner"><Users className="w-4 h-4 mr-1" />By Partner</TabsTrigger>
             <TabsTrigger value="reconcile" data-testid="tab-reconcile"><Upload className="w-4 h-4 mr-1" />Import & Reconcile</TabsTrigger>
             <TabsTrigger value="history" data-testid="tab-history"><FileText className="w-4 h-4 mr-1" />History</TabsTrigger>
+            <TabsTrigger value="payouts" data-testid="tab-payouts"><Banknote className="w-4 h-4 mr-1" />Payouts</TabsTrigger>
           </TabsList>
         </div>
 
@@ -1100,9 +1116,13 @@ export default function ResidualRevenue() {
           </Card>
         </TabsContent>
 
-        {/* ── IMPORT & RECONCILE TAB ─────────────────────────────────────── */}
         {/* ── BY PARTNER TAB ──────────────────────────────────────────────── */}
         <ByPartnerTab />
+
+        {/* ── PAYOUTS TAB ─────────────────────────────────────────────────── */}
+        <PayoutsTab />
+
+        {/* ── IMPORT & RECONCILE TAB ─────────────────────────────────────── */}
 
         <TabsContent value="reconcile" className="space-y-6">
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -1583,4 +1603,236 @@ export default function ResidualRevenue() {
       </Dialog>
     </div>
   );
+}
+
+function PayoutsTab() {
+  const [selectedMonth, setSelectedMonth] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  });
+  const [statusFilter, setStatusFilter] = useState("all");
+  const { toast } = useToast();
+
+  const { data: payouts = [], isLoading, refetch } = useQuery<AgentPayout[]>({
+    queryKey: ["/api/payouts", { month: selectedMonth, status: statusFilter }],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (selectedMonth) params.set("month", selectedMonth);
+      if (statusFilter && statusFilter !== "all") params.set("status", statusFilter);
+      const res = await fetch(`/api/payouts?${params}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load payouts");
+      return res.json();
+    },
+  });
+
+  const generateMutation = useMutation({
+    mutationFn: async (month: string) => {
+      const res = await apiRequest("POST", `/api/payouts/generate/${month}`);
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message || "Generation failed");
+      }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast({ title: "Payouts generated", description: `${data.generated} agent payout row(s) created for ${selectedMonth}.` });
+      refetch();
+    },
+    onError: (err: Error) => toast({ title: "Generation failed", description: err.message, variant: "destructive" }),
+  });
+
+  const approveMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("PATCH", `/api/payouts/${id}/approve`);
+      return res.json();
+    },
+    onSuccess: () => { toast({ title: "Payout approved" }); refetch(); },
+    onError: (err: Error) => toast({ title: "Approval failed", description: err.message, variant: "destructive" }),
+  });
+
+  const markPaidMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("PATCH", `/api/payouts/${id}/mark-paid`);
+      return res.json();
+    },
+    onSuccess: () => { toast({ title: "Payout marked as paid" }); refetch(); },
+    onError: (err: Error) => toast({ title: "Update failed", description: err.message, variant: "destructive" }),
+  });
+
+  // Group by period for totals
+  const byPeriod = useMemo(() => {
+    const map = new Map<string, { rows: AgentPayout[]; totalAgent: number; totalGross: number }>();
+    for (const p of payouts) {
+      const existing = map.get(p.periodMonth) ?? { rows: [], totalAgent: 0, totalGross: 0 };
+      existing.rows.push(p);
+      existing.totalAgent += parseFloat(p.agentShare || "0");
+      existing.totalGross += parseFloat(p.grossResidual || "0");
+      map.set(p.periodMonth, existing);
+    }
+    return Array.from(map.entries()).sort((a, b) => b[0].localeCompare(a[0]));
+  }, [payouts]);
+
+  return (
+    <TabsContent value="payouts" className="space-y-6" data-testid="tab-content-payouts">
+      <div className="rounded-lg border border-blue-200 bg-blue-50 dark:bg-blue-950/20 dark:border-blue-800 p-3 flex gap-2 items-start text-xs text-blue-800 dark:text-blue-300">
+        <span className="shrink-0 mt-0.5">💡</span>
+        <span>
+          Payouts are generated <strong>after confirming a residual import</strong>. Use <strong>Generate Payouts</strong> below to compute agent shares for a period.
+          Approve them, then mark as paid once disbursed.
+        </span>
+      </div>
+
+      {/* Controls */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Banknote className="w-4 h-4 text-primary" />
+            Payout Ledger
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Period</Label>
+              <Input
+                type="month"
+                value={selectedMonth}
+                onChange={(e) => setSelectedMonth(e.target.value)}
+                className="w-44"
+                data-testid="input-payout-month"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Status</Label>
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger className="w-36 h-9" data-testid="select-payout-status">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All statuses</SelectItem>
+                  <SelectItem value="pending">Pending</SelectItem>
+                  <SelectItem value="approved">Approved</SelectItem>
+                  <SelectItem value="paid">Paid</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <Button
+              onClick={() => generateMutation.mutate(selectedMonth)}
+              disabled={generateMutation.isPending}
+              size="sm"
+              data-testid="button-generate-payouts"
+            >
+              {generateMutation.isPending ? "Generating…" : "Generate Payouts"}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Payout table */}
+      {isLoading ? (
+        <Card><CardContent className="p-6 space-y-3">
+          {[1,2,3].map(i => <Skeleton key={i} className="h-10 w-full" />)}
+        </CardContent></Card>
+      ) : payouts.length === 0 ? (
+        <Card><CardContent className="py-12 text-center">
+          <Banknote className="w-8 h-8 text-muted-foreground/40 mx-auto mb-3" />
+          <p className="text-sm text-muted-foreground" data-testid="text-no-payouts">
+            No payout records for this period / filter. Generate payouts after confirming an import.
+          </p>
+        </CardContent></Card>
+      ) : (
+        <div className="space-y-6">
+          {byPeriod.map(([period, group]) => (
+            <Card key={period} data-testid={`card-payout-period-${period}`}>
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <CardTitle className="text-sm font-semibold font-mono">{period}</CardTitle>
+                  <div className="flex gap-4 text-xs text-muted-foreground">
+                    <span>Gross: <strong className="text-foreground">{formatCurrencyDetailed(group.totalGross)}</strong></span>
+                    <span>Total Agent Share: <strong className="text-green-600">{formatCurrencyDetailed(group.totalAgent)}</strong></span>
+                    <span>{group.rows.length} agent(s)</span>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="p-0">
+                <div className="overflow-x-auto">
+                  <Table data-testid={`table-payouts-${period}`}>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Agent User ID</TableHead>
+                        <TableHead className="text-right">Gross Residual</TableHead>
+                        <TableHead className="text-right">Agent Share</TableHead>
+                        <TableHead className="text-right">Partner Share</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Paid On</TableHead>
+                        <TableHead>Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {group.rows.map((payout) => (
+                        <TableRow key={payout.id} data-testid={`row-payout-${payout.id}`}>
+                          <TableCell className="font-mono text-xs">{payout.agentUserId}</TableCell>
+                          <TableCell className="text-right">{formatCurrencyDetailed(payout.grossResidual)}</TableCell>
+                          <TableCell className="text-right font-semibold text-green-600 dark:text-green-400">
+                            {formatCurrencyDetailed(payout.agentShare)}
+                          </TableCell>
+                          <TableCell className="text-right text-muted-foreground">
+                            {parseFloat(payout.partnerShare || "0") > 0
+                              ? formatCurrencyDetailed(payout.partnerShare)
+                              : <span className="text-xs">—</span>}
+                          </TableCell>
+                          <TableCell><PayoutStatusBadge status={payout.status} /></TableCell>
+                          <TableCell className="text-xs text-muted-foreground">
+                            {payout.paidAt
+                              ? new Date(payout.paidAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+                              : "—"}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex gap-1">
+                              {payout.status === "pending" && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 text-xs"
+                                  onClick={() => approveMutation.mutate(payout.id)}
+                                  disabled={approveMutation.isPending}
+                                  data-testid={`button-approve-${payout.id}`}
+                                >
+                                  Approve
+                                </Button>
+                              )}
+                              {(payout.status === "approved") && (
+                                <Button
+                                  size="sm"
+                                  className="h-7 text-xs"
+                                  onClick={() => markPaidMutation.mutate(payout.id)}
+                                  disabled={markPaidMutation.isPending}
+                                  data-testid={`button-mark-paid-${payout.id}`}
+                                >
+                                  Mark Paid
+                                </Button>
+                              )}
+                              {payout.status === "paid" && (
+                                <span className="text-xs text-muted-foreground">Disbursed</span>
+                              )}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+    </TabsContent>
+  );
+}
+
+function PayoutStatusBadge({ status }: { status: string }) {
+  if (status === "paid") return <Badge className="text-xs bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 border-0"><Banknote className="w-3 h-3 mr-1" />Paid</Badge>;
+  if (status === "approved") return <Badge className="text-xs bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400 border-0"><CheckCircle className="w-3 h-3 mr-1" />Approved</Badge>;
+  return <Badge variant="secondary" className="text-xs"><Clock className="w-3 h-3 mr-1" />Pending</Badge>;
 }

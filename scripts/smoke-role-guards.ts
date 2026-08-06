@@ -240,6 +240,18 @@ const CASES: GuardCase[] = [
   // system (req.session.partnerOrgUserId) independent of the main Passport.js auth,
   // so the expected 401 applies to ALL unauthenticated callers regardless of role.
   { method: "GET",  path: "/api/partner-org/dashboard",                 anon: [401], merchant: [401], admin: [401], description: "partner-org dashboard data (partner-org session required; 401 for all without partner-org session)" },
+
+  // ── Payout ledger — requireRole guards ──────────────────────────────────────
+  // GET /api/payouts — admin/manager only; agent→403, merchant→403
+  { method: "GET",  path: "/api/payouts",                               anon: [401], merchant: [403], admin: [200], agent: [403], manager: [200], description: "payout ledger list (requireRole admin/manager; agent→403)" },
+  // GET /api/payouts/my — any authenticated user; anon→401; merchant→200 (empty array)
+  { method: "GET",  path: "/api/payouts/my",                            anon: [401], merchant: [200], admin: [200], agent: [200], manager: [200], description: "agent own payout history (isAuthenticated; any role)" },
+  // POST /api/payouts/generate/:month — admin only; 403 for CSRF-missing in test harness
+  { method: "POST", path: "/api/payouts/generate/2000-01",              anon: [401], merchant: [403], admin: [403], agent: [403], manager: [403], description: "payout generation (requireRole admin; CSRF required; all 403 without token in test harness)" },
+  // PATCH /api/payouts/99999/approve — admin/manager; 404 when payout not found
+  { method: "PATCH", path: "/api/payouts/99999/approve",                anon: [401], merchant: [403], admin: [404, 403], agent: [403], manager: [404, 403], description: "payout approve (requireRole admin/manager; 404 when not found or 403 CSRF)" },
+  // PATCH /api/payouts/99999/mark-paid — admin/manager; 404 when payout not found
+  { method: "PATCH", path: "/api/payouts/99999/mark-paid",              anon: [401], merchant: [403], admin: [404, 403], agent: [403], manager: [404, 403], description: "payout mark-paid (requireRole admin/manager; 404 when not found or 403 CSRF)" },
 ];
 
 async function ensureAgentUser(): Promise<void> {

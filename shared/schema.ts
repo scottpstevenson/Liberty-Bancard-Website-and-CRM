@@ -1897,6 +1897,7 @@ export type InsertResidualReport = z.infer<typeof insertResidualReportSchema>;
 export const merchantResiduals = pgTable("merchant_residuals", {
   id: serial("id").primaryKey(),
   reportId: integer("report_id").references(() => residualReports.id),
+  importId: integer("import_id").references(() => residualImports.id, { onDelete: "set null" }),
   dealId: integer("deal_id").references(() => deals.id),
   contactId: integer("contact_id").references(() => contacts.id),
   merchantMid: text("merchant_mid"),
@@ -4941,3 +4942,40 @@ export const masterLeads = pgTable("master_leads", {
 
 export type MasterLead = typeof masterLeads.$inferSelect;
 export type InsertMasterLead = typeof masterLeads.$inferInsert;
+
+// ── Agent Payout Ledger ────────────────────────────────────────────────────────
+export const agentPayouts = pgTable("agent_payouts", {
+  id: serial("id").primaryKey(),
+  agentUserId: varchar("agent_user_id").references(() => users.id).notNull(),
+  // partnerUserId is kept for future use when partner org members have platform user accounts.
+  // For now, use partnerOrgId to identify the partner organization that earned partnerShare.
+  partnerUserId: varchar("partner_user_id").references(() => users.id),
+  // Links to the partner organization responsible for this period's partnerShare.
+  // Resolved at generation time via merchantResiduals.dealId -> deals.partnerOrgId.
+  partnerOrgId: integer("partner_org_id").references(() => partnerOrganizations.id),
+  periodMonth: text("period_month").notNull(),
+  grossResidual: text("gross_residual").notNull().default("0"),
+  agentShare: text("agent_share").notNull().default("0"),
+  partnerShare: text("partner_share").notNull().default("0"),
+  status: text("status").notNull().default("pending"), // pending | approved | paid
+  paidAt: timestamp("paid_at"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  // Partial unique indexes: one row per (agent, month) when no partner,
+  // one row per (agent, month, partnerOrg) when a partner is present.
+  // (The old single unique constraint on (agentUserId, periodMonth) was dropped in migration 0101.)
+  index("agent_payouts_agent_user_id_idx").on(table.agentUserId),
+  index("agent_payouts_status_idx").on(table.status),
+  index("agent_payouts_partner_org_idx").on(table.partnerOrgId),
+]);
+
+export const insertAgentPayoutSchema = createInsertSchema(agentPayouts).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type AgentPayout = typeof agentPayouts.$inferSelect;
+export type InsertAgentPayout = z.infer<typeof insertAgentPayoutSchema>;
