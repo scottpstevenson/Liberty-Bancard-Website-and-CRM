@@ -513,33 +513,9 @@ export async function evaluateContactability(
     });
   }
 
-  // ── Step 3: doNotAutoContact ──────────────────────────────────────────
-  // Blocks automated outreach and automated workflow enrollment.
-  // Does NOT block manual_call task creation unless another rule also applies.
-  if (contact.doNotAutoContact && channel !== "manual_call") {
-    return blocked(
-      "Contact is flagged Do Not Auto Contact — automated outreach blocked; create a manual call task instead",
-      {
-        ...commonOpts,
-        allowedChannels: ["manual_call"],
-        nextBestCompliantAction:
-          "Create a manual call task — automated outreach is blocked for this contact.",
-      }
-    );
-  }
-
-  // ── Step 4: Global opt-out / suppression ─────────────────────────────
-  if (
-    consentTier === "opted_out" ||
-    consentTier === "do_not_contact"
-  ) {
-    return blocked("Contact has globally opted out or is suppressed", {
-      ...commonOpts,
-      consentTier,
-    });
-  }
-
-  // ── Step 5: Channel-specific opt-outs ────────────────────────────────
+  // ── Step 3: Channel-specific opt-outs (checked before doNotAutoContact so
+  //            the most specific reason is surfaced when both flags are set,
+  //            e.g. a contact who unsubscribed from email also gets doNotAutoContact=true)
   if (
     channel === "email" &&
     (contact.emailStatus === "opted_out" || contact.emailStatus === "unsubscribed")
@@ -564,6 +540,32 @@ export async function evaluateContactability(
     return blocked("Contact has opted out of automated phone contact", {
       ...commonOpts,
       allowedChannels: ["email", "manual_call"],
+    });
+  }
+
+  // ── Step 4: doNotAutoContact ──────────────────────────────────────────
+  // Blocks automated outreach and automated workflow enrollment.
+  // Does NOT block manual_call task creation unless another rule also applies.
+  if (contact.doNotAutoContact && channel !== "manual_call") {
+    return blocked(
+      "Contact is flagged Do Not Auto Contact — automated outreach blocked; create a manual call task instead",
+      {
+        ...commonOpts,
+        allowedChannels: ["manual_call"],
+        nextBestCompliantAction:
+          "Create a manual call task — automated outreach is blocked for this contact.",
+      }
+    );
+  }
+
+  // ── Step 5: Global opt-out / suppression ─────────────────────────────
+  if (
+    consentTier === "opted_out" ||
+    consentTier === "do_not_contact"
+  ) {
+    return blocked("Contact has globally opted out or is suppressed", {
+      ...commonOpts,
+      consentTier,
     });
   }
 

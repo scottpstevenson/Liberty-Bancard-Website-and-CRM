@@ -158,6 +158,14 @@ const CALL_SITE_ALLOWLIST: Array<{
     reason: "Auto-proposal email — gated by hasEmailConsent flag before send; only fires when merchant explicitly consented to email communications.",
     reviewDate: "2026-06-26",
   },
+  {
+    file: "server/services/nps-email.ts",
+    lineContains: "sendSmtpEmail",
+    channel: "email",
+    category: "transactional_merchant",
+    reason: "NPS survey email — sent only to confirmed active Liberty Bancard merchants (closed_won deal, live stage) via createAndSendNpsSurvey(); never sent to cold prospects. Idempotent lease prevents duplicate sends. Reviewed 2026-08-06.",
+    reviewDate: "2026-08-06",
+  },
   // ── SDR pipeline email sends — explicitly reviewed 2026-06-26 ────────────
   // These files are always invoked from server/services/sdr/orchestrator.ts
   // whose runSdrCycle() calls evaluateContactability() at the top of every
