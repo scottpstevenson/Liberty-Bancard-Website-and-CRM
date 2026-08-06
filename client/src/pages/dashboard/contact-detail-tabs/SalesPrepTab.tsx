@@ -9,7 +9,7 @@ import { Separator } from "@/components/ui/separator";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
-import { Loader2, Wand2, RefreshCw, MessageSquare, Target, ShieldAlert, ArrowRight, FileText, Mail, CheckCircle, XCircle, AlertCircle } from "lucide-react";
+import { Loader2, Wand2, RefreshCw, MessageSquare, Target, ShieldAlert, ArrowRight, FileText, Mail, CheckCircle, XCircle, AlertCircle, Trash2 } from "lucide-react";
 
 interface SalesPrepOutput {
   callOpener: string;
@@ -50,6 +50,145 @@ interface Sequence {
 
 interface SalesPrepTabProps {
   contactId: number;
+}
+
+interface Enrollment {
+  id: number;
+  sequenceId: number | null;
+  contactId: number | null;
+  status: string;
+  currentStep: number | null;
+  createdAt: string | null;
+}
+
+function ActiveEnrollmentsCard({ contactId }: { contactId: number }) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [confirmId, setConfirmId] = useState<number | null>(null);
+
+  const enrollmentsQuery = useQuery<Enrollment[]>({
+    queryKey: [`/api/contacts/${contactId}/enrollments`],
+    staleTime: 30_000,
+  });
+
+  const sequencesQuery = useQuery<Sequence[]>({
+    queryKey: ["/api/sequences"],
+    staleTime: 60_000,
+  });
+
+  const cancelMutation = useMutation({
+    mutationFn: (enrollment: Enrollment) =>
+      apiRequest("DELETE", `/api/sequences/${enrollment.sequenceId}/enrollments/${contactId}`).then(r => r.json()),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/contacts/${contactId}/enrollments`] });
+      setConfirmId(null);
+      toast({ title: "Removed from sequence", description: "The contact has been unenrolled." });
+    },
+    onError: () => {
+      toast({ title: "Could not remove", description: "Please try again.", variant: "destructive" });
+    },
+  });
+
+  if (enrollmentsQuery.isLoading) return null;
+
+  const allEnrollments = enrollmentsQuery.data ?? [];
+  const active = allEnrollments.filter(e => e.status === "active" || e.status === "paused");
+  const history = allEnrollments.filter(e => e.status !== "active" && e.status !== "paused");
+
+  const sequenceMap = Object.fromEntries(
+    (sequencesQuery.data ?? []).map(s => [s.id, s.name])
+  );
+
+  if (allEnrollments.length === 0) return null;
+
+  const statusBadge = (status: string) => {
+    if (status === "active") return <Badge className="bg-green-100 text-green-800 border-green-200 text-xs">Active</Badge>;
+    if (status === "paused") return <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200 text-xs">Paused</Badge>;
+    if (status === "cancelled") return <Badge className="bg-gray-100 text-gray-600 border-gray-200 text-xs">Cancelled</Badge>;
+    if (status === "completed") return <Badge className="bg-blue-100 text-blue-800 border-blue-200 text-xs">Completed</Badge>;
+    return <Badge variant="outline" className="text-xs">{status}</Badge>;
+  };
+
+  return (
+    <Card data-testid="card-active-enrollments">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm font-medium flex items-center gap-2">
+          <Mail className="h-4 w-4 text-indigo-500" />
+          Sequence Enrollments
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {active.length === 0 && history.length === 0 && (
+          <p className="text-xs text-muted-foreground">No enrollment history.</p>
+        )}
+
+        {active.map(enrollment => (
+          <div key={enrollment.id} className="flex items-center justify-between gap-2 py-1 border-b last:border-0">
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium truncate" data-testid={`enrollment-name-${enrollment.id}`}>
+                {enrollment.sequenceId ? (sequenceMap[enrollment.sequenceId] ?? `Sequence #${enrollment.sequenceId}`) : "Unknown sequence"}
+              </p>
+              <div className="flex items-center gap-2 mt-0.5">
+                {statusBadge(enrollment.status)}
+                <span className="text-xs text-muted-foreground">Step {enrollment.currentStep ?? 0}</span>
+              </div>
+            </div>
+
+            {confirmId === enrollment.id ? (
+              <div className="flex items-center gap-1 shrink-0">
+                <span className="text-xs text-muted-foreground">Remove?</span>
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  className="h-7 px-2 text-xs"
+                  disabled={cancelMutation.isPending}
+                  onClick={() => cancelMutation.mutate(enrollment)}
+                  data-testid={`button-confirm-remove-${enrollment.id}`}
+                >
+                  {cancelMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : "Yes"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 px-2 text-xs"
+                  onClick={() => setConfirmId(null)}
+                  data-testid={`button-cancel-remove-${enrollment.id}`}
+                >
+                  No
+                </Button>
+              </div>
+            ) : (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive shrink-0"
+                onClick={() => setConfirmId(enrollment.id)}
+                aria-label="Remove from sequence"
+                data-testid={`button-remove-enrollment-${enrollment.id}`}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
+            )}
+          </div>
+        ))}
+
+        {history.length > 0 && (
+          <>
+            {active.length > 0 && <Separator className="my-1" />}
+            <p className="text-xs text-muted-foreground font-medium pt-1">History</p>
+            {history.map(enrollment => (
+              <div key={enrollment.id} className="flex items-center justify-between gap-2 py-0.5">
+                <p className="text-xs text-muted-foreground truncate flex-1">
+                  {enrollment.sequenceId ? (sequenceMap[enrollment.sequenceId] ?? `Sequence #${enrollment.sequenceId}`) : "Unknown sequence"}
+                </p>
+                {statusBadge(enrollment.status)}
+              </div>
+            ))}
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
 }
 
 function OutreachEligibilityCard({ contactId }: { contactId: number }) {
@@ -360,6 +499,7 @@ export function SalesPrepTab({ contactId }: SalesPrepTabProps) {
             </Button>
           </CardContent>
         </Card>
+        <ActiveEnrollmentsCard contactId={contactId} />
         <OutreachEligibilityCard contactId={contactId} />
       </div>
     );
@@ -455,6 +595,7 @@ export function SalesPrepTab({ contactId }: SalesPrepTabProps) {
         </CardContent>
       </Card>
 
+      <ActiveEnrollmentsCard contactId={contactId} />
       <OutreachEligibilityCard contactId={contactId} />
     </div>
   );

@@ -300,6 +300,28 @@ import { coerceDateFields } from "../utils/date-coerce";
   }
 
 
+  async cancelSequenceEnrollment(sequenceId: number, contactId: number): Promise<typeof sequenceEnrollments.$inferSelect | null> {
+    const [enrollment] = await db
+      .select()
+      .from(sequenceEnrollments)
+      .where(
+        and(
+          eq(sequenceEnrollments.sequenceId, sequenceId),
+          eq(sequenceEnrollments.contactId, contactId),
+          inArray(sequenceEnrollments.status, ["active", "paused"])
+        )
+      )
+      .limit(1);
+    if (!enrollment) return null;
+    const [updated] = await db
+      .update(sequenceEnrollments)
+      .set({ status: "cancelled", updatedAt: new Date() })
+      .where(eq(sequenceEnrollments.id, enrollment.id))
+      .returning();
+    return updated ?? null;
+  }
+
+
   async getActiveEnrollments() {
     const now = new Date();
     return await db.select().from(sequenceEnrollments).where(

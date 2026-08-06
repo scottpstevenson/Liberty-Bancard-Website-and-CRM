@@ -371,6 +371,7 @@ export interface IStorage {
   getSequenceStepsForSequences(sequenceIds: number[]): Promise<typeof sequenceSteps.$inferSelect[]>;
   createSequenceEnrollment(enrollment: InsertSequenceEnrollment): Promise<typeof sequenceEnrollments.$inferSelect | null>;
   updateSequenceEnrollment(id: number, updates: Partial<InsertSequenceEnrollment>): Promise<typeof sequenceEnrollments.$inferSelect | undefined>;
+  cancelSequenceEnrollment(sequenceId: number, contactId: number): Promise<typeof sequenceEnrollments.$inferSelect | null>;
   getActiveEnrollments(): Promise<typeof sequenceEnrollments.$inferSelect[]>;
   pauseAllActiveEnrollments(contactId: number): Promise<number>;
 

@@ -228,6 +228,12 @@ const CASES: GuardCase[] = [
   // ── ZeroBounce validation history — isDashboardUser (blocks merchant) ────────
   // GET route: isDashboardUser; agent/manager/admin pass through; contact 1 may not exist → 404.
   { method: "GET",  path: "/api/contacts/1/zerobounce-history",         anon: [401], merchant: [403], admin: [200, 404], agent: [200, 404], manager: [200, 404], description: "ZeroBounce validation history (isDashboardUser; merchant→403)" },
+
+  // ── Cancel sequence enrollment — isDashboardUser (blocks merchant/anon) ──────
+  // DELETE route: CSRF middleware fires before the handler for authenticated sessions,
+  // so admin/agent/manager may see 403 (csrf_missing) instead of 404 in the test harness.
+  // anon → 401 (not authenticated); merchant → 403 (role gate).
+  { method: "DELETE", path: "/api/sequences/99999/enrollments/99999", anon: [401], merchant: [403], admin: [404, 403], agent: [404, 403], manager: [404, 403], description: "cancel sequence enrollment (isDashboardUser; 404 when enrollment not found or 403 CSRF; merchant→403)" },
 ];
 
 async function ensureAgentUser(): Promise<void> {

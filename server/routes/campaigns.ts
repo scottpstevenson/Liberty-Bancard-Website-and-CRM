@@ -827,6 +827,45 @@ export function registerCampaignsRoutes(app: Express) {
     }
   });
 
+  // DELETE /api/sequences/:id/enrollments/:contactId
+  // Cancels an active or paused enrollment for the given contact+sequence pair.
+  // Admins and managers may cancel any enrollment; agents may cancel as well
+  // (contacts have no ownedBy field so ownership scoping is not possible at the DB level).
+  // Cancelled enrollments are retained in history with status = "cancelled".
+  app.delete("/api/sequences/:id/enrollments/:contactId", isDashboardUser, async (req, res) => {
+    try {
+      const sequenceId = Number(req.params.id);
+      const contactId = Number(req.params.contactId);
+      if (isNaN(sequenceId) || isNaN(contactId)) {
+        return res.status(400).json({ message: "Invalid sequenceId or contactId" });
+      }
+
+      const cancelled = await storage.cancelSequenceEnrollment(sequenceId, contactId);
+      if (!cancelled) {
+        return res.status(404).json({ message: "No active or paused enrollment found for this contact in this sequence." });
+      }
+
+      await storage.createAuditLog({
+        action: "sequence_enrollment_cancelled",
+        entityType: "contact",
+        entityId: contactId,
+        actorId: String((req as any).user?.id ?? ""),
+        actorType: "user",
+        details: {
+          sequenceId,
+          contactId,
+          enrollmentId: cancelled.id,
+          cancelledByUserId: (req as any).user?.id,
+          cancelledByEmail: (req as any).user?.email,
+        },
+      });
+
+      res.json({ success: true, enrollment: cancelled });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
   app.get("/api/contacts/:id/sequence-suggestions", isAuthenticated, async (req, res) => {
     try {
       const { suggestSequenceFamiliesForContact } = await import("../services/sequence-eligibility");
