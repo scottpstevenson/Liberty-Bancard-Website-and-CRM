@@ -337,6 +337,7 @@ export function registerAnalyticsRoutes(app: Express) {
       const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
       const stallingDeals = active.filter(d => d.updatedAt && new Date(d.updatedAt) < sevenDaysAgo);
 
+      const ONBOARDING_TERMINAL_STAGES = new Set<string>(["Live (First Batch)", "Active (7 Days)", "Active (30 Days)"]);
       res.json({
         sales: {
           total: salesDeals.length,
@@ -351,8 +352,8 @@ export function registerAnalyticsRoutes(app: Express) {
         },
         onboarding: {
           total: onboardingDeals.length,
-          active: onboardingDeals.filter(d => d.stage !== "Live" && d.stage !== "Cancelled").length,
-          completed: onboardingDeals.filter(d => d.stage === "Live").length,
+          active: onboardingDeals.filter(d => !ONBOARDING_TERMINAL_STAGES.has(d.stage) && d.stage !== "Cancelled").length,
+          completed: onboardingDeals.filter(d => ONBOARDING_TERMINAL_STAGES.has(d.stage)).length,
         },
       });
     } catch (err: any) {
@@ -652,36 +653,6 @@ export function registerAnalyticsRoutes(app: Express) {
         displayWeeks,
         channels,
         weekLabels,
-      });
-    } catch (err: any) {
-      serverError(res, err);
-    }
-  });
-
-  app.get("/api/analytics/conversion-funnel", isDashboardUser, async (req, res) => {
-    try {
-      const { data: allDeals } = await storage.getDeals({ limit: 500 });
-      const { data: allContacts } = await storage.getContacts({ limit: 500 });
-      const now = new Date();
-      const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-
-      const recentContacts = allContacts.filter(c => c.createdAt && new Date(c.createdAt) >= thirtyDaysAgo);
-      const salesDeals = allDeals.filter(d => d.pipeline === "sales" && d.createdAt && new Date(d.createdAt) >= thirtyDaysAgo);
-
-      const stages = ["New Lead", "Statement Received", "Review In Progress", "Call Booked", "Proposal Sent", "Negotiation / Follow-Up", "Closed Won"];
-      const funnel = stages.map(stage => {
-        const atOrPast = salesDeals.filter(d => {
-          const stageIdx = stages.indexOf(d.stage);
-          const targetIdx = stages.indexOf(stage);
-          return stageIdx >= targetIdx || d.stage === stage;
-        });
-        return { stage, count: atOrPast.length };
-      });
-
-      res.json({
-        totalLeads: recentContacts.length,
-        totalDeals: salesDeals.length,
-        funnel,
       });
     } catch (err: any) {
       serverError(res, err);
@@ -1068,18 +1039,28 @@ export function registerAnalyticsRoutes(app: Express) {
   app.get("/api/analytics/conversion-funnel", isDashboardUser, async (req, res) => {
     try {
       const { analyticsEvents } = await import("@shared/schema");
-      const { gte, count, sql: drizzleSql } = await import("drizzle-orm");
+      const { gte, count: drizzleCount } = await import("drizzle-orm");
       const days = parseInt(String(req.query.days || "30"), 10);
       const since = new Date(Date.now() - days * 86400000);
 
-      const rows = await db
-        .select({
-          eventName: analyticsEvents.eventName,
-          cnt: count(analyticsEvents.id),
-        })
-        .from(analyticsEvents)
-        .where(gte(analyticsEvents.occurredAt, since))
-        .groupBy(analyticsEvents.eventName);
+      const [rows, totalLeadsRow, totalDealsRow] = await Promise.all([
+        db
+          .select({
+            eventName: analyticsEvents.eventName,
+            cnt: drizzleCount(analyticsEvents.id),
+          })
+          .from(analyticsEvents)
+          .where(gte(analyticsEvents.occurredAt, since))
+          .groupBy(analyticsEvents.eventName),
+        pool.query<{ cnt: string }>(
+          `SELECT COUNT(*)::text AS cnt FROM contacts WHERE archived_at IS NULL AND created_at >= $1`,
+          [since]
+        ),
+        pool.query<{ cnt: string }>(
+          `SELECT COUNT(*)::text AS cnt FROM deals WHERE archived_at IS NULL AND pipeline = 'sales' AND created_at >= $1`,
+          [since]
+        ),
+      ]);
 
       const byEvent: Record<string, number> = {};
       for (const r of rows) {
@@ -1095,7 +1076,13 @@ export function registerAnalyticsRoutes(app: Express) {
         { stage: "Closed Won",            eventName: "closed_won",                  count: byEvent["closed_won"] ?? 0 },
       ];
 
-      res.json({ funnel, byEvent, days });
+      res.json({
+        funnel,
+        byEvent,
+        days,
+        totalLeads: parseInt(totalLeadsRow.rows[0]?.cnt ?? "0", 10),
+        totalDeals: parseInt(totalDealsRow.rows[0]?.cnt ?? "0", 10),
+      });
     } catch (err: any) {
       serverError(res, err);
     }

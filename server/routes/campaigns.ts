@@ -30,7 +30,20 @@ export function registerCampaignsRoutes(app: Express) {
   app.get("/api/campaigns", isAuthenticated, async (req, res) => {
     try {
       const campaigns = await storage.getCampaigns();
-      res.json(campaigns);
+      // Attach computed send stats from outbound_messages for each campaign
+      const campaignsWithStats = await Promise.all(
+        campaigns.map(async (campaign) => {
+          const stats = await storage.getOutboundStats(campaign.id);
+          return {
+            ...campaign,
+            totalSent: Number(stats.sent) || 0,
+            totalOpened: Number(stats.opened) || 0,
+            totalReplied: Number(stats.replied) || 0,
+            totalBounced: Number(stats.bounced) || 0,
+          };
+        })
+      );
+      res.json(campaignsWithStats);
     } catch (err: any) {
       serverError(res, err);
     }

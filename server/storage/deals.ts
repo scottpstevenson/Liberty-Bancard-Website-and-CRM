@@ -133,8 +133,29 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
 
 
   async getDeal(id: number) {
-    const [deal] = await db.select().from(deals).where(eq(deals.id, id));
-    return deal;
+    const [row] = await db
+      .select({
+        deal: deals,
+        contactFirstName: contacts.firstName,
+        contactLastName: contacts.lastName,
+        contactCompanyName: contacts.companyName,
+        contactEmail: contacts.email,
+        contactPhone: contacts.phone,
+      })
+      .from(deals)
+      .leftJoin(contacts, eq(deals.contactId, contacts.id))
+      .where(eq(deals.id, id));
+    if (!row) return undefined;
+    const { deal, contactFirstName, contactLastName, contactCompanyName, contactEmail, contactPhone } = row;
+    return {
+      ...deal,
+      contactName: (contactFirstName || contactLastName)
+        ? `${contactFirstName || ""} ${contactLastName || ""}`.trim()
+        : null,
+      companyName: contactCompanyName || null,
+      contactEmail: contactEmail || null,
+      contactPhone: contactPhone || null,
+    };
   }
 
   async getDealByGhlOpportunityId(ghlOpportunityId: string) {
