@@ -880,7 +880,7 @@ function checkCoverageItems(): CheckResult[] {
   const items: Array<{ key: string; label: string; importance: Importance; feature: string }> = [
     { key: "AI_INTEGRATIONS_OPENAI_API_KEY", label: "OpenAI API Key (Replit Integration)", importance: "required_feature", feature: "All AI advisor + enrichment features" },
     { key: "PEWC_DISCLOSURE_VERSION", label: "PEWC Disclosure Version", importance: "required_launch", feature: "PEWC consent compliance — must be set before enrolling contacts" },
-    { key: "NMI_SECURITY_KEY", label: "NMI Processor Security Key", importance: "required_feature", feature: "Direct processor boarding (NMI)" },
+    { key: "PAYARC_API_KEY", label: "Payarc API Key", importance: "required_feature", feature: "Direct processor boarding via Payarc (MID provisioning, status polling, residuals)" },
     { key: "GHL_MERCHANT_AGREEMENT_TEMPLATE_ID", label: "GHL E-Sign Template ID", importance: "required_feature", feature: "Merchant agreement e-signature" },
     { key: "GHL_SUPPORT_TEAM_USER_ID", label: "GHL Support Team User ID", importance: "required_feature", feature: "Support ticket assignment in GHL" },
     { key: "VAPID_PUBLIC_KEY", label: "VAPID Public Key (Push)", importance: "optional", feature: "PWA push notifications" },

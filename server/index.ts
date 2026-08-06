@@ -62,7 +62,7 @@ validateCriticalEnvVars();
 
 function logEnvVarChecklist() {
   const checks: Array<{ envVar: string | string[]; feature: string }> = [
-    { envVar: "NMI_SECURITY_KEY",          feature: "NMI processor boarding (MID provisioning disabled without it)" },
+    { envVar: "PAYARC_API_KEY",             feature: "Payarc processor boarding (MID provisioning disabled without it)" },
     { envVar: "GHL_LOCATION_ID",           feature: "GoHighLevel CRM sync and all GHL communications" },
     { envVar: "GHL_DEFAULT_BOOKING_LINK",  feature: "{{link}} in SDR outreach templates (falls back to Calendly URL)" },
     { envVar: "GHL_WORKFLOW_BOOKING_LINK", feature: "Automated booking link workflow trigger via GHL" },

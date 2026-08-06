@@ -958,7 +958,7 @@ export function registerAdminRoutes(app: Express) {
         apifyToken: !!(process.env.APIFY_API_TOKEN),
         outscraperKey: !!(process.env.OUTSCRAPER_API_KEY),
         appUrl: !!(process.env.APP_URL),
-        nmiKey: !!(process.env.NMI_SECURITY_KEY),
+        payarcKey: !!(process.env.PAYARC_API_KEY),
         ghlWebhookSecret: !!(process.env.GHL_WEBHOOK_SECRET),
         smtpPass: !!(process.env.SMTP_PASS),
         smtpHost: !!(process.env.SMTP_HOST),

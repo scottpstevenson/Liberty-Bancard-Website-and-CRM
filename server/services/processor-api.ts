@@ -67,9 +67,9 @@ export interface MidTransactionSummary {
   refundCount: number;
 }
 
-const PROCESSOR_API_BASE = process.env.PROCESSOR_API_BASE_URL || "";
-const PROCESSOR_API_KEY = process.env.PROCESSOR_API_KEY || "";
-const PROCESSOR_NAME = process.env.PROCESSOR_NAME || "NMI";
+const PROCESSOR_API_BASE = process.env.PAYARC_API_BASE_URL || process.env.PROCESSOR_API_BASE_URL || "";
+const PROCESSOR_API_KEY = process.env.PAYARC_API_KEY || process.env.PROCESSOR_API_KEY || "";
+const PROCESSOR_NAME = process.env.PROCESSOR_NAME || "Payarc";
 
 function isProcessorConfigured(): boolean {
   return !!(PROCESSOR_API_BASE && PROCESSOR_API_KEY);

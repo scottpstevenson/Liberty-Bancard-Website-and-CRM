@@ -1,5 +1,5 @@
 import type { IProcessorAdapter, AdapterHealthStatus, DailyStats } from "./IProcessorAdapter";
-import { NmiProcessorAdapter } from "./nmi.adapter";
+import { PayarcProcessorAdapter } from "./payarc.adapter";
 import { MockProcessorAdapter } from "./mock.adapter";
 
 interface AdapterRecord {
@@ -17,14 +17,17 @@ const adapters = new Map<string, AdapterRecord>();
 function initRegistry() {
   if (adapters.size > 0) return;
 
-  const nmi = new NmiProcessorAdapter();
+  const payarc = new PayarcProcessorAdapter();
   const mock = new MockProcessorAdapter();
 
-  const enabledProcessors = (process.env.ENABLED_PROCESSORS || "nmi").toLowerCase().split(",").map(s => s.trim());
+  // Payarc is the system processor. Enable when PAYARC_API_KEY is set.
+  // ENABLED_PROCESSORS can override (e.g. "mock" for dev, "payarc,mock" for both).
+  const envList = (process.env.ENABLED_PROCESSORS || "payarc").toLowerCase().split(",").map(s => s.trim());
 
-  adapters.set("nmi", {
-    adapter: nmi,
-    enabled: enabledProcessors.includes("nmi"),
+  const payarcEnabled = envList.includes("payarc");
+  adapters.set("payarc", {
+    adapter: payarc,
+    enabled: payarcEnabled,
     lastSuccessAt: null,
     lastErrorAt: null,
     lastError: null,
@@ -32,10 +35,18 @@ function initRegistry() {
     errorCount: 0,
   });
 
-  const mockEnabled = enabledProcessors.includes("mock") || process.env.NODE_ENV === "development" || !process.env.NMI_SECURITY_KEY;
+  // Mock: enabled in dev when no key is set, or explicitly listed
+  const mockEnabled =
+    envList.includes("mock") ||
+    (process.env.NODE_ENV !== "production" && !process.env.PAYARC_API_KEY);
+
   if (mockEnabled && process.env.NODE_ENV === "production") {
-    console.warn("[Processor Registry] WARNING: Mock processor is ENABLED in production. Set NMI_SECURITY_KEY to activate the real NMI adapter and disable mock mode.");
+    console.warn(
+      "[Processor Registry] WARNING: Mock processor is ENABLED in production. " +
+      "Set PAYARC_API_KEY to activate the real Payarc adapter.",
+    );
   }
+
   adapters.set("mock", {
     adapter: mock,
     enabled: mockEnabled,
@@ -50,7 +61,7 @@ function initRegistry() {
 export function getProcessor(name?: string): IProcessorAdapter {
   initRegistry();
 
-  const processorName = (name || process.env.DEFAULT_PROCESSOR || "nmi").toLowerCase();
+  const processorName = (name || process.env.DEFAULT_PROCESSOR || "payarc").toLowerCase();
   const record = adapters.get(processorName);
 
   if (record && record.enabled) {
@@ -58,14 +69,19 @@ export function getProcessor(name?: string): IProcessorAdapter {
   }
 
   if (name) {
-    throw new Error(`Processor adapter "${name}" is not registered or not enabled. Check ENABLED_PROCESSORS env var.`);
+    throw new Error(
+      `Processor adapter "${name}" is not registered or not enabled. Check ENABLED_PROCESSORS env var.`,
+    );
   }
 
+  // Fall through to first enabled adapter (payarc → mock)
   for (const [key, rec] of adapters.entries()) {
     if (rec.enabled) return createTrackedAdapter(key, rec);
   }
 
-  throw new Error("No processor adapters are enabled. Set ENABLED_PROCESSORS to at least one adapter name.");
+  throw new Error(
+    "No processor adapters are enabled. Set PAYARC_API_KEY or ENABLED_PROCESSORS=mock.",
+  );
 }
 
 export function getEnabledAdapterNames(): string[] {
@@ -112,9 +128,8 @@ export function getAllAdapterStatuses(): AdapterHealthStatus[] {
 
   for (const [name, record] of adapters.entries()) {
     const configured = isAdapterConfigured(name);
-    const errorRate = record.callCount > 0
-      ? Math.round((record.errorCount / record.callCount) * 100)
-      : 0;
+    const errorRate =
+      record.callCount > 0 ? Math.round((record.errorCount / record.callCount) * 100) : 0;
 
     statuses.push({
       name: record.adapter.displayName,
@@ -134,8 +149,8 @@ export function getAllAdapterStatuses(): AdapterHealthStatus[] {
 
 function isAdapterConfigured(name: string): boolean {
   switch (name) {
-    case "nmi":
-      return !!(process.env.NMI_SECURITY_KEY || (process.env.PROCESSOR_API_BASE_URL && process.env.PROCESSOR_API_KEY));
+    case "payarc":
+      return !!process.env.PAYARC_API_KEY;
     case "mock":
       return true;
     default:
