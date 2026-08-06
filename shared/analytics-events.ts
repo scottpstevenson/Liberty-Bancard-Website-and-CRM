@@ -39,9 +39,13 @@ export const PEWC_UNCHECKED = "consent_field_interaction";
 export const PEWC_CAPTURED = "pewc_captured";
 
 // ─── Server-Side CRM Milestone Events ────────────────────────────────────────
+export const FORM_SUBMITTED = "form_submitted";
+export const DEAL_CREATED = "deal_created";
 export const STATEMENT_RECEIVED = "statement_received";
 export const PROPOSAL_GENERATED = "proposal_generated";
 export const DEAL_STAGE_CHANGED = "deal_stage_changed";
+export const CALL_BOOKED = "call_booked";
+export const PROPOSAL_SENT = "proposal_sent";
 export const CLOSED_WON = "closed_won";
 export const APPOINTMENT_BOOKED = "appointment_booked";
 export const OFFER_ROUTE_ASSIGNED = "offer_route_assigned";
@@ -68,9 +72,13 @@ export const ALL_CANONICAL_EVENTS = new Set([
   PEWC_DECLINED_ON_SUBMIT,
   PEWC_CHECKED,
   PEWC_CAPTURED,
+  FORM_SUBMITTED,
+  DEAL_CREATED,
   STATEMENT_RECEIVED,
   PROPOSAL_GENERATED,
   DEAL_STAGE_CHANGED,
+  CALL_BOOKED,
+  PROPOSAL_SENT,
   CLOSED_WON,
   APPOINTMENT_BOOKED,
   OFFER_ROUTE_ASSIGNED,

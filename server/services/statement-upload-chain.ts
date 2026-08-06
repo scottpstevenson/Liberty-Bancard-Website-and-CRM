@@ -229,6 +229,19 @@ export async function runStatementUploadChain(
           ...(input.partnerOrgId ? { partnerOrgId: input.partnerOrgId } : {}),
         });
         dealId = newDeal.id;
+        // Record analytics event for deal creation (fire-and-forget)
+        import("./analytics-events").then(({ recordAnalyticsEvent }) =>
+          import("@shared/analytics-events").then(({ DEAL_CREATED }) =>
+            recordAnalyticsEvent({
+              eventName: DEAL_CREATED,
+              contactId: input.contactId,
+              dealId: newDeal.id,
+              sourceCategory: "website_form",
+              formId: "statement_upload",
+              metadata: { source: input.source, stage: "Statement Received" },
+            })
+          )
+        ).catch(() => {});
         steps.push(makeStep(3, "Deal created", true, undefined, {
           dealId, stage: "Statement Received",
         }));

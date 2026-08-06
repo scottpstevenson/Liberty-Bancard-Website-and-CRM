@@ -1070,9 +1070,13 @@ export function registerAnalyticsRoutes(app: Express) {
       const funnel = [
         { stage: "Phone CTA Clicks",      eventName: "phone_cta_click",             count: byEvent["phone_cta_click"] ?? 0 },
         { stage: "Booking CTA Clicks",    eventName: "booking_cta_click",           count: byEvent["booking_cta_click"] ?? 0 },
+        { stage: "Forms Submitted",       eventName: "form_submitted",              count: byEvent["form_submitted"] ?? 0 },
+        { stage: "Deals Created",         eventName: "deal_created",                count: byEvent["deal_created"] ?? 0 },
         { stage: "Appointments Booked",   eventName: "appointment_booked",          count: byEvent["appointment_booked"] ?? 0 },
+        { stage: "Calls Booked",          eventName: "call_booked",                 count: byEvent["call_booked"] ?? 0 },
         { stage: "Statements Received",   eventName: "statement_received",          count: byEvent["statement_received"] ?? 0 },
         { stage: "Proposals Generated",   eventName: "proposal_generated",          count: byEvent["proposal_generated"] ?? 0 },
+        { stage: "Proposals Sent",        eventName: "proposal_sent",               count: byEvent["proposal_sent"] ?? 0 },
         { stage: "Closed Won",            eventName: "closed_won",                  count: byEvent["closed_won"] ?? 0 },
       ];
 

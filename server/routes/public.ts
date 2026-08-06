@@ -30,6 +30,8 @@ import { evaluateContactability } from "../services/contactability";
 import { StatementChainTracker } from "../services/statement-upload-chain";
 import { resolveReferralAttribution } from "../services/attribution";
 import { serverError } from "../utils/server-error";
+import { recordAnalyticsEvent } from "../services/analytics-events";
+import { FORM_SUBMITTED, DEAL_CREATED } from "@shared/analytics-events";
 
 export function registerPublicRoutes(app: Express) {
   const autoProposalRateLimit = new Map<string, number>();
@@ -331,6 +333,21 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       }
 
       // Non-chain fire-and-forget actions
+      recordAnalyticsEvent({
+        eventName: FORM_SUBMITTED,
+        contactId: contact.id,
+        sourceCategory: "website_form",
+        formId: "statement_upload",
+        vertical: vertical || undefined,
+        utmSource: utmSource || undefined,
+        utmMedium: utmMedium || undefined,
+        utmCampaign: utmCampaign || undefined,
+        utmContent: utmContent || undefined,
+        utmTerm: utmTerm || undefined,
+        gclidPresent: !!gclid,
+        landingPage: landingPage || "/upload-statement",
+        metadata: { formType: "statement_upload" },
+      }).catch(() => {});
       trackReferral(referralCode, contactName, email, mobile, businessName).catch(err => console.error("Referral tracking error:", err));
       ingestBusinessFromContact(contact.id, "manual_upload", "website_statement").catch(err => console.warn("[Statement] Business ingest failed:", err));
       scoreContact(contact.id).catch(err => console.error("Lead scoring error:", err));
@@ -438,6 +455,32 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         type: "info",
       });
 
+      recordAnalyticsEvent({
+        eventName: FORM_SUBMITTED,
+        contactId: contact.id,
+        dealId: deal.id,
+        sourceCategory: "website_form",
+        formId: "estimate_form",
+        utmSource: utmSource || undefined,
+        utmMedium: utmMedium || undefined,
+        utmCampaign: utmCampaign || undefined,
+        utmContent: utmContent || undefined,
+        utmTerm: utmTerm || undefined,
+        gclidPresent: !!gclid,
+        landingPage: landingPage || "/estimate",
+        metadata: { formType: "estimate" },
+      }).catch(() => {});
+      recordAnalyticsEvent({
+        eventName: DEAL_CREATED,
+        contactId: contact.id,
+        dealId: deal.id,
+        sourceCategory: "website_form",
+        formId: "estimate_form",
+        utmSource: utmSource || undefined,
+        utmMedium: utmMedium || undefined,
+        utmCampaign: utmCampaign || undefined,
+        metadata: { formType: "estimate", stage: "New Lead" },
+      }).catch(() => {});
       trackReferral(referralCode, contactName, email, phone).catch(err => console.error("Referral tracking error:", err));
       resolveReferralAttribution(referralCode, contact.partnerOrgId).then(async attr => {
         if (attr.partnerType === "partner_org" && attr.partnerOrgId) {
@@ -670,6 +713,36 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         type: "info",
       });
 
+      recordAnalyticsEvent({
+        eventName: FORM_SUBMITTED,
+        contactId: contact.id,
+        dealId: deal.id,
+        sourceCategory: "website_form",
+        formId: "get_started_form",
+        vertical: vertical || undefined,
+        utmSource: utmSource || undefined,
+        utmMedium: utmMedium || undefined,
+        utmCampaign: utmCampaign || undefined,
+        utmContent: utmContent || undefined,
+        utmTerm: utmTerm || undefined,
+        gclidPresent: !!gclid,
+        landingPage: landingPage || "/get-started",
+        offerRoute: offerPath,
+        metadata: { formType: "get_started", goal: goal || undefined },
+      }).catch(() => {});
+      recordAnalyticsEvent({
+        eventName: DEAL_CREATED,
+        contactId: contact.id,
+        dealId: deal.id,
+        sourceCategory: "website_form",
+        formId: "get_started_form",
+        vertical: vertical || undefined,
+        utmSource: utmSource || undefined,
+        utmMedium: utmMedium || undefined,
+        utmCampaign: utmCampaign || undefined,
+        offerRoute: offerPath,
+        metadata: { formType: "get_started", stage: "New Lead" },
+      }).catch(() => {});
       trackReferral(referralCode, `${firstName} ${lastName}`, email, phone).catch(err => console.error("Referral tracking error:", err));
       resolveReferralAttribution(referralCode, contact.partnerOrgId).then(async attr => {
         if (attr.partnerType === "partner_org" && attr.partnerOrgId) {
@@ -901,6 +974,22 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
           details: { formType: "callback" },
         }).catch(err => console.error("[Callback] PEWC record error:", err));
       }
+      recordAnalyticsEvent({
+        eventName: FORM_SUBMITTED,
+        contactId: contact.id,
+        dealId: deal.id,
+        sourceCategory: "website_form",
+        formId: "callback_form",
+        metadata: { formType: "callback", bestTime: bestTime || "anytime" },
+      }).catch(() => {});
+      recordAnalyticsEvent({
+        eventName: DEAL_CREATED,
+        contactId: contact.id,
+        dealId: deal.id,
+        sourceCategory: "website_form",
+        formId: "callback_form",
+        metadata: { formType: "callback", stage: "New Lead" },
+      }).catch(() => {});
       scoreContact(contact.id).catch(err => console.error("Lead scoring error:", err));
       routeContact(contact.id).catch(err => console.error("Smart routing error:", err));
       enqueuePromotionalEnrollment({ contactId: contact.id, triggerType: "form_submitted", formType: "callback", sourceEventId: submissionId }).catch(err => console.error("Enqueue error:", err));

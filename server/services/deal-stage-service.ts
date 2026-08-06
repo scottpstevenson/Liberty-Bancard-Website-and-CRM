@@ -2,6 +2,15 @@ import { storage } from "../storage";
 import type { Deal } from "@shared/schema";
 import { isGhlConfigured } from "./ghl";
 import { syncDealToGhl } from "./ghl-sync";
+import { recordAnalyticsEvent } from "./analytics-events";
+import { CALL_BOOKED, PROPOSAL_SENT, CLOSED_WON, DEAL_STAGE_CHANGED } from "@shared/analytics-events";
+
+/** Stage names that map to dedicated funnel analytics events */
+const STAGE_EVENT_MAP: Record<string, string> = {
+  "Call Booked": CALL_BOOKED,
+  "Proposal Sent": PROPOSAL_SENT,
+  "Closed Won": CLOSED_WON,
+};
 
 /**
  * Central deal stage transition service.
@@ -27,6 +36,26 @@ export async function advanceDealStage(
       console.warn(`[DealStage] GHL sync failed for deal ${dealId} after stage change to "${newStage}":`, err.message);
     });
   }
+
+  // Record dedicated funnel event for key stages, plus generic stage-changed
+  const funnelEvent = STAGE_EVENT_MAP[newStage];
+  if (funnelEvent) {
+    recordAnalyticsEvent({
+      eventName: funnelEvent,
+      dealId,
+      dealStage: newStage,
+      contactId: updated.contactId ?? undefined,
+      metadata: { trigger },
+    }).catch(() => {});
+  }
+
+  recordAnalyticsEvent({
+    eventName: DEAL_STAGE_CHANGED,
+    dealId,
+    dealStage: newStage,
+    contactId: updated.contactId ?? undefined,
+    metadata: { trigger, newStage },
+  }).catch(() => {});
 
   return updated;
 }
