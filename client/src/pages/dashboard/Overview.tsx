@@ -16,6 +16,12 @@ import {
 } from "lucide-react";
 import type { Contact, Deal } from "@shared/schema";
 
+function formatResolutionTime(hours: number | null | undefined): string {
+  if (hours == null) return "—";
+  if (hours >= 24) return `${(hours / 24).toFixed(1)}d`;
+  return `${hours.toFixed(1)}h`;
+}
+
 function formatInsights(text: string) {
   const parts = text.split(/(\*\*[^*]+\*\*)/g);
   return parts.map((part, i) => {
@@ -91,7 +97,7 @@ export default function Overview() {
   const { data: kpi, isLoading: kpiLoading, isError } = useQuery<{
     pipeline: { totalActive: number; closedWon30d: number; closedLost30d: number; conversionRate: number; stagesBreakdown: Record<string, number>; newLeads7d: number };
     onboarding: { active: number; live: number };
-    support: { openTickets: number; breachedSla: number };
+    support: { openTickets: number; breachedSla: number; avgResolutionHours: number | null };
     tasks: { pending: number; overdue: number };
     contacts: { total: number; new30d: number };
     revenue: { totalEstVolume: number; totalEstResidual: number; totalEstProfit: number; avgDealProfit: number };
@@ -333,6 +339,9 @@ export default function Overview() {
                 ) : (
                   <p className="text-xs text-muted-foreground mt-1" data-testid="text-sla-ok">All within SLA</p>
                 )}
+                <p className="text-xs text-muted-foreground mt-1" data-testid="text-avg-resolution">
+                  Avg resolution: <span className="font-medium">{formatResolutionTime(kpi?.support.avgResolutionHours)}</span>
+                </p>
               </CardContent>
             </Card>
 

@@ -105,6 +105,7 @@ export function registerAnalyticsRoutes(app: Express) {
         totalContactsRow,
         newContacts30dRow,
         revenueRow,
+        avgResolutionRow,
       ] = await Promise.all([
         pool.query<{ stage: string; cnt: string }>(`
           SELECT stage, COUNT(*)::text AS cnt FROM deals
@@ -167,6 +168,26 @@ export function registerAnalyticsRoutes(app: Express) {
             (SELECT COUNT(*) FROM deals WHERE archived_at IS NULL)::text AS deal_count
           FROM contacts WHERE archived_at IS NULL
         `),
+        pool.query<{ avg_hours: string | null }>(`
+          SELECT
+            CASE WHEN COUNT(*) > 0
+              THEN ROUND(AVG(EXTRACT(EPOCH FROM (t.resolved_at - t.created_at)) / 3600)::numeric, 1)::text
+              ELSE NULL
+            END AS avg_hours
+          FROM tickets t
+          LEFT JOIN contacts c ON c.id = t.contact_id
+          WHERE (t.status = 'Resolved' OR t.status = 'Closed')
+            AND t.resolved_at IS NOT NULL
+            AND t.resolved_at >= $1
+            AND (
+              c.id IS NULL
+              OR (
+                c.email NOT LIKE '%@example.com'
+                AND c.email NOT LIKE '%@test.com'
+                AND c.email NOT LIKE '%@mailinator.com'
+              )
+            )
+        `, [thirtyDaysAgo]),
       ]);
 
       const stagesCount: Record<string, number> = {};
@@ -214,7 +235,9 @@ export function registerAnalyticsRoutes(app: Express) {
         support: {
           openTickets: parseInt(openTicketsRow.rows[0]?.cnt ?? "0", 10),
           breachedSla: parseInt(breachedTicketsRow.rows[0]?.cnt ?? "0", 10),
-          avgResolutionHours: 0,
+          avgResolutionHours: avgResolutionRow.rows[0]?.avg_hours != null
+            ? parseFloat(avgResolutionRow.rows[0].avg_hours)
+            : null,
         },
         tasks: {
           pending: parseInt(pendingTasksRow.rows[0]?.cnt ?? "0", 10),
