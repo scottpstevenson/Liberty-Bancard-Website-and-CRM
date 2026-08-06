@@ -94,6 +94,54 @@ async function run() {
   const hasCol = "sendingAt" in outboundMessages;
   assert(hasCol, "sendingAt field present on outboundMessages table schema");
 
+  // ── Test 5: getDailySendCount includes `sending` rows ────────────────────
+  // Verifies the daily-cap is not bypassed by a burst of in-flight messages.
+  // Before the fix, rows in `sending` lacked sentAt so they returned 0,
+  // allowing a crash-and-recover cycle to fire more than the daily limit.
+  console.log("\nTest 5: getDailySendCount counts `sending` rows against the daily cap");
+
+  const { getDailySendCount } = await import("../server/services/campaign-engine");
+
+  // Baseline: record the count before we insert anything
+  const countBefore = await getDailySendCount();
+
+  // Insert 3 `sending` rows (no campaignId so they're unscoped)
+  const sendingRows: number[] = [];
+  for (let i = 0; i < 3; i++) {
+    const [row] = await db.insert(outboundMessages).values({
+      channel: "email",
+      toEmail: `daily-cap-test-${i}@example.com`,
+      status: "sending",
+      sendingAt: new Date(),
+    }).returning();
+    sendingRows.push(row.id);
+  }
+
+  const countAfter = await getDailySendCount();
+  assert(
+    countAfter === countBefore + 3,
+    `getDailySendCount increased by 3 when 3 sending rows inserted (before=${countBefore}, after=${countAfter})`
+  );
+
+  // Verify that rows in `failed` status (recovered crash) are NOT counted
+  for (const id of sendingRows) {
+    await db.execute(sql`
+      UPDATE outbound_messages
+      SET status = 'failed', sending_at = NOW() - INTERVAL '6 minutes'
+      WHERE id = ${id}
+    `);
+  }
+  const countAfterFail = await getDailySendCount();
+  assert(
+    countAfterFail === countBefore,
+    `getDailySendCount drops back to baseline once sending rows move to failed (before=${countBefore}, afterFail=${countAfterFail})`
+  );
+
+  // Clean up
+  for (const id of sendingRows) {
+    await cleanup(id);
+  }
+
   // ── Summary ───────────────────────────────────────────────────────────────
   console.log(`\n${"─".repeat(40)}`);
   console.log(`Results: ${passed} passed, ${failed} failed`);

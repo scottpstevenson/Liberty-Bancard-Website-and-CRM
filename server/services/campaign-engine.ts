@@ -1090,23 +1090,42 @@ async function sendContactCampaignMessage(
 export async function getDailySendCount(campaignId?: number): Promise<number> {
   const { db } = await import("../db");
   const { outboundMessages } = await import("@shared/schema");
-  const { gte, eq, and: drizzleAnd, isNotNull } = await import("drizzle-orm");
+  const { gte, eq, and: drizzleAnd, isNotNull, inArray, or } = await import("drizzle-orm");
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  const conditions = [
+  // Count rows that represent a send attempt today:
+  //   1. sentAt IS NOT NULL AND sentAt >= today  — already completed sends
+  //   2. status = 'sending' AND sendingAt >= today — in-flight sends
+  //
+  // Including `sending` rows prevents a crash-and-recover burst from
+  // bypassing the daily cap: if N messages are in-flight when the worker
+  // crashes, they are still counted against the limit on the next tick.
+  const sentTodayConditions = [
     isNotNull(outboundMessages.sentAt),
     gte(outboundMessages.sentAt, today),
   ];
+  const sendingTodayConditions = [
+    eq(outboundMessages.status, "sending"),
+    isNotNull(outboundMessages.sendingAt),
+    gte(outboundMessages.sendingAt, today),
+  ];
+
+  const baseConditions = [
+    or(
+      drizzleAnd(...sentTodayConditions),
+      drizzleAnd(...sendingTodayConditions),
+    )!,
+  ];
   if (campaignId !== undefined) {
-    conditions.push(eq(outboundMessages.campaignId, campaignId));
+    baseConditions.push(eq(outboundMessages.campaignId, campaignId));
   }
 
   const rows = await db
     .select({ id: outboundMessages.id })
     .from(outboundMessages)
-    .where(drizzleAnd(...conditions));
+    .where(drizzleAnd(...baseConditions));
 
   return rows.length;
 }
