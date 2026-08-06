@@ -1904,6 +1904,7 @@ export const merchantResiduals = pgTable("merchant_residuals", {
   netRevenue: text("net_revenue").default("0"),
   agentId: integer("agent_id").references(() => agents.id),
   agentCommission: text("agent_commission").default("0"),
+  partnerCommission: text("partner_commission").default("0"),
   volumeChange: text("volume_change"),
   revenueChange: text("revenue_change"),
   flags: text("flags").array(),

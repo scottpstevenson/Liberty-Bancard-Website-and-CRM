@@ -339,8 +339,50 @@ export function registerResidualsRoutes(app: Express) {
 
       const rows = await storage.getResidualImportRows(importRecord.id);
 
+      // Cache agent and deal/partnerOrg lookups to avoid redundant DB hits per row
+      const agentCache = new Map<number, { commissionSplitPercent: number } | null>();
+      const dealCache = new Map<number, { partnerOrgId: number | null } | null>();
+      const partnerOrgCache = new Map<number, { commissionRate: number } | null>();
+
       for (const row of rows) {
         if (row.isMatched && row.matchedDealId) {
+          // --- Agent commission ---
+          let agentCommission = "0";
+          if (row.agentId) {
+            if (!agentCache.has(row.agentId)) {
+              const agent = await storage.getAgent(row.agentId);
+              agentCache.set(row.agentId, agent ? { commissionSplitPercent: agent.commissionSplitPercent ?? 50 } : null);
+            }
+            const agentData = agentCache.get(row.agentId);
+            if (agentData) {
+              const netResidual = parseFloat(row.netResidual || "0");
+              const splitPct = agentData.commissionSplitPercent;
+              const computed = netResidual * (splitPct / 100);
+              agentCommission = Math.max(0, computed).toFixed(2);
+            }
+          }
+
+          // --- Partner org commission ---
+          let partnerCommission = "0";
+          if (!dealCache.has(row.matchedDealId)) {
+            const deal = await storage.getDeal(row.matchedDealId);
+            dealCache.set(row.matchedDealId, deal ? { partnerOrgId: deal.partnerOrgId ?? null } : null);
+          }
+          const dealData = dealCache.get(row.matchedDealId);
+          if (dealData?.partnerOrgId) {
+            const orgId = dealData.partnerOrgId;
+            if (!partnerOrgCache.has(orgId)) {
+              const org = await storage.getPartnerOrg(orgId);
+              partnerOrgCache.set(orgId, org ? { commissionRate: org.commissionRate ?? 10 } : null);
+            }
+            const orgData = partnerOrgCache.get(orgId);
+            if (orgData) {
+              const grossResidual = parseFloat(row.grossResidual || "0");
+              const computed = grossResidual * (orgData.commissionRate / 100);
+              partnerCommission = Math.max(0, computed).toFixed(2);
+            }
+          }
+
           await storage.createMerchantResidual({
             reportId: null,
             dealId: row.matchedDealId,
@@ -354,7 +396,8 @@ export function registerResidualsRoutes(app: Express) {
             cost: "0",
             netRevenue: row.netResidual || "0",
             agentId: row.agentId || null,
-            agentCommission: "0",
+            agentCommission,
+            partnerCommission,
             volumeChange: null,
             revenueChange: null,
             flags: row.varianceStatus !== "in_range" ? [row.varianceStatus ?? "flagged"] : [],
@@ -583,25 +626,23 @@ export function registerResidualsRoutes(app: Express) {
 
   app.get("/api/residuals/by-partner", requireRole("admin", "manager"), async (req, res) => {
     try {
-      const { residualImportRows, residualImports, deals, partnerOrganizations } = await import("@shared/schema");
+      const { merchantResiduals, deals, partnerOrganizations } = await import("@shared/schema");
       const rows = await db
         .select({
           orgId: partnerOrganizations.id,
           orgName: partnerOrganizations.name,
           orgSlug: partnerOrganizations.slug,
-          totalGrossResidual: sql<string>`COALESCE(SUM(${residualImportRows.grossResidual}::numeric), 0)`,
-          totalNetResidual: sql<string>`COALESCE(SUM(${residualImportRows.netResidual}::numeric), 0)`,
-          activeMerchants: sql<number>`COUNT(DISTINCT ${residualImportRows.matchedDealId})`,
+          totalGrossResidual: sql<string>`COALESCE(SUM(${merchantResiduals.revenue}::numeric), 0)`,
+          totalNetResidual: sql<string>`COALESCE(SUM(${merchantResiduals.netRevenue}::numeric), 0)`,
+          totalPartnerCommission: sql<string>`COALESCE(SUM(${merchantResiduals.partnerCommission}::numeric), 0)`,
+          activeMerchants: sql<number>`COUNT(DISTINCT ${merchantResiduals.dealId})`,
         })
-        .from(residualImportRows)
-        .innerJoin(residualImports, eq(residualImports.id, residualImportRows.importId))
-        .innerJoin(deals, eq(deals.id, residualImportRows.matchedDealId))
+        .from(merchantResiduals)
+        .innerJoin(deals, eq(deals.id, merchantResiduals.dealId))
         .innerJoin(partnerOrganizations, eq(partnerOrganizations.id, deals.partnerOrgId))
-        .where(
-          sql`${deals.partnerOrgId} IS NOT NULL AND ${residualImports.confirmedAt} IS NOT NULL`
-        )
+        .where(sql`${deals.partnerOrgId} IS NOT NULL`)
         .groupBy(partnerOrganizations.id, partnerOrganizations.name, partnerOrganizations.slug)
-        .orderBy(sql`SUM(${residualImportRows.netResidual}::numeric) DESC`);
+        .orderBy(sql`SUM(${merchantResiduals.netRevenue}::numeric) DESC`);
 
       res.json(rows);
     } catch (err: any) {

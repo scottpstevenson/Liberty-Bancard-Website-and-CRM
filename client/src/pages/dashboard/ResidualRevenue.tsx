@@ -74,7 +74,7 @@ interface MerchantResidual {
   cost: number;
   netRevenue: number;
   agent: string;
-  commission: number;
+  agentCommission: string;
   flags: string[];
 }
 
@@ -256,6 +256,7 @@ function ByPartnerTab() {
                     <TableHead className="text-right">Active Merchants</TableHead>
                     <TableHead className="text-right">Gross Residual</TableHead>
                     <TableHead className="text-right">Net Residual</TableHead>
+                    <TableHead className="text-right">Partner Commission</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -270,6 +271,7 @@ function ByPartnerTab() {
                       <TableCell className="text-right">{row.activeMerchants}</TableCell>
                       <TableCell className="text-right">{formatCurrency(row.totalGrossResidual)}</TableCell>
                       <TableCell className="text-right font-semibold text-foreground">{formatCurrency(row.totalNetResidual)}</TableCell>
+                      <TableCell className="text-right font-semibold text-emerald-600 dark:text-emerald-400">{formatCurrencyDetailed(row.totalPartnerCommission ?? "0")}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -518,7 +520,7 @@ export default function ResidualRevenue() {
       const existing = agentMap.get(m.agent) || { totalDeals: 0, revenueManaged: 0, commissionEarned: 0 };
       existing.totalDeals += 1;
       existing.revenueManaged += m.revenue;
-      existing.commissionEarned += m.commission;
+      existing.commissionEarned += parseFloat(m.agentCommission || "0");
       agentMap.set(m.agent, existing);
     });
     return Array.from(agentMap.entries()).map(([name, data], i) => ({
@@ -753,7 +755,7 @@ export default function ResidualRevenue() {
                         <TableCell className="text-right">{formatCurrencyDetailed(merchant.cost)}</TableCell>
                         <TableCell className="text-right font-medium">{formatCurrencyDetailed(merchant.netRevenue)}</TableCell>
                         <TableCell>{merchant.agent}</TableCell>
-                        <TableCell className="text-right">{formatCurrencyDetailed(merchant.commission)}</TableCell>
+                        <TableCell className="text-right">{formatCurrencyDetailed(parseFloat(merchant.agentCommission || "0"))}</TableCell>
                         <TableCell>
                           <div className="flex flex-wrap gap-1">
                             {merchant.flags.length > 0 ? (

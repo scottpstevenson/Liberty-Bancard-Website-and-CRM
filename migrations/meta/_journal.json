@@ -673,6 +673,13 @@
       "when": 1788700000000,
       "tag": "0095_nps_survey_constraints",
       "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "7",
+      "when": 1788800000000,
+      "tag": "0096_residual_partner_commission",
+      "breakpoints": true
     }
   ]
 }
