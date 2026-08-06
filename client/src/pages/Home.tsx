@@ -910,11 +910,11 @@ export default function Home() {
                       <span className="bg-emerald-600 text-white text-[10px] font-semibold px-2 py-0.5 rounded">All 50 States</span>
                     </div>
                     <div className="font-display font-semibold text-foreground">Cash Discount</div>
-                    <div className="text-xs text-muted-foreground font-normal mt-0.5">Stop absorbing card fees — you pocket the same amount whether the customer pays cash or card</div>
+                    <div className="text-xs text-muted-foreground font-normal mt-0.5">Stop absorbing card fees — your revenue stays the same no matter how customers pay</div>
                   </div>
                 </AccordionTrigger>
                 <AccordionContent className="px-4 pb-4">
-                  <p className="text-sm text-muted-foreground mb-4">Your cash price is your posted price. Card customers pay slightly more — covering your processing cost. Legal in all 50 states with proper signage and receipts.*</p>
+                  <p className="text-sm text-muted-foreground mb-4">Your cash price is your posted price. Processing cost is covered automatically — it never comes out of your revenue. Legal in all 50 states with proper signage and receipts.*</p>
                   <Link href="/0-percent-processing" data-testid="link-cash-discount-cta-mobile">
                     <Button className="gap-2 w-full">Get My Savings Analysis <ArrowRight className="w-4 h-4" /></Button>
                   </Link>
@@ -959,7 +959,7 @@ export default function Home() {
                 <CardHeader className="gap-1">
                   <span className="report-chip report-chip-neutral w-fit">Pay $0 in card fees · All 50 states</span>
                   <CardTitle className="text-lg">Cash Discount</CardTitle>
-                  <CardDescription>Your cash price is your posted price. Card customers pay slightly more — you pocket the same amount either way.</CardDescription>
+                  <CardDescription>Your cash price is your posted price. Processing cost is covered automatically — your revenue stays the same regardless of payment method.</CardDescription>
                 </CardHeader>
                 <CardContent className="flex-1">
                   <ul className="space-y-2 text-sm text-muted-foreground">
@@ -999,7 +999,7 @@ export default function Home() {
                   </ul>
                   <div className="mt-4 rounded-md border border-border bg-card px-3 py-2">
                     <div className="text-xs uppercase tracking-wider text-muted-foreground">Your processing cost</div>
-                    <div className="num text-sm font-semibold text-sky-600">$0 cost to you — cardholder pays*</div>
+                    <div className="num text-sm font-semibold text-sky-600">$0 out of your revenue*</div>
                   </div>
                 </CardContent>
                 <CardFooter>

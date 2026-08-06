@@ -67,7 +67,7 @@ const faqItems = [
   {
     question: "What does the math actually look like?",
     answer:
-      "If you process $10,000/month in card volume and currently pay $250-$350 in fees, Liberty Zero could bring that to $0 in processor fees. The service fee (typically 3-4%) is collected from the card-paying customer at checkout, not deducted from your revenue.",
+      "If you process $10,000/month in card volume and currently pay $250-$350 in fees, Liberty Zero could bring that to $0 in processor fees. The service fee (typically 3-4%) is added to eligible card transactions — your revenue is never reduced by processing costs.",
   },
 ];
 
@@ -221,7 +221,7 @@ export default function ZeroPercent() {
                     <Badge variant="secondary" className="text-xs">All 50 States</Badge>
                   </div>
                   <p className="text-muted-foreground mb-4 leading-relaxed">
-                    Your posted price is the "cash price." Customers who pay by card see a slightly higher price — the difference covers processing. Customers who pay cash get the standard price as a discount.
+                    Your posted price is the cash price. Card transactions run at a slightly higher price — covering your processing cost entirely. Your revenue is the same on every sale, regardless of payment method.
                   </p>
                   <p className="text-sm font-medium text-foreground mb-4">Best for: Retail, restaurants, service businesses</p>
                   <Link
@@ -415,7 +415,7 @@ export default function ZeroPercent() {
                           <span className="text-white font-medium">$10,000</span>
                         </div>
                         <div className="flex justify-between text-sm border-b border-white/10 pb-2">
-                          <span className="text-white/70">Service fee collected from card customers</span>
+                          <span className="text-white/70">Processing cost recovered — not deducted from revenue</span>
                           <span className="text-white/70 font-medium text-xs">~3% from payer</span>
                         </div>
                         <div className="flex justify-between text-sm border-b border-white/10 pb-2">
