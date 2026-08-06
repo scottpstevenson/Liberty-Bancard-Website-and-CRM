@@ -12,7 +12,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   Users, DollarSign, TrendingUp, Copy, LogIn, LogOut, Link2,
   BarChart3, FileText, Download, ExternalLink, Shield, CheckCircle,
-  Clock, ArrowRight, Handshake, CalendarDays, MousePointerClick,
+  Clock, ArrowRight, Handshake, CalendarDays, MousePointerClick, Code2,
 } from "lucide-react";
 
 type PortalView = "login" | "dashboard" | "forgot" | "reset";
@@ -238,6 +238,45 @@ const getCollateral = (refCode: string) => [
     highlight: false,
   },
 ];
+
+interface EmbedCodeCardProps {
+  partnerCode: string;
+  referralLink: string;
+  copyLink: (text: string) => void;
+}
+
+function EmbedCodeCard({ partnerCode, referralLink, copyLink }: EmbedCodeCardProps) {
+  const origin = typeof window !== "undefined" ? window.location.origin : "https://libertybancard.com";
+  const applicationUrl = `${origin}/merchant-application?ref=${partnerCode}`;
+  const embedSnippet = `<!-- Liberty Bancard Partner Widget -->
+<a href="${applicationUrl}" target="_blank" rel="noopener noreferrer" style="display:inline-block;background:#1e3a5f;color:#fff;font-family:Arial,sans-serif;font-size:14px;font-weight:bold;padding:12px 24px;border-radius:6px;text-decoration:none;">
+  Apply for Payment Processing &rarr;
+</a>`;
+
+  return (
+    <div className="mt-5 p-4 bg-muted/40 rounded-lg border border-border/40" data-testid="card-embed-code">
+      <div className="flex items-center gap-2 mb-2">
+        <Code2 className="w-4 h-4 text-primary shrink-0" />
+        <p className="text-sm font-medium text-foreground">Your Embed Code</p>
+      </div>
+      <p className="text-xs text-muted-foreground mb-3">
+        Paste this snippet on your website, blog, or email to add a pre-tagged "Apply" button that automatically tracks referrals to your account.
+      </p>
+      <pre className="text-xs font-mono bg-background border border-border rounded p-3 overflow-x-auto whitespace-pre-wrap break-all leading-relaxed text-muted-foreground" data-testid="text-embed-snippet">
+        {embedSnippet}
+      </pre>
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={() => copyLink(embedSnippet)}
+        className="gap-1.5 mt-3"
+        data-testid="button-copy-embed"
+      >
+        <Copy className="w-3 h-3" /> Copy Embed Code
+      </Button>
+    </div>
+  );
+}
 
 function statusColor(status: string): string {
   switch (status) {
@@ -684,6 +723,9 @@ export default function PartnerPortal() {
                         <p className="text-xs text-muted-foreground">Click-to-Lead Rate</p>
                       </div>
                     </div>
+
+                    {/* Embed Code Card */}
+                    <EmbedCodeCard partnerCode={partner.code} referralLink={referralLink} copyLink={copyLink} />
                   </CardContent>
                 </Card>
               </TabsContent>

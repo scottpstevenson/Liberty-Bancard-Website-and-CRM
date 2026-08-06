@@ -148,7 +148,7 @@ export function registerPartnersRoutes(app: Express) {
 
               console.log(`[Partners] Invite URL for partner #${partnerId}: ${inviteUrl}`);
 
-              if (updated.email && isGhlConfigured()) {
+              if (updated.email) {
                 const firstName = (updated.contactName || "").split(" ")[0] || "there";
                 const html = `
 <div style="font-family:Arial,sans-serif;font-size:14px;color:#333;max-width:600px;">
@@ -162,14 +162,29 @@ export function registerPartnersRoutes(app: Express) {
   <p>Welcome aboard!</p>
 ${getEmailSignatureHtml("partners")}
 </div>`;
-                await sendGhlEmailForMerchant({
-                  email: updated.email,
-                  subject: "You're approved — set your partner portal password",
-                  body: html,
-                  fromEmail: "partners@libertybancard.com",
-                  fromName: "Liberty Bancard Partner Program",
+                const subject = "You're approved — set your partner portal password";
+                // Primary: SMTP via internal_ops category
+                const smtpResult = await sendSmtpEmail({
+                  to: updated.email,
+                  subject,
+                  html,
+                  category: "internal_ops",
                 });
-                console.log(`[Partners] Invite email sent to partner #${partnerId}`);
+                if (smtpResult.success) {
+                  console.log(`[Partners] Invite email sent via SMTP to partner #${partnerId}`);
+                } else {
+                  console.warn(`[Partners] SMTP invite failed for partner #${partnerId}: ${smtpResult.error} — falling back to GHL`);
+                  if (isGhlConfigured()) {
+                    await sendGhlEmailForMerchant({
+                      email: updated.email,
+                      subject,
+                      body: html,
+                      fromEmail: "partners@libertybancard.com",
+                      fromName: "Liberty Bancard Partner Program",
+                    });
+                    console.log(`[Partners] Invite email sent via GHL fallback to partner #${partnerId}`);
+                  }
+                }
               }
             } catch (err) {
               console.error(`[Partners] Invite token/email error for partner #${partnerId}:`, err);
@@ -669,6 +684,37 @@ ${getEmailSignatureHtml("partners")}
         res.json({ message: "Logged out" });
       });
     });
+  });
+
+  // === PARTNER EMBED CODE ===
+  app.get("/api/partner/embed-code", isPartnerAuthenticated, async (req, res) => {
+    try {
+      const user = req.user as any;
+      const partner = await storage.getPartnerByEmail(user.email);
+      if (!partner) return res.status(404).json({ message: "Partner not found." });
+
+      const replitDomain = process.env.REPLIT_DOMAINS?.split(",")[0]?.trim();
+      const baseUrl = process.env.APP_URL ||
+        (replitDomain ? `https://${replitDomain}` : "https://libertybancard.com");
+
+      const refCode = partner.affiliateCode || "";
+      const applicationUrl = `${baseUrl}/merchant-application?ref=${refCode}`;
+      const analysisUrl = `${baseUrl}/free-analysis?ref=${refCode}`;
+
+      const embedSnippet = `<!-- Liberty Bancard Partner Widget -->
+<a href="${applicationUrl}" target="_blank" rel="noopener noreferrer" style="display:inline-block;background:#1e3a5f;color:#fff;font-family:Arial,sans-serif;font-size:14px;font-weight:bold;padding:12px 24px;border-radius:6px;text-decoration:none;">
+  Apply for Payment Processing &rarr;
+</a>`;
+
+      res.json({
+        refCode,
+        applicationUrl,
+        analysisUrl,
+        embedSnippet,
+      });
+    } catch (err: any) {
+      serverError(res, err);
+    }
   });
 
   // === REFERRAL CLICK TRACKING ===

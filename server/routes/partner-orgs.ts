@@ -553,6 +553,50 @@ export function registerPartnerOrgsRoutes(app: Express) {
         status: "active",
       });
       const { passwordHash: _ph, ...safeUser } = user;
+
+      // Send welcome email to the new org user
+      (async () => {
+        try {
+          const { sendSmtpEmail } = await import("../services/smtp-email");
+          const { getEmailSignatureHtml } = await import("../services/email-signatures");
+          const replitDomain = process.env.REPLIT_DOMAINS?.split(",")[0]?.trim();
+          const baseUrl = process.env.APP_URL ||
+            (replitDomain ? `https://${replitDomain}` : "https://libertybancard.com");
+          const loginUrl = `${baseUrl}/partner-org/login`;
+          const welcomeHtml = `
+<div style="font-family:Arial,sans-serif;font-size:14px;color:#333;max-width:600px;">
+  <p>Hi ${firstName},</p>
+  <p>You've been invited to join the <strong>Liberty Bancard Partner Portal</strong> as a team member.</p>
+  <p>Your account is ready. Log in with the credentials below:</p>
+  <ul style="margin:12px 0;padding-left:20px;line-height:1.8;">
+    <li><strong>Email:</strong> ${email.toLowerCase()}</li>
+    <li><strong>Password:</strong> The temporary password provided by your administrator</li>
+  </ul>
+  <p>
+    <a href="${loginUrl}" style="display:inline-block;background-color:#1e3a5f;color:#ffffff;padding:10px 20px;border-radius:4px;text-decoration:none;font-size:13px;font-weight:bold;">
+      Log In to Partner Portal &rarr;
+    </a>
+  </p>
+  <p style="color:#666;font-size:12px;">We recommend changing your password after your first login.</p>
+  <p>Questions? Contact <a href="mailto:partners@libertybancard.com" style="color:#1e3a5f;">partners@libertybancard.com</a>.</p>
+${getEmailSignatureHtml("partners")}
+</div>`;
+          const result = await sendSmtpEmail({
+            to: email.toLowerCase(),
+            subject: "You've been added to the Liberty Bancard Partner Portal",
+            html: welcomeHtml,
+            category: "partners",
+          });
+          if (result.success) {
+            console.log(`[PartnerOrgs] Welcome email sent to ${email}`);
+          } else {
+            console.warn(`[PartnerOrgs] Welcome email failed for ${email}: ${result.error}`);
+          }
+        } catch (e) {
+          console.error(`[PartnerOrgs] Welcome email error for ${email}:`, e);
+        }
+      })();
+
       res.status(201).json(safeUser);
     } catch (err: any) {
       res.status(400).json({ message: err.message });

@@ -133,8 +133,18 @@ export function registerLifecycleRoutes(app: Express) {
         dealId: dealId || null,
         merchantProfileId: merchantProfileId || null,
         dayTrigger: Number(dayTrigger),
-        emailSentAt: new Date(),
       });
+      // Auto-send: if a contactId is present, enqueue the survey email immediately
+      // (createAndSendNpsSurvey handles concurrency safety via send-lease).
+      if (contactId) {
+        const cid = Number(contactId);
+        if (cid > 0) {
+          import("../services/nps-email").then(({ createAndSendNpsSurvey }) => {
+            createAndSendNpsSurvey({ contactId: cid, dealId: dealId ? Number(dealId) : undefined, dayTrigger: Number(dayTrigger) })
+              .catch(e => console.error("[NPS] Auto-send error:", e));
+          }).catch(e => console.error("[NPS] Auto-send import error:", e));
+        }
+      }
       res.status(201).json(survey);
     } catch (err: any) {
       res.status(400).json({ message: err.message });
