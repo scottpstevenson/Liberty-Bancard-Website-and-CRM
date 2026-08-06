@@ -1,8 +1,10 @@
 import { useState, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import { Search, Phone, MessageSquare, ChevronRight, Plus, Loader2, User } from "lucide-react";
+import { Search, Phone, MessageSquare, ChevronRight, Plus, Loader2, User, X } from "lucide-react";
 import { trackPhoneCallClick } from "@/lib/analytics";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 
 function formatRelativeTime(ts: string | null | undefined): string {
   if (!ts) return "";
@@ -49,12 +51,136 @@ function avatarColor(name: string): string {
   return AVATAR_COLORS[Math.abs(hash)];
 }
 
+function CreateContactSheet({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: (id: number) => void }) {
+  const { toast } = useToast();
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [companyName, setCompanyName] = useState("");
+
+  const createMutation = useMutation({
+    mutationFn: async () => {
+      if (!firstName.trim()) throw new Error("First name is required");
+      const res = await apiRequest("POST", "/api/contacts", {
+        firstName: firstName.trim(),
+        lastName: lastName.trim() || null,
+        phone: phone.trim() || null,
+        email: email.trim() || null,
+        companyName: companyName.trim() || null,
+        status: "prospect",
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.message || "Failed to create contact");
+      }
+      return res.json();
+    },
+    onSuccess: (contact) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/contacts"] });
+      toast({ title: "Contact created", description: `${firstName} ${lastName}`.trim() });
+      setFirstName(""); setLastName(""); setPhone(""); setEmail(""); setCompanyName("");
+      onCreated(contact.id);
+    },
+    onError: (err: Error) => toast({ title: "Failed", description: err.message, variant: "destructive" }),
+  });
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-end" onClick={onClose}>
+      <div
+        className="bg-white dark:bg-gray-900 rounded-t-3xl w-full max-h-[90vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="sticky top-0 bg-white dark:bg-gray-900 rounded-t-3xl border-b border-gray-100 dark:border-gray-800 px-6 pt-4 pb-3">
+          <div className="w-10 h-1 bg-gray-300 dark:bg-gray-600 rounded-full mx-auto mb-4" />
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-bold text-gray-900 dark:text-white">New Contact</h2>
+            <button onClick={onClose} className="text-gray-400 active:opacity-70">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+
+        <div className="px-6 py-4 space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">First Name <span className="text-red-500">*</span></label>
+              <input
+                type="text"
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+                placeholder="Jane"
+                className="w-full px-3 py-2.5 rounded-xl bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 border-0"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Last Name</label>
+              <input
+                type="text"
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
+                placeholder="Smith"
+                className="w-full px-3 py-2.5 rounded-xl bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 border-0"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Business Name</label>
+            <input
+              type="text"
+              value={companyName}
+              onChange={(e) => setCompanyName(e.target.value)}
+              placeholder="Acme Bakery LLC"
+              className="w-full px-3 py-2.5 rounded-xl bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 border-0"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Phone</label>
+            <input
+              type="tel"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              placeholder="(305) 555-0100"
+              className="w-full px-3 py-2.5 rounded-xl bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 border-0"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Email</label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="jane@acmebakery.com"
+              className="w-full px-3 py-2.5 rounded-xl bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 border-0"
+            />
+          </div>
+
+          <button
+            onClick={() => createMutation.mutate()}
+            disabled={!firstName.trim() || createMutation.isPending}
+            className="w-full py-3 rounded-xl bg-blue-600 text-white font-semibold text-sm active:scale-[0.98] transition-transform disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            {createMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+            {createMutation.isPending ? "Creating…" : "Create Contact"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function MobileContacts() {
   const [, setLocation] = useLocation();
   const [search, setSearch] = useState("");
+  const [showCreate, setShowCreate] = useState(false);
 
   const cached = getCached();
-  const { data, isLoading, isError } = useQuery<{ data: any[]; total: number }>({
+  const { data, isLoading } = useQuery<{ data: any[]; total: number }>({
     queryKey: ["/api/contacts"],
     retry: false,
     staleTime: 1000 * 60 * 5,
@@ -83,7 +209,16 @@ export default function MobileContacts() {
       <div className="bg-white dark:bg-gray-900 px-4 pb-3 sticky top-0 z-10 border-b border-gray-100 dark:border-gray-800" style={{ paddingTop: "calc(env(safe-area-inset-top) + 12px)" }}>
         <div className="flex items-center justify-between mb-3">
           <h1 className="text-xl font-bold text-gray-900 dark:text-white">Contacts</h1>
-          <span className="text-xs text-gray-400">{data?.total || contacts.length} total</span>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-400">{data?.total || contacts.length} total</span>
+            <button
+              data-testid="button-create-contact"
+              onClick={() => setShowCreate(true)}
+              className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center active:scale-90 transition-transform"
+            >
+              <Plus className="w-4 h-4 text-white" />
+            </button>
+          </div>
         </div>
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -106,9 +241,17 @@ export default function MobileContacts() {
         ) : filtered.length === 0 ? (
           <div className="text-center py-12 px-4">
             <User className="w-12 h-12 mx-auto mb-3 text-gray-300 dark:text-gray-600" />
-            <p className="text-gray-500 dark:text-gray-400 text-sm">
+            <p className="text-gray-500 dark:text-gray-400 text-sm mb-4">
               {search ? "No contacts found" : "No contacts yet"}
             </p>
+            {!search && (
+              <button
+                onClick={() => setShowCreate(true)}
+                className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-xl"
+              >
+                Add First Contact
+              </button>
+            )}
           </div>
         ) : (
           <div className="bg-white dark:bg-gray-800 divide-y divide-gray-100 dark:divide-gray-700">
@@ -174,6 +317,12 @@ export default function MobileContacts() {
           </div>
         )}
       </div>
+
+      <CreateContactSheet
+        open={showCreate}
+        onClose={() => setShowCreate(false)}
+        onCreated={(id) => { setShowCreate(false); setLocation(`/mobile/contacts/${id}`); }}
+      />
     </div>
   );
 }

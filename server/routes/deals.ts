@@ -5,7 +5,7 @@ import { db } from "../db";
 import { statementProposals, documents } from "@shared/schema";
 import { eq, desc } from "drizzle-orm";
 import { z } from "zod";
-import { contacts, insertDealCompetitorSchema, insertDealSchema, insertPipelineStageSchema, insertStageAutomationRuleSchema } from "@shared/schema";
+import { contacts, deals, insertDealCompetitorSchema, insertDealSchema, insertPipelineStageSchema, insertStageAutomationRuleSchema } from "@shared/schema";
 import { autoEnrollFromTrigger } from "../services/sequence-worker";
 import { triggerWorkflowsByEvent } from "../services/workflow-executor";
 import { scoreContact } from "../services/lead-scoring";
@@ -25,6 +25,23 @@ import { serverError } from "../utils/server-error";
 
 export function registerDealsRoutes(app: Express) {
   // === DEALS ===
+
+  // ─── GET /api/contacts/:id/deals — deals for a specific contact (mobile + detail tabs) ─
+  app.get("/api/contacts/:id/deals", isDashboardUser, async (req, res) => {
+    try {
+      const contactId = Number(req.params.id);
+      if (isNaN(contactId)) return res.status(400).json({ message: "Invalid contact ID" });
+      const rows = await db
+        .select()
+        .from(deals)
+        .where(eq(deals.contactId, contactId))
+        .orderBy(desc(deals.createdAt));
+      res.json(rows);
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
   app.get("/api/deals", isDashboardUser, async (req, res) => {
     try {
       const pipeline = req.query.pipeline as string | undefined;

@@ -2448,7 +2448,7 @@ export function registerSdrRoutes(app: Express) {
     }
   });
 
-  app.get("/api/sdr/merchants/:id/contacts", isAuthenticated, async (req, res) => {
+  app.get("/api/sdr/merchants/:id/contacts", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
       const merchantId = parseInt(req.params.id, 10);
       if (isNaN(merchantId)) {
@@ -2480,7 +2480,7 @@ export function registerSdrRoutes(app: Express) {
     }
   });
 
-  app.get("/api/sdr/merchant-contacts", isAuthenticated, async (_req, res) => {
+  app.get("/api/sdr/merchant-contacts", isDashboardUser, requireRole("admin", "manager"), async (_req, res) => {
     try {
       const { sdrMerchants: merchants, sdrMerchantContacts: contactsTable } = await import("@shared/schema");
       const rows = await db

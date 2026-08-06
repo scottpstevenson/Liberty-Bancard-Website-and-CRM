@@ -15,7 +15,7 @@ import BoardingPanel from "@/components/BoardingPanel";
 import { DealAgentAssignment } from "./DealAgentAssignment";
 import { formatDate } from "./shared";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, getCsrfToken } from "@/lib/queryClient";
 import { formatTimeAgo } from "@/lib/utils";
 
 interface CoBrandedProposal {
@@ -76,7 +76,12 @@ function StatementAnalysisSection({ dealId, analysisStatus }: { dealId: number; 
 
   const reanalyzeMutation = useMutation({
     mutationFn: async () => {
-      const res = await fetch(`/api/deals/${dealId}/reanalyze-statement`, { method: "POST" });
+      const csrf = getCsrfToken();
+      const res = await fetch(`/api/deals/${dealId}/reanalyze-statement`, {
+        method: "POST",
+        credentials: "include",
+        headers: { ...(csrf ? { "X-CSRF-Token": csrf } : {}) },
+      });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.message ?? "Failed to queue re-analysis");

@@ -642,8 +642,8 @@ function SendMonitoringPanel() {
           <CardHeader className="pb-2 pt-4 px-4">
             <CardTitle className="text-sm font-semibold">Communication Channel (24h)</CardTitle>
           </CardHeader>
-          <CardContent className="px-4 pb-4">
-            <table className="w-full text-sm">
+          <CardContent className="px-4 pb-4 overflow-x-auto">
+            <table className="w-full text-sm min-w-[240px]">
               <thead>
                 <tr className="border-b">
                   <th className="text-left font-medium text-muted-foreground pb-1.5">Channel</th>

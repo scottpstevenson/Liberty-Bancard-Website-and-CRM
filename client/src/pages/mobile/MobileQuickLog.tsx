@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { queryClient, getCsrfToken } from "@/lib/queryClient";
 import { useOfflineQueue } from "@/hooks/use-offline-queue";
+import { useAuth } from "@/hooks/use-auth";
 import { Phone, MessageSquare, CheckSquare, Camera, X, ChevronDown, Loader2, CheckCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -51,6 +52,8 @@ export default function MobileQuickLog({
   preselectedContactId?: number;
 }) {
   const { toast } = useToast();
+  const { user } = useAuth();
+  const canUploadPhoto = (user as any)?.role === "admin" || (user as any)?.role === "manager";
   const [tab, setTab] = useState<Tab>("call");
   const [contactId, setContactId] = useState<string>(preselectedContactId ? String(preselectedContactId) : "");
   const [outcome, setOutcome] = useState("");
@@ -172,7 +175,7 @@ export default function MobileQuickLog({
     { id: "call", label: "Call", icon: Phone },
     { id: "sms", label: "SMS", icon: MessageSquare },
     { id: "task", label: "Task", icon: CheckSquare },
-    { id: "photo", label: "Photo", icon: Camera },
+    ...(canUploadPhoto ? [{ id: "photo" as Tab, label: "Photo", icon: Camera }] : []),
   ];
 
   return (

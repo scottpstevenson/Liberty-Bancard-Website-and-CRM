@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useParams, useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useUpdateContact } from "@/hooks/use-contacts";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, getCsrfToken } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import type { Contact, Deal, Ticket as TicketType, Task as TaskType, Note, Company, ContactCompany, Document, Agent } from "@shared/schema";
@@ -462,9 +462,11 @@ function ChurnRiskPanel({ contactId, isManagerOrAdmin }: { contactId: number; is
 
   const computeMutation = useMutation({
     mutationFn: async () => {
+      const csrf = getCsrfToken();
       const res = await fetch(`/api/churn-scores/contact/${contactId}/compute`, {
         method: "POST",
         credentials: "include",
+        headers: { ...(csrf ? { "X-CSRF-Token": csrf } : {}) },
       });
       if (!res.ok) throw new Error("Computation failed");
       return res.json();
@@ -481,10 +483,11 @@ function ChurnRiskPanel({ contactId, isManagerOrAdmin }: { contactId: number; is
       const val = Number(overrideScore);
       if (isNaN(val) || val < 0 || val > 100) throw new Error("Score must be 0–100");
       if (!overrideNote.trim()) throw new Error("Justification is required");
+      const csrf = getCsrfToken();
       const res = await fetch(`/api/churn-scores/contact/${contactId}/override`, {
         method: "POST",
         credentials: "include",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(csrf ? { "X-CSRF-Token": csrf } : {}) },
         body: JSON.stringify({ overrideScore: val, overrideNote: overrideNote.trim() }),
       });
       if (!res.ok) {
@@ -505,9 +508,11 @@ function ChurnRiskPanel({ contactId, isManagerOrAdmin }: { contactId: number; is
 
   const clearOverrideMutation = useMutation({
     mutationFn: async () => {
+      const csrf = getCsrfToken();
       const res = await fetch(`/api/churn-scores/contact/${contactId}/override`, {
         method: "DELETE",
         credentials: "include",
+        headers: { ...(csrf ? { "X-CSRF-Token": csrf } : {}) },
       });
       if (!res.ok) throw new Error("Clear override failed");
       return res.json();
