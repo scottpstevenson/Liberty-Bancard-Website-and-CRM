@@ -1,4 +1,5 @@
 export const CALENDAR_URL =
+  import.meta.env.VITE_GHL_BOOKING_URL ||
   import.meta.env.VITE_BOOKING_URL ||
   import.meta.env.VITE_GHL_CALENDAR_URL ||
   "https://api.leadconnectorhq.com/widget/booking/YFiIy7oIOUXN2qZZPnOr";

@@ -291,7 +291,7 @@ function ApplicationDetailView({
   const formatCooldown = useCallback((seconds: number) => {
     const m = Math.floor(seconds / 60);
     const s = seconds % 60;
-    return m > 0 ? `${m}m ${s}s` : `${s}s`;
+    return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
   }, []);
 
 
@@ -300,18 +300,29 @@ function ApplicationDetailView({
       const res = await apiRequest("POST", `/api/merchant-profiles/${profileId}/send-welcome`, {});
       return res.json();
     },
-    onSuccess: (data: any) => {
+    onSuccess: () => {
       toast({ title: "Welcome email sent", description: "The merchant portal welcome email has been resent." });
       setCooldownSeconds(300);
       refetchWelcomeStatus();
       queryClient.invalidateQueries({ queryKey: ["/api/merchant-profiles", merchantProfile?.id, "welcome-email-history"] });
     },
     onError: (err: any) => {
-      if (err.message?.includes("wait")) {
-        toast({ title: "Cooldown active", description: err.message, variant: "destructive" });
+      const msg: string = err.message || "";
+      if (msg.startsWith("429:")) {
+        try {
+          const body = JSON.parse(msg.slice(4).trim());
+          if (body.retryAfter) {
+            setCooldownSeconds(body.retryAfter);
+            toast({ title: "Cooldown active", description: body.message || "Please wait before resending.", variant: "destructive" });
+            return;
+          }
+        } catch { /* fall through */ }
+      }
+      if (msg.includes("wait") || msg.includes("minute")) {
+        toast({ title: "Cooldown active", description: msg, variant: "destructive" });
         refetchWelcomeStatus();
       } else {
-        toast({ title: "Failed to send email", description: err.message || "Could not resend welcome email.", variant: "destructive" });
+        toast({ title: "Failed to send email", description: msg || "Could not resend welcome email.", variant: "destructive" });
       }
     },
   });
@@ -500,7 +511,7 @@ function ApplicationDetailView({
                   <MailCheck className="w-4 h-4 mr-2" />
                 )}
                 {cooldownSeconds > 0
-                  ? `Resend in ${formatCooldown(cooldownSeconds)}`
+                  ? `Retry in ${formatCooldown(cooldownSeconds)}`
                   : "Resend Welcome Email"}
               </Button>
               {welcomeStatus?.lastSentAt && (

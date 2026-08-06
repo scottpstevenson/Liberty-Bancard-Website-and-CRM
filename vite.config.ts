@@ -3,6 +3,15 @@ import react from "@vitejs/plugin-react";
 import path from "path";
 import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
 
+// Allow a single server-side GHL_BOOKING_URL env var to drive the public
+// "Book a Call" CTA without requiring a separate VITE_GHL_BOOKING_URL.
+// Vite replaces import.meta.env.VITE_GHL_BOOKING_URL at build/dev time with
+// GHL_BOOKING_URL when the VITE_ form is absent.
+const bookingUrl =
+  process.env.VITE_GHL_BOOKING_URL ||
+  process.env.GHL_BOOKING_URL ||
+  "";
+
 export default defineConfig({
   plugins: [
     react(),
@@ -39,5 +48,13 @@ export default defineConfig({
       strict: true,
       deny: ["**/.*"],
     },
+  },
+  define: {
+    // Inject GHL_BOOKING_URL so operators only need one env var.
+    // If VITE_GHL_BOOKING_URL is already set, it takes precedence at runtime
+    // because Vite inlines VITE_* vars before this define runs.
+    ...(bookingUrl
+      ? { "import.meta.env.VITE_GHL_BOOKING_URL": JSON.stringify(bookingUrl) }
+      : {}),
   },
 });

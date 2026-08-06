@@ -162,6 +162,28 @@ export default function CoBrandedProposalViewer() {
 
   return (
     <div className="min-h-screen bg-slate-50" data-testid="page-co-branded-proposal">
+      {/* Print stylesheet — hides interactive chrome, keeps proposal content */}
+      <style>{`
+        @media print {
+          /* Hide navigation, overlays, and action buttons */
+          nav, header nav, [data-testid="navbar"],
+          [data-testid="section-download-actions"],
+          [data-testid="card-cta"] .flex,
+          .print\\:hidden { display: none !important; }
+          /* Only show the CTA card's heading/body text, not buttons */
+          [data-testid="card-cta"] .flex { display: none !important; }
+          /* Full-width clean layout */
+          body { background: #fff !important; }
+          .min-h-screen { min-height: unset !important; }
+          main { padding-top: 0 !important; }
+          /* Keep cards readable on paper */
+          .shadow, .shadow-lg, .shadow-sm { box-shadow: none !important; }
+          /* Page breaks */
+          [data-testid="card-current-costs"],
+          [data-testid="section-plans"] { page-break-inside: avoid; }
+        }
+      `}</style>
+
       <SEO
         title={`Savings Proposal — ${partner.name}`}
         description={`Custom savings proposal for ${proposal.merchantName} from ${partner.name}`}
@@ -497,16 +519,16 @@ export default function CoBrandedProposalViewer() {
 
         {/* Print / Download */}
         <div className="flex justify-center gap-3 flex-wrap print:hidden" data-testid="section-download-actions">
-          <a
-            href={`/api/public/co-branded-proposal/${token}/download`}
-            download
-            data-testid="link-download-proposal"
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2 text-xs"
+            onClick={() => window.print()}
+            data-testid="button-download-pdf"
           >
-            <Button variant="outline" size="sm" className="gap-2 text-xs">
-              <Download className="w-3.5 h-3.5" />
-              Download PDF
-            </Button>
-          </a>
+            <Download className="w-3.5 h-3.5" />
+            Download PDF
+          </Button>
           <Button
             variant="outline"
             size="sm"

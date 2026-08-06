@@ -51,6 +51,8 @@ import type { CoBrandedProposal, Contact } from "@shared/schema";
 
 type ProposalWithContact = CoBrandedProposal & {
   contact: Pick<Contact, "id" | "firstName" | "lastName" | "email" | "ghlContactId"> | null;
+  partnerName: string | null;
+  viewerUrl?: string;
 };
 
 export default function CoBrandedProposals() {
@@ -141,11 +143,11 @@ export default function CoBrandedProposals() {
             <TableHeader>
               <TableRow>
                 <TableHead>Merchant</TableHead>
-                <TableHead>GHL Sync</TableHead>
+                <TableHead>Partner</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead>Volume</TableHead>
-                <TableHead>Created At</TableHead>
-                <TableHead>Created By</TableHead>
+                <TableHead>Views</TableHead>
+                <TableHead>Accepted</TableHead>
+                <TableHead>Created</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -153,14 +155,14 @@ export default function CoBrandedProposals() {
               {isLoading ? (
                 Array.from({ length: 5 }).map((_, i) => (
                   <TableRow key={i}>
-                    <TableCell colSpan={6}>
+                    <TableCell colSpan={7}>
                       <Skeleton className="h-6 w-full" />
                     </TableCell>
                   </TableRow>
                 ))
               ) : filteredProposals.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center h-24 text-muted-foreground">
+                  <TableCell colSpan={7} className="text-center h-24 text-muted-foreground">
                     No proposals found.
                   </TableCell>
                 </TableRow>
@@ -173,18 +175,8 @@ export default function CoBrandedProposals() {
                         {proposal.token}
                       </div>
                     </TableCell>
-                    <TableCell>
-                      {proposal.contact?.ghlContactId ? (
-                        <div className="flex items-center gap-1 text-green-600">
-                          <CheckCircle className="w-4 h-4" />
-                          <span className="text-xs">Synced</span>
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-1 text-muted-foreground">
-                          <Clock className="w-4 h-4" />
-                          <span className="text-xs">Pending</span>
-                        </div>
-                      )}
+                    <TableCell className="text-sm">
+                      {proposal.partnerName ?? <span className="text-muted-foreground">—</span>}
                     </TableCell>
                     <TableCell>
                       <Badge
@@ -194,14 +186,16 @@ export default function CoBrandedProposals() {
                         {proposal.status}
                       </Badge>
                     </TableCell>
-                    <TableCell>
-                      {proposal.merchantMonthlyVolume ? `$${proposal.merchantMonthlyVolume}` : "-"}
+                    <TableCell className="text-sm tabular-nums" data-testid={`text-view-count-${proposal.id}`}>
+                      {proposal.viewCount ?? 0}
+                    </TableCell>
+                    <TableCell className="text-sm" data-testid={`text-accepted-at-${proposal.id}`}>
+                      {proposal.acceptedAt
+                        ? format(new Date(proposal.acceptedAt), "MMM d, yyyy")
+                        : <span className="text-muted-foreground">—</span>}
                     </TableCell>
                     <TableCell className="text-sm">
                       {proposal.createdAt ? format(new Date(proposal.createdAt), "MMM d, yyyy") : "-"}
-                    </TableCell>
-                    <TableCell className="text-sm">
-                      {proposal.createdBy || "System"}
                     </TableCell>
                     <TableCell className="text-right">
                       <DropdownMenu>

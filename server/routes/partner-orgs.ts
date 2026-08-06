@@ -966,10 +966,23 @@ export function registerPartnerOrgsRoutes(app: Express) {
 
   // ── Admin: list all co-branded proposals ──────────────────────────────────
   app.get("/api/co-branded-proposals", isDashboardUser, async (req, res) => {
+    if (!["admin", "manager"].includes((req.user as any)?.role)) {
+      return res.status(403).json({ message: "Admin or manager access required." });
+    }
     try {
       const proposals = await storage.getAllCoBrandedProposals();
       const baseUrl = getBaseUrl(req);
-      res.json(proposals.map(p => ({ ...p, viewerUrl: `${baseUrl}/co-branded-proposal/${p.token}` })));
+      // Fetch all referenced partner orgs in one pass
+      const orgIds = [...new Set(proposals.map(p => p.partnerOrgId).filter(Boolean))] as number[];
+      const orgs = orgIds.length
+        ? await Promise.all(orgIds.map(id => storage.getPartnerOrg(id)))
+        : [];
+      const orgMap = new Map(orgs.filter(Boolean).map(o => [o!.id, o!.name]));
+      res.json(proposals.map(p => ({
+        ...p,
+        partnerName: p.partnerOrgId ? (orgMap.get(p.partnerOrgId) ?? null) : null,
+        viewerUrl: `${baseUrl}/co-branded-proposal/${p.token}`,
+      })));
     } catch (err: any) {
       serverError(res, err);
     }

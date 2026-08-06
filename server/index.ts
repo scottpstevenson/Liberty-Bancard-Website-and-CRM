@@ -66,6 +66,7 @@ function logEnvVarChecklist() {
     { envVar: "GHL_LOCATION_ID",           feature: "GoHighLevel CRM sync and all GHL communications" },
     { envVar: "GHL_DEFAULT_BOOKING_LINK",  feature: "{{link}} in SDR outreach templates (falls back to Calendly URL)" },
     { envVar: "GHL_WORKFLOW_BOOKING_LINK", feature: "Automated booking link workflow trigger via GHL" },
+    { envVar: "GHL_BOOKING_URL",           feature: "Public 'Book a Call' CTA (VITE_GHL_BOOKING_URL must also be set for frontend)" },
     { envVar: ["VAPID_PUBLIC_KEY", "VAPID_PRIVATE_KEY"], feature: "Push notifications (auto-generated fallback keys used — not portable across restarts without this)" },
     { envVar: "SENTRY_DSN",                feature: "Sentry error monitoring" },
     { envVar: "SERPER_API_KEY",            feature: "Serper.dev Google search enrichment in Outreach Command Center" },
