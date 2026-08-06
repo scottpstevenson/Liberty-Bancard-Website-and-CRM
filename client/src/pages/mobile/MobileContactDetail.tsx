@@ -7,9 +7,10 @@ import { VERTICALS } from "@shared/schema";
 import {
   ChevronLeft, Phone, MessageSquare, Mail, Building, MapPin,
   Zap, Loader2, CheckCircle, Activity, Edit2, Save, X,
-  DollarSign, User, Hash, Globe,
+  DollarSign, User, Hash, Globe, ListOrdered,
 } from "lucide-react";
 import MobileQuickLog from "./MobileQuickLog";
+import { useToast } from "@/hooks/use-toast";
 
 const OUTCOMES = [
   "Connected - Interested",
@@ -66,11 +67,182 @@ function EditField({
   );
 }
 
+// ─── Enroll Sequence Bottom Sheet ────────────────────────────────────────────
+
+function EnrollSequenceSheet({
+  open,
+  onClose,
+  contactId,
+}: {
+  open: boolean;
+  onClose: () => void;
+  contactId: number;
+}) {
+  const { toast } = useToast();
+  const [enrollingId, setEnrollingId] = useState<number | null>(null);
+
+  // All sequences
+  const { data: allSequences, isLoading: loadingSeqs, isError: seqError, refetch: refetchSeqs } = useQuery<any[]>({
+    queryKey: ["/api/sequences"],
+    queryFn: async () => {
+      const res = await fetch("/api/sequences", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load sequences");
+      return res.json();
+    },
+    enabled: open,
+    staleTime: 60000,
+  });
+
+  // Contact's current enrollments
+  const { data: enrollments, isLoading: loadingEnrollments } = useQuery<any[]>({
+    queryKey: ["/api/contacts", contactId, "enrollments"],
+    queryFn: async () => {
+      const res = await fetch(`/api/contacts/${contactId}/enrollments`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: open && !!contactId,
+    staleTime: 30000,
+  });
+
+  const enrollMutation = useMutation({
+    mutationFn: async (sequenceId: number) => {
+      setEnrollingId(sequenceId);
+      const res = await apiRequest("POST", "/api/sequence-enrollments", {
+        sequenceId,
+        contactId,
+        status: "active",
+        nextActionAt: new Date().toISOString(),
+        currentStep: 0,
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.message || "Enrollment failed");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/contacts", contactId, "enrollments"] });
+      toast({ title: "Enrolled", description: "Contact added to sequence." });
+      onClose();
+    },
+    onError: (err: Error) => {
+      setEnrollingId(null);
+      toast({ title: "Enrollment failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  if (!open) return null;
+
+  const loading = loadingSeqs || loadingEnrollments;
+
+  // Active enrollments' sequence IDs (active or paused = already enrolled)
+  const enrolledIds = new Set(
+    (enrollments || [])
+      .filter((e: any) => e.status === "active" || e.status === "paused")
+      .map((e: any) => e.sequenceId)
+  );
+
+  // Only show active sequences not already enrolled
+  const activeSequences = (allSequences || []).filter(
+    (s: any) => s.status === "active" && !enrolledIds.has(s.id)
+  );
+
+  return (
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-end" onClick={onClose}>
+      <div
+        className="bg-white dark:bg-gray-900 rounded-t-3xl w-full max-h-[85vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="sticky top-0 bg-white dark:bg-gray-900 rounded-t-3xl border-b border-gray-100 dark:border-gray-800 px-6 pt-4 pb-3">
+          <div className="w-10 h-1 bg-gray-300 dark:bg-gray-600 rounded-full mx-auto mb-4" />
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-bold text-gray-900 dark:text-white">Enroll in Sequence</h2>
+            <button onClick={onClose} className="text-gray-400 active:opacity-70">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Active sequences not yet applied to this contact</p>
+        </div>
+
+        <div className="px-6 py-4">
+          {loading ? (
+            <div className="flex justify-center py-10">
+              <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+            </div>
+          ) : seqError ? (
+            <div className="text-center py-10">
+              <p className="text-sm text-red-500 mb-3">Failed to load sequences.</p>
+              <button
+                onClick={() => refetchSeqs()}
+                className="text-sm text-blue-600 dark:text-blue-400 underline"
+              >
+                Retry
+              </button>
+            </div>
+          ) : activeSequences.length === 0 ? (
+            <div className="text-center py-10">
+              <ListOrdered className="w-10 h-10 mx-auto mb-3 text-gray-300 dark:text-gray-600" />
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                {(allSequences || []).filter((s: any) => s.status === "active").length === 0
+                  ? "No active sequences available."
+                  : "This contact is already enrolled in all active sequences."}
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {activeSequences.map((seq: any) => (
+                <div
+                  key={seq.id}
+                  className="border border-gray-200 dark:border-gray-700 rounded-2xl p-4 flex items-start justify-between gap-3"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="font-medium text-sm text-gray-900 dark:text-white line-clamp-2">
+                      {seq.name}
+                    </div>
+                    <div className="flex items-center gap-2 mt-1 flex-wrap">
+                      {seq.totalSteps > 0 && (
+                        <span className="text-xs text-gray-400 dark:text-gray-500">
+                          {seq.totalSteps} step{seq.totalSteps !== 1 ? "s" : ""}
+                        </span>
+                      )}
+                      {seq.triggerType && (
+                        <span className="text-xs bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 px-2 py-0.5 rounded-full">
+                          {seq.triggerType.replace(/_/g, " ")}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    data-testid={`button-enroll-sequence-${seq.id}`}
+                    disabled={enrollMutation.isPending && enrollingId === seq.id}
+                    onClick={() => enrollMutation.mutate(seq.id)}
+                    className="shrink-0 bg-blue-600 disabled:opacity-50 text-white text-xs font-semibold px-3 py-2 rounded-xl active:scale-95 transition-transform flex items-center gap-1.5"
+                  >
+                    {enrollMutation.isPending && enrollingId === seq.id
+                      ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      : <CheckCircle className="w-3.5 h-3.5" />}
+                    Enroll
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Main Page ───────────────────────────────────────────────────────────────
+
 export default function MobileContactDetail() {
   const params = useParams<{ id: string }>();
   const [, setLocation] = useLocation();
   const [quickLogOpen, setQuickLogOpen] = useState(false);
   const [logCallOpen, setLogCallOpen] = useState(false);
+  const [enrollOpen, setEnrollOpen] = useState(false);
   const [selectedOutcome, setSelectedOutcome] = useState("");
   const [callNotes, setCallNotes] = useState("");
   const [editing, setEditing] = useState(false);
@@ -102,6 +274,16 @@ export default function MobileContactDetail() {
     queryKey: ["/api/contacts", contactId, "deals"],
     queryFn: async () => {
       const res = await fetch(`/api/contacts/${contactId}/deals`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!contactId,
+  });
+
+  const { data: enrollments } = useQuery<any[]>({
+    queryKey: ["/api/contacts", contactId, "enrollments"],
+    queryFn: async () => {
+      const res = await fetch(`/api/contacts/${contactId}/enrollments`, { credentials: "include" });
       if (!res.ok) return [];
       return res.json();
     },
@@ -182,6 +364,11 @@ export default function MobileContactDetail() {
   const name = `${contact.firstName || ""} ${contact.lastName || ""}`.trim() || "Unknown";
   const initials = getInitials(contact.firstName || "", contact.lastName || "");
 
+  // Count active sequence enrollments
+  const activeEnrollmentCount = (enrollments || []).filter(
+    (e: any) => e.status === "active" || e.status === "paused"
+  ).length;
+
   return (
     <div className="pb-4">
       {/* Header */}
@@ -238,9 +425,20 @@ export default function MobileContactDetail() {
                 <span className="truncate">{contact.companyName}</span>
               </p>
             )}
-            {contact.status && (
-              <span className="inline-block bg-white/20 text-white text-xs px-2 py-0.5 rounded-full mt-1">{contact.status}</span>
-            )}
+            <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+              {contact.status && (
+                <span className="inline-block bg-white/20 text-white text-xs px-2 py-0.5 rounded-full">{contact.status}</span>
+              )}
+              {activeEnrollmentCount > 0 && (
+                <span
+                  data-testid="chip-active-sequences"
+                  className="inline-flex items-center gap-1 bg-white/20 text-white text-xs px-2 py-0.5 rounded-full"
+                >
+                  <ListOrdered className="w-3 h-3" />
+                  {activeEnrollmentCount} sequence{activeEnrollmentCount !== 1 ? "s" : ""} active
+                </span>
+              )}
+            </div>
           </div>
         </div>
 
@@ -405,6 +603,23 @@ export default function MobileContactDetail() {
                 </div>
                 <span className="text-xs font-medium text-gray-700 dark:text-gray-300">Quick Log</span>
               </button>
+              <button
+                data-testid="button-enroll-sequence"
+                onClick={() => setEnrollOpen(true)}
+                className="col-span-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl p-4 flex items-center justify-center gap-3 active:scale-95 transition-transform"
+              >
+                <div className="w-10 h-10 bg-purple-100 dark:bg-purple-900/30 rounded-xl flex items-center justify-center shrink-0">
+                  <ListOrdered className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+                </div>
+                <div className="text-left">
+                  <div className="text-xs font-medium text-gray-700 dark:text-gray-300">Enroll in Sequence</div>
+                  {activeEnrollmentCount > 0 && (
+                    <div className="text-xs text-purple-600 dark:text-purple-400">
+                      {activeEnrollmentCount} active
+                    </div>
+                  )}
+                </div>
+              </button>
             </div>
 
             {/* Recent Activity */}
@@ -473,6 +688,13 @@ export default function MobileContactDetail() {
       )}
 
       <MobileQuickLog open={quickLogOpen} onClose={() => setQuickLogOpen(false)} preselectedContactId={contactId} />
+
+      {/* Enroll Sequence Sheet */}
+      <EnrollSequenceSheet
+        open={enrollOpen}
+        onClose={() => setEnrollOpen(false)}
+        contactId={contactId}
+      />
     </div>
   );
 }
