@@ -4,6 +4,7 @@ import { Footer } from "@/components/Footer";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Link } from "wouter";
+import { trackPhoneCallClick } from "@/lib/analytics";
 import {
   Upload,
   Calendar,
@@ -182,6 +183,7 @@ export default function AboutContact() {
                       href="tel:9542668214"
                       className="text-sm text-muted-foreground hover:text-foreground transition-colors"
                       data-testid="link-contact-phone"
+                      onClick={() => trackPhoneCallClick({ sourcePage: "/about/contact" })}
                     >
                       954-266-8214
                     </a>

@@ -616,10 +616,13 @@ export function registerBoardingRoutes(app: Express) {
       const now = Date.now();
       const submissions = inFlight.map((d) => {
         const contact = d.contactId ? contactMap.get(d.contactId) : null;
+        const fullName = [contact?.firstName, contact?.lastName].filter(Boolean).join(" ").trim();
         const merchantName =
-          contact?.companyName ||
-          [contact?.firstName, contact?.lastName].filter(Boolean).join(" ") ||
-          `Deal #${d.id}`;
+          contact?.companyName?.trim() ||
+          fullName ||
+          contact?.email?.trim() ||
+          contact?.phone?.trim() ||
+          "Unnamed contact";
         const log = (d.boardingLog as any[]) || [];
         const latestLog = log.length > 0 ? log[log.length - 1] : null;
         const submittedAt = d.boardingSubmittedAt ? new Date(d.boardingSubmittedAt) : null;

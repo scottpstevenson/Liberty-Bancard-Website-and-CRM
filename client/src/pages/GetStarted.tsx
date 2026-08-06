@@ -11,7 +11,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { getStoredUTMParams } from "@/lib/utm";
 import { useToast } from "@/hooks/use-toast";
 import { trackConversion, trackQuizStart, trackQuizComplete, trackFormSubmission } from "@/lib/tracking";
-import { trackConversion as trackConversionV2 } from "@/lib/analytics";
+import { trackConversion as trackConversionV2, trackPhoneCallClick } from "@/lib/analytics";
 import { useScrollReveal } from "@/hooks/use-scroll-reveal";
 import {
   ArrowLeft,
@@ -295,7 +295,8 @@ export default function GetStarted() {
                     <div className="flex flex-col sm:flex-row gap-3">
                       {recommendation.nextSteps.map((ns, i) => (
                         ns.href.startsWith("tel:") ? (
-                          <a key={i} href={ns.href} data-testid={`link-results-action-${i}`}>
+                          <a key={i} href={ns.href} data-testid={`link-results-action-${i}`}
+                            onClick={() => trackPhoneCallClick({ sourcePage: "/get-started" })}>
                             <Button size="lg" variant={ns.primary ? "default" : "outline"} className="gap-2 w-full">
                               <Phone className="w-4 h-4" />
                               {ns.label}

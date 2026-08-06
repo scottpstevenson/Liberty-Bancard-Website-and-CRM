@@ -310,7 +310,7 @@ export function Navbar() {
 
         {isOpen && (
           <div className="lg:hidden bg-background border-t border-border/50 animate-in slide-in-from-top-2 duration-200">
-            <div className="max-w-7xl mx-auto px-4 py-4 flex flex-col gap-1">
+            <div className="max-w-7xl mx-auto px-4 py-4 flex flex-col gap-1 max-h-[calc(100dvh-72px)] overflow-y-auto">
               <Link
                 href="/"
                 className={cn(

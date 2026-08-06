@@ -3,6 +3,7 @@ import { api, buildUrl } from "@shared/routes";
 import type { Ticket } from "@shared/schema";
 import { insertTicketSchema } from "@shared/schema";
 import { z } from "zod";
+import { apiRequest } from "@/lib/queryClient";
 
 type CreateTicketRequest = z.infer<typeof insertTicketSchema>;
 type UpdateTicketRequest = Partial<CreateTicketRequest>;
@@ -22,18 +23,10 @@ export function useCreateTicket() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (data: CreateTicketRequest) => {
-      const res = await fetch(api.tickets.create.path, {
-        method: api.tickets.create.method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-        credentials: "include",
-      });
+      const res = await apiRequest(api.tickets.create.method as "POST", api.tickets.create.path, data);
       if (!res.ok) {
-        if (res.status === 400) {
-          const error = await res.json();
-          throw new Error(error.message);
-        }
-        throw new Error("Failed to create ticket");
+        const error = await res.json().catch(() => ({}));
+        throw new Error(error.message || "Failed to create ticket");
       }
       return res.json() as Promise<Ticket>;
     },
@@ -46,15 +39,11 @@ export function useUpdateTicket() {
   return useMutation({
     mutationFn: async ({ id, ...updates }: { id: number } & UpdateTicketRequest) => {
       const url = buildUrl(api.tickets.update.path, { id });
-      const res = await fetch(url, {
-        method: api.tickets.update.method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updates),
-        credentials: "include",
-      });
+      const res = await apiRequest(api.tickets.update.method as "PATCH" | "PUT", url, updates);
       if (!res.ok) {
+        const error = await res.json().catch(() => ({}));
         if (res.status === 404) throw new Error("Ticket not found");
-        throw new Error("Failed to update ticket");
+        throw new Error(error.message || "Failed to update ticket");
       }
       return res.json() as Promise<Ticket>;
     },

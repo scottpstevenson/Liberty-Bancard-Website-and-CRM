@@ -138,6 +138,7 @@ async function runBackfillLoop(runId: string): Promise<void> {
     // interrupted predecessor by startReadinessBackfill).
     lastProcessedId = claimed.lastProcessedContactId ?? 0;
 
+    let consecutiveBatchFailures = 0;
     for (;;) {
       // Fetch next batch via keyset cursor
       const batch = await storage.getContactsForReadinessBackfill(lastProcessedId, BATCH_SIZE, READINESS_MODEL_VERSION);
@@ -181,15 +182,16 @@ async function runBackfillLoop(runId: string): Promise<void> {
       try {
         await storage.batchUpdateContactReadinessWithOwnershipCheck(runId, writes, READINESS_MODEL_VERSION);
         updated += writes.length;
+        consecutiveBatchFailures = 0; // reset on success
       } catch (err: any) {
         const isOwnershipLoss = (err?.message ?? "").includes("ownership lost");
         if (isOwnershipLoss) {
           console.warn(`[ReadinessBackfill] Ownership lost for run ${runId} — stopping at id=${lastProcessedId}`);
           return; // Run was interrupted; don't mutate its terminal state
         }
+        consecutiveBatchFailures++;
         errors += writes.length;
-        console.error(`[ReadinessBackfill] Batch write failed for run ${runId} at id=${lastProcessedId}:`, err.message);
-        // Don't advance cursor — contacts remain stale and will be retried
+        console.error(`[ReadinessBackfill] Batch write failed (attempt ${consecutiveBatchFailures}/3) for run ${runId} at id=${lastProcessedId}:`, err.message);
         await storage.updateReadinessRun(runId, {
           processed,
           updated,
@@ -198,6 +200,13 @@ async function runBackfillLoop(runId: string): Promise<void> {
           lastHeartbeatAt: new Date(),
           lastError: `Batch write failed at id=${lastProcessedId}: ${err.message}`.slice(0, 500),
         });
+        if (consecutiveBatchFailures >= 3) {
+          // Same batch failed 3 times — skip past it to avoid an infinite loop.
+          // Contacts in this batch remain stale; they can be reprocessed in a future run.
+          console.error(`[ReadinessBackfill] Skipping stuck batch at id=${lastProcessedId} after 3 failures`);
+          lastProcessedId = batch[batch.length - 1].id;
+          consecutiveBatchFailures = 0;
+        }
         await new Promise(resolve => setImmediate(resolve));
         continue;
       }

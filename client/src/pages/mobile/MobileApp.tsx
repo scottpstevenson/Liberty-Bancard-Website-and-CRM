@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Switch, Route, useLocation, Redirect } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
-import { Loader2, Home, Users, LayoutList, CheckSquare, MessageSquare, Monitor, WifiOff } from "lucide-react";
+import { Loader2, Home, Users, LayoutList, Zap, MoreHorizontal, WifiOff } from "lucide-react";
 import { useOfflineQueue } from "@/hooks/use-offline-queue";
 import MobileLogin from "./MobileLogin";
 import MobileHome from "./MobileHome";
@@ -11,6 +11,9 @@ import MobilePipeline from "./MobilePipeline";
 import MobileTasks from "./MobileTasks";
 import MobileProfile from "./MobileProfile";
 import MobileInbox from "./MobileInbox";
+import MobileSequences from "./MobileSequences";
+import MobileMore from "./MobileMore";
+import MobileOutreach from "./MobileOutreach";
 
 const PREFER_DESKTOP_KEY = "prefer_desktop";
 
@@ -57,8 +60,8 @@ const TABS = [
   { path: "/mobile", label: "Home", icon: Home },
   { path: "/mobile/contacts", label: "Contacts", icon: Users },
   { path: "/mobile/pipeline", label: "Pipeline", icon: LayoutList },
-  { path: "/mobile/inbox", label: "Inbox", icon: MessageSquare },
-  { path: "/mobile/tasks", label: "Tasks", icon: CheckSquare },
+  { path: "/mobile/sequences", label: "Sequences", icon: Zap },
+  { path: "/mobile/more", label: "More", icon: MoreHorizontal },
 ];
 
 function BottomNav() {
@@ -147,11 +150,6 @@ function MobileShell() {
 
   if (!user) return null;
 
-  function switchToDesktop() {
-    localStorage.setItem(PREFER_DESKTOP_KEY, "true");
-    window.location.href = "/dashboard";
-  }
-
   return (
     <div
       className="min-h-screen bg-gray-50 dark:bg-gray-950 max-w-md mx-auto relative"
@@ -180,20 +178,11 @@ function MobileShell() {
         <Route path="/mobile/inbox" component={MobileInbox} />
         <Route path="/mobile/tasks" component={MobileTasks} />
         <Route path="/mobile/profile" component={MobileProfile} />
+        <Route path="/mobile/sequences" component={MobileSequences} />
+        <Route path="/mobile/more" component={MobileMore} />
+        <Route path="/mobile/outreach" component={MobileOutreach} />
         <Route><Redirect to="/mobile" /></Route>
       </Switch>
-
-      {/* Desktop switch — discreet footer link */}
-      <div className="text-center py-2 pb-0">
-        <button
-          data-testid="button-switch-desktop"
-          onClick={switchToDesktop}
-          className="inline-flex items-center gap-1 text-xs text-gray-400 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-400"
-        >
-          <Monitor className="w-3 h-3" />
-          Switch to desktop view
-        </button>
-      </div>
 
       {/* Avatar overlay — floats over every page in the shell */}
       <AvatarOverlay />

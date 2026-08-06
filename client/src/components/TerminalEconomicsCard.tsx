@@ -65,7 +65,10 @@ export default function TerminalEconomicsCard({ dealId, terminalRecommendation, 
     queryKey: ["/api/equipment-orders", dealId],
     queryFn: async () => {
       const res = await fetch(`/api/equipment-orders?dealId=${dealId}`, { credentials: "include" });
-      if (!res.ok) return [];
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.message || `Failed to load terminal orders (${res.status})`);
+      }
       return res.json();
     },
     enabled: !!dealId,

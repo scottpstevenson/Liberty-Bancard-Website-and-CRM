@@ -18,6 +18,9 @@ export const QUEUE_NAMES = {
   ABANDONED_STATEMENT: "abandoned-statement",
   SYSTEM_AUDIT: "system-audit",
   DB_BACKUP: "db-backup",
+  ENROLLMENT_RECOVERY: "enrollment-recovery",
+  GHL_ENROLLMENT_RECOVERY: "ghl-enrollment-recovery",
+  HEALTH_MONITOR: "health-monitor",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -33,9 +36,8 @@ interface QueueConfig {
 }
 
 // Alert threshold: how many consecutive failures before an operator alert is written.
-const WORKER_FAILURE_ALERT_THRESHOLD = parseInt(
-  process.env.WORKER_FAILURE_ALERT_THRESHOLD ?? "10"
-);
+const WORKER_FAILURE_ALERT_THRESHOLD =
+  parseInt(process.env.WORKER_FAILURE_ALERT_THRESHOLD ?? "10", 10) || 10;
 
 // In development the high-frequency workers (ghl-sync, sequences) run at reduced
 // cadence to prevent Node.js heap exhaustion in the single-process dev server.
@@ -150,6 +152,38 @@ const QUEUE_CONFIGS: QueueConfig[] = [
     backoffDelay: 60000,
     repeatEveryMs: 24 * 60 * 60 * 1000,
     cronPattern: "0 3 * * *",
+    jobName: "run",
+  },
+  {
+    name: QUEUE_NAMES.ENROLLMENT_RECOVERY,
+    // concurrency=1: runs once daily at 6 AM UTC, after daily cold-outreach caps reset.
+    // Recovers enrollments that were deferred because the cap was exhausted the previous day.
+    concurrency: 1,
+    attempts: 2,
+    backoffDelay: 60000,
+    repeatEveryMs: 24 * 60 * 60 * 1000,
+    cronPattern: process.env.ENROLLMENT_RECOVERY_CRON ?? "0 6 * * *",
+    jobName: "run",
+  },
+  {
+    name: QUEUE_NAMES.GHL_ENROLLMENT_RECOVERY,
+    // concurrency=1: processes deferred GHL workflow enrollment retries.
+    // Runs every 30 minutes to catch transient failures (network timeout, 5xx, 429).
+    // After MAX_RETRIES (3) failures the record is permanently dropped with an audit log.
+    concurrency: 1,
+    attempts: 2,
+    backoffDelay: 30000,
+    repeatEveryMs: IS_DEV ? 10 * 60 * 1000 : 30 * 60 * 1000, // dev: 10 min, prod: 30 min
+    jobName: "run",
+  },
+  {
+    name: QUEUE_NAMES.HEALTH_MONITOR,
+    // concurrency=1: single sequential health check pass; no contention required.
+    // Non-critical — skip retry if fails (attempts=1).
+    concurrency: 1,
+    attempts: 1,
+    backoffDelay: 0,
+    repeatEveryMs: IS_DEV ? 15 * 60 * 1000 : 5 * 60 * 1000, // dev: 15min, prod: 5min
     jobName: "run",
   },
 ];
@@ -286,6 +320,11 @@ class QueueManager {
     await this.setupWorkers();
     await this.setupRepeatableJobs();
     console.log("[QueueManager] All queues and workers initialized");
+
+    // Fire an initial health check on startup (fire-and-forget)
+    import("./health-monitor").then(m => m.runHealthChecks()).catch(e =>
+      console.warn("[HealthMonitor] Startup check failed:", e)
+    );
   }
 
   private async setupQueues(): Promise<void> {
@@ -668,6 +707,21 @@ class QueueManager {
         case QUEUE_NAMES.DB_BACKUP: {
           const { runDatabaseBackup } = await import("./db-backup");
           await runDatabaseBackup("scheduled");
+          break;
+        }
+        case QUEUE_NAMES.ENROLLMENT_RECOVERY: {
+          const { recoverDeferredEnrollments } = await import("./sequence-enrollment-recovery");
+          await recoverDeferredEnrollments();
+          break;
+        }
+        case QUEUE_NAMES.GHL_ENROLLMENT_RECOVERY: {
+          const { retryDeferredEnrollments } = await import("./ghl-enrollment-recovery");
+          await retryDeferredEnrollments();
+          break;
+        }
+        case QUEUE_NAMES.HEALTH_MONITOR: {
+          const { runHealthChecks } = await import("./health-monitor");
+          await runHealthChecks();
           break;
         }
         default:

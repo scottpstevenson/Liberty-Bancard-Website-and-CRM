@@ -750,8 +750,17 @@ export function getVerticalTemplate(vertical: string): VerticalTemplate | null {
 }
 
 export function renderTemplate(template: string, variables: Record<string, string>): string {
-  return Object.entries(variables).reduce(
+  const result = Object.entries(variables).reduce(
     (text, [key, value]) => text.replace(new RegExp(`\\{\\{${key}\\}\\}`, "g"), value),
     template
   );
+  // Safety net: warn if any raw {{...}} placeholder survived substitution
+  const remaining = result.match(/\{\{[^}]+\}\}/g);
+  if (remaining) {
+    console.warn(
+      `[renderTemplate] Unresolved template placeholders: ${remaining.join(", ")}. ` +
+      `Provided keys: ${Object.keys(variables).join(", ")}`
+    );
+  }
+  return result;
 }

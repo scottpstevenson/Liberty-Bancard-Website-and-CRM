@@ -166,6 +166,14 @@ const CALL_SITE_ALLOWLIST: Array<{
     reason: "NPS survey email — sent only to confirmed active Liberty Bancard merchants (closed_won deal, live stage) via createAndSendNpsSurvey(); never sent to cold prospects. Idempotent lease prevents duplicate sends. Reviewed 2026-08-06.",
     reviewDate: "2026-08-06",
   },
+  {
+    file: "server/services/ghl-sync.ts",
+    lineContains: "sendSmtpEmail",
+    channel: "email",
+    category: "internal_admin",
+    reason: "GHL circuit breaker alert — sent only to the internal ops admin email when the GHL sync circuit breaker opens (5+ consecutive API failures). Never sent to prospects or merchants. 1-hour cooldown prevents spam. Reviewed 2026-08-06.",
+    reviewDate: "2026-08-06",
+  },
   // ── SDR pipeline email sends — explicitly reviewed 2026-06-26 ────────────
   // These files are always invoked from server/services/sdr/orchestrator.ts
   // whose runSdrCycle() calls evaluateContactability() at the top of every
@@ -631,6 +639,18 @@ const CALL_SITE_ALLOWLIST: Array<{
     category: "admin_gated",
     reason: "CRM email composer — POST /api/contacts/:id/send-email requires isDashboardUser; rep manually composes and sends to a specific contact via GHL. Not automated outreach; no bulk or sequence path. Reviewed 2026-07-26.",
     reviewDate: "2026-07-26",
+  },
+  // ── Continuous health monitor degradation alert — reviewed 2026-08-06 ─────
+  // Fires ONLY when a previously-ok critical subsystem becomes non-ok.
+  // Recipient is always ADMIN_ALERT_EMAIL (operator-owned inbox, not a prospect).
+  // category=internal_ops; no consumer/prospect data involved.
+  {
+    file: "server/services/health-monitor.ts",
+    lineContains: "sendSmtpEmail",
+    channel: "email",
+    category: "internal_admin",
+    reason: "Health monitor degradation alert — sent only to ADMIN_ALERT_EMAIL when a critical subsystem (db/sequenceWorker/redis/kpiQuery) newly degrades. Operator-only recipient, no prospect/consumer data, fire-and-forget. Reviewed 2026-08-06.",
+    reviewDate: "2026-08-06",
   },
 ];
 

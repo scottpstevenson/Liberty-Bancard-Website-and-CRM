@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { isAuthenticated, isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { db } from "../db";
-import { statementProposals } from "@shared/schema";
+import { statementProposals, documents } from "@shared/schema";
 import { eq, desc } from "drizzle-orm";
 import { z } from "zod";
 import { contacts, insertDealCompetitorSchema, insertDealSchema, insertPipelineStageSchema, insertStageAutomationRuleSchema } from "@shared/schema";
@@ -610,9 +610,104 @@ export function registerDealsRoutes(app: Express) {
         .orderBy(desc(statementProposals.id))
         .limit(1);
 
+      // Check whether a statement document exists for this deal
+      const statementCategories = ["Processing Statement", "Rate Review Statement"];
+      const dealDocs = await db
+        .select({ id: documents.id, category: documents.category })
+        .from(documents)
+        .where(eq(documents.dealId, dealId));
+      const hasStatementDoc = dealDocs.some(
+        (d) => d.category && statementCategories.includes(d.category)
+      );
+
       res.json({
         analysisStatus: deal.analysisStatus ?? "none",
         proposal: proposal ?? null,
+        hasStatementDoc,
+      });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  // === STATEMENT RE-ANALYSIS ===
+  app.post("/api/deals/:id/reanalyze-statement", isDashboardUser, async (req, res) => {
+    try {
+      const dealId = Number(req.params.id);
+      if (!Number.isFinite(dealId) || dealId <= 0) {
+        return res.status(404).json({ message: "Not found" });
+      }
+
+      const deal = await storage.getDeal(dealId);
+      if (!deal || deal.archivedAt) return res.status(404).json({ message: "Deal not found" });
+
+      // Find the most recent statement document linked to this deal
+      const statementCategories = ["Processing Statement", "Rate Review Statement"];
+      const allDocs = await db
+        .select()
+        .from(documents)
+        .where(eq(documents.dealId, dealId))
+        .orderBy(desc(documents.createdAt));
+
+      const statementDoc = allDocs.find(
+        (d) => d.category && statementCategories.includes(d.category)
+      );
+
+      if (!statementDoc) {
+        return res.status(404).json({ message: "No statement document found for this deal" });
+      }
+
+      // Rate-limit: reject if re-analysis was already queued in the last 5 minutes
+      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+      const recentLog = await storage.getAuditLogs({
+        entityType: "deal",
+        entityId: dealId,
+        startDate: fiveMinutesAgo,
+        limit: 10,
+      });
+      const recentReanalyze = recentLog.find(
+        (l: any) => l.action === "statement_reanalysis_queued"
+      );
+      if (recentReanalyze) {
+        const retryAfterMs = new Date(recentReanalyze.createdAt!).getTime() + 5 * 60 * 1000 - Date.now();
+        const retryAfterSecs = Math.ceil(retryAfterMs / 1000);
+        return res.status(429).json({
+          message: "Re-analysis already queued recently. Please wait before trying again.",
+          retryAfterSeconds: retryAfterSecs,
+        });
+      }
+
+      // Enqueue the statement-blueprint BullMQ job
+      const { enqueueStatementAnalysis } = await import("../services/queue-manager");
+      const jobId = await enqueueStatementAnalysis(dealId);
+
+      // If the queue is unavailable, tell the caller rather than silently returning 202
+      if (!jobId) {
+        return res.status(503).json({
+          message: "Statement queue is temporarily unavailable. Please try again in a moment.",
+        });
+      }
+
+      // Log only after confirmed enqueue
+      await storage.createAuditLog({
+        action: "statement_reanalysis_queued",
+        entityType: "deal",
+        entityId: dealId,
+        userId: String((req.user as any)?.id ?? ""),
+        actorType: "user",
+        actorId: String((req.user as any)?.id ?? ""),
+        details: {
+          documentId: statementDoc.id,
+          documentName: statementDoc.fileName,
+          jobId,
+          queuedBy: (req.user as any)?.email ?? "unknown",
+        },
+      });
+
+      return res.status(202).json({
+        jobId,
+        documentId: statementDoc.id,
+        message: "Statement re-analysis queued",
       });
     } catch (err: any) {
       serverError(res, err);

@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useLocation } from "wouter";
+import { trackPhoneCallClick } from "@/lib/analytics";
 import {
   ChevronDown, ChevronRight, Loader2, FileText, User,
   DollarSign, Search, X, Phone, Mail, ExternalLink, Save,
@@ -282,6 +283,7 @@ export default function MobilePipeline() {
                 <div className="flex gap-2 mb-4">
                   {selectedDeal.contactPhone && (
                     <a href={`tel:${selectedDeal.contactPhone}`}
+                      onClick={() => trackPhoneCallClick({ contactId: selectedDeal.contactId ?? undefined, dealId: selectedDeal.id, sourcePage: "/mobile/pipeline" })}
                       className="flex-1 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 rounded-xl py-2 flex items-center justify-center gap-1.5 text-xs font-semibold active:scale-95 transition-transform">
                       <Phone className="w-3.5 h-3.5" />Call
                     </a>

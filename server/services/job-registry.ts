@@ -61,8 +61,10 @@ export async function acquireJobLock(jobName: string): Promise<boolean> {
     return true;
   } catch (err) {
     console.error(`[JobRegistry] acquireJobLock failed for ${jobName}:`, err);
-    // Fail open so a registry error never permanently blocks a worker
-    return true;
+    // Fail closed — if the registry DB is unavailable, refuse the lock so
+    // concurrent workers cannot run the same singleton job and cause duplicate
+    // sends or conflicting writes.
+    return false;
   }
 }
 

@@ -93,9 +93,9 @@ export default function Onboarding() {
   });
 
   const { data: contactsResult } = useQuery<{ data: Contact[]; total: number }>({
-    queryKey: ["/api/contacts"],
+    queryKey: ["/api/contacts", { limit: 5000 }],
     queryFn: async () => {
-      const res = await fetch("/api/contacts?limit=500", { credentials: "include" });
+      const res = await fetch("/api/contacts?limit=5000", { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch contacts");
       return res.json();
     },

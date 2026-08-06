@@ -1,6 +1,7 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useParams } from "wouter";
 import { useState } from "react";
+import { trackPhoneCallClick } from "@/lib/analytics";
 import { SEO } from "@/components/SEO";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -438,7 +439,8 @@ export default function CoBrandedProposalViewer() {
 
             <div className="flex flex-col sm:flex-row gap-3 justify-center flex-wrap">
               {partner.phone && (
-                <a href={`tel:${partner.phone.replace(/[^0-9+]/g, "")}`} data-testid="link-call-partner">
+                <a href={`tel:${partner.phone.replace(/[^0-9+]/g, "")}`} data-testid="link-call-partner"
+                  onClick={() => trackPhoneCallClick({ sourcePage: "/proposal" })}>
                   <Button
                     size="lg"
                     className="gap-2 w-full sm:w-auto"

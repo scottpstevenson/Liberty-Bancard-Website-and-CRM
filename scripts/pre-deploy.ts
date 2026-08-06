@@ -129,6 +129,16 @@ const MANDATORY_SUITES: Suite[] = [
     timeoutSecs: 60,
   },
   {
+    name: "Live Health Monitor (background workers + AI responding)",
+    script: "scripts/test-live-health.ts",
+    timeoutSecs: 120,
+    requiresServer: true,
+    // Requires live server + real credentials (OpenAI probe, DB, Redis).
+    // Skipped when server is down so a cold-start env doesn't block the gate.
+    skipWhenServerDown: true,
+    env: { BASE_URL },
+  },
+  {
     name: "SEO Audit",
     script: "scripts/seo-audit.ts",
     timeoutSecs: 60,

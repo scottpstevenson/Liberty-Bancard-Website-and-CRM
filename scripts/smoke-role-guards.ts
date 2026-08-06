@@ -218,6 +218,7 @@ const CASES: GuardCase[] = [
   { method: "POST", path: "/api/contacts/mass-create-deals", anon: [401], merchant: [403], admin: [403], agent: [403], manager: [403], description: "mass-create-deals (requireRole admin/manager; CSRF required — agent blocked by role gate)" },
   { method: "POST", path: "/api/deals/bulk-stage",           anon: [401], merchant: [403], admin: [403], agent: [403], manager: [403], description: "deal bulk-stage (requireRole admin/manager; CSRF required — agent blocked by role gate)" },
   { method: "POST", path: "/api/tasks/bulk-assign",          anon: [401], merchant: [403], admin: [403], agent: [403], manager: [403], description: "task bulk-assign (requireRole admin/manager; CSRF required — agent blocked by role gate)" },
+  { method: "POST", path: "/api/documents/bulk-delete",      anon: [401], merchant: [403], admin: [403], agent: [403], manager: [403], description: "document bulk-delete (requireRole admin/manager; CSRF required — agent blocked by role gate)" },
 ];
 
 async function ensureAgentUser(): Promise<void> {

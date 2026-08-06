@@ -1024,7 +1024,7 @@ export default function Contacts() {
                     <TableCell className="font-medium">
                       <div className="flex items-center gap-2 flex-wrap">
                         <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-bold shrink-0">
-                          {contact.firstName[0]}{contact.lastName[0]}
+                          {contact.firstName?.[0] ?? '?'}{contact.lastName?.[0] ?? ''}
                         </div>
                         <span className={isArchived ? "line-through" : ""}>{contact.firstName} {contact.lastName}</span>
                         {confirmationFailedMap.has(contact.id) && (

@@ -1698,13 +1698,36 @@ function maybeSendCircuitAlert(): void {
   const now = Date.now();
   if (now - lastCircuitAlertAt < 60 * 60 * 1000) return;
   lastCircuitAlertAt = now;
+  const failureCount = consecutiveGhlFailures;
+  const timestamp = new Date().toISOString();
   import("./system-audit/slack-notifier").then(({ sendCriticalAlert }) => {
     sendCriticalAlert({
       subsystem: "ghl-auth",
       status: "error",
-      summary: `GHL circuit breaker opened — ${consecutiveGhlFailures} consecutive API failures. Sync halted.`,
-      details: { consecutiveFailures: consecutiveGhlFailures, threshold: GHL_CIRCUIT_THRESHOLD },
+      summary: `GHL circuit breaker opened — ${failureCount} consecutive API failures. Sync halted.`,
+      details: { consecutiveFailures: failureCount, threshold: GHL_CIRCUIT_THRESHOLD },
     }).catch(() => {});
+  }).catch(() => {});
+  // Also send admin email notification
+  import("./smtp-email").then(({ sendSmtpEmail, isSmtpConfigured }) => {
+    if (!isSmtpConfigured()) return;
+    const adminEmail = process.env.ADMIN_ALERT_EMAIL || "accounts@libertybancard.com";
+    const subject = "🚨 GHL Sync Circuit Breaker OPEN";
+    const html = `
+      <h2 style="color:#c0392b;">GHL Sync Circuit Breaker OPEN</h2>
+      <p>The GHL sync circuit breaker opened at <strong>${timestamp}</strong>.</p>
+      <p><strong>${failureCount} consecutive failures</strong> reached the threshold of ${GHL_CIRCUIT_THRESHOLD}.</p>
+      <p>The sync has been halted and will retry automatically on the next scheduled tick.</p>
+      <hr/>
+      <p><strong>Recommended actions:</strong></p>
+      <ul>
+        <li>Check GHL API status and connectivity.</li>
+        <li>Review the audit logs for GHL_CIRCUIT_OPEN entries.</li>
+        <li>If the issue is resolved, the circuit will reset automatically on the next sync tick.</li>
+      </ul>
+      <p style="color:#7f8c8d;font-size:12px;">This alert has a 1-hour cooldown to prevent spam.</p>
+    `;
+    sendSmtpEmail({ to: adminEmail, subject, html, category: "internal_ops" }).catch(() => {});
   }).catch(() => {});
 }
 
@@ -1798,6 +1821,7 @@ export async function runGhlFullSyncTick(): Promise<void> {
     if (consecutiveGhlFailures >= GHL_CIRCUIT_THRESHOLD) {
       console.error(`[Queue:ghl-sync] GHL_CIRCUIT_OPEN — ${consecutiveGhlFailures} consecutive failures after contacts phase, aborting tick`);
       storage.createAuditLog({ action: "GHL_CIRCUIT_OPEN", entityType: "system", details: `Circuit opened: ${consecutiveGhlFailures} consecutive GHL failures after contacts phase — tick aborted` }).catch(() => {});
+      maybeSendCircuitAlert();
       ghlCircuitOpen = true;
       await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN");
       return;
@@ -1842,6 +1866,7 @@ export async function runGhlFullSyncTick(): Promise<void> {
     if (consecutiveGhlFailures >= GHL_CIRCUIT_THRESHOLD) {
       console.error(`[Queue:ghl-sync] GHL_CIRCUIT_OPEN — ${consecutiveGhlFailures} consecutive failures, aborting tick before deals`);
       storage.createAuditLog({ action: "GHL_CIRCUIT_OPEN", entityType: "system", details: `Circuit opened: ${consecutiveGhlFailures} consecutive GHL failures before deals phase — tick aborted` }).catch(() => {});
+      maybeSendCircuitAlert();
       ghlCircuitOpen = true;
       await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN");
       return;
@@ -1854,6 +1879,7 @@ export async function runGhlFullSyncTick(): Promise<void> {
       if (consecutiveGhlFailures >= GHL_CIRCUIT_THRESHOLD) {
         console.error(`[Queue:ghl-sync] GHL_CIRCUIT_OPEN — ${consecutiveGhlFailures} consecutive failures, aborting deals phase`);
         storage.createAuditLog({ action: "GHL_CIRCUIT_OPEN", entityType: "system", details: `Circuit opened: ${consecutiveGhlFailures} consecutive GHL failures in deals phase — tick aborted` }).catch(() => {});
+        maybeSendCircuitAlert();
         ghlCircuitOpen = true;
         await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN");
         return;
@@ -1885,6 +1911,7 @@ export async function runGhlFullSyncTick(): Promise<void> {
     if (consecutiveGhlFailures >= GHL_CIRCUIT_THRESHOLD) {
       console.error(`[Queue:ghl-sync] GHL_CIRCUIT_OPEN — ${consecutiveGhlFailures} consecutive failures after deals phase, aborting tick`);
       storage.createAuditLog({ action: "GHL_CIRCUIT_OPEN", entityType: "system", details: `Circuit opened: ${consecutiveGhlFailures} consecutive GHL failures after deals phase — tick aborted` }).catch(() => {});
+      maybeSendCircuitAlert();
       ghlCircuitOpen = true;
       await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN");
       return;
@@ -1901,6 +1928,7 @@ export async function runGhlFullSyncTick(): Promise<void> {
       if (consecutiveGhlFailures >= GHL_CIRCUIT_THRESHOLD) {
         console.error(`[Queue:ghl-sync] GHL_CIRCUIT_OPEN — ${consecutiveGhlFailures} consecutive failures, aborting tasks phase`);
         storage.createAuditLog({ action: "GHL_CIRCUIT_OPEN", entityType: "system", details: `Circuit opened: ${consecutiveGhlFailures} consecutive GHL failures in tasks phase — tick aborted` }).catch(() => {});
+        maybeSendCircuitAlert();
         ghlCircuitOpen = true;
         await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN");
         return;
@@ -1924,6 +1952,7 @@ export async function runGhlFullSyncTick(): Promise<void> {
     if (consecutiveGhlFailures >= GHL_CIRCUIT_THRESHOLD) {
       console.error(`[Queue:ghl-sync] GHL_CIRCUIT_OPEN — ${consecutiveGhlFailures} consecutive failures after tasks phase, aborting tick`);
       storage.createAuditLog({ action: "GHL_CIRCUIT_OPEN", entityType: "system", details: `Circuit opened: ${consecutiveGhlFailures} consecutive GHL failures after tasks phase — tick aborted` }).catch(() => {});
+      maybeSendCircuitAlert();
       ghlCircuitOpen = true;
       await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN");
       return;
@@ -1936,6 +1965,7 @@ export async function runGhlFullSyncTick(): Promise<void> {
       if (consecutiveGhlFailures >= GHL_CIRCUIT_THRESHOLD) {
         console.error(`[Queue:ghl-sync] GHL_CIRCUIT_OPEN — ${consecutiveGhlFailures} consecutive failures, aborting companies phase`);
         storage.createAuditLog({ action: "GHL_CIRCUIT_OPEN", entityType: "system", details: `Circuit opened: ${consecutiveGhlFailures} consecutive GHL failures in companies phase — tick aborted` }).catch(() => {});
+        maybeSendCircuitAlert();
         ghlCircuitOpen = true;
         await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN");
         return;

@@ -2,6 +2,8 @@ import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useLocation, useParams } from "wouter";
+import { trackPhoneCallClick } from "@/lib/analytics";
+import { VERTICALS } from "@shared/schema";
 import {
   ChevronLeft, Phone, MessageSquare, Mail, Building, MapPin,
   Zap, Loader2, CheckCircle, Activity, Edit2, Save, X,
@@ -246,6 +248,7 @@ export default function MobileContactDetail() {
           <div className="flex gap-2 mt-4">
             {contact.phone && (
               <a data-testid="link-call-contact" href={`tel:${contact.phone}`}
+                onClick={() => trackPhoneCallClick({ contactId: contact.id, sourcePage: "/mobile/contacts/" + contact.id })}
                 className="flex-1 bg-white text-blue-600 rounded-xl py-2.5 flex items-center justify-center gap-2 font-semibold text-sm active:scale-95 transition-transform">
                 <Phone className="w-4 h-4" />Call
               </a>
@@ -278,7 +281,20 @@ export default function MobileContactDetail() {
             <EditField label="Company Name" value={field("companyName")} onChange={set("companyName")} />
             <EditField label="Email" value={field("email")} onChange={set("email")} type="email" />
             <EditField label="Phone" value={field("phone")} onChange={set("phone")} type="tel" />
-            <EditField label="Industry / Vertical" value={field("vertical")} onChange={set("vertical")} />
+            <div>
+              <label className="text-xs text-gray-400 uppercase tracking-wide block mb-1">Industry / Vertical</label>
+              <select
+                value={field("vertical")}
+                onChange={(e) => set("vertical")(e.target.value)}
+                data-testid="select-edit-vertical"
+                className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">Select vertical…</option>
+                {VERTICALS.map((v) => (
+                  <option key={v} value={v}>{v}</option>
+                ))}
+              </select>
+            </div>
             <div className="grid grid-cols-2 gap-3">
               <EditField label="City" value={field("city")} onChange={set("city")} />
               <EditField label="State" value={field("state")} onChange={set("state")} />
@@ -307,7 +323,9 @@ export default function MobileContactDetail() {
                 {contact.phone && (
                   <div className="flex items-center gap-2 text-sm">
                     <Phone className="w-4 h-4 text-gray-400 shrink-0" />
-                    <a href={`tel:${contact.phone}`} className="text-blue-600 dark:text-blue-400" data-testid="text-contact-phone">{contact.phone}</a>
+                    <a href={`tel:${contact.phone}`} className="text-blue-600 dark:text-blue-400" data-testid="text-contact-phone"
+                      onClick={() => trackPhoneCallClick({ contactId: contact.id, sourcePage: "/mobile/contacts/" + contact.id })}
+                    >{contact.phone}</a>
                   </div>
                 )}
                 {contact.email && (

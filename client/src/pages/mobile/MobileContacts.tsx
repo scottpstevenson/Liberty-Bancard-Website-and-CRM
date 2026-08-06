@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { Search, Phone, MessageSquare, ChevronRight, Plus, Loader2, User } from "lucide-react";
+import { trackPhoneCallClick } from "@/lib/analytics";
 
 function formatRelativeTime(ts: string | null | undefined): string {
   if (!ts) return "";
@@ -149,7 +150,7 @@ export default function MobileContacts() {
                       <a
                         data-testid={`link-call-${contact.id}`}
                         href={`tel:${contact.phone}`}
-                        onClick={(e) => e.stopPropagation()}
+                        onClick={(e) => { e.stopPropagation(); trackPhoneCallClick({ contactId: contact.id, sourcePage: "/mobile/contacts" }); }}
                         className="w-8 h-8 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center active:scale-90 transition-transform"
                       >
                         <Phone className="w-4 h-4 text-green-600 dark:text-green-400" />

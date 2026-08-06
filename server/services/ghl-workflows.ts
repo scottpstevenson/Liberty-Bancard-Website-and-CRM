@@ -116,6 +116,8 @@ export async function enrollInGhlWorkflow(params: {
   workflowKey: string;
   ghlContactId: string;
   metadata?: Record<string, any>;
+  /** Internal flag: set by ghl-enrollment-recovery to prevent recursive deferral */
+  _isRecoveryAttempt?: boolean;
 }): Promise<{ success: boolean; error?: string }> {
   try {
     if (!isSdrGhlConfigured()) {
@@ -138,6 +140,8 @@ export async function enrollInGhlWorkflow(params: {
     return { success: true };
   } catch (err: any) {
     console.error(`[GHL Workflows] Enrollment failed for ${params.workflowKey}:`, err.message);
+
+    // Resolve the DB contact for better audit trail display
     let dbContactId: number | undefined;
     let displayName: string = params.ghlContactId;
     try {
@@ -151,13 +155,35 @@ export async function enrollInGhlWorkflow(params: {
         displayName = [match.firstName, match.lastName].filter(Boolean).join(" ") || match.email || params.ghlContactId;
       }
     } catch (_) {}
+
+    // For transient errors, defer instead of permanently dropping the enrollment.
+    // Recovery calls (_isRecoveryAttempt) update the retry count via the recovery
+    // module itself, so we skip re-deferring to avoid double-counting.
+    const { isTransientGhlError, deferGhlEnrollment } = await import("./ghl-enrollment-recovery");
+    const isTransient = isTransientGhlError(err);
+    if (!params._isRecoveryAttempt && isTransient) {
+      await deferGhlEnrollment({
+        ghlContactId: params.ghlContactId,
+        workflowKey: params.workflowKey,
+        metadata: params.metadata,
+        error: err,
+      }).catch(deferErr =>
+        console.error("[GHL Workflows] Failed to defer enrollment:", deferErr)
+      );
+    }
+
     await auditChange({
       entityType: "ghl_sync",
       entityId: dbContactId,
       entityKey: displayName,
       action: "ghl_enrollment_failed",
       actorType: "system",
-      details: { workflowKey: params.workflowKey, error: err.message, ...params.metadata },
+      details: {
+        workflowKey: params.workflowKey,
+        error: err.message,
+        deferred: !params._isRecoveryAttempt && isTransient,
+        ...params.metadata,
+      },
     }).catch(() => {});
     return { success: false, error: err.message };
   }

@@ -197,6 +197,7 @@ const SystemAudit = lazy(() => import("@/pages/dashboard/SystemAudit"));
 const LaunchReadiness = lazy(() => import("@/pages/dashboard/LaunchReadiness"));
 const OutboundReadiness = lazy(() => import("@/pages/dashboard/OutboundReadiness"));
 const DataQuality = lazy(() => import("@/pages/dashboard/DataQuality"));
+const BlockedContacts = lazy(() => import("@/pages/dashboard/BlockedContacts"));
 const DeliverabilitySettings = lazy(() => import("@/pages/dashboard/DeliverabilitySettings"));
 const GhlConflicts = lazy(() => import("@/pages/dashboard/GhlConflicts"));
 const SetupWizard = lazy(() => import("@/pages/dashboard/SetupWizard"));
@@ -255,6 +256,28 @@ function AgentRoute({ component: Component }: { component: React.ComponentType }
       <Component />
     </DashboardLayout>
   );
+}
+
+function PartnerProtectedRoute({ component: Component }: { component: React.ComponentType }) {
+  const { user, isLoading } = useAuth();
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <Redirect to="/partner-login" />;
+  }
+
+  if ((user as any).role !== "partner" && (user as any).role !== "admin") {
+    return <Redirect to="/dashboard" />;
+  }
+
+  return <Component />;
 }
 
 function ProtectedRoute({ component: Component, allowedRoles }: { component: React.ComponentType; allowedRoles?: string[] }) {
@@ -373,9 +396,13 @@ function Router() {
         <Route path="/partners/bookkeeper" component={PartnerBookkeeper} />
         <Route path="/partners/insurance" component={PartnerInsurance} />
         <Route path="/partners" component={ISOPartnerProgram} />
-        <Route path="/partner-portal" component={PartnerPortal} />
+        <Route path="/partner-portal">
+          <PartnerProtectedRoute component={PartnerPortal} />
+        </Route>
         <Route path="/partner-login" component={PartnerLogin} />
-        <Route path="/dashboard/partner" component={PartnerPortal} />
+        <Route path="/dashboard/partner">
+          <PartnerProtectedRoute component={PartnerPortal} />
+        </Route>
         <Route path="/partner/:slug" component={PartnerBrandedPage} />
         <Route path="/partner-org/:slug" component={PartnerOrgDashboard} />
         <Route path="/blog/:slug" component={BlogPost} />
@@ -781,6 +808,9 @@ function Router() {
         </Route>
         <Route path="/dashboard/data-quality">
           <ProtectedRoute component={DataQuality} allowedRoles={["admin", "manager"]} />
+        </Route>
+        <Route path="/dashboard/blocked-contacts">
+          <ProtectedRoute component={BlockedContacts} allowedRoles={["admin", "manager"]} />
         </Route>
         <Route path="/dashboard/deliverability-settings">
           <ProtectedRoute component={DeliverabilitySettings} allowedRoles={["admin", "manager"]} />

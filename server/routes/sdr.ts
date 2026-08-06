@@ -84,10 +84,14 @@ export function registerSdrRoutes(app: Express) {
     const ghlConfigured = isGhlConfigured();
     const circuitOpen = circuit.circuitOpen;
 
+    const degraded: string[] = [];
+    if (!redisOk) degraded.push("redis");
+    if (!smtpOk) degraded.push("smtp");
     const allOk = dbOk && sessionOk && !circuitOpen;
 
     res.status(allOk ? 200 : 503).json({
       ok: allOk,
+      degraded,
       uptime: Math.floor(uptime),
       db: dbOk ? "connected" : "error",
       session: sessionOk ? "connected" : "error",
@@ -102,6 +106,24 @@ export function registerSdrRoutes(app: Express) {
       smtp: smtpOk ? "configured" : "missing",
       timestamp: new Date().toISOString(),
     });
+  });
+
+  // Live health endpoint — returns last stored health-monitor result (or runs one now)
+  app.get("/api/admin/live-health", isDashboardUser, async (_req, res) => {
+    try {
+      const { getLastHealthResult } = await import("../services/health-monitor");
+      const last = await getLastHealthResult();
+      if (!last) {
+        // No result yet — trigger one synchronously
+        const { runHealthChecks } = await import("../services/health-monitor");
+        const result = await runHealthChecks();
+        return res.json({ ...result, source: "live" });
+      }
+      const ageMs = Date.now() - new Date(last.runAt).getTime();
+      return res.json({ ...last, ageMs, source: "cached" });
+    } catch (err: any) {
+      serverError(res, err);
+    }
   });
 
   app.get("/api/ghl/health", isAuthenticated, async (_req, res) => {

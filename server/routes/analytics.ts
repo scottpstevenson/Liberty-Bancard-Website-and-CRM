@@ -1228,6 +1228,26 @@ export function registerAnalyticsRoutes(app: Express) {
     }
   });
 
+  // Public endpoint — no auth required (called from public pages and authenticated CRM pages alike)
+  app.post("/api/analytics/phone-call-click", publicLeadRateLimit, async (req, res) => {
+    try {
+      const { recordAnalyticsEvent } = await import("../services/analytics-events");
+      const { contactId, dealId, sourcePage, sessionId, visitorId } = req.body;
+      await recordAnalyticsEvent({
+        eventName: "phone_call_click",
+        contactId: typeof contactId === "number" ? contactId : undefined,
+        dealId: typeof dealId === "number" ? dealId : undefined,
+        pagePath: typeof sourcePage === "string" ? sourcePage : undefined,
+        sessionId: typeof sessionId === "string" ? sessionId : undefined,
+        visitorId: typeof visitorId === "string" ? visitorId : undefined,
+        occurredAt: new Date(),
+      });
+      res.json({ ok: true });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
   app.post("/api/analytics/noop", (_req, res) => {
     res.status(204).end();
   });
@@ -1248,6 +1268,34 @@ export function registerAnalyticsRoutes(app: Express) {
       res.redirect(302, "/thanks-call");
     } catch {
       res.redirect(302, "/thanks-call");
+    }
+  });
+
+  // ── Newsletter article signup attribution ────────────────────────────────
+  app.get("/api/analytics/newsletter-article-signups", isAuthenticated, isDashboardUser, async (_req, res) => {
+    try {
+      const rows = await pool.query<{ article_slug: string; signup_count: string; last_signup_at: string }>(`
+        SELECT
+          cse.metadata->>'source_article' AS article_slug,
+          COUNT(*)::text                  AS signup_count,
+          MAX(cse.created_at)::text       AS last_signup_at
+        FROM contact_source_events cse
+        WHERE cse.source_type = 'newsletter_signup'
+          AND cse.metadata->>'source_article' IS NOT NULL
+          AND cse.metadata->>'source_article' <> ''
+        GROUP BY cse.metadata->>'source_article'
+        ORDER BY signup_count DESC, last_signup_at DESC
+        LIMIT 50
+      `);
+      res.json(
+        rows.rows.map((r) => ({
+          articleSlug: r.article_slug,
+          signupCount: parseInt(r.signup_count, 10),
+          lastSignupAt: r.last_signup_at,
+        }))
+      );
+    } catch (err: any) {
+      serverError(res, err);
     }
   });
 

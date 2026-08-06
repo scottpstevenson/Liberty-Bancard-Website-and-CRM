@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { Link } from "wouter";
 import type { MerchantProfile, OnboardingStep, Ticket, MerchantReferral } from "@shared/schema";
+import { trackPhoneCallClick } from "@/lib/analytics";
 import type { Document as DocType } from "@shared/schema";
 import { HelpCenter } from "@/components/HelpCenter";
 
@@ -121,7 +122,8 @@ function AccountStatusBanner({ profile, isLoading }: { profile: MerchantProfile 
         )}
       </div>
       <div className="flex items-center gap-4 text-xs text-muted-foreground shrink-0">
-        <a href="tel:9542668214" className="flex items-center gap-1 hover:text-foreground transition-colors" data-testid="banner-rep-phone">
+        <a href="tel:9542668214" className="flex items-center gap-1 hover:text-foreground transition-colors" data-testid="banner-rep-phone"
+          onClick={() => trackPhoneCallClick({ sourcePage: "/dashboard/merchant-portal" })}>
           <Phone className="w-3 h-3" />
           954-266-8214
         </a>
@@ -522,7 +524,8 @@ function AccountTab({ profile, isLoading, isAdmin }: { profile: MerchantProfile 
                 <p className="text-sm text-muted-foreground">Dedicated merchant success team</p>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <a href="tel:9542668214" className="flex items-center gap-2 text-sm hover:text-primary transition-colors" data-testid="link-rep-phone">
+                <a href="tel:9542668214" className="flex items-center gap-2 text-sm hover:text-primary transition-colors" data-testid="link-rep-phone"
+                  onClick={() => trackPhoneCallClick({ sourcePage: "/dashboard/merchant-portal" })}>
                   <Phone className="w-4 h-4 text-muted-foreground shrink-0" />
                   954-266-8214
                 </a>
@@ -1821,7 +1824,7 @@ function NoDataState({ mid }: { mid: string | null }) {
           </p>
         </div>
         <div className="flex flex-col gap-2 w-full max-w-xs">
-          <a href="tel:9542668214">
+          <a href="tel:9542668214" onClick={() => trackPhoneCallClick({ sourcePage: "/dashboard/merchant-portal-financial" })}>
             <Button variant="outline" className="w-full" data-testid="button-call-support-financial">
               <Phone className="w-4 h-4 mr-2" />
               Call Support

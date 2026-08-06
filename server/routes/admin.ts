@@ -3279,6 +3279,222 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // ── Live Health Monitor ────────────────────────────────────────────────────
+  // GET /api/admin/live-health
+  // Returns a structured snapshot of all critical background workers and services.
+  // ?refresh=1 forces a fresh check even if a cached result is recent.
+  // Cached for up to 10 minutes to avoid hammering services on every poll.
+  //
+  // Critical checks (gate exit-1 if any fail): db, sequenceWorker, redis, ai, kpiQuery
+  // Informational checks (stale is a warning, not a failure): slaWorker, ghlSync, dbBackup, outboundPause
+
+  let _liveHealthCache: { result: any; fetchedAt: number } | null = null;
+  const LIVE_HEALTH_CACHE_MS = 10 * 60 * 1000; // 10 minutes
+
+  app.get("/api/admin/live-health", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const refresh = req.query.refresh === "1" || req.query.refresh === "true";
+      const now = Date.now();
+
+      // Return cached result if fresh (< 10 min) and no refresh requested
+      if (!refresh && _liveHealthCache && (now - _liveHealthCache.fetchedAt) < LIVE_HEALTH_CACHE_MS) {
+        return res.json({ ..._liveHealthCache.result, cached: true, cacheAgeMs: now - _liveHealthCache.fetchedAt });
+      }
+
+      const { pool } = await import("../db");
+      const { sql: drizzleSqlRaw } = await import("drizzle-orm");
+
+      const checks: Array<{
+        name: string;
+        status: "ok" | "error" | "stale" | "warn";
+        detail: string;
+        durationMs?: number;
+        critical: boolean;
+      }> = [];
+
+      // 1. DB
+      let dbOk = false;
+      let dbMs = 0;
+      try {
+        const t0 = Date.now();
+        await pool.query("SELECT 1");
+        dbMs = Date.now() - t0;
+        dbOk = true;
+      } catch {}
+      checks.push({ name: "db", status: dbOk ? "ok" : "error", detail: dbOk ? `${dbMs}ms` : "Connection failed", durationMs: dbMs, critical: true });
+
+      // 2. sequenceWorker
+      let seqStatus: "ok" | "error" | "stale" = "error";
+      let seqDetail = "Never (worker has not run)";
+      try {
+        const hb = await storage.getSystemSetting("sequence_runner_last_tick");
+        if (hb?.at) {
+          const ageMs = now - new Date(hb.at).getTime();
+          const ageMins = Math.round(ageMs / 60000);
+          if (ageMs < 15 * 60 * 1000) {
+            seqStatus = "ok";
+            seqDetail = `last tick: ${ageMins}m ago`;
+          } else {
+            seqStatus = "stale";
+            seqDetail = `last tick: ${ageMins}m ago (stale >15m)`;
+          }
+        }
+      } catch {}
+      checks.push({ name: "sequenceWorker", status: seqStatus, detail: seqDetail, critical: true });
+
+      // 3. slaWorker
+      let slaStatus: "ok" | "error" | "stale" = "error";
+      let slaDetail = "Never (worker has not run)";
+      try {
+        const slaHb = await storage.getSystemSetting("sla_worker_last_tick");
+        if (slaHb?.at) {
+          const ageMs = now - new Date(slaHb.at).getTime();
+          const ageMins = Math.round(ageMs / 60000);
+          if (ageMs < 15 * 60 * 1000) {
+            slaStatus = "ok";
+            slaDetail = `last tick: ${ageMins}m ago`;
+          } else {
+            slaStatus = "stale";
+            slaDetail = `last tick: ${ageMins}m ago (stale >15m)`;
+          }
+        }
+      } catch {}
+      checks.push({ name: "slaWorker", status: slaStatus, detail: slaDetail, critical: false });
+
+      // 4. ghlSync — last sync from audit logs
+      let ghlStatus: "ok" | "stale" | "warn" = "warn";
+      let ghlDetail = "No sync recorded";
+      try {
+        const rows = await db.execute(drizzleSqlRaw.raw(`
+          SELECT created_at FROM audit_logs
+          WHERE action IN ('ghl_sync_completed','GHL_SYNC_TICK_COMPLETE','ghl_sync_contacts')
+          ORDER BY created_at DESC LIMIT 1
+        `));
+        const row = rows.rows[0] as any;
+        if (row?.created_at) {
+          const ageMs = now - new Date(row.created_at).getTime();
+          const ageMins = Math.round(ageMs / 60000);
+          if (ageMs < 60 * 60 * 1000) {
+            ghlStatus = "ok";
+            ghlDetail = `last tick: ${ageMins}m ago`;
+          } else {
+            ghlStatus = "stale";
+            ghlDetail = `last tick: ${ageMins}m ago (stale >1h)`;
+          }
+        }
+      } catch {}
+      checks.push({ name: "ghlSync", status: ghlStatus, detail: ghlDetail, critical: false });
+
+      // 5. redis
+      let redisOk = false;
+      let redisMs = 0;
+      let redisDetail = "Not connected";
+      try {
+        const { getQueueManager } = await import("../services/queue-manager");
+        const qm = await getQueueManager();
+        const t0 = Date.now();
+        if (qm) {
+          const conn = (qm as any)._redisConnection;
+          if (conn && typeof conn.ping === "function") {
+            await conn.ping();
+          }
+          const m = await qm.getAllQueueMetrics();
+          redisMs = Date.now() - t0;
+          redisOk = !m.usingMock;
+          redisDetail = m.usingMock ? "in-memory mock (set REDIS_URL for production)" : `${redisMs}ms`;
+        }
+      } catch {}
+      checks.push({ name: "redis", status: redisOk ? "ok" : "error", detail: redisDetail, durationMs: redisMs, critical: true });
+
+      // 6. ai — OpenAI key check + optional lightweight probe
+      let aiOk = false;
+      let aiMs = 0;
+      let aiDetail = "AI_INTEGRATIONS_OPENAI_API_KEY not set";
+      const aiKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
+      if (aiKey) {
+        try {
+          const t0 = Date.now();
+          const r = await fetch("https://api.openai.com/v1/models", {
+            headers: { Authorization: `Bearer ${aiKey}` },
+            signal: AbortSignal.timeout(8000),
+          });
+          aiMs = Date.now() - t0;
+          aiOk = r.ok || r.status === 200;
+          aiDetail = aiOk ? `${aiMs}ms` : `API returned ${r.status}`;
+        } catch (err: any) {
+          aiDetail = `Request failed: ${err?.message ?? "timeout"}`;
+        }
+      }
+      checks.push({ name: "ai", status: aiOk ? "ok" : "error", detail: aiDetail, durationMs: aiMs, critical: true });
+
+      // 7. dbBackup — last successful backup
+      let backupStatus: "ok" | "warn" = "warn";
+      let backupDetail = "No backups found";
+      try {
+        const { listBackups } = await import("../services/db-backup");
+        const backups = await listBackups();
+        if (backups.length > 0) {
+          const latestMs = new Date(backups[0].createdAt).getTime();
+          const ageMs = now - latestMs;
+          const ageHours = Math.round(ageMs / 3600000);
+          backupStatus = "ok";
+          backupDetail = `last backup: ${ageHours}h ago`;
+        }
+      } catch {}
+      checks.push({ name: "dbBackup", status: backupStatus, detail: backupDetail, critical: false });
+
+      // 8. kpiQuery — contact/deal counts
+      let kpiOk = false;
+      let kpiDetail = "Query failed";
+      try {
+        const [contactResult, dealResult] = await Promise.all([
+          db.execute(drizzleSqlRaw.raw("SELECT COUNT(*) AS c FROM contacts")),
+          db.execute(drizzleSqlRaw.raw("SELECT COUNT(*) AS c FROM deals")),
+        ]);
+        const contactCount = parseInt(String((contactResult.rows[0] as any)?.c ?? "0"), 10) || 0;
+        const dealCount = parseInt(String((dealResult.rows[0] as any)?.c ?? "0"), 10) || 0;
+        kpiOk = true;
+        kpiDetail = `contacts: ${contactCount.toLocaleString()}  deals: ${dealCount.toLocaleString()}`;
+      } catch {}
+      checks.push({ name: "kpiQuery", status: kpiOk ? "ok" : "error", detail: kpiDetail, critical: true });
+
+      // 9. outboundPause
+      let pauseStatus: "ok" | "warn" = "warn";
+      let pauseDetail = "Could not read pause state";
+      try {
+        const rawPause = await storage.getSystemSetting("outboundGlobalPaused");
+        const isPaused = rawPause === true || rawPause === "true";
+        pauseStatus = "ok";
+        pauseDetail = `paused=${isPaused}`;
+      } catch {}
+      checks.push({ name: "outboundPause", status: pauseStatus, detail: pauseDetail, critical: false });
+
+      const CRITICAL_NAMES = ["db", "sequenceWorker", "redis", "ai", "kpiQuery"];
+      const criticalChecks = checks.filter(c => c.critical);
+      const allCriticalOk = criticalChecks.every(c => c.status === "ok");
+      const overallOk = allCriticalOk;
+
+      const result = {
+        ok: overallOk,
+        fetchedAt: new Date(now).toISOString(),
+        checks,
+        summary: {
+          total: checks.length,
+          ok: checks.filter(c => c.status === "ok").length,
+          critical: criticalChecks.length,
+          criticalOk: criticalChecks.filter(c => c.status === "ok").length,
+        },
+        cached: false,
+        cacheAgeMs: 0,
+      };
+
+      _liveHealthCache = { result, fetchedAt: now };
+      return res.json(result);
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
   // Retry GHL sync for a contact identified by entityKey (email or contact id)
   app.post("/api/admin/ghl-failures/retry", requireRole("admin", "manager"), async (req, res) => {
     try {

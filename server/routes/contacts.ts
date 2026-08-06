@@ -287,6 +287,134 @@ export function registerContactsRoutes(app: Express) {
     }
   });
 
+  // ── Blocked contacts list ────────────────────────────────────────────────────
+  // GET /api/contacts/blocked?emailStatus=&doNotContact=&reason=&page=&limit=
+  app.get("/api/contacts/blocked", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const page  = Math.max(1, parseInt(String(req.query.page  ?? "1"),  10));
+      const limit = Math.min(200, Math.max(1, parseInt(String(req.query.limit ?? "50"), 10)));
+      const offset = (page - 1) * limit;
+
+      const emailStatus   = req.query.emailStatus   ? String(req.query.emailStatus)   : undefined;
+      const doNotContact  = req.query.doNotContact  ? String(req.query.doNotContact)  : undefined;
+      const reason        = req.query.reason        ? String(req.query.reason)        : undefined;
+
+      const conditions: string[] = [
+        `archived_at IS NULL`,
+        `(do_not_contact = true OR email_status IN ('bounced','invalid','opted_out','unsafe'))`,
+      ];
+
+      if (emailStatus) conditions.push(`email_status = '${emailStatus.replace(/'/g, "''")}'`);
+      if (doNotContact === "true")  conditions.push(`do_not_contact = true`);
+      if (doNotContact === "false") conditions.push(`do_not_contact = false`);
+      if (reason) conditions.push(`(dnc_reason ILIKE '%${reason.replace(/'/g, "''")}%' OR suppression_reason ILIKE '%${reason.replace(/'/g, "''")}%')`);
+
+      const whereClause = conditions.join(" AND ");
+
+      const [countResult, rowsResult] = await Promise.all([
+        pool.query(`SELECT COUNT(*)::int AS total FROM contacts WHERE ${whereClause}`),
+        pool.query(`
+          SELECT id, first_name, last_name, email, phone,
+                 email_status, sms_status, do_not_contact,
+                 do_not_auto_contact, dnc_reason, suppression_reason,
+                 created_at
+          FROM contacts
+          WHERE ${whereClause}
+          ORDER BY id DESC
+          LIMIT ${limit} OFFSET ${offset}
+        `),
+      ]);
+
+      res.json({
+        total: countResult.rows[0]?.total ?? 0,
+        page,
+        limit,
+        data: rowsResult.rows,
+      });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  // ── Blocked contacts CSV export ───────────────────────────────────────────
+  // GET /api/contacts/blocked/export-csv?emailStatus=&doNotContact=&reason=
+  app.get("/api/contacts/blocked/export-csv", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const emailStatus  = req.query.emailStatus  ? String(req.query.emailStatus)  : undefined;
+      const doNotContact = req.query.doNotContact ? String(req.query.doNotContact) : undefined;
+      const reason       = req.query.reason       ? String(req.query.reason)       : undefined;
+
+      // Build the query with proper parameterization to prevent SQL injection.
+      const params: unknown[] = [];
+      const conditions: string[] = [
+        `archived_at IS NULL`,
+        `(do_not_contact = true OR email_status IN ('bounced','invalid','opted_out','unsafe'))`,
+      ];
+
+      if (emailStatus) {
+        params.push(emailStatus);
+        conditions.push(`email_status = $${params.length}`);
+      }
+      if (doNotContact === "true")  conditions.push(`do_not_contact = true`);
+      if (doNotContact === "false") conditions.push(`do_not_contact = false`);
+      if (reason) {
+        params.push(`%${reason}%`);
+        conditions.push(`(dnc_reason ILIKE $${params.length} OR suppression_reason ILIKE $${params.length})`);
+      }
+
+      const whereClause = conditions.join(" AND ");
+
+      const rowsResult = await pool.query(
+        `SELECT id, first_name, last_name, email, phone,
+                email_status, sms_status, do_not_contact,
+                do_not_auto_contact, dnc_reason, suppression_reason,
+                created_at
+         FROM contacts
+         WHERE ${whereClause}
+         ORDER BY id DESC`,
+        params,
+      );
+
+      function csvEscape(val: unknown): string {
+        if (val == null) return "";
+        const s = String(val);
+        if (s.includes(",") || s.includes('"') || s.includes("\n")) {
+          return `"${s.replace(/"/g, '""')}"`;
+        }
+        return s;
+      }
+
+      const headers = [
+        "id", "firstName", "lastName", "email", "phone",
+        "emailStatus", "smsStatus", "doNotContact", "doNotAutoContact",
+        "blockedReason", "createdAt",
+      ];
+
+      const rows = rowsResult.rows.map((r) => [
+        r.id,
+        r.first_name,
+        r.last_name,
+        r.email,
+        r.phone,
+        r.email_status,
+        r.sms_status,
+        r.do_not_contact,
+        r.do_not_auto_contact,
+        r.dnc_reason || r.suppression_reason,
+        r.created_at ? new Date(r.created_at).toISOString() : "",
+      ].map(csvEscape).join(","));
+
+      const csv = [headers.join(","), ...rows].join("\n");
+      const date = new Date().toISOString().split("T")[0];
+
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader("Content-Disposition", `attachment; filename="blocked-contacts-${date}.csv"`);
+      res.send(csv);
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
   // ── Generic contact lookup (must stay after all fixed-path /contacts/* routes) ──
   app.get("/api/contacts/:id", isDashboardUser, async (req, res) => {
     try {
@@ -1785,6 +1913,33 @@ export function registerContactsRoutes(app: Express) {
       });
 
       res.json({ success: true, email: contact.email, status: zbResult.status, subStatus: zbResult.subStatus ?? null });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  // GET /api/contacts/:id/zerobounce-history — return ZeroBounce validation history for a contact
+  app.get("/api/contacts/:id/zerobounce-history", isDashboardUser, async (req, res) => {
+    try {
+      const contactId = Number(req.params.id);
+      if (!Number.isFinite(contactId)) return res.status(400).json({ message: "Invalid contact ID" });
+
+      const contact = await storage.getContact(contactId);
+      if (!contact) return res.status(404).json({ message: "Contact not found" });
+
+      const logs = await storage.getAuditLogsByEntity("contact", contactId, 20);
+      const zbLogs = logs
+        .filter((l: any) => l.action === "zerobounce_email_validated")
+        .slice(0, 10)
+        .map((l: any) => ({
+          validatedAt: l.createdAt,
+          status: (l.details as any)?.zbStatus ?? null,
+          subStatus: (l.details as any)?.zbSubStatus ?? null,
+          email: (l.details as any)?.email ?? null,
+          source: (l.details as any)?.source ?? null,
+        }));
+
+      res.json(zbLogs);
     } catch (err: any) {
       serverError(res, err);
     }

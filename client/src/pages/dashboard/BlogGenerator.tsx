@@ -23,6 +23,7 @@ import {
   Trash2,
   Calendar,
   Eye,
+  Mail,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -39,12 +40,22 @@ const CATEGORIES = [
   "Security",
 ];
 
+interface ArticleSignupRow {
+  articleSlug: string;
+  signupCount: number;
+  lastSignupAt: string;
+}
+
 export default function BlogGenerator() {
   const { toast } = useToast();
   const [keyword, setKeyword] = useState("");
   const [keywords, setKeywords] = useState<string[]>([]);
   const [category, setCategory] = useState("Education");
   const [autoSchedule, setAutoSchedule] = useState(true);
+
+  const { data: articleSignups = [], isLoading: signupsLoading } = useQuery<ArticleSignupRow[]>({
+    queryKey: ["/api/analytics/newsletter-article-signups"],
+  });
 
   const { data: savedPosts = [], isLoading: postsLoading } = useQuery<GeneratedBlogPostResponse[]>({
     queryKey: ["/api/blog/generated"],
@@ -362,6 +373,46 @@ export default function BlogGenerator() {
                       <Trash2 className="w-4 h-4" />
                     </Button>
                   </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Mail className="w-5 h-5 text-primary" />
+            Newsletter Signups by Article
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {signupsLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="w-6 h-6 animate-spin text-primary" />
+            </div>
+          ) : articleSignups.length === 0 ? (
+            <p className="text-center text-muted-foreground py-8" data-testid="text-no-article-signups">
+              No article-attributed signups yet. Signups from blog posts will appear here once collected.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {articleSignups.map((row) => (
+                <div
+                  key={row.articleSlug}
+                  className="flex items-center justify-between p-3 border rounded-lg"
+                  data-testid={`row-article-signup-${row.articleSlug}`}
+                >
+                  <div className="flex-1 min-w-0 mr-4">
+                    <p className="text-sm font-medium text-foreground truncate">/blog/{row.articleSlug}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Last signup: {new Date(row.lastSignupAt).toLocaleDateString()}
+                    </p>
+                  </div>
+                  <Badge variant="secondary" className="shrink-0">
+                    {row.signupCount} {row.signupCount === 1 ? "signup" : "signups"}
+                  </Badge>
                 </div>
               ))}
             </div>

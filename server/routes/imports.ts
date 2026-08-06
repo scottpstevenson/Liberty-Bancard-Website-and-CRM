@@ -105,7 +105,7 @@ export function registerImportsRoutes(app: Express) {
   });
 
   app.get("/api/outreach/status", isAuthenticated, async (req, res) => {
-    const [entityStats, verticalBreakdown, prospectStats, contactStats, dealStats, ghlStatus, importProgress, cordataProgress, enrichmentProgress, lastOutreachRun, workerStatus] = await Promise.all([
+    const [entityStats, verticalBreakdown, prospectStats, contactStats, dealStats, ghlStatus, importProgress, cordataProgress, enrichmentProgress, lastOutreachRun, workerStatus, sourceBreakdown] = await Promise.all([
       storage.getSunbizAggregateStats(),
       storage.getSunbizVerticalBreakdown(),
       storage.getProspectAggregateStats(),
@@ -117,6 +117,7 @@ export function registerImportsRoutes(app: Express) {
       storage.getSystemSetting("enrichment_progress"),
       storage.getSystemSetting("daily_outreach_last_run"),
       storage.getSystemSetting("outreach_worker_status"),
+      storage.getContactSourceBreakdown(),
     ]);
 
     const campaigns = await storage.getCampaigns();
@@ -131,6 +132,7 @@ export function registerImportsRoutes(app: Express) {
       deals: dealStats,
       activeCampaigns,
       verticalBreakdown,
+      sourceBreakdown,
       ghlSync: ghlStatus,
       importProgress: importProgress || { status: "idle" },
       cordataProgress: cordataProgress || { status: "idle" },

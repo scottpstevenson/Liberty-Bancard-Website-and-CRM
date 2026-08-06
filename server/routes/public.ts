@@ -1296,8 +1296,12 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       const schema = z.object({
         firstName: z.string().min(1).max(100),
         email: z.string().email(),
+        sourceArticle: z.string().max(200).optional(),
       });
-      const { firstName, email } = schema.parse(req.body);
+      const { firstName, email, sourceArticle } = schema.parse(req.body);
+
+      const provenanceMetadata: Record<string, unknown> = { source: "blog_inline" };
+      if (sourceArticle) provenanceMetadata.source_article = sourceArticle;
 
       const normalizedNlEmail = email?.trim().toLowerCase() || null;
       const existingNlContact = normalizedNlEmail ? await storage.getContactByEmail(normalizedNlEmail) : null;
@@ -1334,6 +1338,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
             sourceType: "newsletter_signup",
             eventKey: `form:newsletter_signup:${submissionId}`,
             actorType: "public",
+            metadata: provenanceMetadata,
           },
           actor: { actorType: "public" },
         });
@@ -1342,7 +1347,10 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       syncFormSubmissionToGhl({
         contactId: contact.id,
         leadSource: "newsletter_signup",
-        formData: { lb_newsletter_source: "blog_inline" },
+        formData: {
+          lb_newsletter_source: "blog_inline",
+          ...(sourceArticle ? { lb_newsletter_article: sourceArticle } : {}),
+        },
       }).catch(err => console.error("[Newsletter] GHL sync error:", err));
 
       enqueuePromotionalEnrollment({ contactId: contact.id, triggerType: "newsletter_signup", formType: "newsletter", sourceEventId: submissionId }).catch(err =>

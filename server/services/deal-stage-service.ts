@@ -385,7 +385,24 @@ export async function triggerClosedWonOnboarding(salesDeal: Deal): Promise<void>
       }
     }
 
-    // ── 2. Ensure SLA tasks (concurrency-safe via unique partial index) ───
+    // ── 2. Auto-initialize onboarding checklist (idempotent via onConflictDoNothing) ──
+    try {
+      await storage.initializeOnboardingChecklist(onboardingDealId);
+      await storage.createAuditLog({
+        action: "onboarding_checklist_initialized",
+        entityType: "deal",
+        entityId: onboardingDealId,
+        details: { sourceDealId: salesDeal.id },
+      });
+      console.log(`[Onboarding] Checklist initialized for onboarding deal #${onboardingDealId}`);
+    } catch (checklistErr: any) {
+      console.error(
+        `[Onboarding] Checklist init failed for deal #${onboardingDealId} (non-fatal):`,
+        checklistErr?.message,
+      );
+    }
+
+    // ── 3. Ensure SLA tasks (concurrency-safe via unique partial index) ───
     await ensureOnboardingSLATasks(
       onboardingDealId,
       salesDeal.contactId,
@@ -393,7 +410,7 @@ export async function triggerClosedWonOnboarding(salesDeal: Deal): Promise<void>
       closedWonAt,
     );
 
-    // ── 3. Merchant welcome — atomic claim-then-dispatch ──────────────────
+    // ── 4. Merchant welcome — atomic claim-then-dispatch ──────────────────
     // sendMerchantWelcomeEmail handles GHL contact upsert and SMTP fallback
     // internally; do NOT gate on contact.ghlContactId — call it for any contact.
     if (salesDeal.contactId) {

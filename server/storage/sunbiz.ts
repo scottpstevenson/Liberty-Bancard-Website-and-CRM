@@ -615,6 +615,27 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
   }
 
 
+  async getContactSourceBreakdown(): Promise<Array<{ source: string; contactCount: number; dealCount: number }>> {
+    const result = await db.execute(sql`
+      SELECT
+        COALESCE(NULLIF(TRIM(c.lead_source), ''), NULLIF(TRIM(c.referral_source), ''), 'unknown') AS source,
+        COUNT(DISTINCT c.id)::int AS contact_count,
+        COUNT(DISTINCT d.id)::int AS deal_count
+      FROM contacts c
+      LEFT JOIN deals d ON d.contact_id = c.id AND d.archived_at IS NULL
+      WHERE c.archived_at IS NULL
+      GROUP BY 1
+      ORDER BY contact_count DESC
+      LIMIT 30
+    `);
+    const rows = (result as any).rows || [];
+    return rows.map((row: any) => ({
+      source: String(row.source || "unknown"),
+      contactCount: Number(row.contact_count) || 0,
+      dealCount: Number(row.deal_count) || 0,
+    }));
+  }
+
   async getSunbizStats(listId?: number) {
     const condition = listId ? sql`list_id = ${listId}` : sql`1=1`;
     const result = await db.execute(sql`

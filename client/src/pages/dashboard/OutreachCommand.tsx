@@ -13,7 +13,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   Zap, RefreshCw, Mail, Phone, Target, TrendingUp, Users, Building2,
   Play, Square, Loader2, CheckCircle, Send, BarChart3, Pen, Settings,
-  Download, Upload, ArrowRightLeft, AlertTriangle, Clock, Briefcase, Database
+  Download, Upload, ArrowRightLeft, AlertTriangle, Clock, Briefcase, Database, Layers
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -313,6 +313,49 @@ export default function OutreachCommand() {
               </div>
             </CardContent>
           </Card>
+
+          {s.sourceBreakdown && s.sourceBreakdown.length > 0 && (
+            <Card data-testid="card-source-breakdown">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <Layers className="w-4 h-4" /> Contact Sources
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b text-muted-foreground">
+                        <th className="text-left py-2 pr-4 font-medium">Source</th>
+                        <th className="text-right py-2 px-4 font-medium">Contacts</th>
+                        <th className="text-right py-2 px-4 font-medium">Deals</th>
+                        <th className="text-right py-2 pl-4 font-medium">Conversion</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {s.sourceBreakdown.map((row) => {
+                        const rate = row.contactCount > 0 ? Math.round((row.dealCount / row.contactCount) * 100) : 0;
+                        return (
+                          <tr key={row.source} className="border-b last:border-0 hover:bg-muted/30" data-testid={`source-row-${row.source}`}>
+                            <td className="py-2 pr-4">
+                              <code className="text-xs bg-muted px-1.5 py-0.5 rounded font-mono">{row.source}</code>
+                            </td>
+                            <td className="text-right py-2 px-4 font-medium">{row.contactCount.toLocaleString()}</td>
+                            <td className="text-right py-2 px-4 font-medium">{row.dealCount.toLocaleString()}</td>
+                            <td className="text-right py-2 pl-4">
+                              <span className={rate >= 50 ? "text-green-600 dark:text-green-400 font-medium" : rate >= 20 ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"}>
+                                {rate}%
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         <TabsContent value="import" className="space-y-4">

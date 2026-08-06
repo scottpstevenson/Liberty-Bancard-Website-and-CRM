@@ -1,5 +1,39 @@
 import { getStoredUTMParams } from "@/lib/utm";
 
+/**
+ * Fire a server-side phone_call_click analytics event.
+ * Call this from onClick on any tel: anchor.
+ */
+export async function trackPhoneCallClick(params: {
+  contactId?: number;
+  dealId?: number;
+  sourcePage?: string;
+}): Promise<void> {
+  try {
+    const sessionId =
+      typeof window !== "undefined"
+        ? (window.sessionStorage?.getItem("sessionId") ?? undefined)
+        : undefined;
+    const visitorId =
+      typeof window !== "undefined"
+        ? (window.localStorage?.getItem("visitorId") ?? undefined)
+        : undefined;
+    await fetch("/api/analytics/phone-call-click", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contactId: params.contactId,
+        dealId: params.dealId,
+        sourcePage: params.sourcePage ?? (typeof window !== "undefined" ? window.location.pathname : undefined),
+        sessionId,
+        visitorId,
+      }),
+    });
+  } catch {
+    // fire-and-forget — never throw
+  }
+}
+
 declare global {
   interface Window {
     gtag?: (...args: any[]) => void;

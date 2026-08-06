@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { api, buildUrl } from "@shared/routes";
+import { apiRequest } from "@/lib/queryClient";
 import type { z } from "zod";
 
 type CreateContactInput = z.infer<typeof api.contacts.create.input>;
@@ -40,14 +41,9 @@ export function useCreateContact() {
   const { toast } = useToast();
   return useMutation({
     mutationFn: async (data: CreateContactInput) => {
-      const res = await fetch(api.contacts.create.path, {
-        method: api.contacts.create.method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-        credentials: "include",
-      });
+      const res = await apiRequest(api.contacts.create.method as "POST", api.contacts.create.path, data);
       if (!res.ok) {
-        const error = await res.json();
+        const error = await res.json().catch(() => ({}));
         throw new Error(error.message || "Failed to create contact");
       }
       return res.json();
@@ -65,14 +61,9 @@ export function useUpdateContact() {
   return useMutation({
     mutationFn: async ({ id, ...updates }: { id: number } & UpdateContactInput) => {
       const url = buildUrl(api.contacts.update.path, { id });
-      const res = await fetch(url, {
-        method: api.contacts.update.method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updates),
-        credentials: "include",
-      });
+      const res = await apiRequest(api.contacts.update.method as "PATCH" | "PUT", url, updates);
       if (!res.ok) {
-        const error = await res.json();
+        const error = await res.json().catch(() => ({}));
         throw new Error(error.message || "Failed to update contact");
       }
       return res.json();

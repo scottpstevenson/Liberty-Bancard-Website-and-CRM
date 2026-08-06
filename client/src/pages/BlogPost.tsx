@@ -265,7 +265,7 @@ export default function BlogPost() {
                 return (
                   <div key={`section-with-nl-${index}`}>
                     {rendered}
-                    <NewsletterSignupInline variant="inline" />
+                    <NewsletterSignupInline variant="inline" sourceArticle={post.slug} />
                   </div>
                 );
               }
@@ -278,7 +278,7 @@ export default function BlogPost() {
             <ShareButtons title={post.title} description={post.excerpt} hashtags={["payments", "smallbusiness"]} />
           </div>
 
-          <NewsletterSignupInline variant="end" />
+          <NewsletterSignupInline variant="end" sourceArticle={post.slug} />
 
           <div className="border-t border-border mt-12 pt-8">
             <div className="flex flex-col sm:flex-row justify-between gap-4">

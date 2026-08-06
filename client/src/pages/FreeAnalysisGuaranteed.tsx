@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "wouter";
+import { trackPhoneCallClick } from "@/lib/analytics";
 import { SEO } from "@/components/SEO";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
@@ -194,7 +195,7 @@ export default function FreeAnalysisGuaranteed() {
                   <ArrowRight className="w-4 h-4 ml-2" />
                 </Button>
               </Link>
-              <a href="tel:9542668214" data-testid="link-hero-phone">
+              <a href="tel:9542668214" data-testid="link-hero-phone" onClick={() => trackPhoneCallClick({ sourcePage: "/free-analysis-guaranteed" })}>
                 <Button variant="outline" size="lg">
                   <Phone className="w-4 h-4 mr-2" />
                   Call 954-266-8214

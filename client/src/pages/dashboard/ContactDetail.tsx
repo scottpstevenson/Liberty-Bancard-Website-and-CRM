@@ -6,6 +6,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import type { Contact, Deal, Ticket as TicketType, Task as TaskType, Note, Company, ContactCompany, Document, Agent } from "@shared/schema";
+import { VERTICALS } from "@shared/schema";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -170,6 +171,131 @@ function ConfirmationStatusSection({
                         {sub.safeReason && (
                           <p className="text-red-400">{sub.safeReason}</p>
                         )}
+                      </div>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              ))}
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ── ZeroBounce Validation History ────────────────────────────────────────────
+interface ZbHistoryEntry {
+  validatedAt: string;
+  status: string | null;
+  subStatus: string | null;
+  email: string | null;
+  source: string | null;
+}
+
+function ZeroBounceHistorySection({ contactId }: { contactId: number }) {
+  const [open, setOpen] = useState(false);
+
+  const { data: history = [], isLoading } = useQuery<ZbHistoryEntry[]>({
+    queryKey: ["/api/contacts", contactId, "zerobounce-history"],
+    queryFn: async () => {
+      const r = await fetch(`/api/contacts/${contactId}/zerobounce-history`);
+      if (!r.ok) throw new Error("Failed to load validation history");
+      return r.json();
+    },
+    staleTime: 60_000,
+  });
+
+  const latest = history[0] ?? null;
+  const older = history.slice(1);
+
+  const statusLabel = (s: string | null) => {
+    if (!s) return "Unknown";
+    return s.charAt(0).toUpperCase() + s.slice(1);
+  };
+
+  const isNegative = (s: string | null) =>
+    s === "invalid" || s === "bounced" || s === "unsafe" || s === "do_not_mail";
+
+  const statusCls = (s: string | null) =>
+    isNegative(s)
+      ? "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200"
+      : s === "valid"
+      ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
+      : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300";
+
+  return (
+    <Card data-testid="section-zerobounce-history">
+      <CardContent className="pt-4 pb-4">
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground shrink-0">
+              <ShieldCheck className="h-4 w-4" />
+              <span>Email Validation:</span>
+            </div>
+
+            {isLoading ? (
+              <span className="text-xs text-muted-foreground">Loading…</span>
+            ) : !latest ? (
+              <Badge variant="secondary" data-testid="badge-zb-not-validated">Not yet validated</Badge>
+            ) : (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Badge
+                      className={`border-0 gap-1 cursor-default ${statusCls(latest.status)}`}
+                      data-testid="badge-zb-latest-status"
+                    >
+                      {isNegative(latest.status) && <AlertCircle className="h-3 w-3" />}
+                      {statusLabel(latest.status)}
+                      {latest.subStatus && (
+                        <span className="opacity-70 font-normal">· {latest.subStatus}</span>
+                      )}
+                    </Badge>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    <div className="text-xs space-y-0.5">
+                      <p>{new Date(latest.validatedAt).toLocaleString()}</p>
+                      {latest.source && <p className="capitalize text-muted-foreground">via {latest.source}</p>}
+                    </div>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
+
+            {older.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setOpen((v) => !v)}
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                data-testid="button-zb-history-toggle"
+              >
+                {open ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                {older.length} earlier
+              </button>
+            )}
+          </div>
+
+          {open && older.length > 0 && (
+            <div className="flex flex-wrap gap-2 pl-6 pt-1" data-testid="section-zb-history-older">
+              {older.map((entry, idx) => (
+                <TooltipProvider key={idx}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Badge
+                        className={`border-0 gap-1 cursor-default opacity-70 ${statusCls(entry.status)}`}
+                        data-testid={`badge-zb-history-${idx}`}
+                      >
+                        {statusLabel(entry.status)}
+                        {entry.subStatus && (
+                          <span className="opacity-70 font-normal">· {entry.subStatus}</span>
+                        )}
+                      </Badge>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">
+                      <div className="text-xs space-y-0.5">
+                        <p>{new Date(entry.validatedAt).toLocaleString()}</p>
+                        {entry.source && <p className="capitalize text-muted-foreground">via {entry.source}</p>}
                       </div>
                     </TooltipContent>
                   </Tooltip>
@@ -1133,7 +1259,7 @@ export default function ContactDetail() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="_none" data-testid="option-vertical-none">No vertical</SelectItem>
-                      {["Restaurant", "Retail", "Healthcare", "Dental", "Med Spa", "Auto Repair", "Salon/Beauty", "Gym/Fitness", "Hotel/Lodging", "Landscaping", "Construction", "Legal"].map(v => (
+                      {VERTICALS.map(v => (
                         <SelectItem key={v} value={v} data-testid={`option-vertical-${v.toLowerCase().replace(/\W+/g, "-")}`}>{v}</SelectItem>
                       ))}
                     </SelectContent>
@@ -1369,6 +1495,9 @@ export default function ContactDetail() {
       {confirmationResult !== undefined && (
         <ConfirmationStatusSection confirmationResult={confirmationResult} />
       )}
+
+      {/* ZeroBounce Validation History */}
+      {contact.email && <ZeroBounceHistorySection contactId={contactId} />}
 
       {/* Tags */}
       <Card data-testid="section-tags">

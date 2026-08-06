@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Phone, X, MessageCircle, Loader2, CheckCircle } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { trackPhoneCallClick } from "@/lib/analytics";
 
 export function ContactBubble() {
   const [open, setOpen] = useState(false);
@@ -60,7 +61,7 @@ export function ContactBubble() {
                   Request Callback
                 </Button>
                 <div className="text-center">
-                  <a href="tel:9542668214" className="text-xs text-primary font-medium" data-testid="link-bubble-call">
+                  <a href="tel:9542668214" className="text-xs text-primary font-medium" data-testid="link-bubble-call" onClick={() => trackPhoneCallClick({ source: "contact_bubble" }).catch(() => {})}>
                     Or call 954-266-8214
                   </a>
                 </div>

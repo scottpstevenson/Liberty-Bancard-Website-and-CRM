@@ -1,3 +1,4 @@
+import React from "react";
 import { useQueryClient, useMutation, useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -8,7 +9,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Loader2, Link2, Copy, Mail, ChevronDown, Eye, FileText, CheckCircle2, Send, ExternalLink, ClipboardList, BarChart2, AlertCircle, Clock } from "lucide-react";
+import { Loader2, Link2, Copy, Mail, ChevronDown, Eye, FileText, CheckCircle2, Send, ExternalLink, ClipboardList, BarChart2, AlertCircle, Clock, RefreshCw } from "lucide-react";
 import type { Deal, Agent } from "@shared/schema";
 import BoardingPanel from "@/components/BoardingPanel";
 import { DealAgentAssignment } from "./DealAgentAssignment";
@@ -52,9 +53,14 @@ interface AnalysisProposal {
 interface AnalysisData {
   analysisStatus: string;
   proposal: AnalysisProposal | null;
+  hasStatementDoc?: boolean;
 }
 
 function StatementAnalysisSection({ dealId, analysisStatus }: { dealId: number; analysisStatus: string | null }) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [reanalyzeCooledDown, setReanalyzeCooledDown] = React.useState(false);
+
   const { data, isLoading } = useQuery<AnalysisData>({
     queryKey: ["/api/deals", dealId, "analysis"],
     queryFn: async () => {
@@ -66,16 +72,37 @@ function StatementAnalysisSection({ dealId, analysisStatus }: { dealId: number; 
     refetchInterval: analysisStatus === "pending" || analysisStatus === "processing" ? 8000 : false,
   });
 
-  if (isLoading) return (
-    <div className="flex items-center gap-2 py-2 text-xs text-muted-foreground">
-      <Loader2 className="w-3 h-3 animate-spin" /> Loading analysis...
-    </div>
-  );
+  const hasStatementDoc = data?.hasStatementDoc ?? false;
+
+  const reanalyzeMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`/api/deals/${dealId}/reanalyze-statement`, { method: "POST" });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.message ?? "Failed to queue re-analysis");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Re-analysis queued", description: "Results will appear shortly." });
+      setReanalyzeCooledDown(true);
+      // Refresh analysis status after queuing
+      queryClient.invalidateQueries({ queryKey: ["/api/deals", dealId, "analysis"] });
+      // Re-enable button after 5 minutes
+      setTimeout(() => setReanalyzeCooledDown(false), 5 * 60 * 1000);
+    },
+    onError: (err: Error) => {
+      toast({ title: "Re-analysis failed", description: err.message, variant: "destructive" });
+    },
+  });
 
   const proposal = data?.proposal;
   const currentStatus = data?.analysisStatus ?? analysisStatus ?? "none";
 
-  if (currentStatus === "none" && !proposal) return null;
+  // Don't show spinner unless there's likely something to show (pending deal status)
+  if (isLoading && currentStatus === "none") return null;
+
+  if (currentStatus === "none" && !proposal && !hasStatementDoc) return null;
 
   const statusBadge = () => {
     if (currentStatus === "pending" || currentStatus === "processing") {
@@ -120,10 +147,29 @@ function StatementAnalysisSection({ dealId, analysisStatus }: { dealId: number; 
 
   return (
     <div className="mt-4 pt-4 border-t space-y-2" data-testid={`section-statement-analysis-${dealId}`}>
-      <div className="flex items-center gap-2 mb-2">
-        <BarChart2 className="w-4 h-4 text-indigo-600" />
-        <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Statement Analysis</h4>
-        {statusBadge()}
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <BarChart2 className="w-4 h-4 text-indigo-600" />
+          <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Statement Analysis</h4>
+          {statusBadge()}
+        </div>
+        {hasStatementDoc && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 px-2 text-[10px] text-muted-foreground hover:text-foreground"
+            disabled={reanalyzeMutation.isPending || reanalyzeCooledDown}
+            onClick={() => reanalyzeMutation.mutate()}
+            data-testid={`button-reanalyze-statement-${dealId}`}
+          >
+            {reanalyzeMutation.isPending ? (
+              <Loader2 className="w-3 h-3 animate-spin mr-1" />
+            ) : (
+              <RefreshCw className="w-3 h-3 mr-1" />
+            )}
+            Re-analyze
+          </Button>
+        )}
       </div>
 
       {(currentStatus === "pending" || currentStatus === "processing") && (

@@ -22,6 +22,7 @@ import {
   Trophy, TrendingDown, Minus, Crown, Medal, Award, Smartphone, QrCode, Calculator,
 } from "lucide-react";
 import { SALES_STAGES } from "@shared/schema";
+import { trackPhoneCallClick } from "@/lib/analytics";
 
 interface Appointment {
   id: string;
@@ -902,6 +903,7 @@ export default function SalesRepHome() {
                               href={`tel:${contact.phone}`}
                               className="flex items-center gap-1 hover:text-primary"
                               data-testid={`link-call-${contact.id}`}
+                              onClick={() => trackPhoneCallClick({ contactId: contact.id, sourcePage: "/dashboard/sales-rep" })}
                             >
                               <Phone className="w-3 h-3" />
                               {formatPhone(contact.phone)}

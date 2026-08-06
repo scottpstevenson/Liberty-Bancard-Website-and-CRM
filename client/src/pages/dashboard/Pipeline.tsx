@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
+import { formatDistanceToNow } from "date-fns";
 import { useSearch, useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -301,7 +302,11 @@ function SortableDealCard({
           })()}
           {proposals && proposals.length > 0 ? (() => {
             const accepted = proposals.some(p => p && p.status === "accepted");
-            const viewed = proposals.some(p => p && ((p as any).viewCount > 0 || p.status === "viewed"));
+            const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+            // Find the most recently viewed proposal within the last 7 days
+            const recentlyViewedProposal = proposals
+              .filter(p => p && ((p as any).viewCount > 0 || p.status === "viewed") && p.viewedAt && new Date(p.viewedAt).getTime() >= sevenDaysAgo)
+              .sort((a, b) => new Date(b.viewedAt!).getTime() - new Date(a.viewedAt!).getTime())[0];
             if (accepted) {
               return (
                 <Badge variant="outline" className="text-xs bg-green-100 text-green-800 border-green-200 no-default-hover-elevate no-default-active-elevate" data-testid={`badge-proposal-accepted-${deal.id}`}>
@@ -309,10 +314,18 @@ function SortableDealCard({
                 </Badge>
               );
             }
-            if (viewed) {
+            if (recentlyViewedProposal) {
+              const viewedAgo = formatDistanceToNow(new Date(recentlyViewedProposal.viewedAt!), { addSuffix: true });
+              const viewCount = (recentlyViewedProposal as any).viewCount || 1;
               return (
-                <Badge variant="outline" className="text-xs bg-amber-100 text-amber-800 border-amber-200 no-default-hover-elevate no-default-active-elevate" data-testid={`badge-proposal-viewed-${deal.id}`}>
-                  Proposal Viewed
+                <Badge
+                  variant="outline"
+                  className="text-xs bg-amber-50 text-amber-800 border-amber-300 no-default-hover-elevate no-default-active-elevate"
+                  data-testid={`badge-proposal-viewed-${deal.id}`}
+                  title={`Proposal viewed ${viewCount} time${viewCount !== 1 ? "s" : ""} — last opened ${viewedAgo}`}
+                >
+                  <span className="mr-1">👁</span>
+                  Viewed {viewedAgo}
                 </Badge>
               );
             }

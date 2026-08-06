@@ -28,6 +28,7 @@ export interface OutreachStatus {
   deals: { total: number; fromSunbiz: number; newLead: number; contacted: number; qualified: number; won: number };
   activeCampaigns: number;
   verticalBreakdown: Record<string, number>;
+  sourceBreakdown: Array<{ source: string; contactCount: number; dealCount: number }>;
   ghlSync: { configured: boolean; totalContacts: number; syncedToGhl: number; unsyncedToGhl: number; lastSyncTo: any; lastSyncFrom: any };
   importProgress: { status: string; totalProcessed?: number; totalImported?: number; totalDuplicates?: number; totalSkipped?: number; error?: string };
   cordataProgress: { status: string; totalProcessed?: number; totalUpdated?: number; totalNew?: number; totalSkipped?: number; error?: string };

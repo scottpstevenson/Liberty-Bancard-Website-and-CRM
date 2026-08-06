@@ -1,4 +1,16 @@
 /**
+ * ONE-TIME MIGRATION — run once, do not re-run.
+ * Status: COMPLETED Aug 2026
+ * What it did: Rewrote anchor CTA hrefs in sequence_steps email bodies —
+ *   replaced incorrect GHL calendar booking URLs with the correct destination
+ *   URLs (upload-statement, get-started, shop, free-analysis, etc.)
+ *   based on the button label text. Also updated variant_b_body for A/B steps.
+ * Safe to re-run? NO — will silently re-process all matching rows again.
+ *
+ * Archived to scripts/archive/ so it is never accidentally re-run.
+ */
+
+/**
  * Reroute sequence email CTA buttons from the GHL calendar booking URL
  * to the correct destination based on button label intent.
  *

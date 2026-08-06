@@ -10,16 +10,19 @@ import { Link } from "wouter";
 
 interface NewsletterSignupInlineProps {
   variant?: "inline" | "end";
+  sourceArticle?: string;
 }
 
-export function NewsletterSignupInline({ variant = "inline" }: NewsletterSignupInlineProps) {
+export function NewsletterSignupInline({ variant = "inline", sourceArticle }: NewsletterSignupInlineProps) {
   const [firstName, setFirstName] = useState("");
   const [email, setEmail] = useState("");
   const [submitted, setSubmitted] = useState(false);
 
   const subscribe = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/newsletter/subscribe", { firstName, email });
+      const payload: Record<string, string> = { firstName, email };
+      if (sourceArticle) payload.sourceArticle = sourceArticle;
+      const res = await apiRequest("POST", "/api/newsletter/subscribe", payload);
       return res.json();
     },
     onSuccess: () => {

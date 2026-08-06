@@ -10,6 +10,10 @@ export const PHONE_CTA_CLICK = "phone_cta_click";
 export const BOOKING_CTA_CLICK = "booking_cta_click";
 export const STATEMENT_UPLOAD_CTA_CLICK = "statement_upload_cta_click";
 
+// ─── CRM Phone-Call Events ────────────────────────────────────────────────────
+/** Fired when a rep or merchant clicks a tel: link to initiate a call */
+export const PHONE_CALL_CLICK = "phone_call_click";
+
 // ─── Statement Upload Funnel ──────────────────────────────────────────────────
 export const STATEMENT_UPLOAD_STARTED = "statement_upload_started";
 /** Canonical completion event — tracked as statement_upload_completed in GA4 */
@@ -86,6 +90,7 @@ export const ALL_CANONICAL_EVENTS = new Set([
   SEQUENCE_STEP_BLOCKED,
   CHANNEL_ALLOWED,
   CHANNEL_BLOCKED,
+  PHONE_CALL_CLICK,
 ]);
 
 // ─── Payload Type ─────────────────────────────────────────────────────────────

@@ -708,7 +708,7 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
 
         const interpolate = (text: string | null | undefined): string => {
           if (!text) return "";
-          return text
+          const result = text
             .replace(/\{\{firstName\}\}/g, firstName)
             .replace(/\{\{lastName\}\}/g, lastName)
             .replace(/\{\{companyName\}\}/g, companyName)
@@ -731,6 +731,16 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
             .replace(/\{\{calendarLink\}\}/g, calendarLink)
             .replace(/\{\{contact\.vertical\}\}/g, industry)
             .replace(/\{\{vertical\}\}/g, industry);
+          // Safety net: warn if any raw {{...}} template syntax survived substitution
+          const remaining = result.match(/\{\{[^}]+\}\}/g);
+          if (remaining) {
+            console.warn(
+              `[Sequence Worker] Unresolved template placeholders in outbound message ` +
+              `(enrollment ${enrollment.id}, step ${step.stepOrder}, contact ${enrollment.contactId}): ` +
+              remaining.join(", ")
+            );
+          }
+          return result;
         };
 
         let stepExecuted = false;

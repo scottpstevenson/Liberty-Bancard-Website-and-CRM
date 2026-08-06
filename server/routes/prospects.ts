@@ -414,6 +414,42 @@ export function registerProspectsRoutes(app: Express) {
     }
   });
 
+  /**
+   * POST /api/prospects/convert-batch
+   *
+   * BATCH CONVERSION — PER-ITEM ISOLATION CONTRACT
+   * ================================================
+   * This handler converts up to 50 prospects in a single request while
+   * guaranteeing that one failure CANNOT abort or corrupt the remaining items.
+   *
+   * Key invariants — DO NOT break these:
+   *
+   * 1. ISOLATION: Every prospect is processed inside its own inner try/catch
+   *    (lines ~511–626). The catch block pushes a { status: "failed" } result
+   *    and then the loop continues — it does NOT re-throw.
+   *
+   * 2. COMPLETE RESULTS: Every input ID receives exactly one entry in `results[]`
+   *    before the loop moves on (via results.push(...) + continue, or the
+   *    success push at the bottom of the try block). The final response always
+   *    contains one result per requested ID.
+   *
+   * 3. HTTP 200 ALWAYS: res.json() is called unconditionally after the loop.
+   *    The outer try/catch only fires for structural errors (bad request body,
+   *    auth failures) that occur before the loop starts — individual item
+   *    failures never reach the outer catch.
+   *
+   * 4. CLAIM RELEASE ON FAILURE: The inner catch always calls
+   *    releaseClaimWithError(...).catch(() => {}) so a failed item never leaves
+   *    a prospect stuck in "claimed" status. The .catch(() => {}) on the release
+   *    itself prevents a release failure from propagating.
+   *
+   * 5. DB LOAD SAFEGUARD: Any unexpected error thrown by storage, writeContact,
+   *    completeConversionTransaction, etc. is caught by the inner try/catch and
+   *    recorded as status:"failed" for that item. The batch as a whole still
+   *    returns 200 with a full results array and summary counts.
+   *
+   * Cap: rawIds.slice(0, 50) enforces a hard maximum of 50 items per request.
+   */
   app.post("/api/prospects/convert-batch", isDashboardUser, async (req, res) => {
     try {
       const { prospectIds: rawIds, override } = req.body as { prospectIds: number[]; override?: { enabled?: boolean; reason?: string } };

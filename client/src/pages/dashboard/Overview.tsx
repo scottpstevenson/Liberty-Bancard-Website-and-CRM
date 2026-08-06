@@ -103,9 +103,9 @@ export default function Overview() {
     revenue: { totalEstVolume: number; totalEstResidual: number; totalEstProfit: number; avgDealProfit: number };
   }>({ queryKey: ["/api/kpi/summary"], refetchInterval: 30000 });
 
-  const { data: contactsResult } = useQuery<{ data: Contact[]; total: number }>({ queryKey: ["/api/contacts"], refetchInterval: 30000 });
+  const { data: contactsResult, isLoading: contactsLoading } = useQuery<{ data: Contact[]; total: number }>({ queryKey: ["/api/contacts"], refetchInterval: 30000 });
   const contacts = contactsResult?.data;
-  const { data: dealsResult } = useQuery<{ data: Deal[]; total: number }>({ queryKey: ["/api/deals"], refetchInterval: 30000 });
+  const { data: dealsResult, isLoading: dealsLoading } = useQuery<{ data: Deal[]; total: number }>({ queryKey: ["/api/deals"], refetchInterval: 30000 });
   const deals = dealsResult?.data;
 
   const { data: pipelineStats } = useQuery<{
@@ -407,11 +407,11 @@ export default function Overview() {
                 {leadSources?.sources && leadSources.sources.length > 0 ? (
                   <div className="space-y-3">
                     {leadSources.sources.map((src) => (
-                      <div key={src.source} className="flex items-center justify-between gap-2 text-sm" data-testid={`source-row-${src.source}`}>
+                      <div key={src.source} className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-sm" data-testid={`source-row-${src.source}`}>
                         <div className="flex items-center gap-2 min-w-0">
                           <Badge variant="secondary" className="text-xs shrink-0">{src.source}</Badge>
                         </div>
-                        <div className="flex items-center gap-3 text-xs text-muted-foreground shrink-0">
+                        <div className="flex items-center gap-3 text-xs text-muted-foreground">
                           <span>{src.leads} leads</span>
                           <span>{src.deals} deals</span>
                           <span className="font-medium text-foreground">{src.conversionRate}%</span>
@@ -483,26 +483,37 @@ export default function Overview() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
-                  {recentContacts.map((contact: Contact) => (
-                    <div key={contact.id} className="flex items-center justify-between gap-3 p-3 rounded-md hover-elevate transition-colors" data-testid={`row-contact-${contact.id}`}>
-                      <div className="flex items-center gap-3 min-w-0">
-                        <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-sm shrink-0">
-                          {contact.firstName[0]}{contact.lastName[0]}
-                        </div>
-                        <div className="min-w-0">
-                          <div className="font-medium text-sm truncate" data-testid={`text-contact-name-${contact.id}`}>{contact.firstName} {contact.lastName}</div>
-                          <div className="text-xs text-muted-foreground truncate">
-                            {contact.companyName || contact.email}
-                            {contact.utmSource && <span className="ml-1 text-primary/70">({contact.utmSource})</span>}
-                          </div>
+                  {contactsLoading ? (
+                    Array.from({ length: 3 }).map((_, i) => (
+                      <div key={i} className="flex items-center gap-3 p-3 animate-pulse">
+                        <div className="w-9 h-9 rounded-full bg-muted shrink-0" />
+                        <div className="flex-1 space-y-1.5">
+                          <div className="h-3 bg-muted rounded w-32" />
+                          <div className="h-2.5 bg-muted rounded w-48" />
                         </div>
                       </div>
-                      <Badge variant="secondary" className="shrink-0" data-testid={`badge-contact-status-${contact.id}`}>
-                        {contact.status}
-                      </Badge>
-                    </div>
-                  ))}
-                  {recentContacts.length === 0 && (
+                    ))
+                  ) : recentContacts.length > 0 ? (
+                    recentContacts.map((contact: Contact) => (
+                      <div key={contact.id} className="flex items-center justify-between gap-3 p-3 rounded-md hover-elevate transition-colors" data-testid={`row-contact-${contact.id}`}>
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-sm shrink-0">
+                            {contact.firstName?.[0] ?? '?'}{contact.lastName?.[0] ?? ''}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="font-medium text-sm truncate" data-testid={`text-contact-name-${contact.id}`}>{contact.firstName} {contact.lastName}</div>
+                            <div className="text-xs text-muted-foreground truncate">
+                              {contact.companyName || contact.email}
+                              {contact.utmSource && <span className="ml-1 text-primary/70">({contact.utmSource})</span>}
+                            </div>
+                          </div>
+                        </div>
+                        <Badge variant="secondary" className="shrink-0" data-testid={`badge-contact-status-${contact.id}`}>
+                          {contact.status}
+                        </Badge>
+                      </div>
+                    ))
+                  ) : (
                     <div className="text-center text-muted-foreground py-8" data-testid="text-no-contacts">No recent contacts</div>
                   )}
                 </div>
@@ -515,21 +526,32 @@ export default function Overview() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
-                  {activeDeals.map((deal: Deal) => (
-                    <div key={deal.id} className="flex items-center justify-between gap-3 p-3 rounded-md hover-elevate transition-colors" data-testid={`row-deal-${deal.id}`}>
-                      <div className="min-w-0">
-                        <div className="font-medium text-sm" data-testid={`text-deal-id-${deal.id}`}>Deal #{deal.id}</div>
-                        <div className="text-xs text-muted-foreground">
-                          {deal.offerPath || "No offer path"}
-                          {deal.leadSource && <span className="ml-1 text-primary/70">({deal.leadSource})</span>}
+                  {dealsLoading ? (
+                    Array.from({ length: 3 }).map((_, i) => (
+                      <div key={i} className="flex items-center gap-3 p-3 animate-pulse">
+                        <div className="flex-1 space-y-1.5">
+                          <div className="h-3 bg-muted rounded w-24" />
+                          <div className="h-2.5 bg-muted rounded w-40" />
                         </div>
+                        <div className="h-5 bg-muted rounded w-20" />
                       </div>
-                      <Badge variant="outline" className="shrink-0" data-testid={`badge-deal-stage-${deal.id}`}>
-                        {deal.stage}
-                      </Badge>
-                    </div>
-                  ))}
-                  {activeDeals.length === 0 && (
+                    ))
+                  ) : activeDeals.length > 0 ? (
+                    activeDeals.map((deal: Deal) => (
+                      <div key={deal.id} className="flex items-center justify-between gap-3 p-3 rounded-md hover-elevate transition-colors" data-testid={`row-deal-${deal.id}`}>
+                        <div className="min-w-0">
+                          <div className="font-medium text-sm" data-testid={`text-deal-id-${deal.id}`}>Deal #{deal.id}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {deal.offerPath || "No offer path"}
+                            {deal.leadSource && <span className="ml-1 text-primary/70">({deal.leadSource})</span>}
+                          </div>
+                        </div>
+                        <Badge variant="outline" className="shrink-0" data-testid={`badge-deal-stage-${deal.id}`}>
+                          {deal.stage}
+                        </Badge>
+                      </div>
+                    ))
+                  ) : (
                     <div className="text-center text-muted-foreground py-8" data-testid="text-no-deals">No active deals</div>
                   )}
                 </div>
