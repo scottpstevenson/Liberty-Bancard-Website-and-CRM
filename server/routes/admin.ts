@@ -2338,8 +2338,7 @@ export function registerAdminRoutes(app: Express) {
       const user = _req.user as any;
       const result = await runDatabaseBackup(`manual:${user?.email || "admin"}`);
       if (!result.ok) {
-        const { persistAlert } = await import("../services/alert-feed");
-        await persistAlert({ severity: "critical", subsystem: "db-backup", summary: `Backup failed: ${result.error}` });
+        // runDatabaseBackup already fires a critical alert internally — no duplicate needed here
         console.error("[Admin] Manual backup failed:", result.error);
         return res.status(500).json({ ok: false, error: safeMessage(result.error, "Backup failed") });
       }
@@ -2452,12 +2451,14 @@ export function registerAdminRoutes(app: Express) {
         } catch { return { createdAt: null, details: null }; }
       }
 
-      const [lastGhlSync, lastTestEmail, lastWebhookEvent, lastSunbizRun, lastClassification] = await Promise.all([
+      const [lastGhlSync, lastTestEmail, lastWebhookEvent, lastSunbizRun, lastClassification, lastBackupSuccess, lastBackupFailed] = await Promise.all([
         lastAuditEntry(["ghl_sync_completed", "GHL_SYNC_TICK_COMPLETE", "ghl_sync_contacts"]),
         lastAuditEntry(["integration_readiness_test_email"]),
         lastAuditEntry(["webhook_received", "ghl_webhook_received", "inbound_message_processed"]),
         lastAuditEntry(["sunbiz_enrichment_completed", "sunbiz_batch_enriched", "sunbiz_enrichment_run"]),
         lastAuditEntry(["inbox_classified", "intent_classified", "reply_classified"]),
+        lastAuditEntry(["db_backup_success"]),
+        lastAuditEntry(["db_backup_failed"]),
       ]);
 
       // ── Active cohort size ────────────────────────────────────────────────────
@@ -2558,7 +2559,7 @@ export function registerAdminRoutes(app: Express) {
         { id: "gmail_oauth", label: "Gmail OAuth connected", pass: gmailConnected, detail: gmailConnected ? `Connected: ${gmailEmail ?? "email not retrieved"}` : "OAuth not completed", ownerAction: !gmailConnected ? "Complete Gmail OAuth on Outbound Readiness page" : undefined },
         { id: "queues", label: "All queues registered", pass: queueMetrics.length >= 8, detail: `${queueMetrics.length} queues registered` },
         { id: "dlq_clean", label: "Dead letter queue empty", pass: dlqCount === 0, detail: dlqCount > 0 ? `${dlqCount} failed jobs in DLQ — investigate before launch` : "No failed jobs" },
-        { id: "backups", label: "Backup artifact exists", pass: backups.length > 0, detail: backups.length > 0 ? `${backups.length} backup(s) — latest: ${backups[0]?.filename}` : "No backups yet — run a manual backup", ownerAction: backups.length === 0 ? "Trigger POST /api/admin/backups/run to create first backup" : undefined },
+        { id: "backups", label: "Backup artifact exists", pass: backups.length > 0, detail: backups.length > 0 ? `${backups.length} backup(s) — latest: ${backups[0]?.name}` : "No backups yet — run a manual backup", ownerAction: backups.length === 0 ? "Trigger POST /api/admin/backups/run to create first backup" : undefined },
         { id: "no_critical_alerts", label: "No unacknowledged critical alerts", pass: criticalAlerts.length === 0, detail: criticalAlerts.length > 0 ? `${criticalAlerts.length} critical alert(s) need acknowledgement` : "Clean" },
         { id: "app_url_secret", label: "APP_URL secret set", pass: !!process.env.APP_URL, detail: process.env.APP_URL ? "Set" : "Not set — email links may point to wrong host", ownerAction: !process.env.APP_URL ? "Set APP_URL=https://<your-deployment-domain> in Replit Secrets" : undefined },
         { id: "ai_key", label: "AI / OpenAI key set", pass: !!process.env.AI_INTEGRATIONS_OPENAI_API_KEY, detail: process.env.AI_INTEGRATIONS_OPENAI_API_KEY ? "Set" : "Not set — AI enrichment, intent classification, proposals will fail", ownerAction: !process.env.AI_INTEGRATIONS_OPENAI_API_KEY ? "Set AI_INTEGRATIONS_OPENAI_API_KEY in Replit Secrets" : undefined },
@@ -2726,6 +2727,35 @@ export function registerAdminRoutes(app: Express) {
             { key: "Error", value: lastQueueFailure?.lastError ?? "—" },
           ],
           detail: lastQueueFailure ? `Last failure: ${lastQueueFailure.name} @ ${lastQueueFailure.lastFailedAt}` : "No queue failures",
+        },
+        {
+          id: "db_backup", label: "DB Backup", icon: "HardDrive",
+          status: (() => {
+            if (!lastBackupSuccess.createdAt) return "warn";
+            // Warn if last successful backup is more than 26 hours ago (missed nightly window)
+            const ageMs = Date.now() - new Date(lastBackupSuccess.createdAt).getTime();
+            if (ageMs > 26 * 60 * 60 * 1000) return "warn";
+            // Fail if the last event was a failure
+            if (lastBackupFailed.createdAt && (!lastBackupSuccess.createdAt || new Date(lastBackupFailed.createdAt) > new Date(lastBackupSuccess.createdAt))) return "fail";
+            return "pass";
+          })(),
+          metrics: [
+            { key: "Last success", value: lastBackupSuccess.createdAt ? new Date(lastBackupSuccess.createdAt).toLocaleString() : "Never" },
+            { key: "Last failure", value: lastBackupFailed.createdAt ? new Date(lastBackupFailed.createdAt).toLocaleString() : "None recorded" },
+            { key: "Files on disk", value: backups.length },
+            { key: "Latest file", value: backups[0]?.name ?? "—" },
+            { key: "Latest size", value: backups[0] ? `${(backups[0].sizeBytes / 1024 / 1024).toFixed(1)} MB` : "—" },
+          ],
+          detail: (() => {
+            if (!lastBackupSuccess.createdAt) return "No successful backup on record — trigger a manual backup from Launch Readiness";
+            const ageMs = Date.now() - new Date(lastBackupSuccess.createdAt).getTime();
+            const ageHours = Math.round(ageMs / 3600000);
+            if (lastBackupFailed.createdAt && new Date(lastBackupFailed.createdAt) > new Date(lastBackupSuccess.createdAt)) {
+              return `Last backup FAILED at ${new Date(lastBackupFailed.createdAt).toLocaleString()} — last success was ${ageHours}h ago`;
+            }
+            return `Last backup: ${new Date(lastBackupSuccess.createdAt).toLocaleString()} (${ageHours}h ago) · ${backups.length} file(s) on disk`;
+          })(),
+          ownerAction: !lastBackupSuccess.createdAt ? "Trigger POST /api/admin/backups/run to create first backup" : undefined,
         },
       ];
 

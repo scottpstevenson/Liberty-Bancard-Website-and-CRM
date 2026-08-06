@@ -47,6 +47,7 @@ import {
   Inbox,
   TestTube,
   Cpu,
+  HardDrive,
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -190,7 +191,7 @@ const SUBSYSTEM_ICONS: Record<string, React.ComponentType<{ className?: string }
 const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
   Globe, Database, Cpu, Mail, Phone, Search, Brain, Radio, Shield,
   Activity, Gauge, Inbox, AlertTriangle, AlertCircle, TestTube, Webhook,
-  RefreshCw,
+  RefreshCw, HardDrive,
 };
 
 function SubsystemIcon({ name, className }: { name: string; className?: string }) {
@@ -818,7 +819,7 @@ function InfraGates() {
               <div className="space-y-2">
                 {(data.backups ?? []).map((b: any, i: number) => (
                   <div key={i} className="text-sm">
-                    <div className="font-mono text-xs truncate">{b.filename}</div>
+                    <div className="font-mono text-xs truncate">{b.name ?? b.filename}</div>
                     <div className="text-xs text-muted-foreground">
                       {(b.sizeBytes / 1024).toFixed(1)} KB{b.triggeredBy && ` · ${b.triggeredBy}`}
                     </div>
