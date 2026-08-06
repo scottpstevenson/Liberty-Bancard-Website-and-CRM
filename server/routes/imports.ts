@@ -335,6 +335,7 @@ Guidelines:
     xml += `  <sitemap><loc>${baseUrl}/sitemap-blog.xml</loc><lastmod>${today}</lastmod></sitemap>\n`;
     xml += `  <sitemap><loc>${baseUrl}/sitemap-locations.xml</loc><lastmod>${today}</lastmod></sitemap>\n`;
     xml += `  <sitemap><loc>${baseUrl}/sitemap-compare.xml</loc><lastmod>${today}</lastmod></sitemap>\n`;
+    xml += `  <sitemap><loc>${baseUrl}/sitemap-glossary.xml</loc><lastmod>${today}</lastmod></sitemap>\n`;
     xml += `</sitemapindex>`;
 
     res.set("Content-Type", "application/xml");
