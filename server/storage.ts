@@ -780,6 +780,7 @@ function normalizePagination(params?: PaginationParams): { limit: number; offset
 
 export interface DatabaseStorage extends ContactsStorage, DealsStorage, TicketsStorage, TasksStorage, DocumentsStorage, AuditStorage, NotificationsStorage, WorkflowsStorage, TemplatesStorage, ProspectsStorage, CampaignsStorage, NotesStorage, CommLogsStorage, AutomationStorage, SunbizStorage, MerchantsStorage, ResidualsStorage, HealthStorage, PartnersStorage, ReviewsStorage, MiscStorage, RateReviewStorage, BusinessesStorage, SdrStorage, PartnerOrgsStorage, ContentStorage, ChurnStorage, RelationshipsStorage, UnderwritingStorage, SystemAuditStorage {}
 
+// @ts-ignore -- methods are injected at runtime by applyMixins below
 export class DatabaseStorage implements IStorage {}
 
 applyMixins(DatabaseStorage, [ContactsStorage, DealsStorage, TicketsStorage, TasksStorage, DocumentsStorage, AuditStorage, NotificationsStorage, WorkflowsStorage, TemplatesStorage, ProspectsStorage, CampaignsStorage, NotesStorage, CommLogsStorage, AutomationStorage, SunbizStorage, MerchantsStorage, ResidualsStorage, HealthStorage, PartnersStorage, ReviewsStorage, MiscStorage, RateReviewStorage, BusinessesStorage, SdrStorage, PartnerOrgsStorage, ContentStorage, ChurnStorage, RelationshipsStorage, UnderwritingStorage, SystemAuditStorage]);

@@ -245,8 +245,8 @@ export async function previewNewLeadEnroll(): Promise<NewLeadEnrollPreviewResult
   const sequenceById = new Map(allSequences.map(s => [s.id, s]));
   const stepsBySequenceId = new Map<number, typeof sequenceSteps.$inferSelect[]>();
   for (const step of allSteps) {
-    if (!stepsBySequenceId.has(step.sequenceId)) stepsBySequenceId.set(step.sequenceId, []);
-    stepsBySequenceId.get(step.sequenceId)!.push(step);
+    if (!stepsBySequenceId.has(step.sequenceId!)) stepsBySequenceId.set(step.sequenceId!, []);
+    stepsBySequenceId.get(step.sequenceId!)!.push(step);
   }
 
   // Cached PEWC helper — uses pre-fetched steps, never hits DB
@@ -266,10 +266,10 @@ export async function previewNewLeadEnroll(): Promise<NewLeadEnrollPreviewResult
 
   const enrollmentsByContactId = new Map<number, typeof sequenceEnrollments.$inferSelect[]>();
   for (const enrollment of allEnrollments) {
-    if (!enrollmentsByContactId.has(enrollment.contactId)) {
-      enrollmentsByContactId.set(enrollment.contactId, []);
+    if (!enrollmentsByContactId.has(enrollment.contactId!)) {
+      enrollmentsByContactId.set(enrollment.contactId!, []);
     }
-    enrollmentsByContactId.get(enrollment.contactId)!.push(enrollment);
+    enrollmentsByContactId.get(enrollment.contactId!)!.push(enrollment);
   }
 
   // ── 4. Determine channel label from default sequence (from cache) ─────────
@@ -722,8 +722,8 @@ export async function runNewLeadAutoEnrollCheck(): Promise<void> {
   const sequencesById = new Map(allSequences.map(s => [s.id, s]));
   const stepsBySequenceId = new Map<number, typeof sequenceSteps.$inferSelect[]>();
   for (const step of allSteps) {
-    if (!stepsBySequenceId.has(step.sequenceId)) stepsBySequenceId.set(step.sequenceId, []);
-    stepsBySequenceId.get(step.sequenceId)!.push(step);
+    if (!stepsBySequenceId.has(step.sequenceId!)) stepsBySequenceId.set(step.sequenceId!, []);
+    stepsBySequenceId.get(step.sequenceId!)!.push(step);
   }
 
   // Cached PEWC helper — uses pre-fetched steps, never hits DB
@@ -743,10 +743,10 @@ export async function runNewLeadAutoEnrollCheck(): Promise<void> {
 
   const enrollmentsByContactId = new Map<number, typeof sequenceEnrollments.$inferSelect[]>();
   for (const enrollment of allEnrollments) {
-    if (!enrollmentsByContactId.has(enrollment.contactId)) {
-      enrollmentsByContactId.set(enrollment.contactId, []);
+    if (!enrollmentsByContactId.has(enrollment.contactId!)) {
+      enrollmentsByContactId.set(enrollment.contactId!, []);
     }
-    enrollmentsByContactId.get(enrollment.contactId)!.push(enrollment);
+    enrollmentsByContactId.get(enrollment.contactId!)!.push(enrollment);
   }
 
   // ── 4. Per-deal loop — zero DB calls for sequence/PEWC/enrollment lookups ─

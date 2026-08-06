@@ -45,7 +45,7 @@ export function registerSocialRoutes(app: Express) {
 
   app.get("/api/social/posts/:id", isAuthenticated, async (req, res) => {
     if (!isAdminOrManager(req)) return res.status(403).json({ error: "Admin/Manager only" });
-    const id = parseInt(req.params.id);
+    const id = parseInt(req.params.id as string);
     const post = await storage.getSocialPost(id);
     if (!post) return res.status(404).json({ error: "Not found" });
     res.json(post);
@@ -63,7 +63,7 @@ export function registerSocialRoutes(app: Express) {
 
   app.patch("/api/social/posts/:id", isAuthenticated, async (req, res) => {
     if (!isAdminOrManager(req)) return res.status(403).json({ error: "Admin/Manager only" });
-    const id = parseInt(req.params.id);
+    const id = parseInt(req.params.id as string);
     const updates: any = { ...req.body };
     if (updates.scheduledAt && typeof updates.scheduledAt === "string") {
       updates.scheduledAt = new Date(updates.scheduledAt);
@@ -75,14 +75,14 @@ export function registerSocialRoutes(app: Express) {
 
   app.delete("/api/social/posts/:id", isAuthenticated, async (req, res) => {
     if (!isAdminOrManager(req)) return res.status(403).json({ error: "Admin/Manager only" });
-    const id = parseInt(req.params.id);
+    const id = parseInt(req.params.id as string);
     await storage.deleteSocialPost(id);
     res.json({ success: true });
   });
 
   app.post("/api/social/posts/:id/publish", isAuthenticated, async (req, res) => {
     if (!isAdminOrManager(req)) return res.status(403).json({ error: "Admin/Manager only" });
-    const id = parseInt(req.params.id);
+    const id = parseInt(req.params.id as string);
     const post = await storage.getSocialPost(id);
     if (!post) return res.status(404).json({ error: "Not found" });
 

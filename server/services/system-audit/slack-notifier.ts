@@ -108,8 +108,8 @@ export async function sendCriticalAlert(probe: ProbeResult, context?: string): P
     const { persistAlert } = await import("../alert-feed");
     await persistAlert({
       severity: "critical",
-      subsystem: probe.name ?? "unknown",
-      summary: context ?? probe.error ?? "Critical alert fired",
+      subsystem: probe.subsystem ?? "unknown",
+      summary: context ?? probe.summary ?? "Critical alert fired",
       details: { probe },
     });
   } catch (_) {}

@@ -509,11 +509,12 @@ export function scorePriority(lead: SdrLeadState): ScoreResult {
   let score = 50;
   const factors: Record<string, number> = {};
 
-  if (lead.hasResponded) { score += 20; factors.responded = 20; }
-  if (lead.emailAttempts && lead.emailAttempts > 0 && !lead.hasResponded) { score -= 5; factors.unresponsiveOutreach = -5; }
+  const leadAny = lead as any;
+  if (leadAny.hasResponded) { score += 20; factors.responded = 20; }
+  if (lead.emailAttempts && lead.emailAttempts > 0 && !leadAny.hasResponded) { score -= 5; factors.unresponsiveOutreach = -5; }
   if (lead.stage === "ENRICHED" || lead.stage === "CLASSIFIED") { score += 10; factors.enrichedStage = 10; }
-  if (lead.lastActivityAt) {
-    const daysSinceActivity = (Date.now() - new Date(lead.lastActivityAt).getTime()) / (1000 * 60 * 60 * 24);
+  if (leadAny.lastActivityAt) {
+    const daysSinceActivity = (Date.now() - new Date(leadAny.lastActivityAt).getTime()) / (1000 * 60 * 60 * 24);
     if (daysSinceActivity < 7) { score += 15; factors.recentActivity = 15; }
     else if (daysSinceActivity < 30) { score += 5; factors.moderateActivity = 5; }
   }

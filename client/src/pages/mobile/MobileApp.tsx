@@ -109,7 +109,7 @@ function AvatarOverlay() {
   }
 
   const initials = getInitials(user.firstName, user.lastName);
-  const name = [user.firstName, user.lastName].filter(Boolean).join(" ") || user.email;
+  const name = [user.firstName, user.lastName].filter(Boolean).join(" ") || user.email || "";
   const avatarStyle = getAvatarStyle(name);
 
   return (

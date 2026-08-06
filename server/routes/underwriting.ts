@@ -180,7 +180,7 @@ export function registerUnderwritingRoutes(app: Express) {
     requireRole("admin", "manager"),
     async (req, res) => {
       try {
-        const dealId = parseInt(req.params.id, 10);
+        const dealId = parseInt(req.params.id as string, 10);
         const { note } = req.body;
         const userId = (req.user as any)?.id?.toString() ?? null;
 
@@ -241,7 +241,7 @@ export function registerUnderwritingRoutes(app: Express) {
     requireRole("admin", "manager"),
     async (req, res) => {
       try {
-        const dealId = parseInt(req.params.id, 10);
+        const dealId = parseInt(req.params.id as string, 10);
         const { note } = req.body;
         const userId = (req.user as any)?.id?.toString() ?? null;
 
@@ -311,7 +311,7 @@ export function registerUnderwritingRoutes(app: Express) {
     requireRole("admin", "manager"),
     async (req, res) => {
       try {
-        const dealId = parseInt(req.params.id, 10);
+        const dealId = parseInt(req.params.id as string, 10);
         const deal = await storage.getDeal(dealId);
         if (!deal) return res.status(404).json({ message: "Deal not found" });
 

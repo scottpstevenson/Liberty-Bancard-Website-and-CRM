@@ -422,13 +422,13 @@ export function registerAnalyticsRoutes(app: Express) {
     try {
       const allTasks = await storage.getTasks();
       const now = new Date();
-      const pending = allTasks.filter(t => t.status === "pending");
-      const inProgress = allTasks.filter(t => t.status === "in_progress");
-      const completed = allTasks.filter(t => t.status === "completed");
-      const overdue = allTasks.filter(t => t.status !== "completed" && t.dueDate && new Date(t.dueDate) < now);
+      const pending = allTasks.filter((t: any) => t.status === "pending");
+      const inProgress = allTasks.filter((t: any) => t.status === "in_progress");
+      const completed = allTasks.filter((t: any) => t.status === "completed");
+      const overdue = allTasks.filter((t: any) => t.status !== "completed" && t.dueDate && new Date(t.dueDate) < now);
 
       const priorityBreakdown: Record<string, number> = {};
-      allTasks.forEach(t => { priorityBreakdown[t.priority || "normal"] = (priorityBreakdown[t.priority || "normal"] || 0) + 1; });
+      allTasks.forEach((t: any) => { priorityBreakdown[t.priority || "normal"] = (priorityBreakdown[t.priority || "normal"] || 0) + 1; });
 
       res.json({
         total: allTasks.length,

@@ -966,7 +966,7 @@ export function registerProspectsRoutes(app: Express) {
         enrichProspect(input.prospectId).catch(console.error);
       } else if (input.listId) {
         const prospects = await storage.getProspects(input.listId);
-        await storage.updateEnrichmentJob(job.id, { totalCount: prospects.length });
+        await storage.updateEnrichmentJob(job.id, { totalCount: (prospects as any).data?.length ?? (prospects as any).length ?? 0 });
         runEnrichmentJob(job.id).catch(console.error);
       }
 
@@ -1296,13 +1296,6 @@ export function registerProspectsRoutes(app: Express) {
       if (list) {
         await storage.updateProspectList(list.id, { status: "failed" }).catch(() => {});
       }
-      if (corevtImportExec) {
-        db.update(importExecutions)
-          .set({ status: "failed", completedAt: new Date() })
-          .where(eq(importExecutions.id, corevtImportExec.id))
-          .execute()
-          .catch(() => {});
-      }
       serverError(res, err);
     }
   });
@@ -1374,7 +1367,8 @@ export function registerProspectsRoutes(app: Express) {
       const listId = req.query.listId ? Number(req.query.listId) : undefined;
       const entities = await storage.getSunbizEntities(listId);
       const enrichedOnly = req.query.enrichedOnly === "true";
-      const filtered = enrichedOnly ? entities.filter(e => e.enrichmentStatus === "enriched") : entities;
+      const entitiesArr = (entities as any).data ?? entities;
+      const filtered = enrichedOnly ? entitiesArr.filter((e: any) => e.enrichmentStatus === "enriched") : entitiesArr;
 
       const headers = ["Entity Name", "DBA", "Filing Number", "Entity Type", "Status", "Filing Date", "Principal Address", "City", "State", "Zip", "Owner Name", "Owner Email", "Owner Phone", "Website", "Email", "Phone", "Vertical", "Score", "AI Summary", "Officers"];
       const csvRows = [headers.join(",")];

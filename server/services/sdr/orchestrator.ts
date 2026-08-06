@@ -448,8 +448,9 @@ async function attachAgentName(lead: SdrLeadState): Promise<void> {
       const agentMerchantList = await storage.getAgentMerchantsByDeal(deal.id);
       if (agentMerchantList.length > 0) {
         const agentRecord = await storage.getAgent(agentMerchantList[0].agentId);
-        if (agentRecord?.name) {
-          (lead as any)._resolvedAgentName = agentRecord.name;
+        const agentName = agentRecord ? `${agentRecord.firstName} ${agentRecord.lastName}`.trim() : null;
+        if (agentName) {
+          (lead as any)._resolvedAgentName = agentName;
           return;
         }
       }

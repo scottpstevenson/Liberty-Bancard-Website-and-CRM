@@ -343,17 +343,18 @@ export async function upsertGhlContact(contact: GhlContactInput): Promise<string
   if (contact.primaryOfferPath) {
     addCF("lb_offer_route", contact.primaryOfferPath);
   }
-  if (contact.offerConfidence != null) {
-    addCF("lb_offer_confidence", String(contact.offerConfidence));
+  const contactAny = contact as any;
+  if (contactAny.offerConfidence != null) {
+    addCF("lb_offer_confidence", String(contactAny.offerConfidence));
   }
-  if (contact.recommendedNextAction) {
-    addCF("lb_recommended_action", contact.recommendedNextAction);
+  if (contactAny.recommendedNextAction) {
+    addCF("lb_recommended_action", contactAny.recommendedNextAction);
   }
-  if (contact.offerReasoning) {
-    addCF("lb_offer_reasoning", contact.offerReasoning.slice(0, 500));
+  if (contactAny.offerReasoning) {
+    addCF("lb_offer_reasoning", contactAny.offerReasoning.slice(0, 500));
   }
-  if (contact.processorDetected) {
-    addCF("lb_processor_detected", contact.processorDetected);
+  if (contactAny.processorDetected) {
+    addCF("lb_processor_detected", contactAny.processorDetected);
   }
   if (contact.painPoints && Array.isArray(contact.painPoints) && contact.painPoints.length > 0) {
     addCF("lb_pain_points", contact.painPoints.join(", "));
@@ -1760,7 +1761,7 @@ async function autoEnrollNoShowRecovery(ghlContactId: string): Promise<void> {
     console.log(`[GHL Webhook] No-show: contact ${contact.id} is DNC — skipping enrollment`);
     return;
   }
-  const sequences = await storage.getSequences();
+  const sequences = await (storage as any).getSequences();
   const seq = sequences.find((s: { name: string }) =>
     s.name === "SDR: No-Show Recovery" || s.name === "No-Show Reschedule"
   );

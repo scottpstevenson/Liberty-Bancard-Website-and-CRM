@@ -879,17 +879,17 @@ function WebhookGuide() {
 
 // ─── Main Page ──────────────────────────────────────────────────────────────────
 export default function ConversationAI() {
-  const { data: stats } = useQuery<{ total: number; active: number }>({
+  const { data: stats } = useQuery<BotContext[], Error, { total: number; active: number }>({
     queryKey: ["/api/bot-contexts"],
-    select: (data: BotContext[]) => ({
+    select: (data) => ({
       total: data.length,
       active: data.filter(d => d.active).length,
     }),
   });
 
-  const { data: liveCount } = useQuery<number>({
+  const { data: liveCount } = useQuery<LiveSession[], Error, number>({
     queryKey: ["/api/bot-conversations/live"],
-    select: (data: LiveSession[]) => data.length,
+    select: (data) => data.length,
     refetchInterval: 30000,
   });
 
@@ -897,8 +897,7 @@ export default function ConversationAI() {
     <div className="space-y-6">
       <PageHeader
         title="Conversation AI"
-        description="Manage GHL bot contexts, handoff rules, and monitor live AI conversations."
-        icon={<MessageSquare className="h-5 w-5" />}
+        subtitle="Manage GHL bot contexts, handoff rules, and monitor live AI conversations."
       />
 
       {/* KPI Bar */}

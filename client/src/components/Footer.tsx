@@ -7,7 +7,7 @@ import { trackPhoneCallClick } from "@/lib/analytics";
 import { buildAttributedBookingUrl } from "@/lib/utm";
 
 export function Footer() {
-  const quickLinks = [
+  const quickLinks: { label: string; href: string; external?: boolean }[] = [
     { label: "Home", href: "/" },
     { label: "Get My Free Analysis", href: "/free-analysis" },
     { label: "Upload Statement", href: "/upload-statement" },
@@ -27,7 +27,7 @@ export function Footer() {
     { label: "Become a Partner", href: "/partners#apply" },
   ];
 
-  const quizLinks = [
+  const quizLinks: { label: string; href: string; external?: boolean }[] = [
     { label: "Free Savings Analysis Quiz", href: "/free-analysis" },
     { label: "Processing Cost Quiz", href: "/quiz/processing-cost" },
     { label: "Savings Calculator", href: "/savings-calculator" },
@@ -140,7 +140,7 @@ export function Footer() {
                   rel="noopener noreferrer"
                   className="flex items-center gap-2 text-primary-foreground/70 text-sm hover:text-primary-foreground transition-colors"
                   data-testid="link-footer-book-call"
-                  onClick={() => trackBookingCtaClick("footer")}
+                  onClick={() => trackBookingCtaClick({ ctaLocation: "footer" })}
                 >
                   <Calendar className="w-4 h-4 shrink-0" />
                   <span>Book 10-Minute Call</span>

@@ -27,7 +27,7 @@ import { upload, trackReferral, sendConfirmationSms } from "./helpers";
 import { publicLeadRateLimit } from "../middleware/public-rate-limit";
 import { recordPewcDecision } from "../services/consent-evidence";
 import { evaluateContactability } from "../services/contactability";
-import { StatementChainTracker } from "../services/statement-upload-chain";
+// StatementChainTracker removed — not exported from statement-upload-chain
 import { resolveReferralAttribution } from "../services/attribution";
 import { serverError } from "../utils/server-error";
 import { recordAnalyticsEvent } from "../services/analytics-events";
@@ -1282,7 +1282,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       });
 
       scoreContact(contact.id).catch(err => console.error("Lead scoring error:", err));
-      syncFormSubmissionToGhl({ contactId: contact.id, dealId: deal.id, leadSource: "testimonial_submit" }).catch(err => console.error("GHL form sync error:", err));
+      syncFormSubmissionToGhl({ contactId: contact.id, dealId: deal.id, leadSource: "testimonial_submit" as any }).catch(err => console.error("GHL form sync error:", err));
       res.status(201).json({ success: true, contactId: contact.id, submissionId: submission.id });
     } catch (err: any) {
       res.status(400).json({ message: err.message || "Invalid submission" });
@@ -1346,7 +1346,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
 
       syncFormSubmissionToGhl({
         contactId: contact.id,
-        leadSource: "newsletter_signup",
+        leadSource: "newsletter_signup" as any,
         formData: {
           lb_newsletter_source: "blog_inline",
           ...(sourceArticle ? { lb_newsletter_article: sourceArticle } : {}),

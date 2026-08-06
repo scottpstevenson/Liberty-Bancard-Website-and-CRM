@@ -131,7 +131,7 @@ function StageCard({ stage, isLast }: { stage: StageMetric; isLast: boolean }) {
             <div className="space-y-1">
               <div className="flex justify-between text-xs">
                 <span className="text-muted-foreground">UTM captured</span>
-                <span className="font-medium">{(m.withUtm as number)?.toLocaleString()} ({m.utmCaptureRate}%)</span>
+                <span className="font-medium">{(m.withUtm as number)?.toLocaleString()} ({String(m.utmCaptureRate)}%)</span>
               </div>
               <div className="flex justify-between text-xs">
                 <span className="text-muted-foreground">Google Ads (gclid)</span>
@@ -179,7 +179,7 @@ function StageCard({ stage, isLast }: { stage: StageMetric; isLast: boolean }) {
             <div className="space-y-1">
               <div className="flex justify-between text-xs">
                 <span className="text-muted-foreground">Synced to GHL</span>
-                <span className="font-medium">{(m.syncedToGhl as number)?.toLocaleString()} ({m.syncRate}%)</span>
+                <span className="font-medium">{(m.syncedToGhl as number)?.toLocaleString()} ({String(m.syncRate)}%)</span>
               </div>
               <div className="flex justify-between text-xs">
                 <span className="text-muted-foreground">Pending sync</span>

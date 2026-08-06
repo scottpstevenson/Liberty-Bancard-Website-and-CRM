@@ -935,7 +935,7 @@ export function registerAdminRoutes(app: Express) {
       let sendingIdentityCount = 0;
       try {
         const identities = await storage.getSendingIdentities();
-        sendingIdentityCount = identities.filter(i => i.status === "active").length;
+        sendingIdentityCount = identities.filter((i: any) => i.status === "active").length;
       } catch { /* ignore */ }
 
       // Feature flags
@@ -1002,7 +1002,7 @@ export function registerAdminRoutes(app: Express) {
 
       res.json({
         ghl: { status: ghlStatus, configured: ghlConfigured, locationName: ghlLocationName, workflowIdsConfigured, workflowIdsTotal: GHL_WORKFLOW_REGISTRY.length },
-        smtp: { configured: smtpConfigured, ...smtpStatus },
+        smtp: { ...smtpStatus, configured: smtpConfigured },
         openai: { configured: openaiConfigured },
         redis: { real: redisReal, url: redisReal ? "configured" : "not set (using in-memory mock)" },
         sdr: flags,
@@ -1135,7 +1135,7 @@ export function registerAdminRoutes(app: Express) {
 
   app.patch("/api/admin/sending-identities/:id", requireRole("admin", "manager"), async (req, res) => {
     try {
-      const id = parseInt(req.params.id, 10);
+      const id = parseInt(req.params.id as string, 10);
       if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
       const parsed = insertSendingIdentitySchema.partial().safeParse(req.body);
       if (!parsed.success) {
@@ -1155,7 +1155,7 @@ export function registerAdminRoutes(app: Express) {
 
   app.delete("/api/admin/sending-identities/:id", requireRole("admin", "manager"), async (req, res) => {
     try {
-      const id = parseInt(req.params.id, 10);
+      const id = parseInt(req.params.id as string, 10);
       if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
       const deleted = await storage.deleteSendingIdentity(id);
       if (!deleted) return res.status(404).json({ message: "Identity not found" });
@@ -2301,7 +2301,7 @@ export function registerAdminRoutes(app: Express) {
 
   app.put("/api/admin/sender-profiles/:type", requireRole("admin", "manager"), async (req, res) => {
     try {
-      const { type } = req.params;
+      const type = req.params.type as string;
       const validTypes = ["sales", "support", "onboarding"];
       if (!validTypes.includes(type)) {
         return res.status(400).json({ message: `Invalid type. Must be one of: ${validTypes.join(", ")}` });
@@ -2475,7 +2475,7 @@ export function registerAdminRoutes(app: Express) {
       } catch {}
 
       // ── Gmail OAuth status ────────────────────────────────────────────────────
-      const gmailConnected = isGmailOAuthConnected();
+      const gmailConnected = await isGmailOAuthConnected();
       let gmailEmail: string | null = null;
       try {
         const gmailStatus = await getGmailOAuthStatus();
@@ -3077,7 +3077,7 @@ export function registerAdminRoutes(app: Express) {
 
   app.post("/api/admin/ghl/identity-conflicts/:id/resolve", requireRole("admin", "manager"), async (req, res) => {
     try {
-      const id = parseInt(req.params.id, 10);
+      const id = parseInt(req.params.id as string, 10);
       const { resolution } = req.body as { resolution: "kept-internal" | "kept-ghl" | "manual" };
       if (!["kept-internal", "kept-ghl", "manual"].includes(resolution)) {
         return res.status(400).json({ message: "resolution must be kept-internal, kept-ghl, or manual" });
@@ -3212,7 +3212,7 @@ export function registerAdminRoutes(app: Express) {
   // Retry a dead-letter job by composite ID (queueName::jobId)
   app.post("/api/admin/system-health/jobs/:compositeId/retry", requireRole("admin", "manager"), async (req, res) => {
     try {
-      const compositeId = decodeURIComponent(req.params.compositeId);
+      const compositeId = decodeURIComponent(req.params.compositeId as string);
       const { getQueueManager } = await import("../services/queue-manager");
       const qm = await getQueueManager();
       await qm.retryDeadLetterJob(compositeId);
@@ -3235,7 +3235,7 @@ export function registerAdminRoutes(app: Express) {
   // Discard (permanently delete) a single dead-letter job
   app.delete("/api/admin/system-health/jobs/:compositeId", requireRole("admin", "manager"), async (req, res) => {
     try {
-      const compositeId = decodeURIComponent(req.params.compositeId);
+      const compositeId = decodeURIComponent(req.params.compositeId as string);
       const { getQueueManager } = await import("../services/queue-manager");
       const qm = await getQueueManager();
       await qm.discardDeadLetterJob(compositeId);

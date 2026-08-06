@@ -14,7 +14,7 @@ import {
   contacts,
   deals,
   analyticsEvents,
-  sequences,
+
   sequenceEnrollments,
   tasks,
   auditLogs,

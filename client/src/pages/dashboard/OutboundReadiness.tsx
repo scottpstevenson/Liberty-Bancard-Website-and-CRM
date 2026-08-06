@@ -230,7 +230,7 @@ export default function OutboundReadiness() {
     <div className="flex-1 overflow-y-auto p-6 space-y-6">
       <PageHeader
         title="Outbound Launch Readiness"
-        description="All channels paused until every required gate passes. Configure Gmail OAuth, verify GHL channels, run attestations, and monitor send health."
+        subtitle="All channels paused until every required gate passes. Configure Gmail OAuth, verify GHL channels, run attestations, and monitor send health."
       />
 
       {/* ── Global status banner ── */}

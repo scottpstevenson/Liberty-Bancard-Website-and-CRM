@@ -516,7 +516,7 @@ STATEMENT ANALYSIS RESULTS (use these findings):
         metadata: { dealId: deal.id, contactId: deal.contactId },
       });
       if (contact?.ghlContactId) {
-        const ownerLookup = deal.owner ? await storage.getUserByEmail(deal.owner).catch(() => null) : null;
+        const ownerLookup = deal.owner ? await (storage as any).getUserByEmail(deal.owner).catch(() => null) : null;
         const assignedTo = ownerLookup?.id ?? null;
         const { createGhlTask: ghlTask } = await import("./ghl");
         ghlTask({
@@ -562,7 +562,7 @@ export async function sendProposalEmail(dealId: number): Promise<boolean> {
             firstName: contact.firstName || "",
             lastName: contact.lastName || "",
             email: contact.email,
-          });
+          } as any);
           if (ghlContactId) {
             await storage.updateContact(contact.id, { ghlContactId });
             console.log(`[ProposalEngine] GHL contact upserted for contact #${contact.id}`);

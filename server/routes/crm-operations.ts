@@ -38,7 +38,7 @@ export function registerCrmOperationsRoutes(app: Express) {
       
       const contactDeals = dealsResult.data.filter(d => d.contactId === contactId);
       const contactTickets = ticketsResult.data.filter(t => t.contactId === contactId);
-      const contactTasks = allTasks.filter(t => t.contactId === contactId);
+      const contactTasks = allTasks.filter((t: any) => t.contactId === contactId);
       
       res.json({ contact, deals: contactDeals, tickets: contactTickets, tasks: contactTasks, notes: contactNotes });
     } catch (err: any) {
@@ -243,7 +243,7 @@ export function registerCrmOperationsRoutes(app: Express) {
     try {
       const taskId = Number(req.params.id);
       const allTasks = await storage.getTasks({ limit: 5000 });
-      const task = allTasks.find(t => t.id === taskId);
+      const task = allTasks.find((t: any) => t.id === taskId);
       const actor = req.user as any;
       const isAdminOrManager = actor?.role === "admin" || actor?.role === "manager";
       if (task && !isAdminOrManager && task.assignedTo !== actor?.id && task.assignedTo !== actor?.username) {

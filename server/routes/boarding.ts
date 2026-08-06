@@ -46,7 +46,7 @@ async function recordBoardingFailureAndAlert(
 
   const existingTasks = await storage.getTasks();
   const hasPersistentAlert = existingTasks.some(
-    (t) =>
+    (t: any) =>
       t.dealId === dealId &&
       t.title?.includes("Persistent Boarding Failure") &&
       t.status === "pending"
@@ -145,7 +145,7 @@ async function performBoardingStatusRefresh(dealId: number): Promise<BoardingRef
     if (result.status === "more_info_needed" && result.moreInfoRequest) {
       const existingTasks = await storage.getTasks();
       const hasInfoTask = existingTasks.some(
-        t => t.dealId === dealId && t.title?.includes("More Info Required") && t.status === "pending"
+        (t: any) => t.dealId === dealId && t.title?.includes("More Info Required") && t.status === "pending"
       );
       if (!hasInfoTask) {
         await storage.createTask({
@@ -708,13 +708,13 @@ export function registerBoardingRoutes(app: Express) {
           mid,
           dealId: deal?.id ?? null,
           latestDate: latest?.date ?? null,
-          latestVolume: latest?.volume ?? null,
+          latestVolume: latest?.volume != null ? String(latest.volume) : null,
           latestTxCount: latest?.txCount ?? null,
-          latestAvgTicket: latest?.avgTicket ?? null,
-          latestEffectiveRate: latest?.effectiveRate ?? null,
+          latestAvgTicket: latest?.avgTicket != null ? String(latest.avgTicket) : null,
+          latestEffectiveRate: latest?.effectiveRate != null ? String(latest.effectiveRate) : null,
           latestChargebackCount: latest?.chargebackCount ?? null,
           fetchedAt: latest?.fetchedAt ? new Date(latest.fetchedAt).toISOString() : null,
-          merchantName: deal?.name ?? null,
+          merchantName: (deal as any)?.name ?? deal?.contactName ?? null,
         });
       }
 
@@ -768,7 +768,7 @@ export function registerBoardingRoutes(app: Express) {
   app.patch("/api/deals/:id/onboarding-checklist/:itemKey", isDashboardUser, async (req, res) => {
     try {
       const dealId = Number(req.params.id);
-      const { itemKey } = req.params;
+      const itemKey = req.params.itemKey as string;
       const { status, documentId, notes } = req.body as { status?: string; documentId?: number | null; notes?: string | null };
 
       if (isNaN(dealId)) return res.status(400).json({ message: "Invalid deal ID" });

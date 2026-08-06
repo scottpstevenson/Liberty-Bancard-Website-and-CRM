@@ -126,7 +126,7 @@ export function registerRelationshipsRoutes(app: Express) {
       const rels = await storage.getEntityRelationships(entityType as any, id);
 
       const nodes: Array<{ id: string; label: string; type: string; riskFlag?: boolean }> = [
-        { id: `${entityType}_${id}`, label: "This Contact", type: entityType },
+        { id: `${entityType}_${id}`, label: "This Contact", type: entityType as string },
       ];
       const edges: Array<{
         source: string;

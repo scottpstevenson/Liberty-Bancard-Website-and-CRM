@@ -186,7 +186,8 @@ export function registerNotificationsRoutes(app: Express) {
   const OPEN_HISTORY_TYPES = new Set(["contact", "deal"]);
   app.get("/api/audit-logs/entity/:entityType/:entityId", isDashboardUser, async (req, res) => {
     try {
-      const { entityType, entityId } = req.params;
+      const entityType = req.params.entityType as string;
+      const entityId = req.params.entityId as string;
       const user = req.user as any;
       if (!OPEN_HISTORY_TYPES.has(entityType) && user?.role !== "admin") {
         return res.status(403).json({ message: "Admin access required to view audit history for this entity type." });

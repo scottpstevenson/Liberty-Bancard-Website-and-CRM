@@ -99,7 +99,7 @@ export async function generateCoBrandedProposalPdf(params: {
     const contactLines: string[] = [];
     if (org.phone) contactLines.push(org.phone);
     if (org.email) contactLines.push(org.email);
-    if (org.website) contactLines.push(org.website);
+    if ((org as any).website) contactLines.push((org as any).website);
     if (contactLines.length > 0) {
       doc.fillColor(headerTextColor).fontSize(8).font("Helvetica")
         .text(contactLines.join("  ·  "), 400, 30, { width: 160, align: "right" });
@@ -614,7 +614,7 @@ export async function sendCoBrandedProposalEmail(proposalId: number, baseUrl: st
           firstName: contact.firstName || "",
           lastName: contact.lastName || "",
           email: contact.email,
-        });
+        } as any);
         if (merchantGhlContactId && contact?.id) {
           await storage.updateContact(contact.id, { ghlContactId: merchantGhlContactId });
           console.log(`[CoBrandedProposal] Upserted GHL contact for contact #${contact.id}`);

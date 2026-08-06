@@ -839,19 +839,19 @@ export function registerIntegrationsRoutes(app: Express) {
         body: null,
         status: result.allowed ? "sent" : "blocked",
         ghlMessageId: ghlContactId ? String(ghlContactId) : null,
-        metadata: { channel: resolvedChannel, allowed: result.allowed, reason: result.reason, tier: result.tier, source: "ghl_permission_check_api" },
+        metadata: { channel: resolvedChannel, allowed: result.allowed, reason: result.reason, tier: (result as any).tier, source: "ghl_permission_check_api" },
       }).catch(() => {});
       storage.createAuditLog({
         action: "ghl_permission_check",
         entityType: "contact",
         entityId: contact.id,
-        details: { channel: resolvedChannel, allowed: result.allowed, reason: result.reason, tier: result.tier },
+        details: { channel: resolvedChannel, allowed: result.allowed, reason: result.reason, tier: (result as any).tier },
       }).catch(() => {});
 
       return res.status(200).json({
         allowed: result.allowed,
         reason: result.reason || (result.allowed ? "permitted" : "blocked"),
-        tier: result.tier,
+        tier: (result as any).tier,
         contactId: contact.id,
         doNotContact: contact.doNotContact,
         doNotAutoContact: contact.doNotAutoContact,
@@ -914,7 +914,7 @@ export function registerIntegrationsRoutes(app: Express) {
   // campaigns.ts so the two never collide in Express's route matching).
   app.get("/api/sequences/by-name/:name/steps", isAuthenticated, async (req, res) => {
     try {
-      const name = decodeURIComponent(req.params.name);
+      const name = decodeURIComponent(req.params.name as string);
       const allSequences = await storage.getFollowUpSequences();
       const sequence = allSequences.find(s => s.name === name);
       if (!sequence) return res.status(404).json({ message: "Sequence not found" });
@@ -938,7 +938,7 @@ export function registerIntegrationsRoutes(app: Express) {
 
   app.put("/api/ghl/workflow-mappings/:sequenceName", isAuthenticated, isAdmin, async (req, res) => {
     try {
-      const sequenceName = decodeURIComponent(req.params.sequenceName);
+      const sequenceName = decodeURIComponent(req.params.sequenceName as string);
       const { ghlWorkflowId, category, description } = req.body;
       const mapping = await storage.upsertGhlWorkflowMapping(sequenceName, ghlWorkflowId || null, category, description);
       res.json(mapping);
@@ -959,7 +959,7 @@ export function registerIntegrationsRoutes(app: Express) {
 
   app.put("/api/ghl/workflow-env-ids/:envKey", isAdmin, async (req, res) => {
     try {
-      const { envKey } = req.params;
+      const envKey = req.params.envKey as string;
       const entry = GHL_WORKFLOW_REGISTRY.find(w => w.envKey === envKey);
       if (!entry) return res.status(404).json({ message: "Unknown envKey" });
       const value: string | null = req.body.value || null;

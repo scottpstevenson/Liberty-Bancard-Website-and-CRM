@@ -95,7 +95,7 @@ export default function TerminalROI() {
   const { data: config, refetch: refetchConfig } = useQuery<{ greenThresholdMonths: number; yellowThresholdMonths: number }>({
     queryKey: ["/api/admin/terminal-economics-config"],
     enabled: isManagerOrAdmin,
-    onSuccess: (d) => {
+    onSuccess: (d: { greenThresholdMonths: number; yellowThresholdMonths: number }) => {
       setGreenThreshold(String(d.greenThresholdMonths));
       setYellowThreshold(String(d.yellowThresholdMonths));
     },

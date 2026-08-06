@@ -395,7 +395,7 @@ export async function setupAuth(app: Express) {
       } else {
         try {
           const totp = new TOTP();
-          verified = totp.verify({ token: cleanCode, secret: totpData.secret });
+          verified = !!(totp.verify({ token: cleanCode, secret: totpData.secret } as any));
         } catch {
           verified = false;
         }
@@ -435,7 +435,7 @@ export async function setupAuth(app: Express) {
               email: user.email!,
               subject: "New Trusted Device Added – Liberty Bancard",
               body: `<p>Hi ${user.firstName},</p><p>A new device has been added to your list of trusted devices on your Liberty Bancard account.</p><p><strong>Device:</strong> ${trustedDeviceName}<br/><strong>When:</strong> ${timestamp} ET</p><p>If this wasn't you, please contact us immediately at <a href="mailto:security@libertybancard.com">security@libertybancard.com</a> so we can secure your account.</p>${getEmailSignatureHtml("security")}`,
-              fromEmail: SECURITY_FROM,
+              fromEmail: "security@libertybancard.com",
               fromName: "Liberty Bancard Security",
             }).catch(err => console.error("[Auth] Trusted device email error:", err));
           }
@@ -477,7 +477,7 @@ export async function setupAuth(app: Express) {
       let verified = false;
       try {
         const totp = new TOTP();
-        verified = totp.verify({ token: cleanCode, secret: totpData.secret });
+        verified = !!(totp.verify({ token: cleanCode, secret: totpData.secret } as any));
       } catch {
         verified = false;
       }
@@ -493,7 +493,7 @@ export async function setupAuth(app: Express) {
           email: user.email!,
           subject: "Two-Factor Authentication Enabled – Liberty Bancard",
           body: `<p>Hi ${user.firstName},</p><p>Two-factor authentication (2FA) has been <strong>enabled</strong> on your Liberty Bancard account.</p><p><strong>When:</strong> ${timestamp} ET<br/><strong>Device:</strong> ${deviceInfo}</p><p>If this wasn't you, please contact us immediately at <a href="mailto:security@libertybancard.com">security@libertybancard.com</a> so we can secure your account.</p>${getEmailSignatureHtml("security")}`,
-          fromEmail: SECURITY_FROM,
+          fromEmail: "security@libertybancard.com",
           fromName: "Liberty Bancard Security",
         }).catch(err => console.error("[Auth] 2FA-enabled email error:", err));
       }
@@ -526,7 +526,7 @@ export async function setupAuth(app: Express) {
           email: user.email!,
           subject: "Two-Factor Authentication Disabled – Liberty Bancard",
           body: `<p>Hi ${fullUser.firstName || user.firstName},</p><p>Two-factor authentication (2FA) has been <strong>disabled</strong> on your Liberty Bancard account.</p><p><strong>When:</strong> ${timestamp} ET<br/><strong>Device:</strong> ${deviceInfo}</p><p>If this wasn't you, please contact us immediately at <a href="mailto:security@libertybancard.com">security@libertybancard.com</a> so we can secure your account.</p>${getEmailSignatureHtml("security")}`,
-          fromEmail: SECURITY_FROM,
+          fromEmail: "security@libertybancard.com",
           fromName: "Liberty Bancard Security",
         }).catch(err => console.error("[Auth] 2FA-disabled email error:", err));
       }

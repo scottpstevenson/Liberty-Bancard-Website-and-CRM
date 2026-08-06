@@ -29,7 +29,7 @@ async function apiPost(path: string, body: unknown) {
   const csrfToken = await getCsrfToken();
   const res = await fetch(path, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "x-csrf-token": csrfToken },
+    headers: { "Content-Type": "application/json", ...(csrfToken ? { "x-csrf-token": csrfToken } : {}) },
     credentials: "include",
     body: JSON.stringify(body),
   });
@@ -71,7 +71,7 @@ export function InternalSidebarChat({ collapsed, onToggle }: { collapsed: boolea
         const csrfToken = await getCsrfToken();
         const data = await fetch("/api/assistant/session", {
           method: "POST",
-          headers: { "Content-Type": "application/json", "x-csrf-token": csrfToken },
+          headers: { "Content-Type": "application/json", ...(csrfToken ? { "x-csrf-token": csrfToken } : {}) },
           credentials: "include",
           body: JSON.stringify({ sessionId: sessionId ?? undefined }),
         }).then(r => r.json());
@@ -134,7 +134,7 @@ export function InternalSidebarChat({ collapsed, onToggle }: { collapsed: boolea
       const csrfToken = await getCsrfToken();
       const data = await fetch("/api/assistant/session", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-csrf-token": csrfToken },
+        headers: { "Content-Type": "application/json", ...(csrfToken ? { "x-csrf-token": csrfToken } : {}) },
         credentials: "include",
         body: JSON.stringify({}),
       }).then(r => r.json());

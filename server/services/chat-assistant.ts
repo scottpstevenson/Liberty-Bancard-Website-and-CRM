@@ -235,14 +235,13 @@ export async function assistantChat(opts: {
 
     const { completion } = await logAiCall(
       {
-        triggerType: "assistant-chat",
+        triggerType: "assistant-chat" as any,
         actorType: userRole || audience,
         actorId: userId?.toString() || sessionId,
-        targetType: "assistant_session",
         targetId: sessionId,
         model,
         systemPromptSnippet: systemPrompt.slice(0, 200),
-      },
+      } as any,
       () =>
         openai.chat.completions.create({
           model,

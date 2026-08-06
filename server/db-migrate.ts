@@ -102,10 +102,10 @@ function computeMigrationHash(tag: string): string | null {
  *     on pre-Phase-4 path (isPhase3IndexPresent() returns false).
  */
 async function applyPhase3IndexIfReady(): Promise<void> {
-  const client = await connectWithRetry();
+  const client = await connectWithRetry() as any;
   try {
     // 1. Check if the index already exists (idempotent).
-    const { rows: indexRows } = await client.query<{ exists: number }>(`
+    const { rows: indexRows } = await client.query(`
       SELECT 1 AS exists FROM pg_indexes
       WHERE indexname = $1 LIMIT 1
     `, [PHASE3_INDEX_NAME]);
@@ -116,7 +116,7 @@ async function applyPhase3IndexIfReady(): Promise<void> {
     }
 
     // 2. Check precondition: zero active+incomplete SLA stalling conflicts.
-    const { rows: conflictRows } = await client.query<{ deal_id: number; cnt: string }>(`
+    const { rows: conflictRows } = await client.query(`
       SELECT deal_id, COUNT(*) AS cnt
       FROM tasks
       WHERE source = 'sla'
@@ -135,12 +135,12 @@ async function applyPhase3IndexIfReady(): Promise<void> {
         `Migration 0054 (${PHASE3_INDEX_NAME}) will NOT be applied until conflicts are resolved. ` +
         `Run: npx tsx scripts/backfill-sla-task-identity.ts — then restart the application.`
       );
-      console.warn(`[DB Migrate] Conflicting deal_id(s): ${conflictRows.map(r => r.deal_id).join(", ")}`);
+      console.warn(`[DB Migrate] Conflicting deal_id(s): ${conflictRows.map((r: any) => r.deal_id).join(", ")}`);
       return;
     }
 
     // Also check for legacy unclean rows (unstamped SLA tasks that would violate the index).
-    const { rows: legacyRows } = await client.query<{ cnt: string }>(`
+    const { rows: legacyRows } = await client.query(`
       SELECT COUNT(*) AS cnt FROM tasks
       WHERE title ~ '^Follow up on stalling Deal #[0-9]+$'
         AND source IS NULL
@@ -191,7 +191,7 @@ async function applyPhase3IndexIfReady(): Promise<void> {
 async function connectWithRetry(
   maxAttempts = 4,
   retryDelayMs = 5000,
-): Promise<ReturnType<typeof pool.connect>> {
+): Promise<any> {
   let lastErr: Error | undefined;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
@@ -230,7 +230,7 @@ export async function runDrizzleMigrations(): Promise<void> {
     `);
 
     // Check if this is an existing database that predates the drizzle migration system.
-    const { rows: contactsCheck } = await client.query<{ exists: string | null }>(`
+    const { rows: contactsCheck } = await client.query(`
       SELECT to_regclass('public.contacts') AS exists
     `);
     const isExistingDatabase = !!contactsCheck[0]?.exists;
@@ -247,10 +247,10 @@ export async function runDrizzleMigrations(): Promise<void> {
       const entriesToBaseline = journal.entries.filter(e => e.when <= BASELINE_WHEN);
 
       // Fetch all hashes already recorded so we can skip duplicates.
-      const { rows: existing } = await client.query<{ hash: string }>(
+      const { rows: existing } = await client.query(
         `SELECT hash FROM "${DRIZZLE_SCHEMA}"."${DRIZZLE_TABLE}"`
       );
-      const existingHashes = new Set(existing.map(r => r.hash));
+      const existingHashes = new Set(existing.map((r: any) => r.hash));
 
       let inserted = 0;
       for (const entry of entriesToBaseline) {
@@ -271,7 +271,7 @@ export async function runDrizzleMigrations(): Promise<void> {
 
       // Safety net: ensure the high-water mark is at BASELINE_WHEN so migrations
       // 0000–0005 (which have timestamps larger than 0006–0013) cannot slip through.
-      const { rows: latestRow } = await client.query<{ created_at: string }>(
+      const { rows: latestRow } = await client.query(
         `SELECT created_at FROM "${DRIZZLE_SCHEMA}"."${DRIZZLE_TABLE}" ORDER BY created_at DESC LIMIT 1`
       );
       const latestWhen = latestRow[0]?.created_at ? Number(latestRow[0].created_at) : 0;

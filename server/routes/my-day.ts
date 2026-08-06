@@ -303,7 +303,7 @@ export function registerMyDayRoutes(app: Express) {
       const user = getAuthUser(req, res);
       if (!user) return;
 
-      const dealId = parseInt(req.params.id, 10);
+      const dealId = parseInt(req.params.id as string, 10);
       if (isNaN(dealId)) {
         return res.status(400).json({ message: "Invalid deal id" });
       }

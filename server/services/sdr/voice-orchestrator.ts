@@ -550,7 +550,7 @@ export async function handleCallDisposition(
             const calendarLink =
               process.env.SALES_CALENDAR_URL ||
               "https://api.leadconnectorhq.com/widget/bookings/libertybancard";
-            const firstName = merchant.ownerName?.split(" ")[0] || "there";
+            const firstName = (merchant as any).ownerName?.split(" ")[0] || "there";
             const smsBody = `Just left you a voicemail, ${firstName} — best way to reach me is here: ${calendarLink} — Scott, Liberty Bancard`;
 
             if (vmSmsSeq) {

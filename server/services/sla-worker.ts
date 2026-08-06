@@ -150,7 +150,7 @@ async function collapseBreachIfRecent(
 
   if (existingTaskId) {
     const tasks = await storage.getTasks();
-    const t = tasks.find(x => x.id === existingTaskId);
+    const t = tasks.find((x: any) => x.id === existingTaskId);
     if (t) {
       const baseDesc = (t.description || "").replace(/\s*\(\+\d+ repeat breaches.*\)$/, "");
       await storage.updateTask(existingTaskId, {
@@ -164,7 +164,7 @@ async function collapseBreachIfRecent(
 async function autoResolveClearedSlaTasks(activeStuckIds: Set<number>) {
   try {
     const allTasks = await storage.getTasks();
-    const pendingSla = allTasks.filter(t =>
+    const pendingSla = allTasks.filter((t: any) =>
       t.status === "pending" && t.title?.includes("SLA Alert") && t.dealId && !activeStuckIds.has(t.dealId)
     );
     for (const t of pendingSla) {
@@ -192,7 +192,7 @@ async function checkDealSla(rule: typeof DEFAULT_SLA_RULES[0]) {
 
   for (const deal of stuckDeals) {
     const existingTasks = (await storage.getTasks()).filter(
-      t => t.dealId === deal.id && t.status === "pending" && t.title?.includes("SLA")
+      (t: any) => t.dealId === deal.id && t.status === "pending" && t.title?.includes("SLA")
     );
     const existingTaskId = existingTasks[0]?.id ?? null;
 
@@ -271,7 +271,7 @@ async function checkTicketSla() {
 
   for (const ticket of breachedTickets) {
     const existingTasks = (await storage.getTasks()).filter(
-      t => t.ticketId === ticket.id && t.status === "pending" && t.title?.includes("SLA")
+      (t: any) => t.ticketId === ticket.id && t.status === "pending" && t.title?.includes("SLA")
     );
     const existingTaskId = existingTasks[0]?.id ?? null;
     if (existingTaskId || await findRecentBreachAudit("ticket", ticket.id, "ticket_sla_breach", SLA_THROTTLE_HOURS)) {
@@ -729,7 +729,7 @@ async function runScheduledAiOps() {
     const now = new Date();
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     const threeDaysAgo = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000);
-    const existingTaskTitles = new Set(allTasks.map(t => t.title));
+    const existingTaskTitles = new Set(allTasks.map((t: any) => t.title));
 
     const salesDeals = allDeals.filter(d => d.pipeline === "sales" && d.stage !== "Closed Won" && d.stage !== "Closed Lost");
     const stallingDeals = salesDeals.filter(d => d.updatedAt && new Date(d.updatedAt) < sevenDaysAgo);
@@ -785,7 +785,7 @@ async function checkChargebackDeadlines() {
     const overdue = await storage.getOverdueChargebacks();
     for (const cb of overdue) {
       const existingTasks = (await storage.getTasks()).filter(
-        t => t.title?.includes(`Chargeback #${cb.id}`) && t.status === "pending"
+        (t: any) => t.title?.includes(`Chargeback #${cb.id}`) && t.status === "pending"
       );
       if (existingTasks.length > 0) continue;
 
@@ -945,7 +945,7 @@ async function checkRetentionCampaigns() {
       if (alert.contactId) {
         const contact = await storage.getContact(alert.contactId);
         if (contact) {
-          const name = [contact.firstName, contact.lastName].filter(Boolean).join(" ") || contact.company || "Merchant";
+          const name = [contact.firstName, contact.lastName].filter(Boolean).join(" ") || contact.companyName || "Merchant";
           message = message.replace(/\{\{merchant_name\}\}/g, name);
         }
       }

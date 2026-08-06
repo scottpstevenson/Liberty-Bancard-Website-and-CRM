@@ -945,7 +945,7 @@ export default function Pipeline() {
 
     let newStage: string | null = null;
 
-    if (typeof over.id === "string" && SALES_STAGES.includes(over.id)) {
+    if (typeof over.id === "string" && (SALES_STAGES as readonly string[]).includes(over.id)) {
       newStage = over.id;
     } else {
       const overDeal = deals?.find((d) => d.id === over.id);
@@ -1190,7 +1190,7 @@ export default function Pipeline() {
       // as a side-effect, keeping the Kanban card and the detail panel in sync via one fetch path.
       const data = await fetchSingleDealProposals(dealId);
       if (data !== null) {
-        setDealProposals(data);
+        setDealProposals(data as any);
         setDealProposalsFailed(false);
       } else {
         setDealProposalsFailed(true);
@@ -1239,7 +1239,7 @@ export default function Pipeline() {
       if (d.stage !== stage) return false;
       const isArchived = !!(d as any).archivedAt;
       if (!showArchived && isArchived) return false;
-      if (groupFilterContactIds && !groupFilterContactIds.has(d.contactId)) return false;
+      if (groupFilterContactIds && !groupFilterContactIds.has(d.contactId!)) return false;
       if (sortMode === "trending_down") {
         const s = midSummaries[String(d.id)];
         if (!s || s.totalVolume <= 0 || s.trendPct >= 0) return false;

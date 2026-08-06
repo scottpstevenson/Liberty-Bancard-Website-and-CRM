@@ -72,9 +72,9 @@ export default function AuthorPage() {
     <div className="min-h-screen flex flex-col bg-background">
       <SEO
         title={`${author.name} — ${author.title} | Liberty Bancard`}
-        description={author.bio}
+        description={author.bio ?? ""}
         canonical={`https://libertybancard.com/authors/${author.slug}`}
-        schemaJson={{
+        structuredData={{
           "@context": "https://schema.org",
           "@type": "Person",
           "name": author.name,

@@ -2265,7 +2265,7 @@ function DealBackfillPanel() {
                   startMutation.isPending ||
                   isRunning ||
                   preview.wouldCreateDeals === 0 ||
-                  (needsConfirmation && confirmText !== "CREATE DEALS")
+                  !!(needsConfirmation && confirmText !== "CREATE DEALS")
                 }
               >
                 {startMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Play className="w-4 h-4 mr-2" />}

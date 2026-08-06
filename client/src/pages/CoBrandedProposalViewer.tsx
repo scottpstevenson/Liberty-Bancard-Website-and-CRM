@@ -286,11 +286,11 @@ export default function CoBrandedProposalViewer() {
                 </div>
               )}
 
-              {proposal.proposalData?.feeBreakdown?.hiddenFees?.length > 0 && (
+              {(proposal.proposalData?.feeBreakdown?.hiddenFees?.length ?? 0) > 0 && (
                 <div className="border-t pt-4 mt-4">
                   <h3 className="text-sm font-semibold text-slate-900 mb-3">Hidden Fees You're Paying</h3>
                   <div className="flex flex-wrap gap-2">
-                    {proposal.proposalData.feeBreakdown.hiddenFees.map((fee, i) => (
+                    {proposal.proposalData?.feeBreakdown?.hiddenFees?.map((fee, i) => (
                       <Badge key={i} variant="outline" className="text-red-600 border-red-200 bg-red-50">{fee}</Badge>
                     ))}
                   </div>

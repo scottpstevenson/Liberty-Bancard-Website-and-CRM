@@ -235,7 +235,7 @@ class AuthStorage implements IAuthStorage {
     await db.update(users).set({ trustedDevices: valid as any, updatedAt: new Date() }).where(eq(users.id, userId));
     const { auditChange } = await import("../../services/audit-change");
     await auditChange({ actorType: "user", userId, action: "user_trusted_device_added", entityType: "user", entityKey: userId,
-      before, after: { trustedDeviceCount: valid.length, deviceUserAgent: device.userAgent ?? null, expiresAt: device.expiresAt } });
+      before, after: { trustedDeviceCount: valid.length, deviceUserAgent: (device as any).userAgent ?? null, expiresAt: device.expiresAt } });
   }
 
   async removeTrustedDevice(userId: string, token: string): Promise<void> {

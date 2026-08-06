@@ -178,7 +178,7 @@ export function registerChurnRoutes(app: Express) {
   // PUT update a churn score weight (admin only)
   app.put("/api/churn-score-weights/:signalKey", requireRole("admin", "manager"), async (req, res) => {
     try {
-      const { signalKey } = req.params;
+      const signalKey = req.params.signalKey as string;
       const { weight } = req.body;
       if (weight === undefined || weight < 0 || weight > 5) {
         return res.status(400).json({ message: "weight must be between 0 and 5" });

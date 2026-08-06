@@ -370,7 +370,7 @@ export default function LiveChat() {
                             <span className="flex h-2 w-2 rounded-full bg-destructive shrink-0" data-testid={`unread-dot-${session.id}`} />
                           )}
                           {session.contactId && (
-                            <UserCheck className="w-3 h-3 text-emerald-500 shrink-0" title="Linked to CRM contact" />
+                            <UserCheck className="w-3 h-3 text-emerald-500 shrink-0" />
                           )}
                         </div>
                         <span className={cn("text-[10px] px-1.5 py-0.5 rounded-full font-medium capitalize", statusColor[session.status] || statusColor.closed)}>

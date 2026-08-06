@@ -509,7 +509,7 @@ export function DealsTab({ deals, contactId, isManagerOrAdmin, agentsList, setLo
                 <div className="text-sm text-muted-foreground" data-testid={`text-deal-date-${deal.id}`}>
                   Created {formatDate(deal.createdAt)}
                 </div>
-                {deal.savingsProposal && (
+                {!!deal.savingsProposal && (
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button

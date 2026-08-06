@@ -706,7 +706,7 @@ export function registerCampaignsRoutes(app: Express) {
   // === SEQUENCE TIER BREAKDOWN ===
   app.get("/api/sequences/:id/enrollments/by-tier", isDashboardUser, async (req, res) => {
     try {
-      const id = parseInt(req.params.id, 10);
+      const id = parseInt(req.params.id as string, 10);
       if (isNaN(id) || id <= 0) {
         return res.status(400).json({ message: "Invalid sequence id" });
       }

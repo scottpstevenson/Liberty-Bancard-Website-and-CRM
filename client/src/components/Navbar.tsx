@@ -281,7 +281,7 @@ export function Navbar() {
 
             <div className="hidden lg:flex items-center gap-3">
               <ThemeToggle />
-              <a href={buildAttributedBookingUrl(CALENDAR_URL, { ctaLocation: "navbar_desktop" })} target="_blank" rel="noopener noreferrer" onClick={() => { trackCalendarBooking("navbar_desktop"); trackBookingCtaClick("navbar_desktop"); }} data-testid="link-book-call">
+              <a href={buildAttributedBookingUrl(CALENDAR_URL, { ctaLocation: "navbar_desktop" })} target="_blank" rel="noopener noreferrer" onClick={() => { trackCalendarBooking("navbar_desktop"); trackBookingCtaClick({ ctaLocation: "navbar_desktop" }); }} data-testid="link-book-call">
                 <Button variant="outline" className="gap-2">
                   <Calendar className="w-4 h-4" />
                   Book 10-Min Call
@@ -461,7 +461,7 @@ export function Navbar() {
               <div className="h-px bg-border my-2" />
 
               <div className="flex flex-col gap-2 px-3">
-                <a href={buildAttributedBookingUrl(CALENDAR_URL, { ctaLocation: "navbar_mobile" })} target="_blank" rel="noopener noreferrer" onClick={() => { trackCalendarBooking("navbar_mobile"); trackBookingCtaClick("navbar_mobile"); setIsOpen(false); }} data-testid="link-mobile-book-call">
+                <a href={buildAttributedBookingUrl(CALENDAR_URL, { ctaLocation: "navbar_mobile" })} target="_blank" rel="noopener noreferrer" onClick={() => { trackCalendarBooking("navbar_mobile"); trackBookingCtaClick({ ctaLocation: "navbar_mobile" }); setIsOpen(false); }} data-testid="link-mobile-book-call">
                   <Button variant="outline" className="w-full gap-2">
                     <Calendar className="w-4 h-4" />
                     Book 10-Min Call

@@ -877,10 +877,10 @@ export function registerActivationRoutes(app: Express) {
       // consent_tier_migration
       let consentTierStatus: "green" | "yellow" | "red" = "yellow";
       try {
-        const [{ consentTierCol }] = await db.execute(sql`
+        const [{ consentTierCol }] = (await db.execute(sql`
           SELECT column_name AS "consentTierCol" FROM information_schema.columns
           WHERE table_name = 'contacts' AND column_name = 'consent_tier' LIMIT 1
-        `);
+        `)) as any;
         consentTierStatus = consentTierCol ? "green" : "yellow";
       } catch {
         consentTierStatus = "yellow";

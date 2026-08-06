@@ -40,7 +40,7 @@ export function registerSearchRoutes(app: Express) {
         if (searchStr.includes(q)) results.push({ type: "ticket", id: t.id, title: t.subject, subtitle: `${t.status} - ${t.category || "General"}`, href: "/dashboard/tickets" });
       });
 
-      tasks.forEach(t => {
+      tasks.forEach((t: any) => {
         const searchStr = `${t.title} ${t.description || ""} ${t.status}`.toLowerCase();
         if (searchStr.includes(q)) results.push({ type: "task", id: t.id, title: t.title, subtitle: t.status || "pending", href: "/dashboard/tasks" });
       });
@@ -83,12 +83,12 @@ export function registerSearchRoutes(app: Express) {
         d.notes?.toLowerCase().includes(q) || d.pipeline?.toLowerCase().includes(q)
       ).slice(0, 10);
       
-      const matchTickets = allTickets.filter(t => 
+      const matchTickets = allTickets.filter((t: any) => 
         t.subject?.toLowerCase().includes(q) || t.description?.toLowerCase().includes(q) || 
         t.category?.toLowerCase().includes(q)
       ).slice(0, 10);
       
-      const matchTasks = allTasks.filter(t => 
+      const matchTasks = allTasks.filter((t: any) => 
         t.title?.toLowerCase().includes(q) || t.description?.toLowerCase().includes(q) || 
         t.assignedTo?.toLowerCase().includes(q)
       ).slice(0, 10);
@@ -144,7 +144,7 @@ export function registerSearchRoutes(app: Express) {
 
     if (!entityType || entityType === 'task') {
       const allTasks = await storage.getTasks();
-      results.tasks = allTasks.filter(t => {
+      results.tasks = allTasks.filter((t: any) => {
         if (query && !`${t.title} ${t.description || ''}`.toLowerCase().includes(query)) return false;
         if (assignedTo && t.assignedTo !== String(assignedTo)) return false;
         if (dateFrom && new Date(t.createdAt!) < new Date(String(dateFrom))) return false;

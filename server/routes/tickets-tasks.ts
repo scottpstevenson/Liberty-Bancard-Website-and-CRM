@@ -168,7 +168,7 @@ export function registerTicketsTasksRoutes(app: Express) {
         return res.status(400).json({ message: parseResult.error.errors[0].message });
       }
       const allTasks = await storage.getTasks();
-      const existing = allTasks.find(t => t.id === taskId);
+      const existing = allTasks.find((t: any) => t.id === taskId);
       if (!existing) return res.status(404).json({ message: "Not found" });
       const normalized = normalizeTaskCompletionState(parseResult.data, existing);
       const updated = await storage.updateTask(taskId, normalized);

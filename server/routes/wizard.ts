@@ -339,12 +339,13 @@ export function registerWizardRoutes(app: Express): void {
         workflowKey: "GHL_WORKFLOW_VOICE_AI_OUTREACH",
         ghlContactId: contact.ghlContactId,
       });
+      const resultAny2 = result as any;
       return res.json({
-        ok: result.enrolled,
-        method: result.method ?? null,
-        detail: result.enrolled
+        ok: resultAny2.enrolled,
+        method: resultAny2.method ?? null,
+        detail: resultAny2.enrolled
           ? `Voice AI workflow triggered for ${contact.firstName ?? contact.email} (GHL contact ${contact.ghlContactId})`
-          : (result.reason ?? "GHL voice workflow not configured — set GHL_WORKFLOW_VOICE_AI_OUTREACH in env or via the Workflow ID Manager"),
+          : (resultAny2.reason ?? "GHL voice workflow not configured — set GHL_WORKFLOW_VOICE_AI_OUTREACH in env or via the Workflow ID Manager"),
       });
     } catch (err: any) {
       return res.json({ ok: false, detail: safeMessage(err.message, "Voice AI initiation failed") });
@@ -374,12 +375,13 @@ export function registerWizardRoutes(app: Express): void {
         workflowKey: "GHL_WORKFLOW_RINGLESS_VM",
         ghlContactId: contact.ghlContactId,
       });
+      const resultAny = result as any;
       return res.json({
-        ok: result.enrolled,
-        method: result.method ?? null,
-        detail: result.enrolled
+        ok: resultAny.enrolled,
+        method: resultAny.method ?? null,
+        detail: resultAny.enrolled
           ? `Ringless voicemail workflow triggered for ${contact.firstName ?? contact.email} (GHL contact ${contact.ghlContactId})`
-          : (result.reason ?? "GHL ringless VM workflow not configured — set GHL_WORKFLOW_RINGLESS_VM in env or via the Workflow ID Manager"),
+          : (resultAny.reason ?? "GHL ringless VM workflow not configured — set GHL_WORKFLOW_RINGLESS_VM in env or via the Workflow ID Manager"),
       });
     } catch (err: any) {
       return res.json({ ok: false, detail: safeMessage(err.message, "Ringless VM initiation failed") });
@@ -398,10 +400,10 @@ export function registerWizardRoutes(app: Express): void {
     let sequence: any;
 
     if (rawSequenceId) {
-      sequence = await storage.getSequence(rawSequenceId);
+      sequence = await (storage as any).getSequence(rawSequenceId);
     } else {
       // Find the "Inbound Confirmation" sequence by name
-      const allSeqs = await storage.getSequences();
+      const allSeqs = await (storage as any).getSequences();
       sequence = allSeqs.find(
         (s: any) =>
           s.name?.toLowerCase().includes("inbound confirmation") ||
@@ -544,7 +546,7 @@ export function registerWizardRoutes(app: Express): void {
         companyName: "WizardTest LLC",
         tags: ["wizard_application_test"],
         consentEmail: true,
-      },
+      } as any,
       provenance: {
         sourceCategory: "public_form",
         sourceType: "get_started_form",

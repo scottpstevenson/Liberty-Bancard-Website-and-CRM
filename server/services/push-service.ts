@@ -122,7 +122,7 @@ async function getUserSubscriptions(userId: string): Promise<webpush.PushSubscri
 async function getAllSubscriptions(): Promise<Array<{ userId: number; subscription: webpush.PushSubscription }>> {
   const rows = await db.select().from(pushSubscriptions);
   return rows.map((r) => ({
-    userId: r.userId,
+    userId: r.userId as unknown as number,
     subscription: {
       endpoint: r.endpoint,
       keys: { auth: r.auth, p256dh: r.p256dh },

@@ -87,7 +87,7 @@ export function registerRateReviewRoutes(app: Express) {
 
       const merchantName = contact.companyName || `${contact.firstName} ${contact.lastName}`;
       const taskTitle = `Rate Review Requested — ${merchantName}`;
-      const assignedTo = contact.assignedTo || null;
+      const assignedTo = (contact as any).assignedTo || null;
 
       await storage.createTask({
         contactId: contact.id,

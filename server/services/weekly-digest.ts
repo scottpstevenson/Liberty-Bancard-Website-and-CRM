@@ -39,9 +39,9 @@ export async function generateAndSendWeeklyDigest(): Promise<void> {
     const closedWon = allDeals.filter(d => d.stage === "Closed Won" && d.closedAt && new Date(d.closedAt) >= sevenDaysAgo).length;
     const closedLost = allDeals.filter(d => d.stage === "Closed Lost" && d.closedAt && new Date(d.closedAt) >= sevenDaysAgo).length;
     const proposalsSent = allDeals.filter(d => d.stage === "Proposal Sent" && d.updatedAt && new Date(d.updatedAt) >= sevenDaysAgo).length;
-    const newTickets = allTickets.filter(t => t.createdAt && new Date(t.createdAt) >= sevenDaysAgo).length;
-    const resolvedTickets = allTickets.filter(t => t.resolvedAt && new Date(t.resolvedAt) >= sevenDaysAgo).length;
-    const overdueTaskCount = allTasks.filter(t => t.status !== "completed" && t.dueDate && new Date(t.dueDate) < now).length;
+    const newTickets = allTickets.filter((t: any) => t.createdAt && new Date(t.createdAt) >= sevenDaysAgo).length;
+    const resolvedTickets = allTickets.filter((t: any) => t.resolvedAt && new Date(t.resolvedAt) >= sevenDaysAgo).length;
+    const overdueTaskCount = allTasks.filter((t: any) => t.status !== "completed" && t.dueDate && new Date(t.dueDate) < now).length;
 
     const parseCurrency = (v: string | null | undefined): number => {
       if (!v) return 0;

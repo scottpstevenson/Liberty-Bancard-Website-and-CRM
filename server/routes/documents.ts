@@ -34,8 +34,8 @@ export function registerDocumentsRoutes(app: Express) {
     }
     const userDisplay = `${user.firstName || ''} ${user.lastName || ''}`.trim();
     return (
-      contact.assignedTo === user.email ||
-      (!!userDisplay && contact.assignedTo === userDisplay)
+      (contact as any).assignedTo === user.email ||
+      (!!userDisplay && (contact as any).assignedTo === userDisplay)
     );
   }
 
@@ -210,8 +210,8 @@ export function registerDocumentsRoutes(app: Express) {
         (async () => {
           try {
             const cid = Number(contactId);
-            const dealList = await storage.getDeals({ contactId: cid, limit: 1 });
-            const activeDeal = dealList.data?.[0] ?? dealList[0];
+            const dealList = await (storage.getDeals as any)({ contactId: cid, limit: 1 });
+            const activeDeal = dealList.data?.[0] ?? (dealList as any)[0];
             const did = (activeDeal as any)?.id;
             if (did) {
               await storage.updateOnboardingChecklistItemStatus(did, checklistKey, "received", doc.id, null).catch(async () => {
@@ -334,12 +334,12 @@ export function registerDocumentsRoutes(app: Express) {
               message: `Document "${doc.fileName}" was rejected and requires resubmission. Please upload a corrected version.`,
               type: "warning",
               metadata: { documentId: doc.id, contactId: doc.contactId, eventType: "document_rejected" },
-            }, "document_rejected").catch(() => {});
+            }).catch(() => {});
 
-            const contact = await storage.getContact(doc.contactId);
+            const contact = await storage.getContact(doc.contactId as number);
             if (contact?.ghlContactId) {
               const { addNote } = await import("../services/sdr/ghl-client");
-              await addNote(contact.ghlContactId, `Document rejected: "${doc.fileName}". Merchant has been notified to resubmit.`).catch(() => {});
+              await addNote({ contactId: contact.ghlContactId, body: `Document rejected: "${doc.fileName}". Merchant has been notified to resubmit.` }).catch(() => {});
             }
 
             // Audit the rejection event for reporting
@@ -1105,7 +1105,7 @@ export function registerDocumentsRoutes(app: Express) {
 
   app.get("/api/knowledge-base/category/:category", isDashboardUser, async (req, res) => {
     try {
-      const articles = await storage.getKnowledgeBaseByCategory(req.params.category);
+      const articles = await storage.getKnowledgeBaseByCategory(req.params.category as string);
       res.json(articles);
     } catch (err: any) {
       serverError(res, err);

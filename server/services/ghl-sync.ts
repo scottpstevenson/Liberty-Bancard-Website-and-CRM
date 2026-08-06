@@ -1135,7 +1135,7 @@ export async function syncTaskToGhl(taskId: number): Promise<{ success: boolean;
     if (!config) return { success: false, error: "GHL not configured" };
 
     const allTasks = await storage.getTasks({ limit: 500 });
-    const task = allTasks.find(t => t.id === taskId);
+    const task = allTasks.find((t: any) => t.id === taskId);
     if (!task) return { success: false, error: "Task not found" };
 
     let ghlContactId: string | undefined;
@@ -1277,7 +1277,7 @@ export async function syncTaskFromGhl(ghlTask: any, ghlContactId: string): Promi
     if (!contact) return { success: false, error: "Contact not found for GHL contact" };
 
     const allTasks = await storage.getTasks({ limit: 500 });
-    const existingTask = allTasks.find(t =>
+    const existingTask = allTasks.find((t: any) =>
       t.contactId === contact.id &&
       t.title === ghlTask.title
     );
@@ -1354,7 +1354,7 @@ export async function syncTagsToGhl(contactId: number): Promise<{ success: boole
     let ghlContactId = contact.ghlContactId;
     if (!ghlContactId) {
       const syncResult = await syncContactToGhl(contactId);
-      ghlContactId = syncResult.ghlContactId;
+      ghlContactId = syncResult.ghlContactId ?? null;
     }
     if (!ghlContactId) return { success: false, error: "No GHL contact linked" };
 
@@ -1918,7 +1918,7 @@ export async function runGhlFullSyncTick(): Promise<void> {
     }
 
     const allTasks = await storage.getTasks({ limit: 100 });
-    const recentTasks = allTasks.filter(t => {
+    const recentTasks = allTasks.filter((t: any) => {
       if (!t.contactId || syncedTaskIds.has(t.id)) return false;
       const created = t.createdAt ? new Date(t.createdAt).getTime() : 0;
       return Date.now() - created < 120000;

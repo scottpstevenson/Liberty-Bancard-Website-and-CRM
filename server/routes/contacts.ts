@@ -933,10 +933,7 @@ export function registerContactsRoutes(app: Express) {
               await storage.assignMerchantToAgent({
                 agentId: parentAgent.agentId,
                 dealId: childDeal.id,
-                contactId: childId,
-                assignedAt: new Date(),
-                notes: `Inherited from parent account (contact #${parentId})`,
-              });
+              } as any);
             }
           }
         }
@@ -1169,8 +1166,7 @@ export function registerContactsRoutes(app: Express) {
           targetEntityId: input.counterpartyContactId,
           relationshipType: relType,
           source: "ma_event",
-          note: input.note ?? undefined,
-        }).onConflictDoNothing();
+        } as any).onConflictDoNothing();
       }
 
       await storage.createAuditLog({
@@ -1254,7 +1250,7 @@ export function registerContactsRoutes(app: Express) {
 
   app.get("/api/contacts/:id/communication-health", isDashboardUser, async (req, res) => {
     try {
-      const contactId = parseInt(req.params.id);
+      const contactId = parseInt(req.params.id as string);
       if (isNaN(contactId)) return res.status(400).json({ message: "Invalid contact ID" });
 
       const contact = await storage.getContact(contactId);
@@ -1330,7 +1326,7 @@ export function registerContactsRoutes(app: Express) {
 
   app.post("/api/contacts/:id/request-statement", isDashboardUser, async (req, res) => {
     try {
-      const contactId = parseInt(req.params.id);
+      const contactId = parseInt(req.params.id as string);
       if (isNaN(contactId)) return res.status(400).json({ message: "Invalid contact id" });
 
       const contact = await storage.getContact(contactId);
@@ -1389,7 +1385,7 @@ export function registerContactsRoutes(app: Express) {
 
   app.get("/api/contacts/:id/sales-prep", isDashboardUser, async (req, res) => {
     try {
-      const contactId = parseInt(req.params.id);
+      const contactId = parseInt(req.params.id as string);
       if (isNaN(contactId)) return res.status(400).json({ message: "Invalid contact id" });
 
       const contact = await storage.getContact(contactId);
@@ -1421,7 +1417,7 @@ export function registerContactsRoutes(app: Express) {
 
   app.post("/api/contacts/:id/sales-prep/generate", isDashboardUser, async (req, res) => {
     try {
-      const contactId = parseInt(req.params.id);
+      const contactId = parseInt(req.params.id as string);
       if (isNaN(contactId)) return res.status(400).json({ message: "Invalid contact id" });
 
       const contact = await storage.getContact(contactId);
@@ -1446,7 +1442,7 @@ export function registerContactsRoutes(app: Express) {
   // ─── SDR Contactability Status (read-only, dryRun) ────────────────────────
   app.get("/api/contacts/:id/contactability-status", isDashboardUser, async (req, res) => {
     try {
-      const contactId = parseInt(req.params.id);
+      const contactId = parseInt(req.params.id as string);
       if (isNaN(contactId)) return res.status(400).json({ message: "Invalid contact id" });
 
       const sdrRows = await db.select({ id: sdrLeadState.id }).from(sdrLeadState)
@@ -1478,7 +1474,7 @@ export function registerContactsRoutes(app: Express) {
   // ─── SDR Manual Email Enrollment ──────────────────────────────────────────
   app.post("/api/contacts/:id/sdr-enroll", isDashboardUser, async (req, res) => {
     try {
-      const contactId = parseInt(req.params.id);
+      const contactId = parseInt(req.params.id as string);
       if (isNaN(contactId)) return res.status(400).json({ message: "Invalid contact id" });
 
       // Gate 1: parse and validate body

@@ -22,7 +22,7 @@ export function registerSystemAuditRoutes(app: Express) {
 
   app.get("/api/system-audit/runs/:id", isDashboardUser, async (req, res) => {
     try {
-      const id = parseInt(req.params.id, 10);
+      const id = parseInt(req.params.id as string, 10);
       if (isNaN(id)) return res.status(400).json({ message: "Invalid run ID" });
 
       const rows = await db.execute(sql`

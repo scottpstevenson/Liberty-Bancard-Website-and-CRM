@@ -243,8 +243,9 @@ export async function runEnrichmentJob(jobId: number): Promise<void> {
     inputPayload: { jobId, totalRecords: 0 },
   }).returning();
 
-  const prospects = await storage.getProspects(job.listId!);
-  const unenriched = prospects.filter(p => !p.enrichedAt && p.status !== "do_not_contact");
+  const prospectsResult = await storage.getProspects(job.listId!);
+  const prospects = (prospectsResult as any).data ?? prospectsResult;
+  const unenriched = (prospects as any[]).filter(p => !p.enrichedAt && p.status !== "do_not_contact");
 
   await db.update(enrichmentRuns).set({ inputPayload: { jobId, totalRecords: unenriched.length } }).where(eq(enrichmentRuns.id, enrichRun.id));
 

@@ -517,7 +517,7 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
                     if (
                       zbResult.status === "unsafe" ||
                       zbResult.status === "invalid" ||
-                      zbResult.status === "bounced"
+                      (zbResult.status as string) === "bounced"
                     ) {
                       await storage.updateSequenceEnrollment(enrollment.id, { status: "paused" });
                       await storage.createAuditLog({
@@ -1164,7 +1164,7 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
                     to: deliveryEmailTo,
                     subject: deliverySubject,
                     html: emailBody,
-                    category: "department_accounts",
+                    category: "department_accounts" as any,
                     unsubscribeUrl,
                   });
                   if (!result.success) throw new Error(result.error || "Gmail send failed");

@@ -137,7 +137,7 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
   async upsertSunbizEntitiesBulk(entities: InsertSunbizEntity[]): Promise<{ inserted: number; updated: number }> {
     if (entities.length === 0) return { inserted: 0, updated: 0 };
     const records = entities.map(e => ({
-      filingNumber: e.filingNumber ?? null,
+      filingNumber: (e.filingNumber ?? null) as string,
       entityName: e.entityName,
       feiEinNumber: e.feiEinNumber ?? undefined,
       entityType: e.entityType ?? undefined,

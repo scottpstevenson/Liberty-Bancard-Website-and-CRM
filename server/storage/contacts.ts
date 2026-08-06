@@ -156,7 +156,7 @@ import { coerceDateFields } from "../utils/date-coerce";
   async createContact(insertContact: InsertContact, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }) {
     const { auditChange } = await import("../services/audit-change");
     return await db.transaction(async (tx) => {
-      const [contact] = await tx.insert(contacts).values(insertContact).returning();
+      const [contact] = (await tx.insert(contacts).values(insertContact).returning()) as any[];
       await auditChange({
         userId: auditCtx?.userId ?? null,
         actorType: (auditCtx?.actorType as any) ?? "user",

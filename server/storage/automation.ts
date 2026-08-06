@@ -194,7 +194,7 @@ import { coerceDateFields } from "../utils/date-coerce";
 
   async updateSequenceStepAbTestResults(id: number, results: AbTestResults) {
     const [updated] = await db.update(sequenceSteps)
-      .set({ abTestResults: results as Record<string, unknown> })
+      .set({ abTestResults: results as unknown as Record<string, unknown> })
       .where(eq(sequenceSteps.id, id))
       .returning();
     return updated;

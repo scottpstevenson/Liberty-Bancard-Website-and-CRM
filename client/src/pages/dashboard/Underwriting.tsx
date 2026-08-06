@@ -112,8 +112,8 @@ export default function UnderwritingPage() {
 
   const { data: rules, isLoading: rulesLoading } = useQuery<RulesConfig>({
     queryKey: ["/api/underwriting/rules"],
-    onSuccess: (data) => setRulesForm(data),
-  });
+    onSuccess: (data: RulesConfig) => setRulesForm(data),
+  } as any);
 
   const approveMutation = useMutation({
     mutationFn: ({ dealId, note }: { dealId: number; note: string }) =>

@@ -164,7 +164,7 @@ export default function DeliverabilitySettings() {
     <div className="flex-1 overflow-y-auto p-6 max-w-3xl mx-auto space-y-6">
       <PageHeader
         title="Deliverability Settings"
-        description="Warmup ramp, per-channel caps, bounce/complaint auto-pause thresholds, and no-prospect-send test mode."
+        subtitle="Warmup ramp, per-channel caps, bounce/complaint auto-pause thresholds, and no-prospect-send test mode."
       />
 
       {/* ── 1. Warmup Mode ── */}

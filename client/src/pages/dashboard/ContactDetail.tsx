@@ -1799,7 +1799,7 @@ export default function ContactDetail() {
         </TabsContent>
 
         <TabsContent value="documents" data-testid="tab-content-documents">
-          <ContactDocumentsTab contactId={contactId} userRole={user?.role} isPartnerContact={!!contact?.partnerOrgId} />
+          <ContactDocumentsTab contactId={contactId} userRole={user?.role ?? undefined} isPartnerContact={!!contact?.partnerOrgId} />
         </TabsContent>
 
         <TabsContent value="chargebacks" data-testid="tab-content-chargebacks">

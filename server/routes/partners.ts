@@ -97,7 +97,7 @@ export function registerPartnersRoutes(app: Express) {
 
             if (!contact) {
               console.info(`[Partners] Approval trigger: no CRM contact found for partner email "${partnerEmail}" (partner #${partnerId}) — sequence enrollment skipped.`);
-              await storage.createAuditLog({
+              await (storage as any).createAuditLog({
                 action: "partner_approved_sequence_skip",
                 entityType: "partner",
                 entityId: partnerId,
@@ -109,7 +109,7 @@ export function registerPartnersRoutes(app: Express) {
 
             if (contact.email?.trim().toLowerCase() !== partnerEmail) {
               console.warn(`[Partners] Email mismatch — partner email "${partnerEmail}" does not match contact email "${contact.email}" (contact #${contact.id}). Skipping enrollment.`);
-              await storage.createAuditLog({
+              await (storage as any).createAuditLog({
                 action: "partner_approved_sequence_skip",
                 entityType: "partner",
                 entityId: partnerId,
@@ -122,7 +122,7 @@ export function registerPartnersRoutes(app: Express) {
             const { autoEnrollFromTrigger } = await import("../services/sequence-worker");
             const enrollResult = await autoEnrollFromTrigger("partner_approved", { contactId: contact.id });
 
-            await storage.createAuditLog({
+            await (storage as any).createAuditLog({
               action: "partner_approved_sequence_enrolled",
               entityType: "partner",
               entityId: partnerId,
@@ -287,7 +287,7 @@ ${getEmailSignatureHtml("partners")}
         if (partnerContact) {
           syncFormSubmissionToGhl({
             contactId: partnerContact.id,
-            leadSource: "iso_partner",
+            leadSource: "iso_partner" as any,
             formData: {
               lb_referral_code: partner.affiliateCode || "",
               partner_type: referralType || mappedType,
@@ -980,7 +980,7 @@ async function autoEnrollPartnerReferral(referral: {
       firstName,
       lastName,
       email,
-      phone: referral.referredPhone || undefined,
+      phone: referral.referredPhone || "",
       companyName: referral.referredCompany || undefined,
       status: "Active",
       tags: ["LB-PARTNER-REFERRAL", "src_partner_referral"],
@@ -1015,7 +1015,7 @@ async function autoEnrollPartnerReferral(referral: {
     }).catch(() => {});
   }
 
-  const sequences = await storage.getSequences();
+  const sequences = await (storage as any).getSequences();
   const seq = sequences.find((s: { name: string }) =>
     s.name === "SDR: Reply Engaged" || s.name === "1. Switch & Save — Statement Audit"
   );

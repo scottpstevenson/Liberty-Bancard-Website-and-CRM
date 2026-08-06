@@ -58,7 +58,7 @@ export function registerQueueMetricsRoutes(app: Express) {
 
   app.post("/api/operator/queue-dlq/:id/retry", isAdmin, async (req, res) => {
     try {
-      const { id } = req.params;
+      const id = req.params.id as string;
       const qm = await getQueueManager();
       await qm.retryDeadLetterJob(id);
       res.json({ success: true, message: "Job requeued for retry" });
@@ -69,7 +69,7 @@ export function registerQueueMetricsRoutes(app: Express) {
 
   app.delete("/api/operator/queue-dlq/:id", isAdmin, async (req, res) => {
     try {
-      const { id } = req.params;
+      const id = req.params.id as string;
       const qm = await getQueueManager();
       await qm.discardDeadLetterJob(id);
       res.json({ success: true, message: "Job discarded" });
@@ -80,7 +80,7 @@ export function registerQueueMetricsRoutes(app: Express) {
 
   app.post("/api/operator/queue/:name/pause", isAdmin, async (req, res) => {
     try {
-      const { name } = req.params;
+      const name = req.params.name as string;
       const qm = await getQueueManager();
       await qm.pauseQueue(name);
       res.json({ success: true, message: `Queue ${name} paused` });
@@ -91,7 +91,7 @@ export function registerQueueMetricsRoutes(app: Express) {
 
   app.post("/api/operator/queue/:name/resume", isAdmin, async (req, res) => {
     try {
-      const { name } = req.params;
+      const name = req.params.name as string;
       const qm = await getQueueManager();
       await qm.resumeQueue(name);
       res.json({ success: true, message: `Queue ${name} resumed` });

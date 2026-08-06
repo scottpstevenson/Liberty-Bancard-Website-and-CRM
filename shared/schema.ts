@@ -148,7 +148,7 @@ export const contacts = pgTable("contacts", {
   primarySourceType: text("primary_source_type"),
   // DEFERRABLE INITIALLY DEFERRED: allows insert-contact-then-insert-event-then-UPDATE
   // within a single transaction without violating FK at mid-tx.
-  primarySourceEventId: integer("primary_source_event_id").references(() => contactSourceEvents.id, { deferrable: true, initiallyDeferred: true }),
+  primarySourceEventId: integer("primary_source_event_id").references((): AnyPgColumn => contactSourceEvents.id),
   // Vertical provenance — server-assigned only; never accepted from client input.
   // verticalSource: which pipeline/process last set the vertical value.
   // verticalConfidence: 0–100 integer; NULL = not yet scored.
@@ -365,6 +365,7 @@ export const deals = pgTable("deals", {
   attributionCampaign: text("attribution_campaign"),
   bookingAttributedAt: timestamp("booking_attributed_at"),
   conversionAttributedAt: timestamp("conversion_attributed_at"),
+  ghlOpportunityId: text("ghl_opportunity_id"),
 }, (table) => [
   index("deals_contact_id_idx").on(table.contactId),
   index("deals_pipeline_idx").on(table.pipeline),

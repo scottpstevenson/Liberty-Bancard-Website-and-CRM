@@ -1487,7 +1487,7 @@ export function registerSdrRoutes(app: Express) {
         const contact = await storage.getContact(statementReq.contactId);
         return res.json({
           merchantId: null,
-          companyName: contact?.businessName ?? contact?.firstName ?? "Merchant",
+          companyName: contact?.companyName ?? contact?.firstName ?? "Merchant",
           valid: true,
           source: "statement_request",
         });
@@ -2300,7 +2300,7 @@ export function registerSdrRoutes(app: Express) {
     if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin only" });
     try {
       const { enrichMerchantWithSerper } = await import("../services/sdr/serper-enrichment");
-      const merchantId = parseInt(req.params.id, 10);
+      const merchantId = parseInt(req.params.id as string, 10);
       const result = await enrichMerchantWithSerper(merchantId);
       res.json(result);
     } catch (err: unknown) {
@@ -2450,7 +2450,7 @@ export function registerSdrRoutes(app: Express) {
 
   app.get("/api/sdr/merchants/:id/contacts", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
-      const merchantId = parseInt(req.params.id, 10);
+      const merchantId = parseInt(req.params.id as string, 10);
       if (isNaN(merchantId)) {
         return res.status(400).json({ message: "Invalid merchant ID" });
       }
@@ -2616,7 +2616,7 @@ export function registerSdrRoutes(app: Express) {
 
   app.patch("/api/operator/sync-conflicts/:id/resolve", isAdmin, async (req, res) => {
     try {
-      const id = parseInt(req.params.id, 10);
+      const id = parseInt(req.params.id as string, 10);
       const { resolution } = req.body as { resolution: "kept-internal" | "kept-ghl" | "manual" };
       if (!["kept-internal", "kept-ghl", "manual"].includes(resolution)) {
         return res.status(400).json({ message: "Invalid resolution value" });
@@ -3007,7 +3007,7 @@ export function registerSdrRoutes(app: Express) {
         const newContact = await createContactGhlFirst({
           firstName: ownerFirstName,
           lastName: ownerLastName,
-          email: email ?? null,
+          email: String(email ?? "") as unknown as string,
           phone: phone ?? null,
           companyName: lead.companyName ?? merchant?.businessName ?? null,
           vertical: merchant?.subvertical ?? lead.vertical ?? merchant?.vertical ?? null,
@@ -3017,7 +3017,7 @@ export function registerSdrRoutes(app: Express) {
             merchant?.source ? `Source: ${merchant.source}` : null,
             reason ? `Reason: ${reason}` : null,
           ].filter(Boolean).join("\n"),
-        }, { actorType: "human", actorId });
+        } as any, { actorType: "human", actorId });
 
         contactId = newContact.id;
         await storage.updateSdrLeadState(id, {

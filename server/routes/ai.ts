@@ -96,9 +96,9 @@ OUTPUT FORMAT:
       const salesDeals = allDeals.filter(d => d.pipeline === "sales");
       const activeDeals = salesDeals.filter(d => d.stage !== "Closed Won" && d.stage !== "Closed Lost");
       const stallingDeals = activeDeals.filter(d => d.updatedAt && new Date(d.updatedAt) < sevenDaysAgo);
-      const openTickets = allTickets.filter(t => t.status !== "Resolved" && t.status !== "Closed");
-      const breachedTickets = allTickets.filter(t => t.slaDeadline && new Date(t.slaDeadline) < now && !t.resolvedAt && t.status !== "Resolved" && t.status !== "Closed");
-      const overdueTasks = allTasks.filter(t => t.status === "pending" && t.dueDate && new Date(t.dueDate) < now);
+      const openTickets = allTickets.filter((t: any) => t.status !== "Resolved" && t.status !== "Closed");
+      const breachedTickets = allTickets.filter((t: any) => t.slaDeadline && new Date(t.slaDeadline) < now && !t.resolvedAt && t.status !== "Resolved" && t.status !== "Closed");
+      const overdueTasks = allTasks.filter((t: any) => t.status === "pending" && t.dueDate && new Date(t.dueDate) < now);
       const hotProspects = allProspects.filter(p => p.score === "hot" && p.status !== "converted");
 
       const dataContext = `CURRENT BUSINESS STATE:
@@ -261,7 +261,7 @@ FORMAT your response as JSON: {"subject": "...", "body": "..."}${verticalBlock}`
       const threeDaysAgo = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000);
 
       const newTasks: Array<{ title: string; description: string; priority: string; dueDate: Date; relatedType: string; relatedId: number }> = [];
-      const existingTaskTitles = new Set(allTasks.map(t => t.title));
+      const existingTaskTitles = new Set(allTasks.map((t: any) => t.title));
 
       const salesDeals = allDeals.filter(d => d.pipeline === "sales" && d.stage !== "Closed Won" && d.stage !== "Closed Lost");
       for (const deal of salesDeals) {
@@ -938,8 +938,8 @@ Notes: ${deal.notes || "None"}`
         const completedMilestones = milestones.filter(m => m.done).length;
         const progress = Math.round((completedMilestones / milestones.length) * 100);
 
-        const dealTasks = allTasks.filter(t => t.dealId === deal.id);
-        const pendingTasks = dealTasks.filter(t => t.status !== "completed");
+        const dealTasks = allTasks.filter((t: any) => t.dealId === deal.id);
+        const pendingTasks = dealTasks.filter((t: any) => t.status !== "completed");
 
         const daysSinceSignup = deal.createdAt
           ? Math.floor((Date.now() - new Date(deal.createdAt).getTime()) / (1000 * 60 * 60 * 24))

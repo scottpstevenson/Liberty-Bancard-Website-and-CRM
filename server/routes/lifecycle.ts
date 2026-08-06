@@ -26,7 +26,7 @@ export function registerLifecycleRoutes(app: Express) {
   // ── NPS Survey (public — accessed via token) ────────────────────────────────
   app.get("/api/nps/:token", publicLeadRateLimit, async (req, res) => {
     try {
-      const survey = await storage.getNpsResponseByToken(req.params.token);
+      const survey = await storage.getNpsResponseByToken(req.params.token as string);
       if (!survey) return res.status(404).json({ message: "Survey not found or expired" });
       if (survey.submittedAt) return res.json({ status: "already_submitted", dayTrigger: survey.dayTrigger });
 
@@ -45,7 +45,7 @@ export function registerLifecycleRoutes(app: Express) {
 
   app.post("/api/nps/:token/submit", publicLeadRateLimit, async (req, res) => {
     try {
-      const survey = await storage.getNpsResponseByToken(req.params.token);
+      const survey = await storage.getNpsResponseByToken(req.params.token as string);
       if (!survey) return res.status(404).json({ message: "Survey not found" });
       if (survey.submittedAt) return res.status(409).json({ message: "Survey already submitted" });
 

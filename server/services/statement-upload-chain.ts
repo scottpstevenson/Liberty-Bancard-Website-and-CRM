@@ -449,7 +449,7 @@ export async function runStatementUploadChain(
       };
 
       // 1. contact.assignedTo first (spec: "contact.agentId owner")
-      let matched = findUser(contact?.assignedTo);
+      let matched = findUser((contact as any)?.assignedTo);
       // 2. deal.owner as fallback
       if (!matched) matched = findUser(deal?.owner);
       // 3. ADMIN_EMAIL fallback

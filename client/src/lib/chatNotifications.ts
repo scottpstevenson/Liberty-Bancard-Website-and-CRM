@@ -26,7 +26,7 @@ export function countUnreadSessions(sessions: Array<{ id: number; lastMessageAt:
 export function playChime(): void {
   try {
     const win = window as Window & { webkitAudioContext?: typeof AudioContext };
-    const AudioCtx = win.AudioContext || win.webkitAudioContext;
+    const AudioCtx = (win as any).AudioContext || win.webkitAudioContext;
     if (!AudioCtx) return;
     const ctx = new AudioCtx();
     const osc = ctx.createOscillator();

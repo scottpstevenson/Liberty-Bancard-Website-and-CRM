@@ -157,11 +157,11 @@ export async function requestContactLeadScoring(
  */
 export async function runLeadScoringDeferredRecovery(): Promise<void> {
   let qm: Awaited<ReturnType<typeof getQueueManager>> | null = null;
-  let queue: ReturnType<typeof qm.getQueue> | null = null;
+  let queue: any | null = null;
 
   try {
     qm = await getQueueManager();
-    queue = qm.getQueue("enrichment");
+    queue = qm!.getQueue("enrichment");
   } catch {
     console.warn("[LeadScoringRecovery] Queue manager unavailable — skipping recovery tick");
     return;

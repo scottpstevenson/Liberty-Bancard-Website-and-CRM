@@ -31,7 +31,7 @@ export function normalizeTaskCompletionState(
   const newStatus = update.status;
 
   if (newStatus !== undefined) {
-    if (COMPLETION_STATUSES.has(newStatus)) {
+    if (newStatus && COMPLETION_STATUSES.has(newStatus)) {
       if (!completedAtExplicit) {
         result.completedAt = new Date();
       }

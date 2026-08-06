@@ -311,7 +311,7 @@ export function computeProspectConversionReadiness(
     city: prospect.city || null,
     state: prospect.state || null,
     website: prospect.website || null,
-  };
+  } as any;
 
   const { score, grade, breakdown, missingFields } = computeDataReadinessScore(contactShape);
 

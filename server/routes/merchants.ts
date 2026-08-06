@@ -335,7 +335,7 @@ export function registerMerchantsRoutes(app: Express) {
                   firstName: updated.ownerFirstName || "",
                   lastName: updated.ownerLastName || "",
                   email: contactEmail,
-                  phone: updated.businessPhone || updated.ownerPhone || undefined,
+                  phone: updated.businessPhone || updated.ownerPhone || "",
                   companyName: updated.legalBusinessName || updated.dba || "",
                   status: "New",
                   tags: ["src_merchant_app"],
@@ -364,8 +364,7 @@ export function registerMerchantsRoutes(app: Express) {
               : null;
             enrollInGhlWorkflow({
               workflowKey: "merchant_app",
-              ghlContactId: resolvedGhlId,
-              email: contactEmail || undefined,
+              ghlContactId: resolvedGhlId ?? "",
               metadata: { applicationId: updated.id },
             }).catch(() => {});
           } catch (sideEffectErr) {
@@ -437,7 +436,7 @@ export function registerMerchantsRoutes(app: Express) {
 
   app.get("/api/merchant-applications/prefill-token/:token", publicLeadRateLimit, (req, res) => {
     cleanExpiredPrefillTokens();
-    const data = prefillTokenMap.get(req.params.token);
+    const data = prefillTokenMap.get(req.params.token as string);
     if (!data || data.expiresAt < Date.now()) {
       return res.status(404).json({ message: "Token not found or expired" });
     }
@@ -603,7 +602,7 @@ export function registerMerchantsRoutes(app: Express) {
 
   app.get("/api/merchant-applications/user/:userId", isAuthenticated, async (req, res) => {
     try {
-      const application = await storage.getMerchantApplicationByUser(req.params.userId);
+      const application = await storage.getMerchantApplicationByUser(req.params.userId as string);
       if (!application) return res.status(404).json({ message: "Not found" });
       res.json(application);
     } catch (err: any) {

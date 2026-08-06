@@ -173,7 +173,7 @@ export default function Leaderboard() {
     settings?.showProposals !== false && { key: "proposals", label: "Proposals", icon: Send },
     settings?.showCallsMade !== false && { key: "calls", label: "Calls", icon: PhoneCall },
     settings?.showResponseRate && { key: "responseRate", label: "Response Rate", icon: Percent },
-  ].filter((t): t is MetricTab => Boolean(t));
+  ].filter(Boolean) as MetricTab[];
 
   function openSettings() {
     if (settings) setLocalSettings({ ...settings });

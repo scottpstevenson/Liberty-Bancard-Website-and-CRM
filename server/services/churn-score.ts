@@ -227,7 +227,7 @@ export async function computeChurnScore(contactId: number): Promise<ChurnScoreRe
     const enrollments = await db
       .select()
       .from(sequenceEnrollments)
-      .where(and(eq(sequenceEnrollments.contactId, contactId), gte(sequenceEnrollments.startedAt, ninetyDaysAgo)));
+      .where(and(eq(sequenceEnrollments.contactId, contactId), gte(sequenceEnrollments.createdAt, ninetyDaysAgo)));
     if (enrollments.length > 0) {
       const noResponse = enrollments.filter(e => e.status === "active" || e.status === "completed").length;
       const replied = enrollments.filter(e => e.status === "replied").length;

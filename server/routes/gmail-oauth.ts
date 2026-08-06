@@ -211,7 +211,7 @@ export function registerGmailOAuthRoutes(app: Express): void {
         attestedBy:      userEmail,
         attestationNote,
         expiresAt:       expiresAt ? new Date(expiresAt) : undefined,
-      });
+      }) as any;
       res.json({ ok: true, id: row.id, attestedBy: row.attestedBy, attestedAt: row.attestedAt });
     } catch (err: any) {
       serverError(res, err);
@@ -220,7 +220,7 @@ export function registerGmailOAuthRoutes(app: Express): void {
 
   // ── Get latest attestation for a gate key ───────────────────────────────────
   app.get("/api/admin/ghl-probes/attestation/:key", requireRole("admin", "manager"), async (req: Request, res: Response) => {
-    const { key } = req.params;
+    const key = req.params.key as string;
     try {
       const attestation = await getLatestAttestation(key);
       if (!attestation) return res.json({ found: false });

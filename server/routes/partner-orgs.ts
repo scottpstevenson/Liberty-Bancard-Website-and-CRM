@@ -79,9 +79,9 @@ export function registerPartnerOrgsRoutes(app: Express) {
 
       const contact = await createContactGhlFirst({
         firstName: String(firstName).slice(0, 200),
-        lastName: lastName ? String(lastName).slice(0, 200) : "",
+        lastName: lastName ? String(lastName).slice(0, 200) : "",  // eslint-disable-line
         email: String(email).toLowerCase().slice(0, 300),
-        phone: phone ? String(phone).slice(0, 50) : null,
+        phone: phone ? String(phone).slice(0, 50) : "",
         companyName: companyName ? String(companyName).slice(0, 300) : null,
         status: "New",
         utmSource: utmSource || "partner_portal",
@@ -94,27 +94,27 @@ export function registerPartnerOrgsRoutes(app: Express) {
       });
 
       // Fire standard lead pipeline (non-blocking)
-      scoreContact(contact.id).catch(err => console.error("[PartnerPortal] Lead scoring error:", err));
-      routeContact(contact.id).catch(err => console.error("[PartnerPortal] Smart routing error:", err));
-      autoEnrollFromTrigger("contact_created", { contactId: contact.id }).catch(err => console.error("[PartnerPortal] Auto-enroll error:", err));
-      triggerWorkflowsByEvent("contact_created", { entityType: "contact", entityId: contact.id, contactId: contact.id }).catch(err => console.error("[PartnerPortal] Workflow trigger error:", err));
+      scoreContact(contact!.id).catch(err => console.error("[PartnerPortal] Lead scoring error:", err));
+      routeContact(contact!.id).catch(err => console.error("[PartnerPortal] Smart routing error:", err));
+      autoEnrollFromTrigger("contact_created", { contactId: contact!.id }).catch(err => console.error("[PartnerPortal] Auto-enroll error:", err));
+      triggerWorkflowsByEvent("contact_created", { entityType: "contact", entityId: contact!.id, contactId: contact!.id }).catch(err => console.error("[PartnerPortal] Workflow trigger error:", err));
 
       // Derive warning from actual operation outcome: ghlContactId being set is
       // proof the GHL upsert succeeded at runtime (not just that GHL is configured).
       const { isSmtpConfigured } = await import("../services/smtp-email");
-      const ghlUpsertSucceeded = !!contact.ghlContactId;
+      const ghlUpsertSucceeded = !!contact!.ghlContactId;
       const smtpAvailable = isSmtpConfigured();
       const notificationsAvailable = ghlUpsertSucceeded || smtpAvailable;
       if (!notificationsAvailable) {
         console.warn(
-          `[PartnerPortal] Contact #${contact.id} saved but GHL upsert produced no ghlContactId ` +
+          `[PartnerPortal] Contact #${contact!.id} saved but GHL upsert produced no ghlContactId ` +
           "and SMTP is not configured — outbound notification may be delayed. " +
           "Check GHL credentials or set SMTP_HOST/SMTP_USER/SMTP_PASS.",
         );
       }
 
       res.status(201).json({
-        id: contact.id,
+        id: contact!.id,
         message: "Thank you! We'll be in touch within 24 hours.",
         ...(notificationsAvailable ? {} : { warning: "Contact saved. Outbound notification may be delayed — communications not yet configured." }),
       });
@@ -156,13 +156,13 @@ export function registerPartnerOrgsRoutes(app: Express) {
           partnerOrgId: orgId,
           tags: ["partner_portal", partnerSlug ? `partner_${partnerSlug}` : "partner"].filter(Boolean),
         });
-      } else if (orgId && !contact.partnerOrgId) {
-        await storage.updateContact(contact.id, { partnerOrgId: orgId });
+      } else if (orgId && !contact!.partnerOrgId) {
+        await storage.updateContact(contact!.id, { partnerOrgId: orgId });
         contact = { ...contact, partnerOrgId: orgId };
       }
 
       const deal = await storage.createDeal({
-        contactId: contact.id,
+        contactId: contact!.id,
         pipeline: "sales",
         stage: "Statement Received",
         leadSource: "partner_portal",
@@ -185,29 +185,29 @@ export function registerPartnerOrgsRoutes(app: Express) {
           fileName,
           storageKey: `statements/${diskFileName}`,
           dealId: deal.id,
-          contactId: contact.id,
+          contactId: contact!.id,
           accessScope: "internal",
         });
       }
 
       await storage.updateDeal(deal.id, { statementReceived: true, docReadinessScore: fileBuffer ? 2 : 1 });
       await storage.createTask({
-        dealId: deal.id, contactId: contact.id,
+        dealId: deal.id, contactId: contact!.id,
         title: "Review partner statement + send breakdown",
         assignedTo: "Scott Stevenson",
         dueDate: new Date(Date.now() + 2 * 60 * 60 * 1000),
         priority: "high",
       });
-      await storage.createAuditLog({ action: "statement_uploaded", entityType: "contact", entityId: contact.id, details: { source: "partner_portal", partnerSlug, hasFile: !!fileBuffer } });
+      await storage.createAuditLog({ action: "statement_uploaded", entityType: "contact", entityId: contact!.id, details: { source: "partner_portal", partnerSlug, hasFile: !!fileBuffer } });
 
       const { isSmtpConfigured: checkSmtpUpload } = await import("../services/smtp-email");
       // Use actual GHL upsert outcome (ghlContactId set) not just config presence
-      const ghlUploadSucceeded = !!contact.ghlContactId;
+      const ghlUploadSucceeded = !!contact!.ghlContactId;
       const smtpUploadAvailable = checkSmtpUpload();
       const commsAvailable = ghlUploadSucceeded || smtpUploadAvailable;
       if (!commsAvailable) {
         console.warn(
-          `[PartnerPortal/Upload] Statement for contact #${contact.id} saved but GHL upsert produced no ghlContactId ` +
+          `[PartnerPortal/Upload] Statement for contact #${contact!.id} saved but GHL upsert produced no ghlContactId ` +
           "and SMTP is not configured — confirmation email may be delayed. " +
           "Check GHL credentials or set SMTP_HOST/SMTP_USER/SMTP_PASS.",
         );
@@ -743,9 +743,9 @@ export function registerPartnerOrgsRoutes(app: Express) {
               const contact = await storage.getContact(deal.contactId);
               if (contact?.ghlContactId) {
                 await Promise.all([
-                  addNote({ contactId: contact.ghlContactId, body: `Co-branded proposal viewed: ${proposal.merchantName}` }),
-                  addTag({ contactId: contact.ghlContactId, tags: ["proposal-viewed"] }),
-                  enrollInGhlWorkflow({ workflowKey: "proposal_viewed", ghlContactId: contact.ghlContactId })
+                  addNote({ contactId: contact!.ghlContactId, body: `Co-branded proposal viewed: ${proposal.merchantName}` }),
+                  addTag({ contactId: contact!.ghlContactId, tags: ["proposal-viewed"] }),
+                  enrollInGhlWorkflow({ workflowKey: "proposal_viewed", ghlContactId: contact!.ghlContactId })
                 ]);
               }
               await storage.createNotification({
@@ -807,14 +807,14 @@ export function registerPartnerOrgsRoutes(app: Express) {
               await storage.updateDeal(deal.id, dealUpdates);
               if (deal.contactId) {
                 const contact = await storage.getContact(deal.contactId);
-                if (contact && partnerOrgIdForDeal && !contact.partnerOrgId) {
-                  await storage.updateContact(contact.id, { partnerOrgId: partnerOrgIdForDeal, referralSource: "co_branded_proposal" });
+                if (contact && partnerOrgIdForDeal && !contact!.partnerOrgId) {
+                  await storage.updateContact(contact!.id, { partnerOrgId: partnerOrgIdForDeal, referralSource: "co_branded_proposal" });
                 }
                 if (contact?.ghlContactId) {
                   await Promise.all([
-                    addNote({ contactId: contact.ghlContactId, body: `Co-branded proposal ACCEPTED: ${proposal.merchantName}` }),
-                    addTag({ contactId: contact.ghlContactId, tags: ["proposal-accepted"] }),
-                    enrollInGhlWorkflow({ workflowKey: "proposal_accepted", ghlContactId: contact.ghlContactId })
+                    addNote({ contactId: contact!.ghlContactId, body: `Co-branded proposal ACCEPTED: ${proposal.merchantName}` }),
+                    addTag({ contactId: contact!.ghlContactId, tags: ["proposal-accepted"] }),
+                    enrollInGhlWorkflow({ workflowKey: "proposal_accepted", ghlContactId: contact!.ghlContactId })
                   ]);
                 }
                 await storage.createNotification({
@@ -939,13 +939,13 @@ export function registerPartnerOrgsRoutes(app: Express) {
       }
 
       const contact = proposal.contactId ? await storage.getContact(proposal.contactId) : null;
-      if (!contact || !contact.ghlContactId) {
+      if (!contact || !contact!.ghlContactId) {
         return res.status(400).json({ message: "Associated contact not found or not synced to GHL." });
       }
 
       const result = await enrollInGhlWorkflow({
         workflowKey,
-        ghlContactId: contact.ghlContactId,
+        ghlContactId: contact!.ghlContactId,
         metadata: {
           proposalId: proposal.id,
           proposalToken: proposal.token,

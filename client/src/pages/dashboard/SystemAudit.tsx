@@ -147,7 +147,7 @@ function AuditRunCard({ run, expanded }: { run: AuditRun; expanded?: boolean }) 
               </div>
               <div className="flex items-center gap-2">
                 {run.slack_status === "sent" && (
-                  <Send className="h-3.5 w-3.5 text-green-500" title="Delivered to Slack" />
+                  <Send className="h-3.5 w-3.5 text-green-500" />
                 )}
                 {open ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
               </div>

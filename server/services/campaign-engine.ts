@@ -190,7 +190,8 @@ export async function queueCampaignMessages(campaignId: number, maxToQueue?: num
     ? await storage.getProspects(campaign.targetListId)
     : [];
 
-  const eligibleProspects = prospects.filter(p =>
+  const prospectsData = (prospects as any).data ?? prospects;
+  const eligibleProspects = (prospectsData as any[]).filter((p: any) =>
     p.status !== "do_not_contact" &&
     !p.doNotContact &&
     p.email &&
@@ -316,10 +317,10 @@ export async function queueContactCampaignMessages(campaignId: number, maxToQueu
   // Index existing messages by contactId for O(1) lookup during traversal.
   const messagesByContact = new Map<number, typeof existingMessages>();
   for (const m of existingMessages) {
-    if (!messagesByContact.has(m.contactId)) {
-      messagesByContact.set(m.contactId, []);
+    if (!messagesByContact.has(m.contactId!)) {
+      messagesByContact.set(m.contactId!, []);
     }
-    messagesByContact.get(m.contactId)!.push(m);
+    messagesByContact.get(m.contactId!)!.push(m);
   }
 
   let queued = 0;
@@ -722,7 +723,7 @@ export async function startCampaignPreviewAsync(
       await storage.updateCampaignPreview(previewId, {
         status: "failed",
         completedAt: new Date(),
-        blockReasons: { __error: safe },
+        blockReasons: { __error: safe } as any,
       });
     }
   });

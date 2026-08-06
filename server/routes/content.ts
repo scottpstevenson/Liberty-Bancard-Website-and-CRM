@@ -57,7 +57,7 @@ export function registerContentRoutes(app: Express) {
 
   app.patch("/api/authors/:id", isAuthenticated, async (req, res) => {
     if (!isAdminOrManager(req)) return res.status(403).json({ error: "Admin/Manager only" });
-    const id = parseInt(req.params.id);
+    const id = parseInt(req.params.id as string);
     const author = await storage.updateContentAuthor(id, req.body);
     if (!author) return res.status(404).json({ error: "Author not found" });
     res.json(author);
@@ -73,7 +73,7 @@ export function registerContentRoutes(app: Express) {
 
   app.get("/api/content/posts/:id", isAuthenticated, async (req, res) => {
     if (!isAdminOrManager(req)) return res.status(403).json({ error: "Admin/Manager only" });
-    const id = parseInt(req.params.id);
+    const id = parseInt(req.params.id as string);
     const post = await storage.getGeneratedBlogPost(id);
     if (!post) return res.status(404).json({ error: "Post not found" });
     res.json(post);
@@ -81,7 +81,7 @@ export function registerContentRoutes(app: Express) {
 
   app.patch("/api/content/posts/:id", isAuthenticated, async (req, res) => {
     if (!isAdminOrManager(req)) return res.status(403).json({ error: "Admin/Manager only" });
-    const id = parseInt(req.params.id);
+    const id = parseInt(req.params.id as string);
     const updates = { ...req.body };
     if (updates.scheduledAt && typeof updates.scheduledAt === "string") {
       updates.scheduledAt = new Date(updates.scheduledAt);
@@ -100,7 +100,7 @@ export function registerContentRoutes(app: Express) {
 
   app.post("/api/content/posts/:id/transition", isAuthenticated, async (req, res) => {
     if (!isAdminOrManager(req)) return res.status(403).json({ error: "Admin/Manager only" });
-    const id = parseInt(req.params.id);
+    const id = parseInt(req.params.id as string);
     const status = String(req.body?.status || "");
     const allowed = ["draft", "needs_review", "scheduled", "published", "archived"];
     if (!allowed.includes(status)) return res.status(400).json({ error: "Invalid status" });

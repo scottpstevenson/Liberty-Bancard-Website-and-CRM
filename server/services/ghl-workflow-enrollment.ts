@@ -256,6 +256,14 @@ const INBOX_SMART_LIST_TAGS = {
   activePipeline: "LB-ACTIVE-PIPELINE",
 } as const;
 
+function resolveGhlWorkflowIdSync(sequenceName: string): string | null {
+  const envKey = `GHL_WORKFLOW_${sequenceName.replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_|_$/g, "").toUpperCase()}`;
+  if (process.env[envKey]) return process.env[envKey]!;
+  const mapping = (SEQUENCE_WORKFLOW_MAP as any)[sequenceName];
+  if (mapping?.ghlWorkflowId) return mapping.ghlWorkflowId;
+  return process.env.GHL_DEFAULT_WORKFLOW_ID || null;
+}
+
 async function resolveGhlWorkflowId(sequenceName: string): Promise<string | null> {
   const envKey = `GHL_WORKFLOW_${sequenceName
     .replace(/[^a-zA-Z0-9]+/g, "_")

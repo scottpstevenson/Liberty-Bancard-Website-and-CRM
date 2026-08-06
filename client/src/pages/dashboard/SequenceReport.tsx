@@ -222,7 +222,7 @@ function PausedFamilyGroup({ family, sequences }: { family: string; sequences: S
           <div className="flex items-center gap-2 text-left">
             {open ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />}
             <span className="text-sm font-medium">{family}</span>
-            {hasStalled && <AlertTriangle className="h-3.5 w-3.5 text-amber-500" title="Has stalled enrollments" />}
+            {hasStalled && <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />}
           </div>
           <div className="flex items-center gap-3">
             <CadencePill email={totalE} sms={totalS} days={null} />
