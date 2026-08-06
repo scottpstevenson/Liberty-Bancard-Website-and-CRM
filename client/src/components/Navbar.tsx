@@ -12,9 +12,9 @@ import { trackPhoneCallClick } from "@/lib/analytics";
 import { buildAttributedBookingUrl } from "@/lib/utm";
 
 const solutionLinks = [
-  { name: "Cash Discount — Pay $0 to Process", href: "/0-percent-processing", featured: true },
-  { name: "Compliant Surcharging", href: "/0-percent-processing", featured: true },
-  { name: "Interchange Plus — Lower Your Rate", href: "/compare-rates", featured: false },
+  { name: "Cash Discount — Stop Absorbing Card Fees", href: "/0-percent-processing", featured: true },
+  { name: "Pass Card Fees to Customers (Surcharging)", href: "/0-percent-processing", featured: true },
+  { name: "Interchange Plus — Transparent Lower Rate", href: "/compare-rates", featured: false },
   { name: "Beat Square & Stripe", href: "/beat-square-stripe", featured: false },
   { name: "Payment Terminals & Equipment", href: "/shop", featured: false },
   { name: "Upload Statement", href: "/upload-statement", featured: false },

@@ -119,13 +119,13 @@ export default function ZeroPercent() {
                   className="text-4xl md:text-5xl font-display font-bold text-white leading-tight mb-6"
                   data-testid="text-zero-heading"
                 >
-                  Pay $0 to Accept Cards.<br /><span className="text-sky-400">Cash Discount & Compliant Surcharging.</span>
+                  Stop Paying to Process Cards.<br /><span className="text-sky-400">We'll find your legal path to zero fees — and keep you compliant.</span>
                 </h1>
                 <p
                   className="text-lg text-white/75 mb-4 leading-relaxed"
                   data-testid="text-zero-subheadline"
                 >
-                  Two legal paths. One outcome: your processing fees go to $0. <strong className="text-white/90">Cash discount</strong> posts a lower price for cash customers (legal in all 50 states). <strong className="text-white/90">Compliant surcharging</strong> adds a disclosed fee on eligible credit card transactions where state law permits. We determine the right fit, handle every compliance requirement, and get you set up correctly from day one.
+                  We determine if <strong className="text-white/90">cash discount</strong> or <strong className="text-white/90">compliant surcharging</strong> is legally sound for your specific state, handle every regulatory requirement, and implement the right solution. If neither program fits, we'll cut your current rates with a transparent Interchange Plus plan instead.
                 </p>
                 <p className="text-lg text-white/90 font-medium mb-8" data-testid="text-zero-wallet-impact">
                   For a merchant processing $10,000/month, that's $250–$350 back in your pocket. Every month.
@@ -204,10 +204,10 @@ export default function ZeroPercent() {
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="reveal text-center mb-12">
               <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4" data-testid="text-how-heading">
-                Two Programs. Both Get You to $0.
+                Two Ways to Eliminate Your Card Processing Cost
               </h2>
               <p className="text-muted-foreground max-w-2xl mx-auto">
-                Cash Discount and Compliant Surcharging are distinct programs with different rules. We recommend the right one based on your state, card mix, and business type — then handle every compliance detail.
+                Cash discount and compliant surcharging are different programs with different rules — the right one depends on your state, card mix, and customer type. We make the recommendation and handle the compliance. Here's how each works.
               </p>
             </div>
             <div className="reveal grid grid-cols-1 md:grid-cols-2 gap-8 max-w-4xl mx-auto">
@@ -228,9 +228,9 @@ export default function ZeroPercent() {
                     href="/upload-statement"
                     className="text-sm text-primary underline"
                     data-testid="link-cash-discount-review"
-                    onClick={() => trackCashDiscountReviewClick({ page: "/0-percent-processing", ctaLabel: "Review My Cash Discount Eligibility" })}
+                    onClick={() => trackCashDiscountReviewClick({ page: "/0-percent-processing", ctaLabel: "See My Cash Discount Savings" })}
                   >
-                    Review My Cash Discount Eligibility →
+                    See My Cash Discount Savings →
                   </Link>
                 </CardContent>
               </Card>
@@ -252,9 +252,9 @@ export default function ZeroPercent() {
                     href="/upload-statement"
                     className="text-sm text-primary underline"
                     data-testid="link-surcharge-review"
-                    onClick={() => trackSurchargeReviewClick({ page: "/0-percent-processing", ctaLabel: "Review My Surcharge Eligibility" })}
+                    onClick={() => trackSurchargeReviewClick({ page: "/0-percent-processing", ctaLabel: "Check My Surcharging Eligibility" })}
                   >
-                    Review My Surcharge Eligibility →
+                    Check My Surcharging Eligibility →
                   </Link>
                 </CardContent>
               </Card>
@@ -278,10 +278,10 @@ export default function ZeroPercent() {
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="reveal max-w-3xl mx-auto">
               <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4" data-testid="text-qualify-heading">
-                Who Qualifies for Liberty Zero?
+                Is This a Good Fit for Your Business?
               </h2>
               <p className="text-muted-foreground mb-8 leading-relaxed">
-                Liberty Zero works best when your customers are not extremely price-sensitive, your average ticket size is reasonable, and your business type is a good fit for a compliant fee-offset structure. We verify eligibility — you don't guess.
+                These programs work best when your customers are not extremely price-sensitive, your average ticket is reasonable, and your state allows the program. Upload your statement and we verify eligibility — you don't guess.
               </p>
 
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-10">

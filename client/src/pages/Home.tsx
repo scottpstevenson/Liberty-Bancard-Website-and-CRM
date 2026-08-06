@@ -898,40 +898,39 @@ export default function Home() {
           <div className="hidden md:block absolute top-0 left-0 right-0 h-[3px] bg-accent" aria-hidden="true" />
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <h2 className="reveal text-3xl md:text-4xl font-display font-bold text-foreground md:text-white text-center mb-4" data-testid="text-choose-path-heading">
-              Three Proven Ways to Cut Your Processing Costs
+              Choose Your Path to Zero Processing Fees
             </h2>
-            <p className="text-center text-muted-foreground md:text-white/70 mb-12 max-w-xl mx-auto">Cash Discount and Compliant Surcharging can bring your fees to $0. Interchange Plus delivers the best rate if you prefer to keep things simple.</p>
+            <p className="text-center text-muted-foreground md:text-white/70 mb-12 max-w-xl mx-auto">Two programs can eliminate your processor fees entirely. Or, if you'd rather keep one price for all customers, Interchange Plus delivers maximum transparency at a lower rate.</p>
             {/* Mobile: Accordion — Upload-focused, collapsed by default except Wholesale */}
             <Accordion type="single" collapsible defaultValue="wholesale" className="md:hidden rounded-lg border border-border overflow-hidden" data-testid="accordion-choose-path">
               <AccordionItem value="cash-discount" className="border-b border-border last:border-0" data-testid="card-cash-discount-mobile">
                 <AccordionTrigger className="px-4 py-3 hover:no-underline [&>svg]:shrink-0">
                   <div className="text-left mr-2">
                     <div className="flex items-center gap-2 mb-1">
-                      <span className="bg-emerald-600 text-white text-[10px] font-semibold px-2 py-0.5 rounded">Most Popular</span>
-                      <span className="text-[10px] text-muted-foreground">All 50 States</span>
+                      <span className="bg-emerald-600 text-white text-[10px] font-semibold px-2 py-0.5 rounded">All 50 States</span>
                     </div>
                     <div className="font-display font-semibold text-foreground">Cash Discount</div>
-                    <div className="text-xs text-muted-foreground font-normal mt-0.5">Post a cash price — card customers pay a small service fee that covers your processing</div>
+                    <div className="text-xs text-muted-foreground font-normal mt-0.5">Stop absorbing card fees — you pocket the same amount whether the customer pays cash or card</div>
                   </div>
                 </AccordionTrigger>
                 <AccordionContent className="px-4 pb-4">
-                  <p className="text-sm text-muted-foreground mb-4">Your posted price is the cash price. Card-paying customers see a slightly higher price that covers your processing cost. Legal in all 50 states with proper signage and receipts.*</p>
+                  <p className="text-sm text-muted-foreground mb-4">Your cash price is your posted price. Card customers pay slightly more — covering your processing cost. Legal in all 50 states with proper signage and receipts.*</p>
                   <Link href="/0-percent-processing" data-testid="link-cash-discount-cta-mobile">
-                    <Button className="gap-2 w-full">Check Cash Discount Fit <ArrowRight className="w-4 h-4" /></Button>
+                    <Button className="gap-2 w-full">Get My Savings Analysis <ArrowRight className="w-4 h-4" /></Button>
                   </Link>
                 </AccordionContent>
               </AccordionItem>
               <AccordionItem value="surcharging" className="border-b border-border last:border-0" data-testid="card-surcharging-mobile">
                 <AccordionTrigger className="px-4 py-3 hover:no-underline [&>svg]:shrink-0">
                   <div className="text-left mr-2">
-                    <div className="font-display font-semibold text-foreground">Compliant Surcharging</div>
-                    <div className="text-xs text-muted-foreground font-normal mt-0.5">Add a disclosed credit card fee at checkout — permitted in most states</div>
+                    <div className="font-display font-semibold text-foreground">Pass Card Fees to Customers</div>
+                    <div className="text-xs text-muted-foreground font-normal mt-0.5">A clearly disclosed fee on eligible credit card sales — we verify your state before recommending this</div>
                   </div>
                 </AccordionTrigger>
                 <AccordionContent className="px-4 pb-4">
-                  <p className="text-sm text-muted-foreground mb-4">A transparent service fee on eligible credit card transactions is shown at checkout. We handle state eligibility, card brand registration, receipts, and signage.*</p>
+                  <p className="text-sm text-muted-foreground mb-4">A disclosed fee appears on eligible credit card transactions at checkout. We handle state eligibility checks, card-brand notices, compliant receipts, and signage.*</p>
                   <Link href="/0-percent-processing" data-testid="link-surcharging-cta-mobile">
-                    <Button variant="outline" className="gap-2 w-full">Check Surcharging Fit <ArrowRight className="w-4 h-4" /></Button>
+                    <Button variant="outline" className="gap-2 w-full">Get My Savings Analysis <ArrowRight className="w-4 h-4" /></Button>
                   </Link>
                 </AccordionContent>
               </AccordionItem>
@@ -939,13 +938,13 @@ export default function Home() {
                 <AccordionTrigger className="px-4 py-3 hover:no-underline [&>svg]:shrink-0">
                   <div className="text-left mr-2">
                     <div className="font-display font-semibold text-foreground">Interchange Plus</div>
-                    <div className="text-xs text-muted-foreground font-normal mt-0.5">Just want a better rate? Pay actual interchange cost + a small transparent markup</div>
+                    <div className="text-xs text-muted-foreground font-normal mt-0.5">Keep one price for all customers — pay the actual card-network rate + a small visible markup</div>
                   </div>
                 </AccordionTrigger>
                 <AccordionContent className="px-4 pb-4">
-                  <p className="text-sm text-muted-foreground mb-4">No bundled tiers. No mystery fees. You see every penny of markup — most merchants save 30–50% vs. Square or Stripe without changing how they take payment.*</p>
+                  <p className="text-sm text-muted-foreground mb-4">No bundled tiers. No mystery fees. You see every penny of markup on every transaction — and we'll show you how your current rate compares before you decide.*</p>
                   <Link href="/compare-rates" data-testid="link-interchange-cta-mobile">
-                    <Button variant="outline" className="gap-2 w-full">Compare My Rates <ArrowRight className="w-4 h-4" /></Button>
+                    <Button variant="outline" className="gap-2 w-full">Get My Rate Comparison <ArrowRight className="w-4 h-4" /></Button>
                   </Link>
                 </AccordionContent>
               </AccordionItem>
@@ -955,12 +954,12 @@ export default function Home() {
             <div className="reveal hidden md:grid md:grid-cols-3 gap-6 items-stretch">
               <Card className="relative overflow-visible h-full flex flex-col border-emerald-500/40 shadow-card-hover" data-testid="card-cash-discount">
                 <div className="absolute -top-3 left-4">
-                  <span className="bg-emerald-600 text-white text-xs font-semibold px-3 py-1 rounded-md">Most Popular</span>
+                  <span className="bg-emerald-600 text-white text-xs font-semibold px-3 py-1 rounded-md">Widest Availability</span>
                 </div>
                 <CardHeader className="gap-1">
-                  <span className="report-chip report-chip-neutral w-fit">All 50 States · Brick & Mortar</span>
+                  <span className="report-chip report-chip-neutral w-fit">Pay $0 in card fees · All 50 states</span>
                   <CardTitle className="text-lg">Cash Discount</CardTitle>
-                  <CardDescription>Post a cash price. Card customers pay a small service fee — your processing cost disappears.</CardDescription>
+                  <CardDescription>Your cash price is your posted price. Card customers pay slightly more — you pocket the same amount either way.</CardDescription>
                 </CardHeader>
                 <CardContent className="flex-1">
                   <ul className="space-y-2 text-sm text-muted-foreground">
@@ -969,14 +968,14 @@ export default function Home() {
                     <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> Staff script included</li>
                   </ul>
                   <div className="mt-4 rounded-md border border-border bg-card px-3 py-2">
-                    <div className="text-xs uppercase tracking-wider text-muted-foreground">Result</div>
-                    <div className="num text-sm font-semibold text-emerald-600">$0 in processor fees*</div>
+                    <div className="text-xs uppercase tracking-wider text-muted-foreground">Your processing cost</div>
+                    <div className="num text-sm font-semibold text-emerald-600">Eliminated, when eligible*</div>
                   </div>
                 </CardContent>
                 <CardFooter>
                   <Link href="/0-percent-processing" data-testid="link-cash-discount-cta">
                     <Button className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600">
-                      Check My Eligibility
+                      Get My Savings Analysis
                       <ArrowRight className="w-4 h-4" />
                     </Button>
                   </Link>
@@ -988,25 +987,25 @@ export default function Home() {
                   <span className="bg-sky-600 text-white text-xs font-semibold px-3 py-1 rounded-md">Most States</span>
                 </div>
                 <CardHeader className="gap-1">
-                  <span className="report-chip report-chip-neutral w-fit">B2B · Professional Services · High Ticket</span>
+                  <span className="report-chip report-chip-neutral w-fit">Pass card fees to customers · B2B &amp; high ticket</span>
                   <CardTitle className="text-lg">Compliant Surcharging</CardTitle>
-                  <CardDescription>Add a disclosed credit card fee at checkout. We handle registration, receipts, and compliance.</CardDescription>
+                  <CardDescription>A clearly disclosed fee appears on eligible credit card sales at checkout. State law and card brand rules govern where this applies — we verify before setup.</CardDescription>
                 </CardHeader>
                 <CardContent className="flex-1">
                   <ul className="space-y-2 text-sm text-muted-foreground">
-                    <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> Visa & Mastercard registration handled</li>
-                    <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> State eligibility verified before setup</li>
-                    <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> Receipt & signage requirements met</li>
+                    <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> Required card-brand notices handled for you</li>
+                    <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> State eligibility confirmed before enrollment</li>
+                    <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> Compliant receipts + checkout disclosures</li>
                   </ul>
                   <div className="mt-4 rounded-md border border-border bg-card px-3 py-2">
-                    <div className="text-xs uppercase tracking-wider text-muted-foreground">Result</div>
-                    <div className="num text-sm font-semibold text-sky-600">$0 in processor fees*</div>
+                    <div className="text-xs uppercase tracking-wider text-muted-foreground">Your processing cost</div>
+                    <div className="num text-sm font-semibold text-sky-600">$0 cost to you — cardholder pays*</div>
                   </div>
                 </CardContent>
                 <CardFooter>
                   <Link href="/0-percent-processing" data-testid="link-surcharging-cta">
                     <Button variant="outline" className="gap-2 border-sky-500/50 text-sky-700 hover:bg-sky-50 dark:text-sky-400 dark:hover:bg-sky-950/20">
-                      Check Surcharging Fit
+                      Get My Savings Analysis
                       <ArrowRight className="w-4 h-4" />
                     </Button>
                   </Link>
@@ -1015,15 +1014,15 @@ export default function Home() {
 
               <Card className="h-full flex flex-col" data-testid="card-interchange-plus">
                 <CardHeader className="gap-1">
-                  <span className="report-chip report-chip-neutral w-fit">Just want a better rate? Start here.</span>
+                  <span className="report-chip report-chip-neutral w-fit">Full rate transparency — no hidden markup</span>
                   <CardTitle className="text-lg">Interchange Plus</CardTitle>
-                  <CardDescription>Pay actual card-network cost + a small transparent markup. No bundled tiers, no mystery fees.</CardDescription>
+                  <CardDescription>Pay the actual card-network cost plus a small transparent markup. You see every penny — no bundled tiers, no guessing what you're actually paying.</CardDescription>
                 </CardHeader>
                 <CardContent className="flex-1">
                   <ul className="space-y-2 text-sm text-muted-foreground">
-                    <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> Real interchange passthrough</li>
-                    <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> Full statement transparency</li>
-                    <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> Save 30–50% vs. Square/Stripe*</li>
+                    <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> Real interchange passthrough — no tiers</li>
+                    <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> Full statement transparency on every charge</li>
+                    <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> Compare your current effective rate for free</li>
                   </ul>
                   <div className="mt-4 rounded-md border border-border bg-card px-3 py-2">
                     <div className="text-xs uppercase tracking-wider text-muted-foreground">Illustrative structure</div>
@@ -1033,7 +1032,7 @@ export default function Home() {
                 <CardFooter>
                   <Link href="/compare-rates" data-testid="link-interchange-cta">
                     <Button variant="outline" className="gap-2">
-                      Compare My Rates
+                      Get My Rate Comparison
                       <ArrowRight className="w-4 h-4" />
                     </Button>
                   </Link>
