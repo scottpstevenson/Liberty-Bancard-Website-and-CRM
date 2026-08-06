@@ -776,6 +776,111 @@ export function registerDocumentsRoutes(app: Express) {
     }
   });
 
+  // GET /api/merchant-portal/boarding-status
+  // Returns the merchant's deal boarding status, processor application ID, log, and MID.
+  app.get("/api/merchant-portal/boarding-status", isAuthenticated, async (req, res) => {
+    try {
+      const user = req.user as any;
+      const role = user?.role;
+      const isDashboard = role === "admin" || role === "manager" || role === "agent";
+
+      let contactId: number | null = null;
+      let dealId: number | null = null;
+
+      if (isDashboard) {
+        // Dashboard users may supply ?dealId= for debugging
+        const qDealId = req.query.dealId ? Number(req.query.dealId) : null;
+        if (qDealId) dealId = qDealId;
+      } else {
+        // Merchant: resolve contact from their profile (strict ownership)
+        const profile = await storage.getMerchantProfileByUser(user.id).catch(() => null);
+        if (!profile) return res.status(404).json({ message: "Merchant profile not found" });
+        contactId = profile.contactId ?? null;
+        dealId = profile.dealId ?? null;
+      }
+
+      // Resolve deal
+      let deal: any = null;
+      if (dealId) {
+        deal = await storage.getDeal(dealId).catch(() => null);
+      } else if (contactId) {
+        const dealList = await storage.getDealsByContact(contactId).catch(() => []);
+        // Prefer onboarding pipeline deal; fall back to most recent
+        deal = dealList.find((d: any) => d.pipeline === "onboarding") ?? dealList[0] ?? null;
+      }
+
+      if (!deal) {
+        return res.json({
+          boardingStatus: "not_submitted",
+          processorApplicationId: null,
+          boardingLog: [],
+          mid: null,
+          boardingSubmittedAt: null,
+          boardingApprovedAt: null,
+        });
+      }
+
+      return res.json({
+        boardingStatus: deal.boardingStatus ?? "not_submitted",
+        processorApplicationId: deal.processorApplicationId ?? null,
+        boardingLog: deal.boardingLog ?? [],
+        mid: deal.mid ?? null,
+        boardingSubmittedAt: deal.boardingSubmittedAt ?? null,
+        boardingApprovedAt: deal.boardingApprovedAt ?? null,
+      });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  // GET /api/merchant-portal/chargebacks
+  // Returns chargebacks scoped to the authenticated merchant's contact.
+  app.get("/api/merchant-portal/chargebacks", isAuthenticated, async (req, res) => {
+    try {
+      const user = req.user as any;
+      const role = user?.role;
+      const isDashboard = role === "admin" || role === "manager" || role === "agent";
+
+      let contactId: number | null = null;
+
+      if (isDashboard) {
+        // Dashboard users must supply ?contactId= for scoped view
+        const qContactId = req.query.contactId ? Number(req.query.contactId) : null;
+        if (!qContactId) return res.json([]);
+        contactId = qContactId;
+      } else {
+        const profile = await storage.getMerchantProfileByUser(user.id).catch(() => null);
+        if (!profile) return res.status(404).json({ message: "Merchant profile not found" });
+        contactId = profile.contactId ?? null;
+      }
+
+      if (!contactId) return res.json([]);
+
+      const rows = await storage.getChargebacksByContact(contactId).catch(() => []);
+      // Sort descending by transaction date
+      rows.sort((a: any, b: any) => new Date(b.transactionDate).getTime() - new Date(a.transactionDate).getTime());
+
+      // Return only the fields the merchant portal needs (no internal AI evidence packets)
+      const safe = rows.map((cb: any) => ({
+        id: cb.id,
+        transactionDate: cb.transactionDate,
+        amount: cb.amount,
+        cardBrand: cb.cardBrand,
+        reasonCode: cb.reasonCode,
+        reasonDescription: cb.reasonDescription,
+        status: cb.status,
+        responseDeadline: cb.responseDeadline,
+        respondedAt: cb.respondedAt,
+        outcome: cb.outcome,
+        createdAt: cb.createdAt,
+      }));
+
+      return res.json(safe);
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
   app.post("/api/merchant-portal/upload-statement", isAuthenticated, upload.single("file"), async (req, res) => {
     try {
       if (!req.file) return res.status(400).json({ message: "No file uploaded" });

@@ -32,7 +32,7 @@ import { trackPhoneCallClick } from "@/lib/analytics";
 import type { Document as DocType } from "@shared/schema";
 import { HelpCenter } from "@/components/HelpCenter";
 
-type TabKey = "guide" | "account" | "onboarding" | "documents" | "support" | "referrals" | "financial";
+type TabKey = "guide" | "account" | "onboarding" | "documents" | "support" | "referrals" | "financial" | "chargebacks";
 
 const TABS: { key: TabKey; label: string; icon: typeof User }[] = [
   { key: "guide", label: "Getting Started", icon: BookOpen },
@@ -42,6 +42,7 @@ const TABS: { key: TabKey; label: string; icon: typeof User }[] = [
   { key: "documents", label: "My Documents", icon: FileText },
   { key: "support", label: "Support", icon: Headphones },
   { key: "referrals", label: "Refer & Earn", icon: Gift },
+  { key: "chargebacks", label: "Chargebacks", icon: AlertTriangle },
 ];
 
 function getStatusBadgeVariant(status: string | null | undefined): "default" | "secondary" | "destructive" | "outline" {
@@ -380,6 +381,300 @@ function RateReviewCard({ profile }: { profile: MerchantProfile }) {
   );
 }
 
+// ─── Boarding-status types & helpers ───────────────────────────────────────
+type BoardingStatusData = {
+  boardingStatus: string | null;
+  processorApplicationId: string | null;
+  boardingLog: { timestamp: string; event: string; message?: string; moreInfoRequest?: string }[];
+  mid: string | null;
+  boardingSubmittedAt: string | null;
+  boardingApprovedAt: string | null;
+};
+
+const BOARDING_STATUS_META: Record<string, { label: string; color: string; textColor: string; description: string }> = {
+  not_submitted: {
+    label: "Not Submitted",
+    color: "bg-muted border-muted",
+    textColor: "text-muted-foreground",
+    description: "Your application has not yet been submitted to the processor.",
+  },
+  submitted: {
+    label: "Submitted",
+    color: "bg-blue-50 border-blue-200 dark:bg-blue-950/30 dark:border-blue-800",
+    textColor: "text-blue-700 dark:text-blue-300",
+    description: "Your application has been submitted and is queued for review.",
+  },
+  under_review: {
+    label: "Under Review",
+    color: "bg-amber-50 border-amber-200 dark:bg-amber-950/30 dark:border-amber-800",
+    textColor: "text-amber-700 dark:text-amber-300",
+    description: "Payarc is reviewing your application. Typical decisions take 1–3 business days.",
+  },
+  more_info_needed: {
+    label: "More Information Needed",
+    color: "bg-orange-50 border-orange-200 dark:bg-orange-950/30 dark:border-orange-800",
+    textColor: "text-orange-700 dark:text-orange-300",
+    description: "Payarc has requested additional information before they can proceed.",
+  },
+  approved: {
+    label: "Approved",
+    color: "bg-emerald-50 border-emerald-200 dark:bg-emerald-950/30 dark:border-emerald-800",
+    textColor: "text-emerald-700 dark:text-emerald-300",
+    description: "Your application has been approved — welcome aboard!",
+  },
+  declined: {
+    label: "Declined",
+    color: "bg-red-50 border-red-200 dark:bg-red-950/30 dark:border-red-800",
+    textColor: "text-red-700 dark:text-red-300",
+    description: "Your application was declined. Please contact your representative for next steps.",
+  },
+};
+
+const BOARDING_STEPS = [
+  { key: "not_submitted", label: "Application Prepared" },
+  { key: "submitted", label: "Submitted to Processor" },
+  { key: "under_review", label: "Under Review" },
+  { key: "approved", label: "Approved & Live" },
+] as const;
+
+const STEP_ORDER = ["not_submitted", "submitted", "under_review", "approved"];
+
+function ApplicationStatusCard() {
+  const { data, isLoading } = useQuery<BoardingStatusData>({
+    queryKey: ["/api/merchant-portal/boarding-status"],
+    queryFn: async () => {
+      const res = await fetch("/api/merchant-portal/boarding-status", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch boarding status");
+      return res.json();
+    },
+  });
+
+  if (isLoading) {
+    return (
+      <Card data-testid="card-boarding-status">
+        <CardHeader><CardTitle className="text-base">Application Status</CardTitle></CardHeader>
+        <CardContent><Skeleton className="h-24 w-full" /></CardContent>
+      </Card>
+    );
+  }
+
+  const status = data?.boardingStatus ?? "not_submitted";
+  const meta = BOARDING_STATUS_META[status] ?? BOARDING_STATUS_META["not_submitted"];
+  const currentStepIdx = STEP_ORDER.indexOf(status === "more_info_needed" ? "under_review" : status);
+  const isDeclined = status === "declined";
+
+  // Find the most recent more_info_needed log entry
+  const moreInfoEntry = status === "more_info_needed"
+    ? [...(data?.boardingLog ?? [])].reverse().find(e => e.event === "more_info_needed" || e.moreInfoRequest)
+    : null;
+
+  return (
+    <Card data-testid="card-boarding-status">
+      <CardHeader className="flex flex-row items-center justify-between gap-2 flex-wrap">
+        <CardTitle className="text-base">Application Status</CardTitle>
+        <Badge
+          className={`border ${meta.color} ${meta.textColor} font-medium`}
+          variant="outline"
+          data-testid="badge-boarding-status"
+        >
+          {meta.label}
+        </Badge>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* Status timeline */}
+        {!isDeclined && (
+          <ol className="flex items-center gap-0 w-full" aria-label="Application progress">
+            {BOARDING_STEPS.map((step, idx) => {
+              const done = currentStepIdx > idx;
+              const active = currentStepIdx === idx;
+              return (
+                <li key={step.key} className="flex items-center flex-1 last:flex-none" aria-current={active ? "step" : undefined}>
+                  <div className="flex flex-col items-center gap-1 shrink-0">
+                    <span
+                      className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold border-2
+                        ${done ? "bg-primary border-primary text-primary-foreground"
+                          : active ? "bg-amber-400 border-amber-400 text-white"
+                          : "bg-muted border-muted-foreground/30 text-muted-foreground"}`}
+                      data-testid={`step-${step.key}`}
+                    >
+                      {done ? "✓" : idx + 1}
+                    </span>
+                    <span className={`text-[10px] text-center leading-tight max-w-[60px] ${active ? "font-semibold text-foreground" : done ? "text-muted-foreground" : "text-muted-foreground"}`}>
+                      {step.label}
+                    </span>
+                  </div>
+                  {idx < BOARDING_STEPS.length - 1 && (
+                    <div className={`h-0.5 flex-1 mx-1 ${done ? "bg-primary" : "bg-muted"}`} />
+                  )}
+                </li>
+              );
+            })}
+          </ol>
+        )}
+
+        {/* Human-readable explanation */}
+        <p className="text-sm text-muted-foreground" data-testid="text-boarding-description">{meta.description}</p>
+
+        {/* Reference number */}
+        {data?.processorApplicationId && (
+          <div className="flex items-center gap-2 text-sm" data-testid="text-processor-app-id">
+            <Hash className="w-4 h-4 text-muted-foreground shrink-0" />
+            <span className="text-muted-foreground">Reference #:</span>
+            <span className="font-mono font-medium">{data.processorApplicationId}</span>
+          </div>
+        )}
+
+        {/* Date submitted */}
+        {data?.boardingSubmittedAt && (
+          <div className="flex items-center gap-2 text-sm" data-testid="text-boarding-submitted-at">
+            <Calendar className="w-4 h-4 text-muted-foreground shrink-0" />
+            <span className="text-muted-foreground">Submitted:</span>
+            <span>{formatDate(data.boardingSubmittedAt)}</span>
+          </div>
+        )}
+
+        {/* MID (approved) */}
+        {status === "approved" && data?.mid && (
+          <div className={`rounded-lg p-3 border ${meta.color}`}>
+            <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-300 flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4" />
+              🎉 Your Merchant ID (MID) has been assigned!
+            </p>
+            <p className="text-sm font-mono font-bold mt-1" data-testid="text-approved-mid">{data.mid}</p>
+            <p className="text-xs text-muted-foreground mt-1">Keep this number for your records. Your processing account is now active.</p>
+          </div>
+        )}
+
+        {/* More info needed */}
+        {status === "more_info_needed" && (
+          <div className="rounded-lg p-3 border bg-orange-50 border-orange-200 dark:bg-orange-950/30 dark:border-orange-800">
+            <p className="text-sm font-semibold text-orange-700 dark:text-orange-300 flex items-center gap-2">
+              <AlertCircle className="w-4 h-4" />
+              Action Required
+            </p>
+            {moreInfoEntry?.moreInfoRequest && (
+              <p className="text-sm mt-1 text-orange-800 dark:text-orange-200" data-testid="text-more-info-request">
+                {moreInfoEntry.moreInfoRequest}
+              </p>
+            )}
+            <p className="text-xs text-muted-foreground mt-2">Please contact your representative or upload the requested documents to the Documents tab.</p>
+          </div>
+        )}
+
+        <p className="text-xs text-muted-foreground">Typical approval timeline: 3–5 business days. Questions? Call 954-266-8214.</p>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ─── Chargebacks Tab ────────────────────────────────────────────────────────
+type ChargebackRow = {
+  id: number;
+  transactionDate: string;
+  amount: number;
+  cardBrand: string;
+  reasonCode: string;
+  reasonDescription: string | null;
+  status: string;
+  responseDeadline: string | null;
+  respondedAt: string | null;
+  outcome: string | null;
+  createdAt: string;
+};
+
+function getChargebackStatusBadge(status: string): "default" | "secondary" | "destructive" | "outline" {
+  switch (status) {
+    case "Won": return "default";
+    case "Lost": return "destructive";
+    case "Responded": return "secondary";
+    case "Under Review": return "outline";
+    default: return "secondary";
+  }
+}
+
+function ChargebacksTab() {
+  const { data: chargebacks, isLoading } = useQuery<ChargebackRow[]>({
+    queryKey: ["/api/merchant-portal/chargebacks"],
+    queryFn: async () => {
+      const res = await fetch("/api/merchant-portal/chargebacks", { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+  });
+
+  return (
+    <div className="space-y-4" data-testid="chargebacks-tab">
+      <div>
+        <h2 className="text-lg font-semibold" data-testid="text-chargebacks-title">Chargeback Cases</h2>
+        <p className="text-sm text-muted-foreground">View-only. Contact your representative to respond to or dispute any case.</p>
+      </div>
+
+      {isLoading ? (
+        <Card><CardContent className="p-6"><Skeleton className="h-40 w-full" /></CardContent></Card>
+      ) : !chargebacks || chargebacks.length === 0 ? (
+        <Card data-testid="card-chargebacks-empty">
+          <CardContent className="flex flex-col items-center justify-center py-12 gap-3 text-center">
+            <CheckCircle2 className="w-10 h-10 text-emerald-500" />
+            <p className="text-base font-semibold" data-testid="text-chargebacks-empty">No chargebacks on file — great news!</p>
+            <p className="text-sm text-muted-foreground max-w-sm">Maintaining a low chargeback rate keeps your processing account in good standing.</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <Card data-testid="card-chargebacks-list">
+          <CardContent className="p-0 overflow-x-auto">
+            <Table className="min-w-[640px]">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Case #</TableHead>
+                  <TableHead>Transaction Date</TableHead>
+                  <TableHead>Amount</TableHead>
+                  <TableHead>Card Brand</TableHead>
+                  <TableHead>Reason</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Response Deadline</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {chargebacks.map((cb) => {
+                  const isOverdue = cb.responseDeadline && new Date(cb.responseDeadline) < new Date() && cb.status !== "Won" && cb.status !== "Lost" && cb.status !== "Responded";
+                  return (
+                    <TableRow key={cb.id} data-testid={`row-chargeback-${cb.id}`}>
+                      <TableCell className="font-mono text-sm" data-testid={`text-chargeback-id-${cb.id}`}>#{cb.id}</TableCell>
+                      <TableCell className="text-sm" data-testid={`text-chargeback-date-${cb.id}`}>{formatDate(cb.transactionDate)}</TableCell>
+                      <TableCell className="font-semibold" data-testid={`text-chargeback-amount-${cb.id}`}>
+                        ${cb.amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </TableCell>
+                      <TableCell data-testid={`text-chargeback-card-${cb.id}`}>{cb.cardBrand}</TableCell>
+                      <TableCell className="max-w-[180px]" data-testid={`text-chargeback-reason-${cb.id}`}>
+                        <span className="font-mono text-xs text-muted-foreground">{cb.reasonCode}</span>
+                        {cb.reasonDescription && <span className="block text-xs text-foreground truncate">{cb.reasonDescription}</span>}
+                      </TableCell>
+                      <TableCell data-testid={`text-chargeback-status-${cb.id}`}>
+                        <Badge variant={getChargebackStatusBadge(cb.status)}>{cb.status}</Badge>
+                        {cb.outcome && <span className="block text-xs text-muted-foreground mt-0.5">{cb.outcome}</span>}
+                      </TableCell>
+                      <TableCell data-testid={`text-chargeback-deadline-${cb.id}`}>
+                        {cb.responseDeadline ? (
+                          <span className={isOverdue ? "text-red-600 font-semibold dark:text-red-400" : "text-sm"}>
+                            {isOverdue && <AlertTriangle className="inline w-3 h-3 mr-1" />}
+                            {formatDate(cb.responseDeadline)}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground text-sm">N/A</span>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
 function AccountTab({ profile, isLoading, isAdmin }: { profile: MerchantProfile | null | undefined; isLoading: boolean; isAdmin: boolean }) {
   if (isLoading) {
     return (
@@ -458,56 +753,7 @@ function AccountTab({ profile, isLoading, isAdmin }: { profile: MerchantProfile 
         </CardContent>
       </Card>
 
-      {profile.accountStatus !== "active" && (
-        <Card data-testid="card-boarding-status">
-          <CardHeader>
-            <CardTitle className="text-base">Application &amp; Boarding Status</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ol className="relative border-l border-muted ml-3 space-y-4">
-              {[
-                {
-                  key: "submitted",
-                  label: "Application Submitted",
-                  done: ["under_review", "approved", "active", "pending"].includes(profile.accountStatus || ""),
-                  active: profile.accountStatus === "pending",
-                  description: "Your merchant application has been received.",
-                },
-                {
-                  key: "review",
-                  label: "Underwriting &amp; Review",
-                  done: ["approved", "active"].includes(profile.accountStatus || ""),
-                  active: profile.accountStatus === "under_review",
-                  description: "Our team is reviewing your business and processing history.",
-                },
-                {
-                  key: "approved",
-                  label: "Approval &amp; MID Assignment",
-                  done: profile.accountStatus === "active",
-                  active: profile.accountStatus === "approved",
-                  description: profile.merchantMid ? `Your MID is ${profile.merchantMid}.` : "Your Merchant ID will be assigned upon approval.",
-                },
-                {
-                  key: "golive",
-                  label: "Go-Live",
-                  done: profile.accountStatus === "active",
-                  active: false,
-                  description: profile.goLiveDate ? `Went live on ${new Date(profile.goLiveDate).toLocaleDateString()}.` : "Processing will begin after approval.",
-                },
-              ].map(step => (
-                <li key={step.key} className="ml-6">
-                  <span className={`absolute -left-3 flex items-center justify-center w-6 h-6 rounded-full ring-4 ring-background ${step.done ? "bg-primary text-primary-foreground" : step.active ? "bg-amber-400 text-white" : "bg-muted text-muted-foreground"}`}>
-                    {step.done ? "✓" : step.active ? "…" : "○"}
-                  </span>
-                  <p className={`text-sm font-medium ${step.active ? "text-foreground" : step.done ? "text-muted-foreground line-through" : "text-muted-foreground"}`} dangerouslySetInnerHTML={{ __html: step.label }} />
-                  {step.active && <p className="text-xs text-muted-foreground mt-0.5" dangerouslySetInnerHTML={{ __html: step.description }} />}
-                </li>
-              ))}
-            </ol>
-            <p className="text-xs text-muted-foreground mt-4">Typical approval timeline: 3–5 business days. Questions? Call 954-266-8214.</p>
-          </CardContent>
-        </Card>
-      )}
+      <ApplicationStatusCard />
 
       <Card data-testid="card-account-rep">
         <CardHeader>
@@ -2409,6 +2655,9 @@ export default function MerchantPortal() {
         )}
         {activeTab === "referrals" && (
           <ReferralTab profile={profile} />
+        )}
+        {activeTab === "chargebacks" && (
+          <ChargebacksTab />
         )}
       </div>
     </div>
