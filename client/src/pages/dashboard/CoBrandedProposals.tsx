@@ -45,6 +45,8 @@ import {
   Clock,
   AlertCircle,
   Search,
+  ChevronUp,
+  ChevronDown,
 } from "lucide-react";
 import { format } from "date-fns";
 import type { CoBrandedProposal, Contact } from "@shared/schema";
@@ -55,11 +57,45 @@ type ProposalWithContact = CoBrandedProposal & {
   viewerUrl?: string;
 };
 
+type SortKey = "merchantName" | "status" | "viewCount" | "createdAt";
+
+function SortTh({
+  label, skey, sortKey, sortDir, onSort,
+}: {
+  label: string; skey: SortKey; sortKey: SortKey; sortDir: "asc" | "desc";
+  onSort: (k: SortKey) => void;
+}) {
+  const active = sortKey === skey;
+  return (
+    <button
+      className="flex items-center gap-1 hover:text-foreground transition-colors whitespace-nowrap"
+      onClick={() => onSort(skey)}
+      data-testid={`sort-${skey}`}
+    >
+      {label}
+      {active
+        ? sortDir === "asc" ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />
+        : <ChevronDown className="w-3 h-3 opacity-30" />}
+    </button>
+  );
+}
+
 export default function CoBrandedProposals() {
   const { toast } = useToast();
   const [search, setSearch] = useState("");
   const [selectedProposal, setSelectedProposal] = useState<ProposalWithContact | null>(null);
   const [workflowKey, setWorkflowKey] = useState("");
+  const [sortKey, setSortKey] = useState<SortKey>("createdAt");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+
+  const handleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir("desc");
+    }
+  };
 
   const { data: proposals = [], isLoading } = useQuery<ProposalWithContact[]>({
     queryKey: ["/api/co-branded-proposals"],
@@ -111,6 +147,17 @@ export default function CoBrandedProposals() {
     p.token.toLowerCase().includes(search.toLowerCase())
   );
 
+  const sortedProposals = [...filteredProposals].sort((a, b) => {
+    const dir = sortDir === "asc" ? 1 : -1;
+    switch (sortKey) {
+      case "merchantName": return dir * (a.merchantName ?? "").localeCompare(b.merchantName ?? "");
+      case "status":       return dir * (a.status ?? "").localeCompare(b.status ?? "");
+      case "viewCount":    return dir * ((a.viewCount ?? 0) - (b.viewCount ?? 0));
+      case "createdAt":    return dir * (new Date(a.createdAt ?? 0).getTime() - new Date(b.createdAt ?? 0).getTime());
+      default: return 0;
+    }
+  });
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between gap-4">
@@ -142,12 +189,20 @@ export default function CoBrandedProposals() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Merchant</TableHead>
+                <TableHead>
+                  <SortTh label="Merchant" skey="merchantName" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                </TableHead>
                 <TableHead>Partner</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Views</TableHead>
+                <TableHead>
+                  <SortTh label="Status" skey="status" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                </TableHead>
+                <TableHead>
+                  <SortTh label="Views" skey="viewCount" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                </TableHead>
                 <TableHead>Accepted</TableHead>
-                <TableHead>Created</TableHead>
+                <TableHead>
+                  <SortTh label="Created" skey="createdAt" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                </TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -160,14 +215,14 @@ export default function CoBrandedProposals() {
                     </TableCell>
                   </TableRow>
                 ))
-              ) : filteredProposals.length === 0 ? (
+              ) : sortedProposals.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={7} className="text-center h-24 text-muted-foreground">
                     No proposals found.
                   </TableCell>
                 </TableRow>
               ) : (
-                filteredProposals.map((proposal) => (
+                sortedProposals.map((proposal) => (
                   <TableRow key={proposal.id} data-testid={`row-proposal-${proposal.id}`}>
                     <TableCell>
                       <div className="font-medium">{proposal.merchantName}</div>

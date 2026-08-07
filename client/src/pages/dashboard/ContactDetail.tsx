@@ -1250,7 +1250,23 @@ export default function ContactDetail() {
                       className="w-40"
                       data-testid="input-edit-phone"
                     />
-                  ) : contact.phone}
+                  ) : (
+                    <a
+                      href={`tel:${contact.phone}`}
+                      className="hover:underline"
+                      data-testid="link-phone-call"
+                      onClick={() => {
+                        fetch("/api/analytics/phone-call-click", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          credentials: "include",
+                          body: JSON.stringify({ contactId, sourcePage: "contact_detail" }),
+                        }).catch(() => {/* fire-and-forget */});
+                      }}
+                    >
+                      {contact.phone}
+                    </a>
+                  )}
                 </span>
               )}
               {isEditing ? (

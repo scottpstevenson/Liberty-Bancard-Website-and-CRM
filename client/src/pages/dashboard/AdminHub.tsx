@@ -9,13 +9,14 @@ import ConsentAudit from "./ConsentAudit";
 import PciAssessment from "./PciAssessment";
 
 const InformationFlow = lazy(() => import("./InformationFlow"));
+const PreDeployGateResult = lazy(() => import("./PreDeployGateResult"));
 
 export default function AdminHub() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
 
   const validTabs = isAdmin
-    ? ["users", "permissions", "audit-log", "consent", "pci", "info-flow"]
+    ? ["users", "permissions", "audit-log", "consent", "pci", "info-flow", "gate-result"]
     : ["consent", "pci"];
 
   const search = useSearch();
@@ -33,6 +34,7 @@ export default function AdminHub() {
         <TabsTrigger value="consent" data-testid="tab-admin-consent">Consent Audit</TabsTrigger>
         <TabsTrigger value="pci" data-testid="tab-admin-pci">PCI Assessment</TabsTrigger>
         {isAdmin && <TabsTrigger value="info-flow" data-testid="tab-admin-info-flow">Information Flow</TabsTrigger>}
+        {isAdmin && <TabsTrigger value="gate-result" data-testid="tab-admin-gate-result">Deploy Gate</TabsTrigger>}
       </TabsList>
       {isAdmin && <TabsContent value="users"><UserManagement /></TabsContent>}
       {isAdmin && <TabsContent value="permissions"><Permissions /></TabsContent>}
@@ -43,6 +45,13 @@ export default function AdminHub() {
         <TabsContent value="info-flow">
           <Suspense fallback={<div className="py-12 text-center text-muted-foreground animate-pulse">Loading…</div>}>
             <InformationFlow />
+          </Suspense>
+        </TabsContent>
+      )}
+      {isAdmin && (
+        <TabsContent value="gate-result">
+          <Suspense fallback={<div className="py-12 text-center text-muted-foreground animate-pulse">Loading…</div>}>
+            <PreDeployGateResult />
           </Suspense>
         </TabsContent>
       )}
