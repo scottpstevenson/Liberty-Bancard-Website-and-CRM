@@ -358,6 +358,11 @@ export const deals = pgTable("deals", {
   vertical: text("vertical"),
   autoEnrollmentSuppressedAt: timestamp("auto_enrollment_suppressed_at"),
   autoEnrollmentSuppressedReason: text("auto_enrollment_suppressed_reason"),
+  // ── VAS upsell suppression (Day-30 cross-sell) ────────────────────────────
+  // Set by a rep from the portfolio page to prevent automatic VAS sequence
+  // enrollment at the Day-30 milestone. Does NOT affect initial auto-enrollment.
+  vasUpsellSuppressedAt: timestamp("vas_upsell_suppressed_at"),
+  vasUpsellSuppressedReason: text("vas_upsell_suppressed_reason"),
   // ── Onboarding linkage ───────────────────────────────────────────────────
   // Set on onboarding pipeline deals to point back to the sales deal that
   // triggered the Closed Won → Onboarding auto-kickoff.

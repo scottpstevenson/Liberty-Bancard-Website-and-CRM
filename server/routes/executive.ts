@@ -131,6 +131,73 @@ export function registerExecutiveRoutes(app: Express) {
     }
   });
 
+  // GET /api/executive/vas-upsell-metrics
+  // Returns VAS upsell enrollment rates by vertical for the last N days (default 90).
+  // Counts day30_vas_upsell_enrolled vs day30_vas_upsell_blocked_contactability
+  // and day30_vas_upsell_skipped from audit_logs to produce a per-vertical funnel.
+  app.get("/api/executive/vas-upsell-metrics", isDashboardUser, adminOrManager, async (req, res) => {
+    try {
+      const days = Math.min(Math.max(parseInt((req.query.days as string) || "90", 10), 7), 365);
+
+      // Use pool directly for flexibility with jsonb extraction
+      const { pool: pgPool } = await import("../db");
+
+      const enrolled = await pgPool.query(`
+        SELECT
+          COALESCE(details->>'vertical', 'unknown') AS vertical,
+          COALESCE(details->>'sequenceName', 'unknown') AS sequence_name,
+          COUNT(*) AS enrolled
+        FROM audit_logs
+        WHERE action = 'day30_vas_upsell_enrolled'
+          AND created_at >= NOW() - INTERVAL '${days} days'
+        GROUP BY 1, 2
+        ORDER BY enrolled DESC
+      `);
+
+      const blocked = await pgPool.query(`
+        SELECT
+          COALESCE(details->>'vertical', 'unknown') AS vertical,
+          COUNT(*) AS blocked
+        FROM audit_logs
+        WHERE action = 'day30_vas_upsell_blocked_contactability'
+          AND created_at >= NOW() - INTERVAL '${days} days'
+        GROUP BY 1
+        ORDER BY blocked DESC
+      `);
+
+      const skipped = await pgPool.query(`
+        SELECT
+          COALESCE(details->>'reason', 'unknown') AS skip_reason,
+          COUNT(*) AS skipped
+        FROM audit_logs
+        WHERE action = 'day30_vas_upsell_skipped'
+          AND created_at >= NOW() - INTERVAL '${days} days'
+        GROUP BY 1
+        ORDER BY skipped DESC
+      `);
+
+      const totalEnrolled = enrolled.rows.reduce((s: number, r: any) => s + parseInt(r.enrolled, 10), 0);
+      const totalBlocked  = blocked.rows.reduce((s: number, r: any) => s + parseInt(r.blocked, 10), 0);
+      const totalSkipped  = skipped.rows.reduce((s: number, r: any) => s + parseInt(r.skipped, 10), 0);
+      const totalAttempts = totalEnrolled + totalBlocked + totalSkipped;
+      const enrollmentRate = totalAttempts > 0 ? Math.round((totalEnrolled / totalAttempts) * 100) : 0;
+
+      res.json({
+        days,
+        totalAttempts,
+        totalEnrolled,
+        totalBlocked,
+        totalSkipped,
+        enrollmentRate,
+        byVertical: enrolled.rows,
+        blockedByVertical: blocked.rows,
+        skipReasons: skipped.rows,
+      });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
   // GET /api/executive/goals
   app.get("/api/executive/goals", isDashboardUser, adminOrManager, async (req, res) => {
     try {

@@ -806,6 +806,13 @@
       "when": 1790500000000,
       "tag": "0106_executive_goals",
       "breakpoints": true
+    },
+    {
+      "idx": 115,
+      "version": "7",
+      "when": 1790600000000,
+      "tag": "0113_vas_upsell_suppression",
+      "breakpoints": true
     }
   ]
 }

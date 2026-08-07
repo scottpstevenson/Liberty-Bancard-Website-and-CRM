@@ -1,6 +1,8 @@
 import type { Express } from "express";
 import { isDashboardUser, requireRole } from "../replit_integrations/auth";
-import { pool } from "../db";
+import { pool, db } from "../db";
+import { deals } from "@shared/schema";
+import { eq } from "drizzle-orm";
 import { serverError } from "../utils/server-error";
 
 /**
@@ -186,6 +188,75 @@ export function registerPortfolioRoutes(app: Express) {
       serverError(res, err);
     }
   });
+
+  /**
+   * PATCH /api/portfolio/deals/:dealId/suppress-vas-upsell
+   * Allows a rep, manager, or admin to opt a merchant out of the Day-30
+   * automatic VAS sequence enrollment. Pass { suppressed: true, reason? } to
+   * suppress, { suppressed: false } to lift the suppression.
+   *
+   * Agents may only suppress deals they own; admins/managers can suppress any.
+   */
+  app.patch(
+    "/api/portfolio/deals/:dealId/suppress-vas-upsell",
+    isDashboardUser,
+    async (req, res) => {
+      try {
+        const dealId = parseInt(req.params.dealId, 10);
+        if (!dealId || isNaN(dealId)) {
+          return res.status(400).json({ message: "Invalid dealId" });
+        }
+
+        const user = req.user as any;
+        const role: string = user?.role ?? "agent";
+        const email: string = user?.email ?? "";
+
+        // Load deal to check ownership
+        const [deal] = await db.select().from(deals).where(eq(deals.id, dealId)).limit(1);
+        if (!deal) {
+          return res.status(404).json({ message: "Deal not found" });
+        }
+
+        // Agents may only modify their own deals
+        if (role === "agent" && deal.owner !== email) {
+          return res.status(403).json({ message: "You may only manage suppression for your own deals" });
+        }
+
+        const { suppressed, reason } = req.body as { suppressed: boolean; reason?: string };
+
+        if (suppressed) {
+          await db
+            .update(deals)
+            .set({
+              vasUpsellSuppressedAt: new Date(),
+              vasUpsellSuppressedReason: reason || `Suppressed by ${email}`,
+            } as any)
+            .where(eq(deals.id, dealId));
+        } else {
+          await db
+            .update(deals)
+            .set({
+              vasUpsellSuppressedAt: null,
+              vasUpsellSuppressedReason: null,
+            } as any)
+            .where(eq(deals.id, dealId));
+        }
+
+        const { storage } = await import("../storage");
+        await storage.createAuditLog({
+          action: suppressed ? "vas_upsell_suppressed" : "vas_upsell_suppression_lifted",
+          entityType: "deal",
+          entityId: dealId,
+          actorType: "user",
+          details: { suppressed, reason: reason || null, actor: email, contactId: deal.contactId },
+        });
+
+        res.json({ ok: true, dealId, suppressed, vasUpsellSuppressedAt: suppressed ? new Date() : null });
+      } catch (err: any) {
+        serverError(res, err);
+      }
+    }
+  );
 
   /**
    * GET /api/portfolio/owners — for manager/admin dropdowns to pick a rep

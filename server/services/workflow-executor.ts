@@ -289,6 +289,32 @@ export async function executeWorkflowActions(
           logEntries.push({ step: i + 1, action: "enroll_sequence", status: "skipped", reason: "Missing contactId", timestamp: new Date().toISOString() });
         }
 
+      } else if (action.type === "vas_upsell_enrollment" && contactId) {
+        // Day-30 VAS cross-sell propensity engine.
+        // Maps merchant vertical → targeted VAS sequences and creates enrollments
+        // subject to the standard contactability/suppression gates.
+        try {
+          const { triggerDay30VasUpsell } = await import("./vas-upsell");
+          const vasResult = await triggerDay30VasUpsell(contactId, dealId);
+          logEntries.push({
+            step: i + 1,
+            action: "vas_upsell_enrollment",
+            skipped: vasResult.skipped,
+            skipReason: vasResult.skipReason,
+            vertical: vasResult.vertical,
+            sequencesAttempted: vasResult.sequencesAttempted,
+            enrolled: vasResult.enrolled,
+            alreadyEnrolled: vasResult.alreadyEnrolled,
+            blocked: vasResult.blocked,
+            enrollmentIds: vasResult.enrollmentIds,
+            status: vasResult.skipped ? "skipped" : "completed",
+            timestamp: new Date().toISOString(),
+          });
+        } catch (vasErr: any) {
+          console.error("[Workflow] vas_upsell_enrollment failed:", vasErr.message);
+          logEntries.push({ step: i + 1, action: "vas_upsell_enrollment", status: "failed", error: vasErr.message, timestamp: new Date().toISOString() });
+        }
+
       } else if (action.type === "pause_enrollments" && contactId) {
         const paused = await storage.pauseAllActiveEnrollments(contactId);
         logEntries.push({ step: i + 1, action: "pause_enrollments", paused, status: "completed", timestamp: new Date().toISOString() });

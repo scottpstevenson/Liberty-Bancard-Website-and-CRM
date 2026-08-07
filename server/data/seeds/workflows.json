@@ -423,6 +423,10 @@
           ]
         },
         {
+          "type": "vas_upsell_enrollment",
+          "note": "Day-30: auto-enroll merchant in vertical-specific VAS sequences (Text-to-Pay, Recurring Billing, Omnichannel, Surcharge, or Chargeback Defense) based on their business vertical. Respects contactability gates and rep-level suppression."
+        },
+        {
           "type": "create_audit_log",
           "logAction": "go_live_lifecycle_workflow"
         }
