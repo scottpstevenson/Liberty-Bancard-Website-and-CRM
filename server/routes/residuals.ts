@@ -30,6 +30,8 @@ function detectColumnMap(headers: string[]): Record<string, string> {
     volume: find("volume", "net sales", "gross sales", "sales vol") || "",
     grossResidual: find("gross residual", "gross_residual", "total residual") || "",
     netResidual: find("net residual", "net_residual", "net") || "",
+    transactions: find("transactions", "txn count", "txn_count", "transaction count", "trans count", "item count", "items") || "",
+    processingCost: find("processing cost", "processing_cost", "interchange", "fees", "cost", "expense") || "",
   };
 }
 
@@ -177,6 +179,44 @@ export function registerResidualsRoutes(app: Express) {
         const grossResidual = colMap.grossResidual ? parseNum(record[colMap.grossResidual]) : 0;
         const netResidual = colMap.netResidual ? parseNum(record[colMap.netResidual]) : grossResidual;
 
+        // Parse transactions and processing cost from the file if available.
+        // Absent or empty cells produce null.  Any cell that cannot be
+        // interpreted as a complete valid number also produces null — we never
+        // fabricate a count or cost from a prefix of a malformed value.
+
+        // Transactions: must be a whole integer after stripping commas/spaces.
+        // "12abc", "12.9", "N/A", "" → null.  "1,234" → 1234.
+        const parsedTransactions: number | null = (() => {
+          const rawTxn = colMap.transactions ? record[colMap.transactions] : undefined;
+          if (rawTxn === undefined || rawTxn === null) return null;
+          const trimmed = String(rawTxn).trim();
+          if (trimmed === "") return null;
+          const stripped = trimmed.replace(/[,\s]/g, "");
+          // Accept only a complete signed integer — no decimal point, no trailing text.
+          if (!/^-?\d+$/.test(stripped)) return null;
+          const n = Number(stripped);
+          return isFinite(n) ? n : null;
+        })();
+
+        // Processing cost: must be a complete decimal currency value after
+        // normalising accounting-negative parentheses and stripping $, commas.
+        // "123abc", "N/A", "1.2.3" → null.  "(123.45)" → "-123.45".
+        const parsedProcessingCost: string | null = (() => {
+          const rawCost = colMap.processingCost ? record[colMap.processingCost] : undefined;
+          if (rawCost === undefined || rawCost === null) return null;
+          const trimmed = String(rawCost).trim();
+          if (trimmed === "") return null;
+          // Normalise accounting-negative parentheses: (123.45) → -123.45
+          const normalised = /^\([\d,.\s]+\)$/.test(trimmed)
+            ? "-" + trimmed.slice(1, -1)
+            : trimmed;
+          const stripped = normalised.replace(/[$,\s]/g, "");
+          // Accept only a complete signed decimal — no trailing text, no exponent form.
+          if (!/^-?\d+(\.\d+)?$/.test(stripped)) return null;
+          const n = Number(stripped);
+          return isFinite(n) ? n.toFixed(2) : null;
+        })();
+
         totalGross += grossResidual;
         totalNet += netResidual;
 
@@ -270,6 +310,8 @@ export function registerResidualsRoutes(app: Express) {
           matchedProfileId: matchedProfile?.id ?? null,
           agentId,
           agentName,
+          transactions: parsedTransactions,
+          processingCost: parsedProcessingCost,
           rawData: record,
         });
 
@@ -416,6 +458,11 @@ export function registerResidualsRoutes(app: Express) {
         // ON CONFLICT DO NOTHING on the (import_id, merchant_mid) partial unique index
         // is the last line of defence against duplicate rows.
         for (const { row, agentCommission, partnerCommission } of residualsToInsert) {
+          // Use parsed transactions/cost from the import row; keep NULL when the
+          // processor file omitted the column rather than forcing a zero.
+          const txnCount: number | null = (row as any).transactions ?? null;
+          const procCost: string | null = (row as any).processingCost ?? null;
+
           await tx.execute(sql`
             INSERT INTO merchant_residuals
               (report_id, import_id, deal_id, contact_id, merchant_mid, merchant_name, month,
@@ -423,7 +470,7 @@ export function registerResidualsRoutes(app: Express) {
                partner_commission, volume_change, revenue_change, flags, created_at)
             VALUES
               (NULL, ${importRecord.id}, ${row.matchedDealId}, NULL, ${row.mid}, ${row.merchantName || ""},
-               ${importRecord.month}, ${row.volume || "0"}, 0, ${row.grossResidual || "0"}, '0',
+               ${importRecord.month}, ${row.volume || "0"}, ${txnCount}, ${row.grossResidual || "0"}, ${procCost},
                ${row.netResidual || "0"}, ${row.agentId || null}, ${agentCommission}, ${partnerCommission},
                NULL, NULL, ${(row.varianceStatus !== "in_range" ? [row.varianceStatus ?? "flagged"] : [])},
                NOW())

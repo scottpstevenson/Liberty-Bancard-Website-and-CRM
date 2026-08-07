@@ -1,6 +1,7 @@
 {
   "version": "7",
   "dialect": "postgresql",
+// hint: Logic changed on both sides. Requires understanding intent of each change.
   "entries": [
     {
       "idx": 0,
@@ -778,6 +779,14 @@
       "when": 1790100000000,
       "tag": "0110_ghl_unsynced_contacts_idx",
       "breakpoints": true
+    },
+    {
+      "idx": 111,
+      "version": "7",
+      "when": 1790200000000,
+      "tag": "0111_residual_txn_cost",
+      "breakpoints": true
     }
   ]
+
 }
