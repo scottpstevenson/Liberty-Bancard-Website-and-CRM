@@ -184,6 +184,10 @@ export const contacts = pgTable("contacts", {
   // admins can query "all contacts from batch X" without joining tables.
   importBatchId: text("import_batch_id"),
   rowProvenance: jsonb("row_provenance"),
+  // ── Rep assignment ────────────────────────────────────────────────────────
+  // Stores the email of the rep who owns this contact (consistent with deals.owner).
+  // NULL = unassigned. Set manually or auto-populated from the deal owner.
+  assignedTo: text("assigned_to"),
 }, (table) => [
   uniqueIndex("contacts_email_unique_idx").on(table.email).where(sql`archived_at IS NULL`),
   index("contacts_phone_idx").on(table.phone),

@@ -23,7 +23,7 @@ import {
   Activity, Link2, Trash2, Star,
   RefreshCw, CheckCircle2, AlertCircle, Linkedin, FolderOpen, Info,
   ChevronDown, ChevronUp, Brain, AlertOctagon, ShieldCheck, GitFork, Bot, MapPin, Store,
-  FileSearch2, Merge, SendHorizonal, ClipboardList, BarChart2,
+  FileSearch2, Merge, SendHorizonal, ClipboardList, BarChart2, UserCheck,
 } from "lucide-react";
 import {
   labelForConfirmationStatus,
@@ -982,6 +982,16 @@ export default function ContactDetail() {
     staleTime: 30000,
   });
 
+  const { data: repsList = [] } = useQuery<{ id: string; email: string; firstName: string; lastName: string; role: string }[]>({
+    queryKey: ["/api/users/reps"],
+    queryFn: async () => {
+      const res = await fetch("/api/users/reps", { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
   const { data: parentAccount } = useQuery<Contact | null>({
     queryKey: ["/api/contacts", contactId, "parent"],
     queryFn: async () => {
@@ -1107,18 +1117,45 @@ export default function ContactDetail() {
       monthlyVolume: contact.monthlyVolume,
       currentProvider: contact.currentProvider,
       preferredChannel: contact.preferredChannel,
+      assignedTo: (contact as any).assignedTo ?? null,
     });
     setIsEditing(true);
   };
 
   const saveEdit = async () => {
     try {
-      await updateContact.mutateAsync({ id: contactId, ...editFields });
+      // assignedTo routes through the validated PATCH /assign endpoint.
+      // All other fields go through the generic PUT.
+      // Assignment is done FIRST — if the user lacks permission it fails before
+      // any other fields are persisted, avoiding a partial-save state.
+      const { assignedTo: newAssignedTo, ...otherFields } = editFields;
+      const originalAssignedTo = (contact as any).assignedTo ?? null;
+      const canAssign = user?.role === "admin" || user?.role === "manager";
+
+      if (canAssign && newAssignedTo !== originalAssignedTo) {
+        const csrfToken = await getCsrfToken();
+        const assignRes = await fetch(`/api/contacts/${contactId}/assign`, {
+          method: "PATCH",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+            ...(csrfToken ? { "x-csrf-token": csrfToken } : {}),
+          },
+          body: JSON.stringify({ assignedTo: newAssignedTo ?? null }),
+        });
+        if (!assignRes.ok) {
+          const err = await assignRes.json().catch(() => ({}));
+          throw new Error(err.message || "Failed to assign contact");
+        }
+      }
+
+      await updateContact.mutateAsync({ id: contactId, ...otherFields });
+
       queryClient.invalidateQueries({ queryKey: ["/api/contacts", contactId, "detail"] });
       setIsEditing(false);
       toast({ title: "Contact updated" });
-    } catch {
-      toast({ title: "Failed to update contact", variant: "destructive" });
+    } catch (err: any) {
+      toast({ title: "Failed to update contact", description: err?.message, variant: "destructive" });
     }
   };
 
@@ -1322,6 +1359,33 @@ export default function ContactDetail() {
               ) : contact.vertical ? (
                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-primary/10 text-primary" data-testid="badge-vertical">
                   {contact.vertical}
+                </span>
+              ) : null}
+              {/* Assigned Rep — edit only available to admin/manager */}
+              {isEditing && (user?.role === "admin" || user?.role === "manager") ? (
+                <span className="flex items-center gap-1" data-testid="edit-assigned-to">
+                  <UserCheck className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                  <Select
+                    value={editFields.assignedTo ?? "_unassigned"}
+                    onValueChange={(v) => setEditFields(p => ({ ...p, assignedTo: v === "_unassigned" ? null : v }))}
+                  >
+                    <SelectTrigger className="w-52 h-7 text-xs" data-testid="select-edit-assigned-to">
+                      <SelectValue placeholder="Assign to rep…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="_unassigned">Unassigned</SelectItem>
+                      {repsList.map(r => (
+                        <SelectItem key={r.id} value={r.email} data-testid={`option-rep-${r.id}`}>
+                          {r.firstName && r.lastName ? `${r.firstName} ${r.lastName}` : r.email}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </span>
+              ) : (contact as any).assignedTo ? (
+                <span className="flex items-center gap-1 text-xs text-muted-foreground" data-testid="text-assigned-rep">
+                  <UserCheck className="h-3.5 w-3.5 shrink-0" />
+                  {(contact as any).assignedTo}
                 </span>
               ) : null}
               <Badge variant={statusColor(contact.status)} data-testid="badge-status">

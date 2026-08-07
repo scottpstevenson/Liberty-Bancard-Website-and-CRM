@@ -1,5 +1,5 @@
 import type { Express, Request, Response, RequestHandler, Router } from "express";
-import { requireRole } from "../replit_integrations/auth";
+import { requireRole, isDashboardUser } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { db } from "../db";
 import { users } from "@shared/schema";
@@ -71,6 +71,27 @@ export function registerPermissionsAuditRoutes(app: Express) {
   });
 
   // === Missing list endpoints surfaced by the API surface audit ===
+
+  // Lightweight rep list for contact assignment dropdowns — dashboard users only.
+  // Restricted to roles that represent internal reps (admin, manager, agent).
+  // Merchant/portal accounts are excluded.
+  app.get("/api/users/reps", isDashboardUser, async (_req, res) => {
+    try {
+      const { inArray: inArrayFn } = await import("drizzle-orm");
+      const reps = await db.select({
+        id: users.id,
+        email: users.email,
+        firstName: users.firstName,
+        lastName: users.lastName,
+        role: users.role,
+      }).from(users)
+        .where(inArrayFn(users.role, ["admin", "manager", "agent"]))
+        .orderBy(users.firstName, users.lastName);
+      res.json(reps);
+    } catch (err) {
+      serverError(res, err);
+    }
+  });
 
   // Admin user list (alias of /api/admin/users for callers using /api/users).
   app.get("/api/users", requireRole("admin"), async (_req, res) => {

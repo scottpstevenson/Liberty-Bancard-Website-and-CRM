@@ -785,7 +785,13 @@
       "when": 1790200000000,
       "tag": "0111_residual_txn_cost",
       "breakpoints": true
+    },
+    {
+      "idx": 112,
+      "version": "7",
+      "when": 1790300000000,
+      "tag": "0110_contact_assigned_to",
+      "breakpoints": true
     }
   ]
-
 }

@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ResponsiveTable } from "@/components/ui/responsive-table";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Search, Plus, MoreHorizontal, UserPlus, Mail, MessageSquare, Zap, AlertTriangle, Sparkles, Activity, ArrowRight, Clock, TrendingUp, Ticket, Download, CheckSquare, ExternalLink, Users, Merge, ChevronRight, Archive, RotateCcw, Star } from "lucide-react";
+import { Search, Plus, MoreHorizontal, UserPlus, Mail, MessageSquare, Zap, AlertTriangle, Sparkles, Activity, ArrowRight, Clock, TrendingUp, Ticket, Download, CheckSquare, ExternalLink, Users, Merge, ChevronRight, Archive, RotateCcw, Star, UserCheck } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { useLocation } from "wouter";
 import { useForm } from "react-hook-form";
@@ -420,6 +420,7 @@ export default function Contacts() {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [emailHealthFilter, setEmailHealthFilter] = useState("");
+  const [assignedToMe, setAssignedToMe] = useState(false);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [selectedContact, setSelectedContact] = useState<any>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -534,6 +535,7 @@ export default function Contacts() {
       const contactEmailStatus = (c.emailStatus || "active");
       if (contactEmailStatus !== emailHealthFilter) return false;
     }
+    if (assignedToMe && c.assignedTo !== user?.email) return false;
     return matchesSearch;
   });
 
@@ -550,7 +552,7 @@ export default function Contacts() {
     refetchInterval: 60_000,
   });
 
-  const contactsFilterState = { searchTerm, statusFilter, emailHealthFilter, showArchived: String(showArchived) };
+  const contactsFilterState = { searchTerm, statusFilter, emailHealthFilter, showArchived: String(showArchived), assignedToMe: String(assignedToMe) };
 
   const handleApplySavedFilter = (filters: Record<string, unknown>) => {
     setSearchTerm(String(filters.searchTerm || ""));
@@ -558,6 +560,8 @@ export default function Contacts() {
     setEmailHealthFilter(String(filters.emailHealthFilter || ""));
     if (filters.showArchived === "true") setShowArchived(true);
     else setShowArchived(false);
+    if (filters.assignedToMe === "true") setAssignedToMe(true);
+    else setAssignedToMe(false);
   };
 
   const toggleSelect = (id: number, e: React.MouseEvent) => {
@@ -766,6 +770,18 @@ export default function Contacts() {
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => setAssignedToMe(!assignedToMe)}
+            data-testid="chip-assigned-to-me"
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+              assignedToMe
+                ? "bg-primary/10 border-primary/30 text-primary"
+                : "bg-background border-border text-muted-foreground hover:bg-muted"
+            }`}
+          >
+            <UserCheck className="h-3 w-3" />
+            Assigned to me
+          </button>
           <div className="flex items-center gap-2" data-testid="toggle-show-archived-contacts">
             <Switch
               checked={showArchived}
@@ -1130,6 +1146,19 @@ export default function Contacts() {
                       {contact.status}
                     </span>
                   ),
+                },
+                {
+                  header: "Assigned Rep",
+                  hideOnMobile: true,
+                  cell: (contact: any) => contact.assignedTo ? (
+                    <span
+                      className={`inline-flex items-center gap-1 text-xs ${contact.assignedTo === user?.email ? "text-primary font-medium" : "text-muted-foreground"}`}
+                      data-testid={`text-assigned-rep-${contact.id}`}
+                    >
+                      <UserCheck className="h-3 w-3 shrink-0" />
+                      {contact.assignedTo === user?.email ? "Me" : contact.assignedTo.split("@")[0]}
+                    </span>
+                  ) : <span className="text-muted-foreground/40 text-xs">—</span>,
                 },
                 {
                   header: "",

@@ -65,6 +65,14 @@ export function registerDealsRoutes(app: Express) {
       await storage.createAuditLog({ action: "deal_created", entityType: "deal", entityId: deal.id, userId: (req.user as any)?.id ?? null, details: { pipeline: deal.pipeline, stage: deal.stage } });
       if (deal.contactId) {
         scoreContact(deal.contactId).catch(err => console.error("Lead scoring error:", err));
+        // Backfill contact.assignedTo from deal owner when contact is unassigned.
+        if (deal.owner) {
+          storage.getContact(deal.contactId).then(async (c) => {
+            if (c && !(c as any).assignedTo) {
+              await storage.updateContact(deal.contactId!, { assignedTo: deal.owner } as any);
+            }
+          }).catch(err => console.warn("[Deals] assignedTo backfill failed:", err));
+        }
       }
       generateDealBlueprint(deal.id).catch(err => console.error("Blueprint generation error:", err));
       res.status(201).json(deal);

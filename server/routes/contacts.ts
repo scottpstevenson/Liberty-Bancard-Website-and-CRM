@@ -39,10 +39,52 @@ export function registerContactsRoutes(app: Express) {
       const limit = req.query.limit ? Number(req.query.limit) : undefined;
       const offset = req.query.offset ? Number(req.query.offset) : undefined;
       const emailStatus = req.query.emailStatus ? String(req.query.emailStatus) : undefined;
-      const result = await storage.getContacts({ limit, offset, emailStatus });
+      const assignedTo = req.query.assignedTo ? String(req.query.assignedTo) : undefined;
+      const result = await storage.getContacts({ limit, offset, emailStatus, assignedTo });
       res.json(result);
     } catch (err: any) {
       console.error("Get contacts error:", err.message);
+      serverError(res, err);
+    }
+  });
+
+  // ── PATCH /api/contacts/:id/assign — assign a contact to a rep ──────────────
+  // Restricted to admin/manager: contact assignment is a management action.
+  app.patch("/api/contacts/:id/assign", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const contactId = Number(req.params.id);
+      if (!Number.isInteger(contactId) || contactId <= 0) {
+        return res.status(400).json({ message: "Invalid contact ID" });
+      }
+      const schema = z.object({
+        assignedTo: z.string().email().nullable(),
+      });
+      const { assignedTo } = schema.parse(req.body);
+      const existing = await storage.getContact(contactId);
+      if (!existing) return res.status(404).json({ message: "Not found" });
+
+      // Validate that the target email belongs to a real dashboard user.
+      if (assignedTo !== null) {
+        const { users: usersTable } = await import("@shared/schema");
+        const [repRow] = await db.select({ id: usersTable.id }).from(usersTable)
+          .where(eq(usersTable.email, assignedTo))
+          .limit(1);
+        if (!repRow) {
+          return res.status(400).json({ message: `No user account found for ${assignedTo}` });
+        }
+      }
+
+      const updated = await storage.updateContact(contactId, { assignedTo } as any);
+      await storage.createAuditLog({
+        action: "contact_assigned",
+        entityType: "contact",
+        entityId: contactId,
+        userId: (req.user as any)?.id ?? null,
+        details: { assignedTo, previousAssignedTo: (existing as any).assignedTo ?? null },
+      });
+      res.json(updated);
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
       serverError(res, err);
     }
   });
@@ -358,7 +400,10 @@ export function registerContactsRoutes(app: Express) {
         params.push(vertical);
         conditions.push(`vertical = $${params.length}`);
       }
-      // assignedTo filter omitted — contacts table has no assigned_to column
+      if (assignedTo) {
+        params.push(assignedTo);
+        conditions.push(`assigned_to = $${params.length}`);
+      }
       if (search) {
         params.push(`%${search.toLowerCase()}%`);
         const n = params.length;
@@ -372,7 +417,7 @@ export function registerContactsRoutes(app: Express) {
         `SELECT id, first_name, last_name, email, phone,
                 company_name, vertical, status,
                 email_status, sms_status, do_not_contact,
-                monthly_volume, current_provider,
+                monthly_volume, current_provider, assigned_to,
                 created_at, last_contacted_at
          FROM contacts
          WHERE ${whereClause}
@@ -393,7 +438,7 @@ export function registerContactsRoutes(app: Express) {
         "id", "firstName", "lastName", "email", "phone",
         "companyName", "vertical", "status",
         "emailStatus", "smsStatus", "doNotContact",
-        "monthlyVolume", "currentProvider",
+        "monthlyVolume", "currentProvider", "assignedTo",
         "createdAt", "lastContactedAt",
       ];
 
@@ -401,7 +446,7 @@ export function registerContactsRoutes(app: Express) {
         r.id, r.first_name, r.last_name, r.email, r.phone,
         r.company_name, r.vertical, r.status,
         r.email_status, r.sms_status, r.do_not_contact,
-        r.monthly_volume, r.current_provider,
+        r.monthly_volume, r.current_provider, r.assigned_to,
         r.created_at ? new Date(r.created_at).toISOString() : "",
         r.last_contacted_at ? new Date(r.last_contacted_at).toISOString() : "",
       ].map(csvEsc).join(","));
@@ -553,6 +598,9 @@ export function registerContactsRoutes(app: Express) {
       // Strip provenance fields — they are immutable after first set and must never be
       // overwritten via the PUT route (defense layer 1; storage.updateContact is layer 2).
       const strippedBody = stripProvenanceFields(rawBody as Record<string, unknown>) as typeof rawBody;
+      // assignedTo is a privileged field — only the role-guarded PATCH /assign endpoint
+      // may write it. Strip it here so agents/reps cannot bypass the guard via PUT.
+      delete (strippedBody as any).assignedTo;
       // Normalize ghlContactId from passthrough body before it reaches any write path.
       if ((strippedBody as any).ghlContactId !== undefined) {
         (strippedBody as any).ghlContactId = normalizeGhlId((strippedBody as any).ghlContactId);
