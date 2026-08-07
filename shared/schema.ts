@@ -4716,6 +4716,9 @@ export type PromotionalEligibilityReason =
   | "existing_opt_out"
   | "existing_opt_out_preserved_on_resubmission"
   | "no_usable_channel"
+  | "invalid_email_format"
+  | "disposable_email_domain"
+  | "email_status_blocked"
   | "eligible";
 
 // ─── Per-Contact Lead Scoring Jobs ────────────────────────────────────────────

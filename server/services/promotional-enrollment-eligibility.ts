@@ -55,6 +55,157 @@ export interface EnqueuePromotionalEnrollmentResult {
 const PROMO_CHANNELS: ContactabilityChannel[] = ["email", "sms", "voice_ai", "ringless_vm"];
 
 /**
+ * Minimum-quality pre-enrollment gate checks.
+ *
+ * These run BEFORE any contactability evaluation or sequence enrollment.
+ * They block spam, disposable inboxes, and permanently bad email addresses
+ * that should never enter any outreach sequence.
+ */
+
+// Basic RFC-5321 shape: something@something.something
+const EMAIL_FORMAT_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// Known disposable / throwaway email providers.
+// Conservative hand-curated list of high-volume spam domains. Sorted alphabetically.
+// Add new domains here; duplicates are silently ignored by Set.
+const DISPOSABLE_DOMAINS = new Set([
+  "10minutemail.com",
+  "10minutemail.net",
+  "20minutemail.com",
+  "airmail.cc",
+  "anonbox.net",
+  "antispam24.de",
+  "bccto.me",
+  "burnermail.io",
+  "byom.de",
+  "chacuo.net",
+  "crapmail.org",
+  "discard.email",
+  "discardmail.com",
+  "discardmail.de",
+  "dispostable.com",
+  "dodgeit.com",
+  "emailondeck.com",
+  "fakeinbox.com",
+  "filzmail.com",
+  "getairmail.com",
+  "guerrillamail.biz",
+  "guerrillamail.com",
+  "guerrillamail.de",
+  "guerrillamail.info",
+  "guerrillamail.net",
+  "guerrillamail.org",
+  "guerrillamailblock.com",
+  "itwasntme.co",
+  "junk.to",
+  "kasmail.com",
+  "klzlk.com",
+  "lazyinbox.com",
+  "maildrop.cc",
+  "mailinator.com",
+  "mailnesia.com",
+  "mailnull.com",
+  "moakt.cc",
+  "moakt.co",
+  "moakt.com",
+  "moakt.ws",
+  "mt2009.com",
+  "mt2014.com",
+  "mt2015.com",
+  "nospam.ze.tc",
+  "objectmail.com",
+  "ownmail.net",
+  "pookmail.com",
+  "rtrtr.com",
+  "sharklasers.com",
+  "shitmail.me",
+  "spam4.me",
+  "spamgourmet.com",
+  "spamgourmet.net",
+  "spamgourmet.org",
+  "spaml.de",
+  "spamspot.com",
+  "spamthisplease.com",
+  "tempail.com",
+  "tempe-mail.com",
+  "tempinbox.com",
+  "tempmail.com",
+  "tempr.email",
+  "throwam.com",
+  "throwaway.email",
+  "throwam.com",
+  "trashmail.at",
+  "trashmail.com",
+  "trashmail.io",
+  "trashmail.me",
+  "trashmail.net",
+  "trashmail.org",
+  "trashmail.xyz",
+  "trbvm.com",
+  "trbvn.com",
+  "yopmail.com",
+  "yopmail.fr",
+  "yopmail.net",
+  "yopmail.org",
+  "yopmail.pp.ua",
+  "zoemail.org",
+]);
+
+/**
+ * Email statuses that permanently disqualify a contact from promotional enrollment.
+ *
+ * Canonical policy (aligns with sequence-worker.ts bounce guard at line ~450):
+ *  - "bounced"     — hard bounce; deliverability is permanently broken
+ *  - "invalid"     — ZeroBounce or local validation found the address non-existent
+ *  - "unsafe"      — ZeroBounce: spam trap, abuse address, or do-not-mail flag
+ *  - "blocked"     — manually suppressed by an admin
+ *
+ * NOT included (intentional):
+ *  - "unverified"  — ZeroBounce returned UNKNOWN; enrichment is still pending.
+ *                    The sequence worker will trigger ZeroBounce when it processes
+ *                    the first email step and re-evaluate then. Blocking here would
+ *                    permanently suppress contacts before enrichment completes.
+ *  - "unknown"     — Same reasoning as "unverified"; pass through to enrichment.
+ *  - "active"      — Healthy; always allowed.
+ *  - "opted_out" / "unsubscribed" — Handled by the opt-out tier check above and
+ *                    by evaluateContactability(); not a hard block here.
+ */
+const BLOCKED_EMAIL_STATUSES = new Set(["blocked", "invalid", "bounced", "unsafe"]);
+
+/**
+ * Returns a block reason if the email fails minimum quality, or null if OK.
+ * Does NOT throw — caller decides how to surface failures.
+ */
+function checkEmailQuality(
+  email: string | null | undefined
+): { blocked: true; reason: PromotionalEligibilityReason; detail: string } | null {
+  if (!email || !email.trim()) {
+    // No email — usable-channel check will catch this below; don't double-block.
+    return null;
+  }
+  const addr = email.trim().toLowerCase();
+
+  if (!EMAIL_FORMAT_RE.test(addr)) {
+    return {
+      blocked: true,
+      reason: "invalid_email_format",
+      detail: `Email '${addr}' failed format validation`,
+    };
+  }
+
+  const domain = addr.split("@")[1] ?? "";
+  if (DISPOSABLE_DOMAINS.has(domain)) {
+    return {
+      blocked: true,
+      reason: "disposable_email_domain",
+      detail: `Email domain '${domain}' is a known disposable provider`,
+    };
+  }
+
+  return null;
+}
+
+/**
  * Contact-level pre-queue eligibility gate for promotional enrollment.
  *
  * Checks (in order, fail-fast):
@@ -105,6 +256,35 @@ export async function evaluatePromotionalEnrollmentEligibility(
     return {
       eligible: false,
       reasonCodes: [reason],
+      contactabilityByChannel: {},
+    };
+  }
+
+  // ── Minimum email quality gate ────────────────────────────────────────────
+  // Run BEFORE any contactability evaluation so spam/junk contacts never reach
+  // sequence enrollment audit logs.
+  //
+  // (a) Email format + disposable-domain check
+  const emailQuality = checkEmailQuality(contact.email);
+  if (emailQuality) {
+    console.info(
+      `[PromotionalEligibility] contact #${contactId} blocked — ${emailQuality.reason}: ${emailQuality.detail}`
+    );
+    return {
+      eligible: false,
+      reasonCodes: [emailQuality.reason],
+      contactabilityByChannel: {},
+    };
+  }
+
+  // (b) Permanently bad email status
+  if (contact.email && BLOCKED_EMAIL_STATUSES.has(contact.emailStatus ?? "")) {
+    console.info(
+      `[PromotionalEligibility] contact #${contactId} blocked — email_status_blocked: emailStatus=${contact.emailStatus}`
+    );
+    return {
+      eligible: false,
+      reasonCodes: ["email_status_blocked"],
       contactabilityByChannel: {},
     };
   }
