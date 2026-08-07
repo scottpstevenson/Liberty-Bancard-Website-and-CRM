@@ -75,6 +75,11 @@ export function registerPortfolioRoutes(app: Express) {
 
       const whereClause = conditions.join(" AND ");
 
+      // paramIdx already consumed by ownership WHERE conditions above; track next slot
+      const userEmailParam = `$${paramIdx}`;
+      params.push(email);
+      paramIdx++;
+
       const sql = `
         SELECT
           c.id,
@@ -86,10 +91,12 @@ export function registerPortfolioRoutes(app: Express) {
           c.last_contacted_at                  AS "lastContactedAt",
           COALESCE(mhs.risk_tier, 'Unknown')   AS "riskTier",
           COALESCE(mhs.churn_score, 0)         AS "churnScore",
+          latest_deal.id                       AS "dealId",
           latest_deal.owner                    AS "ownerEmail",
           latest_deal.next_follow_up           AS "nextFollowUp",
           latest_deal.stage                    AS "dealStage",
           latest_deal.pipeline                 AS "dealPipeline",
+          user_deal.id                         AS "userDealId",
           COALESCE(tc.open_count, 0)::int      AS "openTickets",
           COALESCE(tk.open_count, 0)::int      AS "openTasks",
           CASE COALESCE(mhs.risk_tier, 'Unknown')
@@ -103,11 +110,21 @@ export function registerPortfolioRoutes(app: Express) {
         -- latest deal per contact for signals only (owner of latest deal shown in UI)
         INNER JOIN (
           SELECT DISTINCT ON (contact_id)
-            contact_id, owner, next_follow_up, stage, pipeline
+            id, contact_id, owner, next_follow_up, stage, pipeline
           FROM deals
           WHERE archived_at IS NULL
           ORDER BY contact_id, created_at DESC
         ) latest_deal ON latest_deal.contact_id = c.id
+        -- the logged-in user's most recent deal for this contact (used for editability)
+        LEFT JOIN LATERAL (
+          SELECT id
+          FROM deals d_user
+          WHERE d_user.contact_id = c.id
+            AND d_user.owner = ${userEmailParam}
+            AND d_user.archived_at IS NULL
+          ORDER BY d_user.created_at DESC
+          LIMIT 1
+        ) user_deal ON true
         LEFT JOIN LATERAL (
           SELECT risk_tier, churn_score
           FROM merchant_health_scores
@@ -137,7 +154,12 @@ export function registerPortfolioRoutes(app: Express) {
 
       const { rows } = await pool.query(sql, params);
 
-      const data = rows.map(({ risk_order, ...rest }: any) => rest);
+      // Compute editableDealId: agents may only PATCH their own deal;
+      // admins/managers may PATCH the latest deal (PUT guard allows it).
+      const data = rows.map(({ risk_order, userDealId, ...rest }: any) => ({
+        ...rest,
+        editableDealId: (role === "agent") ? (userDealId ?? null) : (rest.dealId ?? null),
+      }));
 
       const critical = data.filter((r: any) => r.riskTier === "Critical").length;
       const high = data.filter((r: any) => r.riskTier === "High").length;

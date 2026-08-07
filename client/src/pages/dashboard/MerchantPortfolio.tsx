@@ -1,13 +1,17 @@
 import { useState, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
 import {
   AlertTriangle,
   ArrowUpDown,
@@ -15,15 +19,19 @@ import {
   ArrowDown,
   Briefcase,
   CalendarClock,
+  CalendarDays,
   ChevronRight,
   Search,
   Ticket,
   CheckSquare,
   Users,
+  X,
 } from "lucide-react";
 
 interface PortfolioRow {
   id: number;
+  dealId: number | null;
+  editableDealId: number | null;
   firstName: string;
   lastName: string;
   companyName: string | null;
@@ -124,8 +132,114 @@ function subName(row: PortfolioRow): string {
   return row.email ?? "";
 }
 
+/**
+ * Converts the local date selected by the user into a UTC-noon ISO string.
+ * Storing at UTC noon (12:00Z) keeps the calendar date stable in all timezones
+ * from UTC-12 to UTC+12 — `new Date(isoString)` will always land on the intended day.
+ */
+function toUtcNoonIso(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}T12:00:00.000Z`;
+}
+
+/**
+ * Parse a stored follow-up value back into a JS Date for Calendar selection.
+ * Extracts the YYYY-MM-DD portion and constructs a LOCAL midnight date so the
+ * calendar always highlights the correct day regardless of stored UTC offset.
+ */
+function parseFollowUpForCalendar(val: string | null): Date | undefined {
+  if (!val) return undefined;
+  const match = val.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return undefined;
+  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+}
+
+// ── Inline Follow-Up Date Picker ─────────────────────────────────────────────
+
+interface FollowUpCellProps {
+  row: PortfolioRow;
+  /** Optimistic override from the mutation layer */
+  overrideDate: string | null | undefined;
+  onSave: (editableDealId: number, isoDate: string | null) => void;
+  saving: boolean;
+}
+
+function FollowUpCell({ row, overrideDate, onSave, saving }: FollowUpCellProps) {
+  const [open, setOpen] = useState(false);
+
+  // Displayed value: prefer optimistic override when present
+  const displayVal = overrideDate !== undefined ? overrideDate : row.nextFollowUp;
+
+  // Can only edit if this user owns a deal they can PATCH
+  const canEdit = !!row.editableDealId;
+
+  // Parse current value for the Calendar — local date from YYYY-MM-DD portion
+  const selectedDay = parseFollowUpForCalendar(displayVal);
+
+  function handleSelect(day: Date | undefined) {
+    if (!row.editableDealId) return;
+    // Send UTC-noon so the calendar date is stable across all timezones
+    const iso = day ? toUtcNoonIso(day) : null;
+    setOpen(false);
+    onSave(row.editableDealId, iso);
+  }
+
+  function handleClear(e: React.MouseEvent) {
+    e.stopPropagation();
+    if (!row.editableDealId) return;
+    onSave(row.editableDealId, null);
+  }
+
+  if (!canEdit) {
+    return (
+      <span className={`text-xs ${followUpClass(displayVal)}`}>
+        {fmtFollowUp(displayVal)}
+      </span>
+    );
+  }
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          className={`group/cell flex items-center gap-1.5 text-xs rounded px-1.5 py-0.5 -mx-1.5 hover:bg-muted transition-colors ${followUpClass(displayVal)} ${saving ? "opacity-50 pointer-events-none" : ""}`}
+          title="Click to reschedule follow-up"
+        >
+          <CalendarDays className="w-3 h-3 shrink-0 opacity-50 group-hover/cell:opacity-100 transition-opacity" />
+          <span>{fmtFollowUp(displayVal)}</span>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-auto p-0" align="start" side="bottom">
+        <div className="px-3 pt-3 pb-1 border-b flex items-center justify-between gap-4">
+          <span className="text-xs font-medium text-muted-foreground">Set follow-up date</span>
+          {displayVal && (
+            <button
+              onClick={handleClear}
+              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-destructive transition-colors"
+            >
+              <X className="w-3 h-3" /> Clear
+            </button>
+          )}
+        </div>
+        <Calendar
+          mode="single"
+          selected={selectedDay}
+          onSelect={handleSelect}
+          initialFocus
+        />
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+// ── Main Component ────────────────────────────────────────────────────────────
+
 export default function MerchantPortfolio() {
   const { user } = useAuth();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
   const role = (user as any)?.role ?? "agent";
 
   const [sortKey, setSortKey] = useState<SortKey>("risk");
@@ -133,6 +247,11 @@ export default function MerchantPortfolio() {
   const [search, setSearch] = useState("");
   const [riskFilter, setRiskFilter] = useState("all");
   const [ownerFilter, setOwnerFilter] = useState("all");
+
+  // Optimistic follow-up overrides keyed by dealId
+  const [optimisticDates, setOptimisticDates] = useState<Record<number, string | null>>({});
+  // Which dealId is currently saving
+  const [savingDealId, setSavingDealId] = useState<number | null>(null);
 
   // Server-side sort for the primary sort key used in the API
   const apiSort = sortKey === "risk" ? "risk" : sortKey === "lastContact" ? "lastContact" : sortKey === "nextFollowUp" ? "nextFollowUp" : "risk";
@@ -212,6 +331,41 @@ export default function MerchantPortfolio() {
     return sortDir === "asc"
       ? <ArrowUp className="w-3 h-3 ml-1 text-primary" />
       : <ArrowDown className="w-3 h-3 ml-1 text-primary" />;
+  }
+
+  async function handleSaveFollowUp(editableDealId: number, isoDate: string | null) {
+    // Optimistic update
+    setOptimisticDates((prev) => ({ ...prev, [editableDealId]: isoDate }));
+    setSavingDealId(editableDealId);
+    try {
+      await apiRequest("PUT", `/api/deals/${editableDealId}`, { nextFollowUp: isoDate });
+      // Build a human-readable date from the YYYY-MM-DD portion (local, no UTC drift)
+      let description = "Follow-up date cleared";
+      if (isoDate) {
+        const m = isoDate.match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if (m) {
+          const localDate = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+          description = `Rescheduled to ${localDate.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" })}`;
+        }
+      }
+      toast({ title: "Follow-up updated", description });
+      // Invalidate so the table refreshes server values on next stale
+      queryClient.invalidateQueries({ queryKey: ["/api/portfolio"] });
+    } catch (err: any) {
+      toast({
+        title: "Failed to update follow-up",
+        description: (err as any)?.message ?? "Please try again.",
+        variant: "destructive",
+      });
+      // Revert optimistic update
+      setOptimisticDates((prev) => {
+        const next = { ...prev };
+        delete next[editableDealId];
+        return next;
+      });
+    } finally {
+      setSavingDealId(null);
+    }
   }
 
   const summary = data?.summary;
@@ -514,11 +668,14 @@ export default function MerchantPortfolio() {
                         </div>
                       </td>
 
-                      {/* Next follow-up */}
+                      {/* Next follow-up — inline date picker */}
                       <td className="px-4 py-3">
-                        <span className={`text-xs ${followUpClass(row.nextFollowUp)}`}>
-                          {fmtFollowUp(row.nextFollowUp)}
-                        </span>
+                        <FollowUpCell
+                          row={row}
+                          overrideDate={row.editableDealId !== null ? optimisticDates[row.editableDealId!] : undefined}
+                          onSave={handleSaveFollowUp}
+                          saving={row.editableDealId !== null && savingDealId === row.editableDealId}
+                        />
                       </td>
 
                       {/* Rep email (admin/manager only) */}
