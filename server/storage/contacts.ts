@@ -98,7 +98,7 @@ import {
   roleplayExchanges, type RoleplayExchange, type InsertRoleplayExchange,
   leaderboardSettings, type LeaderboardSettings,
 } from "@shared/schema";
-import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, count } from "drizzle-orm";
+import { eq, desc, and, lt, isNull, ne, sql, asc, gt, gte, lte, inArray, or, ilike, count } from "drizzle-orm";
 import { coerceDateFields } from "../utils/date-coerce";
   import { type PaginationParams, type PaginatedResult, normalizePagination } from "./_shared";
 
@@ -121,6 +121,29 @@ import { coerceDateFields } from "../utils/date-coerce";
   async getContactByGhlContactId(ghlContactId: string) {
     const [contact] = await db.select().from(contacts).where(eq(contacts.ghlContactId, ghlContactId));
     return contact;
+  }
+
+  /**
+   * Returns contacts that have not yet been pushed to GHL (no ghlContactId),
+   * ordered by id ascending for a stable keyset cursor.
+   *
+   * Pass afterId > 0 to start past a known contact id — this lets fullSyncToGhl
+   * advance the cursor after every batch regardless of sync success or failure,
+   * guaranteeing the loop terminates in at most ceil(N / limit) iterations.
+   *
+   * Index: contacts_ghl_unsynced_idx (partial, on id)
+   * WHERE ghl_contact_id IS NULL AND archived_at IS NULL AND email <> ''
+   */
+  async getUnsyncedContactsForGhl(limit: number, afterId: number = 0): Promise<typeof contacts.$inferSelect[]> {
+    return db.select().from(contacts)
+      .where(and(
+        isNull(contacts.ghlContactId),
+        isNull(contacts.archivedAt),
+        ne(contacts.email, ""),
+        afterId > 0 ? gt(contacts.id, afterId) : undefined,
+      ))
+      .orderBy(asc(contacts.id))
+      .limit(limit);
   }
 
 

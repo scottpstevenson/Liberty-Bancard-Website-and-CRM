@@ -511,40 +511,54 @@ export async function syncContactFromGhl(ghlContact: any): Promise<{ contactId: 
 export async function fullSyncToGhl(): Promise<{ synced: number; failed: number; skipped: number }> {
   if (!isGhlConfigured()) return { synced: 0, failed: 0, skipped: 0 };
 
-  const { data: contacts } = await storage.getContacts({ limit: 500 });
-  const unsyncedContacts = contacts.filter(c => !c.ghlContactId && c.email);
-
   let synced = 0;
   let failed = 0;
-  let skipped = 0;
-
-  console.log(`[GHL Sync] Starting full sync: ${unsyncedContacts.length} contacts to push`);
+  const skipped = 0;
 
   const BATCH_SIZE = 10;
   const BATCH_DELAY_MS = 1000;
+  const FETCH_SIZE = 100;
 
-  for (let i = 0; i < unsyncedContacts.length; i += BATCH_SIZE) {
-    const batch = unsyncedContacts.slice(i, i + BATCH_SIZE);
-    await Promise.all(batch.map(async (contact) => {
-      try {
-        const result = await syncContactToGhl(contact.id);
-        if (result.success) {
-          synced++;
-        } else {
+  // Keyset-paginated scan — ordered by id ASC, cursor advances past every batch
+  // regardless of sync success or failure.  This guarantees the loop terminates
+  // in at most ceil(N / FETCH_SIZE) DB round-trips even when contacts persistently
+  // fail to obtain a GHL ID (they stay ghl_contact_id IS NULL but their id is
+  // already past the cursor, so they are not re-fetched in the same run).
+  // Uses contacts_ghl_unsynced_idx partial index for O(unsynced) scans.
+  let cursorId = 0;
+  while (true) {
+    const unsyncedBatch = await storage.getUnsyncedContactsForGhl(FETCH_SIZE, cursorId);
+    if (unsyncedBatch.length === 0) break;
+
+    // Advance cursor past this entire batch before processing — bound the loop
+    // even if every contact in the batch fails.
+    cursorId = unsyncedBatch[unsyncedBatch.length - 1].id;
+
+    console.log(`[GHL Sync] Full sync batch: ids ${unsyncedBatch[0].id}–${cursorId}, ${unsyncedBatch.length} contacts (${synced} synced so far)`);
+
+    for (let i = 0; i < unsyncedBatch.length; i += BATCH_SIZE) {
+      const batch = unsyncedBatch.slice(i, i + BATCH_SIZE);
+      await Promise.all(batch.map(async (contact) => {
+        try {
+          const result = await syncContactToGhl(contact.id);
+          if (result.success) {
+            synced++;
+          } else {
+            failed++;
+          }
+        } catch (err) {
+          console.error(`[GHL Sync] Error syncing contact ${contact.id}:`, err);
           failed++;
         }
-      } catch (err) {
-        console.error(`[GHL Sync] Error syncing contact ${contact.id}:`, err);
-        failed++;
+      }));
+      if (i + BATCH_SIZE < unsyncedBatch.length) {
+        await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
       }
-    }));
-    if (i + BATCH_SIZE < unsyncedContacts.length) {
-      await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
     }
   }
 
-  skipped = contacts.filter(c => c.ghlContactId).length;
-  console.log(`[GHL Sync] Full sync complete: ${synced} synced, ${failed} failed, ${skipped} already synced`);
+  // skipped count is not derivable here without an extra query; synced/failed are the meaningful signals.
+  console.log(`[GHL Sync] Full sync complete: ${synced} synced, ${failed} failed`);
 
   await storage.setSystemSetting("ghl_last_sync_to", {
     timestamp: new Date().toISOString(),
@@ -1042,8 +1056,8 @@ export async function syncDealFromGhl(ghlOpportunity: any): Promise<{ dealId: nu
     const ghlContactId = ghlOpportunity.contactId || ghlOpportunity.contact?.id;
     if (!ghlContactId) return null;
 
-    const { data: contacts } = await storage.getContacts({ limit: 500 });
-    const contact = contacts.find(c => c.ghlContactId === ghlContactId);
+    // Indexed lookup — contacts_ghl_contact_id_unique index; never scans all rows.
+    const contact = ghlContactId ? await storage.getContactByGhlContactId(ghlContactId) : undefined;
     if (!contact) return null;
 
     const ghlStageId = ghlOpportunity.pipelineStageId || ghlOpportunity.stageId;
@@ -1272,8 +1286,8 @@ export async function syncNoteToGhl(noteId: number): Promise<{ success: boolean;
 
 export async function syncTaskFromGhl(ghlTask: any, ghlContactId: string): Promise<{ success: boolean; taskId?: number; error?: string }> {
   try {
-    const { data: contacts } = await storage.getContacts({ limit: 500 });
-    const contact = contacts.find(c => c.ghlContactId === ghlContactId);
+    // Indexed lookup — contacts_ghl_contact_id_unique index; never scans all rows.
+    const contact = ghlContactId ? await storage.getContactByGhlContactId(ghlContactId) : undefined;
     if (!contact) return { success: false, error: "Contact not found for GHL contact" };
 
     const allTasks = await storage.getTasks({ limit: 500 });
@@ -1385,8 +1399,8 @@ export async function syncTagsToGhl(contactId: number): Promise<{ success: boole
 
 export async function syncTagsFromGhl(ghlContactId: string, tags: string[]): Promise<{ success: boolean; error?: string }> {
   try {
-    const { data: contacts } = await storage.getContacts({ limit: 500 });
-    const contact = contacts.find(c => c.ghlContactId === ghlContactId);
+    // Indexed lookup — contacts_ghl_contact_id_unique index; never scans all rows.
+    const contact = await storage.getContactByGhlContactId(ghlContactId);
     if (!contact) return { success: false, error: "Contact not found" };
 
     const mergedTags = [...new Set([...(contact.tags || []), ...tags])];
@@ -1409,8 +1423,8 @@ export async function syncTagsFromGhl(ghlContactId: string, tags: string[]): Pro
 
 export async function removeTagsFromLocal(ghlContactId: string, tags: string[]): Promise<{ success: boolean; error?: string }> {
   try {
-    const { data: contacts } = await storage.getContacts({ limit: 500 });
-    const contact = contacts.find(c => c.ghlContactId === ghlContactId);
+    // Indexed lookup — contacts_ghl_contact_id_unique index; never scans all rows.
+    const contact = await storage.getContactByGhlContactId(ghlContactId);
     if (!contact) return { success: false, error: "Contact not found" };
 
     const filteredTags = (contact.tags || []).filter(t => !tags.includes(t));
@@ -1528,12 +1542,13 @@ export async function syncActivityFromGhl(payload: {
   direction?: string;
 }): Promise<void> {
   try {
-    const { data: contacts } = await storage.getContacts({ limit: 500 });
-    const contact = contacts.find(c => c.ghlContactId === payload.contactId);
+    // Indexed lookup — contacts_ghl_contact_id_unique index; never scans all rows.
+    const contact = payload.contactId ? await storage.getContactByGhlContactId(payload.contactId) : undefined;
     if (!contact) return;
 
-    const { data: deals } = await storage.getDeals({ limit: 500 });
-    const contactDeal = deals.find(d => d.contactId === contact.id);
+    // Indexed lookup by contactId — deals_contact_id_idx; avoids scanning all deals.
+    const contactDeals = await storage.getDealsByContact(contact.id);
+    const contactDeal = contactDeals[0];
 
     await storage.createGhlActivityLog({
       contactId: contact.id,
@@ -1837,10 +1852,10 @@ export async function runGhlFullSyncTick(): Promise<void> {
   const acquired = await acquireJobLock(JOB_NAMES.GHL_SYNC);
   if (!acquired) return;
   try {
-    const { data: contacts } = await storage.getContacts({ limit: 500 });
-    const unsyncedContacts = contacts.filter(c => !c.ghlContactId && c.email);
+    // Indexed DB query — fetches only contacts without a ghlContactId; never limited to 500 rows.
+    const unsyncedContacts = await storage.getUnsyncedContactsForGhl(10);
     let synced = 0;
-    for (const contact of unsyncedContacts.slice(0, 10)) {
+    for (const contact of unsyncedContacts) {
       if (consecutiveGhlFailures >= GHL_CIRCUIT_THRESHOLD) {
         console.error(`[Queue:ghl-sync] GHL_CIRCUIT_OPEN — ${consecutiveGhlFailures} consecutive failures, aborting tick`);
         storage.createAuditLog({ action: "GHL_CIRCUIT_OPEN", entityType: "system", details: `Circuit opened: ${consecutiveGhlFailures} consecutive GHL failures in contacts phase — tick aborted` }).catch(() => {});
