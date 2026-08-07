@@ -549,9 +549,15 @@ export function registerContactsRoutes(app: Express) {
       }
       const contact = await storage.getContact(contactId);
       if (!contact) return res.status(404).json({ message: "Not found" });
-      // Agent-scope ownership guard intentionally omitted: the contacts schema does
-      // not yet carry an assignedTo field. Per-agent scoping will be enforced once
-      // the column and storage contract are added (see follow-up task).
+      // Agent-scope ownership guard: mirrors the write-path guard on PUT /contacts/:id.
+      // Only fires when assigned_to is explicitly set to a different rep — unassigned
+      // contacts remain readable by all agents (common state for in-flight leads).
+      const _getRole = (req.user as any)?.role;
+      const _getEmail = (req.user as any)?.email;
+      const _assignedTo = (contact as any).assignedTo as string | null | undefined;
+      if (_getRole === "agent" && _assignedTo && _assignedTo !== _getEmail) {
+        return res.status(403).json({ message: "Forbidden", code: "NOT_YOUR_CONTACT" });
+      }
       if (!contact.ghlContactId && isGhlConfigured()) {
         syncContactToGhl(contact.id).then(result => {
           if (result.success) {

@@ -218,6 +218,7 @@ const PlaybooksHub = lazy(() => import("@/pages/dashboard/PlaybooksHub"));
 const ContentHub = lazy(() => import("@/pages/dashboard/ContentHub"));
 const ReportingHub = lazy(() => import("@/pages/dashboard/ReportingHub"));
 const MerchantSuccessHub = lazy(() => import("@/pages/dashboard/MerchantSuccessHub"));
+const MerchantPortfolio = lazy(() => import("@/pages/dashboard/MerchantPortfolio"));
 const SupportHub = lazy(() => import("@/pages/dashboard/SupportHub"));
 const CommsHub = lazy(() => import("@/pages/dashboard/CommsHub"));
 const SDRHub = lazy(() => import("@/pages/dashboard/SDRHub"));
@@ -782,6 +783,9 @@ function Router() {
         </Route>
         <Route path="/dashboard/merchant-success">
           <ProtectedRoute component={MerchantSuccessHub} allowedRoles={["admin", "manager"]} />
+        </Route>
+        <Route path="/dashboard/portfolio">
+          <ProtectedRoute component={MerchantPortfolio} />
         </Route>
         <Route path="/dashboard/support-hub">
           <ProtectedRoute component={SupportHub} allowedRoles={["admin", "manager"]} />

@@ -80,6 +80,7 @@ import {
   Wrench,
   Eye,
   EyeOff,
+  Briefcase,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -126,6 +127,7 @@ const dailyWorkItems: MenuItem[] = [
   { icon: Brain,           label: "AI Advisor",           href: "/dashboard/chat",               roles: ["admin", "manager"] },
   // Agent
   { icon: Star,            label: "My Day",               href: "/dashboard/my-day",             roles: ["agent"] },
+  { icon: Briefcase,       label: "My Portfolio",         href: "/dashboard/portfolio",          roles: ["agent"] },
   { icon: Users,           label: "My Contacts",          href: "/dashboard/contacts",           roles: ["agent"] },
   { icon: TrendingUp,      label: "My Pipeline",          href: "/dashboard/pipeline",           roles: ["agent"] },
   { icon: Inbox,           label: "Messages & Inbox",     href: "/dashboard/comms-hub",          roles: ["agent"], badgeKey: "smsUnread" },
@@ -142,6 +144,7 @@ const toolsItems: MenuItem[] = [
 // ─── MERCHANT OPS ─────────────────────────────────────────────────────────────
 const merchantOpsItems: MenuItem[] = [
   { icon: ShieldCheck,   label: "My Portal",          href: "/dashboard/merchant-portal",       roles: ["merchant"] },
+  { icon: Briefcase,     label: "Portfolio",           href: "/dashboard/portfolio",             roles: ["admin", "manager"] },
   { icon: ClipboardList, label: "Applications",        href: "/dashboard/merchant-applications", roles: ["admin", "manager"], badgeKey: "pendingApplications" },
   { icon: FileBarChart,  label: "Statement Reviews",   href: "/dashboard/statement-review",      roles: ["admin", "manager"] },
   { icon: FolderOpen,    label: "Documents",           href: "/dashboard/document-vault",        roles: ["admin", "manager"] },
