@@ -56,50 +56,6 @@ export function registerSearchRoutes(app: Express) {
     }
   });
 
-
-  // === GLOBAL SEARCH ===
-  app.get("/api/search", isAuthenticated, async (req, res) => {
-    try {
-      const q = String(req.query.q || "").toLowerCase().trim();
-      if (!q) return res.json({ contacts: [], deals: [], tickets: [], tasks: [] });
-      
-      const [contactsRes, dealsRes, ticketsRes, allTasks] = await Promise.all([
-        storage.getContacts({ limit: 500 }),
-        storage.getDeals({ limit: 500 }),
-        storage.getTickets({ limit: 500 }),
-        storage.getTasks(),
-      ]);
-      const allContacts = contactsRes.data;
-      const allDeals = dealsRes.data;
-      const allTickets = ticketsRes.data;
-      
-      const matchContacts = allContacts.filter(c => 
-        c.firstName.toLowerCase().includes(q) || c.lastName.toLowerCase().includes(q) || 
-        c.email?.toLowerCase().includes(q) || c.companyName?.toLowerCase().includes(q) || c.phone?.includes(q)
-      ).slice(0, 10);
-      
-      const matchDeals = allDeals.filter(d => 
-        d.stage?.toLowerCase().includes(q) || d.offerPath?.toLowerCase().includes(q) || 
-        d.notes?.toLowerCase().includes(q) || d.pipeline?.toLowerCase().includes(q)
-      ).slice(0, 10);
-      
-      const matchTickets = allTickets.filter((t: any) => 
-        t.subject?.toLowerCase().includes(q) || t.description?.toLowerCase().includes(q) || 
-        t.category?.toLowerCase().includes(q)
-      ).slice(0, 10);
-      
-      const matchTasks = allTasks.filter((t: any) => 
-        t.title?.toLowerCase().includes(q) || t.description?.toLowerCase().includes(q) || 
-        t.assignedTo?.toLowerCase().includes(q)
-      ).slice(0, 10);
-      
-      res.json({ contacts: matchContacts, deals: matchDeals, tickets: matchTickets, tasks: matchTasks });
-    } catch (err: any) {
-      serverError(res, err);
-    }
-  });
-
-
   // === ADVANCED SEARCH ===
   app.get("/api/search/advanced", isAuthenticated, async (req, res) => {
     const { q, dateFrom, dateTo, assignedTo, entityType, tags } = req.query;

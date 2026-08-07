@@ -47,7 +47,7 @@ export function registerSystemAuditRoutes(app: Express) {
         ORDER BY ran_at DESC
         LIMIT 1
       `);
-      if (!rows.rows[0]) return res.json(null);
+      if (!rows.rows[0]) return res.status(204).end(); // No audit run yet
       res.json(rows.rows[0]);
     } catch (err: any) {
       serverError(res, err);

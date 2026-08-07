@@ -15,7 +15,7 @@ import { autoGenerateProposal } from "../services/proposal-engine";
 import { routeContact } from "../services/smart-router";
 import { ingestBusinessFromContact } from "../services/sdr/dedupe";
 import { syncFormSubmissionToGhl, syncStatementUploadToGhl, syncSupportTicketToGhl } from "../services/ghl-form-sync";
-import { writeContact } from "../services/contact-writer";
+import { writeContact, upsertContactSourceEvent } from "../services/contact-writer";
 import { processExistingPublicFormSubmission } from "../services/public-form-submission";
 import { buildPublicContactPayload } from "../services/public-form-payload";
 import type { Contact } from "@shared/schema";
@@ -1320,6 +1320,22 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
             userAgent: req.headers["user-agent"] || "unknown",
           },
         });
+        // processExistingPublicFormSubmission does not carry our provenance metadata,
+        // so the contact_source_events row it writes lacks source_article.
+        // Write a separate attribution row so the newsletter-article-signups analytics
+        // query can count this existing contact's signup correctly.
+        if (sourceArticle) {
+          upsertContactSourceEvent({
+            contactId: contact.id,
+            provenance: {
+              sourceCategory: "website_form",
+              sourceType: "newsletter_signup",
+              eventKey: `form:newsletter_article:${submissionId}`,
+              actorType: "public",
+              metadata: { source: "blog_inline", source_article: sourceArticle },
+            },
+          }).catch(err => console.error("[Newsletter] article attribution upsert:", err));
+        }
       } else {
         contact = await writeContact({
           mode: "ghl_upsert_first",

@@ -442,40 +442,7 @@ Guidelines:
     res.send(xml);
   });
 
-  app.get("/sitemap-blog.xml", async (_req, res) => {
-    const baseUrl = "https://libertybancard.com";
-    const today = new Date().toISOString().split("T")[0];
-    const blogSlugs = STATIC_BLOG_SLUGS;
-
-    let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
-    xml += `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n`;
-
-    for (const slug of blogSlugs) {
-      xml += `  <url>\n`;
-      xml += `    <loc>${baseUrl}/blog/${slug}</loc>\n`;
-      xml += `    <lastmod>${today}</lastmod>\n`;
-      xml += `    <changefreq>monthly</changefreq>\n`;
-      xml += `    <priority>0.7</priority>\n`;
-      xml += `  </url>\n`;
-    }
-
-    const publishedDbPosts = await storage.getGeneratedBlogPosts("published");
-    const staticSlugSet = new Set(blogSlugs);
-    for (const dbPost of publishedDbPosts) {
-      if (!staticSlugSet.has(dbPost.slug)) {
-        xml += `  <url>\n`;
-        xml += `    <loc>${baseUrl}/blog/${dbPost.slug}</loc>\n`;
-        xml += `    <lastmod>${dbPost.publishedAt ? dbPost.publishedAt.toISOString().split("T")[0] : today}</lastmod>\n`;
-        xml += `    <changefreq>monthly</changefreq>\n`;
-        xml += `    <priority>0.7</priority>\n`;
-        xml += `  </url>\n`;
-      }
-    }
-
-    xml += `</urlset>`;
-    res.set("Content-Type", "application/xml");
-    res.send(xml);
-  });
+  // /sitemap-blog.xml is registered in server/routes/ssr-routes.ts (canonical).
 
   app.post("/api/affiliate/signup", publicLeadRateLimit, async (req, res) => {
     if (req.query.probe === "1") return res.json({ probe: true, endpoint: "/api/affiliate/signup" });
@@ -1204,7 +1171,7 @@ Guidelines:
 
 
   // === DEDUPLICATE CONTACTS ===
-  app.post("/api/contacts/deduplicate", async (req, res) => {
+  app.post("/api/contacts/deduplicate", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
       res.writeHead(200, {
         "Content-Type": "text/event-stream",
@@ -1443,54 +1410,7 @@ Guidelines:
     }
   });
 
-  app.get("/api/commission-tiers", async (_req, res) => {
-    try {
-      const tiers = await storage.getCommissionTiers();
-      res.json(tiers);
-    } catch (err: any) {
-      serverError(res, err);
-    }
-  });
-
-  app.post("/api/commission-tiers", isAdmin, async (req, res) => {
-    try {
-      const { minReferrals, maxReferrals, commissionAmount, label } = req.body;
-      const min = Number(minReferrals) || 1;
-      const max = maxReferrals ? Number(maxReferrals) : null;
-      const amount = parseFloat(String(commissionAmount || "100"));
-      if (min < 1) return res.status(400).json({ message: "Min referrals must be at least 1." });
-      if (max !== null && max < min) return res.status(400).json({ message: "Max referrals must be >= min referrals." });
-      if (isNaN(amount) || amount <= 0) return res.status(400).json({ message: "Commission amount must be a positive number." });
-      const tier = await storage.createCommissionTier({
-        minReferrals: min,
-        maxReferrals: max,
-        commissionAmount: amount.toString(),
-        label: label || null,
-      }, { actorType: "user", userId: (req.user as any)?.id ?? null });
-      res.status(201).json(tier);
-    } catch (err: any) {
-      serverError(res, err);
-    }
-  });
-
-  app.put("/api/commission-tiers/:id", isAdmin, async (req, res) => {
-    try {
-      const updated = await storage.updateCommissionTier(Number(req.params.id), req.body, { userId: (req.user as any)?.id ?? null });
-      if (!updated) return res.status(404).json({ message: "Tier not found" });
-      res.json(updated);
-    } catch (err: any) {
-      serverError(res, err);
-    }
-  });
-
-  app.delete("/api/commission-tiers/:id", isAdmin, async (req, res) => {
-    try {
-      await storage.deleteCommissionTier(Number(req.params.id), { actorType: "user", userId: (req.user as any)?.id ?? null });
-      res.json({ success: true });
-    } catch (err: any) {
-      serverError(res, err);
-    }
-  });
+  // /api/commission-tiers GET/POST/DELETE/PUT are registered in server/routes/partners.ts (canonical, role-guarded).
 
   app.get("/api/csv-imports/:id", isAuthenticated, async (req, res) => {
     const record = await storage.getCsvImport(Number(req.params.id));

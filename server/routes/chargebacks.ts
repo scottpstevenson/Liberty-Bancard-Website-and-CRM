@@ -6,6 +6,7 @@ import { insertChargebackSchema, CHARGEBACK_DEADLINE_DAYS } from "@shared/schema
 import { createPreferenceAwareNotification } from "../services/digest-service";
 import { generateChargebackEvidencePdf } from "../services/chargeback-pdf";
 import { serverError } from "../utils/server-error";
+import { getDefaultProcessor } from "../services/processors/registry";
 
 export function registerChargebacksRoutes(app: Express) {
   app.get("/api/chargebacks", isDashboardUser, async (req, res) => {
@@ -147,7 +148,10 @@ export function registerChargebacksRoutes(app: Express) {
 
   app.delete("/api/chargebacks/:id", requireRole("admin", "manager"), async (req, res) => {
     try {
-      await storage.deleteChargeback(Number(req.params.id));
+      const id = Number(req.params.id);
+      const existing = await storage.getChargeback(id);
+      if (!existing) return res.status(404).json({ message: "Chargeback not found" });
+      await storage.deleteChargeback(id);
       res.json({ success: true });
     } catch (err: any) {
       serverError(res, err);
@@ -211,6 +215,94 @@ export function registerChargebacksRoutes(app: Express) {
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
       res.status(400).json({ message: err.message });
+    }
+  });
+
+  /**
+   * POST /api/chargebacks/:id/submit-to-card-brand
+   * Submit a chargeback evidence packet to the card brand via the processor adapter.
+   * Marks the chargeback as "Responded" on success and writes an audit log entry.
+   */
+  app.post("/api/chargebacks/:id/submit-to-card-brand", isDashboardUser, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const cb = await storage.getChargeback(id);
+      if (!cb) return res.status(404).json({ message: "Chargeback not found" });
+
+      const schema = z.object({
+        mid:          z.string().min(1, "MID is required"),
+        caseNumber:   z.string().optional(),
+        transactionId: z.string().optional(),
+        evidenceNotes: z.string().optional(),
+      });
+      const { mid, caseNumber, transactionId, evidenceNotes } = schema.parse(req.body);
+
+      const processor = getDefaultProcessor();
+      const result = await processor.submitChargeback({
+        mid,
+        transactionId: transactionId || String(cb.id),
+        amount: cb.amount,
+        reason: cb.reasonDescription || cb.reasonCode,
+        cardBrand: cb.cardBrand,
+        caseNumber,
+        responseDeadline: cb.responseDeadline?.toISOString(),
+        evidenceNotes,
+      });
+
+      if (result.success) {
+        const caseNote = result.caseId ? ` · Case ID: ${result.caseId}` : "";
+        const updated = await storage.updateChargeback(id, {
+          status: "Responded",
+          respondedAt: new Date(),
+          notes: [cb.notes, `Evidence submitted to card brand${caseNote}.`]
+            .filter(Boolean)
+            .join("\n\n"),
+        });
+
+        await storage.createAuditLog({
+          action: "chargeback_submitted_to_card_brand",
+          entityType: "chargeback",
+          entityId: id,
+          details: {
+            caseId: result.caseId,
+            status: result.status,
+            message: result.message,
+            mid,
+            cardBrand: cb.cardBrand,
+            amount: cb.amount,
+          },
+        });
+
+        res.json({
+          success: true,
+          caseId: result.caseId,
+          status: result.status,
+          message: result.message || "Evidence packet submitted successfully.",
+          chargeback: updated,
+        });
+      } else {
+        res.status(502).json({
+          message: result.error || "Submission failed — check processor connection and MID.",
+        });
+      }
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      serverError(res, err);
+    }
+  });
+
+  /**
+   * GET /api/admin/ghl-deferred-queue
+   * Admin visibility into pending and recently-failed deferred GHL workflow enrollments.
+   * Supports #1010 — catch deferred enrollments before they're permanently lost.
+   */
+  app.get("/api/admin/ghl-deferred-queue", requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const { getDeferredEnrollmentQueue } = await import("../services/ghl-enrollment-recovery");
+      const queue = await getDeferredEnrollmentQueue();
+      res.json(queue);
+    } catch (err: any) {
+      serverError(res, err);
     }
   });
 }

@@ -757,6 +757,13 @@
       "when": 1789900000000,
       "tag": "0105_executive_kpi_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 108,
+      "version": "7",
+      "when": 1790000000000,
+      "tag": "0106_deferred_ghl_enrollments",
+      "breakpoints": true
     }
   ]
 }

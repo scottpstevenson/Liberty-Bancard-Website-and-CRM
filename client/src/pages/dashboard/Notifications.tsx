@@ -67,25 +67,31 @@ const PAGE_SIZE = 25;
 
 function getTypeIcon(type: string | null) {
   switch (type) {
-    case "urgent": return <AlertTriangle className="w-4 h-4 text-destructive" />;
-    case "alert": return <AlertCircle className="w-4 h-4 text-amber-500" />;
-    default: return <Info className="w-4 h-4 text-muted-foreground" />;
+    case "urgent":  return <AlertTriangle className="w-4 h-4 text-destructive" />;
+    case "alert":   return <AlertCircle className="w-4 h-4 text-amber-500" />;
+    case "warning": return <AlertTriangle className="w-4 h-4 text-yellow-500" />;
+    case "success": return <CheckCheck className="w-4 h-4 text-green-500" />;
+    default:        return <Info className="w-4 h-4 text-muted-foreground" />;
   }
 }
 
-function getTypeVariant(type: string | null): "destructive" | "default" | "secondary" {
+function getTypeVariant(type: string | null): "destructive" | "default" | "secondary" | "outline" {
   switch (type) {
-    case "urgent": return "destructive";
-    case "alert": return "default";
-    default: return "secondary";
+    case "urgent":  return "destructive";
+    case "alert":   return "default";
+    case "warning": return "outline";
+    case "success": return "secondary";
+    default:        return "secondary";
   }
 }
 
 function getTypeLabel(type: string | null): string {
   switch (type) {
-    case "urgent": return "Urgent";
-    case "alert": return "Alert";
-    default: return "Info";
+    case "urgent":  return "Urgent";
+    case "alert":   return "Alert";
+    case "warning": return "Warning";
+    case "success": return "Success";
+    default:        return "Info";
   }
 }
 

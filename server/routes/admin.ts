@@ -527,7 +527,7 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  app.post("/api/health-alerts", isAuthenticated, async (req, res) => {
+  app.post("/api/health-alerts", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
       const input = insertHealthAlertSchema.parse(req.body);
       const alert = await storage.createHealthAlert(input);
@@ -538,7 +538,7 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  app.patch("/api/health-alerts/:id", isAuthenticated, async (req, res) => {
+  app.patch("/api/health-alerts/:id", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
       const updated = await storage.updateHealthAlert(Number(req.params.id), req.body);
       if (!updated) return res.status(404).json({ message: "Not found" });
@@ -559,7 +559,7 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  app.get("/api/consent-audit/contact/:contactId", isAuthenticated, async (req, res) => {
+  app.get("/api/consent-audit/contact/:contactId", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
       const logs = await storage.getConsentAuditLogsByContact(Number(req.params.contactId));
       res.json(logs);
@@ -568,7 +568,7 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  app.post("/api/consent-audit", isAuthenticated, async (req, res) => {
+  app.post("/api/consent-audit", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
       const input = insertConsentAuditLogSchema.parse(req.body);
       const log = await storage.createConsentAuditLog(input);
@@ -614,16 +614,10 @@ export function registerAdminRoutes(app: Express) {
 
 
   // === REVIEW REQUESTS ===
-  app.get("/api/review-requests", isAuthenticated, async (req, res) => {
-    try {
-      const requests = await storage.getReviewRequests();
-      res.json(requests);
-    } catch (err: any) {
-      serverError(res, err);
-    }
-  });
+  // GET /api/review-requests and PATCH /api/review-requests/:id are registered in
+  // server/routes/lifecycle.ts with isDashboardUser + requireRole("admin","manager") guards.
 
-  app.get("/api/review-requests/deal/:dealId", isAuthenticated, async (req, res) => {
+  app.get("/api/review-requests/deal/:dealId", isDashboardUser, async (req, res) => {
     try {
       const requests = await storage.getReviewRequestsByDeal(Number(req.params.dealId));
       res.json(requests);
@@ -632,23 +626,13 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  app.post("/api/review-requests", isAuthenticated, async (req, res) => {
+  app.post("/api/review-requests", isDashboardUser, async (req, res) => {
     try {
       const input = insertReviewRequestSchema.parse(req.body);
       const request = await storage.createReviewRequest(input);
       res.status(201).json(request);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
-      serverError(res, err);
-    }
-  });
-
-  app.patch("/api/review-requests/:id", isAuthenticated, async (req, res) => {
-    try {
-      const updated = await storage.updateReviewRequest(Number(req.params.id), req.body);
-      if (!updated) return res.status(404).json({ message: "Not found" });
-      res.json(updated);
-    } catch (err: any) {
       serverError(res, err);
     }
   });

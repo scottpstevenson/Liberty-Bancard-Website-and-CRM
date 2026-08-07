@@ -313,6 +313,7 @@ function SortableDealCard({
           {proposals && proposals.length > 0 ? (() => {
             const accepted = proposals.some(p => p && p.status === "accepted");
             const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+            const oneDayAgo   = Date.now() - 24 * 60 * 60 * 1000;
             // Find the most recently viewed proposal within the last 7 days
             const recentlyViewedProposal = proposals
               .filter(p => p && ((p as any).viewCount > 0 || p.status === "viewed") && p.viewedAt && new Date(p.viewedAt).getTime() >= sevenDaysAgo)
@@ -325,17 +326,24 @@ function SortableDealCard({
               );
             }
             if (recentlyViewedProposal) {
-              const viewedAgo = formatDistanceToNow(new Date(recentlyViewedProposal.viewedAt!), { addSuffix: true });
-              const viewCount = (recentlyViewedProposal as any).viewCount || 1;
+              const viewedAgo  = formatDistanceToNow(new Date(recentlyViewedProposal.viewedAt!), { addSuffix: true });
+              const viewCount  = (recentlyViewedProposal as any).viewCount || 1;
+              // Views within the last 24 h get a pulsing engagement-alert badge so reps
+              // can act immediately (call / follow-up) while the prospect is still engaged.
+              const isAlert    = new Date(recentlyViewedProposal.viewedAt!).getTime() >= oneDayAgo;
               return (
                 <Badge
                   variant="outline"
-                  className="text-xs bg-amber-50 text-amber-800 border-amber-300 no-default-hover-elevate no-default-active-elevate"
-                  data-testid={`badge-proposal-viewed-${deal.id}`}
+                  className={`text-xs no-default-hover-elevate no-default-active-elevate ${
+                    isAlert
+                      ? "bg-orange-50 text-orange-700 border-orange-400 animate-pulse"
+                      : "bg-amber-50 text-amber-800 border-amber-300"
+                  }`}
+                  data-testid={isAlert ? `badge-proposal-alert-${deal.id}` : `badge-proposal-viewed-${deal.id}`}
                   title={`Proposal viewed ${viewCount} time${viewCount !== 1 ? "s" : ""} — last opened ${viewedAgo}`}
                 >
-                  <span className="mr-1">👁</span>
-                  Viewed {viewedAgo}
+                  <span className="mr-1">{isAlert ? "🔔" : "👁"}</span>
+                  {isAlert ? `Viewed ${viewedAgo}!` : `Viewed ${viewedAgo}`}
                 </Badge>
               );
             }
@@ -363,7 +371,9 @@ function SortableDealCard({
               </Button>
             </div>
           ) : null}
-          {deal.proposalStatus && deal.proposalStatus !== "none" && (
+          {/* deal.proposalStatus fallback badge — only shown when no co-branded proposals
+              are loaded for this deal, to avoid conflicting with the live-proposal badge above */}
+          {deal.proposalStatus && deal.proposalStatus !== "none" && !proposals?.length && (
             <Badge 
               variant="outline" 
               className={`text-xs no-default-hover-elevate no-default-active-elevate ${
