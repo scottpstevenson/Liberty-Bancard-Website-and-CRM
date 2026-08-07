@@ -13,6 +13,7 @@ import {
   Users, DollarSign, TrendingUp, Copy, LogIn, LogOut, Link2,
   BarChart3, FileText, Download, ExternalLink, Shield, CheckCircle,
   Clock, ArrowRight, Handshake, CalendarDays, MousePointerClick, Code2,
+  TrendingDown, Building2, Loader2,
 } from "lucide-react";
 
 type PortalView = "login" | "dashboard" | "forgot" | "reset";
@@ -291,6 +292,264 @@ function statusColor(status: string): string {
 
 function formatType(type: string): string {
   return type.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+}
+
+// ─── Pipeline tab ─────────────────────────────────────────────────────────────
+
+type PipelineItem = {
+  id: number;
+  merchantName: string;
+  merchantEmail: string | null;
+  status: string;
+  pipelineStage: "pending" | "contacted" | "boarded" | "earning";
+  commissionEarned: number;
+  convertedAt: string | null;
+  paidAt: string | null;
+  createdAt: string | null;
+  dealId: number | null;
+};
+
+const PIPELINE_STAGES: { key: PipelineItem["pipelineStage"]; label: string; description: string }[] = [
+  { key: "pending",   label: "Pending",   description: "Referral submitted — Liberty Bancard is reviewing." },
+  { key: "contacted", label: "Contacted", description: "Merchant has been contacted by our team." },
+  { key: "boarded",   label: "Boarded",   description: "Merchant is approved and setting up." },
+  { key: "earning",   label: "Earning",   description: "Merchant is live — you're earning residuals!" },
+];
+
+const STAGE_COLORS: Record<string, string> = {
+  pending:   "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300",
+  contacted: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
+  boarded:   "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-300",
+  earning:   "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
+};
+
+function PartnerPipelineTab({ partnerCode }: { partnerCode: string }) {
+  const [pipeline, setPipeline] = useState<PipelineItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/partner/pipeline", { credentials: "include" })
+      .then(res => { if (!res.ok) throw new Error("Failed to load pipeline"); return res.json(); })
+      .then(data => { setPipeline(data); setLoading(false); })
+      .catch(err => { setError(err.message); setLoading(false); });
+  }, [partnerCode]);
+
+  const grouped = PIPELINE_STAGES.map(stage => ({
+    ...stage,
+    items: pipeline.filter(p => p.pipelineStage === stage.key),
+  }));
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <Card>
+        <CardContent className="py-10 text-center text-muted-foreground text-sm">{error}</CardContent>
+      </Card>
+    );
+  }
+
+  if (pipeline.length === 0) {
+    return (
+      <Card>
+        <CardContent className="py-12 text-center">
+          <Building2 className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
+          <p className="text-muted-foreground mb-1">No referrals yet</p>
+          <p className="text-sm text-muted-foreground">Start referring merchants and track their progress here — from submission to earning.</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-4" data-testid="partner-pipeline-tab">
+      {/* Stage funnel summary */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {grouped.map(stage => (
+          <Card key={stage.key} data-testid={`pipeline-stage-${stage.key}`}>
+            <CardContent className="p-4">
+              <p className="text-xs text-muted-foreground mb-1">{stage.label}</p>
+              <p className="text-2xl font-bold">{stage.items.length}</p>
+              <p className="text-xs text-muted-foreground mt-1 leading-tight">{stage.description}</p>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      {/* Detailed list */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Referral Pipeline</CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border bg-muted/40">
+                  <th className="text-left py-2.5 px-4 text-muted-foreground font-medium">Merchant</th>
+                  <th className="text-left py-2.5 px-4 text-muted-foreground font-medium">Stage</th>
+                  <th className="text-right py-2.5 px-4 text-muted-foreground font-medium">Commission Earned</th>
+                  <th className="text-right py-2.5 px-4 text-muted-foreground font-medium">Referred</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pipeline.map(item => (
+                  <tr key={item.id} className="border-b border-border last:border-0 hover:bg-muted/20 transition-colors">
+                    <td className="py-2.5 px-4 font-medium text-foreground">{item.merchantName}</td>
+                    <td className="py-2.5 px-4">
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${STAGE_COLORS[item.pipelineStage] || ""}`}>
+                        {item.pipelineStage.charAt(0).toUpperCase() + item.pipelineStage.slice(1)}
+                      </span>
+                    </td>
+                    <td className="py-2.5 px-4 text-right text-foreground">
+                      {item.commissionEarned > 0 ? `$${item.commissionEarned.toFixed(2)}` : "—"}
+                    </td>
+                    <td className="py-2.5 px-4 text-right text-muted-foreground text-xs">
+                      {item.createdAt ? new Date(item.createdAt).toLocaleDateString() : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ─── Earnings tab ─────────────────────────────────────────────────────────────
+
+type EarningsMonth = {
+  month: string;
+  merchants: Array<{ name: string; volume: string; commission: string }>;
+  totalCommission: number;
+};
+
+type EarningsData = {
+  months: EarningsMonth[];
+  totalLifetime: number;
+};
+
+function fmtMoney(value: number | string): string {
+  const num = typeof value === "number" ? value : parseFloat(String(value ?? "0"));
+  if (isNaN(num)) return "$0.00";
+  return num.toLocaleString("en-US", { style: "currency", currency: "USD" });
+}
+
+function monthLabel(ym: string): string {
+  const [y, m] = ym.split("-");
+  return new Date(parseInt(y), parseInt(m) - 1, 1).toLocaleString("en-US", { month: "long", year: "numeric" });
+}
+
+function PartnerEarningsTab() {
+  const [data, setData] = useState<EarningsData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [openMonth, setOpenMonth] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/partner/earnings", { credentials: "include" })
+      .then(res => { if (!res.ok) throw new Error("Failed to load earnings"); return res.json(); })
+      .then(d => { setData(d); setLoading(false); if (d.months.length > 0) setOpenMonth(d.months[0].month); })
+      .catch(() => setLoading(false));
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (!data || data.months.length === 0) {
+    return (
+      <Card>
+        <CardContent className="py-12 text-center">
+          <DollarSign className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
+          <p className="text-muted-foreground mb-1">No earnings data yet</p>
+          <p className="text-sm text-muted-foreground">Once your referred merchants start processing, monthly residuals will appear here.</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-4" data-testid="partner-earnings-tab">
+      {/* Lifetime summary */}
+      <Card className="border-primary/20 bg-primary/5">
+        <CardContent className="p-5 flex items-center gap-4">
+          <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+            <TrendingUp className="w-5 h-5 text-primary" />
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Total Lifetime Earnings</p>
+            <p className="text-2xl font-bold text-primary" data-testid="earnings-lifetime">{fmtMoney(data.totalLifetime)}</p>
+          </div>
+          <div className="ml-auto text-right">
+            <p className="text-xs text-muted-foreground">Months active</p>
+            <p className="text-lg font-semibold">{data.months.length}</p>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Month-by-month breakdown */}
+      {data.months.map(m => (
+        <Card key={m.month} data-testid={`earnings-month-${m.month}`}>
+          <button
+            className="w-full text-left"
+            onClick={() => setOpenMonth(openMonth === m.month ? null : m.month)}
+          >
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base">{monthLabel(m.month)}</CardTitle>
+                <div className="flex items-center gap-3">
+                  <span className="text-sm font-semibold text-primary">{fmtMoney(m.totalCommission)}</span>
+                  <span className="text-xs text-muted-foreground">{m.merchants.length} merchant{m.merchants.length !== 1 ? "s" : ""}</span>
+                </div>
+              </div>
+            </CardHeader>
+          </button>
+
+          {openMonth === m.month && (
+            <CardContent className="pt-0">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border">
+                    <th className="text-left pb-2 text-muted-foreground font-medium">Merchant</th>
+                    <th className="text-right pb-2 text-muted-foreground font-medium">Volume</th>
+                    <th className="text-right pb-2 text-muted-foreground font-medium">Your Commission</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {m.merchants.map((merchant, i) => (
+                    <tr key={i} className="border-b border-border last:border-0">
+                      <td className="py-2 text-foreground">{merchant.name}</td>
+                      <td className="py-2 text-right text-muted-foreground">{fmtMoney(merchant.volume)}</td>
+                      <td className="py-2 text-right font-medium text-primary">{fmtMoney(merchant.commission)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="bg-muted/30">
+                    <td colSpan={2} className="py-2 font-semibold text-foreground">Total</td>
+                    <td className="py-2 text-right font-bold text-primary">{fmtMoney(m.totalCommission)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </CardContent>
+          )}
+        </Card>
+      ))}
+    </div>
+  );
 }
 
 export default function PartnerPortal() {
@@ -605,8 +864,10 @@ export default function PartnerPortal() {
 
             {/* Tabs */}
             <Tabs defaultValue="quickstart" className="space-y-4">
-              <TabsList className="flex h-auto flex-wrap gap-1 w-full max-w-lg">
+              <TabsList className="flex h-auto flex-wrap gap-1 w-full max-w-2xl">
                 <TabsTrigger value="quickstart" data-testid="tab-quickstart">Quick Start</TabsTrigger>
+                <TabsTrigger value="pipeline" data-testid="tab-pipeline">My Pipeline</TabsTrigger>
+                <TabsTrigger value="earnings" data-testid="tab-earnings">Earnings</TabsTrigger>
                 <TabsTrigger value="merchants" data-testid="tab-merchants">Merchants</TabsTrigger>
                 <TabsTrigger value="collateral" data-testid="tab-collateral">Collateral</TabsTrigger>
                 <TabsTrigger value="account" data-testid="tab-account">Account</TabsTrigger>
@@ -614,6 +875,14 @@ export default function PartnerPortal() {
 
               <TabsContent value="quickstart">
                 <QuickStartTab partner={partner} kpis={kpis} referralLink={referralLink} copyLink={copyLink} />
+              </TabsContent>
+
+              <TabsContent value="pipeline">
+                <PartnerPipelineTab partnerCode={partner.code} />
+              </TabsContent>
+
+              <TabsContent value="earnings">
+                <PartnerEarningsTab />
               </TabsContent>
 
               <TabsContent value="merchants">

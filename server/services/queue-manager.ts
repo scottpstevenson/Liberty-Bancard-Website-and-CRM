@@ -24,6 +24,7 @@ export const QUEUE_NAMES = {
   EXECUTIVE_SNAPSHOT: "executive-snapshot",
   PIPELINE_SILENCE_CHECK: "pipeline-silence-check",
   PROPOSAL_FOLLOWUP: "proposal-followup",
+  PARTNER_MONTHLY_DIGEST: "partner-monthly-digest",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -238,6 +239,18 @@ const QUEUE_CONFIGS: QueueConfig[] = [
     backoffDelay: 60000,
     repeatEveryMs: 24 * 60 * 60 * 1000,
     cronPattern: process.env.PROPOSAL_FOLLOWUP_CRON ?? "0 10 * * *", // 10 AM UTC daily
+    jobName: "run",
+  },
+  {
+    name: QUEUE_NAMES.PARTNER_MONTHLY_DIGEST,
+    // concurrency=1: runs on the 1st of each month at 9 AM UTC (4 AM ET).
+    // Sends each active partner a monthly residuals + earnings summary email.
+    // Override with PARTNER_MONTHLY_DIGEST_CRON env var.
+    concurrency: 1,
+    attempts: 2,
+    backoffDelay: 60000,
+    repeatEveryMs: 30 * 24 * 60 * 60 * 1000, // fallback ~30 days
+    cronPattern: process.env.PARTNER_MONTHLY_DIGEST_CRON ?? "0 9 1 * *", // 1st of month 9 AM UTC
     jobName: "run",
   },
 ];
@@ -881,6 +894,11 @@ class QueueManager {
           // Not gated by SDR_ENABLED — proposal follow-up is a core sales ops task.
           const { runProposalFollowUpCheck } = await import("./proposal-followup-worker");
           await runProposalFollowUpCheck();
+          break;
+        }
+        case QUEUE_NAMES.PARTNER_MONTHLY_DIGEST: {
+          const { sendMonthlyPartnerResidualsSummary } = await import("./partner-notifications");
+          await sendMonthlyPartnerResidualsSummary();
           break;
         }
         default:

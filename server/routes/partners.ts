@@ -997,6 +997,103 @@ ${getEmailSignatureHtml("partners")}
       serverError(res, err);
     }
   });
+
+  // ── Partner pipeline view (partner-authenticated) ──────────────────────────
+  // Returns the partner's referrals enriched with pipeline stage so the
+  // partner portal can show pending → boarded → earning lifecycle.
+  app.get("/api/partner/pipeline", isPartnerAuthenticated, async (req, res) => {
+    try {
+      const user = req.user as any;
+      const partner = await storage.getPartnerByEmail(user.email);
+      if (!partner) return res.status(404).json({ message: "Partner not found." });
+
+      const referralsList = await storage.getReferralsByPartner(partner.id);
+
+      // Enrich with pipeline stage label
+      const pipeline = referralsList.map(r => {
+        let pipelineStage: "pending" | "contacted" | "boarded" | "earning";
+        if (r.status === "paid") pipelineStage = "earning";
+        else if (r.status === "converted") pipelineStage = "boarded";
+        else if (r.status === "contacted") pipelineStage = "contacted";
+        else pipelineStage = "pending";
+
+        return {
+          id: r.id,
+          merchantName: r.referredCompany || r.referredName || "—",
+          merchantEmail: r.referredEmail || null,
+          status: r.status,
+          pipelineStage,
+          commissionEarned: parseFloat(r.commissionAmount || r.incentiveAmount || "0"),
+          convertedAt: r.convertedAt,
+          paidAt: r.paidAt,
+          createdAt: r.createdAt,
+          dealId: r.dealId,
+        };
+      });
+
+      res.json(pipeline);
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  // ── Partner earnings view (partner-authenticated) ──────────────────────────
+  // Returns residual data for the partner's live merchants grouped by month.
+  app.get("/api/partner/earnings", isPartnerAuthenticated, async (req, res) => {
+    try {
+      const user = req.user as any;
+      const partner = await storage.getPartnerByEmail(user.email);
+      if (!partner) return res.status(404).json({ message: "Partner not found." });
+
+      const referralsList = await storage.getReferralsByPartner(partner.id);
+      const dealIds = referralsList
+        .map(r => r.dealId)
+        .filter((id): id is number => id !== null && id !== undefined);
+
+      if (dealIds.length === 0) {
+        return res.json({ months: [], totalLifetime: 0 });
+      }
+
+      // Fetch all residuals for this partner's deals (last 12 months)
+      const { db: earnDb } = await import("../db");
+      const { merchantResiduals, deals: dealsTable } = await import("@shared/schema");
+      const { inArray, desc } = await import("drizzle-orm");
+
+      const residuals = await earnDb
+        .select()
+        .from(merchantResiduals)
+        .where(inArray(merchantResiduals.dealId, dealIds))
+        .orderBy(desc(merchantResiduals.month))
+        .limit(200);
+
+      // Group by month
+      const byMonth: Record<string, {
+        month: string;
+        merchants: Array<{ name: string; volume: string; commission: string }>;
+        totalCommission: number;
+      }> = {};
+
+      for (const r of residuals) {
+        if (!byMonth[r.month]) {
+          byMonth[r.month] = { month: r.month, merchants: [], totalCommission: 0 };
+        }
+        const commission = parseFloat(r.partnerCommission || "0");
+        byMonth[r.month].merchants.push({
+          name: r.merchantName || r.merchantMid || "—",
+          volume: r.volume || "0",
+          commission: r.partnerCommission || "0",
+        });
+        byMonth[r.month].totalCommission += commission;
+      }
+
+      const months = Object.values(byMonth).sort((a, b) => b.month.localeCompare(a.month));
+      const totalLifetime = months.reduce((s, m) => s + m.totalCommission, 0);
+
+      res.json({ months, totalLifetime });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
 }
 
 // ── Partner referral auto-enrollment helper ────────────────────────────────────

@@ -212,6 +212,17 @@ export function registerDealsRoutes(app: Express) {
           await createPreferenceAwareNotification({ channel: "internal", title: "Deal Closed Won!", message: `Deal #${updated.id}${closedContact ? ` — ${closedContact.firstName} ${closedContact.lastName}` : ""} has been closed won.`, type: "alert", metadata: { dealId: updated.id, eventType: "deal_closed_won" } }, "deal_closed_won");
           sendCriticalEmailNotification({ eventType: "deal_closed_won", subject: `Closed Won: Deal #${updated.id}${closedContact ? ` — ${closedContact.companyName || closedContact.firstName}` : ""}`, body: `<h3>Deal Closed Won</h3><p>Deal #${updated.id} has moved to <strong>Closed Won</strong>.</p>${closedContact ? `<p>Contact: ${closedContact.firstName} ${closedContact.lastName}${closedContact.companyName ? ` (${closedContact.companyName})` : ""}</p>` : ""}<p>Owner: ${updated.owner || "Unassigned"}</p>`, ownerName: updated.owner }).catch(err => console.error("Closed won email error:", err));
 
+          // Notify referring partner that their merchant just went live.
+          import("../services/partner-notifications").then(({ notifyPartnerMerchantWentLive }) => {
+            notifyPartnerMerchantWentLive({
+              id: updated.id,
+              contactId: updated.contactId ?? null,
+              referredBy: (updated as any).referredBy ?? null,
+              partnerOrgId: (updated as any).partnerOrgId ?? null,
+              owner: updated.owner ?? null,
+            }).catch(err => console.error("[Deal] Partner go-live notification error:", err.message));
+          }).catch(err => console.error("[Deal] Failed to import partner-notifications:", err.message));
+
           // Onboarding kickoff (deal + SLA tasks + GHL welcome) is fired by advanceDealStage.
         }
 
