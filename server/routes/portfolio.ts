@@ -6,20 +6,18 @@ import { serverError } from "../utils/server-error";
 /**
  * Portfolio API — returns each rep's assigned merchants with health signals.
  *
- * Ownership contract: a contact appears in an agent's portfolio when the agent
- * owns ANY active deal for that contact (not just the latest). This ensures a
- * rep retains a merchant in their portfolio even after a newer deal is created
- * by someone else. The latest deal's signals (nextFollowUp, stage) are fetched
- * in a separate join.
+ * Ownership contract: a contact appears in an agent's portfolio when either:
+ *   (a) the agent owns ANY active deal for that contact, OR
+ *   (b) contacts.assigned_to = the agent's email (even with no deal yet).
  *
- * The contacts table has an assigned_to column (added by Task #1270), but the
- * portfolio intentionally scopes by deals.owner so it surfaces merchants a rep
- * actively worked. Follow-up task #1311 will additionally surface contacts that
- * are assigned to a rep via contacts.assigned_to but have no deal yet.
+ * The latest deal's signals (nextFollowUp, stage) are fetched via a LEFT JOIN
+ * so that dealless-but-assigned contacts still appear. ownerEmail falls back to
+ * contacts.assigned_to when no deal exists.
  *
  * Scoping rules:
- *   agent   → contacts where any deal.owner = their email
- *   manager → all contacts with at least one active deal (or narrow by ?owner=)
+ *   agent   → contacts where any deal.owner = email  OR  assigned_to = email
+ *   manager → all contacts (deal exists OR assigned_to set), optionally narrowed
+ *             by ?owner= which applies the same OR logic
  *   admin   → same as manager
  */
 export function registerPortfolioRoutes(app: Express) {
@@ -46,32 +44,39 @@ export function registerPortfolioRoutes(app: Express) {
       let paramIdx = 1;
 
       if (role === "agent") {
-        // Include this contact only if the agent owns ANY active deal for it.
+        // Include contacts where the agent owns ANY active deal OR is directly assigned.
         conditions.push(`
-          EXISTS (
-            SELECT 1 FROM deals d
-            WHERE d.contact_id = c.id
-              AND d.owner = $${paramIdx}
-              AND d.archived_at IS NULL
+          (
+            c.assigned_to = $${paramIdx}
+            OR EXISTS (
+              SELECT 1 FROM deals d
+              WHERE d.contact_id = c.id
+                AND d.owner = $${paramIdx}
+                AND d.archived_at IS NULL
+            )
           )
         `);
         params.push(email);
         paramIdx++;
       } else if (ownerFilter) {
-        // manager/admin filtering to a specific rep — same EXISTS predicate.
+        // manager/admin narrowing to one rep — same OR logic.
         conditions.push(`
-          EXISTS (
-            SELECT 1 FROM deals d
-            WHERE d.contact_id = c.id
-              AND d.owner = $${paramIdx}
-              AND d.archived_at IS NULL
+          (
+            c.assigned_to = $${paramIdx}
+            OR EXISTS (
+              SELECT 1 FROM deals d
+              WHERE d.contact_id = c.id
+                AND d.owner = $${paramIdx}
+                AND d.archived_at IS NULL
+            )
           )
         `);
         params.push(ownerFilter);
         paramIdx++;
+      } else {
+        // admin/manager with no filter: all contacts that have any deal or any assignment.
+        conditions.push(`(latest_deal.contact_id IS NOT NULL OR c.assigned_to IS NOT NULL)`);
       }
-      // When no ownerFilter: admin/manager sees all contacts with any deal
-      // (guaranteed by the INNER JOIN on latest_deal below).
 
       const whereClause = conditions.join(" AND ");
 
@@ -89,10 +94,11 @@ export function registerPortfolioRoutes(app: Express) {
           c.email,
           c.phone,
           c.last_contacted_at                  AS "lastContactedAt",
+          c.assigned_to                        AS "assignedTo",
           COALESCE(mhs.risk_tier, 'Unknown')   AS "riskTier",
           COALESCE(mhs.churn_score, 0)         AS "churnScore",
           latest_deal.id                       AS "dealId",
-          latest_deal.owner                    AS "ownerEmail",
+          COALESCE(latest_deal.owner, c.assigned_to) AS "ownerEmail",
           latest_deal.next_follow_up           AS "nextFollowUp",
           latest_deal.stage                    AS "dealStage",
           latest_deal.pipeline                 AS "dealPipeline",
@@ -107,8 +113,8 @@ export function registerPortfolioRoutes(app: Express) {
             ELSE 5
           END AS risk_order
         FROM contacts c
-        -- latest deal per contact for signals only (owner of latest deal shown in UI)
-        INNER JOIN (
+        -- latest deal per contact for signals only; LEFT so dealless-assigned contacts appear
+        LEFT JOIN (
           SELECT DISTINCT ON (contact_id)
             id, contact_id, owner, next_follow_up, stage, pipeline
           FROM deals
@@ -186,10 +192,16 @@ export function registerPortfolioRoutes(app: Express) {
     async (_req, res) => {
       try {
         const { rows } = await pool.query(`
-          SELECT DISTINCT owner AS email
-          FROM deals
-          WHERE owner IS NOT NULL AND owner <> '' AND archived_at IS NULL
-          ORDER BY owner
+          SELECT DISTINCT email FROM (
+            SELECT owner AS email
+            FROM deals
+            WHERE owner IS NOT NULL AND owner <> '' AND archived_at IS NULL
+            UNION
+            SELECT assigned_to AS email
+            FROM contacts
+            WHERE assigned_to IS NOT NULL AND assigned_to <> '' AND archived_at IS NULL
+          ) combined
+          ORDER BY email
         `);
         res.json(rows.map((r: any) => r.email));
       } catch (err: any) {
