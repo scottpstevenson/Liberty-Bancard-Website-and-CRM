@@ -839,9 +839,16 @@ export default function StatementReview() {
                       </div>
                       <div className="flex items-center gap-2 flex-wrap">
                         {deal.savingsProposal ? (
-                          <Badge variant="secondary" className="text-xs">
+                          <Badge
+                            variant="secondary"
+                            className={`text-xs ${deal.proposalStatus === "resent" ? "bg-orange-100 text-orange-700 border-orange-300" : ""}`}
+                          >
                             <CheckCircle2 className="w-3 h-3 mr-1" />
-                            {deal.proposalStatus === "sent" ? "Sent" : "Proposal Ready"}
+                            {deal.proposalStatus === "resent" ? "Re-sent (Not Opened)" :
+                             deal.proposalStatus === "sent" ? "Sent (Not Opened)" :
+                             deal.proposalStatus === "viewed" ? "Opened" :
+                             deal.proposalStatus === "accepted" ? "Accepted" :
+                             "Proposal Ready"}
                           </Badge>
                         ) : (
                           <Badge variant="outline" className="text-xs">
@@ -854,7 +861,7 @@ export default function StatementReview() {
                             ⚠ Template Fallback
                           </Badge>
                         )}
-                        {!!deal.savingsProposal && deal.proposalStatus !== "sent" && (
+                        {!!deal.savingsProposal && deal.proposalStatus !== "sent" && deal.proposalStatus !== "resent" && (
                           <Button
                             size="sm"
                             variant="default"

@@ -23,6 +23,7 @@ export const QUEUE_NAMES = {
   HEALTH_MONITOR: "health-monitor",
   EXECUTIVE_SNAPSHOT: "executive-snapshot",
   PIPELINE_SILENCE_CHECK: "pipeline-silence-check",
+  PROPOSAL_FOLLOWUP: "proposal-followup",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -208,6 +209,17 @@ const QUEUE_CONFIGS: QueueConfig[] = [
     backoffDelay: 0,
     repeatEveryMs: 24 * 60 * 60 * 1000,
     cronPattern: process.env.PIPELINE_SILENCE_CRON ?? "0 9 * * *", // 9 AM UTC daily
+    jobName: "run",
+  },
+  {
+    name: QUEUE_NAMES.PROPOSAL_FOLLOWUP,
+    // concurrency=1: nightly; checks for proposals sent > 3 days ago with no view.
+    // Max 2 re-sends per deal, gated by audit_logs count.
+    concurrency: 1,
+    attempts: 3,
+    backoffDelay: 60000,
+    repeatEveryMs: 24 * 60 * 60 * 1000,
+    cronPattern: process.env.PROPOSAL_FOLLOWUP_CRON ?? "0 10 * * *", // 10 AM UTC daily
     jobName: "run",
   },
 ];
@@ -762,6 +774,12 @@ class QueueManager {
         case QUEUE_NAMES.PIPELINE_SILENCE_CHECK: {
           const { runPipelineSilenceCheck } = await import("./pipeline-silence-check");
           await runPipelineSilenceCheck();
+          break;
+        }
+        case QUEUE_NAMES.PROPOSAL_FOLLOWUP: {
+          // Not gated by SDR_ENABLED — proposal follow-up is a core sales ops task.
+          const { runProposalFollowUpCheck } = await import("./proposal-followup-worker");
+          await runProposalFollowUpCheck();
           break;
         }
         default:

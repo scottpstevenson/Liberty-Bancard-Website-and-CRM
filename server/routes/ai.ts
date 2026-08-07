@@ -764,11 +764,29 @@ Notes: ${deal.notes || "None"}`
     try {
       const token = req.params.token;
       if (!token || token.length < 10) return res.status(400).json({ message: "Invalid token" });
-      const { data: allDeals } = await storage.getDeals({ limit: 500 });
-      const deal = allDeals.find(d => d.proposalToken === token);
+
+      // Direct indexed lookup — avoids the limit-500 scan that silently misses deals.
+      const { db } = await import("../db");
+      const { deals } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      const [deal] = await db.select().from(deals).where(eq(deals.proposalToken, token)).limit(1);
+
       if (!deal || !deal.savingsProposal) return res.status(404).json({ message: "Proposal not found" });
       const contact = deal.contactId ? await storage.getContact(deal.contactId) : null;
       const proposal = deal.savingsProposal as ProposalData;
+
+      // Record first view — transitions proposalStatus to "viewed" so the follow-up
+      // worker knows not to re-send and the deal card shows the correct status.
+      if (deal.proposalStatus === "sent" || deal.proposalStatus === "resent") {
+        await storage.updateDeal(deal.id, { proposalStatus: "viewed" });
+        storage.createAuditLog({
+          action: "proposal_viewed",
+          entityType: "deal",
+          entityId: deal.id,
+          actorType: "system",
+          details: { token, contactId: deal.contactId },
+        }).catch(() => {}); // fire-and-forget; never fail the response
+      }
 
       const sanitizedPlans = (proposal.plans || []).map((p: ProposalPlan) => ({
         name: p.name,

@@ -378,13 +378,16 @@ function SortableDealCard({
               variant="outline" 
               className={`text-xs no-default-hover-elevate no-default-active-elevate ${
                 deal.proposalStatus === "accepted" ? "border-green-500 text-green-700 bg-green-50/50" : 
-                deal.proposalStatus === "viewed" ? "border-blue-500 text-blue-700 bg-blue-50/50" : 
+                deal.proposalStatus === "viewed" ? "border-blue-500 text-blue-700 bg-blue-50/50" :
+                deal.proposalStatus === "resent" ? "border-orange-500 text-orange-700 bg-orange-50/50" :
                 "border-amber-500 text-amber-700 bg-amber-50/50"
               }`}
               data-testid={`badge-proposal-status-${deal.id}`}
             >
               <FileText className="w-3 h-3 mr-1" />
-              Proposal {deal.proposalStatus.charAt(0).toUpperCase() + deal.proposalStatus.slice(1)}
+              {deal.proposalStatus === "resent" ? "Proposal Re-sent" : 
+               deal.proposalStatus === "sent" ? "Proposal Not Opened" :
+               `Proposal ${deal.proposalStatus.charAt(0).toUpperCase() + deal.proposalStatus.slice(1)}`}
             </Badge>
           )}
           {deal.mid && <DealMidBadge summary={midSummary} />}

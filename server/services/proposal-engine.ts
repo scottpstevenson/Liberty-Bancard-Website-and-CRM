@@ -741,6 +741,167 @@ ${getEmailSignatureHtml("accounts")}
   }
 }
 
+/**
+ * Sends a follow-up email for a proposal that hasn't been opened.
+ * Uses a different subject line per attempt number to avoid looking like duplicates.
+ * Updates proposalEmailSentAt so the re-send window resets correctly.
+ * Does NOT update proposalStatus — the calling worker handles that.
+ */
+export async function sendProposalFollowUpEmail(dealId: number, attemptNumber: number): Promise<boolean> {
+  try {
+    const deal = await storage.getDeal(dealId);
+    if (!deal || !deal.savingsProposal || !deal.proposalToken) {
+      console.error(`[ProposalEngine] Cannot send follow-up — no proposal for deal ${dealId}`);
+      return false;
+    }
+
+    const contact = deal.contactId ? await storage.getContact(deal.contactId) : null;
+    if (!contact?.email) {
+      console.error(`[ProposalEngine] No email for contact on deal ${dealId}`);
+      return false;
+    }
+
+    const proposal = deal.savingsProposal as ProposalPayload;
+    const bestPlan = proposal.plans?.find((p) => p.shortName === proposal.recommendedPlan) || proposal.plans?.[0];
+    const baseUrl = process.env.APP_URL
+      || (process.env.REPLIT_DOMAINS ? `https://${process.env.REPLIT_DOMAINS.split(",")[0]}` : null)
+      || "https://libertybancard.com";
+    const proposalUrl = `${baseUrl}/proposal/${deal.proposalToken}`;
+    const recipientName = contact.companyName || contact.firstName || "there";
+
+    const subjects: Record<number, string> = {
+      1: `Quick check-in: Have you seen your savings breakdown? — ${recipientName}`,
+      2: `Last chance to review your savings analysis — ${recipientName}`,
+    };
+    const subject = subjects[attemptNumber] ?? `Following up on your savings proposal — ${recipientName}`;
+
+    const body = `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+<div style="background: #0f172a; padding: 30px; text-align: center; border-radius: 8px 8px 0 0;">
+  <h1 style="color: #ffffff; font-size: 24px; margin: 0;">Liberty Bancard</h1>
+  <p style="color: #94a3b8; margin: 8px 0 0;">Your Processing Statement Review</p>
+</div>
+
+<div style="padding: 30px; background: #ffffff; border: 1px solid #e2e8f0;">
+  <p style="font-size: 16px; color: #1e293b;">Hi ${contact.firstName || "there"},</p>
+
+  <p style="font-size: 15px; color: #475569; line-height: 1.6;">
+    ${attemptNumber === 2
+      ? "We wanted to reach out one final time — your personalized savings breakdown is ready and waiting for you."
+      : "We noticed you haven't had a chance to review your personalized savings breakdown yet. We wanted to make sure it didn't get buried in your inbox."}
+  </p>
+
+  ${bestPlan ? `
+  <div style="background: #f0fdf4; border-left: 4px solid #22c55e; padding: 16px; margin: 20px 0; border-radius: 4px;">
+    <p style="font-size: 14px; color: #166534; margin: 0; font-weight: 600;">
+      Your analysis shows up to $${bestPlan.annualSavings?.toLocaleString() || "0"}/year in potential savings
+    </p>
+    <p style="font-size: 14px; color: #166534; margin: 4px 0 0;">
+      New Effective Rate: ${bestPlan.effectiveRate || "N/A"} (${bestPlan.savingsPercent || 0}% lower)
+    </p>
+  </div>
+  ` : ""}
+
+  <div style="text-align: center; margin: 30px 0;">
+    <a href="${proposalUrl}" style="display: inline-block; background: #0ea5e9; color: #ffffff; padding: 14px 32px; font-size: 16px; font-weight: 600; text-decoration: none; border-radius: 6px;">
+      View Your Savings Breakdown
+    </a>
+  </div>
+
+  <p style="font-size: 14px; color: #64748b; line-height: 1.5;">
+    Your proposal includes ${proposal.plans?.length || 3} different pricing options, a full fee analysis, and projected savings based on your actual statement data.
+  </p>
+
+  <div style="border-top: 1px solid #e2e8f0; margin-top: 24px; padding-top: 16px;">
+    <p style="font-size: 14px; color: #475569; margin: 0;">
+      <strong>Questions?</strong> We're happy to walk you through it:
+    </p>
+    <p style="font-size: 14px; color: #475569; margin: 4px 0;">
+      📞 <a href="tel:9542668214" style="color: #0ea5e9;">954-266-8214</a> | 
+      📧 <a href="mailto:accounts@libertybancard.com" style="color: #0ea5e9;">accounts@libertybancard.com</a>
+    </p>
+  </div>
+</div>
+
+<div style="padding: 16px 30px; background: #f8fafc; border-radius: 0 0 8px 8px; border: 1px solid #e2e8f0; border-top: none;">
+  <p style="font-size: 11px; color: #94a3b8; margin: 0; line-height: 1.5;">
+    ${proposal.complianceDisclaimer || "Eligibility, underwriting, card brand rules, and applicable laws apply. Savings estimates based on statement data provided. Actual results may vary."}
+  </p>
+</div>
+${getEmailSignatureHtml("accounts")}
+</div>`;
+
+    const { sendGhlEmail, sendGhlEmailForMerchant, isGhlConfigured } = await import("./ghl");
+
+    let emailSent = false;
+    let emailChannel = "none";
+    if (isGhlConfigured()) {
+      try {
+        const ghlDirectResult = await sendGhlEmail({
+          contactId: contact.id,
+          dealId,
+          subject,
+          body,
+          fromEmail: "accounts@libertybancard.com",
+          fromName: "Your Liberty Bancard Account Team",
+        });
+        if (ghlDirectResult.success) {
+          emailSent = true;
+          emailChannel = "GHL-Direct";
+        }
+      } catch (sendErr) {
+        console.error("[ProposalEngine] GHL-Direct follow-up email error:", sendErr);
+      }
+
+      if (!emailSent) {
+        try {
+          const ghlResult = await sendGhlEmailForMerchant({ email: contact.email, subject, body });
+          if (ghlResult.success) {
+            emailSent = true;
+            emailChannel = "GHL-Workflow";
+          }
+        } catch (sendErr) {
+          console.error("[ProposalEngine] GHL-Workflow follow-up email error:", sendErr);
+        }
+      }
+    }
+
+    if (!emailSent) {
+      const { isSmtpConfigured, sendSmtpEmail } = await import("./smtp-email");
+      if (isSmtpConfigured()) {
+        try {
+          const smtpResult = await sendSmtpEmail({ to: contact.email, subject, html: body, category: "accounts" });
+          if (smtpResult.success) {
+            emailSent = true;
+            emailChannel = "SMTP-Fallback";
+          } else {
+            console.warn(`[ProposalEngine] SMTP follow-up failed for deal ${dealId}: ${smtpResult.error}`);
+          }
+        } catch (smtpErr: any) {
+          console.error(`[ProposalEngine] SMTP follow-up threw for deal ${dealId}:`, smtpErr.message);
+        }
+      }
+    }
+
+    if (!emailSent) {
+      console.warn(
+        `[ProposalEngine] Neither GHL nor SMTP is configured — follow-up email NOT delivered for deal ${dealId}.`,
+      );
+      return false;
+    }
+
+    // Reset the sent-at timestamp so the resend window is measured from this follow-up.
+    await storage.updateDeal(deal.id, { proposalEmailSentAt: new Date() });
+
+    console.log(
+      `[ProposalEngine] Follow-up email (attempt ${attemptNumber}) sent to ${contact.email} for deal ${dealId} via ${emailChannel}`,
+    );
+    return true;
+  } catch (err) {
+    console.error("[ProposalEngine] Follow-up email send failed:", err);
+    return false;
+  }
+}
+
 export async function notifyRepWithBriefing(dealId: number): Promise<void> {
   try {
     const deal = await storage.getDeal(dealId);
