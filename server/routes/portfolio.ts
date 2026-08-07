@@ -24,8 +24,13 @@ export function registerPortfolioRoutes(app: Express) {
   app.get("/api/portfolio", isDashboardUser, async (req, res) => {
     try {
       const user = req.user as any;
-      const role: string = user?.role ?? "agent";
+      const rawRole: string = user?.role ?? "";
       const email: string = user?.email ?? "";
+
+      // Only known dashboard roles are allowed; anything else is treated as agent
+      // (most restrictive) to prevent unknown roles from seeing all contacts.
+      const validRoles = new Set(["admin", "manager", "agent"]);
+      const role: string = validRoles.has(rawRole) ? rawRole : "agent";
 
       const sort = (req.query.sort as string) || "risk";
       // manager/admin can pass ?owner=<email> to narrow to one rep's portfolio

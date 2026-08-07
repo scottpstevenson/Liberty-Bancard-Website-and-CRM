@@ -49,7 +49,8 @@ export function registerExecutiveRoutes(app: Express) {
   // GET /api/executive/snapshots?limit=12
   app.get("/api/executive/snapshots", isDashboardUser, adminOrManager, async (req, res) => {
     try {
-      const limit = Math.min(parseInt((req.query.limit as string) || "12", 10), 52);
+      const parsed = parseInt((req.query.limit as string) || "12", 10);
+      const limit = Math.min(Number.isFinite(parsed) && parsed > 0 ? parsed : 12, 52);
       const rows = await db
         .select()
         .from(executiveWeeklySnapshots)
