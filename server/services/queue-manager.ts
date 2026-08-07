@@ -800,8 +800,8 @@ class QueueManager {
         }
         case QUEUE_NAMES.EXECUTIVE_SNAPSHOT: {
           const { acquireJobLock, releaseJobLock } = await import("./job-registry");
-          const acquired = await acquireJobLock("executive-snapshot");
-          if (!acquired) break;
+          const lockToken = await acquireJobLock("executive-snapshot");
+          if (!lockToken) break;
           try {
             const { buildExecutiveSnapshot } = await import("./executive-kpi");
             const { generateExecutiveAi } = await import("./executive-ai");
@@ -856,7 +856,7 @@ class QueueManager {
               });
             console.log(`[ExecutiveSnapshot] Weekly snapshot written for week ${snap.weekStart}`);
           } finally {
-            await releaseJobLock("executive-snapshot", true).catch(() => {});
+            await releaseJobLock("executive-snapshot", true, undefined, lockToken).catch(() => {});
           }
           break;
         }
@@ -1640,8 +1640,8 @@ async function runOnboardingReminderTick(): Promise<void> {
 
 async function runMidIngestionTick(): Promise<void> {
   const { acquireJobLock, releaseJobLock, JOB_NAMES } = await import("./job-registry");
-  const acquired = await acquireJobLock(JOB_NAMES.MID_INGESTION);
-  if (!acquired) return;
+  const lockToken = await acquireJobLock(JOB_NAMES.MID_INGESTION);
+  if (!lockToken) return;
 
   try {
     const { ingestMidDataForActiveMids } = await import("./processor-api");
@@ -1649,9 +1649,9 @@ async function runMidIngestionTick(): Promise<void> {
     if (result.processed > 0 || result.errors > 0) {
       console.log(`[Queue:mid-ingestion] ${result.processed} processed, ${result.errors} errors`);
     }
-    await releaseJobLock(JOB_NAMES.MID_INGESTION, true);
+    await releaseJobLock(JOB_NAMES.MID_INGESTION, true, undefined, lockToken);
   } catch (err: any) {
-    await releaseJobLock(JOB_NAMES.MID_INGESTION, false, err.message);
+    await releaseJobLock(JOB_NAMES.MID_INGESTION, false, err.message, lockToken);
     throw err;
   }
 

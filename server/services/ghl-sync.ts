@@ -1875,8 +1875,8 @@ export async function runGhlFullSyncTick(): Promise<void> {
   ghlCircuitOpen = false;
   persistGhlCircuit(); // persist the reset state
   const { acquireJobLock, releaseJobLock, JOB_NAMES } = await import("./job-registry");
-  const acquired = await acquireJobLock(JOB_NAMES.GHL_SYNC);
-  if (!acquired) return;
+  const lockToken = await acquireJobLock(JOB_NAMES.GHL_SYNC);
+  if (!lockToken) return;
   try {
     // Indexed DB query — fetches only contacts without a ghlContactId; never limited to 500 rows.
     const unsyncedContacts = await storage.getUnsyncedContactsForGhl(10);
@@ -1888,7 +1888,7 @@ export async function runGhlFullSyncTick(): Promise<void> {
         maybeSendCircuitAlert();
         ghlCircuitOpen = true;
         persistGhlCircuit();
-        await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN");
+        await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN", lockToken);
         return;
       }
       try {
@@ -1915,7 +1915,7 @@ export async function runGhlFullSyncTick(): Promise<void> {
       maybeSendCircuitAlert();
       ghlCircuitOpen = true;
       persistGhlCircuit();
-      await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN");
+      await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN", lockToken);
       return;
     }
 
@@ -1961,7 +1961,7 @@ export async function runGhlFullSyncTick(): Promise<void> {
       maybeSendCircuitAlert();
       ghlCircuitOpen = true;
       persistGhlCircuit();
-      await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN");
+      await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN", lockToken);
       return;
     }
 
@@ -1974,7 +1974,7 @@ export async function runGhlFullSyncTick(): Promise<void> {
         storage.createAuditLog({ action: "GHL_CIRCUIT_OPEN", entityType: "system", details: `Circuit opened: ${consecutiveGhlFailures} consecutive GHL failures in deals phase — tick aborted` }).catch(() => {});
         maybeSendCircuitAlert();
         ghlCircuitOpen = true;
-        await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN");
+        await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN", lockToken);
         return;
       }
       try {
@@ -2006,7 +2006,7 @@ export async function runGhlFullSyncTick(): Promise<void> {
       storage.createAuditLog({ action: "GHL_CIRCUIT_OPEN", entityType: "system", details: `Circuit opened: ${consecutiveGhlFailures} consecutive GHL failures after deals phase — tick aborted` }).catch(() => {});
       maybeSendCircuitAlert();
       ghlCircuitOpen = true;
-      await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN");
+      await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN", lockToken);
       return;
     }
 
@@ -2023,7 +2023,7 @@ export async function runGhlFullSyncTick(): Promise<void> {
         storage.createAuditLog({ action: "GHL_CIRCUIT_OPEN", entityType: "system", details: `Circuit opened: ${consecutiveGhlFailures} consecutive GHL failures in tasks phase — tick aborted` }).catch(() => {});
         maybeSendCircuitAlert();
         ghlCircuitOpen = true;
-        await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN");
+        await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN", lockToken);
         return;
       }
       try {
@@ -2047,7 +2047,7 @@ export async function runGhlFullSyncTick(): Promise<void> {
       storage.createAuditLog({ action: "GHL_CIRCUIT_OPEN", entityType: "system", details: `Circuit opened: ${consecutiveGhlFailures} consecutive GHL failures after tasks phase — tick aborted` }).catch(() => {});
       maybeSendCircuitAlert();
       ghlCircuitOpen = true;
-      await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN");
+      await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN", lockToken);
       return;
     }
 
@@ -2060,7 +2060,7 @@ export async function runGhlFullSyncTick(): Promise<void> {
         storage.createAuditLog({ action: "GHL_CIRCUIT_OPEN", entityType: "system", details: `Circuit opened: ${consecutiveGhlFailures} consecutive GHL failures in companies phase — tick aborted` }).catch(() => {});
         maybeSendCircuitAlert();
         ghlCircuitOpen = true;
-        await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN");
+        await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN", lockToken);
         return;
       }
       try {
@@ -2097,9 +2097,9 @@ export async function runGhlFullSyncTick(): Promise<void> {
     if (synced > 0 || dealsSynced > 0 || tasksSynced > 0 || companiesSynced > 0) {
       console.log(`[Queue:ghl-sync] Batch: ${synced} contacts, ${dealsSynced} deals, ${tasksSynced} tasks, ${companiesSynced} companies`);
     }
-    await releaseJobLock(JOB_NAMES.GHL_SYNC, true);
+    await releaseJobLock(JOB_NAMES.GHL_SYNC, true, undefined, lockToken);
   } catch (err: any) {
-    await releaseJobLock(JOB_NAMES.GHL_SYNC, false, err.message);
+    await releaseJobLock(JOB_NAMES.GHL_SYNC, false, err.message, lockToken);
     throw err;
   }
 }

@@ -37,8 +37,8 @@ export async function recoverDeferredEnrollments(): Promise<{
 }> {
   // ── Re-entrant guard ────────────────────────────────────────────────────────
   const { acquireJobLock, releaseJobLock } = await import("./job-registry");
-  const acquired = await acquireJobLock(JOB_NAME);
-  if (!acquired) {
+  const lockToken = await acquireJobLock(JOB_NAME);
+  if (!lockToken) {
     console.log("[EnrollmentRecovery] Another recovery job is already running — skipping");
     return { recovered: 0, reDeferred: 0, failed: 0, skipped: 0 };
   }
@@ -68,7 +68,7 @@ export async function recoverDeferredEnrollments(): Promise<{
 
     if (rows.rows.length === 0) {
       console.log("[EnrollmentRecovery] No deferred enrollments to recover");
-      await releaseJobLock(JOB_NAME, true);
+      await releaseJobLock(JOB_NAME, true, undefined, lockToken);
       return { recovered: 0, reDeferred: 0, failed: 0, skipped: 0 };
     }
 
@@ -264,11 +264,11 @@ export async function recoverDeferredEnrollments(): Promise<{
       `[EnrollmentRecovery] Done — recovered: ${recovered}, re-deferred: ${reDeferred}, failed: ${failed}, skipped: ${skipped}`,
     );
 
-    await releaseJobLock(JOB_NAME, true);
+    await releaseJobLock(JOB_NAME, true, undefined, lockToken);
     return { recovered, reDeferred, failed, skipped };
   } catch (err) {
     console.error("[EnrollmentRecovery] Fatal error:", (err as Error).message);
-    await releaseJobLock(JOB_NAME, false, (err as Error).message).catch(() => {});
+    await releaseJobLock(JOB_NAME, false, (err as Error).message, lockToken).catch(() => {});
     throw err;
   }
 }

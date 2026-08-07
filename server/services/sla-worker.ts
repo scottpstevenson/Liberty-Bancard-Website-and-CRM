@@ -526,8 +526,8 @@ export async function runFullSlaLoop(): Promise<void> {
 
 async function runSlaCheck() {
   const { acquireJobLock, releaseJobLock, JOB_NAMES } = await import("./job-registry");
-  const acquired = await acquireJobLock(JOB_NAMES.SLA_WORKER);
-  if (!acquired) return;
+  const lockToken = await acquireJobLock(JOB_NAMES.SLA_WORKER);
+  if (!lockToken) return;
   try {
     const slaConfigs = await storage.getSlaConfigs();
     const rules = slaConfigs.length > 0
@@ -553,10 +553,10 @@ async function runSlaCheck() {
       }
     }
     await autoResolveClearedSlaTasks(activeStuckDealIds);
-    await releaseJobLock(JOB_NAMES.SLA_WORKER, true);
+    await releaseJobLock(JOB_NAMES.SLA_WORKER, true, undefined, lockToken);
   } catch (err: any) {
     console.error("SLA check error:", err);
-    await releaseJobLock(JOB_NAMES.SLA_WORKER, false, err?.message ?? String(err));
+    await releaseJobLock(JOB_NAMES.SLA_WORKER, false, err?.message ?? String(err), lockToken);
   }
 }
 
@@ -974,18 +974,18 @@ let midIngestionInterval: NodeJS.Timeout | null = null;
 
 async function runMidIngestion() {
   const { acquireJobLock, releaseJobLock, JOB_NAMES } = await import("./job-registry");
-  const acquired = await acquireJobLock(JOB_NAMES.MID_INGESTION);
-  if (!acquired) return;
+  const lockToken = await acquireJobLock(JOB_NAMES.MID_INGESTION);
+  if (!lockToken) return;
   try {
     const { ingestMidDataForActiveMids } = await import("./processors/registry");
     const result = await ingestMidDataForActiveMids();
     if (result.processed > 0 || result.errors > 0) {
       console.log(`[MID Ingestion] Nightly run complete: ${result.processed} processed, ${result.errors} errors`);
     }
-    await releaseJobLock(JOB_NAMES.MID_INGESTION, true);
+    await releaseJobLock(JOB_NAMES.MID_INGESTION, true, undefined, lockToken);
   } catch (err: any) {
     console.error("[MID Ingestion] Nightly run error:", err);
-    await releaseJobLock(JOB_NAMES.MID_INGESTION, false, err?.message ?? String(err));
+    await releaseJobLock(JOB_NAMES.MID_INGESTION, false, err?.message ?? String(err), lockToken);
   }
 }
 

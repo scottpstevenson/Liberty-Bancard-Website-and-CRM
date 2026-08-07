@@ -4016,6 +4016,8 @@ export const backgroundJobs = pgTable("background_jobs", {
   runCount: integer("run_count").notNull().default(0),
   consecutiveFailures: integer("consecutive_failures").notNull().default(0),
   updatedAt: timestamp("updated_at").defaultNow(),
+  /** Fencing token set on each acquireJobLock(); releaseJobLock() validates it. */
+  lockToken: text("lock_token"),
 }, (table) => [
   index("background_jobs_job_name_idx").on(table.jobName),
   index("background_jobs_status_idx").on(table.status),

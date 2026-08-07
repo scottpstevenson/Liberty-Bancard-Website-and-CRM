@@ -1,6 +1,7 @@
 import { db, pool } from "../db";
 import { backgroundJobs } from "@shared/schema";
 import { eq } from "drizzle-orm";
+import { randomUUID } from "crypto";
 
 export const JOB_NAMES = {
   GHL_SYNC: "ghl-sync",
@@ -28,78 +29,145 @@ export const JOB_NAMES = {
 export type JobName = (typeof JOB_NAMES)[keyof typeof JOB_NAMES];
 
 /**
+ * How long a job may stay in status='running' before its lock is considered
+ * stale and is auto-released on the next acquireJobLock() call.
+ *
+ * Default: 20 minutes — comfortably longer than the worst-case sequence-worker
+ * run (documented at ~8 min with 155K contacts).  Override via env var
+ * STALE_JOB_LOCK_TTL_MINUTES for environments with different run budgets.
+ */
+export const STALE_LOCK_TTL_MINUTES: number = (() => {
+  const raw = parseInt(process.env.STALE_JOB_LOCK_TTL_MINUTES ?? "", 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : 20;
+})();
+
+/**
  * Attempt to acquire a lock for the given job atomically.
  *
- * Uses a single INSERT … ON CONFLICT … DO UPDATE … WHERE status != 'running'
- * so that concurrent callers cannot both claim the lock in the same tick.
+ * Returns a string lock token if the lock was acquired — callers MUST pass
+ * this token to every releaseJobLock() call so that a slow or crashed prior
+ * owner cannot overwrite the new owner's lock state (fencing token pattern).
  *
- * Returns true if the lock was acquired (job can proceed).
- * Returns false if the job is already running (caller should skip this tick).
+ * Returns null if the job is already running and the lock is not yet stale.
+ *
+ * Stale-lock recovery: if status='running' and last_started_at is older than
+ * STALE_LOCK_TTL_MINUTES, the lock is atomically reclaimed.  A CTE captures
+ * the pre-update row so the staleness test reads the original state, not the
+ * post-update one.
  */
-export async function acquireJobLock(jobName: string): Promise<boolean> {
+export async function acquireJobLock(jobName: string): Promise<string | null> {
   try {
-    // Single atomic upsert: insert the row if it doesn't exist, then
-    // conditionally flip status to 'running' only when it is NOT already running.
-    // The UPDATE branch fires only when the WHERE clause matches, so
-    // rowCount == 0 means "already running" and rowCount == 1 means "acquired".
-    const result = await pool.query(
-      `INSERT INTO background_jobs (job_name, status, last_started_at, run_count, consecutive_failures, updated_at)
-         VALUES ($1, 'running', NOW(), 0, 0, NOW())
+    const newToken = randomUUID();
+
+    // CTE reads the current row BEFORE the INSERT/UPDATE fires, giving us the
+    // original status and last_started_at for an accurate staleness check.
+    // The upsert updates only when:
+    //   (a) the job is not currently running, OR
+    //   (b) the job is running but the lock has gone stale.
+    // rowCount == 0  →  already running (fresh lock)  →  return null
+    // rowCount == 1  →  lock acquired; was_stale tells us if it was a recovery
+    const result = await pool.query<{
+      lock_token: string;
+      was_stale: boolean | null;
+    }>(
+      `WITH pre AS MATERIALIZED (
+         SELECT status, last_started_at
+         FROM background_jobs
+         WHERE job_name = $1
+       )
+       INSERT INTO background_jobs
+           (job_name, status, last_started_at, lock_token, run_count, consecutive_failures, updated_at)
+         VALUES ($1, 'running', NOW(), $3, 0, 0, NOW())
        ON CONFLICT (job_name) DO UPDATE
-         SET status = 'running',
+         SET status          = 'running',
              last_started_at = NOW(),
-             updated_at = NOW()
+             lock_token      = $3,
+             updated_at      = NOW()
          WHERE background_jobs.status <> 'running'
-       RETURNING id`,
-      [jobName]
+            OR background_jobs.last_started_at < NOW() - ($2 || ' minutes')::interval
+       RETURNING
+         lock_token,
+         (SELECT pre.status = 'running'
+                 AND pre.last_started_at < NOW() - ($2 || ' minutes')::interval
+          FROM pre) AS was_stale`,
+      [jobName, String(STALE_LOCK_TTL_MINUTES), newToken]
     );
 
     if (result.rowCount === 0) {
       console.log(`[JobRegistry] ${jobName} is already running — skipping tick`);
-      return false;
+      return null;
     }
-    return true;
+
+    // Log when we auto-released a stale lock so operators can see the recovery.
+    if (result.rows[0]?.was_stale === true) {
+      console.warn(
+        `[JobRegistry] ${jobName} lock was stale (>${STALE_LOCK_TTL_MINUTES} min) — auto-released and re-acquired`
+      );
+    }
+
+    return result.rows[0]?.lock_token ?? newToken;
   } catch (err) {
     console.error(`[JobRegistry] acquireJobLock failed for ${jobName}:`, err);
     // Fail closed — if the registry DB is unavailable, refuse the lock so
     // concurrent workers cannot run the same singleton job and cause duplicate
     // sends or conflicting writes.
-    return false;
+    return null;
   }
 }
 
 /**
  * Release the job lock after execution completes.
- * Pass success=true for a successful run, false for failure (with optional error message).
+ *
+ * @param jobName   - The job whose lock to release.
+ * @param success   - true for a successful run, false for failure.
+ * @param error     - Optional error message (stored when success=false).
+ * @param lockToken - Token returned by acquireJobLock.  When provided, the
+ *                    UPDATE is gated on lock_token matching, so a slow/crashed
+ *                    prior owner cannot overwrite the current owner's state.
+ *                    Callers that omit it get the old unconditional behaviour
+ *                    (with a warning log) for backward compatibility.
  */
 export async function releaseJobLock(
   jobName: string,
   success: boolean,
-  error?: string
+  error?: string,
+  lockToken?: string
 ): Promise<void> {
   try {
-    const [row] = await db
-      .select()
-      .from(backgroundJobs)
-      .where(eq(backgroundJobs.jobName, jobName))
-      .limit(1);
+    if (!lockToken) {
+      console.warn(
+        `[JobRegistry] releaseJobLock called without lockToken for ${jobName} — ownership not verified`
+      );
+    }
 
-    if (!row) return;
+    const result = await pool.query<{ id: number }>(
+      `UPDATE background_jobs
+         SET status               = $2,
+             last_finished_at     = NOW(),
+             last_error           = $3,
+             run_count            = run_count + 1,
+             consecutive_failures = CASE WHEN $2 = 'succeeded' THEN 0
+                                         ELSE consecutive_failures + 1 END,
+             updated_at           = NOW()
+       WHERE job_name = $1
+         AND ($4::text IS NULL OR lock_token = $4)
+       RETURNING id`,
+      [
+        jobName,
+        success ? "succeeded" : "failed",
+        success ? null : (error ?? "Unknown error"),
+        lockToken ?? null,
+      ]
+    );
 
-    const newRunCount = (row.runCount ?? 0) + 1;
-    const newConsecutiveFailures = success ? 0 : (row.consecutiveFailures ?? 0) + 1;
-
-    await db
-      .update(backgroundJobs)
-      .set({
-        status: success ? "succeeded" : "failed",
-        lastFinishedAt: new Date(),
-        lastError: success ? null : (error ?? "Unknown error"),
-        runCount: newRunCount,
-        consecutiveFailures: newConsecutiveFailures,
-        updatedAt: new Date(),
-      })
-      .where(eq(backgroundJobs.jobName, jobName));
+    if ((result.rowCount ?? 0) === 0 && lockToken) {
+      // Token mismatch — this call came from a stale owner whose lock was
+      // already reclaimed by a newer tick.  No-op is correct; log for visibility.
+      console.warn(
+        `[JobRegistry] releaseJobLock for ${jobName} matched 0 rows — ` +
+        `token mismatch; likely a stale owner releasing after takeover (safe no-op)`
+      );
+    }
   } catch (err) {
     console.error(`[JobRegistry] releaseJobLock failed for ${jobName}:`, err);
   }
