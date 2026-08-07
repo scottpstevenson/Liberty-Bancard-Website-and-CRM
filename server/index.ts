@@ -446,9 +446,36 @@ app.use((req, res, next) => {
         }
       });
 
-      // Hydrate GHL workflow IDs from DB into process.env so they behave as env vars
-      hydrateWorkflowEnvFromDb().then(n => {
+      // Hydrate GHL workflow IDs from DB into process.env so they behave as env vars,
+      // then run a non-blocking live validation against GHL to surface stale/deleted IDs.
+      hydrateWorkflowEnvFromDb().then(async n => {
         if (n > 0) log(`[GHL Workflows] Hydrated ${n} workflow IDs from DB into process.env`);
+        // Validate configured workflow IDs against real GHL after hydration so all IDs are visible
+        try {
+          const { validateGhlWorkflowRegistry } = await import("./services/ghl-workflows");
+          const { isSdrGhlConfigured } = await import("./services/sdr/ghl-client");
+          const { isGhlConfigured } = await import("./services/ghl");
+          if (isGhlConfigured() || isSdrGhlConfigured()) {
+            const v = await validateGhlWorkflowRegistry();
+            if (v.checkedCount === 0) {
+              log(`[GHL Workflow Validation] No workflow IDs configured yet — skipping live check`);
+            } else {
+              const broken = v.unresolvedKeys.length + v.inactiveKeys.length;
+              if (broken > 0) {
+                console.warn(
+                  `[GHL Workflow Validation] STARTUP WARNING: ${broken} workflow ID(s) invalid ` +
+                  `(${v.unresolvedKeys.length} not found in GHL, ${v.inactiveKeys.length} inactive). ` +
+                  `Affected env keys: ${[...v.unresolvedKeys, ...v.inactiveKeys].join(", ")}. ` +
+                  `These automations will silently skip until fixed.`
+                );
+              } else {
+                log(`[GHL Workflow Validation] ${v.okCount}/${v.checkedCount} configured workflow IDs verified active in GHL`);
+              }
+            }
+          }
+        } catch (err: any) {
+          console.warn(`[GHL Workflow Validation] Startup validation failed (non-critical): ${err.message}`);
+        }
       }).catch(() => {});
 
       // Seed Scott's sending identity as the primary SDR inbox if not already present

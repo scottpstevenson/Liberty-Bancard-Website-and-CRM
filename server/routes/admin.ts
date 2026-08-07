@@ -868,6 +868,29 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // === GHL WORKFLOW REGISTRY LIVE VALIDATION ===
+  app.post("/api/admin/ghl-workflow-registry/validate", requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const { validateGhlWorkflowRegistry } = await import("../services/ghl-workflows");
+      const { isSdrGhlConfigured } = await import("../services/sdr/ghl-client");
+      const { isGhlConfigured } = await import("../services/ghl");
+      if (!isGhlConfigured() && !isSdrGhlConfigured()) {
+        return res.status(503).json({ error: "GHL not configured — set GHL_PRIVATE_INTEGRATION_TOKEN and GHL_LOCATION_ID" });
+      }
+      const result = await validateGhlWorkflowRegistry();
+      res.json({
+        checkedCount: result.checkedCount,
+        okCount: result.okCount,
+        unresolvedKeys: result.unresolvedKeys,
+        inactiveKeys: result.inactiveKeys,
+        apiErrorKeys: result.apiErrorKeys,
+        results: result.results,
+      });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
   // === SYSTEM READINESS ===
   app.get("/api/admin/system-readiness", requireRole("admin", "manager"), async (_req, res) => {
     try {

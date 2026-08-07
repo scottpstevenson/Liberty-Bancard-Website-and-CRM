@@ -126,8 +126,15 @@ export async function enrollInGhlWorkflow(params: {
 
     const workflowId = await getWorkflowId(params.workflowKey);
     if (!workflowId) {
-      console.log(`[GHL Workflows] No workflow ID configured for ${params.workflowKey} — skipping enrollment`);
-      return { success: false, error: `Workflow ${params.workflowKey} not configured (set ${GHL_WORKFLOW_REGISTRY.find(w => w.id === params.workflowKey)?.envKey})` };
+      const registryEntry = GHL_WORKFLOW_REGISTRY.find(w => w.id === params.workflowKey);
+      console.warn(
+        `[GHL Workflows] WORKFLOW_KEY_UNRESOLVED: No workflow ID configured for key "${params.workflowKey}"` +
+        (registryEntry
+          ? ` (set env var ${registryEntry.envKey} to activate this automation)`
+          : " (key not in registry — check GHL_WORKFLOW_REGISTRY)") +
+        ` — enrollment skipped. This automation will never fire until the ID is configured.`
+      );
+      return { success: false, error: `Workflow ${params.workflowKey} not configured (set ${registryEntry?.envKey ?? params.workflowKey})` };
     }
 
     await triggerWorkflow({
@@ -247,6 +254,136 @@ export function getWorkflowStatus(): {
     configuredCount,
     missingWorkflows,
   };
+}
+
+/**
+ * Fetch a single GHL workflow by ID directly from the GHL API.
+ * Returns a typed result — never throws.
+ */
+export async function fetchGhlWorkflowById(workflowId: string): Promise<
+  | { found: true; name: string; status: string; active: boolean }
+  | { found: false }
+  | { found: null; error: string }
+> {
+  const token = process.env.GHL_PRIVATE_INTEGRATION_TOKEN || process.env.GHL_API_KEY;
+  const locationId = process.env.GHL_LOCATION_ID;
+  if (!token || !locationId) return { found: null, error: "GHL not configured" };
+
+  const base = process.env.GHL_API_BASE || "https://services.leadconnectorhq.com";
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15_000);
+
+  try {
+    const resp = await fetch(`${base}/workflows/${workflowId}`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Version: "2021-07-28",
+        "Content-Type": "application/json",
+        "location-id": locationId,
+      },
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+
+    if (resp.status === 404) return { found: false };
+    if (resp.status === 401 || resp.status === 403) {
+      return { found: null, error: `GHL auth failed (HTTP ${resp.status}) — regenerate token in GHL Settings → Private Integrations` };
+    }
+    if (!resp.ok) return { found: null, error: `GHL API error HTTP ${resp.status}` };
+
+    const data = await resp.json().catch(() => ({})) as Record<string, any>;
+    const wf = data?.workflow ?? data;
+    const status: string = wf?.status ?? "unknown";
+    const active = status === "published" || status === "active" || wf?.isActive === true;
+    return { found: true, name: wf?.name ?? workflowId, status, active };
+  } catch (err: any) {
+    clearTimeout(timeout);
+    if (err.name === "AbortError") return { found: null, error: "GHL request timed out after 15s" };
+    return { found: null, error: err.message ?? "Unknown fetch error" };
+  }
+}
+
+export interface WorkflowValidationResult {
+  envKey: string;
+  workflowId: string;
+  registryName: string;
+  category: string;
+  status: "ok" | "not_found" | "inactive" | "api_error" | "not_configured";
+  ghlName?: string;
+  ghlStatus?: string;
+  error?: string;
+}
+
+/**
+ * Validates every configured workflow ID in GHL_WORKFLOW_REGISTRY against the live GHL API.
+ * Keys without a configured ID are returned as "not_configured" (not an error — just not set).
+ * Processes in small batches to stay well within GHL's rate limits.
+ */
+export async function validateGhlWorkflowRegistry(): Promise<{
+  results: WorkflowValidationResult[];
+  checkedCount: number;
+  okCount: number;
+  unresolvedKeys: string[];
+  inactiveKeys: string[];
+  apiErrorKeys: string[];
+}> {
+  const results: WorkflowValidationResult[] = [];
+  const BATCH = 3;
+
+  for (let i = 0; i < GHL_WORKFLOW_REGISTRY.length; i += BATCH) {
+    const batch = GHL_WORKFLOW_REGISTRY.slice(i, i + BATCH);
+    const batchResults = await Promise.all(
+      batch.map(async (w): Promise<WorkflowValidationResult> => {
+        const workflowId = await getWorkflowEnvValue(w.envKey);
+        if (!workflowId) {
+          return { envKey: w.envKey, workflowId: "", registryName: w.name, category: w.category, status: "not_configured" };
+        }
+        const check = await fetchGhlWorkflowById(workflowId);
+        if (check.found === null) {
+          return { envKey: w.envKey, workflowId, registryName: w.name, category: w.category, status: "api_error", error: check.error };
+        }
+        if (!check.found) {
+          return { envKey: w.envKey, workflowId, registryName: w.name, category: w.category, status: "not_found" };
+        }
+        if (!check.active) {
+          return { envKey: w.envKey, workflowId, registryName: w.name, category: w.category, status: "inactive", ghlName: check.name, ghlStatus: check.status };
+        }
+        return { envKey: w.envKey, workflowId, registryName: w.name, category: w.category, status: "ok", ghlName: check.name, ghlStatus: check.status };
+      })
+    );
+    results.push(...batchResults);
+    if (i + BATCH < GHL_WORKFLOW_REGISTRY.length) {
+      await new Promise(r => setTimeout(r, 200));
+    }
+  }
+
+  const configured = results.filter(r => r.status !== "not_configured");
+  const okCount = results.filter(r => r.status === "ok").length;
+  const unresolvedKeys = results.filter(r => r.status === "not_found").map(r => r.envKey);
+  const inactiveKeys = results.filter(r => r.status === "inactive").map(r => r.envKey);
+  const apiErrorKeys = results.filter(r => r.status === "api_error").map(r => r.envKey);
+
+  // Emit structured warnings for any key that resolves to nothing or is inactive
+  for (const r of configured) {
+    if (r.status === "not_found") {
+      console.warn(
+        `[GHL Workflow Validation] WORKFLOW_NOT_FOUND: ${r.envKey}=${r.workflowId} ` +
+        `("${r.registryName}") does not exist in GHL. Update the ID or enrollments will silently skip.`
+      );
+    } else if (r.status === "inactive") {
+      console.warn(
+        `[GHL Workflow Validation] WORKFLOW_INACTIVE: ${r.envKey}=${r.workflowId} ` +
+        `("${r.registryName}" / GHL name: "${r.ghlName}", status: ${r.ghlStatus}) ` +
+        `exists but is not active — contacts will not be enrolled.`
+      );
+    } else if (r.status === "api_error") {
+      console.warn(
+        `[GHL Workflow Validation] API_ERROR: Could not verify ${r.envKey}=${r.workflowId} — ${r.error}`
+      );
+    }
+  }
+
+  return { results, checkedCount: configured.length, okCount, unresolvedKeys, inactiveKeys, apiErrorKeys };
 }
 
 export function getPlatformEmailConfig(): {
