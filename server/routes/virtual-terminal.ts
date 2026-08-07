@@ -207,6 +207,7 @@ export function registerVirtualTerminalRoutes(app: Express) {
 
       // Build CSV
       const headers = ["Date", "Amount", "Refunded Amount", "Merchant / Cardholder", "Card Type", "Last Four", "Status", "Auth Code", "Memo", "Gateway Transaction ID"];
+      const csvEscape = (v: unknown): string => `"${String(v ?? "").replace(/"/g, '""')}"`;
       const rows = transactions.map(txn => [
         txn.createdAt ? new Date(txn.createdAt).toISOString() : "",
         txn.amount ?? "",
@@ -216,9 +217,9 @@ export function registerVirtualTerminalRoutes(app: Express) {
         txn.lastFour ?? "",
         txn.status ?? "",
         txn.authCode ?? "",
-        (txn.memo ?? "").replace(/"/g, '""'),
+        txn.memo ?? "",
         txn.gatewayTransactionId ?? "",
-      ].map(v => `"${v}"`).join(","));
+      ].map(csvEscape).join(","));
 
       const csv = [headers.map(h => `"${h}"`).join(","), ...rows].join("\r\n");
 

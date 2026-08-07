@@ -113,7 +113,8 @@ export async function runPipelineSilenceCheck(): Promise<void> {
       console.error("[PipelineSilenceCheck] Failed to create review queue item:", createErr.message);
     }
 
-    // Send admin email
+    // Send admin email — cooldown is only recorded on success so a failed send retries next cycle
+    const escHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     try {
       const recipient = process.env.ADMIN_ALERT_EMAIL || "accounts@libertybancard.com";
       const subject = `[Pipeline Alert] Stage "${row.stage}" silent for ${ageLabel} — ${dealCount} deal(s) stuck`;
@@ -123,10 +124,10 @@ export async function runPipelineSilenceCheck(): Promise<void> {
           <p>The following pipeline stage has had <strong>no deal movement</strong> for
              more than <strong>${THRESHOLD_HOURS} hours</strong>:</p>
           <table style="border-collapse:collapse;width:100%;margin:12px 0">
-            <tr><th style="text-align:left;padding:6px 12px;background:#f3f4f6">Pipeline</th><td style="padding:6px 12px">${row.pipeline}</td></tr>
-            <tr><th style="text-align:left;padding:6px 12px;background:#f3f4f6">Stage</th><td style="padding:6px 12px">${row.stage}</td></tr>
+            <tr><th style="text-align:left;padding:6px 12px;background:#f3f4f6">Pipeline</th><td style="padding:6px 12px">${escHtml(String(row.pipeline ?? ""))}</td></tr>
+            <tr><th style="text-align:left;padding:6px 12px;background:#f3f4f6">Stage</th><td style="padding:6px 12px">${escHtml(String(row.stage ?? ""))}</td></tr>
             <tr><th style="text-align:left;padding:6px 12px;background:#f3f4f6">Active Deals</th><td style="padding:6px 12px">${dealCount}</td></tr>
-            <tr><th style="text-align:left;padding:6px 12px;background:#f3f4f6">Last Movement</th><td style="padding:6px 12px">${row.max_updated_at ? new Date(row.max_updated_at).toLocaleString() : "Unknown"} (${ageLabel} ago)</td></tr>
+            <tr><th style="text-align:left;padding:6px 12px;background:#f3f4f6">Last Movement</th><td style="padding:6px 12px">${row.max_updated_at ? new Date(row.max_updated_at).toLocaleString() : "Unknown"} (${escHtml(ageLabel)} ago)</td></tr>
             <tr><th style="text-align:left;padding:6px 12px;background:#f3f4f6">Threshold</th><td style="padding:6px 12px">${THRESHOLD_HOURS} hours</td></tr>
           </table>
           <p>Please review the pipeline to ensure deals are progressing. This alert will not repeat for 24 hours.</p>
@@ -134,12 +135,12 @@ export async function runPipelineSilenceCheck(): Promise<void> {
         </div>
       `;
       await sendSmtpEmail({ to: recipient, subject, html, category: "internal_ops" });
+      // Only record cooldown after a successful send — failed email retries next cycle
+      cooldownMap[stageKey] = new Date().toISOString();
+      alertedStages.push(stageKey);
     } catch (emailErr: any) {
-      console.warn("[PipelineSilenceCheck] Alert email failed:", emailErr.message);
+      console.warn("[PipelineSilenceCheck] Alert email failed — cooldown NOT recorded, will retry next cycle:", emailErr.message);
     }
-
-    cooldownMap[stageKey] = new Date().toISOString();
-    alertedStages.push(stageKey);
   }
 
   // Persist updated cooldown map

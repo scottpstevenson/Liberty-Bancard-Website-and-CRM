@@ -1,5 +1,5 @@
 import type { Express } from "express";
-import { isAuthenticated } from "../replit_integrations/auth";
+import { isAuthenticated, isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { parseId } from "./helpers";
 import { storage } from "../storage";
 import { z } from "zod";
@@ -14,7 +14,7 @@ function generateReferralCode(): string {
 export function registerLifecycleRoutes(app: Express) {
 
   // ── NPS Admin: stats endpoint MUST be registered BEFORE /:token to avoid token match ──
-  app.get("/api/nps/stats", isAuthenticated, async (req, res) => {
+  app.get("/api/nps/stats", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
       const stats = await storage.getNpsStats();
       res.json(stats);
@@ -111,7 +111,7 @@ export function registerLifecycleRoutes(app: Express) {
   });
 
   // ── NPS Admin Endpoints ─────────────────────────────────────────────────────
-  app.get("/api/nps", isAuthenticated, async (req, res) => {
+  app.get("/api/nps", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
       const responses = await storage.getNpsResponses();
       res.json(responses);
@@ -120,7 +120,7 @@ export function registerLifecycleRoutes(app: Express) {
     }
   });
 
-  app.post("/api/nps", isAuthenticated, async (req, res) => {
+  app.post("/api/nps", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
       const token = randomBytes(16).toString("hex");
       const { contactId, dealId, merchantProfileId, dayTrigger } = req.body;
@@ -147,12 +147,12 @@ export function registerLifecycleRoutes(app: Express) {
       }
       res.status(201).json(survey);
     } catch (err: any) {
-      res.status(400).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
   // ── Review Collection ────────────────────────────────────────────────────────
-  app.get("/api/review-requests", isAuthenticated, async (req, res) => {
+  app.get("/api/review-requests", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
       const dealId = req.query.dealId ? (parseId(req.query.dealId as string) ?? undefined) : undefined;
       const requests = await storage.getReviewRequests(dealId);
@@ -162,7 +162,7 @@ export function registerLifecycleRoutes(app: Express) {
     }
   });
 
-  app.get("/api/review-requests/stats", isAuthenticated, async (req, res) => {
+  app.get("/api/review-requests/stats", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
       const all = await storage.getReviewRequests();
       const sent = all.filter(r => r.sentAt).length;
@@ -189,7 +189,7 @@ export function registerLifecycleRoutes(app: Express) {
     }
   });
 
-  app.patch("/api/review-requests/:id", isAuthenticated, async (req, res) => {
+  app.patch("/api/review-requests/:id", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
       const rrId = parseId(req.params.id);
       if (rrId === null) return res.status(404).json({ message: "Not found" });
@@ -197,12 +197,12 @@ export function registerLifecycleRoutes(app: Express) {
       if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
     } catch (err: any) {
-      res.status(400).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
   // ── Merchant Referrals ───────────────────────────────────────────────────────
-  app.get("/api/merchant-referrals", isAuthenticated, async (req, res) => {
+  app.get("/api/merchant-referrals", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
       const profileId = req.query.profileId ? (parseId(req.query.profileId as string) ?? undefined) : undefined;
       const referrals = await storage.getMerchantReferrals(profileId);
@@ -237,11 +237,11 @@ export function registerLifecycleRoutes(app: Express) {
 
       res.status(201).json(referral);
     } catch (err: any) {
-      res.status(400).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
-  app.patch("/api/merchant-referrals/:id", isAuthenticated, async (req, res) => {
+  app.patch("/api/merchant-referrals/:id", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
       const refId = parseId(req.params.id);
       if (refId === null) return res.status(404).json({ message: "Not found" });
@@ -264,7 +264,7 @@ export function registerLifecycleRoutes(app: Express) {
 
       res.json(updated);
     } catch (err: any) {
-      res.status(400).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
@@ -307,7 +307,7 @@ export function registerLifecycleRoutes(app: Express) {
   });
 
   // ── Retention Campaign Configs ───────────────────────────────────────────────
-  app.get("/api/retention-campaign-configs", isAuthenticated, async (req, res) => {
+  app.get("/api/retention-campaign-configs", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
       const configs = await storage.getRetentionCampaignConfigs();
       res.json(configs);
@@ -316,7 +316,7 @@ export function registerLifecycleRoutes(app: Express) {
     }
   });
 
-  app.post("/api/retention-campaign-configs", isAuthenticated, async (req, res) => {
+  app.post("/api/retention-campaign-configs", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
       const { alertType, campaignName, enabled, suggestedMessage, taskPriority, taskDueDays } = req.body;
       if (!alertType || !campaignName) {
@@ -332,11 +332,11 @@ export function registerLifecycleRoutes(app: Express) {
       });
       res.status(201).json(config);
     } catch (err: any) {
-      res.status(400).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
-  app.patch("/api/retention-campaign-configs/:id", isAuthenticated, async (req, res) => {
+  app.patch("/api/retention-campaign-configs/:id", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
       const cfgId = parseId(req.params.id);
       if (cfgId === null) return res.status(404).json({ message: "Not found" });
@@ -344,11 +344,11 @@ export function registerLifecycleRoutes(app: Express) {
       if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
     } catch (err: any) {
-      res.status(400).json({ message: err.message });
+      serverError(res, err);
     }
   });
 
-  app.delete("/api/retention-campaign-configs/:id", isAuthenticated, async (req, res) => {
+  app.delete("/api/retention-campaign-configs/:id", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
       const delCfgId = parseId(req.params.id);
       if (delCfgId === null) return res.status(404).json({ message: "Not found" });

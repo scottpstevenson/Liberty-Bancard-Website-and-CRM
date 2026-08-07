@@ -37,8 +37,8 @@ export const PEWC_GRANTED_ON_SUBMIT = "pewc_consent_given";
 /** Maps to tracking.ts implementation name "pewc_consent_declined" */
 export const PEWC_DECLINED_ON_SUBMIT = "pewc_consent_declined";
 /** Maps to tracking.ts implementation name "consent_field_interaction" */
-export const PEWC_CHECKED = "consent_field_interaction";
-export const PEWC_UNCHECKED = "consent_field_interaction";
+export const PEWC_CHECKED = "consent_field_checked";
+export const PEWC_UNCHECKED = "consent_field_unchecked";
 /** Server-side: fired after successful recordPewcDecision() write */
 export const PEWC_CAPTURED = "pewc_captured";
 

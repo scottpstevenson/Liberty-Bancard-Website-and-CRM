@@ -174,6 +174,22 @@ const CALL_SITE_ALLOWLIST: Array<{
     reason: "GHL circuit breaker alert — sent only to the internal ops admin email when the GHL sync circuit breaker opens (5+ consecutive API failures). Never sent to prospects or merchants. 1-hour cooldown prevents spam. Reviewed 2026-08-06.",
     reviewDate: "2026-08-06",
   },
+  {
+    file: "server/services/pipeline-silence-check.ts",
+    lineContains: "sendSmtpEmail",
+    channel: "email",
+    category: "internal_admin",
+    reason: "Pipeline stage silence alert — sent only to ADMIN_ALERT_EMAIL when a pipeline stage has had no deal movement for 24+ hours. 24-hour cooldown prevents repeat alerts. Never sent to prospects or merchants. Reviewed 2026-08-07.",
+    reviewDate: "2026-08-07",
+  },
+  {
+    file: "server/routes/partner-orgs.ts",
+    lineContains: "await sendSmtpEmail",
+    channel: "email",
+    category: "transactional_merchant",
+    reason: "Partner org user welcome email — triggered by admin action (adding a user to a partner org), not automated outreach. Sends login credentials to the newly invited partner user only. Reviewed 2026-08-07.",
+    reviewDate: "2026-08-07",
+  },
   // ── SDR pipeline email sends — explicitly reviewed 2026-06-26 ────────────
   // These files are always invoked from server/services/sdr/orchestrator.ts
   // whose runSdrCycle() calls evaluateContactability() at the top of every
