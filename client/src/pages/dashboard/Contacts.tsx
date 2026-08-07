@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { ResponsiveTable } from "@/components/ui/responsive-table";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Search, Plus, MoreHorizontal, UserPlus, Mail, MessageSquare, Zap, AlertTriangle, Sparkles, Activity, ArrowRight, Clock, TrendingUp, Ticket, Download, CheckSquare, ExternalLink, Users, Merge, ChevronRight, Archive, RotateCcw, Star } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
@@ -951,103 +952,120 @@ export default function Contacts() {
       />
 
       <Card>
-        <CardContent className="p-0 overflow-x-auto">
-          <Table className="min-w-[700px]">
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-10">
-                  <Checkbox
-                    checked={selectedIds.size === (filteredContacts?.length || 0) && (filteredContacts?.length || 0) > 0}
-                    onCheckedChange={toggleSelectAll}
-                    data-testid="checkbox-select-all"
-                  />
-                </TableHead>
-                <TableHead>Name</TableHead>
-                <TableHead>Company</TableHead>
-                <TableHead>Email</TableHead>
-                <TableHead>Vertical</TableHead>
-                <TableHead>Tags</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {isLoading ? (
-                Array.from({ length: 5 }).map((_, i) => (
-                  <TableRow key={i}>
-                    <TableCell><Skeleton className="h-4 w-4 rounded" /></TableCell>
-                    <TableCell><Skeleton className="h-4 w-36" /></TableCell>
-                    <TableCell><Skeleton className="h-4 w-28" /></TableCell>
-                    <TableCell><Skeleton className="h-4 w-40" /></TableCell>
-                    <TableCell><Skeleton className="h-4 w-20" /></TableCell>
-                    <TableCell><Skeleton className="h-4 w-16" /></TableCell>
-                    <TableCell><Skeleton className="h-4 w-16 ml-auto" /></TableCell>
+        <CardContent className="p-0">
+          {isLoading ? (
+            <div className="overflow-x-auto">
+              <Table className="min-w-[700px]">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-10" />
+                    <TableHead>Name</TableHead>
+                    <TableHead>Company</TableHead>
+                    <TableHead>Email</TableHead>
+                    <TableHead>Vertical</TableHead>
+                    <TableHead>Tags</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead />
                   </TableRow>
-                ))
-              ) : filteredContacts?.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={7}>
-                    <div className="flex flex-col items-center justify-center py-14 text-center gap-3" data-testid="empty-contacts">
-                      <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center">
-                        <Users className="w-6 h-6 text-muted-foreground" />
-                      </div>
-                      <p className="text-sm font-medium text-foreground" data-testid="text-empty-contacts">No contacts yet</p>
-                      <p className="text-xs text-muted-foreground max-w-xs">Add your first contact to start tracking leads and customers.</p>
-                      <Button size="sm" className="gap-1 mt-1" onClick={() => setIsDialogOpen(true)} data-testid="button-empty-add-contact">
-                        <Plus className="w-3.5 h-3.5" /> Add Contact
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ) : (
-                filteredContacts?.map((contact: any) => {
-                  const isArchived = !!contact.archivedAt;
-                  return (<TableRow
-                    key={contact.id}
-                    className={`cursor-pointer ${isArchived ? "opacity-50" : ""}`}
-                    onClick={() => setLocation(`/dashboard/contacts/${contact.id}`)}
-                    data-testid={`contact-row-${contact.id}`}
-                  >
-                    <TableCell onClick={(e) => e.stopPropagation()}>
-                      <Checkbox
-                        checked={selectedIds.has(contact.id)}
-                        onCheckedChange={() => {
-                          setSelectedIds(prev => {
-                            const next = new Set(prev);
-                            if (next.has(contact.id)) next.delete(contact.id); else next.add(contact.id);
-                            return next;
-                          });
-                        }}
-                        data-testid={`checkbox-contact-${contact.id}`}
-                      />
-                    </TableCell>
-                    <TableCell className="font-medium">
-                      <div className="flex items-center gap-2 flex-wrap">
+                </TableHeader>
+                <TableBody>
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <TableRow key={i}>
+                      <TableCell><Skeleton className="h-4 w-4 rounded" /></TableCell>
+                      <TableCell><Skeleton className="h-4 w-36" /></TableCell>
+                      <TableCell><Skeleton className="h-4 w-28" /></TableCell>
+                      <TableCell><Skeleton className="h-4 w-40" /></TableCell>
+                      <TableCell><Skeleton className="h-4 w-20" /></TableCell>
+                      <TableCell><Skeleton className="h-4 w-16" /></TableCell>
+                      <TableCell><Skeleton className="h-4 w-16" /></TableCell>
+                      <TableCell><Skeleton className="h-4 w-16 ml-auto" /></TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          ) : filteredContacts?.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-14 text-center gap-3" data-testid="empty-contacts">
+              <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center">
+                <Users className="w-6 h-6 text-muted-foreground" />
+              </div>
+              <p className="text-sm font-medium text-foreground" data-testid="text-empty-contacts">No contacts yet</p>
+              <p className="text-xs text-muted-foreground max-w-xs">Add your first contact to start tracking leads and customers.</p>
+              <Button size="sm" className="gap-1 mt-1" onClick={() => setIsDialogOpen(true)} data-testid="button-empty-add-contact">
+                <Plus className="w-3.5 h-3.5" /> Add Contact
+              </Button>
+            </div>
+          ) : (
+            <>
+              {/* Select-all bar — sits above the table so it works with ResponsiveTable's string-only headers */}
+              <div className="flex items-center gap-2 px-4 py-2 border-b bg-muted/30 text-sm text-muted-foreground" data-testid="contacts-select-all-bar">
+                <Checkbox
+                  checked={
+                    (filteredContacts?.length ?? 0) > 0 &&
+                    selectedIds.size === (filteredContacts?.length ?? 0)
+                  }
+                  onCheckedChange={toggleSelectAll}
+                  aria-label="Select all contacts on this page"
+                  data-testid="checkbox-select-all"
+                />
+                <span
+                  className="cursor-pointer select-none"
+                  onClick={toggleSelectAll}
+                  data-testid="label-select-all"
+                >
+                  {selectedIds.size > 0 && selectedIds.size === (filteredContacts?.length ?? 0)
+                    ? `All ${selectedIds.size} on this page selected`
+                    : selectedIds.size > 0
+                    ? `${selectedIds.size} selected`
+                    : "Select all"}
+                </span>
+              </div>
+              <ResponsiveTable
+              data={filteredContacts ?? []}
+              columns={[
+                {
+                  header: "",
+                  className: "w-10 pr-0",
+                  cell: (contact: any) => (
+                    <Checkbox
+                      checked={selectedIds.has(contact.id)}
+                      onCheckedChange={() => {
+                        setSelectedIds(prev => {
+                          const next = new Set(prev);
+                          if (next.has(contact.id)) next.delete(contact.id); else next.add(contact.id);
+                          return next;
+                        });
+                      }}
+                      onClick={(e: React.MouseEvent) => e.stopPropagation()}
+                      data-testid={`checkbox-contact-${contact.id}`}
+                    />
+                  ),
+                },
+                {
+                  header: "Name",
+                  cell: (contact: any) => {
+                    const isArchived = !!contact.archivedAt;
+                    return (
+                      <div className="flex items-center gap-2 flex-wrap font-medium">
                         <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-bold shrink-0">
                           {contact.firstName?.[0] ?? '?'}{contact.lastName?.[0] ?? ''}
                         </div>
                         <span className={isArchived ? "line-through" : ""}>{contact.firstName} {contact.lastName}</span>
                         {confirmationFailedMap.has(contact.id) && (
-                          <Badge
-                            variant="destructive"
-                            className="text-xs gap-1 cursor-pointer no-default-hover-elevate no-default-active-elevate"
+                          <Badge variant="destructive" className="text-xs gap-1 cursor-pointer no-default-hover-elevate no-default-active-elevate"
                             data-testid={`badge-confirmation-failed-${contact.id}`}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setLocation(`/dashboard/contacts/${contact.id}#confirmation-status`);
-                            }}
+                            onClick={(e: React.MouseEvent) => { e.stopPropagation(); setLocation(`/dashboard/contacts/${contact.id}#confirmation-status`); }}
                             title="Confirmation failed — click to view details"
                           >
-                            <AlertTriangle className="h-3 w-3" />
-                            Confirm Failed
+                            <AlertTriangle className="h-3 w-3" />Confirm Failed
                           </Badge>
                         )}
                         {(contact as any).isDecisionMaker && (
-                          <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400 shrink-0" aria-label="Decision Maker" data-testid={`badge-dm-${contact.id}`} />
+                          <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400 shrink-0" aria-label="Decision Maker" data-testid={`badge-dm-star-${contact.id}`} />
                         )}
-                        {(contact as any).emailStatus && (contact as any).emailStatus !== "active" && (
-                          <span className={`text-xs px-1 py-0.5 rounded ${(contact as any).emailStatus === "bounced" || (contact as any).emailStatus === "invalid" ? "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300" : "bg-slate-100 text-slate-600"}`} data-testid={`badge-email-status-${contact.id}`}>
-                            {(contact as any).emailStatus}
+                        {contact.emailStatus && contact.emailStatus !== "active" && (
+                          <span className={`text-xs px-1 py-0.5 rounded ${contact.emailStatus === "bounced" || contact.emailStatus === "invalid" ? "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300" : "bg-slate-100 text-slate-600"}`} data-testid={`badge-email-status-${contact.id}`}>
+                            {contact.emailStatus}
                           </span>
                         )}
                         {isArchived && (
@@ -1055,103 +1073,145 @@ export default function Contacts() {
                             <Archive className="w-3 h-3 mr-1" /> Archived
                           </Badge>
                         )}
-                        {contact.isDecisionMaker && (
-                          <Badge variant="default" className="text-xs bg-amber-500 text-white border-0 no-default-hover-elevate no-default-active-elevate" data-testid={`badge-dm-${contact.id}`}>
-                            DM
-                          </Badge>
-                        )}
-                        {contact.emailStatus === "bounced" && (
-                          <Badge variant="destructive" className="text-xs no-default-hover-elevate no-default-active-elevate" data-testid={`badge-bounced-${contact.id}`}>
-                            Bounced
-                          </Badge>
-                        )}
                       </div>
-                    </TableCell>
-                    <TableCell>{contact.companyName}</TableCell>
-                    <TableCell className="text-muted-foreground text-sm">{contact.email}</TableCell>
-                    <TableCell>
-                      {contact.vertical ? (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-primary/10 text-primary" data-testid={`badge-vertical-${contact.id}`}>
-                          {contact.vertical}
-                        </span>
-                      ) : (
-                        <span className="text-muted-foreground/40 text-xs">—</span>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex gap-1 flex-wrap">
-                        {(contact.tags || []).slice(0, 2).map((tag: string) => (
-                          <span key={tag} className="inline-flex items-center px-1.5 py-0.5 rounded text-xs bg-muted text-muted-foreground">{tag}</span>
-                        ))}
-                        {(contact.tags || []).length > 2 && <span className="text-xs text-muted-foreground">+{contact.tags.length - 2}</span>}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
-                        ${contact.status === 'New' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' : 
-                          contact.status === 'Won' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' : 
-                          contact.status === 'Contacted' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200' :
-                          'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200'}`}>
-                        {contact.status}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-1">
+                    );
+                  },
+                },
+                { header: "Company", accessorKey: "companyName" as const, hideOnMobile: true },
+                { header: "Email", accessorKey: "email" as const, className: "text-muted-foreground text-sm", hideOnMobile: true },
+                {
+                  header: "Vertical",
+                  hideOnMobile: true,
+                  cell: (contact: any) => contact.vertical ? (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-primary/10 text-primary" data-testid={`badge-vertical-${contact.id}`}>
+                      {contact.vertical}
+                    </span>
+                  ) : <span className="text-muted-foreground/40 text-xs">—</span>,
+                },
+                {
+                  header: "Tags",
+                  hideOnMobile: true,
+                  cell: (contact: any) => (
+                    <div className="flex gap-1 flex-wrap">
+                      {(contact.tags || []).slice(0, 2).map((tag: string) => (
+                        <span key={tag} className="inline-flex items-center px-1.5 py-0.5 rounded text-xs bg-muted text-muted-foreground">{tag}</span>
+                      ))}
+                      {(contact.tags || []).length > 2 && <span className="text-xs text-muted-foreground">+{contact.tags.length - 2}</span>}
+                    </div>
+                  ),
+                },
+                {
+                  header: "Status",
+                  cell: (contact: any) => (
+                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
+                      ${contact.status === 'New' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' :
+                        contact.status === 'Won' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' :
+                        contact.status === 'Contacted' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200' :
+                        'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200'}`}>
+                      {contact.status}
+                    </span>
+                  ),
+                },
+                {
+                  header: "",
+                  className: "text-right",
+                  hideOnMobile: true,
+                  cell: (contact: any) => {
+                    const isArchived = !!contact.archivedAt;
+                    return (
+                      <div className="flex items-center justify-end gap-1" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
                         {isArchived && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            aria-label="Restore contact"
-                            onClick={(e) => { e.stopPropagation(); restoreContactMutation.mutate(contact.id); }}
+                          <Button variant="ghost" size="icon" aria-label="Restore contact"
+                            onClick={(e: React.MouseEvent) => { e.stopPropagation(); restoreContactMutation.mutate(contact.id); }}
                             data-testid={`button-restore-contact-${contact.id}`}
                           >
                             <RotateCcw className="h-4 w-4" />
                           </Button>
                         )}
-                        <Button variant="ghost" size="icon" aria-label="View contact" onClick={(e) => { e.stopPropagation(); setLocation(`/dashboard/contacts/${contact.id}`); }} data-testid={`button-view-${contact.id}`}>
+                        <Button variant="ghost" size="icon" aria-label="View contact"
+                          onClick={(e: React.MouseEvent) => { e.stopPropagation(); setLocation(`/dashboard/contacts/${contact.id}`); }}
+                          data-testid={`button-view-${contact.id}`}
+                        >
                           <ExternalLink className="h-4 w-4" />
                         </Button>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" aria-label="More actions" onClick={(e) => e.stopPropagation()} data-testid={`button-actions-${contact.id}`}>
+                            <Button variant="ghost" size="icon" aria-label="More actions"
+                              onClick={(e: React.MouseEvent) => e.stopPropagation()} data-testid={`button-actions-${contact.id}`}
+                            >
                               <MoreHorizontal className="h-4 w-4" />
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); updateContact.mutate({ id: contact.id, status: "Contacted" }); }}>
+                            <DropdownMenuItem onClick={(e: React.MouseEvent) => { e.stopPropagation(); updateContact.mutate({ id: contact.id, status: "Contacted" }); }}>
                               Mark Contacted
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); updateContact.mutate({ id: contact.id, status: "Won" }); }}>
+                            <DropdownMenuItem onClick={(e: React.MouseEvent) => { e.stopPropagation(); updateContact.mutate({ id: contact.id, status: "Won" }); }}>
                               Mark Won
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); updateContact.mutate({ id: contact.id, status: "Lost" }); }}>
+                            <DropdownMenuItem onClick={(e: React.MouseEvent) => { e.stopPropagation(); updateContact.mutate({ id: contact.id, status: "Lost" }); }}>
                               Mark Lost
                             </DropdownMenuItem>
                             {isArchived ? (
-                              <DropdownMenuItem
-                                onClick={(e) => { e.stopPropagation(); restoreContactMutation.mutate(contact.id); }}
-                                data-testid={`menu-restore-contact-${contact.id}`}
-                              >
+                              <DropdownMenuItem onClick={(e: React.MouseEvent) => { e.stopPropagation(); restoreContactMutation.mutate(contact.id); }} data-testid={`menu-restore-contact-${contact.id}`}>
                                 <RotateCcw className="w-4 h-4 mr-2" /> Restore
                               </DropdownMenuItem>
                             ) : (
-                              <DropdownMenuItem
-                                onClick={(e) => { e.stopPropagation(); archiveContactMutation.mutate(contact.id); }}
-                                data-testid={`menu-archive-contact-${contact.id}`}
-                              >
+                              <DropdownMenuItem onClick={(e: React.MouseEvent) => { e.stopPropagation(); archiveContactMutation.mutate(contact.id); }} data-testid={`menu-archive-contact-${contact.id}`}>
                                 <Archive className="w-4 h-4 mr-2" /> Archive
                               </DropdownMenuItem>
                             )}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </div>
-                    </TableCell>
-                  </TableRow>
-                  );
-                })
-              )}
-            </TableBody>
-          </Table>
+                    );
+                  },
+                },
+              ]}
+              keyExtractor={(c: any) => c.id}
+              onRowClick={(c: any) => setLocation(`/dashboard/contacts/${c.id}`)}
+              mobileCard={(contact: any) => {
+                const isArchived = !!contact.archivedAt;
+                return (
+                  <div className={`flex items-start gap-3 p-3 ${isArchived ? "opacity-50" : ""}`} data-testid={`contact-row-${contact.id}`}>
+                    <Checkbox
+                      checked={selectedIds.has(contact.id)}
+                      onCheckedChange={() => {
+                        setSelectedIds(prev => {
+                          const next = new Set(prev);
+                          if (next.has(contact.id)) next.delete(contact.id); else next.add(contact.id);
+                          return next;
+                        });
+                      }}
+                      onClick={(e: React.MouseEvent) => e.stopPropagation()}
+                      className="mt-1 shrink-0"
+                      data-testid={`checkbox-contact-mobile-${contact.id}`}
+                    />
+                    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-bold shrink-0">
+                      {contact.firstName?.[0] ?? '?'}{contact.lastName?.[0] ?? ''}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1 flex-wrap">
+                        <span className={`font-medium text-sm ${isArchived ? "line-through" : ""}`}>{contact.firstName} {contact.lastName}</span>
+                        {(contact as any).isDecisionMaker && <Star className="h-3 w-3 fill-amber-400 text-amber-400" />}
+                      </div>
+                      <div className="text-xs text-muted-foreground truncate">{contact.companyName}</div>
+                      <div className="text-xs text-muted-foreground truncate">{contact.email}</div>
+                    </div>
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium shrink-0
+                      ${contact.status === 'New' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' :
+                        contact.status === 'Won' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' :
+                        contact.status === 'Contacted' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200' :
+                        'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200'}`}>
+                      {contact.status}
+                    </span>
+                  </div>
+                );
+              }}
+              testId="contacts-table"
+            />
+            </>
+          )}
         </CardContent>
         {totalPages > 1 && (
           <div className="flex items-center justify-between px-6 py-4 border-t" data-testid="contacts-pagination">

@@ -174,7 +174,9 @@ export function registerNotificationsRoutes(app: Express) {
       if (endDate && typeof endDate === 'string') filters.endDate = new Date(endDate);
       if (limit) filters.limit = Number(limit);
       if (offset) filters.offset = Number(offset);
-      const logs = await storage.getAuditLogs(Object.keys(filters).length > 0 ? filters : undefined);
+      // Default to 100 rows to prevent loading the entire table on large datasets
+      if (!filters.limit) filters.limit = 100;
+      const logs = await storage.getAuditLogs(filters);
       res.json(logs);
     } catch (err: any) {
       console.error("Get audit logs error:", err.message);

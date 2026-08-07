@@ -18,7 +18,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, Calendar, Sparkles, Loader2, Download, ChevronDown, ChevronUp, Archive, Settings, ArrowUp, ArrowDown, Pencil, Trash2, RotateCcw, MoreVertical, TrendingUp, TrendingDown, UserRound, AlertTriangle, Activity, ArrowUpDown, FileText, Copy, ExternalLink, Send, CheckCircle2, History, User, Bot, Monitor, ShieldCheck, ShieldAlert, ShieldX, Clock, RefreshCw } from "lucide-react";
+import { Plus, Calendar, Sparkles, Loader2, Download, ChevronDown, ChevronUp, Archive, Settings, ArrowUp, ArrowDown, Pencil, Trash2, RotateCcw, MoreVertical, TrendingUp, TrendingDown, UserRound, AlertTriangle, Activity, ArrowUpDown, FileText, Copy, ExternalLink, Send, CheckCircle2, History, User, Bot, Monitor, ShieldCheck, ShieldAlert, ShieldX, Clock, RefreshCw, ListChecks } from "lucide-react";
 import TerminalEconomicsCard from "@/components/TerminalEconomicsCard";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
@@ -196,6 +196,16 @@ function SortableDealCard({
   proposalsRetrying?: boolean;
   confirmationFailed?: ConfirmationFailedStatus | null;
 }) {
+  const { data: checklistSummary } = useQuery<{ total: number; completed: number }>({
+    queryKey: ["/api/deals", deal.id, "checklist-summary"],
+    queryFn: async () => {
+      const res = await fetch(`/api/deals/${deal.id}/checklist-summary`, { credentials: "include" });
+      if (!res.ok) return { total: 0, completed: 0 };
+      return res.json();
+    },
+    staleTime: 5 * 60 * 1000, // cache 5 min — many cards render at once
+    enabled: true,
+  });
   const [, navigateTo] = useLocation();
   const identity = getDealCardIdentity(deal, deal.contactId);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -381,6 +391,17 @@ function SortableDealCard({
             >
               <AlertTriangle className="h-3 w-3" />
               Confirm Failed
+            </Badge>
+          )}
+          {checklistSummary && checklistSummary.total > 0 && (
+            <Badge
+              variant="outline"
+              className="text-xs gap-1 no-default-hover-elevate no-default-active-elevate"
+              data-testid={`badge-checklist-${deal.id}`}
+              title={`Onboarding checklist: ${checklistSummary.completed} of ${checklistSummary.total} items complete`}
+            >
+              <ListChecks className="w-3 h-3" />
+              {checklistSummary.completed}/{checklistSummary.total} ✓
             </Badge>
           )}
           <div className="text-xs text-muted-foreground" data-testid={`text-deal-date-${deal.id}`}>

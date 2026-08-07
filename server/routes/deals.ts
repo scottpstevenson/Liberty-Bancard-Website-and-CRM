@@ -738,6 +738,26 @@ export function registerDealsRoutes(app: Express) {
     }
   });
 
+  // === CHECKLIST SUMMARY ===
+  // Returns { total, completed } for the deal's onboarding checklist.
+  // "completed" = items in a terminal-progress state (received or approved).
+  // "requested" is still pending (awaiting merchant action); "rejected" is a dead end, not done.
+  app.get("/api/deals/:id/checklist-summary", isDashboardUser, async (req, res) => {
+    try {
+      const dealId = Number(req.params.id);
+      if (!Number.isFinite(dealId) || dealId <= 0) {
+        return res.status(404).json({ message: "Not found" });
+      }
+      const items = await storage.getOnboardingChecklistItems(dealId);
+      const total = items.length;
+      // Only "received" and "approved" count as done — "requested" is still pending, "rejected" is a dead-end
+      const completed = items.filter((i) => i.status === "received" || i.status === "approved").length;
+      res.json({ total, completed });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
   // === ENHANCED DEAL STAGE CHANGE WITH AUTOMATION ===
   // (Stage automation is now handled in the existing PUT /api/deals/:id route enhancement)
 

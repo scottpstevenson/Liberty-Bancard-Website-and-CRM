@@ -181,6 +181,8 @@ function buildQueryString(filters: Record<string, string>) {
   return params.toString();
 }
 
+const AUDIT_PAGE_SIZE = 100;
+
 export default function AuditLogs() {
   const [filters, setFilters] = useState({
     entityType: "all",
@@ -191,6 +193,7 @@ export default function AuditLogs() {
     endDate: "",
   });
   const [applied, setApplied] = useState(filters);
+  const [pageLimit, setPageLimit] = useState(AUDIT_PAGE_SIZE);
 
   const qs = buildQueryString({
     entityType: applied.entityType,
@@ -199,6 +202,7 @@ export default function AuditLogs() {
     actorId: applied.actorId,
     startDate: applied.startDate ? new Date(applied.startDate).toISOString() : "",
     endDate: applied.endDate ? new Date(applied.endDate + "T23:59:59").toISOString() : "",
+    limit: String(pageLimit),
   });
 
   const { data: logs, isLoading, refetch } = useQuery<AuditLogEntry[]>({
@@ -212,11 +216,15 @@ export default function AuditLogs() {
     staleTime: 30000,
   });
 
-  const applyFilters = () => setApplied({ ...filters });
+  const applyFilters = () => {
+    setApplied({ ...filters });
+    setPageLimit(AUDIT_PAGE_SIZE);
+  };
   const resetFilters = () => {
     const empty = { entityType: "all", actorType: "all", entityId: "", actorId: "", startDate: "", endDate: "" };
     setFilters(empty);
     setApplied(empty);
+    setPageLimit(AUDIT_PAGE_SIZE);
   };
 
   const aiCount = logs?.filter((l) => l.actorType === "ai").length ?? 0;
@@ -360,7 +368,11 @@ export default function AuditLogs() {
       <Card data-testid="audit-log-list">
         <CardHeader className="pb-2">
           <CardTitle className="text-base">
-            {isLoading ? "Loading..." : `${logs?.length ?? 0} entries`}
+            {isLoading
+              ? "Loading..."
+              : logs && logs.length >= pageLimit
+              ? `${logs.length} entries (showing first ${pageLimit})`
+              : `${logs?.length ?? 0} entries`}
           </CardTitle>
         </CardHeader>
         <CardContent className="p-0">
@@ -389,6 +401,18 @@ export default function AuditLogs() {
             </div>
           )}
         </CardContent>
+        {logs && logs.length >= pageLimit && (
+          <div className="flex justify-center px-4 py-3 border-t" data-testid="audit-load-more-row">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPageLimit((p) => p + AUDIT_PAGE_SIZE)}
+              data-testid="button-audit-load-more"
+            >
+              Load {AUDIT_PAGE_SIZE} more
+            </Button>
+          </div>
+        )}
       </Card>
     </div>
   );
