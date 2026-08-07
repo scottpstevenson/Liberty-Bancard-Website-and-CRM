@@ -47,6 +47,19 @@ const WORKER_FAILURE_ALERT_THRESHOLD =
 // Production intervals are unchanged.
 const IS_DEV = process.env.NODE_ENV !== "production";
 
+// Sequences repeat interval: operators can tune this via SEQUENCES_REPEAT_EVERY_MS
+// without a redeploy. A 5-minute floor is enforced to prevent the runaway pile-up
+// that the original 30-second interval caused (jobs accumulated 16x faster than
+// they finished). In dev the IS_DEV short-circuit (5 min) always wins.
+const SEQUENCES_REPEAT_FLOOR_MS = 5 * 60 * 1000; // 5 min hard floor
+const SEQUENCES_REPEAT_DEFAULT_MS = 10 * 60 * 1000; // 10 min production default
+const _seqEnvMs = parseInt(process.env.SEQUENCES_REPEAT_EVERY_MS ?? "", 10);
+const SEQUENCES_REPEAT_EVERY_MS = IS_DEV
+  ? 5 * 60 * 1000
+  : Number.isFinite(_seqEnvMs) && _seqEnvMs > 0
+    ? Math.max(_seqEnvMs, SEQUENCES_REPEAT_FLOOR_MS)
+    : SEQUENCES_REPEAT_DEFAULT_MS;
+
 const QUEUE_CONFIGS: QueueConfig[] = [
   {
     name: QUEUE_NAMES.GHL_SYNC,
@@ -80,7 +93,7 @@ const QUEUE_CONFIGS: QueueConfig[] = [
     concurrency: 1,
     attempts: 3,
     backoffDelay: 10000,
-    repeatEveryMs: IS_DEV ? 5 * 60 * 1000 : 10 * 60 * 1000, // dev: 5 min, prod: 10 min
+    repeatEveryMs: SEQUENCES_REPEAT_EVERY_MS,
     jobName: "run",
   },
   {
@@ -364,7 +377,11 @@ class QueueManager {
     await this.setupQueues();
     await this.setupWorkers();
     await this.setupRepeatableJobs();
-    console.log("[QueueManager] All queues and workers initialized");
+    console.log(
+      `[QueueManager] All queues and workers initialized. ` +
+      `Sequences repeat interval: ${SEQUENCES_REPEAT_EVERY_MS / 1000}s` +
+      (IS_DEV ? " (dev override)" : process.env.SEQUENCES_REPEAT_EVERY_MS ? " (SEQUENCES_REPEAT_EVERY_MS env var)" : " (default)")
+    );
 
     // Fire an initial health check on startup (fire-and-forget)
     import("./health-monitor").then(m => m.runHealthChecks()).catch(e =>
