@@ -230,8 +230,7 @@ const MerchantRiskHub = lazy(() => import("@/pages/dashboard/MerchantRiskHub"));
 const SequenceReport = lazy(() => import("@/pages/dashboard/SequenceReport"));
 const AcquisitionHub = lazy(() => import("@/pages/dashboard/AcquisitionHub"));
 
-// ─────────────────────────────────────────────────────────────────────────────
-
+const Executive = lazy(() => import("@/pages/dashboard/Executive"));
 function AgentRoute({ component: Component }: { component: React.ComponentType }) {
   const { user, isLoading } = useAuth();
   const [, setLocation] = useLocation();

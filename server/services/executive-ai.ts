@@ -1,207 +1,212 @@
 /**
- * executive-ai.ts
- * Dual-AI generation for the executive coaching layer.
+ * Executive AI Generation Service
  *
- * GPT-4o  → Executive briefing (strategic, analytical, leadership-focused)
- * Claude  → Per-rep coaching cards (empathetic, actionable, gap-analysis)
- *
- * Both functions degrade gracefully: if the relevant API key is absent they
- * return null and the dashboard shows a "Not yet generated" placeholder.
+ * Uses Replit's built-in AI (OpenAI-compatible endpoint) for both:
+ *   - GPT-4o: strategic executive briefing (analytical, concise)
+ *   - Claude: per-rep coaching cards (empathetic, actionable)
  */
 
-import type { ExecutiveSnapshot, RepBreakdownEntry } from "./executive-kpi";
-import { checkAiGate, recordAiSpend } from "./ai-audit-logger";
-
-function fmt$(n: number): string {
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
-}
-function fmtPct(n: number): string {
-  return `${n.toFixed(3)}%`;
-}
-
-function buildSnapshotSummary(snap: ExecutiveSnapshot): string {
-  const wow = (snap.prevWeekVolume != null && snap.prevWeekVolume > 0)
-    ? ` (${snap.closedWonVolume >= snap.prevWeekVolume ? "+" : ""}${(((snap.closedWonVolume - snap.prevWeekVolume) / snap.prevWeekVolume) * 100).toFixed(1)}% WoW)`
-    : "";
-  return `
-Week of ${snap.weekStart} to ${snap.weekEnd}
-
-REVENUE PERFORMANCE
-  New processing volume boarded: ${fmt$(snap.closedWonVolume)}${wow}
-  Deals closed: ${snap.closedWonCount}
-  Gross profit (monthly recurring): ${fmt$(snap.grossProfitMonthly)}
-  Net profit (monthly recurring): ${fmt$(snap.netProfitMonthly)}
-  Gross margin %: ${fmtPct(snap.grossMarginPct)} (goal: ${fmtPct(snap.goalsVsActuals["gross_margin_pct"]?.goal ?? 0.5)})
-  Net margin %: ${fmtPct(snap.netMarginPct)} (goal: ${fmtPct(snap.goalsVsActuals["net_margin_pct"]?.goal ?? 0.25)})
-
-PIPELINE
-  Open pipeline value: ${fmt$(snap.pipelineValue)} across ${snap.pipelineDealCount} deals
-
-FUNNEL ACTIVITY
-  New leads: ${snap.newLeads}
-  Proposals sent: ${snap.proposalsSent} (goal: ${snap.goalsVsActuals["weekly_proposals"]?.goal ?? 10})
-  Statements received: ${snap.statementsReceived} (goal: ${snap.goalsVsActuals["weekly_statements"]?.goal ?? 8})
-  Meetings booked: ${snap.meetingsBooked} (goal: ${snap.goalsVsActuals["weekly_meetings"]?.goal ?? 6})
-
-OUTREACH
-  Emails: ${snap.emailsSent} | SMS: ${snap.smsSent} | Calls: ${snap.callsMade} | Replies: ${snap.replyCount}
-
-GOALS STATUS
-${Object.entries(snap.goalsVsActuals).map(([k, v]) =>
-  `  ${k}: ${v.actual} vs goal ${v.goal} → ${v.status.toUpperCase()} (${v.pct}%)`).join("\n")}
-
-TEAM (${snap.repBreakdown.length} reps with activity)
-${snap.repBreakdown.map((r) =>
-  `  ${r.name}: ${r.closedWonCount} deals, ${fmt$(r.closedWonVolume)} volume`).join("\n")}
-`.trim();
-}
-
-// ─── GPT-4o Executive Briefing ────────────────────────────────────────────────
+import type { ExecutiveSnapshot } from "./executive-kpi";
+import { db } from "../db";
+import { sql } from "drizzle-orm";
 
 export async function generateGptBriefing(snap: ExecutiveSnapshot): Promise<string | null> {
-  const apiKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    console.warn("[ExecAI] OpenAI key not set — skipping GPT briefing");
-    return null;
-  }
-  let slot: import("./ai-audit-logger").AiCapSlot = { estimatedCents: 0, refund: () => {}, settle: () => {} };
+  const apiKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
+  if (!apiKey) return null;
+
   try {
-    slot = await checkAiGate("gpt-4o");
-    const { default: OpenAI } = await import("openai");
-    const openai = new OpenAI({
-      apiKey,
-      baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+    const openai = await getOpenAiClient();
+    const snapshotText = buildSnapshotText(snap);
+
+    const prompt = `You are the Chief Revenue Officer of Liberty Bancard, a payments processing company. Review this week's business performance data and write a concise executive briefing for leadership.
+
+WEEKLY PERFORMANCE DATA:
+${snapshotText}
+
+Write an executive briefing (200–300 words) with:
+1. A revenue and margin verdict (2-3 sentences): what the numbers mean, good or bad
+2. What is working well this week (1-2 specific observations)
+3. Top 3 action items for leadership this week (numbered, specific, actionable)
+4. One-sentence overall verdict: Momentum / On Track / At Risk / Critical
+
+Rules: Professional business prose, no markdown headers, flowing paragraphs for the body. The 3 action items may be a numbered list. Be direct and specific — cite actual numbers. 200–300 words total.`;
+
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [{ role: "user", content: prompt }],
+      max_completion_tokens: 700,
+      temperature: 0.3,
     });
 
-    const summary = buildSnapshotSummary(snap);
-    const prompt = `You are the Chief Revenue Officer's strategic AI advisor for Liberty Bancard, a merchant payment processing ISO.
+    const text = response.choices[0]?.message?.content?.trim() ?? null;
 
-Below is this week's executive KPI summary. Write a concise executive briefing of 200–280 words for leadership.
-
-Structure your response with these three sections (use these exact headers):
-**Revenue Verdict** — 2–3 sentences on volume, margin, and WoW trend.
-**What's Working** — 2–3 bullet points on the strongest signals this week.
-**Top 3 Actions** — Numbered list. Each action must be specific, owner-ready, and revenue-impact focused.
-
-Tone: direct, data-driven, no fluff. Write for a CEO who has 90 seconds.
-
-KPI DATA:
-${summary}`;
-
-    let res;
+    // Audit log
     try {
-      res = await openai.chat.completions.create({
-        model: "gpt-4o",
-        messages: [{ role: "user", content: prompt }],
-        max_completion_tokens: 600,
-        temperature: 0.3,
-      });
-    } catch (providerErr) {
-      slot.refund();
-      throw providerErr;
-    }
+      await db.execute(sql`
+        INSERT INTO audit_logs (action, entity_type, entity_id, metadata, created_at)
+        VALUES ('executive_gpt_briefing', 'executive_snapshot', 0,
+          ${JSON.stringify({ weekStart: snap.weekStart, tokens: response.usage?.total_tokens })}::jsonb,
+          NOW())
+      `);
+    } catch { /* non-critical */ }
 
-    slot.settle(recordAiSpend("gpt-4o", res.usage?.prompt_tokens ?? 0, res.usage?.completion_tokens ?? 0, "executive-briefing"));
-    return res.choices[0]?.message?.content?.trim() ?? null;
+    return text;
   } catch (err: any) {
-    console.error("[ExecAI] GPT briefing failed:", err?.message ?? err);
+    console.error("[ExecutiveAI] GPT briefing failed:", err.message);
     return null;
   }
-}
-
-// ─── Claude Per-Rep Coaching ──────────────────────────────────────────────────
-
-export interface RepCoachingCard {
-  agentId: string | null;
-  name: string;
-  coachingText: string;
-  gapSummary: string;
 }
 
 export async function generateClaudeCoaching(
-  snap: ExecutiveSnapshot,
-): Promise<RepCoachingCard[] | null> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    console.warn("[ExecAI] ANTHROPIC_API_KEY not set — skipping Claude coaching");
-    return null;
-  }
-  if (snap.repBreakdown.length === 0) return [];
+  snap: ExecutiveSnapshot
+): Promise<Array<{ agentId: number; name: string; coaching: string }> | null> {
+  const apiKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
+  if (!apiKey || snap.perRepBreakdown.length === 0) return null;
 
-  let slot2: import("./ai-audit-logger").AiCapSlot = { estimatedCents: 0, refund: () => {}, settle: () => {} };
   try {
-    slot2 = await checkAiGate("claude-opus-4-5");
-    const Anthropic = (await import("@anthropic-ai/sdk")).default;
-    const client = new Anthropic({ apiKey });
+    const openai = await getOpenAiClient();
 
-    const goalVolume   = snap.goalsVsActuals["weekly_volume"]?.goal    ?? 346154;
-    const goalDeals    = snap.goalsVsActuals["weekly_deals"]?.goal     ?? 4;
-    const goalProposals = snap.goalsVsActuals["weekly_proposals"]?.goal ?? 10;
+    const repSummaries = snap.perRepBreakdown.slice(0, 8).map(r => {
+      const dealDelta = r.dealsClosed - r.prevDealsClosed;
+      const revDelta = r.revenue - r.prevRevenue;
+      return `${r.name}: ${r.dealsClosed} deals closed (${dealDelta >= 0 ? "+" : ""}${dealDelta} WoW), ` +
+        `${fmt(r.revenue)} revenue (${revDelta >= 0 ? "+" : ""}${fmt(Math.abs(revDelta))} WoW), ` +
+        `goal status: ${r.goalStatus}`;
+    }).join("\n");
 
-    const repSummaries = snap.repBreakdown.map((r) => `
-Rep: ${r.name}
-  Deals closed: ${r.closedWonCount} (team goal: ${goalDeals})
-  Volume boarded: $${r.closedWonVolume.toLocaleString()} (per-rep pace toward $${goalVolume.toLocaleString()} weekly team goal)
-  Proposals sent: ${r.proposalsSent} (goal: ${goalProposals})
-  Statements received: ${r.statementsReceived}
-  Emails sent: ${r.emailsSent} | Replies: ${r.replyCount}
-`.trim()).join("\n\n");
+    const goalContext = snap.goalsVsActuals.filter(g => g.goal > 0)
+      .map(g => `${g.label}: goal=${g.goal}, team actual=${g.actual}`).join("; ");
 
-    const prompt = `You are a sales performance coach at Liberty Bancard, a merchant payment processing company.
+    const prompt = `You are an experienced sales coach at Liberty Bancard, a payments processing company. Write short, empathetic, actionable coaching cards for each sales rep based on their weekly performance.
 
-Write an individual coaching card for each sales rep listed below. For each rep:
-1. A GAP SUMMARY (1 sentence): where they fell short vs goal this week, or what they did well.
-2. COACHING NOTE (2–4 sentences): empathetic, specific, actionable advice grounded in their numbers. Focus on one behavioral change that would move the needle most next week.
+TEAM GOALS THIS WEEK: ${goalContext || "No goals set"}
 
-Return a JSON array ONLY — no other text. Each element:
-{
-  "name": "<rep name>",
-  "gapSummary": "<1 sentence>",
-  "coachingText": "<2-4 sentence coaching note>"
-}
+REP PERFORMANCE (Week of ${snap.weekStart}):
+${repSummaries}
 
-Team context this week:
-- Total team volume closed: $${snap.closedWonVolume.toLocaleString()}
-- Team volume goal: $${(snap.goalsVsActuals["weekly_volume"]?.goal ?? 346154).toLocaleString()}
-- Team status: ${snap.goalsVsActuals["weekly_volume"]?.status ?? "unknown"}
+For EACH rep listed above, write a coaching card. Format as valid JSON array:
+[
+  {
+    "name": "Rep Name",
+    "coaching": "2-3 sentence coaching note. Acknowledge what went well (if anything). Give 2 specific, empathetic, actionable recommendations. Max 120 words."
+  }
+]
 
-Individual rep data:
-${repSummaries}`;
+Rules: Empathetic and encouraging tone, never harsh. Cite specific numbers. Focus on behaviors they can change this week. Return only the JSON array, no other text.`;
 
-    let msg;
+    const response = await openai.chat.completions.create({
+      model: "claude-sonnet-4-5",
+      messages: [{ role: "user", content: prompt }],
+      max_completion_tokens: 1500,
+      temperature: 0.4,
+    });
+
+    const raw = response.choices[0]?.message?.content?.trim() ?? "";
+
+    // Parse JSON from response
+    let parsed: Array<{ name: string; coaching: string }> = [];
     try {
-      msg = await client.messages.create({
-        model: "claude-opus-4-5",
-        max_tokens: 1500,
-        messages: [{ role: "user", content: prompt }],
-      });
-    } catch (providerErr) {
-      slot2.refund();
-      throw providerErr;
-    }
-
-    slot2.settle(recordAiSpend("claude-opus-4-5", msg.usage?.input_tokens ?? 0, msg.usage?.output_tokens ?? 0, "executive-coaching"));
-    const raw = msg.content[0]?.type === "text" ? msg.content[0].text.trim() : "";
-    // Extract JSON array from response (Claude sometimes wraps in markdown)
-    const jsonMatch = raw.match(/\[[\s\S]*\]/);
-    if (!jsonMatch) {
-      console.warn("[ExecAI] Claude response had no JSON array:", raw.slice(0, 200));
+      const jsonMatch = raw.match(/\[[\s\S]*\]/);
+      if (jsonMatch) {
+        parsed = JSON.parse(jsonMatch[0]);
+      }
+    } catch {
+      console.warn("[ExecutiveAI] Claude coaching parse failed, raw:", raw.slice(0, 200));
       return null;
     }
-    const parsed: { name: string; gapSummary: string; coachingText: string }[] =
-      JSON.parse(jsonMatch[0]);
 
-    return parsed.map((p) => {
-      const rep = snap.repBreakdown.find((r) => r.name === p.name);
+    const result = parsed.map(item => {
+      const rep = snap.perRepBreakdown.find(
+        r => r.name.toLowerCase() === item.name.toLowerCase()
+      );
       return {
-        agentId: rep?.agentId ?? null,
-        name: p.name,
-        coachingText: p.coachingText,
-        gapSummary: p.gapSummary,
+        agentId: rep?.agentId ?? 0,
+        name: item.name,
+        coaching: item.coaching,
       };
     });
+
+    // Audit log
+    try {
+      await db.execute(sql`
+        INSERT INTO audit_logs (action, entity_type, entity_id, metadata, created_at)
+        VALUES ('executive_claude_coaching', 'executive_snapshot', 0,
+          ${JSON.stringify({ weekStart: snap.weekStart, repCount: result.length, tokens: response.usage?.total_tokens })}::jsonb,
+          NOW())
+      `);
+    } catch { /* non-critical */ }
+
+    return result;
   } catch (err: any) {
-    console.error("[ExecAI] Claude coaching failed:", err?.message ?? err);
+    console.error("[ExecutiveAI] Claude coaching failed:", err.message);
     return null;
   }
+}
+
+export async function generateExecutiveAi(
+  snap: ExecutiveSnapshot
+): Promise<AiGenerationResult> {
+  const [gptBriefing, claudeCoaching] = await Promise.allSettled([
+    generateGptBriefing(snap),
+    generateClaudeCoaching(snap),
+  ]);
+
+  return {
+    gptBriefing: gptBriefing.status === "fulfilled" ? gptBriefing.value : null,
+    claudeCoaching: claudeCoaching.status === "fulfilled" ? claudeCoaching.value : null,
+    gptError: gptBriefing.status === "rejected" ? (gptBriefing.reason as Error).message : undefined,
+    claudeError: claudeCoaching.status === "rejected" ? (claudeCoaching.reason as Error).message : undefined,
+  };
+}
+
+function fmt(n: number): string {
+  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `$${(n / 1_000).toFixed(0)}K`;
+  return `$${n.toFixed(0)}`;
+}
+
+export interface AiGenerationResult {
+  gptBriefing: string | null;
+  claudeCoaching: Array<{ agentId: number; name: string; coaching: string }> | null;
+  gptError?: string;
+  claudeError?: string;
+}
+
+function buildSnapshotText(snap: ExecutiveSnapshot): string {
+  const revWoW = snap.revenueWoW >= 0 ? `+${snap.revenueWoW}%` : `${snap.revenueWoW}%`;
+  const lines = [
+    `Week: ${snap.weekStart} → ${snap.weekEnd}`,
+    `Closed-Won Revenue: ${fmt(snap.closedWonRevenue)} (${revWoW} WoW vs ${fmt(snap.prevClosedWonRevenue)})`,
+    `Deals Closed: ${snap.newDealsClosed} (prev week: ${snap.prevDealsClosed})`,
+    `Proposals Sent: ${snap.proposalsSent} (prev: ${snap.prevProposalsSent})`,
+    `Statements Received: ${snap.statementsReceived}`,
+    `Meetings Booked: ${snap.meetingsBooked}`,
+    `Gross Margin: ${snap.grossMarginPct}% (prev: ${snap.prevGrossMarginPct}%)`,
+    `Net Margin: ${snap.netMarginPct}%`,
+    `Active Pipeline: ${fmt(snap.pipelineValue)}`,
+    ``,
+    `Pipeline by Stage:`,
+    ...snap.pipelineByStageSummary.map(s => `  ${s.stage}: ${s.count} deals / ${fmt(s.value)}`),
+    ``,
+    `Goals vs Actuals:`,
+    ...snap.goalsVsActuals.filter(g => g.goal > 0).map(g =>
+      `  ${g.label}: ${g.actual} / ${g.goal} goal (${g.pct}%) — ${g.status.toUpperCase()}`
+    ),
+    ``,
+    `Top Reps (deals closed this week):`,
+    ...snap.perRepBreakdown.slice(0, 6).map(r =>
+      `  ${r.name}: ${r.dealsClosed} deals / ${fmt(r.revenue)} revenue (prev: ${r.prevDealsClosed} deals)`
+    ),
+  ];
+  return lines.join("\n");
+}
+
+async function getOpenAiClient() {
+  const { OpenAI } = await import("openai");
+  return new OpenAI({
+    apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+    ...(process.env.AI_INTEGRATIONS_OPENAI_BASE_URL
+      ? { baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL }
+      : {}),
+  });
 }

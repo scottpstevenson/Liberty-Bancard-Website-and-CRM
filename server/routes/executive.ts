@@ -5,144 +5,179 @@
  * Goal writes require admin only.
  */
 
-import { Express } from "express";
+import type { Express } from "express";
 import { db } from "../db";
-import { sql } from "drizzle-orm";
-import { executiveWeeklySnapshots, executiveGoals } from "../../shared/schema";
+import { desc } from "drizzle-orm";
+import { executiveWeeklySnapshots, executiveGoals } from "@shared/schema";
 import { isDashboardUser, requireRole } from "../replit_integrations/auth";
-import { computeExecSnapshot, persistSnapshot, loadGoals, getWeekBounds, toDateStr } from "../services/executive-kpi";
-import { generateGptBriefing, generateClaudeCoaching } from "../services/executive-ai";
+import { buildExecutiveSnapshot } from "../services/executive-kpi";
+import { generateExecutiveAi } from "../services/executive-ai";
+import { serverError } from "../utils/server-error";
 
-export function registerExecutiveRoutes(app: Express): void {
+export function registerExecutiveRoutes(app: Express) {
+  const adminOrManager = requireRole("admin", "manager");
 
-  // ── GET /api/executive/snapshot ─────────────────────────────────────────
-  // Returns the latest stored snapshot or computes the current week on-the-fly.
-  app.get("/api/executive/snapshot", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
+  // GET /api/executive/snapshot
+  // Returns the most recent stored snapshot, or computes current week on-the-fly
+  app.get("/api/executive/snapshot", isDashboardUser, adminOrManager, async (req, res) => {
     try {
-      const { weekStart } = getWeekBounds(new Date());
-      const weekStartStr = toDateStr(weekStart);
+      const [latest] = await db
+        .select()
+        .from(executiveWeeklySnapshots)
+        .orderBy(desc(executiveWeeklySnapshots.weekStart))
+        .limit(1);
 
-      // Try to load stored snapshot for current week
-      const rows = await db.execute<Record<string, unknown>>(sql`
-        SELECT * FROM executive_weekly_snapshots
-        WHERE week_start = ${weekStartStr}
-        LIMIT 1
-      `);
-      const stored = (rows.rows ?? rows as any)[0];
-
-      if (stored) {
-        // Return stored snapshot enriched with live goals
-        const goals = await loadGoals();
-        return res.json({ ...stored, goals, source: "stored" });
+      // If there's a stored snapshot from this week, return it
+      const now = new Date();
+      const todayStr = now.toISOString().split("T")[0];
+      if (latest && latest.weekStart <= todayStr && latest.createdAt) {
+        const snapshotAge = Date.now() - new Date(latest.createdAt).getTime();
+        // Serve stored snapshot if < 24 hours old
+        if (snapshotAge < 24 * 60 * 60 * 1000) {
+          return res.json({ source: "stored", snapshot: latest });
+        }
       }
 
-      // Compute fresh (no persistence — just return to UI)
-      const snap = await computeExecSnapshot(new Date());
-      return res.json({ ...snap, source: "live" });
+      // Compute on-the-fly (no AI generation for on-the-fly)
+      const snap = await buildExecutiveSnapshot(now);
+      return res.json({ source: "live", snapshot: snap });
     } catch (err: any) {
-      console.error("[Executive] GET /snapshot error:", err.message);
-      res.status(500).json({ message: "Failed to load executive snapshot", error: err.message });
+      serverError(res, err);
     }
   });
 
-  // ── GET /api/executive/snapshots ────────────────────────────────────────
-  // Historical snapshots for sparklines (default last 12 weeks).
-  app.get("/api/executive/snapshots", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
+  // GET /api/executive/snapshots?limit=12
+  app.get("/api/executive/snapshots", isDashboardUser, adminOrManager, async (req, res) => {
     try {
-      const limit = Math.min(Number(req.query.limit ?? 12), 52);
-      const rows = await db.execute<Record<string, unknown>>(sql`
-        SELECT
-          week_start, closed_won_volume, closed_won_count,
-          gross_margin_pct, net_margin_pct,
-          pipeline_value, pipeline_deal_count,
-          proposals_sent, statements_received, meetings_booked,
-          goals_vs_actuals, ai_generated_at
-        FROM executive_weekly_snapshots
-        ORDER BY week_start DESC
-        LIMIT ${limit}
-      `);
-      res.json((rows.rows ?? rows as any));
+      const limit = Math.min(parseInt((req.query.limit as string) || "12", 10), 52);
+      const rows = await db
+        .select()
+        .from(executiveWeeklySnapshots)
+        .orderBy(desc(executiveWeeklySnapshots.weekStart))
+        .limit(limit);
+      res.json(rows);
     } catch (err: any) {
-      console.error("[Executive] GET /snapshots error:", err.message);
-      res.status(500).json({ message: "Failed to load snapshots" });
+      serverError(res, err);
     }
   });
 
-  // ── POST /api/executive/refresh ─────────────────────────────────────────
-  // Admin-only: re-compute current week's snapshot + regenerate AI narratives.
+  // POST /api/executive/refresh — admin only
   app.post("/api/executive/refresh", isDashboardUser, requireRole("admin"), async (req, res) => {
     try {
-      const snap = await computeExecSnapshot(new Date());
+      const snap = await buildExecutiveSnapshot(new Date());
+      const aiResult = await generateExecutiveAi(snap);
 
-      // Run AI generation concurrently
-      const [gptBriefing, claudeCoaching] = await Promise.all([
-        generateGptBriefing(snap),
-        generateClaudeCoaching(snap),
-      ]);
-
-      await persistSnapshot(snap, gptBriefing, claudeCoaching);
+      // Upsert snapshot
+      const [stored] = await db
+        .insert(executiveWeeklySnapshots)
+        .values({
+          weekStart: snap.weekStart,
+          closedWonRevenue: snap.closedWonRevenue.toString(),
+          grossProfit: snap.grossProfit.toString(),
+          netProfit: snap.netProfit.toString(),
+          grossMarginPct: snap.grossMarginPct.toString(),
+          netMarginPct: snap.netMarginPct.toString(),
+          pipelineValue: snap.pipelineValue.toString(),
+          newDealsClosed: snap.newDealsClosed,
+          proposalsSent: snap.proposalsSent,
+          statementsReceived: snap.statementsReceived,
+          meetingsBooked: snap.meetingsBooked,
+          outreachAttempts: snap.outreachAttempts,
+          perRepBreakdown: snap.perRepBreakdown as any,
+          goalsVsActuals: snap.goalsVsActuals as any,
+          gptBriefing: aiResult.gptBriefing,
+          claudeCoaching: aiResult.claudeCoaching as any,
+          generatedAt: new Date(),
+          trigger: "manual",
+        })
+        .onConflictDoUpdate({
+          target: executiveWeeklySnapshots.weekStart,
+          set: {
+            closedWonRevenue: snap.closedWonRevenue.toString(),
+            grossProfit: snap.grossProfit.toString(),
+            netProfit: snap.netProfit.toString(),
+            grossMarginPct: snap.grossMarginPct.toString(),
+            netMarginPct: snap.netMarginPct.toString(),
+            pipelineValue: snap.pipelineValue.toString(),
+            newDealsClosed: snap.newDealsClosed,
+            proposalsSent: snap.proposalsSent,
+            statementsReceived: snap.statementsReceived,
+            meetingsBooked: snap.meetingsBooked,
+            outreachAttempts: snap.outreachAttempts,
+            perRepBreakdown: snap.perRepBreakdown as any,
+            goalsVsActuals: snap.goalsVsActuals as any,
+            gptBriefing: aiResult.gptBriefing,
+            claudeCoaching: aiResult.claudeCoaching as any,
+            generatedAt: new Date(),
+            trigger: "manual",
+            createdAt: new Date(),
+          },
+        })
+        .returning();
 
       res.json({
-        message: "Executive snapshot refreshed",
-        weekStart: snap.weekStart,
-        aiGenerated: !!(gptBriefing || claudeCoaching),
-        gptAvailable: !!gptBriefing,
-        claudeAvailable: !!claudeCoaching,
+        ok: true,
+        snapshot: stored,
+        aiResult: {
+          gptBriefingLength: aiResult.gptBriefing?.length ?? 0,
+          coachingCardsGenerated: aiResult.claudeCoaching?.length ?? 0,
+          gptError: aiResult.gptError,
+          claudeError: aiResult.claudeError,
+        },
       });
     } catch (err: any) {
-      console.error("[Executive] POST /refresh error:", err.message);
-      res.status(500).json({ message: "Refresh failed", error: err.message });
+      serverError(res, err);
     }
   });
 
-  // ── GET /api/executive/goals ─────────────────────────────────────────────
-  app.get("/api/executive/goals", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
+  // GET /api/executive/goals
+  app.get("/api/executive/goals", isDashboardUser, adminOrManager, async (req, res) => {
     try {
-      const goals = await loadGoals();
-      res.json(goals);
+      const rows = await db.select().from(executiveGoals);
+      res.json(rows);
     } catch (err: any) {
-      res.status(500).json({ message: "Failed to load goals" });
+      serverError(res, err);
     }
   });
 
-  // ── PUT /api/executive/goals ─────────────────────────────────────────────
-  // Admin-only: bulk upsert goals.
-  // Body: [{ key, value, period?, label? }]
+  // PUT /api/executive/goals — admin only
+  // Body: Array<{ key: string; value: number; periodType?: string }>
   app.put("/api/executive/goals", isDashboardUser, requireRole("admin"), async (req, res) => {
     try {
-      const updates: { key: string; value: number; period?: string; label?: string }[] = req.body;
-      if (!Array.isArray(updates) || updates.length === 0) {
-        return res.status(400).json({ message: "Body must be a non-empty array of goal updates" });
+      const userId = (req.user as any)?.id ?? null;
+      const goals: Array<{ key: string; value: number; periodType?: string }> = req.body;
+
+      if (!Array.isArray(goals)) {
+        return res.status(400).json({ message: "Body must be an array of goal objects" });
       }
 
-      const user = (req as any).user;
-      for (const u of updates) {
-        if (!u.key || typeof u.value !== "number") {
-          return res.status(400).json({ message: `Invalid goal entry: ${JSON.stringify(u)}` });
-        }
-        await db.execute(sql`
-          INSERT INTO executive_goals (key, value, period, label, set_by, updated_at)
-          VALUES (
-            ${u.key}, ${u.value},
-            ${u.period ?? "weekly"},
-            ${u.label ?? null},
-            ${user?.email ?? "admin"},
-            NOW()
-          )
-          ON CONFLICT (key) DO UPDATE SET
-            value      = EXCLUDED.value,
-            period     = COALESCE(EXCLUDED.period, executive_goals.period),
-            label      = COALESCE(EXCLUDED.label, executive_goals.label),
-            set_by     = EXCLUDED.set_by,
-            updated_at = NOW()
-        `);
+      const results = [];
+      for (const g of goals) {
+        if (!g.key || g.value == null) continue;
+        const [row] = await db
+          .insert(executiveGoals)
+          .values({
+            key: g.key,
+            value: g.value.toString(),
+            periodType: g.periodType || "weekly",
+            setBy: userId,
+            updatedAt: new Date(),
+          })
+          .onConflictDoUpdate({
+            target: [executiveGoals.key, executiveGoals.periodType],
+            set: {
+              value: g.value.toString(),
+              setBy: userId,
+              updatedAt: new Date(),
+            },
+          })
+          .returning();
+        results.push(row);
       }
 
-      const goals = await loadGoals();
-      res.json({ message: "Goals updated", goals });
+      res.json({ ok: true, goals: results });
     } catch (err: any) {
-      console.error("[Executive] PUT /goals error:", err.message);
-      res.status(500).json({ message: "Failed to update goals" });
+      serverError(res, err);
     }
   });
 }

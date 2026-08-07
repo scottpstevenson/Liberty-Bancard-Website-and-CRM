@@ -331,14 +331,18 @@ const HISTORY_HOURS = 24;
 
 class QueueManager {
   private queues: Map<string, Queue> = new Map();
+
   private workers: Map<string, Worker> = new Map();
 
   /** Expose underlying BullMQ Queue for one-off job enqueuing. */
   getQueue(name: string): Queue | undefined {
     return this.queues.get(name);
   }
+
   private connection!: ConnectionOptions;
+
   private throughputBaseline: Map<string, ThroughputEntry> = new Map();
+
   private jobHistory: Map<string, HistoryBucket[]> = new Map();
 
   /** Configs to actually manage. Excludes GHL_SYNC whenever the legacy
@@ -736,14 +740,65 @@ class QueueManager {
           break;
         }
         case QUEUE_NAMES.EXECUTIVE_SNAPSHOT: {
-          const { computeExecSnapshot, persistSnapshot } = await import("./executive-kpi");
-          const { generateGptBriefing, generateClaudeCoaching } = await import("./executive-ai");
-          const snap = await computeExecSnapshot(new Date());
-          const [gptBriefing, claudeCoaching] = await Promise.all([
-            generateGptBriefing(snap),
-            generateClaudeCoaching(snap),
-          ]);
-          await persistSnapshot(snap, gptBriefing, claudeCoaching);
+          const { acquireJobLock, releaseJobLock } = await import("./job-registry");
+          const acquired = await acquireJobLock("executive-snapshot");
+          if (!acquired) break;
+          try {
+            const { buildExecutiveSnapshot } = await import("./executive-kpi");
+            const { generateExecutiveAi } = await import("./executive-ai");
+            const { db: dbInst } = await import("../db");
+            const { executiveWeeklySnapshots } = await import("@shared/schema");
+            const snap = await buildExecutiveSnapshot(new Date());
+            const aiResult = await generateExecutiveAi(snap);
+            await dbInst
+              .insert(executiveWeeklySnapshots)
+              .values({
+                weekStart: snap.weekStart,
+                closedWonRevenue: snap.closedWonRevenue.toString(),
+                grossProfit: snap.grossProfit.toString(),
+                netProfit: snap.netProfit.toString(),
+                grossMarginPct: snap.grossMarginPct.toString(),
+                netMarginPct: snap.netMarginPct.toString(),
+                pipelineValue: snap.pipelineValue.toString(),
+                newDealsClosed: snap.newDealsClosed,
+                proposalsSent: snap.proposalsSent,
+                statementsReceived: snap.statementsReceived,
+                meetingsBooked: snap.meetingsBooked,
+                outreachAttempts: snap.outreachAttempts,
+                perRepBreakdown: snap.perRepBreakdown as any,
+                goalsVsActuals: snap.goalsVsActuals as any,
+                gptBriefing: aiResult.gptBriefing,
+                claudeCoaching: aiResult.claudeCoaching as any,
+                generatedAt: new Date(),
+                trigger: "schedule",
+              })
+              .onConflictDoUpdate({
+                target: executiveWeeklySnapshots.weekStart,
+                set: {
+                  closedWonRevenue: snap.closedWonRevenue.toString(),
+                  grossProfit: snap.grossProfit.toString(),
+                  netProfit: snap.netProfit.toString(),
+                  grossMarginPct: snap.grossMarginPct.toString(),
+                  netMarginPct: snap.netMarginPct.toString(),
+                  pipelineValue: snap.pipelineValue.toString(),
+                  newDealsClosed: snap.newDealsClosed,
+                  proposalsSent: snap.proposalsSent,
+                  statementsReceived: snap.statementsReceived,
+                  meetingsBooked: snap.meetingsBooked,
+                  outreachAttempts: snap.outreachAttempts,
+                  perRepBreakdown: snap.perRepBreakdown as any,
+                  goalsVsActuals: snap.goalsVsActuals as any,
+                  gptBriefing: aiResult.gptBriefing,
+                  claudeCoaching: aiResult.claudeCoaching as any,
+                  generatedAt: new Date(),
+                  trigger: "schedule",
+                  createdAt: new Date(),
+                },
+              });
+            console.log(`[ExecutiveSnapshot] Weekly snapshot written for week ${snap.weekStart}`);
+          } finally {
+            await releaseJobLock("executive-snapshot", true).catch(() => {});
+          }
           break;
         }
         case QUEUE_NAMES.SYSTEM_AUDIT: {

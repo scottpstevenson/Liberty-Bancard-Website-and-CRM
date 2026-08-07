@@ -792,6 +792,20 @@
       "when": 1790300000000,
       "tag": "0112_contact_assigned_to",
       "breakpoints": true
+    },
+    {
+      "idx": 113,
+      "version": "7",
+      "when": 1790400000000,
+      "tag": "0105_executive_weekly_snapshots",
+      "breakpoints": true
+    },
+    {
+      "idx": 114,
+      "version": "7",
+      "when": 1790500000000,
+      "tag": "0106_executive_goals",
+      "breakpoints": true
     }
   ]
 }

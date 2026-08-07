@@ -5000,50 +5000,53 @@ export const insertAgentPayoutSchema = createInsertSchema(agentPayouts).omit({
 export type AgentPayout = typeof agentPayouts.$inferSelect;
 export type InsertAgentPayout = z.infer<typeof insertAgentPayoutSchema>;
 
-// ─── Executive KPI Layer (Task #1229) ────────────────────────────────────────
-
+// ---------------------------------------------------------------------------
+// Executive Weekly Snapshots — weekly KPI roll-up with AI narratives
+// ---------------------------------------------------------------------------
 export const executiveWeeklySnapshots = pgTable("executive_weekly_snapshots", {
   id: serial("id").primaryKey(),
-  weekStart: date("week_start").notNull().unique(),
-  closedWonVolume: numeric("closed_won_volume", { precision: 15, scale: 2 }).notNull().default("0"),
-  closedWonCount: integer("closed_won_count").notNull().default(0),
-  grossProfitMonthly: numeric("gross_profit_monthly", { precision: 12, scale: 2 }).notNull().default("0"),
-  netProfitMonthly: numeric("net_profit_monthly", { precision: 12, scale: 2 }).notNull().default("0"),
-  grossMarginPct: numeric("gross_margin_pct", { precision: 8, scale: 4 }).notNull().default("0"),
-  netMarginPct: numeric("net_margin_pct", { precision: 8, scale: 4 }).notNull().default("0"),
-  pipelineValue: numeric("pipeline_value", { precision: 15, scale: 2 }).notNull().default("0"),
-  pipelineDealCount: integer("pipeline_deal_count").notNull().default(0),
-  newLeads: integer("new_leads").notNull().default(0),
-  proposalsSent: integer("proposals_sent").notNull().default(0),
-  statementsReceived: integer("statements_received").notNull().default(0),
-  meetingsBooked: integer("meetings_booked").notNull().default(0),
-  emailsSent: integer("emails_sent").notNull().default(0),
-  smsSent: integer("sms_sent").notNull().default(0),
-  callsMade: integer("calls_made").notNull().default(0),
-  replyCount: integer("reply_count").notNull().default(0),
-  goalsSnapshot: jsonb("goals_snapshot"),
+  weekStart: text("week_start").notNull().unique(),
+  closedWonRevenue: numeric("closed_won_revenue", { precision: 14, scale: 2 }).default("0"),
+  grossProfit: numeric("gross_profit", { precision: 14, scale: 2 }).default("0"),
+  netProfit: numeric("net_profit", { precision: 14, scale: 2 }).default("0"),
+  grossMarginPct: numeric("gross_margin_pct", { precision: 6, scale: 2 }).default("0"),
+  netMarginPct: numeric("net_margin_pct", { precision: 6, scale: 2 }).default("0"),
+  pipelineValue: numeric("pipeline_value", { precision: 14, scale: 2 }).default("0"),
+  newDealsClosed: integer("new_deals_closed").default(0),
+  proposalsSent: integer("proposals_sent").default(0),
+  statementsReceived: integer("statements_received").default(0),
+  meetingsBooked: integer("meetings_booked").default(0),
+  outreachAttempts: integer("outreach_attempts").default(0),
+  perRepBreakdown: jsonb("per_rep_breakdown"),
   goalsVsActuals: jsonb("goals_vs_actuals"),
-  repBreakdown: jsonb("rep_breakdown"),
   gptBriefing: text("gpt_briefing"),
   claudeCoaching: jsonb("claude_coaching"),
-  aiGeneratedAt: timestamp("ai_generated_at"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  generatedAt: timestamp("generated_at"),
+  trigger: text("trigger").default("schedule"),
+  createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
   index("exec_snapshots_week_start_idx").on(table.weekStart),
 ]);
 
+export const insertExecutiveWeeklySnapshotSchema = createInsertSchema(executiveWeeklySnapshots).omit({
+  id: true,
+  createdAt: true,
+});
 export type ExecutiveWeeklySnapshot = typeof executiveWeeklySnapshots.$inferSelect;
 
+export type InsertExecutiveWeeklySnapshot = z.infer<typeof insertExecutiveWeeklySnapshotSchema>;
 export const executiveGoals = pgTable("executive_goals", {
   id: serial("id").primaryKey(),
-  key: text("key").notNull().unique(),
-  value: numeric("value", { precision: 15, scale: 4 }).notNull(),
-  period: text("period").notNull().default("weekly"),
-  label: text("label"),
+  key: text("key").notNull(),
+  value: numeric("value", { precision: 14, scale: 2 }).notNull(),
+  periodType: text("period_type").notNull().default("weekly"),
   setBy: text("set_by"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("executive_goals_key_period_idx").on(table.key, table.periodType),
+]);
 
+export const insertExecutiveGoalSchema = createInsertSchema(executiveGoals).omit({ id: true });
 export type ExecutiveGoal = typeof executiveGoals.$inferSelect;
+
+export type InsertExecutiveGoal = z.infer<typeof insertExecutiveGoalSchema>;

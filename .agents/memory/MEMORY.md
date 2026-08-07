@@ -1,4 +1,3 @@
-- [Executive KPI Layer](executive-kpi-layer.md) — deals.owner (not assigned_to); margins stored as %; Claude needs ANTHROPIC_API_KEY; auth via replit_integrations/auth.
 - [Hardening audit patterns](hardening-audit-patterns.md) — recurring bug classes found in this codebase; check these first on any new route/service.
 - [Sender Policy Architecture](sender-policy-architecture.md) — Central registry in sender-policy.ts; every send site passes category: "X" to smtp/GHL wrappers; prohibition guard blocks noreply@ on LB domains; 82/82 test checks in scripts/test-sender-policy.ts.
 - [SDR merchant-contacts PII routes](sdr-merchant-contacts-security.md) — /api/sdr/merchants/:id/contacts and /api/sdr/merchant-contacts had only isAuthenticated; upgraded to isDashboardUser + requireRole("admin","manager"); these expose email/mobile/directPhone for all merchants.
@@ -67,13 +66,12 @@
 - [Intake Provenance System](intake-provenance.md) — writeContact() canonical writer; import_executions + contact_source_events; A→B→C DEFERRABLE transaction; all 9 public forms + manual CRM + GHL sync + CSV + Sunbiz wired.
 - [System Audit Engine](system-audit-engine.md) — weekly BullMQ job probes 7 subsystems, generates GPT narrative, delivers Slack; admin UI at /dashboard/system-audit.
 - [BullMQ infra requirements](bullmq-infra-requirements.md) — maxRetriesPerRequest:null + lockDuration:120000 are critical; missing either causes silent job stall or lock-renewal failures.
-- [BullMQ startup job deduplication](bullmq-startup-dedup.md) — static jobId on startup jobs silently deduped against stale Redis entries; omit jobId for one-off restart jobs.
-- [Live health check dual implementation](live-health-dual-implementation.md) — /api/admin/live-health has its OWN inline checks in admin.ts separate from health-monitor.ts; fix both or the gate still fails.
-- [Sequence worker runtime](sequence-worker-runtime.md) — processSequenceEnrollments takes ~8 min with 155K contacts; longer than dev 5-min and prod 30-sec repeat intervals; jobs pile up.
-- [Wave merge audit findings](wave-merge-audit.md) — compliance scan lineContains must match the flagged line verbatim; pre-deploy workflow has timing bug, run the script directly instead.
 - [Merchant portal access gaps](merchant-portal-access-gaps.md) — ProtectedRoute must redirect merchant→/dashboard/merchant-portal; onboarding-steps and checklist routes must use isAuthenticated+ownership, not isDashboardUser.
 - [GHL fetch timeout](ghl-fetch-timeout.md) — AbortController per fetch attempt (20 s default); clearTimeout in both success and catch; AbortError is retryable.
 - [tsx hot-reload stale route registration](tsx-stale-route.md) — new Express routes added to large route files may return 404 (even for anon) until a full server restart; probe with curl and restart to confirm.
 - [Drizzle-kit orphaned file deploy hang](drizzle-kit-orphaned-hang.md) — SQL files in migrations/ root without _journal.json entries cause drizzle-kit generate to hang indefinitely; fix: journal them or move to migrations/guarded/ (subdirectories are not scanned by drizzle-kit).
 - [Test phone isolation in form tests](test-phone-isolation.md) — hardcoded phones cause GHL contact ID uniqueness violations across test runs; always use uniquePhone().
 - [CREATE INDEX CONCURRENTLY in Drizzle migrations](concurrent-index-migration-fix.md) — CONCURRENTLY banned inside migrate() transaction; use plain CREATE INDEX IF NOT EXISTS instead.
+- [BullMQ startup job deduplication](bullmq-startup-dedup.md) — static jobId on startup jobs silently deduped against stale Redis entries; omit jobId for one-off restart jobs.
+- [Live health check dual implementation](live-health-dual-implementation.md) — /api/admin/live-health has its OWN inline checks in admin.ts separate from health-monitor.ts; fix both or the gate still fails.
+- [Sequence worker runtime](sequence-worker-runtime.md) — processSequenceEnrollments takes ~8 min with 155K contacts; longer than dev 5-min and prod 30-sec repeat intervals; jobs pile up.

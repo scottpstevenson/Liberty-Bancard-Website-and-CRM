@@ -1,158 +1,246 @@
-import { useState, useCallback } from "react";
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import { useAuth } from "@/hooks/use-auth";
+import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useToast } from "@/hooks/use-toast";
+import { LineChart, Line, ResponsiveContainer, Tooltip as RTooltip } from "recharts";
 import {
   TrendingUp, TrendingDown, Minus, RefreshCw, Target, DollarSign,
-  BarChart3, Users, ChevronDown, ChevronUp, Settings, Sparkles, Brain,
+  BarChart3, Users, ChevronDown, ChevronUp, Sparkles, Bot, Zap,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface GoalStatus { goal: number; actual: number; status: "green" | "yellow" | "red"; pct: number }
-interface RepBreakdown { agentId: string | null; name: string; closedWonCount: number; closedWonVolume: number; grossProfitMonthly: number; proposalsSent: number; statementsReceived: number; meetingsBooked: number; replyCount: number }
-interface ClaudeCard { agentId: string | null; name: string; coachingText: string; gapSummary: string }
-interface GoalEntry { key: string; value: number; period: string; label: string | null }
-
-interface ExecSnapshot {
-  weekStart: string; weekEnd: string; source: string;
-  closedWonVolume: number; closedWonCount: number;
-  grossProfitMonthly: number; netProfitMonthly: number;
-  grossMarginPct: number; netMarginPct: number;
-  pipelineValue: number; pipelineDealCount: number;
-  newLeads: number; proposalsSent: number; statementsReceived: number; meetingsBooked: number;
-  emailsSent: number; smsSent: number; callsMade: number; replyCount: number;
-  prevWeekVolume: number | null; prevWeekDeals: number | null; prevWeekGrossMargin: number | null;
-  goalsVsActuals: Record<string, GoalStatus>;
-  repBreakdown: RepBreakdown[];
-  gpt_briefing: string | null;
-  claude_coaching: ClaudeCard[] | null;
-  ai_generated_at: string | null;
-  goals: GoalEntry[];
+interface RepBreakdown {
+  agentId: number;
+  name: string;
+  initials: string;
+  dealsClosed: number;
+  revenue: number;
+  grossProfit: number;
+  proposalsSent: number;
+  prevDealsClosed: number;
+  prevRevenue: number;
+  goalStatus: "green" | "yellow" | "red" | "none";
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-const fmt$ = (n: number) =>
-  new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
-
-const fmtPct = (n: number) => `${n.toFixed(3)}%`;
-
-const fmtK = (n: number) => n >= 1000 ? `$${(n / 1000).toFixed(0)}k` : fmt$(n);
-
-function wowDelta(current: number, prev: number | null) {
-  if (prev == null || prev === 0) return null;
-  return ((current - prev) / prev) * 100;
+interface CoachingCard {
+  agentId: number;
+  name: string;
+  coaching: string;
 }
 
-function StatusBadge({ status }: { status: "green" | "yellow" | "red" }) {
-  const colors = { green: "bg-emerald-100 text-emerald-700", yellow: "bg-amber-100 text-amber-700", red: "bg-red-100 text-red-700" };
-  const labels = { green: "On Track", yellow: "At Risk", red: "Off Track" };
-  return <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${colors[status]}`}>{labels[status]}</span>;
+interface GoalVsActual {
+  key: string;
+  label: string;
+  goal: number;
+  actual: number;
+  pct: number;
+  status: "green" | "yellow" | "red" | "none";
 }
 
-function WoWArrow({ delta }: { delta: number | null }) {
-  if (delta == null) return <Minus className="h-3 w-3 text-muted-foreground" />;
-  if (delta > 0) return <span className="flex items-center gap-0.5 text-emerald-600 text-xs font-medium"><TrendingUp className="h-3 w-3" />+{delta.toFixed(1)}%</span>;
-  return <span className="flex items-center gap-0.5 text-red-500 text-xs font-medium"><TrendingDown className="h-3 w-3" />{delta.toFixed(1)}%</span>;
+interface LiveSnapshot {
+  weekStart: string;
+  weekEnd: string;
+  closedWonRevenue: number;
+  prevClosedWonRevenue: number;
+  revenueWoW: number;
+  grossMarginPct: number;
+  netMarginPct: number;
+  prevGrossMarginPct: number;
+  pipelineValue: number;
+  pipelineByStageSummary: Array<{ stage: string; count: number; value: number }>;
+  newDealsClosed: number;
+  prevDealsClosed: number;
+  proposalsSent: number;
+  prevProposalsSent: number;
+  statementsReceived: number;
+  meetingsBooked: number;
+  outreachAttempts: number;
+  perRepBreakdown: RepBreakdown[];
+  goalsVsActuals: GoalVsActual[];
+  gptBriefing?: string | null;
+  claudeCoaching?: CoachingCard[] | null;
+  generatedAt?: string | null;
 }
 
-// ─── KPI Card ────────────────────────────────────────────────────────────────
+interface StoredSnapshot {
+  weekStart: string;
+  closedWonRevenue: string;
+  grossProfit: string;
+  netProfit: string;
+  grossMarginPct: string;
+  netMarginPct: string;
+  pipelineValue: string;
+  newDealsClosed: number;
+  proposalsSent: number;
+  statementsReceived: number;
+  meetingsBooked: number;
+  outreachAttempts: number;
+  perRepBreakdown: RepBreakdown[] | null;
+  goalsVsActuals: GoalVsActual[] | null;
+  gptBriefing: string | null;
+  claudeCoaching: CoachingCard[] | null;
+  generatedAt: string | null;
+  createdAt: string;
+}
 
-function KpiCard({ title, value, sub, delta, goalStatus, icon: Icon }: {
-  title: string; value: string; sub?: string; delta: number | null;
-  goalStatus?: GoalStatus; icon: any;
-}) {
+interface SnapshotResponse {
+  source: "stored" | "live";
+  snapshot: StoredSnapshot | LiveSnapshot;
+}
+
+interface ExecutiveGoal {
+  id: number;
+  key: string;
+  value: string;
+  periodType: string;
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function numVal(v: string | number | undefined | null): number {
+  if (v == null) return 0;
+  if (typeof v === "number") return v;
+  return parseFloat(v) || 0;
+}
+
+function fmt(n: number): string {
+  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `$${(n / 1_000).toFixed(0)}K`;
+  return `$${n.toFixed(0)}`;
+}
+
+function statusColor(s: string): string {
+  if (s === "green") return "text-green-600";
+  if (s === "yellow") return "text-amber-500";
+  if (s === "red") return "text-red-500";
+  return "text-muted-foreground";
+}
+
+function statusBg(s: string): string {
+  if (s === "green") return "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400";
+  if (s === "yellow") return "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400";
+  if (s === "red") return "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400";
+  return "bg-muted text-muted-foreground";
+}
+
+function WoWBadge({ delta }: { delta: number }) {
+  if (delta > 0) return (
+    <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 gap-1 text-xs">
+      <TrendingUp className="w-3 h-3" />+{delta}%
+    </Badge>
+  );
+  if (delta < 0) return (
+    <Badge variant="destructive" className="gap-1 text-xs">
+      <TrendingDown className="w-3 h-3" />{delta}%
+    </Badge>
+  );
   return (
-    <Card className="border border-border/60 shadow-sm">
-      <CardContent className="pt-5 pb-4">
-        <div className="flex items-start justify-between mb-3">
-          <div className="p-2 rounded-lg bg-primary/8">
-            <Icon className="h-4 w-4 text-primary" />
-          </div>
-          {goalStatus && <StatusBadge status={goalStatus.status} />}
-        </div>
-        <div className="space-y-0.5">
-          <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">{title}</p>
-          <p className="text-2xl font-bold tracking-tight">{value}</p>
-          <div className="flex items-center gap-2">
-            <WoWArrow delta={delta} />
-            {sub && <span className="text-xs text-muted-foreground">{sub}</span>}
-          </div>
-        </div>
-        {goalStatus && (
-          <div className="mt-3">
-            <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
-              <span>vs goal {goalStatus.goal >= 1000 ? fmtK(goalStatus.goal) : goalStatus.goal}</span>
-              <span>{goalStatus.pct}%</span>
-            </div>
-            <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-              <div
-                className={`h-full rounded-full transition-all ${goalStatus.status === "green" ? "bg-emerald-500" : goalStatus.status === "yellow" ? "bg-amber-400" : "bg-red-400"}`}
-                style={{ width: `${Math.min(goalStatus.pct, 100)}%` }}
-              />
-            </div>
-          </div>
-        )}
-      </CardContent>
-    </Card>
+    <Badge variant="secondary" className="gap-1 text-xs">
+      <Minus className="w-3 h-3" />0%
+    </Badge>
   );
 }
 
-// ─── Goal Edit Modal ─────────────────────────────────────────────────────────
-
-function GoalEditor({ goals, onClose, onSaved }: { goals: GoalEntry[]; onClose: () => void; onSaved: () => void }) {
-  const { toast } = useToast();
-  const [values, setValues] = useState<Record<string, string>>(
-    Object.fromEntries(goals.map((g) => [g.key, String(g.value)]))
+function Sparkline({ data }: { data: Array<{ week: string; value: number }> }) {
+  if (!data || data.length < 2) return <div className="h-8 w-16 bg-muted/40 rounded" />;
+  return (
+    <div className="h-8 w-16">
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={data} margin={{ top: 2, right: 2, bottom: 2, left: 2 }}>
+          <Line type="monotone" dataKey="value" stroke="hsl(var(--primary))" strokeWidth={1.5} dot={false} isAnimationActive={false} />
+          <RTooltip contentStyle={{ fontSize: 11 }} formatter={(v: number) => [fmt(v), ""]} />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
   );
+}
+
+// ─── Goal fields config ───────────────────────────────────────────────────────
+
+const GOAL_FIELDS = [
+  { key: "weekly_revenue", label: "Weekly Revenue ($)", placeholder: "e.g. 50000" },
+  { key: "weekly_deals", label: "Weekly Deals Closed", placeholder: "e.g. 10" },
+  { key: "weekly_proposals", label: "Weekly Proposals Sent", placeholder: "e.g. 25" },
+  { key: "weekly_statements", label: "Weekly Statements Received", placeholder: "e.g. 30" },
+  { key: "gross_margin_pct", label: "Gross Margin % Target", placeholder: "e.g. 35" },
+  { key: "rep_deals_closed", label: "Per-Rep Weekly Deal Goal", placeholder: "e.g. 3" },
+];
+
+// ─── Goal Modal ───────────────────────────────────────────────────────────────
+
+function GoalModal({
+  open, onClose, currentGoals,
+}: {
+  open: boolean;
+  onClose: () => void;
+  currentGoals: ExecutiveGoal[];
+}) {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [values, setValues] = useState<Record<string, string>>(() => {
+    const init: Record<string, string> = {};
+    for (const f of GOAL_FIELDS) {
+      const found = currentGoals.find(g => g.key === f.key);
+      init[f.key] = found ? found.value : "";
+    }
+    return init;
+  });
 
   const mutation = useMutation({
     mutationFn: async () => {
-      const updates = goals.map((g) => ({ ...g, value: Number(values[g.key] ?? g.value) }));
-      return apiRequest("PUT", "/api/executive/goals", updates);
+      const goals = GOAL_FIELDS
+        .filter(f => values[f.key]?.trim())
+        .map(f => ({ key: f.key, value: parseFloat(values[f.key]), periodType: "weekly" }));
+      await apiRequest("PUT", "/api/executive/goals", goals);
     },
     onSuccess: () => {
       toast({ title: "Goals saved" });
-      onSaved();
+      qc.invalidateQueries({ queryKey: ["/api/executive/goals"] });
+      qc.invalidateQueries({ queryKey: ["/api/executive/snapshot"] });
       onClose();
     },
-    onError: () => toast({ title: "Failed to save goals", variant: "destructive" }),
+    onError: (e: any) => toast({ title: "Failed to save goals", description: e.message, variant: "destructive" }),
   });
 
   return (
-    <Dialog open onOpenChange={onClose}>
-      <DialogContent className="max-w-md">
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Edit Revenue Goals</DialogTitle>
-          <DialogDescription>Changes take effect immediately on the dashboard.</DialogDescription>
+          <DialogTitle className="flex items-center gap-2">
+            <Target className="w-4 h-4 text-primary" />
+            Set Weekly Goals
+          </DialogTitle>
         </DialogHeader>
-        <div className="space-y-3 max-h-96 overflow-y-auto pr-1">
-          {goals.map((g) => (
-            <div key={g.key} className="space-y-1">
-              <Label className="text-xs text-muted-foreground">{g.label ?? g.key} <span className="text-muted-foreground/60">({g.period})</span></Label>
+        <div className="space-y-4 py-2">
+          {GOAL_FIELDS.map(f => (
+            <div key={f.key} className="space-y-1">
+              <Label htmlFor={`goal-${f.key}`} className="text-sm">{f.label}</Label>
               <Input
+                id={`goal-${f.key}`}
                 type="number"
-                value={values[g.key] ?? ""}
-                onChange={(e) => setValues((v) => ({ ...v, [g.key]: e.target.value }))}
-                className="h-8 text-sm"
+                min={0}
+                placeholder={f.placeholder}
+                value={values[f.key]}
+                onChange={e => setValues(v => ({ ...v, [f.key]: e.target.value }))}
               />
             </div>
           ))}
         </div>
-        <div className="flex justify-end gap-2 pt-2">
-          <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
-          <Button size="sm" onClick={() => mutation.mutate()} disabled={mutation.isPending}>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button onClick={() => mutation.mutate()} disabled={mutation.isPending}>
             {mutation.isPending ? "Saving…" : "Save Goals"}
           </Button>
-        </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
@@ -161,295 +249,290 @@ function GoalEditor({ goals, onClose, onSaved }: { goals: GoalEntry[]; onClose: 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function Executive() {
-  const qc = useQueryClient();
+  const { user } = useAuth();
   const { toast } = useToast();
-  const [goalEditorOpen, setGoalEditorOpen] = useState(false);
-  const [expandedRep, setExpandedRep] = useState<string | null>(null);
+  const qc = useQueryClient();
+  const isAdmin = (user as any)?.role === "admin";
+  const [goalModalOpen, setGoalModalOpen] = useState(false);
+  const [expandedRep, setExpandedRep] = useState<number | null>(null);
 
-  const { data: snap, isLoading } = useQuery<ExecSnapshot>({
+  const { data: snapResp, isLoading: snapLoading } = useQuery<SnapshotResponse>({
     queryKey: ["/api/executive/snapshot"],
-    refetchInterval: 5 * 60 * 1000,
+    staleTime: 5 * 60_000,
   });
 
-  const { data: history = [] } = useQuery<any[]>({
+  const { data: history = [] } = useQuery<StoredSnapshot[]>({
     queryKey: ["/api/executive/snapshots"],
+    staleTime: 10 * 60_000,
+  });
+
+  const { data: goals = [] } = useQuery<ExecutiveGoal[]>({
+    queryKey: ["/api/executive/goals"],
+    staleTime: 60_000,
   });
 
   const refreshMutation = useMutation({
-    mutationFn: async () => {
-      return apiRequest("POST", "/api/executive/refresh", {});
-    },
-    onSuccess: (data: any) => {
-      toast({ title: "Snapshot refreshed", description: data?.aiGenerated ? "AI briefings regenerated." : "Data updated (no AI key set)." });
+    mutationFn: () => apiRequest("POST", "/api/executive/refresh"),
+    onSuccess: () => {
+      toast({ title: "Snapshot refreshed", description: "AI briefing and coaching updated." });
       qc.invalidateQueries({ queryKey: ["/api/executive/snapshot"] });
       qc.invalidateQueries({ queryKey: ["/api/executive/snapshots"] });
     },
-    onError: () => toast({ title: "Refresh failed", variant: "destructive" }),
+    onError: (e: any) => toast({ title: "Refresh failed", description: e.message, variant: "destructive" }),
   });
 
-  if (isLoading) {
-    return (
-      <div className="p-6 space-y-6">
-        <Skeleton className="h-8 w-64" />
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-32" />)}</div>
-        <Skeleton className="h-64" />
-      </div>
-    );
-  }
+  const raw = snapResp?.snapshot as any;
 
-  if (!snap) return <div className="p-6 text-muted-foreground">No snapshot available. Click Refresh to generate one.</div>;
+  // Normalise stored vs live snapshots
+  const revenue = numVal(raw?.closedWonRevenue);
+  const prevRevenue = numVal(raw?.prevClosedWonRevenue);
+  const revenueWoW = raw?.revenueWoW ?? (prevRevenue > 0 ? Math.round(((revenue - prevRevenue) / prevRevenue) * 100) : 0);
+  const grossMargin = numVal(raw?.grossMarginPct);
+  const netMargin = numVal(raw?.netMarginPct);
+  const prevGrossMargin = numVal(raw?.prevGrossMarginPct);
+  const pipeline = numVal(raw?.pipelineValue);
+  const dealsClosed = raw?.newDealsClosed ?? 0;
+  const prevDeals = raw?.prevDealsClosed ?? 0;
+  const proposals = raw?.proposalsSent ?? 0;
+  const statements = raw?.statementsReceived ?? 0;
+  const meetings = raw?.meetingsBooked ?? 0;
+  const weekStart = raw?.weekStart ?? "";
 
-  const g = snap.goalsVsActuals ?? {};
-  const volDelta = wowDelta(snap.closedWonVolume, snap.prevWeekVolume);
-  const dealDelta = wowDelta(snap.closedWonCount, snap.prevWeekDeals);
-  const marginDelta = snap.prevWeekGrossMargin != null ? snap.grossMarginPct - snap.prevWeekGrossMargin : null;
+  const perRep: RepBreakdown[] = raw?.perRepBreakdown ?? [];
+  const goalsVsActuals: GoalVsActual[] = raw?.goalsVsActuals ?? [];
+  const gptBriefing: string | null = raw?.gptBriefing ?? null;
+  const claudeCoaching: CoachingCard[] = raw?.claudeCoaching ?? [];
+  const pipelineStages: Array<{ stage: string; count: number; value: number }> = raw?.pipelineByStageSummary ?? [];
 
-  const coachingByName: Record<string, ClaudeCard> = {};
-  for (const c of (snap.claude_coaching ?? [])) coachingByName[c.name] = c;
+  // Sparkline history from stored snapshots
+  const revSparkline = history.slice().reverse().slice(-8).map(s => ({
+    week: s.weekStart,
+    value: numVal(s.closedWonRevenue),
+  }));
+  const marginSparkline = history.slice().reverse().slice(-8).map(s => ({
+    week: s.weekStart,
+    value: numVal(s.grossMarginPct),
+  }));
+
+  const generatedAt = raw?.generatedAt
+    ? new Date(raw.generatedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })
+    : null;
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-6">
-      {/* Header */}
-      <div className="flex items-start justify-between">
+    <div className="space-y-6 p-0" data-testid="executive-dashboard">
+      {/* ── Header ── */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <div className="flex items-center gap-2">
-            <div className="p-1.5 rounded-lg bg-primary/10">
-              <BarChart3 className="h-5 w-5 text-primary" />
-            </div>
-            <h1 className="text-2xl font-bold tracking-tight">Executive Command Center</h1>
-          </div>
-          <p className="text-sm text-muted-foreground mt-1">
-            Week of {snap.weekStart} — {snap.weekEnd}
-            {snap.source === "live" && <span className="ml-2 text-xs text-amber-600">(live, not yet saved)</span>}
+          <h2 className="text-xl font-semibold flex items-center gap-2">
+            <BarChart3 className="w-5 h-5 text-primary" />
+            Executive Intelligence
+          </h2>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            {weekStart ? `Week of ${weekStart}` : "Current week"} · AI-powered performance briefing
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline" size="sm"
-            onClick={() => setGoalEditorOpen(true)}
-            className="gap-1.5"
-          >
-            <Settings className="h-3.5 w-3.5" /> Edit Goals
-          </Button>
-          <Button
-            size="sm"
-            onClick={() => refreshMutation.mutate()}
-            disabled={refreshMutation.isPending}
-            className="gap-1.5"
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${refreshMutation.isPending ? "animate-spin" : ""}`} />
-            {refreshMutation.isPending ? "Refreshing…" : "Refresh Now"}
-          </Button>
+        <div className="flex gap-2 flex-wrap">
+          {isAdmin && (
+            <Button size="sm" variant="outline" onClick={() => setGoalModalOpen(true)}>
+              <Target className="w-4 h-4 mr-1" /> Set Goals
+            </Button>
+          )}
+          {isAdmin && (
+            <Button
+              size="sm"
+              onClick={() => refreshMutation.mutate()}
+              disabled={refreshMutation.isPending}
+            >
+              <RefreshCw className={`w-4 h-4 mr-1 ${refreshMutation.isPending ? "animate-spin" : ""}`} />
+              {refreshMutation.isPending ? "Refreshing…" : "Refresh Now"}
+            </Button>
+          )}
         </div>
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <KpiCard
-          title="New Volume Boarded"
-          value={fmtK(snap.closedWonVolume)}
-          sub={`${snap.closedWonCount} deal${snap.closedWonCount !== 1 ? "s" : ""}`}
-          delta={volDelta}
-          goalStatus={g["weekly_volume"]}
-          icon={DollarSign}
-        />
-        <KpiCard
-          title="Gross Margin %"
-          value={fmtPct(snap.grossMarginPct)}
-          sub={`Net: ${fmtPct(snap.netMarginPct)}`}
-          delta={marginDelta}
-          goalStatus={g["gross_margin_pct"]}
-          icon={TrendingUp}
-        />
-        <KpiCard
-          title="Pipeline Value"
-          value={fmtK(snap.pipelineValue)}
-          sub={`${snap.pipelineDealCount} open deals`}
-          delta={null}
-          icon={Target}
-        />
-        <KpiCard
-          title="Proposals Sent"
-          value={String(snap.proposalsSent)}
-          sub={`${snap.meetingsBooked} meetings booked`}
-          delta={null}
-          goalStatus={g["weekly_proposals"]}
-          icon={BarChart3}
-        />
-      </div>
-
-      {/* AI Briefings */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* GPT-4o Executive Briefing */}
-        <Card className="border border-border/60">
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Sparkles className="h-4 w-4 text-primary" />
-                <CardTitle className="text-base">Executive Briefing</CardTitle>
-                <Badge variant="secondary" className="text-[10px] px-1.5 py-0">GPT-4o</Badge>
-              </div>
-              {snap.ai_generated_at && (
-                <span className="text-[11px] text-muted-foreground">
-                  {new Date(snap.ai_generated_at).toLocaleDateString()}
-                </span>
-              )}
-            </div>
+      {/* ── KPI Cards Row ── */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Revenue */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+              <DollarSign className="w-4 h-4 text-primary" /> Revenue This Week
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            {snap.gpt_briefing ? (
-              <div className="text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap">
-                {snap.gpt_briefing}
-              </div>
-            ) : (
-              <div className="text-sm text-muted-foreground italic">
-                No briefing yet. Click "Refresh Now" to generate the AI executive briefing.
-              </div>
+            {snapLoading ? <Skeleton className="h-9 w-24 mb-2" /> : (
+              <>
+                <div className="text-3xl font-bold" data-testid="text-revenue">{fmt(revenue)}</div>
+                <div className="flex items-center gap-2 mt-1">
+                  <WoWBadge delta={revenueWoW} />
+                  <span className="text-xs text-muted-foreground">vs {fmt(prevRevenue)} last wk</span>
+                </div>
+                {revSparkline.length > 1 && <div className="mt-2"><Sparkline data={revSparkline} /></div>}
+              </>
             )}
           </CardContent>
         </Card>
 
-        {/* Funnel Summary */}
-        <Card className="border border-border/60">
-          <CardHeader className="pb-3">
-            <div className="flex items-center gap-2">
-              <BarChart3 className="h-4 w-4 text-primary" />
-              <CardTitle className="text-base">Weekly Funnel</CardTitle>
-            </div>
+        {/* Gross Margin */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+              <TrendingUp className="w-4 h-4 text-primary" /> Margin Health
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="space-y-2.5">
-              {[
-                { label: "New Leads", value: snap.newLeads, goalKey: null },
-                { label: "Statements Received", value: snap.statementsReceived, goalKey: "weekly_statements" },
-                { label: "Proposals Sent", value: snap.proposalsSent, goalKey: "weekly_proposals" },
-                { label: "Meetings Booked", value: snap.meetingsBooked, goalKey: "weekly_meetings" },
-                { label: "Deals Closed", value: snap.closedWonCount, goalKey: "weekly_deals" },
-              ].map((row) => {
-                const gs = row.goalKey ? g[row.goalKey] : null;
-                return (
-                  <div key={row.label} className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">{row.label}</span>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-semibold">{row.value}</span>
-                      {gs && <StatusBadge status={gs.status} />}
+            {snapLoading ? <Skeleton className="h-9 w-20 mb-2" /> : (
+              <>
+                <div className="text-3xl font-bold">{grossMargin.toFixed(1)}%</div>
+                <div className="text-xs text-muted-foreground mt-1">
+                  Gross · Net {netMargin.toFixed(1)}%
+                </div>
+                <div className="flex items-center gap-2 mt-1">
+                  <WoWBadge delta={Math.round((grossMargin - prevGrossMargin) * 10) / 10} />
+                  <span className="text-xs text-muted-foreground">vs {prevGrossMargin.toFixed(1)}% last wk</span>
+                </div>
+                {marginSparkline.length > 1 && <div className="mt-2"><Sparkline data={marginSparkline} /></div>}
+              </>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Pipeline */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+              <BarChart3 className="w-4 h-4 text-primary" /> Active Pipeline
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {snapLoading ? <Skeleton className="h-9 w-24 mb-2" /> : (
+              <>
+                <div className="text-3xl font-bold">{fmt(pipeline)}</div>
+                <div className="text-xs text-muted-foreground mt-1 space-y-0.5">
+                  {pipelineStages.slice(0, 3).map(s => (
+                    <div key={s.stage} className="flex justify-between">
+                      <span className="truncate max-w-[130px]">{s.stage}</span>
+                      <span className="font-medium ml-2">{s.count}</span>
                     </div>
-                  </div>
-                );
-              })}
-              <div className="pt-2 border-t border-border/50 grid grid-cols-3 gap-2 text-center">
-                {[["Emails", snap.emailsSent], ["SMS", snap.smsSent], ["Replies", snap.replyCount]].map(([label, val]) => (
-                  <div key={label as string}>
-                    <p className="text-xs text-muted-foreground">{label}</p>
-                    <p className="text-sm font-semibold">{val}</p>
-                  </div>
-                ))}
+                  ))}
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Activity */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+              <Zap className="w-4 h-4 text-primary" /> Activity
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {snapLoading ? <Skeleton className="h-9 w-24 mb-2" /> : (
+              <div className="space-y-1 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Deals closed</span>
+                  <span className="font-semibold">{dealsClosed} <span className="text-xs text-muted-foreground">(prev: {prevDeals})</span></span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Proposals sent</span>
+                  <span className="font-semibold">{proposals}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Statements</span>
+                  <span className="font-semibold">{statements}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Meetings booked</span>
+                  <span className="font-semibold">{meetings}</span>
+                </div>
               </div>
-            </div>
+            )}
           </CardContent>
         </Card>
       </div>
 
-      {/* Team Leaderboard + Coaching Cards */}
-      <Card className="border border-border/60">
-        <CardHeader className="pb-3">
-          <div className="flex items-center gap-2">
-            <Users className="h-4 w-4 text-primary" />
-            <CardTitle className="text-base">Team Performance</CardTitle>
-            {snap.claude_coaching && snap.claude_coaching.length > 0 && (
-              <Badge variant="secondary" className="text-[10px] px-1.5 py-0 gap-1">
-                <Brain className="h-2.5 w-2.5" /> Claude Coaching
-              </Badge>
-            )}
-          </div>
-        </CardHeader>
-        <CardContent>
-          {snap.repBreakdown.length === 0 ? (
-            <p className="text-sm text-muted-foreground italic">No closed deals this week yet.</p>
-          ) : (
-            <div className="space-y-1">
-              {/* Table header */}
-              <div className="grid grid-cols-6 gap-3 text-xs text-muted-foreground font-medium uppercase tracking-wide px-3 pb-1">
-                <div className="col-span-2">Rep</div>
-                <div className="text-right">Deals</div>
-                <div className="text-right">Volume</div>
-                <div className="text-right">Proposals</div>
-                <div className="text-right">Coaching</div>
-              </div>
-              {snap.repBreakdown.map((rep) => {
-                const coaching = coachingByName[rep.name];
-                const isExpanded = expandedRep === rep.name;
-                return (
-                  <div key={rep.name} className="rounded-lg border border-border/40 overflow-hidden">
+      {/* ── Goals vs Actuals ── */}
+      {goalsVsActuals.filter(g => g.goal > 0).length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <Target className="w-4 h-4 text-primary" /> Goals vs Actuals
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+              {goalsVsActuals.filter(g => g.goal > 0).map(g => (
+                <div key={g.key} className="space-y-1">
+                  <div className="text-xs text-muted-foreground">{g.label}</div>
+                  <div className={`text-lg font-bold ${statusColor(g.status)}`}>
+                    {g.key.includes("revenue") ? fmt(g.actual) : g.key.includes("pct") ? `${g.actual}%` : g.actual}
+                  </div>
+                  <div className="w-full h-1.5 rounded-full bg-muted overflow-hidden">
                     <div
-                      className="grid grid-cols-6 gap-3 items-center px-3 py-2.5 hover:bg-muted/30 cursor-pointer"
-                      onClick={() => setExpandedRep(isExpanded ? null : rep.name)}
-                    >
-                      <div className="col-span-2 flex items-center gap-2">
-                        <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center text-xs font-bold text-primary">
-                          {rep.name.slice(0, 2).toUpperCase()}
-                        </div>
-                        <span className="text-sm font-medium truncate">{rep.name}</span>
-                      </div>
-                      <div className="text-right text-sm font-semibold">{rep.closedWonCount}</div>
-                      <div className="text-right text-sm">{fmtK(rep.closedWonVolume)}</div>
-                      <div className="text-right text-sm">{rep.proposalsSent}</div>
-                      <div className="text-right">
-                        {coaching ? (
-                          isExpanded ? <ChevronUp className="h-4 w-4 ml-auto text-muted-foreground" /> : <ChevronDown className="h-4 w-4 ml-auto text-muted-foreground" />
-                        ) : (
-                          <span className="text-xs text-muted-foreground">—</span>
-                        )}
-                      </div>
-                    </div>
-                    {isExpanded && coaching && (
-                      <div className="px-4 pb-3 pt-1 bg-muted/20 border-t border-border/30">
-                        <div className="flex items-start gap-2">
-                          <Brain className="h-3.5 w-3.5 text-purple-500 mt-0.5 shrink-0" />
-                          <div className="space-y-1">
-                            <p className="text-xs font-medium text-muted-foreground">{coaching.gapSummary}</p>
-                            <p className="text-sm text-foreground/85 leading-relaxed">{coaching.coachingText}</p>
-                          </div>
-                        </div>
-                      </div>
-                    )}
+                      className={`h-full rounded-full transition-all ${
+                        g.status === "green" ? "bg-green-500" : g.status === "yellow" ? "bg-amber-400" : "bg-red-400"
+                      }`}
+                      style={{ width: `${Math.min(g.pct, 100)}%` }}
+                    />
                   </div>
-                );
-              })}
+                  <div className="text-xs text-muted-foreground">{g.pct}% of goal</div>
+                </div>
+              ))}
             </div>
-          )}
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
 
-      {/* 12-Week Trend Table */}
-      {history.length > 1 && (
-        <Card className="border border-border/60">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">12-Week Volume Trend</CardTitle>
-            <CardDescription>Closed-won processing volume per week</CardDescription>
+      {/* ── Team Leaderboard ── */}
+      {perRep.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <Users className="w-4 h-4 text-primary" /> Team Leaderboard
+              <span className="text-xs font-normal text-muted-foreground ml-1">— Week of {weekStart}</span>
+            </CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="p-0">
             <div className="overflow-x-auto">
-              <table className="w-full text-xs">
+              <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-border/40">
-                    {["Week", "Volume", "Deals", "Margin %", "Pipeline", "Goal Status"].map((h) => (
-                      <th key={h} className="text-left text-muted-foreground font-medium py-2 pr-4">{h}</th>
-                    ))}
+                  <tr className="border-b bg-muted/30">
+                    <th className="text-left px-4 py-2.5 font-medium text-muted-foreground">Rep</th>
+                    <th className="text-right px-3 py-2.5 font-medium text-muted-foreground">Deals</th>
+                    <th className="text-right px-3 py-2.5 font-medium text-muted-foreground">Revenue</th>
+                    <th className="text-right px-3 py-2.5 font-medium text-muted-foreground">WoW Δ</th>
+                    <th className="text-right px-4 py-2.5 font-medium text-muted-foreground">Goal</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {history.slice(0, 12).map((row: any) => {
-                    const gva = row.goals_vs_actuals ? (typeof row.goals_vs_actuals === "string" ? JSON.parse(row.goals_vs_actuals) : row.goals_vs_actuals) : {};
-                    const vs = gva["weekly_volume"];
+                  {perRep.map((r) => {
+                    const dealDelta = r.dealsClosed - r.prevDealsClosed;
                     return (
-                      <tr key={row.week_start} className="border-b border-border/20 hover:bg-muted/20">
-                        <td className="py-1.5 pr-4 font-medium">{row.week_start}</td>
-                        <td className="py-1.5 pr-4">{fmtK(Number(row.closed_won_volume ?? 0))}</td>
-                        <td className="py-1.5 pr-4">{row.closed_won_count ?? 0}</td>
-                        <td className="py-1.5 pr-4">{fmtPct(Number(row.gross_margin_pct ?? 0))}</td>
-                        <td className="py-1.5 pr-4">{fmtK(Number(row.pipeline_value ?? 0))}</td>
-                        <td className="py-1.5">{vs ? <StatusBadge status={vs.status} /> : <span className="text-muted-foreground">—</span>}</td>
+                      <tr key={r.agentId} className="border-b hover:bg-muted/20 transition-colors">
+                        <td className="px-4 py-2.5">
+                          <div className="flex items-center gap-2">
+                            <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center text-xs font-semibold text-primary flex-shrink-0">
+                              {r.initials}
+                            </div>
+                            <span className="font-medium">{r.name}</span>
+                          </div>
+                        </td>
+                        <td className="px-3 py-2.5 text-right font-semibold">{r.dealsClosed}</td>
+                        <td className="px-3 py-2.5 text-right">{fmt(r.revenue)}</td>
+                        <td className="px-3 py-2.5 text-right">
+                          {dealDelta > 0
+                            ? <span className="text-green-600 font-medium">+{dealDelta}</span>
+                            : dealDelta < 0
+                            ? <span className="text-red-500 font-medium">{dealDelta}</span>
+                            : <span className="text-muted-foreground">—</span>}
+                        </td>
+                        <td className="px-4 py-2.5 text-right">
+                          {r.goalStatus !== "none"
+                            ? <Badge className={`text-xs ${statusBg(r.goalStatus)}`}>{r.goalStatus}</Badge>
+                            : <span className="text-muted-foreground text-xs">—</span>}
+                        </td>
                       </tr>
                     );
                   })}
@@ -460,14 +543,117 @@ export default function Executive() {
         </Card>
       )}
 
-      {/* Goal Editor Modal */}
-      {goalEditorOpen && snap.goals && (
-        <GoalEditor
-          goals={snap.goals}
-          onClose={() => setGoalEditorOpen(false)}
-          onSaved={() => qc.invalidateQueries({ queryKey: ["/api/executive/snapshot"] })}
-        />
+      {/* ── GPT-4o Executive Briefing ── */}
+      <Card className="border-primary/20">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-medium flex items-center gap-2">
+            <Bot className="w-4 h-4 text-primary" />
+            Executive Briefing
+            <Badge variant="outline" className="ml-1 text-xs font-normal">GPT-4o</Badge>
+            {generatedAt && (
+              <span className="ml-auto text-xs font-normal text-muted-foreground">
+                Generated {generatedAt}
+              </span>
+            )}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {snapLoading ? (
+            <div className="space-y-2">
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-5/6" />
+              <Skeleton className="h-4 w-4/6" />
+            </div>
+          ) : gptBriefing ? (
+            <div className="prose prose-sm dark:prose-invert max-w-none text-sm leading-relaxed whitespace-pre-wrap">
+              {gptBriefing}
+            </div>
+          ) : (
+            <div className="text-center py-6 text-muted-foreground text-sm">
+              <Bot className="w-8 h-8 mx-auto mb-2 opacity-40" />
+              <p>No briefing yet. Click <strong>Refresh Now</strong> to generate.</p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ── Claude Per-Rep Coaching Cards ── */}
+      {claudeCoaching.length > 0 && (
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <Sparkles className="w-4 h-4 text-primary" />
+            <h3 className="text-sm font-semibold">Per-Rep Coaching</h3>
+            <Badge variant="outline" className="text-xs font-normal">Claude</Badge>
+            <span className="text-xs text-muted-foreground ml-1">— empathetic, actionable</span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {claudeCoaching.map(card => {
+              const repData = perRep.find(r => r.agentId === card.agentId || r.name.toLowerCase() === card.name.toLowerCase());
+              const isExpanded = expandedRep === card.agentId;
+              return (
+                <Card key={card.agentId || card.name} className="border-muted/60">
+                  <CardHeader className="pb-2 pt-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-xs font-bold text-primary">
+                          {repData?.initials ?? card.name.slice(0, 2).toUpperCase()}
+                        </div>
+                        <div>
+                          <div className="text-sm font-semibold leading-tight">{card.name}</div>
+                          {repData && (
+                            <div className="text-xs text-muted-foreground">
+                              {repData.dealsClosed} deals · {fmt(repData.revenue)}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      {repData?.goalStatus && repData.goalStatus !== "none" && (
+                        <Badge className={`text-xs ${statusBg(repData.goalStatus)}`}>
+                          {repData.goalStatus}
+                        </Badge>
+                      )}
+                    </div>
+                  </CardHeader>
+                  <CardContent className="pt-0">
+                    <div className={`text-sm text-muted-foreground leading-relaxed ${isExpanded ? "" : "line-clamp-3"}`}>
+                      {card.coaching}
+                    </div>
+                    {card.coaching.length > 180 && (
+                      <button
+                        className="mt-1 text-xs text-primary flex items-center gap-0.5 hover:underline"
+                        onClick={() => setExpandedRep(isExpanded ? null : card.agentId)}
+                      >
+                        {isExpanded ? <><ChevronUp className="w-3 h-3" /> Less</> : <><ChevronDown className="w-3 h-3" /> More</>}
+                      </button>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        </div>
       )}
+
+      {claudeCoaching.length === 0 && !snapLoading && (
+        <Card className="border-dashed">
+          <CardContent className="py-8 text-center text-muted-foreground text-sm">
+            <Sparkles className="w-8 h-8 mx-auto mb-2 opacity-40" />
+            <p>Per-rep coaching cards will appear here after the first AI refresh.</p>
+            {isAdmin && (
+              <Button size="sm" className="mt-3" onClick={() => refreshMutation.mutate()} disabled={refreshMutation.isPending}>
+                <RefreshCw className="w-3.5 h-3.5 mr-1" /> Generate Now
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Goal Modal */}
+      <GoalModal
+        open={goalModalOpen}
+        onClose={() => setGoalModalOpen(false)}
+        currentGoals={goals}
+      />
     </div>
   );
 }
