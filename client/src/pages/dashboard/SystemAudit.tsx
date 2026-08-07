@@ -77,8 +77,32 @@ function ScoreBadge({ score }: { score: number | null }) {
   );
 }
 
+/** Maps each subsystem name to the dashboard page where an admin can investigate or fix it. */
+const SUBSYSTEM_FIX_URL: Record<string, string> = {
+  "database":               "/dashboard/admin",
+  "ghl-auth":               "/dashboard/settings",
+  "ghl-sync":               "/dashboard/settings",
+  "queues":                 "/dashboard/queues",
+  "sequences":              "/dashboard/sequences",
+  "enrichment":             "/dashboard/admin",
+  "inbox-health":           "/dashboard/inbox",
+  "ai-ops":                 "/dashboard/ai-command-center",
+  "ghl-fields":             "/dashboard/settings",
+  "compliance-engine":      "/dashboard/admin",
+  "sdr-pipeline":           "/dashboard/sdr-command",
+  "contactability":         "/dashboard/admin",
+  "onboarding-pipeline":    "/dashboard/pipeline-board",
+  "mid-ingestion":          "/dashboard/admin",
+  "role-guards":            "/dashboard/admin/users",
+  "ai-advisor":             "/dashboard/chat",
+  "ghl-workflow-registry":  "/dashboard/settings",
+  "anomaly-detection":      "/dashboard/admin",
+  "public-form-endpoints":  "/dashboard/admin",
+};
+
 function ProbeCard({ probe }: { probe: ProbeResult }) {
   const [open, setOpen] = useState(false);
+  const fixUrl = SUBSYSTEM_FIX_URL[probe.subsystem];
 
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
@@ -89,6 +113,16 @@ function ProbeCard({ probe }: { probe: ProbeResult }) {
         >
           <StatusIcon status={probe.status} />
           <span className="font-medium text-sm capitalize flex-1">{probe.subsystem.replace(/-/g, " ")}</span>
+          {probe.status !== "ok" && fixUrl && (
+            <a
+              href={fixUrl}
+              data-testid={`probe-fix-link-${probe.subsystem}`}
+              className="text-xs text-primary underline-offset-2 hover:underline mr-2 shrink-0"
+              onClick={e => e.stopPropagation()}
+            >
+              Quick Fix →
+            </a>
+          )}
           <StatusBadge status={probe.status} />
           {open ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
         </button>

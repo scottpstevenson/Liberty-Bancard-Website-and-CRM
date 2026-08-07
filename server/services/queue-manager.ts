@@ -154,7 +154,7 @@ const QUEUE_CONFIGS: QueueConfig[] = [
     attempts: 2,
     backoffDelay: 30000,
     repeatEveryMs: 7 * 24 * 60 * 60 * 1000,
-    cronPattern: process.env.SYSTEM_AUDIT_CRON ?? "0 8 * * 1",
+    cronPattern: process.env.SYSTEM_AUDIT_CRON ?? "0 11 * * 1", // Monday 11am UTC = 6am ET
     jobName: "run",
   },
   {
@@ -717,10 +717,10 @@ class QueueManager {
           break;
         }
         case QUEUE_NAMES.ABANDONED_STATEMENT: {
-          if (featureFlags.SDR_ENABLED) {
-            const { runAbandonedStatementCheck } = await import("./abandoned-statement-worker");
-            await runAbandonedStatementCheck();
-          }
+          // Not gated by SDR_ENABLED — statement follow-up is a core ops task,
+          // independent of whether the full SDR pipeline is active.
+          const { runAbandonedStatementCheck } = await import("./abandoned-statement-worker");
+          await runAbandonedStatementCheck();
           break;
         }
         case QUEUE_NAMES.EXECUTIVE_SNAPSHOT: {

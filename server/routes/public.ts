@@ -63,6 +63,7 @@ export function registerPublicRoutes(app: Express) {
       const currentMonthlyFees = volume * (effectiveRate / 100);
 
       let proposalData: any;
+      let aiGenerationSucceeded = false; // tracked for _generationSource tag on the stored proposal
 
       const apiKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
       const baseURL = process.env.AI_INTEGRATIONS_OPENAI_BASE_URL;
@@ -107,6 +108,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
           const jsonMatch = raw.match(/\{[\s\S]*\}/);
           if (jsonMatch) {
             proposalData = JSON.parse(jsonMatch[0]);
+            if (proposalData?.subject && proposalData?.body) aiGenerationSucceeded = true;
           }
         } catch (aiErr: any) {
           console.error("[AutoProposal] AI call failed:", aiErr.message?.slice(0, 100));
@@ -125,6 +127,9 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
           recommendedProgram: "Interchange Plus",
         };
       }
+
+      // Tag the stored proposal so the UI can show a warning when AI was unavailable.
+      proposalData._generationSource = aiGenerationSucceeded ? "ai" : "template";
 
       await storage.updateDeal(dealId, {
         savingsProposal: proposalData,

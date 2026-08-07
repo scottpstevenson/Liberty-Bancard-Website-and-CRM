@@ -986,6 +986,60 @@ Notes: ${deal.notes || "None"}`
   });
 
 
+  // === AI DAILY SPEND BUDGET ===
+  // GET: returns the current threshold (cents) and today's spend.
+  // POST: updates the threshold in system_settings.
+  // The budget check is advisory — it fires a notification when today's spend exceeds it.
+  app.get("/api/operator/ai-budget", isDashboardUser, async (req, res) => {
+    try {
+      const [setting, summary] = await Promise.all([
+        storage.getSystemSetting("ai_daily_budget_cents"),
+        storage.getAiCostSummary(),
+      ]);
+      const thresholdCents = setting?.value ? Number(setting.value) : 1000; // default $10/day
+      const todayCents = summary.todayCostCents;
+      res.json({
+        thresholdCents,
+        thresholdUsd: (thresholdCents / 100).toFixed(2),
+        todayCents,
+        todayUsd: (todayCents / 100).toFixed(2),
+        exceeded: todayCents >= thresholdCents,
+      });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  app.post("/api/operator/ai-budget", isDashboardUser, requireRole("admin"), async (req, res) => {
+    try {
+      const cents = Number(req.body?.thresholdCents ?? req.body?.thresholdUsd * 100);
+      if (!cents || cents < 0) return res.status(400).json({ message: "thresholdCents must be a positive number" });
+      const { db } = await import("../db");
+      const { systemSettings } = await import("../../shared/schema");
+      const { eq } = await import("drizzle-orm");
+      const existing = await db.select().from(systemSettings).where(eq(systemSettings.key, "ai_daily_budget_cents"));
+      if (existing.length > 0) {
+        await db.update(systemSettings).set({ value: String(cents), updatedAt: new Date() }).where(eq(systemSettings.key, "ai_daily_budget_cents"));
+      } else {
+        await db.insert(systemSettings).values({ key: "ai_daily_budget_cents", value: String(cents) });
+      }
+      // Immediately check and notify if already exceeded
+      const summary = await storage.getAiCostSummary();
+      if (summary.todayCostCents >= cents) {
+        await storage.createNotification({
+          channel: "app",
+          title: "⚠ AI Spend Budget Exceeded",
+          message: `Today's AI spend ($${(summary.todayCostCents / 100).toFixed(2)}) is over your $${(cents / 100).toFixed(2)} daily budget.`,
+          type: "warning",
+          metadata: { todayCents: summary.todayCostCents, thresholdCents: cents },
+        });
+      }
+      res.json({ thresholdCents: cents, updated: true });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
   // === AI COST SUMMARY (today + month + daily rollup) ===
   app.get("/api/operator/ai-cost-summary", isDashboardUser, async (req, res) => {
     try {

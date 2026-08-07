@@ -3080,6 +3080,53 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // ── Master Leads — ZeroBounce Email Validation (#1100) ─────────────────────
+  // Validates up to 100 master_leads rows whose emailValid is NULL.
+  // Admin-only; uses the same verifyEmail() service as the contacts flow.
+  app.post("/api/admin/master-leads/validate-emails", requireRole("admin"), async (req, res) => {
+    try {
+      const { db } = await import("../db");
+      const { masterLeads } = await import("../../shared/schema");
+      const { isNull, eq } = await import("drizzle-orm");
+      const batch: number = Math.min(Number(req.body?.limit ?? 100), 200);
+
+      const unchecked = await db
+        .select({ id: masterLeads.id, email: masterLeads.email })
+        .from(masterLeads)
+        .where(isNull(masterLeads.emailValid))
+        .limit(batch);
+
+      if (!unchecked.length) {
+        return res.json({ validated: 0, valid: 0, invalid: 0, message: "All master leads emails already checked" });
+      }
+
+      const { verifyEmail } = await import("../services/sdr/zerobounce");
+      let validated = 0; let valid = 0; let invalid = 0;
+
+      for (const lead of unchecked) {
+        if (!lead.email) continue;
+        try {
+          const result = await verifyEmail(lead.email);
+          const isValid = result.status === "valid";
+          await db.update(masterLeads).set({ emailValid: isValid }).where(eq(masterLeads.id, lead.id));
+          validated++; if (isValid) valid++; else invalid++;
+        } catch (e: any) {
+          console.error(`[MasterLeads ZB] ${lead.email}:`, e.message?.slice(0, 80));
+        }
+      }
+
+      storage.createAuditLog({
+        action: "master_leads_email_validation_batch",
+        entityType: "system",
+        details: { validated, valid, invalid, batchSize: unchecked.length },
+      }).catch(() => {});
+
+      res.json({ validated, valid, invalid, remaining: unchecked.length });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
   // ── GHL Pipeline Stage Mapping ─────────────────────────────────────────────
 
   app.get("/api/admin/ghl/pipeline-stages", requireRole("admin", "manager"), async (_req, res) => {

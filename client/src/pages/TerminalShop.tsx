@@ -339,7 +339,7 @@ export default function TerminalShop() {
     return (
       <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
         <SEO title="Order Received" description="Your equipment order has been submitted." path="/shop" noindex={true} />
-        <Navbar />
+        <div className="print:hidden"><Navbar /></div>
         <main className="flex-grow pt-28">
           <section className="py-20">
             <div className="max-w-lg mx-auto px-4 text-center">
@@ -399,7 +399,7 @@ export default function TerminalShop() {
             </div>
           </section>
         </main>
-        <Footer />
+        <div className="print:hidden"><Footer /></div>
       </div>
     );
   }
@@ -419,7 +419,7 @@ export default function TerminalShop() {
           url: "https://libertybancard.com/shop",
         }}
       />
-      <Navbar />
+      <div className="print:hidden"><Navbar /></div>
 
       <main className="flex-grow pt-28">
         <PromoBanner variant="bar" promoId="free-processing" showCountdown />
@@ -1064,7 +1064,7 @@ export default function TerminalShop() {
         )}
       </main>
 
-      <Footer />
+      <div className="print:hidden"><Footer /></div>
     </div>
   );
 }

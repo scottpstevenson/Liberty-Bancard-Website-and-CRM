@@ -1811,7 +1811,9 @@ export function getGhlCircuitStatus(): { circuitOpen: boolean; consecutiveFailur
 
 export function resetGhlCircuit(): void {
   consecutiveGhlFailures = 0;
-  console.log("[GHL Sync] Circuit breaker manually reset by operator");
+  ghlCircuitOpen = false;
+  persistGhlCircuit(); // persist so the next process restart doesn't re-open from stale DB state
+  console.log("[GHL Sync] Circuit breaker manually reset by operator — state cleared and persisted");
 }
 
 /**

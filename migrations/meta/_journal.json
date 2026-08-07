@@ -764,6 +764,13 @@
       "when": 1790000000000,
       "tag": "0106_deferred_ghl_enrollments",
       "breakpoints": true
+    },
+    {
+      "idx": 109,
+      "version": "7",
+      "when": 1786093621377,
+      "tag": "0109_fearless_starhawk",
+      "breakpoints": true
     }
   ]
 }

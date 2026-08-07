@@ -1392,6 +1392,21 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
               break;
             }
 
+            // Reserve the send slot before touching the provider.
+            // ON CONFLICT DO NOTHING means only the first worker to reach this
+            // point claims the row; any retry after a crash will still see the
+            // pending/sent row and hasSentStep() will short-circuit above once
+            // markSendSent() has been called.  This mirrors the email send path.
+            await openSendAttempt({
+              idempotencyKey:       smsIdemKey,
+              sequenceId:           sequence.id,
+              sequenceEnrollmentId: enrollment.id,
+              contactId:            enrollment.contactId ?? undefined,
+              stepOrder:            step.stepOrder ?? undefined,
+              channel:              "sms_ghl",
+              toAddress:            contact?.phone ?? "",
+            });
+
             if (isGhlConfigured() && enrollment.contactId) {
               try {
                 const ghlSmsResult = await sendGhlSms({

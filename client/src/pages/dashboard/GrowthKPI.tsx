@@ -19,6 +19,7 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   Minus,
+  Download,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -309,6 +310,35 @@ export default function GrowthKPI() {
               {range.label}
             </Button>
           ))}
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={!data}
+            data-testid="button-download-growth-csv"
+            onClick={() => {
+              if (!data) return;
+              const header = "Channel,Period Count,Prev Period,This Week,Last Week,Conversion Rate %,Sparkline Weeks\n";
+              const rows = data.channels.map(c =>
+                [
+                  `"${c.channel}"`,
+                  c.periodCount,
+                  c.prevPeriodCount,
+                  c.thisWeek,
+                  c.lastWeek,
+                  c.conversionRate.toFixed(2),
+                  c.sparkline.map(s => s.count).join("|"),
+                ].join(",")
+              );
+              const csv = header + rows.join("\n");
+              const blob = new Blob([csv], { type: "text/csv" });
+              const a = document.createElement("a");
+              a.href = URL.createObjectURL(blob);
+              a.download = `growth-kpi-${selectedRange.weeks}w-${new Date().toISOString().slice(0, 10)}.csv`;
+              a.click();
+            }}
+          >
+            <Download className="w-3.5 h-3.5 mr-1" /> Export CSV
+          </Button>
         </div>
       </div>
 

@@ -712,6 +712,39 @@ function ChurnRiskPanel({ contactId, isManagerOrAdmin }: { contactId: number; is
   );
 }
 
+// ── Document Access History ───────────────────────────────────────────────────
+// Shows which users accessed documents belonging to this contact.
+interface AccessEntry {
+  id: number;
+  documentId: number;
+  documentName: string;
+  userId: string;
+  ip: string | null;
+  accessedAt: string;
+}
+function DocumentAccessHistory({ contactId }: { contactId: number }) {
+  const { data: logs = [], isLoading } = useQuery<AccessEntry[]>({
+    queryKey: [`/api/contacts/${contactId}/document-access-history`],
+  });
+  if (isLoading) return <p className="text-xs text-muted-foreground">Loading…</p>;
+  if (!logs.length) return <p className="text-xs text-muted-foreground">No document access events recorded.</p>;
+  return (
+    <div className="space-y-0">
+      {logs.slice(0, 20).map(entry => (
+        <div key={entry.id} className="flex items-center gap-2 text-xs py-1.5 border-b last:border-0">
+          <span className="font-medium truncate max-w-[160px]">{entry.documentName}</span>
+          <span className="text-muted-foreground shrink-0">accessed by</span>
+          <span className="font-mono text-[10px] truncate">{entry.userId}</span>
+          {entry.ip && <span className="text-muted-foreground font-mono text-[10px] shrink-0">{entry.ip}</span>}
+          <span className="ml-auto text-muted-foreground shrink-0">
+            {new Date(entry.accessedAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function ContactDetail() {
   const params = useParams<{ id: string }>();
   const contactId = Number(params.id);
@@ -1557,14 +1590,34 @@ export default function ContactDetail() {
       </Card>
 
       {/* Data Readiness */}
-      <ReadinessCard
-        score={contact.dataReadinessScore ?? null}
-        grade={contact.dataReadinessGrade ?? null}
-        breakdown={contact.readinessBreakdown ?? null}
-        readinessUpdatedAt={contact.readinessUpdatedAt ? String(contact.readinessUpdatedAt) : null}
-        readinessModelVersion={contact.readinessModelVersion ?? null}
-        lastMeaningfulContactMutationAt={contact.lastMeaningfulContactMutationAt ? String(contact.lastMeaningfulContactMutationAt) : null}
-      />
+      <div className="space-y-2">
+        <ReadinessCard
+          score={contact.dataReadinessScore ?? null}
+          grade={contact.dataReadinessGrade ?? null}
+          breakdown={contact.readinessBreakdown ?? null}
+          readinessUpdatedAt={contact.readinessUpdatedAt ? String(contact.readinessUpdatedAt) : null}
+          readinessModelVersion={contact.readinessModelVersion ?? null}
+          lastMeaningfulContactMutationAt={contact.lastMeaningfulContactMutationAt ? String(contact.lastMeaningfulContactMutationAt) : null}
+        />
+        <div className="flex justify-end">
+          <Button
+            size="sm"
+            variant="ghost"
+            className="text-xs text-muted-foreground"
+            data-testid="button-trigger-rescore"
+            onClick={async () => {
+              try {
+                await apiRequest("POST", `/api/contacts/${contact.id}/trigger-rescore`, {});
+                toast({ title: "Re-score queued", description: "Readiness score will update within a minute." });
+              } catch {
+                toast({ title: "Error", description: "Could not queue re-score. Try again.", variant: "destructive" });
+              }
+            }}
+          >
+            ↻ Re-score readiness
+          </Button>
+        </div>
+      </div>
 
       {/* Associated Companies */}
       <Card data-testid="section-associated-companies">
@@ -1815,7 +1868,19 @@ export default function ContactDetail() {
         </TabsContent>
 
         <TabsContent value="documents" data-testid="tab-content-documents">
-          <ContactDocumentsTab contactId={contactId} userRole={user?.role ?? undefined} isPartnerContact={!!contact?.partnerOrgId} />
+          <div className="space-y-4">
+            <ContactDocumentsTab contactId={contactId} userRole={user?.role ?? undefined} isPartnerContact={!!contact?.partnerOrgId} />
+            <Card data-testid="section-document-access-history">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <FolderOpen className="h-4 w-4" /> Document Access History
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <DocumentAccessHistory contactId={contactId} />
+              </CardContent>
+            </Card>
+          </div>
         </TabsContent>
 
         <TabsContent value="chargebacks" data-testid="tab-content-chargebacks">

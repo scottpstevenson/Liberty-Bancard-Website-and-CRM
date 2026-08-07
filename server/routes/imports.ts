@@ -2043,6 +2043,24 @@ Guidelines:
 
       const updatedImport = await storage.getCsvImport(importRecord.id);
 
+      // Audit trail: record that a CSV import completed so admins can trace data ingestion events
+      await storage.createAuditLog({
+        action: "csv_import_completed",
+        entityType: "csv_import",
+        entityId: importRecord.id,
+        actorType: "user",
+        actorId: (req as any).user?.id ?? null,
+        details: {
+          filename: importRecord.fileName,
+          inserted,
+          updated,
+          duplicatesSkipped,
+          invalidRows,
+          errors,
+          totalRows: records.length,
+        },
+      } as any).catch((e: any) => console.error("[CSV Import] audit log failed:", e.message));
+
       res.status(201).json({
         import: updatedImport,
         inserted,

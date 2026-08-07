@@ -848,6 +848,12 @@ export default function StatementReview() {
                             Needs Review
                           </Badge>
                         )}
+                        {/* AI unavailable at generation time — proposal used the static template */}
+                        {!!deal.savingsProposal && (deal.savingsProposal as Record<string, unknown>)._generationSource === "template" && (
+                          <Badge variant="outline" className="text-xs border-amber-400 text-amber-600 dark:text-amber-400">
+                            ⚠ Template Fallback
+                          </Badge>
+                        )}
                         {!!deal.savingsProposal && deal.proposalStatus !== "sent" && (
                           <Button
                             size="sm"

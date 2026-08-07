@@ -798,10 +798,10 @@ ${getEmailSignatureHtml("partners")}
               }
               await storage.createNotification({
                 channel: "app",
-                title: "Proposal Viewed",
-                message: `Proposal for ${proposal.merchantName} was viewed for the first time.`,
-                type: "info",
-                metadata: { dealId: deal.id, proposalId: proposal.id }
+                title: "🔔 Proposal Viewed",
+                message: `Proposal for ${proposal.merchantName} was viewed for the first time — follow up now.`,
+                type: "alert",
+                metadata: { dealId: deal.id, proposalId: proposal.id, contactId: deal.contactId }
               });
             }
           }

@@ -1995,6 +1995,60 @@ export function registerContactsRoutes(app: Express) {
     }
   });
 
+  // ── GET document access history for a contact ──────────────────────────────
+  // Returns document_access_log rows for all documents belonging to this contact.
+  app.get("/api/contacts/:id/document-access-history", isDashboardUser, async (req, res) => {
+    try {
+      const contactId = Number(req.params.id);
+      if (!contactId) return res.status(400).json({ message: "Invalid contact ID" });
+      const { db } = await import("../db");
+      const { documentAccessLog, documents } = await import("../../shared/schema");
+      const { eq, desc, sql } = await import("drizzle-orm");
+      const rows = await db
+        .select({
+          id: documentAccessLog.id,
+          documentId: documentAccessLog.documentId,
+          documentName: documents.fileName,
+          userId: documentAccessLog.userId,
+          ip: documentAccessLog.ip,
+          accessedAt: documentAccessLog.accessedAt,
+        })
+        .from(documentAccessLog)
+        .innerJoin(documents, eq(documents.id, documentAccessLog.documentId))
+        .where(eq(documents.contactId, contactId))
+        .orderBy(desc(documentAccessLog.accessedAt))
+        .limit(50);
+      res.json(rows);
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  // ── POST trigger readiness re-score for a contact ──────────────────────────
+  // Enqueues a BullMQ readiness-recalculation job immediately without waiting
+  // for the next nightly backfill. Idempotent — repeated calls collapse.
+  app.post("/api/contacts/:id/trigger-rescore", isDashboardUser, async (req, res) => {
+    try {
+      const contactId = Number(req.params.id);
+      if (!contactId) return res.status(400).json({ message: "Invalid contact ID" });
+      const contact = await storage.getContact(contactId);
+      if (!contact) return res.status(404).json({ message: "Contact not found" });
+      const { enqueueReadinessRecalculation } = await import("../services/contact-readiness");
+      await enqueueReadinessRecalculation(contactId);
+      await storage.createAuditLog({
+        action: "contact_readiness_rescore_triggered",
+        entityType: "contact",
+        entityId: contactId,
+        actorType: "user",
+        actorId: (req as any).user?.id ?? null,
+        details: { triggeredBy: "manual_ui" },
+      } as any);
+      res.json({ queued: true, contactId });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
   // ── GET NPS survey history for a contact ────────────────────────────────────
   app.get("/api/contacts/:id/nps-responses", isDashboardUser, async (req, res) => {
     try {
