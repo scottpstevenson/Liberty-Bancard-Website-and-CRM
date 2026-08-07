@@ -71,13 +71,6 @@ export default function CaseStudyIntake() {
         priority: "normal",
       });
 
-      await apiRequest("POST", "/api/notifications", {
-        channel: "in_app",
-        title: "Case Study Intake Submitted",
-        message: `New case study intake for Deal #${dealId} - ${values.businessVertical}`,
-        type: "info",
-      });
-
       await apiRequest("POST", "/api/audit-logs", {
         action: "case_study_intake_submitted",
         entityType: "deal",

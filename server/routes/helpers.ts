@@ -44,7 +44,28 @@ export function parsePagination(
   return { limit, offset };
 }
 
-export const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+/** Allowed MIME types for standard document/evidence uploads */
+const ALLOWED_UPLOAD_MIMES = new Set([
+  "application/pdf",
+  "image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp",
+  "text/csv", "text/plain",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+]);
+
+function mimeFilter(_req: any, file: Express.Multer.File, cb: multer.FileFilterCallback) {
+  if (ALLOWED_UPLOAD_MIMES.has(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(new Error(`File type '${file.mimetype}' is not allowed. Accepted: PDF, images, CSV, Excel.`));
+  }
+}
+
+export const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: mimeFilter,
+});
 export const uploadLarge = multer({ dest: os.tmpdir(), limits: { fileSize: 300 * 1024 * 1024 } });
 
 export interface ProposalPlan {

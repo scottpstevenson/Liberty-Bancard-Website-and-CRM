@@ -342,7 +342,7 @@ export function registerCampaignsRoutes(app: Express) {
             consentType: "general_optin",
             source: "campaign_unsubscribe",
             details: { messageId: msg.id, campaignId: msg.campaignId },
-          }).catch(() => {});
+          }).catch((err: Error) => console.error("[Campaign webhook] Consent record failed:", err.message));
         }
       }
 

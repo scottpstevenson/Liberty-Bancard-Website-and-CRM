@@ -1,4 +1,5 @@
 - [Executive KPI Layer](executive-kpi-layer.md) — deals.owner (not assigned_to); margins stored as %; Claude needs ANTHROPIC_API_KEY; auth via replit_integrations/auth.
+- [Hardening audit patterns](hardening-audit-patterns.md) — recurring bug classes found in this codebase; check these first on any new route/service.
 - [Sender Policy Architecture](sender-policy-architecture.md) — Central registry in sender-policy.ts; every send site passes category: "X" to smtp/GHL wrappers; prohibition guard blocks noreply@ on LB domains; 82/82 test checks in scripts/test-sender-policy.ts.
 - [SDR merchant-contacts PII routes](sdr-merchant-contacts-security.md) — /api/sdr/merchants/:id/contacts and /api/sdr/merchant-contacts had only isAuthenticated; upgraded to isDashboardUser + requireRole("admin","manager"); these expose email/mobile/directPhone for all merchants.
 - [Mobile shell API gaps](mobile-shell-api-gaps.md) — /api/contacts/:id/deals was missing (MobileContactDetail deals tab always empty); added to deals.ts using db.select with eq(deals.contactId). /api/inbox/items/:id GET is also absent but MobileInbox gracefully falls back to the list-fetched item.

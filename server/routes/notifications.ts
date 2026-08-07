@@ -133,10 +133,11 @@ export function registerNotificationsRoutes(app: Express) {
     }
   });
 
-  // Mark individual notification read — must be before generic /:id delete
+  // Mark individual notification read — ownership-scoped via storage layer
   app.put("/api/notifications/:id/read", isAuthenticated, async (req, res) => {
     try {
-      await storage.markNotificationRead(Number(req.params.id));
+      const userId = (req.user as any)?.id;
+      await storage.markNotificationRead(Number(req.params.id), userId);
       res.json({ success: true });
     } catch (err: any) {
       console.error("Mark notification read error:", err.message);

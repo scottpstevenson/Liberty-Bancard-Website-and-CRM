@@ -147,7 +147,7 @@ async function runAbandonedDraftRecovery(): Promise<void> {
         message: `Application #${app.id} (${businessName}) stale for >24h. Enrolling in re-engagement sequence. Contact: ${recipientEmail}`,
         type: "info",
         metadata: { applicationId: app.id, recipientEmail, eventType: "abandoned_application", link: "/dashboard/merchant-applications" },
-      }).catch(() => {});
+      }).catch((err: Error) => console.error("[OnboardingReminder] Notification write failed:", err.message));
 
       // Sequence enrollment: look up contact by email, gate through canEnrollContactInSequence
       try {

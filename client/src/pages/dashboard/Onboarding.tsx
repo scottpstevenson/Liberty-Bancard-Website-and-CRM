@@ -11,12 +11,11 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Calendar, Sparkles, Loader2, Package, CheckCircle2, Circle, Clock, AlertTriangle, FileText, Users, ArrowRight, Timer, Mail } from "lucide-react";
+import { Calendar, Sparkles, Loader2, Package, CheckCircle2, Circle, Clock, AlertTriangle, FileText, Users, ArrowRight, Timer, Mail, ShieldCheck, ShieldAlert } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import type { Deal, Contact } from "@shared/schema";
 import { ONBOARDING_STAGES } from "@shared/schema";
-import { Calendar, Sparkles, Loader2, Package, CheckCircle2, Circle, Clock, AlertTriangle, FileText, Users, ArrowRight, Timer, ShieldCheck, ShieldAlert } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 
 interface OnboardingStatus {
@@ -225,6 +224,16 @@ export default function Onboarding() {
 
   const handleUpdateDeal = async () => {
     if (!selectedDeal) return;
+
+    // Validate go-live date if one was entered
+    if (editGoLiveDate) {
+      const goLive = new Date(editGoLiveDate);
+      if (isNaN(goLive.getTime()) || goLive <= new Date()) {
+        toast({ title: "Invalid go-live date", description: "Go-live date must be in the future.", variant: "destructive" });
+        return;
+      }
+    }
+
     const updates = buildUpdatePayload();
     if (!updates || Object.keys(updates).length === 0) {
       setDetailOpen(false);

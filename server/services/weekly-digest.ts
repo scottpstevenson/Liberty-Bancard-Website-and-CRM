@@ -195,10 +195,12 @@ function isMondayMorningSendWindow(): boolean {
 
 export function startWeeklyDigestWorker(): void {
   console.log("[Weekly Digest Worker] Started - checking every 30min for Monday 9AM-11AM EST send window");
-  digestInterval = setInterval(async () => {
+  digestInterval = setInterval(() => {
     if (isMondayMorningSendWindow()) {
       console.log("[Weekly Digest Worker] Monday morning send window detected, generating digest...");
-      await generateAndSendWeeklyDigest();
+      generateAndSendWeeklyDigest().catch((err: Error) => {
+        console.error("[Weekly Digest Worker] Failed to send digest:", err.message);
+      });
     }
   }, 30 * 60 * 1000);
 }

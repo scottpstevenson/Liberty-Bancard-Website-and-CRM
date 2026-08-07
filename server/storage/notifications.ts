@@ -175,8 +175,13 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
   }
 
 
-  async markNotificationRead(id: number) {
-    await db.update(notifications).set({ read: true }).where(eq(notifications.id, id));
+  async markNotificationRead(id: number, userId?: string) {
+    // If userId is provided, only mark read if the notification belongs to this user
+    // (recipientId matches OR it is a system-wide notification with recipientId IS NULL)
+    const condition = userId
+      ? and(eq(notifications.id, id), or(eq(notifications.recipientId, userId), isNull(notifications.recipientId)))
+      : eq(notifications.id, id);
+    await db.update(notifications).set({ read: true }).where(condition);
   }
 
 
@@ -257,7 +262,13 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
 
   async clearAllNotifications(userId?: string): Promise<void> {
     if (userId) {
+      // Delete this user's personal notifications
       await db.delete(notifications).where(eq(notifications.recipientId, userId));
+      // System-wide notifications (recipientId IS NULL) can't be deleted per-user;
+      // mark them read so they no longer appear in the user's unread count/list.
+      await db.update(notifications).set({ read: true }).where(
+        and(isNull(notifications.recipientId), eq(notifications.read, false))
+      );
     } else {
       await db.delete(notifications);
     }

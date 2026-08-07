@@ -322,6 +322,7 @@ function ContentEditorForm({
   onDelete: () => void;
   saving: boolean;
 }) {
+  const { toast } = useToast();
   const [title, setTitle] = useState(post.title);
   const [excerpt, setExcerpt] = useState(post.excerpt);
   const [seoTitle, setSeoTitle] = useState(post.seoTitle || post.title);
@@ -337,7 +338,7 @@ function ContentEditorForm({
     try {
       content = JSON.parse(contentJson);
     } catch {
-      alert("Content JSON is invalid");
+      toast({ title: "Invalid JSON", description: "Content JSON is not valid — fix syntax before saving.", variant: "destructive" });
       return;
     }
     const author = authors.find((a) => String(a.id) === authorId);
@@ -356,7 +357,7 @@ function ContentEditorForm({
 
   const handleSchedule = () => {
     if (!scheduleAt) {
-      alert("Pick a date/time first");
+      toast({ title: "No date selected", description: "Pick a publish date and time before scheduling.", variant: "destructive" });
       return;
     }
     onTransition("scheduled", new Date(scheduleAt).toISOString());

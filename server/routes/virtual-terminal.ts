@@ -244,7 +244,7 @@ export function registerVirtualTerminalRoutes(app: Express) {
       auditChange({ actorType: "user", userId: (req.user as any)?.id ?? null, action: "user_permissions_changed",
         entityType: "user", entityKey: updated.id,
         before: existing ? { permissions: existing.permissions } : null,
-        after: { permissions: updated.permissions } }).catch(() => {});
+        after: { permissions: updated.permissions } }).catch((err: Error) => console.error("[VirtualTerminal] Audit log failed:", err.message));
       const { passwordHash, ...safeUser } = updated;
       res.json(safeUser);
     } catch (err: any) {

@@ -15,7 +15,7 @@ import { GoLiveGateError } from "../services/go-live-gate";
 
 export function registerCrmOperationsRoutes(app: Express) {
   // === CONTACT DETAIL AGGREGATE ===
-  app.get("/api/contacts/:id/detail", isAuthenticated, async (req, res) => {
+  app.get("/api/contacts/:id/detail", isDashboardUser, async (req, res) => {
     try {
       const contactId = Number(req.params.id);
       const contact = await storage.getContact(contactId);

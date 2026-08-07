@@ -64,8 +64,8 @@ export function startContentScheduler() {
   if (timer) return;
   console.log("[ContentScheduler] Starting (5 min tick)");
   // Initial tick after a short delay so startup isn't blocked.
-  setTimeout(() => { runContentSchedulerTick().catch(() => {}); }, 30_000);
-  timer = setInterval(() => { runContentSchedulerTick().catch(() => {}); }, TICK_MS);
+  setTimeout(() => { runContentSchedulerTick().catch((err: Error) => console.error("[ContentScheduler] Initial tick error:", err.message)); }, 30_000);
+  timer = setInterval(() => { runContentSchedulerTick().catch((err: Error) => console.error("[ContentScheduler] Tick error:", err.message)); }, TICK_MS);
 }
 
 export function stopContentScheduler() {

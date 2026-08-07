@@ -111,26 +111,44 @@ export function registerChargebacksRoutes(app: Express) {
     }
   });
 
+  const patchChargebackSchema = z.object({
+    status: z.enum(["New", "Under Review", "Responded", "Won", "Lost"]).optional(),
+    outcome: z.string().max(200).optional().nullable(),
+    notes: z.string().max(5000).optional().nullable(),
+    reasonCode: z.string().max(50).optional(),
+    reasonDescription: z.string().max(500).optional().nullable(),
+    amount: z.number().positive("Amount must be positive").optional(),
+    cardBrand: z.string().max(50).optional(),
+    responseDeadline: z.string().optional().nullable(),
+    respondedAt: z.string().optional().nullable(),
+    transactionDate: z.string().optional(),
+  }).strict();
+
   app.patch("/api/chargebacks/:id", isDashboardUser, async (req, res) => {
     try {
       const id = Number(req.params.id);
-      const body = { ...req.body };
+      const parsed = patchChargebackSchema.parse(req.body);
+      const body: Record<string, unknown> = { ...parsed };
 
-      if (body.transactionDate && typeof body.transactionDate === "string") {
-        body.transactionDate = new Date(body.transactionDate);
+      if (typeof body.transactionDate === "string") {
+        body.transactionDate = new Date(body.transactionDate as string);
       }
-      if (body.responseDeadline && typeof body.responseDeadline === "string") {
-        body.responseDeadline = new Date(body.responseDeadline);
+      if (typeof body.responseDeadline === "string") {
+        body.responseDeadline = new Date(body.responseDeadline as string);
+      } else if (body.responseDeadline === null) {
+        body.responseDeadline = null;
       }
-      if (body.respondedAt && typeof body.respondedAt === "string") {
-        body.respondedAt = new Date(body.respondedAt);
+      if (typeof body.respondedAt === "string") {
+        body.respondedAt = new Date(body.respondedAt as string);
+      } else if (body.respondedAt === null) {
+        body.respondedAt = null;
       }
 
       if (body.status === "Responded" && !body.respondedAt) {
         body.respondedAt = new Date();
       }
 
-      const updated = await storage.updateChargeback(id, body);
+      const updated = await storage.updateChargeback(id, body as any);
       if (!updated) return res.status(404).json({ message: "Not found" });
 
       await storage.createAuditLog({

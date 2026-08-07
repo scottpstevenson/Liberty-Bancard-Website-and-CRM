@@ -366,7 +366,7 @@ export async function handleSmsThread(rawPayload: unknown): Promise<{ reply?: st
   const isInbound = payload.direction === "inbound";
 
   if (isInbound && payload.body) {
-    markSequenceEmailReplied(ghlContactId, "sms").catch(() => {});
+    markSequenceEmailReplied(ghlContactId, "sms").catch((err: Error) => console.error("[ChatHandler] SMS sequence reply mark failed:", err.message));
   }
 
   const merchant = await findMerchantByGhlId(ghlContactId);
@@ -452,7 +452,7 @@ export async function handleEmailThread(rawPayload: unknown): Promise<{ reply?: 
   const isInbound = payload.direction === "inbound";
 
   if (isInbound && payload.body) {
-    markSequenceEmailReplied(ghlContactId, "email").catch(() => {});
+    markSequenceEmailReplied(ghlContactId, "email").catch((err: Error) => console.error("[ChatHandler] Email sequence reply mark failed:", err.message));
   }
 
   const merchant = await findMerchantByGhlId(ghlContactId);

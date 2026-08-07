@@ -602,7 +602,14 @@ export function registerMerchantsRoutes(app: Express) {
 
   app.get("/api/merchant-applications/user/:userId", isAuthenticated, async (req, res) => {
     try {
-      const application = await storage.getMerchantApplicationByUser(req.params.userId as string);
+      const currentUser = req.user as any;
+      const targetUserId = req.params.userId as string;
+      // Only allow users to fetch their own application, unless they are admin/manager
+      const isPrivileged = currentUser?.role === "admin" || currentUser?.role === "manager";
+      if (!isPrivileged && currentUser?.id !== targetUserId) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      const application = await storage.getMerchantApplicationByUser(targetUserId);
       if (!application) return res.status(404).json({ message: "Not found" });
       res.json(application);
     } catch (err: any) {

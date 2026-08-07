@@ -1201,6 +1201,10 @@ export default function ContactDetail() {
   };
 
   const createDeal = async () => {
+    if (!dealForm.stage) {
+      toast({ title: "Stage required", description: "Select a pipeline stage before creating the deal.", variant: "destructive" });
+      return;
+    }
     try {
       await apiRequest("POST", "/api/deals", {
         contactId,

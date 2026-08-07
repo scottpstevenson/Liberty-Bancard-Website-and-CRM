@@ -1184,6 +1184,10 @@ export default function Pipeline() {
   };
 
   const handleCreateDeal = () => {
+    if (!newDeal.stage) {
+      toast({ title: "Stage required", description: "Select a pipeline stage before creating the deal.", variant: "destructive" });
+      return;
+    }
     const payload: Record<string, unknown> = {
       pipeline: newDeal.pipeline,
       stage: newDeal.stage,

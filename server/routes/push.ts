@@ -21,7 +21,7 @@ export function registerPushRoutes(app: Express) {
       const userId = (req.user as any)?.id;
       if (!userId) return res.status(401).json({ message: "Unauthorized" });
 
-      saveSubscription(userId, subscription);
+      await saveSubscription(userId, subscription);
       res.status(201).json({ message: "Subscribed" });
     } catch (err: any) {
       serverError(res, err);
@@ -34,7 +34,7 @@ export function registerPushRoutes(app: Express) {
       const userId = (req.user as any)?.id;
       if (!userId) return res.status(401).json({ message: "Unauthorized" });
 
-      removeSubscription(userId, endpoint);
+      await removeSubscription(userId, endpoint);
       res.json({ message: "Unsubscribed" });
     } catch (err: any) {
       serverError(res, err);

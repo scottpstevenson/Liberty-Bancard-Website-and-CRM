@@ -1750,7 +1750,7 @@ function persistGhlCircuit(): void {
   db.insert(systemSettings)
     .values({ key: GHL_CIRCUIT_STATE_KEY, value })
     .onConflictDoUpdate({ target: systemSettings.key, set: { value } })
-    .catch(() => {});
+    .catch((err: Error) => console.error("[GHL Circuit] State persistence failed:", err.message));
 }
 
 /**
