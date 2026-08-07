@@ -9,6 +9,7 @@ import { auditChange } from "./audit-change";
 import { writeContact, upsertContactSourceEvent, PROVENANCE_FIELDS } from "./contact-writer";
 import { enqueuePromotionalEnrollment } from "./promotional-enrollment-eligibility";
 import { eq, sql } from "drizzle-orm";
+import { GO_LIVE_GATE_STAGES, checkGoLiveReadiness } from "./go-live-gate";
 
 const CONFLICT_FIELDS: Array<{ ghlKey: string; contactKey: keyof Contact }> = [
   { ghlKey: "firstName", contactKey: "firstName" },
@@ -1068,7 +1069,7 @@ export async function syncDealFromGhl(ghlOpportunity: any): Promise<{ dealId: nu
     const existingDeal = existingDeals.find(d => d.ghlOpportunityId === ghlOpportunity.id);
 
     if (existingDeal) {
-      const updatePayload: Record<string, any> = { stage: localStage };
+      const updatePayload: Record<string, any> = {};
       if (ghlOpportunity.monetaryValue !== undefined && ghlOpportunity.monetaryValue !== null) {
         updatePayload.totalVolume = String(ghlOpportunity.monetaryValue);
       } else if (ghlOpportunity.monetaryValue === null) {
@@ -1077,7 +1078,32 @@ export async function syncDealFromGhl(ghlOpportunity: any): Promise<{ dealId: nu
       if (ghlOpportunity.name) {
         updatePayload.notes = existingDeal.notes || `GHL Opportunity: ${ghlOpportunity.name}`;
       }
-      await storage.updateDeal(existingDeal.id, updatePayload);
+
+      // Go-Live gate: block inbound GHL stage writes that would bypass the readiness check
+      let stageBlocked = false;
+      if (localStage && existingDeal.pipeline === "onboarding" && (GO_LIVE_GATE_STAGES as readonly string[]).includes(localStage)) {
+        const readiness = await checkGoLiveReadiness(existingDeal);
+        if (!readiness.ready) {
+          stageBlocked = true;
+          console.warn(
+            `[GHL Sync] Go-live gate blocked inbound stage "${localStage}" for onboarding deal #${existingDeal.id}. Missing: ${readiness.missing.join("; ")}`,
+          );
+          await storage.createAuditLog({
+            action: "go_live_gate_blocked_ghl_inbound",
+            entityType: "deal",
+            entityId: existingDeal.id,
+            details: { attemptedStage: localStage, missingItems: readiness.missing, source: "ghl_inbound_sync" },
+          });
+        }
+      }
+
+      if (!stageBlocked && localStage) {
+        updatePayload.stage = localStage;
+      }
+
+      if (Object.keys(updatePayload).length > 0) {
+        await storage.updateDeal(existingDeal.id, updatePayload);
+      }
       await updateSyncStatusRecord("deals", "inbound", 1, 0);
       return { dealId: existingDeal.id, created: false };
     }

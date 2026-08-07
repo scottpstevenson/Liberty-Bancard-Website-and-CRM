@@ -7,6 +7,7 @@ import { CALL_BOOKED, PROPOSAL_SENT, CLOSED_WON, DEAL_STAGE_CHANGED } from "@sha
 import { db } from "../db";
 import { deals, tasks } from "@shared/schema";
 import { eq, and, isNull, sql } from "drizzle-orm";
+import { GO_LIVE_GATE_STAGES, evaluateReadinessFromRawRows, GoLiveGateError } from "./go-live-gate";
 
 /** Stage names that map to dedicated funnel analytics events */
 const STAGE_EVENT_MAP: Record<string, string> = {
@@ -24,16 +25,101 @@ const STAGE_EVENT_MAP: Record<string, string> = {
  *   - Closed Won side-effects (onboarding deal, SLA tasks, welcome email) fire
  *     for every code path — pipeline drag, bulk-stage, AI auto-progress, and
  *     merchant application approval
+ *   - Go-Live gate is enforced for onboarding pipeline deals
  *
  * Usage:
  *   await advanceDealStage(dealId, "Underwriting Submitted", "document_auto_advance");
+ *
+ * @param overrideContext  Admin/manager override context — only supply when the caller
+ *                         has already validated the actor's role and captured a reason.
+ *                         When absent, automated/system triggers are blocked (logged + thrown)
+ *                         rather than silently succeeding.
  */
 export async function advanceDealStage(
   dealId: number,
   newStage: string,
-  trigger: string
+  trigger: string,
+  overrideContext?: { reason: string; actor: string },
 ): Promise<Deal | null> {
-  const updated = await storage.updateDeal(dealId, { stage: newStage });
+  let updated: Deal | null;
+
+  if ((GO_LIVE_GATE_STAGES as readonly string[]).includes(newStage)) {
+    // ── Atomic Go-Live gate ────────────────────────────────────────────────
+    // Acquire row-level locks on the deal and its checklist items, evaluate
+    // readiness against the locked snapshot, then write the stage update in
+    // the same transaction — preventing a concurrent checklist change from
+    // bypassing the gate between the check and the write.
+    let gateBlocked = false;
+    let blockedMissing: string[] = [];
+
+    await db.transaction(async (tx) => {
+      // Lock the deal row so no concurrent update can change mid/terminalStatus
+      const dealResult = await tx.execute(
+        sql`SELECT id, pipeline, mid, terminal_status FROM deals WHERE id = ${dealId} FOR UPDATE`,
+      );
+      const dealRow = dealResult.rows[0] as { id: number; pipeline: string; mid: string | null; terminal_status: string | null } | undefined;
+
+      if (!dealRow) return; // deal not found — updateDeal path below will surface null
+
+      if (dealRow.pipeline === "onboarding") {
+        // Lock checklist rows so no concurrent approval change slips through
+        const clResult = await tx.execute(
+          sql`SELECT item_key, status FROM onboarding_checklist_items WHERE deal_id = ${dealId} FOR UPDATE`,
+        );
+        const clRows = clResult.rows as Array<{ item_key: string; status: string | null }>;
+
+        const readiness = evaluateReadinessFromRawRows(dealRow, clRows);
+
+        if (!readiness.ready) {
+          const auditDetails = JSON.stringify({
+            attemptedStage: newStage,
+            missingItems: readiness.missing,
+            trigger,
+            ...(overrideContext
+              ? { overrideReason: overrideContext.reason, overriddenBy: overrideContext.actor }
+              : {}),
+          });
+
+          if (overrideContext) {
+            await tx.execute(sql`
+              INSERT INTO audit_logs (action, entity_type, entity_id, actor_type, details, created_at)
+              VALUES ('go_live_gate_overridden', 'deal', ${dealId}, 'user', ${auditDetails}::jsonb, NOW())
+            `);
+            // Fall through to the stage update below
+          } else {
+            // Write blocked audit log, then bail out of the update (do NOT throw inside tx
+            // — we want the audit log committed even though no stage change occurred).
+            await tx.execute(sql`
+              INSERT INTO audit_logs (action, entity_type, entity_id, actor_type, details, created_at)
+              VALUES ('go_live_gate_blocked', 'deal', ${dealId}, 'system', ${auditDetails}::jsonb, NOW())
+            `);
+            gateBlocked = true;
+            blockedMissing = readiness.missing;
+            return; // exit transaction callback; audit log commits, stage does NOT update
+          }
+        }
+      }
+
+      // Gate passed (or override, or non-onboarding): update stage inside the same transaction
+      await tx.execute(
+        sql`UPDATE deals SET stage = ${newStage}, updated_at = NOW() WHERE id = ${dealId}`,
+      );
+    });
+
+    if (gateBlocked) {
+      console.warn(
+        `[DealStage] Go-live gate blocked stage "${newStage}" for onboarding deal #${dealId} (trigger: ${trigger}). Missing: ${blockedMissing.join("; ")}`,
+      );
+      throw new GoLiveGateError(dealId, newStage, blockedMissing, trigger);
+    }
+
+    // Fetch the freshly updated deal for side-effect callers
+    updated = (await storage.getDeal(dealId)) ?? null;
+  } else {
+    // Non-gate stage: use the standard storage path
+    updated = await storage.updateDeal(dealId, { stage: newStage });
+  }
+
   if (!updated) return null;
 
   console.log(`[DealStage] Deal ${dealId} → "${newStage}" (trigger: ${trigger})`);
@@ -111,18 +197,32 @@ export async function advanceDealStage(
 
 /**
  * Batch stage transition — updates multiple deals in one pass with GHL sync for each.
+ *
+ * Returns `{ advanced, blocked }` so callers can distinguish successful transitions
+ * from go-live gate blocks. Go-live gate blocks are logged inside advanceDealStage
+ * and are NOT counted as successes.
  */
 export async function advanceDealsStageBatch(
   dealIds: number[],
   newStage: string,
-  trigger: string
-): Promise<number> {
-  let count = 0;
+  trigger: string,
+): Promise<{ advanced: number; blocked: number }> {
+  let advanced = 0;
+  let blocked = 0;
   for (const dealId of dealIds) {
-    const result = await advanceDealStage(dealId, newStage, trigger);
-    if (result) count++;
+    try {
+      const result = await advanceDealStage(dealId, newStage, trigger);
+      if (result) advanced++;
+    } catch (err) {
+      if (err instanceof GoLiveGateError) {
+        blocked++;
+        // Already logged + audited inside advanceDealStage — no further action needed
+      } else {
+        throw err; // Re-throw unexpected errors
+      }
+    }
   }
-  return count;
+  return { advanced, blocked };
 }
 
 /**

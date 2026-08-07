@@ -7,8 +7,27 @@ import { merchantOnboardingStages, deals, contacts, tasks, MERCHANT_ONBOARDING_S
 import { eq, and, lt, isNull } from "drizzle-orm";
 import { serverError } from "../utils/server-error";
 import { createAndSendNpsSurvey } from "../services/nps-email";
+import { checkGoLiveReadiness } from "../services/go-live-gate";
+
+// Re-export so existing consumers (deals.ts, Onboarding.tsx API) still work
+export { checkGoLiveReadiness } from "../services/go-live-gate";
+export { GO_LIVE_GATE_STAGES } from "../services/go-live-gate";
 
 export function registerOnboardingStagesRoutes(app: Express) {
+  // ── GET go-live readiness for a deal ─────────────────────────────────────
+  app.get("/api/deals/:id/go-live-readiness", isDashboardUser, async (req, res) => {
+    try {
+      const dealId = parseId(req.params.id);
+      if (dealId === null) return res.status(404).json({ message: "Deal not found" });
+      const deal = await storage.getDeal(dealId);
+      if (!deal) return res.status(404).json({ message: "Deal not found" });
+      const result = await checkGoLiveReadiness(deal);
+      res.json(result);
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
   // ── GET all stages for a deal ──────────────────────────────────────────────
   app.get("/api/deals/:id/onboarding-stages", isDashboardUser, async (req, res) => {
     try {

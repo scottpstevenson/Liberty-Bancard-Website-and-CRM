@@ -23,6 +23,7 @@ import { computeDealTerminalEconomics } from "../services/terminal-economics";
 import { enrollInGhlWorkflow } from "../services/ghl-workflows";
 import { updateCustomFields } from "../services/sdr/ghl-client";
 import { serverError } from "../utils/server-error";
+import { GO_LIVE_GATE_STAGES, checkGoLiveReadiness, GoLiveGateError } from "../services/go-live-gate";
 
 export function registerDealsRoutes(app: Express) {
   // === DEALS ===
@@ -107,9 +108,40 @@ export function registerDealsRoutes(app: Express) {
 
       // Split stage from the rest so stage transitions always go through the service layer,
       // which guarantees GHL sync + Closed Won onboarding kickoff for every code path.
-      const { stage: newStageRaw, ...otherFields } = req.body as Record<string, unknown>;
+      // overrideReason is a UI-only field for go-live gate overrides — strip it before persisting.
+      const { stage: newStageRaw, overrideReason, ...otherFields } = req.body as Record<string, unknown>;
       const newStage = typeof newStageRaw === "string" ? newStageRaw : undefined;
       const stageChanging = newStage !== undefined && newStage !== old.stage;
+
+      // ── Go-Live Gate (HTTP layer) ──────────────────────────────────────────
+      // For user-initiated stage changes to Go-Live or later on the onboarding
+      // pipeline, check prerequisites here (where we have req.user context).
+      // advanceDealStage enforces the same gate for all other callers.
+      let goLiveOverrideCtx: { reason: string; actor: string } | undefined;
+      if (stageChanging && old.pipeline === "onboarding" && (GO_LIVE_GATE_STAGES as readonly string[]).includes(newStage!)) {
+        const readiness = await checkGoLiveReadiness(old);
+        if (!readiness.ready) {
+          const actorRole = (req.user as any)?.role as string | undefined;
+          const canOverride = actorRole === "admin" || actorRole === "manager";
+          const overrideText = typeof overrideReason === "string" ? overrideReason.trim() : "";
+
+          if (!canOverride || !overrideText) {
+            return res.status(422).json({
+              code: "GO_LIVE_GATE_FAILED",
+              message: "Cannot advance to Go-Live: prerequisites not met",
+              missing: readiness.missing,
+              canOverride,
+            });
+          }
+
+          // Valid override — pass context to advanceDealStage so it skips the
+          // duplicate check and writes the single audit log entry.
+          goLiveOverrideCtx = {
+            reason: overrideText,
+            actor: (req.user as any)?.email ?? actorRole ?? "unknown",
+          };
+        }
+      }
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let updated: any;
@@ -118,13 +150,28 @@ export function registerDealsRoutes(app: Express) {
         updated = await storage.updateDeal(dealId, req.body, { userId });
         if (!updated) return res.status(404).json({ message: "Not found" });
       } else {
-        // Stage is changing — apply non-stage field changes first (if any), then route the
-        // stage transition through advanceDealStage (handles GHL sync + Closed Won kickoff).
-        if (Object.keys(otherFields).length > 0) {
-          await storage.updateDeal(dealId, otherFields, { userId });
+        // Stage is changing — route through advanceDealStage (gate check + GHL sync + Closed Won).
+        // For go-live stages on the onboarding pipeline, the gate is atomic inside advanceDealStage;
+        // we write non-stage fields ONLY after a successful stage advance so a blocked gate does
+        // not silently persist unrelated edits. For all other stages, the original order (fields
+        // first, then stage) is preserved so GHL sync fires with the latest field values.
+        const isGoLiveGate = (GO_LIVE_GATE_STAGES as readonly string[]).includes(newStage!)
+          && old.pipeline === "onboarding";
+
+        if (isGoLiveGate) {
+          updated = await advanceDealStage(dealId, newStage!, "put_route", goLiveOverrideCtx);
+          if (!updated) return res.status(404).json({ message: "Not found" });
+          if (Object.keys(otherFields).length > 0) {
+            const merged = await storage.updateDeal(dealId, otherFields, { userId });
+            if (merged) updated = merged;
+          }
+        } else {
+          if (Object.keys(otherFields).length > 0) {
+            await storage.updateDeal(dealId, otherFields, { userId });
+          }
+          updated = await advanceDealStage(dealId, newStage!, "put_route", goLiveOverrideCtx);
+          if (!updated) return res.status(404).json({ message: "Not found" });
         }
-        updated = await advanceDealStage(dealId, newStage!, "put_route");
-        if (!updated) return res.status(404).json({ message: "Not found" });
       }
 
       if (stageChanging) {
@@ -312,6 +359,15 @@ export function registerDealsRoutes(app: Express) {
 
       res.json(updated);
     } catch (err: any) {
+      // Surface go-live gate blocks as 422 rather than 500
+      if (err instanceof GoLiveGateError) {
+        return res.status(422).json({
+          code: "GO_LIVE_GATE_FAILED",
+          message: "Cannot advance to Go-Live: prerequisites not met",
+          missing: err.missing,
+          canOverride: false, // no role context here — client should use the pre-flight check
+        });
+      }
       serverError(res, err);
     }
   });

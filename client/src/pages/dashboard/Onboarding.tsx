@@ -16,6 +16,8 @@ import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import type { Deal, Contact } from "@shared/schema";
 import { ONBOARDING_STAGES } from "@shared/schema";
+import { Calendar, Sparkles, Loader2, Package, CheckCircle2, Circle, Clock, AlertTriangle, FileText, Users, ArrowRight, Timer, ShieldCheck, ShieldAlert } from "lucide-react";
+import { useAuth } from "@/hooks/use-auth";
 
 interface OnboardingStatus {
   dealId: number;
@@ -38,6 +40,12 @@ interface OnboardingStatus {
   createdAt: string | null;
 }
 
+interface GoLiveCheck {
+  key: string;
+  label: string;
+  passed: boolean;
+  detail?: string;
+}
 const STAGE_COLORS: Record<string, string> = {
   "Contract Sent": "bg-blue-300 dark:bg-blue-700",
   "Application Started": "bg-blue-400 dark:bg-blue-600",
@@ -114,6 +122,9 @@ function ResendInviteButton({ dealId }: { dealId: number }) {
 
 export default function Onboarding() {
   const { toast } = useToast();
+  const { user } = useAuth();
+  const isManagerOrAdmin = user?.role === "admin" || user?.role === "manager";
+
   const [selectedDeal, setSelectedDeal] = useState<Deal | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
 
@@ -122,6 +133,14 @@ export default function Onboarding() {
   const [editGoLiveDate, setEditGoLiveDate] = useState("");
   const [editTerminalRec, setEditTerminalRec] = useState("");
   const [editTerminalStatus, setEditTerminalStatus] = useState("");
+
+  // Pre-flight gate state
+  const [preflightOpen, setPreflightOpen] = useState(false);
+  const [preflightData, setPreflightData] = useState<GoLiveReadiness | null>(null);
+  const [preflightError, setPreflightError] = useState(false);
+  const [preflightLoading, setPreflightLoading] = useState(false);
+  const [overrideReason, setOverrideReason] = useState("");
+  const [pendingStage, setPendingStage] = useState<string | null>(null);
 
   const { data: dealsResult, isLoading: dealsLoading } = useQuery<{ data: Deal[]; total: number }>({
     queryKey: ["/api/deals", { pipeline: "onboarding" }],
@@ -155,6 +174,10 @@ export default function Onboarding() {
   const updateDealMutation = useMutation({
     mutationFn: async ({ id, ...data }: { id: number } & Record<string, unknown>) => {
       const res = await apiRequest("PUT", `/api/deals/${id}`, data);
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.message || "Failed to update deal");
+      }
       return res.json();
     },
     onSuccess: () => {
@@ -162,6 +185,10 @@ export default function Onboarding() {
       queryClient.invalidateQueries({ queryKey: ["/api/ai/onboarding-status"] });
       setDetailOpen(false);
       setSelectedDeal(null);
+      setPreflightOpen(false);
+      setPreflightData(null);
+      setOverrideReason("");
+      setPendingStage(null);
       toast({ title: "Deal updated successfully" });
     },
     onError: (err: Error) => {
@@ -172,20 +199,73 @@ export default function Onboarding() {
   const contactsMap = new Map<number, Contact>();
   contacts?.forEach((c) => contactsMap.set(c.id, c));
 
+  const isGoLiveStage = (stage: string) => (GO_LIVE_GATE_STAGES as readonly string[]).includes(stage);
 
-  const handleUpdateDeal = () => {
-    if (!selectedDeal) return;
+  const fetchPreflight = async (deal: Deal): Promise<{ data: GoLiveReadiness | null; error: boolean }> => {
+    try {
+      const res = await fetch(`/api/deals/${deal.id}/go-live-readiness`, { credentials: "include" });
+      if (!res.ok) return { data: null, error: true };
+      return { data: await res.json(), error: false };
+    } catch {
+      return { data: null, error: true };
+    }
+  };
+
+  const buildUpdatePayload = (overrideReasonStr?: string): Record<string, unknown> | null => {
+    if (!selectedDeal) return null;
     const updates: Record<string, unknown> = {};
     if (editStage && editStage !== selectedDeal.stage) updates.stage = editStage;
     if (editNotes !== (selectedDeal.notes || "")) updates.notes = editNotes;
     if (editGoLiveDate) updates.goLiveDate = new Date(editGoLiveDate).toISOString();
     if (editTerminalRec !== (selectedDeal.terminalRecommendation || "")) updates.terminalRecommendation = editTerminalRec;
     if (editTerminalStatus !== (selectedDeal.terminalStatus || "")) updates.terminalStatus = editTerminalStatus;
-    if (Object.keys(updates).length === 0) {
+    if (overrideReasonStr) updates.overrideReason = overrideReasonStr;
+    return updates;
+  };
+
+  const handleUpdateDeal = async () => {
+    if (!selectedDeal) return;
+    const updates = buildUpdatePayload();
+    if (!updates || Object.keys(updates).length === 0) {
       setDetailOpen(false);
       return;
     }
+
+    // Gate: if moving to a go-live stage and it's actually changing, run the pre-flight
+    const stageIsChanging = editStage !== selectedDeal.stage;
+    if (stageIsChanging && isGoLiveStage(editStage) && selectedDeal.pipeline === "onboarding") {
+      setPreflightLoading(true);
+      setPreflightError(false);
+      const { data: readiness, error: fetchErr } = await fetchPreflight(selectedDeal);
+      setPreflightLoading(false);
+      setPreflightData(readiness);
+      setPreflightError(fetchErr);
+      setPendingStage(editStage);
+      setOverrideReason("");
+      setPreflightOpen(true);
+      return; // wait for user to confirm in the preflight dialog
+    }
+
     updateDealMutation.mutate({ id: selectedDeal.id, ...updates });
+  };
+
+  const handlePreflightConfirm = () => {
+    if (!selectedDeal) return;
+    const hasBlocking = preflightData && !preflightData.ready;
+    if (hasBlocking && (!isManagerOrAdmin || !overrideReason.trim())) return;
+
+    const updates = buildUpdatePayload(hasBlocking && isManagerOrAdmin ? overrideReason.trim() : undefined);
+    if (!updates) return;
+    updateDealMutation.mutate({ id: selectedDeal.id, ...updates });
+  };
+
+  const handlePreflightCancel = () => {
+    // Revert stage selection
+    if (selectedDeal) setEditStage(selectedDeal.stage);
+    setPendingStage(null);
+    setPreflightData(null);
+    setOverrideReason("");
+    setPreflightOpen(false);
   };
 
   const openDealDetail = (deal: Deal) => {
@@ -399,6 +479,7 @@ export default function Onboarding() {
         <ScrollBar orientation="horizontal" />
       </ScrollArea>
 
+      {/* ── Detail edit dialog ─────────────────────────────────────────────── */}
       <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
         <DialogContent className="max-w-md" data-testid="dialog-onboarding-detail">
           <DialogHeader>
@@ -561,6 +642,12 @@ export default function Onboarding() {
                     ))}
                   </SelectContent>
                 </Select>
+                {isGoLiveStage(editStage) && editStage !== selectedDeal.stage && (
+                  <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1 mt-1">
+                    <ShieldAlert className="w-3 h-3 shrink-0" />
+                    A pre-flight check will run before saving this stage change.
+                  </p>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -590,14 +677,170 @@ export default function Onboarding() {
                 <Button variant="outline" onClick={() => setDetailOpen(false)} data-testid="button-onboarding-cancel-edit">
                   Cancel
                 </Button>
-                <Button onClick={handleUpdateDeal} disabled={updateDealMutation.isPending} data-testid="button-onboarding-save-deal">
-                  {updateDealMutation.isPending ? "Saving..." : "Save Changes"}
+                <Button
+                  onClick={handleUpdateDeal}
+                  disabled={updateDealMutation.isPending || preflightLoading}
+                  data-testid="button-onboarding-save-deal"
+                >
+                  {preflightLoading ? (
+                    <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Checking…</>
+                  ) : updateDealMutation.isPending ? "Saving..." : "Save Changes"}
                 </Button>
               </div>
             </div>
           )}
         </DialogContent>
       </Dialog>
+
+      {/* ── Go-Live Pre-flight Dialog ──────────────────────────────────────── */}
+      <Dialog open={preflightOpen} onOpenChange={(open) => { if (!open) handlePreflightCancel(); }}>
+        <DialogContent className="max-w-md" data-testid="dialog-golive-preflight">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {preflightData?.ready ? (
+                <ShieldCheck className="w-5 h-5 text-green-500" />
+              ) : (
+                <ShieldAlert className="w-5 h-5 text-amber-500" />
+              )}
+              Go-Live Pre-flight Check
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4 pt-2">
+            <p className="text-sm text-muted-foreground">
+              Moving to <strong>{pendingStage}</strong> requires all prerequisites to be satisfied.
+            </p>
+
+            {preflightError ? (
+              <div className="space-y-3" data-testid="preflight-fetch-error">
+                <div className="flex items-start gap-2 text-sm p-3 rounded-md bg-red-50 dark:bg-red-950/30">
+                  <AlertTriangle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-red-700 dark:text-red-300 font-medium">Unable to load readiness data</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      The server could not be reached. Check your connection and try again.
+                    </p>
+                  </div>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={preflightLoading}
+                  data-testid="button-preflight-retry"
+                  onClick={async () => {
+                    if (!selectedDeal) return;
+                    setPreflightLoading(true);
+                    setPreflightError(false);
+                    const { data, error } = await fetchPreflight(selectedDeal);
+                    setPreflightLoading(false);
+                    setPreflightData(data);
+                    setPreflightError(error);
+                  }}
+                >
+                  {preflightLoading ? <><Loader2 className="w-3 h-3 mr-1 animate-spin" />Retrying…</> : "Retry"}
+                </Button>
+              </div>
+            ) : preflightData ? (
+              <div className="space-y-2" data-testid="preflight-checklist">
+                {preflightData.checks.map((check) => (
+                  <div
+                    key={check.key}
+                    className={`flex items-start gap-2 text-sm p-2 rounded-md ${
+                      check.passed
+                        ? "bg-green-50 dark:bg-green-950/30"
+                        : "bg-red-50 dark:bg-red-950/30"
+                    }`}
+                    data-testid={`preflight-check-${check.key}`}
+                  >
+                    {check.passed ? (
+                      <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0 mt-0.5" />
+                    ) : (
+                      <AlertTriangle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+                    )}
+                    <div>
+                      <span className={check.passed ? "text-green-700 dark:text-green-300" : "text-red-700 dark:text-red-300 font-medium"}>
+                        {check.label}
+                      </span>
+                      {check.detail && (
+                        <span className="text-xs text-muted-foreground ml-2">({check.detail})</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Running checks…
+              </div>
+            )}
+
+            {/* Override section — admin/manager only, only when there are failures */}
+            {preflightData && !preflightData.ready && isManagerOrAdmin && (
+              <div className="border-t pt-3 space-y-2" data-testid="preflight-override-section">
+                <Label className="text-amber-600 dark:text-amber-400 text-xs font-semibold uppercase tracking-wide">
+                  Admin Override
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  As an admin/manager you can override this gate. A reason is required and will be recorded in the audit log.
+                </p>
+                <Textarea
+                  value={overrideReason}
+                  onChange={(e) => setOverrideReason(e.target.value)}
+                  placeholder="Reason for override (required)…"
+                  className="text-sm"
+                  rows={3}
+                  data-testid="input-override-reason"
+                />
+              </div>
+            )}
+
+            {preflightData && !preflightData.ready && !isManagerOrAdmin && (
+              <p className="text-sm text-red-600 dark:text-red-400 font-medium" data-testid="preflight-blocked-message">
+                This transition is blocked. Contact an admin or manager to proceed.
+              </p>
+            )}
+
+            <div className="flex justify-end gap-2 pt-1">
+              <Button variant="outline" onClick={handlePreflightCancel} data-testid="button-preflight-cancel">
+                Cancel
+              </Button>
+              {preflightData && (preflightData.ready || isManagerOrAdmin) && (
+                <Button
+                  onClick={handlePreflightConfirm}
+                  disabled={
+                    updateDealMutation.isPending ||
+                    (!preflightData.ready && isManagerOrAdmin && !overrideReason.trim())
+                  }
+                  variant={preflightData.ready ? "default" : "destructive"}
+                  data-testid="button-preflight-confirm"
+                >
+                  {updateDealMutation.isPending ? (
+                    <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Saving…</>
+                  ) : preflightData.ready ? (
+                    "Confirm Go-Live"
+                  ) : (
+                    "Override & Save"
+                  )}
+                </Button>
+              )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
+
+interface GoLiveReadiness {
+  ready: boolean;
+  checks: GoLiveCheck[];
+  missing: string[];
+}
+
+const GO_LIVE_GATE_STAGES = [
+  "Go-Live Scheduled",
+  "Live (First Batch)",
+  "Active (7 Days)",
+  "Active (30 Days)",
+] as const;

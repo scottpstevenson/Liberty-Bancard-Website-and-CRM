@@ -1098,12 +1098,30 @@ export default function Pipeline() {
   const bulkStageMutation = useMutation({
     mutationFn: async ({ dealIds, stage }: { dealIds: number[]; stage: string }) => {
       const res = await apiRequest("POST", "/api/deals/bulk-stage", { dealIds, stage });
-      return res.json();
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.message || "Failed to move deals");
+      }
+      return res.json() as Promise<{ advanced: number; blocked: number; blockedDealIds: number[] }>;
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["/api/deals"] });
       setSelectedDealIds(new Set());
-      toast({ title: "Deals moved successfully" });
+      if (result.blocked === 0) {
+        toast({ title: `${result.advanced} deal${result.advanced !== 1 ? "s" : ""} moved successfully` });
+      } else if (result.advanced === 0) {
+        toast({
+          title: "No deals moved — Go-Live prerequisites not met",
+          description: `${result.blocked} deal${result.blocked !== 1 ? "s" : ""} blocked by the Go-Live gate. Complete the checklist, assign a MID, and confirm terminal status before advancing.`,
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: `${result.advanced} moved, ${result.blocked} blocked`,
+          description: `${result.blocked} deal${result.blocked !== 1 ? "s" : ""} could not advance: Go-Live prerequisites not met. An admin can override from the Onboarding page.`,
+          variant: "destructive",
+        });
+      }
     },
     onError: (err: Error) => {
       toast({ title: "Failed to move deals", description: err.message, variant: "destructive" });

@@ -10,6 +10,8 @@ import { syncContactToGhl, syncDealToGhl } from "../services/ghl-sync";
 import { extractRelationshipsForContact } from "../services/relationship-extractor";
 import { propagateContactDeleteToGhl, propagateDealDeleteToGhl, propagateTaskDeleteToGhl } from "../services/ghl-delete-sync";
 import { serverError } from "../utils/server-error";
+import { advanceDealStage } from "../services/deal-stage-service";
+import { GoLiveGateError } from "../services/go-live-gate";
 
 export function registerCrmOperationsRoutes(app: Express) {
   // === CONTACT DETAIL AGGREGATE ===
@@ -211,18 +213,40 @@ export function registerCrmOperationsRoutes(app: Express) {
   // === BULK OPERATIONS ===
   app.post("/api/deals/bulk-stage", requireRole("admin", "manager"), async (req, res) => {
     try {
-      const { dealIds, stage } = req.body;
+      const { dealIds, stage, overrideReason } = req.body;
       if (!Array.isArray(dealIds) || !stage) return res.status(400).json({ message: "dealIds array and stage required" });
-      const auditCtx = { actorType: "user" as const, userId: (req.user as any)?.id ?? null };
-      await storage.bulkUpdateDealStage(dealIds, stage, auditCtx);
-      if (isGhlConfigured()) {
-        for (const dealId of dealIds) {
-          syncDealToGhl(dealId).catch((err: Error) => {
-            console.warn(`[GHL Bulk Stage] Failed to sync deal ${dealId} to GHL:`, err.message);
-          });
+
+      const actor = req.user as any;
+      const actorEmail: string = actor?.email ?? actor?.role ?? "unknown";
+
+      // Build override context for go-live gate if a reason was supplied.
+      // Admin/manager role is already enforced by requireRole above.
+      const overrideCtx =
+        typeof overrideReason === "string" && overrideReason.trim()
+          ? { reason: overrideReason.trim(), actor: actorEmail }
+          : undefined;
+
+      let advanced = 0;
+      let blocked = 0;
+      const blockedDealIds: number[] = [];
+
+      for (const rawId of dealIds) {
+        const dealId = Number(rawId);
+        try {
+          const result = await advanceDealStage(dealId, stage, "bulk_stage", overrideCtx);
+          if (result) advanced++;
+        } catch (err) {
+          if (err instanceof GoLiveGateError) {
+            blocked++;
+            blockedDealIds.push(dealId);
+            // GoLiveGateError already wrote an audit log inside advanceDealStage
+          } else {
+            throw err; // unexpected errors bubble up
+          }
         }
       }
-      res.json({ success: true, count: dealIds.length });
+
+      res.json({ success: true, advanced, blocked, blockedDealIds });
     } catch (err: any) {
       console.error("Bulk stage update error:", err.message);
       serverError(res, err);
