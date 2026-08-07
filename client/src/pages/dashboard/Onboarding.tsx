@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Calendar, Sparkles, Loader2, Package, CheckCircle2, Circle, Clock, AlertTriangle, FileText, Users, ArrowRight, Timer } from "lucide-react";
+import { Calendar, Sparkles, Loader2, Package, CheckCircle2, Circle, Clock, AlertTriangle, FileText, Users, ArrowRight, Timer, Mail } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import type { Deal, Contact } from "@shared/schema";
@@ -60,6 +60,56 @@ function getDaysColor(days: number): string {
   if (days <= 3) return "text-green-600 dark:text-green-400";
   if (days <= 7) return "text-amber-600 dark:text-amber-400";
   return "text-red-600 dark:text-red-400";
+}
+
+/** Small self-contained component for the "Resend Portal Invite" action */
+function ResendInviteButton({ dealId }: { dealId: number }) {
+  const { toast } = useToast();
+  const [sent, setSent] = useState(false);
+
+  const mutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/deals/${dealId}/resend-portal-invite`, {});
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.message || "Failed to send invitation");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      setSent(true);
+      toast({ title: "Portal invitation sent", description: "The merchant will receive an email with their activation link." });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Could not send invitation", description: err.message, variant: "destructive" });
+    },
+  });
+
+  return (
+    <div className="border-t pt-3">
+      <Button
+        variant="outline"
+        size="sm"
+        className="w-full gap-2"
+        onClick={() => mutation.mutate()}
+        disabled={mutation.isPending}
+        data-testid="button-resend-portal-invite"
+      >
+        {mutation.isPending ? (
+          <Loader2 className="w-4 h-4 animate-spin" />
+        ) : (
+          <Mail className="w-4 h-4" />
+        )}
+        {sent ? "Resend Portal Invitation" : "Send Portal Invitation"}
+      </Button>
+      {sent && (
+        <p className="text-xs text-muted-foreground text-center mt-1.5 flex items-center justify-center gap-1">
+          <CheckCircle2 className="w-3 h-3 text-green-500" />
+          Invitation sent — link expires in 72 hours
+        </p>
+      )}
+    </div>
+  );
 }
 
 export default function Onboarding() {
@@ -532,6 +582,9 @@ export default function Onboarding() {
                   data-testid="input-onboarding-edit-notes"
                 />
               </div>
+
+              {/* Resend portal invitation */}
+              <ResendInviteButton dealId={selectedDeal.id} />
 
               <div className="flex justify-end gap-2 pt-2">
                 <Button variant="outline" onClick={() => setDetailOpen(false)} data-testid="button-onboarding-cancel-edit">

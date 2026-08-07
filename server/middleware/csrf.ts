@@ -31,6 +31,7 @@ const EXEMPT_PATHS_EXACT = new Set([
   "/api/partners/forgot-password",
   "/api/partners/reset-password",
   "/api/partners/set-password",
+  "/api/auth/portal-invite/activate",
   "/api/affiliate/login",
   "/api/affiliate/signup",
   "/api/affiliate/logout",

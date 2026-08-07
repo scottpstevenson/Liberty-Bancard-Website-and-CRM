@@ -23,6 +23,7 @@ const Login = lazy(() => import("@/pages/Login"));
 const ForgotPassword = lazy(() => import("@/pages/ForgotPassword"));
 const ResetPassword = lazy(() => import("@/pages/ResetPassword"));
 const VerifyEmail = lazy(() => import("@/pages/VerifyEmail"));
+const ActivatePortal = lazy(() => import("@/pages/ActivatePortal"));
 
 // ─── Public Marketing Pages ───────────────────────────────────────────────────
 const Home = lazy(() => import("@/pages/Home"));
@@ -336,6 +337,7 @@ function Router() {
         <Route path="/forgot-password" component={ForgotPassword} />
         <Route path="/reset-password" component={ResetPassword} />
         <Route path="/verify-email" component={VerifyEmail} />
+        <Route path="/activate-portal" component={ActivatePortal} />
         <Route path="/" component={Home} />
         <Route path="/get-started" component={GetStarted} />
         <Route path="/upload-statement" component={UploadStatement} />

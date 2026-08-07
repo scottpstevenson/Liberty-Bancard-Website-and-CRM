@@ -135,6 +135,24 @@ async function performBoardingStatusRefresh(dealId: number): Promise<BoardingRef
 
     await storage.updateDeal(dealId, updates);
 
+    // When the processor approves the deal, fire the merchant portal invitation
+    // so the merchant gets their access link. This mirrors the same hook in
+    // advanceDealStage — boarding.ts sets stage directly to preserve the extra
+    // boarding fields, so the invite must be triggered here explicitly.
+    if (result.status === "approved" && deal.pipeline === "onboarding") {
+      import("../services/merchant-portal-invite").then(({ sendMerchantPortalInvite }) =>
+        sendMerchantPortalInvite(dealId).then((inviteResult) => {
+          if (!inviteResult.sent) {
+            console.log(
+              `[Boarding] Portal invite skipped for deal ${dealId} (reason: ${inviteResult.reason})`,
+            );
+          }
+        })
+      ).catch((err: Error) =>
+        console.error(`[Boarding] Portal invite error for deal ${dealId}:`, err.message),
+      );
+    }
+
     await storage.createAuditLog({
       action: "boarding_status_refreshed",
       entityType: "deal",

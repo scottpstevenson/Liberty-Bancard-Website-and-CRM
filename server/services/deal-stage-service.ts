@@ -91,6 +91,21 @@ export async function advanceDealStage(
     );
   }
 
+  // Approved / Go-Live Scheduled → send merchant portal invitation
+  if (newStage === "Approved" || newStage === "Go-Live Scheduled") {
+    import("./merchant-portal-invite").then(({ sendMerchantPortalInvite }) =>
+      sendMerchantPortalInvite(dealId).then((result) => {
+        if (!result.sent) {
+          console.log(
+            `[DealStage] Portal invite skipped for deal ${dealId} (reason: ${result.reason})`,
+          );
+        }
+      })
+    ).catch((err: Error) =>
+      console.error(`[DealStage] Portal invite error for deal ${dealId}:`, err.message),
+    );
+  }
+
   return updated;
 }
 

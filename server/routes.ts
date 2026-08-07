@@ -67,6 +67,7 @@ import { registerInformationFlowRoutes } from "./routes/information-flow";
 import { registerInboxOwnershipRoutes } from "./routes/inbox-ownership";
 import { registerStatementReviewRoutes } from "./routes/statement-review";
 import { registerOnboardingStagesRoutes } from "./routes/onboarding-stages";
+import { registerMerchantPortalInviteRoutes } from "./routes/merchant-portal-invite";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -138,6 +139,7 @@ export async function registerRoutes(
     "/forgot-password",
     "/reset-password",
     "/verify-email",
+    "/activate-portal",
     "/thanks-statement",
     "/thanks-estimate",
     "/thanks-call",
@@ -202,6 +204,7 @@ export async function registerRoutes(
   registerInboxOwnershipRoutes(app);
   registerStatementReviewRoutes(app);
   registerOnboardingStagesRoutes(app);
+  registerMerchantPortalInviteRoutes(app);
 
   // Must be registered before the API 404 catch-all — extracts route
   // permissions by walking the already-populated express router stack
