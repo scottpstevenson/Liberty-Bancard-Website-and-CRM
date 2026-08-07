@@ -173,6 +173,15 @@ app.set("trust proxy", 1);
     // gate), and any in-process healthcheck must reach the actual server
     // without being bounced to the canonical HTTPS domain.
     if (reqHost === "localhost" || reqHost === "127.0.0.1") return next();
+    // Never redirect numeric IPv4 addresses — Cloud Run / autoscale startup
+    // probes arrive directly at the container IP (e.g. 10.x.x.x), not via
+    // a named hostname, so the Host header is a raw IP. Redirecting them
+    // would make the health check receive a 301 instead of 200 and fail
+    // the promote step on every deploy.
+    if (/^\d{1,3}(\.\d{1,3}){3}$/.test(reqHost)) return next();
+    // Never redirect Replit-managed subdomains (*.replit.app, *.repl.co) —
+    // these are used by Replit's own health probes and internal traffic.
+    if (/\.(replit\.app|repl\.co|replit\.dev)$/.test(reqHost)) return next();
     if (
       req.path.startsWith("/api") ||
       req.path.startsWith("/webhooks") ||

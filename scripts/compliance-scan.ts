@@ -676,6 +676,22 @@ const CALL_SITE_ALLOWLIST: Array<{
     reason: "Health monitor degradation alert — sent only to ADMIN_ALERT_EMAIL when a critical subsystem (db/sequenceWorker/redis/kpiQuery) newly degrades. Operator-only recipient, no prospect/consumer data, fire-and-forget. Reviewed 2026-08-06.",
     reviewDate: "2026-08-06",
   },
+  {
+    file: "server/services/partner-notifications.ts",
+    lineContains: "sendSmtpEmail",
+    channel: "email",
+    category: "transactional_merchant",
+    reason: "sendPartnerGoLiveEmail — triggered only when a referred merchant deal transitions to Closed Won. Recipient is the referring partner (operator-vetted), not a consumer prospect. No marketing content; confirms a business event the partner is expecting.",
+    reviewDate: "2026-08-07",
+  },
+  {
+    file: "server/services/partner-notifications.ts",
+    lineContains: "sendSmtpEmail",
+    channel: "email",
+    category: "internal_admin",
+    reason: "sendMonthlyDigestEmail — monthly residuals summary to a registered partner (internal_admin class: operator-vetted B2B recipient). Sent by the BullMQ monthly residuals job, not to consumer prospects. Partners have opted-in through the partner program.",
+    reviewDate: "2026-08-07",
+  },
 ];
 
 
