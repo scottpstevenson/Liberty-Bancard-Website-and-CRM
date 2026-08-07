@@ -251,12 +251,17 @@ import { coerceDateFields } from "../utils/date-coerce";
 
 
   async setSystemSetting(key: string, value: any): Promise<void> {
-    const existing = await db.select().from(systemSettings).where(eq(systemSettings.key, key));
-    if (existing.length > 0) {
-      await db.update(systemSettings).set({ value, updatedAt: new Date() }).where(eq(systemSettings.key, key));
-    } else {
-      await db.insert(systemSettings).values({ key, value, updatedAt: new Date() });
-    }
+    // Use an atomic upsert to avoid SELECT-then-INSERT/UPDATE races under
+    // concurrent worker ticks (e.g. multiple BullMQ workers writing heartbeats
+    // at the same time). The previous SELECT+UPDATE pattern could silently
+    // swallow one write when two processes raced on the same key.
+    await db.execute(sql`
+      INSERT INTO system_settings (key, value, updated_at)
+      VALUES (${key}, ${JSON.stringify(value)}::jsonb, NOW())
+      ON CONFLICT (key) DO UPDATE
+        SET value = EXCLUDED.value,
+            updated_at = EXCLUDED.updated_at
+    `);
   }
 
 

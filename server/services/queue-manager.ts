@@ -1263,7 +1263,7 @@ async function runSequencesTick(): Promise<void> {
       sent: (result as any).sent ?? 0,
       enabled: true,
       ...(sequenceError ? { lastError: sequenceError.message } : {}),
-    }).catch(() => {});
+    }).catch((err: Error) => console.error("[Queue:sequences] heartbeat write failed (setSystemSetting):", err.message));
     // Emit audit-log heartbeat so go-live-check.ts and monitoring can verify the
     // worker ran without relying on system_settings alone.
     await storage.createAuditLog({
@@ -1276,7 +1276,7 @@ async function runSequencesTick(): Promise<void> {
         sent: (result as any).sent ?? 0,
         ...(sequenceError ? { error: sequenceError.message } : {}),
       },
-    }).catch(() => {});
+    }).catch((err: Error) => console.error("[Queue:sequences] heartbeat write failed (createAuditLog):", err.message));
   }
 
   if (!sequenceError && ((result as any).processed ?? 0) === 0) {
