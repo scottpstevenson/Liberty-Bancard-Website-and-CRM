@@ -336,6 +336,86 @@ export function registerContactsRoutes(app: Express) {
     }
   });
 
+
+  // Full contacts CSV export (no row cap)
+  // GET /api/contacts/export-csv?status=&vertical=&assignedTo=&search=
+  // Admin/manager only. Uses raw pool query — no ORM-imposed 500-row limit.
+  app.get("/api/contacts/export-csv", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const status     = req.query.status     ? String(req.query.status)     : undefined;
+      const vertical   = req.query.vertical   ? String(req.query.vertical)   : undefined;
+      const assignedTo = req.query.assignedTo ? String(req.query.assignedTo) : undefined;
+      const search     = req.query.search     ? String(req.query.search)     : undefined;
+
+      const params: unknown[] = [];
+      const conditions: string[] = ["archived_at IS NULL"];
+
+      if (status) {
+        params.push(status);
+        conditions.push(`status = $${params.length}`);
+      }
+      if (vertical) {
+        params.push(vertical);
+        conditions.push(`vertical = $${params.length}`);
+      }
+      // assignedTo filter omitted — contacts table has no assigned_to column
+      if (search) {
+        params.push(`%${search.toLowerCase()}%`);
+        const n = params.length;
+        conditions.push(
+          `(lower(first_name) LIKE $${n} OR lower(last_name) LIKE $${n} OR lower(email) LIKE $${n} OR lower(company_name) LIKE $${n})`
+        );
+      }
+
+      const whereClause = conditions.join(" AND ");
+      const result = await pool.query(
+        `SELECT id, first_name, last_name, email, phone,
+                company_name, vertical, status,
+                email_status, sms_status, do_not_contact,
+                monthly_volume, current_provider,
+                created_at, last_contacted_at
+         FROM contacts
+         WHERE ${whereClause}
+         ORDER BY id DESC`,
+        params,
+      );
+
+      function csvEsc(val: unknown): string {
+        if (val == null) return "";
+        const s = String(val);
+        if (s.includes(",") || s.includes('"') || s.includes("\n")) {
+          return `"${s.replace(/"/g, '""')}"`;
+        }
+        return s;
+      }
+
+      const headers = [
+        "id", "firstName", "lastName", "email", "phone",
+        "companyName", "vertical", "status",
+        "emailStatus", "smsStatus", "doNotContact",
+        "monthlyVolume", "currentProvider",
+        "createdAt", "lastContactedAt",
+      ];
+
+      const rows = result.rows.map((r) => [
+        r.id, r.first_name, r.last_name, r.email, r.phone,
+        r.company_name, r.vertical, r.status,
+        r.email_status, r.sms_status, r.do_not_contact,
+        r.monthly_volume, r.current_provider,
+        r.created_at ? new Date(r.created_at).toISOString() : "",
+        r.last_contacted_at ? new Date(r.last_contacted_at).toISOString() : "",
+      ].map(csvEsc).join(","));
+
+      const csv = [headers.join(","), ...rows].join("\n");
+      const date = new Date().toISOString().split("T")[0];
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader("Content-Disposition", `attachment; filename="contacts-${date}.csv"`);
+      res.send(csv);
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
   // ── Blocked contacts CSV export ───────────────────────────────────────────
   // GET /api/contacts/blocked/export-csv?emailStatus=&doNotContact=&reason=
   app.get("/api/contacts/blocked/export-csv", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
@@ -446,6 +526,16 @@ export function registerContactsRoutes(app: Express) {
     try {
       const contactId = Number(req.params.id);
       const existing = await storage.getContact(contactId);
+      if (!existing) return res.status(404).json({ message: "Not found" });
+
+      // Agent-scope ownership guard on write path (mirrors GET guard).
+      const _putRole = (req.user as any)?.role;
+      const _putEmail = (req.user as any)?.email;
+      const _assignedTo = (existing as any).assignedTo as string | null | undefined;
+      if (_putRole === "agent" && _assignedTo && _assignedTo !== _putEmail) {
+        return res.status(403).json({ message: "Forbidden", code: "NOT_YOUR_CONTACT" });
+      }
+
       const contactDateSchema = z.object({
         lastScoredAt: z.coerce.date().optional().nullable(),
         smsOptInAt: z.coerce.date().optional().nullable(),

@@ -557,7 +557,11 @@ export function registerPartnerOrgsRoutes(app: Express) {
       // Send welcome email to the new org user
       (async () => {
         try {
-          const { sendSmtpEmail } = await import("../services/smtp-email");
+          const { sendSmtpEmail, isSmtpConfigured } = await import("../services/smtp-email");
+          if (!isSmtpConfigured()) {
+            console.warn(`[PartnerOrgs] SMTP not configured — welcome email to ${email} skipped; user must receive credentials manually.`);
+            return;
+          }
           const { getEmailSignatureHtml } = await import("../services/email-signatures");
           const replitDomain = process.env.REPLIT_DOMAINS?.split(",")[0]?.trim();
           const baseUrl = process.env.APP_URL ||

@@ -96,6 +96,14 @@ export function registerDealsRoutes(app: Express) {
       const old = await storage.getDeal(dealId);
       if (!old || old.archivedAt) return res.status(404).json({ message: "Not found" });
 
+      // Agent-scope ownership guard on write path (mirrors GET guard).
+      // Agents may only modify deals they own; unassigned deals are open to all.
+      const _role = (req.user as any)?.role;
+      const _email = (req.user as any)?.email;
+      if (_role === "agent" && old.owner && old.owner !== _email) {
+        return res.status(403).json({ message: "Forbidden", code: "NOT_YOUR_DEAL" });
+      }
+
       // Split stage from the rest so stage transitions always go through the service layer,
       // which guarantees GHL sync + Closed Won onboarding kickoff for every code path.
       const { stage: newStageRaw, ...otherFields } = req.body as Record<string, unknown>;

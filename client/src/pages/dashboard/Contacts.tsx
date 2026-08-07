@@ -25,6 +25,7 @@ import { Label } from "@/components/ui/label";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { exportToCSV } from "@/lib/export-csv";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 import SavedFilterBar from "@/components/SavedFilterBar";
 import DashboardErrorState from "@/components/DashboardErrorState";
 import { VERTICALS } from "@shared/schema";
@@ -435,6 +436,7 @@ export default function Contacts() {
   );
   const { failedMap: confirmationFailedMap } = useConfirmationFailedBatch(pageContactIds);
   const { toast } = useToast();
+  const { user } = useAuth();
 
   const archiveContactMutation = useMutation({
     mutationFn: async (id: number) => {
@@ -811,18 +813,35 @@ export default function Contacts() {
               <Download className="w-4 h-4" /> Export {emailHealthFilter === "opted_out" ? "Opted-Out" : emailHealthFilter === "invalid" ? "Invalid" : "Bounced"}
             </Button>
           )}
-          <Button variant="outline" size="sm" className="gap-2" onClick={() => exportToCSV(filteredContacts || [], "contacts", [
-            { key: "firstName", label: "First Name" },
-            { key: "lastName", label: "Last Name" },
-            { key: "email", label: "Email" },
-            { key: "phone", label: "Phone" },
-            { key: "companyName", label: "Company" },
-            { key: "status", label: "Status" },
-            { key: "emailStatus", label: "Email Status" },
-            { key: "bouncedAt", label: "Bounced At" },
-            { key: "leadScore", label: "Lead Score" },
-            { key: "createdAt", label: "Created At" },
-          ])} data-testid="button-export-contacts">
+          <Button variant="outline" size="sm" className="gap-2" onClick={() => {
+            const role = user?.role;
+            if (role === "admin" || role === "manager") {
+              // Server-side export — no row cap, respects active filters
+              const params = new URLSearchParams();
+              if (statusFilter) params.set("status", statusFilter);
+              if (searchTerm) params.set("search", searchTerm);
+              const url = `/api/contacts/export-csv${params.toString() ? `?${params}` : ""}`;
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = `contacts-${new Date().toISOString().split("T")[0]}.csv`;
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+            } else {
+              // Agent: client-side export of visible page only
+              exportToCSV(filteredContacts || [], "contacts", [
+                { key: "firstName", label: "First Name" },
+                { key: "lastName", label: "Last Name" },
+                { key: "email", label: "Email" },
+                { key: "phone", label: "Phone" },
+                { key: "companyName", label: "Company" },
+                { key: "status", label: "Status" },
+                { key: "emailStatus", label: "Email Status" },
+                { key: "leadScore", label: "Lead Score" },
+                { key: "createdAt", label: "Created At" },
+              ]);
+            }
+          }} data-testid="button-export-contacts">
             <Download className="w-4 h-4" /> Export CSV
           </Button>
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>

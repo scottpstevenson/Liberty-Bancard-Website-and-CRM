@@ -225,6 +225,15 @@ const CASES: GuardCase[] = [
   // Content-type is verified separately below (must be text/csv on 200).
   { method: "GET",  path: "/api/contacts/blocked/export-csv",          anon: [401], merchant: [403], admin: [200], agent: [403], manager: [200], description: "blocked-contact CSV export (requireRole admin/manager; agent→403)" },
 
+  // Full contacts CSV export (no row cap) — requireRole admin/manager
+  { method: "GET",  path: "/api/contacts/export-csv",                  anon: [401], merchant: [403], admin: [200], agent: [403], manager: [200], description: "contacts full CSV export — no row cap (requireRole admin/manager; agent blocked)" },
+
+  // PUT ownership guards — agents see 403 when deal/contact is owned by another agent.
+  // Unowned records allow agent through (200/400 from body validation, or 404 if not found).
+  { method: "PUT",  path: "/api/deals/1",      anon: [401], merchant: [403], admin: [403], agent: [403], manager: [403], description: "deal PUT (isDashboardUser; CSRF required for PUT — all auth roles 403 without token; ownership guard fires 403 for agent on owned deals)" },
+  { method: "PUT",  path: "/api/contacts/1",   anon: [401], merchant: [403], admin: [403], agent: [403], manager: [403], description: "contact PUT (isDashboardUser; CSRF required for PUT — all auth roles 403 without token; ownership guard fires 403 for agent on assigned contacts)" },
+
+
   // ── ZeroBounce validation history — isDashboardUser (blocks merchant) ────────
   // GET route: isDashboardUser; agent/manager/admin pass through; contact 1 may not exist → 404.
   { method: "GET",  path: "/api/contacts/1/zerobounce-history",         anon: [401], merchant: [403], admin: [200, 404], agent: [200, 404], manager: [200, 404], description: "ZeroBounce validation history (isDashboardUser; merchant→403)" },
