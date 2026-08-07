@@ -152,55 +152,12 @@ const httpServer = createServer(app);
 // constructs absolute URLs with the wrong hostname.
 app.set("trust proxy", 1);
 
-// Canonical-host redirect ─────────────────────────────────────────────────
-// When APP_URL is set to a custom domain (e.g. libertybancard.com) and a
-// request arrives on the non-canonical Replit hostname, redirect to the
-// canonical host.  This covers direct navigation, bookmarks, and any edge
-// case where a relative redirect lands on the wrong domain.
-// API and webhook paths are excluded so external callers are never broken.
-{
-  const _canonicalUrl = getCanonicalUrl().replace(/\/$/, "");
-  const _canonicalHost = (() => {
-    try { return new URL(_canonicalUrl).hostname; } catch { return null; }
-  })();
-
-  app.use((req: Request, res: Response, next: NextFunction) => {
-    if (!_canonicalHost) return next();
-    const reqHost = (req.headers["x-forwarded-host"] as string | undefined)?.split(",")[0].trim()
-      || req.hostname;
-    if (reqHost === _canonicalHost) return next();
-    // Never redirect loopback — local dev, CI scripts (SEO audit, pre-deploy
-    // gate), and any in-process healthcheck must reach the actual server
-    // without being bounced to the canonical HTTPS domain.
-    if (reqHost === "localhost" || reqHost === "127.0.0.1") return next();
-    // Never redirect numeric IPv4 addresses — Cloud Run / autoscale startup
-    // probes arrive directly at the container IP (e.g. 10.x.x.x), not via
-    // a named hostname, so the Host header is a raw IP. Redirecting them
-    // would make the health check receive a 301 instead of 200 and fail
-    // the promote step on every deploy.
-    if (/^\d{1,3}(\.\d{1,3}){3}$/.test(reqHost)) return next();
-    // Never redirect Replit-managed subdomains (*.replit.app, *.repl.co) —
-    // these are used by Replit's own health probes and internal traffic.
-    if (/\.(replit\.app|repl\.co|replit\.dev)$/.test(reqHost)) return next();
-    // Never redirect Google Cloud Run internal service URLs (*.run.app) —
-    // Replit's autoscale is Cloud Run-backed; the startup probe Host header
-    // is the internal service URL (e.g. liberty-bancard-system-xxx-uc.a.run.app)
-    // which is neither a Replit subdomain nor an IP address.
-    if (/\.run\.app$/.test(reqHost)) return next();
-    // Never redirect direct container probes — requests that arrive without an
-    // x-forwarded-host header were NOT proxied through a load balancer and are
-    // therefore startup/liveness probes hitting the container directly.
-    if (!req.headers["x-forwarded-host"]) return next();
-    if (
-      req.path.startsWith("/api") ||
-      req.path.startsWith("/webhooks") ||
-      req.path === "/health" ||
-      req.path.startsWith("/unsubscribe") ||
-      req.path.startsWith("/nps")
-    ) return next();
-    return res.redirect(301, `${_canonicalUrl}${req.originalUrl}`);
-  });
-}
+// Canonical-host redirect: intentionally removed.
+// Application-layer host redirects (301 → libertybancard.com) consistently
+// intercept Cloud Run's autoscale startup health probe — which uses an internal
+// *.a.run.app hostname that doesn't match any safe-list pattern — causing every
+// promote step to time out. Canonical host enforcement should be handled at the
+// CDN / DNS layer (e.g. a Replit custom-domain redirect rule), not in Express.
 
 declare module "http" {
   interface IncomingMessage {
