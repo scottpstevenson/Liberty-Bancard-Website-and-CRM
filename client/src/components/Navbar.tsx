@@ -41,7 +41,7 @@ const resourceLinks = [
   { name: "Merchant Testimonials", href: "/testimonials" },
   { name: "Integrations", href: "/integrations" },
   { name: "Why Liberty Bancard", href: "/why-liberty-bancard" },
-  { name: "Areas We Serve", href: "/areas-we-serve" },
+  { name: "Areas We Serve", href: "/areas-served" },
   { name: "Savings Calculator", href: "/savings-calculator" },
   { name: "Compare Rates", href: "/compare-rates" },
   { name: "Sales Tools", href: "/sales-tools" },
