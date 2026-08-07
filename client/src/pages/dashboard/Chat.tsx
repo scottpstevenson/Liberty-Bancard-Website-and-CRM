@@ -175,7 +175,11 @@ export default function Chat() {
         vertical: vertical || undefined,
       });
       const data = await res.json();
-      setMessages(prev => [...prev, { role: "assistant", content: data.response }]);
+      if (data?.error) {
+        setMessages(prev => [...prev, { role: "assistant", content: data.message || "The AI assistant is temporarily unavailable. Please try again later." }]);
+      } else {
+        setMessages(prev => [...prev, { role: "assistant", content: data.response || "No response generated." }]);
+      }
     } catch (err: any) {
       setMessages(prev => [
         ...prev,

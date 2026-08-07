@@ -66,9 +66,14 @@ export function EmailComposer({ contactId, prospectId, initialVertical, onClose,
         tone,
         vertical,
       })
-      return res.json() as Promise<{ subject: string; body: string }>
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return res.json() as Promise<any>
     },
     onSuccess: (data) => {
+      if (data?.error) {
+        toast({ title: data.errorType === "credential" ? "AI Credentials Issue" : data.errorType === "quota" ? "AI Quota Exceeded" : "AI Unavailable", description: data.message || "AI email generation is temporarily unavailable.", variant: "destructive" })
+        return
+      }
       setSubject(data.subject)
       setBody(data.body)
       toast({ title: "Email generated", description: "You can now edit and send the email." })

@@ -86,10 +86,15 @@ export default function Overview() {
   const insightsMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("POST", "/api/ai/insights");
-      return await res.json() as { insights: string };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return await res.json() as any;
     },
     onSuccess: (data) => {
-      setInsights(data.insights);
+      if (data?.error) {
+        setInsights(data.message || "The AI assistant is temporarily unavailable.");
+      } else {
+        setInsights(data.insights);
+      }
       setLastUpdated(new Date());
     },
   });

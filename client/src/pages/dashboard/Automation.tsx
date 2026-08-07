@@ -17,9 +17,16 @@ interface AIAction {
   lastRun: string | null;
 }
 
+interface AiHealth {
+  status: "healthy" | "credential_error" | "quota_exceeded" | "not_configured";
+  configured: boolean;
+  message: string | null;
+}
+
 interface CommandCenterData {
   aiActions: AIAction[];
   workflowStats: { totalRuns: number; last24h: number };
+  health?: AiHealth;
 }
 
 function formatRelativeTime(dateStr: string | null): string {
@@ -78,6 +85,16 @@ function AICommandCenter() {
       queryClient.invalidateQueries({ queryKey: ["/api/ai/command-center"] });
       const label = commandCenter?.aiActions.find(a => a.key === actionKey)?.label || actionKey;
 
+      // Credential / quota error returned as structured 200 (not a thrown HTTP error)
+      if (data?.error && data?.message) {
+        toast({
+          title: data.errorType === "credential" ? "AI Credentials Issue" : data.errorType === "quota" ? "AI Quota Exceeded" : "AI Unavailable",
+          description: data.message,
+          variant: "destructive",
+        });
+        return;
+      }
+
       if (data?.reason) {
         toast({
           title: "No Action Taken",
@@ -120,9 +137,25 @@ function AICommandCenter() {
   const handleRunAll = async () => {
     setRunningAll(true);
     try {
-      await apiRequest("POST", "/api/ai/generate-tasks");
-      await apiRequest("POST", "/api/ai/auto-progress-deals");
+      const [tasksRes, progressRes] = await Promise.all([
+        apiRequest("POST", "/api/ai/generate-tasks"),
+        apiRequest("POST", "/api/ai/auto-progress-deals"),
+      ]);
+      const [tasksData, progressData] = await Promise.all([tasksRes.json(), progressRes.json()]);
+
       queryClient.invalidateQueries({ queryKey: ["/api/ai/command-center"] });
+
+      // Surface any structured credential/quota errors returned as 200
+      const aiError = (tasksData?.error && tasksData) || (progressData?.error && progressData);
+      if (aiError) {
+        toast({
+          title: aiError.errorType === "credential" ? "AI Credentials Issue" : aiError.errorType === "quota" ? "AI Quota Exceeded" : "AI Unavailable",
+          description: aiError.message || "One or more AI operations could not complete.",
+          variant: "destructive",
+        });
+        return;
+      }
+
       toast({
         title: "All AI Operations Complete",
         description: "Successfully ran task generation and deal auto-progression.",
@@ -158,6 +191,8 @@ function AICommandCenter() {
 
   const aiActions = commandCenter?.aiActions || [];
   const workflowStats = commandCenter?.workflowStats || { totalRuns: 0, last24h: 0 };
+  const health = commandCenter?.health;
+  const isUnhealthy = health && health.status !== "healthy";
 
   return (
     <Card data-testid="card-ai-command-center">
@@ -186,6 +221,22 @@ function AICommandCenter() {
         </div>
       </CardHeader>
       <CardContent>
+        {isUnhealthy && health?.message && (
+          <div
+            className="flex items-start gap-3 rounded-md border border-yellow-200 bg-yellow-50 dark:border-yellow-900 dark:bg-yellow-950/40 px-4 py-3 mb-4 text-sm text-yellow-800 dark:text-yellow-300"
+            data-testid="ai-health-banner"
+          >
+            <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+            <div>
+              <span className="font-semibold mr-1">
+                {health.status === "not_configured" && "AI Not Configured —"}
+                {health.status === "credential_error" && "AI Credentials Invalid —"}
+                {health.status === "quota_exceeded" && "AI Quota Exceeded —"}
+              </span>
+              {health.message}
+            </div>
+          </div>
+        )}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3" data-testid="ai-actions-grid">
           {aiActions.map((action) => {
             const Icon = AI_ACTION_ICONS[action.key] || Sparkles;

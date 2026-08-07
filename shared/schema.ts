@@ -4040,6 +4040,7 @@ export const AI_TRIGGER_TYPES = [
   "training-generation",
   "auto-reply",
   "chargeback-copilot",
+  "credential_error",
 ] as const;
 
 export type AiTriggerType = typeof AI_TRIGGER_TYPES[number];

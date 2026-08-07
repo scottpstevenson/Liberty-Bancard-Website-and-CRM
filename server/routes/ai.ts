@@ -4,7 +4,7 @@ import { storage } from "../storage";
 import { contacts } from "@shared/schema";
 import { and } from "drizzle-orm";
 import { notifyRepWithBriefing, sendProposalEmail } from "../services/proposal-engine";
-import { logAiCall } from "../services/ai-audit-logger";
+import { logAiCall, classifyAiError, logAiCredentialError } from "../services/ai-audit-logger";
 import { parse } from "csv-parse/sync";
 import path from "path";
 import type { ProposalData, ProposalPlan } from "./helpers";
@@ -12,6 +12,33 @@ import { buildVerticalSystemPromptBlock, isVerticalSupported } from "../services
 import { serverError } from "../utils/server-error";
 
 export function registerAiRoutes(app: Express) {
+  /**
+   * Central error handler for AI route catch blocks.
+   * - Credential/quota errors → 200 JSON with `{ error: true, errorType, message }`
+   *   so the client can render a friendly explanation instead of a red crash screen.
+   * - All other errors → standard 500 via serverError().
+   */
+  async function handleAiRouteError(
+    res: import("express").Response,
+    err: unknown,
+    triggerType: import("@shared/schema").AiTriggerType,
+    actorType?: string,
+    actorId?: string,
+  ) {
+    const info = classifyAiError(err);
+    if (info.kind === "credential" || info.kind === "quota") {
+      await logAiCredentialError({
+        triggerType,
+        actorType,
+        actorId,
+        error: (err as any)?.message ?? String(err),
+      });
+      res.json({ error: true, errorType: info.kind, message: info.userMessage });
+    } else {
+      serverError(res, err);
+    }
+  }
+
   // === AI ADVISOR ===
   app.post("/api/ai/chat", isAuthenticated, async (req, res) => {
     try {
@@ -71,7 +98,7 @@ OUTPUT FORMAT:
 
       res.json({ response: completion.choices[0]?.message?.content || "No response generated." });
     } catch (err: any) {
-      serverError(res, err);
+      await handleAiRouteError(res, err, "advisor-chat", (req as any).user?.role, (req as any).user?.id?.toString());
     }
   });
 
@@ -162,7 +189,7 @@ RULES:
 
       res.json({ insights: insightsContent });
     } catch (err: any) {
-      serverError(res, err);
+      await handleAiRouteError(res, err, "insights", (req as any).user?.role, (req as any).user?.id?.toString());
     }
   });
 
@@ -238,7 +265,7 @@ FORMAT your response as JSON: {"subject": "...", "body": "..."}${verticalBlock}`
         res.json({ subject: "Liberty Bancard - Let's Talk Processing", body: raw, _flagged: composeFlagged, _reviewQueueId: composeReviewId });
       }
     } catch (err: any) {
-      serverError(res, err);
+      await handleAiRouteError(res, err, "compose-email", (req as any).user?.role, (req as any).user?.id?.toString());
     }
   });
 
@@ -388,7 +415,7 @@ Respond ONLY with valid JSON.`
 
       res.json(result);
     } catch (err: any) {
-      serverError(res, err);
+      await handleAiRouteError(res, err, "ticket-classify", (req as any).user?.role, (req as any).user?.id?.toString());
     }
   });
 
@@ -423,9 +450,44 @@ Respond ONLY with valid JSON.`
         return created > new Date(Date.now() - 24 * 60 * 60 * 1000);
       }).length;
 
+      // AI health: check if key is configured and whether recent credential errors exist
+      const { db: dbInst } = await import("../db");
+      const { aiAuditLogs: aiAuditLogsTable } = await import("@shared/schema");
+      const { desc: descFn, gte: gteFn, eq: eqFn } = await import("drizzle-orm");
+      const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const keyConfigured = !!process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
+
+      let healthStatus: "healthy" | "credential_error" | "quota_exceeded" | "not_configured" = "healthy";
+      let healthMessage: string | null = null;
+
+      if (!keyConfigured) {
+        healthStatus = "not_configured";
+        healthMessage = "The OpenAI API key is not configured. AI features are unavailable until an administrator adds the key.";
+      } else {
+        const recentCredErrors = await dbInst
+          .select({ triggerType: aiAuditLogsTable.triggerType, error: aiAuditLogsTable.error, createdAt: aiAuditLogsTable.createdAt })
+          .from(aiAuditLogsTable)
+          .where(gteFn(aiAuditLogsTable.createdAt, oneDayAgo))
+          .orderBy(descFn(aiAuditLogsTable.createdAt))
+          .limit(50)
+          .then(rows => rows.filter(r => r.triggerType === "credential_error"));
+
+        if (recentCredErrors.length > 0) {
+          const lastErr = recentCredErrors[0]?.error ?? "";
+          if (lastErr.toLowerCase().includes("quota") || lastErr.toLowerCase().includes("rate limit")) {
+            healthStatus = "quota_exceeded";
+            healthMessage = "The AI service has recently hit its usage quota. Features may be temporarily unavailable.";
+          } else {
+            healthStatus = "credential_error";
+            healthMessage = "The AI credentials appear to be invalid or expired. An administrator should refresh the API key.";
+          }
+        }
+      }
+
       res.json({
         aiActions: result,
         workflowStats: { totalRuns: totalWorkflowRuns, last24h: recentRuns },
+        health: { status: healthStatus, configured: keyConfigured, message: healthMessage },
       });
     } catch (err: any) {
       serverError(res, err);
@@ -523,7 +585,7 @@ Return JSON with:
 
       res.json({ ...analysis, _flagged: stmtFlagged, _reviewQueueId: stmtReviewId, _vertical: resolvedVertical });
     } catch (err: any) {
-      serverError(res, err);
+      await handleAiRouteError(res, err, "statement-analysis", (req as any).user?.role, (req as any).user?.id?.toString());
     }
   });
 
@@ -745,7 +807,7 @@ Notes: ${deal.notes || "None"}`
       res.json({ ...proposal, _flagged: proposalFlagged, _reviewQueueId: proposalReviewId });
     } catch (err: any) {
       console.error("Proposal generation error:", err);
-      serverError(res, err);
+      await handleAiRouteError(res, err, "proposal", (req as any).user?.role, (req as any).user?.id?.toString());
     }
   });
 
@@ -1323,7 +1385,7 @@ Based on the above, generate the evidence packet. For the evidenceChecklist, che
 
       res.json({ packet: aiEvidencePacket, chargeback: updated, _flagged: cbFlagged, _reviewQueueId: cbReviewId });
     } catch (err: any) {
-      serverError(res, err);
+      await handleAiRouteError(res, err, "chargeback-copilot", (req as any).user?.role, (req as any).user?.id?.toString());
     }
   });
 

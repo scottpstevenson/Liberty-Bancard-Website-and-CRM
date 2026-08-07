@@ -6,7 +6,7 @@ import OpenAI from "openai";
 import crypto from "crypto";
 import fs from "fs";
 import path from "path";
-import { logAiCall } from "./ai-audit-logger";
+import { logAiCall, classifyAiError, logAiCredentialError } from "./ai-audit-logger";
 
 interface ProposalPlan {
   name: string;
@@ -237,6 +237,14 @@ Return JSON with:
     return analysis;
   } catch (err) {
     console.error("[ProposalEngine] Statement analysis failed:", err);
+    const info = classifyAiError(err);
+    if (info.kind === "credential" || info.kind === "quota") {
+      await logAiCredentialError({
+        triggerType: "statement-analysis",
+        actorType: "system",
+        error: (err as any)?.message ?? String(err),
+      });
+    }
     return null;
   }
 }
@@ -530,12 +538,37 @@ STATEMENT ANALYSIS RESULTS (use these findings):
     }
   } catch (err) {
     console.error("[ProposalEngine] Auto-proposal failed:", err);
-    await storage.createAuditLog({
-      action: "proposal_auto_generation_failed",
-      entityType: "deal",
-      entityId: dealId,
-      details: { error: (err as Error).message },
-    });
+    const info = classifyAiError(err);
+    if (info.kind === "credential" || info.kind === "quota") {
+      await logAiCredentialError({
+        triggerType: "proposal",
+        actorType: "system",
+        error: (err as any)?.message ?? String(err),
+      });
+      // Notify admins so they can action the credential issue
+      storage.createNotification({
+        channel: "internal",
+        title: "⚠ AI Subsystem Unavailable",
+        message: info.userMessage,
+        type: "warning",
+        metadata: { dealId, errorKind: info.kind },
+      }).catch(() => {});
+      // Fall back to the template proposal path — store null so the rep knows to
+      // manually review rather than silently lose the deal.
+      await storage.createAuditLog({
+        action: "proposal_auto_generation_failed",
+        entityType: "deal",
+        entityId: dealId,
+        details: { error: (err as Error).message, reason: info.kind, fallback: "template_required" },
+      });
+    } else {
+      await storage.createAuditLog({
+        action: "proposal_auto_generation_failed",
+        entityType: "deal",
+        entityId: dealId,
+        details: { error: (err as Error).message },
+      });
+    }
   }
 }
 

@@ -56,7 +56,11 @@ function AIChatPanel({ department, context }: { department: string; context: str
         messages: updatedMessages,
       });
       const data = await res.json();
-      setMessages(prev => [...prev, { role: "assistant", content: data.response }]);
+      if (data?.error) {
+        setMessages(prev => [...prev, { role: "assistant", content: data.message || "The AI assistant is temporarily unavailable. Please try again later or call us at 954-266-8214." }]);
+      } else {
+        setMessages(prev => [...prev, { role: "assistant", content: data.response || "No response generated." }]);
+      }
     } catch {
       setMessages(prev => [
         ...prev,

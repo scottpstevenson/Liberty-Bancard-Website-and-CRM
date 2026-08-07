@@ -393,6 +393,10 @@ export default function Tickets() {
       return res.json();
     },
     onSuccess: (data) => {
+      if (data?.error) {
+        toast({ title: data.errorType === "credential" ? "AI Credentials Issue" : data.errorType === "quota" ? "AI Quota Exceeded" : "AI Unavailable", description: data.message || "AI classification is temporarily unavailable.", variant: "destructive" });
+        return;
+      }
       setAiResult(data);
       queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
       toast({ title: "Ticket classified by AI", description: `Category: ${data.category}, Priority: ${data.priority}` });

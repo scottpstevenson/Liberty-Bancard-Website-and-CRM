@@ -326,7 +326,11 @@ export default function UploadStatement() {
         throw new Error("Analysis failed. Please try again.");
       }
       const data = await res.json();
-      setAnalysisResult(data);
+      if (data?.error) {
+        setAnalysisError(data.message || "The AI analysis service is temporarily unavailable. Please try again later.");
+      } else {
+        setAnalysisResult(data);
+      }
     } catch (err: any) {
       console.error(err);
       setAnalysisError(err.message || "Analysis failed. Please try again.");

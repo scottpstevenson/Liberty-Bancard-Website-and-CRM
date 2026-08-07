@@ -152,6 +152,10 @@ function CopilotPanel({ chargeback: cb, onClose }: CopilotPanelProps) {
       return res.json();
     },
     onSuccess: (data) => {
+      if (data?.error) {
+        toast({ title: data.errorType === "credential" ? "AI Credentials Issue" : data.errorType === "quota" ? "AI Quota Exceeded" : "AI Unavailable", description: data.message || "Evidence packet generation is temporarily unavailable.", variant: "destructive" });
+        return;
+      }
       syncState(data.packet as AiPacket);
       queryClient.invalidateQueries({ queryKey: ["/api/chargebacks"] });
       toast({ title: "Evidence packet generated", description: "Review and edit before finalizing." });

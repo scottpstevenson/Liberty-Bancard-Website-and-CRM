@@ -642,6 +642,10 @@ export default function StatementReview() {
       return res.json();
     },
     onSuccess: (data) => {
+      if (data?.error) {
+        toast({ title: data.errorType === "credential" ? "AI Credentials Issue" : data.errorType === "quota" ? "AI Quota Exceeded" : "AI Unavailable", description: data.message || "Proposal generation is temporarily unavailable.", variant: "destructive" });
+        return;
+      }
       setActiveProposal(data);
       queryClient.invalidateQueries({ queryKey: ["/api/deals"] });
       toast({ title: "Proposal Generated", description: `Savings proposal ready for ${data.merchantName}` });

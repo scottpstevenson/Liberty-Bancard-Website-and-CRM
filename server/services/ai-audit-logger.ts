@@ -4,6 +4,106 @@ import type { AiTriggerType } from "@shared/schema";
 import type OpenAI from "openai";
 import { createHash } from "crypto";
 
+// ── AI error classification ────────────────────────────────────────────────
+
+export type AiErrorKind = "credential" | "quota" | "other";
+
+export interface AiErrorInfo {
+  kind: AiErrorKind;
+  /** Human-readable message safe to surface in the UI. */
+  userMessage: string;
+}
+
+/**
+ * Classify an error thrown by the OpenAI SDK (or the logAiCall wrapper) into
+ * one of three buckets so callers can return a friendly response instead of a
+ * generic 500.
+ */
+export function classifyAiError(err: unknown): AiErrorInfo {
+  const e = err as any;
+  const status: number | undefined = e?.status ?? e?.statusCode;
+  const code: string | undefined = e?.code ?? e?.error?.code;
+  const type: string | undefined = e?.type ?? e?.error?.type;
+  const message: string = e?.message ?? String(err);
+
+  // Missing API key (env var not set)
+  if (!process.env.AI_INTEGRATIONS_OPENAI_API_KEY) {
+    return {
+      kind: "credential",
+      userMessage:
+        "The AI assistant is not configured yet. An administrator needs to set up the OpenAI API key before AI features are available.",
+    };
+  }
+
+  // OpenAI authentication errors (401)
+  if (
+    status === 401 ||
+    code === "invalid_api_key" ||
+    type === "authentication_error" ||
+    e?.constructor?.name === "AuthenticationError" ||
+    message.includes("Incorrect API key") ||
+    message.includes("No API key")
+  ) {
+    return {
+      kind: "credential",
+      userMessage:
+        "The AI assistant credentials are invalid or have expired. Please contact your administrator to refresh the API key.",
+    };
+  }
+
+  // OpenAI quota / rate-limit errors (429)
+  if (
+    status === 429 ||
+    code === "insufficient_quota" ||
+    type === "insufficient_quota" ||
+    e?.constructor?.name === "RateLimitError" ||
+    message.includes("quota") ||
+    message.includes("rate limit")
+  ) {
+    return {
+      kind: "quota",
+      userMessage:
+        "The AI assistant has reached its usage limit for this period. Please try again later or contact your administrator to upgrade the plan.",
+    };
+  }
+
+  return { kind: "other", userMessage: "The AI assistant encountered an unexpected error. Please try again." };
+}
+
+/**
+ * Write a credential_error or quota row to ai_audit_logs without making an AI
+ * call. Safe to fire-and-forget (errors are swallowed so the caller can still
+ * return a user-friendly response).
+ */
+export async function logAiCredentialError(params: {
+  triggerType: AiTriggerType;
+  actorType?: string;
+  actorId?: string;
+  error: string;
+}): Promise<void> {
+  try {
+    await db.insert(aiAuditLogs).values({
+      triggerType: "credential_error",
+      actorType: params.actorType || "system",
+      actorId: params.actorId || null,
+      model: "unknown",
+      promptTokens: 0,
+      completionTokens: 0,
+      costCents: 0,
+      responseSummary: null,
+      error: `[${params.triggerType}] ${params.error}`,
+      durationMs: 0,
+      promptHash: null,
+      confidenceScore: 0,
+      flagged: false,
+      rawPrompt: null,
+      rawResponse: null,
+    });
+  } catch (logErr) {
+    console.error("[AI Audit] Failed to write credential_error log:", logErr);
+  }
+}
+
 const MODEL_COSTS: Record<string, { inputCentsPerToken: number; outputCentsPerToken: number }> = {
   "gpt-5": { inputCentsPerToken: 0.00025, outputCentsPerToken: 0.001 },
   "gpt-4o-mini": { inputCentsPerToken: 0.000015, outputCentsPerToken: 0.00006 },

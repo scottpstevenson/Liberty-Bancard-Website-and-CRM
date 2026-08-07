@@ -14,6 +14,7 @@ import { estimateFromContact, estimateFromDeal, estimateFromProspect } from "../
 import { createPreferenceAwareNotification, sendCriticalEmailNotification } from "../services/digest-service";
 import { sendGhlEmailForMerchant, isGhlConfigured } from "../services/ghl";
 import { advanceDealStage } from "../services/deal-stage-service";
+import { classifyAiError, logAiCredentialError } from "../services/ai-audit-logger";
 import { updateContactGhlFirst } from "../services/contact-writer";
 import { parse } from "csv-parse/sync";
 import path from "path";
@@ -623,7 +624,18 @@ export function registerDealsRoutes(app: Express) {
 
       res.json({ progressed: progressions.length, progressions, reason: noOpReason });
     } catch (err: any) {
-      serverError(res, err);
+      const info = classifyAiError(err);
+      if (info.kind === "credential" || info.kind === "quota") {
+        await logAiCredentialError({
+          triggerType: "advisor",
+          actorType: (req as any).user?.role,
+          actorId: (req as any).user?.id?.toString(),
+          error: err?.message ?? String(err),
+        });
+        res.json({ error: true, errorType: info.kind, message: info.userMessage });
+      } else {
+        serverError(res, err);
+      }
     }
   });
 
