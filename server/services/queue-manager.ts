@@ -1654,4 +1654,13 @@ async function runMidIngestionTick(): Promise<void> {
     await releaseJobLock(JOB_NAMES.MID_INGESTION, false, err.message);
     throw err;
   }
+
+  // After ingestion succeeds: run attrition analysis to flag at-risk merchants.
+  // Fire-and-forget — a failure here must never surface as a job failure that
+  // triggers queue retries or blocks the next ingestion cycle.
+  import("./merchant-attrition-monitor").then(({ runAttritionAnalysis }) =>
+    runAttritionAnalysis()
+  ).catch(e =>
+    console.error("[Queue:mid-ingestion] Attrition analysis error (non-fatal):", e)
+  );
 }
