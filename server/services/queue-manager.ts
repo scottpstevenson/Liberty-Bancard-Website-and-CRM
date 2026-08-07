@@ -69,13 +69,18 @@ const QUEUE_CONFIGS: QueueConfig[] = [
   },
   {
     name: QUEUE_NAMES.SEQUENCES,
-    // concurrency=2: reduced from 3 to ease DB pool pressure in production.
-    // Sequence steps are GHL-bound not DB-bound, but each step still opens a
-    // DB connection for enrollment updates. 2 concurrent = safe headroom.
-    concurrency: 2,
+    // concurrency=1: processSequenceEnrollments() holds a DB-based acquireJobLock
+    // (singleton per-process) so a second concurrent slot would always no-op and
+    // waste a DB pool connection. A single slot is the correct model here.
+    //
+    // repeatEveryMs prod=10 min: a full run against 155 K+ contacts takes ~8 min.
+    // The previous 30 s interval caused runaway queue depth — new jobs piled up
+    // 16x faster than they finished. 10 min gives a ~2-min recovery buffer after
+    // each run, keeping queue depth at or near zero.
+    concurrency: 1,
     attempts: 3,
     backoffDelay: 10000,
-    repeatEveryMs: IS_DEV ? 5 * 60 * 1000 : 30 * 1000, // dev: 5 min, prod: 30 s
+    repeatEveryMs: IS_DEV ? 5 * 60 * 1000 : 10 * 60 * 1000, // dev: 5 min, prod: 10 min
     jobName: "run",
   },
   {
@@ -478,6 +483,30 @@ class QueueManager {
           break;
         }
         case QUEUE_NAMES.SEQUENCES: {
+          // Queue-depth guard: warn when jobs are piling up faster than they finish.
+          // With concurrency=1 and a 10-min repeat interval a healthy queue should
+          // have 0–1 waiting jobs. >2 means the repeat interval is too short for the
+          // actual run duration, or a prior run is still holding the acquireJobLock.
+          try {
+            const seqQueue = this.queues.get(QUEUE_NAMES.SEQUENCES);
+            if (seqQueue) {
+              const counts = await seqQueue.getJobCounts("waiting", "active", "delayed");
+              const waiting = counts.waiting ?? 0;
+              const active  = counts.active  ?? 0;
+              if (waiting > 2) {
+                console.warn(
+                  `[Queue:sequences] depth warning — waiting=${waiting} active=${active}. ` +
+                  `The repeat interval may be shorter than the actual run duration. ` +
+                  `Consider increasing SEQUENCES repeatEveryMs or the run is stalled.`
+                );
+              } else {
+                console.log(`[Queue:sequences] depth ok — waiting=${waiting} active=${active}`);
+              }
+            }
+          } catch (_depthErr) {
+            // Non-fatal: depth check should never block the actual tick
+          }
+
           if (featureFlags.LEGACY_OUTREACH_ENABLED) {
             await runSequencesTick();
           }
