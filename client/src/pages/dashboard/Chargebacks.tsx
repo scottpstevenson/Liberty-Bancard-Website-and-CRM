@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, queryClient, getCsrfToken } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Chargeback } from "@shared/schema";
 import { CHARGEBACK_STATUSES, CHARGEBACK_CARD_BRANDS, CHARGEBACK_DEADLINE_DAYS } from "@shared/schema";
@@ -17,6 +17,7 @@ import {
   AlertTriangle, Plus, DollarSign, Clock, CheckCircle, XCircle, TrendingDown,
   ShieldAlert, FileText, ChevronRight, X, Loader2, ArrowUpRight, Sparkles,
   ClipboardCopy, Download, Check, AlertCircle, HelpCircle, ChevronDown, ChevronUp,
+  UploadCloud,
 } from "lucide-react";
 
 const STATUS_CONFIG: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline"; className?: string }> = {
@@ -431,8 +432,8 @@ interface DetailPanelProps {
 function ChargebackDetailPanel({ chargeback: cb, onClose, onUpdated, onOpenCopilot }: DetailPanelProps) {
   const { toast } = useToast();
   const [notes, setNotes] = useState(cb.notes || "");
-  const [evidenceName, setEvidenceName] = useState("");
-  const [evidenceUrl, setEvidenceUrl] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const updateMutation = useMutation({
     mutationFn: async (body: Record<string, any>) => {
@@ -448,20 +449,49 @@ function ChargebackDetailPanel({ chargeback: cb, onClose, onUpdated, onOpenCopil
     onError: () => toast({ title: "Update failed", variant: "destructive" }),
   });
 
-  const evidenceMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", `/api/chargebacks/${cb.id}/evidence`, { name: evidenceName, url: evidenceUrl });
-      return res.json();
-    },
-    onSuccess: () => {
+  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    const evidenceFiles = (cb.evidenceFiles as any[]) || [];
+    if (evidenceFiles.length >= MAX_EVIDENCE_FILES) {
+      toast({ title: `Maximum ${MAX_EVIDENCE_FILES} evidence files per chargeback`, variant: "destructive" });
+      return;
+    }
+
+    const file = files[0];
+    if (file.size > MAX_EVIDENCE_BYTES) {
+      toast({ title: "File too large — maximum 10 MB per file", variant: "destructive" });
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    setUploading(true);
+    try {
+      const csrfToken = getCsrfToken();
+      const res = await fetch(`/api/chargebacks/${cb.id}/evidence/upload`, {
+        method: "POST",
+        headers: csrfToken ? { "x-csrf-token": csrfToken } : {},
+        credentials: "include",
+        body: formData,
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.message || "Upload failed");
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/chargebacks"] });
-      toast({ title: "Evidence file attached" });
-      setEvidenceName("");
-      setEvidenceUrl("");
+      toast({ title: "Evidence file uploaded" });
       onUpdated();
-    },
-    onError: () => toast({ title: "Failed to attach evidence", variant: "destructive" }),
-  });
+    } catch (err: any) {
+      toast({ title: err.message || "Upload failed", variant: "destructive" });
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
 
   const overdue = isOverdue(cb);
   const days = daysUntilDeadline(cb);
@@ -598,43 +628,91 @@ function ChargebackDetailPanel({ chargeback: cb, onClose, onUpdated, onOpenCopil
       </div>
 
       <div className="border-t pt-4">
-        <p className="text-sm font-medium mb-2">Evidence Files ({evidenceFiles.length})</p>
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-sm font-medium">Evidence Files ({evidenceFiles.length}/{MAX_EVIDENCE_FILES})</p>
+          {evidenceFiles.length > 0 && (
+            <span className="text-xs text-muted-foreground">PDF, JPG, PNG, CSV · 10 MB max</span>
+          )}
+        </div>
+
         {evidenceFiles.length > 0 && (
           <div className="space-y-2 mb-3">
-            {evidenceFiles.map((f: any, i: number) => (
-              <div key={i} className="flex items-center gap-2 text-sm" data-testid={`evidence-file-${i}`}>
-                <FileText className="w-4 h-4 text-muted-foreground shrink-0" />
-                <a href={f.url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline truncate">
-                  {f.name}
-                </a>
-                <span className="text-xs text-muted-foreground ml-auto shrink-0">{formatDate(f.uploadedAt)}</span>
-              </div>
-            ))}
+            {evidenceFiles.map((f: any, i: number) => {
+              const downloadUrl = f.storageKey
+                ? `/api/chargebacks/${cb.id}/evidence/download?key=${encodeURIComponent(f.storageKey)}`
+                : f.url;
+              return (
+                <div key={i} className="flex items-center gap-2 text-sm bg-muted/40 rounded px-2 py-1.5" data-testid={`evidence-file-${i}`}>
+                  <FileText className="w-4 h-4 text-muted-foreground shrink-0" />
+                  <a
+                    href={downloadUrl}
+                    target={f.storageKey ? undefined : "_blank"}
+                    download={f.storageKey ? f.name : undefined}
+                    rel="noopener noreferrer"
+                    className="text-primary hover:underline truncate flex-1"
+                  >
+                    {f.name}
+                  </a>
+                  {f.fileSize && (
+                    <span className="text-xs text-muted-foreground shrink-0">
+                      {f.fileSize < 1024 * 1024
+                        ? `${Math.round(f.fileSize / 1024)} KB`
+                        : `${(f.fileSize / (1024 * 1024)).toFixed(1)} MB`}
+                    </span>
+                  )}
+                  <span className="text-xs text-muted-foreground shrink-0">{formatDate(f.uploadedAt)}</span>
+                  {f.storageKey && (
+                    <a
+                      href={downloadUrl}
+                      download={f.name}
+                      className="shrink-0 text-muted-foreground hover:text-foreground"
+                      aria-label="Download"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                    </a>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
-        <div className="space-y-2">
-          <Input
-            placeholder="File name (e.g. Receipt.pdf)"
-            value={evidenceName}
-            onChange={e => setEvidenceName(e.target.value)}
-            data-testid="input-evidence-name"
-          />
-          <Input
-            placeholder="File URL or path"
-            value={evidenceUrl}
-            onChange={e => setEvidenceUrl(e.target.value)}
-            data-testid="input-evidence-url"
-          />
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => evidenceMutation.mutate()}
-            disabled={!evidenceName || !evidenceUrl || evidenceMutation.isPending}
-            data-testid="button-attach-evidence"
-          >
-            <Plus className="w-3 h-3 mr-1" /> Attach Evidence
-          </Button>
-        </div>
+
+        {evidenceFiles.length < MAX_EVIDENCE_FILES ? (
+          <div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept={EVIDENCE_ACCEPT}
+              className="hidden"
+              data-testid="input-evidence-file"
+              onChange={handleFileUpload}
+            />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+              data-testid="button-attach-evidence"
+              className="w-full flex flex-col items-center gap-1.5 rounded-md border-2 border-dashed border-muted-foreground/30 hover:border-primary/50 hover:bg-muted/30 transition-colors px-4 py-4 text-sm text-muted-foreground disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {uploading ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  <span>Uploading…</span>
+                </>
+              ) : (
+                <>
+                  <UploadCloud className="w-5 h-5" />
+                  <span><span className="text-primary font-medium">Click to upload</span> evidence file</span>
+                  <span className="text-xs">PDF, JPG, PNG, CSV · max 10 MB</span>
+                </>
+              )}
+            </button>
+          </div>
+        ) : (
+          <p className="text-xs text-muted-foreground text-center py-2">
+            Maximum {MAX_EVIDENCE_FILES} files reached. Remove a file to upload another.
+          </p>
+        )}
       </div>
     </div>
   );
@@ -1106,3 +1184,9 @@ export default function Chargebacks() {
     </div>
   );
 }
+
+const EVIDENCE_ACCEPT = ".pdf,.jpg,.jpeg,.png,.csv";
+
+const MAX_EVIDENCE_FILES = 5;
+
+const MAX_EVIDENCE_BYTES = 10 * 1024 * 1024; // 10 MB

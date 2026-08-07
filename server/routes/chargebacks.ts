@@ -7,6 +7,19 @@ import { createPreferenceAwareNotification } from "../services/digest-service";
 import { generateChargebackEvidencePdf } from "../services/chargeback-pdf";
 import { serverError } from "../utils/server-error";
 import { getDefaultProcessor } from "../services/processors/registry";
+import { upload } from "./helpers";
+import path from "path";
+import fs from "fs";
+
+const ALLOWED_EVIDENCE_MIME_TYPES = new Set([
+  "application/pdf",
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+  "text/csv",
+  "application/vnd.ms-excel",
+]);
+const MAX_EVIDENCE_FILES = 5;
 
 export function registerChargebacksRoutes(app: Express) {
   app.get("/api/chargebacks", isDashboardUser, async (req, res) => {
@@ -111,6 +124,7 @@ export function registerChargebacksRoutes(app: Express) {
     }
   });
 
+  // Strict schema prevents evidenceFiles/aiEvidencePacket injection via generic update
   const patchChargebackSchema = z.object({
     status: z.enum(["New", "Under Review", "Responded", "Won", "Lost"]).optional(),
     outcome: z.string().max(200).optional().nullable(),
@@ -226,6 +240,9 @@ export function registerChargebacksRoutes(app: Express) {
       });
       const { name, url } = schema.parse(req.body);
       const existing = (cb.evidenceFiles as any[]) || [];
+      if (existing.length >= MAX_EVIDENCE_FILES) {
+        return res.status(400).json({ message: `Maximum ${MAX_EVIDENCE_FILES} evidence files allowed per chargeback.` });
+      }
       const updated = await storage.updateChargeback(id, {
         evidenceFiles: [...existing, { name, url, uploadedAt: new Date().toISOString() }],
       });
@@ -233,6 +250,126 @@ export function registerChargebacksRoutes(app: Express) {
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
       res.status(400).json({ message: err.message });
+    }
+  });
+
+  // Magic-byte signatures for server-side content validation
+  function detectMimeFromBuffer(buf: Buffer): string | null {
+    if (buf.length >= 4 && buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46) return "application/pdf";
+    if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return "image/jpeg";
+    if (buf.length >= 8 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47
+      && buf[4] === 0x0d && buf[5] === 0x0a && buf[6] === 0x1a && buf[7] === 0x0a) return "image/png";
+    // CSV: no universal magic bytes — verify it contains no null bytes (binary data rejection)
+    if (!buf.includes(0x00)) return "text/csv";
+    return null;
+  }
+
+  /**
+   * POST /api/chargebacks/:id/evidence/upload
+   * Upload an actual evidence file (PDF, JPG, PNG, CSV) for a chargeback.
+   * Stores the file in uploads/chargeback_evidence/ and records the storageKey
+   * in the chargeback's evidence_files JSONB column.
+   */
+  app.post("/api/chargebacks/:id/evidence/upload", isDashboardUser, (req, res, next) => {
+    // Wrap multer so we can return JSON errors for size/type violations instead of
+    // falling through to the global Express error handler.
+    upload.single("file")(req, res, (err: any) => {
+      if (err?.code === "LIMIT_FILE_SIZE") {
+        return res.status(400).json({ message: "File too large — maximum 10 MB per file." });
+      }
+      if (err) return next(err);
+      next();
+    });
+  }, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const cb = await storage.getChargeback(id);
+      if (!cb) return res.status(404).json({ message: "Not found" });
+
+      if (!req.file) return res.status(400).json({ message: "No file uploaded" });
+
+      const { originalname, size, buffer } = req.file;
+
+      // Server-side content validation via magic bytes (do not trust client-supplied MIME)
+      const detectedMime = detectMimeFromBuffer(buffer);
+      if (!detectedMime || !ALLOWED_EVIDENCE_MIME_TYPES.has(detectedMime)) {
+        return res.status(400).json({ message: "Unsupported file content. Allowed formats: PDF, JPG, PNG, CSV." });
+      }
+
+      const existing = (cb.evidenceFiles as any[]) || [];
+      if (existing.length >= MAX_EVIDENCE_FILES) {
+        return res.status(400).json({ message: `Maximum ${MAX_EVIDENCE_FILES} evidence files allowed per chargeback.` });
+      }
+
+      const timestamp = Date.now();
+      const safeBaseName = `${timestamp}_${originalname.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+      const storageKey = `chargeback_evidence/${safeBaseName}`;
+      const evidenceDir = path.join(process.cwd(), "uploads", "chargeback_evidence");
+      if (!fs.existsSync(evidenceDir)) fs.mkdirSync(evidenceDir, { recursive: true });
+      fs.writeFileSync(path.join(evidenceDir, safeBaseName), buffer);
+
+      const updated = await storage.updateChargeback(id, {
+        evidenceFiles: [
+          ...existing,
+          {
+            name: originalname,
+            storageKey,
+            mimeType: detectedMime,
+            fileSize: size,
+            uploadedAt: new Date().toISOString(),
+          },
+        ],
+      });
+
+      await storage.createAuditLog({
+        action: "chargeback_evidence_uploaded",
+        entityType: "chargeback",
+        entityId: id,
+        details: { fileName: originalname, mimeType: detectedMime, fileSize: size, storageKey },
+      });
+
+      res.json(updated);
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  /**
+   * GET /api/chargebacks/:id/evidence/download
+   * Download an evidence file by storageKey (query param ?key=...).
+   * Verifies the key belongs to this chargeback before serving.
+   * Path-traversal safe: resolves the canonical path and confirms it stays
+   * within the chargeback_evidence directory before opening the file.
+   */
+  app.get("/api/chargebacks/:id/evidence/download", isDashboardUser, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const key = req.query.key as string | undefined;
+      if (!key) return res.status(400).json({ message: "Missing key query parameter" });
+
+      const cb = await storage.getChargeback(id);
+      if (!cb) return res.status(404).json({ message: "Not found" });
+
+      // Confirm the requested key is stored on THIS chargeback (prevents cross-chargeback access)
+      const evidenceFiles = (cb.evidenceFiles as any[]) || [];
+      const entry = evidenceFiles.find((f: any) => f.storageKey === key);
+      if (!entry) return res.status(404).json({ message: "Evidence file not found on this chargeback" });
+
+      // Build and confine the path using basename only — reject any directory components
+      const evidenceDir = path.resolve(process.cwd(), "uploads", "chargeback_evidence");
+      const safeFileName = path.basename(key); // strips all directory segments
+      const filePath = path.resolve(evidenceDir, safeFileName);
+
+      // Final confinement check: resolved path must be a direct child of evidenceDir
+      if (!filePath.startsWith(evidenceDir + path.sep)) {
+        return res.status(403).json({ message: "Invalid storage key" });
+      }
+
+      if (!fs.existsSync(filePath)) return res.status(404).json({ message: "File not found on disk" });
+
+      res.download(filePath, entry.name);
+    } catch (err: any) {
+      serverError(res, err);
     }
   });
 

@@ -3516,7 +3516,7 @@ export const chargebacks = pgTable("chargebacks", {
   reasonDescription: text("reason_description"),
   status: text("status").notNull().default("New"),
   responseDeadline: timestamp("response_deadline"),
-  evidenceFiles: jsonb("evidence_files").$type<{ name: string; url: string; uploadedAt: string }[]>().default([]),
+  evidenceFiles: jsonb("evidence_files").$type<{ name: string; url?: string; storageKey?: string; mimeType?: string; fileSize?: number; uploadedAt: string }[]>().default([]),
   respondedAt: timestamp("responded_at"),
   outcome: text("outcome"),
   notes: text("notes"),
