@@ -182,6 +182,15 @@ app.set("trust proxy", 1);
     // Never redirect Replit-managed subdomains (*.replit.app, *.repl.co) —
     // these are used by Replit's own health probes and internal traffic.
     if (/\.(replit\.app|repl\.co|replit\.dev)$/.test(reqHost)) return next();
+    // Never redirect Google Cloud Run internal service URLs (*.run.app) —
+    // Replit's autoscale is Cloud Run-backed; the startup probe Host header
+    // is the internal service URL (e.g. liberty-bancard-system-xxx-uc.a.run.app)
+    // which is neither a Replit subdomain nor an IP address.
+    if (/\.run\.app$/.test(reqHost)) return next();
+    // Never redirect direct container probes — requests that arrive without an
+    // x-forwarded-host header were NOT proxied through a load balancer and are
+    // therefore startup/liveness probes hitting the container directly.
+    if (!req.headers["x-forwarded-host"]) return next();
     if (
       req.path.startsWith("/api") ||
       req.path.startsWith("/webhooks") ||
