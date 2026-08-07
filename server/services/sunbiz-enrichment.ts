@@ -3,6 +3,7 @@ import { db } from "../db";
 import { sql } from "drizzle-orm";
 import type { SunbizEntity } from "@shared/schema";
 import OpenAI from "openai";
+import { checkAiGate, recordAiSpend } from "./ai-audit-logger";
 import { toProperCase } from "./sunbiz-scraper";
 import { isSerperConfigured, searchBusiness, searchBusinessEmail, searchBusinessContacts } from "./serper";
 
@@ -558,13 +559,21 @@ Provide JSON:
   "summary": "one sentence about what this business likely does and why they might need payment processing"
 }`;
 
+  const slot = await checkAiGate("gpt-4o-mini");
+  let response;
   try {
-    const response = await getOpenAI().chat.completions.create({
+    response = await getOpenAI().chat.completions.create({
       model: "gpt-4o-mini",
       messages: [{ role: "user", content: prompt }],
       response_format: { type: "json_object" },
     });
+  } catch (providerErr) {
+    slot.refund();
+    throw providerErr;
+  }
 
+  try {
+    slot.settle(recordAiSpend("gpt-4o-mini", response.usage?.prompt_tokens ?? 0, response.usage?.completion_tokens ?? 0, "enrichment"));
     const content = response.choices[0]?.message?.content;
     if (!content) throw new Error("No AI response");
 
@@ -1299,14 +1308,23 @@ ${batchLines}
 Return JSON: {"results": [{"i": 0, "v": "Restaurant", "s": "hot"}, ...]}
 Only return the JSON, no explanation.`;
 
+  const slot2 = await checkAiGate("gpt-4o-mini");
+  let batchResponse;
   try {
-    const response = await getOpenAI().chat.completions.create({
+    batchResponse = await getOpenAI().chat.completions.create({
       model: "gpt-4o-mini",
       messages: [{ role: "user", content: prompt }],
       response_format: { type: "json_object" },
       max_tokens: 2000,
     });
+  } catch (providerErr) {
+    slot2.refund();
+    throw providerErr;
+  }
 
+  try {
+    const response = batchResponse;
+    slot2.settle(recordAiSpend("gpt-4o-mini", response.usage?.prompt_tokens ?? 0, response.usage?.completion_tokens ?? 0, "enrichment"));
     const content = response.choices[0]?.message?.content;
     if (!content) throw new Error("No AI response");
     const parsed = JSON.parse(content);

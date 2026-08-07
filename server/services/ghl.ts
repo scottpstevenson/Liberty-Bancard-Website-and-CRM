@@ -2,6 +2,7 @@ import crypto from "crypto";
 import { storage } from "../storage";
 import type { Contact, Deal } from "@shared/schema";
 import OpenAI from "openai";
+import { checkAiGate, recordAiSpend } from "./ai-audit-logger";
 
 function getOpenAI() {
   return new OpenAI({ apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY, baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL });
@@ -1331,8 +1332,10 @@ Deal Stage: ${deal?.stage || "No active deal"}
 Message Intent: ${classification.intent}
 Message Keywords: ${classification.keywords.join(", ")}`;
 
+  const slot = await checkAiGate("gpt-4o-mini");
+  let completion;
   try {
-    const completion = await getOpenAI().chat.completions.create({
+    completion = await getOpenAI().chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
         { role: "system", content: systemPrompt },
@@ -1341,7 +1344,13 @@ Message Keywords: ${classification.keywords.join(", ")}`;
       max_tokens: isSms ? 150 : 500,
       temperature: 0.7,
     });
+  } catch (providerErr) {
+    slot.refund();
+    throw providerErr;
+  }
 
+  try {
+    slot.settle(recordAiSpend("gpt-4o-mini", completion.usage?.prompt_tokens ?? 0, completion.usage?.completion_tokens ?? 0, "ghl-reply"));
     const raw = completion.choices[0]?.message?.content?.trim() || "";
     if (!raw) return null;
 

@@ -235,25 +235,34 @@ async function checkAi(): Promise<CheckResult> {
       return { status: "error", message: "No OpenAI API key configured", latencyMs: Date.now() - t0 };
     }
 
+    const { checkAiGate: gate, recordAiSpend } = await import("./ai-audit-logger");
+    const slot = await gate("gpt-4o-mini");
     const OpenAI = (await import("openai")).default;
     const openai = new OpenAI({
       apiKey,
       baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
     });
 
-    const completion = await Promise.race([
-      openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        messages: [{ role: "user", content: "Reply with the single word: ok" }],
-        max_tokens: 5,
-      }),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("AI probe timeout (8s)")), 8000)
-      ),
-    ]);
+    let completion;
+    try {
+      completion = await Promise.race([
+        openai.chat.completions.create({
+          model: "gpt-4o-mini",
+          messages: [{ role: "user", content: "Reply with the single word: ok" }],
+          max_tokens: 5,
+        }),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("AI probe timeout (8s)")), 8000)
+        ),
+      ]);
+    } catch (providerErr) {
+      slot.refund();
+      throw providerErr;
+    }
 
     const latencyMs = Date.now() - t0;
     const text = (completion.choices[0]?.message?.content ?? "").toLowerCase();
+    slot.settle(recordAiSpend("gpt-4o-mini", completion.usage?.prompt_tokens ?? 0, completion.usage?.completion_tokens ?? 0, "system-health"));
     if (text.includes("ok")) {
       return { status: "ok", message: `Responded in ${latencyMs}ms`, latencyMs };
     }

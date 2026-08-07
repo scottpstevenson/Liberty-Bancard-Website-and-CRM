@@ -4,7 +4,7 @@ import { storage } from "../storage";
 import { contacts } from "@shared/schema";
 import { and } from "drizzle-orm";
 import { notifyRepWithBriefing, sendProposalEmail } from "../services/proposal-engine";
-import { logAiCall, classifyAiError, logAiCredentialError } from "../services/ai-audit-logger";
+import { logAiCall, classifyAiError, logAiCredentialError, isAiPaused, getDailySpendCents, checkAiGate } from "../services/ai-audit-logger";
 import { parse } from "csv-parse/sync";
 import path from "path";
 import type { ProposalData, ProposalPlan } from "./helpers";
@@ -484,16 +484,106 @@ Respond ONLY with valid JSON.`
         }
       }
 
+      const [aiPaused, dailySpendCents, spendCapCents, pausedReason] = await Promise.all([
+        isAiPaused(),
+        getDailySpendCents(),
+        storage.getSystemSetting("ai_daily_spend_cap_cents"),
+        storage.getSystemSetting("ai_paused_reason"),
+      ]);
+
       res.json({
         aiActions: result,
         workflowStats: { totalRuns: totalWorkflowRuns, last24h: recentRuns },
         health: { status: healthStatus, configured: keyConfigured, message: healthMessage },
+        killSwitch: {
+          paused: aiPaused,
+          pausedReason: pausedReason ?? null,
+          dailySpendCents: Math.round(dailySpendCents),
+          spendCapCents: spendCapCents ? Number(spendCapCents) : null,
+        },
       });
     } catch (err: any) {
       serverError(res, err);
     }
   });
 
+  // === AI KILL SWITCH ===
+  app.post("/api/ai/kill-switch/pause", requireRole("admin"), async (req, res) => {
+    try {
+      await Promise.all([
+        storage.setSystemSetting("ai_paused", true),
+        storage.setSystemSetting("ai_paused_reason", "admin_manual"),
+      ]);
+      await storage.createAuditLog({
+        action: "ai_kill_switch_paused",
+        entityType: "system",
+        entityId: null,
+        details: { actorId: (req.user as any)?.id, reason: "admin_manual" },
+      });
+      res.json({ paused: true });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  app.post("/api/ai/kill-switch/resume", requireRole("admin"), async (req, res) => {
+    try {
+      // If paused by spend cap, block resume while today's spend still meets/exceeds cap.
+      const [pausedReason, capCents, dailySpent] = await Promise.all([
+        storage.getSystemSetting("ai_paused_reason"),
+        storage.getSystemSetting("ai_daily_spend_cap_cents"),
+        getDailySpendCents(),
+      ]);
+      if (pausedReason === "daily_spend_cap" && capCents && Math.round(dailySpent) >= Number(capCents)) {
+        const capDollars = (Number(capCents) / 100).toFixed(2);
+        const spentDollars = (dailySpent / 100).toFixed(2);
+        return res.status(409).json({
+          message: `Cannot resume — today's AI spend ($${spentDollars}) still meets or exceeds the daily cap ($${capDollars}). Raise or remove the cap first, then resume.`,
+          spentCents: Math.round(dailySpent),
+          capCents: Number(capCents),
+        });
+      }
+
+      await Promise.all([
+        storage.setSystemSetting("ai_paused", false),
+        storage.setSystemSetting("ai_paused_reason", null),
+      ]);
+      await storage.createAuditLog({
+        action: "ai_kill_switch_resumed",
+        entityType: "system",
+        entityId: null,
+        details: { actorId: (req.user as any)?.id },
+      });
+      res.json({ paused: false });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  app.post("/api/ai/kill-switch/spend-cap", requireRole("admin"), async (req, res) => {
+    try {
+      const { capDollars } = req.body;
+      if (capDollars === null || capDollars === undefined) {
+        await storage.setSystemSetting("ai_daily_spend_cap_cents", null);
+        return res.json({ spendCapCents: null });
+      }
+      const dollars = parseFloat(capDollars);
+      if (isNaN(dollars) || dollars < 0) {
+        return res.status(400).json({ message: "capDollars must be a non-negative number" });
+      }
+      const cents = Math.round(dollars * 100);
+      await storage.setSystemSetting("ai_daily_spend_cap_cents", cents);
+      await storage.createAuditLog({
+        action: "ai_spend_cap_updated",
+        entityType: "system",
+        entityId: null,
+        details: { actorId: (req.user as any)?.id, capDollars: dollars, capCents: cents },
+      });
+      res.json({ spendCapCents: cents });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
 
   // === AI STATEMENT ANALYSIS ===
   app.post("/api/ai/analyze-statement", isAuthenticated, async (req, res) => {
@@ -1511,6 +1601,9 @@ Based on the above, generate the evidence packet. For the evidenceChecklist, che
   // === AI PROMPT REPLAY ===
   app.post("/api/operator/ai-audit/:id/replay", requireRole("admin", "manager"), async (req, res) => {
     try {
+      // Gate: replay must also respect the kill switch (admin cannot bypass cap).
+      await checkAiGate();
+
       const log = await storage.getAiAuditLog(Number(req.params.id));
       if (!log) return res.status(404).json({ message: "Log not found" });
       if (!log.rawPrompt) return res.status(400).json({ message: "No raw prompt stored for this log entry. Replay requires prompt storage." });
@@ -1536,11 +1629,20 @@ Based on the above, generate the evidence packet. For the evidenceChecklist, che
         messages = [{ role: "user", content: log.rawPrompt }];
       }
 
-      const completion = await openai.chat.completions.create({
-        model,
-        messages,
-        max_completion_tokens: 5000,
-      });
+      const { completion } = await logAiCall(
+        {
+          triggerType: "advisor",
+          actorType: "admin",
+          actorId: String((req.user as any)?.id ?? "system"),
+          model,
+          rawPrompt: log.rawPrompt,
+        },
+        () => openai.chat.completions.create({
+          model,
+          messages,
+          max_completion_tokens: 5000,
+        })
+      );
 
       const durationMs = Date.now() - start;
       const newResponse = completion.choices?.[0]?.message?.content || "";

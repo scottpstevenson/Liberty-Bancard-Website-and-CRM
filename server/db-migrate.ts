@@ -295,6 +295,21 @@ export async function runDrizzleMigrations(): Promise<void> {
   await migrate(db, { migrationsFolder: MIGRATIONS_FOLDER });
   console.log("[DB Migrate] All Drizzle journal migrations up to date.");
 
+  // Idempotent guard: ensure contacts.assigned_to exists regardless of migration history.
+  // This column was added in 0110_contact_assigned_to.sql but the migration may have
+  // been recorded as applied in drizzle.__drizzle_migrations without the DDL executing.
+  try {
+    const guard = await connectWithRetry();
+    try {
+      await guard.query(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS "assigned_to" text`);
+      await guard.query(`CREATE INDEX IF NOT EXISTS contacts_assigned_to_idx ON contacts ("assigned_to")`);
+    } finally {
+      guard.release();
+    }
+  } catch (e: any) {
+    console.warn("[DB Migrate] contacts.assigned_to guard skipped:", e.message);
+  }
+
   // Apply Phase 3 (0054) only after verifying Phase 2 backfill preconditions.
   // This call is a no-op if the index already exists or if conflicts remain.
   await applyPhase3IndexIfReady();

@@ -72,15 +72,24 @@ Be specific to the merchant's industry and current processor. Keep each field un
 
   let output: SalesPrepOutput;
   try {
+    const { checkAiGate, recordAiSpend } = await import("./ai-audit-logger");
+    const slot = await checkAiGate(LIVE_MODEL);
     const { default: OpenAI } = await import("openai");
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-    const response = await openai.chat.completions.create({
-      model: LIVE_MODEL,
-      messages: [{ role: "user", content: prompt }],
-      response_format: { type: "json_object" },
-      max_tokens: 400,
-      temperature: 0.6,
-    });
+    let response;
+    try {
+      response = await openai.chat.completions.create({
+        model: LIVE_MODEL,
+        messages: [{ role: "user", content: prompt }],
+        response_format: { type: "json_object" },
+        max_tokens: 400,
+        temperature: 0.6,
+      });
+    } catch (providerErr) {
+      slot.refund();
+      throw providerErr;
+    }
+    slot.settle(recordAiSpend(LIVE_MODEL, response.usage?.prompt_tokens ?? 0, response.usage?.completion_tokens ?? 0, "sales-prep"));
     const raw = response.choices[0]?.message?.content ?? "{}";
     const parsed = JSON.parse(raw);
     output = {

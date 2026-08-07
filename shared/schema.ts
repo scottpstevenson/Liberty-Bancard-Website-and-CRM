@@ -4047,6 +4047,15 @@ export const AI_TRIGGER_TYPES = [
   "auto-reply",
   "chargeback-copilot",
   "credential_error",
+  // System / infrastructure triggers
+  "executive-briefing",
+  "executive-coaching",
+  "offer-routing",
+  "sales-prep",
+  "sequence-analysis",
+  "system-health",
+  "ghl-reply",
+  "knowledge-embedding",
 ] as const;
 
 export type AiTriggerType = typeof AI_TRIGGER_TYPES[number];

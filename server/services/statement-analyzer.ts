@@ -7,6 +7,7 @@
 import fs from "fs";
 import path from "path";
 import OpenAI from "openai";
+import { checkAiGate, recordAiSpend } from "./ai-audit-logger";
 import { z } from "zod";
 import { eq, and, desc } from "drizzle-orm";
 import { db } from "../db";
@@ -139,6 +140,7 @@ async function callOpenAIExtraction(statementText: string): Promise<Extraction |
     return FIXTURE_EXTRACTION;
   }
 
+  const slot = await checkAiGate("gpt-4o");
   const openai = getOpenAI();
   const systemPrompt = `You are a payment processing statement analyzer. 
 Extract ONLY the following raw numeric fields from the merchant processing statement. 
@@ -157,19 +159,26 @@ IMPORTANT: Do NOT calculate effectiveRate or savings — return raw numbers only
 If a value cannot be found, use 0 for numeric fields.
 Return only valid JSON with no markdown, no explanation.`;
 
-  const response = await openai.chat.completions.create({
-    model: "gpt-4o",
-    messages: [
-      { role: "system", content: systemPrompt },
-      {
-        role: "user",
-        content: `Analyze this merchant processing statement and extract the requested fields:\n\n${statementText.slice(0, 8000)}`,
-      },
-    ],
-    response_format: { type: "json_object" },
-    temperature: 0,
-  });
+  let response;
+  try {
+    response = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        { role: "system", content: systemPrompt },
+        {
+          role: "user",
+          content: `Analyze this merchant processing statement and extract the requested fields:\n\n${statementText.slice(0, 8000)}`,
+        },
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0,
+    });
+  } catch (providerErr) {
+    slot.refund();
+    throw providerErr;
+  }
 
+  slot.settle(recordAiSpend("gpt-4o", response.usage?.prompt_tokens ?? 0, response.usage?.completion_tokens ?? 0, "statement-analysis"));
   const raw = response.choices[0]?.message?.content;
   if (!raw) return null;
 

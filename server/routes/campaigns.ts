@@ -1,5 +1,6 @@
 import type { Express } from "express";
 import { isAuthenticated, isDashboardUser, requireRole } from "../replit_integrations/auth";
+import { logAiCall } from "../services/ai-audit-logger";
 import { storage } from "../storage";
 import { z } from "zod";
 import { DateValidationError } from "../utils/date-coerce";
@@ -1271,6 +1272,7 @@ export function registerCampaignsRoutes(app: Express) {
       const stalledNames = (stalledEnrollments || []).map((s: any) => `  • "${s.name}" — ${s.active_enrollments} contacts stalled (sequence is PAUSED)`).join("\n");
       const identityList = (sendingIdentities || []).map((i: any) => `  • ${i.label} <${i.email_address}> | ${i.warmup_status} | health ${i.health_score} | daily_limit ${i.daily_limit} | sent_today ${i.sent_today}`).join("\n");
       const familyNames = Object.keys(pausedByFamily || {}).slice(0, 20).join(", ");
+      // ── kill-switch gate (also records spend for daily cap accounting) ──
 
       const systemPrompt = `You are a senior revenue operations and email deliverability consultant auditing a payment processing company's (Liberty Bancard) outbound sales automation system. 
 Analyze the sequence data objectively. Flag risks, gaps, and opportunities clearly. Be direct and concise. Use markdown with ## headings and bullet points. 
@@ -1308,14 +1310,22 @@ Please provide:
 6. **Go-Live Readiness Score** (0–100) with rationale
 7. **Top 5 Priority Actions** — ordered by revenue impact`;
 
-      const completion = await openai.chat.completions.create({
-        model: "gpt-4o",
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
-        max_tokens: 2000,
-      });
+      const { completion } = await logAiCall(
+        {
+          triggerType: "sequence-analysis",
+          actorType: "admin",
+          actorId: String((req.user as any)?.id ?? "system"),
+          model: "gpt-4o",
+        },
+        () => openai.chat.completions.create({
+          model: "gpt-4o",
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt },
+          ],
+          max_tokens: 2000,
+        })
+      );
 
       const analysis = completion.choices[0]?.message?.content ?? "No analysis generated.";
       res.json({ analysis, generatedAt: new Date().toISOString() });

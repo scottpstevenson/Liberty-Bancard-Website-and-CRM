@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { checkAiGate, recordAiSpend } from "./ai-audit-logger";
 import type { Contact } from "@shared/schema";
 import {
   OFFER_ROUTES,
@@ -228,6 +229,7 @@ export async function routeOfferWithAi(contact: Contact): Promise<OfferRoutingRe
       };
     }
 
+    const slot = await checkAiGate("gpt-4o-mini");
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
     const contactSummary = {
@@ -274,14 +276,21 @@ Respond with valid JSON matching this exact shape:
   "shouldUpdateContact": true
 }`;
 
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [{ role: "user", content: prompt }],
-      response_format: { type: "json_object" },
-      temperature: 0,
-      max_tokens: 400,
-    });
+    let response;
+    try {
+      response = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [{ role: "user", content: prompt }],
+        response_format: { type: "json_object" },
+        temperature: 0,
+        max_tokens: 400,
+      });
+    } catch (providerErr) {
+      slot.refund();
+      throw providerErr;
+    }
 
+    slot.settle(recordAiSpend("gpt-4o-mini", response.usage?.prompt_tokens ?? 0, response.usage?.completion_tokens ?? 0, "offer-routing"));
     const raw = response.choices[0]?.message?.content;
     if (!raw) return safeDefault;
 

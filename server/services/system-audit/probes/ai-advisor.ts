@@ -23,17 +23,26 @@ export async function probeAiAdvisor(): Promise<ProbeResult> {
   }
 
   try {
+    const { checkAiGate, recordAiSpend } = await import("../../ai-audit-logger");
+    const slot = await checkAiGate("gpt-4o-mini");
     const { default: OpenAI } = await import("openai");
     const openai = new OpenAI({ apiKey });
 
     const start = Date.now();
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [{ role: "user", content: "ping" }],
-      max_completion_tokens: 3,
-    });
+    let response;
+    try {
+      response = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [{ role: "user", content: "ping" }],
+        max_completion_tokens: 3,
+      });
+    } catch (providerErr) {
+      slot.refund();
+      throw providerErr;
+    }
     const latencyMs = Date.now() - start;
     const valid = !!response.choices[0]?.message?.content;
+    slot.settle(recordAiSpend("gpt-4o-mini", response.usage?.prompt_tokens ?? 0, response.usage?.completion_tokens ?? 0, "system-health"));
 
     return {
       subsystem: "ai-advisor",

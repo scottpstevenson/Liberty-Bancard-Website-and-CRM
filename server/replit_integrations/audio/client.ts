@@ -11,6 +11,12 @@ export const openai = new OpenAI({
   baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
 });
 
+/** Gate all audio AI calls through the kill switch. Returns a slot — call slot.refund() on provider failure. */
+export async function checkAudioAiGate(model = "gpt-audio"): Promise<import("../../services/ai-audit-logger").AiCapSlot> {
+  const { checkAiGate } = await import("../../services/ai-audit-logger");
+  return checkAiGate(model);
+}
+
 export type AudioFormat = "wav" | "mp3" | "webm" | "mp4" | "ogg" | "unknown";
 
 /**
@@ -116,18 +122,27 @@ export async function voiceChat(
   inputFormat: "wav" | "mp3" = "wav",
   outputFormat: "wav" | "mp3" = "mp3"
 ): Promise<{ transcript: string; audioResponse: Buffer }> {
+  const slot = await checkAudioAiGate("gpt-audio");
+  const { recordAiSpend } = await import("../../services/ai-audit-logger");
   const audioBase64 = audioBuffer.toString("base64");
-  const response = await openai.chat.completions.create({
-    model: "gpt-audio",
-    modalities: ["text", "audio"],
-    audio: { voice, format: outputFormat },
-    messages: [{
-      role: "user",
-      content: [
-        { type: "input_audio", input_audio: { data: audioBase64, format: inputFormat } },
-      ],
-    }],
-  });
+  let response;
+  try {
+    response = await openai.chat.completions.create({
+      model: "gpt-audio",
+      modalities: ["text", "audio"],
+      audio: { voice, format: outputFormat },
+      messages: [{
+        role: "user",
+        content: [
+          { type: "input_audio", input_audio: { data: audioBase64, format: inputFormat } },
+        ],
+      }],
+    });
+  } catch (err) {
+    slot.refund();
+    throw err;
+  }
+  slot.settle(recordAiSpend("gpt-audio", 0, 0, "advisor", 5));
   const message = response.choices[0]?.message as any;
   const transcript = message?.audio?.transcript || message?.content || "";
   const audioData = message?.audio?.data ?? "";
@@ -152,19 +167,29 @@ export async function voiceChatStream(
   voice: "alloy" | "echo" | "fable" | "onyx" | "nova" | "shimmer" = "alloy",
   inputFormat: "wav" | "mp3" = "wav"
 ): Promise<AsyncIterable<{ type: "transcript" | "audio"; data: string }>> {
+  const slot = await checkAudioAiGate("gpt-audio");
+  const { recordAiSpend } = await import("../../services/ai-audit-logger");
   const audioBase64 = audioBuffer.toString("base64");
-  const stream = await openai.chat.completions.create({
-    model: "gpt-audio",
-    modalities: ["text", "audio"],
-    audio: { voice, format: "pcm16" },
-    messages: [{
-      role: "user",
-      content: [
-        { type: "input_audio", input_audio: { data: audioBase64, format: inputFormat } },
-      ],
-    }],
-    stream: true,
-  });
+  let stream;
+  try {
+    stream = await openai.chat.completions.create({
+      model: "gpt-audio",
+      modalities: ["text", "audio"],
+      audio: { voice, format: "pcm16" },
+      messages: [{
+        role: "user",
+        content: [
+          { type: "input_audio", input_audio: { data: audioBase64, format: inputFormat } },
+        ],
+      }],
+      stream: true,
+    });
+  } catch (err) {
+    slot.refund();
+    throw err;
+  }
+  // Record estimated cost once the stream is successfully initiated; reconcile the reservation
+  slot.settle(recordAiSpend("gpt-audio", 0, 0, "advisor", 5));
 
   return (async function* () {
     for await (const chunk of stream) {
@@ -189,15 +214,24 @@ export async function textToSpeech(
   voice: "alloy" | "echo" | "fable" | "onyx" | "nova" | "shimmer" = "alloy",
   format: "wav" | "mp3" | "flac" | "opus" | "pcm16" = "wav"
 ): Promise<Buffer> {
-  const response = await openai.chat.completions.create({
-    model: "gpt-audio",
-    modalities: ["text", "audio"],
-    audio: { voice, format },
-    messages: [
-      { role: "system", content: "You are an assistant that performs text-to-speech." },
-      { role: "user", content: `Repeat the following text verbatim: ${text}` },
-    ],
-  });
+  const slot = await checkAudioAiGate("gpt-audio");
+  const { recordAiSpend } = await import("../../services/ai-audit-logger");
+  let response;
+  try {
+    response = await openai.chat.completions.create({
+      model: "gpt-audio",
+      modalities: ["text", "audio"],
+      audio: { voice, format },
+      messages: [
+        { role: "system", content: "You are an assistant that performs text-to-speech." },
+        { role: "user", content: `Repeat the following text verbatim: ${text}` },
+      ],
+    });
+  } catch (err) {
+    slot.refund();
+    throw err;
+  }
+  slot.settle(recordAiSpend("gpt-audio", 0, 0, "advisor", 5));
   const audioData = (response.choices[0]?.message as any)?.audio?.data ?? "";
   return Buffer.from(audioData, "base64");
 }
@@ -211,16 +245,25 @@ export async function textToSpeechStream(
   text: string,
   voice: "alloy" | "echo" | "fable" | "onyx" | "nova" | "shimmer" = "alloy"
 ): Promise<AsyncIterable<string>> {
-  const stream = await openai.chat.completions.create({
-    model: "gpt-audio",
-    modalities: ["text", "audio"],
-    audio: { voice, format: "pcm16" },
-    messages: [
-      { role: "system", content: "You are an assistant that performs text-to-speech." },
-      { role: "user", content: `Repeat the following text verbatim: ${text}` },
-    ],
-    stream: true,
-  });
+  const slot = await checkAudioAiGate("gpt-audio");
+  const { recordAiSpend } = await import("../../services/ai-audit-logger");
+  let stream;
+  try {
+    stream = await openai.chat.completions.create({
+      model: "gpt-audio",
+      modalities: ["text", "audio"],
+      audio: { voice, format: "pcm16" },
+      messages: [
+        { role: "system", content: "You are an assistant that performs text-to-speech." },
+        { role: "user", content: `Repeat the following text verbatim: ${text}` },
+      ],
+      stream: true,
+    });
+  } catch (err) {
+    slot.refund();
+    throw err;
+  }
+  slot.settle(recordAiSpend("gpt-audio", 0, 0, "advisor", 5));
 
   return (async function* () {
     for await (const chunk of stream) {
@@ -241,11 +284,20 @@ export async function speechToText(
   audioBuffer: Buffer,
   format: "wav" | "mp3" | "webm" = "wav"
 ): Promise<string> {
+  const slot = await checkAudioAiGate("gpt-4o-mini");
+  const { recordAiSpend } = await import("../../services/ai-audit-logger");
   const file = await toFile(audioBuffer, `audio.${format}`);
-  const response = await openai.audio.transcriptions.create({
-    file,
-    model: "gpt-4o-mini-transcribe",
-  });
+  let response;
+  try {
+    response = await openai.audio.transcriptions.create({
+      file,
+      model: "gpt-4o-mini-transcribe",
+    });
+  } catch (err) {
+    slot.refund();
+    throw err;
+  }
+  slot.settle(recordAiSpend("gpt-4o-mini", 0, 0, "advisor", 1));
   return response.text;
 }
 
@@ -257,12 +309,21 @@ export async function speechToTextStream(
   audioBuffer: Buffer,
   format: "wav" | "mp3" | "webm" = "wav"
 ): Promise<AsyncIterable<string>> {
+  const slot = await checkAudioAiGate("gpt-4o-mini");
+  const { recordAiSpend } = await import("../../services/ai-audit-logger");
   const file = await toFile(audioBuffer, `audio.${format}`);
-  const stream = await openai.audio.transcriptions.create({
-    file,
-    model: "gpt-4o-mini-transcribe",
-    stream: true,
-  });
+  let stream;
+  try {
+    stream = await openai.audio.transcriptions.create({
+      file,
+      model: "gpt-4o-mini-transcribe",
+      stream: true,
+    });
+  } catch (err) {
+    slot.refund();
+    throw err;
+  }
+  slot.settle(recordAiSpend("gpt-4o-mini", 0, 0, "advisor", 1));
 
   return (async function* () {
     for await (const event of stream) {

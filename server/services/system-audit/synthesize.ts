@@ -37,13 +37,22 @@ Write a concise, professional diagnostic narrative (180–250 words) with:
 
 Rules: plain business English, no markdown headers, no bullet points — flowing prose paragraphs only. Be direct and action-oriented.`;
 
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o",
-      messages: [{ role: "user", content: prompt }],
-      max_completion_tokens: 600,
-      temperature: 0.3,
-    });
+    const { checkAiGate, recordAiSpend } = await import("../ai-audit-logger");
+    const slot = await checkAiGate("gpt-4o");
+    let response;
+    try {
+      response = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [{ role: "user", content: prompt }],
+        max_completion_tokens: 600,
+        temperature: 0.3,
+      });
+    } catch (providerErr) {
+      slot.refund();
+      throw providerErr;
+    }
 
+    slot.settle(recordAiSpend("gpt-4o", response.usage?.prompt_tokens ?? 0, response.usage?.completion_tokens ?? 0, "system-health"));
     return response.choices[0]?.message?.content?.trim() ?? null;
   } catch (err: any) {
     console.error("[SystemAudit] Narrative synthesis failed:", err.message);

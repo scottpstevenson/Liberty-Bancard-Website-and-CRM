@@ -81,13 +81,23 @@ export function registerChatRoutes(app: Express): void {
       res.setHeader("Cache-Control", "no-cache");
       res.setHeader("Connection", "keep-alive");
 
-      // Stream response from OpenAI
-      const stream = await openai.chat.completions.create({
-        model: "gpt-5.1",
-        messages: chatMessages,
-        stream: true,
-        max_completion_tokens: 2048,
-      });
+      // Stream response from OpenAI (kill-switch gate with atomic cap reservation)
+      const { checkAiGate, recordAiSpend } = await import("../../services/ai-audit-logger");
+      const slot = await checkAiGate("gpt-5");
+      let stream;
+      try {
+        stream = await openai.chat.completions.create({
+          model: "gpt-5.1",
+          messages: chatMessages,
+          stream: true,
+          max_completion_tokens: 2048,
+        });
+      } catch (providerErr) {
+        slot.refund();
+        throw providerErr;
+      }
+      // Record estimated cost once stream is successfully initiated; reconcile the reservation
+      slot.settle(recordAiSpend("gpt-5", 0, 0, "advisor", 20));
 
       let fullResponse = "";
 

@@ -4,7 +4,9 @@ import { Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Loader2, Zap, Package, Workflow, ChevronDown, ChevronRight, Mail, MessageSquare, Clock, ListChecks, Bell, FileText, Tag, Shield, ArrowRight, ExternalLink, Sparkles, Play, BarChart3, Route, Ticket, Brain, FileSearch, Activity, CheckCircle2, AlertCircle, Pause, RefreshCw } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Loader2, Zap, Package, Workflow, ChevronDown, ChevronRight, Mail, MessageSquare, Clock, ListChecks, Bell, FileText, Tag, Shield, ArrowRight, ExternalLink, Sparkles, Play, BarChart3, Route, Ticket, Brain, FileSearch, Activity, CheckCircle2, AlertCircle, Pause, RefreshCw, AlertTriangle, DollarSign, Power } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { CollateralPacket, Workflow as WorkflowType, MessageTemplate } from "@shared/schema";
@@ -23,10 +25,18 @@ interface AiHealth {
   message: string | null;
 }
 
+interface KillSwitchState {
+  paused: boolean;
+  pausedReason: string | null;
+  dailySpendCents: number;
+  spendCapCents: number | null;
+}
+
 interface CommandCenterData {
   aiActions: AIAction[];
   workflowStats: { totalRuns: number; last24h: number };
   health?: AiHealth;
+  killSwitch: KillSwitchState;
 }
 
 function formatRelativeTime(dateStr: string | null): string {
@@ -69,9 +79,61 @@ function AICommandCenter() {
   const { toast } = useToast();
   const [runningAction, setRunningAction] = useState<string | null>(null);
   const [runningAll, setRunningAll] = useState(false);
+  const [showResumeDialog, setShowResumeDialog] = useState(false);
+  const [capInput, setCapInput] = useState<string>("");
+  const [editingCap, setEditingCap] = useState(false);
 
   const { data: commandCenter, isLoading: commandCenterLoading } = useQuery<CommandCenterData>({
     queryKey: ["/api/ai/command-center"],
+  });
+
+  const pauseMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/ai/kill-switch/pause");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/ai/command-center"] });
+      toast({ title: "AI Paused", description: "All AI operations have been halted immediately." });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to pause AI", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const resumeMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/ai/kill-switch/resume");
+      if (res.status === 409) {
+        const body = await res.json();
+        throw new Error(body.message ?? "Cannot resume while spend cap is still exceeded.");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      setShowResumeDialog(false);
+      queryClient.invalidateQueries({ queryKey: ["/api/ai/command-center"] });
+      toast({ title: "AI Resumed", description: "AI operations are now active again." });
+    },
+    onError: (err: Error) => {
+      setShowResumeDialog(false);
+      toast({ title: "Cannot Resume AI", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const spendCapMutation = useMutation({
+    mutationFn: async (capDollars: number | null) => {
+      const res = await apiRequest("POST", "/api/ai/kill-switch/spend-cap", { capDollars });
+      return res.json();
+    },
+    onSuccess: () => {
+      setEditingCap(false);
+      queryClient.invalidateQueries({ queryKey: ["/api/ai/command-center"] });
+      toast({ title: "Spend cap saved", description: "Daily AI spend cap updated." });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to save cap", description: err.message, variant: "destructive" });
+    },
   });
 
   const runActionMutation = useMutation({
@@ -193,9 +255,62 @@ function AICommandCenter() {
   const workflowStats = commandCenter?.workflowStats || { totalRuns: 0, last24h: 0 };
   const health = commandCenter?.health;
   const isUnhealthy = health && health.status !== "healthy";
+  const killSwitch = commandCenter?.killSwitch;
+  const isPaused = killSwitch?.paused ?? false;
+  const dailySpendDollars = ((killSwitch?.dailySpendCents ?? 0) / 100).toFixed(2);
+  const spendCapDollars = killSwitch?.spendCapCents != null ? (killSwitch.spendCapCents / 100).toFixed(2) : null;
+  const pauseReasonLabel =
+    killSwitch?.pausedReason === "daily_spend_cap"
+      ? "Auto-paused: daily spend cap reached"
+      : "Manually paused by admin";
 
   return (
+    <>
+    {/* Resume confirmation dialog */}
+    <Dialog open={showResumeDialog} onOpenChange={setShowResumeDialog}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Resume AI Operations?</DialogTitle>
+          <DialogDescription>
+            This will re-enable all AI calls — proposals, advisor, executive snapshots, and scheduled AI ops.
+            Only resume if you are confident the issue that caused the pause has been resolved.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setShowResumeDialog(false)}>Cancel</Button>
+          <Button
+            onClick={() => resumeMutation.mutate()}
+            disabled={resumeMutation.isPending}
+            data-testid="button-confirm-resume-ai"
+          >
+            {resumeMutation.isPending && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
+            Yes, Resume AI
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
     <Card data-testid="card-ai-command-center">
+      {isPaused && (
+        <div className="flex items-center gap-3 px-6 py-3 bg-destructive/10 border-b border-destructive/20 rounded-t-lg" data-testid="banner-ai-paused">
+          <AlertTriangle className="w-5 h-5 text-destructive shrink-0" />
+          <div className="flex-1 min-w-0">
+            <span className="text-sm font-semibold text-destructive">AI Operations Paused — </span>
+            <span className="text-sm text-destructive/80">{pauseReasonLabel}</span>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            className="border-destructive/40 text-destructive hover:bg-destructive/10 shrink-0"
+            onClick={() => setShowResumeDialog(true)}
+            disabled={resumeMutation.isPending}
+            data-testid="button-resume-ai-banner"
+          >
+            <Power className="w-3 h-3 mr-1" />
+            Resume AI
+          </Button>
+        </div>
+      )}
       <CardHeader className="flex flex-row items-center justify-between gap-3 flex-wrap">
         <CardTitle className="flex items-center gap-2">
           <Sparkles className="w-5 h-5" />
@@ -206,24 +321,120 @@ function AICommandCenter() {
             <Badge variant="secondary">{workflowStats.totalRuns} total runs</Badge>
             <Badge variant="outline">{workflowStats.last24h} last 24h</Badge>
           </div>
-          <Button
-            onClick={handleRunAll}
-            disabled={runningAll}
-            data-testid="button-run-all-ai"
-          >
-            {runningAll ? (
-              <Loader2 className="w-4 h-4 animate-spin mr-2" />
-            ) : (
-              <Play className="w-4 h-4 mr-2" />
-            )}
-            Run All AI Operations
-          </Button>
+          {!isPaused && (
+            <Button
+              onClick={handleRunAll}
+              disabled={runningAll}
+              data-testid="button-run-all-ai"
+            >
+              {runningAll ? (
+                <Loader2 className="w-4 h-4 animate-spin mr-2" />
+              ) : (
+                <Play className="w-4 h-4 mr-2" />
+              )}
+              Run All AI Operations
+            </Button>
+          )}
+          {isPaused ? (
+            <Button
+              variant="outline"
+              className="border-destructive/40 text-destructive hover:bg-destructive/10"
+              onClick={() => setShowResumeDialog(true)}
+              disabled={resumeMutation.isPending}
+              data-testid="button-resume-ai"
+            >
+              <Power className="w-4 h-4 mr-2" />
+              Resume AI
+            </Button>
+          ) : (
+            <Button
+              variant="destructive"
+              onClick={() => pauseMutation.mutate()}
+              disabled={pauseMutation.isPending}
+              data-testid="button-pause-ai"
+            >
+              {pauseMutation.isPending ? (
+                <Loader2 className="w-4 h-4 animate-spin mr-2" />
+              ) : (
+                <Pause className="w-4 h-4 mr-2" />
+              )}
+              Pause All AI
+            </Button>
+          )}
         </div>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-5">
+        {/* Kill switch spend cap row */}
+        <div className="flex items-center gap-4 p-3 rounded-lg bg-muted/50 border flex-wrap" data-testid="kill-switch-spend-panel">
+          <DollarSign className="w-4 h-4 text-muted-foreground shrink-0" />
+          <div className="flex items-center gap-2 text-sm flex-1 flex-wrap">
+            <span className="text-muted-foreground">Today's AI spend:</span>
+            <span className="font-semibold" data-testid="text-daily-spend">${dailySpendDollars}</span>
+            <span className="text-muted-foreground mx-2">·</span>
+            <span className="text-muted-foreground">Daily cap:</span>
+            {editingCap ? (
+              <form
+                className="flex items-center gap-2"
+                onSubmit={e => {
+                  e.preventDefault();
+                  const val = parseFloat(capInput);
+                  spendCapMutation.mutate(isNaN(val) ? null : val);
+                }}
+              >
+                <Input
+                  autoFocus
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="e.g. 5.00"
+                  className="w-28 h-7 text-sm"
+                  value={capInput}
+                  onChange={e => setCapInput(e.target.value)}
+                  data-testid="input-spend-cap"
+                />
+                <Button type="submit" size="sm" className="h-7" disabled={spendCapMutation.isPending}>
+                  {spendCapMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : "Save"}
+                </Button>
+                <Button type="button" size="sm" variant="ghost" className="h-7" onClick={() => setEditingCap(false)}>
+                  Cancel
+                </Button>
+                {spendCapDollars && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 text-destructive"
+                    onClick={() => spendCapMutation.mutate(null)}
+                    disabled={spendCapMutation.isPending}
+                  >
+                    Remove cap
+                  </Button>
+                )}
+              </form>
+            ) : (
+              <>
+                <span className="font-semibold" data-testid="text-spend-cap">
+                  {spendCapDollars ? `$${spendCapDollars}` : "None"}
+                </span>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-6 px-2 text-xs"
+                  onClick={() => {
+                    setCapInput(spendCapDollars ?? "");
+                    setEditingCap(true);
+                  }}
+                  data-testid="button-edit-spend-cap"
+                >
+                  Edit
+                </Button>
+              </>
+            )}
+          </div>
+        </div>
         {isUnhealthy && health?.message && (
           <div
-            className="flex items-start gap-3 rounded-md border border-yellow-200 bg-yellow-50 dark:border-yellow-900 dark:bg-yellow-950/40 px-4 py-3 mb-4 text-sm text-yellow-800 dark:text-yellow-300"
+            className="flex items-start gap-3 rounded-md border border-yellow-200 bg-yellow-50 dark:border-yellow-900 dark:bg-yellow-950/40 px-4 py-3 text-sm text-yellow-800 dark:text-yellow-300"
             data-testid="ai-health-banner"
           >
             <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
@@ -285,6 +496,7 @@ function AICommandCenter() {
         </div>
       </CardContent>
     </Card>
+    </>
   );
 }
 

@@ -10,6 +10,7 @@
  */
 
 import type { ExecutiveSnapshot, RepBreakdownEntry } from "./executive-kpi";
+import { checkAiGate, recordAiSpend } from "./ai-audit-logger";
 
 function fmt$(n: number): string {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
@@ -63,7 +64,9 @@ export async function generateGptBriefing(snap: ExecutiveSnapshot): Promise<stri
     console.warn("[ExecAI] OpenAI key not set — skipping GPT briefing");
     return null;
   }
+  let slot: import("./ai-audit-logger").AiCapSlot = { estimatedCents: 0, refund: () => {}, settle: () => {} };
   try {
+    slot = await checkAiGate("gpt-4o");
     const { default: OpenAI } = await import("openai");
     const openai = new OpenAI({
       apiKey,
@@ -85,13 +88,20 @@ Tone: direct, data-driven, no fluff. Write for a CEO who has 90 seconds.
 KPI DATA:
 ${summary}`;
 
-    const res = await openai.chat.completions.create({
-      model: "gpt-4o",
-      messages: [{ role: "user", content: prompt }],
-      max_completion_tokens: 600,
-      temperature: 0.3,
-    });
+    let res;
+    try {
+      res = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [{ role: "user", content: prompt }],
+        max_completion_tokens: 600,
+        temperature: 0.3,
+      });
+    } catch (providerErr) {
+      slot.refund();
+      throw providerErr;
+    }
 
+    slot.settle(recordAiSpend("gpt-4o", res.usage?.prompt_tokens ?? 0, res.usage?.completion_tokens ?? 0, "executive-briefing"));
     return res.choices[0]?.message?.content?.trim() ?? null;
   } catch (err: any) {
     console.error("[ExecAI] GPT briefing failed:", err?.message ?? err);
@@ -118,7 +128,9 @@ export async function generateClaudeCoaching(
   }
   if (snap.repBreakdown.length === 0) return [];
 
+  let slot2: import("./ai-audit-logger").AiCapSlot = { estimatedCents: 0, refund: () => {}, settle: () => {} };
   try {
+    slot2 = await checkAiGate("claude-opus-4-5");
     const Anthropic = (await import("@anthropic-ai/sdk")).default;
     const client = new Anthropic({ apiKey });
 
@@ -156,12 +168,19 @@ Team context this week:
 Individual rep data:
 ${repSummaries}`;
 
-    const msg = await client.messages.create({
-      model: "claude-opus-4-5",
-      max_tokens: 1500,
-      messages: [{ role: "user", content: prompt }],
-    });
+    let msg;
+    try {
+      msg = await client.messages.create({
+        model: "claude-opus-4-5",
+        max_tokens: 1500,
+        messages: [{ role: "user", content: prompt }],
+      });
+    } catch (providerErr) {
+      slot2.refund();
+      throw providerErr;
+    }
 
+    slot2.settle(recordAiSpend("claude-opus-4-5", msg.usage?.input_tokens ?? 0, msg.usage?.output_tokens ?? 0, "executive-coaching"));
     const raw = msg.content[0]?.type === "text" ? msg.content[0].text.trim() : "";
     // Extract JSON array from response (Claude sometimes wraps in markdown)
     const jsonMatch = raw.match(/\[[\s\S]*\]/);

@@ -1,6 +1,6 @@
 import express, { type Express, type Request, type Response } from "express";
 import { chatStorage } from "../chat/storage";
-import { openai, speechToText, ensureCompatibleFormat } from "./client";
+import { openai, speechToText, ensureCompatibleFormat, checkAudioAiGate } from "./client";
 import { isAuthenticated } from "../auth";
 
 // Body parser with 50MB limit for audio payloads
@@ -94,14 +94,25 @@ export function registerAudioRoutes(app: Express): void {
 
       res.write(`data: ${JSON.stringify({ type: "user_transcript", data: userTranscript })}\n\n`);
 
-      // 6. Stream audio response from gpt-audio
-      const stream = await openai.chat.completions.create({
-        model: "gpt-audio",
-        modalities: ["text", "audio"],
-        audio: { voice, format: "pcm16" },
-        messages: chatHistory,
-        stream: true,
-      });
+      // 6. Stream audio response from gpt-audio (kill-switch gate with cap slot)
+      const { recordAiSpend } = await import("../../services/ai-audit-logger");
+      const slot = await checkAudioAiGate("gpt-audio");
+      let stream;
+      try {
+        stream = await openai.chat.completions.create({
+          model: "gpt-audio",
+          modalities: ["text", "audio"],
+          audio: { voice, format: "pcm16" },
+          messages: chatHistory,
+          stream: true,
+        });
+      } catch (providerErr) {
+        slot.refund();
+        throw providerErr;
+      }
+      // Record spend and reconcile the pre-reservation now that the stream is live
+      recordAiSpend("gpt-audio", 0, 0, "advisor", 5);
+      slot.settle(5);
 
       let assistantTranscript = "";
 

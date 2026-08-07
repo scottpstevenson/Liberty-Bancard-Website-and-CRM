@@ -73,8 +73,8 @@ function cosineSimilarity(a: number[], b: number[]): number {
   return denom === 0 ? 0 : dot / denom;
 }
 
-async function getOpenAI() {
-  const { OpenAI } = await import("openai");
+function getOpenAI() {
+  const { OpenAI } = require("openai");
   const apiKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
   const baseURL = process.env.AI_INTEGRATIONS_OPENAI_BASE_URL;
   if (!apiKey) throw new Error("OPENAI_NOT_CONFIGURED");
@@ -83,12 +83,22 @@ async function getOpenAI() {
 
 async function embedTexts(texts: string[]): Promise<number[][]> {
   if (texts.length === 0) return [];
-  const openai = await getOpenAI();
-  const response = await openai.embeddings.create({
-    model: EMBED_MODEL,
-    input: texts,
-  });
-  return response.data.map(d => d.embedding);
+  const { checkAiGate, recordAiSpend } = await import("./ai-audit-logger");
+  const slot = await checkAiGate("text-embedding");
+  let response;
+  try {
+    const openai = getOpenAI();
+    response = await openai.embeddings.create({
+      model: EMBED_MODEL,
+      input: texts,
+    });
+  } catch (providerErr) {
+    slot.refund();
+    throw providerErr;
+  }
+  // Embeddings usage: total_tokens maps to prompt_tokens for cap accounting
+  slot.settle(recordAiSpend(EMBED_MODEL, response.usage?.total_tokens ?? 0, 0, "knowledge-embedding"));
+  return response.data.map((d: any) => d.embedding);
 }
 
 // ── Source CRUD ─────────────────────────────────────────────────────────────
