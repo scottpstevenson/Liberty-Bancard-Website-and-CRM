@@ -3378,19 +3378,27 @@ export function registerAdminRoutes(app: Express) {
       checks.push({ name: "db", status: dbOk ? "ok" : "error", detail: dbOk ? `${dbMs}ms` : "Connection failed", durationMs: dbMs, critical: true });
 
       // 2. sequenceWorker
+      // When LEGACY_OUTREACH_ENABLED is off the BullMQ sequence job is intentionally
+      // not ticking — a stale heartbeat is expected, not an error.
       let seqStatus: "ok" | "error" | "stale" = "error";
       let seqDetail = "Never (worker has not run)";
       try {
-        const hb = await storage.getSystemSetting("sequence_runner_last_tick");
-        if (hb?.at) {
-          const ageMs = now - new Date(hb.at).getTime();
-          const ageMins = Math.round(ageMs / 60000);
-          if (ageMs < 15 * 60 * 1000) {
-            seqStatus = "ok";
-            seqDetail = `last tick: ${ageMins}m ago`;
-          } else {
-            seqStatus = "stale";
-            seqDetail = `last tick: ${ageMins}m ago (stale >15m)`;
+        const { featureFlags } = await import("../services/feature-flags");
+        if (!featureFlags.LEGACY_OUTREACH_ENABLED) {
+          seqStatus = "ok";
+          seqDetail = "LEGACY_OUTREACH_ENABLED is off — worker intentionally idle";
+        } else {
+          const hb = await storage.getSystemSetting("sequence_runner_last_tick");
+          if (hb?.at) {
+            const ageMs = now - new Date(hb.at).getTime();
+            const ageMins = Math.round(ageMs / 60000);
+            if (ageMs < 15 * 60 * 1000) {
+              seqStatus = "ok";
+              seqDetail = `last tick: ${ageMins}m ago`;
+            } else {
+              seqStatus = "stale";
+              seqDetail = `last tick: ${ageMins}m ago (stale >15m)`;
+            }
           }
         }
       } catch {}

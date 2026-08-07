@@ -135,6 +135,12 @@ async function checkWorkerTick(
 }
 
 async function checkSequenceWorker(): Promise<CheckResult> {
+  // When LEGACY_OUTREACH_ENABLED is off the sequence worker intentionally
+  // does not tick — reporting stale here would be a false positive.
+  const { featureFlags } = await import("./feature-flags");
+  if (!featureFlags.LEGACY_OUTREACH_ENABLED) {
+    return { status: "ok", message: "LEGACY_OUTREACH_ENABLED is off — sequence worker intentionally idle", latencyMs: 0 };
+  }
   return checkWorkerTick("sequence_runner_last_tick", 15 * 60 * 1000);
 }
 

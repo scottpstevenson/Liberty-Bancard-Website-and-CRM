@@ -67,6 +67,9 @@
 - [Intake Provenance System](intake-provenance.md) — writeContact() canonical writer; import_executions + contact_source_events; A→B→C DEFERRABLE transaction; all 9 public forms + manual CRM + GHL sync + CSV + Sunbiz wired.
 - [System Audit Engine](system-audit-engine.md) — weekly BullMQ job probes 7 subsystems, generates GPT narrative, delivers Slack; admin UI at /dashboard/system-audit.
 - [BullMQ infra requirements](bullmq-infra-requirements.md) — maxRetriesPerRequest:null + lockDuration:120000 are critical; missing either causes silent job stall or lock-renewal failures.
+- [BullMQ startup job deduplication](bullmq-startup-dedup.md) — static jobId on startup jobs silently deduped against stale Redis entries; omit jobId for one-off restart jobs.
+- [Live health check dual implementation](live-health-dual-implementation.md) — /api/admin/live-health has its OWN inline checks in admin.ts separate from health-monitor.ts; fix both or the gate still fails.
+- [Sequence worker runtime](sequence-worker-runtime.md) — processSequenceEnrollments takes ~8 min with 155K contacts; longer than dev 5-min and prod 30-sec repeat intervals; jobs pile up.
 - [Wave merge audit findings](wave-merge-audit.md) — compliance scan lineContains must match the flagged line verbatim; pre-deploy workflow has timing bug, run the script directly instead.
 - [Merchant portal access gaps](merchant-portal-access-gaps.md) — ProtectedRoute must redirect merchant→/dashboard/merchant-portal; onboarding-steps and checklist routes must use isAuthenticated+ownership, not isDashboardUser.
 - [GHL fetch timeout](ghl-fetch-timeout.md) — AbortController per fetch attempt (20 s default); clearTimeout in both success and catch; AbortError is retryable.

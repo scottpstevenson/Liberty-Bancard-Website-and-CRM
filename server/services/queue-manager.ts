@@ -805,9 +805,11 @@ class QueueManager {
         jobId: `${config.name}-repeatable`,
       });
 
+      // No jobId here — letting BullMQ assign a unique ID prevents the stale
+      // "{name}-startup" job that may be sitting in Redis (completed/failed from
+      // a previous run) from deduplicating and silently swallowing this request.
       await queue.add(config.jobName, {}, {
         delay: Math.floor(Math.random() * 10000) + 2000,
-        jobId: `${config.name}-startup`,
       });
     }
   }

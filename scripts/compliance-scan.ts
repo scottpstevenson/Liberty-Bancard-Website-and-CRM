@@ -190,6 +190,14 @@ const CALL_SITE_ALLOWLIST: Array<{
     reason: "Partner org user welcome email — triggered by admin action (adding a user to a partner org), not automated outreach. Sends login credentials to the newly invited partner user only. Reviewed 2026-08-07.",
     reviewDate: "2026-08-07",
   },
+  {
+    file: "server/services/merchant-portal-invite.ts",
+    lineContains: "sendSmtpEmail",
+    channel: "email",
+    category: "transactional_merchant",
+    reason: "Merchant portal invitation email — triggered by admin approval action (sendMerchantPortalInvite/resendMerchantPortalInvite), never automated. Only fires when SMTP is configured; skipped with a logged warning otherwise. Delivers a one-time activation link to the merchant. Reviewed 2026-08-07.",
+    reviewDate: "2026-08-07",
+  },
   // ── SDR pipeline email sends — explicitly reviewed 2026-06-26 ────────────
   // These files are always invoked from server/services/sdr/orchestrator.ts
   // whose runSdrCycle() calls evaluateContactability() at the top of every
