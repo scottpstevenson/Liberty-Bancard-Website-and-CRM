@@ -1,0 +1,1478 @@
+The feedback is right. The next version should stop being a generic roadmap and become an execution-ready master program with three things separated:
+
+1. Strategic build track — the core Liberty operating system.
+2. Operational/maintenance track — existing bugs, fixes, small improvements, production support.
+3. Validation/audit track — security, PCI, DR, collision testing, production readiness.
+
+The biggest correction is to reduce P0 to the actual critical path and mark what is already complete so Replit does not rebuild working systems.
+
+LIBERTY BANCARD — MASTER REPLIT PROGRAM
+
+Execution-Ready Backlog
+
+GOVERNING ARCHITECTURE
+
+Liberty Bancard/Replit is the authoritative:
+
+* CRM
+* system of record
+* lifecycle engine
+* automation engine
+* sequence engine
+* AI decision engine
+* compliance engine
+* task engine
+* lead scoring engine
+* merchant onboarding system
+* underwriting orchestration system
+* boarding system
+* merchant account management system
+* residual/profitability intelligence system
+* reporting system
+
+External systems such as GHL are utility/integration providers.
+
+Core rule:
+
+REPLIT DECIDES → EXTERNAL UTILITY EXECUTES → RESULT RETURNS TO REPLIT → REPLIT DECIDES WHAT HAPPENS NEXT.
+
+No external workflow, opportunity, task, tag, sequence, or CRM record may independently control Liberty business state.
+
+⸻
+
+EXECUTION RULES
+
+Every new Replit task must follow this process:
+
+1. Audit what already exists.
+2. Identify overlapping tables/services/routes/workers.
+3. Mark existing functionality:
+    * COMPLETE
+    * PARTIAL
+    * MISSING
+    * DUPLICATED
+    * CONFLICTING
+4. Reuse existing architecture before creating anything new.
+5. Do not recreate functionality already working.
+6. Preserve production behavior.
+7. Make migrations backward-safe.
+8. Make automation idempotent.
+9. Add auditability.
+10. Add failure/recovery paths.
+11. Add admin/operator visibility where needed.
+12. Add automated tests.
+13. Extend scripts/pre-deploy.ts only where new critical behavior requires coverage.
+14. Do not add BullMQ queues without technical justification.
+15. Prefer event-driven and next_action_at processing over full-table scans.
+16. AI recommends; deterministic Liberty rules authorize.
+17. Every external channel action must pass through Liberty compliance/contactability.
+18. Completion output must state:
+
+* what existed
+* what changed
+* migrations
+* tests
+* remaining gaps
+* discovered risks
+
+⸻
+
+PRIORITY DEFINITIONS
+
+P0 — CRITICAL PATH
+
+Only work required to complete this business loop:
+
+LEAD
+→ SALES
+→ STATEMENT
+→ PRICING
+→ APPLICATION
+→ UNDERWRITING
+→ APPROVAL
+→ BOARDING
+→ ACTIVATION
+→ ACTIVE PROCESSING
+→ PROFITABILITY
+
+P0 should remain limited.
+
+P1 — OPERATING LEVERAGE
+
+Improves conversion, account management, visibility, or operational efficiency after the critical path works.
+
+P2 — OPTIMIZATION
+
+Advanced intelligence, experimentation, coaching, referrals, growth optimization, and enhancements.
+
+MAINTENANCE
+
+Production bugs, existing task cleanup, isolated fixes, technical debt, alerting improvements, and small business requests.
+
+Maintenance work runs as a separate swimlane and does not disappear when this strategic roadmap is adopted.
+
+⸻
+
+CURRENT STATE
+
+COMPLETE
+
+Lifecycle
+
+✅ Canonical Merchant Lifecycle
+Existing implementation: #1357
+
+Includes:
+
+* 27 states
+* lifecycle history
+* LifecycleService
+* business wiring
+
+Do not rebuild.
+
+⸻
+
+Automation Registry / Consolidation
+
+✅ Automation Registry & Kill Switches
+Existing implementation: #1356
+
+Includes:
+
+* automation registry
+* admin UI
+* kill switches
+* 19 seeded entries
+* collision fixes
+
+Do not rebuild.
+
+Future work should extend this system.
+
+⸻
+
+Sequence Scalability
+
+✅ Sequence worker scalability
+Existing implementation: #1355
+
+Includes:
+
+* index
+* metrics
+* health-monitor integration
+
+Do not rebuild unless load testing identifies remaining bottlenecks.
+
+⸻
+
+Statement Intelligence
+
+✅ Statement analysis engine exists
+
+Do not recreate extraction architecture.
+
+Future work should focus on pricing/economic decisioning on top of the existing analyzer.
+
+⸻
+
+Merchant Health
+
+✅ Existing implementation: #275
+
+Audit before extending.
+
+⸻
+
+Win-Back / Referral
+
+✅ Existing implementation: #107
+
+Audit quality before adding new functionality.
+
+⸻
+
+Lead Attribution Foundation
+
+✅ contact_source_events
+✅ Wave 8 attribution work
+
+Extend rather than replace.
+
+⸻
+
+Compliance Foundation
+
+✅ PEWC
+✅ consent audit
+✅ contactability engine
+✅ outbound gating
+
+Do not recreate compliance architecture.
+
+Future compliance work should focus on policy versioning, jurisdiction rules, and auditability.
+
+⸻
+
+Production Readiness Gate
+
+✅ Existing 19-suite pre-deploy gate passes
+
+Do not recreate.
+
+Extend only when new P0 systems are added.
+
+⸻
+
+STRATEGIC TRACK
+
+PHASE A — CONTROL PLANE CLEANUP
+
+A1 — External Utility Architecture / GHL Refactor
+
+Priority: P0
+Status: MISSING
+Estimated scope: Large
+
+This is the first major new architecture project.
+
+Important correction:
+
+Lifecycle and Automation Registry do NOT depend on this task.
+
+They are already complete and make this refactor safer.
+
+Objective
+
+Make Replit the sole control plane while allowing GHL and/or other providers to serve as channel utilities.
+
+FIRST STEP: DISCOVERY
+
+Before coding, identify what provider actually powers each production channel:
+
+* email
+* SMS
+* ringless voicemail
+* voice
+* calendar
+* conversations
+
+For each channel identify:
+
+PROVIDER
+CREDENTIAL OWNER
+API USED
+CURRENT SEND PATH
+CURRENT WEBHOOK PATH
+CURRENT GHL DEPENDENCY
+CURRENT LIBERTY DEPENDENCY
+
+Do not assume every channel must remain on GHL.
+
+Target architecture
+
+Create:
+
+ChannelOrchestrator
+
+and provider-neutral interfaces such as:
+
+* EmailTransport
+* SmsTransport
+* RinglessVoicemailTransport
+* VoiceTransport
+* CalendarProvider if necessary
+
+Examples:
+
+GhlEmailTransport
+
+GhlSmsTransport
+
+or other providers if production is wired differently.
+
+Remove external business authority
+
+Audit and remove/disable where appropriate:
+
+* bidirectional GHL contact sync
+* opportunity sync
+* task sync
+* GHL workflow enrollment
+* GHL workflow recovery
+* tags controlling Liberty behavior
+* GHL stages controlling Liberty
+* GHL lead scoring
+* GHL sequence timing
+
+Minimal shadow contacts may remain if technically required by provider APIs.
+
+Required flow
+
+Liberty business logic
+→ ChannelOrchestrator
+→ compliance/contactability
+→ provider adapter
+→ provider
+→ webhook/event
+→ Liberty normalization
+→ Liberty business logic.
+
+⸻
+
+PHASE B — DECISION ENGINE
+
+B1 — Next Best Action Engine
+
+Priority: P0
+Status: MISSING
+Suggested existing proposal: #1359
+
+Build on top of the completed lifecycle and automation registry.
+
+For every active contact/deal/merchant determine:
+
+* lifecycle state
+* lead score
+* opportunity value
+* processing potential
+* expected revenue
+* expected contribution
+* conversion probability
+* engagement
+* primary objection
+* missing requirement
+* merchant health where applicable
+* churn risk where applicable
+* recommended action
+* recommended channel
+* owner
+* deadline
+* reason
+* confidence
+* automation eligibility
+* human-required flag
+
+Store decision history.
+
+AI may recommend.
+
+Deterministic code validates execution.
+
+⸻
+
+B2 — Central Event Normalization
+
+Priority: P1
+Status: PARTIAL / AUDIT REQUIRED
+
+Audit existing event/log architecture before creating new tables.
+
+Normalize critical business events where useful:
+
+* lead created
+* reply received
+* appointment booked
+* statement received
+* proposal viewed
+* application completed
+* underwriting condition
+* approval
+* MID created
+* first transaction
+* first funding
+* merchant at risk
+* churn
+
+Goal:
+
+Reduce arbitrary polling and make automations react to Liberty-owned events.
+
+⸻
+
+PHASE C — SALES CONVERSION
+
+C1 — Revenue-Aware Lead Scoring
+
+Priority: P1
+Status: PARTIAL
+
+Extend current scoring.
+
+Separate:
+
+* lead quality
+* engagement
+* opportunity value
+* estimated revenue
+
+Do not collapse all concepts into one score.
+
+⸻
+
+C2 — Speed-to-Lead
+
+Priority: P0
+Status: AUDIT REQUIRED
+
+Desired flow:
+
+Lead
+→ dedupe
+→ enrich
+→ compliance
+→ score
+→ assign
+→ lifecycle
+→ NBA
+→ appropriate outreach
+→ SLA.
+
+Audit existing public-form and SDR behavior first.
+
+Only build missing portions.
+
+⸻
+
+C3 — Appointment Lifecycle
+
+Priority: P1
+Status: PARTIAL
+
+Audit existing GHL scheduling / calendar / SDR scheduling.
+
+Required lifecycle:
+
+booked
+→ confirmed
+→ reminder
+→ sales prep
+→ meeting
+→ no-show/reschedule if needed
+→ follow-up.
+
+Replit owns appointment state regardless of external calendar provider.
+
+⸻
+
+C4 — Conversation Intelligence
+
+Priority: P1
+Status: MISSING/PARTIAL
+
+Use call/meeting transcripts to extract:
+
+* processor
+* processing volume
+* rates
+* equipment
+* gateway
+* pain points
+* objections
+* competitor
+* decision maker
+* timeline
+* commitments
+* next step
+* buying intent
+
+High-confidence structured facts may update CRM.
+
+Conflicting/low-confidence facts require review.
+
+⸻
+
+C5 — Statement Acquisition
+
+Priority: P0
+Status: PARTIAL
+
+Build around existing sequence engine.
+
+STATEMENT_REQUESTED
+→ multi-channel follow-up
+→ STATEMENT_RECEIVED.
+
+Stop immediately once received.
+
+Escalate high-value stalled opportunities.
+
+⸻
+
+PHASE D — PRICING & PROPOSAL
+
+D1 — Structured Merchant Pricing Engine
+
+Priority: P0
+Status: PARTIAL
+
+Existing proposal/statement architecture should be reused.
+
+This task should add the missing deterministic pricing math.
+
+Calculate:
+
+* current effective rate
+* merchant savings
+* proposed rate structure
+* gross revenue
+* processor/pass-through cost
+* agent share
+* partner share
+* Liberty net contribution
+* margin
+* estimated acceptance probability
+* expected economic value
+
+Never let AI invent interchange or processor costs.
+
+⸻
+
+D2 — Proposal Decision Engine
+
+Priority: P0
+Status: PARTIAL
+
+Build on current proposal engine.
+
+Produce approved offer options from pricing calculations.
+
+Track assumptions.
+
+Allow controlled human override.
+
+Lock approved pricing before send.
+
+⸻
+
+D3 — Proposal Conversion Automation
+
+Priority: P1
+Status: PARTIAL
+
+Differentiate:
+
+* sent
+* viewed
+* not viewed
+* repeated engagement
+* objection
+* negotiation
+
+Trigger different NBA/follow-up behavior.
+
+⸻
+
+PHASE E — APPLICATION & UNDERWRITING
+
+E1 — Application Completion Engine
+
+Priority: P0
+Status: PARTIAL
+
+Calculate:
+
+* completion percentage
+* missing fields
+* missing documents
+* validation failures
+* blockers
+* submission-ready state
+
+Send smallest actionable request.
+
+Example:
+
+“We only need your voided check.”
+
+Not:
+
+“Please finish your application.”
+
+⸻
+
+E2 — Underwriting Orchestration
+
+Priority: P0
+Status: PARTIAL
+
+Build on existing underwriting fields/rules.
+
+Lifecycle:
+
+APPLICATION_COMPLETE
+→ SUBMITTED
+→ UNDERWRITING
+→ CONDITIONAL
+→ CONDITION COLLECTION
+→ RESUBMISSION
+→ APPROVED / DECLINED.
+
+Track:
+
+* processor
+* external submission ID
+* conditions
+* requested documents
+* deadlines
+* response times
+* decision
+* approval constraints
+* decline reason
+
+⸻
+
+E3 — Processor Routing Engine
+
+Priority: P1
+Status: MISSING/PARTIAL
+
+Initially recommendation-only.
+
+Inputs may include:
+
+* MCC
+* vertical
+* volume
+* average ticket
+* CNP ratio
+* risk
+* history
+* chargebacks
+* processor economics
+* historical approval probability
+* boarding speed
+
+⸻
+
+PHASE F — APPROVAL TO REVENUE
+
+This phase is the largest current business gap.
+
+F1 — Boarding / MID Operating System
+
+Priority: P0
+Status: PARTIAL
+
+Existing fields should be reused.
+
+Build dedicated visibility for:
+
+* processor
+* processor account ID
+* MID
+* TID
+* gateway
+* VAR
+* funding setup
+* boarding status
+* PCI setup
+* credentials
+* configuration
+
+⸻
+
+F2 — Equipment Operating System
+
+Priority: P0
+Status: MISSING
+
+Track:
+
+* catalog
+* equipment requirement
+* order
+* inventory
+* model
+* serial number
+* assignment
+* shipping
+* tracking
+* delivery
+* configuration
+* installation
+* training
+
+Only create tables after auditing for existing equivalent structures.
+
+⸻
+
+F3 — Activation Monitor
+
+Priority: P0
+Status: MISSING/PARTIAL
+
+Monitor:
+
+APPROVED but no MID
+
+MID but not configured
+
+equipment delivered but no transaction
+
+transaction but no funding.
+
+Detect:
+
+FIRST_TRANSACTION
+
+FIRST_FUNDING.
+
+Advance lifecycle to ACTIVE_PROCESSING.
+
+Primary KPI:
+
+Approval → First Funding Time
+
+⸻
+
+F4 — Activation Exception Desk
+
+Priority: P1
+Status: MISSING
+
+Identify stalled cause:
+
+* processor
+* MID
+* gateway
+* equipment
+* shipping
+* configuration
+* merchant response
+* bank/funding
+* technical issue
+
+Create owner, SLA and NBA.
+
+⸻
+
+PHASE G — MERCHANT ACCOUNT MANAGEMENT
+
+G1 — Merchant Health Enhancements
+
+Priority: P1
+Status: COMPLETE FOUNDATION / AUDIT
+
+Existing health engine exists.
+
+Audit whether it currently incorporates:
+
+* volume trend
+* transactions
+* funding
+* chargebacks
+* tickets
+* NPS
+* sentiment
+* PCI
+* residuals
+* processing interruption.
+
+Only add missing signals.
+
+⸻
+
+G2 — 30/60/90 Merchant Success Lifecycle
+
+Priority: P1
+Status: MISSING/PARTIAL
+
+Start after FIRST_FUNDING.
+
+Use real merchant condition rather than blind timed email.
+
+⸻
+
+G3 — AI Merchant Account Manager
+
+Priority: P1
+Status: MISSING
+
+For internal users:
+
+* what merchants need attention?
+* why?
+* what revenue is at risk?
+* what should happen next?
+
+For merchants where appropriate:
+
+* activation
+* equipment
+* documents
+* support
+* chargebacks
+* account status
+
+AI may only use verified Liberty data.
+
+⸻
+
+G4 — Retention / Save Desk
+
+Priority: P1
+Status: PARTIAL
+
+At-risk merchant
+→ probable cause
+→ merchant value
+→ save recommendation
+→ owner
+→ SLA
+→ outcome.
+
+Track preserved revenue/residual.
+
+⸻
+
+G5 — Win-Back / Referral Audit
+
+Priority: P2
+Status: BUILT
+
+Existing task #107.
+
+Do not rebuild.
+
+Audit:
+
+* eligibility
+* stop rules
+* attribution
+* outcome tracking
+* frequency controls.
+
+⸻
+
+PHASE H — FINANCE & PROFITABILITY
+
+H1 — Expected Merchant Economics
+
+Priority: P0
+Status: PARTIAL
+
+At activation calculate expected:
+
+* volume
+* gross revenue
+* residual
+* agent share
+* partner share
+* Liberty contribution
+
+This becomes baseline for reconciliation.
+
+⸻
+
+H2 — Residual Reconciliation
+
+Priority: P0
+Status: PARTIAL
+
+Compare:
+
+expected
+vs.
+actual.
+
+Flag variance.
+
+Diagnose where possible:
+
+* volume change
+* pricing change
+* inactivity
+* processor adjustment
+* missing MID
+* commission discrepancy
+* duplicate mapping
+
+Create finance exception when unresolved.
+
+⸻
+
+H3 — Commission Engine Audit
+
+Priority: P1
+Status: PARTIAL
+
+Validate:
+
+* tiers
+* splits
+* partner shares
+* agent shares
+* historical versions
+* adjustments
+* clawbacks if applicable
+* payout explainability
+
+⸻
+
+H4 — Merchant Profitability
+
+Priority: P0
+Status: PARTIAL
+
+Calculate:
+
+gross revenue
+− processor costs
+− agent commission
+− partner share
+− equipment subsidy
+− credits
+− adjustments
+
+Liberty net contribution.
+
+Track:
+
+30-day
+90-day
+365-day
+lifetime contribution.
+
+⸻
+
+PHASE I — ATTRIBUTION & EXECUTIVE INTELLIGENCE
+
+I1 — Full-Funnel Attribution
+
+Priority: P1
+Status: PARTIAL
+
+Extend existing attribution through:
+
+SOURCE
+→ LEAD
+→ APPOINTMENT
+→ STATEMENT
+→ PROPOSAL
+→ APPLICATION
+→ APPROVAL
+→ ACTIVE MID
+→ RESIDUAL
+→ NET CONTRIBUTION.
+
+⸻
+
+I2 — Acquisition Unit Economics
+
+Priority: P1
+Status: MISSING/PARTIAL
+
+Calculate:
+
+* CPL
+* cost per appointment
+* cost per statement
+* cost per application
+* cost per approval
+* cost per active MID
+* CAC
+* LTV
+* LTV:CAC
+* payback period
+
+⸻
+
+I3 — Executive Command Center
+
+Priority: P1
+Status: PARTIAL
+
+Do not create another generic dashboard.
+
+Create operating view based on existing analytics.
+
+Focus on exceptions and decisions:
+
+SALES
+ACTIVATION
+MERCHANT HEALTH
+REVENUE
+AUTOMATION
+TEAM PERFORMANCE.
+
+⸻
+
+PHASE J — OPTIMIZATION
+
+J1 — Rep Coaching AI
+
+Priority: P2
+Status: MISSING
+
+Tie coaching to actual conversion outcomes.
+
+⸻
+
+J2 — Sequence Experimentation
+
+Priority: P2
+Status: MISSING/PARTIAL
+
+Optimize for:
+
+appointment
+statement
+application
+approval
+activation
+revenue
+
+—not opens alone.
+
+⸻
+
+J3 — Offer Learning
+
+Priority: P2
+Status: MISSING
+
+Evaluate which offers win by segment while preserving profitability.
+
+⸻
+
+J4 — AI Outcome Feedback
+
+Priority: P2
+Status: MISSING
+
+Record:
+
+recommendation
+→ action
+→ response
+→ conversion
+→ revenue
+→ retention.
+
+Use this for future model evaluation.
+
+⸻
+
+VALIDATION / RISK TRACK
+
+These tasks are important but run as a parallel validation stream rather than blocking unrelated commercial work.
+
+V1 — PCI Scope Audit
+
+Priority: REQUIRED
+Status: MISSING
+
+Determine whether PAN/CVV touches:
+
+* frontend
+* Liberty backend
+* DB
+* logs
+* queues
+* analytics
+* AI
+
+Document exact payment-data boundary.
+
+⸻
+
+V2 — Security Hardening Audit
+
+Priority: REQUIRED
+Status: PARTIAL
+
+Audit:
+
+* encryption
+* key rotation
+* sessions
+* MFA
+* webhook replay protection
+* file uploads
+* AI PII exposure
+* secrets
+* audit-log integrity
+* admin seed behavior
+
+⸻
+
+V3 — Disaster Recovery
+
+Priority: REQUIRED
+Status: BROKEN/PARTIAL
+
+Current backup queue exists but requires remediation.
+
+Required:
+
+* successful backup
+* durable/offsite storage
+* encryption
+* retention
+* checksum
+* alerts
+* restore procedure
+* tested restoration
+* RPO/RTO
+
+⸻
+
+V4 — Automation Collision Test
+
+Priority: REQUIRED
+Status: PARTIAL
+
+Prove merchants cannot receive competing automation from:
+
+* SDR
+* sequences
+* lifecycle
+* manual sends
+* GHL
+* proposal workflow
+* application workflow
+* retention workflow
+
+⸻
+
+V5 — End-to-End Synthetic Merchant
+
+Priority: REQUIRED BEFORE FINAL SIGN-OFF
+Status: MISSING
+
+Automated journey:
+
+LEAD
+→ OUTREACH
+→ REPLY
+→ APPOINTMENT
+→ STATEMENT
+→ PRICING
+→ PROPOSAL
+→ APPLICATION
+→ UNDERWRITING
+→ APPROVAL
+→ MID
+→ EQUIPMENT
+→ FIRST TRANSACTION
+→ FIRST FUNDING
+→ RESIDUAL.
+
+⸻
+
+V6 — Final Closed-Loop Audit
+
+Priority: REQUIRED BEFORE FINAL SIGN-OFF
+
+For every state verify:
+
+* source of truth
+* trigger
+* automation
+* owner
+* NBA
+* SLA
+* stop condition
+* failure path
+* auditability
+* compliance
+* manager visibility
+* KPI
+* tests.
+
+⸻
+
+MAINTENANCE / OPERATIONAL SWIMLANE
+
+DO NOT delete or replace the existing Replit task backlog.
+
+The existing 500+ proposed/operational tasks must be triaged separately.
+
+Examples include:
+
+* isolated email fixes
+* partner welcome emails
+* circuit-breaker alerts
+* UI bugs
+* production incidents
+* technical cleanup
+* small integrations
+* customer-specific improvements
+
+Create categories:
+
+PROD-BUG
+
+Production defect requiring correction.
+
+OPS
+
+Operational improvement.
+
+TECH-DEBT
+
+Architecture/maintenance cleanup.
+
+SMALL-FEATURE
+
+Useful feature not part of strategic critical path.
+
+DUPLICATE
+
+Already addressed by master program.
+
+OBSOLETE
+
+No longer relevant.
+
+MERGE-INTO-MASTER
+
+Existing task that belongs inside one strategic task above.
+
+Do not execute 519 tasks blindly.
+
+Triage them against this master roadmap.
+
+⸻
+
+TRUE P0 CRITICAL PATH
+
+These are the only strategic P0 build items that should drive primary execution order:
+
+1. A1 — External Utility/GHL Control Plane
+2. B1 — Next Best Action
+3. C2 — Speed-to-Lead gaps
+4. C5 — Statement Acquisition
+5. D1/D2 — Pricing + Proposal Decisioning
+6. E1/E2 — Application Completion + Underwriting
+7. F1/F2/F3 — Boarding + Equipment + Activation
+8. H1/H2/H4 — Expected Economics + Residual Reconciliation + Profitability
+
+Everything else supports or optimizes this chain.
+
+Existing completed foundation work is NOT part of remaining P0 execution.
+
+⸻
+
+RECOMMENDED EXECUTION ORDER
+
+WAVE 1 — Authority & Decisioning
+
+A1 External Utility/GHL architecture
+
+B1 Next Best Action
+
+Audit existing automation registry against final architecture.
+
+⸻
+
+WAVE 2 — Lead to Statement
+
+C2 Speed-to-Lead
+
+C5 Statement Acquisition
+
+C3 Appointment lifecycle if required to support conversion.
+
+⸻
+
+WAVE 3 — Statement to Application
+
+D1 Pricing Engine
+
+D2 Proposal Decision Engine
+
+D3 Proposal Conversion
+
+E1 Application Completion.
+
+⸻
+
+WAVE 4 — Application to Approval
+
+E2 Underwriting Orchestration
+
+E3 Processor Routing
+
+decline recovery.
+
+⸻
+
+WAVE 5 — Approval to Revenue
+
+F1 Boarding/MID
+
+F2 Equipment
+
+F3 Activation Monitor
+
+F4 Activation Exceptions.
+
+This is the most important operational wave after underwriting.
+
+⸻
+
+WAVE 6 — Revenue to Profit
+
+H1 Expected Economics
+
+H2 Residual Reconciliation
+
+H4 Merchant Profitability
+
+H3 Commission audit.
+
+⸻
+
+WAVE 7 — Account Management
+
+G1 Merchant Health enhancement audit
+
+G2 Success lifecycle
+
+G3 AI Account Manager
+
+G4 Retention.
+
+⸻
+
+WAVE 8 — Growth Intelligence
+
+I1 Attribution
+
+I2 Unit Economics
+
+I3 Executive Command Center
+
+J-series optimization.
+
+⸻
+
+PARALLEL VALIDATION STREAM
+
+Run alongside strategic waves:
+
+V1 PCI
+
+V2 Security
+
+V3 Disaster Recovery
+
+V4 Collision Testing.
+
+Do not wait until the end to discover major risk.
+
+⸻
+
+DEFINITION OF DONE FOR EVERY STRATEGIC TASK
+
+A task is NOT complete because:
+
+* a table exists
+* an API exists
+* a UI exists
+* AI generated an answer
+
+A strategic task is complete only when:
+
+1. Data model exists.
+2. Business logic exists.
+3. Correct lifecycle integration exists.
+4. Automation trigger exists.
+5. Stop condition exists.
+6. Human escalation exists where needed.
+7. Idempotency exists.
+8. Compliance exists where needed.
+9. Failure recovery exists.
+10. Metrics exist.
+11. Operator visibility exists.
+12. Tests exist.
+13. Pre-deploy coverage exists where critical.
+14. Existing functionality has been reconciled.
+15. No duplicate competing system remains.
+
+⸻
+
+NORTH-STAR BUSINESS LOOP
+
+The master program is complete when Liberty can reliably execute:
+
+LEAD
+↓
+QUALIFY
+↓
+CONTACT
+↓
+APPOINTMENT
+↓
+STATEMENT
+↓
+PRICING
+↓
+PROPOSAL
+↓
+APPLICATION
+↓
+UNDERWRITING
+↓
+APPROVAL
+↓
+BOARDING
+↓
+EQUIPMENT / GATEWAY
+↓
+FIRST TRANSACTION
+↓
+FIRST FUNDING
+↓
+ACTIVE PROCESSING
+↓
+ACCOUNT MANAGEMENT
+↓
+RETENTION
+↓
+RESIDUAL
+↓
+NET CONTRIBUTION
+↓
+OUTCOME FEEDBACK
+
+with:
+
+Replit as the authoritative brain at every stage.
+
+⸻
+
+MASTER SUCCESS TEST
+
+For every prospect or merchant, Liberty should always be able to answer:
+
+1. Who are they?
+2. What lifecycle state are they in?
+3. What is the opportunity/merchant worth?
+4. What happened most recently?
+5. What are we waiting on?
+6. What should happen next?
+7. Should AI/automation do it or a person?
+8. Who owns it?
+9. When is it due?
+10. Is communication permitted?
+11. Did the action execute?
+12. What was the outcome?
+13. What revenue did it ultimately create or preserve?
+
+If any of those cannot be answered reliably, that part of the operating system is not finished.
+
+I would also change how you use Replit tasks
+
+Don’t create another 50–70 isolated tasks immediately. Create one parent project per Wave, then create implementation tasks only after Replit audits that Wave.
+
+For example, instead of pre-creating ten underwriting tickets, create “Wave 4 — Application to Approval Audit & Build”. Have Replit inspect the current code, identify what is truly missing, and then generate the exact child tasks. That prevents the same problem you just discovered: the roadmap saying “TODO” when half the functionality already exists.
+
+The first active work queue I’d use now is:
+
+A1 GHL/Utility Architecture → B1 Next Best Action → C2 Speed-to-Lead audit → C5 Statement Acquisition audit → D1 Pricing Engine → D2 Proposal Decisioning → E1 Application Completion → E2 Underwriting → F1/F2/F3 Boarding/Equipment/Activation → H1/H2/H4 Economics.
+
+That gives you a much cleaner master backlog: completed foundation stays completed, partial functionality gets extended rather than rebuilt, and the real critical path stays obvious.
