@@ -66,4 +66,4 @@ INSERT INTO executive_goals (key, value, period, label) VALUES
   ('weekly_proposals_goal',         10,   'weekly',  'Proposals Sent per Week'),
   ('weekly_statements_goal',         8,   'weekly',  'Statements Received per Week'),
   ('weekly_meetings_goal',           6,   'weekly',  'Meetings Booked per Week')
-ON CONFLICT (key) DO NOTHING;
+ON CONFLICT DO NOTHING;
