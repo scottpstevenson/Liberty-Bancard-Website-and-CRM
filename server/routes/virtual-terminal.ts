@@ -1,5 +1,5 @@
 import type { Express } from "express";
-import { isAuthenticated, requireRole } from "../replit_integrations/auth";
+import { isAuthenticated, isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { db } from "../db";
 import { z } from "zod";
 import { desc, eq } from "drizzle-orm";
@@ -32,7 +32,7 @@ function isSuperUser(user: any): boolean {
 }
 
 export function registerVirtualTerminalRoutes(app: Express) {
-  app.post("/api/virtual-terminal/charge", isAuthenticated, async (req, res) => {
+  app.post("/api/virtual-terminal/charge", isDashboardUser, async (req, res) => {
     const user = req.user as any;
     if (!hasVirtualTerminalPermission(user)) {
       return res.status(403).json({ message: "You do not have Virtual Terminal access. Contact an admin to enable it." });
@@ -92,7 +92,7 @@ export function registerVirtualTerminalRoutes(app: Express) {
     }
   });
 
-  app.post("/api/virtual-terminal/refund/:transactionId", isAuthenticated, async (req, res) => {
+  app.post("/api/virtual-terminal/refund/:transactionId", isDashboardUser, async (req, res) => {
     const user = req.user as any;
     if (!hasVirtualTerminalPermission(user)) {
       return res.status(403).json({ message: "You do not have Virtual Terminal access." });
@@ -161,7 +161,7 @@ export function registerVirtualTerminalRoutes(app: Express) {
     }
   });
 
-  app.get("/api/virtual-terminal/transactions", isAuthenticated, async (req, res) => {
+  app.get("/api/virtual-terminal/transactions", isDashboardUser, async (req, res) => {
     const user = req.user as any;
     if (!hasVirtualTerminalPermission(user)) {
       return res.status(403).json({ message: "You do not have Virtual Terminal access." });

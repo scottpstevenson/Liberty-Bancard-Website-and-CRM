@@ -1,0 +1,352 @@
+Liberty Bancard — Full Code, Data, UI/UX & Production Readiness Audit
+
+Perform a comprehensive, end-to-end audit of the entire Liberty Bancard application.
+
+The objective is to verify that all recent changes are fully implemented, integrated correctly, and production-ready. Do not assume that something works because the code exists. Trace functionality from the UI through the application logic, APIs/backend, database, and back to the rendered user experience wherever applicable.
+
+1. Codebase Integrity
+
+Audit the entire codebase and confirm:
+
+* No corrupted, incomplete, duplicated, orphaned, or conflicting code.
+* No broken imports, exports, dependencies, packages, components, hooks, routes, functions, APIs, or database calls.
+* No syntax, TypeScript, compilation, linting, runtime, hydration, or build errors.
+* No unresolved merge conflicts or partially implemented changes.
+* No deprecated code causing compatibility problems.
+* No duplicate logic that could cause inconsistent behavior.
+* Environment variables and configuration references are correct.
+* Frontend and backend implementations are aligned.
+* Shared types, schemas, interfaces, enums, constants, and validation rules are consistent across the application.
+* Recent changes have not broken previously working functionality.
+
+Run all available build, lint, type-check, test, and validation commands.
+
+Do not simply report that a command passed. Investigate warnings and determine whether they represent real issues.
+
+2. Recent Change Verification
+
+Identify the recent changes made to the application and audit each one individually.
+
+For every change:
+
+1. Identify the files/components/services affected.
+2. Confirm the implementation is complete.
+3. Confirm connected code was updated where necessary.
+4. Trace dependencies and downstream effects.
+5. Verify the change actually works at runtime.
+6. Check for regressions.
+7. Confirm old or conflicting implementations are not still active.
+8. Confirm the UI accurately reflects the underlying data/state.
+
+Create a checklist of the changes and mark each as:
+
+* PASS
+* FIXED
+* NEEDS ATTENTION
+* UNABLE TO VERIFY
+
+Do not mark anything PASS without evidence.
+
+3. Frontend ↔ Backend ↔ Database Alignment
+
+Trace every important feature through the complete data flow:
+
+UI → state/form → validation → API/action → backend logic → database → response → UI
+
+Verify:
+
+* Field names match.
+* Types match.
+* IDs and relationships match.
+* Required/optional fields are handled consistently.
+* Null/undefined/empty states are handled.
+* Database queries return the expected records.
+* API responses use the structures expected by the frontend.
+* Data transformations do not remove or incorrectly alter information.
+* Writes persist correctly.
+* Updates immediately display correctly.
+* Deletes behave correctly.
+* Filters/search/sorting/pagination use the correct underlying data.
+* Calculated values are accurate.
+* No stale, mocked, placeholder, hardcoded, or fallback data is accidentally appearing in production UI.
+
+If the same metric appears in multiple areas, confirm all instances are calculated from the same authoritative source or intentionally explain why they differ.
+
+4. Data Accuracy Audit
+
+Verify that every dashboard, table, KPI, card, chart, count, total, status, date, percentage, lead, customer, transaction, payment, application, and other displayed data point is accurate.
+
+For each important metric:
+
+* Identify its source.
+* Identify the query/calculation producing it.
+* Compare the raw source data with the displayed result.
+* Verify filters and date ranges.
+* Verify timezone handling.
+* Verify rounding and formatting.
+* Verify aggregation logic.
+* Verify empty/zero/null states.
+* Check for duplicate records or double counting.
+
+Never hide missing data by displaying fake values.
+
+5. UI/UX Audit
+
+Review every page, route, modal, drawer, form, table, dashboard, navigation element, button, link, dropdown, filter, search field, tab, chart, tooltip, notification, and interactive component.
+
+Confirm:
+
+* Everything renders correctly.
+* Navigation works.
+* Buttons perform their intended actions.
+* Links go to the correct destinations.
+* Forms submit correctly.
+* Validation messages are useful and accurate.
+* Loading states work.
+* Empty states work.
+* Error states work.
+* Success states work.
+* Disabled states make sense.
+* Modals open and close correctly.
+* Tables display correct information.
+* Search, filters, sorting, and pagination work.
+* No overlapping, clipped, overflowing, misaligned, or inaccessible elements.
+* No confusing dead ends.
+* No unnecessary duplicate actions.
+* User actions provide appropriate feedback.
+
+Test responsive behavior at minimum for:
+
+* Desktop
+* Laptop
+* Tablet
+* Mobile
+
+Check for layout shifts, horizontal scrolling, text overflow, broken navigation, unusable tables, and touch-target problems.
+
+6. Functional Testing
+
+Test actual workflows rather than only inspecting code.
+
+For every major Liberty Bancard workflow, test:
+
+* Happy path
+* Empty state
+* Invalid input
+* Missing data
+* Duplicate submission
+* Slow/loading state
+* API failure
+* Permission/authentication failure where applicable
+* Refresh/reload
+* Direct URL navigation
+* Back/forward navigation where applicable
+
+Test complete workflows from beginning to end.
+
+Do not stop after confirming that individual components render.
+
+7. CRM / Lead / Merchant Data
+
+Where applicable, verify the complete lifecycle of Liberty Bancard leads, merchants, applications, accounts, notes, tasks, statuses, documents, and related records.
+
+Confirm:
+
+* New records appear correctly.
+* Existing records load correctly.
+* Editing persists.
+* Status changes persist.
+* Relationships between records are correct.
+* Notes/history/activity are associated with the correct entity.
+* Duplicate records are handled appropriately.
+* Search and filtering return correct results.
+* Dashboard totals reconcile with underlying records.
+* No customer/merchant information can accidentally appear under the wrong account.
+
+8. Authentication, Permissions & Security
+
+Check for:
+
+* Broken authentication flows.
+* Unauthorized route access.
+* Incorrect role permissions.
+* Sensitive information exposed client-side.
+* Secrets/API keys committed to the codebase.
+* Missing server-side authorization.
+* Unsafe database access.
+* Injection risks.
+* XSS risks.
+* CSRF concerns where applicable.
+* Insecure direct object references.
+* Improper input validation.
+* Sensitive data appearing in logs or error messages.
+
+Do not expose or print secrets while performing the audit.
+
+9. Error & Console Audit
+
+Inspect:
+
+* Browser console
+* Network requests
+* Server logs
+* Build output
+* API errors
+* Database errors
+
+Resolve unexpected:
+
+* Errors
+* Warnings
+* Failed requests
+* 404s
+* 401/403s
+* 500s
+* Unhandled promises
+* React warnings
+* Hydration errors
+* Missing keys
+* Deprecated APIs
+* Failed asset requests
+
+The goal is a clean application under normal operation.
+
+10. Performance
+
+Look for:
+
+* Excessive API/database calls.
+* Duplicate requests.
+* N+1 queries.
+* Unnecessary re-renders.
+* Oversized assets.
+* Slow initial page loads.
+* Slow dashboard queries.
+* Blocking operations.
+* Memory leaks.
+* Inefficient polling.
+* Missing pagination.
+* Large datasets unnecessarily loaded into the browser.
+
+Optimize issues that can be fixed safely without changing intended functionality.
+
+11. Automated Tests
+
+Review existing tests and determine whether they adequately cover the current application.
+
+Add or improve tests for important functionality where coverage is missing, particularly around:
+
+* Critical calculations
+* Data transformations
+* API behavior
+* Form validation
+* Lead/merchant workflows
+* Permissions
+* Recently modified functionality
+* Previously discovered bugs
+
+A successful build alone is not sufficient evidence that the application works.
+
+12. Fix Issues — Don’t Just Report Them
+
+When a clear issue is discovered:
+
+1. Determine the root cause.
+2. Trace related dependencies.
+3. Implement the safest appropriate fix.
+4. Re-run the relevant tests/checks.
+5. Test the affected workflow.
+6. Check for regressions.
+7. Document what was changed.
+
+Do not make speculative architectural rewrites simply because another approach might be cleaner.
+
+Preserve existing intended functionality unless a change is necessary to fix a confirmed issue.
+
+13. Final Regression Pass
+
+After fixes are complete, perform another complete regression pass.
+
+Re-run:
+
+* Build
+* Type checking
+* Linting
+* Automated tests
+* Critical API/backend tests
+* Critical database/data validation
+* Major user workflows
+* Responsive UI checks
+* Console/network error checks
+
+A fix is not considered complete until the application has been re-tested after the change.
+
+14. Final Audit Report
+
+At completion, provide a structured report containing:
+
+Executive Summary
+
+Overall production-readiness assessment.
+
+Changes Verified
+
+List each recent change and its verification status.
+
+Issues Found
+
+For every issue include:
+
+* Severity: Critical / High / Medium / Low
+* Location
+* Root cause
+* User/business impact
+* Fix performed
+* Verification performed
+
+Data Validation
+
+Explain which important data points were independently verified against their source.
+
+UI/UX Validation
+
+List pages/workflows tested and responsive breakpoints checked.
+
+Tests Performed
+
+List actual commands and functional tests performed and their results.
+
+Remaining Risks
+
+Clearly identify anything that could not be conclusively tested.
+
+Final Status
+
+Give one of these outcomes:
+
+PASS — Production Ready
+All critical functionality has been verified and no unresolved Critical or High issues remain.
+
+CONDITIONAL PASS — Production Ready With Minor Issues
+Core functionality has been verified, with only documented non-blocking issues remaining.
+
+FAIL — Not Production Ready
+Critical/High issues, data-integrity concerns, or unverified core functionality remain.
+
+Critical Audit Rules
+
+* Do not assume code is correct because it compiles.
+* Do not assume data is correct because it appears on screen.
+* Do not claim something was tested if it was only inspected.
+* Do not mark something PASS unless there is evidence supporting it.
+* Do not replace real missing data with mock/fake data to make the UI appear functional.
+* Do not suppress errors instead of fixing their root cause.
+* Do not introduce broad unrelated refactors during the audit.
+* Do not delete working functionality to resolve a localized issue.
+* Preserve the intended Liberty Bancard business logic.
+* Fix confirmed issues and then re-test them.
+* If something cannot be verified because credentials, APIs, external services, production data, or environment access are unavailable, explicitly mark it UNABLE TO VERIFY rather than guessing.
+
+The end goal is not merely “the code looks good.”
+
+The end goal is to establish, with evidence, that Liberty Bancard works correctly from code → database → backend → frontend → user experience, that the displayed data is trustworthy, and that the application is safe and ready for production use.

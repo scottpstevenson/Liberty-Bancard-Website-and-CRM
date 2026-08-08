@@ -112,7 +112,7 @@ export function registerCrmOperationsRoutes(app: Express) {
 
 
   // === CONTACT-COMPANY ASSOCIATIONS ===
-  app.get("/api/contacts/:id/companies", isAuthenticated, async (req, res) => {
+  app.get("/api/contacts/:id/companies", isDashboardUser, async (req, res) => {
     try {
       const result = await storage.getContactCompanies(Number(req.params.id));
       res.json(result);
@@ -122,7 +122,7 @@ export function registerCrmOperationsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/contacts/:id/companies", isAuthenticated, async (req, res) => {
+  app.post("/api/contacts/:id/companies", isDashboardUser, async (req, res) => {
     try {
       const input = insertContactCompanySchema.parse({
         ...req.body,
@@ -141,7 +141,7 @@ export function registerCrmOperationsRoutes(app: Express) {
     }
   });
 
-  app.delete("/api/contact-companies/:id", isAuthenticated, async (req, res) => {
+  app.delete("/api/contact-companies/:id", isDashboardUser, async (req, res) => {
     try {
       await storage.removeContactCompany(Number(req.params.id));
       res.json({ success: true });
@@ -153,7 +153,7 @@ export function registerCrmOperationsRoutes(app: Express) {
 
 
   // === ARCHIVE / RESTORE ===
-  app.post("/api/contacts/:id/archive", isAuthenticated, async (req, res) => {
+  app.post("/api/contacts/:id/archive", isDashboardUser, async (req, res) => {
     try {
       const contactId = Number(req.params.id);
       const auditCtx = { actorType: "user" as const, userId: (req.user as any)?.id ?? null };
@@ -169,7 +169,7 @@ export function registerCrmOperationsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/contacts/:id/restore", isAuthenticated, async (req, res) => {
+  app.post("/api/contacts/:id/restore", isDashboardUser, async (req, res) => {
     try {
       const auditCtx = { actorType: "user" as const, userId: (req.user as any)?.id ?? null };
       const result = await storage.restoreContact(Number(req.params.id), auditCtx);
@@ -181,7 +181,7 @@ export function registerCrmOperationsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/deals/:id/archive", isAuthenticated, async (req, res) => {
+  app.post("/api/deals/:id/archive", isDashboardUser, async (req, res) => {
     try {
       const dealId = Number(req.params.id);
       const auditCtx = { actorType: "user" as const, userId: (req.user as any)?.id ?? null };
@@ -197,7 +197,7 @@ export function registerCrmOperationsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/deals/:id/restore", isAuthenticated, async (req, res) => {
+  app.post("/api/deals/:id/restore", isDashboardUser, async (req, res) => {
     try {
       const auditCtx = { actorType: "user" as const, userId: (req.user as any)?.id ?? null };
       const result = await storage.restoreDeal(Number(req.params.id), auditCtx);
@@ -265,7 +265,7 @@ export function registerCrmOperationsRoutes(app: Express) {
     }
   });
 
-  app.delete("/api/tasks/:id", isAuthenticated, async (req, res) => {
+  app.delete("/api/tasks/:id", isDashboardUser, async (req, res) => {
     try {
       const taskId = Number(req.params.id);
       const allTasks = await storage.getTasks({ limit: 5000 });

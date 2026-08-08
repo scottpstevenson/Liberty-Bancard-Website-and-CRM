@@ -485,35 +485,8 @@ export function registerConversationAiConfigRoutes(app: Express) {
     }
   });
 
-  app.patch("/api/contacts/:id/management-type", isDashboardUser, async (req, res) => {
-    try {
-      const schema = z.object({ managementType: z.enum(["unified", "per_location", "unknown"]) });
-      const { managementType } = schema.parse(req.body);
-      const [updated] = await db.update(contacts)
-        .set({ managementType } as any)
-        .where(eq(contacts.id, Number(req.params.id)))
-        .returning();
-      res.json(updated);
-    } catch (err: any) {
-      if (err.name === "ZodError") return res.status(400).json({ message: "Validation error" });
-      serverError(res, err);
-    }
-  });
-
-  app.patch("/api/companies/:id/management-type", isDashboardUser, async (req, res) => {
-    try {
-      const schema = z.object({ managementType: z.enum(["unified", "per_location", "unknown"]) });
-      const { managementType } = schema.parse(req.body);
-      const [updated] = await db.update(companies)
-        .set({ managementType } as any)
-        .where(eq(companies.id, Number(req.params.id)))
-        .returning();
-      res.json(updated);
-    } catch (err: any) {
-      if (err.name === "ZodError") return res.status(400).json({ message: "Validation error" });
-      serverError(res, err);
-    }
-  });
+  // NOTE: PATCH /api/contacts/:id/management-type is registered in contacts.ts — removed duplicate here.
+  // NOTE: PATCH /api/companies/:id/management-type is registered in contacts.ts — removed duplicate here.
 
   app.get("/api/contacts/:id/intelligence", isDashboardUser, async (req, res) => {
     try {
@@ -559,21 +532,5 @@ export function registerConversationAiConfigRoutes(app: Express) {
     }
   });
 
-  // ─── Bounce Feedback Summary ───────────────────────────────────────────────
-  app.get("/api/sdr/operator/bounce-feedback-summary", isDashboardUser, async (_req, res) => {
-    try {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const logs = await storage.getAuditLogs({ startDate: today, limit: 500 }).catch(() => []);
-      const allLogs = (logs as any[]).filter((l: any) => l.action === "contact_email_bounced");
-      const byIdentity: Record<string, number> = {};
-      for (const l of allLogs) {
-        const key = String((l.details as any)?.sendingIdentityId ?? "unknown");
-        byIdentity[key] = (byIdentity[key] || 0) + 1;
-      }
-      res.json({ total: allLogs.length, byIdentity });
-    } catch (err: any) {
-      serverError(res, err);
-    }
-  });
+  // NOTE: GET /api/sdr/operator/bounce-feedback-summary is registered in sdr.ts with isAdmin — removed duplicate here.
 }
