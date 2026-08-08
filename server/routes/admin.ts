@@ -742,9 +742,10 @@ export function registerAdminRoutes(app: Express) {
 
   app.get("/api/admin/backfill-ghl-contacts/status", requireRole("admin", "manager"), async (req, res) => {
     try {
-      const allCount = await db.select({ id: contacts.id }).from(contacts);
-      const nullCount = await db.select({ id: contacts.id }).from(contacts).where(isNull(contacts.ghlContactId));
-      res.json({ totalContacts: allCount.length, missingGhlId: nullCount.length });
+      // Use COUNT aggregates — materialising all 155K contact IDs would OOM the server.
+      const [allCount] = await db.select({ total: count() }).from(contacts);
+      const [nullCount] = await db.select({ total: count() }).from(contacts).where(isNull(contacts.ghlContactId));
+      res.json({ totalContacts: Number(allCount?.total ?? 0), missingGhlId: Number(nullCount?.total ?? 0) });
     } catch (err: any) {
       serverError(res, err);
     }

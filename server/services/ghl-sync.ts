@@ -1190,12 +1190,12 @@ export async function syncTaskToGhl(taskId: number): Promise<{ success: boolean;
 
     if (!ghlContactId) return { success: false, error: "No GHL contact linked to task" };
 
-    const taskPayload = {
+    // GHL Tasks API only accepts: title, dueDate, assignedTo, completed.
+    // Sending body/description or contactId (already in URL) causes a 422.
+    const taskPayload: Record<string, unknown> = {
       title: task.title,
-      body: task.description || "",
       dueDate: task.dueDate ? new Date(task.dueDate).toISOString() : undefined,
       completed: task.status === "completed",
-      contactId: ghlContactId,
     };
 
     const taskData: any = await ghlFetch(`/contacts/${ghlContactId}/tasks`, {
@@ -1243,12 +1243,12 @@ export async function syncTicketToGhl(ticketId: number): Promise<{ success: bool
 
     if (!ghlContactId) return { success: false, error: "No GHL contact linked to ticket" };
 
-    const taskPayload = {
+    // GHL Tasks API only accepts: title, dueDate, assignedTo, completed.
+    // Sending body/description or contactId (already in URL) causes a 422.
+    const taskPayload: Record<string, unknown> = {
       title: `[Ticket #${ticket.id}] ${ticket.subject}`,
-      body: `${ticket.description}\n\nPriority: ${ticket.priority}\nCategory: ${ticket.category}\nStatus: ${ticket.status}`,
       dueDate: ticket.slaDeadline ? new Date(ticket.slaDeadline).toISOString() : undefined,
       completed: ticket.status === "Resolved" || ticket.status === "Closed",
-      contactId: ghlContactId,
     };
 
     await ghlFetch(`/contacts/${ghlContactId}/tasks`, {
@@ -2032,6 +2032,15 @@ export async function runGhlFullSyncTick(): Promise<void> {
           consecutiveGhlFailures = 0;
           tasksSynced++;
           syncedTaskIds.add(task.id);
+        } else if (
+          result.error === "No GHL contact linked to task" ||
+          result.error === "GHL not configured" ||
+          result.error === "Task not found"
+        ) {
+          // Data-availability skips — not real GHL API failures; don't count
+          // toward the circuit-breaker threshold.
+          console.log(`[Queue:ghl-sync] Task ${task.id} skipped (${result.error}) — not counted as GHL failure`);
+          syncedTaskIds.add(task.id); // prevent retry every tick
         } else {
           consecutiveGhlFailures++;
         }

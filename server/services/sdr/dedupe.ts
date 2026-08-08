@@ -493,7 +493,12 @@ export async function ingestBusinessFromContact(contactId: number, sourceType: s
         sourceLabel: sourceLabel || `contact_${contactId}`,
         contactId,
       });
-    } catch (_) {}
+    } catch (insertErr: any) {
+      // Unique-constraint violation is expected (already recorded); log anything else.
+      if (!insertErr.message?.includes("unique") && !insertErr.message?.includes("duplicate")) {
+        console.warn(`[Dedupe] leadSources insert failed for contact ${contactId}:`, insertErr.message);
+      }
+    }
     return { businessId: contact.businessId, isNew: false };
   }
 

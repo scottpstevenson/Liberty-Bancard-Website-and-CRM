@@ -51,6 +51,16 @@ export const HEALTH_MONITOR_KEY = "health_monitor_last_result";
 // may use a different auth scheme that returns 401 in CI/gate contexts.
 const CRITICAL_CHECKS = new Set(["db", "sequenceWorker", "redis", "kpiQuery"]);
 
+/**
+ * Startup grace period — suppress critical alert *emails* for the first 3 minutes
+ * after this module loads.  Dependencies (Redis, DB) may not be fully ready
+ * immediately after a deployment restart, and we don't want false-positive
+ * critical incidents on every deploy.  Checks still run and results are stored;
+ * only the email dispatch is inhibited during the grace window.
+ */
+const STARTUP_TIME = Date.now();
+const STARTUP_GRACE_MS = 3 * 60 * 1000; // 3 minutes
+
 // In-memory cache of last result
 let _lastResult: HealthReport | null = null;
 
@@ -486,36 +496,74 @@ export async function runHealthChecks(): Promise<HealthReport> {
       if (wasOk && isNowBad) newlyFailed.push(name);
     }
 
+    const inGracePeriod = Date.now() - STARTUP_TIME < STARTUP_GRACE_MS;
+
     if (newlyFailed.length > 0) {
-      // Fire-and-forget alert email — rate-limited to at most 1 per hour
-      const CRITICAL_COOLDOWN_KEY = "health_monitor_critical_alert_at";
-      const CRITICAL_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
+      if (inGracePeriod) {
+        console.warn(`[HealthMonitor] Critical alert suppressed (startup grace period, ${Math.round((Date.now() - STARTUP_TIME) / 1000)}s elapsed): ${newlyFailed.join(", ")}`);
+      } else {
+        // Fire-and-forget alert email — rate-limited to at most 1 per hour
+        const CRITICAL_COOLDOWN_KEY = "health_monitor_critical_alert_at";
+        const CRITICAL_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
+        (async () => {
+          try {
+            const lastAlertRaw = await storage.getSystemSetting(CRITICAL_COOLDOWN_KEY);
+            const lastAlertAt = lastAlertRaw ? new Date(lastAlertRaw as string).getTime() : 0;
+            if (Date.now() - lastAlertAt < CRITICAL_COOLDOWN_MS) {
+              console.warn(`[HealthMonitor] Critical alert suppressed (cooldown): ${newlyFailed.join(", ")}`);
+              return;
+            }
+            await storage.setSystemSetting(CRITICAL_COOLDOWN_KEY, new Date().toISOString());
+            const { sendSmtpEmail } = await import("./smtp-email");
+            const recipient = process.env.ADMIN_ALERT_EMAIL || "accounts@libertybancard.com";
+            const details = newlyFailed
+              .map(n => `  • ${n}: ${(checks as Record<string, CheckResult>)[n]?.status} — ${(checks as Record<string, CheckResult>)[n]?.message ?? ""}`)
+              .join("\n");
+            await sendSmtpEmail({
+              to: recipient,
+              subject: `[HealthMonitor] CRITICAL — ${newlyFailed.join(", ")} degraded`,
+              html: `<pre style="font-family:monospace">HealthMonitor detected new critical failures at ${runAt}:\n\n${details}\n\nOverall ok: ${overallOk}</pre>`,
+              category: "internal_ops",
+            });
+            console.warn(`[HealthMonitor] Critical alert sent: ${newlyFailed.join(", ")}`);
+          } catch (emailErr: any) {
+            console.warn("[HealthMonitor] Alert email failed (non-fatal):", emailErr.message);
+          }
+        })().catch(() => {});
+      }
+    }
+
+    // Recovery notification: when a critical check transitions bad → ok, send RESOLVED email.
+    // Uses a separate cooldown key so recovery emails don't block future critical alerts.
+    const newlyRecovered: string[] = [];
+    for (const name of CRITICAL_CHECKS) {
+      const prev = (previousReport.checks as Record<string, CheckResult>)[name]?.status ?? "unknown";
+      const curr = (checks as Record<string, CheckResult>)[name]?.status ?? "unknown";
+      const wasBad = !["ok", "stale", "unknown"].includes(prev);
+      const isNowOk = ["ok", "stale"].includes(curr);
+      if (wasBad && isNowOk) newlyRecovered.push(name);
+    }
+
+    if (newlyRecovered.length > 0 && !inGracePeriod) {
+      const RECOVERY_COOLDOWN_KEY = "health_monitor_recovery_alert_at";
+      const RECOVERY_COOLDOWN_MS = 15 * 60 * 1000; // 15 min — recovery emails are less urgent
       (async () => {
         try {
-          // Check cooldown before sending
-          const lastAlertRaw = await storage.getSystemSetting(CRITICAL_COOLDOWN_KEY);
-          const lastAlertAt = lastAlertRaw ? new Date(lastAlertRaw as string).getTime() : 0;
-          if (Date.now() - lastAlertAt < CRITICAL_COOLDOWN_MS) {
-            console.warn(`[HealthMonitor] Critical alert suppressed (cooldown): ${newlyFailed.join(", ")}`);
-            return;
-          }
-          // Update cooldown before sending to prevent double-fires
-          await storage.setSystemSetting(CRITICAL_COOLDOWN_KEY, new Date().toISOString());
-
+          const lastRaw = await storage.getSystemSetting(RECOVERY_COOLDOWN_KEY);
+          const lastAt = lastRaw ? new Date(lastRaw as string).getTime() : 0;
+          if (Date.now() - lastAt < RECOVERY_COOLDOWN_MS) return;
+          await storage.setSystemSetting(RECOVERY_COOLDOWN_KEY, new Date().toISOString());
           const { sendSmtpEmail } = await import("./smtp-email");
           const recipient = process.env.ADMIN_ALERT_EMAIL || "accounts@libertybancard.com";
-          const details = newlyFailed
-            .map(n => `  • ${n}: ${(checks as Record<string, CheckResult>)[n]?.status} — ${(checks as Record<string, CheckResult>)[n]?.message ?? ""}`)
-            .join("\n");
           await sendSmtpEmail({
             to: recipient,
-            subject: `[HealthMonitor] Critical alert — ${newlyFailed.join(", ")} degraded`,
-            html: `<pre style="font-family:monospace">HealthMonitor detected new critical failures at ${runAt}:\n\n${details}\n\nOverall ok: ${overallOk}</pre>`,
+            subject: `[HealthMonitor] RESOLVED — ${newlyRecovered.join(", ")} recovered`,
+            html: `<pre style="font-family:monospace">HealthMonitor: the following critical checks have recovered at ${runAt}:\n\n${newlyRecovered.map(n => `  ✓ ${n}: ${(checks as Record<string, CheckResult>)[n]?.status}`).join("\n")}\n\nOverall ok: ${overallOk}</pre>`,
             category: "internal_ops",
           });
-          console.warn(`[HealthMonitor] Critical alert sent: ${newlyFailed.join(", ")}`);
+          console.log(`[HealthMonitor] Recovery notification sent: ${newlyRecovered.join(", ")}`);
         } catch (emailErr: any) {
-          console.warn("[HealthMonitor] Alert email failed (non-fatal):", emailErr.message);
+          console.warn("[HealthMonitor] Recovery email failed (non-fatal):", emailErr.message);
         }
       })().catch(() => {});
     }

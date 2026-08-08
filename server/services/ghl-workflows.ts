@@ -59,7 +59,9 @@ export async function getWorkflowId(workflowKey: string): Promise<string | null>
     const { storage } = await import("../storage");
     const saved = await storage.getSystemSetting(`ghl_workflow_env_${workflow.envKey}`);
     if (saved) return saved as string;
-  } catch {}
+  } catch (err: any) {
+    console.warn(`[GHL Workflows] DB lookup failed for ${workflowKey} — returning null:`, err.message);
+  }
   return null;
 }
 
@@ -69,7 +71,9 @@ export async function getWorkflowEnvValue(envKey: string): Promise<string | null
     const { storage } = await import("../storage");
     const saved = await storage.getSystemSetting(`ghl_workflow_env_${envKey}`);
     if (saved) return saved as string;
-  } catch {}
+  } catch (err: any) {
+    console.warn(`[GHL Workflows] DB lookup failed for env key ${envKey} — returning null:`, err.message);
+  }
   return null;
 }
 

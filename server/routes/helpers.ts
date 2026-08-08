@@ -66,7 +66,32 @@ export const upload = multer({
   limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: mimeFilter,
 });
-export const uploadLarge = multer({ dest: os.tmpdir(), limits: { fileSize: 300 * 1024 * 1024 } });
+/** MIME types accepted by large-file upload endpoints (CSV imports + Sunbiz ZIP). */
+const ALLOWED_LARGE_UPLOAD_MIMES = new Set([
+  "text/csv",
+  "text/plain",                                                               // some OS/browsers send CSV as text/plain
+  "application/csv",
+  "application/vnd.ms-excel",                                                // .xls
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",      // .xlsx
+  "application/zip",
+  "application/x-zip-compressed",
+  "application/x-zip",
+  "application/octet-stream",                                                // fallback for ZIP on some clients
+]);
+
+function largeMimeFilter(_req: any, file: Express.Multer.File, cb: multer.FileFilterCallback) {
+  if (ALLOWED_LARGE_UPLOAD_MIMES.has(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(new Error(`File type '${file.mimetype}' is not allowed. Accepted: CSV, Excel, ZIP.`));
+  }
+}
+
+export const uploadLarge = multer({
+  dest: os.tmpdir(),
+  limits: { fileSize: 300 * 1024 * 1024 },
+  fileFilter: largeMimeFilter,
+});
 
 export interface ProposalPlan {
   name: string;

@@ -45,7 +45,10 @@ interface CacheEntry {
 }
 
 const cache = new Map<string, CacheEntry>();
-const CACHE_TTL_MS = 30_000;
+// Cache TTL extended to 5 minutes — flags rarely change and 30-second DB polls
+// under enrichment load were saturating the connection pool, causing
+// "timeout exceeded when trying to connect" log storms.
+const CACHE_TTL_MS = 5 * 60_000;
 
 function getCached(flag: string): boolean | null | undefined {
   const entry = cache.get(flag);
@@ -75,20 +78,40 @@ export async function getWizardFlagOverride(flag: string): Promise<boolean | nul
 
   try {
     const key = settingsKey(flag);
-    const [row] = await db
+    // Race the DB read against a 2-second timeout so a saturated connection
+    // pool (e.g. during heavy enrichment) fails fast and returns the default
+    // instead of holding a slot for the full 10-second connectionTimeoutMillis.
+    const timeoutPromise = new Promise<null>((_, reject) =>
+      setTimeout(() => reject(new Error("timeout exceeded when trying to connect")), 2000)
+    );
+    const dbPromise = db
       .select()
       .from(systemSettings)
       .where(eq(systemSettings.key, key))
-      .limit(1);
+      .limit(1)
+      .then(([row]) => row?.value != null ? Boolean((row.value as any).enabled) : null);
 
-    const value = row?.value != null ? Boolean((row.value as any).enabled) : null;
+    const value = await Promise.race([dbPromise, timeoutPromise]);
     setCached(flag, value);
     return value;
-  } catch (err) {
-    console.warn(`[WizardFlags] Failed to read override for ${flag}:`, err);
+  } catch (err: any) {
+    // Timeout / pool saturation — use cached default; do NOT log at ERROR
+    // because this fires dozens of times per minute under enrichment load.
+    // The caller (featureFlags.*) already falls back to a safe hard-coded default.
+    if (err.message?.includes("timeout")) {
+      // Suppress per-call noise; a single periodic warning suffices.
+      _flagTimeoutCount++;
+      if (_flagTimeoutCount === 1 || _flagTimeoutCount % 20 === 0) {
+        console.warn(`[WizardFlags] DB timeout reading flags (×${_flagTimeoutCount} total) — using defaults`);
+      }
+    } else {
+      console.warn(`[WizardFlags] Failed to read override for ${flag}:`, err.message ?? err);
+    }
     return null;
   }
 }
+
+let _flagTimeoutCount = 0;
 
 export async function setWizardFlagOverride(
   flag: string,

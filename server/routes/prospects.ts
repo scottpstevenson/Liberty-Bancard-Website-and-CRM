@@ -1643,7 +1643,9 @@ export function registerProspectsRoutes(app: Express) {
         try {
           await scoreContact(id);
           scored++;
-        } catch (e) {}
+        } catch (e: any) {
+          console.error(`[Prospects] scoreContact failed for id ${id}:`, e.message);
+        }
       }
       res.json({ scored, total: contactIds.length });
     } catch (err: any) {

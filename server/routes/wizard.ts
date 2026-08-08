@@ -85,9 +85,10 @@ export function registerWizardRoutes(app: Express): void {
         };
       })(),
 
-      // Redis
+      // Redis — reuse the shared BullMQ client for ping to avoid consuming an
+      // extra Upstash connection slot on every health-check request.
       (async () => {
-        const { isUsingMockRedis } = await import("../services/queue-connection");
+        const { isUsingMockRedis, getSharedRedisClient } = await import("../services/queue-connection");
         const usingMock = isUsingMockRedis();
         const redisUrl = process.env.REDIS_URL;
 
@@ -99,6 +100,27 @@ export function registerWizardRoutes(app: Express): void {
           };
         }
 
+        // Prefer the already-open shared client (zero extra connections).
+        // Fall back to a fresh probe only if the singleton hasn't been created yet
+        // (e.g. BullMQ initialisation hasn't finished during early startup).
+        const shared = getSharedRedisClient();
+        if (shared) {
+          try {
+            const result = await Promise.race([
+              shared.ping(),
+              new Promise<never>((_, rej) => setTimeout(() => rej(new Error("timeout")), timeoutMs)),
+            ]);
+            return {
+              ok: result === "PONG",
+              usingMock: false,
+              detail: result === "PONG" ? "Connected" : "Unexpected PING response",
+            };
+          } catch (err: any) {
+            return { ok: false, usingMock, detail: safeMessage(err.message, "Ping failed") };
+          }
+        }
+
+        // Fallback: create a short-lived probe (only during startup before BullMQ is ready)
         try {
           const Redis = (await import("ioredis")).default;
           const url = new URL(redisUrl);
@@ -123,7 +145,7 @@ export function registerWizardRoutes(app: Express): void {
           return {
             ok: result === "PONG",
             usingMock: false,
-            detail: result === "PONG" ? "Connected" : "Unexpected PING response",
+            detail: result === "PONG" ? "Connected (startup probe)" : "Unexpected PING response",
           };
         } catch (err: any) {
           return { ok: false, usingMock, detail: safeMessage(err.message, "Ping failed") };

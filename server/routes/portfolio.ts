@@ -202,7 +202,7 @@ export function registerPortfolioRoutes(app: Express) {
     isDashboardUser,
     async (req, res) => {
       try {
-        const dealId = parseInt(req.params.dealId, 10);
+        const dealId = parseInt(req.params["dealId"] as string, 10);
         if (!dealId || isNaN(dealId)) {
           return res.status(400).json({ message: "Invalid dealId" });
         }

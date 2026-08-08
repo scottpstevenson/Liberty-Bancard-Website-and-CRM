@@ -26,6 +26,18 @@ export function isUsingMockRedis(): boolean {
 }
 
 /**
+ * Returns the already-initialised singleton IORedis client, or null if BullMQ
+ * has not yet been initialised (e.g. REDIS_URL not set / startup not complete).
+ *
+ * Use this for lightweight probe calls (PING, GET) rather than creating a new
+ * Redis connection — every extra connection counts against Upstash's 20-connection
+ * free-tier cap and can cause ETIMEDOUT for the actual BullMQ workers.
+ */
+export function getSharedRedisClient(): Redis | null {
+  return _sharedClient;
+}
+
+/**
  * Returns a singleton IORedis client for use with BullMQ.
  *
  * The return type is `ConnectionOptions` (which is `IORedisOptions | Redis | Cluster`
