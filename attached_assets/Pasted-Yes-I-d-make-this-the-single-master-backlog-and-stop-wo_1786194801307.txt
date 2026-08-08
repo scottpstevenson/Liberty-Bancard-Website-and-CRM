@@ -1,0 +1,1750 @@
+Yes. I’d make this the single master backlog and stop working from the earlier scattered lists.
+
+The governing architecture for every Replit task is:
+
+Liberty/Replit is the brain and system of record. GHL is a utility layer. Replit decides; GHL executes email/SMS/RVM/voice/calendar/conversation utilities and reports results back.
+
+I’d also force every Replit task to audit → reuse → implement → migrate → test → pre-deploy gate, rather than blindly creating new tables/services.
+
+LIBERTY BANCARD — MASTER REPLIT BUILD PLAN
+
+AI Merchant Services Sales + Operations + Account Management OS
+
+MASTER ARCHITECTURE — NON-NEGOTIABLE
+
+Liberty Bancard/Replit is the sole:
+
+* system of record
+* CRM brain
+* lifecycle engine
+* automation engine
+* sequence engine
+* AI decision engine
+* compliance engine
+* task engine
+* lead scoring engine
+* merchant onboarding system
+* underwriting orchestration system
+* boarding system
+* merchant account management system
+* residual intelligence system
+* reporting/analytics system
+
+GoHighLevel is a utility provider controlled by Liberty/Replit.
+
+GHL may provide:
+
+* email transport
+* SMS transport
+* ringless voicemail
+* voice/call utilities
+* conversation transport
+* inbound replies
+* delivery/bounce/failure events
+* STOP/unsubscribe events
+* calendar/appointment utility where useful
+* minimum shadow contacts/conversation IDs technically required by GHL APIs
+
+Core rule:
+
+REPLIT DECIDES → GHL EXECUTES → GHL RETURNS EVENT → REPLIT DECIDES WHAT HAPPENS NEXT.
+
+No Liberty business process should require a GHL workflow, opportunity stage, task, tag, sequence, or CRM state to determine what happens next.
+
+⸻
+
+UNIVERSAL DEVELOPMENT RULES
+
+Apply these rules to every task below.
+
+Before implementing any task:
+
+1. Audit existing code.
+2. Identify existing tables/services/routes/workers that overlap.
+3. Reuse existing architecture where appropriate.
+4. Do not create duplicate systems.
+5. Document architecture decision.
+6. Preserve working production behavior.
+7. Create safe migrations.
+8. Make automation idempotent.
+9. Add audit logging.
+10. Add failure/recovery behavior.
+11. Add operator visibility.
+12. Add automated tests.
+13. Add appropriate tests to scripts/pre-deploy.ts.
+14. Verify role/ownership security.
+15. Verify outbound actions pass through central compliance/contactability.
+16. Do not let AI directly bypass deterministic business rules.
+17. Do not add a new BullMQ queue unless technically justified.
+18. Prefer event-driven processing and indexed due-work queries over full-table polling.
+19. Preserve historical records during migrations.
+20. At completion provide:
+
+* what existed
+* what changed
+* migrations
+* tests
+* remaining gaps
+* risks discovered
+
+⸻
+
+PHASE 0 — ARCHITECTURAL FOUNDATION
+
+TASK 0.1 — GHL Utility Layer / Replit Control Plane
+
+Priority: P0
+Status: TODO
+
+Audit every GHL integration.
+
+Classify each as:
+
+* CHANNEL_UTILITY_REQUIRED
+* EVENT_FEEDBACK_REQUIRED
+* MINIMAL_GHL_IDENTITY_REQUIRED
+* LEGACY_CRM_SYNC
+* LEGACY_GHL_AUTOMATION
+* DUPLICATED_BUSINESS_LOGIC
+* SAFE_TO_REMOVE
+* REQUIRES_MIGRATION
+
+Audit:
+
+* GHL contact sync
+* deal/opportunity sync
+* task sync
+* tags
+* workflow enrollment
+* workflow recovery
+* GHL forms
+* delete sync
+* channel probes
+* SDR GHL client
+* voice orchestration
+* scheduling
+* webhooks
+* workflow mappings
+* sync conflicts
+* Gmail OAuth
+* SMTP sending
+* SMS
+* RVM
+* voice
+* email
+
+Target:
+
+Remove GHL as an authoritative CRM.
+
+Disable bidirectional CRM synchronization unless minimal GHL shadow records are technically required.
+
+Remove GHL workflows as Liberty automation engines.
+
+Create:
+
+ChannelOrchestrator
+
+with normalized adapters such as:
+
+* EmailTransport
+* SmsTransport
+* RinglessVoicemailTransport
+* VoiceTransport
+
+All business logic calls the ChannelOrchestrator rather than GHL directly.
+
+Every outbound request must pass:
+
+global pause
+→ contactability
+→ DNC
+→ unsubscribe/STOP
+→ consent
+→ channel eligibility
+→ frequency caps
+→ quiet/business-hour rules where applicable
+→ sender policy
+→ duplicate/idempotency check
+→ lifecycle/sequence validity
+→ transport.
+
+Normalize GHL callbacks into Liberty events.
+
+Test GHL cannot independently mutate Liberty lifecycle, tasks, deals or sequence state.
+
+⸻
+
+TASK 0.2 — Canonical Merchant Lifecycle
+
+Priority: P0
+Depends on: 0.1
+
+Create one canonical lifecycle.
+
+Recommended states:
+
+PROSPECT
+ENGAGED
+APPOINTMENT_SCHEDULED
+APPOINTMENT_COMPLETED
+STATEMENT_REQUESTED
+STATEMENT_RECEIVED
+STATEMENT_ANALYZED
+PROPOSAL_READY
+PROPOSAL_SENT
+NEGOTIATION
+APPLICATION_STARTED
+APPLICATION_COMPLETE
+UNDERWRITING
+UNDERWRITING_CONDITIONAL
+APPROVED
+BOARDING
+EQUIPMENT_DEPLOYMENT
+ACTIVATION_PENDING
+FIRST_TRANSACTION
+FIRST_FUNDING
+ACTIVE_PROCESSING
+HEALTHY
+AT_RISK
+RETENTION
+CHURNED
+WINBACK
+CLOSED_LOST
+
+Requirements:
+
+* transition validation
+* lifecycle history
+* trigger/source
+* actor
+* reason
+* timestamps
+* automation ID
+* version
+* idempotency
+* reconciliation against legacy pipeline/application/onboarding states
+
+CRM pipeline stages may remain customizable but cannot replace canonical lifecycle.
+
+⸻
+
+TASK 0.3 — Automation Inventory & Consolidation
+
+Priority: P0
+Depends on: 0.1, 0.2
+
+Inventory every:
+
+* sequence
+* campaign
+* workflow
+* stage automation
+* BullMQ repeat job
+* SDR automation
+* proposal automation
+* onboarding automation
+* GHL remnant
+* SLA automation
+* recovery job
+
+Create matrix:
+
+TRIGGER
+CONDITIONS
+SYSTEM
+ACTION
+CHANNEL
+OWNER
+LIFECYCLE STATE
+STOP CONDITION
+IDEMPOTENCY KEY
+SOURCE OF TRUTH
+STATUS
+
+Find:
+
+* duplicates
+* conflicts
+* missing stop conditions
+* duplicate messaging
+* dead workflows
+* unnecessary polling
+* automation without compliance gates
+* competing systems of record
+
+Consolidate safely.
+
+⸻
+
+TASK 0.4 — Central Event Architecture
+
+Priority: P0
+
+Audit current event logging.
+
+Create/standardize normalized Liberty business events where useful.
+
+Examples:
+
+LEAD_CREATED
+LEAD_ASSIGNED
+EMAIL_SENT
+SMS_SENT
+REPLY_RECEIVED
+APPOINTMENT_BOOKED
+STATEMENT_REQUESTED
+STATEMENT_RECEIVED
+PROPOSAL_VIEWED
+APPLICATION_STARTED
+APPLICATION_COMPLETED
+UW_CONDITION_RECEIVED
+MERCHANT_APPROVED
+MID_CREATED
+EQUIPMENT_SHIPPED
+FIRST_TRANSACTION
+FIRST_FUNDING
+VOLUME_DECLINE
+CHARGEBACK_RECEIVED
+MERCHANT_AT_RISK
+MERCHANT_CHURNED
+
+Automations should increasingly react to Liberty events rather than polling arbitrary states.
+
+⸻
+
+PHASE 1 — AI DECISION & AUTOMATION ENGINE
+
+TASK 1.1 — Next Best Action Engine
+
+Priority: P0
+Depends on: Phase 0
+
+For every active contact/deal/merchant determine:
+
+* lifecycle
+* lead score
+* opportunity value
+* estimated processing volume
+* estimated annual revenue
+* expected Liberty contribution
+* close probability
+* engagement
+* objections
+* missing requirement
+* health
+* churn probability
+* recommended action
+* channel
+* owner
+* deadline
+* reason
+* confidence
+* automation eligibility
+* human-required flag
+
+AI recommends.
+
+Deterministic Liberty rules authorize.
+
+Store decision history and model/rule version.
+
+⸻
+
+TASK 1.2 — Sequence Worker Scalability
+
+Priority: P0
+
+Refactor away from broad scanning.
+
+Use indexed:
+
+next_action_at
+
+Process only:
+
+active enrollment
+AND next_action_at <= now.
+
+Use bounded batches.
+
+Prevent concurrent duplicate execution.
+
+Track:
+
+* backlog
+* oldest due step
+* average delay
+* throughput
+* failure rate
+* worker duration
+
+⸻
+
+TASK 1.3 — BullMQ Architecture Consolidation
+
+Priority: P0
+
+Audit Redis connection usage.
+
+Reduce physical queue proliferation.
+
+Prefer logical job types over one queue per automation.
+
+Potential classes:
+
+* outbound
+* critical
+* integration
+* batch
+* analytics
+
+Maintain isolation where technically necessary.
+
+Add connection monitoring and exhaustion warning.
+
+⸻
+
+TASK 1.4 — Automation Registry
+
+Priority: P1
+
+Admin interface showing:
+
+* automation
+* version
+* enabled
+* trigger
+* lifecycle
+* owner
+* last run
+* next run
+* backlog
+* successes
+* failures
+* records affected
+* kill switch
+* dependencies
+
+Give operators one place to understand what Liberty is doing automatically.
+
+⸻
+
+PHASE 2 — LEAD ACQUISITION & SDR
+
+TASK 2.1 — Lead Identity & Deduplication
+
+Priority: P0
+
+Audit contacts, businesses, aliases, SDR merchants, master leads and GHL shadow identities.
+
+Create reliable canonical identity resolution for:
+
+* person
+* company
+* location
+* phone
+* email
+* EIN where legally/appropriately available
+* external IDs
+
+Prevent duplicate outreach and duplicate deals.
+
+⸻
+
+TASK 2.2 — Lead Source & Attribution Foundation
+
+Priority: P1
+
+Strengthen contact_source_events.
+
+Preserve:
+
+* original source
+* latest source
+* affiliate
+* referral
+* campaign
+* UTM fields
+* landing page
+* external ad identifiers where available
+
+Never overwrite original attribution.
+
+⸻
+
+TASK 2.3 — Enrichment Decision Engine
+
+Priority: P1
+
+Use existing enrichment selectively.
+
+Determine:
+
+* whether enrichment is needed
+* provider/source
+* cost
+* expected value
+* confidence
+
+Avoid expensive/redundant enrichment.
+
+⸻
+
+TASK 2.4 — Revenue-Aware Lead Scoring
+
+Priority: P0
+
+Upgrade scoring beyond engagement.
+
+Include:
+
+* business type
+* processing potential
+* locations
+* estimated volume
+* source quality
+* engagement
+* statement availability
+* appointment
+* decision-maker status
+* expected revenue
+* close probability
+
+Separate:
+
+lead_quality_score
+
+from:
+
+engagement_score
+
+from:
+
+expected_value.
+
+⸻
+
+TASK 2.5 — Speed-to-Lead Engine
+
+Priority: P0
+
+Inbound lead:
+
+dedupe
+→ enrich
+→ compliance
+→ score
+→ route
+→ assign
+→ deal
+→ lifecycle
+→ NBA
+→ immediate appropriate outreach
+→ SLA.
+
+Escalate high-value untouched leads.
+
+⸻
+
+TASK 2.6 — Outbound Prospecting Engine
+
+Priority: P0
+
+Build vertical/source-aware SDR orchestration using existing sequence infrastructure.
+
+Channels may include:
+
+* email
+* SMS
+* RVM
+* voice
+
+All channel decisions originate in Replit.
+
+GHL only executes utilities.
+
+Stop sequences on meaningful reply, DNC, conversion, or lifecycle progression.
+
+⸻
+
+PHASE 3 — APPOINTMENT, DISCOVERY & STATEMENT
+
+TASK 3.1 — Appointment Lifecycle
+
+Priority: P1
+
+Implement:
+
+* confirmation
+* reminders
+* statement request
+* sales prep
+* no-show
+* reschedule
+* post-meeting workflow
+
+Liberty owns appointment state.
+
+⸻
+
+TASK 3.2 — AI Sales Prep
+
+Priority: P1
+
+Before meeting generate:
+
+* business summary
+* source
+* history
+* likely volume
+* processor
+* statement status
+* pain points
+* likely objections
+* recommended discovery questions
+* deal value
+* NBA
+
+⸻
+
+TASK 3.3 — Conversation Intelligence
+
+Priority: P1
+
+From calls/transcripts extract:
+
+* processor
+* volume
+* rates
+* equipment
+* gateway
+* contract
+* pain points
+* objections
+* competitors
+* decision maker
+* timeline
+* commitments
+* next step
+* sentiment
+* buying intent
+
+Update trusted CRM fields when confidence permits.
+
+Otherwise create review suggestions.
+
+Create tasks from commitments automatically.
+
+⸻
+
+TASK 3.4 — Statement Acquisition Engine
+
+Priority: P0
+
+Dedicated lifecycle sequence for:
+
+STATEMENT_REQUESTED
+→ STATEMENT_RECEIVED.
+
+Use configurable multi-channel cadence.
+
+Stop immediately on receipt.
+
+Escalate valuable stalled opportunities.
+
+⸻
+
+TASK 3.5 — Statement Intelligence Engine
+
+Priority: P0
+
+Extract structured merchant processing economics.
+
+Capture where possible:
+
+* processor
+* volume
+* transactions
+* average ticket
+* effective rate
+* interchange
+* assessments
+* markup
+* basis points
+* transaction fees
+* monthly fees
+* PCI
+* gateway
+* equipment
+* chargeback fees
+* pricing model
+* CP/CNP mix
+
+Store extraction confidence and source evidence.
+
+⸻
+
+PHASE 4 — PRICING, PROPOSAL & CLOSE
+
+TASK 4.1 — Merchant Pricing Engine
+
+Priority: P0
+
+Calculate offers based on:
+
+merchant savings
++
+Liberty economics
++
+close probability.
+
+Support applicable pricing models.
+
+Calculate:
+
+* monthly savings
+* annual savings
+* Liberty gross revenue
+* processor/pass-through cost
+* agent/partner share
+* Liberty net contribution
+* margin
+* acceptance probability
+* expected value
+
+Enforce configurable margin floors.
+
+AI cannot invent costs.
+
+⸻
+
+TASK 4.2 — Proposal Decision Engine
+
+Priority: P0
+
+Turn pricing analysis into approved offer options.
+
+Allow human approval/override where required.
+
+Store every assumption and override.
+
+⸻
+
+TASK 4.3 — Proposal Conversion Automation
+
+Priority: P0
+
+Differentiate:
+
+PROPOSAL_SENT
+PROPOSAL_VIEWED
+PROPOSAL_NOT_VIEWED
+PROPOSAL_ENGAGED
+NEGOTIATION
+
+Follow-up should respond to actual behavior.
+
+High-value proposal engagement creates rep action.
+
+⸻
+
+TASK 4.4 — Objection Intelligence
+
+Priority: P1
+
+Normalize objections:
+
+* pricing
+* contract
+* cancellation
+* equipment
+* processor loyalty
+* timing
+* trust
+* funding
+* technical
+* competitor
+
+Recommend approved response/playbook.
+
+Track objection → outcome.
+
+⸻
+
+PHASE 5 — APPLICATION & UNDERWRITING
+
+TASK 5.1 — Application Completion Engine
+
+Priority: P0
+
+Determine exactly what prevents submission.
+
+Calculate:
+
+* completion %
+* missing fields
+* missing documents
+* validation failures
+* blockers
+* submission readiness
+
+Communicate smallest actionable request.
+
+⸻
+
+TASK 5.2 — Document Intelligence
+
+Priority: P1
+
+Classify uploaded documents.
+
+Identify:
+
+* type
+* merchant
+* date
+* completeness
+* whether document satisfies requirement
+* duplicate
+* expiration where relevant
+
+Never allow AI to approve identity/underwriting evidence without deterministic controls.
+
+⸻
+
+TASK 5.3 — Underwriting Orchestration
+
+Priority: P0
+
+APPLICATION_COMPLETE
+→ SUBMITTED
+→ UNDERWRITING
+→ CONDITIONAL
+→ CONDITION COLLECTION
+→ RESUBMISSION
+→ APPROVED / DECLINED.
+
+Track processor IDs, conditions, documents, SLAs and outcomes.
+
+Convert processor conditions into merchant-friendly actionable checklist.
+
+⸻
+
+TASK 5.4 — Processor Routing Engine
+
+Priority: P1
+
+Recommend processor based on:
+
+* MCC
+* vertical
+* volume
+* average ticket
+* CNP
+* processing history
+* chargebacks
+* risk
+* business age
+* processor approval history
+* economics
+* boarding speed
+
+Initially recommendation-only unless deterministic rules make automatic routing safe.
+
+⸻
+
+TASK 5.5 — Decline Recovery
+
+Priority: P1
+
+When declined:
+
+* capture reason
+* determine fixable vs terminal
+* determine alternate processor eligibility
+* determine missing evidence
+* create rep action
+* preserve merchant experience
+
+⸻
+
+PHASE 6 — APPROVAL, BOARDING & ACTIVATION
+
+TASK 6.1 — Boarding/MID System
+
+Priority: P0
+
+Track:
+
+* processor
+* processor account ID
+* MID
+* TID
+* gateway
+* VAR
+* funding setup
+* boarding status
+* credentials
+* PCI setup
+* configuration
+
+⸻
+
+TASK 6.2 — Equipment Operating System
+
+Priority: P0
+
+Track:
+
+* equipment catalog
+* order
+* inventory
+* assignment
+* model
+* serial
+* shipping
+* tracking
+* delivery
+* configuration
+* installation
+* training
+
+⸻
+
+TASK 6.3 — Activation Monitor
+
+Priority: P0
+
+Monitor:
+
+APPROVED but no MID
+MID but not configured
+equipment shipped
+equipment delivered
+no transaction
+transaction but no funding.
+
+Detect:
+
+FIRST_TRANSACTION
+FIRST_FUNDING.
+
+Then advance:
+
+ACTIVE_PROCESSING.
+
+Primary KPI:
+
+Time from approval to first funding.
+
+⸻
+
+TASK 6.4 — Activation Exception Desk
+
+Priority: P0
+
+Automatically identify why activation is stalled.
+
+Possible causes:
+
+* MID not created
+* gateway
+* equipment
+* shipment
+* configuration
+* merchant training
+* bank/funding
+* technical error
+* merchant non-response
+
+Create correct owner/action/SLA.
+
+⸻
+
+PHASE 7 — MERCHANT SUCCESS & ACCOUNT MANAGEMENT
+
+TASK 7.1 — Merchant Health Engine
+
+Priority: P0
+
+Score merchant 0–100 using available:
+
+* volume trend
+* transaction trend
+* average ticket
+* processing interruption
+* funding issues
+* chargebacks
+* tickets
+* NPS
+* sentiment
+* pricing complaints
+* competitor mentions
+* PCI
+* residual trend
+* seasonality
+
+Return:
+
+* health
+* churn probability
+* contributing factors
+* NBA
+
+⸻
+
+TASK 7.2 — 30/60/90 Merchant Success Lifecycle
+
+Priority: P1
+
+After first funding:
+
+Day 1
+Day 3
+Day 7
+Day 14
+Day 30
+Day 60
+Day 90
+then quarterly.
+
+Use actual merchant condition, not blind calendar emails.
+
+⸻
+
+TASK 7.3 — AI Merchant Account Manager
+
+Priority: P1
+
+Dashboard AI should answer:
+
+* which merchants need attention?
+* why?
+* what happened?
+* what should we do?
+* what revenue is at risk?
+
+Merchant-facing AI where appropriate should answer verified questions about:
+
+* activation
+* equipment
+* documents
+* tickets
+* chargebacks
+* processing
+* account setup
+
+Never fabricate processor data.
+
+⸻
+
+TASK 7.4 — Support AI & Ticket Triage
+
+Priority: P1
+
+Inbound issue:
+
+identify merchant
+→ classify
+→ determine severity
+→ gather relevant account data
+→ create/update ticket
+→ draft resolution
+→ route owner
+→ SLA
+→ escalate when necessary.
+
+⸻
+
+TASK 7.5 — Retention / Save Desk
+
+Priority: P0
+
+At-risk:
+
+cause
+→ merchant value
+→ save recommendation
+→ owner
+→ SLA
+→ action
+→ outcome.
+
+Track save rate and preserved residual.
+
+⸻
+
+TASK 7.6 — Win-Back Engine
+
+Priority: P2
+
+Create intelligent 30/60/90/180/365-day win-back based on merchant value and churn reason.
+
+⸻
+
+TASK 7.7 — Referral Engine
+
+Priority: P2
+
+Identify healthy eligible merchants.
+
+Request referrals.
+
+Track referred prospect through active MID and residual.
+
+⸻
+
+PHASE 8 — RISK, CHARGEBACKS & COMPLIANCE OPERATIONS
+
+TASK 8.1 — Chargeback Intelligence
+
+Priority: P1
+
+Improve chargeback workflow:
+
+* classify reason
+* deadlines
+* evidence requirements
+* merchant notification
+* document collection
+* evidence package
+* submission status
+* outcome
+
+⸻
+
+TASK 8.2 — PCI Lifecycle
+
+Priority: P1
+
+Track merchant PCI status where relevant:
+
+* due
+* incomplete
+* compliant
+* expired
+* remediation required
+
+Automate reminders/escalation.
+
+⸻
+
+TASK 8.3 — Compliance Policy Versioning
+
+Priority: P0
+
+Version outbound/contactability policy.
+
+Store for every important decision:
+
+* policy version
+* channel
+* consent evidence
+* jurisdiction inputs where relevant
+* DNC state
+* decision
+* reason code
+
+Do not hard-code legal assumptions indefinitely.
+
+⸻
+
+PHASE 9 — RESIDUALS, COMMISSIONS & PROFITABILITY
+
+TASK 9.1 — Expected Merchant Economics
+
+Priority: P0
+
+At activation establish:
+
+* expected volume
+* expected revenue
+* expected residual
+* agent share
+* partner share
+* expected Liberty contribution
+
+⸻
+
+TASK 9.2 — Residual Reconciliation
+
+Priority: P0
+
+Compare expected vs actual.
+
+Flag variance.
+
+Diagnose:
+
+* volume
+* pricing
+* processor adjustment
+* missing MID
+* commission issue
+* duplicate
+* inactivity
+
+Create finance exception when unexplained.
+
+⸻
+
+TASK 9.3 — Commission Engine Audit
+
+Priority: P0
+
+Verify:
+
+* commission tiers
+* agent splits
+* partner splits
+* adjustments
+* payout calculations
+* clawbacks where applicable
+* historical versioning
+
+Every payout must be explainable.
+
+⸻
+
+TASK 9.4 — Merchant Profitability
+
+Priority: P0
+
+Calculate:
+
+gross revenue
+− processor/pass-through costs
+− agent commissions
+− partner share
+− incentives
+− equipment subsidy
+− adjustments
+= Liberty net contribution.
+
+Track:
+
+30/90/365-day contribution
+and lifetime contribution.
+
+⸻
+
+TASK 9.5 — Partner/Agent Profitability
+
+Priority: P1
+
+Measure:
+
+* portfolio revenue
+* net contribution
+* churn
+* approval
+* activation
+* support burden
+* profitability
+
+⸻
+
+PHASE 10 — ATTRIBUTION & EXECUTIVE INTELLIGENCE
+
+TASK 10.1 — Full Funnel Attribution
+
+Priority: P1
+
+Connect:
+
+SOURCE
+→ LEAD
+→ APPOINTMENT
+→ STATEMENT
+→ PROPOSAL
+→ APPLICATION
+→ APPROVAL
+→ ACTIVE MID
+→ RESIDUAL
+→ NET CONTRIBUTION.
+
+⸻
+
+TASK 10.2 — Acquisition Unit Economics
+
+Priority: P1
+
+By channel/source calculate:
+
+* CPL
+* cost/appointment
+* cost/statement
+* cost/application
+* cost/approval
+* cost/active MID
+* CAC
+* annual residual
+* LTV
+* LTV:CAC
+* payback
+
+⸻
+
+TASK 10.3 — Executive Command Center
+
+Priority: P1
+
+Create one executive operating view.
+
+Show:
+
+SALES
+
+* leads
+* appointments
+* statements
+* proposals
+* applications
+* approvals
+
+ACTIVATION
+
+* approved not boarded
+* boarded not processing
+* time to first funding
+
+PORTFOLIO
+
+* active MIDs
+* volume
+* health
+* churn risk
+
+FINANCE
+
+* residual
+* expected vs actual
+* net contribution
+
+AUTOMATION
+
+* failures
+* backlog
+* suppressed sends
+* channel health
+
+PEOPLE
+
+* agent production
+* conversion
+* merchant portfolio
+* tasks/SLA
+
+⸻
+
+PHASE 11 — AI LEARNING & SALES PERFORMANCE
+
+TASK 11.1 — Rep Coaching AI
+
+Priority: P2
+
+Score calls on:
+
+* discovery
+* statement ask
+* qualification
+* value
+* objection handling
+* close
+* next step
+* compliance
+
+Correlate coaching metrics to actual outcomes.
+
+⸻
+
+TASK 11.2 — Sequence Experimentation
+
+Priority: P2
+
+Track variants through:
+
+reply
+→ appointment
+→ statement
+→ application
+→ approval
+→ activation
+→ revenue.
+
+Do not optimize merely for opens/clicks.
+
+⸻
+
+TASK 11.3 — Offer Learning
+
+Priority: P2
+
+Learn which offers work by:
+
+* vertical
+* volume
+* processor
+* objection
+* acquisition source
+* merchant profile
+
+Measure acceptance AND profitability.
+
+⸻
+
+TASK 11.4 — AI Outcome Feedback Loop
+
+Priority: P2
+
+Create structured feedback so AI recommendations can eventually be evaluated against:
+
+* action taken
+* response
+* conversion
+* activation
+* revenue
+* retention
+
+AI recommendations must remain versioned and auditable.
+
+⸻
+
+PHASE 12 — SECURITY, RELIABILITY & SCALE
+
+TASK 12.1 — Security Hardening
+
+Priority: P0
+
+Audit:
+
+* encryption
+* OAuth
+* secrets
+* sessions
+* MFA
+* CSRF
+* webhook security
+* replay protection
+* file uploads
+* PII
+* AI data exposure
+* audit logs
+* admin seed behavior
+
+Evaluate authenticated encryption and key rotation.
+
+⸻
+
+TASK 12.2 — AI Data Protection
+
+Priority: P0
+
+Create central AI data classification/redaction.
+
+Prevent unnecessary sensitive data from reaching AI providers.
+
+Never send:
+
+* credentials
+* CVV
+* PAN
+* raw bank credentials
+* unnecessary SSN
+* other prohibited secrets
+
+⸻
+
+TASK 12.3 — PCI Scope Audit
+
+Priority: P0
+
+Determine whether PAN/CVV ever touches:
+
+* Liberty backend
+* DB
+* logs
+* queues
+* analytics
+* AI
+* frontend state
+
+Prefer hosted/tokenized payment architecture.
+
+Document PCI boundary.
+
+⸻
+
+TASK 12.4 — Disaster Recovery
+
+Priority: P0
+
+Upgrade backups to:
+
+* durable/offsite
+* encrypted
+* retention-controlled
+* checksummed
+* monitored
+* restore-tested
+
+Define RPO/RTO.
+
+⸻
+
+TASK 12.5 — Observability
+
+Priority: P1
+
+Centralize operational metrics for:
+
+* queues
+* automation
+* GHL utilities
+* database
+* APIs
+* AI
+* processor integrations
+* webhooks
+* sequence latency
+* failures
+
+⸻
+
+TASK 12.6 — Scale Test
+
+Priority: P1
+
+Test representative scale at:
+
+* 250K contacts
+* 500K
+* 1M where practical
+
+Measure:
+
+* sequence throughput
+* DB load
+* Redis
+* queue delay
+* analytics queries
+* lifecycle evaluation
+* NBA evaluation
+
+⸻
+
+PHASE 13 — FINAL CLOSED-LOOP AUDIT
+
+TASK 13.1 — Synthetic Merchant Journey
+
+Priority: P0
+
+Create automated end-to-end synthetic merchant test:
+
+LEAD
+→ QUALIFIED
+→ OUTREACH
+→ REPLY
+→ APPOINTMENT
+→ STATEMENT
+→ ANALYSIS
+→ PRICING
+→ PROPOSAL
+→ APPLICATION
+→ UNDERWRITING
+→ APPROVAL
+→ BOARDING
+→ EQUIPMENT
+→ ACTIVATION
+→ FIRST TRANSACTION
+→ FIRST FUNDING
+→ ACTIVE
+→ RESIDUAL
+→ ACCOUNT MANAGEMENT.
+
+Verify no orphaned state or competing automation.
+
+⸻
+
+TASK 13.2 — Closed-Loop Business Audit
+
+Priority: P0
+
+For every lifecycle stage answer:
+
+* source of truth?
+* trigger?
+* automation?
+* NBA?
+* owner?
+* SLA?
+* stop condition?
+* failure path?
+* audit trail?
+* compliance?
+* manager visibility?
+* KPI?
+* test?
+
+Classify:
+
+COMPLETE
+PARTIAL
+MISSING
+DUPLICATED
+CONFLICTING
+HIGH_RISK.
+
+⸻
+
+TASK 13.3 — Automation Collision Audit
+
+Priority: P0
+
+Prove a merchant cannot accidentally receive competing automation from:
+
+* multiple sequences
+* lifecycle automation
+* SDR
+* manual automation
+* GHL
+* proposal workflow
+* application workflow
+* retention workflow
+
+Create automated collision detection.
+
+⸻
+
+TASK 13.4 — Final Production Readiness Gate
+
+Priority: P0
+
+Expand pre-deploy gate to cover the full operating system.
+
+Deployment must fail on critical:
+
+* compliance regression
+* lifecycle regression
+* duplicate-send risk
+* authorization regression
+* queue failure
+* processor integration regression
+* data-integrity regression
+* activation regression
+* residual calculation regression
+
+⸻
+
+MASTER NORTH-STAR METRICS
+
+Liberty should ultimately optimize for:
+
+Sales
+
+Lead → Appointment
+Lead → Statement
+Statement → Proposal
+Proposal → Application
+Application → Approval
+
+Activation
+
+Approval → MID
+Approval → First Transaction
+Approval → First Funding
+
+Revenue
+
+Active MIDs
+Processing Volume
+Gross Residual
+Net Contribution
+Revenue per Merchant
+LTV
+
+Retention
+
+Merchant Health
+90-Day Retention
+12-Month Retention
+Churn
+Save Rate
+Residual Preserved
+
+Acquisition
+
+CAC
+Cost per Active MID
+LTV:CAC
+Payback Period
+
+Operations
+
+Automation Completion %
+Human Touches per Activated Merchant
+SLA Compliance
+Automation Failure Rate
+Queue Delay
+Time to First Funding
+
+⸻
+
+FINAL TARGET OPERATING MODEL
+
+ACQUISITION
+↓
+AI QUALIFICATION
+↓
+COMPLIANCE
+↓
+NEXT BEST ACTION
+↓
+GHL CHANNEL UTILITY
+↓
+REPLY / APPOINTMENT
+↓
+AI DISCOVERY INTELLIGENCE
+↓
+STATEMENT
+↓
+PRICING ENGINE
+↓
+PROPOSAL
+↓
+APPLICATION
+↓
+UNDERWRITING
+↓
+APPROVAL
+↓
+BOARDING
+↓
+EQUIPMENT / GATEWAY
+↓
+FIRST TRANSACTION
+↓
+FIRST FUNDING
+↓
+ACTIVE MERCHANT
+↓
+AI ACCOUNT MANAGEMENT
+↓
+HEALTH / SUPPORT / RETENTION
+↓
+RESIDUAL
+↓
+PROFITABILITY
+↓
+REFERRAL / EXPANSION / WIN-BACK
+↓
+OUTCOME DATA RETURNS TO LIBERTY AI
+
+The final objective is not maximum automation.
+
+The objective is:
+
+Every Liberty Bancard prospect and merchant always has a known state, value, risk, owner, next best action, deadline, automation status, and measurable outcome — with Replit as the authoritative brain controlling the entire lifecycle.
+
+I’d treat this as the master spec going forward. The critical path is Phase 0 → Phase 1 → sales conversion → underwriting → activation → merchant management → profitability. Things like coaching AI, referrals, and experimentation should stay behind that critical path rather than distracting Replit from getting the core closed loop working first.
