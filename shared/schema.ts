@@ -5114,4 +5114,84 @@ export const insertAutomationRegistrySchema = createInsertSchema(automationRegis
 export type AutomationRegistry = typeof automationRegistry.$inferSelect;
 export type InsertAutomationRegistry = z.infer<typeof insertAutomationRegistrySchema>;
 
+// ---------------------------------------------------------------------------
+// Contact NBA — Next Best Action Engine
+// One active recommendation per contact (UPSERT on contact_id).
+// ---------------------------------------------------------------------------
+export const contactNba = pgTable("contact_nba", {
+  id: serial("id").primaryKey(),
+  contactId: integer("contact_id").notNull().references(() => contacts.id, { onDelete: "cascade" }),
+
+  actionType: text("action_type").notNull(),
+  channel: text("channel"),
+  ownerRole: text("owner_role"),
+
+  dueAt: timestamp("due_at"),
+  urgency: text("urgency").notNull().default("normal"),
+  expiresAt: timestamp("expires_at"),
+
+  reasonCode: text("reason_code").notNull(),
+  explanation: text("explanation"),
+  confidence: integer("confidence"),
+  ruleVersion: text("rule_version"),
+  modelVersion: text("model_version"),
+  evidence: jsonb("evidence"),
+
+  opportunityValueCents: integer("opportunity_value_cents"),
+  automationEligible: boolean("automation_eligible").notNull().default(false),
+  humanRequired: boolean("human_required").notNull().default(false),
+
+  status: text("status").notNull().default("OPEN"),
+  generatedAt: timestamp("generated_at").defaultNow(),
+  executedAt: timestamp("executed_at"),
+  dismissedAt: timestamp("dismissed_at"),
+  dismissedBy: text("dismissed_by"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("contact_nba_contact_id_unique").on(table.contactId),
+  index("contact_nba_status_urgency_idx").on(table.status, table.urgency),
+  index("contact_nba_due_at_idx").on(table.dueAt),
+]);
+
+export const insertContactNbaSchema = createInsertSchema(contactNba).omit({ id: true, generatedAt: true, updatedAt: true });
+export type ContactNba = typeof contactNba.$inferSelect;
+export type InsertContactNba = z.infer<typeof insertContactNbaSchema>;
+
+// ---------------------------------------------------------------------------
+// NBA Recommendation History — audit trail of superseded recommendations
+// ---------------------------------------------------------------------------
+export const nbaRecommendationHistory = pgTable("nba_recommendation_history", {
+  id: serial("id").primaryKey(),
+  contactId: integer("contact_id").notNull().references(() => contacts.id, { onDelete: "cascade" }),
+
+  actionType: text("action_type").notNull(),
+  channel: text("channel"),
+  ownerRole: text("owner_role"),
+  dueAt: timestamp("due_at"),
+  urgency: text("urgency").notNull(),
+  expiresAt: timestamp("expires_at"),
+  reasonCode: text("reason_code").notNull(),
+  explanation: text("explanation"),
+  confidence: integer("confidence"),
+  ruleVersion: text("rule_version"),
+  modelVersion: text("model_version"),
+  evidence: jsonb("evidence"),
+  opportunityValueCents: integer("opportunity_value_cents"),
+  automationEligible: boolean("automation_eligible").notNull().default(false),
+  humanRequired: boolean("human_required").notNull().default(false),
+  status: text("status").notNull(),
+  generatedAt: timestamp("generated_at").notNull(),
+  executedAt: timestamp("executed_at"),
+  dismissedAt: timestamp("dismissed_at"),
+  dismissedBy: text("dismissed_by"),
+
+  supersededAt: timestamp("superseded_at").defaultNow(),
+  supersededReason: text("superseded_reason"),
+}, (table) => [
+  index("nba_history_contact_id_idx").on(table.contactId),
+  index("nba_history_generated_at_idx").on(table.generatedAt),
+]);
+
+export type NbaRecommendationHistory = typeof nbaRecommendationHistory.$inferSelect;
+
 export type InsertExecutiveGoal = z.infer<typeof insertExecutiveGoalSchema>;

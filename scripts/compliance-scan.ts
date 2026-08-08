@@ -692,6 +692,22 @@ const CALL_SITE_ALLOWLIST: Array<{
     reason: "sendMonthlyDigestEmail — monthly residuals summary to a registered partner (internal_admin class: operator-vetted B2B recipient). Sent by the BullMQ monthly residuals job, not to consumer prospects. Partners have opted-in through the partner program.",
     reviewDate: "2026-08-07",
   },
+  {
+    file: "server/services/transports/ghl-email-transport.ts",
+    lineContains: "sendGhlEmail",
+    channel: "email",
+    category: "admin_gated",
+    reason: "GhlEmailTransport.send() is a low-level transport adapter called exclusively through ChannelOrchestrator.sendEmail(), which applies the full compliance fence (global pause → DNC → contactability → consent) before delegating to any transport. Direct callers are prohibited by design.",
+    reviewDate: "2026-08-08",
+  },
+  {
+    file: "server/services/transports/ghl-sms-transport.ts",
+    lineContains: "sendGhlSms",
+    channel: "sms",
+    category: "admin_gated",
+    reason: "GhlSmsTransport.send() is a low-level transport adapter called exclusively through ChannelOrchestrator.sendSms(), which applies the full compliance fence (global pause → DNC → contactability → consent) before delegating to any transport. Direct callers are prohibited by design.",
+    reviewDate: "2026-08-08",
+  },
 ];
 
 

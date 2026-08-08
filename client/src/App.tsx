@@ -228,6 +228,7 @@ const FinancialHub = lazy(() => import("@/pages/dashboard/FinancialHub"));
 const SystemHealthHub = lazy(() => import("@/pages/dashboard/SystemHealthHub"));
 const AdminHub = lazy(() => import("@/pages/dashboard/AdminHub"));
 const AutomationRegistry = lazy(() => import("@/pages/dashboard/AutomationRegistry"));
+const NbaPriorityPage = lazy(() => import("@/pages/dashboard/NbaPriorityPage"));
 const MerchantRiskHub = lazy(() => import("@/pages/dashboard/MerchantRiskHub"));
 const SequenceReport = lazy(() => import("@/pages/dashboard/SequenceReport"));
 const AcquisitionHub = lazy(() => import("@/pages/dashboard/AcquisitionHub"));
@@ -814,6 +815,9 @@ function Router() {
         </Route>
         <Route path="/dashboard/automation-registry">
           <ProtectedRoute component={AutomationRegistry} allowedRoles={["admin"]} />
+        </Route>
+        <Route path="/dashboard/nba">
+          <ProtectedRoute component={NbaPriorityPage} allowedRoles={["admin", "manager"]} />
         </Route>
         <Route path="/dashboard/merchant-risk">
           <ProtectedRoute component={MerchantRiskHub} allowedRoles={["admin", "manager"]} />

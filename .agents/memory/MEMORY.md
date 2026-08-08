@@ -1,4 +1,5 @@
 - [Canonical Lifecycle State Machine](lifecycle-state-machine.md) — lifecycle_state on contacts (27 states); LifecycleService; side-effect wiring pattern; backfill not yet run on prod.
+- [NBA Engine & ChannelOrchestrator](wave1-nba-channel-orchestrator.md) — Wave 1A/1B: ChannelOrchestrator compliance fence, transport adapters, NBA tables, routes, UI at /dashboard/nba; key pitfalls documented.
 - [Automation Registry & Collision Fixes](automation-registry.md) — automation_registry table; kill-switch pattern; proposal-followup collision fix; global-pause gaps fixed in 2 workers.
 - [Hardening audit patterns](hardening-audit-patterns.md) — recurring bug classes found in this codebase; check these first on any new route/service.
 - [HealthMonitor email spam fixes](health-monitor-email-spam.md) — 3 bugs: no cooldown on critical alert; checkDb COUNT(*) hit statement_timeout; buildDumpUrl used + encoding, breaking pg_dump for 231h. Also added: startup 3-min grace period (STARTUP_GRACE_MS), recovery RESOLVED email (15-min cooldown key health_monitor_recovery_alert_at).

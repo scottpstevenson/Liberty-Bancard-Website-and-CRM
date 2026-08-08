@@ -179,6 +179,11 @@ export const LifecycleService = {
       `[Lifecycle] Contact #${contactId}: ${fromState} → ${toState} (trigger: ${meta.trigger})`,
     );
 
+    // Fire-and-forget NBA invalidation so new lifecycle state drives a fresh recommendation.
+    import("./nba-service")
+      .then(({ NBAService }) => NBAService.invalidateNBA(contactId))
+      .catch(err => console.warn(`[Lifecycle] NBA invalidation failed for #${contactId}:`, err?.message));
+
     return toState;
   },
 
