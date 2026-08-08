@@ -3,6 +3,9 @@ import { isAuthenticated } from "../replit_integrations/auth";
 import { isAdmin } from "../replit_integrations/auth";
 import { getQueueManager } from "../services/queue-manager";
 import { serverError } from "../utils/server-error";
+import { storage } from "../storage";
+import { db } from "../db";
+import { sql } from "drizzle-orm";
 
 const DLQ_ALERT_WARN = 5;
 const DLQ_ALERT_ERROR = 20;
@@ -29,7 +32,54 @@ export function registerQueueMetricsRoutes(app: Express) {
     try {
       const qm = await getQueueManager();
       const metrics = await qm.getAllQueueMetrics();
-      res.json(metrics);
+
+      // Extended sequence + Redis metrics
+      let sequenceBacklog = 0;
+      let sequenceOldestDueMs: number | null = null;
+      let sequenceLastRunMs: number | null = null;
+      let redisConnectionCount: number | null = null;
+
+      try {
+        const backlogResult = await db.execute(sql`
+          SELECT
+            COUNT(*)::int AS backlog,
+            MIN(next_action_at) AS oldest_due_at
+          FROM sequence_enrollments
+          WHERE status = 'active'
+            AND next_action_at IS NOT NULL
+            AND next_action_at <= NOW()
+        `);
+        const row = backlogResult.rows[0] as any;
+        sequenceBacklog = row?.backlog ?? 0;
+        if (row?.oldest_due_at) {
+          sequenceOldestDueMs = Date.now() - new Date(row.oldest_due_at).getTime();
+        }
+      } catch (_e) {}
+
+      try {
+        const lastRunRaw = await storage.getSystemSetting("sequence_worker_last_run");
+        if (lastRunRaw && typeof lastRunRaw === "object" && (lastRunRaw as any).duration_ms !== undefined) {
+          sequenceLastRunMs = (lastRunRaw as any).duration_ms;
+        }
+      } catch (_e) {}
+
+      try {
+        const { getSharedRedisClientIfReady } = await import("../services/queue-connection");
+        const redisClient = getSharedRedisClientIfReady();
+        if (redisClient) {
+          const infoRaw = await redisClient.info("clients");
+          const match = infoRaw.match(/connected_clients:(\d+)/);
+          if (match) redisConnectionCount = parseInt(match[1], 10);
+        }
+      } catch (_e) {}
+
+      res.json({
+        ...metrics,
+        sequenceBacklog,
+        sequenceOldestDueMs,
+        sequenceLastRunMs,
+        redisConnectionCount,
+      });
     } catch (err: any) {
       serverError(res, err);
     }

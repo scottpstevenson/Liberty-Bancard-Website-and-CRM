@@ -10,6 +10,7 @@ import { parse } from "csv-parse/sync";
 import { logAiCall } from "../services/ai-audit-logger";
 import { resolveCollateralPacket } from "../services/workflow-executor";
 import { serverError } from "../utils/server-error";
+import { LifecycleService } from "../services/lifecycle-service";
 
 export function registerActivityRoutes(app: Express) {
 
@@ -140,6 +141,36 @@ export function registerActivityRoutes(app: Express) {
           createdAt: c.createdAt,
         });
       });
+
+      // Include lifecycle transition history as activity events
+      try {
+        const lifecycleHistory = await LifecycleService.getHistory(contactId, 50);
+        lifecycleHistory.forEach((h) => {
+          events.push({
+            id: `lifecycle_${h.id}`,
+            type: "lifecycle_transition",
+            action: "lifecycle_transition",
+            entityType: "contact",
+            entityId: contactId,
+            details: {
+              fromState: h.fromState,
+              toState: h.toState,
+              trigger: h.trigger,
+              actorType: h.actorType,
+              actorId: h.actorId,
+              source: h.source,
+              reason: h.reason,
+              automationKey: h.automationKey,
+              description: h.fromState
+                ? `Moved from ${h.fromState} to ${h.toState}`
+                : `Entered ${h.toState}`,
+            },
+            createdAt: h.transitionedAt,
+          });
+        });
+      } catch (lcErr: any) {
+        console.warn(`[Activity] Could not load lifecycle history for contact #${contactId}:`, lcErr.message);
+      }
 
       events.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       res.json(events);

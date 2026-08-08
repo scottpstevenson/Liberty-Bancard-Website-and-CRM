@@ -188,6 +188,11 @@ export const contacts = pgTable("contacts", {
   // Stores the email of the rep who owns this contact (consistent with deals.owner).
   // NULL = unassigned. Set manually or auto-populated from the deal owner.
   assignedTo: text("assigned_to"),
+  // ── Canonical lifecycle state ─────────────────────────────────────────────
+  // Observer/derived field managed by LifecycleService. Never set directly.
+  // Valid values: see LIFECYCLE_STATES in server/services/lifecycle-service.ts
+  lifecycleState: text("lifecycle_state").notNull().default("PROSPECT"),
+  lifecycleStateUpdatedAt: timestamp("lifecycle_state_updated_at"),
 }, (table) => [
   uniqueIndex("contacts_email_unique_idx").on(table.email).where(sql`archived_at IS NULL`),
   index("contacts_phone_idx").on(table.phone),
@@ -195,6 +200,7 @@ export const contacts = pgTable("contacts", {
   index("contacts_created_at_idx").on(table.createdAt),
   index("contacts_email_archived_at_idx").on(table.email, table.archivedAt),
   index("contacts_phone_archived_at_idx").on(table.phone, table.archivedAt),
+  index("contacts_lifecycle_state_idx").on(table.lifecycleState),
   check("contacts_vertical_confidence_range", sql`vertical_confidence IS NULL OR (vertical_confidence BETWEEN 0 AND 100)`),
 ]);
 
@@ -256,6 +262,29 @@ export const contactSourceEvents = pgTable("contact_source_events", {
 
 export type ContactSourceEvent = typeof contactSourceEvents.$inferSelect;
 export type InsertContactSourceEvent = typeof contactSourceEvents.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Contact Lifecycle History — one row per lifecycle_state transition
+// ---------------------------------------------------------------------------
+export const contactLifecycleHistory = pgTable("contact_lifecycle_history", {
+  id: serial("id").primaryKey(),
+  contactId: integer("contact_id").notNull().references(() => contacts.id, { onDelete: "cascade" }),
+  fromState: text("from_state"),
+  toState: text("to_state").notNull(),
+  transitionedAt: timestamp("transitioned_at").notNull().defaultNow(),
+  trigger: text("trigger"),
+  actorType: text("actor_type"),
+  actorId: text("actor_id"),
+  source: text("source"),
+  reason: text("reason"),
+  automationKey: text("automation_key"),
+  metadata: jsonb("metadata"),
+}, (table) => [
+  index("contact_lifecycle_history_contact_idx").on(table.contactId, table.transitionedAt),
+]);
+
+export type ContactLifecycleHistoryRow = typeof contactLifecycleHistory.$inferSelect;
+export type InsertContactLifecycleHistory = typeof contactLifecycleHistory.$inferInsert;
 
 export const companies = pgTable("companies", {
   id: serial("id").primaryKey(),
@@ -1471,6 +1500,7 @@ export const sequenceEnrollments = pgTable("sequence_enrollments", {
 }, (table) => [
   index("sequence_enrollments_contact_id_status_idx").on(table.contactId, table.status),
   uniqueIndex("idx_sequence_enrollments_active_unique").on(table.contactId, table.sequenceId).where(sql`status IN ('active', 'paused')`),
+  index("seq_enrollments_status_next_action_idx").on(table.status, table.nextActionAt).where(sql`status = 'active'`),
 ]);
 
 export const insertSequenceEnrollmentSchema = createInsertSchema(sequenceEnrollments).omit({
@@ -5055,5 +5085,33 @@ export const executiveGoals = pgTable("executive_goals", {
 
 export const insertExecutiveGoalSchema = createInsertSchema(executiveGoals).omit({ id: true });
 export type ExecutiveGoal = typeof executiveGoals.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Automation Registry — one row per BullMQ queue / scheduled automation.
+// Allows operators to see status, last-run metrics, and kill-switch each one.
+// ---------------------------------------------------------------------------
+export const automationRegistry = pgTable("automation_registry", {
+  id: serial("id").primaryKey(),
+  key: text("key").notNull().unique(),
+  title: text("title"),
+  triggerDescription: text("trigger_description"),
+  status: text("status").notNull().default("active"),
+  lastRunAt: timestamp("last_run_at"),
+  nextRunAt: timestamp("next_run_at"),
+  lastRunRecordsAffected: integer("last_run_records_affected"),
+  lastRunErrors: integer("last_run_errors"),
+  killSwitchEnabled: boolean("kill_switch_enabled").notNull().default(false),
+  owner: text("owner"),
+  version: text("version"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertAutomationRegistrySchema = createInsertSchema(automationRegistry).omit({
+  id: true,
+  updatedAt: true,
+});
+
+export type AutomationRegistry = typeof automationRegistry.$inferSelect;
+export type InsertAutomationRegistry = z.infer<typeof insertAutomationRegistrySchema>;
 
 export type InsertExecutiveGoal = z.infer<typeof insertExecutiveGoalSchema>;

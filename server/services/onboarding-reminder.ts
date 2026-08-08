@@ -13,6 +13,13 @@ export async function runOnboardingReminderTick(): Promise<{ processed: number; 
   let reminded = 0;
   let errors = 0;
 
+  // ── Global-pause gate ────────────────────────────────────────────────────
+  const globalPausedRaw = await storage.getSystemSetting("outboundGlobalPaused").catch(() => null);
+  if (globalPausedRaw) {
+    console.log("[OnboardingReminder] outboundGlobalPaused is set — skipping entire run");
+    return { processed, reminded, errors };
+  }
+
   try {
     const { data: allDeals } = await storage.getDeals({ limit: 5000 });
     const onboardingDeals = allDeals.filter(d =>

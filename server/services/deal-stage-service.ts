@@ -8,6 +8,7 @@ import { db } from "../db";
 import { deals, tasks } from "@shared/schema";
 import { eq, and, isNull, sql } from "drizzle-orm";
 import { GO_LIVE_GATE_STAGES, evaluateReadinessFromRawRows, GoLiveGateError } from "./go-live-gate";
+import { LifecycleService, dealStageToLifecycleState } from "./lifecycle-service";
 
 /** Stage names that map to dedicated funnel analytics events */
 const STAGE_EVENT_MAP: Record<string, string> = {
@@ -123,6 +124,20 @@ export async function advanceDealStage(
   if (!updated) return null;
 
   console.log(`[DealStage] Deal ${dealId} → "${newStage}" (trigger: ${trigger})`);
+
+  // ── Lifecycle side-effect (fire-and-forget, never throws) ─────────────────
+  if (updated.contactId) {
+    const lcState = dealStageToLifecycleState(newStage, updated.pipeline);
+    if (lcState) {
+      LifecycleService.transition(updated.contactId, lcState, {
+        trigger: `deal_stage_${trigger}`,
+        source: "deal-stage-service",
+        metadata: { dealId, stage: newStage, pipeline: updated.pipeline },
+      }).catch((err: Error) =>
+        console.warn(`[Lifecycle] Side-effect transition failed for contact #${updated.contactId}:`, err.message),
+      );
+    }
+  }
 
   if (isGhlConfigured()) {
     syncDealToGhl(dealId).then((ghlResult) => {

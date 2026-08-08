@@ -2,6 +2,7 @@ import { storage } from "../../storage";
 import { db } from "../../db";
 import { sdrLeadState, sdrLeadEvents, sdrChannelAttempts, sdrMerchants, contacts, deals } from "@shared/schema";
 import type { SdrLeadState, InsertSdrLeadEvent, InsertSdrChannelAttempt } from "@shared/schema";
+import { LifecycleService } from "../lifecycle-service";
 import { eq, lte, and, isNull, sql } from "drizzle-orm";
 import { scoreLeadFull, getLeadProcessorData, getLeadGrowthData } from "./scoring";
 import { getProcessorSignals, getProcessorTemplate } from "./processor-detector";
@@ -1242,6 +1243,22 @@ async function processLead(lead: SdrLeadState): Promise<void> {
       actionType: decision.nextActionType,
       decisionReason: decision.decisionReason,
     });
+
+    // ── Lifecycle side-effect: advancing past DISCOVERED → ENGAGED ────────
+    if (
+      stageChanging &&
+      lead.stage === "DISCOVERED" &&
+      decision.nextStage !== "DISCOVERED" &&
+      lead.contactId
+    ) {
+      LifecycleService.transition(lead.contactId, "ENGAGED", {
+        trigger: "sdr_stage_advance",
+        source: "orchestrator",
+        metadata: { leadId: lead.id, fromStage: lead.stage, toStage: decision.nextStage },
+      }).catch((err: Error) =>
+        console.warn("[Lifecycle] Side-effect transition failed:", err.message),
+      );
+    }
 
   } catch (err) {
     console.error(`[SDR Orchestrator] Error processing lead ${lead.id}:`, err);

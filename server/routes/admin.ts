@@ -5,7 +5,7 @@ import { storage } from "../storage";
 import { db } from "../db";
 import { auditChange } from "../services/audit-change";
 import { z } from "zod";
-import { insertAgentMerchantSchema, insertAgentQuotaSchema, insertAgentSchema, insertConsentAuditLogSchema, insertDataDeleteRequestSchema, insertHealthAlertSchema, insertResidualReportSchema, insertReviewRequestSchema, insertSendingIdentitySchema, ALLOWED_SENDING_DOMAINS, users, contacts, deals, auditLogs } from "@shared/schema";
+import { insertAgentMerchantSchema, insertAgentQuotaSchema, insertAgentSchema, insertConsentAuditLogSchema, insertDataDeleteRequestSchema, insertHealthAlertSchema, insertResidualReportSchema, insertReviewRequestSchema, insertSendingIdentitySchema, ALLOWED_SENDING_DOMAINS, users, contacts, deals, auditLogs, automationRegistry } from "@shared/schema";
 import { desc, eq, isNull, and, gte, or, like, count, not } from "drizzle-orm";
 import { parse } from "csv-parse/sync";
 import path from "path";
@@ -3602,6 +3602,114 @@ export function registerAdminRoutes(app: Express) {
       const result = await storage.getSystemSetting("pre_deploy_last_result");
       if (!result) return res.json(null);
       res.json(result);
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  // === AUTOMATION REGISTRY ===
+
+  // GET /api/admin/automations — returns all automation_registry rows (admin only)
+  app.get("/api/admin/automations", isDashboardUser, requireRole("admin"), async (_req, res) => {
+    try {
+      const rows = await db.select().from(automationRegistry).orderBy(automationRegistry.key);
+      res.json(rows);
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  // PATCH /api/admin/automations/:key — update kill_switch_enabled and/or status (admin only)
+  app.patch("/api/admin/automations/:key", isDashboardUser, requireRole("admin"), async (req, res) => {
+    try {
+      const key = String(req.params.key);
+      const updates: Record<string, unknown> = {};
+
+      if (typeof req.body.killSwitchEnabled === "boolean" || typeof req.body.kill_switch_enabled === "boolean") {
+        updates.killSwitchEnabled = req.body.killSwitchEnabled ?? req.body.kill_switch_enabled;
+      }
+      if (typeof req.body.status === "string") {
+        updates.status = req.body.status;
+      }
+
+      if (Object.keys(updates).length === 0) {
+        return res.status(400).json({ message: "No editable fields supplied (killSwitchEnabled, status)" });
+      }
+
+      updates.updatedAt = new Date();
+
+      const [updated] = await db
+        .update(automationRegistry)
+        .set(updates as any)
+        .where(eq(automationRegistry.key, key))
+        .returning();
+
+      if (!updated) return res.status(404).json({ message: `Automation '${key}' not found in registry` });
+
+      // Invalidate kill-switch cache so next job tick picks up the change immediately.
+      const { invalidateAutomationCache } = await import("../services/automation-kill-switch");
+      invalidateAutomationCache(key);
+
+      res.json(updated);
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  // === LIFECYCLE CONFLICT DIAGNOSTICS ===
+  // GET /api/admin/lifecycle-conflicts
+  // Read-only: surfaces contacts where lifecycle_state appears inconsistent
+  // with domain state (deals, merchant_profiles, etc.)
+  app.get("/api/admin/lifecycle-conflicts", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const { pool } = await import("../db");
+
+      // 1. Contacts where lifecycle_state = 'PROSPECT' but merchant_profiles.accountStatus = 'active'
+      const activeButProspect = await pool.query(`
+        SELECT
+          c.id AS contact_id,
+          c.first_name || ' ' || c.last_name AS contact_name,
+          c.lifecycle_state AS current_lifecycle_state,
+          'ACTIVE_PROCESSING' AS suggested_state,
+          'Has active merchant profile but lifecycle is PROSPECT' AS conflict_reason
+        FROM contacts c
+        JOIN merchant_profiles mp ON mp.contact_id = c.id
+        WHERE c.lifecycle_state = 'PROSPECT'
+          AND mp.account_status = 'active'
+          AND c.archived_at IS NULL
+        LIMIT 50
+      `);
+
+      // 2. Contacts where lifecycle_state = 'PROSPECT' but has any non-closed deal
+      const hasDealsButProspect = await pool.query(`
+        SELECT
+          c.id AS contact_id,
+          c.first_name || ' ' || c.last_name AS contact_name,
+          c.lifecycle_state AS current_lifecycle_state,
+          'ENGAGED' AS suggested_state,
+          'Has active deal in pipeline but lifecycle is PROSPECT' AS conflict_reason
+        FROM contacts c
+        WHERE c.lifecycle_state = 'PROSPECT'
+          AND c.archived_at IS NULL
+          AND EXISTS (
+            SELECT 1 FROM deals d
+            WHERE d.contact_id = c.id
+              AND d.archived_at IS NULL
+              AND d.stage NOT IN ('Closed Lost', 'Nurture / Not Now')
+          )
+        LIMIT 50
+      `);
+
+      const conflicts = [
+        ...activeButProspect.rows,
+        ...hasDealsButProspect.rows,
+      ].slice(0, 100);
+
+      res.json({
+        total: conflicts.length,
+        conflicts,
+        generatedAt: new Date().toISOString(),
+      });
     } catch (err: any) {
       serverError(res, err);
     }

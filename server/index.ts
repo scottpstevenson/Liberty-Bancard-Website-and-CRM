@@ -313,9 +313,10 @@ app.use((req, res, next) => {
 
 (async () => {
   await runDrizzleMigrations();
-  const { reconcileEnrichmentState, reconcileScoringState } = await import("./services/startup-reconcile");
+  const { reconcileEnrichmentState, reconcileScoringState, seedAutomationRegistry } = await import("./services/startup-reconcile");
   await reconcileEnrichmentState();
   await reconcileScoringState();
+  await seedAutomationRegistry();
   // Mark any previews left 'running' by a previous server process as interrupted.
   // This prevents stale running previews from ever being used for queuing after a restart.
   try {

@@ -1,5 +1,5 @@
 import { db } from "../db";
-import { deals, auditLogs } from "@shared/schema";
+import { deals, auditLogs, sequenceEnrollments, followUpSequences } from "@shared/schema";
 import { and, eq, inArray, isNotNull, lt, sql } from "drizzle-orm";
 import { storage } from "../storage";
 import { evaluateContactability } from "./contactability";
@@ -19,6 +19,13 @@ export async function runProposalFollowUpCheck(): Promise<{
   let skipped = 0;
   let suppressed = 0;
   let errors = 0;
+
+  // ── Global-pause gate ────────────────────────────────────────────────────
+  const globalPausedRaw = await storage.getSystemSetting("outboundGlobalPaused").catch(() => null);
+  if (globalPausedRaw) {
+    console.log("[ProposalFollowUpWorker] outboundGlobalPaused is set — skipping entire run");
+    return { checked, resendsSent, skipped, suppressed, errors };
+  }
 
   try {
     const cutoff = new Date(Date.now() - PROPOSAL_NOT_OPENED_DAYS * 24 * 60 * 60 * 1000);
@@ -42,6 +49,51 @@ export async function runProposalFollowUpCheck(): Promise<{
         if (!deal.contactId) {
           skipped++;
           continue;
+        }
+
+        // ── Sequence-collision guard ─────────────────────────────────────────
+        // If the contact is already in an active/paused "proposal" family
+        // sequence, skip the worker send to avoid double-messaging.
+        const proposalSequenceRows = await db
+          .select({ id: followUpSequences.id })
+          .from(followUpSequences)
+          .where(
+            sql`lower(${followUpSequences.name}) LIKE '%proposal%' OR ${followUpSequences.sequenceFamily} LIKE '%proposal%'`,
+          );
+
+        if (proposalSequenceRows.length > 0) {
+          const proposalSeqIds = new Set(proposalSequenceRows.map((r) => r.id));
+          const existingEnrollments = await db
+            .select({ sequenceId: sequenceEnrollments.sequenceId, status: sequenceEnrollments.status })
+            .from(sequenceEnrollments)
+            .where(
+              and(
+                eq(sequenceEnrollments.contactId, deal.contactId),
+                inArray(sequenceEnrollments.status, ["active", "paused"]),
+              ),
+            );
+
+          const alreadyEnrolled = existingEnrollments.some(
+            (e) => e.sequenceId != null && proposalSeqIds.has(e.sequenceId),
+          );
+
+          if (alreadyEnrolled) {
+            console.log(
+              `[ProposalFollowUpWorker] Contact #${deal.contactId} already has active/paused proposal-family sequence enrollment — skipping deal #${deal.id}`,
+            );
+            await storage.createAuditLog({
+              action: "proposal_resend_skipped_sequence_collision",
+              entityType: "deal",
+              entityId: deal.id,
+              actorType: "system",
+              details: {
+                contactId: deal.contactId,
+                reason: "active_proposal_sequence_enrollment_exists",
+              },
+            });
+            skipped++;
+            continue;
+          }
         }
 
         // ── Suppression gate ────────────────────────────────────────────────

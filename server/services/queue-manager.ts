@@ -390,11 +390,25 @@ class QueueManager {
     await this.setupQueues();
     await this.setupWorkers();
     await this.setupRepeatableJobs();
+
+    // Log total queue+worker count and warn if approaching Upstash connection cap
+    const activeConfigs = this.activeConfigs();
+    // Each queue and its worker each hold one Redis connection; total = queues + workers
+    const totalConnections = activeConfigs.length * 2;
+    const REDIS_CONNECTION_WARN_THRESHOLD =
+      parseInt(process.env.REDIS_CONNECTION_WARN_THRESHOLD ?? "18", 10) || 18;
     console.log(
-      `[QueueManager] All queues and workers initialized. ` +
+      `[QueueManager] All queues and workers initialized (${activeConfigs.length} queues, ~${totalConnections} Redis connections). ` +
       `Sequences repeat interval: ${SEQUENCES_REPEAT_EVERY_MS / 1000}s` +
       (IS_DEV ? " (dev override)" : process.env.SEQUENCES_REPEAT_EVERY_MS ? " (SEQUENCES_REPEAT_EVERY_MS env var)" : " (default)")
     );
+    if (totalConnections >= REDIS_CONNECTION_WARN_THRESHOLD) {
+      console.warn(
+        `[QueueManager] ⚠️  Redis connection headroom warning: ~${totalConnections} connections in use ` +
+        `(threshold=${REDIS_CONNECTION_WARN_THRESHOLD}, Upstash cap=20). ` +
+        `Consider increasing REDIS_CONNECTION_WARN_THRESHOLD or reducing queue count.`
+      );
+    }
 
     // Fire an initial health check on startup (fire-and-forget)
     import("./health-monitor").then(m => m.runHealthChecks()).catch(e =>
@@ -454,6 +468,28 @@ class QueueManager {
             console.error(`[QueueManager] recordWorkerSuccess failed for ${config.name}:`, e)
           )
         );
+        // Update automation_registry last_run_at
+        const returnValue = job.returnvalue as { checked?: number; resendsSent?: number; processed?: number; reminded?: number; errors?: number } | null | undefined;
+        const recordsAffected = returnValue
+          ? (returnValue.resendsSent ?? returnValue.reminded ?? returnValue.processed ?? null)
+          : null;
+        const runErrors = returnValue?.errors ?? null;
+        import("../db").then(({ db: dbInst }) =>
+          import("@shared/schema").then(({ automationRegistry: reg }) =>
+            import("drizzle-orm").then(({ eq: eqOp }) =>
+              dbInst
+                .update(reg)
+                .set({
+                  lastRunAt: new Date(),
+                  lastRunRecordsAffected: recordsAffected ?? 0,
+                  lastRunErrors: runErrors ?? 0,
+                  updatedAt: new Date(),
+                })
+                .where(eqOp(reg.key, config.name))
+                .catch(e => console.error(`[QueueManager] registry update failed for ${config.name}:`, e))
+            )
+          )
+        );
       });
 
       worker.on("failed", async (job: Job | undefined, err: Error) => {
@@ -503,6 +539,19 @@ class QueueManager {
 
   private buildProcessor(queueName: QueueName, featureFlags: any) {
     return async (_job: Job): Promise<void> => {
+      // ── Automation kill-switch gate ──────────────────────────────────────
+      // Check registry before executing. If kill_switch_enabled = true, skip.
+      try {
+        const { isAutomationEnabled } = await import("./automation-kill-switch");
+        if (!(await isAutomationEnabled(queueName))) {
+          console.info(`[AutomationRegistry] Queue ${queueName} is kill-switched, skipping job ${_job.id}`);
+          return;
+        }
+      } catch (ksErr) {
+        // Kill-switch check failed — fail-open, let the job run normally.
+        console.warn(`[AutomationRegistry] Kill-switch check failed for ${queueName}:`, (ksErr as Error).message);
+      }
+
       switch (queueName) {
         case QUEUE_NAMES.GHL_SYNC: {
           await runGhlSyncTick();

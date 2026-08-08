@@ -1,3 +1,5 @@
+- [Canonical Lifecycle State Machine](lifecycle-state-machine.md) — lifecycle_state on contacts (27 states); LifecycleService; side-effect wiring pattern; backfill not yet run on prod.
+- [Automation Registry & Collision Fixes](automation-registry.md) — automation_registry table; kill-switch pattern; proposal-followup collision fix; global-pause gaps fixed in 2 workers.
 - [Hardening audit patterns](hardening-audit-patterns.md) — recurring bug classes found in this codebase; check these first on any new route/service.
 - [HealthMonitor email spam fixes](health-monitor-email-spam.md) — 3 bugs: no cooldown on critical alert; checkDb COUNT(*) hit statement_timeout; buildDumpUrl used + encoding, breaking pg_dump for 231h. Also added: startup 3-min grace period (STARTUP_GRACE_MS), recovery RESOLVED email (15-min cooldown key health_monitor_recovery_alert_at).
 - [WizardFlags pool saturation](wizard-flag-pool-saturation.md) — 30-s hydration intervals + enrichment load = log storm; fix: CACHE_TTL_MS=5min + 2-second per-read race timeout + deduped warning counter (_flagTimeoutCount).

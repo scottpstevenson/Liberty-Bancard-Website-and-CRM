@@ -123,8 +123,30 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
   const lockToken = await acquireJobLock(JOB_NAMES.SEQUENCE_WORKER);
   if (!lockToken) return { processed: 0, errors: 0 };
 
+  const _runStartMs = Date.now();
   let processed = 0;
   let errors = 0;
+
+  // Dev-only: EXPLAIN the due-work query to confirm index seek vs seq scan
+  if (process.env.NODE_ENV !== "production") {
+    try {
+      const { db: _explDb } = await import("../db");
+      const { sql: _explSql } = await import("drizzle-orm");
+      const explainResult = await _explDb.execute(_explSql`
+        EXPLAIN SELECT id FROM sequence_enrollments
+        WHERE status = 'active'
+          AND next_action_at IS NOT NULL
+          AND next_action_at <= NOW()
+      `);
+      const planLines = (explainResult.rows as Array<{ "QUERY PLAN": string }>)
+        .map(r => r["QUERY PLAN"])
+        .join("\n");
+      const scanType = planLines.includes("Index") ? "Index Scan ✓" : "Seq Scan ✗ (index missing or not used)";
+      console.log(`[SequenceWorker] EXPLAIN due-work query: ${scanType}\n${planLines}`);
+    } catch (_explErr) {
+      // Non-fatal: EXPLAIN failure should never block the worker
+    }
+  }
 
   try {
     const dueEnrollments = await storage.getActiveEnrollments();
@@ -1772,6 +1794,36 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
 
   if (processed > 0 || errors > 0) {
     console.log(`Sequence worker: ${processed} processed, ${errors} errors`);
+  }
+
+  // Record runtime metrics to system_settings for health monitor + queue-metrics endpoint
+  const _runDurationMs = Date.now() - _runStartMs;
+  try {
+    // Count total due enrollments at end of run (approximate — reflects current state)
+    let enrollmentsDueTotal = 0;
+    try {
+      const { db: _metricsDb } = await import("../db");
+      const { sql: _metricsSql } = await import("drizzle-orm");
+      const dueCountResult = await _metricsDb.execute(_metricsSql`
+        SELECT COUNT(*)::int AS cnt
+        FROM sequence_enrollments
+        WHERE status = 'active'
+          AND next_action_at IS NOT NULL
+          AND next_action_at <= NOW()
+      `);
+      enrollmentsDueTotal = (dueCountResult.rows[0] as any)?.cnt ?? 0;
+    } catch (_countErr) {
+      // Non-fatal
+    }
+    await storage.setSystemSetting("sequence_worker_last_run", {
+      duration_ms: _runDurationMs,
+      enrollments_processed: processed,
+      enrollments_due_total: enrollmentsDueTotal,
+      errors,
+      ran_at: new Date().toISOString(),
+    });
+  } catch (_metricsErr: any) {
+    console.warn("[SequenceWorker] Failed to record run metrics:", _metricsErr?.message);
   }
 
   return { processed, errors };

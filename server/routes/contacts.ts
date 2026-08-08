@@ -27,6 +27,7 @@ import path from "path";
 import { sendPushToAllReps } from "../services/push-service";
 import { extractRelationshipsForContact, extractRelationshipsForContactsBatch, propagateRiskFlagToRelatedEntities } from "../services/relationship-extractor";
 import { serverError, safeMessage } from "../utils/server-error";
+import { LifecycleService } from "../services/lifecycle-service";
 
 function isUniqueEmailViolation(err: any): boolean {
   return err?.code === "23505" && (err?.constraint?.includes("email") || err?.message?.includes("contacts_email_unique_idx"));
@@ -614,6 +615,41 @@ export function registerContactsRoutes(app: Express) {
       const body = strippedBody;
       const updated = await updateContactGhlFirst(contactId, body, { actorType: "user", userId: (req.user as any)?.id ?? null });
       if (!updated) return res.status(404).json({ message: "Not found" });
+
+      // ── Lifecycle side-effect: status change may indicate lifecycle advance ──
+      {
+        const newLifecycleStage = (req.body as any)?.lifecycleStage as string | undefined;
+        const newStatus = (req.body as any)?.status as string | undefined;
+        let lcState: import("../services/lifecycle-service").LifecycleState | null = null;
+        if (newStatus) {
+          const statusLower = newStatus.toLowerCase();
+          if (statusLower.includes("won") || statusLower.includes("closed won")) {
+            lcState = "APPLICATION_COMPLETE";
+          } else if (statusLower.includes("lost") || statusLower.includes("closed lost")) {
+            lcState = "CLOSED_LOST";
+          } else if (statusLower.includes("active")) {
+            lcState = "ACTIVE_PROCESSING";
+          }
+        }
+        if (!lcState && newLifecycleStage) {
+          const stageLower = newLifecycleStage.toLowerCase();
+          if (stageLower === "customer" || stageLower === "client") {
+            lcState = "ACTIVE_PROCESSING";
+          } else if (stageLower === "opportunity") {
+            lcState = "ENGAGED";
+          }
+        }
+        if (lcState) {
+          LifecycleService.transition(contactId, lcState, {
+            trigger: "contact_status_update",
+            source: "contacts-put",
+            actorType: "user",
+            actorId: (req.user as any)?.id ? String((req.user as any).id) : undefined,
+          }).catch((err: Error) =>
+            console.warn(`[Lifecycle] Side-effect transition failed for contact #${contactId}:`, err.message),
+          );
+        }
+      }
 
       // If this update sets an opt-out signal, suppress New Lead auto-enrollment
       const isOptOut =

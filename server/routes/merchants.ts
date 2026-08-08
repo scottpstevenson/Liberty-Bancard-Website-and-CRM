@@ -21,6 +21,7 @@ import { parse } from "csv-parse/sync";
 import path from "path";
 import { publicLeadRateLimit, webhookRateLimit } from "../middleware/public-rate-limit";
 import { serverError, safeMessage } from "../utils/server-error";
+import { LifecycleService } from "../services/lifecycle-service";
 
 const EMAIL_COOLDOWN_MS = 5 * 60 * 1000;
 
@@ -996,6 +997,17 @@ export function registerMerchantsRoutes(app: Express) {
             console.error("[Merchant Profile] Portal welcome email error:", err)
           );
         }).catch(err => console.error("[Merchant Profile] Cooldown hydration error:", err));
+
+        // ── Lifecycle side-effect: merchant profile activated → ACTIVE_PROCESSING
+        if (updated.contactId) {
+          LifecycleService.transition(updated.contactId, "ACTIVE_PROCESSING", {
+            trigger: "merchant_profile_activated",
+            source: "merchants-route",
+            metadata: { profileId: id },
+          }).catch((err: Error) =>
+            console.warn(`[Lifecycle] Side-effect transition failed for contact #${updated.contactId}:`, err.message),
+          );
+        }
       }
 
       res.json(updated);

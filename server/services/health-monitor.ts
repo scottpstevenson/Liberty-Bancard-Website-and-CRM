@@ -154,7 +154,55 @@ async function checkSequenceWorker(): Promise<CheckResult> {
   if (!featureFlags.LEGACY_OUTREACH_ENABLED) {
     return { status: "ok", message: "LEGACY_OUTREACH_ENABLED is off — sequence worker intentionally idle", latencyMs: 0 };
   }
-  return checkWorkerTick("sequence_runner_last_tick", 15 * 60 * 1000);
+
+  const t0 = Date.now();
+  const STALE_THRESHOLD_MS = 15 * 60 * 1000; // 15 min
+  const MAX_DURATION_MS = parseInt(process.env.SEQUENCE_WORKER_MAX_DURATION_MS ?? "600000", 10) || 600000; // 10 min default
+
+  try {
+    const raw = await storage.getSystemSetting("sequence_worker_last_run");
+    const latencyMs = Date.now() - t0;
+
+    // Key not set yet (first deploy) — report as degraded/unknown rather than error
+    if (!raw || typeof raw !== "object") {
+      // Fall back to legacy tick key for backwards compatibility
+      return checkWorkerTick("sequence_runner_last_tick", STALE_THRESHOLD_MS);
+    }
+
+    const runData = raw as Record<string, unknown>;
+    const ranAt = runData.ran_at as string | undefined;
+    const durationMs = typeof runData.duration_ms === "number" ? runData.duration_ms : null;
+
+    if (!ranAt) {
+      return { status: "degraded", message: "sequence_worker_last_run exists but has no ran_at field", latencyMs };
+    }
+
+    const ageMs = Date.now() - new Date(ranAt).getTime();
+
+    if (ageMs > STALE_THRESHOLD_MS) {
+      return {
+        status: "stale",
+        message: `Last run ${Math.round(ageMs / 60000)}m ago (threshold 15m)`,
+        latencyMs,
+      };
+    }
+
+    if (durationMs !== null && durationMs > MAX_DURATION_MS) {
+      return {
+        status: "degraded",
+        message: `Last run completed but took ${Math.round(durationMs / 1000)}s (threshold ${MAX_DURATION_MS / 1000}s) — worker may be overloaded`,
+        latencyMs,
+      };
+    }
+
+    return {
+      status: "ok",
+      message: `Last run ${Math.round(ageMs / 1000)}s ago, duration ${durationMs !== null ? Math.round(durationMs / 1000) + "s" : "unknown"}`,
+      latencyMs,
+    };
+  } catch (err: any) {
+    return { status: "error", message: err.message, latencyMs: Date.now() - t0 };
+  }
 }
 
 async function checkSlaWorker(): Promise<CheckResult> {

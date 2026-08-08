@@ -820,6 +820,27 @@
       "when": 1790700000000,
       "tag": "0113_background_jobs_lock_token",
       "breakpoints": true
+    },
+    {
+      "idx": 117,
+      "version": "7",
+      "when": 1790800000000,
+      "tag": "0114_seq_enrollments_status_next_action_idx",
+      "breakpoints": true
+    },
+    {
+      "idx": 118,
+      "version": "7",
+      "when": 1790900000000,
+      "tag": "0115_automation_registry",
+      "breakpoints": true
+    },
+    {
+      "idx": 119,
+      "version": "7",
+      "when": 1791000000000,
+      "tag": "0116_contact_lifecycle_state",
+      "breakpoints": true
     }
   ]
 }
