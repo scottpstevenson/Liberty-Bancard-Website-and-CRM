@@ -75,3 +75,4 @@
 - [BullMQ startup job deduplication](bullmq-startup-dedup.md) — static jobId on startup jobs silently deduped against stale Redis entries; omit jobId for one-off restart jobs.
 - [Live health check dual implementation](live-health-dual-implementation.md) — /api/admin/live-health has its OWN inline checks in admin.ts separate from health-monitor.ts; fix both or the gate still fails.
 - [Sequence worker runtime](sequence-worker-runtime.md) — processSequenceEnrollments takes ~8 min with 155K contacts; longer than dev 5-min and prod 30-sec repeat intervals; jobs pile up.
+- [Migration statement timeout bypass](migration-statement-timeout.md) — migrate() MUST use a dedicated pg.Client with statement_timeout=0, NOT drizzle(pool); pool.on("connect") sets 30s limit that kills CREATE INDEX on large tables.

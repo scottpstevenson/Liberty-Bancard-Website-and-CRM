@@ -46,7 +46,10 @@ import { migrate } from "drizzle-orm/node-postgres/migrator";
 import crypto from "crypto";
 import fs from "fs";
 import path from "path";
+import pg from "pg";
 import { pool } from "./db";
+
+const { Client: PgClient } = pg;
 
 const db = drizzle(pool);
 
@@ -291,8 +294,22 @@ export async function runDrizzleMigrations(): Promise<void> {
     client.release();
   }
 
-  // Apply all journal-registered migrations (0000–0053).
-  await migrate(db, { migrationsFolder: MIGRATIONS_FOLDER });
+  // Apply all journal-registered migrations using a dedicated Client (not the shared
+  // pool) so we can disable the 30s statement_timeout that pool.on("connect") sets.
+  // DDL operations like CREATE INDEX on large tables (150K+ contacts) can exceed
+  // 30 s, causing a statement timeout that crashes the server before it can serve
+  // the health probe — preventing every production deploy from succeeding.
+  const migrationClient = new PgClient({
+    connectionString: process.env.DATABASE_URL,
+  });
+  await migrationClient.connect();
+  try {
+    await migrationClient.query("SET statement_timeout = 0");
+    const migrationDb = drizzle(migrationClient);
+    await migrate(migrationDb, { migrationsFolder: MIGRATIONS_FOLDER });
+  } finally {
+    await migrationClient.end().catch(() => {});
+  }
   console.log("[DB Migrate] All Drizzle journal migrations up to date.");
 
   // Idempotent guard: ensure contacts.assigned_to exists regardless of migration history.
