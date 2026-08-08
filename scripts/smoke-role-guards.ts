@@ -113,12 +113,12 @@ const CASES: GuardCase[] = [
 
   // ── AI Observability: audit log list (isDashboardUser) + detail/replay (admin/manager) ──
   { method: "GET",  path: "/api/operator/ai-audit",          anon: [401], merchant: [403], admin: [200], description: "AI audit log list (dashboard users)" },
-  { method: "GET",  path: "/api/operator/ai-audit/999",      anon: [401], merchant: [403], admin: [404], description: "AI audit detail (admin/manager only)" },
+  { method: "GET",  path: "/api/operator/ai-audit/9999999",  anon: [401], merchant: [403], admin: [404], description: "AI audit detail (admin/manager only)" },
   // POST endpoints: CSRF middleware fires before requireRole for authenticated sessions.
   // Without an x-csrf-token header the server returns 403 (csrf_missing) for both
   // merchant and admin — anon skips CSRF (not authenticated) and hits requireRole → 401.
   // The role gate is still enforced; this test validates the unauthenticated 401.
-  { method: "POST", path: "/api/operator/ai-audit/999/replay", anon: [401], merchant: [403], admin: [403], description: "AI audit replay (admin/manager only; CSRF required for POST)" },
+  { method: "POST", path: "/api/operator/ai-audit/9999999/replay", anon: [401], merchant: [403], admin: [403], description: "AI audit replay (admin/manager only; CSRF required for POST)" },
 
   // ── Wave 12: Merchant Document Vault — role gates ─────────────────────
   // Global admin index requires admin/manager; access-token endpoint is

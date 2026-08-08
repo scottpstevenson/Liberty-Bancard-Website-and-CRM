@@ -50,4 +50,4 @@ INSERT INTO executive_goals (key, value, period_type) VALUES
   ('weekly_statements',    8, 'weekly'),
   ('gross_margin_pct',    35, 'weekly'),
   ('rep_deals_closed',     2, 'weekly')
-ON CONFLICT (key, period_type) DO NOTHING;
+ON CONFLICT DO NOTHING;
