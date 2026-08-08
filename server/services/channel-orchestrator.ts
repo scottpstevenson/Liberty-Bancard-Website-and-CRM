@@ -143,7 +143,22 @@ export class ChannelOrchestrator {
       }
     }
 
-    // 2. Contactability gate — DNC, consent, PEWC, quiet hours, channel eligibility
+    // 2. Communication arbitration — suppress if rep recently touched or auto-send too soon
+    if (!opts.skipContactabilityCheck) {
+      const { shouldSuppress, logArbitrationSuppression } = await import("./communication-arbitration");
+      // Map ContactabilityChannel to arbitration channel string (use first channel for arbitration)
+      const arbitrationChannel = channels[0] ?? "email";
+      const arbitration = await shouldSuppress(contactId, arbitrationChannel);
+      if (arbitration.suppressed) {
+        await logArbitrationSuppression(contactId, arbitrationChannel, arbitration);
+        return {
+          allowed: false,
+          reason: arbitration.reason ?? "Communication arbitration suppressed this send",
+        };
+      }
+    }
+
+    // 3. Contactability gate — DNC, consent, PEWC, quiet hours, channel eligibility
     if (!opts.skipContactabilityCheck) {
       const { evaluateContactability } = await import("./contactability");
       for (const ch of channels) {

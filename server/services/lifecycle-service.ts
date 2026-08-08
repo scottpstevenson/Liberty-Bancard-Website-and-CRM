@@ -184,6 +184,13 @@ export const LifecycleService = {
       .then(({ NBAService }) => NBAService.invalidateNBA(contactId))
       .catch(err => console.warn(`[Lifecycle] NBA invalidation failed for #${contactId}:`, err?.message));
 
+    // Fire-and-forget statement acquisition when contact enters STATEMENT_REQUESTED.
+    if (toState === "STATEMENT_REQUESTED") {
+      import("./statement-acquisition")
+        .then(({ onStatementRequested }) => onStatementRequested(contactId))
+        .catch(err => console.warn(`[Lifecycle] Statement acquisition trigger failed for #${contactId}:`, err?.message));
+    }
+
     return toState;
   },
 

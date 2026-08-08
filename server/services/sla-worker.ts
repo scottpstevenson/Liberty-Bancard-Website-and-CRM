@@ -46,6 +46,13 @@ async function isPhase3IndexPresent(): Promise<boolean> {
 
 const DEFAULT_SLA_RULES = [
   {
+    name: "Speed-to-Lead 60min",
+    entityType: "deal",
+    stage: "New Lead",
+    maxDurationMinutes: 60,
+    escalationAction: "create_task_and_notify",
+  },
+  {
     name: "Statement Review 2hr SLA",
     entityType: "deal",
     stage: "Statement Received",
@@ -57,6 +64,13 @@ const DEFAULT_SLA_RULES = [
     entityType: "deal",
     stage: "New Lead",
     maxDurationMinutes: 1440,
+    escalationAction: "create_task_and_notify",
+  },
+  {
+    name: "Statement Requested 48hr Chase",
+    entityType: "deal",
+    stage: "Statement Requested",
+    maxDurationMinutes: 2880,
     escalationAction: "create_task_and_notify",
   },
   {
@@ -489,6 +503,16 @@ export async function runFullSlaLoop(): Promise<void> {
     await checkAbTestWinners();
   } catch (err) {
     console.error("[SlaLoop] checkAbTestWinners error:", err);
+  }
+
+  try {
+    const { checkStatementAcquisitionStalls } = await import("./statement-acquisition");
+    const stallResult = await checkStatementAcquisitionStalls();
+    if (stallResult.escalated > 0) {
+      console.log(`[SlaLoop:StatementAcquisition] Escalated ${stallResult.escalated} stalled statement requests`);
+    }
+  } catch (err) {
+    console.error("[SlaLoop] checkStatementAcquisitionStalls error:", err);
   }
 
   try {

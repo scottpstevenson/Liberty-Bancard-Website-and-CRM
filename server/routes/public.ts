@@ -367,6 +367,11 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         details: { source: "website", hasFile: !!statementFileBuffer },
       });
 
+      // Stop statement-chase sequence and trigger analysis
+      import("../services/statement-acquisition")
+        .then(({ onStatementReceived }) => onStatementReceived(contact.id, existingDealId || undefined))
+        .catch(err => console.warn("[StatementAcquisition] onStatementReceived error:", err?.message));
+
       res.status(201).json({ success: true, contactId: contact.id, dealId: existingDealId || null });
     } catch (err: any) {
       res.status(400).json({ message: err.message || "Invalid submission" });
