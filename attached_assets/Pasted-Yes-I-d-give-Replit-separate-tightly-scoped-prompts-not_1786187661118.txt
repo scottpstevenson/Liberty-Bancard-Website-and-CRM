@@ -1,0 +1,1474 @@
+Yes. I’d give Replit separate, tightly scoped prompts, not one giant build prompt. That will reduce regressions and force Agent to audit/reuse what already exists instead of creating duplicate tables, workers, or automation systems.
+
+Below are the prompts I’d run roughly in this order. Each one tells Replit to audit first, reuse existing architecture, implement, migrate, test, and update the pre-deploy gate.
+
+REPLIT PROMPT 1 — Canonical Merchant Lifecycle State Machine
+
+Audit the entire Liberty Bancard codebase before making changes.
+
+We need to implement a canonical end-to-end merchant lifecycle/state machine that becomes the single source of truth for where every prospect, deal, application, and merchant is in the Liberty Bancard business lifecycle.
+
+IMPORTANT:
+
+* Do not create duplicate functionality if equivalent tables/services already exist.
+* Reuse contacts, deals, pipeline_stages, merchant_applications, merchant_profiles, merchant_onboarding_stages, sequence_enrollments, workflow_runs, stage_automation_rules, sdr_lead_state, and related infrastructure wherever possible.
+* First audit all existing lifecycle/stage/status fields and document conflicts/overlaps.
+* Preserve all existing working functionality.
+* Build migrations safely using the existing Drizzle migration conventions.
+* All automations must be idempotent.
+* All state transitions must be auditable.
+* Do not allow AI to directly mutate lifecycle state without deterministic validation.
+
+Canonical lifecycle:
+
+PROSPECT
+ENGAGED
+APPOINTMENT_SCHEDULED
+APPOINTMENT_COMPLETED
+STATEMENT_REQUESTED
+STATEMENT_RECEIVED
+STATEMENT_ANALYZED
+PROPOSAL_READY
+PROPOSAL_SENT
+NEGOTIATION
+APPLICATION_STARTED
+APPLICATION_COMPLETE
+UNDERWRITING
+UNDERWRITING_CONDITIONAL
+APPROVED
+BOARDING
+EQUIPMENT_DEPLOYMENT
+ACTIVATION_PENDING
+FIRST_TRANSACTION
+FIRST_FUNDING
+ACTIVE_PROCESSING
+HEALTHY
+AT_RISK
+RETENTION
+CHURNED
+WINBACK
+CLOSED_LOST
+
+Requirements:
+
+1. Determine whether lifecycle should live on deals, a new lifecycle table, or a normalized existing structure. Choose the least duplicative architecture.
+2. Maintain lifecycle history:
+    * previous state
+    * new state
+    * timestamp
+    * trigger
+    * actor
+    * source
+    * reason
+    * automation/workflow ID if applicable
+3. Define allowed state transitions.
+4. Reject invalid transitions.
+5. Make lifecycle transitions idempotent.
+6. Map existing pipeline stages and onboarding statuses to the canonical lifecycle.
+7. Do not break configurable CRM pipeline stages; lifecycle and user-facing pipeline stage can coexist if required.
+8. Add lifecycle fields to relevant API responses.
+9. Update activity timeline to display lifecycle changes.
+10. Add admin diagnostics showing records whose pipeline/application/merchant states disagree.
+11. Add reconciliation logic for inconsistent legacy records.
+12. Add tests for every allowed and prohibited transition.
+13. Add lifecycle-state tests to scripts/pre-deploy.ts.
+
+Deliver:
+
+* audit findings
+* architecture decision
+* migrations
+* implementation
+* tests
+* exact lifecycle mapping
+* any legacy data reconciliation performed
+
+Do not stop after creating database fields. Wire this through the actual business logic.
+
+⸻
+
+REPLIT PROMPT 2 — Unified Next Best Action Engine
+
+Audit Liberty Bancard’s existing AI services, task automations, workflows, stage rules, sequence engine, SDR orchestrator, SLA system, contact scoring, deal blueprint, sales prep, merchant health, and proposal systems.
+
+Build a centralized “Next Best Action” engine.
+
+Objective:
+
+For every active prospect/deal/merchant, Liberty Bancard should be able to answer:
+
+“What is the most valuable compliant action Liberty should take next, who should take it, through what channel, and by when?”
+
+Do NOT build another generic workflow engine.
+
+Use the existing infrastructure.
+
+Create a deterministic decision layer with AI assistance where useful.
+
+Required output for an evaluated entity:
+
+* lifecycle_state
+* lead_score
+* opportunity_value
+* estimated_monthly_processing_volume
+* estimated_annual_gross_revenue
+* estimated_annual_net_contribution
+* close_probability
+* merchant_health_score if active
+* churn_probability if active
+* engagement level
+* primary objection if known
+* missing_requirement
+* recommended_action
+* recommended_channel
+* recommended_owner
+* recommended_due_at
+* recommended_reason
+* automation_eligible
+* human_required
+* confidence
+* input evidence
+* calculation/model version
+
+Examples of next actions:
+
+CALL_PROSPECT
+SEND_EMAIL
+SEND_SMS
+REQUEST_STATEMENT
+REVIEW_STATEMENT
+SEND_PROPOSAL
+FOLLOW_UP_PROPOSAL
+CALL_HIGH_VALUE_PROSPECT
+REQUEST_APPLICATION_DOCUMENT
+FOLLOW_UP_UNDERWRITING
+ORDER_EQUIPMENT
+CHECK_ACTIVATION
+RESOLVE_SUPPORT_ISSUE
+RETENTION_CALL
+REQUEST_REFERRAL
+NO_ACTION
+
+Rules:
+
+1. Compliance/contactability overrides AI recommendations.
+2. Global outbound pause overrides all outbound communication actions.
+3. Never contact DNC contacts.
+4. AI may recommend but deterministic code validates permission and business conditions.
+5. Avoid duplicate tasks/messages.
+6. Avoid multiple competing automations.
+7. If a human task is already open for the same objective, don’t create another.
+8. Store decision history for auditing and future model evaluation.
+9. Add API endpoints for Next Best Action.
+10. Show Next Best Action on contact, deal, and merchant pages.
+11. Provide manager view for highest-value actions across the portfolio.
+12. Add BullMQ execution without creating unnecessary Redis queues; use an existing/general-purpose queue if appropriate.
+13. Include tests and pre-deploy coverage.
+
+Do not generate vague AI text. Produce structured, actionable, auditable recommendations.
+
+⸻
+
+REPLIT PROMPT 3 — Statement-to-Pricing Decision Engine
+
+Audit the current:
+
+* statement analyzer
+* proposal engine
+* savings module
+* processor data
+* merchant application fields
+* offer_path logic
+* vertical logic
+* NMI/Payarc integrations
+* deal economics fields
+
+Build a merchant-services Pricing & Offer Decision Engine.
+
+The purpose is not merely to generate proposal copy.
+
+The system must transform a merchant processing statement into structured pricing intelligence and calculate offers based on merchant savings AND Liberty Bancard economics.
+
+Extract/store where available:
+
+* processor
+* monthly volume
+* annualized volume
+* transaction count
+* average ticket
+* card-present percentage
+* card-not-present percentage
+* debit percentage
+* credit percentage
+* effective rate
+* interchange
+* assessments
+* processor markup
+* basis points
+* per-transaction fees
+* monthly fees
+* PCI fees
+* gateway fees
+* equipment fees
+* chargeback fees
+* other fees
+* pricing model
+* current estimated processor gross margin
+
+Support offer modeling for:
+
+* interchange plus
+* flat rate
+* tiered if needed
+* cash discount
+* dual pricing
+* surcharge where legally/contractually applicable
+* gateway/virtual terminal
+* card-present
+* e-commerce
+
+For each proposed offer calculate:
+
+* merchant monthly savings
+* merchant annual savings
+* merchant effective rate
+* Liberty expected monthly gross revenue
+* Liberty expected annual gross revenue
+* estimated processor/pass-through costs
+* agent/partner share
+* Liberty estimated net contribution
+* estimated acceptance probability
+* expected-value score = probability × Liberty net contribution
+* recommended offer
+
+Allow configuration of minimum margin floors.
+
+Never allow AI to invent processor costs or interchange rates. Calculations must come from configured data or clearly marked assumptions.
+
+Create an audit trail showing every input and calculation used.
+
+Wire recommended offer into the existing proposal engine.
+
+Add a pricing review screen where authorized users can:
+
+* compare options
+* override assumptions
+* approve offer
+* lock pricing before sending
+
+Add tests for calculations and edge cases.
+
+⸻
+
+REPLIT PROMPT 4 — Statement Acquisition Automation
+
+Audit all existing statement upload, abandoned statement, SDR, proposal, GHL, sequence, contactability, email, SMS, and task systems.
+
+Build a dedicated Statement Acquisition lifecycle.
+
+Trigger when:
+
+* rep marks statement requested
+* AI detects statement request from conversation
+* merchant begins but abandons statement upload
+* eligible inbound lead reaches statement-request stage
+
+Example cadence should be configurable, not hard-coded:
+
+T+0:
+Email secure upload link.
+
+T+1 day:
+SMS if permitted.
+
+T+2 days:
+Educational follow-up explaining what Liberty analyzes.
+
+T+4 days:
+Merchant-specific or vertical-specific savings example.
+
+T+7 days:
+Create rep call task.
+
+T+10 days:
+Relevant case study.
+
+T+14 days:
+Final active-cycle follow-up, then move to long-term nurture.
+
+Stop immediately if:
+
+* statement received
+* contact opts out
+* DNC
+* application progresses without needing statement
+* rep manually suppresses sequence
+* deal closes
+
+When statement arrives:
+
+* stop acquisition sequence
+* advance lifecycle
+* trigger statement analysis
+* notify owner
+* calculate priority
+* trigger pricing/proposal workflow
+
+Reuse the existing sequence framework rather than creating a parallel campaign system.
+
+Add idempotency and tests.
+
+⸻
+
+REPLIT PROMPT 5 — Appointment + Meeting Intelligence Automation
+
+Audit:
+
+* GHL calendar integration
+* calendar_events
+* SDR scheduling
+* inbox/reply intelligence
+* OpenAI/Anthropic services
+* sales prep
+* tasks
+* notes/activity
+* any Fireflies/transcript/meeting ingestion capabilities already present
+
+Implement a complete appointment lifecycle.
+
+On booking:
+
+* lifecycle → APPOINTMENT_SCHEDULED
+* send confirmation
+* create/update calendar event
+* enrich merchant
+* generate sales-prep brief
+* identify missing qualification information
+* request processing statement when appropriate
+* notify owner
+
+Before meeting:
+
+* configurable 24-hour reminder
+* configurable same-day reminder
+* SMS only when contactability permits
+* rep briefing shortly before meeting
+
+Rep briefing should include:
+
+* company
+* vertical
+* locations
+* estimated volume
+* source
+* engagement history
+* prior conversations
+* current processor if known
+* likely pain points
+* statement status
+* relevant proposal/application status
+* recommended discovery questions
+* potential objections
+* Next Best Action
+
+After meeting, ingest transcript/notes where available and extract:
+
+* current processor
+* monthly processing volume
+* pricing
+* contract expiration
+* equipment
+* gateway
+* pain points
+* objections
+* competitors
+* decision makers
+* timeline
+* promised actions
+* next step
+* statement commitment
+* application commitment
+* sentiment/buying intent
+
+Update structured CRM fields only when confidence is high enough.
+Otherwise create a review suggestion.
+
+Automatically:
+
+* create follow-up tasks
+* draft/send appropriate follow-up depending on configured human approval rules
+* update deal probability
+* update Next Best Action
+* enroll into correct lifecycle sequence
+
+Add no-show and reschedule sequences.
+
+No duplicate reminders or follow-ups.
+
+⸻
+
+REPLIT PROMPT 6 — Application Completion Engine
+
+Audit merchant application, documents, onboarding, RFI, task, notification, SMS/email sequence, underwriting, and portal systems.
+
+Create an intelligent Application Completion Engine.
+
+Objective:
+
+Always know exactly what prevents a merchant application from being submission-ready.
+
+Create/derive a structured checklist based on application type and processor requirements.
+
+Possible requirements include:
+
+* legal business name
+* DBA
+* EIN
+* business address
+* ownership
+* SSN/TIN data
+* bank information
+* voided check
+* processing statements
+* identification
+* beneficial owner details
+* signatures
+* business license
+* website
+* fulfillment details
+* processing history
+
+Calculate:
+
+* completion percentage
+* missing fields
+* missing documents
+* validation failures
+* blocking items
+* submission-ready Boolean
+
+Automations should communicate the smallest actionable request.
+
+Example:
+
+Do NOT send:
+“Please complete your application.”
+
+Send:
+“We’re almost finished. We only need your voided check before we can submit your application.”
+
+Stop reminders once requirement is fulfilled.
+
+Create escalation to rep when:
+
+* merchant repeatedly stalls
+* upload repeatedly fails
+* sensitive underwriting question exists
+* application value exceeds configurable threshold
+
+Track time from APPLICATION_STARTED → APPLICATION_COMPLETE.
+
+Add application-abandonment reporting and tests.
+
+⸻
+
+REPLIT PROMPT 7 — Underwriting Orchestration System
+
+Audit all underwriting tables, processor integrations, applications, RFIs, documents, tasks, workflows, notifications, and merchant portal features.
+
+Build a processor-neutral Underwriting Orchestration layer.
+
+Lifecycle:
+
+APPLICATION_COMPLETE
+→ UNDERWRITING
+→ UNDERWRITING_CONDITIONAL if conditions exist
+→ APPROVED or DECLINED
+→ alternate processor review if appropriate
+
+Store:
+
+* processor
+* processor application/submission ID
+* submitted_at
+* underwriting status
+* processor status
+* conditions
+* condition due dates
+* documents requested
+* documents received
+* decline reason
+* approval terms
+* reserve requirements
+* approved monthly volume
+* approved average ticket
+* funding terms
+* approved pricing constraints
+* decision timestamps
+
+When a conditional response is received:
+
+1. Parse conditions into structured checklist items.
+2. Translate them into merchant-friendly language.
+3. Create portal requirements.
+4. Notify merchant.
+5. Create rep task where necessary.
+6. Detect uploads.
+7. Mark conditions complete.
+8. Prepare/resubmit packet where processor integration permits.
+9. Maintain complete audit trail.
+
+Create SLA timers for underwriting.
+
+Dashboard must show:
+
+* pending submissions
+* aging
+* conditions outstanding
+* processor response times
+* approval rates
+* decline reasons
+
+AI may summarize and classify conditions but cannot fabricate underwriting requirements.
+
+Add processor-routing hooks for future multi-processor support.
+
+⸻
+
+REPLIT PROMPT 8 — Boarding, MID, Gateway & Equipment Operating System
+
+Audit the existing boarding, merchant profile, NMI, Payarc, virtual terminal, document, onboarding stage, and processor integration code.
+
+Build the missing post-approval boarding system.
+
+Approval is not revenue.
+
+Liberty must track a merchant from APPROVED through ACTIVE_PROCESSING.
+
+Add or reuse normalized structures to track:
+
+* processor
+* processor merchant ID
+* MID
+* TID
+* gateway
+* gateway merchant/account ID
+* VAR sheet if applicable
+* funding account status
+* boarding status
+* credentials delivered
+* PCI setup status
+* equipment required
+* equipment type
+* terminal/POS model
+* serial number
+* order date
+* shipment date
+* tracking number
+* delivery date
+* configuration status
+* install date
+* training date
+* test transaction
+* first production transaction
+* first settlement/funding
+
+Create equipment tables only if equivalent structures do not exist.
+
+Potential entities:
+
+* equipment_catalog
+* equipment_orders
+* equipment_order_items
+* equipment_inventory
+* equipment_assignments
+* equipment_shipments
+
+Automations:
+
+APPROVED:
+→ create boarding checklist.
+
+MID created:
+→ save identifiers and advance lifecycle.
+
+Equipment required:
+→ create equipment order.
+
+Tracking received:
+→ notify merchant.
+
+Delivered:
+→ create setup/training action.
+
+Gateway configured:
+→ verify connectivity.
+
+No transaction after configurable window:
+→ activation intervention.
+
+First transaction:
+→ lifecycle FIRST_TRANSACTION.
+
+First successful funding:
+→ lifecycle FIRST_FUNDING then ACTIVE_PROCESSING.
+
+Build manager dashboard showing approved merchants that are not yet generating revenue.
+
+Primary KPI:
+Time from APPROVED → FIRST_TRANSACTION
+and
+Time from APPROVED → FIRST_FUNDING.
+
+⸻
+
+REPLIT PROMPT 9 — Activation Monitor
+
+Audit MID ingestion, processor transaction feeds, mid_daily_stats, merchant onboarding, boarding, task, SLA, and notification systems.
+
+Build an Activation Monitor.
+
+Every newly boarded merchant should automatically be monitored until processing is confirmed.
+
+Conditions:
+
+MID created but no transaction:
+
+* alert according to configurable SLA
+
+Equipment delivered but no transaction:
+
+* create setup task
+
+Gateway active but no transaction:
+
+* merchant outreach
+
+First transaction detected:
+
+* mark FIRST_TRANSACTION
+* stop pre-activation reminders
+
+First settlement/funding detected:
+
+* mark FIRST_FUNDING
+* mark ACTIVE_PROCESSING
+* start merchant success lifecycle
+* start residual expectation model
+
+Manager dashboard:
+
+* approved not boarded
+* boarded not activated
+* equipment delivered not activated
+* first transaction but no funding
+* aging hours/days
+* owner
+* estimated monthly volume
+* revenue at risk
+
+Create Next Best Actions automatically.
+
+⸻
+
+REPLIT PROMPT 10 — Merchant 30/60/90 Success Automation
+
+Audit merchant onboarding, notifications, NPS, merchant health, tickets, MID stats, processor APIs, portal, tasks, sequences, and residual systems.
+
+Build an automated post-activation Merchant Success lifecycle.
+
+Start only after FIRST_FUNDING / ACTIVE_PROCESSING.
+
+Suggested configurable milestones:
+
+Day 1:
+Welcome + account contacts + merchant portal.
+
+Day 3:
+Verify transactions/processing continuity.
+
+Day 7:
+Verify funding and settlement.
+
+Day 14:
+Processing health review.
+
+Day 30:
+Volume/fees/performance review.
+
+Day 45:
+PCI/setup compliance check where applicable.
+
+Day 60:
+Account review.
+
+Day 90:
+NPS + referral eligibility.
+
+Quarterly:
+Automated account review.
+
+Every step should conditionally execute based on actual merchant data.
+
+Do not send “everything is going great” if metrics indicate otherwise.
+
+Merchant Success summary should include:
+
+* current volume
+* expected volume
+* volume trend
+* residual
+* tickets
+* funding issues
+* chargebacks
+* health score
+* pending onboarding issues
+* recommended next action
+
+Use AI for narrative summaries, not for inventing operational facts.
+
+⸻
+
+REPLIT PROMPT 11 — Merchant Health + Churn & Save Desk
+
+Audit merchant_health_scores, churn.ts, MID daily stats, residuals, chargebacks, tickets, NPS, communications, and processor feeds.
+
+Build a comprehensive Merchant Health Engine.
+
+Health inputs should include when available:
+
+* processing volume vs baseline
+* transaction count
+* average ticket
+* declined transaction trend
+* no-processing days
+* funding failures/delays
+* chargeback rate
+* support tickets
+* unresolved ticket age
+* NPS
+* negative conversation sentiment
+* pricing complaints
+* cancellation mentions
+* competitor mentions
+* PCI issues
+* residual trend
+* seasonal baseline
+
+Return:
+
+* health score 0–100
+* churn probability
+* top contributing factors
+* severity
+* recommended action
+
+Suggested tiers:
+80–100 healthy
+60–79 watch
+40–59 at risk
+0–39 critical
+
+Create retention workflow:
+
+At-risk detected
+→ create retention case
+→ identify probable cause
+→ calculate merchant value/LTV
+→ recommend save strategy
+→ assign owner
+→ SLA
+→ track outcome
+
+Save strategies may include:
+
+* rate review
+* fee review
+* equipment replacement
+* technical support escalation
+* funding escalation
+* gateway troubleshooting
+* account review
+
+AI must not autonomously promise pricing concessions unless within configured authority.
+
+Create manager retention dashboard.
+
+⸻
+
+REPLIT PROMPT 12 — Win-Back + Referral Engine
+
+Audit churn, contacts, deals, merchant profiles, residuals, NPS, merchant health, sequence engine, source attribution, and partner/referral systems.
+
+Build two lifecycle automations:
+
+A. WIN-BACK ENGINE
+
+For churned merchants retain:
+
+* churn date
+* churn reason
+* competitor if known
+* prior pricing
+* prior processor
+* prior monthly volume
+* prior residual
+* prior profitability
+* previous complaints
+* save attempt/outcome
+
+Create configurable win-back cycles such as:
+30
+60
+90
+180
+365 days
+
+Prioritize based on historical merchant value and probability of return.
+
+B. REFERRAL ENGINE
+
+Identify merchants eligible to request referrals.
+
+Example eligibility:
+
+* active > configurable number of days
+* health score above threshold
+* no open critical support issue
+* good NPS where available
+* processing consistently
+
+Generate unique referral tracking.
+
+Track:
+
+referring merchant
+→ referred prospect
+→ appointment
+→ statement
+→ application
+→ approval
+→ activation
+→ resulting residual
+
+Attribute referral economics to the referring merchant.
+
+Do not over-message merchants.
+
+Respect global communication preferences.
+
+⸻
+
+REPLIT PROMPT 13 — Residual Reconciliation + Merchant Profitability
+
+Audit all residual import tables, MID data, commissions, partners, agent payouts, pricing economics, and processor integrations.
+
+Build a true merchant profitability and residual reconciliation layer.
+
+For every active MID calculate/store when data is available:
+
+* processing volume
+* gross processing revenue
+* processor/pass-through cost
+* interchange/assessment cost if applicable
+* expected residual
+* actual residual
+* agent commission
+* partner share
+* incentives/credits
+* equipment subsidy
+* chargeback-related adjustments
+* other adjustments
+* Liberty gross contribution
+* Liberty net contribution
+
+Compare expected vs actual residual.
+
+Flag material variance based on configurable thresholds.
+
+Example:
+
+Expected: $412
+Actual: $297
+Variance: -$115
+Variance %: -27.9%
+
+Automatically investigate available causes:
+
+* volume changed
+* pricing changed
+* merchant inactive
+* residual row missing
+* processor adjustment
+* commission discrepancy
+* duplicate/mismatched MID
+
+Create finance review item when not explainable.
+
+Track:
+
+* merchant LTV
+* trailing 30/90/365 day contribution
+* residual trend
+* portfolio contribution
+* agent profitability
+* partner profitability
+
+Never silently alter imported processor numbers.
+
+Maintain raw source data and derived calculations separately.
+
+⸻
+
+REPLIT PROMPT 14 — Full-Funnel Attribution + Unit Economics
+
+Audit contact source events, imports, affiliates, marketing attribution, deals, lifecycle, merchant activation, residuals, and analytics.
+
+Build full-funnel source attribution from LEAD to ACTIVE MID to RESIDUAL.
+
+Preserve:
+
+* original source
+* most recent source
+
+Capture where available:
+
+* source
+* medium
+* campaign
+* content
+* term
+* landing page
+* referral
+* affiliate
+* GCLID
+* GBRAID/WBRAID
+* external campaign IDs
+
+Build funnel:
+
+Lead
+→ Qualified
+→ Appointment
+→ Statement
+→ Proposal
+→ Application
+→ Approved
+→ Active MID
+→ First Funding
+→ Residual
+
+Calculate by acquisition source/campaign/agent/affiliate:
+
+* leads
+* cost per lead
+* appointment rate
+* statement rate
+* application rate
+* approval rate
+* activation rate
+* cost per active MID
+* CAC
+* first-month residual
+* expected annual residual
+* LTV
+* LTV:CAC
+* payback period
+* net contribution
+
+Create executive dashboard ranking channels by actual activated-merchant profitability, not raw lead count.
+
+Design conversion event hooks so downstream revenue outcomes can later be sent back to ad platforms safely.
+
+⸻
+
+REPLIT PROMPT 15 — Sales Conversation Intelligence & AI Coaching
+
+Audit communication logs, call logs, inbox, notes, sales-prep services, AI audit logging, GHL conversations, and any transcript/Fireflies integrations.
+
+Build a Sales Conversation Intelligence layer.
+
+When call/meeting transcripts are available, extract structured facts:
+
+* current processor
+* monthly volume
+* current pricing
+* effective rate
+* equipment
+* gateway
+* contract expiration
+* pain points
+* objections
+* competitors
+* decision maker
+* additional stakeholders
+* timeline
+* next steps
+* merchant commitments
+* rep commitments
+* statement request/status
+* application intent
+* sentiment
+* purchase intent
+
+Use confidence levels.
+
+Do not overwrite trusted existing CRM values when confidence is low or conflicting.
+
+Create suggested updates for review where required.
+
+Automatically create tasks from explicit commitments.
+
+Generate follow-up draft from the actual conversation.
+
+Build rep coaching scorecard:
+
+* discovery
+* merchant pain identification
+* statement ask
+* qualification
+* value articulation
+* objection handling
+* pricing explanation
+* next-step clarity
+* close attempt
+* compliance
+* talk/listen ratio when data permits
+
+Track coaching trends over time.
+
+Aggregate common objections and lost-deal reasons.
+
+Feed structured outcome information into future sequence/prompt optimization.
+
+⸻
+
+REPLIT PROMPT 16 — Consolidate Automation Architecture
+
+Perform a comprehensive automation architecture audit.
+
+Inventory:
+
+* BullMQ queues
+* repeat jobs
+* follow_up_sequences
+* sequence_steps
+* campaigns
+* campaign_steps
+* workflows
+* workflow_runs
+* stage_automation_rules
+* GHL workflows
+* GHL workflow mappings
+* SDR orchestrator
+* proposal follow-up
+* abandoned statement
+* onboarding reminders
+* SLA jobs
+* enrollment recovery
+* GHL recovery
+* health jobs
+* all other automated send/task creation code
+
+Produce a matrix:
+
+TRIGGER
+SYSTEM
+ACTION
+OWNER
+CONTACT CHANNEL
+STOP CONDITION
+IDEMPOTENCY KEY
+SOURCE OF TRUTH
+
+Identify:
+
+* duplicate automations
+* conflicting automations
+* contacts potentially receiving duplicate outreach
+* workflows with unclear stop conditions
+* logic duplicated in GHL and Liberty
+* jobs that scan unnecessarily large datasets
+* automation actions not governed by contactability
+* automation actions without audit trails
+
+Then refactor toward:
+
+1. canonical lifecycle state
+2. centralized Next Best Action decisioning
+3. centralized contactability
+4. existing sequence engine for cadence execution
+5. BullMQ for execution
+6. GHL as integration/channel where appropriate, not competing source of truth
+
+Do not remove working functionality without migration/compatibility plan.
+
+Add an Automation Registry admin page showing:
+
+* automation key
+* trigger
+* status
+* last run
+* next run
+* records affected
+* errors
+* kill switch status
+* owner
+* version
+
+⸻
+
+REPLIT PROMPT 17 — BullMQ & Sequence Scalability Refactor
+
+Audit Redis/BullMQ connection usage and sequence-worker.ts.
+
+Current constraints:
+
+* Upstash connection cap is approximately 20
+* system has approximately 17 queues
+* sequence processing reportedly takes ~8 minutes across ~155K contacts
+* repeat interval is ~10 minutes
+
+This creates insufficient scaling headroom.
+
+Objectives:
+
+1. Reduce physical Redis/BullMQ queue connection pressure.
+2. Avoid adding one queue per new automation.
+3. Identify queues that can share worker infrastructure or job types safely.
+4. Preserve priority and failure isolation where needed.
+5. Ensure Redis connection count is observable.
+6. Warn before connection exhaustion.
+
+Sequence processing:
+
+Audit whether it scans a large active population every run.
+
+Refactor toward indexed due-work processing.
+
+Prefer:
+
+* next_action_at
+* active state
+* indexed query
+* bounded batches
+* deterministic locking
+* idempotent processing
+
+Conceptually:
+
+WHERE state = active
+AND next_action_at <= NOW()
+ORDER BY next_action_at
+LIMIT batch_size
+
+Do not reprocess future enrollments.
+
+Update next_action_at after each step.
+
+Prevent overlapping workers from processing the same enrollment.
+
+Add:
+
+* throughput metrics
+* due backlog
+* oldest due action
+* average processing delay
+* worker duration
+* failed step rate
+
+Load test with representative larger datasets.
+
+Preserve all compliance gates.
+
+⸻
+
+REPLIT PROMPT 18 — Security Hardening Audit
+
+Perform a security hardening audit of Liberty Bancard.
+
+Do not make breaking security changes blindly. First inventory current behavior.
+
+Specifically inspect:
+
+1. PII encryption
+2. credential encryption
+3. OAuth token storage
+4. session security
+5. CSRF
+6. webhook security
+7. file upload security
+8. document access
+9. AI provider data exposure
+10. audit-log integrity
+11. secrets handling
+12. admin seed behavior
+13. password reset/recovery
+14. rate limiting
+15. merchant portal ownership enforcement
+16. backups
+
+Encryption:
+Evaluate migration from AES-256-CBC to authenticated encryption such as AES-256-GCM with:
+
+* cipher version
+* key ID
+* nonce/IV
+* authentication tag
+* rotation support
+
+Provide backward-compatible decrypt support during migration.
+
+Webhooks:
+Ensure:
+
+* HMAC
+* timestamp validation if provider supports it
+* replay window
+* event ID dedupe
+* idempotent processing
+
+AI:
+Create data-classification guard before sending payloads to AI vendors.
+Sensitive data such as SSN, bank account, full EIN where unnecessary, credentials, raw card data, etc. should be redacted or prohibited based on task.
+
+Audit logs:
+Assess append-only/tamper-evidence strategy for critical security/compliance actions.
+
+Admin seed:
+Evaluate the risk of re-hashing/reseeding admin credentials on every startup.
+
+Add security tests to pre-deploy.
+
+⸻
+
+REPLIT PROMPT 19 — PCI Scope Audit
+
+Audit Liberty Bancard payment-related code, including:
+
+* NMI
+* Payarc
+* virtual terminal
+* merchant portal
+* forms
+* server routes
+* frontend
+* logs
+* analytics
+* database
+* error handling
+
+Goal:
+
+Determine whether raw payment card data/PAN/CVV ever touches Liberty Bancard servers, database, logs, analytics, queues, or AI systems.
+
+Produce a clear data-flow report:
+
+Browser
+→ Liberty
+→ gateway/processor
+
+or
+
+Browser
+→ processor-hosted fields
+→ token
+→ Liberty
+
+If Liberty currently receives raw cardholder data, clearly identify every location and do NOT attempt a risky quick rewrite.
+
+Prefer tokenized/hosted processor components so Liberty stores only non-sensitive references/tokens where feasible.
+
+Add automated guards preventing:
+
+* PAN logging
+* CVV persistence
+* payment credentials entering AI prompts
+* payment credentials entering analytics
+
+Document PCI scope assumptions inside the repo.
+
+⸻
+
+REPLIT PROMPT 20 — Disaster Recovery & Backups
+
+Audit db-backup.ts and all production backup/recovery behavior.
+
+Current local pg_dump generation is not enough by itself.
+
+Implement a production-grade backup strategy appropriate for the current hosting stack.
+
+Requirements:
+
+* encrypted backup
+* offsite/durable storage
+* configurable retention
+* backup metadata
+* checksum
+* backup success/failure state
+* alerting
+* restoration documentation
+* automated or semi-automated restore verification
+* RPO target
+* RTO target
+
+Create a backup registry containing:
+
+* timestamp
+* storage location/reference
+* size
+* checksum
+* database/version metadata
+* verification status
+* restore-test timestamp
+
+Never overwrite the only known-good backup.
+
+Expose backup health through the existing health monitor.
+
+⸻
+
+REPLIT PROMPT 21 — AI Merchant Account Manager
+
+Audit merchant portal, tickets, merchant profiles, MID stats, residuals, documents, chargebacks, merchant health, notifications, and AI assistant.
+
+Build an AI Merchant Account Manager inside Liberty Bancard.
+
+It should answer merchant/account-manager questions using verified Liberty data.
+
+Examples:
+
+“Why was yesterday’s deposit lower?”
+
+“What is my current processing volume?”
+
+“Where is my terminal?”
+
+“Do I have any open chargebacks?”
+
+“What documents are still missing?”
+
+“Am I fully activated?”
+
+“What is my current processing setup?”
+
+“Open a support ticket for my funding issue.”
+
+The AI must:
+
+* respect merchant ownership boundaries
+* never expose another merchant
+* use structured backend data
+* cite/source the records internally in responses where practical
+* distinguish known fact from inference
+* never fabricate processor/funding status
+* escalate when data is unavailable
+* create tickets/tasks only through authenticated deterministic tools
+
+For dashboard users, provide Account Manager mode summarizing:
+
+* portfolio priorities
+* at-risk merchants
+* unresolved tickets
+* activation issues
+* residual anomalies
+* underwriting conditions
+* recommended next actions
+
+⸻
+
+REPLIT PROMPT 22 — Final Closed-Loop Audit
+
+After implementing the preceding lifecycle components, perform a COMPLETE Liberty Bancard end-to-end business-model audit.
+
+The required closed loop is:
+
+LEAD
+→ QUALIFICATION
+→ COMPLIANT OUTREACH
+→ APPOINTMENT
+→ DISCOVERY
+→ STATEMENT
+→ ANALYSIS
+→ PRICING
+→ PROPOSAL
+→ APPLICATION
+→ UNDERWRITING
+→ APPROVAL
+→ BOARDING
+→ EQUIPMENT/GATEWAY
+→ FIRST TRANSACTION
+→ FIRST FUNDING
+→ ACTIVE MERCHANT
+→ ACCOUNT MANAGEMENT
+→ SUPPORT
+→ HEALTH MONITORING
+→ RETENTION
+→ REFERRALS
+→ RESIDUALS
+→ COMMISSIONS
+→ PROFITABILITY
+→ WIN-BACK
+
+For every transition verify:
+
+1. Trigger exists.
+2. Source of truth exists.
+3. Automation exists where appropriate.
+4. Human owner exists where appropriate.
+5. SLA exists.
+6. Stop condition exists.
+7. Idempotency exists.
+8. Compliance gate exists where communication occurs.
+9. Audit trail exists.
+10. Error/recovery path exists.
+11. Manager visibility exists.
+12. KPI exists.
+
+Produce a GAP matrix:
+
+LIFECYCLE STEP
+CURRENT IMPLEMENTATION
+AUTOMATION
+AI
+HUMAN OWNER
+SLA
+FAILURE PATH
+TEST COVERAGE
+STATUS
+GAP
+
+Classify each as:
+
+COMPLETE
+PARTIAL
+MISSING
+DUPLICATED
+CONFLICTING
+HIGH RISK
+
+Then fix all P0 defects that can safely be resolved without broad redesign.
+
+Do not claim Liberty is end-to-end complete unless every stage passes this audit.
+
+Add an end-to-end synthetic merchant test that verifies one test merchant can progress through the entire lifecycle without orphaned records or conflicting automation.
+
+How I’d actually run these
+
+I would not paste all 22 into Replit at once. Run them in phases so Agent can test each architecture layer before building on top of it.
+
+Phase 1 — Core brain: Prompts 1, 2, 16, 17.
+
+Phase 2 — Sales conversion: Prompts 3, 4, 5, 6.
+
+Phase 3 — Underwriting → revenue: Prompts 7, 8, 9.
+
+Phase 4 — Account management: Prompts 10, 11, 12, 21.
+
+Phase 5 — Finance/intelligence: Prompts 13, 14, 15.
+
+Phase 6 — hardening: Prompts 18, 19, 20.
+
+Final: Prompt 22.
+
+The most important first four are #1 Lifecycle State Machine, #2 Next Best Action, #16 Automation Consolidation, and #17 Queue/Sequence Scalability. If those aren’t clean first, adding another 20 automations could make the current system much harder to control.
