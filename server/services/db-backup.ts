@@ -56,6 +56,12 @@ export interface BackupResult {
  *   sslmode=require           — required by Neon (set only when absent)
  *   options=-c statement_timeout=0  — disables the per-statement timeout so
  *                                     a long COPY from large tables isn't killed
+ *
+ * IMPORTANT: URLSearchParams encodes spaces as `+`, but libpq/pg_dump only
+ * decodes percent-encoded spaces (%20) in the `options` query parameter —
+ * it treats `+` as a literal plus sign, yielding "+statement_timeout" which
+ * PostgreSQL rejects with "unrecognized configuration parameter".
+ * We therefore build the options value manually using %20 for the space.
  */
 function buildDumpUrl(rawUrl: string): string {
   try {
@@ -66,12 +72,19 @@ function buildDumpUrl(rawUrl: string): string {
     if (!u.searchParams.has("sslmode")) {
       u.searchParams.set("sslmode", "require");
     }
-    const existing = u.searchParams.get("options") ?? "";
-    if (!existing.includes("statement_timeout")) {
-      u.searchParams.set(
-        "options",
-        [existing, "-c statement_timeout=0"].filter(Boolean).join(" "),
-      );
+    // Set options without URLSearchParams to avoid + encoding for spaces.
+    // libpq requires %20 (percent-encoding) for spaces inside the options value.
+    const existingOptions = u.searchParams.get("options") ?? "";
+    if (!existingOptions.includes("statement_timeout")) {
+      // Build the value with %20 instead of letting URLSearchParams use +
+      const newOptions = [existingOptions, "-c statement_timeout=0"]
+        .filter(Boolean)
+        .join(" ");
+      // Remove the existing options param and manually append with %20 encoding
+      u.searchParams.delete("options");
+      const base = u.toString();
+      const separator = base.includes("?") ? "&" : "?";
+      return base + separator + "options=" + newOptions.replace(/ /g, "%20");
     }
     return u.toString();
   } catch {

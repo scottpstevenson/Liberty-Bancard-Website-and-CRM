@@ -63,14 +63,18 @@ export function getLastHealthResult(): HealthReport | null {
 async function checkDb(): Promise<CheckResult> {
   const t0 = Date.now();
   try {
-    // Ping + count critical tables
-    const [pingResult, countsResult] = await Promise.all([
+    // Two fast queries that cannot time out under production load:
+    //   1. SELECT 1 — pure connectivity probe
+    //   2. pg_class.reltuples — microsecond approximate row counts (same approach
+    //      as checkKpiQuery); avoids the full-table COUNT(*) that was subject to
+    //      the pool's 30-second statement_timeout and caused false critical failures
+    //      under production load.
+    const [pingResult, estResult] = await Promise.all([
       db.execute(sql`SELECT 1 AS ping`),
       db.execute(sql`
-        SELECT
-          (SELECT COUNT(*) FROM contacts)               AS contacts,
-          (SELECT COUNT(*) FROM deals)                  AS deals,
-          (SELECT COUNT(*) FROM follow_up_sequences)    AS sequences
+        SELECT relname, reltuples::bigint AS est
+        FROM   pg_class
+        WHERE  relname IN ('contacts', 'deals')
       `),
     ]);
 
@@ -79,19 +83,18 @@ async function checkDb(): Promise<CheckResult> {
       return { status: "error", message: "SELECT 1 returned no rows", latencyMs: Date.now() - t0 };
     }
 
-    const row = countsResult.rows[0] as any;
-    const contacts = Number(row?.contacts ?? 0);
-    const deals = Number(row?.deals ?? 0);
-
     const latencyMs = Date.now() - t0;
+    const rows = estResult.rows as Array<{ relname: string; est: string | number }>;
+    const contactsEst = Number(rows.find(r => r.relname === "contacts")?.est ?? 0);
+    const dealsEst    = Number(rows.find(r => r.relname === "deals")?.est    ?? 0);
 
-    if (contacts > 0 && deals > 0) {
-      return { status: "ok", message: `contacts=${contacts} deals=${deals}`, latencyMs };
+    if (contactsEst > 0 && dealsEst > 0) {
+      return { status: "ok", message: `contacts≈${contactsEst} deals≈${dealsEst}`, latencyMs };
     }
-    // Ping succeeded but counts are zero — degraded, not hard error
+    // Ping succeeded but pg_class shows zero (fresh DB or stats not yet collected)
     return {
       status: "degraded",
-      message: `contacts=${contacts} deals=${deals} (zero counts)`,
+      message: `contacts≈${contactsEst} deals≈${dealsEst} (pg_class zero — VACUUM pending or fresh DB)`,
       latencyMs,
     };
   } catch (err: any) {
@@ -471,7 +474,8 @@ export async function runHealthChecks(): Promise<HealthReport> {
   // Update in-memory cache
   _lastResult = report;
 
-  // Change-detection: alert if any critical check newly became non-ok
+  // Change-detection: alert if any critical check newly became non-ok.
+  // Cooldown-gated (1 hour) so a flapping check doesn't flood the inbox.
   if (previousReport) {
     const newlyFailed: string[] = [];
     for (const name of CRITICAL_CHECKS) {
@@ -483,9 +487,21 @@ export async function runHealthChecks(): Promise<HealthReport> {
     }
 
     if (newlyFailed.length > 0) {
-      // Fire-and-forget alert email
+      // Fire-and-forget alert email — rate-limited to at most 1 per hour
+      const CRITICAL_COOLDOWN_KEY = "health_monitor_critical_alert_at";
+      const CRITICAL_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
       (async () => {
         try {
+          // Check cooldown before sending
+          const lastAlertRaw = await storage.getSystemSetting(CRITICAL_COOLDOWN_KEY);
+          const lastAlertAt = lastAlertRaw ? new Date(lastAlertRaw as string).getTime() : 0;
+          if (Date.now() - lastAlertAt < CRITICAL_COOLDOWN_MS) {
+            console.warn(`[HealthMonitor] Critical alert suppressed (cooldown): ${newlyFailed.join(", ")}`);
+            return;
+          }
+          // Update cooldown before sending to prevent double-fires
+          await storage.setSystemSetting(CRITICAL_COOLDOWN_KEY, new Date().toISOString());
+
           const { sendSmtpEmail } = await import("./smtp-email");
           const recipient = process.env.ADMIN_ALERT_EMAIL || "accounts@libertybancard.com";
           const details = newlyFailed
@@ -497,6 +513,7 @@ export async function runHealthChecks(): Promise<HealthReport> {
             html: `<pre style="font-family:monospace">HealthMonitor detected new critical failures at ${runAt}:\n\n${details}\n\nOverall ok: ${overallOk}</pre>`,
             category: "internal_ops",
           });
+          console.warn(`[HealthMonitor] Critical alert sent: ${newlyFailed.join(", ")}`);
         } catch (emailErr: any) {
           console.warn("[HealthMonitor] Alert email failed (non-fatal):", emailErr.message);
         }
