@@ -49,7 +49,10 @@ export const HEALTH_MONITOR_KEY = "health_monitor_last_result";
 // "ai" is intentionally excluded from critical — AI availability is validated by
 // the dedicated AI Assistant Boundaries suite.  The custom AI_INTEGRATIONS_OPENAI_BASE_URL
 // may use a different auth scheme that returns 401 in CI/gate contexts.
-const CRITICAL_CHECKS = new Set(["db", "sequenceWorker", "redis", "kpiQuery"]);
+// "sequenceWorker" is intentionally excluded from critical — Redis connection timeouts
+// and worker stalls are operational noise (not an outage) and were generating spurious
+// alert emails.  The worker is still checked and surfaced on the health dashboard.
+const CRITICAL_CHECKS = new Set(["db", "redis", "kpiQuery"]);
 
 /**
  * Startup grace period — suppress critical alert *emails* for the first 3 minutes
