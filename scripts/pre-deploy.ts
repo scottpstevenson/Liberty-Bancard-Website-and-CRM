@@ -161,6 +161,11 @@ const MANDATORY_SUITES: Suite[] = [
     script: "scripts/test-email-signatures.ts",
     timeoutSecs: 30,
   },
+  {
+    name: "Communication Arbitration (human-touch suppression, auto-send cooldown, skip flags)",
+    script: "scripts/test-arbitration.ts",
+    timeoutSecs: 60,
+  },
   // ── Server-required suites (skipped when server absent; need live credentials) ─
   {
     name: "AI Assistant Boundaries (auth/role/schema/no-action)",

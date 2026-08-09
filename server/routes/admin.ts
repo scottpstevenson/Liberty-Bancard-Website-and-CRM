@@ -3715,4 +3715,122 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // ── Communication Arbitration — suppression log ───────────────────────────
+  // GET /api/admin/arbitration-suppressions
+  // Returns recent audit_logs rows where action = 'arbitration_suppressed',
+  // joined to contacts for display. Supports optional ?limit=N&days=N query.
+  app.get("/api/admin/arbitration-suppressions", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const limit = Math.min(parseInt(String(req.query.limit ?? "100")), 500);
+      const days  = Math.min(parseInt(String(req.query.days  ?? "7")),   90);
+      const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+      const rows = await db
+        .select({
+          id:        auditLogs.id,
+          contactId: auditLogs.entityId,
+          details:   auditLogs.details,
+          createdAt: auditLogs.createdAt,
+        })
+        .from(auditLogs)
+        .where(
+          and(
+            eq(auditLogs.action, "arbitration_suppressed"),
+            gte(auditLogs.createdAt, since),
+          )
+        )
+        .orderBy(desc(auditLogs.createdAt))
+        .limit(limit);
+
+      // Attach contact names where available
+      const contactIds = [...new Set(rows.map(r => r.contactId).filter(Boolean))] as number[];
+      let contactMap: Record<number, { firstName: string; lastName: string; email: string }> = {};
+      if (contactIds.length > 0) {
+        const { contacts: contactsTable } = await import("@shared/schema");
+        const { inArray } = await import("drizzle-orm");
+        const people = await db
+          .select({
+            id:        contactsTable.id,
+            firstName: contactsTable.firstName,
+            lastName:  contactsTable.lastName,
+            email:     contactsTable.email,
+          })
+          .from(contactsTable)
+          .where(inArray(contactsTable.id, contactIds));
+        for (const p of people) contactMap[p.id] = p;
+      }
+
+      const enriched = rows.map(r => ({
+        ...r,
+        contact: r.contactId != null ? (contactMap[r.contactId] ?? null) : null,
+      }));
+
+      res.json({ items: enriched, total: enriched.length, days, since: since.toISOString() });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  // GET /api/admin/arbitration-windows — return current suppression window settings
+  app.get("/api/admin/arbitration-windows", requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const [human, auto, reply] = await Promise.all([
+        storage.getSystemSetting("arbitration_human_touch_window_hours").catch(() => null),
+        storage.getSystemSetting("arbitration_auto_send_window_minutes").catch(() => null),
+        storage.getSystemSetting("arbitration_reply_pending_window_hours").catch(() => null),
+      ]);
+      res.json({
+        humanTouchWindowHours:    human  != null ? Number(human)  : 4,
+        autoSendWindowMinutes:    auto   != null ? Number(auto)   : 60,
+        replyPendingWindowHours:  reply  != null ? Number(reply)  : 24,
+      });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  // PATCH /api/admin/arbitration-windows — update suppression windows
+  app.patch("/api/admin/arbitration-windows", requireRole("admin"), async (req, res) => {
+    try {
+      const schema = {
+        humanTouchWindowHours:   (v: unknown) => typeof v === "number" && v >= 0 && v <= 72,
+        autoSendWindowMinutes:   (v: unknown) => typeof v === "number" && v >= 0 && v <= 1440,
+        replyPendingWindowHours: (v: unknown) => typeof v === "number" && v >= 0 && v <= 168,
+      };
+      const keyMap: Record<string, string> = {
+        humanTouchWindowHours:   "arbitration_human_touch_window_hours",
+        autoSendWindowMinutes:   "arbitration_auto_send_window_minutes",
+        replyPendingWindowHours: "arbitration_reply_pending_window_hours",
+      };
+      const updates: Record<string, string> = {};
+      for (const [field, validate] of Object.entries(schema)) {
+        if (req.body[field] !== undefined) {
+          if (!validate(req.body[field])) {
+            return res.status(400).json({ error: `Invalid value for ${field}` });
+          }
+          updates[keyMap[field]] = String(req.body[field]);
+        }
+      }
+      for (const [key, value] of Object.entries(updates)) {
+        await storage.setSystemSetting(key, value);
+      }
+      // Invalidate the arbitration config cache so changes take effect immediately
+      const { invalidateArbitrationConfigCache } = await import("../services/communication-arbitration");
+      invalidateArbitrationConfigCache();
+
+      await auditChange({
+        action: "arbitration_windows_updated",
+        entityType: "system",
+        entityId: 0,
+        entityKey: "arbitration_windows",
+        actorType: "user",
+        details: updates,
+      });
+
+      res.json({ ok: true, updated: Object.keys(updates) });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
 }

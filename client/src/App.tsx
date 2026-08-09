@@ -202,6 +202,7 @@ const OutboundReadiness = lazy(() => import("@/pages/dashboard/OutboundReadiness
 const DataQuality = lazy(() => import("@/pages/dashboard/DataQuality"));
 const BlockedContacts = lazy(() => import("@/pages/dashboard/BlockedContacts"));
 const DeliverabilitySettings = lazy(() => import("@/pages/dashboard/DeliverabilitySettings"));
+const ArbitrationLog = lazy(() => import("@/pages/dashboard/ArbitrationLog"));
 const GhlConflicts = lazy(() => import("@/pages/dashboard/GhlConflicts"));
 const SetupWizard = lazy(() => import("@/pages/dashboard/SetupWizard"));
 const MyEarnings = lazy(() => import("@/pages/dashboard/MyEarnings"));
@@ -667,6 +668,9 @@ function Router() {
         </Route>
         <Route path="/dashboard/settings/integrations">
           <ProtectedRoute component={SettingsIntegrations} allowedRoles={["admin", "manager"]} />
+        </Route>
+        <Route path="/dashboard/settings/arbitration">
+          <ProtectedRoute component={ArbitrationLog} allowedRoles={["admin", "manager"]} />
         </Route>
         <Route path="/dashboard/forecasting">
           <Redirect to="/dashboard/financial-hub?tab=forecasting" />

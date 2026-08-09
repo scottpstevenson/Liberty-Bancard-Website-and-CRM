@@ -834,6 +834,34 @@ export async function processSendQueue(maxToSend?: number): Promise<{ sent: numb
             });
             continue;
           }
+
+          // ── Communication arbitration ────────────────────────────────────────
+          // Defers the message by resetting it to queued with a future
+          // scheduledFor so processSendQueue picks it up after resumeAfter.
+          try {
+            const { shouldSuppress: arbCheck, logArbitrationSuppression } = await import("./communication-arbitration");
+            const arb = await arbCheck(contact.id, "email");
+            if (arb.suppressed) {
+              await logArbitrationSuppression(contact.id, "email", arb);
+              const resumeAt = arb.resumeAfter ?? new Date(Date.now() + 60 * 60 * 1000);
+              await storage.updateOutboundMessage(msg.id, {
+                status: "queued",
+                scheduledFor: resumeAt,
+                error: `arbitration_deferred: ${arb.reason}`,
+              });
+              await storage.createAuditLog({
+                actorType: "system",
+                action: "campaign_send_deferred_arbitration",
+                entityType: "contact",
+                entityId: contact.id,
+                details: { reason: arb.reason, messageId: msg.id, resumeAfter: resumeAt.toISOString() },
+              });
+              continue;
+            }
+          } catch (arbErr) {
+            // Fail-open: arbitration error does not block campaign send
+            console.warn("[CampaignEngine] Arbitration check error (fail-open):", (arbErr as Error).message);
+          }
         }
       }
 
@@ -983,6 +1011,34 @@ async function sendContactCampaignMessage(
       details: { reason: gate.reason, messageId: msg.id },
     });
     return "skipped";
+  }
+
+  // ── Communication arbitration ────────────────────────────────────────────
+  // Must run before any send attempt. Defers the message (queued + future
+  // scheduledFor) so it is retried automatically after the hold window.
+  try {
+    const { shouldSuppress: arbCheck, logArbitrationSuppression } = await import("./communication-arbitration");
+    const arb = await arbCheck(contact.id, "email");
+    if (arb.suppressed) {
+      await logArbitrationSuppression(contact.id, "email", arb);
+      const resumeAt = arb.resumeAfter ?? new Date(Date.now() + 60 * 60 * 1000);
+      await storage.updateOutboundMessage(msg.id, {
+        status: "queued",
+        scheduledFor: resumeAt,
+        error: `arbitration_deferred: ${arb.reason}`,
+      });
+      await storage.createAuditLog({
+        actorType: "system",
+        action: "campaign_send_deferred_arbitration",
+        entityType: "contact",
+        entityId: contact.id,
+        details: { reason: arb.reason, messageId: msg.id, resumeAfter: resumeAt.toISOString() },
+      });
+      return "skipped";
+    }
+  } catch (arbErr) {
+    // Fail-open: arbitration error must not block the send
+    console.warn("[CampaignEngine] Arbitration check error (fail-open):", (arbErr as Error).message);
   }
 
   // Compliance prerequisites

@@ -703,6 +703,40 @@ async function executeEmailAction(lead: SdrLeadState, strongerCta?: boolean): Pr
     return false;
   }
 
+  // ── Communication arbitration: suppress if rep recently touched this prospect ──
+  if (lead.contactId) {
+    try {
+      const { shouldSuppress: arbCheck, logArbitrationSuppression } = await import("../communication-arbitration");
+      const arb = await arbCheck(lead.contactId, "email");
+      if (arb.suppressed) {
+        await rollbackSend(selectedInbox.id);
+        await logArbitrationSuppression(lead.contactId, "email", arb);
+        // Defer the lead's next action to arb.resumeAfter so the orchestrator
+        // does not retry before the suppression window expires.
+        const resumeAt = arb.resumeAfter ?? new Date(Date.now() + 60 * 60 * 1000);
+        await db.update(sdrLeadState).set({
+          nextActionAt: resumeAt,
+          decisionReason: `Arbitration deferred to ${resumeAt.toISOString()}: ${arb.reason}`,
+          updatedAt: new Date(),
+        }).where(eq(sdrLeadState.id, lead.id));
+        await logChannelAttempt({
+          leadStateId: lead.id,
+          channel: "email",
+          attemptNumber,
+          status: "failed",
+          subject,
+          body,
+          error: `arbitration_deferred: ${arb.reason}`,
+          sentAt: new Date(),
+        });
+        return false;
+      }
+    } catch (arbErr) {
+      // Fail-open: arbitration error does not block the send
+      console.warn("[SDR Orchestrator] Arbitration check error (fail-open):", (arbErr as Error).message);
+    }
+  }
+
   try {
     const result = await sendGhlEmail({
       contactId: lead.contactId,
@@ -860,6 +894,35 @@ async function executeSmsAction(lead: SdrLeadState): Promise<boolean> {
       sentAt: new Date(),
     });
     return false;
+  }
+
+  // ── Communication arbitration: suppress if rep recently touched this prospect ──
+  try {
+    const { shouldSuppress: arbCheck, logArbitrationSuppression } = await import("../communication-arbitration");
+    const arb = await arbCheck(lead.contactId, "sms");
+    if (arb.suppressed) {
+      await logArbitrationSuppression(lead.contactId, "sms", arb);
+      // Defer next action to arb.resumeAfter so the orchestrator does not retry early
+      const resumeAt = arb.resumeAfter ?? new Date(Date.now() + 60 * 60 * 1000);
+      await db.update(sdrLeadState).set({
+        nextActionAt: resumeAt,
+        decisionReason: `Arbitration deferred to ${resumeAt.toISOString()}: ${arb.reason}`,
+        updatedAt: new Date(),
+      }).where(eq(sdrLeadState.id, lead.id));
+      await logChannelAttempt({
+        leadStateId: lead.id,
+        channel: "sms",
+        attemptNumber,
+        status: "failed",
+        body,
+        error: `arbitration_deferred: ${arb.reason}`,
+        sentAt: new Date(),
+      });
+      return false;
+    }
+  } catch (arbErr) {
+    // Fail-open: arbitration error does not block the send
+    console.warn("[SDR Orchestrator] SMS arbitration check error (fail-open):", (arbErr as Error).message);
   }
 
   try {

@@ -674,6 +674,47 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
               processed++;
               continue;
             }
+
+            // ── Communication arbitration: rep-touch / auto-send cooldown ────
+            // Runs after hard compliance blocks (above) but before the send.
+            // Skips transactional/operations steps — only cold/sales sequences.
+            const seqCategory = (sequence as any).triggerConfig?.category ?? "";
+            const isAutomatedOutreach = !["operations", "support", "onboarding", "education"].includes(seqCategory);
+            if (isAutomatedOutreach && enrollment.contactId) {
+              try {
+                const arbitrationChannel = (step as any)?.actionType === "sms" ? "sms"
+                  : (step as any)?.actionType === "ringless_vm" ? "ringless_vm"
+                  : (step as any)?.actionType === "voice_call" ? "voice"
+                  : "email";
+                const { shouldSuppress: arbCheck, logArbitrationSuppression } = await import("./communication-arbitration");
+                const arb = await arbCheck(enrollment.contactId, arbitrationChannel);
+                if (arb.suppressed) {
+                  await logArbitrationSuppression(enrollment.contactId, arbitrationChannel, arb);
+                  // Pause the step (not the whole enrollment) by pushing nextActionAt forward
+                  const resumeAt = arb.resumeAfter ?? new Date(Date.now() + 60 * 60 * 1000);
+                  await storage.updateSequenceEnrollment(enrollment.id, { nextActionAt: resumeAt });
+                  await storage.createAuditLog({
+                    action: "sequence_step_deferred_arbitration",
+                    entityType: "contact",
+                    entityId: enrollment.contactId,
+                    actorType: "system",
+                    details: {
+                      enrollmentId: enrollment.id,
+                      sequenceId: sequence.id,
+                      sequenceName: sequence.name,
+                      channel: arbitrationChannel,
+                      reason: arb.reason,
+                      resumeAfter: resumeAt.toISOString(),
+                    },
+                  });
+                  processed++;
+                  continue;
+                }
+              } catch (arbErr) {
+                // Arbitration is fail-open — log a warning but do not block the send
+                console.warn(`[SequenceWorker] Arbitration check failed for enrollment ${enrollment.id} (fail-open):`, (arbErr as Error).message);
+              }
+            }
           }
         }
 
