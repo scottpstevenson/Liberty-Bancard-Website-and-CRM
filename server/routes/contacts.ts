@@ -608,6 +608,12 @@ export function registerContactsRoutes(app: Express) {
       // assignedTo is a privileged field — only the role-guarded PATCH /assign endpoint
       // may write it. Strip it here so agents/reps cannot bypass the guard via PUT.
       delete (strippedBody as any).assignedTo;
+      // lifecycleState and lifecycleStateUpdatedAt are managed exclusively by
+      // LifecycleService. Strip them here so no client can bypass the transition
+      // guard, validation, or history insertion via this generic update path.
+      // (storage.updateContact is defense-in-depth layer 2.)
+      delete (strippedBody as any).lifecycleState;
+      delete (strippedBody as any).lifecycleStateUpdatedAt;
       // Normalize ghlContactId from passthrough body before it reaches any write path.
       if ((strippedBody as any).ghlContactId !== undefined) {
         (strippedBody as any).ghlContactId = normalizeGhlId((strippedBody as any).ghlContactId);

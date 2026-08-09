@@ -104,6 +104,11 @@ const MANDATORY_SUITES: Suite[] = [
     timeoutSecs: 90,
   },
   {
+    name: "Lifecycle State Machine (all transitions, prohibited moves, idempotency, history rows)",
+    script: "scripts/test-lifecycle.ts",
+    timeoutSecs: 60,
+  },
+  {
     name: "Transport Dispatch (Gmail/SMTP/GHL routing + unsubscribe URL)",
     script: "scripts/test-transport-dispatch.ts",
     timeoutSecs: 120,

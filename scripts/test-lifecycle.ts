@@ -200,6 +200,41 @@ async function runTests() {
     );
   }
 
+  // ── Test 9: storage.updateContact cannot overwrite lifecycle fields ────────
+  console.log("\nTest 9: Direct updateContact cannot bypass lifecycle guard");
+  {
+    const id = await createTestContact("9");
+    // Advance to ENGAGED via LifecycleService so we have a known state.
+    await LifecycleService.transition(id, "ENGAGED", {
+      trigger: "test_setup",
+      source: "test-lifecycle",
+    });
+
+    // Attempt to directly write a backwards lifecycle state via storage layer.
+    // storage.updateContact must strip lifecycleState silently (defense-in-depth).
+    await db.update(contacts).set({ lifecycleState: "PROSPECT" } as any).where(eq(contacts.id, id));
+
+    // After the raw DB write, verify the state was actually changed — this is
+    // the worst-case bypass (direct Drizzle call, not even updateContact).
+    // We then restore the correct value via LifecycleService to prove the
+    // service is the only authoritative write path.
+    //
+    // What we actually need to assert: that storage.updateContact strips the field.
+    // Re-set to ENGAGED via lifecycle service to prove it can still advance.
+    const beforeDirect = await LifecycleService.getCurrentState(id);
+    // Now attempt the bypass through storage.updateContact (which strips lifecycle fields).
+    const { storage } = await import("../server/storage");
+    await storage.updateContact(id, { lifecycleState: "CHURNED", lifecycleStateUpdatedAt: new Date() } as any);
+    const afterStorageUpdate = await LifecycleService.getCurrentState(id);
+    // storage.updateContact must have silently dropped the lifecycle field.
+    assert(afterStorageUpdate === beforeDirect, "storage.updateContact cannot overwrite lifecycleState", `Expected ${beforeDirect}, got ${afterStorageUpdate}`);
+
+    // Also verify history count did not increase (no phantom history row).
+    const history = await LifecycleService.getHistory(id);
+    const onlyTestSetupRows = history.filter(h => h.trigger === "test_setup");
+    assert(onlyTestSetupRows.length === 1 && history.length === 1, "no spurious history row from direct update bypass");
+  }
+
   // ── Summary ───────────────────────────────────────────────────────────────
   console.log(`\n[Test] Results: ${passed} passed, ${failed} failed`);
   return failed === 0;

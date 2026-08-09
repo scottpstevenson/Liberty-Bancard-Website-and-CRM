@@ -13,7 +13,7 @@
  *   npx tsx scripts/backfill-lifecycle-state.ts
  */
 
-import "../server/env"; // load environment variables
+import "../server/env";
 import { db } from "../server/db";
 import { contacts, contactLifecycleHistory, deals, merchantProfiles, merchantApplications, sdrLeadState } from "../shared/schema";
 import { eq, isNull, and, lt } from "drizzle-orm";

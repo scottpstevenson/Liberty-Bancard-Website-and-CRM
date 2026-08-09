@@ -713,6 +713,30 @@ export function registerMerchantsRoutes(app: Express) {
         );
       }
 
+      // ── Lifecycle side-effects (fire-and-forget, never throws) ──────────────
+      // Approved: advance to APPROVED (more specific than APPLICATION_COMPLETE from deal-stage path)
+      if (wasApproved && updated.contactId) {
+        LifecycleService.transition(updated.contactId, "APPROVED", {
+          trigger: "merchant_application_approved",
+          source: "merchants-route",
+          metadata: { applicationId: appId },
+        }).catch((err: Error) =>
+          console.warn(`[Lifecycle] Approval transition failed for contact #${updated.contactId}:`, err.message),
+        );
+      }
+
+      // Declined: any state → CLOSED_LOST (always allowed)
+      if (wasDeclined && updated.contactId) {
+        LifecycleService.transition(updated.contactId, "CLOSED_LOST", {
+          trigger: "merchant_application_declined",
+          source: "merchants-route",
+          reason: updated.declineReason ?? undefined,
+          metadata: { applicationId: appId },
+        }).catch((err: Error) =>
+          console.warn(`[Lifecycle] Decline transition failed for contact #${updated.contactId}:`, err.message),
+        );
+      }
+
       res.json(updated);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join(".") });
