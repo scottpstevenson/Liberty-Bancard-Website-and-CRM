@@ -15,7 +15,7 @@ export async function runOnboardingReminderTick(): Promise<{ processed: number; 
 
   // ── Global-pause gate ────────────────────────────────────────────────────
   const globalPausedRaw = await storage.getSystemSetting("outboundGlobalPaused").catch(() => null);
-  if (globalPausedRaw) {
+  if (globalPausedRaw === true || globalPausedRaw === "true") {
     console.log("[OnboardingReminder] outboundGlobalPaused is set — skipping entire run");
     return { processed, reminded, errors };
   }

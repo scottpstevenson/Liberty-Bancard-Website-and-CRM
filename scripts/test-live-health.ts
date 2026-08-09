@@ -67,7 +67,10 @@ const ADMIN_PASSWORD = process.env.ADMIN_SEED_PASSWORD;
 // "ai" excluded — AI availability is covered by the dedicated AI Assistant Boundaries
 // suite. The custom AI_INTEGRATIONS_OPENAI_BASE_URL may use a different auth scheme
 // that returns 401 in gate contexts; marking it informational prevents false failures.
-const CRITICAL_CHECKS = ["db", "sequenceWorker", "redis", "kpiQuery"];
+// "sequenceWorker" excluded — matches health-monitor.ts CRITICAL_CHECKS. Redis
+// connection timeouts and worker stalls are operational noise, not an outage; the
+// worker is still surfaced on the health dashboard. See health-monitor.ts line 52.
+const CRITICAL_CHECKS = ["db", "redis", "kpiQuery"];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

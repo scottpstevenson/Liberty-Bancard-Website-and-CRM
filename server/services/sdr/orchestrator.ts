@@ -1343,6 +1343,25 @@ export async function sweepLeads(): Promise<{ processed: number; errors: number;
     return { processed: 0, errors: 0 };
   }
 
+  // ── DB-level global-pause gate ───────────────────────────────────────────
+  // Mirrors the check in sequence-worker.ts and proposal-followup-worker.ts.
+  // Reads the persisted outboundGlobalPaused flag on every sweep so the toggle
+  // takes effect within one sweep interval without requiring a process restart.
+  const dbPausedRaw = await storage.getSystemSetting("outboundGlobalPaused").catch(() => null);
+  if (dbPausedRaw === true || dbPausedRaw === "true") {
+    console.log("[SDR Orchestrator] outboundGlobalPaused is set in DB — skipping sweep");
+    return { processed: 0, errors: 0 };
+  }
+
+  // ── Automation registry kill-switch ─────────────────────────────────────
+  // Allows admins to disable the SDR orchestrator from the Automation Registry
+  // admin page without a code change or redeploy.
+  const { isAutomationEnabled } = await import("../automation-kill-switch");
+  if (!(await isAutomationEnabled("sdr-orchestrator"))) {
+    console.log("[SDR Orchestrator] Kill switch active for sdr-orchestrator — skipping sweep");
+    return { processed: 0, errors: 0 };
+  }
+
   const reviewMode = featureFlags.ORCHESTRATOR_REVIEW_MODE;
   const batchSize = featureFlags.ORCHESTRATOR_BATCH_SIZE;
 

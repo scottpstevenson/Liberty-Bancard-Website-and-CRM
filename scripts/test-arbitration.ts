@@ -244,6 +244,192 @@ async function test12_resumeAfterCalculation() {
   }
 }
 
+async function test13_replyPendingWithWindowAbove48Hours() {
+  console.log("\n[13] Reply 60h ago is suppressed when replyPendingWindowHours=72");
+  // When admins configure a reply-pending window > 48h, a reply that is between
+  // 48h and the configured ceiling must still be detected and suppress automation.
+  // The production query lookback must use max(replyWindowMs, 48h), not a fixed 48h cap.
+  const replyTime = hoursAgo(60); // 60h ago — beyond 48h but within 72h window
+  const result = await shouldSuppress(CONTACT_ID, "email", {
+    _logsForTest: [
+      { action: "inbound_message_processed", actorType: "system", createdAt: replyTime },
+    ],
+    _configOverrideForTest: {
+      replyPendingWindowHours: 72,
+      humanTouchWindowHours: 0,
+      autoSendWindowMinutes: 0,
+    },
+  });
+  if (result.suppressed && result.signal === "reply_pending") {
+    ok("60h-old reply suppresses automation when window=72h");
+  } else {
+    ko(
+      "expected reply_pending suppression for 60h-old reply with 72h window",
+      `suppressed=${result.suppressed}, signal=${result.signal}`,
+    );
+  }
+}
+
+async function test14_failedGhlSendDoesNotTriggerAutoSendCooldown() {
+  console.log("\n[13] Failed GHL send (status=failed) does NOT trigger auto-send cooldown");
+  // A transient GHL failure writes an activity row with status="failed".
+  // It must not suppress subsequent automated sends — no message was delivered.
+  const failedTime = minsAgo(10); // recent, within any cooldown window
+  const result = await shouldSuppress(CONTACT_ID, "email", {
+    _logsForTest: [
+      { action: "sequence_email_sent", actorType: "system", createdAt: failedTime, status: "failed" },
+    ],
+    _configOverrideForTest: {
+      autoSendWindowMinutes: 60,
+      humanTouchWindowHours: 0,
+      replyPendingWindowHours: 0,
+    },
+  });
+  if (!result.suppressed) {
+    ok("status=failed send does not trigger recent_auto_send suppression");
+  } else {
+    ko(
+      "expected no suppression for a failed send attempt",
+      `signal=${result.signal}, reason=${result.reason}`,
+    );
+  }
+}
+
+async function test15_successfulGhlSendDoesTrigerAutoSendCooldown() {
+  console.log("\n[14] Successful GHL send (status=sent) DOES trigger auto-send cooldown");
+  // A delivered send must still suppress the cooldown gate — baseline check.
+  const sentTime = minsAgo(10);
+  const result = await shouldSuppress(CONTACT_ID, "email", {
+    _logsForTest: [
+      { action: "sequence_email_sent", actorType: "system", createdAt: sentTime, status: "sent" },
+    ],
+    _configOverrideForTest: {
+      autoSendWindowMinutes: 60,
+      humanTouchWindowHours: 0,
+      replyPendingWindowHours: 0,
+    },
+  });
+  if (result.suppressed && result.signal === "recent_auto_send") {
+    ok("status=sent send triggers recent_auto_send suppression");
+  } else {
+    ko(
+      "expected recent_auto_send suppression for a successful send",
+      `suppressed=${result.suppressed}, signal=${result.signal}`,
+    );
+  }
+}
+
+async function test16_deferredSequenceResumesAfterWindowClears() {
+  console.log("\n[13] Deferred sequence email can resume after auto-send window expires");
+  // sequence_step_deferred_arbitration is a deferral-only audit record — it must NOT
+  // count as an automated send. If it did, each deferred tick would reset the cooldown
+  // and the sequence would remain stuck indefinitely.
+  // Here: deferral log is 90 min old, auto-send window is 60 min → should NOT suppress.
+  const deferralTime = minsAgo(90); // beyond the 60-min auto-send window
+  const result = await shouldSuppress(CONTACT_ID, "email", {
+    _logsForTest: [
+      { action: "sequence_step_deferred_arbitration", actorType: "system", createdAt: deferralTime },
+    ],
+    _configOverrideForTest: {
+      autoSendWindowMinutes: 60,
+      humanTouchWindowHours: 0, // isolate auto-send gate
+      replyPendingWindowHours: 0,
+    },
+  });
+  if (!result.suppressed) {
+    ok("sequence_step_deferred_arbitration does not block resumption after window expires");
+  } else {
+    ko(
+      "expected no suppression: deferral log is outside window and must not count as an automated send",
+      `signal=${result.signal}, reason=${result.reason}`,
+    );
+  }
+}
+
+async function test18_replyResolvedByComposerActorAdmin() {
+  console.log("\n[13] Reply resolved by email_sent_via_composer (actorType=admin)");
+  // Dashboard routes write actorType="admin" for admin users — NOT "human".
+  // The arbitration engine must recognise the action string regardless of actor type.
+  // Disable the human-touch and auto-send checks so ONLY the reply_pending gate is active.
+  const replyTime = minsAgo(60);
+  const composerTime = minsAgo(30); // after the reply
+  const result = await shouldSuppress(CONTACT_ID, "email", {
+    _logsForTest: [
+      { action: "inbound_message_processed", actorType: "system", createdAt: replyTime },
+      { action: "email_sent_via_composer",   actorType: "admin",  createdAt: composerTime },
+    ],
+    _configOverrideForTest: {
+      replyPendingWindowHours: 24,
+      humanTouchWindowHours: 0,  // isolate reply_pending gate
+      autoSendWindowMinutes: 0,  // isolate reply_pending gate
+    },
+  });
+  if (!result.suppressed) {
+    ok("email_sent_via_composer (actorType=admin) clears reply_pending suppression");
+  } else {
+    ko(
+      "expected reply_pending suppression to be cleared by email_sent_via_composer with actorType=admin",
+      `signal=${result.signal}, reason=${result.reason}`,
+    );
+  }
+}
+
+async function test19_replyResolvedByCallLoggedActorUser() {
+  console.log("\n[14] Reply resolved by call_logged (actorType=user)");
+  // Dashboard activity logged by a rep — actorType defaults to "user".
+  // Must clear the reply_pending gate the same way actorType="human" does.
+  // Disable the human-touch and auto-send checks so ONLY the reply_pending gate is active.
+  const replyTime = minsAgo(90);
+  const callTime  = minsAgo(45);
+  const result = await shouldSuppress(CONTACT_ID, "sms", {
+    _logsForTest: [
+      { action: "inbound_message_processed", actorType: "system", createdAt: replyTime },
+      { action: "call_logged",               actorType: "user",   createdAt: callTime },
+    ],
+    _configOverrideForTest: {
+      replyPendingWindowHours: 24,
+      humanTouchWindowHours: 0,  // isolate reply_pending gate
+      autoSendWindowMinutes: 0,  // isolate reply_pending gate
+    },
+  });
+  if (!result.suppressed) {
+    ok("call_logged (actorType=user) clears reply_pending suppression");
+  } else {
+    ko(
+      "expected reply_pending suppression to be cleared by call_logged with actorType=user",
+      `signal=${result.signal}, reason=${result.reason}`,
+    );
+  }
+}
+
+async function test20_replyStillPendingWhenOnlyAutoActivityAfter() {
+  console.log("\n[15] Reply still pending when only automated activity follows");
+  // An automated sequence send after the reply must NOT resolve the gate —
+  // only human/manual-touch actions should clear it.
+  // Disable human-touch and auto-send checks so ONLY reply_pending is active.
+  const replyTime = minsAgo(60);
+  const autoTime  = minsAgo(30);
+  const result = await shouldSuppress(CONTACT_ID, "email", {
+    _logsForTest: [
+      { action: "inbound_message_processed", actorType: "system", createdAt: replyTime },
+      { action: "sequence_email_sent",       actorType: "system", createdAt: autoTime },
+    ],
+    _configOverrideForTest: {
+      replyPendingWindowHours: 24,
+      humanTouchWindowHours: 0,  // isolate reply_pending gate
+      autoSendWindowMinutes: 0,  // isolate reply_pending gate
+    },
+  });
+  if (result.suppressed && result.signal === "reply_pending") {
+    ok("automated sequence send does NOT resolve reply_pending gate");
+  } else {
+    ko(
+      "expected reply_pending suppression to persist when only automated activity follows",
+      `suppressed=${result.suppressed}, signal=${result.signal}`,
+    );
+  }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -262,6 +448,13 @@ async function main() {
   await test10_inboundReplyPending();
   await test11_emailLoggedCountsAsHumanTouch();
   await test12_resumeAfterCalculation();
+  await test13_replyPendingWithWindowAbove48Hours();
+  await test14_failedGhlSendDoesNotTriggerAutoSendCooldown();
+  await test15_successfulGhlSendDoesTrigerAutoSendCooldown();
+  await test16_deferredSequenceResumesAfterWindowClears();
+  await test18_replyResolvedByComposerActorAdmin();
+  await test19_replyResolvedByCallLoggedActorUser();
+  await test20_replyStillPendingWhenOnlyAutoActivityAfter();
 
   console.log(`\n${"─".repeat(60)}`);
   console.log(`  Results: ${pass} passed, ${fail} failed`);

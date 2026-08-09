@@ -70,8 +70,11 @@ const AUDIT_AUTO_SEND_ACTIONS: Record<string, string[]> = {
     "outbound_email_sent",
     "sequence_email_sent",
     "transactional_email_sent",
-    // Arbitration's own suppression log (excluded via actorType check)
-    "sequence_step_deferred_arbitration",
+    // NOTE: sequence_step_deferred_arbitration is intentionally excluded here.
+    // It is a deferral-only audit record written with actorType="system" whenever
+    // arbitration suppresses a sequence step. Including it caused infinite deferral
+    // loops: each tick wrote a fresh matching row which triggered the auto-send
+    // cooldown on the next tick, even after the original suppression signal cleared.
   ],
   sms: [
     "sms_sent",
@@ -142,8 +145,12 @@ export async function shouldSuppress(
   opts: {
     skipHumanTouchCheck?: boolean;
     skipAutoSendCheck?: boolean;
-    /** @internal Test-only: provide audit logs directly, bypassing DB queries. */
-    _logsForTest?: Array<{ action: string; actorType: string; createdAt: Date | string }>;
+    /** @internal Test-only: provide audit logs directly, bypassing DB queries.
+     *  Each entry may include an optional `status` field; only entries where
+     *  status is absent or "sent" are counted as successful sends for the
+     *  auto-send cooldown gate.  "failed" entries are skipped.
+     */
+    _logsForTest?: Array<{ action: string; actorType: string; createdAt: Date | string; status?: string }>;
     /** @internal Test-only: override window config directly, bypassing system_settings. */
     _configOverrideForTest?: Partial<ArbitrationConfig>;
   } = {},
@@ -229,15 +236,19 @@ export async function shouldSuppress(
       let recentAutoSendAt: Date | null = null;
 
       if (opts._logsForTest !== undefined) {
-        // Test-only path: check injected logs
+        // Test-only path: check injected logs.
+        // Only count entries where status is absent (legacy) or "sent" — not "failed".
         const auditActions = new Set(AUDIT_AUTO_SEND_ACTIONS[channel] ?? []);
         const hit = opts._logsForTest.find(l => {
           const ts = new Date(l.createdAt).getTime();
-          return ts >= autoCutoff && l.actorType !== "human" && auditActions.has(l.action);
+          const isSent = l.status === undefined || l.status === "sent";
+          return ts >= autoCutoff && l.actorType !== "human" && auditActions.has(l.action) && isSent;
         });
         if (hit) recentAutoSendAt = new Date(hit.createdAt);
       } else {
-        // Production path 1: ghl_activity_log (most authoritative for GHL sends)
+        // Production path 1: ghl_activity_log (most authoritative for GHL sends).
+        // Filter to status="sent" only — failed GHL send attempts must not trigger
+        // the cooldown since no message was actually delivered to the contact.
         const ghlChannel = ARBITRATION_TO_GHL_CHANNEL[channel];
         if (ghlChannel) {
           try {
@@ -247,6 +258,7 @@ export async function shouldSuppress(
                 eq(ghlActivityLog.contactId, contactId),
                 eq(ghlActivityLog.direction, "outbound"),
                 eq(ghlActivityLog.channel, ghlChannel),
+                eq(ghlActivityLog.status, "sent"),
                 gte(ghlActivityLog.createdAt, new Date(autoCutoff)),
               ))
               .orderBy(desc(ghlActivityLog.createdAt))
@@ -292,11 +304,15 @@ export async function shouldSuppress(
     if (config.replyPendingWindowHours > 0 && opts._logsForTest === undefined) {
       // Only run in production — test path uses _logsForTest to inject scenarios
       const replyWindowMs = config.replyPendingWindowHours * 60 * 60 * 1000;
+      // Query lookback must cover the full configured reply window, not just 48h.
+      // When admins set replyPendingWindowHours > 48, replies between 48h and the
+      // configured ceiling would be invisible and suppression would silently fail.
+      const replyLookback = new Date(now - Math.max(replyWindowMs, 48 * 60 * 60 * 1000));
       try {
         const recentLogs = await storage.getAuditLogs({
           entityType: "contact",
           entityId: contactId,
-          startDate: since48h,
+          startDate: replyLookback,
           limit: 200,
         });
         const replyCutoff = now - replyWindowMs;
@@ -306,9 +322,17 @@ export async function shouldSuppress(
         });
         if (inboundReply) {
           const replyTs = new Date(inboundReply.createdAt as Date | string).getTime();
+          // A "human response" includes:
+          //  • any log written with actorType="human" (SDR routes, human-handoff)
+          //  • any log written with actorType="admin"|"user" whose action is a known
+          //    manual-touch action (composer, logged email, call log, note) — dashboard
+          //    routes write actorType="user"/"admin", not "human".
           const humanResponseAfter = recentLogs.find((l: any) => {
             const ts = l.createdAt ? new Date(l.createdAt).getTime() : 0;
-            return ts > replyTs && l.actorType === "human";
+            return ts > replyTs && (
+              l.actorType === "human" ||
+              HUMAN_TOUCH_AUDIT_ACTIONS.has(l.action)
+            );
           });
           if (!humanResponseAfter) {
             return {
@@ -332,9 +356,14 @@ export async function shouldSuppress(
       });
       if (inboundReply) {
         const replyTs = new Date(inboundReply.createdAt).getTime();
+        // Same dual-criteria as the live path above — accept "human" actorType OR
+        // a known manual-touch action written by dashboard routes (actorType="user"/"admin").
         const humanResponseAfter = opts._logsForTest.find(l => {
           const ts = new Date(l.createdAt).getTime();
-          return ts > replyTs && l.actorType === "human";
+          return ts > replyTs && (
+            l.actorType === "human" ||
+            HUMAN_TOUCH_AUDIT_ACTIONS.has(l.action as string)
+          );
         });
         if (!humanResponseAfter) {
           return {

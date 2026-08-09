@@ -22,7 +22,7 @@ export async function runProposalFollowUpCheck(): Promise<{
 
   // ── Global-pause gate ────────────────────────────────────────────────────
   const globalPausedRaw = await storage.getSystemSetting("outboundGlobalPaused").catch(() => null);
-  if (globalPausedRaw) {
+  if (globalPausedRaw === true || globalPausedRaw === "true") {
     console.log("[ProposalFollowUpWorker] outboundGlobalPaused is set — skipping entire run");
     return { checked, resendsSent, skipped, suppressed, errors };
   }

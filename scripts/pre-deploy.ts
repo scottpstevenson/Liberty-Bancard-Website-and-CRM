@@ -40,6 +40,7 @@
  */
 
 import { spawnSync } from "child_process";
+import { readFileSync } from "fs";
 import { db } from "../server/db";
 import { systemSettings } from "../shared/schema";
 import { eq } from "drizzle-orm";
@@ -357,6 +358,52 @@ async function main() {
     process.exit(1);
   }
   console.log("  ✓ outboundGlobalPaused=true confirmed before suite run");
+
+  // ── 0b. Static scan: global-pause gates in fixed workers ──────────────────
+  // Verifies that both workers repaired in Task #1356 still contain the
+  // outboundGlobalPaused check so a future refactor can't silently remove it.
+  printSectionHeader("Static scan: outboundGlobalPaused in fixed workers");
+
+  const WORKER_PAUSE_CHECKS: Array<{ label: string; path: string }> = [
+    { label: "proposal-followup-worker.ts", path: "server/services/proposal-followup-worker.ts" },
+    { label: "onboarding-reminder.ts",      path: "server/services/onboarding-reminder.ts" },
+    { label: "sdr/orchestrator.ts",         path: "server/services/sdr/orchestrator.ts" },
+  ];
+
+  // Pattern: must read the setting AND compare with the normalized check.
+  // A bare `if (raw)` truthy test treats the string "false" as paused,
+  // permanently disabling the worker after a normal unpause.
+  // We require: raw === true || raw === "true"  (or equivalent token).
+  const NORMALIZED_PAUSE_PATTERN = /=== true|=== "true"|=== 'true'/;
+
+  let staticScanFailed = false;
+  for (const { label, path: workerPath } of WORKER_PAUSE_CHECKS) {
+    try {
+      const src = readFileSync(workerPath, "utf8");
+      const hasKey = src.includes("outboundGlobalPaused");
+      const hasNormalizedCheck = NORMALIZED_PAUSE_PATTERN.test(src);
+      if (!hasKey) {
+        console.error(`  ✗ KILL: ${label} — outboundGlobalPaused token MISSING`);
+        console.error(`    Every outbound worker must gate on the global pause key.`);
+        staticScanFailed = true;
+      } else if (!hasNormalizedCheck) {
+        console.error(`  ✗ KILL: ${label} — outboundGlobalPaused found but normalized comparison MISSING`);
+        console.error(`    Use: raw === true || raw === "true"  (not bare if (raw) which treats "false" as paused).`);
+        staticScanFailed = true;
+      } else {
+        console.log(`  ✓ ${label} — outboundGlobalPaused check with normalized comparison present`);
+      }
+    } catch (readErr: any) {
+      console.error(`  ✗ KILL: Could not read ${workerPath}: ${readErr?.message}`);
+      staticScanFailed = true;
+    }
+  }
+
+  if (staticScanFailed) {
+    console.error("\n  ✗ KILL: Static scan failed — fix outboundGlobalPaused checks before deploying.\n");
+    process.exit(1);
+  }
+  console.log("  ✓ All checked workers have correctly normalized outboundGlobalPaused gate");
 
   // ── 1. Server reachability check ───────────────────────────────────────────
   // Suites with requiresServer:true but skipWhenServerDown:false MUST run —
