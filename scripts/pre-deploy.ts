@@ -182,6 +182,11 @@ const MANDATORY_SUITES: Suite[] = [
     script: "scripts/test-channel-orchestrator.ts",
     timeoutSecs: 60,
   },
+  {
+    name: "NBA Engine (Wave 1B: 12 cases — lifecycle→action, DNC, pause, sequence collision, execute/dismiss, history, priority queue)",
+    script: "scripts/test-nba.ts",
+    timeoutSecs: 90,
+  },
   // ── Server-required suites (skipped when server absent; need live credentials) ─
   {
     name: "AI Assistant Boundaries (auth/role/schema/no-action)",

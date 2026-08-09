@@ -24,6 +24,7 @@ import {
   RefreshCw, CheckCircle2, AlertCircle, Linkedin, FolderOpen, Info,
   ChevronDown, ChevronUp, Brain, AlertOctagon, ShieldCheck, GitFork, Bot, MapPin, Store,
   FileSearch2, Merge, SendHorizonal, ClipboardList, BarChart2, UserCheck,
+  Zap, Clock, User,
 } from "lucide-react";
 import {
   labelForConfirmationStatus,
@@ -709,6 +710,177 @@ function ChurnRiskPanel({ contactId, isManagerOrAdmin }: { contactId: number; is
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+// ── Next Best Action Card ─────────────────────────────────────────────────────
+// Compact card shown above the tab section. Fetches NBA for the contact and
+// provides Execute / Dismiss actions. Non-intrusive: only renders when there is
+// an OPEN or BLOCKED recommendation.
+
+const NBA_URGENCY_STYLE: Record<string, string> = {
+  critical: "bg-red-100 text-red-800 border-red-200",
+  high:     "bg-orange-100 text-orange-800 border-orange-200",
+  normal:   "bg-blue-100 text-blue-800 border-blue-200",
+  low:      "bg-gray-100 text-gray-600 border-gray-200",
+};
+
+interface NbaData {
+  id: number;
+  contact_id?: number;
+  action_type: string;
+  channel: string | null;
+  owner_role: string | null;
+  due_at: string | null;
+  urgency: string;
+  reason_code: string;
+  explanation: string | null;
+  confidence: number | null;
+  human_required: boolean;
+  automation_eligible: boolean;
+  status: string;
+}
+
+function ContactNbaCard({ contactId }: { contactId: number }) {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+
+  const { data, isLoading } = useQuery<{ nba: NbaData | null }>({
+    queryKey: [`/api/contacts/${contactId}/nba`],
+    refetchInterval: 60_000,
+  });
+
+  const executeMutation = useMutation({
+    mutationFn: () => apiRequest("POST", `/api/contacts/${contactId}/nba/execute`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [`/api/contacts/${contactId}/nba`] });
+      toast({ title: "Action marked as done — next recommendation will compute shortly." });
+    },
+  });
+
+  const dismissMutation = useMutation({
+    mutationFn: () => apiRequest("POST", `/api/contacts/${contactId}/nba/dismiss`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [`/api/contacts/${contactId}/nba`] });
+      toast({ title: "Recommendation dismissed." });
+    },
+  });
+
+  if (isLoading || !data?.nba) return null;
+  const nba = data.nba;
+
+  // Only show OPEN or BLOCKED (BLOCKED still informs the rep)
+  if (!["OPEN", "BLOCKED"].includes(nba.status)) return null;
+
+  const urgencyStyle = NBA_URGENCY_STYLE[nba.urgency] ?? NBA_URGENCY_STYLE.normal;
+  const isBlocked = nba.status === "BLOCKED";
+  const isOverdue = nba.due_at ? new Date(nba.due_at) < new Date() : false;
+
+  const dueSuffix = (() => {
+    if (!nba.due_at) return null;
+    const d = new Date(nba.due_at);
+    const diffH = Math.round((d.getTime() - Date.now()) / 3_600_000);
+    if (diffH < 0) return `${Math.abs(diffH)}h overdue`;
+    if (diffH < 24) return `due in ${diffH}h`;
+    return `due in ${Math.round(diffH / 24)}d`;
+  })();
+
+  return (
+    <Card
+      className={`border ${isOverdue && !isBlocked ? "border-orange-300 bg-orange-50/40 dark:bg-orange-950/20" : isBlocked ? "border-gray-200 bg-gray-50/60 dark:bg-gray-900/30" : "border-primary/20 bg-primary/5"}`}
+      data-testid="card-nba"
+    >
+      <CardContent className="py-3 px-4">
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* Icon + label */}
+          <div className={`p-1.5 rounded-md border ${urgencyStyle}`}>
+            <Zap className="h-3.5 w-3.5" />
+          </div>
+
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-sm font-semibold">
+                {nba.action_type.replace(/_/g, " ")}
+              </span>
+              <Badge variant="outline" className={`text-xs ${urgencyStyle}`}>
+                {nba.urgency}
+              </Badge>
+              {nba.human_required && (
+                <Badge variant="outline" className="text-xs text-orange-700 border-orange-300">
+                  Human required
+                </Badge>
+              )}
+              {isBlocked && (
+                <Badge variant="outline" className="text-xs text-gray-500 border-gray-300">
+                  Blocked
+                </Badge>
+              )}
+              {isOverdue && !isBlocked && (
+                <Badge variant="outline" className="text-xs text-red-700 border-red-300">
+                  Overdue
+                </Badge>
+              )}
+            </div>
+
+            <div className="flex items-center gap-3 mt-0.5 text-xs text-muted-foreground flex-wrap">
+              {nba.channel && (
+                <span className="flex items-center gap-1">
+                  <Mail className="h-3 w-3" />
+                  {nba.channel.replace(/_/g, " ")}
+                </span>
+              )}
+              {nba.owner_role && (
+                <span className="flex items-center gap-1">
+                  <User className="h-3 w-3" />
+                  {nba.owner_role}
+                </span>
+              )}
+              {dueSuffix && (
+                <span className="flex items-center gap-1">
+                  <Clock className="h-3 w-3" />
+                  {dueSuffix}
+                </span>
+              )}
+              <span className="text-[11px] text-muted-foreground/70 italic">
+                {nba.reason_code.replace(/_/g, " ")}
+              </span>
+            </div>
+
+            {nba.explanation && (
+              <p className="mt-1 text-xs text-muted-foreground italic line-clamp-1">
+                {nba.explanation}
+              </p>
+            )}
+          </div>
+
+          {/* Actions — only for OPEN recommendations */}
+          {!isBlocked && (
+            <div className="flex gap-2 shrink-0">
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs"
+                onClick={() => executeMutation.mutate()}
+                disabled={executeMutation.isPending}
+                data-testid="button-nba-execute"
+              >
+                {executeMutation.isPending ? <RefreshCw className="h-3 w-3 animate-spin" /> : "Done"}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 text-xs text-muted-foreground"
+                onClick={() => dismissMutation.mutate()}
+                disabled={dismissMutation.isPending}
+                data-testid="button-nba-dismiss"
+              >
+                Dismiss
+              </Button>
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -1823,6 +1995,9 @@ export default function ContactDetail() {
           <span className="text-[10px] font-medium">AI</span>
         </button>
       </div>
+
+      {/* Next Best Action Card */}
+      <ContactNbaCard contactId={contactId} />
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} data-testid="contact-tabs">
