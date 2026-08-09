@@ -3891,4 +3891,107 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // ── GET /api/admin/lead-queue-stats ───────────────────────────────────────
+  // Returns pipeline health metrics for the Speed-to-Lead dashboard widget.
+  // Fields:
+  //   leadsCreatedToday         — contacts created since midnight UTC
+  //   medianMinutesToFirstNba   — median(nba.generated_at - contact.created_at) for today's leads
+  //   overdueHighScoreCount     — contacts with next_sla_due_at < NOW() and score >= threshold
+  //   overdueLeads              — top 25 overdue leads (details for the table)
+  //   stalledLeadsCount         — high-score contacts (last 24h) with no NBA row yet
+  //   threshold                 — current LEAD_SLA_SCORE_THRESHOLD env value
+  //   slaMins                   — current LEAD_SLA_MINUTES env value
+  app.get("/api/admin/lead-queue-stats", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const { pool: pgPool } = await import("../db");
+      const threshold = parseInt(process.env.LEAD_SLA_SCORE_THRESHOLD ?? "40", 10);
+      const slaMins = parseInt(process.env.LEAD_SLA_MINUTES ?? "60", 10);
+
+      // Leads created since midnight UTC today
+      const todayCountResult = await pgPool.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count
+         FROM contacts
+         WHERE created_at >= CURRENT_DATE
+           AND archived_at IS NULL`,
+      );
+      const leadsCreatedToday = parseInt(todayCountResult.rows[0]?.count ?? "0", 10);
+
+      // Median minutes from contact creation to first NBA generation (today's leads only)
+      const medianResult = await pgPool.query<{ median_mins: string | null }>(
+        `SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (
+           ORDER BY EXTRACT(EPOCH FROM (n.generated_at - c.created_at)) / 60
+         ) AS median_mins
+         FROM contact_nba n
+         JOIN contacts c ON c.id = n.contact_id
+         WHERE c.created_at >= CURRENT_DATE
+           AND c.archived_at IS NULL
+           AND n.generated_at IS NOT NULL`,
+      );
+      const medianMinutesToFirstNba =
+        medianResult.rows[0]?.median_mins !== null &&
+        medianResult.rows[0]?.median_mins !== undefined
+          ? Math.round(parseFloat(medianResult.rows[0].median_mins))
+          : null;
+
+      // Overdue high-score leads (next_sla_due_at < NOW())
+      const overdueResult = await pgPool.query<{
+        id: string;
+        first_name: string;
+        last_name: string;
+        email: string;
+        lead_score: string;
+        assigned_to: string | null;
+        next_sla_due_at: string;
+      }>(
+        `SELECT id, first_name, last_name, email, lead_score, assigned_to, next_sla_due_at
+         FROM contacts
+         WHERE next_sla_due_at IS NOT NULL
+           AND next_sla_due_at < NOW()
+           AND lead_score >= $1
+           AND archived_at IS NULL
+         ORDER BY next_sla_due_at ASC
+         LIMIT 25`,
+        [threshold],
+      );
+      const overdueHighScoreCount = overdueResult.rows.length;
+      const overdueLeads = overdueResult.rows.map((r) => ({
+        contactId: parseInt(r.id, 10),
+        name: [r.first_name, r.last_name].filter(Boolean).join(" "),
+        email: r.email,
+        leadScore: parseInt(r.lead_score, 10),
+        assignedTo: r.assigned_to,
+        slaDueAt: r.next_sla_due_at,
+        minutesOverdue: Math.round(
+          (Date.now() - new Date(r.next_sla_due_at).getTime()) / 60000,
+        ),
+      }));
+
+      // Stalled: high-score leads created in last 24h with no NBA row
+      const stalledResult = await pgPool.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count
+         FROM contacts c
+         LEFT JOIN contact_nba n ON n.contact_id = c.id
+         WHERE c.created_at >= NOW() - INTERVAL '24 hours'
+           AND c.lead_score >= $1
+           AND c.archived_at IS NULL
+           AND n.id IS NULL`,
+        [threshold],
+      );
+      const stalledLeadsCount = parseInt(stalledResult.rows[0]?.count ?? "0", 10);
+
+      res.json({
+        leadsCreatedToday,
+        medianMinutesToFirstNba,
+        overdueHighScoreCount,
+        overdueLeads,
+        stalledLeadsCount,
+        threshold,
+        slaMins,
+        asOf: new Date().toISOString(),
+      });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
 }

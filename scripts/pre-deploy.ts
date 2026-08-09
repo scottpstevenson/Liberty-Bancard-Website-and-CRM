@@ -98,6 +98,11 @@ const MANDATORY_SUITES: Suite[] = [
     timeoutSecs: 60,
   },
   {
+    name: "Speed-to-Lead Pipeline (score → lifecycle → NBA → SLA timer within 60s)",
+    script: "scripts/test-speed-to-lead.ts",
+    timeoutSecs: 90,
+  },
+  {
     name: "Transport Dispatch (Gmail/SMTP/GHL routing + unsubscribe URL)",
     script: "scripts/test-transport-dispatch.ts",
     timeoutSecs: 120,

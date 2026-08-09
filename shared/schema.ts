@@ -193,6 +193,11 @@ export const contacts = pgTable("contacts", {
   // Valid values: see LIFECYCLE_STATES in server/services/lifecycle-service.ts
   lifecycleState: text("lifecycle_state").notNull().default("PROSPECT"),
   lifecycleStateUpdatedAt: timestamp("lifecycle_state_updated_at"),
+  // ── Lead freshness SLA ────────────────────────────────────────────────────
+  // Set by processNewLead() for high-score leads (score >= LEAD_SLA_SCORE_THRESHOLD).
+  // The SLA worker checks this every 5 minutes and escalates when past-due
+  // with no human touch. NULL = not yet set or already resolved.
+  nextSlaDueAt: timestamp("next_sla_due_at"),
 }, (table) => [
   uniqueIndex("contacts_email_unique_idx").on(table.email).where(sql`archived_at IS NULL`),
   index("contacts_phone_idx").on(table.phone),

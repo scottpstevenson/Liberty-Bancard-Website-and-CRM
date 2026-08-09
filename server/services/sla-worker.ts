@@ -1,8 +1,9 @@
 import { storage } from "../storage";
 import { normalizeTaskCompletionState } from "./task-normalization";
 import { db } from "../db";
-import { tasks } from "@shared/schema";
-import { isNull, inArray, eq, or, and, sql as drizzleSql } from "drizzle-orm";
+import { tasks, contacts } from "@shared/schema";
+import { isNull, isNotNull, inArray, eq, or, and, lt, gte, sql as drizzleSql } from "drizzle-orm";
+import { LEAD_SLA_SCORE_THRESHOLD, LEAD_SLA_MINUTES } from "./process-new-lead";
 import { sendGhlEmail, isGhlConfigured, createGhlTask } from "./ghl";
 import { getEmailSignatureHtml } from "./email-signatures";
 import { advanceDealStage } from "./deal-stage-service";
@@ -442,6 +443,126 @@ const FULL_LOOP_STAGE_PROGRESSION_EVERY_N = 12;
  * Runs every check the legacy setInterval did EXCEPT those that have their
  * own dedicated BullMQ queues (enrichment, sequences, digests, mid-ingestion).
  */
+/**
+ * checkLeadFreshnessSla — escalates high-score leads whose SLA timer expired.
+ *
+ * Fired every SLA_CHECKS tick (prod: every 5 min, dev: every 15 min).
+ * Creates one task + notification per overdue lead, throttled by a 6-hour
+ * collapse window so re-scans don't create duplicate alerts.
+ */
+async function checkLeadFreshnessSla(): Promise<{ escalated: number }> {
+  let escalated = 0;
+  const now = new Date();
+  const FRESHNESS_THROTTLE_HOURS = 6;
+
+  try {
+    // Find all contacts with an expired SLA timer and sufficient lead score
+    const overdueContacts = await db
+      .select({
+        id: contacts.id,
+        firstName: contacts.firstName,
+        lastName: contacts.lastName,
+        email: contacts.email,
+        leadScore: contacts.leadScore,
+        assignedTo: contacts.assignedTo,
+        nextSlaDueAt: contacts.nextSlaDueAt,
+      })
+      .from(contacts)
+      .where(
+        and(
+          isNotNull(contacts.nextSlaDueAt),
+          lt(contacts.nextSlaDueAt, now),
+          gte(contacts.leadScore, LEAD_SLA_SCORE_THRESHOLD),
+          isNull(contacts.archivedAt),
+        ),
+      )
+      .limit(50); // cap per cycle to avoid thundering herd on backlog
+
+    for (const contact of overdueContacts) {
+      try {
+        // Throttle: skip if we already escalated within the collapse window
+        const alreadyEscalated = await findRecentBreachAudit(
+          "contact",
+          contact.id,
+          "lead_freshness_sla_breach",
+          FRESHNESS_THROTTLE_HOURS,
+        );
+        if (alreadyEscalated) continue;
+
+        const minutesOverdue = Math.round(
+          (now.getTime() - (contact.nextSlaDueAt?.getTime() ?? now.getTime())) / 60000,
+        );
+        const contactName =
+          [contact.firstName, contact.lastName].filter(Boolean).join(" ") || contact.email;
+        const assignee = contact.assignedTo || "Scott Stevenson";
+
+        // Create in-app task for the assigned rep
+        await storage.createTask({
+          contactId: contact.id,
+          title: `Speed-to-Lead SLA Breach: ${contactName} overdue ${minutesOverdue}m`,
+          assignedTo: assignee,
+          priority: "high",
+          dueDate: new Date(Date.now() + 30 * 60 * 1000), // due in 30 min
+          source: "sla",
+          automationKey: `lead-freshness-sla-${contact.id}`,
+        });
+
+        // Internal notification
+        await createPreferenceAwareNotification({
+          channel: "internal",
+          title: "Speed-to-Lead SLA Breach",
+          message: `High-score lead ${contactName} (score ${contact.leadScore}) has not been contacted within ${LEAD_SLA_MINUTES} minutes. Assigned to: ${assignee}`,
+          type: "urgent",
+          metadata: {
+            contactId: contact.id,
+            leadScore: contact.leadScore,
+            minutesOverdue,
+            eventType: "lead_freshness_sla_breach",
+          },
+        }, "lead_freshness_sla_breach");
+
+        // Audit log (also serves as the throttle sentinel)
+        await storage.createAuditLog({
+          action: "lead_freshness_sla_breach",
+          entityType: "contact",
+          entityId: contact.id,
+          actorType: "system",
+          details: {
+            contactName,
+            leadScore: contact.leadScore,
+            minutesOverdue,
+            assignedTo: assignee,
+            nextSlaDueAt: contact.nextSlaDueAt?.toISOString(),
+          },
+        });
+
+        // Email escalation (non-critical — fire-and-forget)
+        sendCriticalEmailNotification({
+          eventType: "lead_freshness_sla_breach",
+          subject: `Speed-to-Lead SLA Breach: ${contactName} — ${minutesOverdue}m overdue`,
+          body: `<h3>Lead Freshness SLA Breach</h3>
+<p>High-score lead <strong>${contactName}</strong> (score: ${contact.leadScore}) has not received a human touch within the required <strong>${LEAD_SLA_MINUTES} minutes</strong>.</p>
+<p>Now <strong>${minutesOverdue} minutes overdue</strong>.</p>
+<p>Assigned to: ${assignee}</p>
+<p>Please reach out immediately at <a href="/dashboard/contacts/${contact.id}">/dashboard/contacts/${contact.id}</a></p>`,
+          ownerName: contact.assignedTo,
+        }).catch(err => console.error("[LeadFreshnessSla] Email error:", err));
+
+        escalated++;
+        console.log(
+          `[LeadFreshnessSla] Escalated #${contact.id} ${contactName} — score=${contact.leadScore} overdue=${minutesOverdue}m`,
+        );
+      } catch (err: any) {
+        console.error(`[LeadFreshnessSla] Error escalating contact #${contact.id}:`, err.message);
+      }
+    }
+  } catch (err: any) {
+    console.error("[LeadFreshnessSla] Query error:", err.message);
+  }
+
+  return { escalated };
+}
+
 export async function runFullSlaLoop(): Promise<void> {
   try {
     await runSlaCheck();
@@ -503,6 +624,15 @@ export async function runFullSlaLoop(): Promise<void> {
     await checkAbTestWinners();
   } catch (err) {
     console.error("[SlaLoop] checkAbTestWinners error:", err);
+  }
+
+  try {
+    const result = await checkLeadFreshnessSla();
+    if (result.escalated > 0) {
+      console.log(`[SlaLoop:LeadFreshnessSla] Escalated ${result.escalated} overdue high-score leads`);
+    }
+  } catch (err) {
+    console.error("[SlaLoop] checkLeadFreshnessSla error:", err);
   }
 
   try {

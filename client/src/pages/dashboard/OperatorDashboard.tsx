@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/sheet";
 import StatementChainPanel from "@/components/operator/StatementChainPanel";
 import { ALeadQueue } from "./sdr/ALeadQueue";
+import { LeadQueuePanel } from "@/components/dashboard/LeadQueuePanel";
 import { ProcessorIntelligence } from "./sdr/ProcessorIntelligence";
 import LaunchReadinessPage from "./LaunchReadiness";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, PieChart, Pie, Cell, Legend, LineChart, Line } from "recharts";
@@ -2689,6 +2690,7 @@ const OPERATOR_NAV_GROUPS: OperatorNavGroup[] = [
       { value: "lifecycle", label: "Lifecycle", icon: Users },
       { value: "conversion", label: "Conversion", icon: TrendingUp },
       { value: "stuck-leads", label: "Stuck Leads", icon: AlertTriangle },
+      { value: "lead-queue-health", label: "Speed to Lead", icon: Clock },
       { value: "stage-health", label: "Stage Health", icon: Activity },
       { value: "vertical-coverage", label: "Vertical Coverage", icon: BarChart3 },
       { value: "statement-upload", label: "Statement Upload", icon: Upload },
@@ -2787,6 +2789,8 @@ function renderOperatorView(view: string, onNavigate: (v: string) => void) {
       return <VerticalCoveragePanel />;
     case "statement-upload":
       return <StatementUploadFailuresPanel />;
+    case "lead-queue-health":
+      return <LeadQueuePanel />;
     case "a-lead-queue":
       return <ALeadQueue />;
     case "sdr":
