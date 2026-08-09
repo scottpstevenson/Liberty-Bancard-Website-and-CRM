@@ -391,22 +391,28 @@ class QueueManager {
     await this.setupWorkers();
     await this.setupRepeatableJobs();
 
-    // Log total queue+worker count and warn if approaching Upstash connection cap
+    // Log total queue+worker count and warn if approaching Upstash connection cap.
+    // Connection math (shared-client architecture):
+    //   • 1 shared IORedis instance for all Queue non-blocking ops
+    //   • 1 blocking duplicate per Worker (internal BullMQ .duplicate() — unavoidable)
+    //   Total ≈ 1 + queueCount.  Use diagnoseRedisCapacity() for the full breakdown.
     const activeConfigs = this.activeConfigs();
-    // Each queue and its worker each hold one Redis connection; total = queues + workers
-    const totalConnections = activeConfigs.length * 2;
+    const { diagnoseRedisCapacity } = await import("./queue-connection");
+    const capacity = diagnoseRedisCapacity(activeConfigs.length);
+    const totalConnections = capacity.estimatedBullMqConnections;
     const REDIS_CONNECTION_WARN_THRESHOLD =
       parseInt(process.env.REDIS_CONNECTION_WARN_THRESHOLD ?? "18", 10) || 18;
     console.log(
       `[QueueManager] All queues and workers initialized (${activeConfigs.length} queues, ~${totalConnections} Redis connections). ` +
       `Sequences repeat interval: ${SEQUENCES_REPEAT_EVERY_MS / 1000}s` +
-      (IS_DEV ? " (dev override)" : process.env.SEQUENCES_REPEAT_EVERY_MS ? " (SEQUENCES_REPEAT_EVERY_MS env var)" : " (default)")
+      (IS_DEV ? " (dev override)" : process.env.SEQUENCES_REPEAT_EVERY_MS ? " (SEQUENCES_REPEAT_EVERY_MS env var)" : " (default)") + ". " +
+      capacity.recommendation
     );
     if (totalConnections >= REDIS_CONNECTION_WARN_THRESHOLD) {
       console.warn(
         `[QueueManager] ⚠️  Redis connection headroom warning: ~${totalConnections} connections in use ` +
-        `(threshold=${REDIS_CONNECTION_WARN_THRESHOLD}, Upstash cap=20). ` +
-        `Consider increasing REDIS_CONNECTION_WARN_THRESHOLD or reducing queue count.`
+        `(threshold=${REDIS_CONNECTION_WARN_THRESHOLD}, cap=${capacity.upstashFreeTierMax}). ` +
+        `Set REDIS_CONNECTION_WARN_THRESHOLD env var to adjust.`
       );
     }
 

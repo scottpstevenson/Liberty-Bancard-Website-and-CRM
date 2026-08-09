@@ -1833,10 +1833,6 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
     await releaseJobLock(JOB_NAMES.SEQUENCE_WORKER, false, err?.message ?? String(err), lockToken);
   }
 
-  if (processed > 0 || errors > 0) {
-    console.log(`Sequence worker: ${processed} processed, ${errors} errors`);
-  }
-
   // Record runtime metrics to system_settings for health monitor + queue-metrics endpoint
   const _runDurationMs = Date.now() - _runStartMs;
   try {
@@ -1856,13 +1852,19 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
     } catch (_countErr) {
       // Non-fatal
     }
-    await storage.setSystemSetting("sequence_worker_last_run", {
+    const runMetrics = {
       duration_ms: _runDurationMs,
       enrollments_processed: processed,
       enrollments_due_total: enrollmentsDueTotal,
       errors,
       ran_at: new Date().toISOString(),
-    });
+    };
+    await storage.setSystemSetting("sequence_worker_last_run", runMetrics);
+    // Structured log line — consumed by log aggregators and the admin health panel
+    console.log(JSON.stringify({
+      event: "sequence_worker_run_complete",
+      ...runMetrics,
+    }));
   } catch (_metricsErr: any) {
     console.warn("[SequenceWorker] Failed to record run metrics:", _metricsErr?.message);
   }

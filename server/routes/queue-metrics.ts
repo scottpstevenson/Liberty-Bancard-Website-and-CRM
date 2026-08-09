@@ -6,6 +6,7 @@ import { serverError } from "../utils/server-error";
 import { storage } from "../storage";
 import { db } from "../db";
 import { sql } from "drizzle-orm";
+import { diagnoseRedisCapacity } from "../services/queue-connection";
 
 const DLQ_ALERT_WARN = 5;
 const DLQ_ALERT_ERROR = 20;
@@ -73,12 +74,17 @@ export function registerQueueMetricsRoutes(app: Express) {
         }
       } catch (_e) {}
 
+      // Redis capacity diagnosis (uses shared-client architecture estimate)
+      const activeQueueCount = Object.keys(metrics).length;
+      const redisCapacity = diagnoseRedisCapacity(activeQueueCount);
+
       res.json({
         ...metrics,
         sequenceBacklog,
         sequenceOldestDueMs,
         sequenceLastRunMs,
         redisConnectionCount,
+        redisCapacity,
       });
     } catch (err: any) {
       serverError(res, err);

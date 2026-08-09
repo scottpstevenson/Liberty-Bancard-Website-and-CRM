@@ -282,6 +282,52 @@ async function run(): Promise<void> {
     process.exit(1);
   }
 
+  // ── 6. Queue-metrics assertions ────────────────────────────────────────────
+  // Assert sequenceBacklog is readable and redisConnectionCount is present.
+  // These feed the admin health panel and are required for operational visibility.
+  console.log("--- Queue Metrics Gate ---");
+  try {
+    const qmRes = await fetch(`${BASE_URL}/api/operator/queue-metrics`, {
+      headers: { cookie: adminCookie },
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!qmRes.ok) {
+      console.error(`✗ /api/operator/queue-metrics returned ${qmRes.status}`);
+      process.exit(1);
+    }
+    const qmData: any = await qmRes.json();
+
+    // sequenceBacklog must be a readable number (may be 0)
+    if (typeof qmData.sequenceBacklog !== "number") {
+      console.error(
+        `✗ sequenceBacklog is not a number in queue-metrics response (got ${typeof qmData.sequenceBacklog}: ${JSON.stringify(qmData.sequenceBacklog)})`
+      );
+      process.exit(1);
+    }
+    console.log(`✓ sequenceBacklog readable: ${qmData.sequenceBacklog} enrollments due`);
+
+    // redisConnectionCount must be present (may be null when Redis is unavailable, but key must exist)
+    if (!("redisConnectionCount" in qmData)) {
+      console.error("✗ redisConnectionCount field is absent from queue-metrics response");
+      process.exit(1);
+    }
+    const connCount = qmData.redisConnectionCount;
+    if (connCount !== null && typeof connCount !== "number") {
+      console.error(
+        `✗ redisConnectionCount has unexpected type (got ${typeof connCount}: ${JSON.stringify(connCount)})`
+      );
+      process.exit(1);
+    }
+    console.log(`✓ redisConnectionCount present: ${connCount === null ? "null (Redis unavailable)" : connCount + " connections"}`);
+
+    if (qmData.sequenceLastRunMs !== undefined && qmData.sequenceLastRunMs !== null) {
+      console.log(`✓ sequenceLastRunMs: ${Math.round(qmData.sequenceLastRunMs / 1000)}s last run duration`);
+    }
+  } catch (qmErr: any) {
+    console.error(`✗ Queue-metrics assertion failed: ${qmErr?.message ?? qmErr}`);
+    process.exit(1);
+  }
+
   console.log("✅  All critical checks passed.\n");
   process.exit(0);
 }

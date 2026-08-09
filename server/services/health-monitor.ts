@@ -198,9 +198,17 @@ async function checkSequenceWorker(): Promise<CheckResult> {
       };
     }
 
+    const enrollmentsDueTotal = typeof (runData as any).enrollments_due_total === "number"
+      ? (runData as any).enrollments_due_total
+      : null;
+
     return {
       status: "ok",
-      message: `Last run ${Math.round(ageMs / 1000)}s ago, duration ${durationMs !== null ? Math.round(durationMs / 1000) + "s" : "unknown"}`,
+      message: [
+        `Last run ${Math.round(ageMs / 1000)}s ago`,
+        `duration ${durationMs !== null ? Math.round(durationMs / 1000) + "s" : "unknown"}`,
+        enrollmentsDueTotal !== null ? `backlog_after=${enrollmentsDueTotal}` : null,
+      ].filter(Boolean).join(", "),
       latencyMs,
     };
   } catch (err: any) {
