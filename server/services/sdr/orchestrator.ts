@@ -7,7 +7,8 @@ import { eq, lte, and, isNull, sql } from "drizzle-orm";
 import { scoreLeadFull, getLeadProcessorData, getLeadGrowthData } from "./scoring";
 import { getProcessorSignals, getProcessorTemplate } from "./processor-detector";
 import { decideNextAction, getAllowedTransitions } from "./stage-rules";
-import { sendGhlEmail, sendGhlSms, isGhlConfigured } from "../ghl";
+import { isGhlConfigured } from "../ghl";
+// sendGhlEmail / sendGhlSms routed through ChannelOrchestrator (Wave 1A) — see below.
 import { resolveVoiceScriptForLead, buildGhlVoicePayload } from "./voice-orchestrator";
 import { selectBestInbox, recordSend, rollbackSend, recordBounce, recordDelivered } from "./inbox-rotation";
 import { tagContactForInboxOrganization } from "../ghl-workflow-enrollment";
@@ -738,13 +739,16 @@ async function executeEmailAction(lead: SdrLeadState, strongerCta?: boolean): Pr
   }
 
   try {
-    const result = await sendGhlEmail({
-      contactId: lead.contactId,
-      subject,
-      body,
-      fromEmail: selectedInbox.emailAddress,
-      fromName: selectedInbox.label,
-    });
+    // Route through ChannelOrchestrator (Wave 1A).
+    // Full compliance fence runs: global pause → arbitration → contactability
+    // → DNC → consent → quiet hours → frequency cap → lifecycle.
+    // The SDR orchestrator's own arbitration check (above) is supplementary;
+    // the orchestrator is the authoritative compliance gate.
+    const { channelOrchestrator } = await import("../transports/index");
+    const result = await channelOrchestrator.sendEmail(
+      { contactId: lead.contactId, subject, body, fromEmail: selectedInbox.emailAddress, fromName: selectedInbox.label },
+      { skipContactabilityCheck: false },
+    );
 
     await logChannelAttempt({
       leadStateId: lead.id,
@@ -926,10 +930,14 @@ async function executeSmsAction(lead: SdrLeadState): Promise<boolean> {
   }
 
   try {
-    const result = await sendGhlSms({
-      contactId: lead.contactId,
-      body,
-    });
+    // Route through ChannelOrchestrator (Wave 1A).
+    // Full compliance fence runs: global pause → arbitration → contactability
+    // → DNC → consent → quiet hours → frequency cap → lifecycle.
+    const { channelOrchestrator: smsOrch } = await import("../transports/index");
+    const result = await smsOrch.sendSms(
+      { contactId: lead.contactId, body },
+      { skipContactabilityCheck: false },
+    );
 
     await logChannelAttempt({
       leadStateId: lead.id,

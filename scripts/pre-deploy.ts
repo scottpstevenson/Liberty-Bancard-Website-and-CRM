@@ -177,6 +177,11 @@ const MANDATORY_SUITES: Suite[] = [
     script: "scripts/test-statement-acquisition.ts",
     timeoutSecs: 60,
   },
+  {
+    name: "Channel Orchestrator (Wave 1A: transport interfaces, global-pause fence, deal-stage authority guard)",
+    script: "scripts/test-channel-orchestrator.ts",
+    timeoutSecs: 60,
+  },
   // ── Server-required suites (skipped when server absent; need live credentials) ─
   {
     name: "AI Assistant Boundaries (auth/role/schema/no-action)",

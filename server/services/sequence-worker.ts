@@ -1,5 +1,7 @@
 import { storage } from "../storage";
-import { sendGhlEmail, sendGhlSms, isGhlConfigured } from "./ghl";
+import { isGhlConfigured } from "./ghl";
+// sendGhlEmail / sendGhlSms are now invoked via ChannelOrchestrator transport adapters (Wave 1A).
+// Do not re-import them here — use channelOrchestrator.sendEmail / sendSms instead.
 import { getEmailSignatureHtml, getComplianceFooterHtml, isColdOutreachSequence } from "./email-signatures";
 import type { SignatureType } from "./sender-policy";
 import { sanitizeFirstName } from "./contact-name-utils";
@@ -1268,15 +1270,21 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
                     if (!result.success) throw new Error(result.error || "SMTP redirect send failed");
                     await markSendSent({ idempotencyKey: emailIdemKey, providerMessageId: result.messageId, fromAddress: fromEmail });
                   } else {
-                    const ghlResult = await sendGhlEmail({
-                      contactId: enrollment.contactId,
-                      subject: deliverySubject,
-                      body: emailBody,
-                      fromEmail,
-                      fromName,
-                      replyTo,
-                    }) as any;
-                    await markSendSent({ idempotencyKey: emailIdemKey, providerMessageId: ghlResult?.messageId, fromAddress: fromEmail });
+                    // Route through ChannelOrchestrator (Wave 1A): Liberty decides →
+                    // Orchestrator routes → GhlEmailTransport executes → event returns.
+                    // skipContactabilityCheck=true: the sequence-worker already ran its own
+                    // full compliance fence above; the orchestrator adds global-pause protection.
+                    const { channelOrchestrator } = await import("./transports/index");
+                    const orchEmailResult = await channelOrchestrator.sendEmail(
+                      { contactId: enrollment.contactId, subject: deliverySubject, body: emailBody, fromEmail, fromName, replyTo },
+                      { skipContactabilityCheck: true },
+                    );
+                    if (!orchEmailResult.success) {
+                      throw new Error(
+                        orchEmailResult.error ?? orchEmailResult.skipReason ?? "Email send blocked by channel orchestrator",
+                      );
+                    }
+                    await markSendSent({ idempotencyKey: emailIdemKey, providerMessageId: orchEmailResult.messageId, fromAddress: fromEmail });
                   }
                 }
                 stepExecuted = true;
@@ -1472,11 +1480,19 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
 
             if (isGhlConfigured() && enrollment.contactId) {
               try {
-                const ghlSmsResult = await sendGhlSms({
-                  contactId: enrollment.contactId,
-                  body: interpolate(bodyToSend),
-                }) as any;
-                await markSendSent({ idempotencyKey: smsIdemKey, providerMessageId: ghlSmsResult?.messageId, fromAddress: "ghl_sms" });
+                // Route through ChannelOrchestrator (Wave 1A).
+                // skipContactabilityCheck=true: sequence-worker already ran its own fence.
+                const { channelOrchestrator: smsOrch } = await import("./transports/index");
+                const orchSmsResult = await smsOrch.sendSms(
+                  { contactId: enrollment.contactId, body: interpolate(bodyToSend) },
+                  { skipContactabilityCheck: true },
+                );
+                if (!orchSmsResult.success) {
+                  throw new Error(
+                    orchSmsResult.error ?? orchSmsResult.skipReason ?? "SMS send blocked by channel orchestrator",
+                  );
+                }
+                await markSendSent({ idempotencyKey: smsIdemKey, providerMessageId: orchSmsResult.messageId, fromAddress: "ghl_sms" });
                 stepExecuted = true;
               } catch (smsErr) {
                 console.error(`Sequence SMS failed for enrollment ${enrollment.id}:`, smsErr);

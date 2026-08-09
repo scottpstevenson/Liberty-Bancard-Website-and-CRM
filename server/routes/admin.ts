@@ -3461,7 +3461,7 @@ export function registerAdminRoutes(app: Express) {
           }
         }
       } catch {}
-      checks.push({ name: "sequenceWorker", status: seqStatus, detail: seqDetail, critical: false });
+      checks.push({ name: "sequenceWorker", status: seqStatus, detail: seqDetail, critical: true });
 
       // 3. slaWorker
       let slaStatus: "ok" | "error" | "stale" = "error";
@@ -3590,7 +3590,7 @@ export function registerAdminRoutes(app: Express) {
       } catch {}
       checks.push({ name: "outboundPause", status: pauseStatus, detail: pauseDetail, critical: false });
 
-      const CRITICAL_NAMES = ["db", "redis", "ai", "kpiQuery"];
+      const CRITICAL_NAMES = ["db", "sequenceWorker", "redis", "ai", "kpiQuery"];
       const criticalChecks = checks.filter(c => c.critical);
       const allCriticalOk = criticalChecks.every(c => c.status === "ok");
       const overallOk = allCriticalOk;

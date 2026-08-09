@@ -1097,8 +1097,32 @@ export async function syncDealFromGhl(ghlOpportunity: any): Promise<{ dealId: nu
         }
       }
 
-      if (!stageBlocked && localStage) {
+      // Wave 1A: Liberty is the system-of-record for deal stages.
+      // GHL opportunity stage changes must NOT overwrite Liberty deal stages except in
+      // explicit admin-override scenarios (GHL_DEAL_STAGE_AUTHORITY=ghl env var).
+      // Default: "liberty" — inbound GHL stage writes are dropped with a log.
+      const dealStageAuthority = (process.env.GHL_DEAL_STAGE_AUTHORITY ?? "liberty").toLowerCase();
+      const ghlCanWriteDealStage = dealStageAuthority === "ghl";
+
+      if (!stageBlocked && localStage && ghlCanWriteDealStage) {
         updatePayload.stage = localStage;
+      } else if (!stageBlocked && localStage && !ghlCanWriteDealStage) {
+        // Liberty owns deal stages — log the drop for observability but do not apply
+        console.log(
+          `[GHL Sync] Deal #${existingDeal.id} stage write blocked: GHL wants "${localStage}" but Liberty is system-of-record. ` +
+          `Set GHL_DEAL_STAGE_AUTHORITY=ghl to allow GHL to overwrite deal stages.`,
+        );
+        await storage.createAuditLog({
+          action: "ghl_sync_deal_stage_blocked",
+          entityType: "deal",
+          entityId: existingDeal.id,
+          details: {
+            attemptedStage: localStage,
+            currentStage: existingDeal.stage,
+            ghlOpportunityId: ghlOpportunity.id,
+            reason: "liberty_is_deal_stage_authority",
+          },
+        }).catch(() => {});
       }
 
       if (Object.keys(updatePayload).length > 0) {

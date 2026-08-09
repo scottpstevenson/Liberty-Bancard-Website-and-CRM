@@ -35,6 +35,8 @@ export interface HealthReport {
     sequenceWorker: CheckResult;
     slaWorker: CheckResult;
     ghlSync: CheckResult;
+    emailTransport: CheckResult;
+    smsTransport: CheckResult;
     redis: CheckResult;
     ai: CheckResult;
     dbBackup: CheckResult;
@@ -49,10 +51,10 @@ export const HEALTH_MONITOR_KEY = "health_monitor_last_result";
 // "ai" is intentionally excluded from critical — AI availability is validated by
 // the dedicated AI Assistant Boundaries suite.  The custom AI_INTEGRATIONS_OPENAI_BASE_URL
 // may use a different auth scheme that returns 401 in CI/gate contexts.
-// "sequenceWorker" is intentionally excluded from critical — Redis connection timeouts
-// and worker stalls are operational noise (not an outage) and were generating spurious
-// alert emails.  The worker is still checked and surfaced on the health dashboard.
-const CRITICAL_CHECKS = new Set(["db", "redis", "kpiQuery"]);
+// sequenceWorker is critical: a stalled outbound worker means no sequences deliver.
+// Wave 1A restores it to the critical set — a green health report must confirm the
+// worker is alive, not just that the DB and Redis are reachable.
+const CRITICAL_CHECKS = new Set(["db", "sequenceWorker", "redis", "kpiQuery"]);
 
 /**
  * Startup grace period — suppress critical alert *emails* for the first 3 minutes
@@ -439,6 +441,25 @@ async function checkKpiQuery(): Promise<CheckResult> {
   }
 }
 
+async function checkEmailTransport(): Promise<CheckResult> {
+  const t0 = Date.now();
+  try {
+    const { channelOrchestrator } = await import("./transports/index");
+    const result = await channelOrchestrator.healthCheck();
+    const latencyMs = Date.now() - t0;
+    const { email } = result;
+    if (email.healthy) {
+      return { status: "ok", message: `Email transport (${email.provider}) connected — ${email.latencyMs ?? latencyMs}ms`, latencyMs };
+    }
+    return {
+      status: "degraded",
+      message: `Email transport (${email.provider}) unhealthy: ${email.error ?? "unknown"}`,
+      latencyMs,
+    };
+  } catch (err: any) {
+    return { status: "error", message: `Email transport check threw: ${err.message}`, latencyMs: Date.now() - t0 };
+  }
+}
 async function checkOutboundPause(): Promise<CheckResult> {
   const t0 = Date.now();
   try {
@@ -485,6 +506,8 @@ export async function runHealthChecks(): Promise<HealthReport> {
     sequenceWorkerRes,
     slaWorkerRes,
     ghlSyncRes,
+    emailTransportRes,
+    smsTransportRes,
     redisRes,
     aiRes,
     dbBackupRes,
@@ -495,6 +518,8 @@ export async function runHealthChecks(): Promise<HealthReport> {
     checkSequenceWorker(),
     checkSlaWorker(),
     checkGhlSync(),
+    checkEmailTransport(),
+    checkSmsTransport(),
     checkRedis(),
     checkAi(),
     checkDbBackup(),
@@ -512,6 +537,8 @@ export async function runHealthChecks(): Promise<HealthReport> {
     sequenceWorker: settle(sequenceWorkerRes, "sequenceWorker"),
     slaWorker: settle(slaWorkerRes, "slaWorker"),
     ghlSync: settle(ghlSyncRes, "ghlSync"),
+    emailTransport: settle(emailTransportRes, "emailTransport"),
+    smsTransport: settle(smsTransportRes, "smsTransport"),
     redis: settle(redisRes, "redis"),
     ai: settle(aiRes, "ai"),
     dbBackup: settle(dbBackupRes, "dbBackup"),
@@ -630,6 +657,7 @@ export async function runHealthChecks(): Promise<HealthReport> {
 
   // Threshold alert: if fewer than 3 checks are ok, fire a separate cooldown-gated email
   const okCount = Object.values(checks).filter(c => c.status === "ok").length;
+  const TOTAL_CHECKS = Object.keys(checks).length;
   const HEALTH_LOW_OK_THRESHOLD = 3;
   const HEALTH_LOW_OK_COOLDOWN_KEY = "health_monitor_low_ok_alert_at";
   const HEALTH_LOW_OK_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
@@ -654,8 +682,8 @@ export async function runHealthChecks(): Promise<HealthReport> {
           .join("\n");
         await sendSmtpEmail({
           to: recipient,
-          subject: `[HealthMonitor] System health critical — only ${okCount}/9 checks ok`,
-          html: `<pre style="font-family:monospace">HealthMonitor: only ${okCount}/9 checks are OK at ${runAt} (threshold: ${HEALTH_LOW_OK_THRESHOLD}).\n\nFailing/degraded checks:\n${failingChecks}\n\nOverall ok: ${overallOk}\nCritical failures: ${criticalFailures.join(", ") || "none"}</pre>`,
+          subject: `[HealthMonitor] System health critical — only ${okCount}/${TOTAL_CHECKS} checks ok`,
+          html: `<pre style="font-family:monospace">HealthMonitor: only ${okCount}/${TOTAL_CHECKS} checks are OK at ${runAt} (threshold: ${HEALTH_LOW_OK_THRESHOLD}).\n\nFailing/degraded checks:\n${failingChecks}\n\nOverall ok: ${overallOk}\nCritical failures: ${criticalFailures.join(", ") || "none"}</pre>`,
           category: "internal_ops",
         });
         console.warn(`[HealthMonitor] Low-ok alert sent: ok=${okCount}/9`);
@@ -668,8 +696,28 @@ export async function runHealthChecks(): Promise<HealthReport> {
   // One-line summary log
   const totalMs = Date.now() - t0;
   console.log(
-    `[HealthMonitor] ok=${okCount}/9 critical=${CRITICAL_CHECKS.size - criticalFailures.length}/${CRITICAL_CHECKS.size} latencyMs=${totalMs} overallOk=${overallOk}${criticalFailures.length > 0 ? ` failures=[${criticalFailures.join(",")}]` : ""}`
+    `[HealthMonitor] ok=${okCount}/${TOTAL_CHECKS} critical=${CRITICAL_CHECKS.size - criticalFailures.length}/${CRITICAL_CHECKS.size} latencyMs=${totalMs} overallOk=${overallOk}${criticalFailures.length > 0 ? ` failures=[${criticalFailures.join(",")}]` : ""}`
   );
 
   return report;
+}
+
+async function checkSmsTransport(): Promise<CheckResult> {
+  const t0 = Date.now();
+  try {
+    const { channelOrchestrator } = await import("./transports/index");
+    const result = await channelOrchestrator.healthCheck();
+    const latencyMs = Date.now() - t0;
+    const { sms } = result;
+    if (sms.healthy) {
+      return { status: "ok", message: `SMS transport (${sms.provider}) connected — ${sms.latencyMs ?? latencyMs}ms`, latencyMs };
+    }
+    return {
+      status: "degraded",
+      message: `SMS transport (${sms.provider}) unhealthy: ${sms.error ?? "unknown"}`,
+      latencyMs,
+    };
+  } catch (err: any) {
+    return { status: "error", message: `SMS transport check threw: ${err.message}`, latencyMs: Date.now() - t0 };
+  }
 }

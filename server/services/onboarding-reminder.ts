@@ -57,10 +57,30 @@ export async function runOnboardingReminderTick(): Promise<{ processed: number; 
 
         const contact = deal.contactId ? await storage.getContact(deal.contactId) : null;
 
-        if (contact?.ghlContactId) {
-          const { enrollInGhlWorkflow } = await import("./ghl-workflows");
-          enrollInGhlWorkflow({ workflowKey: "onboarding_reminder", ghlContactId: contact.ghlContactId, metadata: { dealId: deal.id, pendingCount: stalePendingItems.length } }).catch(err =>
-            console.error(`[OnboardingReminder] GHL enrollment error for deal ${deal.id}:`, err)
+        // Wave 1A: Route reminder email through ChannelOrchestrator instead of
+        // triggering a GHL native workflow directly. Liberty now composes the message
+        // and the orchestrator routes it through the GHL email transport.
+        if (contact && deal.contactId) {
+          const { channelOrchestrator } = await import("./transports/index");
+          const contactName =
+            contact.companyName ||
+            [contact.firstName, contact.lastName].filter(Boolean).join(" ") ||
+            "Merchant";
+          const pendingItems = stalePendingItems.map(i => `<li>${i.itemKey}</li>`).join("");
+          await channelOrchestrator.sendEmail(
+            {
+              contactId: deal.contactId,
+              subject: `Action Required: ${stalePendingItems.length} Onboarding Item${stalePendingItems.length > 1 ? "s" : ""} Pending`,
+              body: `<p>Hi ${contactName},</p><p>Your Liberty Bancard onboarding has ${stalePendingItems.length} item${stalePendingItems.length > 1 ? "s" : ""} that still need${stalePendingItems.length === 1 ? "s" : ""} attention:</p><ul>${pendingItems}</ul><p>Please complete these items so we can finish activating your account. Reply to this email or contact your account manager if you need help.</p>`,
+              category: "onboarding",
+            },
+            {
+              // Full compliance fence — onboarding reminders respect DNC and global pause
+              skipContactabilityCheck: false,
+              skipGlobalPauseCheck: false,
+            },
+          ).catch(err =>
+            console.error(`[OnboardingReminder] Orchestrator email error for deal ${deal.id}:`, err),
           );
         }
 

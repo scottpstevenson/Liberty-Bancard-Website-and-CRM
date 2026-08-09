@@ -137,8 +137,8 @@ export class ChannelOrchestrator {
     // 1. Global pause check
     if (!opts.skipGlobalPauseCheck) {
       const { storage } = await import("../storage");
-      const paused = await storage.getSystemSetting("outbound_global_paused");
-      if (paused === "true") {
+      const paused = await storage.getSystemSetting("outboundGlobalPaused");
+      if (paused === true || paused === "true") {
         return { allowed: false, reason: "Outbound communications are globally paused" };
       }
     }
