@@ -19,4 +19,6 @@ CREATE TABLE IF NOT EXISTS "automation_registry" (
   "updated_at" timestamp DEFAULT now()
 );
 --> statement-breakpoint
+ALTER TABLE "automation_registry" DROP CONSTRAINT IF EXISTS "automation_registry_key_unique";
+--> statement-breakpoint
 ALTER TABLE "automation_registry" ADD CONSTRAINT "automation_registry_key_unique" UNIQUE("key");
