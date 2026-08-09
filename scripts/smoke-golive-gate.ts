@@ -52,24 +52,55 @@ let onboardingDealId = 0;
 function pass(msg: string) { console.log(`  ✓ ${msg}`); }
 function fail(msg: string) { console.error(`  ✗ ${msg}`); errors++; }
 
-async function csrfToken(cookies: string): Promise<string> {
+/**
+ * Parse a set-cookie header string into a simple name=value map.
+ * Handles the case where comma appears inside Expires= date values by
+ * only splitting on ", " followed by a cookie name (word=).
+ */
+function mergeSetCookie(existing: string, setCookieHeader: string | null): string {
+  if (!setCookieHeader) return existing;
+  // Extract each directive (split on "; " within one cookie, separate cookies
+  // are separated by ", " but Expires contains ", " too — use attribute names to detect boundary)
+  const parts = setCookieHeader.split(/,\s*(?=[a-zA-Z_][^=]+=)/);
+  const jar = new Map<string, string>();
+  // seed from existing
+  for (const pair of existing.split(";").map(s => s.trim()).filter(Boolean)) {
+    const eq = pair.indexOf("=");
+    if (eq > 0) jar.set(pair.slice(0, eq).trim(), pair.slice(eq + 1).trim());
+  }
+  // overlay new cookies
+  for (const part of parts) {
+    const nameVal = part.split(";")[0].trim();
+    const eq = nameVal.indexOf("=");
+    if (eq > 0) jar.set(nameVal.slice(0, eq).trim(), nameVal.slice(eq + 1).trim());
+  }
+  return [...jar.entries()].map(([k, v]) => `${k}=${v}`).join("; ");
+}
+
+/**
+ * Fetch CSRF token — captures the csrf_token cookie from the response
+ * and returns [token, updatedCookies] so the cookie can be forwarded on mutations.
+ */
+async function csrfToken(cookies: string): Promise<[string, string]> {
   const r = await fetch(`${BASE_URL}/api/csrf-token`, { headers: { cookie: cookies } });
   const j = await r.json();
-  return j.token ?? "";
+  const token: string = j.token ?? "";
+  const updated = mergeSetCookie(cookies, r.headers.get("set-cookie"));
+  return [token, updated];
 }
 
 async function login(email: string, password: string): Promise<string> {
-  const csrfR = await fetch(`${BASE_URL}/api/csrf-token`);
-  const initCookies = (csrfR.headers.get("set-cookie") ?? "").split(",").map(c => c.split(";")[0]).join("; ");
-  const initCsrf = (await csrfR.json()).token ?? "";
-
   const r = await fetch(`${BASE_URL}/api/auth/login`, {
     method: "POST",
-    headers: { "content-type": "application/json", cookie: initCookies, "x-csrf-token": initCsrf },
+    headers: { "content-type": "application/json" },
     body: JSON.stringify({ email, password }),
   });
   if (!r.ok) throw new Error(`Login failed for ${email}: ${r.status}`);
-  return (r.headers.get("set-cookie") ?? "").split(",").map(c => c.split(";")[0]).join("; ");
+  let cookies = mergeSetCookie("", r.headers.get("set-cookie"));
+  // Seed the csrf_token cookie by calling the CSRF endpoint once while authenticated.
+  const [, withCsrf] = await csrfToken(cookies);
+  cookies = withCsrf;
+  return cookies;
 }
 
 async function putDeal(
@@ -77,10 +108,10 @@ async function putDeal(
   dealId: number,
   body: Record<string, unknown>
 ): Promise<{ status: number; json: unknown }> {
-  const csrf = await csrfToken(cookies);
+  const [csrf, withCsrf] = await csrfToken(cookies);
   const r = await fetch(`${BASE_URL}/api/deals/${dealId}`, {
     method: "PUT",
-    headers: { "content-type": "application/json", cookie: cookies, "x-csrf-token": csrf },
+    headers: { "content-type": "application/json", cookie: withCsrf, "x-csrf-token": csrf },
     body: JSON.stringify(body),
   });
   let json: unknown;
@@ -101,7 +132,7 @@ try {
   const hash = await bcrypt.hash(AGENT_PASS, 10);
   const [agent] = await db.insert(users).values({
     email: AGENT_EMAIL,
-    password: hash,
+    passwordHash: hash,
     firstName: "GLG",
     lastName: "TestAgent",
     role: "agent",
@@ -113,42 +144,54 @@ try {
   pass("Agent logged in");
 
   // Create a test contact
-  const csrf = await csrfToken(adminCookies);
-  const cR = await fetch(`${BASE_URL}/api/contacts`, {
-    method: "POST",
-    headers: { "content-type": "application/json", cookie: adminCookies, "x-csrf-token": csrf },
-    body: JSON.stringify({
-      firstName: "GoLive",
-      lastName: `Test-${RUN_ID}`,
-      email: `glg-contact-${RUN_ID}@test.example`,
-      phone: `+155500${RUN_ID.replace(/\D/g, "").slice(0, 6).padEnd(6, "0")}`,
-    }),
-  });
-  const cJson = await cR.json() as any;
-  contactId = cJson.id;
-  pass(`Created contact #${contactId}`);
+  {
+    const [csrf, withCsrf] = await csrfToken(adminCookies);
+    adminCookies = withCsrf;
+    const cR = await fetch(`${BASE_URL}/api/contacts`, {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie: adminCookies, "x-csrf-token": csrf },
+      body: JSON.stringify({
+        firstName: "GoLive",
+        lastName: `Test-${RUN_ID}`,
+        email: `glg-contact-${RUN_ID}@test.example`,
+        phone: `+155500${RUN_ID.replace(/\D/g, "").slice(0, 6).padEnd(6, "0")}`,
+      }),
+    });
+    if (!cR.ok) throw new Error(`Contact creation failed: ${cR.status} ${await cR.text()}`);
+    const cJson = await cR.json() as any;
+    contactId = cJson.id;
+    pass(`Created contact #${contactId}`);
+  }
 
   // Create an onboarding deal (no MID) for gate checks
-  const dCsrf = await csrfToken(adminCookies);
-  const dR = await fetch(`${BASE_URL}/api/deals`, {
-    method: "POST",
-    headers: { "content-type": "application/json", cookie: adminCookies, "x-csrf-token": dCsrf },
-    body: JSON.stringify({ contactId, pipeline: "onboarding", stage: "Application Submitted", title: `GLG-Deal-${RUN_ID}` }),
-  });
-  const dJson = await dR.json() as any;
-  onboardingDealId = dJson.id;
-  pass(`Created onboarding deal #${onboardingDealId}`);
+  {
+    const [dCsrf, withCsrf] = await csrfToken(adminCookies);
+    adminCookies = withCsrf;
+    const dR = await fetch(`${BASE_URL}/api/deals`, {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie: adminCookies, "x-csrf-token": dCsrf },
+      body: JSON.stringify({ contactId, pipeline: "onboarding", stage: "Application Submitted", title: `GLG-Deal-${RUN_ID}` }),
+    });
+    if (!dR.ok) throw new Error(`Onboarding deal creation failed: ${dR.status} ${await dR.text()}`);
+    const dJson = await dR.json() as any;
+    onboardingDealId = dJson.id;
+    pass(`Created onboarding deal #${onboardingDealId}`);
+  }
 
   // Create a sales deal for non-gate check
-  const sdCsrf = await csrfToken(adminCookies);
-  const sdR = await fetch(`${BASE_URL}/api/deals`, {
-    method: "POST",
-    headers: { "content-type": "application/json", cookie: adminCookies, "x-csrf-token": sdCsrf },
-    body: JSON.stringify({ contactId, pipeline: "sales", stage: "New", title: `GLG-SalesDeal-${RUN_ID}` }),
-  });
-  const sdJson = await sdR.json() as any;
-  salesDealId = sdJson.id;
-  pass(`Created sales deal #${salesDealId}`);
+  {
+    const [sdCsrf, withCsrf] = await csrfToken(adminCookies);
+    adminCookies = withCsrf;
+    const sdR = await fetch(`${BASE_URL}/api/deals`, {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie: adminCookies, "x-csrf-token": sdCsrf },
+      body: JSON.stringify({ contactId, pipeline: "sales", stage: "New", title: `GLG-SalesDeal-${RUN_ID}` }),
+    });
+    if (!sdR.ok) throw new Error(`Sales deal creation failed: ${sdR.status} ${await sdR.text()}`);
+    const sdJson = await sdR.json() as any;
+    salesDealId = sdJson.id;
+    pass(`Created sales deal #${salesDealId}`);
+  }
 
 } catch (err: any) {
   console.error("Setup failed:", err.message);
