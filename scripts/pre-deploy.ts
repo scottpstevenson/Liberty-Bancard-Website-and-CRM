@@ -166,6 +166,11 @@ const MANDATORY_SUITES: Suite[] = [
     script: "scripts/test-arbitration.ts",
     timeoutSecs: 60,
   },
+  {
+    name: "Statement Acquisition (STATEMENT_REQUESTED → enrollment → stop on upload → STATEMENT_ANALYZED)",
+    script: "scripts/test-statement-acquisition.ts",
+    timeoutSecs: 60,
+  },
   // ── Server-required suites (skipped when server absent; need live credentials) ─
   {
     name: "AI Assistant Boundaries (auth/role/schema/no-action)",

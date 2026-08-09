@@ -318,6 +318,16 @@ export async function runStatementUploadChain(
             try {
               const { analyzeStatement } = await import("./statement-analyzer");
               await analyzeStatement(capturedDealId);
+
+              // Advance lifecycle to STATEMENT_ANALYZED (mirrors the BullMQ path in queue-manager).
+              // Must run even when Redis/BullMQ is unavailable (this fallback branch).
+              const deal = await storage.getDeal(capturedDealId);
+              if (deal?.contactId) {
+                const { onStatementAnalyzed } = await import("./statement-acquisition");
+                onStatementAnalyzed(deal.contactId, capturedDealId).catch(err =>
+                  console.warn(`[StatementChain] onStatementAnalyzed failed for deal #${capturedDealId}:`, err.message),
+                );
+              }
             } catch (analyzeErr: any) {
               console.error(`[StatementChain] Structured analysis failed for deal #${capturedDealId} (non-fatal):`, analyzeErr.message);
               storage.createAuditLog({
@@ -415,6 +425,23 @@ export async function runStatementUploadChain(
   } else {
     steps.push(makeStep(5, "AI analysis queued", false, "No dealId available"));
     await logStepFailure(null, 5, "AI analysis queued", "No dealId");
+  }
+
+  // ────────────────────────────────────────────────────────────────────────────
+  // STEP 5b — Stop statement-chase sequence + advance lifecycle
+  //
+  // Called here (inside the chain) so ALL upload entry points — public website,
+  // dashboard rep upload, merchant portal — reliably stop the chase without each
+  // caller needing to remember to invoke it separately.
+  // ────────────────────────────────────────────────────────────────────────────
+  try {
+    const { onStatementReceived } = await import("./statement-acquisition");
+    // Fire-and-forget: chain result must not block on lifecycle transitions
+    onStatementReceived(input.contactId, dealId ?? undefined).catch(err =>
+      console.warn(`[StatementChain] onStatementReceived failed for contact ${input.contactId} (non-fatal):`, err.message),
+    );
+  } catch (err: any) {
+    console.warn(`[StatementChain] Could not import statement-acquisition for onStatementReceived:`, err.message);
   }
 
   // ────────────────────────────────────────────────────────────────────────────

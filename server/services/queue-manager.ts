@@ -1574,6 +1574,15 @@ async function runStatementBlueprintJob(dealId: number): Promise<void> {
     try {
       const { analyzeStatement } = await import("./statement-analyzer");
       await analyzeStatement(dealId);
+
+      // Advance contact lifecycle to STATEMENT_ANALYZED and trigger NBA recompute
+      const deal = await storage.getDeal(dealId);
+      if (deal?.contactId) {
+        const { onStatementAnalyzed } = await import("./statement-acquisition");
+        onStatementAnalyzed(deal.contactId, dealId).catch(err =>
+          console.warn(`[Queue:enrichment] onStatementAnalyzed failed for deal #${dealId}:`, err.message),
+        );
+      }
     } catch (analyzeErr: any) {
       console.error(`[Queue:enrichment] Structured analysis failed for deal #${dealId} (non-fatal):`, analyzeErr.message);
       storage.createAuditLog({

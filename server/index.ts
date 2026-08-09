@@ -490,6 +490,19 @@ app.use((req, res, next) => {
             log(`[PauseSeed] ${key}=true seeded (fail-closed default)`);
           }
         }
+
+        // Seed statement acquisition cadence config if not already set.
+        // Admins can tune these via the system_settings table without a redeploy.
+        const acqCfg = await storage.getSystemSetting("statement_acquisition_config");
+        if (acqCfg === null) {
+          await storage.setSystemSetting("statement_acquisition_config", {
+            upload_nudge_sms_hours: 24,
+            rep_task_hours: 48,
+            educational_email_hours: 72,
+            stall_escalation_days: 5,
+          });
+          log("[StatementAcquisition] Default cadence config seeded into system_settings");
+        }
       })().catch(err => console.warn("[PauseSeed] Non-critical seeding error:", err.message));
 
       startDailyMaintenanceScheduler();

@@ -1538,6 +1538,64 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // === Statement Acquisition Cadence Config ===
+
+  /**
+   * GET /api/admin/settings/statement-acquisition-config
+   * Returns the current statement-chase cadence configuration.
+   * Admins and managers can read; only admins can update.
+   */
+  app.get("/api/admin/settings/statement-acquisition-config", requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const { getAcquisitionConfig } = await import("../services/statement-acquisition");
+      const config = await getAcquisitionConfig();
+      res.json({ config });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  /**
+   * PUT /api/admin/settings/statement-acquisition-config
+   * Updates the statement-chase cadence configuration.
+   * Validates all four integer-hour fields before persisting.
+   * Immediately syncs the updated delays to the "Statement Chase (Auto)" sequence steps.
+   *
+   * Body: { upload_nudge_sms_hours, rep_task_hours, educational_email_hours, stall_escalation_days }
+   */
+  app.put("/api/admin/settings/statement-acquisition-config", requireRole("admin"), async (req, res) => {
+    try {
+      const { validateAcquisitionConfig, syncStatementChaseSteps } = await import("../services/statement-acquisition");
+
+      // validateAcquisitionConfig throws with a descriptive message on any bad value
+      let validated;
+      try {
+        validated = validateAcquisitionConfig(req.body);
+      } catch (validationErr: any) {
+        return res.status(400).json({ message: validationErr.message });
+      }
+
+      await storage.setSystemSetting("statement_acquisition_config", validated);
+
+      // Immediately apply the new delays to the sequence step rows so the next
+      // enrollment uses the updated cadence without a server restart.
+      await syncStatementChaseSteps(validated).catch(err =>
+        console.warn("[Admin] syncStatementChaseSteps after config update (non-fatal):", err.message),
+      );
+
+      await storage.createAuditLog({
+        action: "statement_acquisition_config_updated",
+        entityType: "system",
+        userId: (req.user as any)?.id ?? null,
+        details: { config: validated },
+      });
+
+      res.json({ config: validated });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
   // === CONTACT SCORING JOB ===
 
   // Preview endpoint: returns eligible count, estimated batches, sample IDs

@@ -367,10 +367,8 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         details: { source: "website", hasFile: !!statementFileBuffer },
       });
 
-      // Stop statement-chase sequence and trigger analysis
-      import("../services/statement-acquisition")
-        .then(({ onStatementReceived }) => onStatementReceived(contact.id, existingDealId || undefined))
-        .catch(err => console.warn("[StatementAcquisition] onStatementReceived error:", err?.message));
+      // onStatementReceived() is now called inside runStatementUploadChain() (STEP 5b)
+      // so it runs for all upload paths uniformly. Do not call it here again.
 
       res.status(201).json({ success: true, contactId: contact.id, dealId: existingDealId || null });
     } catch (err: any) {
