@@ -62,6 +62,12 @@ export function pauseAll(reason?: string): void {
   globalPaused = true;
   globalPauseReason = reason || "Manual pause";
   console.log(`[SDR Orchestrator] GLOBAL PAUSE activated: ${globalPauseReason}`);
+  // Persist to DB so restarts don't reset operator decisions
+  storage.setSystemSetting("sdrOrchestratorPaused", {
+    paused: true,
+    reason: globalPauseReason,
+    at: new Date().toISOString(),
+  }).catch(err => console.error("[SDR Orchestrator] Failed to persist pause state to DB:", err));
 }
 
 export function resumeAll(): void {
@@ -72,6 +78,11 @@ export function resumeAll(): void {
   sentMessageIds.clear();
   webhookFailureCount = 0;
   console.log("[SDR Orchestrator] GLOBAL PAUSE released — resumed");
+  // Persist resume state to DB
+  storage.setSystemSetting("sdrOrchestratorPaused", {
+    paused: false,
+    at: new Date().toISOString(),
+  }).catch(err => console.error("[SDR Orchestrator] Failed to persist resume state to DB:", err));
 }
 
 function checkKillSwitch(): boolean {
@@ -1446,6 +1457,31 @@ export function startOrchestrator() {
     console.log("[SDR Orchestrator] Already running");
     return;
   }
+
+  // Hydrate pause state from DB before first sweep — restores operator decisions across restarts.
+  // Fire-and-forget; completes well within the 10-second initial sweep delay.
+  storage.getSystemSetting("sdrOrchestratorPaused")
+    .then((saved: unknown) => {
+      if (
+        saved &&
+        typeof saved === "object" &&
+        !Array.isArray(saved) &&
+        (saved as Record<string, unknown>).paused === true
+      ) {
+        if (!globalPaused) {
+          globalPaused = true;
+          globalPauseReason =
+            ((saved as Record<string, unknown>).reason as string) ||
+            "Restored from DB on startup";
+          console.log(
+            `[SDR Orchestrator] Pause state restored from DB: ${globalPauseReason}`
+          );
+        }
+      }
+    })
+    .catch(err =>
+      console.error("[SDR Orchestrator] Failed to restore pause state from DB:", err)
+    );
 
   console.log(`[SDR Orchestrator] Starting sweep every ${ORCHESTRATOR_SWEEP_MINUTES} minutes (batch=${featureFlags.ORCHESTRATOR_BATCH_SIZE}, reviewMode=${featureFlags.ORCHESTRATOR_REVIEW_MODE})`);
   sweepInterval = setInterval(async () => {

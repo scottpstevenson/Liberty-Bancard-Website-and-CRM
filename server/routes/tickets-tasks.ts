@@ -6,7 +6,7 @@ import { and } from "drizzle-orm";
 import { insertTaskSchema, insertTicketCommentSchema, insertTicketSchema } from "@shared/schema";
 import { normalizeTaskCompletionState } from "../services/task-normalization";
 import { triggerWorkflowsByEvent } from "../services/workflow-executor";
-import { enrollInGhlWorkflow } from "../services/ghl-workflows";
+import { enrollInGhlWorkflow, enrollInGhlWorkflowCompliant } from "../services/ghl-workflows";
 import { createPreferenceAwareNotification } from "../services/digest-service";
 import { parse } from "csv-parse/sync";
 import { serverError } from "../utils/server-error";
@@ -45,7 +45,7 @@ export function registerTicketsTasksRoutes(app: Express) {
       if (ticket.contactId) {
         storage.getContact(ticket.contactId).then(contact => {
           if (contact?.ghlContactId) {
-            enrollInGhlWorkflow({ workflowKey: "support_ticket", ghlContactId: contact.ghlContactId, metadata: { ticketId: ticket.id, priority: ticket.priority, category: ticket.category } }).catch(err =>
+            enrollInGhlWorkflowCompliant({ workflowKey: "support_ticket", ghlContactId: contact.ghlContactId, contactId: contact.id, metadata: { ticketId: ticket.id, priority: ticket.priority, category: ticket.category } }).catch(err =>
               console.error("[Tickets] GHL workflow enrollment error:", err)
             );
           }

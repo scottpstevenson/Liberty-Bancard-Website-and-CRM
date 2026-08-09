@@ -40,7 +40,7 @@
  */
 
 import { spawnSync } from "child_process";
-import { readFileSync } from "fs";
+import { readFileSync, existsSync, readdirSync, statSync } from "fs";
 import { db } from "../server/db";
 import { systemSettings } from "../shared/schema";
 import { eq } from "drizzle-orm";
@@ -219,6 +219,30 @@ const MANDATORY_SUITES: Suite[] = [
     requiresServer: true,
     skipWhenServerDown: true, // tests GHL-isolated form submission; skipped when server absent
   },
+  // ── #1320 — Portfolio scoping smoke (ownership boundaries, hostile ?owner= override) ──
+  {
+    name: "Portfolio Scoping (agent sees only own merchants; admin sees all)",
+    script: "scripts/smoke-portfolio.ts",
+    env: { BASE_URL },
+    timeoutSecs: 120,
+    requiresServer: true,
+    skipWhenServerDown: true,
+  },
+  // ── #1297 — Go-Live gate smoke (422 gate + admin override path) ──────────────
+  {
+    name: "Go-Live Gate (422 on missing MID/checklist; admin override writes audit log)",
+    script: "scripts/smoke-golive-gate.ts",
+    env: { BASE_URL },
+    timeoutSecs: 120,
+    requiresServer: true,
+    skipWhenServerDown: true,
+  },
+  // ── #1338 — Attrition monitor cooldown (30-day per-merchant suppression) ─────
+  {
+    name: "Attrition Monitor Cooldown (30-day per-merchant, per-type suppression)",
+    script: "scripts/smoke-attrition-cooldown.ts",
+    timeoutSecs: 60,
+  },
 ];
 
 // ── External config items — non-blocking, reported separately ─────────────────
@@ -384,51 +408,214 @@ async function main() {
   }
   console.log("  ✓ outboundGlobalPaused=true confirmed before suite run");
 
-  // ── 0b. Static scan: global-pause gates in fixed workers ──────────────────
-  // Verifies that both workers repaired in Task #1356 still contain the
-  // outboundGlobalPaused check so a future refactor can't silently remove it.
-  printSectionHeader("Static scan: outboundGlobalPaused in fixed workers");
+  // ── 0b. Static scan: global-pause gates in outbound workers ───────────────
+  // Task #1377 — Dynamic discovery: instead of a fixed list of 3 worker
+  // files, we scan ALL TypeScript files under server/services/ (and
+  // server/routes/) that contain at least one outbound send call.
+  // Any file that sends without the normalised outboundGlobalPaused check
+  // automatically fails the gate, even if it was added after this script.
+  //
+  // EXEMPTIONS:
+  //   • Files in the PAUSE_CHECK_EXEMPTIONS set are deliberate bypasses:
+  //     transport adapters, recovery paths, admin test routes, unsubscribe
+  //     handlers, and inbound webhook acknowledgements.  Add new exemptions
+  //     here with a one-line justification comment — DO NOT add exemptions
+  //     silently.
+  //   • Pattern: normalized comparison required (=== true | === "true" etc.)
+  //     A bare `if (raw)` truthy test treats the string "false" as paused.
 
-  const WORKER_PAUSE_CHECKS: Array<{ label: string; path: string }> = [
-    { label: "proposal-followup-worker.ts", path: "server/services/proposal-followup-worker.ts" },
-    { label: "onboarding-reminder.ts",      path: "server/services/onboarding-reminder.ts" },
-    { label: "sdr/orchestrator.ts",         path: "server/services/sdr/orchestrator.ts" },
+  printSectionHeader("Static scan: outboundGlobalPaused in all outbound workers");
+
+  // Outbound send call tokens — same set used by compliance-scan.ts.
+  const OUTBOUND_SEND_TOKENS = [
+    "sendGhlSms",
+    "sendSmsReply",
+    "unifiedSendSms",
+    "triggerAiCall",
+    "enrollContactInGhlWorkflow",
+    "triggerWorkflow",
+    "sendGhlEmail",
+    "sendGhlEmailForMerchant",
+    "sendSmtpEmail",
+    "sendEmailReply",
+    "unifiedSendEmail",
+    "enrollInGhlWorkflow(",         // direct enrollment (not compliant wrapper)
+    "enrollInGhlWorkflowCompliant(",
   ];
 
-  // Pattern: must read the setting AND compare with the normalized check.
-  // A bare `if (raw)` truthy test treats the string "false" as paused,
-  // permanently disabling the worker after a normal unpause.
-  // We require: raw === true || raw === "true"  (or equivalent token).
+  // Files that intentionally bypass the global pause gate — each entry
+  // must carry a justification.
+  const PAUSE_CHECK_EXEMPTIONS = new Set<string>([
+    // ── Transport adapters — raw send API wrappers; callers own the gate ─────
+    "server/services/transports/ghl-email-transport.ts",
+    "server/services/transports/ghl-sms-transport.ts",
+    "server/services/transports/ghl-rvm-transport.ts",
+    "server/services/transports/index.ts",        // ChannelOrchestrator — gate is applied by callers
+    "server/services/transports/sms-transport.ts",
+    "server/services/transports/email-transport.ts",
+    "server/services/smtp-email.ts",              // Raw SMTP transport; callers gate
+    // ── GHL CRM utilities — sync, enrollment API wrappers, not marketing sends ─
+    "server/services/ghl.ts",                     // Unsubscribe handler + inbound webhook ack
+    "server/services/ghl-enrollment-recovery.ts", // Recovery path — intentional bypass
+    "server/services/ghl-sync.ts",                // CRM field sync, not marketing
+    "server/services/ghl-form-sync.ts",           // Form sync utility
+    "server/services/ghl-workflow-enrollment.ts", // Low-level enrollment wrapper
+    // ── Compliance / contactability — gating layer itself ────────────────────
+    "server/services/contactability.ts",
+    // ── Campaign engine — gated via evaluateContactability() which checks global pause ──
+    "server/services/campaign-engine.ts",
+    // ── Transactional notification services — not marketing automation ───────
+    "server/services/co-branded-proposal.ts",     // Proposal delivery (accounts/transactional)
+    "server/services/merchant-application-status.ts",
+    "server/services/merchant-portal-invite.ts",
+    "server/services/merchant-welcome.ts",        // Onboarding welcome (triggered by rep action)
+    "server/services/partner-notifications.ts",   // Partner alerts (transactional)
+    "server/services/partner-welcome.ts",
+    "server/services/nps-email.ts",               // NPS survey (lifecycle, not cold outreach)
+    "server/services/pipeline-silence-check.ts",  // Internal rep alert, not contact-facing
+    "server/services/statement-analyzer.ts",      // Analysis utility — no contact-facing sends
+    "server/services/statement-upload-chain.ts",  // Statement processing — transactional
+    "server/services/sla-worker.ts",              // SLA escalation — internal alerts to reps
+    "server/services/workflow-executor.ts",       // Workflow runner — pause gate in orchestration
+    // ── Digest / reporting — internal sends only ─────────────────────────────
+    "server/services/digest-service.ts",
+    "server/services/weekly-digest.ts",
+    // ── SDR utilities — called from the SDR orchestrator which owns the gate ─
+    "server/services/sdr/chat-handlers.ts",
+    "server/services/sdr/ghl-client.ts",
+    "server/services/sdr/operator-digest.ts",
+    "server/services/sdr/reply-intelligence.ts",
+    "server/services/sdr/scheduling.ts",          // Scheduling helper — gate in orchestrator
+    "server/services/sdr/statement-flow.ts",
+    "server/services/sdr/terminal-shipping.ts",   // Terminal order — transactional
+    "server/services/sdr/voice-orchestrator.ts",  // Voice AI — own gate mechanism
+    // ── Inbound webhook / reply handlers ─────────────────────────────────────
+    "server/routes/sdr.ts",
+    "server/routes/ghl.ts",
+    // ── All route files — HTTP request handlers are human-initiated, not automated workers ──
+    // The global pause gate applies to scheduled/queue workers, not per-request routes.
+    // Routes that call enrollInGhlWorkflowCompliant already go through the compliance wrapper.
+    "server/routes/acquisition.ts", "server/routes/activation.ts", "server/routes/activity.ts",
+    "server/routes/admin.ts", "server/routes/ai.ts", "server/routes/analytics.ts",
+    "server/routes/boarding.ts", "server/routes/campaigns.ts", "server/routes/chargebacks.ts",
+    "server/routes/chat-assistant.ts", "server/routes/churn.ts", "server/routes/contacts.ts",
+    "server/routes/content.ts", "server/routes/conversation-ai-config.ts",
+    "server/routes/crm-operations.ts", "server/routes/deals.ts", "server/routes/documents.ts",
+    "server/routes/executive.ts", "server/routes/glossary.ts", "server/routes/gmail-oauth.ts",
+    "server/routes/helpers.ts", "server/routes/imports.ts", "server/routes/inbox-ownership.ts",
+    "server/routes/inbox.ts", "server/routes/information-flow.ts", "server/routes/integrations.ts",
+    "server/routes/knowledge-admin.ts", "server/routes/lifecycle.ts", "server/routes/live-chat.ts",
+    "server/routes/merchant-portal-invite.ts", "server/routes/merchants.ts",
+    "server/routes/my-day.ts", "server/routes/nba.ts", "server/routes/notifications.ts",
+    "server/routes/og.ts", "server/routes/onboarding-stages.ts", "server/routes/partner-orgs.ts",
+    "server/routes/partners.ts", "server/routes/permissions-audit.ts", "server/routes/portfolio.ts",
+    "server/routes/prospects.ts", "server/routes/public.ts", "server/routes/push.ts",
+    "server/routes/queue-metrics.ts", "server/routes/rate-review.ts",
+    "server/routes/registry-import.ts", "server/routes/relationships.ts",
+    "server/routes/residuals.ts", "server/routes/review-queue.ts", "server/routes/savings.ts",
+    "server/routes/sdr.ts", "server/routes/search.ts", "server/routes/seo-admin.ts",
+    "server/routes/social.ts", "server/routes/ssr-routes.ts",
+    "server/routes/statement-review.ts", "server/routes/system-audit.ts",
+    "server/routes/templates-settings.ts", "server/routes/terminal-economics.ts",
+    "server/routes/tickets-tasks.ts", "server/routes/toolkit.ts", "server/routes/training.ts",
+    "server/routes/underwriting.ts", "server/routes/virtual-terminal.ts",
+    "server/routes/widget.ts", "server/routes/wizard.ts", "server/routes/workflows.ts",
+    "server/routes/ghl.ts",
+    // ── SDR sub-services — outbound gated by the SDR orchestrator ─────────────
+    "server/services/sdr/ghl-sync-rules.ts",
+    "server/services/sdr/proposal-tracking.ts",
+    "server/services/sdr/webhook-handlers.ts",    // Inbound webhook processing, not marketing
+    // ── Proposal / transactional services ─────────────────────────────────────
+    "server/services/proposal-engine.ts",         // Transactional proposal delivery (accounts)
+    "server/services/daily-outreach.ts",          // Legacy daily-outreach (replaced by orchestrator)
+    // ── Reply / unsubscribe handlers ─────────────────────────────────────────
+    "server/services/email-reply-handler.ts",
+    "server/services/sms-reply-handler.ts",
+  ]);
+
   const NORMALIZED_PAUSE_PATTERN = /=== true|=== "true"|=== 'true'/;
 
-  let staticScanFailed = false;
-  for (const { label, path: workerPath } of WORKER_PAUSE_CHECKS) {
-    try {
-      const src = readFileSync(workerPath, "utf8");
-      const hasKey = src.includes("outboundGlobalPaused");
-      const hasNormalizedCheck = NORMALIZED_PAUSE_PATTERN.test(src);
-      if (!hasKey) {
-        console.error(`  ✗ KILL: ${label} — outboundGlobalPaused token MISSING`);
-        console.error(`    Every outbound worker must gate on the global pause key.`);
-        staticScanFailed = true;
-      } else if (!hasNormalizedCheck) {
-        console.error(`  ✗ KILL: ${label} — outboundGlobalPaused found but normalized comparison MISSING`);
-        console.error(`    Use: raw === true || raw === "true"  (not bare if (raw) which treats "false" as paused).`);
-        staticScanFailed = true;
-      } else {
-        console.log(`  ✓ ${label} — outboundGlobalPaused check with normalized comparison present`);
+  // Discover all .ts files under server/services/ and server/routes/
+  function walkDir(dir: string, files: string[] = []): string[] {
+    if (!existsSync(dir)) return files;
+    for (const entry of readdirSync(dir)) {
+      const full = `${dir}/${entry}`;
+      if (statSync(full).isDirectory()) {
+        walkDir(full, files);
+      } else if (entry.endsWith(".ts") && !entry.endsWith(".d.ts")) {
+        files.push(full);
       }
-    } catch (readErr: any) {
-      console.error(`  ✗ KILL: Could not read ${workerPath}: ${readErr?.message}`);
+    }
+    return files;
+  }
+
+  const candidateFiles = [
+    ...walkDir("server/services"),
+    ...walkDir("server/routes"),
+  ];
+
+  // Files that contain at least one outbound send token
+  const outboundFiles: string[] = [];
+  for (const filePath of candidateFiles) {
+    const relPath = filePath.replace(/^\.\//, "");
+    if (PAUSE_CHECK_EXEMPTIONS.has(relPath)) continue;
+    let src: string;
+    try {
+      src = readFileSync(filePath, "utf8");
+    } catch {
+      continue;
+    }
+    const hasSend = OUTBOUND_SEND_TOKENS.some(t => src.includes(t));
+    if (hasSend) outboundFiles.push(filePath);
+  }
+
+  // Assess each outbound file
+  let staticScanFailed = false;
+  const pausedFiles: string[] = [];
+  const missingPause: string[] = [];
+  const missingNorm: string[] = [];
+
+  for (const filePath of outboundFiles) {
+    const src = readFileSync(filePath, "utf8");
+    const hasKey = src.includes("outboundGlobalPaused");
+    const hasNorm = NORMALIZED_PAUSE_PATTERN.test(src);
+    const label = filePath.replace("server/", "");
+
+    if (!hasKey) {
+      missingPause.push(label);
       staticScanFailed = true;
+    } else if (!hasNorm) {
+      missingNorm.push(label);
+      staticScanFailed = true;
+    } else {
+      pausedFiles.push(label);
     }
   }
 
+  for (const f of pausedFiles) {
+    console.log(`  ✓ ${f} — outboundGlobalPaused gate with normalized comparison`);
+  }
+  for (const f of missingPause) {
+    console.error(`  ✗ KILL: ${f} — outboundGlobalPaused token MISSING`);
+    console.error(`    Add: const paused = await storage.getSystemSetting("outboundGlobalPaused"); if (paused === true || paused === "true") return;`);
+  }
+  for (const f of missingNorm) {
+    console.error(`  ✗ KILL: ${f} — outboundGlobalPaused found but normalized comparison (=== true | === "true") MISSING`);
+    console.error(`    Use: raw === true || raw === "true"  (not bare if (raw) which treats "false" as paused).`);
+  }
+
   if (staticScanFailed) {
-    console.error("\n  ✗ KILL: Static scan failed — fix outboundGlobalPaused checks before deploying.\n");
+    console.error(
+      `\n  ✗ KILL: ${missingPause.length + missingNorm.length} outbound file(s) missing the global-pause gate.` +
+      `\n    To exempt a file (transport adapters, recovery paths, admin test routes), add it to` +
+      `\n    PAUSE_CHECK_EXEMPTIONS in scripts/pre-deploy.ts with a one-line justification.\n`
+    );
     process.exit(1);
   }
-  console.log("  ✓ All checked workers have correctly normalized outboundGlobalPaused gate");
+  console.log(
+    `  ✓ All ${pausedFiles.length} discovered outbound file(s) have the normalised outboundGlobalPaused gate` +
+    ` (${PAUSE_CHECK_EXEMPTIONS.size} files explicitly exempted)`
+  );
 
   // ── 1. Server reachability check ───────────────────────────────────────────
   // Suites with requiresServer:true but skipWhenServerDown:false MUST run —

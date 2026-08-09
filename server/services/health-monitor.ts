@@ -42,6 +42,8 @@ export interface HealthReport {
     dbBackup: CheckResult;
     kpiQuery: CheckResult;
     outboundPause: CheckResult;
+    arbitrationErrors: CheckResult;
+    slaHeartbeatWriteDegraded: CheckResult; // #1326 — heartbeat write failure counter
   };
 }
 
@@ -483,6 +485,26 @@ async function checkOutboundPause(): Promise<CheckResult> {
   }
 }
 
+// #1326 — Heartbeat write failure counter check.
+// Reads the in-memory counter exported by sla-worker.ts and surfaces it as
+// a distinct "degraded" health state so operators know the worker is alive
+// but can't persist its last-tick timestamp.
+async function checkSlaHeartbeatWriteDegraded(): Promise<CheckResult> {
+  try {
+    // Dynamic import to avoid circular dependency (sla-worker imports storage)
+    const { _slaHeartbeatFailureCount } = await import("./sla-worker");
+    if (_slaHeartbeatFailureCount === 0) {
+      return { status: "ok", message: "No heartbeat write failures since last restart" };
+    }
+    return {
+      status: "degraded",
+      message: `SLA worker heartbeat write failed ${_slaHeartbeatFailureCount} time(s) since last restart — worker is alive but last_tick timestamp may be stale`,
+    };
+  } catch (err: any) {
+    return { status: "unknown", message: `Counter unavailable: ${err.message}` };
+  }
+}
+
 // ── Main entry point ─────────────────────────────────────────────────────────
 
 export async function runHealthChecks(): Promise<HealthReport> {
@@ -513,6 +535,8 @@ export async function runHealthChecks(): Promise<HealthReport> {
     dbBackupRes,
     kpiQueryRes,
     outboundPauseRes,
+    arbitrationErrorsRes,
+    slaHeartbeatRes,
   ] = await Promise.allSettled([
     checkDb(),
     checkSequenceWorker(),
@@ -525,6 +549,8 @@ export async function runHealthChecks(): Promise<HealthReport> {
     checkDbBackup(),
     checkKpiQuery(),
     checkOutboundPause(),
+    checkArbitrationErrors(),
+    checkSlaHeartbeatWriteDegraded(),
   ]);
 
   function settle(r: PromiseSettledResult<CheckResult>, name: string): CheckResult {
@@ -544,6 +570,8 @@ export async function runHealthChecks(): Promise<HealthReport> {
     dbBackup: settle(dbBackupRes, "dbBackup"),
     kpiQuery: settle(kpiQueryRes, "kpiQuery"),
     outboundPause: settle(outboundPauseRes, "outboundPause"),
+    arbitrationErrors: settle(arbitrationErrorsRes, "arbitrationErrors"),
+    slaHeartbeatWriteDegraded: settle(slaHeartbeatRes, "slaHeartbeatWriteDegraded"),
   };
 
   // Determine overall health (only critical checks matter)
@@ -700,6 +728,35 @@ export async function runHealthChecks(): Promise<HealthReport> {
   );
 
   return report;
+}
+
+/**
+ * Arbitration error monitor (#1412).
+ * Queries audit_logs for ARBITRATION_ERROR events in the last 24 hours.
+ * A degraded status triggers the standard health-monitor email alert.
+ */
+async function checkArbitrationErrors(): Promise<CheckResult> {
+  const t0 = Date.now();
+  try {
+    const result = await pool.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count
+       FROM audit_logs
+       WHERE action = 'ARBITRATION_ERROR'
+         AND created_at > NOW() - INTERVAL '24 hours'`
+    );
+    const count = parseInt(result.rows[0]?.count ?? "0", 10);
+    const latencyMs = Date.now() - t0;
+    if (count === 0) {
+      return { status: "ok", message: "No arbitration errors in last 24 h", latencyMs };
+    }
+    return {
+      status: "degraded",
+      message: `${count} arbitration error${count > 1 ? "s" : ""} in last 24 h — compliance fence may be impaired`,
+      latencyMs,
+    };
+  } catch (err: any) {
+    return { status: "error", message: `Arbitration check threw: ${err.message}`, latencyMs: Date.now() - t0 };
+  }
 }
 
 async function checkSmsTransport(): Promise<CheckResult> {

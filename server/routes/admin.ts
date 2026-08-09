@@ -1596,6 +1596,88 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // #1336 — Churn/attrition signal thresholds
+  // GET /api/admin/settings/attrition-thresholds
+  app.get("/api/admin/settings/attrition-thresholds", requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const [volumeDrop, cbRatio] = await Promise.all([
+        storage.getSystemSetting("attrition_volume_drop_threshold_pct"),
+        storage.getSystemSetting("attrition_chargeback_ratio_threshold_pct"),
+      ]);
+      res.json({
+        volumeDropPct: typeof volumeDrop === "number" ? volumeDrop : 20,
+        cbRatioPct:    typeof cbRatio   === "number" ? cbRatio   : 0.75,
+      });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  // PUT /api/admin/settings/attrition-thresholds
+  app.put("/api/admin/settings/attrition-thresholds", requireRole("admin"), async (req, res) => {
+    try {
+      const { volumeDropPct, cbRatioPct } = req.body as { volumeDropPct?: unknown; cbRatioPct?: unknown };
+      if (typeof volumeDropPct !== "number" || volumeDropPct <= 0 || volumeDropPct > 100) {
+        return res.status(400).json({ message: "volumeDropPct must be a positive number ≤100" });
+      }
+      if (typeof cbRatioPct !== "number" || cbRatioPct <= 0 || cbRatioPct > 100) {
+        return res.status(400).json({ message: "cbRatioPct must be a positive number ≤100" });
+      }
+      await Promise.all([
+        storage.setSystemSetting("attrition_volume_drop_threshold_pct", volumeDropPct),
+        storage.setSystemSetting("attrition_chargeback_ratio_threshold_pct", cbRatioPct),
+      ]);
+      await storage.createAuditLog({
+        action: "attrition_thresholds_updated",
+        entityType: "system",
+        userId: (req.user as any)?.id ?? null,
+        details: { volumeDropPct, cbRatioPct },
+      });
+      res.json({ volumeDropPct, cbRatioPct });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  // #1253 — Per-stage pipeline silence thresholds
+  // GET /api/admin/settings/pipeline-silence-thresholds
+  app.get("/api/admin/settings/pipeline-silence-thresholds", requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const raw = await storage.getSystemSetting("pipeline_silence_thresholds");
+      res.json({ thresholds: (raw && typeof raw === "object" && !Array.isArray(raw)) ? raw : {} });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  // PUT /api/admin/settings/pipeline-silence-thresholds
+  // Body: { thresholds: Record<string, number> } — keys are "pipeline::stage", values are hours
+  app.put("/api/admin/settings/pipeline-silence-thresholds", requireRole("admin"), async (req, res) => {
+    try {
+      const body = req.body as Record<string, unknown>;
+      const thresholds = body.thresholds;
+      if (!thresholds || typeof thresholds !== "object" || Array.isArray(thresholds)) {
+        return res.status(400).json({ message: "thresholds must be an object" });
+      }
+      // Validate: all values must be positive numbers
+      for (const [key, val] of Object.entries(thresholds as Record<string, unknown>)) {
+        if (typeof val !== "number" || val <= 0 || !isFinite(val)) {
+          return res.status(400).json({ message: `Invalid threshold for "${key}": must be a positive number (hours)` });
+        }
+      }
+      await storage.setSystemSetting("pipeline_silence_thresholds", thresholds);
+      await storage.createAuditLog({
+        action: "pipeline_silence_thresholds_updated",
+        entityType: "system",
+        userId: (req.user as any)?.id ?? null,
+        details: { thresholds },
+      });
+      res.json({ thresholds });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
   // === CONTACT SCORING JOB ===
 
   // Preview endpoint: returns eligible count, estimated batches, sample IDs
@@ -3027,6 +3109,81 @@ export function registerAdminRoutes(app: Express) {
           fail: checks.filter(c => c.status === "fail").length,
           blocked: checks.filter(c => c.status === "blocked").length,
         },
+      });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  // ── Controlled Cohort Launch (#1396) ───────────────────────────────────────
+  // POST /api/admin/outbound/cohort-launch
+  // Validates preflight, caps cohort size, removes global pause, returns status.
+  app.post("/api/admin/outbound/cohort-launch", requireRole("admin"), async (req, res) => {
+    try {
+      const { cohortSize, sequenceId } = req.body as { cohortSize?: number; sequenceId?: number };
+
+      // ── Enforce cohort size cap ─────────────────────────────────────────────
+      const MAX_COHORT_SIZE = 500;
+      const resolvedSize = typeof cohortSize === "number" ? Math.max(1, Math.min(cohortSize, MAX_COHORT_SIZE)) : MAX_COHORT_SIZE;
+
+      // ── Run preflight checks — abort if any FAIL (not BLOCKED/WARN) ─────────
+      const { isGhlConfigured } = await import("../services/ghl");
+      const { isSmtpConfigured } = await import("../services/smtp-email");
+      const { pool: pgPool } = await import("../db");
+
+      const ghlOk = isGhlConfigured();
+      const smtpOk = isSmtpConfigured();
+
+      const seqResult = await pgPool.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count FROM follow_up_sequences WHERE status = 'active'`
+      );
+      const activeSequences = parseInt(seqResult.rows[0]?.count ?? "0", 10);
+
+      const blockingFailures: string[] = [];
+      if (!ghlOk && !smtpOk) blockingFailures.push("No sending transport configured (need GHL or SMTP)");
+      if (activeSequences === 0) blockingFailures.push("No active sequences — activate at least one sequence first");
+
+      if (blockingFailures.length > 0) {
+        return res.status(400).json({
+          launched: false,
+          error: "Preflight gate failed",
+          failures: blockingFailures,
+        });
+      }
+
+      // ── Verify sequence if specified ────────────────────────────────────────
+      if (sequenceId) {
+        const { followUpSequences: seqTable } = await import("@shared/schema");
+        const [seq] = await db.select({ id: seqTable.id, status: seqTable.status }).from(seqTable).where(eq(seqTable.id, sequenceId)).limit(1);
+        if (!seq) return res.status(400).json({ launched: false, error: `Sequence ${sequenceId} not found` });
+        if (seq.status !== "active") return res.status(400).json({ launched: false, error: `Sequence ${sequenceId} is not active` });
+      }
+
+      // ── Remove global outbound pause ────────────────────────────────────────
+      await storage.setSystemSetting("outboundGlobalPaused", false);
+
+      // ── Audit ───────────────────────────────────────────────────────────────
+      await storage.createAuditLog({
+        action: "cohort_launch_initiated",
+        entityType: "system",
+        actorType: "admin",
+        actorId: (req as any).user?.id?.toString(),
+        details: {
+          cohortSize: resolvedSize,
+          sequenceId: sequenceId ?? null,
+          initiatedBy: (req as any).user?.email ?? "unknown",
+          timestamp: new Date().toISOString(),
+        },
+      });
+
+      console.log(`[CohortLaunch] Admin ${(req as any).user?.email} launched controlled cohort: size=${resolvedSize}, sequenceId=${sequenceId ?? "all"}`);
+
+      return res.json({
+        launched: true,
+        cohortSize: resolvedSize,
+        sequenceId: sequenceId ?? null,
+        timestamp: new Date().toISOString(),
+        message: `Outbound enabled. Sending capped at ${resolvedSize} contacts per cycle. Monitor progress in the Operator Dashboard → Send Monitoring tab.`,
       });
     } catch (err: any) {
       serverError(res, err);

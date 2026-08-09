@@ -14,8 +14,14 @@ import { storage } from "../storage";
 import { sendSmtpEmail } from "./smtp-email";
 
 const COOLDOWN_KEY = "pipeline_silence_cooldown";
-const THRESHOLD_HOURS =
+// Global default threshold (env-configurable). Per-stage overrides stored in
+// system_settings key "pipeline_silence_thresholds" take precedence (#1253).
+const GLOBAL_THRESHOLD_HOURS =
   parseInt(process.env.PIPELINE_SILENCE_THRESHOLD_HOURS ?? "24", 10) || 24;
+
+// #1253 — Per-stage threshold map: pipeline::stage → hours.
+// Loaded from system_settings each run so admins can tune without redeploy.
+type PerStageThresholds = Record<string, number>; // key: "pipeline::stage"
 
 interface SilentStageRow {
   pipeline: string;
@@ -28,9 +34,32 @@ interface CooldownMap {
   [stageKey: string]: string; // ISO timestamp of last alert
 }
 
+async function loadPerStageThresholds(): Promise<PerStageThresholds> {
+  try {
+    const raw = await storage.getSystemSetting("pipeline_silence_thresholds");
+    if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+      return raw as PerStageThresholds;
+    }
+  } catch {
+    // Non-fatal — fall back to global
+  }
+  return {};
+}
+
 export async function runPipelineSilenceCheck(): Promise<void> {
-  const thresholdMs = THRESHOLD_HOURS * 60 * 60 * 1000;
-  const cutoff = new Date(Date.now() - thresholdMs);
+  const perStageThresholds = await loadPerStageThresholds();
+
+  // Helper: resolve hours for a given (pipeline, stage) pair.
+  function thresholdHoursFor(pipeline: string, stage: string): number {
+    const key = `${pipeline}::${stage}`;
+    const override = perStageThresholds[key];
+    return typeof override === "number" && override > 0 ? override : GLOBAL_THRESHOLD_HOURS;
+  }
+
+  // Use global threshold for the initial DB query (broadest net).
+  // Rows with a per-stage threshold > global threshold are filtered out below.
+  const globalThresholdMs = GLOBAL_THRESHOLD_HOURS * 60 * 60 * 1000;
+  const cutoff = new Date(Date.now() - globalThresholdMs);
 
   // Find all active (pipeline, stage) pairs where the most-recently-updated deal
   // was last touched more than THRESHOLD_HOURS ago.
@@ -55,6 +84,16 @@ export async function runPipelineSilenceCheck(): Promise<void> {
     console.error("[PipelineSilenceCheck] DB query failed:", err.message);
     return;
   }
+
+  // Apply per-stage threshold overrides: re-filter out rows where the
+  // per-stage threshold is higher than the global one (they weren't silent
+  // enough to trigger the per-stage alert yet).
+  silentStages = silentStages.filter(row => {
+    const stageThresholdMs = thresholdHoursFor(row.pipeline, row.stage) * 60 * 60 * 1000;
+    if (row.max_updated_at === null) return true; // NULL = never touched → always alert
+    const ageMs = Date.now() - new Date(row.max_updated_at).getTime();
+    return ageMs >= stageThresholdMs;
+  });
 
   if (silentStages.length === 0) {
     console.log("[PipelineSilenceCheck] No silent stages found — all active.");
@@ -88,7 +127,8 @@ export async function runPipelineSilenceCheck(): Promise<void> {
       : null;
     const ageLabel = ageHours !== null ? `${ageHours}h` : "unknown";
     const dealCount = Number(row.deal_count ?? 0);
-    const msg = `Pipeline stage silent: pipeline="${row.pipeline}" stage="${row.stage}" — ${dealCount} active deal(s), last movement ${ageLabel} ago (threshold ${THRESHOLD_HOURS}h)`;
+    const stageThreshHours = thresholdHoursFor(row.pipeline, row.stage);
+    const msg = `Pipeline stage silent: pipeline="${row.pipeline}" stage="${row.stage}" — ${dealCount} active deal(s), last movement ${ageLabel} ago (threshold ${stageThreshHours}h)`;
 
     console.warn(`[PipelineSilenceCheck] ${msg}`);
 
@@ -105,7 +145,7 @@ export async function runPipelineSilenceCheck(): Promise<void> {
           stage: row.stage,
           dealCount,
           lastMovementAt: row.max_updated_at ?? null,
-          thresholdHours: THRESHOLD_HOURS,
+          thresholdHours: stageThreshHours,
           ageHours,
         },
       });
@@ -122,13 +162,13 @@ export async function runPipelineSilenceCheck(): Promise<void> {
         <div style="font-family:sans-serif;max-width:600px">
           <h2 style="color:#dc2626">Pipeline Stage Silence Alert</h2>
           <p>The following pipeline stage has had <strong>no deal movement</strong> for
-             more than <strong>${THRESHOLD_HOURS} hours</strong>:</p>
+             more than <strong>${stageThreshHours} hours</strong>:</p>
           <table style="border-collapse:collapse;width:100%;margin:12px 0">
             <tr><th style="text-align:left;padding:6px 12px;background:#f3f4f6">Pipeline</th><td style="padding:6px 12px">${escHtml(String(row.pipeline ?? ""))}</td></tr>
             <tr><th style="text-align:left;padding:6px 12px;background:#f3f4f6">Stage</th><td style="padding:6px 12px">${escHtml(String(row.stage ?? ""))}</td></tr>
             <tr><th style="text-align:left;padding:6px 12px;background:#f3f4f6">Active Deals</th><td style="padding:6px 12px">${dealCount}</td></tr>
             <tr><th style="text-align:left;padding:6px 12px;background:#f3f4f6">Last Movement</th><td style="padding:6px 12px">${row.max_updated_at ? new Date(row.max_updated_at).toLocaleString() : "Unknown"} (${escHtml(ageLabel)} ago)</td></tr>
-            <tr><th style="text-align:left;padding:6px 12px;background:#f3f4f6">Threshold</th><td style="padding:6px 12px">${THRESHOLD_HOURS} hours</td></tr>
+            <tr><th style="text-align:left;padding:6px 12px;background:#f3f4f6">Threshold</th><td style="padding:6px 12px">${stageThreshHours} hours</td></tr>
           </table>
           <p>Please review the pipeline to ensure deals are progressing. This alert will not repeat for 24 hours.</p>
           <p style="color:#6b7280;font-size:12px">Sent at ${new Date().toISOString()}</p>

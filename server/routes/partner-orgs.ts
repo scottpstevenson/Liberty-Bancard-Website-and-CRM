@@ -18,7 +18,7 @@ import { upload } from "./helpers";
 import path from "path";
 import fs from "fs";
 import { addNote, addTag } from "../services/sdr/ghl-client";
-import { enrollInGhlWorkflow } from "../services/ghl-workflows";
+import { enrollInGhlWorkflow, enrollInGhlWorkflowCompliant } from "../services/ghl-workflows";
 import { createContactGhlFirst } from "../services/contact-writer";
 import { scoreContact } from "../services/lead-scoring";
 import { autoEnrollFromTrigger } from "../services/sequence-worker";
@@ -793,7 +793,7 @@ ${getEmailSignatureHtml("partners")}
                 await Promise.all([
                   addNote({ contactId: contact!.ghlContactId, body: `Co-branded proposal viewed: ${proposal.merchantName}` }),
                   addTag({ contactId: contact!.ghlContactId, tags: ["proposal-viewed"] }),
-                  enrollInGhlWorkflow({ workflowKey: "proposal_viewed", ghlContactId: contact!.ghlContactId })
+                  enrollInGhlWorkflowCompliant({ workflowKey: "proposal_viewed", ghlContactId: contact!.ghlContactId, contactId: contact!.id })
                 ]);
               }
               await storage.createNotification({
@@ -862,7 +862,7 @@ ${getEmailSignatureHtml("partners")}
                   await Promise.all([
                     addNote({ contactId: contact!.ghlContactId, body: `Co-branded proposal ACCEPTED: ${proposal.merchantName}` }),
                     addTag({ contactId: contact!.ghlContactId, tags: ["proposal-accepted"] }),
-                    enrollInGhlWorkflow({ workflowKey: "proposal_accepted", ghlContactId: contact!.ghlContactId })
+                    enrollInGhlWorkflowCompliant({ workflowKey: "proposal_accepted", ghlContactId: contact!.ghlContactId, contactId: contact!.id })
                   ]);
                 }
                 await storage.createNotification({
@@ -991,9 +991,10 @@ ${getEmailSignatureHtml("partners")}
         return res.status(400).json({ message: "Associated contact not found or not synced to GHL." });
       }
 
-      const result = await enrollInGhlWorkflow({
+      const result = await enrollInGhlWorkflowCompliant({
         workflowKey,
         ghlContactId: contact!.ghlContactId,
+        contactId: contact!.id,
         metadata: {
           proposalId: proposal.id,
           proposalToken: proposal.token,

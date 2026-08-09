@@ -964,6 +964,20 @@ export async function processSendQueue(maxToSend?: number): Promise<{ sent: numb
         status: "contacted",
       });
 
+      // #1397 — record to canonical communication_events table
+      if (prospect.contactId) {
+        const { recordOutboundSend } = await import("./communication-events");
+        recordOutboundSend({
+          contactId: prospect.contactId,
+          channel: "email",
+          provider: isSmtpConfigured() ? "smtp" : "ghl",
+          subject,
+          body: bodyWithSig,
+          status: "sent",
+          metadata: { outboundMessageId: msg.id, campaignId: msg.campaignId },
+        }).catch(err => console.warn("[CampaignEngine] recordOutboundSend failed:", err.message));
+      }
+
       sent++;
       await new Promise(resolve => setTimeout(resolve, 2000));
     } catch (err: any) {
@@ -1140,6 +1154,18 @@ async function sendContactCampaignMessage(
   });
 
   await storage.updateContact(contact.id, { lastContactedAt: new Date() });
+
+  // #1397 — record to canonical communication_events table
+  const { recordOutboundSend } = await import("./communication-events");
+  recordOutboundSend({
+    contactId: contact.id,
+    channel: "email",
+    provider: "smtp",
+    subject,
+    body: bodyWithSig,
+    status: "sent",
+    metadata: { outboundMessageId: msg.id },
+  }).catch(err => console.warn("[CampaignEngine] recordOutboundSend failed:", err.message));
 
   return "sent";
 }

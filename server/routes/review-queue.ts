@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { z } from "zod";
-import { enrollInGhlWorkflow } from "../services/ghl-workflows";
+import { enrollInGhlWorkflow, enrollInGhlWorkflowCompliant } from "../services/ghl-workflows";
 import { REVIEW_CHECKLIST_ITEMS } from "@shared/schema";
 import { serverError } from "../utils/server-error";
 
@@ -108,9 +108,10 @@ export function registerReviewQueueRoutes(app: Express) {
           ghlContactId = contact?.ghlContactId || undefined;
         }
         if (ghlContactId) {
-          enrollInGhlWorkflow({
+          enrollInGhlWorkflowCompliant({
             workflowKey: ghlWorkflowId,
             ghlContactId,
+            contactId: meta?.contactId ? Number(meta.contactId) : undefined,
             metadata: { reviewQueueId: item.id, sourceType: item.sourceType },
           }).catch((err) => console.error("[ReviewQueue] GHL enrollment failed:", err.message));
         } else {

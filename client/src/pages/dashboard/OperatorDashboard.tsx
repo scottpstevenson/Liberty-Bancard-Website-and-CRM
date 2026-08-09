@@ -30,6 +30,7 @@ import { ALeadQueue } from "./sdr/ALeadQueue";
 import { LeadQueuePanel } from "@/components/dashboard/LeadQueuePanel";
 import { ProcessorIntelligence } from "./sdr/ProcessorIntelligence";
 import LaunchReadinessPage from "./LaunchReadiness";
+import AiLearningCenter from "./AiLearningCenter";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, PieChart, Pie, Cell, Legend, LineChart, Line } from "recharts";
 import type { LifecycleStageCountsResponse, OperatorSdrStatsResponse } from "@shared/operator-dashboard-types";
 
@@ -1254,6 +1255,145 @@ function SilentSequencesWidget() {
               </table>
             </div>
           )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// #1253 — Per-stage pipeline silence thresholds editor
+function PipelineSilenceThresholdsPanel() {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+
+  const { data, isLoading } = useQuery<{ thresholds: Record<string, number> }>({
+    queryKey: ["/api/admin/settings/pipeline-silence-thresholds"],
+  });
+
+  const [draft, setDraft] = useState<Record<string, string>>({});
+  const [newKey, setNewKey] = useState("");
+  const [newVal, setNewVal] = useState("");
+  const [initialized, setInitialized] = useState(false);
+
+  // Sync server data into draft on first load
+  if (!initialized && data) {
+    const init: Record<string, string> = {};
+    for (const [k, v] of Object.entries(data.thresholds)) init[k] = String(v);
+    setDraft(init);
+    setInitialized(true);
+  }
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      const thresholds: Record<string, number> = {};
+      for (const [k, v] of Object.entries(draft)) {
+        const n = parseFloat(v);
+        if (!k.trim() || !isFinite(n) || n <= 0) continue;
+        thresholds[k.trim()] = n;
+      }
+      await apiRequest("PUT", "/api/admin/settings/pipeline-silence-thresholds", { thresholds });
+      return thresholds;
+    },
+    onSuccess: () => {
+      toast({ title: "Saved", description: "Per-stage silence thresholds updated" });
+      qc.invalidateQueries({ queryKey: ["/api/admin/settings/pipeline-silence-thresholds"] });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  if (isLoading) return <div className="p-6"><Loader2 className="w-5 h-5 animate-spin" /></div>;
+
+  return (
+    <div className="space-y-4" data-testid="panel-pipeline-silence-thresholds">
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <Settings className="w-4 h-4" />
+            Per-Stage Pipeline Silence Thresholds
+          </CardTitle>
+          <p className="text-xs text-muted-foreground mt-1">
+            Set how many hours of deal inactivity triggers a silence alert for each pipeline stage.
+            Key format: <code className="bg-muted px-1 rounded">pipeline::stage</code> (e.g. <code className="bg-muted px-1 rounded">onboarding::New Lead</code>).
+            Falls back to the global <code className="bg-muted px-1 rounded">PIPELINE_SILENCE_THRESHOLD_HOURS</code> env var (default 24h).
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {Object.keys(draft).length === 0 && (
+            <p className="text-xs text-muted-foreground italic">No per-stage overrides — all stages use the global default.</p>
+          )}
+          {Object.entries(draft).map(([key]) => (
+            <div key={key} className="flex items-center gap-2">
+              <Input
+                value={key}
+                readOnly
+                className="h-7 text-xs font-mono flex-1"
+                data-testid={`thresh-key-${key}`}
+              />
+              <Input
+                type="number"
+                min={1}
+                value={draft[key]}
+                onChange={e => setDraft(p => ({ ...p, [key]: e.target.value }))}
+                className="h-7 text-xs w-24"
+                data-testid={`thresh-val-${key}`}
+              />
+              <span className="text-xs text-muted-foreground">h</span>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-destructive hover:text-destructive"
+                onClick={() => setDraft(p => { const n = { ...p }; delete n[key]; return n; })}
+                data-testid={`thresh-delete-${key}`}
+              >
+                ✕
+              </Button>
+            </div>
+          ))}
+
+          <div className="flex items-center gap-2 pt-2 border-t">
+            <Input
+              value={newKey}
+              onChange={e => setNewKey(e.target.value)}
+              placeholder="pipeline::stage"
+              className="h-7 text-xs font-mono flex-1"
+              data-testid="thresh-new-key"
+            />
+            <Input
+              type="number"
+              min={1}
+              value={newVal}
+              onChange={e => setNewVal(e.target.value)}
+              placeholder="hours"
+              className="h-7 text-xs w-24"
+              data-testid="thresh-new-val"
+            />
+            <span className="text-xs text-muted-foreground">h</span>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 px-3 text-xs"
+              onClick={() => {
+                if (!newKey.trim() || !newVal) return;
+                setDraft(p => ({ ...p, [newKey.trim()]: newVal }));
+                setNewKey("");
+                setNewVal("");
+              }}
+              data-testid="thresh-add-btn"
+            >
+              + Add
+            </Button>
+          </div>
+
+          <Button
+            onClick={() => saveMutation.mutate()}
+            disabled={saveMutation.isPending}
+            size="sm"
+            className="mt-2"
+            data-testid="thresh-save-btn"
+          >
+            {saveMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : null}
+            Save Thresholds
+          </Button>
         </CardContent>
       </Card>
     </div>
@@ -2706,6 +2846,7 @@ const OPERATOR_NAV_GROUPS: OperatorNavGroup[] = [
       { value: "recent-sends", label: "Recent Sends", icon: Send },
       { value: "send-monitoring", label: "Send Monitoring", icon: Activity },
       { value: "silent-sequences", label: "Sequences Not Firing", icon: Flag },
+      { value: "pipeline-silence-thresholds", label: "Silence Thresholds", icon: Settings },
       { value: "bounce-failure", label: "Bounce & Failure", icon: XCircle },
       { value: "comm-health", label: "Email Health", icon: Mail },
     ],
@@ -2717,6 +2858,7 @@ const OPERATOR_NAV_GROUPS: OperatorNavGroup[] = [
     items: [
       { value: "ai-health", label: "AI Health", icon: ShieldCheck },
       { value: "ai-activity", label: "AI Activity", icon: Activity },
+      { value: "ai-learning-center", label: "AI Learning Center", icon: Sparkles },
       { value: "low-confidence", label: "Low Confidence", icon: Eye },
       { value: "subject-audit", label: "Subject Sync", icon: Mail },
       { value: "content-organic", label: "Content & Organic", icon: BarChart3 },
@@ -2803,10 +2945,14 @@ function renderOperatorView(view: string, onNavigate: (v: string) => void) {
       return <SendMonitoringPanel />;
     case "silent-sequences":
       return <SilentSequencesWidget />;
+    case "pipeline-silence-thresholds":
+      return <PipelineSilenceThresholdsPanel />;
     case "bounce-failure":
       return <BounceFailurePanel />;
     case "comm-health":
       return <CommHealthPanel />;
+    case "ai-learning-center":
+      return <AiLearningCenter />;
     case "ai-health":
       return <AiHealthPanel />;
     case "ai-activity":

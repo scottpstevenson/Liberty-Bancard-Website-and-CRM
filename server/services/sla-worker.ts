@@ -21,6 +21,12 @@ import { runNightlyChurnScoring } from "./churn-score";
 
 const SLA_CHECK_INTERVAL_MS = 5 * 60 * 1000;
 
+// #1326 — In-memory heartbeat failure counter. Incremented each time a
+// setSystemSetting("*_last_tick") write fails. Health monitor reads this to
+// distinguish "running but heartbeat broken" from "genuinely stalled worker".
+// Reset to 0 on process restart (acceptable — stale counts don't persist).
+export let _slaHeartbeatFailureCount = 0;
+
 // ── Phase gate: runtime check for Phase 3 partial unique index ────────────────
 // The worker switches to conflict-safe createStallingDealFollowUpTask() only
 // when the partial unique index (migration 0054) is confirmed present in the DB.
@@ -1148,7 +1154,12 @@ export function startSlaWorker() {
   console.log("SLA Worker started - checking every 5 minutes");
   slaInterval = setInterval(async () => {
     await runSlaCheck();
-    await storage.setSystemSetting("sla_worker_last_tick", { at: new Date().toISOString(), cycle: cycleCount + 1 }).catch(() => {});
+    // #1325/#1326 — Surface heartbeat write failures; count them so operators can
+    // distinguish "healthy worker, broken heartbeat" from "worker stalled".
+    await storage.setSystemSetting("sla_worker_last_tick", { at: new Date().toISOString(), cycle: cycleCount + 1 }).catch((err: Error) => {
+      console.error("[SLA Worker] heartbeat write failed (sla_worker_last_tick):", err.message);
+      _slaHeartbeatFailureCount++;
+    });
     await checkWaitingWorkflows();
     if (featureFlags.LEGACY_OUTREACH_ENABLED) {
       let processed = 0, sent = 0;
@@ -1166,7 +1177,10 @@ export function startSlaWorker() {
         processed,
         sent,
         enabled: true,
-      }).catch(() => {});
+      }).catch((err: Error) => {
+        console.error("[SLA Worker] heartbeat write failed (sequence_runner_last_tick/enabled):", err.message);
+        _slaHeartbeatFailureCount++;
+      });
       await processSendQueue().catch(err => console.error("Campaign send queue error:", err));
       await runSunbizAutoConvert().catch(err => console.error("Sunbiz auto-convert error:", err));
     } else {
@@ -1176,7 +1190,10 @@ export function startSlaWorker() {
         sent: 0,
         enabled: false,
         note: "LEGACY_OUTREACH_ENABLED is off",
-      }).catch(() => {});
+      }).catch((err: Error) => {
+        console.error("[SLA Worker] heartbeat write failed (sequence_runner_last_tick/disabled):", err.message);
+        _slaHeartbeatFailureCount++;
+      });
     }
 
     // Auto-advance sales deals based on derived signals once per hour

@@ -2,7 +2,7 @@ import { storage } from "../storage";
 import { db } from "../db";
 import {
   tickets, npsResponses, sequenceEnrollments, midDailyStats, contacts, deals, merchantProfiles,
-  agents, agentMerchants,
+  agents, agentMerchants, saveCases,
   type MerchantHealthScore,
 } from "@shared/schema";
 import { eq, and, gte, desc, sql } from "drizzle-orm";
@@ -374,6 +374,15 @@ export async function runNightlyChurnScoring(): Promise<{ processed: number; hig
         if ((tier === "High" || tier === "Critical") && !score.agentNotified) {
           await notifyAgentForChurnRisk(contactId, tier, score.id);
         }
+
+        // #1407 — Open a save case for High/Critical merchants if one isn't already open
+        if (tier === "High" || tier === "Critical") {
+          const contactDeals = await storage.getDealsByContact(contactId);
+          const latestDealId = contactDeals[0]?.id ?? null;
+          // Persisted MerchantHealthScore does not store signal labels; pass empty array.
+          // The case captures the tier+score which is the durable data; signals are diagnostic.
+          await openSaveCaseIfNeeded(contactId, latestDealId, tier, effectiveScore, []);
+        }
       } catch (err) {
         console.error(`[ChurnScore] Failed for contact ${contactId}:`, err);
         errors++;
@@ -386,6 +395,54 @@ export async function runNightlyChurnScoring(): Promise<{ processed: number; hig
   }
 
   return { processed, highRisk, critical, errors };
+}
+
+/**
+ * #1407 — Auto-open a save case when a merchant crosses the High/Critical threshold.
+ * Uses a partial unique index (status='open') to prevent duplicate open cases per contact.
+ */
+async function openSaveCaseIfNeeded(
+  contactId: number,
+  dealId: number | null | undefined,
+  tier: string,
+  churnScore: number,
+  triggerSignals: string[],
+): Promise<void> {
+  try {
+    // Check if there's already an open save case for this contact
+    const existing = await db
+      .select({ id: saveCases.id })
+      .from(saveCases)
+      .where(and(eq(saveCases.contactId, contactId), eq(saveCases.status, "open")))
+      .limit(1);
+    if (existing.length > 0) return; // already has an open case
+
+    // Resolve assigned agent for initial assignment
+    const agentUserId = await resolveAssignedAgentUserId(contactId);
+    const contact = await storage.getContact(contactId);
+    const agentEmail = agentUserId
+      ? (contact ? undefined : undefined) // agent email lookup would require agents table join; leave null for now
+      : null;
+
+    await db.insert(saveCases).values({
+      contactId,
+      dealId: dealId ?? null,
+      churnScore,
+      riskTier: tier,
+      triggerSignals: triggerSignals as any,
+      status: "open",
+      assignedTo: agentEmail ?? null,
+      playbookDay: 0,
+      escalationLevel: 0,
+    });
+    console.log(`[ChurnScore] Save case opened for contact ${contactId} (${tier} churn risk, score=${churnScore})`);
+  } catch (err) {
+    // Swallow unique-constraint violations (race condition: two runs opening the same case)
+    const msg = (err as any)?.message ?? "";
+    if (!msg.includes("unique") && !msg.includes("duplicate")) {
+      console.error(`[ChurnScore] openSaveCaseIfNeeded error for contact ${contactId}:`, err);
+    }
+  }
 }
 
 /**

@@ -4620,6 +4620,37 @@ export const insertUnderwritingDecisionSchema = createInsertSchema(underwritingD
 export type UnderwritingDecision = typeof underwritingDecisions.$inferSelect;
 export type InsertUnderwritingDecision = z.infer<typeof insertUnderwritingDecisionSchema>;
 
+// ─── Underwriting Conditions (#1403) ─────────────────────────────────────────
+export const underwritingConditions = pgTable("underwriting_conditions", {
+  id:              serial("id").primaryKey(),
+  dealId:          integer("deal_id").notNull().references(() => deals.id, { onDelete: "cascade" }),
+  decisionId:      integer("decision_id").references(() => underwritingDecisions.id),
+  conditionType:   text("condition_type").notNull(),
+  description:     text("description").notNull(),
+  status:          text("status").notNull().default("pending"),
+  merchantVisible: boolean("merchant_visible").notNull().default(true),
+  dueDate:         timestamp("due_date"),
+  submittedAt:     timestamp("submitted_at"),
+  approvedAt:      timestamp("approved_at"),
+  waivedAt:        timestamp("waived_at"),
+  waivedReason:    text("waived_reason"),
+  documentId:      integer("document_id"),
+  notes:           text("notes"),
+  createdBy:       integer("created_by"),
+  updatedBy:       integer("updated_by"),
+  createdAt:       timestamp("created_at").notNull().defaultNow(),
+  updatedAt:       timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("idx_uw_conditions_deal_id").on(t.dealId),
+  index("idx_uw_conditions_status").on(t.dealId, t.status),
+]);
+
+export const insertUnderwritingConditionSchema = createInsertSchema(underwritingConditions).omit({
+  id: true, createdAt: true, updatedAt: true,
+});
+export type UnderwritingCondition = typeof underwritingConditions.$inferSelect;
+export type InsertUnderwritingCondition = z.infer<typeof insertUnderwritingConditionSchema>;
+
 // ─── Push Subscriptions ──────────────────────────────────────────────────────
 export const pushSubscriptions = pgTable("push_subscriptions", {
   id: serial("id").primaryKey(),
@@ -5266,5 +5297,196 @@ export const nbaRecommendationHistory = pgTable("nba_recommendation_history", {
 ]);
 
 export type NbaRecommendationHistory = typeof nbaRecommendationHistory.$inferSelect;
+
+// ─── Merchant MID Registry (#1404) ───────────────────────────────────────────
+export const merchantMids = pgTable("merchant_mids", {
+  id:               serial("id").primaryKey(),
+  contactId:        integer("contact_id").notNull().references(() => contacts.id, { onDelete: "cascade" }),
+  dealId:           integer("deal_id").references(() => deals.id),
+  mid:              text("mid").notNull(),
+  tids:             text("tids").array().notNull().default(sql`'{}'::text[]`),
+  processorName:    text("processor_name").notNull().default("payarc"),
+  status:           text("status").notNull().default("assigned"),
+  monthlyVolumeCap: numeric("monthly_volume_cap"),
+  assignedAt:       timestamp("assigned_at").notNull().defaultNow(),
+  activatedAt:      timestamp("activated_at"),
+  suspendedAt:      timestamp("suspended_at"),
+  closedAt:         timestamp("closed_at"),
+  suspensionReason: text("suspension_reason"),
+  notes:            text("notes"),
+  createdAt:        timestamp("created_at").notNull().defaultNow(),
+  updatedAt:        timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("idx_merchant_mids_mid").on(t.mid),
+  index("idx_merchant_mids_contact_id").on(t.contactId),
+  index("idx_merchant_mids_deal_id").on(t.dealId),
+]);
+
+export const insertMerchantMidSchema = createInsertSchema(merchantMids).omit({
+  id: true, createdAt: true, updatedAt: true,
+});
+export type MerchantMid = typeof merchantMids.$inferSelect;
+export type InsertMerchantMid = z.infer<typeof insertMerchantMidSchema>;
+
+// ─── Equipment Shipments (#1404) ─────────────────────────────────────────────
+export const equipmentShipments = pgTable("equipment_shipments", {
+  id:                serial("id").primaryKey(),
+  contactId:         integer("contact_id").notNull().references(() => contacts.id, { onDelete: "cascade" }),
+  dealId:            integer("deal_id").references(() => deals.id),
+  equipmentOrderId:  integer("equipment_order_id"),
+  carrier:           text("carrier"),
+  trackingNumber:    text("tracking_number"),
+  status:            text("status").notNull().default("pending"),
+  shippedAt:         timestamp("shipped_at"),
+  estimatedDelivery: timestamp("estimated_delivery"),
+  deliveredAt:       timestamp("delivered_at"),
+  notes:             text("notes"),
+  createdAt:         timestamp("created_at").notNull().defaultNow(),
+  updatedAt:         timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("idx_equipment_shipments_contact_id").on(t.contactId),
+  index("idx_equipment_shipments_deal_id").on(t.dealId),
+]);
+
+export type EquipmentShipment = typeof equipmentShipments.$inferSelect;
+
+// ─── Save Cases (#1407) ──────────────────────────────────────────────────────
+export const saveCases = pgTable("save_cases", {
+  id:                   serial("id").primaryKey(),
+  contactId:            integer("contact_id").notNull().references(() => contacts.id, { onDelete: "cascade" }),
+  dealId:               integer("deal_id").references(() => deals.id),
+  healthAlertId:        integer("health_alert_id").references(() => healthAlerts.id),
+  churnScore:           integer("churn_score"),
+  riskTier:             text("risk_tier").notNull(),
+  triggerSignals:       jsonb("trigger_signals").notNull().default(sql`'[]'::jsonb`),
+  status:               text("status").notNull().default("open"),
+  assignedTo:           text("assigned_to"),
+  outcome:              text("outcome"),
+  outcomeNotes:         text("outcome_notes"),
+  playbookDay:          integer("playbook_day").notNull().default(0),
+  escalationLevel:      integer("escalation_level").notNull().default(0),
+  day2EmailSent:        boolean("day2_email_sent").notNull().default(false),
+  day5ManagerNotified:  boolean("day5_manager_notified").notNull().default(false),
+  day10ExecNotified:    boolean("day10_exec_notified").notNull().default(false),
+  lastActivityAt:       timestamp("last_activity_at"),
+  resolvedAt:           timestamp("resolved_at"),
+  createdAt:            timestamp("created_at").notNull().defaultNow(),
+  updatedAt:            timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("idx_save_cases_contact_id").on(t.contactId),
+  index("idx_save_cases_status").on(t.status),
+]);
+
+export const insertSaveCaseSchema = createInsertSchema(saveCases).omit({
+  id: true, createdAt: true, updatedAt: true,
+});
+export type SaveCase = typeof saveCases.$inferSelect;
+export type InsertSaveCase = z.infer<typeof insertSaveCaseSchema>;
+
+// ─── Entity Memory (#1408) ────────────────────────────────────────────────────
+export const entityMemory = pgTable("entity_memory", {
+  id:            serial("id").primaryKey(),
+  entityType:    text("entity_type").notNull(),
+  entityId:      integer("entity_id").notNull(),
+  factKey:       text("fact_key").notNull(),
+  factValue:     jsonb("fact_value").notNull(),
+  source:        text("source").notNull().default("system"),
+  confidence:    real("confidence"),
+  sourceEventId: integer("source_event_id"),
+  version:       integer("version").notNull().default(1),
+  lastUpdatedAt: timestamp("last_updated_at").notNull().defaultNow(),
+  createdAt:     timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("idx_entity_memory_upsert").on(t.entityType, t.entityId, t.factKey),
+  index("idx_entity_memory_entity").on(t.entityType, t.entityId),
+]);
+export type EntityMemory = typeof entityMemory.$inferSelect;
+
+// ─── AI Decision Log (#1408) ──────────────────────────────────────────────────
+export const aiDecisionLog = pgTable("ai_decision_log", {
+  id:             serial("id").primaryKey(),
+  decisionType:   text("decision_type").notNull(),
+  contactId:      integer("contact_id").references(() => contacts.id, { onDelete: "set null" }),
+  dealId:         integer("deal_id").references(() => deals.id, { onDelete: "set null" }),
+  model:          text("model"),
+  promptKey:      text("prompt_key"),
+  promptVersion:  text("prompt_version"),
+  inputSummary:   jsonb("input_summary").notNull().default(sql`'{}'::jsonb`),
+  decisionOutput: jsonb("decision_output").notNull().default(sql`'{}'::jsonb`),
+  confidence:     real("confidence"),
+  confidenceTier: text("confidence_tier"),
+  wasOverridden:  boolean("was_overridden").notNull().default(false),
+  overrideReason: text("override_reason"),
+  outcome:        text("outcome"),
+  tokensUsed:     integer("tokens_used"),
+  costCents:      real("cost_cents"),
+  durationMs:     integer("duration_ms"),
+  sourceEventId:  integer("source_event_id"),
+  flagged:        boolean("flagged").notNull().default(false),
+  createdAt:      timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  index("idx_ai_decision_log_contact_id").on(t.contactId),
+  index("idx_ai_decision_log_decision_type").on(t.decisionType),
+  index("idx_ai_decision_log_created_at").on(t.createdAt),
+]);
+export const insertAiDecisionLogSchema = createInsertSchema(aiDecisionLog).omit({ id: true, createdAt: true });
+export type AiDecisionLog = typeof aiDecisionLog.$inferSelect;
+export type InsertAiDecisionLog = z.infer<typeof insertAiDecisionLogSchema>;
+
+// ─── AI Corrections (#1409) ───────────────────────────────────────────────────
+export const aiCorrections = pgTable("ai_corrections", {
+  id:               serial("id").primaryKey(),
+  decisionLogId:    integer("decision_log_id").references(() => aiDecisionLog.id, { onDelete: "set null" }),
+  contactId:        integer("contact_id").references(() => contacts.id, { onDelete: "cascade" }),
+  decisionType:     text("decision_type").notNull(),
+  originalValue:    jsonb("original_value").notNull(),
+  correctedValue:   jsonb("corrected_value").notNull(),
+  correctionReason: text("correction_reason"),
+  correctedBy:      text("corrected_by"),
+  sessionId:        text("session_id"),
+  createdAt:        timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  index("idx_ai_corrections_decision_type").on(t.decisionType),
+  index("idx_ai_corrections_created_at").on(t.createdAt),
+  index("idx_ai_corrections_contact_id").on(t.contactId),
+]);
+export const insertAiCorrectionSchema = createInsertSchema(aiCorrections).omit({ id: true, createdAt: true });
+export type AiCorrection = typeof aiCorrections.$inferSelect;
+export type InsertAiCorrection = z.infer<typeof insertAiCorrectionSchema>;
+
+// ─── Prompt Versions (#1409) ─────────────────────────────────────────────────
+export const promptVersions = pgTable("prompt_versions", {
+  id:            serial("id").primaryKey(),
+  promptKey:     text("prompt_key").notNull(),
+  version:       text("version").notNull(),
+  promptText:    text("prompt_text").notNull(),
+  modelId:       text("model_id"),
+  effectiveFrom: timestamp("effective_from").notNull().defaultNow(),
+  effectiveTo:   timestamp("effective_to"),
+  deployedBy:    text("deployed_by"),
+  notes:         text("notes"),
+  createdAt:     timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("idx_prompt_versions_key_version").on(t.promptKey, t.version),
+  index("idx_prompt_versions_key_active").on(t.promptKey, t.effectiveFrom),
+]);
+export type PromptVersion = typeof promptVersions.$inferSelect;
+
+// ─── Golden Examples (#1409) ─────────────────────────────────────────────────
+export const goldenExamples = pgTable("golden_examples", {
+  id:             serial("id").primaryKey(),
+  decisionType:   text("decision_type").notNull(),
+  inputSnapshot:  jsonb("input_snapshot").notNull(),
+  expectedOutput: jsonb("expected_output").notNull(),
+  source:         text("source").notNull().default("human_label"),
+  label:          text("label"),
+  active:         boolean("active").notNull().default(true),
+  createdBy:      text("created_by"),
+  createdAt:      timestamp("created_at").notNull().defaultNow(),
+  updatedAt:      timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("idx_golden_examples_decision_type").on(t.decisionType),
+]);
+export type GoldenExample = typeof goldenExamples.$inferSelect;
 
 export type InsertExecutiveGoal = z.infer<typeof insertExecutiveGoalSchema>;

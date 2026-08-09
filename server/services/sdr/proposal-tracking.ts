@@ -35,8 +35,8 @@ export async function initProposalTracking(leadId: number): Promise<string> {
     const { eq: eqDrizzle } = await import("drizzle-orm");
     const [merchant] = await db.select({ ghlContactId: sdrMerchants.ghlContactId }).from(sdrMerchants).where(eqDrizzle(sdrMerchants.id, leadForEnroll.merchantId));
     if (merchant?.ghlContactId) {
-      const { enrollInGhlWorkflow } = await import("../ghl-workflows");
-      enrollInGhlWorkflow({ workflowKey: "proposal_followup", ghlContactId: merchant.ghlContactId, metadata: { trackingId, leadId } }).catch(err =>
+      const { enrollInGhlWorkflowCompliant } = await import("../ghl-workflows");
+      enrollInGhlWorkflowCompliant({ workflowKey: "proposal_followup", ghlContactId: merchant.ghlContactId, metadata: { trackingId, leadId } }).catch(err =>
         console.error(`[ProposalTracking] GHL proposal_followup enrollment error for lead ${leadId}:`, err)
       );
     }

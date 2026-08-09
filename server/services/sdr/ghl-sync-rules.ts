@@ -26,8 +26,8 @@ export async function onStageChange(merchantId: number, newStage: string, oldSta
     });
 
     if (newStage === "NURTURE" && oldStage !== "NURTURE") {
-      const { enrollInGhlWorkflow } = await import("../ghl-workflows");
-      enrollInGhlWorkflow({ workflowKey: "long_term_nurture", ghlContactId: merchant.ghlContactId, metadata: { merchantId, fromStage: oldStage } }).catch(err =>
+      const { enrollInGhlWorkflowCompliant } = await import("../ghl-workflows");
+      enrollInGhlWorkflowCompliant({ workflowKey: "long_term_nurture", ghlContactId: merchant.ghlContactId, metadata: { merchantId, fromStage: oldStage } }).catch(err =>
         console.error(`[SDR Sync] GHL long_term_nurture enrollment error for merchant ${merchantId}:`, err)
       );
     }

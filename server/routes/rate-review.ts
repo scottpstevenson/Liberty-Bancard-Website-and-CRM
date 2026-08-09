@@ -5,7 +5,7 @@ import { upload } from "./helpers";
 import { autoGenerateProposal } from "../services/proposal-engine";
 import { sendSmtpEmail, isSmtpConfigured } from "../services/smtp-email";
 import { isGhlConfigured } from "../services/ghl";
-import { enrollInGhlWorkflow } from "../services/ghl-workflows";
+import { enrollInGhlWorkflow, enrollInGhlWorkflowCompliant } from "../services/ghl-workflows";
 import { runStatementUploadChain } from "../services/statement-upload-chain";
 import path from "path";
 import fs from "fs";
@@ -168,7 +168,7 @@ export function registerRateReviewRoutes(app: Express) {
       `;
 
       if (contact.ghlContactId) {
-        enrollInGhlWorkflow({ workflowKey: "rate_review_confirmation", ghlContactId: contact.ghlContactId }).catch(err =>
+        enrollInGhlWorkflowCompliant({ workflowKey: "rate_review_confirmation", ghlContactId: contact.ghlContactId, contactId: contact.id }).catch(err =>
           console.error("[RateReview] GHL workflow enrollment error:", err)
         );
       } else if (contact.email && isSmtpConfigured()) {

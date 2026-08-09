@@ -61,6 +61,28 @@ const SEQUENCES_REPEAT_EVERY_MS = IS_DEV
     ? Math.max(_seqEnvMs, SEQUENCES_REPEAT_FLOOR_MS)
     : SEQUENCES_REPEAT_DEFAULT_MS;
 
+// #1329 — GHL sync interval: operators can tune via GHL_SYNC_REPEAT_EVERY_MS without a redeploy.
+// Floor: 30 s (prevent circuit-trip storms). Dev short-circuit always wins.
+const GHL_SYNC_REPEAT_FLOOR_MS = 30 * 1000; // 30 s hard floor
+const GHL_SYNC_REPEAT_DEFAULT_MS = 45000;    // 45 s production default
+const _ghlSyncEnvMs = parseInt(process.env.GHL_SYNC_REPEAT_EVERY_MS ?? "", 10);
+const GHL_SYNC_REPEAT_EVERY_MS = IS_DEV
+  ? 5 * 60 * 1000
+  : Number.isFinite(_ghlSyncEnvMs) && _ghlSyncEnvMs > 0
+    ? Math.max(_ghlSyncEnvMs, GHL_SYNC_REPEAT_FLOOR_MS)
+    : GHL_SYNC_REPEAT_DEFAULT_MS;
+
+// #1329 — SLA check interval: operators can tune via SLA_CHECKS_REPEAT_EVERY_MS without a redeploy.
+// Floor: 2 min. Dev short-circuit always wins.
+const SLA_CHECKS_REPEAT_FLOOR_MS = 2 * 60 * 1000; // 2 min hard floor
+const SLA_CHECKS_REPEAT_DEFAULT_MS = 5 * 60 * 1000; // 5 min production default
+const _slaChecksEnvMs = parseInt(process.env.SLA_CHECKS_REPEAT_EVERY_MS ?? "", 10);
+const SLA_CHECKS_REPEAT_EVERY_MS = IS_DEV
+  ? 15 * 60 * 1000
+  : Number.isFinite(_slaChecksEnvMs) && _slaChecksEnvMs > 0
+    ? Math.max(_slaChecksEnvMs, SLA_CHECKS_REPEAT_FLOOR_MS)
+    : SLA_CHECKS_REPEAT_DEFAULT_MS;
+
 const QUEUE_CONFIGS: QueueConfig[] = [
   {
     name: QUEUE_NAMES.GHL_SYNC,
@@ -69,7 +91,7 @@ const QUEUE_CONFIGS: QueueConfig[] = [
     concurrency: 3,
     attempts: 3,
     backoffDelay: 5000,
-    repeatEveryMs: IS_DEV ? 5 * 60 * 1000 : 45000, // dev: 5 min, prod: 45 s
+    repeatEveryMs: GHL_SYNC_REPEAT_EVERY_MS,
     jobName: "run",
   },
   {
@@ -78,7 +100,7 @@ const QUEUE_CONFIGS: QueueConfig[] = [
     concurrency: 1,
     attempts: 3,
     backoffDelay: 10000,
-    repeatEveryMs: IS_DEV ? 15 * 60 * 1000 : 5 * 60 * 1000, // dev: 15 min, prod: 5 min
+    repeatEveryMs: SLA_CHECKS_REPEAT_EVERY_MS,
     jobName: "run",
   },
   {
@@ -406,6 +428,10 @@ class QueueManager {
       `[QueueManager] All queues and workers initialized (${activeConfigs.length} queues, ~${totalConnections} Redis connections). ` +
       `Sequences repeat interval: ${SEQUENCES_REPEAT_EVERY_MS / 1000}s` +
       (IS_DEV ? " (dev override)" : process.env.SEQUENCES_REPEAT_EVERY_MS ? " (SEQUENCES_REPEAT_EVERY_MS env var)" : " (default)") + ". " +
+      `GHL sync interval: ${GHL_SYNC_REPEAT_EVERY_MS / 1000}s` +
+      (IS_DEV ? " (dev override)" : process.env.GHL_SYNC_REPEAT_EVERY_MS ? " (GHL_SYNC_REPEAT_EVERY_MS env var)" : " (default)") + ". " +
+      `SLA check interval: ${SLA_CHECKS_REPEAT_EVERY_MS / 1000}s` +
+      (IS_DEV ? " (dev override)" : process.env.SLA_CHECKS_REPEAT_EVERY_MS ? " (SLA_CHECKS_REPEAT_EVERY_MS env var)" : " (default)") + ". " +
       capacity.recommendation
     );
     if (totalConnections >= REDIS_CONNECTION_WARN_THRESHOLD) {

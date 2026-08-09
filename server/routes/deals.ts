@@ -20,7 +20,7 @@ import { parse } from "csv-parse/sync";
 import path from "path";
 import { sendPushToAllReps } from "../services/push-service";
 import { computeDealTerminalEconomics } from "../services/terminal-economics";
-import { enrollInGhlWorkflow } from "../services/ghl-workflows";
+import { enrollInGhlWorkflow, enrollInGhlWorkflowCompliant } from "../services/ghl-workflows";
 import { updateCustomFields } from "../services/sdr/ghl-client";
 import { serverError } from "../utils/server-error";
 import { GO_LIVE_GATE_STAGES, checkGoLiveReadiness, GoLiveGateError } from "../services/go-live-gate";
@@ -476,9 +476,10 @@ export function registerDealsRoutes(app: Express) {
       }
 
       await updateCustomFields(contact.ghlContactId, fields);
-      await enrollInGhlWorkflow({
+      await enrollInGhlWorkflowCompliant({
         workflowKey: "statement_analyzed",
         ghlContactId: contact.ghlContactId,
+        contactId: contact.id,
         metadata: { dealId: deal.id, analysisDate: new Date().toISOString() }
       });
 

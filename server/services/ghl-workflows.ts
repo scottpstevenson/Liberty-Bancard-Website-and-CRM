@@ -200,6 +200,86 @@ export async function enrollInGhlWorkflow(params: {
   }
 }
 
+/**
+ * Compliance-gated GHL workflow enrollment (#1380 — Kill Line #3 fix).
+ *
+ * Replaces direct enrollInGhlWorkflow() call sites in routes/services so that
+ * every GHL automation respects the Replit compliance fence:
+ *   • Marketing/nurture/SDR workflows → global pause + DNC + doNotAutoContact
+ *   • Transactional workflows (confirmations, support, onboarding) → DNC only
+ *
+ * Recovery paths (ghl-enrollment-recovery.ts), RVM transport, unsubscribe
+ * handler, and workflow-executor intentionally call enrollInGhlWorkflow()
+ * directly — do NOT change those call sites.
+ */
+export async function enrollInGhlWorkflowCompliant(params: {
+  workflowKey: string;
+  ghlContactId: string;
+  metadata?: Record<string, any>;
+  _isRecoveryAttempt?: boolean;
+  /** DB contact id — enables DNC / doNotAutoContact checks */
+  contactId?: number;
+}): Promise<{ success: boolean; error?: string; skipped?: boolean }> {
+  const registryEntry = GHL_WORKFLOW_REGISTRY.find(w => w.id === params.workflowKey);
+  const category = registryEntry?.category ?? "inbound_lead";
+  const isMarketingCategory =
+    category === "sdr_outbound" || category === "nurture" || category === "sales";
+
+  // ── Global pause — marketing/nurture/SDR only ────────────────────────────
+  if (isMarketingCategory) {
+    try {
+      const paused = await storage.getSystemSetting("outboundGlobalPaused");
+      if (paused === true || paused === "true") {
+        console.log(
+          `[GHL Compliance] Workflow "${params.workflowKey}" blocked — global pause active`
+        );
+        return { success: false, error: "Global outbound pause is active", skipped: true };
+      }
+    } catch (_) {
+      // If DB check fails, fail-closed for marketing sends
+      return { success: false, error: "Could not verify global pause state", skipped: true };
+    }
+  }
+
+  // ── Contact DNC / doNotAutoContact check ─────────────────────────────────
+  if (params.contactId) {
+    try {
+      const [contact] = await db
+        .select({
+          id: contacts.id,
+          doNotContact: contacts.doNotContact,
+          doNotAutoContact: contacts.doNotAutoContact,
+        })
+        .from(contacts)
+        .where(eq(contacts.id, params.contactId))
+        .limit(1);
+
+      if (contact?.doNotContact) {
+        console.log(
+          `[GHL Compliance] Workflow "${params.workflowKey}" blocked for contact ${params.contactId} — doNotContact=true`
+        );
+        return { success: false, error: "Contact is on Do Not Contact list", skipped: true };
+      }
+      if (isMarketingCategory && contact?.doNotAutoContact) {
+        console.log(
+          `[GHL Compliance] Workflow "${params.workflowKey}" blocked for contact ${params.contactId} — doNotAutoContact=true`
+        );
+        return {
+          success: false,
+          error: "Contact has opted out of automated outreach",
+          skipped: true,
+        };
+      }
+    } catch (err: any) {
+      console.warn(
+        `[GHL Compliance] Contact lookup failed for id=${params.contactId} — proceeding with enrollment: ${err.message}`
+      );
+    }
+  }
+
+  return enrollInGhlWorkflow(params);
+}
+
 export function getSdrWorkflowForVertical(vertical: string): string {
   const normalizedVertical = (vertical || "").toLowerCase();
 

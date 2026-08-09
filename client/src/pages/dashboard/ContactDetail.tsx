@@ -1587,6 +1587,19 @@ export default function ContactDetail() {
                   Email {(contact as any).emailStatus}
                 </Badge>
               )}
+              {/* #1390 — Lifecycle stage badge */}
+              {(contact as any).lifecycleState && (
+                <Badge
+                  className="border-0 bg-violet-100 text-violet-800 dark:bg-violet-900 dark:text-violet-200"
+                  data-testid="badge-lifecycle-state"
+                  title={`Lifecycle stage: ${(contact as any).lifecycleState}${(contact as any).lifecycleStateUpdatedAt ? ` · Updated ${new Date((contact as any).lifecycleStateUpdatedAt).toLocaleDateString()}` : ""}`}
+                >
+                  {(contact as any).lifecycleState
+                    .replace(/_/g, " ")
+                    .toLowerCase()
+                    .replace(/\b\w/g, (c: string) => c.toUpperCase())}
+                </Badge>
+              )}
               {parentAccount && (
                 <button
                   className="inline-flex items-center gap-1 text-xs text-primary hover:underline"

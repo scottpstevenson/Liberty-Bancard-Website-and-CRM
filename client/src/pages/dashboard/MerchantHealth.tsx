@@ -3,10 +3,12 @@ import { useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   AlertTriangle,
@@ -28,6 +30,7 @@ import {
   ExternalLink,
   RefreshCw,
   Filter,
+  Settings,
 } from "lucide-react";
 import type { HealthAlert, MerchantHealthScore, Agent } from "@shared/schema";
 
@@ -203,6 +206,39 @@ export default function MerchantHealth() {
   });
   const weightsMap = Object.fromEntries(churnWeights.map(w => [w.signalKey, w.weight]));
 
+  const { toast } = useToast();
+
+  const { data: attritionThresholds } = useQuery<{ volumeDropPct: number; cbRatioPct: number }>({
+    queryKey: ["/api/admin/settings/attrition-thresholds"],
+  });
+
+  const [volDraft, setVolDraft] = useState<string>("");
+  const [cbDraft, setCbDraft] = useState<string>("");
+  const [thresholdInitialized, setThresholdInitialized] = useState(false);
+
+  if (!thresholdInitialized && attritionThresholds) {
+    setVolDraft(String(attritionThresholds.volumeDropPct));
+    setCbDraft(String(attritionThresholds.cbRatioPct));
+    setThresholdInitialized(true);
+  }
+
+  const saveThresholdsMutation = useMutation({
+    mutationFn: async () => {
+      const volumeDropPct = parseFloat(volDraft);
+      const cbRatioPct = parseFloat(cbDraft);
+      if (!isFinite(volumeDropPct) || volumeDropPct <= 0 || volumeDropPct > 100)
+        throw new Error("Volume drop % must be 1–100");
+      if (!isFinite(cbRatioPct) || cbRatioPct <= 0 || cbRatioPct > 100)
+        throw new Error("Chargeback ratio % must be 0.01–100");
+      await apiRequest("PUT", "/api/admin/settings/attrition-thresholds", { volumeDropPct, cbRatioPct });
+    },
+    onSuccess: () => {
+      toast({ title: "Saved", description: "Churn signal thresholds updated" });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/settings/attrition-thresholds"] });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
   const acknowledgeMutation = useMutation({
     mutationFn: async (id: number) => {
       await apiRequest("PATCH", `/api/health-alerts/${id}`, {
@@ -305,7 +341,7 @@ export default function MerchantHealth() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} data-testid="merchant-health-tabs">
-        <TabsList data-testid="merchant-health-tabs-list">
+        <TabsList className="flex-wrap h-auto gap-1" data-testid="merchant-health-tabs-list">
           <TabsTrigger value="alerts" data-testid="tab-alerts">
             <Activity className="w-4 h-4 mr-1.5" />
             Health Alerts
@@ -319,6 +355,10 @@ export default function MerchantHealth() {
             {(churnCriticalCount + churnHighCount) > 0 && (
               <Badge variant="destructive" className="ml-1.5">{churnCriticalCount + churnHighCount}</Badge>
             )}
+          </TabsTrigger>
+          <TabsTrigger value="signal-settings" data-testid="tab-signal-settings">
+            <Settings className="w-4 h-4 mr-1.5" />
+            Signal Settings
           </TabsTrigger>
         </TabsList>
 
@@ -603,6 +643,98 @@ export default function MerchantHealth() {
                   })}
                 </div>
               )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ─── Signal Settings Tab (#1336) ─── */}
+        <TabsContent value="signal-settings" data-testid="tab-content-signal-settings" className="mt-6">
+          <Card data-testid="card-churn-signal-settings">
+            <CardHeader>
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Settings className="w-4 h-4" />
+                Churn Signal Thresholds
+              </CardTitle>
+              <p className="text-xs text-muted-foreground mt-1">
+                Adjust when the attrition monitor fires an alert. Changes take effect on the next nightly run — no restart required.
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">
+                    Volume Drop Threshold
+                    <span className="text-muted-foreground font-normal ml-2">(% month-over-month)</span>
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="number"
+                      min={1}
+                      max={100}
+                      step={1}
+                      value={volDraft}
+                      onChange={e => setVolDraft(e.target.value)}
+                      className="w-32"
+                      data-testid="input-vol-drop-threshold"
+                    />
+                    <span className="text-sm text-muted-foreground">%</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Default: 20%. Alert fires when MoM processing volume drops by this amount or more.
+                    Current server value: <strong>{attritionThresholds?.volumeDropPct ?? "…"}%</strong>
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">
+                    Chargeback Ratio Threshold
+                    <span className="text-muted-foreground font-normal ml-2">(% of transactions)</span>
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="number"
+                      min={0.01}
+                      max={100}
+                      step={0.01}
+                      value={cbDraft}
+                      onChange={e => setCbDraft(e.target.value)}
+                      className="w-32"
+                      data-testid="input-cb-ratio-threshold"
+                    />
+                    <span className="text-sm text-muted-foreground">%</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Default: 0.75%. Alert fires when chargeback ratio exceeds this value.
+                    Current server value: <strong>{attritionThresholds?.cbRatioPct ?? "…"}%</strong>
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 pt-2 border-t">
+                <Button
+                  onClick={() => saveThresholdsMutation.mutate()}
+                  disabled={saveThresholdsMutation.isPending}
+                  data-testid="btn-save-attrition-thresholds"
+                >
+                  {saveThresholdsMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                  Save Thresholds
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setVolDraft("20");
+                    setCbDraft("0.75");
+                  }}
+                  data-testid="btn-reset-attrition-thresholds"
+                >
+                  Reset to Defaults
+                </Button>
+              </div>
+
+              <div className="rounded-md bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 p-3 text-xs text-amber-800 dark:text-amber-300 space-y-1">
+                <p className="font-medium">30-day cooldown is always active</p>
+                <p>Even when thresholds are met, an alert will only fire once per merchant per alert type per 30-day window. This prevents rep notification fatigue for merchants with persistent issues.</p>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>

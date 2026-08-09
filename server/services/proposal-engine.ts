@@ -755,6 +755,20 @@ ${getEmailSignatureHtml("accounts")}
       await advanceDealStage(deal.id, "Proposal Sent", "proposal_engine_email_sent");
     }
 
+    // #1397 — record to canonical communication_events table
+    if (contact.id) {
+      const { recordOutboundSend } = await import("./communication-events");
+      recordOutboundSend({
+        contactId: contact.id,
+        dealId: deal.id,
+        channel: "email",
+        provider: emailChannel.startsWith("GHL") ? "ghl" : "smtp",
+        subject,
+        status: "sent",
+        metadata: { proposalEngine: "initial_send", emailChannel, dealId: deal.id },
+      }).catch(err => console.warn("[ProposalEngine] recordOutboundSend failed:", err.message));
+    }
+
     await storage.createAuditLog({
       action: "proposal_email_sent",
       entityType: "deal",
@@ -924,6 +938,20 @@ ${getEmailSignatureHtml("accounts")}
 
     // Reset the sent-at timestamp so the resend window is measured from this follow-up.
     await storage.updateDeal(deal.id, { proposalEmailSentAt: new Date() });
+
+    // #1397 — record to canonical communication_events table
+    if (contact.id) {
+      const { recordOutboundSend } = await import("./communication-events");
+      recordOutboundSend({
+        contactId: contact.id,
+        dealId,
+        channel: "email",
+        provider: emailChannel.startsWith("GHL") ? "ghl" : "smtp",
+        subject,
+        status: "sent",
+        metadata: { proposalEngine: "followup", attempt: attemptNumber, emailChannel, dealId },
+      }).catch(err => console.warn("[ProposalEngine] recordOutboundSend (followup) failed:", err.message));
+    }
 
     console.log(
       `[ProposalEngine] Follow-up email (attempt ${attemptNumber}) sent to ${contact.email} for deal ${dealId} via ${emailChannel}`,

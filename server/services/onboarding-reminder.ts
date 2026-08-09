@@ -67,11 +67,13 @@ export async function runOnboardingReminderTick(): Promise<{ processed: number; 
             [contact.firstName, contact.lastName].filter(Boolean).join(" ") ||
             "Merchant";
           const pendingItems = stalePendingItems.map(i => `<li>${i.itemKey}</li>`).join("");
+          const reminderSubject = `Action Required: ${stalePendingItems.length} Onboarding Item${stalePendingItems.length > 1 ? "s" : ""} Pending`;
+          const reminderBody = `<p>Hi ${contactName},</p><p>Your Liberty Bancard onboarding has ${stalePendingItems.length} item${stalePendingItems.length > 1 ? "s" : ""} that still need${stalePendingItems.length === 1 ? "s" : ""} attention:</p><ul>${pendingItems}</ul><p>Please complete these items so we can finish activating your account. Reply to this email or contact your account manager if you need help.</p>`;
           await channelOrchestrator.sendEmail(
             {
               contactId: deal.contactId,
-              subject: `Action Required: ${stalePendingItems.length} Onboarding Item${stalePendingItems.length > 1 ? "s" : ""} Pending`,
-              body: `<p>Hi ${contactName},</p><p>Your Liberty Bancard onboarding has ${stalePendingItems.length} item${stalePendingItems.length > 1 ? "s" : ""} that still need${stalePendingItems.length === 1 ? "s" : ""} attention:</p><ul>${pendingItems}</ul><p>Please complete these items so we can finish activating your account. Reply to this email or contact your account manager if you need help.</p>`,
+              subject: reminderSubject,
+              body: reminderBody,
               category: "onboarding",
             },
             {
@@ -79,7 +81,19 @@ export async function runOnboardingReminderTick(): Promise<{ processed: number; 
               skipContactabilityCheck: false,
               skipGlobalPauseCheck: false,
             },
-          ).catch(err =>
+          ).then(async () => {
+            // #1397 — record to canonical communication_events table
+            const { recordOutboundSend } = await import("./communication-events");
+            recordOutboundSend({
+              contactId: deal.contactId!,
+              dealId: deal.id,
+              channel: "email",
+              provider: "ghl",
+              subject: reminderSubject,
+              status: "sent",
+              metadata: { worker: "onboarding_reminder", stalePendingCount: stalePendingItems.length },
+            }).catch((e: any) => console.warn("[OnboardingReminder] recordOutboundSend failed:", e.message));
+          }).catch(err =>
             console.error(`[OnboardingReminder] Orchestrator email error for deal ${deal.id}:`, err),
           );
         }

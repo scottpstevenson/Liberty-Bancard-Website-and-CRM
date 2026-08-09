@@ -3,48 +3,6 @@
   "dialect": "postgresql",
   "entries": [
     {
-      "idx": 0,
-      "version": "7",
-      "when": 1773427593891,
-      "tag": "0000_faulty_gwen_stacy",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1773677529872,
-      "tag": "0001_smooth_hellion",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "7",
-      "when": 1773686429334,
-      "tag": "0002_old_sentry",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "7",
-      "when": 1776210419954,
-      "tag": "0003_tough_mandarin",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "7",
-      "when": 1777739225248,
-      "tag": "0004_dusty_naoko",
-      "breakpoints": true
-    },
-    {
-      "idx": 5,
-      "version": "7",
-      "when": 1777739833710,
-      "tag": "0005_shallow_stepford_cuckoos",
-      "breakpoints": true
-    },
-    {
       "idx": 6,
       "version": "7",
       "when": 1746229200000,
@@ -108,17 +66,59 @@
       "breakpoints": true
     },
     {
-      "idx": 15,
-      "version": "7",
-      "when": 1777739833711,
-      "tag": "0014_startup_sql_consolidation",
-      "breakpoints": true
-    },
-    {
       "idx": 16,
       "version": "7",
       "when": 1749081600000,
       "tag": "0015_savings_share_token",
+      "breakpoints": true
+    },
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1773427593891,
+      "tag": "0000_faulty_gwen_stacy",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1773677529872,
+      "tag": "0001_smooth_hellion",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1773686429334,
+      "tag": "0002_old_sentry",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1776210419954,
+      "tag": "0003_tough_mandarin",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1777739225248,
+      "tag": "0004_dusty_naoko",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1777739833710,
+      "tag": "0005_shallow_stepford_cuckoos",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1777739833711,
+      "tag": "0014_startup_sql_consolidation",
       "breakpoints": true
     },
     {
@@ -157,6 +157,13 @@
       "breakpoints": true
     },
     {
+      "idx": 25,
+      "version": "7",
+      "when": 1780400000000,
+      "tag": "0020_multi_location_fk",
+      "breakpoints": true
+    },
+    {
       "idx": 22,
       "version": "7",
       "when": 1780500000000,
@@ -175,13 +182,6 @@
       "version": "7",
       "when": 1780800000000,
       "tag": "0023_multi_location_fk",
-      "breakpoints": true
-    },
-    {
-      "idx": 25,
-      "version": "7",
-      "when": 1780400000000,
-      "tag": "0020_multi_location_fk",
       "breakpoints": true
     },
     {
@@ -507,6 +507,13 @@
       "breakpoints": true
     },
     {
+      "idx": 109,
+      "version": "7",
+      "when": 1786093621377,
+      "tag": "0109_fearless_starhawk",
+      "breakpoints": true
+    },
+    {
       "idx": 72,
       "version": "7",
       "when": 1786100000000,
@@ -766,13 +773,6 @@
       "breakpoints": true
     },
     {
-      "idx": 109,
-      "version": "7",
-      "when": 1786093621377,
-      "tag": "0109_fearless_starhawk",
-      "breakpoints": true
-    },
-    {
       "idx": 110,
       "version": "7",
       "when": 1790100000000,
@@ -869,6 +869,48 @@
       "when": 1791200002000,
       "tag": "0120_ghl_shadow_log",
       "breakpoints": true
+    },
+    {
+      "idx": 124,
+      "version": "7",
+      "when": 1791200003000,
+      "tag": "0121_underwriting_conditions",
+      "breakpoints": false
+    },
+    {
+      "idx": 125,
+      "version": "7",
+      "when": 1791200004000,
+      "tag": "0122_merchant_mids",
+      "breakpoints": false
+    },
+    {
+      "idx": 126,
+      "version": "7",
+      "when": 1791200005000,
+      "tag": "0123_save_cases",
+      "breakpoints": false
+    },
+    {
+      "idx": 127,
+      "version": "7",
+      "when": 1791200006000,
+      "tag": "0124_entity_memory",
+      "breakpoints": false
+    },
+    {
+      "idx": 128,
+      "version": "7",
+      "when": 1791200007000,
+      "tag": "0125_ai_decision_log",
+      "breakpoints": false
+    },
+    {
+      "idx": 129,
+      "version": "7",
+      "when": 1791200008000,
+      "tag": "0126_ai_corrections_prompts",
+      "breakpoints": false
     }
   ]
 }

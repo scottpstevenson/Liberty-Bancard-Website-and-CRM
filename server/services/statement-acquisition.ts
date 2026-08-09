@@ -242,6 +242,29 @@ export async function onStatementRequested(contactId: number): Promise<void> {
       );
 
     if (statementSequence) {
+      // #1385 — Check autoEnrollmentSuppressedAt before re-enrolling.
+      // If a rep manually stopped the statement-chase sequence (or set the
+      // suppression flag from the deal detail panel), do not re-enroll.
+      if (activeDeal?.autoEnrollmentSuppressedAt) {
+        await storage.createAuditLog({
+          action: "statement_acquisition_suppressed",
+          entityType: "contact",
+          entityId: contactId,
+          details: {
+            dealId,
+            sequenceId: statementSequence.id,
+            sequenceName: statementSequence.name,
+            suppressedAt: activeDeal.autoEnrollmentSuppressedAt,
+            suppressedReason: activeDeal.autoEnrollmentSuppressedReason ?? "manual_stop",
+            trigger: "STATEMENT_REQUESTED lifecycle transition",
+          },
+        });
+        console.log(
+          `[StatementAcquisition] Enrollment blocked for contact ${contactId} — deal ${dealId} has autoEnrollmentSuppressedAt set (${activeDeal.autoEnrollmentSuppressedAt.toISOString()})`
+        );
+        return;
+      }
+
       // Check for existing active enrollment
       const existing = await db.select({ id: sequenceEnrollments.id })
         .from(sequenceEnrollments)

@@ -10,7 +10,7 @@ import crypto from "crypto";
 import { getDocumentStatus, sendDocumentForEsign } from "../services/ghl";
 import { computeOrderEconomics } from "../services/terminal-economics";
 import { syncMerchantApplicationToGhl } from "../services/ghl-form-sync";
-import { enrollInGhlWorkflow } from "../services/ghl-workflows";
+import { enrollInGhlWorkflow, enrollInGhlWorkflowCompliant } from "../services/ghl-workflows";
 import { createContactGhlFirst } from "../services/contact-writer";
 import { sendMerchantPortalWelcomeEmail } from "../services/merchant-welcome";
 import { advanceDealStage } from "../services/deal-stage-service";
@@ -363,9 +363,10 @@ export function registerMerchantsRoutes(app: Express) {
             const resolvedGhlId = resolvedContactId
               ? (await storage.getContact(resolvedContactId).catch(() => null))?.ghlContactId ?? null
               : null;
-            enrollInGhlWorkflow({
+            enrollInGhlWorkflowCompliant({
               workflowKey: "merchant_app",
               ghlContactId: resolvedGhlId ?? "",
+              contactId: resolvedContactId ?? undefined,
               metadata: { applicationId: updated.id },
             }).catch(() => {});
           } catch (sideEffectErr) {
@@ -537,7 +538,7 @@ export function registerMerchantsRoutes(app: Express) {
             console.error("GHL merchant app sync error:", err)
           );
           if (contact.ghlContactId) {
-            enrollInGhlWorkflow({ workflowKey: "merchant_app", ghlContactId: contact.ghlContactId, metadata: { applicationId: application.id } }).catch(err =>
+            enrollInGhlWorkflowCompliant({ workflowKey: "merchant_app", ghlContactId: contact.ghlContactId, contactId: contact.id, metadata: { applicationId: application.id } }).catch(err =>
               console.error("[MerchantApp] GHL workflow enrollment error:", err)
             );
           }

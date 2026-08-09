@@ -295,8 +295,11 @@ export async function handleCallOutcome(rawPayload: unknown): Promise<void> {
     }
   }
 
+  let crmContactForCallOutcome: typeof contacts.$inferSelect | undefined;
   if (ghlContactId) {
-    const [crmContact] = await db.select().from(contacts).where(eq(contacts.ghlContactId, ghlContactId)).limit(1);
+    const [found] = await db.select().from(contacts).where(eq(contacts.ghlContactId, ghlContactId)).limit(1);
+    crmContactForCallOutcome = found;
+    const crmContact = found;
     if (crmContact) {
       const eventTypeMap: Record<string, string> = {
         no_answer: "call_no_answer",
@@ -338,8 +341,8 @@ export async function handleCallOutcome(rawPayload: unknown): Promise<void> {
   }
 
   if (ghlContactId && merchant) {
-    const { enrollInGhlWorkflow } = await import("../ghl-workflows");
-    enrollInGhlWorkflow({ workflowKey: "post_call_review", ghlContactId, metadata: { callId: (payload as any).callId, disposition: (payload as any).status, merchantId: merchant.id } }).catch(err =>
+    const { enrollInGhlWorkflowCompliant } = await import("../ghl-workflows");
+    enrollInGhlWorkflowCompliant({ workflowKey: "post_call_review", ghlContactId, contactId: crmContactForCallOutcome?.id, metadata: { callId: (payload as any).callId, disposition: (payload as any).status, merchantId: merchant.id } }).catch(err =>
       console.error(`[SDR Webhook] GHL post_call_review enrollment error for contact ${ghlContactId}:`, err)
     );
   }
