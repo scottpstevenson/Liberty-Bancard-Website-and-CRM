@@ -855,6 +855,20 @@
       "when": 1791200000000,
       "tag": "0118_lead_sla_timer",
       "breakpoints": true
+    },
+    {
+      "idx": 122,
+      "version": "7",
+      "when": 1791200001000,
+      "tag": "0119_communication_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 123,
+      "version": "7",
+      "when": 1791200002000,
+      "tag": "0120_ghl_shadow_log",
+      "breakpoints": true
     }
   ]
 }

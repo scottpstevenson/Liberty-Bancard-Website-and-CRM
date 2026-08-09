@@ -55,6 +55,13 @@ const optOutSchema = z.object({
   phone: z.string().optional(),
 }).passthrough();
 
+const emailBounceSchema = z.object({
+  contactId: z.string().optional(),
+  email: z.string().optional(),
+  messageId: z.string().optional(),
+  status: z.string().optional(),
+}).passthrough();
+
 async function findMerchantByGhlId(ghlContactId: string): Promise<SdrMerchant | null> {
   const [merchant] = await db.select().from(sdrMerchants).where(eq(sdrMerchants.ghlContactId, ghlContactId));
   return merchant || null;
@@ -337,6 +344,47 @@ export async function handleCallOutcome(rawPayload: unknown): Promise<void> {
     );
   }
 
+  // ── Wave C1: Auto-trigger statement request on positive call outcomes ────────
+  // Dispositions that signal genuine merchant interest warrant immediate statement request.
+  const STATEMENT_TRIGGER_DISPOSITIONS = ["interested", "booked_meeting", "promised_statement"];
+  const rawDisp2 = (payload.status || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (STATEMENT_TRIGGER_DISPOSITIONS.includes(rawDisp2)) {
+    // SDR pipeline path: sendStatementRequest sends email/SMS and marks lead stage
+    if (merchant) {
+      try {
+        const [leadState] = await db.select().from(sdrLeadState).where(eq(sdrLeadState.merchantId, merchant.id));
+        if (leadState && !leadState.statementRequestedAt && leadState.stage !== "STATEMENT_REQUESTED") {
+          console.log(`[SDR Webhook] Auto-triggering statement request for merchant ${merchant.id} (disposition=${rawDisp2})`);
+          import("./statement-flow").then(({ sendStatementRequest }) => {
+            sendStatementRequest(leadState.id).catch(err =>
+              console.error(`[SDR Webhook] Auto statement request failed for lead ${leadState.id}:`, err)
+            );
+          }).catch(() => {});
+        }
+      } catch (err) {
+        console.error(`[SDR Webhook] Statement auto-trigger SDR lookup failed:`, err);
+      }
+    }
+
+    // CRM lifecycle path: transition contact to APPOINTMENT_COMPLETED → STATEMENT_REQUESTED
+    // This fires statement-acquisition.ts:onStatementRequested → sequence enrollment
+    if (ghlContactId) {
+      const [lc] = await db.select({ id: contacts.id, lifecycleState: contacts.lifecycleState })
+        .from(contacts).where(eq(contacts.ghlContactId, ghlContactId)).limit(1);
+      if (lc && !["STATEMENT_REQUESTED", "STATEMENT_RECEIVED", "PROPOSAL_SENT", "CLOSED_WON", "CLOSED_LOST"].includes(lc.lifecycleState ?? "")) {
+        import("../lifecycle-service").then(({ LifecycleService }) => {
+          LifecycleService.transition(lc.id, "APPOINTMENT_COMPLETED", {
+            trigger: `call_outcome_${rawDisp2}`, callId: payload.callId,
+          }).then(() =>
+            LifecycleService.transition(lc.id, "STATEMENT_REQUESTED", {
+              trigger: "auto_statement_request_on_call",
+            })
+          ).catch(err => console.warn(`[SDR Webhook] Lifecycle auto-transition failed for contact ${lc.id}:`, err));
+        }).catch(() => {});
+      }
+    }
+  }
+
   console.log(`[SDR Webhook] call-outcome processed for GHL contact ${ghlContactId}`);
 }
 
@@ -562,4 +610,104 @@ export async function handleOptOut(rawPayload: unknown): Promise<void> {
   }
 
   console.log(`[SDR Webhook] opt-out processed for GHL contact ${ghlContactId} — matched=${matched}`);
+}
+
+export async function handleEmailBounce(rawPayload: unknown): Promise<void> {
+  const parsed = emailBounceSchema.safeParse(rawPayload);
+  if (!parsed.success) {
+    console.warn("[SDR Webhook] email-bounce: invalid payload", parsed.error.message);
+    await logInvalidPayload("email_bounce", rawPayload, parsed.error.message);
+    return;
+  }
+  const payload = parsed.data;
+  const ghlContactId = payload.contactId;
+  const email = payload.email?.toLowerCase().trim() || null;
+  const ghlMessageId = (payload as any).messageId || null;
+  const now = new Date();
+
+  // Always log the raw webhook event regardless of match outcome
+  await db.insert(sdrLeadEvents).values({
+    merchantId: null,
+    eventType: "email_bounce",
+    channel: "email",
+    actorType: "ghl_webhook",
+    payloadJson: payload,
+    ghlRefId: ghlContactId || ghlMessageId || null,
+  });
+
+  // Three-tier CRM contact lookup: ghlContactId → email → not found
+  let crmContact: (typeof contacts)["$inferSelect"] | null = null;
+
+  if (ghlContactId) {
+    const [found] = await db.select().from(contacts)
+      .where(eq(contacts.ghlContactId, ghlContactId)).limit(1);
+    crmContact = found || null;
+  }
+  if (!crmContact && email) {
+    const [found] = await db.select().from(contacts)
+      .where(eq(contacts.email, email)).limit(1);
+    crmContact = found || null;
+  }
+
+  if (!crmContact) {
+    await storage.createAuditLog({
+      action: "ghl_bounce_unmatched_contact",
+      entityType: "system",
+      entityId: 0,
+      actorType: "system",
+      details: { ghlContactId: ghlContactId || null, emailPresent: !!email, ghlMessageId, reason: "no_contact_match" },
+    });
+    console.warn(`[SDR Webhook] email-bounce: no CRM contact matched (ghlContactId=${ghlContactId}, email=${email})`);
+    return;
+  }
+
+  // Mark contact as bounced — contactability gate will suppress all future sends
+  await db.update(contacts)
+    .set({ emailStatus: "bounced", bouncedAt: now, updatedAt: now })
+    .where(eq(contacts.id, crmContact.id));
+
+  // Mark the specific outbound_messages row if we have the GHL message ID
+  if (ghlMessageId) {
+    try {
+      const { outboundMessages } = await import("@shared/schema");
+      await db.update(outboundMessages)
+        .set({ bouncedAt: now })
+        .where(eq(outboundMessages.ghlMessageId, ghlMessageId));
+    } catch (msgErr: any) {
+      console.warn(`[SDR Webhook] email-bounce: outbound_messages update failed (non-blocking):`, msgErr?.message);
+    }
+  }
+
+  // Pause all active sequence enrollments — bounced email cannot be retried
+  const pausedCount = await storage.pauseAllActiveEnrollments(crmContact.id);
+
+  await storage.createAuditLog({
+    action: "contact_email_bounced",
+    entityType: "contact",
+    entityId: crmContact.id,
+    actorType: "system",
+    details: {
+      source: "ghl_bounce_webhook",
+      ghlContactId: ghlContactId || null,
+      ghlMessageId,
+      emailStatus: "bounced",
+      pausedEnrollments: pausedCount,
+    },
+  });
+
+  // Record in canonical communication_events table (Wave A3 — non-blocking)
+  import("../communication-events").then(({ recordInboundEvent }) => {
+    recordInboundEvent({
+      contactId: crmContact.id,
+      channel: "email",
+      provider: "ghl",
+      status: "bounced",
+      automationStopped: true,
+      automationStopReason: "email_bounced",
+      ghlMessageId: ghlMessageId || null,
+      metadata: { source: "ghl_bounce_webhook", pausedEnrollments: pausedCount },
+    });
+  }).catch(() => {});
+
+  console.log(`[SDR Webhook] email-bounce: contact ${crmContact.id} (${crmContact.email}) marked bounced — ${pausedCount} enrollments paused`);
 }

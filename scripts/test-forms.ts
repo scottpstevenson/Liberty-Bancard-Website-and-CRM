@@ -437,8 +437,10 @@ async function testGetStartedForm(): Promise<void> {
 async function testMerchantApplication(): Promise<void> {
   console.log("\n▶ Test 4: Merchant App Draft → Finalize → Duplicate EIN check\n");
 
-  // 9-digit fake EIN — passes the /\D/g.length >= 9 validation in check-duplicate
-  const testEin = "919191919";
+  // 9-digit unique EIN per run — hardcoded "919191919" would collide across runs
+  // once a prior run leaves a submitted application with that EIN in the DB.
+  const einSuffix = (Date.now() % 10000000).toString().padStart(7, "0");
+  const testEin = `91${einSuffix}`;
   const email = uniqueEmail("qa-release-test-merchantapp");
 
   // Step 4a: Create draft using the correct public fields (legalBusinessName, ownerEmail)

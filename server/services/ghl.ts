@@ -991,6 +991,20 @@ export async function handleGhlWebhook(payload: any): Promise<void> {
         ghlMessageId: messageId || null,
       });
 
+      // Record in canonical communication_events table (Wave A3 — non-blocking)
+      import("./communication-events").then(({ recordInboundEvent }) => {
+        recordInboundEvent({
+          contactId: contact.id,
+          dealId: contactDeal?.id ?? null,
+          channel: channel as "email" | "sms",
+          provider: "ghl",
+          subject: subject || null,
+          body: body || null,
+          status: "received",
+          ghlMessageId: messageId || null,
+        });
+      }).catch(() => {});
+
       await storage.updateContact(contact.id, {
         lastContactedAt: new Date(),
         tags: Array.from(new Set([...(contact.tags || []), "replied", `replied_${channel}`])),
@@ -1066,6 +1080,41 @@ export async function handleGhlWebhook(payload: any): Promise<void> {
           dealId: contactDeal?.id,
           contactId: contact.id,
         });
+      }
+
+      // ── Reply-stop: ANY inbound reply pauses active sequence enrollments ──────────────────
+      // unsubscribe already called pauseAllActiveEnrollments above; this ensures ALL other
+      // intents (positive_reply, booking_intent, question, support, objection, neutral) also
+      // pause so prospects aren't double-touched by automation while a rep handles the reply.
+      if (messageClassification.intent !== "unsubscribe") {
+        const pausedCount = await storage.pauseAllActiveEnrollments(contact.id);
+        if (pausedCount > 0) {
+          await storage.createAuditLog({
+            action: "enrollments_paused_on_reply",
+            entityType: "contact",
+            entityId: contact.id,
+            details: {
+              source: "ghl_inbound_message",
+              channel,
+              intent: messageClassification.intent,
+              pausedCount,
+            },
+          });
+        }
+        // Create a rep review task for intents that don't already create one above
+        const taskAlreadyCreated = ["support", "question", "booking_intent"].includes(
+          messageClassification.intent
+        );
+        if (!taskAlreadyCreated && messageClassification.intent !== "neutral") {
+          await storage.createTask({
+            title: `Review inbound reply: ${contact.firstName} ${contact.lastName} — ${messageClassification.intent}`,
+            assignedTo: contactDeal?.owner || "Unassigned",
+            priority: messageClassification.priority === "high" ? "high" : "medium",
+            dueDate: new Date(Date.now() + 4 * 60 * 60 * 1000),
+            dealId: contactDeal?.id,
+            contactId: contact.id,
+          });
+        }
       }
 
       try {

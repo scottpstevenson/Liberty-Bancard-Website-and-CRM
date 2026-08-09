@@ -23,6 +23,31 @@ function dbFallbackBool(key: string, defaultVal: boolean): boolean {
   return defaultVal;
 }
 
+/** Read a tri-value string flag from env, falling back to defaultVal. */
+function envEnum<T extends string>(key: string, allowed: readonly T[], defaultVal: T): T {
+  const val = process.env[key];
+  if (val && (allowed as readonly string[]).includes(val)) return val as T;
+  return defaultVal;
+}
+
+/** Values for GHL_CRM_SYNC_MODE */
+export const GHL_CRM_SYNC_MODES = ["enabled", "shadow", "disabled"] as const;
+export type GhlCrmSyncMode = (typeof GHL_CRM_SYNC_MODES)[number];
+
+/**
+ * Returns the current GHL CRM write-back mode.
+ *
+ *   enabled  — GHL inbound sync updates Liberty (current legacy behaviour)
+ *   shadow   — sync logic runs but writes go to ghl_shadow_log instead of Liberty tables
+ *   disabled — every from-GHL sync function is a no-op; Liberty is the sole source of truth
+ *
+ * Default: 'shadow' — safe during the migration window; change to 'disabled' after
+ * reviewing the shadow log and confirming no critical diffs.
+ */
+export function getGhlCrmSyncMode(): GhlCrmSyncMode {
+  return envEnum("GHL_CRM_SYNC_MODE", GHL_CRM_SYNC_MODES, "shadow");
+}
+
 export const featureFlags = {
   get SDR_ENABLED() { return dbFallbackBool("SDR_ENABLED", true); },
   get ORCHESTRATOR_ENABLED() { return dbFallbackBool("ORCHESTRATOR_ENABLED", false); },
@@ -36,9 +61,10 @@ export const featureFlags = {
   get ORCHESTRATOR_REVIEW_MODE() { return envBool("ORCHESTRATOR_REVIEW_MODE", false); },
 };
 
-export function getAllFlags(): Record<string, boolean | number> {
+export function getAllFlags(): Record<string, boolean | number | string> {
   return {
     SDR_ENABLED: featureFlags.SDR_ENABLED,
+    GHL_CRM_SYNC_MODE: getGhlCrmSyncMode(),
     ORCHESTRATOR_ENABLED: featureFlags.ORCHESTRATOR_ENABLED,
     LEGACY_OUTREACH_ENABLED: featureFlags.LEGACY_OUTREACH_ENABLED,
     SUNBIZ_ENRICHMENT_ENABLED: featureFlags.SUNBIZ_ENRICHMENT_ENABLED,

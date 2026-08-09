@@ -139,6 +139,8 @@ const CASES: GuardCase[] = [
   { method: "GET",    path: "/api/residuals/imports",                 anon: [401], merchant: [403], admin: [200], description: "residuals import list (requireRole admin/manager — merchants blocked)" },
   { method: "GET",    path: "/api/kpi/summary",                      anon: [401], merchant: [403], admin: [200], description: "KPI summary (isDashboardUser — merchants blocked)" },
   { method: "GET",    path: "/api/admin/launch-readiness",           anon: [401], merchant: [403], admin: [200], description: "launch readiness (requireRole admin/manager)" },
+  { method: "GET",    path: "/api/admin/outbound-preflight",         anon: [401], merchant: [403], admin: [200], description: "outbound preflight checklist (requireRole admin/manager)" },
+  { method: "GET",    path: "/api/admin/data-health",               anon: [401], merchant: [403], admin: [200], description: "data health metrics (requireRole admin/manager)" },
   { method: "GET",    path: "/api/admin/queue-metrics",              anon: [401], merchant: [403], admin: [200], description: "queue metrics (requireRole admin/manager)" },
   { method: "GET",    path: "/api/admin/alerts",                     anon: [401], merchant: [403], admin: [200], description: "alert feed (requireRole admin/manager)" },
   { method: "GET",    path: "/api/admin/ghl/identity-conflicts",     anon: [401], merchant: [403], admin: [200], description: "GHL identity conflict queue (requireRole admin/manager)" },

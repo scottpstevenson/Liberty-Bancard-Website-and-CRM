@@ -378,9 +378,22 @@ export async function shouldSuppress(
 
     return { suppressed: false };
   } catch (err) {
-    // Fail-open: if arbitration throws, don't block the send
-    console.warn("[Arbitration] Error during arbitration check (fail-open):", (err as Error).message);
-    return { suppressed: false };
+    // Fail-CLOSED: if arbitration throws, block the send to prevent compliance bypass.
+    // A broken check (Redis down, DB timeout) must never silently disable the compliance gate.
+    const errMsg = (err as Error).message ?? String(err);
+    console.error("[Arbitration] Error during arbitration check — failing CLOSED to protect compliance:", errMsg);
+    // Write audit evidence so ops can diagnose without trawling logs
+    storage.createAuditLog({
+      action: "ARBITRATION_ERROR",
+      entityType: "contact",
+      entityId: contactId,
+      details: { channel, error: errMsg, failedClosed: true },
+    }).catch(() => {});
+    return {
+      suppressed: true,
+      signal: "arbitration_error",
+      reason: `Arbitration check threw an error — send blocked to protect compliance (${errMsg.slice(0, 120)})`,
+    };
   }
 }
 

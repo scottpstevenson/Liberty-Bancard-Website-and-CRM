@@ -24,8 +24,17 @@ export async function sendStatementRequest(leadId: number): Promise<boolean> {
     const [lead] = await db.select().from(sdrLeadState).where(eq(sdrLeadState.id, leadId));
     if (!lead) return false;
 
-    if (lead.assignedOwnerType === "human") {
-      console.log(`[StatementFlow] Lead ${leadId} is human-owned, skipping auto request`);
+    // Wave C1: Removed blanket human-owned bypass — only skip when rep has explicitly set
+    // suppressStatementAuto=true in enrichmentData (opt-out per contact, not per category).
+    const suppressFlag = (lead.enrichmentData as any)?.suppressStatementAuto === true;
+    if (suppressFlag) {
+      console.log(`[StatementFlow] Lead ${leadId} has suppressStatementAuto flag — skipping auto request`);
+      return false;
+    }
+
+    // Don't re-send if already requested
+    if (lead.statementRequestedAt) {
+      console.log(`[StatementFlow] Lead ${leadId} already has a statement request at ${lead.statementRequestedAt.toISOString()} — skipping duplicate`);
       return false;
     }
 

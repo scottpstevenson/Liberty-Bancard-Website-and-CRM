@@ -2753,6 +2753,8 @@ const OPERATOR_NAV_GROUPS: OperatorNavGroup[] = [
       { value: "job-health", label: "Job Health", icon: Server },
       { value: "queue-metrics", label: "Job Queue", icon: Zap },
       { value: "deleted-records", label: "Deleted Records", icon: XCircle },
+      { value: "outbound-preflight", label: "Outbound Preflight", icon: CheckCircle2 },
+      { value: "data-health", label: "Data Health", icon: Database },
       { value: "system-audit", label: "System Audit", icon: Shield },
       { value: "launch-readiness", label: "Launch Readiness", icon: CheckCircle2 },
       { value: "data-quality", label: "Data Quality", icon: Database },
@@ -2853,6 +2855,38 @@ function renderOperatorView(view: string, onNavigate: (v: string) => void) {
             className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
           >
             Open Deliverability Settings
+          </a>
+        </div>
+      );
+    case "outbound-preflight":
+      return (
+        <div className="flex flex-col items-center justify-center h-64 gap-4">
+          <CheckCircle2 className="w-12 h-12 text-muted-foreground" />
+          <p className="text-lg font-medium">Outbound Preflight Checklist</p>
+          <p className="text-sm text-muted-foreground text-center max-w-md">
+            7-check pass/fail gate — GHL token, SMTP, global pause, mailing address, ZeroBounce, sequence status, and consent tier.
+          </p>
+          <a
+            href="/dashboard/outbound-preflight"
+            className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+          >
+            Open Outbound Preflight
+          </a>
+        </div>
+      );
+    case "data-health":
+      return (
+        <div className="flex flex-col items-center justify-center h-64 gap-4">
+          <Database className="w-12 h-12 text-muted-foreground" />
+          <p className="text-lg font-medium">Data Health</p>
+          <p className="text-sm text-muted-foreground text-center max-w-md">
+            6-metric integrity dashboard — orphaned deals, null lifecycle contacts, enrollments without next_action_at, and more. Includes reconcile trigger.
+          </p>
+          <a
+            href="/dashboard/data-health"
+            className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+          >
+            Open Data Health
           </a>
         </div>
       );

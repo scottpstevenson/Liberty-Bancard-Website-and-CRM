@@ -315,6 +315,20 @@ export async function syncContactToGhl(contactId: number): Promise<{ success: bo
 }
 
 export async function syncContactFromGhl(ghlContact: any): Promise<{ contactId: number; created: boolean } | null> {
+  // Wave B1: GHL CRM decoupling guard
+  const { checkGhlCrmSyncAllowed, logGhlShadowIntent } = await import("./ghl-crm-sync-guard");
+  const guard = checkGhlCrmSyncAllowed("syncContactFromGhl", null);
+  if (guard.blocked) return null;
+  if (guard.shadowMode) {
+    // Log raw GHL payload — field-level diff logged separately via syncTagsFromGhl for tags
+    await logGhlShadowIntent("syncContactFromGhl", {
+      entityType: "contact",
+      ghlId: ghlContact.id ?? null,
+      rawPayload: { id: ghlContact.id, email: ghlContact.email, phone: ghlContact.phone, firstName: ghlContact.firstName, lastName: ghlContact.lastName },
+    });
+    return null; // Liberty is source of truth — no write in shadow mode
+  }
+
   try {
     // Branch A: indexed lookup by GHL contact ID.
     // Uses contacts_ghl_contact_id_idx (shared/schema.ts:118) — never falls back to full scan.
@@ -1053,6 +1067,19 @@ export async function syncDealToGhl(dealId: number): Promise<{ success: boolean;
 }
 
 export async function syncDealFromGhl(ghlOpportunity: any): Promise<{ dealId: number; created: boolean } | null> {
+  // Wave B1: GHL CRM decoupling guard
+  const { checkGhlCrmSyncAllowed, logGhlShadowIntent } = await import("./ghl-crm-sync-guard");
+  const guard = checkGhlCrmSyncAllowed("syncDealFromGhl", null);
+  if (guard.blocked) return null;
+  if (guard.shadowMode) {
+    await logGhlShadowIntent("syncDealFromGhl", {
+      entityType: "deal",
+      ghlId: ghlOpportunity.id ?? null,
+      rawPayload: { id: ghlOpportunity.id, contactId: ghlOpportunity.contactId, pipelineStageId: ghlOpportunity.pipelineStageId, status: ghlOpportunity.status, monetaryValue: ghlOpportunity.monetaryValue },
+    });
+    return null;
+  }
+
   try {
     const ghlContactId = ghlOpportunity.contactId || ghlOpportunity.contact?.id;
     if (!ghlContactId) return null;
@@ -1335,6 +1362,19 @@ export async function syncNoteToGhl(noteId: number): Promise<{ success: boolean;
 }
 
 export async function syncTaskFromGhl(ghlTask: any, ghlContactId: string): Promise<{ success: boolean; taskId?: number; error?: string }> {
+  // Wave B1: GHL CRM decoupling guard
+  const { checkGhlCrmSyncAllowed, logGhlShadowIntent } = await import("./ghl-crm-sync-guard");
+  const guard = checkGhlCrmSyncAllowed("syncTaskFromGhl", { success: true });
+  if (guard.blocked) return { success: true };
+  if (guard.shadowMode) {
+    await logGhlShadowIntent("syncTaskFromGhl", {
+      entityType: "task",
+      ghlId: ghlTask.id ?? null,
+      rawPayload: { title: ghlTask.title, completed: ghlTask.completed, dueDate: ghlTask.dueDate, ghlContactId },
+    });
+    return { success: true };
+  }
+
   try {
     // Indexed lookup — contacts_ghl_contact_id_unique index; never scans all rows.
     const contact = ghlContactId ? await storage.getContactByGhlContactId(ghlContactId) : undefined;
@@ -1381,6 +1421,19 @@ export async function syncTaskFromGhl(ghlTask: any, ghlContactId: string): Promi
 }
 
 export async function syncCompanyFromGhl(ghlCompany: any): Promise<{ success: boolean; companyId?: number; error?: string }> {
+  // Wave B1: GHL CRM decoupling guard
+  const { checkGhlCrmSyncAllowed, logGhlShadowIntent } = await import("./ghl-crm-sync-guard");
+  const guard = checkGhlCrmSyncAllowed("syncCompanyFromGhl", { success: true });
+  if (guard.blocked) return { success: true };
+  if (guard.shadowMode) {
+    await logGhlShadowIntent("syncCompanyFromGhl", {
+      entityType: "company",
+      ghlId: ghlCompany.id ?? null,
+      rawPayload: { name: ghlCompany.name, website: ghlCompany.website, address: ghlCompany.address },
+    });
+    return { success: true };
+  }
+
   try {
     const companies = await storage.getCompanies();
     const existing = companies.find(c =>
@@ -1448,6 +1501,24 @@ export async function syncTagsToGhl(contactId: number): Promise<{ success: boole
 }
 
 export async function syncTagsFromGhl(ghlContactId: string, tags: string[]): Promise<{ success: boolean; error?: string }> {
+  // Wave B1: GHL CRM decoupling guard
+  const { checkGhlCrmSyncAllowed, logGhlShadowIntent } = await import("./ghl-crm-sync-guard");
+  const guard = checkGhlCrmSyncAllowed("syncTagsFromGhl", { success: true });
+  if (guard.blocked) return { success: true };
+  if (guard.shadowMode) {
+    const contact = await storage.getContactByGhlContactId(ghlContactId).catch(() => null);
+    const newTags = tags.filter(t => !(contact?.tags || []).includes(t));
+    if (newTags.length > 0) {
+      await logGhlShadowIntent("syncTagsFromGhl", {
+        entityType: "tags",
+        entityId: contact?.id ?? null,
+        ghlId: ghlContactId,
+        fieldDiffs: { tags: { current: contact?.tags ?? [], ghl: tags } },
+      });
+    }
+    return { success: true };
+  }
+
   try {
     // Indexed lookup — contacts_ghl_contact_id_unique index; never scans all rows.
     const contact = await storage.getContactByGhlContactId(ghlContactId);

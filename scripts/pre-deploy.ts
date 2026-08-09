@@ -119,6 +119,16 @@ const MANDATORY_SUITES: Suite[] = [
     timeoutSecs: 120,
   },
   {
+    name: "GHL CRM Decoupling (shadow-mode gate, Liberty data integrity, no-op disabled mode)",
+    script: "scripts/test-ghl-decoupling.ts",
+    timeoutSecs: 60,
+  },
+  {
+    name: "Appointment-to-Statement (positive call outcome auto-triggers statement request)",
+    script: "scripts/test-appointment-statement.ts",
+    timeoutSecs: 180,
+  },
+  {
     name: "BullMQ Resilience (retry/backoff/DLQ/operator-visibility)",
     script: "scripts/test-bullmq-resilience.ts",
     timeoutSecs: 60,

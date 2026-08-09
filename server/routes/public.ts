@@ -355,6 +355,17 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       trackReferral(referralCode, contactName, email, mobile, businessName).catch(err => console.error("Referral tracking error:", err));
       ingestBusinessFromContact(contact.id, "manual_upload", "website_statement").catch(err => console.warn("[Statement] Business ingest failed:", err));
       processNewLead(contact.id, { source: "website_statement_upload", trigger: "form_submit" }).catch(err => console.error("Lead pipeline error:", err));
+      // Record in canonical communication_events table (Wave A3 — non-blocking)
+      import("../services/communication-events").then(({ recordInboundEvent }) => {
+        recordInboundEvent({
+          contactId: contact.id,
+          channel: "form",
+          provider: "internal",
+          subject: `Statement Upload — ${businessName || email || "unknown"}`,
+          status: "received",
+          metadata: { formType: "statement_upload", submissionId, vertical: vertical || null },
+        });
+      }).catch(() => {});
       triggerWorkflowsByEvent("form_submitted", { entityType: "contact", entityId: contact.id, contactId: contact.id, dealId: existingDealId || undefined }, { formType: "statement_upload" }).catch(err => console.error("Workflow trigger error:", err));
       enrollInInboundConfirmation({ contactId: contact.id, formType: "statement_upload", dealId: existingDealId || undefined, submissionId }).catch(err => console.error("GHL inbound confirmation error:", err));
 

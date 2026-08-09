@@ -1517,6 +1517,74 @@ export const insertSequenceEnrollmentSchema = createInsertSchema(sequenceEnrollm
 export type SequenceEnrollment = typeof sequenceEnrollments.$inferSelect;
 export type InsertSequenceEnrollment = z.infer<typeof insertSequenceEnrollmentSchema>;
 
+// ── Canonical Communication Events (Wave A3) ─────────────────────────────────
+// Single normalized record for every inbound and outbound communication across
+// all channels. Additive: existing channel-specific tables are not removed.
+export const communicationEvents = pgTable("communication_events", {
+  id: serial("id").primaryKey(),
+  contactId: integer("contact_id").references(() => contacts.id, { onDelete: "cascade" }),
+  dealId: integer("deal_id").references(() => deals.id, { onDelete: "set null" }),
+  direction: text("direction").notNull(), // 'inbound' | 'outbound'
+  channel: text("channel").notNull(),     // 'email'|'sms'|'call'|'voicemail'|'chat'|'form'|'portal'|'rvm'
+  provider: text("provider"),             // 'ghl'|'smtp'|'twilio'|'internal'|'manual'
+  subject: text("subject"),
+  body: text("body"),
+  status: text("status").notNull().default("sent"),
+  intentClassification: text("intent_classification"),
+  intentConfidence: numeric("intent_confidence", { precision: 5, scale: 4 }),
+  automationStopped: boolean("automation_stopped").notNull().default(false),
+  automationStopReason: text("automation_stop_reason"),
+  sentBy: text("sent_by").notNull().default("automation"),
+  sequenceId: integer("sequence_id").references(() => followUpSequences.id, { onDelete: "set null" }),
+  sequenceStepId: integer("sequence_step_id").references(() => sequenceSteps.id, { onDelete: "set null" }),
+  externalMessageId: text("external_message_id"),
+  ghlMessageId: text("ghl_message_id"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => [
+  index("comm_events_contact_id_created_at_idx").on(table.contactId, table.createdAt),
+  index("comm_events_deal_id_created_at_idx").on(table.dealId, table.createdAt),
+  index("comm_events_direction_channel_idx").on(table.direction, table.channel),
+  index("comm_events_contact_id_direction_idx").on(table.contactId, table.direction),
+  index("comm_events_status_idx").on(table.status),
+]);
+
+export const insertCommunicationEventSchema = createInsertSchema(communicationEvents).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type CommunicationEvent = typeof communicationEvents.$inferSelect;
+export type InsertCommunicationEvent = z.infer<typeof insertCommunicationEventSchema>;
+
+// ── GHL Shadow Log (Wave B1) ──────────────────────────────────────────────────
+// Captures what GHL inbound sync WOULD have written to Liberty when
+// GHL_CRM_SYNC_MODE='shadow'. Allows admins to review CRM drift before
+// disabling write-back entirely. Does NOT affect outbound sends.
+export const ghlShadowLog = pgTable("ghl_shadow_log", {
+  id: serial("id").primaryKey(),
+  entityType: text("entity_type").notNull(),
+  entityId: integer("entity_id"),
+  syncFunction: text("sync_function").notNull(),
+  ghlId: text("ghl_id"),
+  field: text("field"),
+  currentValue: jsonb("current_value"),
+  ghlValue: jsonb("ghl_value"),
+  wouldHaveWritten: boolean("would_have_written").notNull().default(true),
+  reviewedAt: timestamp("reviewed_at"),
+  reviewedBy: text("reviewed_by"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("ghl_shadow_log_entity_type_entity_id_idx").on(table.entityType, table.entityId),
+  index("ghl_shadow_log_sync_function_idx").on(table.syncFunction),
+  index("ghl_shadow_log_created_at_idx").on(table.createdAt),
+]);
+
+export type GhlShadowLog = typeof ghlShadowLog.$inferSelect;
+
 export const SEQUENCE_STATUSES = [
   "active",
   "paused",

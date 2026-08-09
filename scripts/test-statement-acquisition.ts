@@ -466,17 +466,13 @@ async function runTests() {
   }
 
   // ── Test 10: Admin GET/PUT /api/admin/settings/statement-acquisition-config ─
+  // Tests the service layer directly (not via HTTP) to avoid importing server/index
+  // which would try to listen on port 5000 and crash with EADDRINUSE when the
+  // dev server is already running (e.g. during the pre-deploy gate).
   console.log("\n── 10. Admin config API ─────────────────────────────────");
   try {
-    // Build a supertest-style call using the express app directly
-    const appModule = await import("../server/index").catch(() => null);
-
-    if (!appModule) {
-      ok("Admin config API — skipped (server module unavailable in test runner)");
-    } else {
-      // Verify the routes exist by checking they are registered (non-server approach)
-      // We can test the logic layer directly instead of HTTP since the app imports
-      // the same storage and services we already have wired in this test.
+    {
+      // Always use the direct service approach — avoids server startup collision
       const { getAcquisitionConfig, validateAcquisitionConfig, syncStatementChaseSteps: _sync } =
         await import("../server/services/statement-acquisition");
 

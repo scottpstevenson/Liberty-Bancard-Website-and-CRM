@@ -1430,6 +1430,27 @@ export function registerContactsRoutes(app: Express) {
     }
   });
 
+  // ─── Canonical Communication Timeline (Wave A3) ────────────────────────────
+
+  app.get("/api/contacts/:id/communication-timeline", isDashboardUser, async (req, res) => {
+    try {
+      const contactId = parseInt(req.params.id as string);
+      if (isNaN(contactId)) return res.status(400).json({ message: "Invalid contact ID" });
+
+      const contact = await storage.getContact(contactId);
+      if (!contact) return res.status(404).json({ message: "Contact not found" });
+
+      const limit = Math.min(parseInt((req.query.limit as string) || "50", 10), 200);
+
+      const { getContactCommunicationEvents } = await import("../services/communication-events");
+      const events = await getContactCommunicationEvents(contactId, limit);
+
+      res.json({ events, total: events.length, contactId });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
   // ─── Statement Request ────────────────────────────────────────────────────────
 
   app.post("/api/contacts/:id/request-statement", isDashboardUser, async (req, res) => {

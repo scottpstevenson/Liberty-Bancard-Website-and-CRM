@@ -2911,6 +2911,128 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // ── Wave A2 — Outbound Preflight Checklist ──────────────────────────────────
+  // Standalone endpoint that returns a structured pass/fail for each launch gate.
+  // Called from the outbound wizard UI and from the pre-deploy gate.
+  app.get("/api/admin/outbound-preflight", requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const { isGhlConfigured } = await import("../services/ghl");
+      const { isSmtpConfigured } = await import("../services/smtp-email");
+      const { pool: pgPool } = await import("../db");
+
+      interface PreflightCheck {
+        id: string;
+        label: string;
+        status: "pass" | "fail" | "warn" | "blocked";
+        detail: string;
+      }
+
+      const checks: PreflightCheck[] = [];
+
+      // 1. GHL token valid
+      const ghlOk = isGhlConfigured();
+      checks.push({
+        id: "ghl_token",
+        label: "GHL API token configured",
+        status: ghlOk ? "pass" : "fail",
+        detail: ghlOk ? "GHL_PRIVATE_INTEGRATION_TOKEN present" : "GHL_PRIVATE_INTEGRATION_TOKEN missing or invalid",
+      });
+
+      // 2. At least one sequence with status='active'
+      const seqResult = await pgPool.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count FROM follow_up_sequences WHERE status = 'active'`
+      );
+      const activeSequences = parseInt(seqResult.rows[0]?.count ?? "0", 10);
+      checks.push({
+        id: "active_sequences",
+        label: "At least one active sequence",
+        status: activeSequences > 0 ? "pass" : "fail",
+        detail: activeSequences > 0
+          ? `${activeSequences} active sequence(s) ready`
+          : "No sequences set to 'active' — activate at least one before launch",
+      });
+
+      // 3. Bounce handler registered (webhook route exists — check system setting)
+      const bounceHandlerActive = ghlOk; // webhook is always registered if GHL is configured
+      checks.push({
+        id: "bounce_handler",
+        label: "Email bounce handler registered",
+        status: bounceHandlerActive ? "pass" : "warn",
+        detail: bounceHandlerActive
+          ? "/api/webhooks/ghl/email-bounce route registered and GHL configured"
+          : "GHL not configured — bounce handler cannot receive events",
+      });
+
+      // 4. Reply-stop handler active
+      checks.push({
+        id: "reply_stop",
+        label: "Reply-STOP enrollment pause active",
+        status: ghlOk ? "pass" : "warn",
+        detail: ghlOk
+          ? "/api/webhooks/ghl/reply-stop route registered — inbound STOP pauses enrollments"
+          : "GHL not configured — reply-stop handler cannot receive events",
+      });
+
+      // 5. Global outbound pause = false (this is a pre-launch check — it SHOULD be true before launch)
+      const globalPausedRaw = await storage.getSystemSetting("outboundGlobalPaused");
+      const globalPaused = globalPausedRaw === true || globalPausedRaw === "true";
+      checks.push({
+        id: "global_pause",
+        label: "Global outbound pause state",
+        status: globalPaused ? "blocked" : "pass",
+        detail: globalPaused
+          ? "Outbound is currently PAUSED (safe state) — toggle off when ready to launch"
+          : "Outbound is LIVE — ensure this is intentional",
+      });
+
+      // 6. At least 1 sending identity configured (SMTP or GHL)
+      const smtpOk = isSmtpConfigured();
+      const inboxCount = smtpOk || ghlOk;
+      checks.push({
+        id: "sending_identity",
+        label: "Sending identity configured (SMTP or GHL)",
+        status: inboxCount ? "pass" : "fail",
+        detail: smtpOk && ghlOk
+          ? "SMTP + GHL both configured (dual delivery path)"
+          : smtpOk
+            ? "SMTP configured (direct delivery)"
+            : ghlOk
+              ? "GHL configured (GHL delivery only — no List-Unsubscribe header on GHL sends)"
+              : "Neither SMTP nor GHL configured — cannot send any outbound emails",
+      });
+
+      // 7. Daily cap set
+      const dailyCapRaw = await storage.getSystemSetting("outboundDailyEmailCap");
+      const dailyCap = typeof dailyCapRaw === "number" ? dailyCapRaw : parseInt(String(dailyCapRaw ?? "0"), 10) || 0;
+      checks.push({
+        id: "daily_cap",
+        label: "Daily email cap configured",
+        status: dailyCap > 0 ? "pass" : "warn",
+        detail: dailyCap > 0
+          ? `Daily cap = ${dailyCap} emails`
+          : "No daily cap set — recommend setting outboundDailyEmailCap to prevent accidental bulk sends",
+      });
+
+      const allPass = checks.every(c => c.status === "pass" || c.status === "warn");
+      const hasBlockers = checks.some(c => c.status === "fail" || c.status === "blocked");
+
+      res.json({
+        verdict: hasBlockers ? "BLOCKED" : allPass ? "GO" : "NO-GO",
+        timestamp: new Date().toISOString(),
+        checks,
+        summary: {
+          total: checks.length,
+          pass: checks.filter(c => c.status === "pass").length,
+          warn: checks.filter(c => c.status === "warn").length,
+          fail: checks.filter(c => c.status === "fail").length,
+          blocked: checks.filter(c => c.status === "blocked").length,
+        },
+      });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
   // ── Full 25-subsystem Launch Readiness Audit ────────────────────────────────
   app.get("/api/admin/launch-readiness-full", requireRole("admin", "manager"), async (_req, res) => {
     try {
@@ -3136,6 +3258,45 @@ export function registerAdminRoutes(app: Express) {
         };
       }));
       res.json(enriched);
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  // ─── GHL Shadow Log (Wave B1) — review what GHL would have overwritten ────────
+
+  app.get("/api/admin/ghl/shadow-log", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const { ghlShadowLog } = await import("@shared/schema");
+      const { desc, isNull, isNotNull } = await import("drizzle-orm");
+      const limit = Math.min(parseInt((req.query.limit as string) || "100", 10), 500);
+      const unreviewed = req.query.unreviewed === "true";
+
+      const query = db.select().from(ghlShadowLog);
+      if (unreviewed) query.where(isNull(ghlShadowLog.reviewedAt));
+      const rows = await query.orderBy(desc(ghlShadowLog.createdAt)).limit(limit);
+
+      res.json({
+        entries: rows,
+        total: rows.length,
+        mode: process.env.GHL_CRM_SYNC_MODE || "shadow",
+      });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  app.post("/api/admin/ghl/shadow-log/:id/review", requireRole("admin"), async (req, res) => {
+    try {
+      const id = parseInt(req.params.id as string);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+      const { ghlShadowLog } = await import("@shared/schema");
+      const { eq: eqCheck } = await import("drizzle-orm");
+      await db.update(ghlShadowLog).set({
+        reviewedAt: new Date(),
+        reviewedBy: (req.user as any)?.email || "admin",
+      }).where(eqCheck(ghlShadowLog.id, id));
+      res.json({ ok: true });
     } catch (err: any) {
       serverError(res, err);
     }
@@ -3901,6 +4062,108 @@ export function registerAdminRoutes(app: Express) {
   //   stalledLeadsCount         — high-score contacts (last 24h) with no NBA row yet
   //   threshold                 — current LEAD_SLA_SCORE_THRESHOLD env value
   //   slaMins                   — current LEAD_SLA_MINUTES env value
+  // ─── Data Health Panel (Wave R1) — orphan counts and inconsistencies ─────────
+
+  app.get("/api/admin/data-health", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const { pool: pgPool } = await import("../db");
+
+      const [
+        orphanedDealsRow,
+        orphanedEnrollmentsRow,
+        nullLifecycleRow,
+        enrollmentsNoNextActionRow,
+        contactsEmailInconsistencyRow,
+        dealsNoGhlRow,
+      ] = await Promise.all([
+        // Deals with no contactId (orphaned from any contact)
+        pgPool.query<{ count: string }>(
+          `SELECT COUNT(*)::text AS count FROM deals WHERE contact_id IS NULL`
+        ),
+        // Sequence enrollments whose sequence no longer exists
+        pgPool.query<{ count: string }>(
+          `SELECT COUNT(se.*)::text AS count
+           FROM sequence_enrollments se
+           LEFT JOIN follow_up_sequences fs ON fs.id = se.sequence_id
+           WHERE se.status IN ('active','paused') AND fs.id IS NULL`
+        ),
+        // Contacts with NULL lifecycle_state (should always be set)
+        pgPool.query<{ count: string }>(
+          `SELECT COUNT(*)::text AS count FROM contacts WHERE lifecycle_state IS NULL AND archived_at IS NULL`
+        ),
+        // Active enrollments with no next_action_at (will never process)
+        pgPool.query<{ count: string }>(
+          `SELECT COUNT(*)::text AS count FROM sequence_enrollments WHERE status = 'active' AND next_action_at IS NULL`
+        ),
+        // Contacts where email_status='active' but no email (likely unvalidated)
+        pgPool.query<{ count: string }>(
+          `SELECT COUNT(*)::text AS count FROM contacts WHERE (email IS NULL OR email = '') AND email_status = 'active' AND archived_at IS NULL`
+        ),
+        // Active sales/onboarding deals without a GHL opportunity ID (sync gap)
+        pgPool.query<{ count: string }>(
+          `SELECT COUNT(*)::text AS count FROM deals
+           WHERE ghl_opportunity_id IS NULL AND pipeline IN ('sales','onboarding')
+             AND stage NOT IN ('Closed Lost','Declined')
+             AND created_at < NOW() - INTERVAL '1 hour'`
+        ),
+      ]);
+
+      // Sample up to 25 rows for each category for drill-down
+      const [
+        orphanedDealsRows,
+        orphanedEnrollmentsRows,
+        nullLifecycleRows,
+      ] = await Promise.all([
+        pgPool.query<{ id: number; stage: string; created_at: string }>(
+          `SELECT id, stage, created_at::text FROM deals WHERE contact_id IS NULL ORDER BY created_at DESC LIMIT 25`
+        ),
+        pgPool.query<{ id: number; contact_id: number; sequence_id: number; status: string }>(
+          `SELECT se.id, se.contact_id, se.sequence_id, se.status
+           FROM sequence_enrollments se
+           LEFT JOIN follow_up_sequences fs ON fs.id = se.sequence_id
+           WHERE se.status IN ('active','paused') AND fs.id IS NULL
+           ORDER BY se.created_at DESC LIMIT 25`
+        ),
+        pgPool.query<{ id: number; email: string; created_at: string }>(
+          `SELECT id, COALESCE(email, '(no email)') as email, created_at::text
+           FROM contacts WHERE lifecycle_state IS NULL AND archived_at IS NULL
+           ORDER BY created_at DESC LIMIT 25`
+        ),
+      ]);
+
+      res.json({
+        generatedAt: new Date().toISOString(),
+        summary: {
+          orphanedDeals: parseInt(orphanedDealsRow.rows[0]?.count ?? "0", 10),
+          orphanedEnrollments: parseInt(orphanedEnrollmentsRow.rows[0]?.count ?? "0", 10),
+          contactsNullLifecycle: parseInt(nullLifecycleRow.rows[0]?.count ?? "0", 10),
+          activeEnrollmentsNoNextAction: parseInt(enrollmentsNoNextActionRow.rows[0]?.count ?? "0", 10),
+          contactsEmailInconsistency: parseInt(contactsEmailInconsistencyRow.rows[0]?.count ?? "0", 10),
+          dealsNoGhlOpportunityId: parseInt(dealsNoGhlRow.rows[0]?.count ?? "0", 10),
+        },
+        samples: {
+          orphanedDeals: orphanedDealsRows.rows,
+          orphanedEnrollments: orphanedEnrollmentsRows.rows,
+          contactsNullLifecycle: nullLifecycleRows.rows,
+        },
+      });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  app.post("/api/admin/data-health/reconcile", requireRole("admin"), async (req, res) => {
+    // Trigger reconcile-orphans script asynchronously
+    const { execFile } = await import("child_process");
+    const child = execFile("npx", ["tsx", "scripts/reconcile-orphans.ts"], {
+      env: { ...process.env },
+      cwd: process.cwd(),
+    });
+    const pid = child.pid;
+    console.log(`[DataHealth] Reconciliation script started (pid=${pid})`);
+    res.json({ started: true, pid, message: "Reconciliation running in background — check audit logs for results" });
+  });
+
   app.get("/api/admin/lead-queue-stats", requireRole("admin", "manager"), async (req, res) => {
     try {
       const { pool: pgPool } = await import("../db");

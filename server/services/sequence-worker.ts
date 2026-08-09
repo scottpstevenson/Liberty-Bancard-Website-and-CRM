@@ -1288,6 +1288,18 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
                   }
                 }
                 stepExecuted = true;
+                // Record in canonical communication_events table (Wave A3 — non-blocking)
+                import("./communication-events").then(({ recordOutboundSend }) => {
+                  recordOutboundSend({
+                    contactId: enrollment.contactId!,
+                    channel: "email",
+                    provider: testRedirectTo ? "smtp" : "ghl",
+                    subject: deliverySubject,
+                    sequenceId: sequence.id,
+                    sequenceStepId: step.id,
+                    status: "sent",
+                  });
+                }).catch(() => {});
               } catch (emailErr) {
                 console.error(`Sequence email failed for enrollment ${enrollment.id}:`, emailErr);
                 await markSendFailed({ idempotencyKey: emailIdemKey, failureReason: emailErr instanceof Error ? emailErr.message : String(emailErr) });
@@ -1494,6 +1506,18 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
                 }
                 await markSendSent({ idempotencyKey: smsIdemKey, providerMessageId: orchSmsResult.messageId, fromAddress: "ghl_sms" });
                 stepExecuted = true;
+                // Record in canonical communication_events table (Wave A3 — non-blocking)
+                import("./communication-events").then(({ recordOutboundSend }) => {
+                  recordOutboundSend({
+                    contactId: enrollment.contactId!,
+                    channel: "sms",
+                    provider: "ghl",
+                    body: interpolate(bodyToSend),
+                    sequenceId: sequence.id,
+                    sequenceStepId: step.id,
+                    status: "sent",
+                  });
+                }).catch(() => {});
               } catch (smsErr) {
                 console.error(`Sequence SMS failed for enrollment ${enrollment.id}:`, smsErr);
                 await markSendFailed({ idempotencyKey: smsIdemKey, failureReason: smsErr instanceof Error ? smsErr.message : String(smsErr) });

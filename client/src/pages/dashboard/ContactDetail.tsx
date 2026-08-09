@@ -63,6 +63,7 @@ import { CommunicationHealthTab } from "./contact-detail-tabs/CommunicationHealt
 import { OfferIntelligenceTab } from "./contact-detail-tabs/OfferIntelligenceTab";
 import { SalesPrepTab } from "./contact-detail-tabs/SalesPrepTab";
 import { DeliveryLogTab } from "./contact-detail-tabs/DeliveryLogTab";
+import { CommunicationTimelineTab } from "./contact-detail-tabs/CommunicationTimelineTab";
 
 // ── Confirmation Status Section ───────────────────────────────────────────────
 /**
@@ -2037,6 +2038,10 @@ export default function ContactDetail() {
             <SendHorizonal className="h-3.5 w-3.5 mr-1" />
             Delivery Log
           </TabsTrigger>
+          <TabsTrigger value="comm-timeline" data-testid="tab-comm-timeline">
+            <Mail className="h-3.5 w-3.5 mr-1" />
+            Comm. Timeline
+          </TabsTrigger>
           <TabsTrigger value="comm-health" data-testid="tab-comm-health">
             Comm. Health
           </TabsTrigger>
@@ -2160,6 +2165,10 @@ export default function ContactDetail() {
 
         <TabsContent value="delivery-log" data-testid="tab-content-delivery-log">
           <DeliveryLogTab contactId={contactId} />
+        </TabsContent>
+
+        <TabsContent value="comm-timeline" data-testid="tab-content-comm-timeline">
+          <CommunicationTimelineTab contactId={contactId} />
         </TabsContent>
 
         <TabsContent value="comm-health" data-testid="tab-content-comm-health">

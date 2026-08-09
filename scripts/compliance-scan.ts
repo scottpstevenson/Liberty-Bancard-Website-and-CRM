@@ -413,6 +413,15 @@ const CALL_SITE_ALLOWLIST: Array<{
     reason: "Savings analysis result SMTP fallback — triggered by specific contact's savings analysis request when GHL is not configured. Reviewed and approved.",
     reviewDate: "2026-06-26",
   },
+  // ── Campaign engine send — pipeline_gated (evaluateContactability at top of function) ────
+  {
+    file: "server/services/campaign-engine.ts",
+    lineContains: "sendSmtpEmail",
+    channel: "email",
+    category: "pipeline_gated",
+    reason: "Campaign-engine contact-mode email send — evaluateContactability() is called at the top of the same function (processContactModeMessage) before reaching the sendSmtpEmail call site; the gate is co-located within the same function body, just separated by arbitration and compliance-prereq checks. Reviewed 2026-08-09.",
+    reviewDate: "2026-08-09",
+  },
   // ── Non-email send sites: admin_gated routes (operator-initiated only) ──────
   {
     file: "server/routes/activity.ts",
