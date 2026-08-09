@@ -1,0 +1,1224 @@
+Yes. I reviewed the feedback you pasted, and there are several things I would change before using it as the build plan.
+The biggest issue is exactly what you identified:
+The report tells us what it thinks exists, but it does not show enough evidence that it actually traced the live code paths and dependencies before recommending migrations.
+
+That distinction matters a lot now because Liberty is no longer a small prototype. You have a live system with hundreds of tables/services/tasks and multiple automation paths. At this stage, a technically “correct” feature can still break production if it bypasses an older worker, webhook, queue, or sync that nobody realized was still active.
+1. What I like about the feedback
+The high-level conclusions are largely aligned with the model we defined:
+Liberty/Replit should manage the customer journey. Payarc handles payments.
+The feedback correctly prioritizes:
+outbound sequences
+inbound automation
+statement acquisition
+pricing/proposal decisioning
+underwriting coordination
+boarding/activation tracking
+merchant success
+churn/save automation
+residual visibility
+attribution
+It also correctly identifies the GHL architecture problem:
+Replit should control state and automation; GHL should provide channel utilities.
+
+And it correctly recognizes that several important foundations are already built:
+lifecycle
+NBA
+automation registry
+sequence scalability
+statement acquisition
+speed-to-lead
+communication arbitration
+So the strategic direction is good.
+2. What the report does NOT prove
+The report says things like:
+GHL bidirectional sync is still running.
+
+Boarding has no tables.
+
+Underwriting orchestration is missing.
+
+Sequence content is thin.
+
+Those may all be true.
+But I would want Replit to provide code evidence.
+For every major conclusion, I want something like:
+Finding:
+Bidirectional GHL sync is still active.
+
+Evidence:
+server/services/ghl-sync.ts
+registered in server/services/queue-manager.ts
+repeat job key = ghl-sync
+interval = 45000
+worker started from server/index.ts
+writes contacts:
+  lines/functions X
+writes deals:
+  functions Y
+writes tasks:
+  functions Z
+
+Database dependencies:
+ghl_sync_status
+contacts.ghl_contact_id
+deals.ghl_opportunity_id
+
+Tests depending on behavior:
+scripts/...
+That proves it actually traced the architecture.
+Without that, we're still operating from a generated architectural interpretation.
+3. Require a Code Evidence Matrix
+Before any more major migration, I would have Replit generate this for every master capability:
+Capability	Status	Files	DB Tables	Routes	Workers	Automations	External Dependencies	Tests	Risk
+GHL Sync	Active	exact files	exact tables	exact routes	worker	repeat job	GHL	tests	High
+NBA	Built	exact files	tables	endpoints	worker	registry entry	OpenAI	tests	Medium
+Statement Acquisition	Built	files	tables	routes	worker	sequence	GHL	tests	Low
+Boarding	Partial	files	tables	routes	none	none	Payarc	tests	High
+
+
+This should become mandatory.
+4. Require Dependency Graphs before migration
+Especially for GHL.
+The agent should map:
+Sequence Worker
+   ↓
+current send service
+   ↓
+GHL?
+SMTP?
+Gmail?
+   ↓
+outbound_messages
+   ↓
+webhooks
+   ↓
+reply intelligence
+   ↓
+lifecycle / NBA
+And separately:
+GHL Sync Worker
+   ↓
+contacts
+deals
+tasks
+tags
+opportunities
+Then identify exactly what can be removed without breaking transport.
+That is much safer than:
+"Disable bidirectional sync."
+
+5. Migration should be strangler-pattern, not rip-and-replace
+For Replit best practice, I would avoid deleting old architecture immediately.
+Use this pattern:
+Phase 1 — Observe
+New path exists but old path remains active.
+Phase 2 — Shadow
+New service calculates what it would do but does not execute.
+Compare outputs.
+Phase 3 — Limited cohort
+5–10% or internal/test entities use new path.
+Phase 4 — Majority
+Increase traffic after metrics validate.
+Phase 5 — Disable legacy
+Old architecture becomes inactive.
+Phase 6 — Remove
+Only remove old code after a defined stability period.
+For GHL, for example:
+OLD:
+Business logic → GHL directly
+
+NEW:
+Business logic → ChannelOrchestrator → GHL
+First migrate callers.
+Only then turn off old integrations.
+6. Require feature flags for every major migration
+Every meaningful new system should support something like:
+OFF
+SHADOW
+LIMITED
+FULL
+Examples:
+CHANNEL_ORCHESTRATOR_V2
+NBA_V2
+PRICING_ENGINE_V1
+UNDERWRITING_ORCHESTRATOR
+ACTIVATION_MONITOR
+That gives you rollback without emergency code deployments.
+7. Require database reconciliation reports
+Any migration involving existing records needs:
+Before
+155,224 contacts
+42,831 active sequence enrollments
+12,414 deals
+...
+After
+same expected counts plus explanations for differences.
+And specifically:
+orphan count
+duplicate count
+invalid lifecycle count
+unmapped GHL IDs
+contacts with inconsistent ownership
+deals without contact
+merchants without MID
+sequence enrollments without next_action_at
+Do not accept:
+migration ran successfully.
+
+Accept:
+migration ran and data reconciled.
+
+8. Require rollback instructions
+Every major Replit task should end with:
+ROLLBACK PLAN
+
+Including:
+flag to disable
+migration reversal strategy
+legacy code state
+affected tables
+whether data writes are backward-compatible
+This is missing from the feedback.
+9. The report is missing your AI memory / learning architecture
+This is one of the biggest omissions.
+The feedback discusses:
+Call Transcript → CRM Intelligence
+
+But that is only one piece.
+We specifically want:
+Communication → understanding → action → outcome → learning
+That needs to become its own system.
+I would add:
+Communications Intelligence
+Normalize inbound/outbound interactions.
+Entity Memory
+Contact/business/deal/merchant facts.
+Decision Memory
+What AI thought and why.
+Action Memory
+What Liberty did.
+Outcome Memory
+What happened afterward.
+Correction Memory
+What humans changed.
+Learning Analytics
+Which actions work better over time.
+Without this, Liberty can automate, but it won't really become smarter.
+10. Missing AI evaluation/testing
+The report mentions normal tests but not enough AI behavior testing.
+You need a golden test set.
+Examples:
+100 real email replies with reviewed classifications.
+Expected:
+Interested
+Not interested
+STOP
+Pricing objection
+Call me
+Statement interest
+Wrong person
+Later
+OOO
+Run them against every prompt/model change.
+Same for:
+NBA
+transcript extraction
+merchant health reasoning
+statement extraction
+objection classification
+Then measure:
+accuracy before vs after.
+That gives you actual evidence that AI is improving.
+11. Missing human correction feedback
+If a rep corrects AI:
+AI:
+NOT_INTERESTED
+
+Rep:
+CALL_BACK_NEXT_MONTH
+store the correction.
+That correction should feed:
+evaluation dataset
+AI accuracy reporting
+prompt improvement analysis
+Otherwise staff correct AI every day and Liberty learns nothing from those corrections.
+12. Missing “Learning Center”
+You specifically asked:
+Where do we see whether the system is getting smarter?
+
+The feedback doesn't add that.
+You need an admin area like:
+AI & Automation Learning Center
+Show:
+Today
+inbound communications processed
+AI classified
+automatically handled
+human review
+AI corrected
+Accuracy
+reply classification accuracy
+NBA acceptance
+low-confidence rate
+human override rate
+Actions
+emails
+SMS
+tasks
+calls
+sequence stops
+lifecycle changes
+Outcomes
+appointments
+statements
+applications
+approvals
+activations
+Improvement
+This week vs last week.
+Model version vs model version.
+Sequence version vs sequence version.
+That lets you see whether Liberty is actually learning.
+13. Missing inbound scope
+The feedback says:
+inbound automation is fully wired.
+
+I would not accept that claim yet.
+It appears inbound lead intake is wired.
+But true inbound communications should include:
+inbound email replies
+inbound SMS
+inbound calls
+voicemail
+website chat
+uploaded statements
+portal messages
+support inquiries
+appointment requests
+And each must reach the same:
+IDENTIFY
+→ CLASSIFY
+→ UPDATE CRM
+→ STOP CONFLICTING AUTOMATION
+→ CREATE ACTION
+→ NBA
+I would require an inbound-channel matrix proving each one.
+14. Outbound go-live today: one major caution
+I would not interpret “engine ready” as “blast the 2M list.”
+Your outbound launch should be a controlled cohort.
+Something like:
+2M universe
+↓
+qualified segment
+↓
+valid/contactable records
+↓
+small launch cohort
+↓
+measure
+↓
+increase
+For the first production send I would want:
+global pause mechanism tested
+unsubscribe tested
+bounce tested
+reply ingestion tested
+GHL transport tested
+sender policy tested
+collision logic tested
+actual sequence copy reviewed
+suppression/DNC checked
+monitored cohort
+Then scale.
+15. Sequence count isn't the immediate goal
+The report says:
+Audit recommends 25–40 canonical sequences.
+
+Eventually, yes.
+But I would not make:
+Create 40 sequences
+
+a priority.
+Start with perhaps the highest-impact 6–10 lifecycle sequences.
+For example:
+Cold outbound
+Paid inbound
+Appointment
+Statement requested
+Proposal follow-up
+Application incomplete
+UW condition
+Approved/onboarding
+Activation
+Merchant success
+Then measure.
+More automation does not automatically mean better automation.
+16. Pricing engine should remain customer-journey scope
+The feedback calls this:
+core product.
+
+I would phrase it slightly differently.
+It is a core sales decision engine, not a payments engine.
+Liberty should:
+analyze merchant statement
+model offer
+calculate savings
+calculate Liberty economics
+recommend proposal
+Payarc remains authoritative over:
+processing technology
+actual network economics
+underwriting
+settlement
+payment processing
+That preserves the business boundary.
+17. Boarding should be tracking/orchestration, not payment technology
+Same clarification.
+Liberty needs:
+Approved
+↓
+Payarc boarding submitted
+↓
+MID received
+↓
+equipment/setup
+↓
+merchant ready
+↓
+first transaction confirmed
+↓
+first funding confirmed
+But Liberty does not need to build:
+MID generation
+gateway processing
+settlement engine
+funding engine
+It tracks and coordinates Payarc.
+18. Timeline feedback is too optimistic in places
+The estimates like:
+Pricing Engine: 3–4 days
+
+may be feasible for an initial implementation.
+But not necessarily for production-complete functionality by our definition.
+A production-complete feature includes:
+data model
+migration
+legacy reconciliation
+UI
+API
+automation
+audit
+metrics
+tests
+shadow mode
+rollback
+predeploy
+production verification
+So I would use ranges more like:
+Workstream	Initial Build	Production Hardening
+Sequence launch	1–2 days	+1–2 days
+GHL simplification	2–4 days	+2–5 days
+Pricing engine	3–6 days	+3–5 days
+Appointment automation	2–4 days	+2 days
+Application completion	3–5 days	+2–3 days
+Underwriting orchestration	5–10 days	+3–5 days
+Boarding/activation	5–10 days	+3–5 days
+Merchant success	3–6 days	+2 days
+Residual reconciliation	5–10 days	+3–5 days
+AI memory/learning system	7–15 days	ongoing
+
+
+The full system is probably better thought of as iterative 2–4 month development, not a binary 8-week finish line.
+You can have valuable production capabilities much sooner.
+19. Cost estimate needs more discipline
+The report's cost section is too vague.
+"1 agent task"
+
+is not a reliable cost unit.
+I would separate costs into three categories.
+Build cost
+Replit subscription / agent usage / engineering review.
+This depends heavily on your plan and how many agent runs/retries you perform.
+Usage cost
+This matters significantly at 2M prospects:
+email validation
+enrichment
+search
+AI
+email
+SMS
+RVM
+voice
+GHL
+database
+Redis
+Operational cost
+sales reps
+account managers
+underwriting follow-up
+review queue
+support
+The system should eventually track cost per prospect/cohort directly.
+That matters more than trying to estimate the entire software project cost up front.
+20. The architecture aligns extremely well with your long-term model
+Your target isn't:
+build Stripe.
+
+It is:
+make Liberty exceptionally good at acquiring merchants, converting them, getting them through Payarc, and retaining/managing them with minimal manual coordination.
+
+That means Liberty owns:
+Prospect
+↓
+Lead
+↓
+Communication
+↓
+Sales
+↓
+Statement
+↓
+Proposal
+↓
+Application
+↓
+Payarc coordination
+↓
+Approval
+↓
+Onboarding coordination
+↓
+Merchant activation
+↓
+Account management
+↓
+Retention
+↓
+Residual visibility
+Payarc owns:
+Payments
+Authorization
+Processing
+Settlement
+Funding
+Acquiring
+Network connectivity
+Processor underwriting authority
+That's a clean and scalable boundary.
+21. Revised priorities
+Given your stated objective:
+Outbound leads today + full inbound automation
+
+I would reorder the work.
+TODAY / GO-LIVE
+1. Production outbound readiness audit
+Not coding first.
+Verify:
+global pause behavior
+actual active sequences
+real copy
+sending identities
+bounce handling
+unsubscribe
+reply ingestion
+DNC
+send caps
+cohort size
+monitoring
+2. Launch controlled outbound cohort
+Not 2M.
+Start measurable.
+3. Full inbound communication audit
+Prove:
+email replies
+SMS replies
+forms
+calls
+chat
+statement uploads
+appointments
+all flow into Liberty appropriately.
+IMMEDIATE NEXT
+4. GHL legacy sync shutdown/migration
+Once evidence matrix exists.
+5. Communication Intelligence + Memory
+Because everything flowing today should begin producing learning data immediately.
+6. AI Evaluation Harness
+Start collecting reviewed examples now.
+SALES CONVERSION
+7. Pricing engine
+8. Proposal conversion
+9. Application completion
+PAYARC JOURNEY
+10. Underwriting coordination
+11. Boarding/activation tracking
+ACCOUNT MANAGEMENT
+12. Merchant success
+13. Health/retention
+FINANCIAL VISIBILITY
+14. Residual reconciliation
+15. full-funnel economics
+22. What I would tell Replit next
+Before creating more implementation tasks, I would run a dedicated:
+MASTER CODEBASE VERIFICATION & MIGRATION READINESS AUDIT
+Its job should be:
+Do not build anything. Prove the current architecture from the actual repository.
+
+For every master capability, provide:
+STATUS
+FILES
+TABLES
+ROUTES
+WORKERS
+QUEUES
+CRONS
+FEATURE FLAGS
+ENV VARS
+EXTERNAL PROVIDERS
+DIRECT CALL SITES
+TESTS
+CURRENT PRODUCTION PATH
+LEGACY PATH
+DEPENDENCIES
+MIGRATION RISK
+ROLLBACK PATH
+Then compare the code against our master plan.
+That becomes the verified baseline.
+Only after that should we generate the next batch of implementation tasks.
+23. Best practice for working with Replit from here
+I would use this cycle for every major Wave:
+AUDIT → DESIGN → SHADOW → TEST → LIMITED RELEASE → MEASURE → FULL RELEASE → CLEANUP
+Not:
+PROMPT → BUILD → MERGE → NEXT PROMPT.
+That one procedural change will substantially reduce the chances of Replit introducing architecture drift or accidental regressions.
+Overall assessment
+The feedback is good strategic analysis, but I would rate it:
+Strategy: 8.5/10
+Evidence of actual-code validation: 5/10
+Migration safety: 5/10
+AI learning/memory coverage: 3/10
+Alignment with Liberty's customer-journey model: 9/10
+Go-live usefulness: 8/10
+The missing step is now not another architecture brainstorm. We have the architecture.
+The missing step is to make Replit prove what the current code actually does, establish a verified baseline, and then migrate incrementally against that baseline.
+That is what I would do before allowing it to make the larger GHL, inbound, pricing, underwriting, boarding, or AI-memory migrations.
+
+
+
+
+
+
+
+
+
+
+we dont care about bidirectional sync for ghl. we want tocontrol everything inreplit now and use ghl as the transport
+
+
+
+
+
+
+
+
+
+
+
+
+Agreed. Then I would simplify the architecture decision and stop spending roadmap energy on preserving GHL CRM synchronization.
+The requirement is now definitive:
+Replit is the only business brain and source of truth. GHL is a communications utility/transport layer.
+
+That means we should retire the bidirectional CRM-sync concept, not optimize it.
+GHL's allowed role
+Replit can use GHL for whatever communication utilities are useful:
+Email via the configured Liberty sending infrastructure
+SMS
+Ringless voicemail
+Calling / voice
+Voice AI if applicable
+Conversation delivery
+Calendar/booking utilities if useful
+Delivery status
+Bounce/failure events
+Replies
+STOP/unsubscribe events
+But the workflow is always:
+Replit decides → GHL sends/executes → GHL returns event → Replit records/interprets it → Replit decides the next action.
+GHL does not own contacts operationally, deals, pipeline stages, tasks, sequences, lead scoring, automation timing, NBA, underwriting state, onboarding state, or merchant account-management state.
+If GHL technically requires a contact record to send an SMS/email/call, Replit can maintain the minimum shadow GHL contact needed. That's transport plumbing, not synchronization.
+What I would remove/deprecate
+The code audit should identify and then safely retire:
+45-second bidirectional CRM sync
+GHL → Liberty deal/opportunity synchronization
+GHL → Liberty task synchronization
+GHL stage → Liberty lifecycle changes
+GHL workflow enrollment for Liberty sequences
+GHL workflow recovery for Liberty sequences
+GHL tags used as Liberty business-state triggers
+arbitrary GHL contact fields overwriting Liberty records
+GHL as an authoritative opportunity/pipeline database
+Historical GHL IDs/logs can remain for reference.
+What stays
+Keep the useful integration pieces:
+Outbound
+Sequence / NBA / Human Action
+→ Communication Arbitration
+→ Contactability
+→ ChannelOrchestrator
+→ GHL
+→ Email/SMS/RVM/Voice.
+Inbound
+GHL
+→ reply/delivery/bounce/call event
+→ Liberty webhook
+→ normalized communication event
+→ identity resolution
+→ AI intent classification
+→ CRM/activity update
+→ stop/resume automation
+→ task/NBA.
+That second half is extremely important. We're not merely using GHL to send; we're using it as the communications pipe in both directions while Liberty owns the conversation intelligence.
+This simplifies the migration
+We don't need to preserve dual-master behavior.
+The migration objective becomes:
+Find every direct GHL business-logic dependency.
+Classify transport vs CRM/workflow dependency.
+Route transport through the Liberty ChannelOrchestrator.
+Route inbound GHL events into Liberty's communication/event layer.
+Ensure any required shadow contacts are created Replit → GHL only.
+Disable GHL business-state writeback.
+Disable GHL workflow-driven Liberty automation.
+Run regression tests.
+Remove dead sync infrastructure after verified stability.
+The code verification I recommended still matters, but for a different reason. We're not asking whether to keep bidirectional sync. That decision is made. We're asking:
+Where does the existing sync touch the application so we can remove it without accidentally breaking email, SMS, replies, calendars, or other useful GHL utilities?
+
+That's what Replit needs to prove from the source code before changing it.
+I would also change the master plan terminology
+Instead of:
+"GHL Sync Simplification"
+
+use:
+GHL CRM Decoupling + Communications Utility Migration
+
+Acceptance criteria should be very simple:
+Test A: Turn off all GHL CRM synchronization. Liberty still knows every contact, deal, stage, task, sequence, lifecycle and NBA.
+Test B: Liberty can still send email/SMS/RVM/calls through GHL.
+Test C: Replies/events still enter Liberty and affect the correct customer journey.
+Test D: Changing a deal, task, stage, tag, or workflow in GHL cannot alter authoritative Liberty business state.
+Test E: If GHL is unavailable, Liberty retains all state and queues/retries appropriate communications rather than losing the customer journey.
+That's the architecture I would lock in permanently.
+
+
+
+
+
+
+
+
+
+
+what is the audit part? is there a specific setting or tab for this or do I do it in the design screen
+
+
+
+
+
+
+
+
+
+
+
+
+The audit is not a specific Replit setting or tab. In what I’m recommending, “audit” means giving Replit Agent a dedicated task to inspect the existing codebase before it writes or changes code.
+I would not do this in the Design screen. Design is useful for UI/layout work. This is a codebase/architecture investigation.
+For Liberty, I’d create a dedicated Replit task/Agent request and paste something like this:
+TASK: Liberty Bancard Master Codebase Verification & Migration Readiness Audit
+IMPORTANT
+This is an AUDIT-ONLY task.
+DO NOT modify production code.
+DO NOT create migrations.
+DO NOT disable workers.
+DO NOT change GHL configuration.
+DO NOT change sequences.
+DO NOT change database records.
+DO NOT implement recommendations.
+The purpose of this task is to inspect the ACTUAL CURRENT CODEBASE and establish a verified baseline before additional architecture changes are made.
+Governing Architecture
+Liberty Bancard/Replit is the authoritative customer journey, sales automation, onboarding, and merchant account-management platform.
+Payarc handles payment-processing technology.
+GHL is a communications utility/transport provider.
+Replit owns:
+contacts
+
+businesses
+
+prospects
+
+leads
+
+deals
+
+lifecycle
+
+qualification
+
+scoring
+
+ownership
+
+tasks
+
+sequences
+
+automation
+
+Next Best Action
+
+communication decisions
+
+inbound communication intelligence
+
+statement workflow
+
+proposals
+
+applications
+
+underwriting coordination
+
+onboarding
+
+merchant activation tracking
+
+merchant account management
+
+merchant health
+
+retention
+
+referrals
+
+residual visibility
+
+AI memory and learning
+
+GHL may provide:
+email transport
+
+SMS
+
+ringless voicemail
+
+calls/voice
+
+voice AI
+
+conversations
+
+calendar/booking utilities
+
+delivery events
+
+bounce/failure events
+
+inbound replies
+
+STOP/unsubscribe events
+
+minimum shadow contact records required to execute those utilities
+
+GHL must NOT be authoritative for Liberty CRM/business state.
+Payarc remains authoritative for actual payment processing.
+
+AUDIT 1 — CURRENT ARCHITECTURE
+Inspect the repository and document the actual current architecture.
+Do not rely solely on prior task descriptions, README files, previous summaries, or assumptions.
+Trace actual executable code.
+For every major capability identify:
+STATUS:
+COMPLETE
+
+PARTIAL
+
+MISSING
+
+DUPLICATED
+
+CONFLICTING
+
+LEGACY
+
+BROKEN
+
+Provide evidence.
+For every finding provide where applicable:
+exact file
+
+service/function
+
+database table
+
+important columns
+
+API route
+
+worker
+
+BullMQ queue
+
+repeat job
+
+webhook
+
+feature flag
+
+environment variable
+
+external provider
+
+UI page
+
+test coverage
+
+direct call sites
+
+
+AUDIT 2 — GHL DEPENDENCY MAP
+Find EVERY production code path involving GHL.
+Classify each as:
+A. KEEP — COMMUNICATION UTILITY
+B. KEEP — INBOUND EVENT
+C. KEEP — REQUIRED SHADOW CONTACT / PROVIDER PLUMBING
+D. MIGRATE — DIRECT CALL SHOULD USE LIBERTY ORCHESTRATOR
+E. RETIRE — GHL CRM AUTHORITY
+F. RETIRE — GHL WORKFLOW AUTHORITY
+G. UNKNOWN — NEEDS HUMAN REVIEW
+Specifically locate:
+contact sync
+
+opportunity/deal sync
+
+task sync
+
+stage sync
+
+tags
+
+workflow enrollment
+
+workflow recovery
+
+outbound email
+
+SMS
+
+RVM
+
+voice/calls
+
+calendar
+
+conversation APIs
+
+inbound replies
+
+bounce events
+
+STOP/unsubscribe
+
+appointment events
+
+Produce an actual dependency graph.
+Do NOT disable anything yet.
+
+AUDIT 3 — OUTBOUND READINESS
+Determine whether Liberty can safely launch a controlled outbound email cohort TODAY.
+Verify from actual code/configuration:
+sequence worker
+
+active sequences
+
+sequence steps
+
+sending identities
+
+GHL transport
+
+ChannelOrchestrator
+
+communication arbitration
+
+contactability
+
+DNC
+
+global pause
+
+send caps
+
+unsubscribe
+
+bounce handling
+
+reply ingestion
+
+failure handling
+
+idempotency
+
+duplicate prevention
+
+timezone/contact windows
+
+monitoring
+
+kill switch
+
+Report:
+GO
+GO WITH CONDITIONS
+or
+NO-GO.
+List exact blockers.
+Do NOT turn outbound on.
+
+AUDIT 4 — INBOUND COMMUNICATIONS
+Trace each inbound channel independently:
+email reply
+
+SMS reply
+
+call
+
+voicemail
+
+web form
+
+web chat
+
+statement upload
+
+appointment
+
+merchant portal/support communication where applicable
+
+For each prove whether the flow reaches:
+INBOUND EVENT
+→ IDENTITY RESOLUTION
+→ CONTACT/BUSINESS/DEAL
+→ COMMUNICATION HISTORY
+→ INTENT CLASSIFICATION
+→ AUTOMATION ARBITRATION
+→ LIFECYCLE UPDATE IF APPROPRIATE
+→ TASK/HUMAN ESCALATION IF REQUIRED
+→ NEXT BEST ACTION.
+Identify every broken or missing link.
+
+AUDIT 5 — CUSTOMER JOURNEY
+Trace the actual implemented journey:
+PROSPECT
+→ QUALIFICATION
+→ OUTREACH
+→ REPLY
+→ APPOINTMENT
+→ STATEMENT
+→ ANALYSIS
+→ PRICING
+→ PROPOSAL
+→ APPLICATION
+→ PAYARC UNDERWRITING COORDINATION
+→ APPROVAL
+→ ONBOARDING
+→ ACTIVATION
+→ MERCHANT ACCOUNT MANAGEMENT
+→ RETENTION
+→ REFERRAL
+→ RESIDUAL VISIBILITY.
+Identify where automation currently stops and manual work begins.
+
+AUDIT 6 — AI MEMORY / LEARNING
+Determine what currently exists for:
+normalized communication events
+
+AI classifications
+
+extracted facts
+
+contact memory
+
+business memory
+
+deal memory
+
+merchant memory
+
+rolling summaries
+
+human AI corrections
+
+decision history
+
+action history
+
+outcome history
+
+prompt versions
+
+model versions
+
+AI evaluations
+
+golden datasets
+
+contradiction detection
+
+confidence/source tracking
+
+AI Learning Center/dashboard
+
+daily learning report
+
+weekly learning report
+
+Do NOT assume ai_audit_logs equals an organizational memory system.
+Identify what actually exists versus what needs to be built.
+
+AUDIT 7 — AUTOMATION MAP
+Inspect every active automation.
+For each provide:
+NAME
+TRIGGER
+OWNER
+INPUT
+ACTION
+CHANNEL
+EXTERNAL PROVIDER
+STOP CONDITIONS
+COLLISION PROTECTION
+IDEMPOTENCY
+RETRY
+FAILURE PATH
+HUMAN REVIEW
+KILL SWITCH
+METRICS
+CURRENT STATUS.
+Identify duplicate or competing automations.
+
+AUDIT 8 — DATA MODEL
+Verify the current canonical relationships between:
+CONTACT
+BUSINESS
+LOCATION
+DEAL
+STATEMENT
+PROPOSAL
+APPLICATION
+MERCHANT
+MID
+EQUIPMENT
+PARTNER
+RESIDUAL.
+Identify:
+duplicates
+
+ambiguous ownership
+
+orphan records
+
+competing entity models
+
+missing relationships
+
+legacy fields
+
+provider IDs being incorrectly treated as canonical IDs
+
+
+AUDIT 9 — TEST COVERAGE
+Map the existing pre-deploy suites against the current architecture.
+Identify what is NOT tested.
+Pay particular attention to:
+outbound end-to-end
+
+inbound end-to-end
+
+GHL transport with Liberty authority
+
+reply → automation stop
+
+human touch → automation suppression
+
+NBA
+
+customer lifecycle
+
+Payarc coordination
+
+AI classification
+
+AI memory
+
+AI corrections
+
+action → outcome linkage
+
+rollback
+
+provider outage behavior
+
+
+AUDIT 10 — MIGRATION SAFETY
+For every recommended architectural change provide:
+CURRENT PATH
+TARGET PATH
+FILES AFFECTED
+TABLES AFFECTED
+DEPENDENCIES
+RISK
+MIGRATION ORDER
+SHADOW-MODE POSSIBILITY
+FEATURE FLAG
+TEST REQUIREMENTS
+ROLLBACK METHOD
+DATA RECONCILIATION REQUIREMENTS.
+Do NOT execute migrations.
+
+REQUIRED FINAL OUTPUT
+Produce:
+1. Executive Summary
+2. Verified Current-State Architecture
+3. Code Evidence Matrix
+4. GHL Dependency Map
+5. Outbound Go-Live Readiness
+6. Inbound Automation Readiness
+7. Customer Journey Gap Analysis
+8. AI Memory/Learning Gap Analysis
+9. Automation Collision/Duplication Analysis
+10. Data Model Analysis
+11. Test Coverage Gaps
+12. Migration Risk Register
+13. Recommended Priority Order
+Separate:
+P0 — GO-LIVE / REVENUE CRITICAL
+P1 — CUSTOMER JOURNEY AUTOMATION
+P2 — ACCOUNT MANAGEMENT / OPTIMIZATION
+REQUIRED — SECURITY / RELIABILITY
+14. Proposed Implementation Waves
+Do not create implementation tasks yet.
+15. Evidence Appendix
+For every material conclusion, cite the actual file/service/table/worker/test that supports the conclusion.
+If something cannot be proven from the repository, explicitly write:
+UNVERIFIED
+Do not infer it.
+
+FINAL INSTRUCTION
+DO NOT BUILD ANYTHING.
+This task exists to establish the verified source-of-truth baseline from the actual Liberty Bancard repository so that subsequent Replit implementation tasks can migrate the platform safely without duplicating systems or breaking existing production functionality.
+
+
+
+Once Replit returns that report, bring the result back here. That's the point where I'd compare its code evidence against our master architecture and determine the actual P0/P1/P2 tasks.
+For your immediate goal of outbound today, I would have the audit produce a separate GO / GO WITH CONDITIONS / NO-GO determination so we don't need to wait for every long-term architecture question before deciding whether a controlled outbound cohort is safe.
