@@ -17,7 +17,7 @@ import { serverError, safeMessage } from "../utils/server-error";
 
 export function registerIntegrationsRoutes(app: Express) {
   // === GHL INTEGRATION ===
-  app.get("/api/ghl/status", async (req, res) => {
+  app.get("/api/ghl/status", isAuthenticated, async (req, res) => {
     res.json(getGhlStatus());
   });
 
