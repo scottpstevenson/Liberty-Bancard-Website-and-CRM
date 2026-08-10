@@ -1829,6 +1829,7 @@ const GHL_CIRCUIT_THRESHOLD = 5;
 let consecutiveGhlFailures = 0;
 let ghlCircuitOpen = false;
 let lastCircuitAlertAt = 0;
+const GHL_CIRCUIT_ALERT_KEY = "ghl_circuit_alert_at";
 
 // ── Circuit-breaker persistence (survives process restarts) ─────────────────
 const GHL_CIRCUIT_STATE_KEY = "ghl_circuit_state";
@@ -1858,14 +1859,25 @@ async function restoreGhlCircuit(): Promise<void> {
   if (circuitStateRestored) return;
   circuitStateRestored = true;
   try {
-    const [row] = await db.select().from(systemSettings).where(eq(systemSettings.key, GHL_CIRCUIT_STATE_KEY));
-    if (row?.value) {
-      // value is jsonb — already a parsed object, no JSON.parse needed.
-      const saved = row.value as { open?: boolean; consecutiveFailures?: number };
-      if (saved.open) {
-        ghlCircuitOpen = true;
-        consecutiveGhlFailures = saved.consecutiveFailures ?? GHL_CIRCUIT_THRESHOLD;
-        console.log(`[GHL Sync] Restored circuit state from DB — open=true, failures=${consecutiveGhlFailures} (will reset this tick)`);
+    const rows = await db.select().from(systemSettings).where(
+      sql`key IN (${GHL_CIRCUIT_STATE_KEY}, ${GHL_CIRCUIT_ALERT_KEY})`
+    );
+    for (const row of rows) {
+      if (row.key === GHL_CIRCUIT_STATE_KEY && row.value) {
+        const saved = row.value as { open?: boolean; consecutiveFailures?: number };
+        if (saved.open) {
+          ghlCircuitOpen = true;
+          consecutiveGhlFailures = saved.consecutiveFailures ?? GHL_CIRCUIT_THRESHOLD;
+          console.log(`[GHL Sync] Restored circuit state from DB — open=true, failures=${consecutiveGhlFailures} (will reset this tick)`);
+        }
+      }
+      if (row.key === GHL_CIRCUIT_ALERT_KEY && row.value) {
+        // Restore alert cooldown so a restart doesn't re-fire the alert within the same hour
+        const saved = row.value as { at?: string };
+        if (saved.at) {
+          lastCircuitAlertAt = new Date(saved.at).getTime();
+          console.log(`[GHL Sync] Restored circuit alert cooldown from DB — lastCircuitAlertAt=${saved.at}`);
+        }
       }
     }
   } catch {
@@ -1878,6 +1890,12 @@ function maybeSendCircuitAlert(): void {
   const now = Date.now();
   if (now - lastCircuitAlertAt < 60 * 60 * 1000) return;
   lastCircuitAlertAt = now;
+  // Persist the alert timestamp so a process restart within the same hour doesn't re-fire
+  const alertAt = new Date().toISOString();
+  db.insert(systemSettings)
+    .values({ key: GHL_CIRCUIT_ALERT_KEY, value: { at: alertAt } })
+    .onConflictDoUpdate({ target: systemSettings.key, set: { value: { at: alertAt } } })
+    .catch(() => {});
   const failureCount = consecutiveGhlFailures;
   const timestamp = new Date().toISOString();
   import("./system-audit/slack-notifier").then(({ sendCriticalAlert }) => {

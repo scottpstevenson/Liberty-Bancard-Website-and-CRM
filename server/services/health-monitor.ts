@@ -71,6 +71,51 @@ const STARTUP_GRACE_MS = 3 * 60 * 1000; // 3 minutes
 // In-memory cache of last result
 let _lastResult: HealthReport | null = null;
 
+// ── Cooldown helpers ─────────────────────────────────────────────────────────
+// Health alerts read their cooldown timestamps from system_settings (DB).
+// When the DB is itself degraded — exactly the situation that triggers health
+// alerts — those reads can throw, making lastAlertAt=0 and bypassing the
+// cooldown entirely.  The in-memory map below serves as a fallback:
+// even if the DB is down, the in-process cooldown still applies for the
+// lifetime of the current process.  On restart the DB value is re-hydrated.
+
+const _inMemoryCooldown = new Map<string, number>();
+
+/**
+ * Returns true if the cooldown for `key` is still active.
+ * Checks in-memory first (DB-failure resilient), then falls back to DB.
+ */
+async function _isCooldownActive(key: string, cooldownMs: number): Promise<boolean> {
+  // In-memory is always reliable
+  const inMem = _inMemoryCooldown.get(key) ?? 0;
+  if (Date.now() - inMem < cooldownMs) return true;
+  // DB may be more up-to-date (e.g. after a restart)
+  try {
+    const raw = await storage.getSystemSetting(key);
+    const dbAt = raw ? new Date(raw as string).getTime() : 0;
+    if (Date.now() - dbAt < cooldownMs) {
+      _inMemoryCooldown.set(key, dbAt); // sync back so subsequent DB failures honour it
+      return true;
+    }
+  } catch {
+    // DB unavailable — in-memory already checked above
+  }
+  return false;
+}
+
+/**
+ * Stamps the cooldown key now (both in-memory and DB).
+ * DB write failure is non-fatal — in-memory stamp is always set.
+ */
+async function _stampCooldown(key: string): Promise<void> {
+  _inMemoryCooldown.set(key, Date.now());
+  try {
+    await storage.setSystemSetting(key, new Date().toISOString());
+  } catch {
+    // DB unavailable — in-memory stamp still suppresses duplicates this process lifetime
+  }
+}
+
 export function getLastHealthResult(): HealthReport | null {
   return _lastResult;
 }
@@ -616,18 +661,18 @@ export async function runHealthChecks(): Promise<HealthReport> {
       if (inGracePeriod) {
         console.warn(`[HealthMonitor] Critical alert suppressed (startup grace period, ${Math.round((Date.now() - STARTUP_TIME) / 1000)}s elapsed): ${newlyFailed.join(", ")}`);
       } else {
-        // Fire-and-forget alert email — rate-limited to at most 1 per hour
+        // Fire-and-forget alert email — rate-limited to at most 1 per hour.
+        // Uses _isCooldownActive/_stampCooldown which fall back to in-memory when
+        // the DB is itself degraded (the exact condition that fires these alerts).
         const CRITICAL_COOLDOWN_KEY = "health_monitor_critical_alert_at";
         const CRITICAL_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
         (async () => {
           try {
-            const lastAlertRaw = await storage.getSystemSetting(CRITICAL_COOLDOWN_KEY);
-            const lastAlertAt = lastAlertRaw ? new Date(lastAlertRaw as string).getTime() : 0;
-            if (Date.now() - lastAlertAt < CRITICAL_COOLDOWN_MS) {
+            if (await _isCooldownActive(CRITICAL_COOLDOWN_KEY, CRITICAL_COOLDOWN_MS)) {
               console.warn(`[HealthMonitor] Critical alert suppressed (cooldown): ${newlyFailed.join(", ")}`);
               return;
             }
-            await storage.setSystemSetting(CRITICAL_COOLDOWN_KEY, new Date().toISOString());
+            await _stampCooldown(CRITICAL_COOLDOWN_KEY);
             const { sendSmtpEmail } = await import("./smtp-email");
             const recipient = process.env.ADMIN_ALERT_EMAIL || "accounts@libertybancard.com";
             const details = newlyFailed
@@ -663,10 +708,8 @@ export async function runHealthChecks(): Promise<HealthReport> {
       const RECOVERY_COOLDOWN_MS = 15 * 60 * 1000; // 15 min — recovery emails are less urgent
       (async () => {
         try {
-          const lastRaw = await storage.getSystemSetting(RECOVERY_COOLDOWN_KEY);
-          const lastAt = lastRaw ? new Date(lastRaw as string).getTime() : 0;
-          if (Date.now() - lastAt < RECOVERY_COOLDOWN_MS) return;
-          await storage.setSystemSetting(RECOVERY_COOLDOWN_KEY, new Date().toISOString());
+          if (await _isCooldownActive(RECOVERY_COOLDOWN_KEY, RECOVERY_COOLDOWN_MS)) return;
+          await _stampCooldown(RECOVERY_COOLDOWN_KEY);
           const { sendSmtpEmail } = await import("./smtp-email");
           const recipient = process.env.ADMIN_ALERT_EMAIL || "accounts@libertybancard.com";
           await sendSmtpEmail({
@@ -693,14 +736,8 @@ export async function runHealthChecks(): Promise<HealthReport> {
   if (okCount < HEALTH_LOW_OK_THRESHOLD) {
     (async () => {
       try {
-        // Check cooldown
-        const lastAlertRaw = await storage.getSystemSetting(HEALTH_LOW_OK_COOLDOWN_KEY);
-        const lastAlertAt = lastAlertRaw ? new Date(lastAlertRaw as string).getTime() : 0;
-        if (Date.now() - lastAlertAt < HEALTH_LOW_OK_COOLDOWN_MS) {
-          return; // still in cooldown
-        }
-        // Update cooldown before sending to avoid double-fires
-        await storage.setSystemSetting(HEALTH_LOW_OK_COOLDOWN_KEY, new Date().toISOString());
+        if (await _isCooldownActive(HEALTH_LOW_OK_COOLDOWN_KEY, HEALTH_LOW_OK_COOLDOWN_MS)) return;
+        await _stampCooldown(HEALTH_LOW_OK_COOLDOWN_KEY);
 
         const { sendSmtpEmail } = await import("./smtp-email");
         const recipient = process.env.ADMIN_ALERT_EMAIL || "accounts@libertybancard.com";
