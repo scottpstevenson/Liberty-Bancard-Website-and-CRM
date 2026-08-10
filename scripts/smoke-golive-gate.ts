@@ -195,104 +195,116 @@ try {
 
 } catch (err: any) {
   console.error("Setup failed:", err.message);
-  process.exit(1);
+  // Do not exit here — fall through to teardown so any partially-created
+  // records (contact, deals, agent user) are cleaned up before we exit.
+  errors++;
 }
 
-// ── Test Cases ────────────────────────────────────────────────────────────────
-
-console.log("\n── Case 1: Admin → 422 on missing MID/checklist ────────────");
-{
-  const { status, json } = await putDeal(adminCookies, onboardingDealId, {
-    stage: "Go-Live Scheduled",
-  });
-  if (status === 422) {
-    pass(`HTTP 422 returned (status=${status})`);
-    const j = json as any;
-    if (j?.code === "GO_LIVE_GATE_FAILED") {
-      pass(`code=GO_LIVE_GATE_FAILED`);
-    } else {
-      fail(`Expected code=GO_LIVE_GATE_FAILED, got: ${JSON.stringify(j?.code)}`);
-    }
-    if (j?.canOverride === true) {
-      pass("canOverride=true for admin role");
-    } else {
-      fail(`Expected canOverride=true for admin, got: ${j?.canOverride}`);
-    }
-  } else {
-    fail(`Expected 422, got ${status}. Body: ${JSON.stringify(json)}`);
-  }
-}
-
-console.log("\n── Case 2: Agent → 422 with canOverride=false ───────────────");
-{
-  const { status, json } = await putDeal(agentCookies, onboardingDealId, {
-    stage: "Go-Live Scheduled",
-  });
-  if (status === 422) {
-    pass(`HTTP 422 returned`);
-    const j = json as any;
-    if (j?.canOverride === false) {
-      pass("canOverride=false for agent role");
-    } else {
-      fail(`Expected canOverride=false for agent, got: ${j?.canOverride}`);
-    }
-  } else {
-    fail(`Expected 422, got ${status}`);
-  }
-}
-
-console.log("\n── Case 3: Admin override with reason → accepted (≤200, not 422) ──");
-{
-  const { status, json } = await putDeal(adminCookies, onboardingDealId, {
-    stage: "Go-Live Scheduled",
-    overrideReason: "Smoke-test manual override — admin approved",
-  });
-  // 200 = gate passed; 422 means override didn't work; other codes = bug
-  if (status === 200 || status === 201) {
-    pass(`Override accepted (HTTP ${status})`);
-  } else if (status === 422) {
-    fail(`Override NOT accepted — still getting 422. Body: ${JSON.stringify(json)}`);
-  } else {
-    fail(`Unexpected status ${status}. Body: ${JSON.stringify(json)}`);
-  }
-}
-
-console.log("\n── Case 4: Non-onboarding pipeline → gate skipped ──────────");
-{
-  // Sales pipeline deal moving to a "Go-Live Scheduled" stage that isn't in GO_LIVE_GATE_STAGES
-  // for the sales pipeline — gate only fires for onboarding pipeline.
-  const { status, json } = await putDeal(adminCookies, salesDealId, {
-    stage: "Statement Requested", // any non-gate sales stage
-  });
-  if (status !== 422) {
-    pass(`Non-onboarding pipeline stage change not gate-blocked (HTTP ${status})`);
-  } else {
-    fail(`Sales pipeline stage change should not trigger Go-Live gate, got 422`);
-  }
-}
-
-// ── Teardown ──────────────────────────────────────────────────────────────────
-
-console.log("\n── Teardown ────────────────────────────────────────────────");
 try {
-  if (onboardingDealId) {
-    await db.delete(deals).where(eq(deals.id, onboardingDealId));
-    pass(`Deleted onboarding deal #${onboardingDealId}`);
+  // ── Test Cases ──────────────────────────────────────────────────────────────
+  // Only run test cases if setup succeeded (ids are non-zero).
+
+  if (onboardingDealId && salesDealId && contactId) {
+    console.log("\n── Case 1: Admin → 422 on missing MID/checklist ────────────");
+    {
+      const { status, json } = await putDeal(adminCookies, onboardingDealId, {
+        stage: "Go-Live Scheduled",
+      });
+      if (status === 422) {
+        pass(`HTTP 422 returned (status=${status})`);
+        const j = json as any;
+        if (j?.code === "GO_LIVE_GATE_FAILED") {
+          pass(`code=GO_LIVE_GATE_FAILED`);
+        } else {
+          fail(`Expected code=GO_LIVE_GATE_FAILED, got: ${JSON.stringify(j?.code)}`);
+        }
+        if (j?.canOverride === true) {
+          pass("canOverride=true for admin role");
+        } else {
+          fail(`Expected canOverride=true for admin, got: ${j?.canOverride}`);
+        }
+      } else {
+        fail(`Expected 422, got ${status}. Body: ${JSON.stringify(json)}`);
+      }
+    }
+
+    console.log("\n── Case 2: Agent → 422 with canOverride=false ───────────────");
+    {
+      const { status, json } = await putDeal(agentCookies, onboardingDealId, {
+        stage: "Go-Live Scheduled",
+      });
+      if (status === 422) {
+        pass(`HTTP 422 returned`);
+        const j = json as any;
+        if (j?.canOverride === false) {
+          pass("canOverride=false for agent role");
+        } else {
+          fail(`Expected canOverride=false for agent, got: ${j?.canOverride}`);
+        }
+      } else {
+        fail(`Expected 422, got ${status}`);
+      }
+    }
+
+    console.log("\n── Case 3: Admin override with reason → accepted (≤200, not 422) ──");
+    {
+      const { status, json } = await putDeal(adminCookies, onboardingDealId, {
+        stage: "Go-Live Scheduled",
+        overrideReason: "Smoke-test manual override — admin approved",
+      });
+      // 200 = gate passed; 422 means override didn't work; other codes = bug
+      if (status === 200 || status === 201) {
+        pass(`Override accepted (HTTP ${status})`);
+      } else if (status === 422) {
+        fail(`Override NOT accepted — still getting 422. Body: ${JSON.stringify(json)}`);
+      } else {
+        fail(`Unexpected status ${status}. Body: ${JSON.stringify(json)}`);
+      }
+    }
+
+    console.log("\n── Case 4: Non-onboarding pipeline → gate skipped ──────────");
+    {
+      // Sales pipeline deal moving to a "Go-Live Scheduled" stage that isn't in GO_LIVE_GATE_STAGES
+      // for the sales pipeline — gate only fires for onboarding pipeline.
+      const { status, json } = await putDeal(adminCookies, salesDealId, {
+        stage: "Statement Requested", // any non-gate sales stage
+      });
+      if (status !== 422) {
+        pass(`Non-onboarding pipeline stage change not gate-blocked (HTTP ${status})`);
+      } else {
+        fail(`Sales pipeline stage change should not trigger Go-Live gate, got 422`);
+      }
+    }
+  } else {
+    console.log("\n── Test Cases skipped (setup did not complete) ──────────────");
   }
-  if (salesDealId) {
-    await db.delete(deals).where(eq(deals.id, salesDealId));
-    pass(`Deleted sales deal #${salesDealId}`);
+
+} finally {
+  // ── Teardown ────────────────────────────────────────────────────────────────
+  // Always runs — pass OR fail — so no orphan records are left in the DB to
+  // trigger the GHL sync circuit breaker on subsequent ticks.
+
+  console.log("\n── Teardown ────────────────────────────────────────────────");
+  try {
+    if (onboardingDealId) {
+      await db.delete(deals).where(eq(deals.id, onboardingDealId));
+      pass(`Deleted onboarding deal #${onboardingDealId}`);
+    }
+    if (salesDealId) {
+      await db.delete(deals).where(eq(deals.id, salesDealId));
+      pass(`Deleted sales deal #${salesDealId}`);
+    }
+    if (contactId) {
+      await db.delete(contacts).where(eq(contacts.id, contactId));
+      pass(`Deleted contact #${contactId}`);
+    }
+    if (agentId) {
+      await db.delete(users).where(eq(users.id, agentId));
+      pass(`Deleted agent user`);
+    }
+  } catch (err: any) {
+    console.error("Teardown error (non-fatal):", err.message);
   }
-  if (contactId) {
-    await db.delete(contacts).where(eq(contacts.id, contactId));
-    pass(`Deleted contact #${contactId}`);
-  }
-  if (agentId) {
-    await db.delete(users).where(eq(users.id, agentId));
-    pass(`Deleted agent user`);
-  }
-} catch (err: any) {
-  console.error("Teardown error (non-fatal):", err.message);
 }
 
 // ── Result ────────────────────────────────────────────────────────────────────

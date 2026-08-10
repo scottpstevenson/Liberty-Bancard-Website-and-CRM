@@ -1828,6 +1828,18 @@ const syncedTaskIds = new Set<number>();
 const GHL_CIRCUIT_THRESHOLD = 5;
 let consecutiveGhlFailures = 0;
 let ghlCircuitOpen = false;
+
+/**
+ * Returns true when the error string represents a GHL 400 "not found" response
+ * (e.g. a fake/stale GHL ID that doesn't exist in GHL).  These are data-skip
+ * errors — not transient API failures — and must NOT count toward the circuit-
+ * breaker threshold.  Typical source: smoke-test records left in the DB with
+ * fake ghlContactId / ghlOpportunityId values.
+ */
+function isGhlNotFoundError(errorMessage: string | undefined): boolean {
+  if (!errorMessage) return false;
+  return /GHL API error 400/i.test(errorMessage) && /not.?found/i.test(errorMessage);
+}
 let lastCircuitAlertAt = 0;
 const GHL_CIRCUIT_ALERT_KEY = "ghl_circuit_alert_at";
 
@@ -2012,6 +2024,10 @@ export async function runGhlFullSyncTick(): Promise<void> {
         } else if (result.error === "ghl_identity_conflict") {
           // Ownership conflict — safe data-skip; do not trip the circuit breaker.
           console.log(`[Queue:ghl-sync] Contact ${contact.id} identity conflict — skipping, not counted as GHL failure`);
+        } else if (isGhlNotFoundError(result.error)) {
+          // GHL returned 400 not-found for a fake/stale GHL ID (e.g. leftover
+          // from a smoke-test run).  This is a data-skip, not an API failure.
+          console.log(`[Queue:ghl-sync] Contact ${contact.id} not found in GHL (400) — skipping, not counted as failure`);
         } else {
           consecutiveGhlFailures++;
         }
@@ -2055,6 +2071,9 @@ export async function runGhlFullSyncTick(): Promise<void> {
           } else if (result.error === "ghl_identity_conflict") {
             // Ownership conflict — safe data-skip; do not trip the circuit breaker.
             console.log(`[Queue:ghl-sync] Retry contact ${contactId} identity conflict — skipping, not counted as GHL failure`);
+          } else if (isGhlNotFoundError(result.error)) {
+            // GHL 400 not-found — stale/fake GHL ID, data-skip.
+            console.log(`[Queue:ghl-sync] Retry contact ${contactId} not found in GHL (400) — skipping, not counted as failure`);
           } else {
             consecutiveGhlFailures++;
           }
@@ -2103,6 +2122,10 @@ export async function runGhlFullSyncTick(): Promise<void> {
           // names. This is a one-time config fix (set GHL_STAGE_ID_MAP), not a transient
           // API failure — skip without counting toward the circuit breaker threshold.
           console.warn(`[Queue:ghl-sync] Deal ${deal.id} stage ID rejected by GHL (name mismatch) — skipping. Fix: set GHL_STAGE_ID_MAP env var with a JSON map of stage names → GHL stage UUIDs.`);
+        } else if (isGhlNotFoundError(result.error)) {
+          // GHL 400 not-found — stale/fake opportunity ID (e.g. leftover smoke-test
+          // record). Data-skip; do not count toward the circuit breaker threshold.
+          console.log(`[Queue:ghl-sync] Deal ${deal.id} not found in GHL (400) — skipping, not counted as failure`);
         } else {
           consecutiveGhlFailures++;
           console.warn(`[Queue:ghl-sync] Deal ${deal.id} sync failed: ${result.error}`);
