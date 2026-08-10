@@ -412,6 +412,7 @@ class QueueManager {
     await this.setupQueues();
     await this.setupWorkers();
     await this.setupRepeatableJobs();
+    await this.cleanupStaleActiveJobs();
 
     // Log total queue+worker count and warn if approaching Upstash connection cap.
     // Connection math (shared-client architecture):
@@ -446,6 +447,48 @@ class QueueManager {
     import("./health-monitor").then(m => m.runHealthChecks()).catch(e =>
       console.warn("[HealthMonitor] Startup check failed:", e)
     );
+  }
+
+  /**
+   * On startup, remove any BullMQ jobs that are stuck in the "active" state
+   * from a previous process that crashed mid-job. Jobs older than 2× lockDuration
+   * (240 s) can never renew their lock and will generate an endless stream of
+   * "could not renew lock" errors that block new work from being processed.
+   */
+  private async cleanupStaleActiveJobs(): Promise<void> {
+    const STALE_THRESHOLD_MS = 2 * 120_000; // 2× lockDuration
+    const now = Date.now();
+    let totalCleaned = 0;
+
+    for (const [name, queue] of this.queues) {
+      try {
+        const activeJobs = await queue.getActive();
+        for (const job of activeJobs) {
+          const startedAt = job.processedOn ?? 0;
+          if (startedAt > 0 && now - startedAt > STALE_THRESHOLD_MS) {
+            try {
+              await job.moveToFailed(
+                new Error(`Stale active job cleaned up on startup (active for ${Math.round((now - startedAt) / 1000)}s)`),
+                job.token ?? "startup-cleanup",
+                true, // remove from active list
+              );
+              console.log(`[QueueManager] Cleaned stale active job ${job.id} from queue:${name} (${Math.round((now - startedAt) / 1000)}s old)`);
+              totalCleaned++;
+            } catch (moveErr) {
+              // moveToFailed can fail if another worker already claimed it — safe to ignore
+              console.warn(`[QueueManager] Could not move stale job ${job.id} in queue:${name} to failed:`, (moveErr as Error).message);
+            }
+          }
+        }
+      } catch (err) {
+        // Non-fatal: if Redis is unreachable at startup we still want to continue
+        console.warn(`[QueueManager] Stale job cleanup failed for queue:${name}:`, (err as Error).message);
+      }
+    }
+
+    if (totalCleaned > 0) {
+      console.log(`[QueueManager] Startup cleanup: moved ${totalCleaned} stale active job(s) to failed state`);
+    }
   }
 
   private async setupQueues(): Promise<void> {

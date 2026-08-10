@@ -802,7 +802,7 @@ export async function processSendQueue(maxToSend?: number): Promise<{ sent: numb
       }
 
       if (prospect.contactId) {
-        const contact = await storage.getContact(prospect.contactId);
+        let contact = await storage.getContact(prospect.contactId);
         if (contact && (contact.emailStatus === "bounced" || contact.emailStatus === "invalid")) {
           await storage.updateOutboundMessage(msg.id, { status: "skipped", error: `Email status: ${contact.emailStatus}` });
           await storage.createAuditLog({
@@ -813,6 +813,59 @@ export async function processSendQueue(maxToSend?: number): Promise<{ sent: numb
             details: { emailStatus: contact.emailStatus, messageId: msg.id, reason: "contact email status blocks send" },
           });
           continue;
+        }
+
+        // ── ZeroBounce lazy validation gate ───────────────────────────────────
+        // Mirrors the same gate in sequence-worker. Fire once per contact for
+        // email sends when status is unverified ('active' default). Writes the
+        // result back so we never re-spend credits on the same address.
+        if (contact && prospect.email && (contact.emailStatus == null || contact.emailStatus === "active")) {
+          try {
+            const { checkZeroBounceBudget, claimZeroBounceCredit } = await import("./zerobounce-daily-limiter");
+            const { verifyEmail } = await import("./sdr/zerobounce");
+            const budget = await checkZeroBounceBudget();
+            if (!budget.allowed) {
+              console.warn(`[CampaignEngine] ZeroBounce daily cap reached (${budget.used}/${budget.limit}), skipping validation for contact ${contact.id}`);
+            } else {
+              const credited = await claimZeroBounceCredit();
+              if (credited) {
+                const zbResult = await verifyEmail(prospect.email);
+                const { db: zbDb } = await import("../db");
+                const { sql: zbSql } = await import("drizzle-orm");
+                await zbDb.execute(zbSql`UPDATE contacts SET email_status = ${zbResult.status} WHERE id = ${contact.id}`);
+                contact = { ...contact, emailStatus: zbResult.status };
+
+                await storage.createAuditLog({
+                  action: "zerobounce_email_validated",
+                  entityType: "contact",
+                  entityId: contact.id,
+                  actorType: "system",
+                  details: {
+                    messageId: msg.id,
+                    email: prospect.email,
+                    zbStatus: zbResult.status,
+                    zbSubStatus: zbResult.subStatus ?? null,
+                    source: "campaign_engine",
+                  },
+                });
+
+                if (zbResult.status === "unsafe" || zbResult.status === "invalid" || (zbResult.status as string) === "bounced") {
+                  await storage.updateOutboundMessage(msg.id, { status: "skipped", error: `ZeroBounce: ${zbResult.status}` });
+                  await storage.createAuditLog({
+                    action: "campaign_send_blocked_email_invalid",
+                    entityType: "contact",
+                    entityId: contact.id,
+                    actorType: "system",
+                    details: { messageId: msg.id, email: prospect.email, zbStatus: zbResult.status, reason: `ZeroBounce flagged email as '${zbResult.status}'` },
+                  });
+                  continue;
+                }
+              }
+            }
+          } catch (zbErr) {
+            console.warn(`[CampaignEngine] ZeroBounce validation error for contact ${contact.id}:`, (zbErr as Error).message);
+            // Non-fatal: proceed with send if ZeroBounce itself fails
+          }
         }
 
         // Contactability gate for prospect-linked contacts
