@@ -17,6 +17,7 @@ import { contacts, contactNba, nbaRecommendationHistory, sequenceEnrollments, de
 import { eq, and, sql } from "drizzle-orm";
 import { storage } from "../storage";
 import type { LifecycleState } from "./lifecycle-service";
+import { recordAiDecision } from "./ai-memory";
 
 // ---------------------------------------------------------------------------
 // Action types
@@ -832,6 +833,17 @@ export const NBAService = {
           updatedAt: new Date(),
         },
       });
+
+    // Fire-and-forget: record NBA decision for AI Learning Center
+    recordAiDecision({
+      contactId: rec.contactId,
+      decisionType: "nba",
+      inputSummary: { reasonCode: rec.reasonCode, urgency: rec.urgency, ruleVersion: rec.ruleVersion },
+      decisionOutput: { actionType: rec.actionType, channel: rec.channel, ownerRole: rec.ownerRole, automationEligible: rec.automationEligible, humanRequired: rec.humanRequired },
+      confidence: rec.confidence ?? null,
+      model: rec.modelVersion ?? null,
+      outcome: "pending",
+    }).catch(() => {});
 
     return rec;
   },

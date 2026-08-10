@@ -22,6 +22,7 @@ import { db } from "../db";
 import { storage } from "../storage";
 import { notes, ghlActivityLog, auditLogs } from "@shared/schema";
 import { and, eq, gte, desc } from "drizzle-orm";
+import { recordAiDecision } from "./ai-memory";
 
 // ─── Config defaults ─────────────────────────────────────────────────────────
 
@@ -140,6 +141,24 @@ async function getArbitrationConfig(): Promise<ArbitrationConfig> {
  * @returns ArbitrationResult — `suppressed: true` means the send should not proceed.
  */
 export async function shouldSuppress(
+  ...args: Parameters<typeof _shouldSuppressCore>
+): Promise<ArbitrationResult> {
+  const result = await _shouldSuppressCore(...args);
+  const [contactId, channel] = args;
+  // Fire-and-forget: record the arbitration decision for AI Learning Center
+  recordAiDecision({
+    contactId,
+    decisionType: "arbitration",
+    inputSummary: { channel, suppressed: result.suppressed },
+    decisionOutput: { signal: result.signal ?? null, suppressed: result.suppressed, reason: result.reason ?? null },
+    confidence: null,
+    outcome: "pending",
+  }).catch(() => {});
+  return result;
+}
+
+/** @internal Core logic — call shouldSuppress() in application code. */
+async function _shouldSuppressCore(
   contactId: number,
   channel: string,
   opts: {

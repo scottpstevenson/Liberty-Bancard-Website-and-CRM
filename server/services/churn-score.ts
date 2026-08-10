@@ -7,6 +7,7 @@ import {
 } from "@shared/schema";
 import { eq, and, gte, desc, sql } from "drizzle-orm";
 import { createPreferenceAwareNotification } from "./digest-service";
+import { upsertEntityFact, recordAiDecision } from "./ai-memory";
 
 export type ChurnSignalBreakdown = {
   volumeTrend: number;
@@ -320,6 +321,34 @@ export async function computeAndPersistChurnScore(contactId: number): Promise<Me
   try {
     await storage.updateContact(contactId, { churnRiskTier: finalTier });
   } catch {}
+
+  // Fire-and-forget: persist churn facts + decision for AI Learning Center
+  upsertEntityFact({
+    entityType: "contact",
+    entityId: contactId,
+    factKey: "churn_risk_tier",
+    factValue: finalTier,
+    source: "churn_scoring",
+    confidence: result.churnScore / 100,
+  }).catch(() => {});
+
+  upsertEntityFact({
+    entityType: "contact",
+    entityId: contactId,
+    factKey: "churn_score",
+    factValue: String(result.churnScore),
+    source: "churn_scoring",
+    confidence: result.churnScore / 100,
+  }).catch(() => {});
+
+  recordAiDecision({
+    contactId,
+    decisionType: "health_score",
+    inputSummary: { breakdown: result.breakdown, signals: result.signals },
+    decisionOutput: { churnScore: result.churnScore, riskTier: finalTier, finalScore, isOverridden: overrideScore !== null },
+    confidence: null,
+    outcome: "pending",
+  }).catch(() => {});
 
   return score;
 }
