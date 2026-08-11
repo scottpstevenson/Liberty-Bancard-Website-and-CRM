@@ -99,12 +99,12 @@ outputType = "webview"
 name = "pre-deploy"
 author = "agent"
 
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "GHL_TEST_MODE=true npx tsx scripts/pre-deploy.ts"
-
 [workflows.workflow.metadata]
 outputType = "console"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "GHL_TEST_MODE=true bash scripts/run-pre-deploy.sh"
 
 [agent]
 integrations = ["javascript_log_in_with_replit:2.0.0", "javascript_openai_ai_integrations:2.0.0", "google-docs:1.0.0", "google-drive:1.0.0"]
