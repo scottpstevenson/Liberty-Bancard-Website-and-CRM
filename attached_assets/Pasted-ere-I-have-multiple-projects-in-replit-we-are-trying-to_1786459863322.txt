@@ -1,0 +1,1672 @@
+ere - I have multiple projects in replit  we are trying to take all them live. Here is the analysis report we need to build for liberty bancard  - but we need to do a full comprehensive audit confirm alignment, gap analysis, feature completion -  replit needs to share code feedback, ui and  ux, gaps or improcements?  sequences,  workflows, customer journey, AI handling, features outlined for review, need confirm reporting, api ingestion, email sending, comms inbox, outbound communciation controls and reviews, ai control tower, enrichment, replit being the brain (ai integrations) leads database, mer, ads.txt tracking, each department fetures work as designed end to end customer lifecycle for merchant prospecting quaifiying, selling, closing, launching, etc. then marketing features, sales + biz dev features, account management features, operations features like tickets + tasks  how to format properly. unified data, reproting, standardization.. Then for reporting - conversion data, qualifiying data, response data, ROI data, sales data, merchant data, chrun data, we need to normalize merchant names use canoical ids -. we also need to confirm hiring tabs, sales comissions, proposed tasks are vetted and priortized and merged and put into waves. we should also build any waves of tasks / sprints where we see gaps or items that need fixing. this should be an end to mercant ISO - we are not a processor ourselves, we are the busienss around it. We use payarch to do our processing while liberty bancard is  - the business operations side. We use We also need to make sure  management CRM + full integrated marketing and account management platform is fully audited and working and that we can run full business out of. give me this as a prompt for replit agents to review here is the biz model recap.
+
+
+
+
+Show less
+
+10:37 AM
+
+
+
+
+
+
+Worked for 1m 6s
+
+
+
+Below is the paste-ready master prompt. It makes Replit audit the actual system before changing anything, preserves Payarc’s role, and converts verified gaps into prioritized implementation waves.
+Liberty Bancard — Comprehensive Business Platform, CRM and Launch Audit
+Mission
+Perform a complete, evidence-based audit of the Liberty Bancard website, CRM, merchant-management platform, data model, integrations, automation, AI capabilities, departmental workflows, reporting, security, UI/UX and production readiness.
+This first phase is an audit and planning phase only.
+Do not implement fixes, publish a deployment, activate communications, contact prospects or merchants, alter production data, rotate credentials, or enable scheduled jobs. You may create only the audit documents requested below.
+Work in bounded audit passes and checkpoint the documents after each pass so progress is not lost if the Replit Agent times out.
+Business Model and System Boundaries
+Liberty Bancard is an ISO-side business platform. It is not the payment processor.
+Liberty Bancard owns:
+Merchant prospecting and lead acquisition
+
+Lead enrichment, qualification and scoring
+
+Marketing and sales orchestration
+
+CRM records and pipeline state
+
+Statement collection and analysis
+
+Proposals and merchant applications
+
+Onboarding coordination
+
+Agent, partner and affiliate management
+
+Merchant account management
+
+Support, tickets, tasks and internal operations
+
+Residual reconciliation and commission calculations
+
+Merchant-retention and churn-management workflows
+
+Business reporting, AI assistance and management controls
+
+Payarc is Liberty Bancard’s processing partner and should remain authoritative for applicable processor-controlled functions, including:
+Underwriting decisions
+
+Merchant boarding and processor application status
+
+MID issuance
+
+Processing activity and transaction reporting
+
+Processor residual data
+
+Chargebacks and disputes
+
+Processor-side terminals, accounts and settlement information
+
+Do not describe Liberty Bancard as the processor. Do not substitute NMI, mock adapters or invented processor behavior for Payarc.
+The intended system-authority model is:
+Liberty Bancard/Replit: authoritative CRM, operational database, workflow engine, sequence definitions, compliance decisions, task system, reporting layer and AI orchestration brain
+
+Payarc: authoritative processor and underwriting data
+
+GHL: communications transport, calendar and delivery-event infrastructure—not a competing CRM or workflow source of truth
+
+Gmail: staff productivity and human/manual correspondence—not bulk automated outbound
+
+External enrichment providers: evidence sources whose records must retain provenance, confidence and freshness
+
+Verify whether the current implementation follows this model.
+Evidence Standard
+Do not accept documentation, route existence, UI presence, generated code, passing legacy tests or Replit Agent narration as proof that a capability works.
+For each finding, include:
+Business requirement
+
+Current status
+
+Exact code paths
+
+Database tables and important fields
+
+API routes and services
+
+UI pages/components
+
+Workers, queues, schedules or webhooks
+
+Configuration and feature flags
+
+Tests executed
+
+Test result
+
+Preview behavior
+
+Production behavior
+
+Data evidence
+
+Security or compliance concern
+
+User impact
+
+Recommended action
+
+Confidence and remaining uncertainty
+
+Use only these statuses:
+NOT FOUND
+
+PRESENT — UNVERIFIED
+
+PARTIAL
+
+VERIFIED IN CODE
+
+VERIFIED IN DEVELOPMENT
+
+VERIFIED IN PREVIEW
+
+VERIFIED IN PRODUCTION
+
+BLOCKED
+
+NOT APPLICABLE
+
+Never label something complete merely because a route, table, component, feature flag or test file exists.
+Keep these states separate:
+Proposed
+
+Coded
+
+Committed
+
+Running in development
+
+Working in preview
+
+Deployed
+
+Connected to real dependencies
+
+Reconciled against authoritative data
+
+Verified end to end in production
+
+For production evidence, record the workspace commit, deployed commit, deployment ID, timestamp and environment. Do not expose secret values.
+Safety Controls
+Until a separate launch authorization is given:
+Keep the global outbound kill switch enabled.
+
+Do not send to real prospects, merchants, agents, affiliates or partners.
+
+Do not enable SMS, voice AI, ringless voicemail, cold email or automatic AI replies.
+
+Use approved internal test recipients only.
+
+Do not submit real merchant applications to Payarc.
+
+Do not generate fake production MIDs.
+
+Do not modify production records.
+
+Do not print API keys, access tokens, SSNs, bank details or credentials.
+
+Treat AI-generated communications as staff-reviewable drafts by default.
+
+Preserve suppression, DNC, consent and unsubscribe records.
+
+Stop after producing the audit and proposed wave plan.
+
+Pass 1 — Architecture and Source-of-Truth Audit
+Inventory the application architecture:
+Frontend applications and route structure
+
+Backend services and API routes
+
+Database schema, migrations and indexes
+
+Background workers, queues and schedules
+
+Authentication and authorization
+
+File and document storage
+
+External integrations
+
+Webhooks
+
+Feature flags
+
+AI services and prompts
+
+Communications services
+
+Reporting and analytics
+
+Production deployment architecture
+
+Backup, recovery and observability
+
+Create a system-authority matrix showing which system owns, writes and reads each of these objects:
+Organization/business
+
+Contact/person
+
+Merchant location
+
+Lead
+
+Opportunity/deal
+
+Merchant statement
+
+Statement analysis
+
+Proposal
+
+Merchant application
+
+Authorized signer
+
+Payarc applicant
+
+MID/processor account
+
+Agent
+
+Partner organization
+
+Affiliate
+
+Referral
+
+Campaign
+
+Sequence
+
+Communication
+
+Consent record
+
+Appointment
+
+Task
+
+Ticket
+
+Document
+
+Transaction summary
+
+Residual
+
+Commission
+
+Chargeback
+
+NPS/CSAT response
+
+Churn/save case
+
+Employee/candidate
+
+Audit event
+
+Identify duplicate writers, conflicting status fields, dual CRM authority, hardcoded workflows and any UI that writes around the canonical service layer.
+Pass 2 — Canonical Data and Unified CRM Audit
+Determine whether the platform has a safe canonical data model.
+At minimum, review the use of:
+organization_id
+
+contact_id
+
+location_id
+
+lead_id
+
+deal_id
+
+merchant_application_id
+
+processor_application_id
+
+processor_account_id
+
+mid
+
+agent_id
+
+partner_org_id
+
+affiliate_id
+
+campaign_id
+
+sequence_enrollment_id
+
+source_event_id
+
+Confirm that merchant names are normalized without destroying source values.
+The design should preserve:
+Canonical legal name
+
+DBA name
+
+Normalized display name
+
+Aliases and former names
+
+EIN or other identifiers where legally permitted
+
+Address/location identity
+
+Website and domain
+
+Payarc identifiers
+
+MID-to-merchant-to-location crosswalk
+
+Source record and source-system identifier
+
+Provenance
+
+Confidence
+
+First-seen and last-verified timestamps
+
+Merge history
+
+Suppression and consent status
+
+Audit:
+Duplicate merchants, contacts, applications, MIDs and deals
+
+Unsafe joins based only on name, email, phone or MID
+
+Conflicting identity records
+
+Merge and unmerge behavior
+
+Import staging and validation
+
+Rejected and ambiguous records
+
+Enrichment overwrite behavior
+
+Required indexes and uniqueness rules
+
+Referential integrity
+
+Migration completeness
+
+Soft deletion and retention
+
+Audit logging
+
+PII encryption and access
+
+Lead imports must visibly separate:
+Import received
+
+Validated
+
+Deduplicated
+
+Identity matched
+
+Email ready
+
+Phone ready
+
+Needs enrichment
+
+Ambiguous
+
+Suppressed
+
+Rejected
+
+An import is not verified without batch ID, source name, received count, accepted count, rejected count, dedupe count, suppression count, persisted count and a repeatable reconciliation report.
+Pass 3 — End-to-End Customer and Partner Journeys
+Test the complete lifecycle, not isolated pages.
+For each journey, identify the actor, entry point, state transitions, responsible owner, communications, tasks, required approvals, integrations, failure handling and reporting.
+Audit these journeys:
+Merchant acquisition
+Inbound website form
+
+Statement upload
+
+Sunbiz or external-data acquisition
+
+CSV/list import
+
+Agent referral
+
+Partner referral
+
+Affiliate referral
+
+GHL inbound conversation
+
+Manual staff entry
+
+Qualification and sales
+Identity resolution
+
+Consent/contactability determination
+
+Enrichment and email validation
+
+Lead scoring
+
+Program/offer recommendation
+
+Rep assignment
+
+Sequence eligibility
+
+Outreach
+
+Reply classification
+
+Appointment booking
+
+Call outcome
+
+Statement request
+
+Statement analysis
+
+Savings calculation
+
+Proposal creation and review
+
+Proposal delivery and tracking
+
+Negotiation
+
+Verbal commitment
+
+Closed won/lost
+
+Re-engagement or nurture
+
+Merchant boarding and launch
+Application creation
+
+Owner and business information
+
+Separate authorized-signer name, mobile and email
+
+Sensitive document collection
+
+Agreement and signature workflow
+
+Staff review
+
+Payarc submission
+
+Needs-more-information handling
+
+Approval or decline
+
+MID capture
+
+Equipment/terminal coordination
+
+Training
+
+First successful batch
+
+Merchant activation
+
+Day-one customer check-in
+
+Live merchant management
+Daily processing-data ingestion
+
+Merchant performance reporting
+
+Residual reconciliation
+
+Agent and partner commission calculation
+
+Commission review and approval
+
+Chargeback/dispute handling
+
+Support ticket
+
+Account-management task
+
+NPS/CSAT
+
+Referral request
+
+Value-added-service upsell
+
+Volume-drop detection
+
+Churn-risk detection
+
+Save case
+
+Merchant closure or churn
+
+Agent, partner and affiliate journeys
+Audit recruitment, application, approval, onboarding, training, lead/referral attribution, portfolio visibility, tier calculation, residual splits, commission statements, disputes, support and offboarding.
+Hiring and workforce
+Audit recruiting tabs and workflows for:
+Candidate intake
+
+Role and department
+
+Interview stages
+
+Notes and scorecards
+
+Approvals
+
+Offer status
+
+Onboarding tasks
+
+Training
+
+Permissions
+
+Commission-plan assignment
+
+Employee offboarding
+
+Do not mix recruiting candidates with merchant prospects.
+Pass 4 — Department-by-Department Feature Audit
+Determine whether every department can perform its work in one coherent platform.
+Executive management
+Executive dashboard
+
+Revenue and pipeline visibility
+
+Forecasting
+
+Launch-readiness controls
+
+Risk and exception queues
+
+Team performance
+
+Merchant health
+
+Commission liability
+
+Integration health
+
+AI Control Tower
+
+Audit history
+
+Marketing
+Campaign planning
+
+Audience segmentation
+
+Source and campaign attribution
+
+Landing pages and forms
+
+UTM capture
+
+Content and offer management
+
+Email/SMS audience eligibility
+
+Suppression
+
+Funnel reporting
+
+CAC and ROI
+
+Vertical playbooks
+
+Affiliate attribution
+
+Referral programs
+
+Website analytics
+
+Review the requested ads.txt tracking separately. Determine what it means in this codebase and business context. If it is advertising-domain authorization, paid-media attribution or another specific requirement, document the actual use case. Do not build an ad-tech feature into the ISO platform without a supported business requirement.
+Sales and business development
+Lead queue
+
+Qualification
+
+Scoring
+
+Assignment
+
+Pipeline
+
+Sequences
+
+Calls
+
+Appointments
+
+Statement analysis
+
+Proposal management
+
+Objections
+
+Tasks and SLAs
+
+Forecasting
+
+Agent recruitment
+
+Partner development
+
+Affiliate development
+
+Coaching and activity reporting
+
+Merchant onboarding and operations
+Applications
+
+Document collection
+
+Signer management
+
+Payarc coordination
+
+Underwriting-status synchronization
+
+Missing-information cases
+
+MID creation
+
+Terminal/equipment tracking
+
+Training
+
+Launch checklist
+
+First-batch confirmation
+
+Escalations
+
+Operational audit trail
+
+Account management and retention
+Portfolio views
+
+Merchant health
+
+Account plans
+
+Support history
+
+Processing trends
+
+Rate/fee reviews
+
+Chargebacks
+
+NPS/CSAT
+
+Renewal/retention activity
+
+Referral opportunities
+
+Upsells
+
+Churn warnings
+
+Save cases
+
+Ownership and next action
+
+Finance and commissions
+Residual imports
+
+MID matching
+
+Gross versus net residuals
+
+Agent split
+
+Partner split
+
+Affiliate bounty
+
+Adjustments
+
+Chargebacks/clawbacks
+
+Review and approval
+
+Statements
+
+Disputes
+
+Accrual versus paid status
+
+Payment/disbursement boundary
+
+Reconciliation and audit trail
+
+Do not claim that commission calculation equals commission payment.
+Support and internal operations
+Unified task system
+
+Tickets
+
+Queues
+
+Ownership
+
+Priority
+
+SLA
+
+Dependencies
+
+Escalation
+
+Internal notes
+
+Linked merchant/contact/deal/application
+
+Attachments
+
+Notifications
+
+Completion evidence
+
+Reopening
+
+Workload reporting
+
+Administration, compliance and IT
+Role and permission administration
+
+Feature flags
+
+Integration settings
+
+Communications controls
+
+Templates
+
+Data imports
+
+Audit logs
+
+Backups
+
+Incident management
+
+Retention
+
+Security monitoring
+
+Production release controls
+
+Pass 5 — Communications and AI Audit
+Communications architecture
+Trace every email, SMS, call, voicemail, chat and notification path.
+For every path, document:
+Trigger
+
+Content source
+
+Business owner
+
+Sending system
+
+Sender identity
+
+From address/number
+
+Reply-To
+
+Signature
+
+Recipient resolution
+
+Consent requirement
+
+DNC check
+
+Suppression check
+
+Validation check
+
+Rate limit
+
+Approval rule
+
+Delivery event
+
+Bounce/complaint handling
+
+Reply ingestion
+
+Linked CRM record
+
+Audit event
+
+Retry and failure behavior
+
+Global pause behavior
+
+Confirm whether sequence content, timing, enrollment and compliance decisions are database-owned in Replit or duplicated in GHL or hardcoded services.
+Inspect for duplicate sequence content, hardcoded SDR messages and alternate send paths that bypass compliance.
+AI inbox
+Audit whether inbound communications can be:
+Ingested reliably
+
+Matched to the correct contact and merchant
+
+Classified by intent
+
+Assigned a confidence score
+
+Routed to the correct department and owner
+
+Summarized
+
+Drafted
+
+Linked to the relevant record
+
+Converted into a task, ticket or appointment
+
+Escalated when sensitive or uncertain
+
+Reviewed and approved by staff
+
+Sent using the correct identity after approval
+
+Logged with model, prompt/version and final human action
+
+The default should be draft/review mode.
+Require human approval for:
+Pricing or savings promises
+
+Contract terms
+
+Legal or compliance statements
+
+Underwriting decisions
+
+Chargeback advice
+
+Bank or SSN-related communication
+
+Commission disputes
+
+Merchant cancellation
+
+High-risk complaints
+
+Low-confidence AI responses
+
+Any action that changes money, eligibility, consent or contractual state
+
+AI Control Tower
+Assess whether management can see:
+AI feature status
+
+Model/provider
+
+Version
+
+Use case
+
+Owner
+
+Prompt/configuration
+
+Approval policy
+
+Confidence threshold
+
+Recent decisions
+
+Failure rate
+
+Human override rate
+
+Cost and latency
+
+Data sources
+
+Privacy classification
+
+Drift
+
+Incidents
+
+Kill switch
+
+Identify any AI feature that can act without adequate evidence, approval, audit logging or rollback.
+Pass 6 — Integration and API-Ingestion Audit
+Audit each integration separately:
+Payarc
+
+GHL
+
+Gmail
+
+OpenAI
+
+ZeroBounce
+
+Sunbiz
+
+Apollo
+
+Apify
+
+Outscraper
+
+Serper
+
+Redis/BullMQ
+
+Database
+
+File/document storage
+
+Calendar
+
+Telephony/SMS
+
+E-signature, if present
+
+Website analytics
+
+Any undocumented integration found in code
+
+For every integration, report:
+Business purpose
+
+System of authority
+
+Authentication method
+
+Sandbox and production separation
+
+API version
+
+Endpoints used
+
+Pagination
+
+Rate limiting
+
+Idempotency
+
+Retry policy
+
+Backoff
+
+Timeout
+
+Circuit breaker
+
+Webhook validation
+
+Duplicate-event handling
+
+Cursor/checkpoint persistence
+
+Dead-letter behavior
+
+Reconciliation
+
+Freshness
+
+Monitoring
+
+Alerting
+
+Secret handling
+
+Data retention
+
+Current live status
+
+Payarc verification must cover available partner documentation for:
+Merchant boarding
+
+Application status
+
+MID assignment
+
+Transactions/daily statistics
+
+Residual reporting
+
+Chargebacks/disputes
+
+Webhooks
+
+Authentication
+
+Sandbox
+
+Production
+
+If the necessary Payarc documentation or credentials are unavailable, mark the relevant items BLOCKED. Do not infer Payarc behavior from NMI or mock adapters.
+Pass 7 — Reporting, Metric Definitions and Data Quality
+Build a reporting inventory and metric dictionary.
+Cover at least:
+Acquisition
+Leads by source
+
+Cost by source
+
+Campaign response rate
+
+Valid contact rate
+
+Enrichment yield
+
+Qualified-lead rate
+
+Appointment rate
+
+Statement-upload rate
+
+Sales
+Stage conversion
+
+Stage velocity
+
+Contact-to-meeting
+
+Meeting-to-statement
+
+Statement-to-proposal
+
+Proposal-to-close
+
+Close rate
+
+Time to close
+
+Rep and team performance
+
+Pipeline value
+
+Forecast
+
+Lost reasons
+
+Merchant and revenue
+Submitted applications
+
+Approval rate
+
+Needs-more-information rate
+
+Decline rate
+
+Time to approval
+
+Activated merchants
+
+First-batch rate
+
+Processing volume
+
+Transaction count
+
+Average ticket
+
+Gross residual
+
+Net residual
+
+Merchant effective rate (MER)
+
+Agent commissions
+
+Partner commissions
+
+Affiliate commissions
+
+Margin
+
+Lifetime value
+
+Acquisition cost
+
+LTV
+
+Payback period
+
+Retention
+Active merchants
+
+Merchant churn
+
+Revenue churn
+
+Processing-volume decline
+
+Chargeback ratio
+
+NPS/CSAT
+
+Support volume
+
+Save-case rate
+
+Save rate
+
+Referral rate
+
+Upsell conversion
+
+Communications
+Eligible audience
+
+Attempted
+
+Sent
+
+Delivered
+
+Opened, where reliable and legally appropriate
+
+Clicked
+
+Replied
+
+Positive response
+
+Negative response
+
+Appointment booked
+
+Bounce
+
+Complaint
+
+Unsubscribe
+
+Opt-out
+
+Suppressed
+
+Human-review rate
+
+AI draft acceptance rate
+
+For every metric, specify:
+Exact definition
+
+Numerator
+
+Denominator
+
+Grain
+
+Time zone
+
+Source
+
+Authoritative system
+
+Refresh cadence
+
+Filters
+
+Exclusions
+
+Late-arriving-data handling
+
+Deduplication rule
+
+Reconciliation rule
+
+Owner
+
+Missing data must appear as Unknown, Partial, Stale or Modeled, not as zero.
+Verify that dashboard totals reconcile to source records and that users can drill down from a metric to underlying merchants, deals, communications or events.
+Pass 8 — UI, UX, Mobile and Accessibility Audit
+Review the product from each role:
+Admin
+
+Executive/manager
+
+Sales rep/agent
+
+SDR
+
+Marketing
+
+Business development
+
+Account manager
+
+Operations/support
+
+Finance
+
+Partner
+
+Affiliate
+
+Merchant
+
+Evaluate:
+Navigation and information architecture
+
+Duplicate or overlapping modules
+
+Role-appropriate home screens
+
+Search
+
+Filters
+
+Saved views
+
+Work queues
+
+Bulk actions
+
+Record pages
+
+Status clarity
+
+Required next action
+
+Ownership
+
+Error messages
+
+Empty states
+
+Loading states
+
+Mobile/PWA behavior
+
+Keyboard navigation
+
+Accessibility
+
+Performance
+
+Data freshness
+
+Audit history
+
+Destructive-action confirmation
+
+Sensitive-data masking
+
+Cross-module consistency
+
+The UI must support real work, not merely expose routes.
+Recommend a simplified navigation model and identify:
+Pages to retain
+
+Pages to merge
+
+Pages to rename
+
+Pages to remove
+
+Missing pages
+
+Duplicate workflows
+
+Dead ends
+
+Role leakage
+
+Confusing status language
+
+Features that appear functional but are not connected end to end
+
+Pass 9 — Security, Compliance and Operational Resilience
+Audit:
+Authentication
+
+Session management
+
+RBAC and object-level authorization
+
+Tenant/record isolation
+
+Admin access
+
+API authorization
+
+Webhook verification
+
+Encryption in transit
+
+Encryption at rest
+
+SSN and bank-data handling
+
+PCI scope and card-data exposure
+
+Secrets
+
+Logging and redaction
+
+Consent evidence
+
+DNC
+
+TCPA/PEWC handling
+
+CAN-SPAM
+
+Unsubscribe
+
+Bounce and complaint suppression
+
+Data retention
+
+Backups
+
+Restore testing
+
+Database connection pooling
+
+Queue reliability
+
+Dead-letter queues
+
+Idempotency
+
+Rate limiting
+
+Monitoring
+
+Incident response
+
+Disaster recovery
+
+Production rollback
+
+Audit logs
+
+Identify places where sensitive fields are stored, displayed, exported or logged.
+Historical Claims That Must Be Revalidated
+Treat every item below as stale audit history—not as a current fact:
+Whether production and workspace are on the same commit
+
+Whether GHL requests work without 403 errors
+
+Whether SMTP fallback exists and works
+
+Whether global outbound remains paused
+
+Whether merchant end-to-end testing has been completed
+
+Whether Payarc has a real adapter or only NMI/mock behavior
+
+Whether any fallback can generate fake MIDs
+
+Whether SSN or bank fields are encrypted
+
+Whether all migration files are in the migration journal and applied
+
+Whether sequence content is duplicated in hardcoded SDR/orchestrator services
+
+Whether authorized-signer fields exist and work
+
+Whether residual reporting only calculates commissions or also tracks approved/paid state
+
+Whether KYC is verification or only document collection
+
+Whether equipment fulfillment is operational or only tracked
+
+Whether production DB pooling is safe at expected load
+
+Whether the OpenAI key/configuration is valid and securely managed
+
+Whether lead imports are reconciled and persisted
+
+Whether Gmail integration is actually connected
+
+Whether communications, AI inbox and launch-readiness features work in production
+
+Report what is true now with fresh evidence.
+Backlog and Proposed-Task Reconciliation
+Inventory all proposed tasks, TODOs, backlog records, project documents, issue lists, comments and unfinished agent-generated work.
+For every proposed item:
+Assign a canonical task ID
+
+Preserve original source/reference
+
+Summarize the business problem
+
+Identify duplicate or overlapping tasks
+
+Identify dependencies
+
+Identify affected lifecycle and department
+
+Identify security/compliance risk
+
+Estimate impact
+
+Estimate effort
+
+Assign priority
+
+Define acceptance criteria
+
+Define required test evidence
+
+Recommend retain, merge, split, defer, reject or clarify
+
+Do not prioritize by age or task number alone.
+Use this priority model:
+P0: active security, privacy, financial, data-integrity or unauthorized-communication risk
+
+P1: launch blocker or broken core merchant lifecycle
+
+P2: important operational, reporting or usability gap
+
+P3: optimization, scale or enhancement
+
+P4: speculative or unsupported request
+
+Required Deliverables
+Create these files:
+docs/audits/LIBERTY_BANCARD_FULL_PLATFORM_AUDIT.md
+
+docs/audits/LIBERTY_BANCARD_FEATURE_MATRIX.csv
+
+docs/audits/LIBERTY_BANCARD_DATA_AND_METRICS_DICTIONARY.md
+
+docs/audits/LIBERTY_BANCARD_WAVE_BACKLOG.md
+
+The main audit must include:
+Executive verdict
+
+Launch recommendation: GO, CONDITIONAL GO or NO-GO
+
+Evidence limitations
+
+Architecture map
+
+System-authority matrix
+
+Business-model alignment assessment
+
+Feature-completion matrix
+
+Department-by-department findings
+
+Customer and partner journey findings
+
+Data-model and canonical-ID findings
+
+Reporting and metric findings
+
+Integration findings
+
+Communications and AI findings
+
+UI/UX findings
+
+Security/compliance findings
+
+Performance and resilience findings
+
+Production-versus-workspace comparison
+
+Backlog reconciliation
+
+Prioritized gap register
+
+Release gates
+
+Open business decisions
+
+Wave Plan Format
+Convert verified gaps into dependency-ordered waves. Derive the final waves from evidence, but generally consider:
+Wave 0: containment, security, outbound safety and data-integrity blockers
+
+Wave 1: canonical data model, migrations and system authority
+
+Wave 2: integration reliability, observability and reconciliation
+
+Wave 3: communications controls and AI inbox
+
+Wave 4: prospecting, qualification, enrichment and sales workflow
+
+Wave 5: statement analysis, proposal and close
+
+Wave 6: Payarc boarding and merchant activation
+
+Wave 7: live merchant management, residuals, commissions and retention
+
+Wave 8: departmental tasks, tickets, hiring and operational workflows
+
+Wave 9: reporting, management dashboards and AI Control Tower
+
+Wave 10: UI/UX consolidation, scale, performance and launch hardening
+
+For every wave provide:
+Goal
+
+Included canonical task IDs
+
+Business value
+
+Dependencies
+
+Risks
+
+Files/services likely affected
+
+Data migration implications
+
+Security/compliance implications
+
+Acceptance criteria
+
+Required automated tests
+
+Required manual tests
+
+Required preview evidence
+
+Required production evidence
+
+Rollback plan
+
+Explicit exclusions
+
+Do not place dependent tasks into earlier waves merely because they are high priority.
+Final Response in Replit Chat
+When the audit artifacts are complete, respond with only:
+Overall launch verdict
+
+Five most serious verified blockers
+
+Five largest business-capability gaps
+
+Five highest-value improvements
+
+Audit artifact paths
+
+Workspace commit
+
+Deployed production commit
+
+Tests executed and results
+
+Items blocked by missing credentials, documentation or production access
+
+Recommended first implementation wave
+
+Then stop and wait for approval. Do not begin implementation.
+
+
+
+The older Liberty audit evidence used to shape the revalidation list may now be stale; this prompt explicitly requires Replit to verify current code, deployment and integrations. Once Replit returns the four audit artifacts, the next safe step is to turn only Wave 0 into a bounded implementation sprint.
+
+
+10:38 AM
+
+
+
+
+
+
+
+
+give this this in replit feedback
+
+
+
+
+
+
+10:49 AM
+
+
+
+
+
+
+Working for 19s
+
+
+
+
+I’ll place the audit prompt into the active Liberty Bancard Replit Agent feedback/chat. I’m using the browser-control skill because this depends on your signed-in Replit session; I’ll verify the exact project and message destination before submitting.
+
+
+
+
+Used Replit integration, loaded a toolRead Control In App Browser skill
+
+
+
+Search apps
+
+
+
+
+
+
+
+
+
+
+
+
+
+I found the exact project, “Liberty Bancard - Website & CRM.” I’m submitting this as a read-only audit request—not an implementation request—so the Agent should return findings and a wave plan while leaving production and outbound communications untouched.
+
+
+
+
+Thinking
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Full access
+
+
+
+
+
+
+
+5.6 TerraExtra High5.6 SolMedium
