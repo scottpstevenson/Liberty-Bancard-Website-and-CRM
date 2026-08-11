@@ -104,6 +104,8 @@ export function registerAnalyticsRoutes(app: Express) {
         overdueTasksRow,
         totalContactsRow,
         newContacts30dRow,
+        newContacts7dRow,
+        blockedContactsRow,
         revenueRow,
         avgResolutionRow,
       ] = await Promise.all([
@@ -156,6 +158,15 @@ export function registerAnalyticsRoutes(app: Express) {
         pool.query<{ cnt: string }>(`
           SELECT COUNT(*)::text AS cnt FROM contacts WHERE archived_at IS NULL AND created_at >= $1
         `, [thirtyDaysAgo]),
+        // #673 — new contacts in last 7 days
+        pool.query<{ cnt: string }>(`
+          SELECT COUNT(*)::text AS cnt FROM contacts WHERE archived_at IS NULL AND created_at >= $1
+        `, [new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()]),
+        // #848 — blocked contacts count (do_not_contact or email invalid/bounced/unsafe)
+        pool.query<{ cnt: string }>(`
+          SELECT COUNT(*)::text AS cnt FROM contacts
+          WHERE archived_at IS NULL AND (do_not_contact = true OR email_status IN ('bounced','invalid','opted_out','unsafe'))
+        `),
         pool.query<{ total_volume: string; total_residual: string; total_profit: string; deal_count: string }>(`
           SELECT
             COALESCE(SUM(CASE WHEN estimated_processing_volume IS NOT NULL AND estimated_processing_volume != ''
@@ -246,6 +257,8 @@ export function registerAnalyticsRoutes(app: Express) {
         contacts: {
           total: parseInt(totalContactsRow.rows[0]?.cnt ?? "0", 10),
           new30d: parseInt(newContacts30dRow.rows[0]?.cnt ?? "0", 10),
+          new7d: parseInt(newContacts7dRow.rows[0]?.cnt ?? "0", 10),
+          blocked: parseInt(blockedContactsRow.rows[0]?.cnt ?? "0", 10),
         },
         revenue: {
           totalEstVolume: parseFloat(rev?.total_volume ?? "0"),
@@ -965,6 +978,9 @@ export function registerAnalyticsRoutes(app: Express) {
 
           const currentDeals = agentDeals.filter(d => d.stage === "Closed Won" && isCurrent(d.closedAt || d.updatedAt));
           const prevDeals = agentDeals.filter(d => d.stage === "Closed Won" && isPrev(d.closedAt || d.updatedAt));
+          // #530 — Close rate: won / (won + lost) in the period
+          const currentLostDeals = agentDeals.filter(d => d.stage === "Closed Lost" && isCurrent(d.closedAt || d.updatedAt));
+          const prevLostDeals = agentDeals.filter(d => d.stage === "Closed Lost" && isPrev(d.closedAt || d.updatedAt));
 
           const currentProposals = agentDeals.filter(d => isCurrent(d.proposalEmailSentAt));
           const prevProposals = agentDeals.filter(d => isPrev(d.proposalEmailSentAt));
@@ -993,6 +1009,11 @@ export function registerAnalyticsRoutes(app: Express) {
             ? Math.round((prevProposals.length / prevTouched.length) * 100)
             : 0;
 
+          const currentAttempted = currentDeals.length + currentLostDeals.length;
+          const prevAttempted = prevDeals.length + prevLostDeals.length;
+          const currentCloseRate = currentAttempted > 0 ? Math.round((currentDeals.length / currentAttempted) * 100) : 0;
+          const prevCloseRate = prevAttempted > 0 ? Math.round((prevDeals.length / prevAttempted) * 100) : 0;
+
           return {
             agentId: agent.id,
             name: `${agent.firstName} ${agent.lastName}`,
@@ -1003,11 +1024,13 @@ export function registerAnalyticsRoutes(app: Express) {
             proposalsSent: currentProposals.length,
             callsMade: currentCalls,
             responseRate: currentResponseRate,
+            closeRate: currentCloseRate,  // #530
             prevDealsClosed: prevDeals.length,
             prevRevenueManaged: prevRevenue,
             prevProposalsSent: prevProposals.length,
             prevCallsMade: prevCalls,
             prevResponseRate,
+            prevCloseRate, // #530
             isCurrentUser,
           };
         });
@@ -1294,6 +1317,76 @@ export function registerAnalyticsRoutes(app: Express) {
           lastSignupAt: r.last_signup_at,
         }))
       );
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  // GET /api/analytics/weekly-outreach
+  // #596 — Count outreach actions taken this week from audit_logs
+  app.get("/api/analytics/weekly-outreach", isDashboardUser, async (req, res) => {
+    try {
+      const weekStart = new Date();
+      weekStart.setDate(weekStart.getDate() - weekStart.getDay()); // Sunday
+      weekStart.setHours(0, 0, 0, 0);
+      const result = await pool.query<{ action: string; cnt: string }>(`
+        SELECT action, COUNT(*)::text AS cnt
+        FROM audit_logs
+        WHERE action IN ('call_logged', 'email_sent', 'sequence_email_sent', 'sms_sent', 'contact_created')
+          AND created_at >= $1
+        GROUP BY action
+      `, [weekStart.toISOString()]);
+      const counts: Record<string, number> = {};
+      let total = 0;
+      for (const row of result.rows) {
+        counts[row.action] = Number(row.cnt);
+        total += Number(row.cnt);
+      }
+      res.json({ weekStart: weekStart.toISOString(), total, counts });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  // GET /api/analytics/deals-closing-this-month
+  // #598 — Deals with expected close / go-live date this month
+  app.get("/api/analytics/deals-closing-this-month", isDashboardUser, async (req, res) => {
+    try {
+      const now = new Date();
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+      const result = await pool.query<{ id: string; stage: string; total_volume: string | null; expected_go_live_date: string | null }>(`
+        SELECT id, stage, total_volume, expected_go_live_date
+        FROM deals
+        WHERE archived_at IS NULL
+          AND stage NOT IN ('Closed Won', 'Closed Lost')
+          AND (expected_go_live_date BETWEEN $1 AND $2)
+        ORDER BY expected_go_live_date ASC
+        LIMIT 20
+      `, [monthStart.toISOString(), monthEnd.toISOString()]);
+      res.json({ count: result.rows.length, deals: result.rows.map(r => ({ id: Number(r.id), stage: r.stage, totalVolume: r.total_volume, expectedGoLiveDate: r.expected_go_live_date })) });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  // GET /api/analytics/lifecycle-distribution
+  // #533 — Count of contacts per lifecycle_state (excluding archived)
+  app.get("/api/analytics/lifecycle-distribution", isDashboardUser, async (req, res) => {
+    try {
+      const result = await pool.query<{ lifecycle_state: string | null; cnt: string }>(`
+        SELECT lifecycle_state, COUNT(*)::text AS cnt
+        FROM contacts
+        WHERE archived_at IS NULL
+        GROUP BY lifecycle_state
+        ORDER BY cnt::int DESC
+      `);
+      const distribution: Record<string, number> = {};
+      for (const row of result.rows) {
+        const key = row.lifecycle_state ?? "unknown";
+        distribution[key] = Number(row.cnt);
+      }
+      res.json({ distribution });
     } catch (err: any) {
       serverError(res, err);
     }

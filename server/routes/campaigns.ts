@@ -828,6 +828,41 @@ export function registerCampaignsRoutes(app: Express) {
     }
   });
 
+  // POST /api/sequences/:id/enrollments/bulk-cancel
+  // #553 — Batch-remove multiple contacts from a sequence.
+  app.post("/api/sequences/:id/enrollments/bulk-cancel", isDashboardUser, async (req, res) => {
+    try {
+      const sequenceId = Number(req.params.id);
+      const { contactIds } = req.body;
+      if (!Array.isArray(contactIds) || contactIds.length === 0) {
+        return res.status(400).json({ message: "contactIds must be a non-empty array." });
+      }
+      if (contactIds.length > 500) {
+        return res.status(400).json({ message: "Maximum 500 contacts per batch." });
+      }
+
+      let cancelled = 0;
+      let skipped = 0;
+      for (const contactId of contactIds) {
+        const result = await storage.cancelSequenceEnrollment(sequenceId, Number(contactId));
+        if (result) cancelled++; else skipped++;
+      }
+
+      await storage.createAuditLog({
+        action: "sequence_bulk_enrollment_cancelled",
+        entityType: "sequence",
+        entityId: sequenceId,
+        actorId: String((req as any).user?.id ?? ""),
+        actorType: "user",
+        details: { sequenceId, cancelled, skipped, totalRequested: contactIds.length },
+      });
+
+      res.json({ success: true, cancelled, skipped });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
   // DELETE /api/sequences/:id/enrollments/:contactId
   // Cancels an active or paused enrollment for the given contact+sequence pair.
   // Admins and managers may cancel any enrollment; agents may cancel as well
@@ -862,6 +897,41 @@ export function registerCampaignsRoutes(app: Express) {
       });
 
       res.json({ success: true, enrollment: cancelled });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  // PATCH /api/sequences/:id/enrollments/:contactId/pause
+  // #541 — Toggle pause/resume on a single contact enrollment (accessible by reps).
+  app.patch("/api/sequences/:id/enrollments/:contactId/pause", isDashboardUser, async (req, res) => {
+    try {
+      const sequenceId = Number(req.params.id);
+      const contactId = Number(req.params.contactId);
+      if (isNaN(sequenceId) || isNaN(contactId)) {
+        return res.status(400).json({ message: "Invalid sequenceId or contactId" });
+      }
+
+      // Look up current enrollment
+      const enrollments = await storage.getContactEnrollments(contactId);
+      const enrollment = enrollments.find((e: any) => e.sequenceId === sequenceId && (e.status === "active" || e.status === "paused"));
+      if (!enrollment) {
+        return res.status(404).json({ message: "No active or paused enrollment found." });
+      }
+
+      const newStatus = enrollment.status === "paused" ? "active" : "paused";
+      await storage.updateSequenceEnrollment(enrollment.id, { status: newStatus });
+
+      await storage.createAuditLog({
+        action: newStatus === "paused" ? "sequence_enrollment_paused" : "sequence_enrollment_resumed",
+        entityType: "contact",
+        entityId: contactId,
+        actorId: String((req as any).user?.id ?? ""),
+        actorType: "user",
+        details: { sequenceId, contactId, enrollmentId: enrollment.id, newStatus },
+      });
+
+      res.json({ success: true, status: newStatus });
     } catch (err: any) {
       serverError(res, err);
     }
@@ -1329,6 +1399,33 @@ Please provide:
 
       const analysis = completion.choices[0]?.message?.content ?? "No analysis generated.";
       res.json({ analysis, generatedAt: new Date().toISOString() });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  // POST /api/sequences/steps/test-send
+  // #544 — Send a test email for a sequence step body to the logged-in user's email.
+  app.post("/api/sequences/steps/test-send", isDashboardUser, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      if (!user?.email) return res.status(400).json({ message: "No email on your account." });
+
+      const { subject, body } = req.body;
+      if (!body) return res.status(400).json({ message: "body is required" });
+
+      const { sendSmtpEmail } = await import("../services/smtp-email");
+      const result = await sendSmtpEmail({
+        to: user.email,
+        subject: `[TEST] ${subject || "Sequence Step Preview"}`,
+        html: body,
+        category: "internal_ops",
+      });
+
+      if (!result.success) {
+        return res.status(500).json({ message: result.error || "SMTP send failed." });
+      }
+      res.json({ success: true });
     } catch (err: any) {
       serverError(res, err);
     }

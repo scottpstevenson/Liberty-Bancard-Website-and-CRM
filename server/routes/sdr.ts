@@ -14,6 +14,7 @@ import { bridgeContactsToBusinesses, getDedupeStats, ingestBusiness } from "../s
 import { getAllFlags, featureFlags } from "../services/feature-flags";
 import { validateWebhookSignature, getSdrGhlConfig, isSdrGhlConfigured, fetchCalendars } from "../services/sdr/ghl-client";
 import { handleContactUpdated, handleMessageReceived, handleCallOutcome, handleAppointmentBooked, handleAppointmentCanceled, handleOptOut, handleEmailBounce } from "../services/sdr/webhook-handlers";
+import { handleAppointmentShowed } from "../services/sdr/scheduling";
 import { handleConversationCreated, handleChatMessage, handleSmsThread, handleEmailThread, handleChatBooking } from "../services/sdr/chat-handlers";
 import { parse } from "csv-parse/sync";
 import { createContactGhlFirst } from "../services/contact-writer";
@@ -760,6 +761,24 @@ export function registerSdrRoutes(app: Express) {
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
       console.error("[SDR Webhook] appointment-booked error:", errMsg);
+      trackWebhookFailure();
+      res.status(500).json({ message: safeMessage(errMsg) });
+    }
+  });
+
+  // #appointment-to-statement — fires when a GHL appointment shows/completes
+  app.post("/api/webhooks/ghl/appointment-showed", async (req, res) => {
+    try {
+      const signature = req.headers["x-ghl-signature"] as string || "";
+      if (!validateWebhookSignature(getSdrWebhookRawBody(req), signature)) {
+        return res.status(401).json({ message: "Invalid webhook signature" });
+      }
+
+      await handleAppointmentShowed(req.body);
+      res.json({ received: true });
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error("[SDR Webhook] appointment-showed error:", errMsg);
       trackWebhookFailure();
       res.status(500).json({ message: safeMessage(errMsg) });
     }

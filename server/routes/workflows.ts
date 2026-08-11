@@ -195,7 +195,19 @@ export function registerWorkflowsRoutes(app: Express) {
 
 
   // === WORKFLOW TRIGGER EXECUTION ===
+  // #225 — Rate-limit: max 60 trigger calls per minute per secret (shared bucket)
+  const _webhookTriggerWindow: { count: number; resetAt: number } = { count: 0, resetAt: Date.now() + 60_000 };
+  function checkWebhookTriggerRateLimit(): boolean {
+    const now = Date.now();
+    if (now > _webhookTriggerWindow.resetAt) { _webhookTriggerWindow.count = 0; _webhookTriggerWindow.resetAt = now + 60_000; }
+    _webhookTriggerWindow.count++;
+    return _webhookTriggerWindow.count <= 60;
+  }
+
   app.post("/api/webhooks/trigger", requireInternalWebhookSecret, async (req, res) => {
+    if (!checkWebhookTriggerRateLimit()) {
+      return res.status(429).json({ message: "Rate limit exceeded: max 60 webhook triggers per minute" });
+    }
     try {
       const { event, entityType, entityId, data } = req.body;
       if (!event) return res.status(400).json({ message: "event required" });

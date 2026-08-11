@@ -1306,6 +1306,24 @@ export default function ResidualRevenue() {
                   </div>
                 )}
 
+                {/* #residual-variance — Variance alert banner */}
+                {flaggedMatchedRows.length > 0 && (
+                  <div
+                    className="flex items-start gap-3 p-3 rounded-md bg-orange-50 border border-orange-200 dark:bg-orange-900/20 dark:border-orange-800"
+                    data-testid="banner-variance-alert"
+                  >
+                    <AlertTriangle className="w-4 h-4 text-orange-500 mt-0.5 shrink-0" />
+                    <div>
+                      <p className="text-sm font-medium text-orange-800 dark:text-orange-300">
+                        {flaggedMatchedRows.length} MID{flaggedMatchedRows.length !== 1 ? "s" : ""} with out-of-range variance
+                      </p>
+                      <p className="text-xs text-orange-600 dark:text-orange-400 mt-0.5">
+                        Review the flagged rows in the Matched MIDs tab below. Large negative variances may indicate billing errors or merchant risk.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
                 {/* Agent reconciliation summary */}
                 {agentReconciliation.length > 0 && (
                   <div>
@@ -1361,6 +1379,8 @@ export default function ResidualRevenue() {
                               <TableHead>MID</TableHead>
                               <TableHead>Merchant</TableHead>
                               <TableHead className="text-right">Volume</TableHead>
+                              <TableHead className="text-right">Txns</TableHead>
+                              <TableHead className="text-right">Proc. Cost</TableHead>
                               <TableHead className="text-right">Expected</TableHead>
                               <TableHead className="text-right">Actual</TableHead>
                               <TableHead className="text-right">Variance</TableHead>
@@ -1378,6 +1398,13 @@ export default function ResidualRevenue() {
                                 <TableCell className="font-mono text-xs">{row.mid}</TableCell>
                                 <TableCell className="font-medium text-sm">{row.merchantName || "—"}</TableCell>
                                 <TableCell className="text-right text-sm">{formatCurrencyDetailed(row.volume)}</TableCell>
+                                {/* #1285 — transaction count and processing cost */}
+                                <TableCell className="text-right text-sm" data-testid={`cell-transactions-${row.id}`}>
+                                  {(row as any).transactions != null ? Number((row as any).transactions).toLocaleString() : "—"}
+                                </TableCell>
+                                <TableCell className="text-right text-sm" data-testid={`cell-proc-cost-${row.id}`}>
+                                  {(row as any).processingCost != null ? formatCurrencyDetailed((row as any).processingCost) : "—"}
+                                </TableCell>
                                 <TableCell className="text-right text-sm">{formatCurrencyDetailed(row.expectedResidual)}</TableCell>
                                 <TableCell className="text-right text-sm font-medium">{formatCurrencyDetailed(row.netResidual)}</TableCell>
                                 <TableCell className={`text-right text-sm font-medium ${parseFloat(row.variance) < 0 ? "text-red-600" : parseFloat(row.variance) > 0 ? "text-orange-500" : ""}`}>

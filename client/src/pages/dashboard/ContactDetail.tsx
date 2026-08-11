@@ -20,11 +20,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import {
   ArrowLeft, Edit2, Save, X, Plus, StickyNote, TrendingUp, CheckSquare,
   Ticket, Mail, Phone, Building2,
-  Activity, Link2, Trash2, Star,
+  Activity, Link2, Trash2, Star, AlertTriangle,
   RefreshCw, CheckCircle2, AlertCircle, Linkedin, FolderOpen, Info,
   ChevronDown, ChevronUp, Brain, AlertOctagon, ShieldCheck, GitFork, Bot, MapPin, Store,
   FileSearch2, Merge, SendHorizonal, ClipboardList, BarChart2, UserCheck,
-  Zap, Clock, User,
+  Zap, Clock, User, Copy, Check as CheckIcon,
 } from "lucide-react";
 import {
   labelForConfirmationStatus,
@@ -36,6 +36,31 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import Comments from "@/components/Comments";
 import { EmailComposer } from "@/components/EmailComposer";
 import { ReadinessCard } from "@/components/ReadinessCard";
+
+// #240 — One-click copy button for phone/email
+function CopyButton({ value, label }: { value: string; label: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    navigator.clipboard.writeText(value).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    }).catch(() => {});
+  };
+  return (
+    <button
+      onClick={copy}
+      className="opacity-0 group-hover:opacity-100 transition-opacity ml-0.5 p-0.5 rounded hover:bg-muted"
+      aria-label={`Copy ${label}`}
+      data-testid={`button-copy-${label}`}
+      title={copied ? "Copied!" : `Copy ${label}`}
+      type="button"
+    >
+      {copied ? <CheckIcon className="h-3 w-3 text-green-600" /> : <Copy className="h-3 w-3 text-muted-foreground" />}
+    </button>
+  );
+}
 
 import {
   type ActivityEvent,
@@ -64,6 +89,7 @@ import { OfferIntelligenceTab } from "./contact-detail-tabs/OfferIntelligenceTab
 import { SalesPrepTab } from "./contact-detail-tabs/SalesPrepTab";
 import { DeliveryLogTab } from "./contact-detail-tabs/DeliveryLogTab";
 import { CommunicationTimelineTab } from "./contact-detail-tabs/CommunicationTimelineTab";
+import { CallLogsTab } from "./contact-detail-tabs/CallLogsTab"; // #460
 
 // ── Confirmation Status Section ───────────────────────────────────────────────
 /**
@@ -710,6 +736,30 @@ function ChurnRiskPanel({ contactId, isManagerOrAdmin }: { contactId: number; is
           )}
         </CardContent>
       </Card>
+
+      {/* #1337 — Trigger signals: why this account was flagged */}
+      {Array.isArray((score as any).triggerSignals) && (score as any).triggerSignals.length > 0 && (
+        <Card data-testid="card-churn-trigger-signals">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-amber-500" />
+              Why Flagged — Trigger Signals
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <p className="text-xs text-muted-foreground mb-2">
+              These are the specific signals that triggered this account's churn risk flag.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {((score as any).triggerSignals as string[]).map((sig: string) => (
+                <Badge key={sig} variant="outline" className="text-xs border-amber-300 bg-amber-50 text-amber-800">
+                  {sig.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase())}
+                </Badge>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
@@ -941,6 +991,26 @@ export default function ContactDetail() {
   const [isEditing, setIsEditing] = useState(false);
   const [editFields, setEditFields] = useState<Record<string, string | null | undefined>>({});
   const [tagInput, setTagInput] = useState("");
+
+  // #259 — warn before leaving with unsaved edits
+  useEffect(() => {
+    if (!isEditing) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [isEditing]);
+
+  // #260 — auto-save contact edits every 30 seconds
+  useEffect(() => {
+    if (!isEditing) return;
+    const interval = setInterval(() => {
+      saveEdit().catch(() => {/* silently ignore autosave errors */});
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [isEditing, editFields]); // eslint-disable-line react-hooks/exhaustive-deps
   const [noteContent, setNoteContent] = useState("");
   const [activeTab, setActiveTab] = useState("overview");
 
@@ -1291,6 +1361,7 @@ export default function ContactDetail() {
       currentProvider: contact.currentProvider,
       preferredChannel: contact.preferredChannel,
       assignedTo: (contact as any).assignedTo ?? null,
+      referralSource: (contact as any).referralSource ?? "", // #508
     });
     setIsEditing(true);
   };
@@ -1464,6 +1535,23 @@ export default function ContactDetail() {
             )}
 
             <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+              {/* #535 — Created date */}
+              {contact.createdAt && (
+                <span className="flex items-center gap-1 text-xs" data-testid="text-contact-added-date">
+                  Added: {new Date(contact.createdAt).toLocaleDateString()}
+                </span>
+              )}
+              {/* #414 — Days since last contact */}
+              {(contact as any).lastContactedAt && (() => {
+                const days = Math.floor((Date.now() - new Date((contact as any).lastContactedAt).getTime()) / 86400000);
+                const label = days === 0 ? "Contacted today" : days === 1 ? "Contacted yesterday" : `Last contacted ${days}d ago`;
+                return (
+                  <span className={`flex items-center gap-1 text-xs ${days > 30 ? "text-destructive/70" : days > 14 ? "text-muted-foreground" : ""}`}
+                    data-testid="text-days-since-contact" title={new Date((contact as any).lastContactedAt).toLocaleDateString()}>
+                    📞 {label}
+                  </span>
+                );
+              })()}
               {contact.companyName && (
                 <span className="flex items-center gap-1" data-testid="text-company">
                   <Building2 className="h-3.5 w-3.5" /> {isEditing ? (
@@ -1485,7 +1573,13 @@ export default function ContactDetail() {
                       className="w-48"
                       data-testid="input-edit-email"
                     />
-                  ) : contact.email}
+                  ) : (
+                    <span className="flex items-center gap-1 group">
+                      <span>{contact.email}</span>
+                      {/* #240 — One-click copy for email */}
+                      <CopyButton value={contact.email} label="email" />
+                    </span>
+                  )}
                 </span>
               )}
               {contact.phone && (
@@ -1498,21 +1592,25 @@ export default function ContactDetail() {
                       data-testid="input-edit-phone"
                     />
                   ) : (
-                    <a
-                      href={`tel:${contact.phone}`}
-                      className="hover:underline"
-                      data-testid="link-phone-call"
-                      onClick={() => {
-                        fetch("/api/analytics/phone-call-click", {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          credentials: "include",
-                          body: JSON.stringify({ contactId, sourcePage: "contact_detail" }),
-                        }).catch(() => {/* fire-and-forget */});
-                      }}
-                    >
-                      {contact.phone}
-                    </a>
+                    <span className="flex items-center gap-1 group">
+                      <a
+                        href={`tel:${contact.phone}`}
+                        className="hover:underline"
+                        data-testid="link-phone-call"
+                        onClick={() => {
+                          fetch("/api/analytics/phone-call-click", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            credentials: "include",
+                            body: JSON.stringify({ contactId, sourcePage: "contact_detail" }),
+                          }).catch(() => {/* fire-and-forget */});
+                        }}
+                      >
+                        {contact.phone}
+                      </a>
+                      {/* #240 — One-click copy for phone */}
+                      <CopyButton value={contact.phone} label="phone" />
+                    </span>
                   )}
                 </span>
               )}
@@ -1565,6 +1663,23 @@ export default function ContactDetail() {
                   {(contact as any).assignedTo}
                 </span>
               ) : null}
+              {/* #508 — Referral source edit field */}
+              {isEditing && (
+                <span className="flex items-center gap-1 text-xs">
+                  <Input
+                    placeholder="Referral source (optional)"
+                    value={(editFields as any).referralSource ?? ""}
+                    onChange={e => setEditFields(p => ({ ...p, referralSource: e.target.value }))}
+                    className="w-44 h-7 text-xs"
+                    data-testid="input-edit-referral-source"
+                  />
+                </span>
+              )}
+              {!isEditing && (contact as any).referralSource && (
+                <span className="flex items-center gap-1 text-xs text-muted-foreground" data-testid="text-referral-source">
+                  🔗 {(contact as any).referralSource}
+                </span>
+              )}
               <Badge variant={statusColor(contact.status)} data-testid="badge-status">
                 {contact.status}
               </Badge>
@@ -1585,6 +1700,16 @@ export default function ContactDetail() {
                 >
                   <AlertCircle className="h-3 w-3 mr-1" />
                   Email {(contact as any).emailStatus}
+                </Badge>
+              )}
+              {/* #490 — In Active Deal badge */}
+              {deals && deals.filter((d: any) => !d.archivedAt && d.stage !== "Closed Won" && d.stage !== "Closed Lost").length > 0 && (
+                <Badge
+                  className="border-0 bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200"
+                  data-testid="badge-in-active-deal"
+                  title={`Active deal: ${deals.find((d: any) => !d.archivedAt && d.stage !== "Closed Won" && d.stage !== "Closed Lost")?.stage}`}
+                >
+                  In Deal · {deals.find((d: any) => !d.archivedAt && d.stage !== "Closed Won" && d.stage !== "Closed Lost")?.stage}
                 </Badge>
               )}
               {/* #1390 — Lifecycle stage badge */}
@@ -1611,6 +1736,14 @@ export default function ContactDetail() {
                 </button>
               )}
             </div>
+
+            {/* #423 — Hot Contact Banner (lead score > 80) */}
+            {contact.leadScore != null && contact.leadScore >= 80 && (
+              <div className="flex items-center gap-2 text-sm bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md px-3 py-1.5" data-testid="banner-hot-contact">
+                <span className="text-red-600 dark:text-red-400 font-semibold">🔥 Hot Contact</span>
+                <span className="text-xs text-red-500 dark:text-red-300">Lead score {contact.leadScore} — prioritize for outreach</span>
+              </div>
+            )}
 
             {/* Contact Quality Signals — Lead Score + Data Completeness */}
             {(contact.leadScore != null || contact.dataCompletenessScore != null) && (
@@ -1712,6 +1845,22 @@ export default function ContactDetail() {
           ghlSyncStatus={ghlSyncStatus}
           resyncToGhlMutation={resyncToGhlMutation}
         />
+
+      {/* #248 — View in GHL direct link */}
+      {ghlSyncStatus?.ghlContactId && (
+        <div className="flex items-center gap-2 px-1">
+          <a
+            href={`https://app.gohighlevel.com/contacts/${ghlSyncStatus.ghlContactId}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline"
+            data-testid="link-view-in-ghl"
+          >
+            <Link2 className="h-3 w-3" />
+            View in GHL
+          </a>
+        </div>
+      )}
 
       {/* Rate Review Banner */}
       {rateReviews.filter(r => r.status !== "resolved").map((review) => {
@@ -2033,6 +2182,10 @@ export default function ContactDetail() {
           </TabsTrigger>
           <TabsTrigger value="chargebacks" data-testid="tab-chargebacks">Chargebacks</TabsTrigger>
           <TabsTrigger value="activity" data-testid="tab-activity">Activity</TabsTrigger>
+          {/* #460 — Call Logs tab */}
+          <TabsTrigger value="call-logs" data-testid="tab-call-logs">
+            📞 Call Logs
+          </TabsTrigger>
           <TabsTrigger value="relationships" data-testid="tab-relationships">
             <GitFork className="h-3.5 w-3.5 mr-1" />
             Relationships
@@ -2094,6 +2247,7 @@ export default function ContactDetail() {
             dealsCount={deals.length}
             openTicketsCount={openTickets.length}
             pendingTasksCount={pendingTasks.length}
+            onOpenTicketsClick={() => setActiveTab("tickets")}
           />
         </TabsContent>
 
@@ -2112,7 +2266,7 @@ export default function ContactDetail() {
         </TabsContent>
 
         <TabsContent value="tickets" data-testid="tab-content-tickets">
-          <TicketsTab tickets={tickets} />
+          <TicketsTab tickets={tickets} contactId={contact.id} />
         </TabsContent>
 
         <TabsContent value="tasks" data-testid="tab-content-tasks">
@@ -2125,6 +2279,13 @@ export default function ContactDetail() {
             noteContent={noteContent}
             setNoteContent={setNoteContent}
             addNote={addNote}
+            onUpdateNote={async (noteId, content) => {
+              // #243 — inline note editing via PATCH /api/notes/:id
+              const res = await apiRequest("PATCH", `/api/notes/${noteId}`, { content });
+              if (!res.ok) throw new Error("Failed to update note");
+              queryClient.invalidateQueries({ queryKey: ["/api/notes", "contact", contactId] });
+              toast({ title: "Note updated" });
+            }}
           />
         </TabsContent>
 
@@ -2150,6 +2311,11 @@ export default function ContactDetail() {
 
         <TabsContent value="activity" data-testid="tab-content-activity">
           <ActivityTimelineFull events={activityEvents ?? []} />
+        </TabsContent>
+
+        {/* #460 — Call Logs tab */}
+        <TabsContent value="call-logs" data-testid="tab-content-call-logs">
+          <CallLogsTab contactId={contactId} />
         </TabsContent>
 
         <TabsContent value="relationships" data-testid="tab-content-relationships">

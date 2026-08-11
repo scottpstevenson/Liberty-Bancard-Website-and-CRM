@@ -7,8 +7,9 @@ import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { CheckCircle, Clock, AlertTriangle, FileText, Users, Activity, RefreshCw, ClipboardList } from "lucide-react";
-import { useState } from "react";
+import { CheckCircle, Clock, AlertTriangle, FileText, Users, Activity, RefreshCw, ClipboardList, Upload } from "lucide-react";
+import { useState, useRef } from "react";
+import { getCsrfToken } from "@/lib/queryClient";
 import type {
   OnboardingChecklistItem,
   OnboardingChecklistItemKey,
@@ -198,7 +199,7 @@ function WorkflowStageProgress({ dealId }: { dealId: number }) {
 }
 
 function DealChecklistCard({ entry, canApprove }: { entry: BoardEntry; canApprove: boolean }) {
-  const { deal, contact, checklistItems, stats } = entry;
+  const { deal, contact, checklistItems, stats, documentsCount } = entry as any;
   const { toast } = useToast();
   const { user } = useAuth();
 
@@ -276,6 +277,11 @@ function DealChecklistCard({ entry, canApprove }: { entry: BoardEntry; canApprov
                   </Badge>
                 );
               })()}
+              {typeof documentsCount === "number" && documentsCount > 0 && (
+                <Badge variant="outline" className="text-xs text-indigo-600 border-indigo-300" data-testid={`badge-docs-count-${deal.id}`}>
+                  {documentsCount} doc{documentsCount !== 1 ? "s" : ""}
+                </Badge>
+              )}
               {overdueFlag && (
                 <Badge variant="outline" className="text-xs text-amber-600 border-amber-400" data-testid={`badge-overdue-${deal.id}`}>
                   <AlertTriangle className="w-3 h-3 mr-1" />
@@ -319,7 +325,7 @@ function DealChecklistCard({ entry, canApprove }: { entry: BoardEntry; canApprov
         ) : (
           <div className="divide-y divide-border/50">
             {ONBOARDING_CHECKLIST_ITEM_KEYS.map((key) => {
-              const item = checklistItems.find((i) => i.itemKey === key);
+              const item = (checklistItems as any[]).find((i: any) => i.itemKey === key);
               return (
                 <ChecklistRow
                   key={key}
@@ -332,8 +338,81 @@ function DealChecklistCard({ entry, canApprove }: { entry: BoardEntry; canApprov
             })}
           </div>
         )}
+
+        {/* Inline document upload — attaches file to this deal/contact (#441) */}
+        <InlineDocUpload dealId={deal.id} contactId={deal.contactId} />
       </CardContent>
     </Card>
+  );
+}
+
+/** Compact document upload widget embedded in each onboarding deal card. */
+function InlineDocUpload({ dealId, contactId }: { dealId: number; contactId: number | null }) {
+  const { toast } = useToast();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [isUploading, setIsUploading] = useState(false);
+
+  const handleFile = async (file: File) => {
+    if (!contactId) {
+      toast({ title: "Cannot upload", description: "No contact linked to this deal.", variant: "destructive" });
+      return;
+    }
+    setIsUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("contactId", String(contactId));
+      formData.append("dealId", String(dealId));
+      formData.append("category", "Onboarding Document");
+
+      const headers: Record<string, string> = {};
+      const csrf = getCsrfToken();
+      if (csrf) headers["X-CSRF-Token"] = csrf;
+
+      const res = await fetch("/api/merchant-documents/upload", {
+        method: "POST",
+        headers,
+        credentials: "include",
+        body: formData,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: "Upload failed" }));
+        throw new Error(err.message || "Upload failed");
+      }
+      queryClient.invalidateQueries({ queryKey: ["/api/onboarding-board"] });
+      toast({ title: "Document uploaded", description: file.name });
+    } catch (err: any) {
+      toast({ title: "Upload failed", description: err.message, variant: "destructive" });
+    } finally {
+      setIsUploading(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  };
+
+  return (
+    <div className="pt-1">
+      <input
+        ref={fileRef}
+        type="file"
+        accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
+        className="hidden"
+        data-testid={`input-inline-upload-${dealId}`}
+        onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }}
+      />
+      <Button
+        size="sm"
+        variant="ghost"
+        className="w-full h-7 text-xs text-muted-foreground hover:text-foreground"
+        onClick={() => fileRef.current?.click()}
+        disabled={isUploading || !contactId}
+        data-testid={`button-inline-upload-${dealId}`}
+      >
+        {isUploading
+          ? <RefreshCw className="w-3 h-3 mr-1 animate-spin" />
+          : <Upload className="w-3 h-3 mr-1" />}
+        {isUploading ? "Uploading…" : "Upload Document"}
+      </Button>
+    </div>
   );
 }
 

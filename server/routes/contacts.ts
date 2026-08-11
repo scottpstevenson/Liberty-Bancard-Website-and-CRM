@@ -408,8 +408,16 @@ export function registerContactsRoutes(app: Express) {
       if (search) {
         params.push(`%${search.toLowerCase()}%`);
         const n = params.length;
+        // #505 — phone search: normalize digits-only pattern for phone matching
+        const phoneDigits = search.replace(/\D/g, "");
+        const phoneParam = phoneDigits.length >= 7 ? `%${phoneDigits}%` : null;
+        let phoneCond = "";
+        if (phoneParam) {
+          params.push(phoneParam);
+          phoneCond = ` OR regexp_replace(COALESCE(phone,''),'\\D','','g') LIKE $${params.length}`;
+        }
         conditions.push(
-          `(lower(first_name) LIKE $${n} OR lower(last_name) LIKE $${n} OR lower(email) LIKE $${n} OR lower(company_name) LIKE $${n})`
+          `(lower(first_name) LIKE $${n} OR lower(last_name) LIKE $${n} OR lower(email) LIKE $${n} OR lower(company_name) LIKE $${n}${phoneCond})`
         );
       }
 
@@ -1257,6 +1265,38 @@ export function registerContactsRoutes(app: Express) {
   });
 
   // === DECISION MAKER MANUAL OVERRIDE ===
+  // PATCH /api/contacts/:id/snooze
+  // #523 — Snooze a contact: hide from outreach for N days by setting nextAllowedContactDate.
+  app.patch("/api/contacts/:id/snooze", isDashboardUser, async (req, res) => {
+    try {
+      const contactId = Number(req.params.id);
+      const { days } = z.object({ days: z.number().int().min(1).max(365) }).parse(req.body);
+      const contact = await storage.getContact(contactId);
+      if (!contact) return res.status(404).json({ message: "Contact not found" });
+
+      const snoozeUntil = new Date();
+      snoozeUntil.setDate(snoozeUntil.getDate() + days);
+
+      const updated = await storage.updateContact(contactId, {
+        nextAllowedContactDate: snoozeUntil,
+      }, { actorType: "user", userId: (req.user as any)?.id ?? null });
+
+      await storage.createAuditLog({
+        action: "contact_snoozed",
+        entityType: "contact",
+        entityId: contactId,
+        actorId: String((req as any).user?.id ?? ""),
+        actorType: "user",
+        details: { days, snoozeUntil: snoozeUntil.toISOString() },
+      });
+
+      res.json(updated);
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      serverError(res, err);
+    }
+  });
+
   app.patch("/api/contacts/:id/decision-maker", isDashboardUser, async (req, res) => {
     try {
       const contactId = Number(req.params.id);
@@ -1446,6 +1486,55 @@ export function registerContactsRoutes(app: Express) {
       const events = await getContactCommunicationEvents(contactId, limit);
 
       res.json({ events, total: events.length, contactId });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  // ─── Manual Communication Event (inbound SMS, etc.) ──────────────────────────
+  // #538 — Let reps log an inbound SMS response received from a contact
+
+  app.post("/api/contacts/:id/communication-events", isDashboardUser, async (req, res) => {
+    try {
+      const contactId = parseInt(req.params.id as string);
+      if (isNaN(contactId)) return res.status(400).json({ message: "Invalid contact ID" });
+
+      const contact = await storage.getContact(contactId);
+      if (!contact) return res.status(404).json({ message: "Contact not found" });
+
+      const { direction, channel, provider, subject, body, status } = req.body as Record<string, string>;
+      const VALID_CHANNELS = ["email", "sms", "call", "voicemail", "chat", "form", "portal", "rvm"];
+      if (!channel || !VALID_CHANNELS.includes(channel)) {
+        return res.status(400).json({ message: `channel must be one of: ${VALID_CHANNELS.join(", ")}` });
+      }
+
+      const { recordInboundEvent, recordOutboundSend } = await import("../services/communication-events");
+
+      let eventId: number | null = null;
+      if (direction === "outbound") {
+        eventId = await recordOutboundSend({
+          contactId,
+          channel: channel as any,
+          // recordOutboundSend only accepts ghl|smtp|twilio; manual → omit → defaults to "ghl" internally
+          provider: (["ghl", "smtp", "twilio"].includes(provider || "") ? provider : undefined) as any,
+          subject: subject || null,
+          body: body || null,
+          status: (status || "sent") as any,
+          metadata: { loggedManually: true, loggedByUserId: (req as any).user?.id },
+        });
+      } else {
+        eventId = await recordInboundEvent({
+          contactId,
+          channel: channel as any,
+          provider: (provider || "manual") as any,
+          subject: subject || null,
+          body: body || null,
+          status: (status || "received") as any,
+          metadata: { loggedManually: true, loggedByUserId: (req as any).user?.id },
+        });
+      }
+
+      res.json({ ok: true, eventId });
     } catch (err: any) {
       serverError(res, err);
     }

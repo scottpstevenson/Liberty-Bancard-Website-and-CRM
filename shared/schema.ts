@@ -781,6 +781,7 @@ export const SALES_STAGES = [
   "Proposal Sent",
   "Negotiation / Follow-Up",
   "Verbal Commit",
+  "Promise to Submit", // #513
   "Closed Won",
   "Closed Lost",
   "Nurture / Not Now",

@@ -9,7 +9,7 @@ import { fullSyncFromGhl, fullSyncToGhl, getGhlSyncStatus, getFullSyncDashboard,
 import { getWorkflowStatus, GHL_WORKFLOW_REGISTRY, getPlatformEmailConfig, getWorkflowRegistryWithStatus, setWorkflowEnvValue } from "../services/ghl-workflows";
 import { buildSequenceList } from "../services/sequence-blueprints";
 import { requireInternalWebhookSecret } from "../middleware/internal-webhook-auth";
-import { publicLeadRateLimit } from "../middleware/public-rate-limit";
+import { publicLeadRateLimit, webhookRateLimit } from "../middleware/public-rate-limit";
 import { parseId, parsePagination } from "./helpers";
 import dns from "node:dns/promises";
 import net from "node:net";
@@ -91,7 +91,7 @@ export function registerIntegrationsRoutes(app: Express) {
     res.json(logs);
   });
 
-  app.post("/api/webhooks/ghl", async (req, res) => {
+  app.post("/api/webhooks/ghl", webhookRateLimit, async (req, res) => {
     try {
       const rawBody = req.rawBody instanceof Buffer ? req.rawBody.toString("utf8") : JSON.stringify(req.body);
 

@@ -62,6 +62,8 @@ function formatDate(date: string | Date | null | undefined) {
 export default function Prospects() {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedListId, setSelectedListId] = useState<string>("all");
+  // #401 — Sort by lead score
+  const [scoreSort, setScoreSort] = useState<"none" | "asc" | "desc">("none");
   const { toast } = useToast();
 
   const prospectsUrl = selectedListId !== "all"
@@ -148,6 +150,7 @@ export default function Prospects() {
     },
   });
 
+  const scoreOrder: Record<string, number> = { hot: 3, warm: 2, cold: 1 };
   const filteredProspects = prospects?.filter((p) => {
     if (!searchTerm) return true;
     const term = searchTerm.toLowerCase();
@@ -158,6 +161,11 @@ export default function Prospects() {
       p.ownerLastName?.toLowerCase().includes(term) ||
       `${p.ownerFirstName || ""} ${p.ownerLastName || ""}`.toLowerCase().includes(term)
     );
+  }).sort((a, b) => {
+    if (scoreSort === "none") return 0;
+    const aScore = scoreOrder[a.score ?? ""] ?? 0;
+    const bScore = scoreOrder[b.score ?? ""] ?? 0;
+    return scoreSort === "desc" ? bScore - aScore : aScore - bScore;
   });
 
   const totalCount = filteredProspects?.length || 0;
@@ -235,6 +243,17 @@ export default function Prospects() {
           </SelectContent>
         </Select>
 
+        {/* #401 — Sort by lead score */}
+        <Select value={scoreSort} onValueChange={(v) => setScoreSort(v as "none" | "asc" | "desc")}>
+          <SelectTrigger className="w-full sm:w-40" data-testid="select-score-sort">
+            <SelectValue placeholder="Sort by score" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">Default order</SelectItem>
+            <SelectItem value="desc">Score: High → Low</SelectItem>
+            <SelectItem value="asc">Score: Low → High</SelectItem>
+          </SelectContent>
+        </Select>
         <Button
           variant="outline"
           data-testid="button-ai-route-prospects"
@@ -297,7 +316,13 @@ export default function Prospects() {
                 filteredProspects?.map((prospect) => (
                   <TableRow key={prospect.id} data-testid={`row-prospect-${prospect.id}`}>
                     <TableCell className="font-medium" data-testid={`text-company-${prospect.id}`}>
-                      {prospect.companyName || "--"}
+                      <div className="flex items-center gap-1.5">
+                        {prospect.companyName || "--"}
+                        {/* #563 — LinkedIn enrichment badge */}
+                        {(prospect as any).linkedinEnrichedAt && (
+                          <Badge variant="outline" className="text-[10px] px-1 py-0 h-4 border-blue-200 bg-blue-50 text-blue-700" data-testid={`badge-li-${prospect.id}`} title={`LinkedIn enriched ${new Date((prospect as any).linkedinEnrichedAt).toLocaleDateString()}`}>Li</Badge>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell data-testid={`text-owner-${prospect.id}`}>
                       {[prospect.ownerFirstName, prospect.ownerLastName].filter(Boolean).join(" ") || "--"}

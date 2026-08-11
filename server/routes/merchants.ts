@@ -1082,6 +1082,23 @@ export function registerMerchantsRoutes(app: Express) {
 
       await sendMerchantPortalWelcomeEmail(profile);
       const sentAt = welcomeEmailCooldown.recordSend(id);
+
+      // #220 — record actor who triggered the resend so history shows who sent it
+      const actor = (req as any).user;
+      await storage.createAuditLog({
+        action: "merchant_portal_welcome_sent",
+        entityType: "merchant_profile",
+        entityId: id,
+        actorType: actor ? "user" : "system",
+        actorId: actor?.id ?? null,
+        details: {
+          triggeredBy: actor?.email ?? "system",
+          triggeredByRole: actor?.role ?? null,
+          recipientEmail: null, // merchantProfiles does not carry email; contact email is on the contacts table
+          merchantId: profile.id,
+        },
+      });
+
       res.json({ success: true, message: "Welcome email has been resent", lastSentAt: sentAt.toISOString() });
     } catch (err: any) {
       console.error(`[Resend Welcome] Error for profile #${req.params.id}:`, err);
@@ -1114,9 +1131,14 @@ export function registerMerchantsRoutes(app: Express) {
       const profile = await storage.getMerchantProfile(id);
       if (!profile) return res.status(404).json({ message: "Merchant profile not found" });
 
-      const logs = await storage.getAuditLogsByEntity("merchant_profile", id, 20);
-      const welcomeLogs = logs.filter(l => l.action === "merchant_portal_welcome_sent");
-      res.json(welcomeLogs);
+      // #226 — support load-older via ?offset= param
+      const limit = Math.min(parseInt(String(req.query.limit ?? "20"), 10), 100);
+      const offset = Math.max(parseInt(String(req.query.offset ?? "0"), 10), 0);
+      const allLogs = await storage.getAuditLogsByEntity("merchant_profile", id, limit + offset);
+      const welcomeLogs = allLogs
+        .filter(l => l.action === "merchant_portal_welcome_sent")
+        .slice(offset, offset + limit);
+      res.json({ logs: welcomeLogs, total: welcomeLogs.length, offset, limit });
     } catch (err: any) {
       serverError(res, err);
     }

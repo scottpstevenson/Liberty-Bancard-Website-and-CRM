@@ -154,7 +154,9 @@ try {
         firstName: "GoLive",
         lastName: `Test-${RUN_ID}`,
         email: `glg-contact-${RUN_ID}@test.example`,
-        phone: `+155500${RUN_ID.replace(/\D/g, "").slice(0, 6).padEnd(6, "0")}`,
+        // Use last 7 digits of epoch ms so GHL doesn't dedup across runs
+        // (first-6-digits phone was the same for hours → GHL returned stale GHL ID → DB 23505)
+        phone: `+1555${String(Date.now()).slice(-7)}`,
       }),
     });
     if (!cR.ok) throw new Error(`Contact creation failed: ${cR.status} ${await cR.text()}`);

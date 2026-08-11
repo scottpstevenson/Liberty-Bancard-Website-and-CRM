@@ -816,12 +816,14 @@ export function getCalendarBookingUrl(params?: {
 }
 
 export function resolveMergeFields(template: string, data: Record<string, any>): string {
-  return template.replace(/\{\{(\w+(?:\.\w+)*)\}\}/g, (match, path) => {
+  // #1136 — If a merge field resolves to undefined/null, replace with "" (empty string) so
+  // raw {{agentEmail}}, {{agentPhone}} etc. never appear verbatim in sent emails.
+  return template.replace(/\{\{(\w+(?:\.\w+)*)\}\}/g, (_match, path) => {
     const keys = path.split(".");
     let value: any = data;
     for (const key of keys) {
       value = value?.[key];
-      if (value === undefined || value === null) return match;
+      if (value === undefined || value === null) return ""; // blank out missing vars
     }
     return String(value);
   });

@@ -120,8 +120,8 @@ export default function DataHealth() {
     refetchInterval: 120_000,
   });
 
-  const reconcileMutation = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/admin/data-health/reconcile"),
+  const reconcileMutation = useMutation<ReconcileResult>({
+    mutationFn: () => apiRequest("POST", "/api/admin/data-health/reconcile").then(r => r.json()),
     onSuccess: (result: ReconcileResult) => {
       setReconcileOutput(result.output ?? result.message ?? "Reconcile triggered.");
       toast({ title: "Reconcile started", description: "Orphan cleanup is running in the background." });

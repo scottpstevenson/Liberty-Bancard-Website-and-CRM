@@ -2,10 +2,10 @@ import type { Express } from "express";
 import { isAuthenticated, isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { authStorage } from "../replit_integrations/auth/storage";
 import { storage } from "../storage";
-import { db } from "../db";
+import { db, pool } from "../db";
 import { auditChange } from "../services/audit-change";
 import { z } from "zod";
-import { insertAgentMerchantSchema, insertAgentQuotaSchema, insertAgentSchema, insertConsentAuditLogSchema, insertDataDeleteRequestSchema, insertHealthAlertSchema, insertResidualReportSchema, insertReviewRequestSchema, insertSendingIdentitySchema, ALLOWED_SENDING_DOMAINS, users, contacts, deals, auditLogs, automationRegistry } from "@shared/schema";
+import { insertAgentMerchantSchema, insertAgentQuotaSchema, insertAgentSchema, insertConsentAuditLogSchema, insertDataDeleteRequestSchema, insertHealthAlertSchema, insertResidualReportSchema, insertReviewRequestSchema, insertSendingIdentitySchema, ALLOWED_SENDING_DOMAINS, users, contacts, deals, auditLogs, automationRegistry, merchantMids, insertMerchantMidSchema } from "@shared/schema";
 import { desc, eq, isNull, and, gte, or, like, count, not } from "drizzle-orm";
 import { parse } from "csv-parse/sync";
 import path from "path";
@@ -4409,6 +4409,195 @@ export function registerAdminRoutes(app: Express) {
         slaMins,
         asOf: new Date().toISOString(),
       });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  // ============================================================
+  // MID / TID REGISTRY  (#1404)
+  // ============================================================
+
+  /** List all MIDs — supports ?status= and ?contactId= filters */
+  app.get("/api/admin/mids", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const { status, contactId } = req.query as Record<string, string | undefined>;
+      let query = db
+        .select({
+          id:            merchantMids.id,
+          mid:           merchantMids.mid,
+          tids:          merchantMids.tids,
+          processorName: merchantMids.processorName,
+          status:        merchantMids.status,
+          monthlyVolumeCap: merchantMids.monthlyVolumeCap,
+          assignedAt:    merchantMids.assignedAt,
+          activatedAt:   merchantMids.activatedAt,
+          suspendedAt:   merchantMids.suspendedAt,
+          closedAt:      merchantMids.closedAt,
+          suspensionReason: merchantMids.suspensionReason,
+          notes:         merchantMids.notes,
+          contactId:     merchantMids.contactId,
+          dealId:        merchantMids.dealId,
+          firstName:     contacts.firstName,
+          lastName:      contacts.lastName,
+          businessName:  contacts.companyName,
+          createdAt:     merchantMids.createdAt,
+          updatedAt:     merchantMids.updatedAt,
+        })
+        .from(merchantMids)
+        .leftJoin(contacts, eq(contacts.id, merchantMids.contactId));
+
+      const conditions: ReturnType<typeof eq>[] = [];
+      if (status) conditions.push(eq(merchantMids.status, status));
+      if (contactId) conditions.push(eq(merchantMids.contactId, parseInt(contactId, 10)));
+
+      const rows = conditions.length > 0
+        ? await query.where(conditions.length === 1 ? conditions[0] : and(...conditions)).orderBy(desc(merchantMids.assignedAt))
+        : await query.orderBy(desc(merchantMids.assignedAt));
+
+      res.json(rows);
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  /** Create a new MID assignment */
+  app.post("/api/admin/mids", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const parsed = insertMerchantMidSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid MID data", errors: parsed.error.errors });
+      }
+      const [row] = await db
+        .insert(merchantMids)
+        .values({ ...parsed.data, createdAt: new Date(), updatedAt: new Date() })
+        .returning();
+      await storage.createAuditLog({
+        action: "mid_created",
+        entityType: "contact",
+        entityId: row.contactId,
+        actorType: "user",
+        actorId: String((req.user as any)?.id ?? ""),
+        details: { mid: row.mid, processorName: row.processorName },
+      });
+      res.status(201).json(row);
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  /** Update a MID (status, notes, activatedAt, etc.) */
+  app.patch("/api/admin/mids/:id", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const id = parseInt(String(req.params.id), 10);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid MID id" });
+
+      const allowedFields = insertMerchantMidSchema.partial();
+      const parsed = allowedFields.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid update data", errors: parsed.error.errors });
+      }
+
+      const [row] = await db
+        .update(merchantMids)
+        .set({ ...parsed.data, updatedAt: new Date() })
+        .where(eq(merchantMids.id, id))
+        .returning();
+
+      if (!row) return res.status(404).json({ message: "MID not found" });
+
+      await storage.createAuditLog({
+        action: "mid_updated",
+        entityType: "contact",
+        entityId: row.contactId,
+        actorType: "user",
+        actorId: String((req.user as any)?.id ?? ""),
+        details: { midId: id, changes: parsed.data },
+      });
+      res.json(row);
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  /** List MIDs pending activation (assigned but no activatedAt) — for the activation monitor dashboard */
+  app.get("/api/admin/mids/unactivated", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const { findUnactivatedMids } = await import("../services/merchant-activation-monitor");
+      const items = await findUnactivatedMids();
+      res.json(items);
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  // GET /api/admin/rep-activity/inactive
+  // #418 — Reps with no activity in the last 7 days (or ?days=N).
+  app.get("/api/admin/rep-activity/inactive", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const days = Math.max(1, Math.min(90, parseInt(String(req.query.days || "7"), 10)));
+      const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+      const result = await pool.query<{ actor_id: string }>(
+        `SELECT DISTINCT actor_id FROM audit_logs
+         WHERE actor_type = 'user'
+           AND action IN ('call_logged', 'email_sent', 'sequence_email_sent', 'contact_created', 'deal_created', 'sms_sent')
+           AND created_at >= $1`,
+        [cutoff.toISOString()]
+      );
+
+      const activeActorIds = new Set(result.rows.map(r => String(r.actor_id)));
+      const agentList = await storage.getAgents().catch(() => []);
+      const inactiveReps = agentList
+        .filter(a => a.role === "agent" && !activeActorIds.has(String(a.id)))
+        .map(a => ({ agentId: a.id, name: `${a.firstName} ${a.lastName}`.trim(), email: a.email }));
+
+      res.json({ days, cutoff: cutoff.toISOString(), inactiveReps });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  // GET /api/admin/rep-activity/today
+  // #380 — Per-rep activity count for today (calls logged, emails sent, contacts created).
+  app.get("/api/admin/rep-activity/today", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      const result = await pool.query<{ actor_id: string; action: string; cnt: string }>(
+        `SELECT actor_id, action, COUNT(*) AS cnt
+         FROM audit_logs
+         WHERE actor_type = 'user'
+           AND action IN ('call_logged', 'email_sent', 'sequence_email_sent', 'contact_created', 'deal_created', 'sms_sent')
+           AND created_at >= $1
+         GROUP BY actor_id, action`,
+        [todayStart.toISOString()]
+      );
+
+      // Aggregate by actorId
+      const byActor: Record<string, Record<string, number>> = {};
+      for (const row of result.rows) {
+        if (!row.actor_id) continue;
+        if (!byActor[row.actor_id]) byActor[row.actor_id] = {};
+        byActor[row.actor_id][row.action] = Number(row.cnt);
+      }
+
+      // Look up agent names
+      const agentList = await storage.getAgents().catch(() => []);
+      const agentMap = new Map(agentList.map(a => [String(a.id), `${a.firstName} ${a.lastName}`.trim()]));
+
+      const summary = Object.entries(byActor).map(([actorId, actions]) => ({
+        actorId,
+        name: agentMap.get(actorId) || `User ${actorId}`,
+        callsLogged: (actions.call_logged || 0),
+        emailsSent: (actions.email_sent || 0) + (actions.sequence_email_sent || 0),
+        smsSent: (actions.sms_sent || 0),
+        contactsCreated: (actions.contact_created || 0),
+        dealsCreated: (actions.deal_created || 0),
+        total: Object.values(actions).reduce((s, v) => s + v, 0),
+      })).sort((a, b) => b.total - a.total);
+
+      res.json({ date: todayStart.toISOString(), reps: summary });
     } catch (err: any) {
       serverError(res, err);
     }

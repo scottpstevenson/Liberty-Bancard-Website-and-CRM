@@ -18,9 +18,10 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, Calendar, Sparkles, Loader2, Download, ChevronDown, ChevronUp, Archive, Settings, ArrowUp, ArrowDown, Pencil, Trash2, RotateCcw, MoreVertical, TrendingUp, TrendingDown, UserRound, AlertTriangle, Activity, ArrowUpDown, FileText, Copy, ExternalLink, Send, CheckCircle2, History, User, Bot, Monitor, ShieldCheck, ShieldAlert, ShieldX, Clock, RefreshCw, ListChecks } from "lucide-react";
+import { Plus, Calendar, Sparkles, Loader2, Download, ChevronDown, ChevronUp, Archive, Settings, ArrowUp, ArrowDown, Pencil, Trash2, RotateCcw, MoreVertical, TrendingUp, TrendingDown, UserRound, AlertTriangle, Activity, ArrowUpDown, FileText, Copy, ExternalLink, Send, CheckCircle2, History, User, Bot, Monitor, ShieldCheck, ShieldAlert, ShieldX, Clock, RefreshCw, ListChecks, Eye, StickyNote, Users } from "lucide-react";
 import TerminalEconomicsCard from "@/components/TerminalEconomicsCard";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
@@ -53,6 +54,7 @@ const STAGE_COLORS: Record<string, string> = {
   "Proposal Sent": "bg-amber-500",
   "Negotiation / Follow-Up": "bg-orange-500",
   "Verbal Commit": "bg-purple-500",
+  "Promise to Submit": "bg-rose-500",   // #513
   "Nurture / Not Now": "bg-slate-500",
   "Closed Won": "bg-green-600",
   "Closed Lost": "bg-red-500",
@@ -163,6 +165,87 @@ function DealMidBadge({ summary }: { summary: MidSummary | undefined }) {
   );
 }
 
+// #474 — Quick inline note editor on deal card
+function QuickNoteEditor({ deal }: { deal: Deal }) {
+  const { toast } = useToast();
+  const [editing, setEditing] = useState(false);
+  const [noteText, setNoteText] = useState(deal.notes || "");
+  const [, queryClientInstance] = [null, null]; // placeholder
+  const saveNote = async (text: string) => {
+    try {
+      const res = await apiRequest("PUT", `/api/deals/${deal.id}`, { notes: text });
+      if (!res.ok) throw new Error("Failed");
+    } catch (err: any) {
+      toast({ title: "Note save failed", description: err.message, variant: "destructive" });
+    }
+  };
+
+  if (editing) {
+    return (
+      <div onClick={e => e.stopPropagation()}>
+        <textarea
+          className="w-full text-xs border rounded p-1 resize-none bg-background"
+          value={noteText}
+          autoFocus
+          rows={2}
+          placeholder="Add note…"
+          data-testid={`textarea-quick-note-${deal.id}`}
+          onChange={e => setNoteText(e.target.value)}
+          onBlur={() => {
+            if (noteText !== (deal.notes || "")) saveNote(noteText);
+            setEditing(false);
+          }}
+          onKeyDown={e => {
+            if (e.key === "Escape") { setNoteText(deal.notes || ""); setEditing(false); }
+          }}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <button
+      className="text-muted-foreground/40 hover:text-muted-foreground text-xs flex items-center gap-1 mt-0.5"
+      onClick={e => { e.stopPropagation(); setNoteText(deal.notes || ""); setEditing(true); }}
+      data-testid={`button-quick-note-${deal.id}`}
+      title="Add/edit note"
+    >
+      <StickyNote className="h-3 w-3" />
+      {deal.notes ? "Edit note" : "Add note"}
+    </button>
+  );
+}
+
+// #427 — Self-contained notes expand dialog for deal cards
+function NotesExpandButton({ deal, identity }: { deal: Deal; identity: { primary: string; secondary: string | null } }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button
+        className="text-[10px] text-primary/70 hover:text-primary underline-offset-2 hover:underline mt-0.5"
+        onClick={e => { e.stopPropagation(); setOpen(true); }}
+        data-testid={`button-view-full-notes-${deal.id}`}
+      >
+        View full notes
+      </button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent data-testid={`dialog-full-notes-${deal.id}`}>
+          <DialogHeader>
+            <DialogTitle>Deal Notes</DialogTitle>
+            <p className="text-xs text-muted-foreground">{identity.primary} · {deal.stage}</p>
+          </DialogHeader>
+          <div className="py-2">
+            <p className="text-sm whitespace-pre-wrap" data-testid={`text-full-notes-${deal.id}`}>{deal.notes}</p>
+          </div>
+          <div className="flex justify-end">
+            <Button variant="outline" size="sm" onClick={() => setOpen(false)} data-testid={`button-close-notes-${deal.id}`}>Close</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
 function SortableDealCard({
   deal,
   isDealArchived,
@@ -207,6 +290,8 @@ function SortableDealCard({
     enabled: true,
   });
   const [, navigateTo] = useLocation();
+  // alias used by URL filter sync
+  const navigatePipeline = navigateTo;
   const identity = getDealCardIdentity(deal, deal.contactId);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: deal.id,
@@ -284,11 +369,139 @@ function SortableDealCard({
               <Archive className="w-3 h-3 mr-1" /> Archived
             </Badge>
           )}
+          {/* #400 — Submitted stage stale badge (7+ days) */}
+          {!isDealArchived && deal.stage === "Submitted" && deal.createdAt && (() => {
+            const daysInStage = Math.floor((Date.now() - new Date(deal.createdAt).getTime()) / 86400000);
+            return daysInStage >= 7 ? (
+              <Badge variant="outline" className="text-xs no-default-hover-elevate no-default-active-elevate border-orange-300 bg-orange-50 text-orange-700" data-testid={`badge-submitted-stale-${deal.id}`}>
+                ⏳ {daysInStage}d
+              </Badge>
+            ) : null;
+          })()}
+          {/* #1019 — Profitability tier badge (High/Medium/Low based on volume) */}
+          {!isDealArchived && (() => {
+            const volStr = String((deal as any).estimatedProcessingVolume ?? "");
+            const vol = parseFloat(volStr.replace(/[^0-9.]/g, "")) || 0;
+            if (vol <= 0) return null;
+            const tier = vol >= 100000 ? { label: "High Value", cls: "border-emerald-300 bg-emerald-50 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300" }
+              : vol >= 25000 ? { label: "Mid Value", cls: "border-blue-200 bg-blue-50 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300" }
+              : { label: "Small Deal", cls: "border-slate-200 bg-slate-50 text-slate-600 dark:bg-slate-900/30 dark:text-slate-400" };
+            return (
+              <Badge variant="outline" className={`text-[10px] no-default-hover-elevate no-default-active-elevate ${tier.cls}`} data-testid={`badge-profit-tier-${deal.id}`}>
+                {tier.label}
+              </Badge>
+            );
+          })()}
+          {/* #966 — Quick Win badge: small volume deal ($0–$50k) in a late stage (Submitted or beyond) */}
+          {!isDealArchived && (() => {
+            const lateStages = ["Submitted", "Under Review", "Approved", "Go-Live Scheduled"];
+            if (!lateStages.includes(deal.stage ?? "")) return null;
+            const volStr = String((deal as any).estimatedProcessingVolume ?? "");
+            const vol = parseFloat(volStr.replace(/[^0-9.]/g, "")) || 0;
+            if (vol <= 0 || vol > 50000) return null;
+            return (
+              <Badge variant="outline" className="text-xs no-default-hover-elevate no-default-active-elevate border-green-300 bg-green-50 text-green-800 dark:bg-green-900/30 dark:text-green-300" data-testid={`badge-quick-win-${deal.id}`} title="Quick Win — small deal, late stage">
+                ⚡ Quick Win
+              </Badge>
+            );
+          })()}
+          {/* #874 — General stage age badge for non-closed stages stuck 14+ days (uses updatedAt as proxy) */}
+          {!isDealArchived && deal.stage !== "Submitted" && deal.stage !== "Closed Won" && deal.stage !== "Closed Lost" && deal.updatedAt && (() => {
+            const daysStuck = Math.floor((Date.now() - new Date(deal.updatedAt).getTime()) / 86400000);
+            if (daysStuck < 14) return null;
+            return (
+              <Badge variant="outline" className="text-xs no-default-hover-elevate no-default-active-elevate border-yellow-300 bg-yellow-50 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300" data-testid={`badge-stage-age-${deal.id}`} title={`${daysStuck} days since last update`}>
+                🕐 {daysStuck}d stale
+              </Badge>
+            );
+          })()}
+          {/* #399 — Future follow-up date when set (not overdue) */}
+          {!isDealArchived && deal.nextFollowUp && new Date(deal.nextFollowUp) >= new Date() && (
+            <Badge
+              variant="outline"
+              className="text-xs no-default-hover-elevate no-default-active-elevate border-blue-200 bg-blue-50 text-blue-700"
+              data-testid={`badge-followup-${deal.id}`}
+              title={`Follow-up: ${new Date(deal.nextFollowUp).toLocaleString()}`}
+            >
+              <Clock className="w-3 h-3 mr-1" /> {new Date(deal.nextFollowUp).toLocaleDateString()}
+            </Badge>
+          )}
+          {/* #213 — Overdue follow-up indicator */}
+          {!isDealArchived && deal.nextFollowUp && new Date(deal.nextFollowUp) < new Date() && (
+            <Badge
+              variant="outline"
+              className="text-xs no-default-hover-elevate no-default-active-elevate border-red-300 bg-red-50 text-red-700"
+              data-testid={`badge-overdue-followup-${deal.id}`}
+              title={`Follow-up was due ${new Date(deal.nextFollowUp).toLocaleDateString()}`}
+            >
+              <Clock className="w-3 h-3 mr-1" /> Overdue
+            </Badge>
+          )}
           {identity.secondary && (
             <div className="text-xs text-muted-foreground" data-testid={`text-deal-company-${deal.id}`}>
               {identity.secondary}
             </div>
           )}
+          {/* #565 — Owner chip */}
+          {deal.owner && (
+            <div className="text-xs text-muted-foreground/70 truncate" data-testid={`text-deal-owner-${deal.id}`}>
+              👤 {deal.owner}
+            </div>
+          )}
+          {/* #509 — Vertical badge on deal card */}
+          {(deal as any).vertical && (
+            <div className="text-xs text-muted-foreground/70" data-testid={`text-deal-vertical-${deal.id}`}>
+              🏷 {(deal as any).vertical}
+            </div>
+          )}
+          {/* #477 — High-value merchant badge (>$100K monthly volume) */}
+          {Number((deal as any).totalVolume) >= 100000 && (
+            <Badge
+              variant="outline"
+              className="text-[10px] no-default-hover-elevate no-default-active-elevate border-yellow-400 bg-yellow-50 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-300 dark:border-yellow-600"
+              data-testid={`badge-high-value-${deal.id}`}
+              title={`Monthly volume $${Number((deal as any).totalVolume).toLocaleString()}`}
+            >
+              💎 High Value
+            </Badge>
+          )}
+          {/* #562 / #427 — Notes preview with tooltip + "View all" dialog button */}
+          {deal.notes && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="text-xs text-muted-foreground/70 truncate mt-0.5 cursor-help" data-testid={`text-deal-notes-preview-${deal.id}`}>
+                    📝 {deal.notes.slice(0, 50)}{deal.notes.length > 50 ? "…" : ""}
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs" side="bottom">
+                  <p className="text-xs">{deal.notes}</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
+          {/* #427 — Full notes expand button (only when notes are long) */}
+          {deal.notes && deal.notes.length > 50 && (
+            <NotesExpandButton deal={deal} identity={identity} />
+          )}
+          {/* #606 — Past expected go-live date warning */}
+          {(() => {
+            const egl = (deal as any).expectedGoLiveDate;
+            const bs = (deal as any).boardingStatus;
+            if (!egl || bs === "live" || bs === "approved") return null;
+            const diffDays = Math.floor((Date.now() - new Date(egl).getTime()) / 86400000);
+            if (diffDays <= 0) return null;
+            return (
+              <Badge
+                variant="outline"
+                className="text-[10px] no-default-hover-elevate no-default-active-elevate border-red-300 bg-red-50 text-red-700 dark:bg-red-900/20 dark:border-red-700 dark:text-red-300"
+                data-testid={`badge-past-golive-${deal.id}`}
+                title={`Expected go-live: ${new Date(egl).toLocaleDateString()} — ${diffDays}d overdue`}
+              >
+                ⚠️ {diffDays}d past go-live
+              </Badge>
+            );
+          })()}
           {deal.offerPath && (
             <Badge variant="outline" className="text-xs no-default-hover-elevate no-default-active-elevate" data-testid={`badge-offer-${deal.id}`}>
               {deal.offerPath}
@@ -297,6 +510,7 @@ function SortableDealCard({
           {(deal as any).boardingStatus && (deal as any).boardingStatus !== "not_submitted" && (deal as any).boardingStatus !== "not submitted" && (() => {
             const bs = (deal as any).boardingStatus as string;
             const statusMap: Record<string, { label: string; className: string }> = {
+              pending_review: { label: "Pending Review", className: "bg-amber-50 text-amber-800 border-amber-300" },
               submitted:  { label: "Boarding Submitted", className: "bg-blue-50 text-blue-800 border-blue-200" },
               under_review: { label: "Under Review", className: "bg-amber-50 text-amber-800 border-amber-200" },
               approved:   { label: "Board Approved", className: "bg-green-50 text-green-800 border-green-200" },
@@ -304,10 +518,22 @@ function SortableDealCard({
               live:       { label: "Live / Active", className: "bg-emerald-50 text-emerald-800 border-emerald-200" },
             };
             const s = statusMap[bs] ?? { label: bs.replace(/_/g, " "), className: "bg-muted text-muted-foreground" };
+            // #394 — Stuck badge: submitted or under_review for 14+ days
+            const boardingSubmittedAt = (deal as any).boardingSubmittedAt;
+            const stuckDays = boardingSubmittedAt && (bs === "submitted" || bs === "under_review")
+              ? Math.floor((Date.now() - new Date(boardingSubmittedAt).getTime()) / 86400000)
+              : 0;
             return (
-              <Badge variant="outline" className={`text-xs no-default-hover-elevate no-default-active-elevate ${s.className}`} data-testid={`badge-boarding-${deal.id}`}>
-                {s.label}
-              </Badge>
+              <>
+                <Badge variant="outline" className={`text-xs no-default-hover-elevate no-default-active-elevate ${s.className}`} data-testid={`badge-boarding-${deal.id}`}>
+                  {s.label}
+                </Badge>
+                {stuckDays >= 14 && (
+                  <Badge variant="outline" className="text-xs no-default-hover-elevate no-default-active-elevate bg-yellow-50 text-yellow-800 border-yellow-300" data-testid={`badge-boarding-stuck-${deal.id}`} title={`Submitted ${stuckDays}d ago — may need follow-up`}>
+                    ⏳ Stuck {stuckDays}d
+                  </Badge>
+                )}
+              </>
             );
           })()}
           {proposals && proposals.length > 0 ? (() => {
@@ -386,7 +612,15 @@ function SortableDealCard({
             >
               <FileText className="w-3 h-3 mr-1" />
               {deal.proposalStatus === "resent" ? "Proposal Re-sent" : 
-               deal.proposalStatus === "sent" ? "Proposal Not Opened" :
+               deal.proposalStatus === "sent" ? (() => {
+                 // #303 — show days since proposal was sent
+                 const sentAt = (deal as any).proposalEmailSentAt;
+                 if (sentAt) {
+                   const days = Math.floor((Date.now() - new Date(sentAt).getTime()) / 86400000);
+                   return days > 0 ? `Proposal Sent · ${days}d, No Reply` : "Proposal Not Opened";
+                 }
+                 return "Proposal Not Opened";
+               })() :
                `Proposal ${deal.proposalStatus.charAt(0).toUpperCase() + deal.proposalStatus.slice(1)}`}
             </Badge>
           )}
@@ -417,14 +651,40 @@ function SortableDealCard({
               {checklistSummary.completed}/{checklistSummary.total} ✓
             </Badge>
           )}
-          <div className="text-xs text-muted-foreground" data-testid={`text-deal-date-${deal.id}`}>
-            <Calendar className="w-3 h-3 inline-block mr-1" />
+          {/* #249 — Monthly volume estimate when no live MID data */}
+          {!deal.mid && (deal as any).totalVolume && (deal as any).totalVolume > 0 && (
+            <Badge
+              variant="outline"
+              className="text-xs no-default-hover-elevate no-default-active-elevate text-blue-700 border-blue-200 bg-blue-50"
+              data-testid={`badge-est-volume-${deal.id}`}
+              title="Estimated monthly volume"
+            >
+              {`~$${Number((deal as any).totalVolume).toLocaleString()}/mo est.`}
+            </Badge>
+          )}
+          <div className="text-xs text-muted-foreground flex items-center gap-1" data-testid={`text-deal-date-${deal.id}`}>
+            <Calendar className="w-3 h-3 inline-block" />
             {(() => {
               if (!deal.createdAt) return "N/A";
               const d = new Date(deal.createdAt);
-              return isNaN(d.getTime()) ? "Unknown date" : d.toLocaleDateString();
+              if (isNaN(d.getTime())) return "Unknown date";
+              const daysOld = Math.floor((Date.now() - d.getTime()) / 86400000);
+              return <>{d.toLocaleDateString()} <span className="text-muted-foreground/60" data-testid={`text-deal-age-${deal.id}`}>({daysOld}d old)</span></>;
             })()}
           </div>
+          {/* #376 — Last modified display */}
+          {(deal as any).updatedAt && (() => {
+            const upd = new Date((deal as any).updatedAt);
+            const updDays = Math.floor((Date.now() - upd.getTime()) / 86400000);
+            if (updDays < 1) return null; // same-day updates not shown
+            return (
+              <div className="text-[10px] text-muted-foreground/50" data-testid={`text-deal-updated-${deal.id}`}>
+                Updated {updDays}d ago
+              </div>
+            );
+          })()}
+          {/* #474 — Quick inline note editor */}
+          <QuickNoteEditor deal={deal} />
         </CardContent>
       </Card>
     </div>
@@ -469,12 +729,30 @@ function DroppableColumn({
   confirmationFailedMap?: Map<number, ConfirmationFailedStatus>;
 }) {
   return (
-    <div className="w-[270px] flex-shrink-0" data-testid={`stage-column-${stage.replace(/\s+/g, "-").toLowerCase()}`}>
+    <div className="w-[270px] max-w-[300px] flex-shrink-0" data-testid={`stage-column-${stage.replace(/\s+/g, "-").toLowerCase()}`}>{/* #233 — kanban column max-width cap */}
       <div className={`${colorClass} text-white px-3 py-2 rounded-md mb-3 flex items-center justify-between gap-2`}>
         <span className="text-sm font-semibold truncate">{stage}</span>
-        <Badge variant="secondary" className="text-xs no-default-hover-elevate no-default-active-elevate" data-testid={`badge-count-${stage.replace(/\s+/g, "-").toLowerCase()}`}>
-          {stageDeals.length}
-        </Badge>
+        <div className="flex items-center gap-1">
+          {/* #367 — Stage estimated revenue total · #469 — avg deal value tooltip */}
+          {(() => {
+            const vols = stageDeals.map(d => Number((d as any).totalVolume) || 0).filter(v => v > 0);
+            if (vols.length === 0) return null;
+            const totalVol = vols.reduce((s, v) => s + v, 0);
+            const avgVol = Math.round(totalVol / vols.length);
+            return (
+              <span
+                className="text-[10px] opacity-80 font-normal"
+                data-testid={`text-stage-revenue-${stage.replace(/\s+/g, "-").toLowerCase()}`}
+                title={`Total: $${totalVol.toLocaleString()} · Avg: $${avgVol.toLocaleString()}/mo`}
+              >
+                ~${totalVol.toLocaleString()}
+              </span>
+            );
+          })()}
+          <Badge variant="secondary" className="text-xs no-default-hover-elevate no-default-active-elevate" data-testid={`badge-count-${stage.replace(/\s+/g, "-").toLowerCase()}`}>
+            {stageDeals.length}
+          </Badge>
+        </div>
       </div>
       <SortableContext items={stageDeals.map((d) => d.id)} strategy={verticalListSortingStrategy}>
         <div className="space-y-3 min-h-[200px]" data-droppable-stage={stage}>
@@ -513,6 +791,67 @@ function DroppableColumn({
           )}
         </div>
       </SortableContext>
+    </div>
+  );
+}
+
+// #1281 — Deal competitors section (inline component, uses existing /api/deal-competitors endpoints)
+function DealCompetitorsSection({ dealId }: { dealId: number }) {
+  const { data: competitors = [], refetch } = useQuery<Array<{ id: number; name: string; notes: string | null }>>({
+    queryKey: ["/api/deal-competitors/deal", dealId],
+    queryFn: () => fetch(`/api/deal-competitors/deal/${dealId}`).then(r => r.json()),
+  });
+  const [adding, setAdding] = useState(false);
+  const [newName, setNewName] = useState("");
+  const { toast } = useToast();
+
+  const handleAdd = async () => {
+    if (!newName.trim()) return;
+    try {
+      const res = await apiRequest("POST", "/api/deal-competitors", { dealId, name: newName.trim(), notes: "" });
+      if (!res.ok) throw new Error("Failed to add");
+      setNewName("");
+      setAdding(false);
+      refetch();
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
+  };
+
+  return (
+    <div className="border-t pt-4" data-testid="deal-competitors-section">
+      <p className="text-sm font-medium mb-2 flex items-center justify-between">
+        <span className="flex items-center gap-1"><Users className="h-4 w-4" /> Competitors</span>
+        <button onClick={() => setAdding(v => !v)} className="text-xs text-primary hover:underline">
+          {adding ? "Cancel" : "+ Add"}
+        </button>
+      </p>
+      {adding && (
+        <div className="flex gap-2 mb-2">
+          <input
+            className="flex-1 text-xs border rounded px-2 py-1 bg-background"
+            placeholder="Competitor name…"
+            value={newName}
+            autoFocus
+            onChange={e => setNewName(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter") handleAdd(); if (e.key === "Escape") { setAdding(false); setNewName(""); } }}
+            data-testid="input-new-competitor"
+          />
+          <Button size="sm" className="h-7 text-xs" onClick={handleAdd}>Add</Button>
+        </div>
+      )}
+      {competitors.length === 0 && !adding && (
+        <p className="text-xs text-muted-foreground">No competitors tracked yet.</p>
+      )}
+      <ul className="space-y-1">
+        {competitors.map(c => (
+          <li key={c.id} className="text-xs flex items-center gap-1.5">
+            <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/50 flex-shrink-0" />
+            <span className="font-medium">{c.name}</span>
+            {c.notes && <span className="text-muted-foreground">— {c.notes}</span>}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -617,6 +956,7 @@ export default function Pipeline() {
   const [selectedDeal, setSelectedDeal] = useState<Deal | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const search = useSearch();
+  const [, navigatePipeline] = useLocation();
   const dealIdParam = (() => {
     const v = new URLSearchParams(search).get("id");
     const n = v ? Number(v) : NaN;
@@ -732,16 +1072,62 @@ export default function Pipeline() {
   const [proposalsRetryingByDeal, setProposalsRetryingByDeal] = useState<Record<string, boolean>>({});
 
   const [selectedDealIds, setSelectedDealIds] = useState<Set<number>>(new Set());
-  const [showArchived, setShowArchived] = useState(false);
-  const [sortMode, setSortMode] = useState<"default" | "volume_desc" | "trending_down" | "no_activity">("default");
-  const [groupFilterContactId, setGroupFilterContactId] = useState<number | null>(null);
+  // #191 — Initialise filters from URL so bookmarks and back-nav work
+  const _initParams = new URLSearchParams(search);
+  const [showArchived, setShowArchivedRaw] = useState(() => _initParams.get("archived") === "true");
+  const [sortMode, setSortModeRaw] = useState<"default" | "volume_desc" | "trending_down" | "no_activity" | "past_golive" | "urgency">(
+    () => (["default", "volume_desc", "trending_down", "no_activity"].includes(_initParams.get("sort") ?? "")
+      ? _initParams.get("sort") as any : "default")
+  );
+  const [groupFilterContactId, setGroupFilterContactIdRaw] = useState<number | null>(() => {
+    const v = _initParams.get("group");
+    const n = v ? Number(v) : NaN;
+    return Number.isFinite(n) ? n : null;
+  });
+
+  // Sync filter state to URL
+  const syncFiltersToUrl = (overrides: { archived?: boolean; sort?: string; group?: number | null }) => {
+    const params = new URLSearchParams(search);
+    const a = overrides.archived ?? showArchived;
+    const s = overrides.sort ?? sortMode;
+    const g = overrides.group !== undefined ? overrides.group : groupFilterContactId;
+    if (a) params.set("archived", "true"); else params.delete("archived");
+    if (s && s !== "default") params.set("sort", s); else params.delete("sort");
+    if (g) params.set("group", String(g)); else params.delete("group");
+    navigatePipeline(`/dashboard/pipeline?${params.toString()}`, { replace: true });
+  };
+
+  const setShowArchived = (v: boolean) => { setShowArchivedRaw(v); syncFiltersToUrl({ archived: v }); };
+  const setSortMode = (v: "default" | "volume_desc" | "trending_down" | "no_activity") => { setSortModeRaw(v); syncFiltersToUrl({ sort: v }); };
+  const setGroupFilterContactId = (v: number | null) => { setGroupFilterContactIdRaw(v); syncFiltersToUrl({ group: v }); };
 
   const [editStage, setEditStage] = useState("");
   const [editNotes, setEditNotes] = useState("");
   const [editFollowUp, setEditFollowUp] = useState("");
+  const [editExpectedGoLiveDate, setEditExpectedGoLiveDate] = useState(""); // #393
   const [editAgentId, setEditAgentId] = useState<string>("none");
   const [editMid, setEditMid] = useState("");
   const [editVertical, setEditVertical] = useState("");
+  // #537 — Won/lost reason prompt
+  const [closeReasonOpen, setCloseReasonOpen] = useState(false);
+  const [closeReasonDraft, setCloseReasonDraft] = useState("");
+  // #361 — Pipeline board vertical filter
+  const [verticalFilter, setVerticalFilter] = useState("");
+  // #405 — Pipeline board offer path filter
+  const [offerPathFilter, setOfferPathFilter] = useState("");
+  // #480 — Hide empty stages toggle
+  const [hideEmptyStages, setHideEmptyStages] = useState(false);
+  // #475 — No follow-up filter
+  const [showNoFollowUpOnly, setShowNoFollowUpOnly] = useState(false);
+  // #623 — Unassigned deals (no owner) filter
+  const [showUnassignedOnly, setShowUnassignedOnly] = useState(false);
+  // #739 — Filter by assigned rep
+  const [repEmailFilter, setRepEmailFilter] = useState("");
+  // #450 — Kanban / list view toggle
+  const [viewMode, setViewMode] = useState<"kanban" | "list">("kanban");
+  // #450 — List sort
+  const [listSortField, setListSortField] = useState<"stage" | "volume" | "updatedAt" | "owner">("updatedAt");
+  // #427 — Notes dialog handled inside NotesExpandButton (self-contained)
 
   const fetchSingleDealProposals = async (dealId: number): Promise<CoBrandedProposal[] | null> => {
     try {
@@ -1201,19 +1587,33 @@ export default function Pipeline() {
     createDealMutation.mutate(payload);
   };
 
-  const handleUpdateDeal = () => {
+  // #537 — Won/lost reason dialog handler
+  const submitDealUpdateWithReason = (reason?: string) => {
     if (!selectedDeal) return;
     const updates: Record<string, unknown> = {};
     if (editStage && editStage !== selectedDeal.stage) updates.stage = editStage;
     if (editNotes !== (selectedDeal.notes || "")) updates.notes = editNotes;
+    else if (reason) updates.notes = reason; // embed reason in notes when no other note change
     if (editFollowUp) updates.nextFollowUp = new Date(editFollowUp).toISOString();
+    if (editExpectedGoLiveDate) (updates as any).expectedGoLiveDate = new Date(editExpectedGoLiveDate).toISOString(); // #393
     if (editMid !== (selectedDeal.mid || "")) updates.mid = editMid.trim() || null;
     if (editVertical !== (selectedDeal.vertical || "")) updates.vertical = editVertical || null;
-    if (Object.keys(updates).length === 0) {
-      setDetailOpen(false);
+    if (reason && !updates.notes) updates.closeReason = reason;
+    if (Object.keys(updates).length === 0) { setDetailOpen(false); return; }
+    updateDealMutation.mutate({ id: selectedDeal.id, ...updates });
+    setCloseReasonOpen(false);
+    setCloseReasonDraft("");
+  };
+
+  const handleUpdateDeal = () => {
+    if (!selectedDeal) return;
+    // If stage is changing to Closed Won / Closed Lost, require a reason
+    if (editStage && editStage !== selectedDeal.stage &&
+        (editStage === "Closed Won" || editStage === "Closed Lost")) {
+      setCloseReasonOpen(true);
       return;
     }
-    updateDealMutation.mutate({ id: selectedDeal.id, ...updates });
+    submitDealUpdateWithReason();
   };
 
   const openDealDetail = (deal: Deal) => {
@@ -1221,6 +1621,7 @@ export default function Pipeline() {
     setEditStage(deal.stage);
     setEditNotes(deal.notes || "");
     setEditFollowUp(deal.nextFollowUp ? new Date(deal.nextFollowUp).toISOString().slice(0, 16) : "");
+    setEditExpectedGoLiveDate((deal as any).expectedGoLiveDate ? new Date((deal as any).expectedGoLiveDate).toISOString().slice(0, 10) : ""); // #393
     setEditAgentId("none");
     setEditMid(deal.mid || "");
     setEditVertical(deal.vertical || "");
@@ -1287,6 +1688,11 @@ export default function Pipeline() {
     const deal = deals.find((d) => d.id === dealIdParam);
     if (deal && (!detailOpen || selectedDeal?.id !== dealIdParam)) {
       openDealDetail(deal);
+      // #229 — Auto-scroll the kanban card into view
+      setTimeout(() => {
+        const el = document.querySelector<HTMLElement>(`[data-testid="deal-card-${dealIdParam}"]`);
+        el?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+      }, 300);
     }
   }, [dealIdParam, deals]);
 
@@ -1296,6 +1702,25 @@ export default function Pipeline() {
       const isArchived = !!(d as any).archivedAt;
       if (!showArchived && isArchived) return false;
       if (groupFilterContactIds && !groupFilterContactIds.has(d.contactId!)) return false;
+      // #361 — vertical filter
+      if (verticalFilter) {
+        const contactVertical = d.contactId ? getContactVertical(d.contactId) : "";
+        const dealVertical = (d as any).vertical || "";
+        if (contactVertical !== verticalFilter && dealVertical !== verticalFilter) return false;
+      }
+      // #405 — offer path filter
+      if (offerPathFilter && (d as any).offerPath !== offerPathFilter) return false;
+      // #475 — no follow-up filter
+      if (showNoFollowUpOnly && d.nextFollowUp) return false;
+      // #623 — unassigned deals filter
+      if (showUnassignedOnly && (d as any).assignedToId) return false;
+      // #1055 — past expected go-live date filter (overdue, not yet closed/live)
+      if ((d as any).showPastGoLiveOnly) { /* handled as sort mode */ }
+      // #739 — rep filter: match on deal.owner (email) or deal.assignedTo
+      if (repEmailFilter) {
+        const dealOwner = (d as any).owner || (d as any).assignedTo || "";
+        if (dealOwner !== repEmailFilter) return false;
+      }
       if (sortMode === "trending_down") {
         const s = midSummaries[String(d.id)];
         if (!s || s.totalVolume <= 0 || s.trendPct >= 0) return false;
@@ -1303,11 +1728,26 @@ export default function Pipeline() {
         if (!d.mid) return false;
         const s = midSummaries[String(d.id)];
         if (s && s.totalVolume > 0) return false;
+      } else if (sortMode === "past_golive") {
+        // #1055 — filter to deals where expected go-live is in the past and not already closed/live
+        const egl = (d as any).expectedGoLiveDate;
+        const bs = (d as any).boardingStatus;
+        if (!egl || bs === "live" || bs === "approved") return false;
+        if (new Date(egl).getTime() >= Date.now()) return false;
       }
       return true;
     });
 
-    if (sortMode === "volume_desc") {
+    if (sortMode === "urgency") {
+      // #1199 — Urgency = volume score + go-live proximity score
+      filtered.sort((a, b) => {
+        const volA = parseFloat(String((a as any).estimatedProcessingVolume ?? "").replace(/[^0-9.]/g, "")) || 0;
+        const volB = parseFloat(String((b as any).estimatedProcessingVolume ?? "").replace(/[^0-9.]/g, "")) || 0;
+        const eglA = (a as any).expectedGoLiveDate ? Math.max(0, 90 - Math.floor((new Date((a as any).expectedGoLiveDate).getTime() - Date.now()) / 86400000)) : 0;
+        const eglB = (b as any).expectedGoLiveDate ? Math.max(0, 90 - Math.floor((new Date((b as any).expectedGoLiveDate).getTime() - Date.now()) / 86400000)) : 0;
+        return (volB / 10000 + eglB) - (volA / 10000 + eglA);
+      });
+    } else if (sortMode === "volume_desc") {
       filtered.sort((a, b) => {
         const av = midSummaries[String(a.id)]?.totalVolume || 0;
         const bv = midSummaries[String(b.id)]?.totalVolume || 0;
@@ -1357,8 +1797,15 @@ export default function Pipeline() {
 
   return (
     <div className="space-y-6" data-testid="pipeline-page">
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <h2 className="text-2xl font-bold" data-testid="text-pipeline-title">Sales Pipeline</h2>
+      {/* #190 — Sticky header on scroll */}
+      <div className="sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 -mx-2 px-2 pb-3">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <h2 className="text-2xl font-bold" data-testid="text-pipeline-title">
+            Sales Pipeline
+            {dealsResult?.total != null && (
+              <span className="ml-2 text-base font-normal text-muted-foreground" data-testid="text-pipeline-total-count">({dealsResult.total})</span>
+            )}
+          </h2>
         <div className="flex items-center gap-3 flex-wrap">
           <div className="flex items-center gap-2" data-testid="toggle-show-archived-deals">
             <Switch
@@ -1370,6 +1817,47 @@ export default function Pipeline() {
               Show Archived
             </Label>
           </div>
+          {/* #480 — Hide empty stages */}
+          <div className="flex items-center gap-2" data-testid="toggle-hide-empty-stages">
+            <Switch
+              checked={hideEmptyStages}
+              onCheckedChange={setHideEmptyStages}
+              data-testid="switch-hide-empty-stages"
+            />
+            <Label className="text-sm cursor-pointer" onClick={() => setHideEmptyStages(v => !v)}>
+              Hide empty
+            </Label>
+          </div>
+          {/* #623 — Unassigned deals toggle */}
+          <div className="flex items-center gap-2" data-testid="toggle-unassigned-only">
+            <Switch
+              checked={showUnassignedOnly}
+              onCheckedChange={setShowUnassignedOnly}
+              data-testid="switch-unassigned-only"
+            />
+            <Label className="text-sm cursor-pointer" onClick={() => setShowUnassignedOnly(v => !v)}>
+              Unassigned
+            </Label>
+          </div>
+          {/* #450 — Kanban / List view toggle */}
+          <div className="flex items-center gap-1 border rounded-md overflow-hidden" data-testid="toggle-view-mode">
+            <Button
+              variant={viewMode === "kanban" ? "secondary" : "ghost"}
+              size="sm" className="h-8 px-3 rounded-none text-xs"
+              onClick={() => setViewMode("kanban")}
+              data-testid="button-view-kanban"
+            >
+              Kanban
+            </Button>
+            <Button
+              variant={viewMode === "list" ? "secondary" : "ghost"}
+              size="sm" className="h-8 px-3 rounded-none text-xs"
+              onClick={() => setViewMode("list")}
+              data-testid="button-view-list"
+            >
+              List
+            </Button>
+          </div>
           <Select value={sortMode} onValueChange={(v) => setSortMode(v as any)}>
             <SelectTrigger className="h-9 w-[180px]" data-testid="select-pipeline-sort">
               <ArrowUpDown className="w-3.5 h-3.5 mr-1.5 opacity-70" />
@@ -1377,11 +1865,61 @@ export default function Pipeline() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="default" data-testid="sort-default">Default order</SelectItem>
+              <SelectItem value="past_golive" data-testid="sort-past-golive">Past expected go-live</SelectItem>
+              <SelectItem value="urgency" data-testid="sort-urgency">By urgency (size + timeline)</SelectItem>
               <SelectItem value="volume_desc" data-testid="sort-volume-desc">Highest 30d volume</SelectItem>
               <SelectItem value="trending_down" data-testid="sort-trending-down">Trending down only</SelectItem>
               <SelectItem value="no_activity" data-testid="sort-no-activity">No activity (MID idle)</SelectItem>
             </SelectContent>
           </Select>
+          {/* #739 — Rep filter */}
+          {agentsList && agentsList.length > 0 && (
+            <Select value={repEmailFilter || "__all__"} onValueChange={v => setRepEmailFilter(v === "__all__" ? "" : v)}>
+              <SelectTrigger className="h-9 w-[160px]" data-testid="select-pipeline-rep-filter">
+                <SelectValue placeholder="All reps" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">All reps</SelectItem>
+                {(agentsList || []).filter((a: any) => a.status === "active").map((agent: any) => (
+                  <SelectItem key={agent.id} value={agent.email}>
+                    {agent.firstName} {agent.lastName}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          {/* #361 — Vertical filter on pipeline board */}
+          <Select value={verticalFilter || "__all__"} onValueChange={v => setVerticalFilter(v === "__all__" ? "" : v)}>
+            <SelectTrigger className="h-9 w-[150px]" data-testid="select-pipeline-vertical-filter">
+              <SelectValue placeholder="All verticals" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all__">All verticals</SelectItem>
+              {VERTICALS.map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          {/* #405 — Offer path filter on pipeline board */}
+          <Select value={offerPathFilter || "__all__"} onValueChange={v => setOfferPathFilter(v === "__all__" ? "" : v)}>
+            <SelectTrigger className="h-9 w-[150px]" data-testid="select-pipeline-offerpath-filter">
+              <SelectValue placeholder="All paths" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all__">All paths</SelectItem>
+              {OFFER_PATHS.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          {/* #475 — No follow-up filter chip */}
+          <button
+            onClick={() => setShowNoFollowUpOnly(v => !v)}
+            data-testid="chip-no-followup"
+            className={`h-9 px-3 rounded-md text-sm border flex items-center gap-1.5 transition-colors ${
+              showNoFollowUpOnly
+                ? "bg-orange-50 border-orange-300 text-orange-700"
+                : "bg-background border-border text-muted-foreground hover:bg-muted"
+            }`}
+          >
+            No follow-up
+          </button>
           {parentAccountContacts.length > 0 && (
             <Select
               value={groupFilterContactId ? String(groupFilterContactId) : "all"}
@@ -1550,6 +2088,7 @@ export default function Pipeline() {
         </Dialog>
         </div>
       </div>
+      </div>{/* end sticky header */}
 
       {selectedDealIds.size > 0 && (
         <div className="flex items-center gap-3 flex-wrap" data-testid="pipeline-bulk-bar">
@@ -1580,6 +2119,32 @@ export default function Pipeline() {
                   ))}
                 </DropdownMenuSubContent>
               </DropdownMenuSub>
+              {/* #574 — Bulk assign to agent */}
+              {isManagerOrAdmin && (
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger data-testid="button-bulk-assign-agent">
+                    Assign to Rep
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent>
+                    {(agentsList || []).filter(a => a.status === "active").map(agent => (
+                      <DropdownMenuItem
+                        key={agent.id}
+                        data-testid={`button-bulk-assign-${agent.id}`}
+                        onClick={async () => {
+                          await Promise.all(
+                            Array.from(selectedDealIds).map(id =>
+                              apiRequest("POST", `/api/deals/${id}/assign-agent`, { agentId: agent.id })
+                            )
+                          );
+                          queryClient.invalidateQueries({ queryKey: ["/api/deals"] });
+                        }}
+                      >
+                        {agent.firstName} {agent.lastName}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+              )}
               <DropdownMenuItem
                 data-testid="button-bulk-archive"
                 onClick={() => bulkArchiveMutation.mutate(Array.from(selectedDealIds))}
@@ -1608,15 +2173,154 @@ export default function Pipeline() {
         }}
       />
 
+      {/* #228 — Stage count summary bar above the kanban board */}
+      {SALES_STAGES.length > 0 && deals && (
+        <div className="flex flex-wrap gap-2 text-xs" data-testid="pipeline-stage-summary">
+          {SALES_STAGES.map(stage => {
+            const stageDealsArr = getDealsByStage(stage);
+            const count = stageDealsArr.length;
+            const stageRevenue = stageDealsArr.reduce((s, d) => s + ((d as any).totalVolume || (d as any).estMonthlyRevenue || 0), 0);
+            return (
+              <span key={stage} className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 bg-muted/50">
+                <span className={`w-2 h-2 rounded-full ${STAGE_COLORS[stage] || "bg-gray-500"}`} />
+                <span className="text-muted-foreground">{stage}:</span>
+                <span className="font-semibold">{count}</span>
+                {stageRevenue > 0 && <span className="text-muted-foreground/70 ml-0.5">~${Math.round(stageRevenue / 1000)}k</span>}
+              </span>
+            );
+          })}
+          {/* #951 — Deals due to go live in next 30 days */}
+          {deals && (() => {
+            const now = Date.now();
+            const in30days = now + 30 * 24 * 60 * 60 * 1000;
+            const soonCount = (deals || []).filter((d: any) => {
+              if (!d.expectedGoLiveDate || d.archivedAt || d.stage === "Closed Won" || d.stage === "Closed Lost") return false;
+              const t = new Date(d.expectedGoLiveDate).getTime();
+              return t >= now && t <= in30days;
+            }).length;
+            if (soonCount === 0) return null;
+            return (
+              <span className="inline-flex items-center gap-1 rounded-full border border-blue-300 px-2 py-0.5 bg-blue-50 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 font-medium" data-testid="badge-go-live-soon">
+                📆 {soonCount} going live in 30d
+              </span>
+            );
+          })()}
+          {/* #645 — Won this month */}
+          {deals && (() => {
+            const monthStart = new Date();
+            monthStart.setDate(1);
+            monthStart.setHours(0, 0, 0, 0);
+            const wonCount = (deals || []).filter((d: any) => d.stage === "Closed Won" && d.updatedAt && new Date(d.updatedAt) >= monthStart).length;
+            const wonVolume = (deals || []).filter((d: any) => d.stage === "Closed Won" && d.updatedAt && new Date(d.updatedAt) >= monthStart)
+              .reduce((s: number, d: any) => s + (Number(d.totalVolume) || 0), 0);
+            if (wonCount === 0) return null;
+            return (
+              <span className="inline-flex items-center gap-1 rounded-full border border-green-300 px-2 py-0.5 bg-green-50 text-green-800 dark:bg-green-900/30 dark:text-green-300 font-medium" data-testid="badge-won-this-month">
+                🏆 {wonCount} won this month{wonVolume > 0 ? ` · ~$${Math.round(wonVolume / 1000)}k` : ""}
+              </span>
+            );
+          })()}
+          {/* #530 — Upcoming follow-ups this week */}
+          {deals && (() => {
+            const now = Date.now();
+            const weekAhead = now + 7 * 24 * 60 * 60 * 1000;
+            const dueCount = deals.filter((d: any) => {
+              if (!d.nextFollowUp || d.archivedAt) return false;
+              const t = new Date(d.nextFollowUp).getTime();
+              return t >= now && t <= weekAhead;
+            }).length;
+            return dueCount > 0 ? (
+              <span className="inline-flex items-center gap-1 rounded-full border border-amber-300 px-2 py-0.5 bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 font-medium" data-testid="badge-follow-ups-due">
+                📅 {dueCount} follow-up{dueCount !== 1 ? "s" : ""} due this week
+              </span>
+            ) : null;
+          })()}
+          <span className="inline-flex items-center gap-1 rounded-full border border-primary/30 px-2 py-0.5 bg-primary/5 text-primary font-medium ml-auto">
+            Total: {SALES_STAGES.reduce((s, st) => s + getDealsByStage(st).length, 0)}
+            {deals && (() => {
+              const totalRev = deals.reduce((s: number, d: any) => s + ((d.totalVolume || d.estMonthlyRevenue || 0) as number), 0);
+              return totalRev > 0 ? <span className="ml-1 text-primary/70">~${Math.round(totalRev / 1000)}k</span> : null;
+            })()}
+          </span>
+          {/* #695 — Closed-won volume total */}
+          {deals && (() => {
+            const closedWonDeals = (deals || []).filter((d: any) => d.stage === "Closed Won" && !d.archivedAt);
+            const closedVol = closedWonDeals.reduce((s: number, d: any) => s + (Number(d.totalVolume) || 0), 0);
+            if (closedVol === 0 || closedWonDeals.length === 0) return null;
+            return (
+              <span className="inline-flex items-center gap-1 rounded-full border border-green-300 px-2 py-0.5 bg-green-50 text-green-800 dark:bg-green-900/30 dark:text-green-200 text-xs font-medium" data-testid="badge-closed-volume">
+                Closed: ~${Math.round(closedVol / 1000)}k across {closedWonDeals.length} won
+              </span>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* #450 — Flat list view of deals */}
+      {viewMode === "list" && (() => {
+        const allVisibleDeals = SALES_STAGES.flatMap(s => getDealsByStage(s));
+        const sorted = [...allVisibleDeals].sort((a, b) => {
+          if (listSortField === "volume") return ((b as any).totalVolume || 0) - ((a as any).totalVolume || 0);
+          if (listSortField === "stage") return (a.stage || "").localeCompare(b.stage || "");
+          if (listSortField === "owner") return ((a as any).owner || "").localeCompare((b as any).owner || "");
+          return new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime();
+        });
+        return (
+          <div className="space-y-2" data-testid="pipeline-list-view">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+              <span>Sort:</span>
+              {([["updatedAt","Recent"], ["stage","Stage"], ["volume","Volume"], ["owner","Owner"]] as const).map(([k, label]) => (
+                <button key={k} onClick={() => setListSortField(k as any)}
+                  className={`px-2 py-0.5 rounded border ${listSortField === k ? "bg-secondary border-primary text-primary" : "border-border"}`}
+                  data-testid={`sort-list-${k}`}
+                >{label}</button>
+              ))}
+            </div>
+            <div className="overflow-x-auto rounded-md border">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-xs text-muted-foreground bg-muted/40 border-b">
+                    <th className="text-left px-3 py-2">Deal</th>
+                    <th className="text-left px-3 py-2">Stage</th>
+                    <th className="text-left px-3 py-2">Owner</th>
+                    <th className="text-right px-3 py-2">Volume</th>
+                    <th className="text-left px-3 py-2">Follow-up</th>
+                    <th className="text-left px-3 py-2">Updated</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sorted.map(deal => {
+                    const identity = getDealCardIdentity(deal, deal.contactId);
+                    return (
+                      <tr key={deal.id} onClick={() => openDealDetail(deal)} className="cursor-pointer hover:bg-muted/30 border-b last:border-0 transition-colors" data-testid={`list-row-deal-${deal.id}`}>
+                        <td className="px-3 py-2 font-medium max-w-[200px] truncate">{identity.primary}</td>
+                        <td className="px-3 py-2">
+                          <span className={`inline-block w-2 h-2 rounded-full mr-1.5 ${STAGE_COLORS[deal.stage] || "bg-slate-400"}`} />
+                          {deal.stage}
+                        </td>
+                        <td className="px-3 py-2 text-muted-foreground text-xs">{(deal as any).owner || "—"}</td>
+                        <td className="px-3 py-2 text-right text-xs font-mono">{(deal as any).totalVolume ? `$${Number((deal as any).totalVolume).toLocaleString()}` : "—"}</td>
+                        <td className="px-3 py-2 text-xs">{deal.nextFollowUp ? new Date(deal.nextFollowUp).toLocaleDateString() : "—"}</td>
+                        <td className="px-3 py-2 text-xs text-muted-foreground">{deal.updatedAt ? new Date(deal.updatedAt).toLocaleDateString() : "—"}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })()}
+
       <DndContext
         sensors={sensors}
         collisionDetection={closestCorners}
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
       >
-        <ScrollArea className="w-full" data-testid="pipeline-board">
+        <ScrollArea className={`w-full ${viewMode === "list" ? "hidden" : ""}`} data-testid="pipeline-board">
           <div className="flex gap-4 pb-4" style={{ minWidth: `${SALES_STAGES.length * 280}px` }}>
-            {SALES_STAGES.map((stage) => {
+            {SALES_STAGES.filter(stage => !hideEmptyStages || getDealsByStage(stage).length > 0).map((stage) => {
               const stageDeals = getDealsByStage(stage);
               const colorClass = STAGE_COLORS[stage] || "bg-gray-500";
               return (
@@ -1679,7 +2383,19 @@ export default function Pipeline() {
                     <>
                       <div>
                         <span className="text-muted-foreground">Contact</span>
-                        <div className="font-medium" data-testid="text-detail-contact">{detailPrimary}</div>
+                        {/* #503 — Clickable link to contact profile */}
+                        {selectedDeal.contactId ? (
+                          <a
+                            href={`/dashboard/contacts/${selectedDeal.contactId}`}
+                            className="font-medium text-primary hover:underline"
+                            data-testid="text-detail-contact"
+                            onClick={e => { e.preventDefault(); navigatePipeline(`/dashboard/contacts/${selectedDeal.contactId}`); }}
+                          >
+                            {detailPrimary}
+                          </a>
+                        ) : (
+                          <div className="font-medium" data-testid="text-detail-contact">{detailPrimary}</div>
+                        )}
                       </div>
                       <div>
                         <span className="text-muted-foreground">Company</span>
@@ -1707,6 +2423,13 @@ export default function Pipeline() {
                   <span className="text-muted-foreground">Owner</span>
                   <div className="font-medium" data-testid="text-detail-owner">{selectedDeal.owner || "Unassigned"}</div>
                 </div>
+                {/* #610 — Follow-up date readonly display */}
+                {selectedDeal.nextFollowUp && (
+                  <div>
+                    <span className="text-muted-foreground">Follow-up</span>
+                    <div className="font-medium" data-testid="text-detail-followup">{new Date(selectedDeal.nextFollowUp).toLocaleString()}</div>
+                  </div>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -1752,13 +2475,52 @@ export default function Pipeline() {
               </div>
 
               <div className="space-y-2">
-                <Label>Next Follow-Up</Label>
+                <div className="flex items-center justify-between">
+                  <Label>Next Follow-Up</Label>
+                  {/* #576 — Stage-based follow-up suggestion */}
+                  {editStage && !editFollowUp && (() => {
+                    const STAGE_FOLLOWUP_DAYS: Record<string, number> = {
+                      "Call Booked": 2,
+                      "Proposal Sent": 7,
+                      "Negotiation / Follow-Up": 3,
+                      "Verbal Commit": 1,
+                      "Statement Received": 2,
+                      "Review In Progress": 5,
+                    };
+                    const days = STAGE_FOLLOWUP_DAYS[editStage];
+                    if (!days) return null;
+                    const suggested = new Date(Date.now() + days * 86400000);
+                    const iso = suggested.toISOString().slice(0, 16);
+                    return (
+                      <button
+                        type="button"
+                        className="text-xs text-primary hover:underline"
+                        data-testid="button-suggest-followup"
+                        onClick={() => setEditFollowUp(iso)}
+                      >
+                        Suggest +{days}d
+                      </button>
+                    );
+                  })()}
+                </div>
                 <Input
                   type="datetime-local"
                   value={editFollowUp}
                   onChange={(e) => setEditFollowUp(e.target.value)}
                   data-testid="input-edit-followup"
                 />
+              </div>
+
+              {/* #393 — Expected go-live date */}
+              <div className="space-y-2">
+                <Label>Expected Go-Live Date</Label>
+                <Input
+                  type="date"
+                  value={editExpectedGoLiveDate}
+                  onChange={(e) => setEditExpectedGoLiveDate(e.target.value)}
+                  data-testid="input-edit-expected-go-live"
+                />
+                <p className="text-xs text-muted-foreground">When you expect this merchant to start processing.</p>
               </div>
 
               <div className="space-y-2">
@@ -1840,6 +2602,40 @@ export default function Pipeline() {
                 </div>
               )}
 
+              {/* #1005 — Deal age metric */}
+              {selectedDeal?.createdAt && (
+                <div className="text-xs text-muted-foreground flex items-center gap-1" data-testid="text-deal-age">
+                  <span>Deal age:</span>
+                  <span className="font-medium text-foreground">
+                    {Math.floor((Date.now() - new Date(selectedDeal.createdAt).getTime()) / 86400000)} days
+                  </span>
+                </div>
+              )}
+
+              {/* #527 — Submit deal for manager review */}
+              {!(selectedDeal as any).archivedAt && (selectedDeal as any).boardingStatus !== "pending_review" && (
+                <div className="border rounded-md p-3 bg-amber-50 dark:bg-amber-900/10">
+                  <p className="text-xs text-muted-foreground mb-2">
+                    Ready for boarding? Submit this deal for manager review before boarding.
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs border-amber-400 text-amber-800 hover:bg-amber-100 dark:text-amber-300 dark:border-amber-700"
+                    disabled={updateDealMutation.isPending}
+                    onClick={() => {
+                      updateDealMutation.mutate({
+                        id: selectedDeal.id,
+                        boardingStatus: "pending_review",
+                      });
+                    }}
+                    data-testid="button-submit-for-review"
+                  >
+                    📋 Submit for Manager Review
+                  </Button>
+                </div>
+              )}
+
               <div className="flex justify-end gap-2 pt-2">
                 {!(selectedDeal as any).archivedAt && (
                   <Button
@@ -1857,6 +2653,41 @@ export default function Pipeline() {
                   {updateDealMutation.isPending ? "Saving..." : "Save Changes"}
                 </Button>
               </div>
+
+              {/* #537 — Won/Lost reason dialog */}
+              <Dialog open={closeReasonOpen} onOpenChange={setCloseReasonOpen}>
+                <DialogContent data-testid="dialog-close-reason">
+                  <DialogHeader>
+                    <DialogTitle>{editStage === "Closed Won" ? "🎉 Mark as Won" : "Mark as Lost"}</DialogTitle>
+                  </DialogHeader>
+                  <div className="space-y-3 py-2">
+                    <p className="text-sm text-muted-foreground">
+                      {editStage === "Closed Won"
+                        ? "What clinched the deal? This helps track what's working."
+                        : "What caused this deal to be lost? This helps improve future pitches."}
+                    </p>
+                    <Textarea
+                      placeholder={editStage === "Closed Won" ? "e.g. Rate match, fast approval, referral…" : "e.g. Pricing, went with competitor, no budget…"}
+                      value={closeReasonDraft}
+                      onChange={e => setCloseReasonDraft(e.target.value)}
+                      rows={3}
+                      data-testid="textarea-close-reason"
+                    />
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <Button variant="outline" onClick={() => { setCloseReasonOpen(false); setCloseReasonDraft(""); }} data-testid="button-close-reason-cancel">
+                      Cancel
+                    </Button>
+                    <Button
+                      onClick={() => submitDealUpdateWithReason(closeReasonDraft || undefined)}
+                      disabled={updateDealMutation.isPending}
+                      data-testid="button-close-reason-save"
+                    >
+                      {updateDealMutation.isPending ? "Saving…" : `Save as ${editStage}`}
+                    </Button>
+                  </div>
+                </DialogContent>
+              </Dialog>
 
               {/* Co-branded proposal section — only shows when deal has a partner org */}
               {(selectedDeal as any).partnerOrgId && (
@@ -1980,6 +2811,20 @@ export default function Pipeline() {
                                 <ExternalLink className="w-3.5 h-3.5" />
                               </button>
                             </a>
+                            {/* #476 — Manually mark proposal as viewed */}
+                            {!p.acceptedAt && p.viewCount === 0 && p.deliveredAt && (
+                              <button
+                                className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
+                                title="Mark as viewed"
+                                data-testid={`button-mark-viewed-proposal-${p.id}`}
+                                onClick={() => {
+                                  updateDealMutation.mutate({ id: selectedDeal.id, proposalStatus: "viewed" });
+                                  toast({ title: "Marked as viewed" });
+                                }}
+                              >
+                                <Eye className="w-3.5 h-3.5" />
+                              </button>
+                            )}
                           </div>
                         </div>
                       ))}
@@ -2110,6 +2955,9 @@ export default function Pipeline() {
                   ) : null}
                 </div>
               )}
+
+              {/* #1281 — Deal competitors section */}
+              <DealCompetitorsSection dealId={selectedDeal.id} />
 
               <div className="border-t pt-4">
                 <Comments entityType="deal" entityId={selectedDeal.id} />

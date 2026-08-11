@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
+import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -20,6 +21,35 @@ function formatResolutionTime(hours: number | null | undefined): string {
   if (hours == null) return "—";
   if (hours >= 24) return `${(hours / 24).toFixed(1)}d`;
   return `${hours.toFixed(1)}h`;
+}
+
+// #221 — Animated stat counter (count-up on first viewport entry)
+function useCountUp(end: number, duration = 1200) {
+  const [count, setCount] = useState(0);
+  const [started, setStarted] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const observer = new IntersectionObserver(([e]) => { if (e.isIntersecting && !started) setStarted(true); }, { threshold: 0.3 });
+    if (ref.current) observer.observe(ref.current);
+    return () => observer.disconnect();
+  }, [started]);
+  useEffect(() => {
+    if (!started || end === 0) return;
+    const steps = 50;
+    const inc = end / steps;
+    let cur = 0;
+    const t = setInterval(() => {
+      cur += inc;
+      if (cur >= end) { setCount(end); clearInterval(t); } else { setCount(Math.round(cur)); }
+    }, duration / steps);
+    return () => clearInterval(t);
+  }, [started, end, duration]);
+  return { count, ref };
+}
+
+function AnimatedStat({ value, "data-testid": testId }: { value: number; "data-testid"?: string }) {
+  const { count, ref } = useCountUp(value);
+  return <div className="text-2xl font-bold" data-testid={testId} ref={ref}>{count}</div>;
 }
 
 function formatInsights(text: string) {
@@ -58,7 +88,16 @@ interface OutboundSettings {
   ghlSyncEnabled: boolean;
 }
 
+// #319 — Time-of-day greeting helper
+function getGreeting(hour: number): string {
+  if (hour < 12) return "Good morning";
+  if (hour < 17) return "Good afternoon";
+  return "Good evening";
+}
+
 export default function Overview() {
+  const { user } = useAuth();
+  const greeting = useMemo(() => getGreeting(new Date().getHours()), []);
   const [insights, setInsights] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [digestSending, setDigestSending] = useState(false);
@@ -135,6 +174,34 @@ export default function Overview() {
     refetchInterval: 60000,
   });
 
+  // #380 — Rep activity today (admin/manager only; gracefully returns null for other roles)
+  const { data: repActivity } = useQuery<{ date: string; reps: { actorId: string; name: string; callsLogged: number; emailsSent: number; smsSent: number; contactsCreated: number; dealsCreated: number; total: number }[] }>({
+    queryKey: ["/api/admin/rep-activity/today"],
+    refetchInterval: 60000,
+    retry: false,
+  });
+
+  // #418 — Inactive reps (7 days, admin/manager only)
+  const { data: inactiveRepsData } = useQuery<{ days: number; inactiveReps: { agentId: number; name: string; email: string }[] }>({
+    queryKey: ["/api/admin/rep-activity/inactive"],
+    refetchInterval: 300000,
+    retry: false,
+  });
+
+  // #533 — Lifecycle state distribution
+  const { data: lifecycleDistData } = useQuery<{ distribution: Record<string, number> }>({
+    queryKey: ["/api/analytics/lifecycle-distribution"],
+    refetchInterval: 120000,
+    retry: false,
+  });
+
+  // #596 — Weekly outreach count
+  const { data: weeklyOutreach } = useQuery<{ weekStart: string; total: number; counts: Record<string, number> }>({
+    queryKey: ["/api/analytics/weekly-outreach"],
+    refetchInterval: 60000,
+    retry: false,
+  });
+
   const { data: funnelData } = useQuery<{ totalLeads: number; totalDeals: number; funnel: FunnelStep[] }>({
     queryKey: ["/api/analytics/conversion-funnel"],
     refetchInterval: 60000,
@@ -182,6 +249,13 @@ export default function Overview() {
 
   return (
     <div className="space-y-8">
+      {/* #319 — Personalized time-of-day greeting */}
+      {user?.firstName && (
+        <p className="text-lg font-medium text-muted-foreground" data-testid="text-overview-greeting">
+          {greeting}, {user.firstName}!
+        </p>
+      )}
+
       {/* ── OUTBOUND PAUSED BANNER ── */}
       {outboundSettings?.outboundGlobalPaused && (
         <Alert
@@ -295,14 +369,14 @@ export default function Overview() {
         </div>
 
         <div className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
             <Card data-testid="card-kpi-today-leads">
               <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
                 <CardTitle className="text-sm font-medium text-muted-foreground">Today's Leads</CardTitle>
                 <CalendarDays className="w-4 h-4 text-primary" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold" data-testid="text-today-leads">{dailyData?.todayLeads || 0}</div>
+                <AnimatedStat value={dailyData?.todayLeads || 0} data-testid="text-today-leads" />
                 <p className="text-xs text-muted-foreground mt-1" data-testid="text-today-deals">{dailyData?.todayDeals || 0} deals created</p>
               </CardContent>
             </Card>
@@ -313,7 +387,7 @@ export default function Overview() {
                 <TrendingUp className="w-4 h-4 text-primary" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold" data-testid="text-active-pipeline">{kpi?.pipeline.totalActive || 0}</div>
+                <AnimatedStat value={kpi?.pipeline.totalActive || 0} data-testid="text-active-pipeline" />
                 <p className="text-xs text-muted-foreground mt-1" data-testid="text-new-leads">{kpi?.pipeline.newLeads7d || 0} new this week</p>
               </CardContent>
             </Card>
@@ -335,7 +409,7 @@ export default function Overview() {
                 <Ticket className="w-4 h-4 text-orange-500" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold" data-testid="text-open-tickets">{kpi?.support.openTickets || 0}</div>
+                <AnimatedStat value={kpi?.support.openTickets || 0} data-testid="text-open-tickets" />
                 {(kpi?.support.breachedSla || 0) > 0 ? (
                   <p className="text-xs text-destructive mt-1 flex items-center gap-1" data-testid="text-sla-breach">
                     <AlertTriangle className="w-3 h-3" />
@@ -356,7 +430,7 @@ export default function Overview() {
                 <Clock className="w-4 h-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold" data-testid="text-pending-tasks">{kpi?.tasks.pending || 0}</div>
+                <AnimatedStat value={kpi?.tasks.pending || 0} data-testid="text-pending-tasks" />
                 {(kpi?.tasks.overdue || 0) > 0 ? (
                   <p className="text-xs text-destructive mt-1" data-testid="text-overdue-tasks">{kpi?.tasks.overdue} overdue</p>
                 ) : (
@@ -364,6 +438,52 @@ export default function Overview() {
                 )}
               </CardContent>
             </Card>
+
+            {/* #584 — Stale deals (no updatedAt change in 30 days) */}
+            {(() => {
+              if (!deals) return null;
+              const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+              const stale = deals.filter((d: any) => {
+                if (d.archivedAt || d.stage === "Closed Won" || d.stage === "Closed Lost") return false;
+                const last = d.updatedAt || d.createdAt;
+                return last && new Date(last).getTime() < thirtyDaysAgo;
+              }).length;
+              if (stale === 0) return null;
+              return (
+                <Card data-testid="card-kpi-stale-deals">
+                  <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+                    <CardTitle className="text-sm font-medium text-muted-foreground">Stale Deals (30d)</CardTitle>
+                    <AlertTriangle className="w-4 h-4 text-amber-500" />
+                  </CardHeader>
+                  <CardContent>
+                    <AnimatedStat value={stale} data-testid="text-stale-deals" />
+                    <p className="text-xs text-muted-foreground mt-1">Active deals with no update</p>
+                  </CardContent>
+                </Card>
+              );
+            })()}
+
+            {/* #603 — Follow-ups due today */}
+            {(() => {
+              if (!deals) return null;
+              const todayStr = new Date().toLocaleDateString();
+              const dueToday = deals.filter((d: any) => {
+                if (!d.nextFollowUp || d.archivedAt || d.stage === "Closed Won" || d.stage === "Closed Lost") return false;
+                return new Date(d.nextFollowUp).toLocaleDateString() === todayStr;
+              }).length;
+              return (
+                <Card data-testid="card-kpi-follow-ups-today">
+                  <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+                    <CardTitle className="text-sm font-medium text-muted-foreground">Follow-ups Today</CardTitle>
+                    <CalendarDays className="w-4 h-4 text-amber-500" />
+                  </CardHeader>
+                  <CardContent>
+                    <AnimatedStat value={dueToday} data-testid="text-follow-ups-today" />
+                    <p className="text-xs text-muted-foreground mt-1">Deals due for follow-up</p>
+                  </CardContent>
+                </Card>
+              );
+            })()}
           </div>
 
           {/* Month-over-month comparisons */}
@@ -409,20 +529,26 @@ export default function Overview() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
+                {/* #799 — visual bar breakdown by source */}
                 {leadSources?.sources && leadSources.sources.length > 0 ? (
                   <div className="space-y-3">
-                    {leadSources.sources.map((src) => (
-                      <div key={src.source} className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-sm" data-testid={`source-row-${src.source}`}>
-                        <div className="flex items-center gap-2 min-w-0">
-                          <Badge variant="secondary" className="text-xs shrink-0">{src.source}</Badge>
+                    {(() => {
+                      const maxLeads = Math.max(...leadSources.sources.map((s: any) => s.leads || 0), 1);
+                      return leadSources.sources.map((src: any) => (
+                        <div key={src.source} className="space-y-1" data-testid={`source-row-${src.source}`}>
+                          <div className="flex items-center justify-between text-xs">
+                            <Badge variant="secondary" className="text-xs shrink-0">{src.source}</Badge>
+                            <span className="text-muted-foreground">{src.leads} leads · {src.deals} deals · <span className="font-medium text-foreground">{src.conversionRate}% conv.</span></span>
+                          </div>
+                          <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-primary rounded-full transition-all"
+                              style={{ width: `${Math.round((src.leads / maxLeads) * 100)}%` }}
+                            />
+                          </div>
                         </div>
-                        <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                          <span>{src.leads} leads</span>
-                          <span>{src.deals} deals</span>
-                          <span className="font-medium text-foreground">{src.conversionRate}%</span>
-                        </div>
-                      </div>
-                    ))}
+                      ));
+                    })()}
                   </div>
                 ) : (
                   <p className="text-sm text-muted-foreground">No source data available</p>
@@ -446,6 +572,20 @@ export default function Overview() {
                   <span className="text-sm text-muted-foreground">New (30d)</span>
                   <span className="text-lg font-medium">{kpi?.contacts.new30d || 0}</span>
                 </div>
+                {/* #673 — Contacts added this week */}
+                {kpi?.contacts && (kpi.contacts as any).new7d != null && (
+                  <div className="flex items-center justify-between" data-testid="stat-contacts-this-week">
+                    <span className="text-sm text-muted-foreground">New (7d)</span>
+                    <span className="text-lg font-medium">{(kpi.contacts as any).new7d}</span>
+                  </div>
+                )}
+                {/* #848 — Blocked contacts count */}
+                {kpi?.contacts && (kpi.contacts as any).blocked > 0 && (
+                  <div className="flex items-center justify-between" data-testid="stat-blocked-contacts">
+                    <span className="text-sm text-muted-foreground text-destructive">Blocked</span>
+                    <span className="text-lg font-medium text-destructive">{(kpi.contacts as any).blocked}</span>
+                  </div>
+                )}
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-muted-foreground">Onboarding Active</span>
                   <span className="text-lg font-medium" data-testid="text-onboarding-active">{kpi?.onboarding.active || 0}</span>
@@ -565,6 +705,38 @@ export default function Overview() {
           </div>
         </div>
       </div>
+
+      {/* #596 — Weekly outreach count metric */}
+      {weeklyOutreach && weeklyOutreach.total > 0 && (
+        <Card className="mb-6" data-testid="card-weekly-outreach">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Activity className="w-4 h-4 text-primary" />
+              This Week's Outreach
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
+              <div data-testid="stat-weekly-calls">
+                <div className="text-2xl font-bold">{(weeklyOutreach.counts.call_logged || 0).toLocaleString()}</div>
+                <div className="text-xs text-muted-foreground">Calls</div>
+              </div>
+              <div data-testid="stat-weekly-emails">
+                <div className="text-2xl font-bold">{((weeklyOutreach.counts.email_sent || 0) + (weeklyOutreach.counts.sequence_email_sent || 0)).toLocaleString()}</div>
+                <div className="text-xs text-muted-foreground">Emails</div>
+              </div>
+              <div data-testid="stat-weekly-sms">
+                <div className="text-2xl font-bold">{(weeklyOutreach.counts.sms_sent || 0).toLocaleString()}</div>
+                <div className="text-xs text-muted-foreground">SMS</div>
+              </div>
+              <div data-testid="stat-weekly-total">
+                <div className="text-2xl font-bold text-primary">{weeklyOutreach.total.toLocaleString()}</div>
+                <div className="text-xs text-muted-foreground">Total Actions</div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* ── SECTION 2: PIPELINE PROJECTIONS ── */}
       <div data-testid="section-pipeline-projections">
@@ -809,6 +981,117 @@ export default function Overview() {
               </CardContent>
             </Card>
           </div>
+
+          {/* #380 — Rep Activity Today (admin/manager only) */}
+          {repActivity && repActivity.reps.length > 0 && (
+            <Card data-testid="card-rep-activity-today">
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Users className="w-4 h-4 text-primary" />
+                  Rep Activity Today
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-xs text-muted-foreground border-b">
+                        <th className="text-left pb-2">Rep</th>
+                        <th className="text-right pb-2">Calls</th>
+                        <th className="text-right pb-2">Emails</th>
+                        <th className="text-right pb-2">SMS</th>
+                        <th className="text-right pb-2">Contacts</th>
+                        <th className="text-right pb-2">Deals</th>
+                        <th className="text-right pb-2">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {repActivity.reps.map(rep => (
+                        <tr key={rep.actorId} className="border-b last:border-0" data-testid={`rep-activity-row-${rep.actorId}`}>
+                          <td className="py-1.5 font-medium">{rep.name}</td>
+                          <td className="py-1.5 text-right">{rep.callsLogged || "—"}</td>
+                          <td className="py-1.5 text-right">{rep.emailsSent || "—"}</td>
+                          <td className="py-1.5 text-right">{rep.smsSent || "—"}</td>
+                          <td className="py-1.5 text-right">{rep.contactsCreated || "—"}</td>
+                          <td className="py-1.5 text-right">{rep.dealsCreated || "—"}</td>
+                          <td className="py-1.5 text-right font-semibold">{rep.total}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+          {/* #533 — Lifecycle state breakdown */}
+          {lifecycleDistData && Object.keys(lifecycleDistData.distribution).length > 0 && (
+            <Card data-testid="card-lifecycle-distribution">
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Activity className="w-4 h-4 text-primary" />
+                  Contacts by Lifecycle State
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-1.5">
+                  {Object.entries(lifecycleDistData.distribution).slice(0, 10).map(([state, count]) => (
+                    <div key={state} className="flex items-center justify-between text-xs" data-testid={`row-lifecycle-${state}`}>
+                      <span className="text-muted-foreground capitalize">{state.replace(/_/g, " ")}</span>
+                      <span className="font-semibold tabular-nums">{count.toLocaleString()}</span>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* #1083 — Recent wins (last 5 Closed Won deals) */}
+          {deals && (deals as any[]).filter((d: any) => d.stage === "Closed Won").length > 0 && (
+            <Card data-testid="card-recent-wins">
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <span className="text-green-500">🏆</span>
+                  Recent Wins
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  {(deals as any[])
+                    .filter((d: any) => d.stage === "Closed Won")
+                    .sort((a: any, b: any) => new Date(b.updatedAt ?? 0).getTime() - new Date(a.updatedAt ?? 0).getTime())
+                    .slice(0, 5)
+                    .map((d: any) => (
+                      <div key={d.id} className="flex items-center justify-between text-sm" data-testid={`win-${d.id}`}>
+                        <span className="font-medium truncate max-w-[60%]">{d.businessName || d.contactName || `Deal #${d.id}`}</span>
+                        <span className="text-xs text-muted-foreground">{d.updatedAt ? new Date(d.updatedAt).toLocaleDateString() : "—"}</span>
+                      </div>
+                    ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* #418 — Inactive Reps (7 days) */}
+          {inactiveRepsData && inactiveRepsData.inactiveReps.length > 0 && (
+            <Card data-testid="card-inactive-reps">
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Users className="w-4 h-4 text-amber-500" />
+                  Inactive Reps (7 days)
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex flex-wrap gap-2">
+                  {inactiveRepsData.inactiveReps.map(rep => (
+                    <span key={rep.agentId} className="text-xs bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-200 rounded px-2 py-0.5" data-testid={`badge-inactive-rep-${rep.agentId}`}>
+                      {rep.name || rep.email}
+                    </span>
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground mt-2">No activity logged in the past {inactiveRepsData.days} days</p>
+              </CardContent>
+            </Card>
+          )}
         </div>
       </div>
     </div>

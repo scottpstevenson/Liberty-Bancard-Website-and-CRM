@@ -13,11 +13,13 @@ import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
-import { Plus, AlertTriangle, Sparkles, Loader2, Download, Send, Lock, Globe, MessageSquareText } from "lucide-react";
+import { Plus, AlertTriangle, Sparkles, Loader2, Download, Send, Lock, Globe, MessageSquareText, Search } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { exportToCSV } from "@/lib/export-csv";
+import { useAuth } from "@/hooks/use-auth";
 import SavedFilterBar from "@/components/SavedFilterBar";
 import DashboardErrorState from "@/components/DashboardErrorState";
 import { DataState } from "@/components/ui/data-state";
@@ -45,6 +47,21 @@ function isSlaBreached(ticket: Ticket): boolean {
   if (!ticket.slaDeadline) return false;
   if (ticket.status === "Resolved" || ticket.status === "Closed") return false;
   return new Date() > new Date(ticket.slaDeadline);
+}
+
+// #317 — SLA countdown ("2h 30m left" / "1d 4h left" / "Overdue")
+function formatSlaCountdown(deadline: string | Date | null, status: string): string | null {
+  if (!deadline) return null;
+  if (status === "Resolved" || status === "Closed") return null;
+  const diff = new Date(deadline).getTime() - Date.now();
+  if (diff <= 0) return "Overdue";
+  const totalMinutes = Math.floor(diff / 60000);
+  const days = Math.floor(totalMinutes / 1440);
+  const hours = Math.floor((totalMinutes % 1440) / 60);
+  const mins = totalMinutes % 60;
+  if (days > 0) return `${days}d ${hours}h left`;
+  if (hours > 0) return `${hours}h ${mins}m left`;
+  return `${mins}m left`;
 }
 
 function getInitials(name: string | null | undefined): string {
@@ -317,6 +334,7 @@ function TicketConversation({
 
 export default function Tickets() {
   const { toast } = useToast();
+  const { user } = useAuth();
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
@@ -331,6 +349,30 @@ export default function Tickets() {
 
   const [editStatus, setEditStatus] = useState("");
   const [editAssignedTo, setEditAssignedTo] = useState("");
+  // #511 — Status filter
+  const [statusFilter, setStatusFilter] = useState("");
+  // #551 — Search filter
+  const [searchTerm, setSearchTerm] = useState("");
+  // #575 — Assigned to me filter
+  const [assignedToMe, setAssignedToMe] = useState(false);
+  // #425 — Bulk resolve tickets
+  const [selectedTicketIds, setSelectedTicketIds] = useState<Set<number>>(new Set());
+  const toggleTicketSelect = (id: number) => setSelectedTicketIds(prev => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  const bulkResolveMutation = useMutation({
+    mutationFn: async (ids: number[]) => {
+      await Promise.all(ids.map(id => apiRequest("PUT", `/api/tickets/${id}`, { status: "Resolved", resolvedAt: new Date().toISOString() })));
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
+      setSelectedTicketIds(new Set());
+      toast({ title: `Tickets resolved` });
+    },
+    onError: (err: Error) => { toastError(err, { title: "Bulk resolve failed" }); },
+  });
   const [aiResult, setAiResult] = useState<{category: string; priority: string; suggestedResponse: string; tags: string[]; estimatedResolutionHours: number} | null>(null);
   const [draftToInsert, setDraftToInsert] = useState<{ text: string; nonce: number } | null>(null);
 
@@ -342,7 +384,17 @@ export default function Tickets() {
       return res.json();
     },
   });
-  const tickets = ticketsResult?.data;
+  const allTickets = ticketsResult?.data;
+  // #532 — Apply status filter; #551 — Apply search
+  const tickets = allTickets?.filter(t => {
+    if (statusFilter && t.status !== statusFilter) return false;
+    if (assignedToMe && t.assignedTo !== user?.email) return false;
+    if (searchTerm) {
+      const s = searchTerm.toLowerCase();
+      if (!t.subject?.toLowerCase().includes(s) && !t.description?.toLowerCase().includes(s)) return false;
+    }
+    return true;
+  });
 
   const { data: contactsResult } = useQuery<{ data: Contact[]; total: number }>({
     queryKey: ["/api/contacts"],
@@ -353,6 +405,11 @@ export default function Tickets() {
     },
   });
   const contacts = contactsResult?.data;
+
+  // #497 — Agents list for bulk reassign
+  const { data: agentsList } = useQuery<{ id: number; email: string; firstName?: string | null; lastName?: string | null }[]>({
+    queryKey: ["/api/agents"],
+  });
 
   const createTicketMutation = useMutation({
     mutationFn: async (data: Record<string, unknown>) => {
@@ -464,7 +521,7 @@ export default function Tickets() {
   return (
     <div className="space-y-6" data-testid="tickets-page">
       <PageHeader
-        title="Support Tickets"
+        title={`Support Tickets${tickets ? ` (${tickets.length})` : ""}`}
         testId="text-tickets-title"
         actions={
           <>
@@ -580,11 +637,96 @@ export default function Tickets() {
         }
       />
 
+      {/* #511 — Status filter; #551 — Search */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="relative">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+          <Input
+            className="h-8 pl-8 text-xs w-[220px]"
+            placeholder="Search tickets…"
+            value={searchTerm}
+            onChange={e => setSearchTerm(e.target.value)}
+            data-testid="input-ticket-search"
+          />
+        </div>
+        <Select value={statusFilter || "__all__"} onValueChange={v => setStatusFilter(v === "__all__" ? "" : v)}>
+          <SelectTrigger className="h-8 w-[160px] text-xs" data-testid="select-ticket-status-filter">
+            <SelectValue placeholder="All statuses" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all__">All statuses</SelectItem>
+            {["Open", "In Progress", "Resolved", "Closed"].map(s => (
+              <SelectItem key={s} value={s}>{s}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {/* #575 — Assigned to me chip */}
+        <button
+          onClick={() => setAssignedToMe(v => !v)}
+          data-testid="chip-assigned-to-me-tickets"
+          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+            assignedToMe
+              ? "bg-primary/10 border-primary/30 text-primary"
+              : "bg-background border-border text-muted-foreground hover:bg-muted"
+          }`}
+        >
+          Assigned to me
+        </button>
+      </div>
+
       <SavedFilterBar
         entityType="ticket"
         currentFilters={{}}
         onApplyFilter={() => {}}
       />
+
+      {/* #425 — Bulk resolve action bar */}
+      {selectedTicketIds.size > 0 && (
+        <div className="flex items-center gap-2 rounded-md border bg-muted/50 px-3 py-2 text-sm flex-wrap" data-testid="bulk-ticket-bar">
+          <span className="text-muted-foreground">{selectedTicketIds.size} selected</span>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => bulkResolveMutation.mutate(Array.from(selectedTicketIds))}
+            disabled={bulkResolveMutation.isPending}
+            data-testid="button-bulk-resolve-tickets"
+          >
+            {bulkResolveMutation.isPending ? "Resolving..." : "Mark Resolved"}
+          </Button>
+          {/* #497 — Bulk reassign tickets */}
+          {(user?.role === "admin" || user?.role === "manager") && (
+            <select
+              className="text-xs border border-border rounded px-1.5 py-1 bg-background"
+              defaultValue=""
+              data-testid="select-bulk-reassign-tickets"
+              onChange={async e => {
+                const assignedTo = e.target.value;
+                if (!assignedTo) return;
+                try {
+                  await Promise.all(Array.from(selectedTicketIds).map(id =>
+                    apiRequest("PUT", `/api/tickets/${id}`, { assignedTo }).then(r => r.json())
+                  ));
+                  queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
+                  setSelectedTicketIds(new Set());
+                  toast({ title: "Tickets reassigned" });
+                } catch (err: any) {
+                  toast({ title: "Reassign failed", description: err.message, variant: "destructive" });
+                }
+              }}
+            >
+              <option value="">Reassign to…</option>
+              {agentsList?.map((a: any) => (
+                <option key={a.id} value={a.email}>
+                  {a.firstName && a.lastName ? `${a.firstName} ${a.lastName}` : a.email.split("@")[0]}
+                </option>
+              ))}
+            </select>
+          )}
+          <Button size="sm" variant="ghost" onClick={() => setSelectedTicketIds(new Set())} data-testid="button-clear-ticket-selection">
+            Clear
+          </Button>
+        </div>
+      )}
 
       <Card>
         <CardContent className="p-0">
@@ -592,19 +734,30 @@ export default function Tickets() {
           <Table data-testid="table-tickets">
             <TableHeader>
               <TableRow>
+                {/* #425 — Bulk select checkbox col */}
+                <TableHead className="w-8">
+                  <Checkbox
+                    checked={tickets && tickets.length > 0 && selectedTicketIds.size === tickets.length}
+                    onCheckedChange={(v) => setSelectedTicketIds(v ? new Set(tickets?.map(t => t.id) ?? []) : new Set())}
+                    aria-label="Select all"
+                    data-testid="checkbox-select-all-tickets"
+                  />
+                </TableHead>
                 <TableHead>ID</TableHead>
                 <TableHead>Subject</TableHead>
                 <TableHead className="hidden md:table-cell">Category</TableHead>
                 <TableHead>Priority</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="hidden lg:table-cell">SLA Deadline</TableHead>
+                {/* #384 — Assignee column */}
+                <TableHead className="hidden sm:table-cell">Assigned To</TableHead>
                 <TableHead className="hidden sm:table-cell">Created</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading || isError || !tickets || tickets.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7}>
+                  <TableCell colSpan={9}>
                     <DataState
                       query={{ isLoading, isError, data: tickets, refetch }}
                       testId="tickets"
@@ -636,7 +789,28 @@ export default function Tickets() {
                     onClick={() => openTicketDetail(ticket)}
                     data-testid={`row-ticket-${ticket.id}`}
                   >
-                    <TableCell className="font-medium" data-testid={`text-ticket-id-${ticket.id}`}>#{ticket.id}</TableCell>
+                    {/* #425 — Row checkbox */}
+                    <TableCell onClick={e => e.stopPropagation()}>
+                      <Checkbox
+                        checked={selectedTicketIds.has(ticket.id)}
+                        onCheckedChange={() => toggleTicketSelect(ticket.id)}
+                        data-testid={`checkbox-ticket-${ticket.id}`}
+                      />
+                    </TableCell>
+                    <TableCell className="font-medium" data-testid={`text-ticket-id-${ticket.id}`}>
+                      #{ticket.id}
+                      {/* #460 — Contact name; #638 — Contact email */}
+                      {ticket.contactId && contacts && (() => {
+                        const c = contacts.find(x => x.id === ticket.contactId);
+                        if (!c) return null;
+                        return (
+                          <div className="text-xs text-muted-foreground mt-0.5">
+                            <div>{`${c.firstName ?? ""} ${c.lastName ?? ""}`.trim()}</div>
+                            {c.email && <div className="text-[11px] opacity-75">{c.email}</div>}
+                          </div>
+                        );
+                      })()}
+                    </TableCell>
                     <TableCell data-testid={`text-ticket-subject-${ticket.id}`}>{ticket.subject}</TableCell>
                     <TableCell className="hidden md:table-cell" data-testid={`text-ticket-category-${ticket.id}`}>{ticket.category}</TableCell>
                     <TableCell>
@@ -652,6 +826,12 @@ export default function Tickets() {
                     <TableCell className="hidden lg:table-cell" data-testid={`text-ticket-sla-${ticket.id}`}>
                       <div className="flex items-center gap-2">
                         {ticket.slaDeadline ? new Date(ticket.slaDeadline).toLocaleString() : "N/A"}
+                        {/* #317 — SLA countdown timer */}
+                        {ticket.slaDeadline && !isSlaBreached(ticket) && (
+                          <span className="text-xs text-muted-foreground" data-testid={`text-sla-countdown-${ticket.id}`}>
+                            {formatSlaCountdown(ticket.slaDeadline != null ? String(ticket.slaDeadline) : null, ticket.status ?? "")}
+                          </span>
+                        )}
                         {isSlaBreached(ticket) && (
                           <Badge variant="destructive" className="text-xs gap-1" data-testid={`badge-sla-breached-${ticket.id}`}>
                             <AlertTriangle className="w-3 h-3" />
@@ -659,6 +839,18 @@ export default function Tickets() {
                           </Badge>
                         )}
                       </div>
+                    </TableCell>
+                    {/* #362 — Comment count badge */}
+                    <TableCell className="hidden md:table-cell" data-testid={`text-ticket-comments-${ticket.id}`}>
+                      {(ticket as any).commentCount != null && (ticket as any).commentCount > 0 ? (
+                        <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                          💬 {(ticket as any).commentCount}
+                        </span>
+                      ) : <span className="text-muted-foreground/40 text-xs">—</span>}
+                    </TableCell>
+                    {/* #384 — Assignee cell */}
+                    <TableCell className="hidden sm:table-cell" data-testid={`text-ticket-assignee-${ticket.id}`}>
+                      {(ticket as any).assignedTo || <span className="text-muted-foreground text-xs">Unassigned</span>}
                     </TableCell>
                     <TableCell className="hidden sm:table-cell" data-testid={`text-ticket-created-${ticket.id}`}>
                       {ticket.createdAt ? new Date(ticket.createdAt).toLocaleDateString() : "N/A"}
@@ -679,6 +871,18 @@ export default function Tickets() {
           </DialogHeader>
           {selectedTicket && (
             <div className="space-y-4 pt-2">
+              {/* #614 — Contact info in ticket detail */}
+              {selectedTicket.contactId && contacts && (() => {
+                const c = contacts.find(x => x.id === selectedTicket.contactId);
+                return c ? (
+                  <div className="rounded-md border bg-muted/30 px-3 py-2 text-sm flex items-center gap-3" data-testid="ticket-detail-contact">
+                    <div>
+                      <div className="font-medium">{c.firstName} {c.lastName}</div>
+                      {c.email && <div className="text-xs text-muted-foreground">{c.email}</div>}
+                    </div>
+                  </div>
+                ) : null;
+              })()}
               <div className="space-y-2">
                 <div className="text-sm text-muted-foreground">Subject</div>
                 <div className="font-medium" data-testid="text-detail-subject">{selectedTicket.subject}</div>

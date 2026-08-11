@@ -52,7 +52,10 @@ export const CALL_BOOKED = "call_booked";
 export const PROPOSAL_SENT = "proposal_sent";
 export const CLOSED_WON = "closed_won";
 export const APPOINTMENT_BOOKED = "appointment_booked";
+export const APPOINTMENT_SHOWED = "appointment_showed";
 export const OFFER_ROUTE_ASSIGNED = "offer_route_assigned";
+/** Fired when a deal with a sent proposal advances to Closed Won */
+export const PROPOSAL_CONVERTED = "proposal_converted";
 
 // ─── Sequence / Channel Events ────────────────────────────────────────────────
 export const SEQUENCE_STEP_SENT = "sequence_step_sent";
@@ -89,7 +92,9 @@ export const ALL_CANONICAL_EVENTS = new Set([
   PROPOSAL_SENT,
   CLOSED_WON,
   APPOINTMENT_BOOKED,
+  APPOINTMENT_SHOWED,
   OFFER_ROUTE_ASSIGNED,
+  PROPOSAL_CONVERTED,
   SEQUENCE_STEP_SENT,
   SEQUENCE_STEP_BLOCKED,
   CHANNEL_ALLOWED,

@@ -3,7 +3,7 @@ import type { Deal } from "@shared/schema";
 import { isGhlConfigured } from "./ghl";
 import { syncDealToGhl } from "./ghl-sync";
 import { recordAnalyticsEvent } from "./analytics-events";
-import { CALL_BOOKED, PROPOSAL_SENT, CLOSED_WON, DEAL_STAGE_CHANGED } from "@shared/analytics-events";
+import { CALL_BOOKED, PROPOSAL_SENT, CLOSED_WON, DEAL_STAGE_CHANGED, PROPOSAL_CONVERTED } from "@shared/analytics-events";
 import { db } from "../db";
 import { deals, tasks } from "@shared/schema";
 import { eq, and, isNull, sql } from "drizzle-orm";
@@ -185,11 +185,62 @@ export async function advanceDealStage(
     metadata: { trigger, newStage },
   }).catch(() => {});
 
+  // #581 — Proposal Sent → auto-create a follow-up task for the assigned rep
+  if (newStage === "Proposal Sent" && updated.owner && updated.contactId) {
+    import("../storage").then(async ({ storage: st }) => {
+      const followUpDate = new Date(Date.now() + 7 * 86_400_000); // 7 days out
+      await st.createTask({
+        contactId: updated.contactId!,
+        dealId,
+        title: `Follow up on proposal — Deal #${dealId}`,
+        description: "Check if the merchant has reviewed the proposal and address any questions.",
+        dueDate: followUpDate,
+        priority: "normal",
+      }).catch(err => console.warn(`[DealStage] Auto task (proposal sent) failed for deal ${dealId}:`, err.message));
+    }).catch(() => {});
+  }
+
   // Closed Won → fire onboarding kickoff (idempotent, concurrency-safe)
   if (newStage === "Closed Won") {
     triggerClosedWonOnboarding(updated).catch((err: Error) =>
       console.error(`[DealStage] Onboarding kickoff error for deal ${dealId}:`, err.message),
     );
+
+    // #577 — Notify the assigned agent when their deal closes
+    if (updated.owner) {
+      import("../storage").then(async ({ storage: st }) => {
+        const agentList = await st.getAgents().catch(() => []);
+        const agent = agentList.find(a => a.email === updated.owner);
+        if (agent?.email) {
+          const { createNotification } = await import("../storage").then(m => m.storage);
+          await createNotification({
+            channel: "internal",
+            title: `🎉 Deal Closed Won — ${updated.notes ? updated.notes.slice(0, 40) : `Deal #${dealId}`}`,
+            message: `Your deal #${dealId} has been marked Closed Won (trigger: ${trigger}). Time to kick off onboarding!`,
+            type: "info",
+            metadata: { dealId, newStage, assignedAgent: updated.owner, link: `/dashboard/pipeline?id=${dealId}`, eventType: "closed_won_agent_alert" },
+          }).catch(() => {});
+        }
+      }).catch(() => {});
+    }
+
+    // #proposal-conversion — if a proposal was previously sent, record conversion
+    if (updated.proposalEmailSentAt) {
+      const daysToClosed = updated.proposalEmailSentAt
+        ? Math.round((Date.now() - new Date(updated.proposalEmailSentAt).getTime()) / 86_400_000)
+        : undefined;
+      recordAnalyticsEvent({
+        eventName: PROPOSAL_CONVERTED,
+        dealId,
+        dealStage: "Closed Won",
+        contactId: updated.contactId ?? undefined,
+        metadata: {
+          trigger,
+          proposalEmailSentAt: updated.proposalEmailSentAt?.toISOString?.() ?? null,
+          daysToClosed,
+        },
+      }).catch(() => {});
+    }
   }
 
   // Approved / Go-Live Scheduled → send merchant portal invitation

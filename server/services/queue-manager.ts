@@ -25,6 +25,9 @@ export const QUEUE_NAMES = {
   PIPELINE_SILENCE_CHECK: "pipeline-silence-check",
   PROPOSAL_FOLLOWUP: "proposal-followup",
   PARTNER_MONTHLY_DIGEST: "partner-monthly-digest",
+  ACTIVATION_MONITOR: "activation-monitor",
+  MERCHANT_SUCCESS: "merchant-success",
+  WINBACK_OUTREACH: "winback-outreach",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -166,6 +169,33 @@ const QUEUE_CONFIGS: QueueConfig[] = [
     attempts: 3,
     backoffDelay: 60000,
     repeatEveryMs: 4 * 60 * 60 * 1000,
+    jobName: "run",
+  },
+  {
+    name: QUEUE_NAMES.ACTIVATION_MONITOR,
+    // concurrency=1: daily check for MIDs assigned but not yet activated (#1405).
+    concurrency: 1,
+    attempts: 2,
+    backoffDelay: 60000,
+    repeatEveryMs: 24 * 60 * 60 * 1000,
+    jobName: "run",
+  },
+  {
+    name: QUEUE_NAMES.MERCHANT_SUCCESS,
+    // concurrency=1: daily 30/60/90-day merchant success program enrollments (#1406).
+    concurrency: 1,
+    attempts: 2,
+    backoffDelay: 60000,
+    repeatEveryMs: 24 * 60 * 60 * 1000,
+    jobName: "run",
+  },
+  {
+    name: QUEUE_NAMES.WINBACK_OUTREACH,
+    // concurrency=1: nightly win-back engine — emails automationEligible WINBACK_OUTREACH NBAs (#1407).
+    concurrency: 1,
+    attempts: 2,
+    backoffDelay: 60000,
+    repeatEveryMs: 24 * 60 * 60 * 1000,
     jobName: "run",
   },
   {
@@ -913,6 +943,18 @@ class QueueManager {
         }
         case QUEUE_NAMES.ONBOARDING_REMINDER: {
           await runOnboardingReminderTick();
+          break;
+        }
+        case QUEUE_NAMES.ACTIVATION_MONITOR: {
+          await runActivationMonitorTick();
+          break;
+        }
+        case QUEUE_NAMES.MERCHANT_SUCCESS: {
+          await runMerchantSuccessTick();
+          break;
+        }
+        case QUEUE_NAMES.WINBACK_OUTREACH: {
+          await runWinbackOutreachTick();
           break;
         }
         case QUEUE_NAMES.ABANDONED_STATEMENT: {
@@ -1769,6 +1811,64 @@ async function runDigestsTick(): Promise<void> {
 async function runOnboardingReminderTick(): Promise<void> {
   const { runOnboardingReminderTick: tick } = await import("./onboarding-reminder");
   await tick();
+}
+
+async function runActivationMonitorTick(): Promise<void> {
+  const { acquireJobLock, releaseJobLock, JOB_NAMES } = await import("./job-registry");
+  // JOB_NAMES may not have ACTIVATION_MONITOR yet — use string directly as fallback
+  const jobKey = (JOB_NAMES as any).ACTIVATION_MONITOR ?? "activation-monitor";
+  const lockToken = await acquireJobLock(jobKey);
+  if (!lockToken) return;
+
+  try {
+    const { runActivationMonitor } = await import("./merchant-activation-monitor");
+    const result = await runActivationMonitor();
+    if (result.alerts > 0) {
+      console.log(`[Queue:activation-monitor] ${result.alerts} unactivated MID alert(s) sent (${result.checked} checked)`);
+    }
+    await releaseJobLock(jobKey, true, undefined, lockToken);
+  } catch (err: any) {
+    await releaseJobLock(jobKey, false, err.message, lockToken);
+    throw err;
+  }
+}
+
+async function runMerchantSuccessTick(): Promise<void> {
+  const { acquireJobLock, releaseJobLock } = await import("./job-registry");
+  const jobKey = "merchant-success";
+  const lockToken = await acquireJobLock(jobKey);
+  if (!lockToken) return;
+
+  try {
+    const { runMerchantSuccessSequences } = await import("./merchant-success-sequences");
+    const result = await runMerchantSuccessSequences();
+    if (result.enrolled > 0) {
+      console.log(`[Queue:merchant-success] ${result.enrolled} enrollment(s) created across ${result.checked} activated MIDs`);
+    }
+    await releaseJobLock(jobKey, true, undefined, lockToken);
+  } catch (err: any) {
+    await releaseJobLock(jobKey, false, err.message, lockToken);
+    throw err;
+  }
+}
+
+async function runWinbackOutreachTick(): Promise<void> {
+  const { acquireJobLock, releaseJobLock } = await import("./job-registry");
+  const jobKey = "winback-outreach";
+  const lockToken = await acquireJobLock(jobKey);
+  if (!lockToken) return;
+
+  try {
+    const { runWinbackOutreachEngine } = await import("./winback-outreach-engine");
+    const result = await runWinbackOutreachEngine();
+    if (result.sent > 0) {
+      console.log(`[Queue:winback-outreach] sent=${result.sent} suppressed=${result.suppressed} errors=${result.errors}`);
+    }
+    await releaseJobLock(jobKey, true, undefined, lockToken);
+  } catch (err: any) {
+    await releaseJobLock(jobKey, false, err.message, lockToken);
+    throw err;
+  }
 }
 
 async function runMidIngestionTick(): Promise<void> {

@@ -55,6 +55,27 @@ export function isSmtpConfigured(): boolean {
 }
 
 /**
+ * #1249 — Probe the SMTP connection with a live verify() call (10s timeout).
+ * Returns true when the transporter can reach the server, false otherwise.
+ * Use before sending critical user-facing emails so we fail gracefully when
+ * SMTP is temporarily down rather than queuing silently broken sends.
+ */
+export async function verifySmtpLive(): Promise<boolean> {
+  if (!isSmtpConfigured()) return false;
+  const t = getTransporter();
+  if (!t) return false;
+  try {
+    await Promise.race([
+      t.verify(),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("SMTP verify timeout")), 10_000)),
+    ]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Send an email via SMTP.
  *
  * Sender resolution order (when `category` is supplied):

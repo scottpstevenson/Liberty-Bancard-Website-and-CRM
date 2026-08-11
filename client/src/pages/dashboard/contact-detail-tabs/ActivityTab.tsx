@@ -1,8 +1,12 @@
+import { useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { type ActivityEvent, formatRelativeTime, getActionMeta, getDetailText, getIntentFromEvent, ClassificationBadge } from "./shared";
 
 export function ActivityTimelineFull({ events }: { events: ActivityEvent[] }) {
-  const displayEvents = events.slice(0, 50);
+  // #499 — Activity pagination
+  const [showAll, setShowAll] = useState(false);
+  const displayEvents = showAll ? events : events.slice(0, 50);
 
   if (displayEvents.length === 0) {
     return (
@@ -58,6 +62,20 @@ export function ActivityTimelineFull({ events }: { events: ActivityEvent[] }) {
             );
           })}
         </div>
+        {/* #499 — Show more / show less */}
+        {events.length > 50 && (
+          <div className="pt-2 text-center">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-xs"
+              onClick={() => setShowAll(v => !v)}
+              data-testid="button-activity-show-more"
+            >
+              {showAll ? `Show less` : `Show all ${events.length} events`}
+            </Button>
+          </div>
+        )}
       </CardContent>
     </Card>
   );

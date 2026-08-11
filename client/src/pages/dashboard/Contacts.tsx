@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { useContacts, useCreateContact, useUpdateContact } from "@/hooks/use-contacts";
 import { useConfirmationFailedBatch } from "@/hooks/use-confirmation-failed-batch";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ResponsiveTable } from "@/components/ui/responsive-table";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Search, Plus, MoreHorizontal, UserPlus, Mail, MessageSquare, Zap, AlertTriangle, Sparkles, Activity, ArrowRight, Clock, TrendingUp, Ticket, Download, CheckSquare, ExternalLink, Users, Merge, ChevronRight, Archive, RotateCcw, Star, UserCheck } from "lucide-react";
+import { Search, Plus, MoreHorizontal, UserPlus, Mail, MessageSquare, Zap, AlertTriangle, Sparkles, Activity, ArrowRight, Clock, TrendingUp, Ticket, Download, CheckSquare, ExternalLink, Users, Merge, ChevronRight, Archive, RotateCcw, Star, UserCheck, Filter, Calendar, RefreshCw, BellOff, PhoneMissed } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { useLocation } from "wouter";
 import { useForm } from "react-hook-form";
@@ -18,7 +18,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
@@ -38,6 +38,7 @@ const formSchema = z.object({
   companyName: z.string().min(1, "Required"),
   vertical: z.string().optional(),
   monthlyVolume: z.string().optional(),
+  notes: z.string().optional(), // #426
 });
 
 type FormData = z.infer<typeof formSchema>;
@@ -421,6 +422,20 @@ export default function Contacts() {
   const [statusFilter, setStatusFilter] = useState("");
   const [emailHealthFilter, setEmailHealthFilter] = useState("");
   const [assignedToMe, setAssignedToMe] = useState(false);
+  const [verticalFilter, setVerticalFilter] = useState(""); // #238
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false); // #236
+  const [tagFilter, setTagFilter] = useState(""); // #263
+  const [neverContactedOnly, setNeverContactedOnly] = useState(false); // #462
+  const [createdThisWeekOnly, setCreatedThisWeekOnly] = useState(false); // #482
+  const [leadSourceFilter, setLeadSourceFilter] = useState(""); // #514
+  const [activitySort, setActivitySort] = useState(""); // #566
+  const [hasAssigneeOnly, setHasAssigneeOnly] = useState(false); // #619
+  const [contactedTodayOnly, setContactedTodayOnly] = useState(false); // #383
+  const [lifecycleFilter, setLifecycleFilter] = useState(""); // #520
+  const [staleContactsOnly, setStaleContactsOnly] = useState(false); // #398
+  const [recentlyUpdated, setRecentlyUpdated] = useState(false); // #543
+  const [noDealOnly, setNoDealOnly] = useState(false); // #835
+  const [notContactedIn30Only, setNotContactedIn30Only] = useState(false); // #1245
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [selectedContact, setSelectedContact] = useState<any>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -438,6 +453,7 @@ export default function Contacts() {
   const { failedMap: confirmationFailedMap } = useConfirmationFailedBatch(pageContactIds);
   const { toast } = useToast();
   const { user } = useAuth();
+  const isManagerOrAdmin = user?.role === "admin" || user?.role === "manager"; // #422
 
   const archiveContactMutation = useMutation({
     mutationFn: async (id: number) => {
@@ -465,6 +481,20 @@ export default function Contacts() {
     onError: (err: Error) => {
       toast({ title: "Failed to restore contact", description: err.message, variant: "destructive" });
     },
+  });
+
+  // #422 — Agents query for quick-assign
+  const { data: agentsList } = useQuery<{ id: number; email: string; firstName?: string | null; lastName?: string | null }[]>({
+    queryKey: ["/api/agents"],
+  });
+
+  const assignContactMutation = useMutation({
+    mutationFn: async ({ id, assignedTo }: { id: number; assignedTo: string | null }) => {
+      const res = await apiRequest("PATCH", `/api/contacts/${id}/assign`, { assignedTo });
+      return res.json();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/contacts"] }),
+    onError: (err: any) => toast({ title: "Assign failed", description: err.message, variant: "destructive" }),
   });
 
   const [bulkDialogOpen, setBulkDialogOpen] = useState(false);
@@ -503,6 +533,7 @@ export default function Contacts() {
       email: "",
       phone: "",
       companyName: "",
+      notes: "",
     }
   });
 
@@ -536,8 +567,71 @@ export default function Contacts() {
       if (contactEmailStatus !== emailHealthFilter) return false;
     }
     if (assignedToMe && c.assignedTo !== user?.email) return false;
+    // #238 — vertical filter
+    if (verticalFilter && c.vertical !== verticalFilter) return false;
+    // #263 — tag filter
+    if (tagFilter && !((c.tags as string[] | null) ?? []).includes(tagFilter)) return false;
+    // #383 — Contacted today filter
+    if (contactedTodayOnly) {
+      if (!(c as any).lastContactedAt) return false;
+      const todayStr = new Date().toLocaleDateString();
+      if (new Date((c as any).lastContactedAt).toLocaleDateString() !== todayStr) return false;
+    }
+    // #619 — Has assignee filter
+    if (hasAssigneeOnly && !c.assignedTo) return false;
+    // #514 — Lead source filter
+    if (leadSourceFilter && (c as any).leadSource !== leadSourceFilter) return false;
+    // #520 — Lifecycle state filter
+    if (lifecycleFilter && (c as any).lifecycleState !== lifecycleFilter) return false;
+    // #398 — Stale contacts (no activity in 30+ days)
+    if (staleContactsOnly) {
+      const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+      const lastActive = (c as any).lastActivityAt ? new Date((c as any).lastActivityAt).getTime() : 0;
+      if (lastActive > thirtyDaysAgo) return false;
+    }
+    // #543 — Recently updated (last 7 days)
+    if (recentlyUpdated) {
+      const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+      if (!(c as any).updatedAt || new Date((c as any).updatedAt).getTime() < sevenDaysAgo) return false;
+    }
+    // #462 — Never contacted filter
+    if (neverContactedOnly && c.lastContactedAt) return false;
+    // #1245 — Not contacted in 30 days
+    if (notContactedIn30Only) {
+      const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+      if (c.lastContactedAt && new Date(c.lastContactedAt).getTime() >= thirtyDaysAgo) return false;
+    }
+    // #835 — No-deal contacts filter
+    if (noDealOnly) {
+      const dealCount = (c as any).activeDealCount ?? (c as any).openDeals ?? (Array.isArray((c as any).deals) ? (c as any).deals.filter((d: any) => !d.archivedAt && d.stage !== "Closed Won" && d.stage !== "Closed Lost").length : null);
+      if (dealCount === null || dealCount === undefined || dealCount > 0) return false;
+    }
+    // #482 — Created this week filter
+    if (createdThisWeekOnly) {
+      const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      if (!c.createdAt || new Date(c.createdAt) < weekAgo) return false;
+    }
     return matchesSearch;
   });
+
+  // #566 — Sort contacts by last activity
+  const sortedContacts = activitySort
+    ? [...(filteredContacts ?? [])].sort((a: any, b: any) => {
+        if (activitySort === "activity_desc") {
+          const ta = a.lastActivityAt ? new Date(a.lastActivityAt).getTime() : 0;
+          const tb = b.lastActivityAt ? new Date(b.lastActivityAt).getTime() : 0;
+          return tb - ta;
+        }
+        if (activitySort === "activity_asc") {
+          const ta = a.lastActivityAt ? new Date(a.lastActivityAt).getTime() : Infinity;
+          const tb = b.lastActivityAt ? new Date(b.lastActivityAt).getTime() : Infinity;
+          return ta - tb;
+        }
+        if (activitySort === "score_desc") return ((b.leadScore ?? 0) as number) - ((a.leadScore ?? 0) as number);
+        if (activitySort === "alpha") return `${a.lastName}${a.firstName}`.localeCompare(`${b.lastName}${b.firstName}`);
+        return 0;
+      })
+    : filteredContacts;
 
   const emailHealthCounts = EMAIL_HEALTH_OPTIONS.reduce((acc, opt) => {
     if (!opt.value) return acc;
@@ -564,8 +658,26 @@ export default function Contacts() {
     else setAssignedToMe(false);
   };
 
+  // #318 — Shift+click range selection
+  const lastSelectedIdRef = React.useRef<number | null>(null);
+
   const toggleSelect = (id: number, e: React.MouseEvent) => {
     e.stopPropagation();
+    if (e.shiftKey && lastSelectedIdRef.current != null && filteredContacts) {
+      const ids = filteredContacts.map((c: any) => c.id as number);
+      const lastIdx = ids.indexOf(lastSelectedIdRef.current);
+      const curIdx = ids.indexOf(id);
+      if (lastIdx !== -1 && curIdx !== -1) {
+        const [lo, hi] = [Math.min(lastIdx, curIdx), Math.max(lastIdx, curIdx)];
+        setSelectedIds(prev => {
+          const next = new Set(prev);
+          for (let i = lo; i <= hi; i++) next.add(ids[i]);
+          return next;
+        });
+        return;
+      }
+    }
+    lastSelectedIdRef.current = id;
     setSelectedIds(prev => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id); else next.add(id);
@@ -724,22 +836,43 @@ export default function Contacts() {
       </div>
 
       <div className="flex flex-col sm:flex-row justify-between gap-4">
-        <div className="relative w-full sm:w-96">
-          <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-          <Input 
-            placeholder="Search contacts..." 
-            className="pl-9"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            data-testid="input-search-contacts"
-          />
+        <div className="flex items-center gap-2">
+          <div className="relative w-full sm:w-72">
+            <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+            <Input 
+              placeholder="Search contacts..." 
+              className="pl-9"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              data-testid="input-search-contacts"
+            />
+          </div>
+          {/* #592 — Filtered count */}
+          {sortedContacts && (
+            <span className="text-sm text-muted-foreground whitespace-nowrap" data-testid="text-filtered-count">
+              {sortedContacts.length.toLocaleString()} {sortedContacts.length === 1 ? "contact" : "contacts"}
+            </span>
+          )}
         </div>
         
         <div className="flex items-center gap-2 flex-wrap">
+          {/* #566 — Sort select */}
+          <Select value={activitySort || "__default__"} onValueChange={v => setActivitySort(v === "__default__" ? "" : v)}>
+            <SelectTrigger className="h-8 w-[160px] text-xs" data-testid="select-contact-sort">
+              <SelectValue placeholder="Sort by…" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__default__">Default order</SelectItem>
+              <SelectItem value="activity_desc">Last active (newest)</SelectItem>
+              <SelectItem value="activity_asc">Last active (oldest)</SelectItem>
+              <SelectItem value="score_desc">Lead score (high→low)</SelectItem>
+              <SelectItem value="alpha">A → Z (name)</SelectItem>
+            </SelectContent>
+          </Select>
           <div className="flex items-center gap-1 flex-wrap" data-testid="email-health-filter">
             {EMAIL_HEALTH_OPTIONS.map((opt) => {
               const isActive = emailHealthFilter === opt.value;
-              const count = opt.value ? emailHealthCounts[opt.value] : filteredContacts?.length;
+              const count = opt.value ? emailHealthCounts[opt.value] : sortedContacts?.length;
               return (
                 <button
                   key={opt.value || "all"}
@@ -782,6 +915,122 @@ export default function Contacts() {
             <UserCheck className="h-3 w-3" />
             Assigned to me
           </button>
+          {/* #462 — Never contacted filter chip */}
+          <button
+            onClick={() => setNeverContactedOnly(v => !v)}
+            data-testid="chip-never-contacted"
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+              neverContactedOnly
+                ? "bg-amber-50 border-amber-300 text-amber-700 dark:bg-amber-900/30 dark:border-amber-700 dark:text-amber-300"
+                : "bg-background border-border text-muted-foreground hover:bg-muted"
+            }`}
+          >
+            <Clock className="h-3 w-3" />
+            Never contacted
+            {!neverContactedOnly && contacts && (() => {
+              const n = contacts.filter((c: any) => !c.lastContactedAt).length;
+              return n > 0 ? <span className="ml-0.5 bg-muted-foreground/10 px-1 py-0.5 rounded text-[10px]">{n}</span> : null;
+            })()}
+          </button>
+          {/* #383 — Contacted today chip */}
+          <button
+            onClick={() => setContactedTodayOnly(v => !v)}
+            data-testid="chip-contacted-today"
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+              contactedTodayOnly
+                ? "bg-teal-50 border-teal-300 text-teal-700 dark:bg-teal-900/30 dark:border-teal-700 dark:text-teal-300"
+                : "bg-background border-border text-muted-foreground hover:bg-muted"
+            }`}
+          >
+            <UserCheck className="h-3 w-3" />
+            Contacted today
+          </button>
+          {/* #482 — Created this week filter chip */}
+          <button
+            onClick={() => setCreatedThisWeekOnly(v => !v)}
+            data-testid="chip-created-this-week"
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+              createdThisWeekOnly
+                ? "bg-green-50 border-green-300 text-green-700 dark:bg-green-900/30 dark:border-green-700 dark:text-green-300"
+                : "bg-background border-border text-muted-foreground hover:bg-muted"
+            }`}
+          >
+            <Calendar className="h-3 w-3" />
+            This week
+            {!createdThisWeekOnly && contacts && (() => {
+              const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+              const n = contacts.filter((c: any) => c.createdAt && new Date(c.createdAt) >= weekAgo).length;
+              return n > 0 ? <span className="ml-0.5 bg-muted-foreground/10 px-1 py-0.5 rounded text-[10px]">{n}</span> : null;
+            })()}
+          </button>
+          {/* #398 — Stale contacts chip (no activity in 30+ days) */}
+          <button
+            onClick={() => setStaleContactsOnly(v => !v)}
+            data-testid="chip-stale-contacts"
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+              staleContactsOnly
+                ? "bg-orange-50 border-orange-300 text-orange-700 dark:bg-orange-900/30 dark:border-orange-700 dark:text-orange-300"
+                : "bg-background border-border text-muted-foreground hover:bg-muted"
+            }`}
+          >
+            <Clock className="h-3 w-3" />
+            Stale (30d)
+          </button>
+          {/* #543 — Recently updated chip (last 7 days) */}
+          <button
+            onClick={() => setRecentlyUpdated(v => !v)}
+            data-testid="chip-recently-updated"
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+              recentlyUpdated
+                ? "bg-blue-50 border-blue-300 text-blue-700 dark:bg-blue-900/30 dark:border-blue-700 dark:text-blue-300"
+                : "bg-background border-border text-muted-foreground hover:bg-muted"
+            }`}
+          >
+            <RefreshCw className="h-3 w-3" />
+            Updated this week
+          </button>
+          {/* #1245 — Not contacted in 30 days chip */}
+          <button
+            onClick={() => setNotContactedIn30Only(v => !v)}
+            data-testid="chip-not-contacted-30d"
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+              notContactedIn30Only
+                ? "bg-red-50 border-red-300 text-red-700 dark:bg-red-900/30 dark:border-red-700 dark:text-red-300"
+                : "bg-background border-border text-muted-foreground hover:bg-muted"
+            }`}
+          >
+            <PhoneMissed className="h-3 w-3" />
+            No call (30d)
+          </button>
+          {/* #835 — No-deal contacts chip */}
+          <button
+            onClick={() => setNoDealOnly(v => !v)}
+            data-testid="chip-no-deal"
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+              noDealOnly
+                ? "bg-slate-100 border-slate-400 text-slate-700 dark:bg-slate-800 dark:border-slate-500 dark:text-slate-200"
+                : "bg-background border-border text-muted-foreground hover:bg-muted"
+            }`}
+          >
+            No deal
+          </button>
+          {/* #619 — Has assignee chip */}
+          <button
+            onClick={() => setHasAssigneeOnly(v => !v)}
+            data-testid="chip-has-assignee"
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+              hasAssigneeOnly
+                ? "bg-indigo-50 border-indigo-300 text-indigo-700 dark:bg-indigo-900/30 dark:border-indigo-700 dark:text-indigo-300"
+                : "bg-background border-border text-muted-foreground hover:bg-muted"
+            }`}
+          >
+            <UserCheck className="h-3 w-3" />
+            Assigned
+            {!hasAssigneeOnly && contacts && (() => {
+              const n = contacts.filter((c: any) => !!c.assignedTo).length;
+              return n > 0 ? <span className="ml-0.5 bg-muted-foreground/10 px-1 py-0.5 rounded text-[10px]">{n}</span> : null;
+            })()}
+          </button>
           <div className="flex items-center gap-2" data-testid="toggle-show-archived-contacts">
             <Switch
               checked={showArchived}
@@ -792,6 +1041,17 @@ export default function Contacts() {
               Show Archived
             </Label>
           </div>
+          {/* #236 — Advanced filter toggle */}
+          <Button
+            variant={showAdvancedFilters ? "secondary" : "outline"}
+            size="sm"
+            className="gap-1.5"
+            onClick={() => setShowAdvancedFilters(v => !v)}
+            data-testid="button-advanced-filters"
+          >
+            <Activity className="w-3.5 h-3.5" />
+            Filters {(verticalFilter || tagFilter || leadSourceFilter || hasAssigneeOnly) ? "•" : ""}
+          </Button>
           {selectedIds.size > 0 && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -801,12 +1061,166 @@ export default function Contacts() {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent>
+                <DropdownMenuItem onClick={() => bulkUpdateStatus("New")} disabled={bulkUpdating} data-testid="bulk-mark-lead">Mark as Lead</DropdownMenuItem>
                 <DropdownMenuItem onClick={() => bulkUpdateStatus("Contacted")} disabled={bulkUpdating} data-testid="bulk-mark-contacted">Mark Contacted</DropdownMenuItem>
                 <DropdownMenuItem onClick={() => bulkUpdateStatus("Won")} disabled={bulkUpdating} data-testid="bulk-mark-won">Mark Won</DropdownMenuItem>
                 <DropdownMenuItem onClick={() => bulkUpdateStatus("Lost")} disabled={bulkUpdating} data-testid="bulk-mark-lost">Mark Lost</DropdownMenuItem>
                 <DropdownMenuItem onClick={handleBulkLinkedInEnrich} disabled={bulkUpdating} data-testid="bulk-linkedin-enrich">
                   Enrich from LinkedIn
                 </DropdownMenuItem>
+                {/* #507 — Bulk archive selected contacts */}
+                {isManagerOrAdmin && (
+                  <DropdownMenuItem
+                    disabled={bulkUpdating}
+                    data-testid="bulk-archive"
+                    onClick={async () => {
+                      if (!confirm(`Archive ${selectedIds.size} contact(s)?`)) return;
+                      setBulkUpdating(true);
+                      try {
+                        await Promise.all(Array.from(selectedIds).map(id =>
+                          apiRequest("POST", `/api/contacts/${id}/archive`).then(r => r.json())
+                        ));
+                        queryClient.invalidateQueries({ queryKey: ["/api/contacts"] });
+                        toast({ title: "Contacts archived", description: `${selectedIds.size} contacts archived` });
+                        setSelectedIds(new Set());
+                      } catch (err: any) {
+                        toast({ title: "Archive failed", description: err.message, variant: "destructive" });
+                      } finally {
+                        setBulkUpdating(false);
+                      }
+                    }}
+                  >
+                    Archive selected
+                  </DropdownMenuItem>
+                )}
+                {/* #516 — Bulk re-score (admin/manager only) */}
+                {isManagerOrAdmin && (
+                  <DropdownMenuItem
+                    disabled={bulkUpdating}
+                    data-testid="bulk-rescore"
+                    onClick={async () => {
+                      setBulkUpdating(true);
+                      try {
+                        const res = await apiRequest("POST", "/api/contacts/mass-score", {
+                          contactIds: Array.from(selectedIds),
+                        });
+                        const d = await res.json();
+                        toast({ title: "Re-score started", description: d.message ?? `Scoring ${selectedIds.size} contacts…` });
+                        setSelectedIds(new Set());
+                      } catch (err: any) {
+                        toast({ title: "Re-score failed", description: err.message, variant: "destructive" });
+                      } finally {
+                        setBulkUpdating(false);
+                      }
+                    }}
+                  >
+                    Re-score contacts
+                  </DropdownMenuItem>
+                )}
+                {/* #803 — Bulk reassign to rep (admin/manager only) */}
+                {isManagerOrAdmin && agentsList && agentsList.length > 0 && (
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger disabled={bulkUpdating} data-testid="bulk-reassign-rep">
+                      Reassign to rep
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent>
+                      <DropdownMenuItem
+                        onClick={async () => {
+                          setBulkUpdating(true);
+                          try {
+                            await Promise.all(Array.from(selectedIds).map(id =>
+                              apiRequest("PATCH", `/api/contacts/${id}/assign`, { assignedTo: null }).then(r => r.json())
+                            ));
+                            queryClient.invalidateQueries({ queryKey: ["/api/contacts"] });
+                            toast({ title: "Unassigned", description: `${selectedIds.size} contacts unassigned` });
+                            setSelectedIds(new Set());
+                          } catch (err: any) {
+                            toast({ title: "Failed", description: err.message, variant: "destructive" });
+                          } finally { setBulkUpdating(false); }
+                        }}
+                        data-testid="bulk-reassign-unassign"
+                      >
+                        — Unassign
+                      </DropdownMenuItem>
+                      {agentsList.filter((a: any) => a.status === "active").map((agent: any) => (
+                        <DropdownMenuItem
+                          key={agent.id}
+                          data-testid={`bulk-reassign-${agent.id}`}
+                          onClick={async () => {
+                            setBulkUpdating(true);
+                            try {
+                              await Promise.all(Array.from(selectedIds).map(id =>
+                                apiRequest("PATCH", `/api/contacts/${id}/assign`, { assignedTo: agent.email }).then(r => r.json())
+                              ));
+                              queryClient.invalidateQueries({ queryKey: ["/api/contacts"] });
+                              toast({ title: "Reassigned", description: `${selectedIds.size} contacts assigned to ${agent.firstName} ${agent.lastName}` });
+                              setSelectedIds(new Set());
+                            } catch (err: any) {
+                              toast({ title: "Failed", description: err.message, variant: "destructive" });
+                            } finally { setBulkUpdating(false); }
+                          }}
+                        >
+                          {agent.firstName} {agent.lastName}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                )}
+                {/* #927 — Bulk lifecycle state update (admin/manager only) */}
+                {isManagerOrAdmin && (
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger disabled={bulkUpdating} data-testid="bulk-lifecycle-trigger">
+                      Set lifecycle state…
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent>
+                      {["PROSPECT","ENGAGED","QUALIFIED","PROPOSAL_SENT","NEGOTIATION","CLOSED_WON","CLOSED_LOST","DISQUALIFIED","NURTURE"].map((state) => (
+                        <DropdownMenuItem key={state} onClick={async () => {
+                          setBulkUpdating(true);
+                          try {
+                            await Promise.all(Array.from(selectedIds).map(id =>
+                              apiRequest("PUT", `/api/contacts/${id}`, { lifecycleState: state }).then(r => r.json())
+                            ));
+                            queryClient.invalidateQueries({ queryKey: ["/api/contacts"] });
+                            toast({ title: "Lifecycle updated", description: `Set ${selectedIds.size} contacts to ${state}` });
+                            setSelectedIds(new Set());
+                          } catch (err: any) {
+                            toast({ title: "Update failed", description: err.message, variant: "destructive" });
+                          } finally {
+                            setBulkUpdating(false);
+                          }
+                        }} data-testid={`bulk-lifecycle-${state}`}>
+                          {state.replace(/_/g, " ")}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                )}
+                {/* #391 — Bulk tag by vertical (admin/manager only) */}
+                {isManagerOrAdmin && (
+                  <DropdownMenuItem
+                    disabled={bulkUpdating}
+                    data-testid="bulk-tag-vertical"
+                    onClick={async () => {
+                      const v = window.prompt("Enter vertical to tag selected contacts with (e.g. restaurant, retail, automotive):");
+                      if (!v?.trim()) return;
+                      setBulkUpdating(true);
+                      try {
+                        await Promise.all(Array.from(selectedIds).map(id =>
+                          apiRequest("PUT", `/api/contacts/${id}`, { vertical: v.trim() }).then(r => r.json())
+                        ));
+                        queryClient.invalidateQueries({ queryKey: ["/api/contacts"] });
+                        toast({ title: "Vertical applied", description: `Tagged ${selectedIds.size} contacts as "${v.trim()}"` });
+                        setSelectedIds(new Set());
+                      } catch (err: any) {
+                        toast({ title: "Tag failed", description: err.message, variant: "destructive" });
+                      } finally {
+                        setBulkUpdating(false);
+                      }
+                    }}
+                  >
+                    Tag vertical…
+                  </DropdownMenuItem>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
           )}
@@ -845,7 +1259,7 @@ export default function Contacts() {
               document.body.removeChild(a);
             } else {
               // Agent: client-side export of visible page only
-              exportToCSV(filteredContacts || [], "contacts", [
+              exportToCSV(sortedContacts || [], "contacts", [
                 { key: "firstName", label: "First Name" },
                 { key: "lastName", label: "Last Name" },
                 { key: "email", label: "Email" },
@@ -951,6 +1365,25 @@ export default function Contacts() {
                     </FormItem>
                   )}
                 />
+                {/* #426 — Notes field in add-contact dialog */}
+                <FormField
+                  control={form.control}
+                  name="notes"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Notes (optional)</FormLabel>
+                      <FormControl>
+                        <Textarea
+                          {...field}
+                          placeholder="Any notes about this contact..."
+                          rows={2}
+                          data-testid="input-contact-notes"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
                 <div className="flex justify-end pt-4">
                   <Button type="submit" disabled={createContact.isPending}>
                     {createContact.isPending ? "Creating..." : "Create Contact"}
@@ -977,6 +1410,103 @@ export default function Contacts() {
           <Button size="sm" variant="outline" onClick={() => setSelectedIds(new Set())} data-testid="button-clear-selection">
             Clear
           </Button>
+        </div>
+      )}
+
+      {/* #236 — Advanced filter drawer with #238 vertical filter */}
+      {showAdvancedFilters && (
+        <div className="p-3 border rounded-lg bg-muted/30 space-y-3 animate-in fade-in-0 slide-in-from-top-2 duration-150" data-testid="advanced-filters-panel">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium">Advanced Filters</span>
+            {(verticalFilter || statusFilter || tagFilter || leadSourceFilter || hasAssigneeOnly) && (
+              <Button variant="ghost" size="sm" className="text-xs h-6 px-2" onClick={() => { setVerticalFilter(""); setStatusFilter(""); setTagFilter(""); setLeadSourceFilter(""); setHasAssigneeOnly(false); setLifecycleFilter(""); setContactedTodayOnly(false); }} data-testid="button-clear-vertical">
+                Clear all
+              </Button>
+            )}
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            <div>
+              <Label className="text-xs text-muted-foreground mb-1 block">Industry / Vertical</Label>
+              <Select value={verticalFilter || "__all__"} onValueChange={v => setVerticalFilter(v === "__all__" ? "" : v)}>
+                <SelectTrigger className="h-8 text-xs" data-testid="select-vertical-filter">
+                  <SelectValue placeholder="All verticals" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">All verticals</SelectItem>
+                  {VERTICALS.map(v => (
+                    <SelectItem key={v} value={v}>{v}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs text-muted-foreground mb-1 block">Status</Label>
+              <Select value={statusFilter || "__all__"} onValueChange={v => setStatusFilter(v === "__all__" ? "" : v)}>
+                <SelectTrigger className="h-8 text-xs" data-testid="select-status-filter-advanced">
+                  <SelectValue placeholder="All statuses" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">All statuses</SelectItem>
+                  {["New", "Contacted", "Qualified", "Won", "Lost"].map(s => (
+                    <SelectItem key={s} value={s}>{s}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {/* #520 — Lifecycle state filter */}
+            <div>
+              <Label className="text-xs text-muted-foreground mb-1 block">Lifecycle State</Label>
+              <Select value={lifecycleFilter || "__all__"} onValueChange={v => setLifecycleFilter(v === "__all__" ? "" : v)}>
+                <SelectTrigger className="h-8 text-xs" data-testid="select-lifecycle-filter">
+                  <SelectValue placeholder="All lifecycle states" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">All lifecycle states</SelectItem>
+                  {["PROSPECT","QUALIFIED_LEAD","PROPOSAL_SENT","NEGOTIATION","CLOSED_WON","CLOSED_LOST","CHURNED","WINBACK"].map(s => (
+                    <SelectItem key={s} value={s}>{s.replace(/_/g, " ")}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {/* #514 — Lead source filter */}
+            <div>
+              <Label className="text-xs text-muted-foreground mb-1 block">Lead Source</Label>
+              <Select value={leadSourceFilter || "__all__"} onValueChange={v => setLeadSourceFilter(v === "__all__" ? "" : v)}>
+                <SelectTrigger className="h-8 text-xs" data-testid="select-lead-source-filter">
+                  <SelectValue placeholder="All sources" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">All sources</SelectItem>
+                  {["google_ads", "sunbiz", "imported_list", "referral", "outbound", "inbound", "partner"].map(s => (
+                    <SelectItem key={s} value={s}>{s.replace(/_/g, " ")}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {/* #263 — Tag filter */}
+            <div>
+              <Label className="text-xs text-muted-foreground mb-1 block">Tag</Label>
+              <div className="relative">
+                <Input
+                  className="h-8 text-xs pr-6"
+                  placeholder="Filter by tag…"
+                  value={tagFilter}
+                  onChange={e => setTagFilter(e.target.value)}
+                  data-testid="input-tag-filter"
+                />
+                {tagFilter && (
+                  <button
+                    className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    onClick={() => setTagFilter("")}
+                    data-testid="button-clear-tag-filter"
+                    type="button"
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -1056,7 +1586,7 @@ export default function Contacts() {
                 </span>
               </div>
               <ResponsiveTable
-              data={filteredContacts ?? []}
+              data={sortedContacts ?? []}
               columns={[
                 {
                   header: "",
@@ -1098,10 +1628,57 @@ export default function Contacts() {
                         {(contact as any).isDecisionMaker && (
                           <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400 shrink-0" aria-label="Decision Maker" data-testid={`badge-dm-star-${contact.id}`} />
                         )}
+                        {/* #284 — Hot Lead badge for contacts with high score (#395 adds breakdown tooltip) */}
+                        {(contact as any).leadScore >= 80 && (() => {
+                          const sb = (contact as any).scoreBreakdown;
+                          const tip = sb ? `Score: ${(contact as any).leadScore}\nRevenue: ${sb.revPotential?.score ?? "—"}/${sb.revPotential?.max ?? 30}\nSwitchability: ${sb.switchability?.score ?? "—"}/${sb.switchability?.max ?? 25}\nUW Confidence: ${sb.uwConfidence?.score ?? "—"}/${sb.uwConfidence?.max ?? 25}\nEngagement: ${sb.engagement?.score ?? "—"}/${sb.engagement?.max ?? 20}` : `Lead score: ${(contact as any).leadScore}`;
+                          return (
+                            <Badge className="text-[10px] px-1 py-0 h-4 bg-red-100 text-red-700 border-red-200 no-default-hover-elevate no-default-active-elevate" variant="outline" data-testid={`badge-hot-lead-${contact.id}`} title={tip}>
+                              🔥 Hot
+                            </Badge>
+                          );
+                        })()}
+                        {/* #556 — Warm lead badge (score 50-79) */}
+                        {(contact as any).leadScore >= 50 && (contact as any).leadScore < 80 && (() => {
+                          const sb = (contact as any).scoreBreakdown;
+                          const tip = sb ? `Score: ${(contact as any).leadScore}\nRevenue: ${sb.revPotential?.score ?? "—"}/${sb.revPotential?.max ?? 30}\nSwitchability: ${sb.switchability?.score ?? "—"}/${sb.switchability?.max ?? 25}\nUW Confidence: ${sb.uwConfidence?.score ?? "—"}/${sb.uwConfidence?.max ?? 25}\nEngagement: ${sb.engagement?.score ?? "—"}/${sb.engagement?.max ?? 20}` : `Lead score: ${(contact as any).leadScore}`;
+                          return (
+                            <Badge className="text-[10px] px-1 py-0 h-4 bg-amber-50 text-amber-700 border-amber-200 no-default-hover-elevate no-default-active-elevate" variant="outline" data-testid={`badge-warm-lead-${contact.id}`} title={tip}>
+                              🌟 Warm
+                            </Badge>
+                          );
+                        })()}
+                        {/* #564 / #395 — Lead score for cool contacts (score 1-49) with breakdown tooltip */}
+                        {(contact as any).leadScore != null && (contact as any).leadScore < 50 && (contact as any).leadScore > 0 && (() => {
+                          const sb = (contact as any).scoreBreakdown;
+                          const tip = sb ? `Score: ${(contact as any).leadScore}\nRevenue: ${sb.revPotential?.score ?? "—"}/${sb.revPotential?.max ?? 30}\nSwitchability: ${sb.switchability?.score ?? "—"}/${sb.switchability?.max ?? 25}\nUW Confidence: ${sb.uwConfidence?.score ?? "—"}/${sb.uwConfidence?.max ?? 25}\nEngagement: ${sb.engagement?.score ?? "—"}/${sb.engagement?.max ?? 20}` : `Lead score: ${(contact as any).leadScore}`;
+                          return (
+                            <Badge variant="outline" className="text-[10px] px-1 py-0 h-4 border-slate-200 bg-slate-50 text-slate-600 no-default-hover-elevate no-default-active-elevate" data-testid={`badge-lead-score-${contact.id}`} title={tip}>
+                              {(contact as any).leadScore}
+                            </Badge>
+                          );
+                        })()}
                         {contact.emailStatus && contact.emailStatus !== "active" && (
                           <span className={`text-xs px-1 py-0.5 rounded ${contact.emailStatus === "bounced" || contact.emailStatus === "invalid" ? "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300" : "bg-slate-100 text-slate-600"}`} data-testid={`badge-email-status-${contact.id}`}>
                             {contact.emailStatus}
                           </span>
+                        )}
+                        {/* #430 — Lead source badge */}
+                        {(contact as any).leadSource && (
+                          <Badge
+                            variant="outline"
+                            className="text-[10px] px-1 py-0 h-4 border-slate-200 bg-slate-50 text-slate-600 no-default-hover-elevate no-default-active-elevate max-w-[60px] truncate"
+                            data-testid={`badge-lead-source-${contact.id}`}
+                            title={`Source: ${(contact as any).leadSource}`}
+                          >
+                            {((contact as any).leadSource as string).replace(/_/g, " ")}
+                          </Badge>
+                        )}
+                        {/* #457 — LinkedIn enrichment badge */}
+                        {(contact as any).linkedinEnrichedAt && (
+                          <Badge variant="outline" className="text-[10px] px-1 py-0 h-4 border-blue-200 bg-blue-50 text-blue-700 no-default-hover-elevate no-default-active-elevate" data-testid={`badge-enriched-${contact.id}`} title={`LinkedIn enriched ${new Date((contact as any).linkedinEnrichedAt).toLocaleDateString()}`}>
+                            Li
+                          </Badge>
                         )}
                         {isArchived && (
                           <Badge variant="outline" className="text-xs no-default-hover-elevate no-default-active-elevate" data-testid={`badge-archived-contact-${contact.id}`}>
@@ -1114,6 +1691,8 @@ export default function Contacts() {
                 },
                 { header: "Company", accessorKey: "companyName" as const, hideOnMobile: true },
                 { header: "Email", accessorKey: "email" as const, className: "text-muted-foreground text-sm", hideOnMobile: true },
+                /* #448 — Phone column */
+                { header: "Phone", accessorKey: "phone" as const, className: "text-muted-foreground text-sm", hideOnMobile: true },
                 {
                   header: "Vertical",
                   hideOnMobile: true,
@@ -1148,9 +1727,62 @@ export default function Contacts() {
                   ),
                 },
                 {
+                  header: "Last Activity",
+                  hideOnMobile: true,
+                  cell: (contact: any) => {
+                    const d = (contact as any).lastActivityAt;
+                    if (!d) return <span className="text-muted-foreground/40 text-xs" data-testid={`text-last-activity-${contact.id}`}>—</span>;
+                    const diff = Date.now() - new Date(d).getTime();
+                    const days = Math.floor(diff / 86400000);
+                    const label = days === 0 ? "Today" : days === 1 ? "Yesterday" : `${days}d ago`;
+                    return (
+                      <span className={`text-xs ${days > 14 ? "text-muted-foreground" : ""}`} data-testid={`text-last-activity-${contact.id}`} title={new Date(d).toLocaleDateString()}>
+                        {label}
+                      </span>
+                    );
+                  },
+                },
+                {
+                  // #503 — Last contacted date (separate from last activity)
+                  header: "Last Contacted",
+                  hideOnMobile: true,
+                  cell: (contact: any) => {
+                    const d = (contact as any).lastContactedAt;
+                    if (!d) return <span className="text-muted-foreground/40 text-xs" data-testid={`text-last-contacted-${contact.id}`}>—</span>;
+                    const diff = Date.now() - new Date(d).getTime();
+                    const days = Math.floor(diff / 86400000);
+                    const label = days === 0 ? "Today" : days === 1 ? "Yesterday" : `${days}d ago`;
+                    return (
+                      <span className={`text-xs ${days > 30 ? "text-destructive/70" : days > 14 ? "text-muted-foreground" : ""}`}
+                        data-testid={`text-last-contacted-${contact.id}`} title={new Date(d).toLocaleDateString()}>
+                        {label}
+                      </span>
+                    );
+                  },
+                },
+                {
                   header: "Assigned Rep",
                   hideOnMobile: true,
-                  cell: (contact: any) => contact.assignedTo ? (
+                  cell: (contact: any) => isManagerOrAdmin && agentsList ? (
+                    // #422 — Quick-assign Select for manager/admin
+                    <select
+                      value={contact.assignedTo || ""}
+                      onChange={e => {
+                        e.stopPropagation();
+                        assignContactMutation.mutate({ id: contact.id, assignedTo: e.target.value || null });
+                      }}
+                      onClick={e => e.stopPropagation()}
+                      data-testid={`select-assigned-rep-${contact.id}`}
+                      className="text-xs border border-border rounded px-1.5 py-0.5 bg-background text-foreground max-w-[120px]"
+                    >
+                      <option value="">Unassigned</option>
+                      {agentsList.map(a => (
+                        <option key={a.id} value={a.email}>
+                          {a.firstName && a.lastName ? `${a.firstName} ${a.lastName}` : a.email.split("@")[0]}
+                        </option>
+                      ))}
+                    </select>
+                  ) : contact.assignedTo ? (
                     <span
                       className={`inline-flex items-center gap-1 text-xs ${contact.assignedTo === user?.email ? "text-primary font-medium" : "text-muted-foreground"}`}
                       data-testid={`text-assigned-rep-${contact.id}`}
@@ -1200,6 +1832,22 @@ export default function Contacts() {
                             <DropdownMenuItem onClick={(e: React.MouseEvent) => { e.stopPropagation(); updateContact.mutate({ id: contact.id, status: "Lost" }); }}>
                               Mark Lost
                             </DropdownMenuItem>
+                            {/* #523 — Snooze contact (sets nextAllowedContactDate) */}
+                            <DropdownMenuItem onClick={async (e: React.MouseEvent) => {
+                              e.stopPropagation();
+                              const daysStr = window.prompt("Snooze for how many days? (1–365)", "7");
+                              const days = parseInt(daysStr || "", 10);
+                              if (!days || days < 1 || days > 365) return;
+                              try {
+                                await apiRequest("PATCH", `/api/contacts/${contact.id}/snooze`, { days });
+                                queryClient.invalidateQueries({ queryKey: ["/api/contacts"] });
+                                toast({ title: `Contact snoozed for ${days} day${days === 1 ? "" : "s"}` });
+                              } catch {
+                                toast({ title: "Snooze failed", variant: "destructive" });
+                              }
+                            }} data-testid={`menu-snooze-contact-${contact.id}`}>
+                              <BellOff className="w-4 h-4 mr-2" /> Snooze {(contact as any).nextAllowedContactDate ? "(active)" : ""}
+                            </DropdownMenuItem>
                             {isArchived ? (
                               <DropdownMenuItem onClick={(e: React.MouseEvent) => { e.stopPropagation(); restoreContactMutation.mutate(contact.id); }} data-testid={`menu-restore-contact-${contact.id}`}>
                                 <RotateCcw className="w-4 h-4 mr-2" /> Restore
@@ -1242,6 +1890,10 @@ export default function Contacts() {
                       <div className="flex items-center gap-1 flex-wrap">
                         <span className={`font-medium text-sm ${isArchived ? "line-through" : ""}`}>{contact.firstName} {contact.lastName}</span>
                         {(contact as any).isDecisionMaker && <Star className="h-3 w-3 fill-amber-400 text-amber-400" />}
+                        {/* #542 — DNC flag */}
+                        {(contact as any).doNotContact && (
+                          <span className="inline-flex items-center px-1.5 py-0 rounded text-[10px] font-bold bg-red-100 text-red-700 border border-red-200 dark:bg-red-900/30 dark:text-red-400" data-testid={`badge-dnc-${contact.id}`} title="Do Not Contact">⛔ DNC</span>
+                        )}
                       </div>
                       <div className="text-xs text-muted-foreground truncate">{contact.companyName}</div>
                       <div className="text-xs text-muted-foreground truncate">{contact.email}</div>
@@ -1332,6 +1984,19 @@ export default function Contacts() {
                 </div>
               </div>
             )}
+
+      {/* #241 — Sticky mobile "Add Contact" FAB */}
+      <div className="fixed bottom-6 right-6 z-40 sm:hidden" data-testid="fab-add-contact">
+        <Button
+          size="icon"
+          className="h-14 w-14 rounded-full shadow-lg"
+          onClick={() => setIsDialogOpen(true)}
+          aria-label="Add Contact"
+          data-testid="button-fab-add-contact"
+        >
+          <Plus className="h-6 w-6" />
+        </Button>
+      </div>
 
             <div className="flex justify-end gap-2 pt-2">
               <Button variant="outline" onClick={() => setBulkDialogOpen(false)} data-testid="button-bulk-cancel">

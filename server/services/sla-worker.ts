@@ -287,7 +287,32 @@ async function checkDealSla(rule: typeof DEFAULT_SLA_RULES[0]) {
   }
 }
 
+// #399 — Auto-close tickets that have been in "Resolved" status for 7+ days
+async function autoCloseResolvedTickets() {
+  try {
+    const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const ticketResult = await storage.getTickets();
+    const allTickets = Array.isArray(ticketResult) ? ticketResult : (ticketResult as any).data ?? [];
+    const toClose = allTickets.filter((t: any) => t.status === "Resolved" && t.updatedAt && new Date(t.updatedAt) < cutoff);
+    for (const ticket of toClose) {
+      await storage.updateTicket(ticket.id, { status: "Closed" });
+      await storage.createAuditLog({
+        action: "ticket_auto_closed",
+        entityType: "ticket",
+        entityId: ticket.id,
+        details: { reason: "Resolved for 7+ days", resolvedAt: ticket.updatedAt },
+      });
+    }
+    if (toClose.length > 0) {
+      console.log(`[SLA] Auto-closed ${toClose.length} resolved ticket(s) older than 7 days`);
+    }
+  } catch (err: any) {
+    console.error("[SLA] autoCloseResolvedTickets error:", err.message);
+  }
+}
+
 async function checkTicketSla() {
+  await autoCloseResolvedTickets();
   const breachedTickets = await storage.getTicketsBreachingSla();
 
   for (const ticket of breachedTickets) {

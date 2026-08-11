@@ -198,6 +198,36 @@ export async function retryDeferredEnrollments(): Promise<{
         ` workflowKey=${entry.workflow_key} ghlContactId=${entry.ghl_contact_id}` +
         ` lastError="${entry.last_error}"`
       );
+      // Alert admins on permanent failure (#1010) — non-fatal, fire-and-forget
+      (async () => {
+        try {
+          const { sendSmtpEmail, isSmtpConfigured } = await import("./smtp-email");
+          const { getEmailSignatureHtml } = await import("./email-signatures");
+          if (!isSmtpConfigured()) return;
+          const adminEmail = process.env.ADMIN_SEED_EMAIL;
+          if (!adminEmail) return;
+          await sendSmtpEmail({
+            to: adminEmail,
+            subject: `[Liberty Bancard] GHL enrollment permanently failed — ${entry.workflow_key}`,
+            html: `
+<div style="font-family:Arial,sans-serif;font-size:14px;color:#333;max-width:600px;">
+  <p><strong>A GHL workflow enrollment has permanently failed</strong> after ${entry.retry_count} retries and will not be retried again.</p>
+  <table style="border-collapse:collapse;width:100%;font-size:13px;">
+    <tr><td style="padding:4px 8px;font-weight:bold;background:#f4f4f4;">Workflow key</td><td style="padding:4px 8px;">${entry.workflow_key}</td></tr>
+    <tr><td style="padding:4px 8px;font-weight:bold;background:#f4f4f4;">GHL Contact ID</td><td style="padding:4px 8px;">${entry.ghl_contact_id}</td></tr>
+    <tr><td style="padding:4px 8px;font-weight:bold;background:#f4f4f4;">Last error</td><td style="padding:4px 8px;">${entry.last_error ?? "unknown"}</td></tr>
+    <tr><td style="padding:4px 8px;font-weight:bold;background:#f4f4f4;">Retry count</td><td style="padding:4px 8px;">${entry.retry_count}</td></tr>
+    <tr><td style="padding:4px 8px;font-weight:bold;background:#f4f4f4;">Enqueued at</td><td style="padding:4px 8px;">${entry.enqueued_at ?? "unknown"}</td></tr>
+  </table>
+  <p style="margin-top:16px;">Check the deferred GHL enrollment queue in the admin panel for details.</p>
+  ${getEmailSignatureHtml("support")}
+</div>`,
+            category: "internal_ops",
+          });
+        } catch (alertErr: any) {
+          console.warn("[GHL Recovery] Failed to send permanent-failure alert email:", alertErr?.message);
+        }
+      })();
       stats.permanentlyFailed++;
       continue;
     }

@@ -328,7 +328,7 @@ export async function computeAndPersistChurnScore(contactId: number): Promise<Me
     entityId: contactId,
     factKey: "churn_risk_tier",
     factValue: finalTier,
-    source: "churn_scoring",
+    source: "ai",
     confidence: result.churnScore / 100,
   }).catch(() => {});
 
@@ -337,7 +337,7 @@ export async function computeAndPersistChurnScore(contactId: number): Promise<Me
     entityId: contactId,
     factKey: "churn_score",
     factValue: String(result.churnScore),
-    source: "churn_scoring",
+    source: "ai",
     confidence: result.churnScore / 100,
   }).catch(() => {});
 

@@ -23,6 +23,25 @@ import { getCanonicalUrl } from "../../lib/canonical-url";
 import { serverError } from "../../utils/server-error";
 const APP_URL = getCanonicalUrl();
 
+function buildPasswordChangedEmail(firstName: string): string {
+  const displayName = firstName || "there";
+  return `
+<div style="font-family:Arial,sans-serif;font-size:14px;color:#333;max-width:600px;">
+  <div style="background-color:#1e3a5f;padding:20px 24px;border-radius:6px 6px 0 0;">
+    <p style="color:#fff;font-weight:bold;margin:0;font-size:16px;">Liberty Bancard</p>
+  </div>
+  <div style="padding:24px;background:#f9f9f9;">
+    <p>Hi ${displayName},</p>
+    <p>Your Liberty Bancard account password was just changed successfully.</p>
+    <p>If you made this change, no further action is needed.</p>
+    <p><strong>If you did not change your password</strong>, your account may be compromised. Please contact us immediately at <a href="mailto:support@libertybancard.com">support@libertybancard.com</a> or call <a href="tel:9542668214">954-266-8214</a>.</p>
+  </div>
+  <div style="padding:12px 24px;background:#e8ecef;border-radius:0 0 6px 6px;font-size:11px;color:#666;">
+    Liberty Bancard &middot; support@libertybancard.com
+  </div>
+</div>`;
+}
+
 function buildPasswordResetEmail(firstName: string, resetUrl: string): string {
   const displayName = firstName || "there";
   return `
@@ -329,11 +348,15 @@ export async function setupAuth(app: Express) {
             const now = new Date();
             const trustedDevice = devices.find(d => d.token === hashedCookieToken && new Date(d.expiresAt) > now);
             if (trustedDevice) {
-              return req.logIn(user, async (loginErr) => {
-                if (loginErr) return res.status(500).json({ message: "Login failed" });
-                await registerLoginSession(req, user.id, user.role || "merchant");
-                const { passwordHash, totpSecret, ...safeUser } = user;
-                return res.json(safeUser);
+              // Regenerate session to prevent session fixation before logging in
+              return req.session.regenerate((regenErr) => {
+                if (regenErr) return res.status(500).json({ message: "Login failed" });
+                req.logIn(user, async (loginErr) => {
+                  if (loginErr) return res.status(500).json({ message: "Login failed" });
+                  await registerLoginSession(req, user.id, user.role || "merchant");
+                  const { passwordHash, totpSecret, ...safeUser } = user;
+                  return res.json(safeUser);
+                });
               });
             }
           }
@@ -342,20 +365,28 @@ export async function setupAuth(app: Express) {
         }
 
         if (globalMfaRequired && !user.totpEnabled) {
-          req.logIn(user, async (loginErr) => {
-            if (loginErr) return res.status(500).json({ message: "Login failed" });
-            await registerLoginSession(req, user.id, user.role || "merchant");
-            const { passwordHash, totpSecret, ...safeUser } = user;
-            return res.json({ ...safeUser, mfa_enrollment_required: true });
+          // Regenerate session to prevent session fixation before logging in
+          req.session.regenerate((regenErr) => {
+            if (regenErr) return res.status(500).json({ message: "Login failed" });
+            req.logIn(user, async (loginErr) => {
+              if (loginErr) return res.status(500).json({ message: "Login failed" });
+              await registerLoginSession(req, user.id, user.role || "merchant");
+              const { passwordHash, totpSecret, ...safeUser } = user;
+              return res.json({ ...safeUser, mfa_enrollment_required: true });
+            });
           });
           return;
         }
 
-        req.logIn(user, async (loginErr) => {
-          if (loginErr) return res.status(500).json({ message: "Login failed" });
-          await registerLoginSession(req, user.id, user.role || "merchant");
-          const { passwordHash, totpSecret, ...safeUser } = user;
-          return res.json(safeUser);
+        // Regenerate session to prevent session fixation before logging in
+        req.session.regenerate((regenErr) => {
+          if (regenErr) return res.status(500).json({ message: "Login failed" });
+          req.logIn(user, async (loginErr) => {
+            if (loginErr) return res.status(500).json({ message: "Login failed" });
+            await registerLoginSession(req, user.id, user.role || "merchant");
+            const { passwordHash, totpSecret, ...safeUser } = user;
+            return res.json(safeUser);
+          });
         });
       } catch (err) {
         return res.status(500).json({ message: "Server error" });
@@ -764,6 +795,13 @@ export async function setupAuth(app: Express) {
       await authStorage.updateUserPassword(user.id, passwordHash);
       // Invalidate ALL sessions for this user (password was reset, security event)
       await authStorage.invalidateAllUserSessions(user.id);
+      // Send confirmation email so the account holder is alerted
+      sendAuthEmail({
+        to: user.email!,
+        subject: "Your Liberty Bancard password was changed",
+        html: buildPasswordChangedEmail(user.firstName || ""),
+        label: "password-changed-confirmation",
+      }).catch(err => console.error("[Auth] Password change confirmation email error:", err));
       return res.json({ message: "Password has been reset successfully" });
     } catch (error: any) {
       console.error("Reset password error:", error);

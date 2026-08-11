@@ -410,7 +410,6 @@ async function _shouldSuppressCore(
     }).catch(() => {});
     return {
       suppressed: true,
-      signal: "arbitration_error",
       reason: `Arbitration check threw an error — send blocked to protect compliance (${errMsg.slice(0, 120)})`,
     };
   }

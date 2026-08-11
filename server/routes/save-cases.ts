@@ -24,6 +24,13 @@ export function registerSaveCaseRoutes(app: Express) {
     async (req, res) => {
       try {
         const statusFilter = (req.query.status as string) ?? "open";
+        const contactIdFilter = req.query.contactId ? parseInt(String(req.query.contactId), 10) : undefined;
+
+        const whereConditions = [
+          ...(statusFilter !== "all" ? [eq(saveCases.status, statusFilter)] : []),
+          ...(contactIdFilter && !isNaN(contactIdFilter) ? [eq(saveCases.contactId, contactIdFilter)] : []),
+        ];
+
         const rows = await db
           .select({
             case: saveCases,
@@ -33,7 +40,7 @@ export function registerSaveCaseRoutes(app: Express) {
           })
           .from(saveCases)
           .leftJoin(contacts, eq(saveCases.contactId, contacts.id))
-          .where(statusFilter === "all" ? undefined : eq(saveCases.status, statusFilter))
+          .where(whereConditions.length > 0 ? and(...(whereConditions as any)) : undefined)
           .orderBy(desc(saveCases.createdAt))
           .limit(200);
 

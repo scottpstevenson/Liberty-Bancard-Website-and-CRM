@@ -1526,6 +1526,40 @@ export default function LeadImports() {
                   <p className="text-sm text-muted-foreground">Errors</p>
                   <p className="font-medium text-red-600 dark:text-red-400" data-testid={`text-detail-errors-${imp.id}`}>{fmtOrUnknown(imp.errorsCount, imp)}</p>
                 </div>
+                {/* #266 — CSV error row summary download */}
+                {((imp.invalidRows ?? 0) + (imp.errorsCount ?? 0)) > 0 && (
+                  <div className="col-span-2 md:col-span-4 flex justify-end">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-1.5 text-xs"
+                      data-testid={`button-download-error-rows-${imp.id}`}
+                      onClick={() => {
+                        const rows = [
+                          ["Import ID", "Filename", "Invalid Rows", "Errors", "Duplicates"],
+                          [
+                            String(imp.id),
+                            String((imp as any).filename ?? "unknown"),
+                            String(imp.invalidRows ?? 0),
+                            String(imp.errorsCount ?? 0),
+                            String(imp.duplicatesSkipped ?? 0),
+                          ]
+                        ];
+                        const csv = rows.map(r => r.map(v => `"${v.replace(/"/g, '""')}"`).join(",")).join("\n");
+                        const blob = new Blob([csv], { type: "text/csv" });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement("a");
+                        a.href = url;
+                        a.download = `import-errors-${imp.id}.csv`;
+                        a.click();
+                        URL.revokeObjectURL(url);
+                      }}
+                    >
+                      <CloudDownload className="h-3.5 w-3.5" />
+                      Download Error Summary
+                    </Button>
+                  </div>
+                )}
                 {hasUnknownBuckets(imp) && (
                   <div className="col-span-2 md:col-span-4">
                     <p className="text-xs text-amber-600 dark:text-amber-400" data-testid={`text-unknown-buckets-${imp.id}`}>

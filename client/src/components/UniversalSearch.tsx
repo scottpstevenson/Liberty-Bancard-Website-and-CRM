@@ -40,6 +40,26 @@ export default function UniversalSearch() {
   const [isLoading, setIsLoading] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
+
+  // #239 — Recent searches persisted in localStorage
+  const RECENT_KEY = "lb_recent_searches";
+  const MAX_RECENT = 8;
+  const [recentSearches, setRecentSearches] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem(RECENT_KEY) || "[]"); } catch { return []; }
+  });
+  const saveRecentSearch = (q: string) => {
+    const trimmed = q.trim();
+    if (!trimmed || trimmed.length < 2) return;
+    setRecentSearches(prev => {
+      const next = [trimmed, ...prev.filter(s => s !== trimmed)].slice(0, MAX_RECENT);
+      try { localStorage.setItem(RECENT_KEY, JSON.stringify(next)); } catch {}
+      return next;
+    });
+  };
+  const clearRecentSearches = () => {
+    setRecentSearches([]);
+    try { localStorage.removeItem(RECENT_KEY); } catch {}
+  };
   const [advancedResults, setAdvancedResults] = useState<AdvancedResults | null>(null);
   const [advancedLoading, setAdvancedLoading] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(-1);
@@ -138,6 +158,8 @@ export default function UniversalSearch() {
   }
 
   function handleResultClick(href: string) {
+    // #239 — persist the search query as a recent search
+    saveRecentSearch(query);
     setIsOpen(false);
     setShowAdvanced(false);
     setQuery("");
@@ -379,7 +401,39 @@ export default function UniversalSearch() {
         </Card>
       )}
 
-      {isOpen && !showAdvanced && (
+      {/* #239 — Show recent searches when query is empty and input is focused */}
+      {isOpen && !showAdvanced && !query.trim() && recentSearches.length > 0 && (
+        <Card
+          data-testid="dropdown-recent-searches"
+          className="absolute top-full left-0 right-0 mt-1 max-h-64 overflow-auto z-50"
+        >
+          <div className="py-1">
+            <div className="flex items-center justify-between px-3 py-1.5">
+              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Recent</span>
+              <button
+                className="text-xs text-muted-foreground hover:text-foreground"
+                onClick={clearRecentSearches}
+                data-testid="button-clear-recent-searches"
+              >
+                Clear
+              </button>
+            </div>
+            {recentSearches.map((q) => (
+              <button
+                key={q}
+                data-testid={`recent-search-${q.replace(/\s+/g, "-")}`}
+                onClick={() => { setQuery(q); setIsOpen(true); }}
+                className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-accent"
+              >
+                <Search className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
+                <span className="text-sm truncate">{q}</span>
+              </button>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {isOpen && !showAdvanced && query.trim() && (
         <Card
           data-testid="dropdown-search-results"
           className="absolute top-full left-0 right-0 mt-1 max-h-80 overflow-auto z-50"

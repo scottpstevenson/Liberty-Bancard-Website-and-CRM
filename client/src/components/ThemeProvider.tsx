@@ -16,7 +16,7 @@ function getSystemTheme(): "light" | "dark" {
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<Theme>(() => {
     const stored = localStorage.getItem("liberty-theme") as Theme | null;
-    return stored || "light";
+    return stored || "system";
   });
 
   useEffect(() => {

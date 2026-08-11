@@ -95,6 +95,11 @@ const KNOWN_MISMATCHES = new Set<string>([
   // Wizard statement — server handler exists at POST /api/wizard/test-statement (multer middleware)
   // coverage script resolves the multer upload middleware differently from plain route handlers
   "/api/wizard/test-statement",
+  // Save-cases routes — server handlers exist in server/routes/save-cases.ts (registered via registerSaveCaseRoutes)
+  // coverage script sees raw fetch() calls with template literals rather than apiRequest
+  "/api/save-cases",
+  "/api/save-cases/:param",
+  "/api/save-cases/:param/advance",
 ]);
 
 function main() {

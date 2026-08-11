@@ -332,6 +332,7 @@ export interface IStorage {
   getNotes(entityType: string, entityId: number): Promise<typeof notes.$inferSelect[]>;
   getNote(id: number): Promise<typeof notes.$inferSelect | undefined>;
   createNote(note: InsertNote): Promise<typeof notes.$inferSelect>;
+  updateNote(id: number, content: string): Promise<void>; // #243
   deleteNote(id: number): Promise<void>;
 
   getEmailLogs(contactId?: number): Promise<typeof emailLogs.$inferSelect[]>;

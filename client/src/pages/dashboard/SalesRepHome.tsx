@@ -305,6 +305,27 @@ function YourRankCard() {
             <Progress value={revenuePct} className="h-1.5" />
           </div>
         )}
+
+        {/* #543 — Show close rate stat */}
+        {(() => {
+          const closeRate = (me as any).closeRate as number | undefined;
+          const prevCloseRate = (me as any).prevCloseRate as number | undefined;
+          if (closeRate == null) return null;
+          const delta = prevCloseRate != null ? closeRate - prevCloseRate : 0;
+          return (
+            <div className="flex items-center justify-between text-xs pt-1 border-t" data-testid="rank-close-rate">
+              <span className="font-medium text-muted-foreground">Close Rate</span>
+              <span className="font-semibold" data-testid="text-rank-close-rate">
+                {Math.round(closeRate * 100)}%
+                {Math.abs(delta) >= 0.01 && (
+                  <span className={`ml-1 text-[10px] ${delta > 0 ? "text-green-600" : "text-red-500"}`}>
+                    {delta > 0 ? "▲" : "▼"}{Math.round(Math.abs(delta) * 100)}%
+                  </span>
+                )}
+              </span>
+            </div>
+          );
+        })()}
       </CardContent>
     </Card>
   );
@@ -339,6 +360,7 @@ interface MyDayData {
     notes: string | null;
     createdAt: string;
     updatedAt: string;
+    nextFollowUp: string | null; // #518
   }>>;
   openDeals: any[];
   quota: {
@@ -838,6 +860,26 @@ export default function SalesRepHome() {
             </div>
           </CardContent>
         </Card>
+        {/* #1027 — Pending proposals awaiting response */}
+        {(() => {
+          const awaitingProposals = Object.values(dealsByStage).flat().filter((d: any) =>
+            !d.archivedAt && d.proposalSentAt && d.proposalStatus !== "viewed" && d.proposalStatus !== "accepted" && d.proposalStatus !== "declined"
+          );
+          if (awaitingProposals.length === 0) return null;
+          return (
+            <Card data-testid="stat-pending-proposals">
+              <CardContent className="pt-4 pb-3">
+                <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1">
+                  <FileText className="w-3.5 h-3.5 text-purple-500" />
+                  Proposals Pending
+                </div>
+                <div className="text-2xl font-bold text-purple-600" data-testid="text-pending-proposal-count">
+                  {awaitingProposals.length}
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })()}
       </div>
 
       {/* Main Content Grid */}
@@ -1039,7 +1081,86 @@ export default function SalesRepHome() {
               )}
             </CardContent>
           </Card>
+          {/* #518 — Upcoming Deal Follow-ups (inside left column) */}
+          {(() => {
+          const now = Date.now();
+          const weekAhead = now + 7 * 24 * 60 * 60 * 1000;
+          const upcoming = Object.values(dealsByStage).flat().filter(d => {
+            if (!d.nextFollowUp) return false;
+            const t = new Date(d.nextFollowUp).getTime();
+            return t >= now && t <= weekAhead;
+          }).sort((a, b) => new Date(a.nextFollowUp!).getTime() - new Date(b.nextFollowUp!).getTime());
+          if (upcoming.length === 0) return null;
+          return (
+            <Card data-testid="card-upcoming-follow-ups">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <CalendarDays className="w-4 h-4 text-amber-500" />
+                  Upcoming Follow-ups
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {upcoming.slice(0, 5).map(deal => {
+                  const contact = contacts.find(c => c.id === deal.contactId);
+                  return (
+                    <div key={deal.id} className="flex items-center justify-between text-sm border rounded-md px-3 py-2" data-testid={`follow-up-${deal.id}`}>
+                      <div>
+                        <div className="font-medium">{contact ? `${contact.firstName} ${contact.lastName}` : `Deal #${deal.id}`}</div>
+                        <div className="text-xs text-muted-foreground">{deal.stage}</div>
+                      </div>
+                      <div className="text-xs text-amber-600 dark:text-amber-400 font-medium flex items-center gap-1">
+                        {/* #581 — Highlight today's follow-ups */}
+                        {new Date(deal.nextFollowUp!).toDateString() === new Date().toDateString() && (
+                          <span className="bg-amber-500 text-white text-[10px] px-1 py-0 rounded font-bold">TODAY</span>
+                        )}
+                        {new Date(deal.nextFollowUp!).toLocaleDateString()}
+                      </div>
+                    </div>
+                  );
+                })}
+              </CardContent>
+            </Card>
+          );
+          })()}
         </div>
+
+        {/* #972 — At-risk deals: no follow-up set + no activity for 10+ days */}
+        {(() => {
+          const atRisk = Object.values(dealsByStage).flat().filter((d: any) => {
+            if (d.archivedAt || d.stage === "Closed Won" || d.stage === "Closed Lost") return false;
+            if (d.nextFollowUp) return false; // has follow-up scheduled — OK
+            const lastActivity = d.updatedAt ? new Date(d.updatedAt).getTime() : 0;
+            const daysStale = Math.floor((Date.now() - lastActivity) / 86400000);
+            return daysStale >= 10;
+          });
+          if (atRisk.length === 0) return null;
+          return (
+            <Card className="border-orange-200 dark:border-orange-800" data-testid="card-at-risk-deals">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <span className="text-orange-500">⚠️</span>
+                  At-Risk Deals ({atRisk.length})
+                </CardTitle>
+                <p className="text-xs text-muted-foreground">No follow-up scheduled, idle 10+ days</p>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {atRisk.slice(0, 5).map((deal: any) => {
+                  const contact = contacts.find((c: any) => c.id === deal.contactId);
+                  const daysStale = Math.floor((Date.now() - new Date(deal.updatedAt).getTime()) / 86400000);
+                  return (
+                    <div key={deal.id} className="flex items-center justify-between text-sm border border-orange-100 rounded-md px-3 py-2 dark:border-orange-900" data-testid={`at-risk-deal-${deal.id}`}>
+                      <div>
+                        <div className="font-medium">{contact ? `${contact.firstName} ${contact.lastName}` : `Deal #${deal.id}`}</div>
+                        <div className="text-xs text-muted-foreground">{deal.stage}</div>
+                      </div>
+                      <span className="text-xs text-orange-600 dark:text-orange-400 font-medium">{daysStale}d idle</span>
+                    </div>
+                  );
+                })}
+              </CardContent>
+            </Card>
+          );
+        })()}
 
         {/* Right Column */}
         <div className="space-y-4">

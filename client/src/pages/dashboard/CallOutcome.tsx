@@ -26,6 +26,7 @@ const OUTCOMES = [
   "Connected - Send Review Summary",
   "Connected - Needs Proposal",
   "Connected - Not a Fit",
+  "Did Not Answer", // #571 — voicemail / ring no answer
   "No Show",
   "Not Now (Nurture)",
   "Closed Won",
@@ -36,6 +37,7 @@ const OUTCOME_LABELS: Record<string, { color: string; description: string }> = {
   "Connected - Send Review Summary": { color: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200", description: "Good call — merchant wants to see the numbers" },
   "Connected - Needs Proposal": { color: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200", description: "Ready for a formal pricing proposal" },
   "Connected - Not a Fit": { color: "bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200", description: "Not a match right now" },
+  "Did Not Answer": { color: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300", description: "Rang through — no pickup, left voicemail" },
   "No Show": { color: "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200", description: "Missed the scheduled call" },
   "Not Now (Nurture)": { color: "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200", description: "Interested but timing isn't right" },
   "Closed Won": { color: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200", description: "They signed up!" },

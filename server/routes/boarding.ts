@@ -1,6 +1,8 @@
 import type { Express } from "express";
 import { isAuthenticated, isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
+import { db } from "../db";
+import { sql } from "drizzle-orm";
 import { getProcessor, getDefaultProcessor, getEnabledAdapterNames, ingestMidDataForActiveMids } from "../services/processors/registry";
 import { serverError, safeMessage } from "../utils/server-error";
 
@@ -814,6 +816,19 @@ export function registerBoardingRoutes(app: Express) {
     }
   });
 
+  /**
+   * Defines which checklist keys are required for each onboarding stage (#432).
+   * Stages not listed inherit no automatic requirements (manual checklist only).
+   */
+  const STAGE_REQUIRED_DOCS: Record<string, string[]> = {
+    "Application Started":       ["signed_agreement"],
+    "Docs Requested":            ["voided_check", "government_id", "signed_agreement", "bank_letter"],
+    "Docs Received":             ["voided_check", "government_id", "signed_agreement", "bank_letter"],
+    "Underwriting Submitted":    ["voided_check", "government_id", "signed_agreement", "bank_letter", "business_license"],
+    "Contract Sent":             ["voided_check", "government_id", "signed_agreement", "bank_letter", "business_license"],
+    "Boarding Complete":         ["voided_check", "government_id", "signed_agreement", "bank_letter", "business_license"],
+  };
+
   app.get("/api/onboarding-board", isDashboardUser, async (req, res) => {
     try {
       const { data: allDeals } = await storage.getDeals({ limit: 5000 });
@@ -833,11 +848,34 @@ export function registerBoardingRoutes(app: Express) {
             const lastUpdated = new Date(i.updatedAt || i.createdAt || Date.now());
             return isStale && lastUpdated < new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
           }).length;
+
+          // Compute which required docs for the current stage are not yet approved (#432)
+          const requiredForStage = STAGE_REQUIRED_DOCS[deal.stage ?? ""] ?? [];
+          const missingRequired = requiredForStage.filter((key) => {
+            const item = checklistItems.find((i) => i.itemKey === key);
+            return !item || item.status !== "approved";
+          });
+
+          // Count uploaded documents for this deal (#142)
+          const docsResult = await db.execute(
+            sql`SELECT COUNT(*)::int AS cnt FROM documents WHERE deal_id = ${deal.id}`
+          );
+          const documentsCount = (docsResult.rows[0] as any)?.cnt ?? 0;
+
           return {
             deal,
             contact: contact ? { id: contact.id, firstName: contact.firstName, lastName: contact.lastName, companyName: contact.companyName, email: contact.email, phone: contact.phone } : null,
             checklistItems,
-            stats: { totalItems, approvedItems, pendingItems, overdueItems, progressPct: totalItems > 0 ? Math.round((approvedItems / totalItems) * 100) : 0 },
+            documentsCount,
+            stats: {
+              totalItems,
+              approvedItems,
+              pendingItems,
+              overdueItems,
+              progressPct: totalItems > 0 ? Math.round((approvedItems / totalItems) * 100) : 0,
+              requiredForStage,
+              missingRequired,
+            },
           };
         })
       );

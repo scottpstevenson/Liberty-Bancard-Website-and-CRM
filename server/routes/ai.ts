@@ -10,6 +10,7 @@ import path from "path";
 import type { ProposalData, ProposalPlan } from "./helpers";
 import { buildVerticalSystemPromptBlock, isVerticalSupported } from "../services/vertical-advisor-prompts";
 import { serverError } from "../utils/server-error";
+import { z } from "zod";
 
 export function registerAiRoutes(app: Express) {
   /**
@@ -694,8 +695,25 @@ Return JSON with:
       const avgTicket = parseFloat((statementData?.avgTicket || deal.avgTicket || "50").toString().replace(/[^0-9.]/g, ""));
       const currentMonthlyFees = volume * (effectiveRate / 100);
 
+      // Guard: reject proposals when key data is missing to prevent garbage output (#905)
+      if (volume <= 0) {
+        return res.status(400).json({
+          message: "A monthly volume greater than zero is required to generate a proposal. Upload a statement or enter volume manually on the deal before continuing.",
+          code: "insufficient_data",
+        });
+      }
+
       const { OpenAI } = await import("openai");
       const openai = new OpenAI({ apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY, baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL });
+
+      // Load configurable pricing rules from system_settings (#1401)
+      const storedPricingRules = await storage.getSystemSetting("ai_pricing_rules");
+      const pricingRules = {
+        discountRangeLow: 20, discountRangeHigh: 30,
+        targetMarginBpsLow: 15, targetMarginBpsHigh: 25,
+        maxSavingsPercent: 40,
+        ...(typeof storedPricingRules === "object" && storedPricingRules !== null ? storedPricingRules as object : {}),
+      } as Record<string, number>;
 
       const proposalMessages = [
         {
@@ -705,8 +723,9 @@ Return JSON with:
 BUSINESS CONTEXT:
 - Liberty Bancard is a merchant payment processor offering better rates
 - Goal: Show the merchant EXACTLY where they save and how much per year
-- Pricing should be 20-30% lower than their current processing fees
-- Liberty Bancard still needs healthy margin (target 15-25 basis points net profit on volume)
+- Pricing should be ${pricingRules.discountRangeLow}-${pricingRules.discountRangeHigh}% lower than their current processing fees
+- Liberty Bancard still needs healthy margin (target ${pricingRules.targetMarginBpsLow}-${pricingRules.targetMarginBpsHigh} basis points net profit on volume)
+- Never claim more than ${pricingRules.maxSavingsPercent}% savings (keeps claims credible and compliant)
 - Generate THREE pricing plans the sales rep can present
 
 PLAN TYPES:
@@ -980,6 +999,46 @@ Notes: ${deal.notes || "None"}`
     }
   });
 
+  // Proposal acceptance endpoint — merchant clicks "Accept" on the public proposal page (#1402)
+  app.post("/api/public/proposal/:token/accept", async (req, res) => {
+    try {
+      const token = req.params.token;
+      if (!token || token.length < 10) return res.status(400).json({ message: "Invalid token" });
+
+      const { db } = await import("../db");
+      const { deals } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      const [deal] = await db.select().from(deals).where(eq(deals.proposalToken, token)).limit(1);
+
+      if (!deal || !deal.savingsProposal) return res.status(404).json({ message: "Proposal not found" });
+
+      // Idempotent — already accepted
+      if (deal.proposalStatus === "accepted") {
+        return res.json({ message: "Proposal already accepted. A representative will be in touch shortly." });
+      }
+
+      // Advance deal stage from "Proposal Sent" → "Negotiation" on acceptance
+      const nextStage = deal.stage === "Proposal Sent" ? "Negotiation" : deal.stage;
+      await storage.updateDeal(deal.id, {
+        proposalStatus: "accepted",
+        ...(nextStage !== deal.stage ? { stage: nextStage } : {}),
+      });
+
+      // Write audit log — fire-and-forget, never block the response
+      storage.createAuditLog({
+        action: "proposal_accepted",
+        entityType: "deal",
+        entityId: deal.id,
+        actorType: "system",
+        details: { token, contactId: deal.contactId, acceptedAt: new Date().toISOString(), previousStage: deal.stage, nextStage },
+      }).catch(() => {});
+
+      res.json({ message: "Thank you! A Liberty Bancard representative will be in touch shortly to finalize your account setup." });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
   app.put("/api/deals/:id/edit-proposal", isAuthenticated, async (req, res) => {
     try {
       const userRole = (req.user as any)?.role;
@@ -1175,6 +1234,64 @@ Notes: ${deal.notes || "None"}`
         todayUsd: (todayCents / 100).toFixed(2),
         exceeded: todayCents >= thresholdCents,
       });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  // =========================================================
+  // AI PRICING RULES — configurable floors/targets (#1401)
+  // =========================================================
+
+  const AI_PRICING_RULES_KEY = "ai_pricing_rules";
+  const AI_PRICING_RULES_DEFAULTS = {
+    discountRangeLow: 20,      // minimum % below current rate to propose
+    discountRangeHigh: 30,     // maximum % below current rate to propose
+    targetMarginBpsLow: 15,    // floor net margin in basis points (0.15%)
+    targetMarginBpsHigh: 25,   // ceiling net margin in basis points (0.25%)
+    maxSavingsPercent: 40,     // hard cap on stated savings % (keeps claims credible)
+  };
+
+  app.get("/api/operator/ai-pricing-rules", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const stored = await storage.getSystemSetting(AI_PRICING_RULES_KEY);
+      const rules = typeof stored === "object" && stored !== null
+        ? { ...AI_PRICING_RULES_DEFAULTS, ...(stored as object) }
+        : AI_PRICING_RULES_DEFAULTS;
+      res.json(rules);
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  app.put("/api/operator/ai-pricing-rules", isDashboardUser, requireRole("admin"), async (req, res) => {
+    try {
+      const schema = z.object({
+        discountRangeLow:    z.number().min(1).max(60).optional(),
+        discountRangeHigh:   z.number().min(1).max(60).optional(),
+        targetMarginBpsLow:  z.number().min(1).max(100).optional(),
+        targetMarginBpsHigh: z.number().min(1).max(100).optional(),
+        maxSavingsPercent:   z.number().min(5).max(70).optional(),
+      });
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid pricing rules", errors: parsed.error.errors });
+      }
+      const existing = await storage.getSystemSetting(AI_PRICING_RULES_KEY);
+      const current = typeof existing === "object" && existing !== null
+        ? { ...AI_PRICING_RULES_DEFAULTS, ...(existing as object) }
+        : { ...AI_PRICING_RULES_DEFAULTS };
+      const merged = { ...current, ...parsed.data };
+      await storage.setSystemSetting(AI_PRICING_RULES_KEY, merged);
+      await storage.createAuditLog({
+        action: "ai_pricing_rules_updated",
+        entityType: "system",
+        entityId: 0,
+        actorType: "user",
+        actorId: String((req.user as any)?.id ?? ""),
+        details: { rules: merged },
+      });
+      res.json(merged);
     } catch (err: any) {
       serverError(res, err);
     }

@@ -275,6 +275,29 @@ export default function MasterLeadDatabase() {
           <Button
             variant="outline"
             size="sm"
+            onClick={() => {
+              // Build the same filter params as the current view (#1079 — CSV export)
+              const params = new URLSearchParams({
+                ...(statusFilter !== "all" && { status: statusFilter }),
+                ...(verticalFilter !== "all" && { vertical: verticalFilter }),
+                ...(fitTierFilter !== "all" && { fitTier: fitTierFilter }),
+                ...(sourceFilter !== "all" && { source: sourceFilter }),
+                ...(search && { search }),
+              });
+              const a = document.createElement("a");
+              a.href = `/api/master-leads/leads/export?${params}`;
+              a.download = `master-leads-${statusFilter}-${new Date().toISOString().slice(0, 10)}.csv`;
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+            }}
+          >
+            <Download className="h-4 w-4 mr-1" />
+            Export CSV
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
             onClick={() => backfillMutation.mutate()}
             disabled={backfillMutation.isPending || backfillProgress?.status === "running"}
           >

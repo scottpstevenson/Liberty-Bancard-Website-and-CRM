@@ -356,6 +356,10 @@ export default function MerchantHealth() {
               <Badge variant="destructive" className="ml-1.5">{churnCriticalCount + churnHighCount}</Badge>
             )}
           </TabsTrigger>
+          <TabsTrigger value="nps" data-testid="tab-nps">
+            <Heart className="w-4 h-4 mr-1.5" />
+            NPS
+          </TabsTrigger>
           <TabsTrigger value="signal-settings" data-testid="tab-signal-settings">
             <Settings className="w-4 h-4 mr-1.5" />
             Signal Settings
@@ -615,6 +619,12 @@ export default function MerchantHealth() {
                                   Override
                                 </Badge>
                               )}
+                              {/* #136 — chargeback ratio warning when trend is elevated */}
+                              {(score.chargebackTrendScore ?? 0) >= 70 && (
+                                <Badge variant="outline" className="text-xs shrink-0 border-red-300 bg-red-50 text-red-700">
+                                  ⚠ CB Risk
+                                </Badge>
+                              )}
                             </div>
                             {score.contact?.vertical && (
                               <span className="text-xs text-muted-foreground">{score.contact.vertical}</span>
@@ -738,7 +748,166 @@ export default function MerchantHealth() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {/* ─── NPS Tab (#147) ─── */}
+        <NpsStatsTab />
+
       </Tabs>
     </div>
+  );
+}
+
+// ── NPS Stats Tab (#147) ──────────────────────────────────────────────────────
+interface NpsStats {
+  total: number;
+  submitted: number;
+  avgScore: number;
+  promoters: number;
+  detractors: number;
+  passives: number;
+  npsScore: number;
+}
+
+function NpsStatsTab() {
+  const { data: stats, isLoading } = useQuery<NpsStats>({
+    queryKey: ["/api/nps/stats"],
+  });
+
+  const { data: responses = [] } = useQuery<Array<{ id: number; score: number | null; createdAt: string | null }>>({
+    queryKey: ["/api/nps"],
+    queryFn: async () => {
+      const res = await fetch("/api/nps", { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    staleTime: 300_000,
+  });
+
+  // Build monthly NPS trend from raw responses
+  const monthlyTrend = (() => {
+    const submitted = responses.filter(r => r.score !== null && r.createdAt);
+    const buckets: Record<string, { promoters: number; detractors: number; total: number }> = {};
+    submitted.forEach(r => {
+      const d = new Date(r.createdAt!);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      if (!buckets[key]) buckets[key] = { promoters: 0, detractors: 0, total: 0 };
+      buckets[key].total++;
+      if (r.score! >= 9) buckets[key].promoters++;
+      else if (r.score! <= 6) buckets[key].detractors++;
+    });
+    return Object.entries(buckets)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .slice(-6)
+      .map(([month, b]) => ({
+        month,
+        nps: b.total > 0 ? Math.round(((b.promoters - b.detractors) / b.total) * 100) : 0,
+        count: b.total,
+      }));
+  })();
+
+  return (
+    <TabsContent value="nps" data-testid="tab-content-nps" className="mt-6">
+      {isLoading ? (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+        </div>
+      ) : !stats ? (
+        <Card>
+          <CardContent className="py-10 text-center text-muted-foreground text-sm">
+            No NPS data available yet.
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-4">
+          {/* KPI cards */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {[
+              { label: "Net Promoter Score", value: `${stats.npsScore > 0 ? "+" : ""}${stats.npsScore}`, sub: "overall", color: stats.npsScore >= 50 ? "text-green-600" : stats.npsScore >= 0 ? "text-amber-600" : "text-red-600" },
+              { label: "Avg Score", value: stats.avgScore.toFixed(1), sub: "out of 10", color: "text-foreground" },
+              { label: "Submitted", value: stats.submitted, sub: `of ${stats.total} sent`, color: "text-foreground" },
+              { label: "Response Rate", value: stats.total > 0 ? `${Math.round((stats.submitted / stats.total) * 100)}%` : "—", sub: "surveys returned", color: "text-foreground" },
+            ].map(kpi => (
+              <Card key={kpi.label} data-testid={`card-nps-${kpi.label.toLowerCase().replace(/ /g, "-")}`}>
+                <CardContent className="pt-4 pb-4">
+                  <p className="text-xs text-muted-foreground">{kpi.label}</p>
+                  <p className={`text-2xl font-bold mt-1 ${kpi.color}`}>{kpi.value}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{kpi.sub}</p>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+
+          {/* Promoter / Passive / Detractor breakdown */}
+          <Card data-testid="card-nps-breakdown">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm">Response Breakdown</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-3 gap-4 text-center">
+                <div>
+                  <p className="text-2xl font-bold text-green-600">{stats.promoters}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Promoters (9–10)</p>
+                  <p className="text-xs text-green-600 font-medium">
+                    {stats.submitted > 0 ? `${Math.round((stats.promoters / stats.submitted) * 100)}%` : "—"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-2xl font-bold text-amber-500">{stats.passives}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Passives (7–8)</p>
+                  <p className="text-xs text-amber-500 font-medium">
+                    {stats.submitted > 0 ? `${Math.round((stats.passives / stats.submitted) * 100)}%` : "—"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-2xl font-bold text-red-600">{stats.detractors}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Detractors (0–6)</p>
+                  <p className="text-xs text-red-600 font-medium">
+                    {stats.submitted > 0 ? `${Math.round((stats.detractors / stats.submitted) * 100)}%` : "—"}
+                  </p>
+                </div>
+              </div>
+              {stats.submitted > 0 && (
+                <div className="mt-4 h-3 rounded-full overflow-hidden flex">
+                  <div className="bg-green-500 transition-all" style={{ width: `${(stats.promoters / stats.submitted) * 100}%` }} />
+                  <div className="bg-amber-400 transition-all" style={{ width: `${(stats.passives / stats.submitted) * 100}%` }} />
+                  <div className="bg-red-500 transition-all" style={{ width: `${(stats.detractors / stats.submitted) * 100}%` }} />
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Monthly trend */}
+          {monthlyTrend.length > 0 && (
+            <Card data-testid="card-nps-trend">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm">NPS Trend (last 6 months)</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-end gap-2 h-24">
+                  {monthlyTrend.map(m => {
+                    const pct = Math.max(0, Math.min(100, m.nps + 100)) / 2; // map -100..100 → 0..100%
+                    return (
+                      <div key={m.month} className="flex flex-col items-center gap-1 flex-1">
+                        <span className={`text-xs font-medium ${m.nps >= 0 ? "text-green-600" : "text-red-600"}`}>
+                          {m.nps > 0 ? "+" : ""}{m.nps}
+                        </span>
+                        <div className="w-full flex items-end justify-center">
+                          <div
+                            className={`w-full rounded-t ${m.nps >= 50 ? "bg-green-500" : m.nps >= 0 ? "bg-amber-400" : "bg-red-500"}`}
+                            style={{ height: `${Math.max(4, pct)}px`, maxHeight: "64px", minHeight: "4px" }}
+                          />
+                        </div>
+                        <span className="text-[10px] text-muted-foreground">{m.month.slice(5)}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+                <p className="text-xs text-muted-foreground mt-2">Each bar shows the NPS score for that calendar month based on submitted surveys.</p>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      )}
+    </TabsContent>
   );
 }

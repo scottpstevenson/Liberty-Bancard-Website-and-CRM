@@ -2367,6 +2367,75 @@ Guidelines:
     }
   });
 
+  // CSV export of master leads with the same filter params as /api/master-leads/leads (#1079)
+  app.get("/api/master-leads/leads/export", isAuthenticated, async (req, res) => {
+    if ((req.user as any)?.role !== "admin") return res.status(403).json({ message: "Admin only" });
+    try {
+      const status = req.query.status as string | undefined;
+      const vertical = req.query.vertical as string | undefined;
+      const fitTier = req.query.fitTier as string | undefined;
+      const source = req.query.source as string | undefined;
+      const batchId = req.query.batchId as string | undefined;
+      const search = req.query.search as string | undefined;
+
+      let whereClause = sql`TRUE`;
+      if (status)   whereClause = sql`${whereClause} AND status = ${status}`;
+      if (vertical) whereClause = sql`${whereClause} AND vertical = ${vertical}`;
+      if (fitTier)  whereClause = sql`${whereClause} AND fit_tier = ${fitTier}`;
+      if (source)   whereClause = sql`${whereClause} AND source = ${source}`;
+      if (batchId)  whereClause = sql`${whereClause} AND import_batch_id = ${batchId}::uuid`;
+      if (search) {
+        const p = `%${search}%`;
+        whereClause = sql`${whereClause} AND (
+          company ILIKE ${p} OR email ILIKE ${p}
+          OR domain ILIKE ${p} OR contact_name ILIKE ${p}
+        )`;
+      }
+
+      const result = await db.execute(sql`
+        SELECT
+          id, status, company, domain, email, email_type,
+          phone, contact_name, contact_title,
+          vertical, quality_score, fit_tier, outreach_readiness,
+          readiness_reason, source, source_path,
+          address, city, state, website,
+          email_valid, phone_valid, sms_eligible,
+          suppression_reason, promoted_at, promoted_by,
+          notes, imported_at, created_at
+        FROM master_leads
+        WHERE ${whereClause}
+        ORDER BY created_at DESC
+        LIMIT 10000
+      `);
+
+      const rows = result.rows as Record<string, unknown>[];
+      if (rows.length === 0) {
+        res.setHeader("Content-Type", "text/csv");
+        res.setHeader("Content-Disposition", `attachment; filename="master-leads-export.csv"`);
+        return res.send("id,status,company,domain,email,email_type,phone,contact_name,contact_title,vertical,quality_score,fit_tier,outreach_readiness,source,address,city,state,website,email_valid,phone_valid,sms_eligible,suppression_reason,promoted_at,notes,imported_at\n");
+      }
+
+      const headers = Object.keys(rows[0]);
+      const escape = (v: unknown): string => {
+        if (v == null) return "";
+        const s = String(v);
+        return s.includes(",") || s.includes('"') || s.includes("\n") ? `"${s.replace(/"/g, '""')}"` : s;
+      };
+      const csvLines = [
+        headers.join(","),
+        ...rows.map(row => headers.map(h => escape(row[h])).join(",")),
+      ];
+
+      const ts = new Date().toISOString().slice(0, 10);
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader("Content-Disposition", `attachment; filename="master-leads-${status ?? "all"}-${ts}.csv"`);
+      await storage.createAuditLog({ action: "master_leads_csv_exported", entityType: "master_lead", entityId: 0, userId: (req.user as any)?.id ?? null, details: { rowCount: rows.length, filters: { status, vertical, fitTier, source } } });
+      res.send(csvLines.join("\n"));
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
   // SMS-blocked status: check whether GHL_PHONE_NUMBER_ID and A2P_REGISTRATION_ID are configured
   app.get("/api/master-leads/sms-status", isAuthenticated, async (req, res) => {
     if ((req.user as any)?.role !== "admin") return res.status(403).json({ message: "Admin only" });

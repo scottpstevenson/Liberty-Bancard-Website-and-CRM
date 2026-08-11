@@ -118,6 +118,11 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
   }
 
 
+  // #243 — Inline note editing
+  async updateNote(id: number, content: string) {
+    await db.update(notes).set({ content }).where(eq(notes.id, id));
+  }
+
   async deleteNote(id: number) {
     await db.delete(notes).where(eq(notes.id, id));
   }

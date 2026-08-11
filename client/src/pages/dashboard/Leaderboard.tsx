@@ -44,11 +44,13 @@ interface LeaderboardEntry {
   proposalsSent: number;
   callsMade: number;
   responseRate: number;
+  closeRate: number;   // #530
   prevDealsClosed: number;
   prevRevenueManaged: number;
   prevProposalsSent: number;
   prevCallsMade: number;
   prevResponseRate: number;
+  prevCloseRate: number; // #530
   isCurrentUser: boolean;
   goalProgress?: number;
 }
@@ -135,6 +137,7 @@ export default function Leaderboard() {
     proposals: "proposalsSent",
     calls: "callsMade",
     responseRate: "responseRate",
+    closeRate: "closeRate", // #530
   };
 
   const prevMetricKey: Record<string, keyof LeaderboardEntry> = {
@@ -143,6 +146,7 @@ export default function Leaderboard() {
     proposals: "prevProposalsSent",
     calls: "prevCallsMade",
     responseRate: "prevResponseRate",
+    closeRate: "prevCloseRate", // #530
   };
 
   const sortedEntries = [...entries].sort((a, b) => {
@@ -162,6 +166,7 @@ export default function Leaderboard() {
       case "proposals": return `${entry.proposalsSent} sent`;
       case "calls": return `${entry.callsMade} calls`;
       case "responseRate": return `${entry.responseRate}%`;
+      case "closeRate": return `${entry.closeRate ?? 0}%`; // #530
       default: return "";
     }
   };
@@ -173,6 +178,7 @@ export default function Leaderboard() {
     settings?.showProposals !== false && { key: "proposals", label: "Proposals", icon: Send },
     settings?.showCallsMade !== false && { key: "calls", label: "Calls", icon: PhoneCall },
     settings?.showResponseRate && { key: "responseRate", label: "Response Rate", icon: Percent },
+    { key: "closeRate", label: "Close Rate", icon: Percent }, // #530
   ].filter(Boolean) as MetricTab[];
 
   function openSettings() {
@@ -356,6 +362,12 @@ export default function Leaderboard() {
                             <span className="text-xs text-muted-foreground">
                               {key === "deals" ? "deals" : key === "revenue" ? "revenue" : key === "proposals" ? "proposals" : key === "responseRate" ? "response rate" : "calls"}
                             </span>
+                            {/* #1001 — Avg deal size when sorting by deals or revenue */}
+                            {(key === "deals" || key === "revenue") && entry.dealsClosed > 0 && (
+                              <span className="text-[10px] text-muted-foreground block" data-testid={`text-avg-deal-${entry.agentId}`}>
+                                avg {formatRevenue(Math.round(entry.revenueManaged / entry.dealsClosed))}
+                              </span>
+                            )}
                           </div>
                         </div>
                       );

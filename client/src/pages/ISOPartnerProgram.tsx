@@ -435,7 +435,7 @@ export default function ISOPartnerProgram() {
                           variant={tier.type === "iso" ? "default" : "outline"}
                           className="w-full gap-2"
                         >
-                          Apply Now <ChevronRight className="w-3.5 h-3.5" />
+                          Get My Free Analysis <ChevronRight className="w-3.5 h-3.5" />
                         </Button>
                       </a>
                     </div>
@@ -755,7 +755,7 @@ export default function ISOPartnerProgram() {
                 className="gap-2"
                 data-testid="button-cta-apply"
               >
-                Apply Now <ArrowRight className="w-4 h-4" />
+                Get My Free Analysis <ArrowRight className="w-4 h-4" />
               </Button>
             </a>
           </div>

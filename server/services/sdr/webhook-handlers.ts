@@ -377,7 +377,7 @@ export async function handleCallOutcome(rawPayload: unknown): Promise<void> {
       if (lc && !["STATEMENT_REQUESTED", "STATEMENT_RECEIVED", "PROPOSAL_SENT", "CLOSED_WON", "CLOSED_LOST"].includes(lc.lifecycleState ?? "")) {
         import("../lifecycle-service").then(({ LifecycleService }) => {
           LifecycleService.transition(lc.id, "APPOINTMENT_COMPLETED", {
-            trigger: `call_outcome_${rawDisp2}`, callId: payload.callId,
+            trigger: `call_outcome_${rawDisp2}`, metadata: { callId: payload.callId },
           }).then(() =>
             LifecycleService.transition(lc.id, "STATEMENT_REQUESTED", {
               trigger: "auto_statement_request_on_call",

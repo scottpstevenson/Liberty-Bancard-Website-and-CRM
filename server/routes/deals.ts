@@ -75,6 +75,13 @@ export function registerDealsRoutes(app: Express) {
         }
       }
       generateDealBlueprint(deal.id).catch(err => console.error("Blueprint generation error:", err));
+      // Auto-initialize onboarding checklist for deals created directly in the
+      // onboarding pipeline (#440 — idempotent via onConflictDoNothing).
+      if (deal.pipeline === "onboarding") {
+        storage.initializeOnboardingChecklist(deal.id).catch(err =>
+          console.error(`[Deals] Checklist init failed for new onboarding deal #${deal.id}:`, err?.message)
+        );
+      }
       res.status(201).json(deal);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
@@ -157,6 +164,13 @@ export function registerDealsRoutes(app: Express) {
         // No stage change — apply the full body update directly
         updated = await storage.updateDeal(dealId, req.body, { userId });
         if (!updated) return res.status(404).json({ message: "Not found" });
+        // Auto-initialize onboarding checklist when pipeline is moved to "onboarding" (#440)
+        const newPipeline = (req.body as any).pipeline;
+        if (newPipeline === "onboarding" && old.pipeline !== "onboarding") {
+          storage.initializeOnboardingChecklist(dealId).catch(err =>
+            console.error(`[Deals] Checklist init failed for deal #${dealId} (pipeline→onboarding):`, err?.message)
+          );
+        }
       } else {
         // Stage is changing — route through advanceDealStage (gate check + GHL sync + Closed Won).
         // For go-live stages on the onboarding pipeline, the gate is atomic inside advanceDealStage;

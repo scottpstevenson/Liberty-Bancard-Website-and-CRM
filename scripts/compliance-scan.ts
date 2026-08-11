@@ -717,6 +717,31 @@ const CALL_SITE_ALLOWLIST: Array<{
     reason: "GhlSmsTransport.send() is a low-level transport adapter called exclusively through ChannelOrchestrator.sendSms(), which applies the full compliance fence (global pause → DNC → contactability → consent) before delegating to any transport. Direct callers are prohibited by design.",
     reviewDate: "2026-08-08",
   },
+  // ── 2026-08-11 remediation batch ─────────────────────────────────────────
+  {
+    file: "server/services/ghl-enrollment-recovery.ts",
+    lineContains: "await sendSmtpEmail({",
+    channel: "email",
+    category: "internal_admin",
+    reason: "Admin alert on permanent GHL enrollment failure — sent to ADMIN_SEED_EMAIL only when a deferred GHL enrollment exhausts all retries and is permanently abandoned. Fire-and-forget; non-fatal. Never sent to prospects or merchants. ghl-enrollment-recovery.ts is also in PAUSE_CHECK_EXEMPTIONS (recovery path intentional bypass). Reviewed 2026-08-11.",
+    reviewDate: "2026-08-11",
+  },
+  {
+    file: "server/services/winback-outreach-engine.ts",
+    lineContains: "await sendSmtpEmail({",
+    channel: "email",
+    category: "pipeline_gated",
+    reason: "Win-back outreach email — runWinbackOutreachEngine() reads outboundGlobalPaused via storage at function entry and returns early if set; SMTP-preferred for CAN-SPAM compliance. Only sends to churned contacts who have not been contacted for 90+ days and have email consent. Global-pause gate is at function entry, not co-located with the send call (same architectural pattern as campaign-engine). Reviewed 2026-08-11.",
+    reviewDate: "2026-08-11",
+  },
+  {
+    file: "server/routes/campaigns.ts",
+    lineContains: "await sendSmtpEmail({",
+    channel: "email",
+    category: "admin_gated",
+    reason: "Sequence step test-send — POST /api/sequences/steps/test-send protected by isDashboardUser; sends a preview of a sequence email step to the authenticated user's own email address only. Never sent to contacts/prospects; purely an internal operator tool for reviewing template output before activation. Reviewed 2026-08-11.",
+    reviewDate: "2026-08-11",
+  },
 ];
 
 

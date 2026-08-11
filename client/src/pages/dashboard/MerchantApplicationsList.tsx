@@ -230,20 +230,51 @@ function ApplicationDetailView({
     refetchOnWindowFocus: false,
   });
 
-  const { data: welcomeEmailHistory, isLoading: isLoadingWelcomeHistory } = useQuery<Array<{
+  const [welcomeHistoryOffset, setWelcomeHistoryOffset] = useState(0);
+  const WELCOME_HISTORY_LIMIT = 10;
+
+  const { data: welcomeEmailHistoryData, isLoading: isLoadingWelcomeHistory } = useQuery<{
+    logs: Array<{
+      id: number;
+      action: string;
+      createdAt: string | null;
+      details: {
+        contactId?: number;
+        mid?: string | null;
+        method?: string;
+        triggeredBy?: string | null;
+        triggeredByRole?: string | null;
+        recipientEmail?: string | null;
+      } | null;
+    }>;
+    total: number;
+    offset: number;
+    limit: number;
+  } | Array<{
     id: number;
     action: string;
     createdAt: string | null;
     details: { contactId?: number; mid?: string | null; method?: string } | null;
   }>>({
-    queryKey: ["/api/merchant-profiles", merchantProfile?.id, "welcome-email-history"],
+    queryKey: ["/api/merchant-profiles", merchantProfile?.id, "welcome-email-history", welcomeHistoryOffset],
     queryFn: async () => {
-      const res = await fetch(`/api/merchant-profiles/${merchantProfile!.id}/welcome-email-history`, { credentials: "include" });
+      const res = await fetch(
+        `/api/merchant-profiles/${merchantProfile!.id}/welcome-email-history?limit=${WELCOME_HISTORY_LIMIT}&offset=${welcomeHistoryOffset}`,
+        { credentials: "include" }
+      );
       if (!res.ok) throw new Error("Failed to fetch welcome email history");
       return res.json();
     },
     enabled: !!merchantProfile?.id,
   });
+
+  // Support both old array shape and new paginated shape
+  const welcomeEmailHistory = Array.isArray(welcomeEmailHistoryData)
+    ? welcomeEmailHistoryData
+    : (welcomeEmailHistoryData as any)?.logs ?? [];
+  const welcomeHistoryTotal = Array.isArray(welcomeEmailHistoryData)
+    ? welcomeEmailHistoryData.length
+    : (welcomeEmailHistoryData as any)?.total ?? 0;
 
   const [cooldownSeconds, setCooldownSeconds] = useState(0);
   const [esignCooldownSeconds, setEsignCooldownSeconds] = useState(0);
@@ -679,8 +710,15 @@ function ApplicationDetailView({
               </p>
             ) : (
               <div className="space-y-2" data-testid="list-welcome-emails">
-                {welcomeEmailHistory.map((log, idx) => {
-                  const details = log.details as { contactId?: number; mid?: string | null; method?: string } | null;
+                {(welcomeEmailHistory as any[]).map((log: any, idx: number) => {
+                  const details = log.details as {
+                    contactId?: number;
+                    mid?: string | null;
+                    method?: string;
+                    triggeredBy?: string | null;
+                    triggeredByRole?: string | null;
+                    recipientEmail?: string | null;
+                  } | null;
                   const methodLabel = details?.method === "ghl_workflow" ? "GHL Workflow"
                     : details?.method === "ghl_direct_email" ? "GHL Email"
                     : details?.method === "smtp" ? "SMTP"
@@ -699,12 +737,29 @@ function ApplicationDetailView({
                           </p>
                           <p className="text-xs text-muted-foreground">
                             Sent via {methodLabel}
+                            {details?.triggeredBy && (
+                              <> · by <span className="font-medium">{details.triggeredBy}</span>
+                              {details.triggeredByRole && ` (${details.triggeredByRole})`}</>
+                            )}
                           </p>
+                          {details?.recipientEmail && (
+                            <p className="text-xs text-muted-foreground">To: {details.recipientEmail}</p>
+                          )}
                         </div>
                       </div>
                     </div>
                   );
                 })}
+                {/* #226 — Load More button */}
+                {welcomeHistoryTotal > welcomeHistoryOffset + WELCOME_HISTORY_LIMIT && (
+                  <button
+                    className="w-full text-xs text-primary hover:underline py-1"
+                    onClick={() => setWelcomeHistoryOffset(welcomeHistoryOffset + WELCOME_HISTORY_LIMIT)}
+                    data-testid="button-load-more-welcome-history"
+                  >
+                    Load older emails ({welcomeHistoryTotal - welcomeHistoryOffset - WELCOME_HISTORY_LIMIT} more)
+                  </button>
+                )}
               </div>
             )}
           </div>

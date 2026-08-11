@@ -123,6 +123,20 @@ export function registerTicketsTasksRoutes(app: Express) {
 
 
   // === TASKS ===
+  // #385 — Overdue task count for sidebar badge
+  app.get("/api/tasks/overdue-count", isDashboardUser, async (req, res) => {
+    try {
+      const allTasks = await storage.getTasks({});
+      const now = new Date();
+      const count = allTasks.filter((t: any) =>
+        t.dueDate && new Date(t.dueDate) < now && t.status !== "completed" && t.status !== "done"
+      ).length;
+      res.json({ count });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
   app.get("/api/tasks", isDashboardUser, async (req, res) => {
     try {
       const dealId = req.query.dealId ? Number(req.query.dealId) : undefined;

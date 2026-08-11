@@ -75,7 +75,7 @@ export async function recordOutboundSend(opts: {
   provider?: "ghl" | "smtp" | "twilio";
   subject?: string | null;
   body?: string | null;
-  status?: "sent" | "failed" | "skipped";
+  status?: "sent" | "failed" | "skipped" | "blocked";
   sequenceId?: number | null;
   sequenceStepId?: number | null;
   ghlMessageId?: string | null;

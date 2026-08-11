@@ -303,6 +303,87 @@ export async function handleAppointmentBooked(webhookData: {
   console.log(`[Scheduling] Appointment booked for merchant ${merchant.id}: ${meetingId}`);
 }
 
+/**
+ * #appointment-to-statement — When GHL fires an appointment-showed event,
+ * advance the lead to STATEMENT_REQUESTED and enroll in the statement-request workflow.
+ */
+export async function handleAppointmentShowed(webhookData: {
+  contactId?: string;
+  appointmentId?: string;
+  id?: string;
+  status?: string;
+  startTime?: string;
+  [key: string]: unknown;
+}): Promise<void> {
+  const ghlContactId = webhookData.contactId;
+  if (!ghlContactId) return;
+
+  const [merchant] = await db.select().from(sdrMerchants).where(eq(sdrMerchants.ghlContactId, ghlContactId));
+  if (!merchant) {
+    await db.insert(sdrLeadEvents).values({
+      merchantId: null,
+      eventType: "appointment_showed",
+      channel: "calendar",
+      actorType: "merchant",
+      payloadJson: webhookData,
+      ghlRefId: webhookData.appointmentId || ghlContactId,
+    });
+    return;
+  }
+
+  const meetingId = webhookData.appointmentId || webhookData.id || null;
+  const [state] = await db.select().from(sdrLeadState).where(eq(sdrLeadState.merchantId, merchant.id));
+  const oldStage = state?.currentStage;
+
+  // Advance state to STATEMENT_REQUESTED
+  if (state) {
+    await db.update(sdrLeadState).set({
+      currentStage: "STATEMENT_REQUESTED",
+      lastTouchAt: new Date(),
+      nextAction: "statement_request_followup",
+      nextActionType: "email",
+      nextActionPayload: { meetingId, shownAt: webhookData.startTime },
+      updatedAt: new Date(),
+    }).where(eq(sdrLeadState.merchantId, merchant.id));
+  } else {
+    await db.insert(sdrLeadState).values({
+      merchantId: merchant.id,
+      currentStage: "STATEMENT_REQUESTED",
+      meetingId,
+      nextAction: "statement_request_followup",
+      nextActionType: "email",
+    });
+  }
+
+  if (oldStage !== "STATEMENT_REQUESTED") {
+    await onStageChange(merchant.id, "STATEMENT_REQUESTED", oldStage ?? null);
+  }
+
+  // Enroll in statement-request GHL workflow (fire-and-forget)
+  if (merchant.ghlContactId && isSdrGhlConfigured()) {
+    const { enrollInGhlWorkflow } = await import("../ghl-workflows");
+    enrollInGhlWorkflow({
+      workflowKey: "statement_request_after_meeting",
+      ghlContactId: merchant.ghlContactId,
+      metadata: { meetingId, shownAt: webhookData.startTime },
+    }).catch(err =>
+      console.error(`[Scheduling] statement_request_after_meeting enrollment error for merchant ${merchant.id}:`, err)
+    );
+  }
+
+  await db.insert(sdrLeadEvents).values({
+    merchantId: merchant.id,
+    eventType: "appointment_showed",
+    channel: "calendar",
+    actorType: "merchant",
+    payloadJson: webhookData,
+    ghlRefId: meetingId,
+    decisionReason: `Appointment showed — advanced to STATEMENT_REQUESTED from ${oldStage || "unknown"}`,
+  });
+
+  console.log(`[Scheduling] Appointment showed for merchant ${merchant.id}: ${meetingId}`);
+}
+
 export async function handleAppointmentCanceled(webhookData: {
   contactId?: string;
   appointmentId?: string;

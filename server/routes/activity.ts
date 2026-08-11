@@ -4,7 +4,8 @@ import { storage } from "../storage";
 import { z } from "zod";
 import { contacts, insertCalendarEventSchema, insertCallLogSchema, insertCommentSchema, insertEmailLogSchema, insertNoteSchema } from "@shared/schema";
 import { and } from "drizzle-orm";
-import { sendGhlEmail, sendGhlSms } from "../services/ghl";
+// sendGhlEmail / sendGhlSms now routed through ChannelOrchestrator below
+import { isGhlConfigured } from "../services/ghl";
 import { advanceDealStage } from "../services/deal-stage-service";
 import { parse } from "csv-parse/sync";
 import { logAiCall } from "../services/ai-audit-logger";
@@ -199,6 +200,21 @@ export function registerActivityRoutes(app: Express) {
       res.status(201).json(note);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      serverError(res, err);
+    }
+  });
+
+  // #243 — Inline note editing
+  app.patch("/api/notes/:id", isDashboardUser, async (req, res) => {
+    try {
+      const noteId = Number(req.params.id);
+      const { content } = req.body;
+      if (!content || typeof content !== "string" || !content.trim()) {
+        return res.status(400).json({ message: "content required" });
+      }
+      await storage.updateNote(noteId, content.trim());
+      res.json({ success: true });
+    } catch (err: any) {
       serverError(res, err);
     }
   });
@@ -487,15 +503,18 @@ Respond in this exact JSON format:
 
       if (sendEmail && emailBody && contact.email) {
         try {
-          const { sendGhlEmail } = await import("../services/ghl");
-          const result = await sendGhlEmail({
+          // Route through ChannelOrchestrator — consent already verified by rep UI; skip contactability
+          const { channelOrchestrator } = await import("../services/transports/index");
+          const result = await channelOrchestrator.sendEmail({
             contactId: Number(contactId),
+            dealId: dealId ? Number(dealId) : undefined,
             subject: emailSubject || "Following up on our call",
             body: emailBody,
-          });
+            category: "call_followup",
+          }, { skipContactabilityCheck: true });
           emailSent = result?.success === true;
         } catch (emailErr: any) {
-          console.log("[Call Follow-Up] GHL email not configured, logging locally:", emailErr.message);
+          console.log("[Call Follow-Up] Email send error:", emailErr.message);
         }
         if (!emailSent) {
           await storage.createEmailLog({
@@ -511,7 +530,6 @@ Respond in this exact JSON format:
       }
 
       if (sendSms) {
-        const { isGhlConfigured } = await import("../services/ghl");
         if (!smsBody) {
           smsResult = "skipped";
           smsMessage = "Follow-up SMS was not sent — no message body was provided.";
@@ -526,11 +544,13 @@ Respond in this exact JSON format:
           smsMessage = "Follow-up SMS was not sent — SMS provider is not configured.";
         } else {
           try {
-            const { sendGhlSms } = await import("../services/ghl");
-            const result = await sendGhlSms({
+            // Route through ChannelOrchestrator — consent already validated above
+            const { channelOrchestrator: smsOrch } = await import("../services/transports/index");
+            const result = await smsOrch.sendSms({
               contactId: Number(contactId),
+              dealId: dealId ? Number(dealId) : undefined,
               body: smsBody,
-            });
+            }, { skipContactabilityCheck: true });
             if (result?.success === true) {
               smsSent = true;
               smsResult = "sent";
@@ -584,12 +604,15 @@ Respond in this exact JSON format:
           } else {
             packetName = matchedPacket.name;
             try {
-              const result = await sendGhlEmail({
+              // Route collateral packet through ChannelOrchestrator
+              const { channelOrchestrator: pkgOrch } = await import("../services/transports/index");
+              const result = await pkgOrch.sendEmail({
                 contactId: Number(contactId),
                 dealId: dealId ? Number(dealId) : undefined,
                 subject: `Your Custom Pricing Breakdown - ${matchedPacket.name}`,
                 body: `<p>Hi {{contact.firstName}},</p><p>Here is your personalized information packet.</p><p>Best,<br/>Liberty Bancard</p><p style="font-size:11px;color:#999;">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>`,
-              });
+                category: "collateral_packet",
+              }, { skipContactabilityCheck: true });
               if (result?.success) {
                 packetResult = "sent";
                 packetMessage = `Packet sent: ${matchedPacket.name}.`;

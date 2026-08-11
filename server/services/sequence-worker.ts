@@ -252,6 +252,22 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
             details: { sequenceId: sequence.id, sequenceName: sequence.name },
           });
           await createPreferenceAwareNotification({ channel: "internal", title: "Sequence Completed", message: `Sequence "${sequence.name}" completed for contact #${enrollment.contactId || 0}.`, type: "info", metadata: { sequenceId: sequence.id, contactId: enrollment.contactId, eventType: "sequence_completed" } }, "sequence_completed");
+          // Advance lifecycle PROSPECT → ENGAGED when all outreach steps complete (#1391).
+          // Non-blocking fire-and-forget; LifecycleTransitionError (backwards guard) is swallowed.
+          if (enrollment.contactId) {
+            const completedContactId = enrollment.contactId;
+            const completedStepCount = steps.length;
+            import("./lifecycle-service").then(({ LifecycleService }) => {
+              LifecycleService.transition(completedContactId, "ENGAGED", {
+                trigger: "sequence_completed",
+                actorType: "system",
+                source: "sequence_worker",
+                reason: `All ${completedStepCount} outreach steps completed`,
+              }).catch(() => {
+                // Already past ENGAGED or transition guard active — ignore
+              });
+            }).catch(() => {});
+          }
           processed++;
           continue;
         }
@@ -796,9 +812,25 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
             .replace(/\{\{calendarLink\}\}/g, calendarLink)
             .replace(/\{\{contact\.vertical\}\}/g, industry)
             .replace(/\{\{vertical\}\}/g, industry);
-          // Safety net: warn if any raw {{...}} template syntax survived substitution
+          // Safety net: warn (and block for sensitive placeholders) if raw
+          // {{...}} template syntax survived substitution (#1136).
           const remaining = result.match(/\{\{[^}]+\}\}/g);
           if (remaining) {
+            const SENSITIVE = /\{\{agentEmail\}\}|\{\{agentPhone\}\}|\{\{agent\w+\}\}/;
+            const hasSensitive = remaining.some(p => SENSITIVE.test(p));
+            if (hasSensitive) {
+              // Hard block — a sensitive placeholder (agent contact info) survived.
+              // Sending this would expose raw template syntax to the prospect.
+              console.error(
+                `[Sequence Worker] BLOCKED outbound — sensitive unresolved placeholder(s) ` +
+                `(enrollment ${enrollment.id}, step ${step.stepOrder}, contact ${enrollment.contactId}): ` +
+                remaining.filter(p => SENSITIVE.test(p)).join(", ")
+              );
+              throw new Error(
+                `Outbound blocked: unresolved sensitive placeholder(s) ${remaining.filter(p => SENSITIVE.test(p)).join(", ")} ` +
+                `in enrollment ${enrollment.id} step ${step.stepOrder}`
+              );
+            }
             console.warn(
               `[Sequence Worker] Unresolved template placeholders in outbound message ` +
               `(enrollment ${enrollment.id}, step ${step.stepOrder}, contact ${enrollment.contactId}): ` +
@@ -1235,6 +1267,13 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
                   if (!result.success) throw new Error(result.error || "Gmail send failed");
                   await markSendSent({ idempotencyKey: emailIdemKey, providerMessageId: result.messageId, fromAddress: "gmail_oauth" });
                 } else if (useSmtpForThisStep && contact?.email) {
+                  // Global pause check — SMTP path bypasses ChannelOrchestrator, fence it here (#1399)
+                  {
+                    const smtpPaused = await storage.getSystemSetting("outboundGlobalPaused");
+                    if (smtpPaused === true || smtpPaused === "true") {
+                      throw new Error("Outbound communications are globally paused");
+                    }
+                  }
                   // SMTP: cold outreach with List-Unsubscribe header
                   // getCanonicalUrl() always resolves — no undefined risk.
                   const appUrlForToken = getCanonicalUrl();

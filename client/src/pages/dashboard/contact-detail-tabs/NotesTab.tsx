@@ -1,7 +1,8 @@
+import { useState, useMemo } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus } from "lucide-react";
+import { Plus, Edit2, Save, X } from "lucide-react";
 import type { Note } from "@shared/schema";
 import { formatRelativeTime } from "./shared";
 
@@ -10,9 +11,45 @@ interface NotesTabProps {
   noteContent: string;
   setNoteContent: (v: string) => void;
   addNote: () => void;
+  // #243 — inline note editing; optional so callers that don't support it still work
+  onUpdateNote?: (noteId: number, content: string) => Promise<void>;
 }
 
-export function NotesTab({ sortedNotes, noteContent, setNoteContent, addNote }: NotesTabProps) {
+const NOTES_PAGE_SIZE = 10;
+
+export function NotesTab({ sortedNotes, noteContent, setNoteContent, addNote, onUpdateNote }: NotesTabProps) {
+  // #268 — pagination
+  const [notesPage, setNotesPage] = useState(1);
+  const pagedNotes = useMemo(() => sortedNotes.slice(0, notesPage * NOTES_PAGE_SIZE), [sortedNotes, notesPage]);
+  const hasMore = pagedNotes.length < sortedNotes.length;
+
+  // #243 — inline editing state per note
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editContent, setEditContent] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const startEdit = (note: Note) => {
+    setEditingId(note.id!);
+    setEditContent(note.content || "");
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditContent("");
+  };
+
+  const saveEdit = async (noteId: number) => {
+    if (!onUpdateNote || !editContent.trim()) return;
+    setSaving(true);
+    try {
+      await onUpdateNote(noteId, editContent.trim());
+      setEditingId(null);
+      setEditContent("");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <>
       <Card className="mb-4">
@@ -36,23 +73,73 @@ export function NotesTab({ sortedNotes, noteContent, setNoteContent, addNote }: 
         <p className="text-center text-muted-foreground py-8">No notes yet</p>
       ) : (
         <div className="space-y-3">
-          {sortedNotes.map(note => (
+          {pagedNotes.map(note => (
             <Card key={note.id} data-testid={`card-note-${note.id}`}>
               <CardContent className="py-4">
-                <p className="text-sm whitespace-pre-wrap" data-testid={`text-note-content-${note.id}`}>
-                  {note.content}
-                </p>
-                <div className="flex flex-wrap gap-2 mt-2 text-xs text-muted-foreground">
-                  {note.authorName && (
-                    <span data-testid={`text-note-author-${note.id}`}>{note.authorName}</span>
-                  )}
-                  <span data-testid={`text-note-time-${note.id}`}>
-                    {formatRelativeTime(note.createdAt!)}
-                  </span>
-                </div>
+                {editingId === note.id ? (
+                  // #243 — inline edit mode
+                  <div className="space-y-2">
+                    <Textarea
+                      value={editContent}
+                      onChange={e => setEditContent(e.target.value)}
+                      rows={3}
+                      autoFocus
+                      data-testid={`textarea-edit-note-${note.id}`}
+                    />
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        onClick={() => saveEdit(note.id!)}
+                        disabled={saving || !editContent.trim()}
+                        data-testid={`button-save-note-${note.id}`}
+                      >
+                        <Save className="h-3 w-3 mr-1" /> {saving ? "Saving…" : "Save"}
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={cancelEdit} data-testid={`button-cancel-note-${note.id}`}>
+                        <X className="h-3 w-3 mr-1" /> Cancel
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-sm whitespace-pre-wrap" data-testid={`text-note-content-${note.id}`}>
+                      {note.content}
+                    </p>
+                    <div className="flex flex-wrap items-center gap-2 mt-2 text-xs text-muted-foreground">
+                      {note.authorName && (
+                        <span data-testid={`text-note-author-${note.id}`}>{note.authorName}</span>
+                      )}
+                      <span data-testid={`text-note-time-${note.id}`}>
+                        {formatRelativeTime(note.createdAt!)}
+                      </span>
+                      {onUpdateNote && (
+                        <button
+                          onClick={() => startEdit(note)}
+                          className="ml-auto flex items-center gap-0.5 hover:text-foreground transition-colors"
+                          data-testid={`button-edit-note-${note.id}`}
+                          title="Edit note"
+                        >
+                          <Edit2 className="h-3 w-3" /> Edit
+                        </button>
+                      )}
+                    </div>
+                  </>
+                )}
               </CardContent>
             </Card>
           ))}
+          {hasMore && (
+            <div className="flex justify-center pt-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setNotesPage(p => p + 1)}
+                data-testid="button-load-more-notes"
+              >
+                Load more ({sortedNotes.length - pagedNotes.length} remaining)
+              </Button>
+            </div>
+          )}
         </div>
       )}
     </>

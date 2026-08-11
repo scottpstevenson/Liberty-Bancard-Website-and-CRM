@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, queryClient, getCsrfToken } from "@/lib/queryClient";
 import { ContentOrganicKpiPanel } from "@/components/ContentOrganicKpiPanel";
 import { PageHeader } from "@/components/ui/page-header";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -2873,6 +2873,8 @@ const OPERATOR_NAV_GROUPS: OperatorNavGroup[] = [
       { value: "sync-conflicts", label: "Sync Conflicts", icon: GitMerge },
       { value: "webhook-events", label: "Webhook Events", icon: Hash },
       { value: "registry-import", label: "Registry Import", icon: Database },
+      { value: "ghl-deferred-queue", label: "Deferred Enrollments", icon: Clock },
+      { value: "save-cases", label: "Save Cases", icon: ShieldCheck },
     ],
   },
   {
@@ -2963,6 +2965,10 @@ function renderOperatorView(view: string, onNavigate: (v: string) => void) {
       return <SubjectAuditPanel />;
     case "content-organic":
       return <ContentOrganicKpiPanel />;
+    case "ghl-deferred-queue":
+      return <GhlDeferredQueuePanel />;
+    case "save-cases":
+      return <SaveCasesPanel />;
     case "ghl-connection":
       return <GhlConnectionPanel />;
     case "sync-conflicts":
@@ -3721,6 +3727,358 @@ const MAPPING_FIELD_LABELS: Record<string, string> = {
 };
 
 type ColumnMapping = Record<string, string>;
+
+// ── Save Cases Panel (#1407) ─────────────────────────────────────────────────
+interface SaveCase {
+  id: number;
+  contactId: number;
+  dealId?: number | null;
+  churnScore?: number | null;
+  riskTier: string;
+  triggerSignals: string[];
+  status: string;
+  assignedTo?: string | null;
+  outcome?: string | null;
+  outcomeNotes?: string | null;
+  playbookDay: number;
+  escalationLevel: number;
+  day2EmailSent: boolean;
+  day5ManagerNotified: boolean;
+  day10ExecNotified: boolean;
+  lastActivityAt?: string | null;
+  resolvedAt?: string | null;
+  createdAt: string;
+  contact?: { firstName?: string | null; lastName?: string | null; email?: string | null } | null;
+}
+
+const TIER_BADGE: Record<string, string> = {
+  Critical: "bg-red-100 text-red-800 border-red-200",
+  High:     "bg-orange-100 text-orange-800 border-orange-200",
+  Medium:   "bg-yellow-100 text-yellow-800 border-yellow-200",
+  Low:      "bg-green-100 text-green-800 border-green-200",
+};
+
+function SaveCasesPanel() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [statusFilter, setStatusFilter] = useState("open");
+
+  const { data, isLoading, refetch, isFetching } = useQuery<{ cases: SaveCase[] }>({
+    queryKey: ["/api/save-cases", statusFilter],
+    queryFn: async () => {
+      const res = await fetch(`/api/save-cases?status=${statusFilter}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load save cases");
+      return res.json();
+    },
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  });
+
+  const cases = data?.cases ?? [];
+
+  const advanceMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const csrf = getCsrfToken();
+      const res = await fetch(`/api/save-cases/${id}/advance`, {
+        method: "POST",
+        credentials: "include",
+        headers: { ...(csrf ? { "X-CSRF-Token": csrf } : {}) },
+      });
+      if (!res.ok) throw new Error("Advance failed");
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Playbook advanced" });
+      queryClient.invalidateQueries({ queryKey: ["/api/save-cases"] });
+    },
+    onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
+  });
+
+  const closeMutation = useMutation({
+    mutationFn: async ({ id, outcome }: { id: number; outcome: string }) => {
+      const csrf = getCsrfToken();
+      const res = await fetch(`/api/save-cases/${id}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", ...(csrf ? { "X-CSRF-Token": csrf } : {}) },
+        body: JSON.stringify({ status: outcome === "retained" ? "retained" : "churned", outcome }),
+      });
+      if (!res.ok) throw new Error("Update failed");
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Save case updated" });
+      queryClient.invalidateQueries({ queryKey: ["/api/save-cases"] });
+    },
+    onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
+  });
+
+  const contactName = (sc: SaveCase) => {
+    if (sc.contact?.firstName || sc.contact?.lastName) {
+      return [sc.contact.firstName, sc.contact.lastName].filter(Boolean).join(" ");
+    }
+    return sc.contact?.email ?? `Contact #${sc.contactId}`;
+  };
+
+  return (
+    <div className="space-y-4 mt-4" data-testid="panel-save-cases">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div>
+          <h3 className="font-semibold text-base">Churn Save Desk</h3>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Open save cases for at-risk merchants. Advance the playbook daily; close when retained or churned.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <select
+            className="text-xs border rounded px-2 py-1"
+            value={statusFilter}
+            onChange={e => setStatusFilter(e.target.value)}
+          >
+            {["open", "retained", "churned", "escalated", "all"].map(s => (
+              <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
+            ))}
+          </select>
+          <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching} aria-label="Refresh save cases">
+            {isFetching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+          </Button>
+        </div>
+      </div>
+
+      {isLoading ? (
+        <div className="flex items-center justify-center py-10">
+          <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+        </div>
+      ) : cases.length === 0 ? (
+        <Card>
+          <CardContent className="py-10 text-center text-muted-foreground text-sm">
+            No {statusFilter === "all" ? "" : statusFilter} save cases found.
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-3">
+          {cases.map(sc => (
+            <Card key={sc.id} className={sc.escalationLevel >= 2 ? "border-red-300" : sc.escalationLevel >= 1 ? "border-orange-300" : ""}>
+              <CardContent className="pt-4 pb-4">
+                <div className="flex items-start justify-between flex-wrap gap-3">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-medium text-sm">{contactName(sc)}</span>
+                      <Badge className={`text-xs ${TIER_BADGE[sc.riskTier] ?? "bg-gray-100 text-gray-700"}`}>
+                        {sc.riskTier}
+                      </Badge>
+                      {sc.churnScore != null && (
+                        <Badge variant="outline" className="text-xs">Score: {sc.churnScore}</Badge>
+                      )}
+                      {sc.escalationLevel >= 2 && (
+                        <Badge className="text-xs bg-red-100 text-red-700">Exec Escalated</Badge>
+                      )}
+                      {sc.escalationLevel === 1 && (
+                        <Badge className="text-xs bg-orange-100 text-orange-700">Manager Notified</Badge>
+                      )}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      Day {sc.playbookDay} · Assigned: {sc.assignedTo ?? "Unassigned"}
+                      {sc.lastActivityAt && ` · Last activity: ${new Date(sc.lastActivityAt).toLocaleDateString()}`}
+                    </div>
+                    {Array.isArray(sc.triggerSignals) && sc.triggerSignals.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {sc.triggerSignals.slice(0, 3).map(sig => (
+                          <Badge key={sig} variant="outline" className="text-xs border-amber-200 bg-amber-50 text-amber-700">
+                            {String(sig).replace(/_/g, " ")}
+                          </Badge>
+                        ))}
+                        {sc.triggerSignals.length > 3 && (
+                          <Badge variant="outline" className="text-xs text-muted-foreground">
+                            +{sc.triggerSignals.length - 3} more
+                          </Badge>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  {sc.status === "open" && (
+                    <div className="flex gap-2 flex-shrink-0">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => advanceMutation.mutate(sc.id)}
+                        disabled={advanceMutation.isPending}
+                        className="text-xs"
+                      >
+                        Advance Day
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => closeMutation.mutate({ id: sc.id, outcome: "retained" })}
+                        disabled={closeMutation.isPending}
+                        className="text-xs text-green-700 border-green-300 hover:bg-green-50"
+                      >
+                        Retained ✓
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => closeMutation.mutate({ id: sc.id, outcome: "churned" })}
+                        disabled={closeMutation.isPending}
+                        className="text-xs text-red-700 border-red-300 hover:bg-red-50"
+                      >
+                        Churned ✗
+                      </Button>
+                    </div>
+                  )}
+                  {sc.status !== "open" && (
+                    <Badge className={sc.status === "retained" ? "bg-green-100 text-green-700" : sc.status === "churned" ? "bg-red-100 text-red-700" : "bg-gray-100 text-gray-700"}>
+                      {sc.status}
+                    </Badge>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── GHL Deferred Enrollment Queue Panel (#1010) ──────────────────────────────
+interface DeferredEnrollment {
+  id: number;
+  ghlContactId: string;
+  workflowKey: string;
+  metadata?: Record<string, unknown>;
+  enqueuedAt: string;
+  retryCount: number;
+  nextRetryAt?: string | null;
+  lastError?: string | null;
+  status: "pending" | "failed";
+}
+
+function GhlDeferredQueuePanel() {
+  const { toast } = useToast();
+  const { data, isLoading, refetch, isFetching } = useQuery<{
+    pending: DeferredEnrollment[];
+    recentlyFailed: DeferredEnrollment[];
+  }>({
+    queryKey: ["/api/admin/ghl-deferred-queue"],
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  });
+
+  const pending = data?.pending ?? [];
+  const failed = data?.recentlyFailed ?? [];
+
+  function fmt(iso: string | null | undefined) {
+    if (!iso) return "—";
+    const d = new Date(iso);
+    return d.toLocaleString();
+  }
+
+  return (
+    <div className="space-y-4 mt-4" data-testid="panel-ghl-deferred-queue">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="font-semibold text-base">GHL Deferred Enrollment Queue</h3>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            GHL workflow enrollments that failed and are pending automatic retry. Permanently failed rows trigger an admin email alert.
+          </p>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching} aria-label="Refresh deferred queue">
+          {isFetching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+        </Button>
+      </div>
+
+      {isLoading ? (
+        <div className="flex items-center justify-center py-10">
+          <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+        </div>
+      ) : (
+        <>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Clock className="w-4 h-4 text-yellow-500" />
+                Pending Retry
+                <Badge variant="outline">{pending.length}</Badge>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              {pending.length === 0 ? (
+                <p className="text-sm text-muted-foreground px-4 py-6 text-center">No pending deferred enrollments.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead className="border-b">
+                      <tr className="text-left">
+                        <th className="px-4 py-2 font-medium">GHL Contact</th>
+                        <th className="px-4 py-2 font-medium">Workflow</th>
+                        <th className="px-4 py-2 font-medium">Retries</th>
+                        <th className="px-4 py-2 font-medium">Next Retry</th>
+                        <th className="px-4 py-2 font-medium">Last Error</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pending.map((row) => (
+                        <tr key={row.id} className="border-b last:border-0 hover:bg-muted/30">
+                          <td className="px-4 py-2 font-mono">{row.ghlContactId}</td>
+                          <td className="px-4 py-2">{row.workflowKey}</td>
+                          <td className="px-4 py-2 text-center">{row.retryCount}</td>
+                          <td className="px-4 py-2 whitespace-nowrap">{fmt(row.nextRetryAt)}</td>
+                          <td className="px-4 py-2 text-red-600 max-w-[200px] truncate" title={row.lastError ?? ""}>{row.lastError ?? "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <XCircle className="w-4 h-4 text-red-500" />
+                Permanently Failed (recent 50)
+                <Badge variant="destructive">{failed.length}</Badge>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              {failed.length === 0 ? (
+                <p className="text-sm text-muted-foreground px-4 py-6 text-center">No permanently failed enrollments.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead className="border-b">
+                      <tr className="text-left">
+                        <th className="px-4 py-2 font-medium">GHL Contact</th>
+                        <th className="px-4 py-2 font-medium">Workflow</th>
+                        <th className="px-4 py-2 font-medium">Retries</th>
+                        <th className="px-4 py-2 font-medium">Enqueued</th>
+                        <th className="px-4 py-2 font-medium">Last Error</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {failed.map((row) => (
+                        <tr key={row.id} className="border-b last:border-0 hover:bg-red-50/40">
+                          <td className="px-4 py-2 font-mono">{row.ghlContactId}</td>
+                          <td className="px-4 py-2">{row.workflowKey}</td>
+                          <td className="px-4 py-2 text-center">{row.retryCount}</td>
+                          <td className="px-4 py-2 whitespace-nowrap">{fmt(row.enqueuedAt)}</td>
+                          <td className="px-4 py-2 text-red-600 max-w-[200px] truncate" title={row.lastError ?? ""}>{row.lastError ?? "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </>
+      )}
+    </div>
+  );
+}
 
 function RegistryImportPanel() {
   const { toast } = useToast();

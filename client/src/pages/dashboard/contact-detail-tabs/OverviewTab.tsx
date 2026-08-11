@@ -16,6 +16,7 @@ interface OverviewTabProps {
   dealsCount: number;
   openTicketsCount: number;
   pendingTasksCount: number;
+  onOpenTicketsClick?: () => void; // #602 — navigate to tickets tab
 }
 
 // ── Suppression Status Card ───────────────────────────────────────────────────
@@ -203,7 +204,7 @@ function DecisionMakerCard({ contact }: { contact: Contact }) {
   );
 }
 
-export function OverviewTab({ contact, dealsCount, openTicketsCount, pendingTasksCount }: OverviewTabProps) {
+export function OverviewTab({ contact, dealsCount, openTicketsCount, pendingTasksCount, onOpenTicketsClick }: OverviewTabProps) {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -216,12 +217,48 @@ export function OverviewTab({ contact, dealsCount, openTicketsCount, pendingTask
             <DetailRow label="Monthly Volume" value={contact.monthlyVolume} />
             <DetailRow label="Current Provider" value={contact.currentProvider} />
             <DetailRow label="Preferred Channel" value={contact.preferredChannel} />
+            {/* #1146 — Company size (employee count) */}
+            {(contact as any).employeeCount != null && (
+              <DetailRow label="Employees" value={String((contact as any).employeeCount)} />
+            )}
             <DetailRow label="Primary Offer Path" value={contact.primaryOfferPath} />
             <DetailRow label="Interested in 0%" value={contact.interestedIn0Percent ? "Yes" : "No"} />
             <DetailRow label="Needs Terminal" value={contact.needTerminal ? "Yes" : "No"} />
             <DetailRow label="SMS Consent" value={contact.consentSms ? "Yes" : "No"} />
             <DetailRow label="Email Consent" value={contact.consentEmail ? "Yes" : "No"} />
             <DetailRow label="Do Not Contact" value={contact.doNotContact ? "Yes" : "No"} />
+            {/* #456 — Referral source */}
+            {contact.referralSource && <DetailRow label="Referral Source" value={contact.referralSource} />}
+            {/* #515 — Lead source */}
+            {(contact as any).leadSource && <DetailRow label="Lead Source" value={((contact as any).leadSource as string).replace(/_/g, " ")} />}
+            {/* #485 — Assigned rep */}
+            {(contact as any).assignedTo && <DetailRow label="Assigned Rep" value={(contact as any).assignedTo.split("@")[0]} />}
+            {/* #520 — Lifecycle state */}
+            {(contact as any).lifecycleState && <DetailRow label="Lifecycle State" value={((contact as any).lifecycleState as string).replace(/_/g, " ")} />}
+            {/* #471 — Timezone display */}
+            {(contact as any).timezone && (
+              <div className="flex items-center gap-2 text-xs" data-testid="row-timezone">
+                <span className="text-muted-foreground w-28 shrink-0">Timezone</span>
+                <span className="font-medium">{(contact as any).timezone}</span>
+              </div>
+            )}
+            {/* #532 — Social media links */}
+            {(contact as any).linkedinUrl && (
+              <div className="flex items-center gap-2 text-xs" data-testid="row-linkedin-url">
+                <span className="text-muted-foreground w-28 shrink-0">LinkedIn</span>
+                <a href={(contact as any).linkedinUrl} target="_blank" rel="noreferrer" className="text-blue-600 dark:text-blue-400 truncate hover:underline">
+                  {((contact as any).linkedinUrl as string).replace(/^https?:\/\/(www\.)?linkedin\.com\//i, "in/")}
+                </a>
+              </div>
+            )}
+            {(contact as any).facebookUrl && (
+              <div className="flex items-center gap-2 text-xs" data-testid="row-facebook-url">
+                <span className="text-muted-foreground w-28 shrink-0">Facebook</span>
+                <a href={(contact as any).facebookUrl} target="_blank" rel="noreferrer" className="text-blue-600 dark:text-blue-400 truncate hover:underline">
+                  {((contact as any).facebookUrl as string).replace(/^https?:\/\/(www\.)?facebook\.com\//i, "fb/")}
+                </a>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -235,14 +272,66 @@ export function OverviewTab({ contact, dealsCount, openTicketsCount, pendingTask
                 <span className="text-muted-foreground">Total Deals</span>
                 <span className="font-medium" data-testid="text-deal-count">{dealsCount}</span>
               </div>
+              {/* #436 — Total deal value for this contact */}
+              {(contact as any).deals && Array.isArray((contact as any).deals) && (() => {
+                const dealValues = ((contact as any).deals as any[])
+                  .filter(d => !d.archivedAt)
+                  .map(d => parseFloat(d.totalVolume || d.monthlyVolume || "0") || 0);
+                const totalVal = dealValues.reduce((s, v) => s + v, 0);
+                if (totalVal <= 0) return null;
+                return (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Total Deal Volume</span>
+                    <span className="font-medium" data-testid="text-total-deal-volume">
+                      ${totalVal.toLocaleString(undefined, { maximumFractionDigits: 0 })}/mo
+                    </span>
+                  </div>
+                );
+              })()}
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Open Tickets</span>
-                <span className="font-medium" data-testid="text-open-tickets">{openTicketsCount}</span>
+                {/* #602 — click to jump to Tickets tab */}
+                {onOpenTicketsClick ? (
+                  <button
+                    onClick={onOpenTicketsClick}
+                    className="font-medium text-primary underline-offset-2 hover:underline"
+                    data-testid="text-open-tickets"
+                  >{openTicketsCount}</button>
+                ) : (
+                  <span className="font-medium" data-testid="text-open-tickets">{openTicketsCount}</span>
+                )}
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Pending Tasks</span>
                 <span className="font-medium" data-testid="text-pending-tasks">{pendingTasksCount}</span>
               </div>
+              {/* #475 — Days since created */}
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Days Since Added</span>
+                <span className="font-medium" data-testid="text-days-since-created">
+                  {contact.createdAt ? Math.floor((Date.now() - new Date(contact.createdAt).getTime()) / 86400000) : "—"}d
+                </span>
+              </div>
+              {/* #870 — Outreach summary totals */}
+              {((contact as any).totalCalls != null || (contact as any).totalEmails != null || (contact as any).totalSms != null) && (
+                <div className="flex justify-between" data-testid="stat-outreach-summary">
+                  <span className="text-muted-foreground">Total Outreach</span>
+                  <span className="font-medium text-xs">
+                    {(contact as any).totalCalls != null && <span title="Calls">📞{(contact as any).totalCalls}</span>}
+                    {(contact as any).totalEmails != null && <span className="ml-1" title="Emails">✉️{(contact as any).totalEmails}</span>}
+                    {(contact as any).totalSms != null && <span className="ml-1" title="SMS">💬{(contact as any).totalSms}</span>}
+                  </span>
+                </div>
+              )}
+              {/* #558 — Time since last contact */}
+              {(contact as any).lastContactedAt && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Last Contacted</span>
+                  <span className="font-medium" data-testid="text-days-since-contact">
+                    {Math.floor((Date.now() - new Date((contact as any).lastContactedAt).getTime()) / 86400000)}d ago
+                  </span>
+                </div>
+              )}
             </CardContent>
           </Card>
 

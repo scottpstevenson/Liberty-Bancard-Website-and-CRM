@@ -17,7 +17,7 @@ import {
   AlertTriangle, Plus, DollarSign, Clock, CheckCircle, XCircle, TrendingDown,
   ShieldAlert, FileText, ChevronRight, X, Loader2, ArrowUpRight, Sparkles,
   ClipboardCopy, Download, Check, AlertCircle, HelpCircle, ChevronDown, ChevronUp,
-  UploadCloud,
+  UploadCloud, Send,
 } from "lucide-react";
 
 const STATUS_CONFIG: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline"; className?: string }> = {
@@ -202,6 +202,23 @@ function CopilotPanel({ chargeback: cb, onClose }: CopilotPanelProps) {
       URL.revokeObjectURL(url);
     },
     onError: (err: any) => toast({ title: "Download failed", description: err.message, variant: "destructive" }),
+  });
+
+  // #285 — Submit evidence packet to card brand
+  const submitToCardBrandMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/chargebacks/${cb.id}/submit-to-card-brand`, {});
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.message || "Submission failed");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/chargebacks"] });
+      toast({ title: "Submitted to card brand", description: "The evidence packet has been transmitted. Status updated to Responded." });
+    },
+    onError: (err: any) => toast({ title: "Submission failed", description: err.message, variant: "destructive" }),
   });
 
   const updateChecklistItem = (i: number, changes: Partial<ChecklistItem>) => {
@@ -416,6 +433,25 @@ function CopilotPanel({ chargeback: cb, onClose }: CopilotPanelProps) {
             {downloadPdfMutation.isPending ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Download className="w-3 h-3 mr-1" />}
             Download PDF
           </Button>
+
+          {/* #285 — Submit evidence to card brand */}
+          {packet?.finalizedAt && (
+            <Button
+              onClick={() => submitToCardBrandMutation.mutate()}
+              disabled={submitToCardBrandMutation.isPending || cb.status === "responded"}
+              variant={cb.status === "responded" ? "outline" : "default"}
+              size="sm"
+              data-testid="button-submit-to-card-brand"
+              className={cb.status === "responded" ? "border-green-300 text-green-700" : ""}
+            >
+              {submitToCardBrandMutation.isPending
+                ? <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                : cb.status === "responded"
+                  ? <Check className="w-3 h-3 mr-1 text-green-600" />
+                  : <Send className="w-3 h-3 mr-1" />}
+              {cb.status === "responded" ? "Submitted ✓" : `Submit to ${cb.cardBrand || "Card Brand"}`}
+            </Button>
+          )}
         </div>
       )}
     </div>

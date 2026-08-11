@@ -986,6 +986,14 @@ export async function processSendQueue(maxToSend?: number): Promise<{ sent: numb
         sendingAt: new Date(),
       });
 
+      // Global pause check — campaign-engine sends directly without ChannelOrchestrator (#1380)
+      {
+        const campaignPaused = await storage.getSystemSetting("outboundGlobalPaused");
+        if (campaignPaused === true || campaignPaused === "true") {
+          throw new Error("Outbound communications are globally paused");
+        }
+      }
+
       if (isSmtpConfigured()) {
         const { generateUnsubscribeToken } = await import("./unsubscribe-token");
         const token = generateUnsubscribeToken(prospect.contactId);
@@ -1181,6 +1189,15 @@ async function sendContactCampaignMessage(
     status: "sending",
     sendingAt: new Date(),
   });
+
+  // Global pause check — contact-mode send path bypasses ChannelOrchestrator (#1380)
+  {
+    const contactModePaused = await storage.getSystemSetting("outboundGlobalPaused");
+    if (contactModePaused === true || contactModePaused === "true") {
+      await storage.updateOutboundMessage(msg.id, { status: "failed", error: "Outbound communications are globally paused" });
+      return "failed";
+    }
+  }
 
   const result = await sendSmtpEmail({
     to: contact.email,

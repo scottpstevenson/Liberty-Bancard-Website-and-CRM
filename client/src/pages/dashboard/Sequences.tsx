@@ -514,6 +514,20 @@ export default function Sequences() {
             </div>
           </CardContent>
         </Card>
+        {/* #545 — Total emails sent across all sequences */}
+        <Card data-testid="kpi-total-emails-sent">
+          <CardContent className="pt-4 pb-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-md bg-indigo-500/10"><Mail className="w-5 h-5 text-indigo-600" /></div>
+              <div>
+                <p className="text-2xl font-bold">
+                  {(sequences || []).reduce((sum: number, s: any) => sum + (s.totalSent ?? 0), 0).toLocaleString()}
+                </p>
+                <p className="text-xs text-muted-foreground">Emails Sent</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
         <Card data-testid="kpi-active-enrollments">
           <CardContent className="pt-4 pb-4">
             <div className="flex items-center gap-3">
@@ -695,6 +709,19 @@ export default function Sequences() {
                         <span>{seqEnrollments.length} enrolled</span>
                         <span>{seqEnrollments.filter((e: any) => e.status === "active").length} active</span>
                       </div>
+                      {/* #547 — Per-card completion percent bar */}
+                      {seqEnrollments.length > 0 && (() => {
+                        const completed = seqEnrollments.filter((e: any) => e.status === "completed").length;
+                        const pct = Math.round((completed / seqEnrollments.length) * 100);
+                        return (
+                          <div className="mt-2 flex items-center gap-2" data-testid={`completion-bar-${seq.id}`}>
+                            <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
+                              <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${pct}%` }} data-testid={`completion-fill-${seq.id}`} />
+                            </div>
+                            <span className="text-xs text-muted-foreground shrink-0">{pct}% complete</span>
+                          </div>
+                        );
+                      })()}
                       {(seq.eligibleConsentTiers?.length > 0 || seq.channelsAllowed?.length > 0 || seq.offerRoutes?.length > 0) && (
                         <div className="flex flex-wrap gap-2 mt-2">
                           {seq.channelsAllowed?.length > 0 && (
@@ -802,6 +829,27 @@ export default function Sequences() {
                       >
                         <Trash2 className="w-4 h-4" />
                       </Button>
+                      {/* #389 — Send test email to internal recipient */}
+                      {(user?.role === "admin") && (
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          title="Send [TEST] emails to internal recipient for all active email steps"
+                          aria-label="Send test emails"
+                          onClick={async () => {
+                            try {
+                              const r = await fetch("/api/wizard/test-sequence-emails", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+                              const d = await r.json();
+                              toast({ title: "Test emails sent", description: `Route: ${d.route ?? "unknown"}` });
+                            } catch {
+                              toast({ title: "Test send failed", variant: "destructive" });
+                            }
+                          }}
+                          data-testid={`button-test-send-${seq.id}`}
+                        >
+                          <FlaskConical className="w-4 h-4" />
+                        </Button>
+                      )}
                     </div>
                   </div>
 
@@ -993,6 +1041,27 @@ export default function Sequences() {
                                     data-testid={`tab-preview-${index}`}
                                   >
                                     <Eye className="w-3 h-3" /> Preview
+                                  </button>
+                                  {/* #544 — Send test email to self */}
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      try {
+                                        const { getCsrfToken } = await import("@/lib/queryClient");
+                                        const token = await getCsrfToken();
+                                        const res = await fetch("/api/sequences/steps/test-send", {
+                                          method: "POST", credentials: "include",
+                                          headers: { "Content-Type": "application/json", "x-csrf-token": token ?? "" },
+                                          body: JSON.stringify({ subject: step.subject || "(no subject)", body: step.body || "" }),
+                                        });
+                                        if (res.ok) alert("Test email sent to your account email!");
+                                        else alert("Could not send test email. Check SMTP configuration.");
+                                      } catch { alert("Failed to send test email."); }
+                                    }}
+                                    className="text-xs px-2 py-0.5 rounded border transition-colors flex items-center gap-1 bg-muted text-muted-foreground border-transparent hover:border-border"
+                                    data-testid={`button-test-send-${index}`}
+                                  >
+                                    <Send className="w-3 h-3" /> Test
                                   </button>
                                 </div>
                                 {(bodyPreviewTab[index] ?? "write") === "write" ? (
@@ -1670,9 +1739,15 @@ function SequenceStepsView({ sequenceId, enrollments }: { sequenceId: number; en
               return (
                 <div key={e.id} className="flex items-center justify-between py-1 text-sm" data-testid={`enrollment-${e.id}`}>
                   <div className="flex items-center gap-2 min-w-0">
-                    <span className="font-medium truncate">
+                    {/* #546 — Link to contact profile from enrollment */}
+                    <a
+                      href={`/dashboard/contacts/${e.contactId}`}
+                      className="font-medium truncate hover:underline text-primary"
+                      data-testid={`link-enrollment-contact-${e.id}`}
+                      onClick={ev => { ev.stopPropagation(); }}
+                    >
                       {contact ? `${contact.firstName} ${contact.lastName}` : `Contact #${e.contactId}`}
-                    </span>
+                    </a>
                     <Badge variant={e.status === "active" ? "default" : e.status === "completed" ? "secondary" : "outline"} className="text-xs">
                       {e.status}
                     </Badge>

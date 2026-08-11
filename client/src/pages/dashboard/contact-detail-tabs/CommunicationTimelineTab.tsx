@@ -3,16 +3,18 @@
  * Unified inbound + outbound communication history for a contact.
  * Reads from communication_events via GET /api/contacts/:id/communication-timeline.
  */
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { useToast } from "@/hooks/use-toast";
 import {
   Loader2, AlertTriangle, RefreshCw,
   Mail, MessageSquare, Phone, Voicemail, Radio,
   ArrowUpRight, ArrowDownLeft, Globe, MessageCircle,
   CheckCircle2, XCircle, Clock, AlertCircle, Wifi,
 } from "lucide-react";
+import { getCsrfToken } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -226,6 +228,8 @@ function EventRow({ event }: { event: CommEvent }) {
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 export function CommunicationTimelineTab({ contactId }: { contactId: number }) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
   const { data, isLoading, isError, refetch } = useQuery<TimelineResponse>({
     queryKey: ["/api/contacts", contactId, "communication-timeline"],
     queryFn: async () => {
@@ -291,6 +295,34 @@ export function CommunicationTimelineTab({ contactId }: { contactId: number }) {
           <ArrowDownLeft className="w-3.5 h-3.5" />
           {inboundCount} inbound
         </span>
+        {/* #538 — Log inbound SMS received from contact */}
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 px-2 text-xs"
+          data-testid="btn-log-inbound-sms"
+          onClick={async () => {
+            const body = window.prompt("Briefly summarize the SMS received:");
+            if (!body?.trim()) return;
+            try {
+              const token = await getCsrfToken();
+              const res = await fetch(`/api/contacts/${contactId}/communication-events`, {
+                method: "POST",
+                credentials: "include",
+                headers: { "Content-Type": "application/json", "x-csrf-token": token ?? "" },
+                body: JSON.stringify({ direction: "inbound", channel: "sms", provider: "manual", body: body.trim(), status: "received", sentBy: "human" }),
+              });
+              if (res.ok) {
+                toast({ title: "Inbound SMS logged" });
+                queryClient.invalidateQueries({ queryKey: ["/api/contacts", contactId, "communication-timeline"] });
+              } else {
+                toast({ title: "Could not log SMS", variant: "destructive" });
+              }
+            } catch { toast({ title: "Failed to log SMS", variant: "destructive" }); }
+          }}
+        >
+          <MessageSquare className="w-3 h-3 mr-1" /> Log SMS Received
+        </Button>
         <Button
           variant="ghost"
           size="sm"

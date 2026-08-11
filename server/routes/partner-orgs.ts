@@ -501,6 +501,56 @@ export function registerPartnerOrgsRoutes(app: Express) {
     }
   });
 
+  // ── Admin: upload partner org logo (#159) ──────────────────────────────────
+  app.post("/api/partner-orgs/:id/logo", isAuthenticated, upload.single("logo"), async (req, res) => {
+    if ((req.user as any)?.role !== "admin") {
+      return res.status(403).json({ message: "Admin only." });
+    }
+    try {
+      const orgId = Number(req.params.id);
+      const org = await storage.getPartnerOrg(orgId);
+      if (!org) return res.status(404).json({ message: "Partner org not found." });
+
+      if (!req.file) return res.status(400).json({ message: "No file uploaded." });
+
+      const { fileBuffer, fileName } = req.file as any;
+      const buffer: Buffer = fileBuffer ?? req.file.buffer;
+      const originalName: string = fileName ?? req.file.originalname;
+
+      if (!buffer) return res.status(400).json({ message: "File buffer missing." });
+
+      // Validate MIME type — only images allowed
+      const mime = req.file.mimetype ?? "";
+      if (!mime.startsWith("image/")) {
+        return res.status(400).json({ message: "Only image files are allowed for logos." });
+      }
+
+      const fs = await import("fs");
+      const nodePath = await import("path");
+      const ext = nodePath.extname(originalName).toLowerCase() || ".png";
+      const diskFileName = `partner-logo-${orgId}-${Date.now()}${ext}`;
+      const uploadsDir = nodePath.join(process.cwd(), "uploads");
+      if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+      fs.writeFileSync(nodePath.join(uploadsDir, diskFileName), buffer);
+
+      const logoUrl = `/uploads/${diskFileName}`;
+      await storage.updatePartnerOrg(orgId, { logoUrl });
+
+      await storage.createAuditLog({
+        action: "partner_org_logo_uploaded",
+        entityType: "partner_org",
+        entityId: orgId,
+        actorType: "user",
+        actorId: String((req.user as any)?.id ?? ""),
+        details: { logoUrl, originalName },
+      });
+
+      res.json({ logoUrl });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
   // ── Admin: delete partner org ───────────────────────────────────────────────
   app.delete("/api/partner-orgs/:id", isAuthenticated, async (req, res) => {
     if ((req.user as any)?.role !== "admin") {
@@ -533,16 +583,20 @@ export function registerPartnerOrgsRoutes(app: Express) {
       return res.status(403).json({ message: "Admin only." });
     }
     try {
-      const { email, firstName, lastName, role, password } = req.body;
-      if (!email || !firstName || !password) {
-        return res.status(400).json({ message: "Email, first name, and password are required." });
+      const { email, firstName, lastName, role } = req.body;
+      if (!email || !firstName) {
+        return res.status(400).json({ message: "Email and first name are required." });
       }
       const orgId = Number(req.params.id);
       const existing = await storage.getPartnerOrgUserByEmail(email.toLowerCase());
       if (existing && existing.partnerOrgId === orgId) {
         return res.status(409).json({ message: "User already exists in this org." });
       }
-      const passwordHash = await bcrypt.hash(password, 12);
+      // Auto-generate a secure temporary password (#180 — no need for admin to supply one)
+      const tempPassword = Array.from({ length: 4 }, () =>
+        Math.random().toString(36).slice(2, 6)
+      ).join("-");
+      const passwordHash = await bcrypt.hash(tempPassword, 12);
       const user = await storage.createPartnerOrgUser({
         partnerOrgId: orgId,
         email: email.toLowerCase(),
@@ -557,9 +611,15 @@ export function registerPartnerOrgsRoutes(app: Express) {
       // Send welcome email to the new org user
       (async () => {
         try {
-          const { sendSmtpEmail, isSmtpConfigured } = await import("../services/smtp-email");
+          const { sendSmtpEmail, isSmtpConfigured, verifySmtpLive } = await import("../services/smtp-email");
           if (!isSmtpConfigured()) {
             console.warn(`[PartnerOrgs] SMTP not configured — welcome email to ${email} skipped; user must receive credentials manually.`);
+            return;
+          }
+          // #1249 — Live connectivity check before sending so we don't silently fail
+          const smtpLive = await verifySmtpLive();
+          if (!smtpLive) {
+            console.warn(`[PartnerOrgs] SMTP is down — welcome email to ${email} deferred; admin must resend manually.`);
             return;
           }
           const { getEmailSignatureHtml } = await import("../services/email-signatures");
@@ -571,17 +631,17 @@ export function registerPartnerOrgsRoutes(app: Express) {
 <div style="font-family:Arial,sans-serif;font-size:14px;color:#333;max-width:600px;">
   <p>Hi ${firstName},</p>
   <p>You've been invited to join the <strong>Liberty Bancard Partner Portal</strong> as a team member.</p>
-  <p>Your account is ready. Log in with the credentials below:</p>
+  <p>Your account is ready. Log in with the temporary credentials below and change your password after first login.</p>
   <ul style="margin:12px 0;padding-left:20px;line-height:1.8;">
     <li><strong>Email:</strong> ${email.toLowerCase()}</li>
-    <li><strong>Password:</strong> The temporary password provided by your administrator</li>
+    <li><strong>Temporary password:</strong> <code style="background:#f4f4f4;padding:2px 6px;border-radius:3px;">${tempPassword}</code></li>
   </ul>
   <p>
     <a href="${loginUrl}" style="display:inline-block;background-color:#1e3a5f;color:#ffffff;padding:10px 20px;border-radius:4px;text-decoration:none;font-size:13px;font-weight:bold;">
       Log In to Partner Portal &rarr;
     </a>
   </p>
-  <p style="color:#666;font-size:12px;">We recommend changing your password after your first login.</p>
+  <p style="color:#666;font-size:12px;">For security, please change your password immediately after logging in.</p>
   <p>Questions? Contact <a href="mailto:partners@libertybancard.com" style="color:#1e3a5f;">partners@libertybancard.com</a>.</p>
 ${getEmailSignatureHtml("partners")}
 </div>`;
@@ -604,6 +664,69 @@ ${getEmailSignatureHtml("partners")}
       res.status(201).json(safeUser);
     } catch (err: any) {
       res.status(400).json({ message: err.message });
+    }
+  });
+
+  // ── Admin: reset partner org user password (#158) ──────────────────────────
+  app.post("/api/partner-orgs/:orgId/users/:userId/reset-password", isAuthenticated, async (req, res) => {
+    if ((req.user as any)?.role !== "admin") {
+      return res.status(403).json({ message: "Admin only." });
+    }
+    try {
+      const user = await storage.getPartnerOrgUser(Number(req.params.userId));
+      if (!user || user.partnerOrgId !== Number(req.params.orgId)) {
+        return res.status(404).json({ message: "User not found in this org." });
+      }
+
+      // Generate a secure temporary password
+      const tempPassword = Array.from({ length: 4 }, () =>
+        Math.random().toString(36).slice(2, 6)
+      ).join("-");
+
+      const passwordHash = await bcrypt.hash(tempPassword, 12);
+      await storage.updatePartnerOrgUser(Number(req.params.userId), { passwordHash } as any);
+
+      await storage.createAuditLog({
+        action: "partner_org_user_password_reset",
+        entityType: "partner_org_user",
+        entityId: Number(req.params.userId),
+        actorType: "user",
+        actorId: String((req.user as any)?.id ?? ""),
+        details: { orgId: user.partnerOrgId, email: user.email },
+      });
+
+      // Email the new temp password to the user
+      (async () => {
+        try {
+          const { sendSmtpEmail, isSmtpConfigured } = await import("../services/smtp-email");
+          if (!isSmtpConfigured()) return;
+          const { getEmailSignatureHtml } = await import("../services/email-signatures");
+          const replitDomain = process.env.REPLIT_DOMAINS?.split(",")[0]?.trim();
+          const baseUrl = process.env.APP_URL || (replitDomain ? `https://${replitDomain}` : "https://libertybancard.com");
+          const loginUrl = `${baseUrl}/partner-org/login`;
+          await sendSmtpEmail({
+            to: user.email,
+            subject: "Your Liberty Bancard Partner Portal password has been reset",
+            html: `<div style="font-family:Arial,sans-serif;font-size:14px;color:#333;max-width:600px;">
+<p>Hi ${user.firstName},</p>
+<p>Your Partner Portal password has been reset by an administrator. Use the temporary password below to log in, then change it immediately.</p>
+<ul style="margin:12px 0;padding-left:20px;line-height:1.8;">
+  <li><strong>Email:</strong> ${user.email}</li>
+  <li><strong>Temporary password:</strong> <code style="background:#f4f4f4;padding:2px 6px;border-radius:3px;">${tempPassword}</code></li>
+</ul>
+<p><a href="${loginUrl}" style="display:inline-block;background-color:#1e3a5f;color:#ffffff;padding:10px 20px;border-radius:4px;text-decoration:none;font-size:13px;font-weight:bold;">Log In &rarr;</a></p>
+${getEmailSignatureHtml("partners")}
+</div>`,
+            category: "partners",
+          });
+        } catch (e) {
+          console.error(`[PartnerOrgs] Password reset email error:`, e);
+        }
+      })();
+
+      res.json({ message: "Password reset. User has been emailed their temporary password." });
+    } catch (err: any) {
+      serverError(res, err);
     }
   });
 

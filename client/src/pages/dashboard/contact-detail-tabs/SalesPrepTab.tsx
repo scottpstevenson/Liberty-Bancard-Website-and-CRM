@@ -9,7 +9,7 @@ import { Separator } from "@/components/ui/separator";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
-import { Loader2, Wand2, RefreshCw, MessageSquare, Target, ShieldAlert, ArrowRight, FileText, Mail, CheckCircle, XCircle, AlertCircle, Trash2 } from "lucide-react";
+import { Loader2, Wand2, RefreshCw, MessageSquare, Target, ShieldAlert, ArrowRight, FileText, Mail, CheckCircle, XCircle, AlertCircle, Trash2, Play, Pause } from "lucide-react";
 
 interface SalesPrepOutput {
   callOpener: string;
@@ -59,6 +59,7 @@ interface Enrollment {
   status: string;
   currentStep: number | null;
   createdAt: string | null;
+  nextActionAt?: string | null; // #540 — next scheduled step date
 }
 
 function ActiveEnrollmentsCard({ contactId }: { contactId: number }) {
@@ -86,6 +87,19 @@ function ActiveEnrollmentsCard({ contactId }: { contactId: number }) {
     },
     onError: () => {
       toast({ title: "Could not remove", description: "Please try again.", variant: "destructive" });
+    },
+  });
+
+  // #541 — Toggle active/paused on individual enrollment
+  const pauseMutation = useMutation({
+    mutationFn: (enrollment: Enrollment) =>
+      apiRequest("PATCH", `/api/sequences/${enrollment.sequenceId}/enrollments/${contactId}/pause`).then(r => r.json()),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/contacts/${contactId}/enrollments`] });
+      toast({ title: "Enrollment updated" });
+    },
+    onError: () => {
+      toast({ title: "Could not update enrollment", variant: "destructive" });
     },
   });
 
@@ -131,6 +145,12 @@ function ActiveEnrollmentsCard({ contactId }: { contactId: number }) {
               <div className="flex items-center gap-2 mt-0.5">
                 {statusBadge(enrollment.status)}
                 <span className="text-xs text-muted-foreground">Step {enrollment.currentStep ?? 0}</span>
+                {/* #540 — next step date */}
+                {enrollment.nextActionAt && enrollment.status === "active" && (
+                  <span className="text-xs text-muted-foreground" data-testid={`text-next-action-${enrollment.id}`}>
+                    · Next: {new Date(enrollment.nextActionAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                  </span>
+                )}
               </div>
             </div>
 
@@ -158,16 +178,33 @@ function ActiveEnrollmentsCard({ contactId }: { contactId: number }) {
                 </Button>
               </div>
             ) : (
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive shrink-0"
-                onClick={() => setConfirmId(enrollment.id)}
-                aria-label="Remove from sequence"
-                data-testid={`button-remove-enrollment-${enrollment.id}`}
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </Button>
+              <div className="flex items-center gap-1 shrink-0">
+                {/* #541 — Pause / resume individual enrollment */}
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 w-7 p-0 text-muted-foreground shrink-0"
+                  onClick={() => pauseMutation.mutate(enrollment)}
+                  disabled={pauseMutation.isPending}
+                  aria-label={enrollment.status === "paused" ? "Resume enrollment" : "Pause enrollment"}
+                  data-testid={`button-${enrollment.status === "paused" ? "resume" : "pause"}-enrollment-${enrollment.id}`}
+                  title={enrollment.status === "paused" ? "Resume" : "Pause"}
+                >
+                  {enrollment.status === "paused"
+                    ? <Play className="h-3.5 w-3.5 text-green-600" />
+                    : <Pause className="h-3.5 w-3.5" />}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive shrink-0"
+                  onClick={() => setConfirmId(enrollment.id)}
+                  aria-label="Remove from sequence"
+                  data-testid={`button-remove-enrollment-${enrollment.id}`}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </div>
             )}
           </div>
         ))}
@@ -176,14 +213,32 @@ function ActiveEnrollmentsCard({ contactId }: { contactId: number }) {
           <>
             {active.length > 0 && <Separator className="my-1" />}
             <p className="text-xs text-muted-foreground font-medium pt-1">History</p>
-            {history.map(enrollment => (
-              <div key={enrollment.id} className="flex items-center justify-between gap-2 py-0.5">
-                <p className="text-xs text-muted-foreground truncate flex-1">
-                  {enrollment.sequenceId ? (sequenceMap[enrollment.sequenceId] ?? `Sequence #${enrollment.sequenceId}`) : "Unknown sequence"}
-                </p>
-                {statusBadge(enrollment.status)}
-              </div>
-            ))}
+            {/* #548 — Group by sequence and show re-enrollment count */}
+            {(() => {
+              const grouped: Record<number, Enrollment[]> = {};
+              for (const e of history) {
+                const key = e.sequenceId ?? -1;
+                if (!grouped[key]) grouped[key] = [];
+                grouped[key].push(e);
+              }
+              return Object.entries(grouped).map(([seqIdStr, entries]) => {
+                const seqId = Number(seqIdStr);
+                const latest = entries[entries.length - 1];
+                return (
+                  <div key={seqIdStr} className="flex items-center justify-between gap-2 py-0.5">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs text-muted-foreground truncate">
+                        {seqId > 0 ? (sequenceMap[seqId] ?? `Sequence #${seqId}`) : "Unknown sequence"}
+                        {entries.length > 1 && (
+                          <span className="ml-1 text-[10px] text-muted-foreground/60" data-testid={`text-reenrollment-count-${seqId}`}>×{entries.length}</span>
+                        )}
+                      </p>
+                    </div>
+                    {statusBadge(latest.status)}
+                  </div>
+                );
+              });
+            })()}
           </>
         )}
       </CardContent>
@@ -198,6 +253,14 @@ function OutreachEligibilityCard({ contactId }: { contactId: number }) {
   const [confirmed, setConfirmed] = useState(false);
   const [enrolledSequenceName, setEnrolledSequenceName] = useState<string | null>(null);
   const [alreadyEnrolledMsg, setAlreadyEnrolledMsg] = useState<string | null>(null);
+
+  // #531 — fetch minimal contact data to check email status
+  const contactQuery = useQuery<{ emailStatus?: string | null }>({
+    queryKey: [`/api/contacts/${contactId}`],
+    staleTime: 60_000,
+    select: (d: any) => ({ emailStatus: d?.emailStatus ?? null }),
+  });
+  const emailBlocked = ["bounced", "invalid", "opted_out"].includes(contactQuery.data?.emailStatus ?? "");
 
   const statusQuery = useQuery<ContactabilityStatus>({
     queryKey: [`/api/contacts/${contactId}/contactability-status`],
@@ -270,12 +333,18 @@ function OutreachEligibilityCard({ contactId }: { contactId: number }) {
   const status = statusQuery.data;
   if (!status?.sdrSourced) return null;
 
+  // #534 — Filter sequences by contact's consent tier (if sequences declare eligibleConsentTiers)
+  const contactConsentTier = (status as any)?.consentTier ?? "cold_no_consent";
   // Email-only sequences: channelsAllowed is null/empty or ["email"]
   const activeEmailSequences = (sequencesQuery.data ?? []).filter(s => {
     if (s.status !== "active") return false;
     const ch = s.channelsAllowed;
     if (!ch || ch.length === 0) return true;
-    return ch.length === 1 && ch[0] === "email";
+    if (!(ch.length === 1 && ch[0] === "email")) return false;
+    // If the sequence declares eligible consent tiers, check the contact matches
+    const eligible = (s as any).eligibleConsentTiers as string[] | null | undefined;
+    if (eligible && eligible.length > 0 && !eligible.includes(contactConsentTier)) return false;
+    return true;
   });
 
   if (enrolledSequenceName) {
@@ -396,6 +465,13 @@ function OutreachEligibilityCard({ contactId }: { contactId: number }) {
                 </div>
               )}
 
+              {/* #531 — Bounce warning */}
+              {emailBlocked && (
+                <div className="flex items-center gap-2 text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded p-2" data-testid="alert-email-blocked">
+                  <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                  This contact's email is marked as {contactQuery.data?.emailStatus ?? "undeliverable"}. Email sequences may not reach them.
+                </div>
+              )}
               <Button
                 size="sm"
                 disabled={!selectedSequenceId || !confirmed || enrollMutation.isPending}

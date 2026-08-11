@@ -8,6 +8,7 @@ import { countUnreadSessions } from "@/lib/chatNotifications";
 import logoBlue from "@assets/logo-blue.png";
 import UniversalSearch from "@/components/UniversalSearch";
 import { InternalSidebarChat } from "@/components/InternalSidebarChat";
+import { DashboardDataAgent } from "@/components/DashboardDataAgent";
 import { EmailComposer } from "@/components/EmailComposer";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import {
@@ -81,6 +82,8 @@ import {
   Eye,
   EyeOff,
   Briefcase,
+  Wifi,
+  WifiOff,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -122,7 +125,7 @@ const dailyWorkItems: MenuItem[] = [
   { icon: Users,           label: "Contacts & Leads",     href: "/dashboard/contacts-leads",     roles: ["admin", "manager"] },
   { icon: TrendingUp,      label: "Pipeline",             href: "/dashboard/pipeline",           roles: ["admin", "manager"] },
   { icon: Inbox,           label: "Messages & Inbox",     href: "/dashboard/comms-hub",          roles: ["admin", "manager"], badgeKey: "smsUnread" },
-  { icon: ClipboardList,   label: "Tasks & Appointments", href: "/dashboard/tasks-appointments", roles: ["admin", "manager"] },
+  { icon: ClipboardList,   label: "Tasks & Appointments", href: "/dashboard/tasks-appointments", roles: ["admin", "manager"], badgeKey: "overdueTaskCount" },
   { icon: CreditCard,      label: "Virtual Terminal",     href: "/dashboard/virtual-terminal",   roles: ["admin", "manager"] },
   { icon: Brain,           label: "AI Advisor",           href: "/dashboard/chat",               roles: ["admin", "manager"] },
   // Agent
@@ -131,7 +134,7 @@ const dailyWorkItems: MenuItem[] = [
   { icon: Users,           label: "My Contacts",          href: "/dashboard/contacts",           roles: ["agent"] },
   { icon: TrendingUp,      label: "My Pipeline",          href: "/dashboard/pipeline",           roles: ["agent"] },
   { icon: Inbox,           label: "Messages & Inbox",     href: "/dashboard/comms-hub",          roles: ["agent"], badgeKey: "smsUnread" },
-  { icon: ClipboardList,   label: "Tasks & Appointments", href: "/dashboard/tasks-appointments", roles: ["agent"] },
+  { icon: ClipboardList,   label: "Tasks & Appointments", href: "/dashboard/tasks-appointments", roles: ["agent"], badgeKey: "overdueTaskCount" },
   { icon: Brain,           label: "AI Advisor",           href: "/dashboard/chat",               roles: ["agent"] },
   { icon: DollarSign,      label: "My Earnings",          href: "/dashboard/my-earnings",        roles: ["agent"] },
 ];
@@ -176,6 +179,7 @@ const reportsSettingsItems: MenuItem[] = [
   { icon: Settings,    label: "Settings",         href: "/dashboard/admin-hub",             roles: ["admin", "manager"] },
   { icon: ShieldCheck, label: "Security",         href: "/dashboard/security",              roles: ["admin", "manager", "agent", "merchant"] },
   { icon: Settings,    label: "Integrations",     href: "/dashboard/settings/integrations", roles: ["admin", "manager"] },
+  { icon: Link2,       label: "GHL Integration",  href: "/dashboard/ghl-integration",       roles: ["admin", "manager"] },
 ];
 
 // ─── RESOURCES (collapsible) ───────────────────────────────────────────────────
@@ -421,6 +425,19 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
     });
   }, []);
 
+  // #348 — Online/offline status indicator
+  const [isOnline, setIsOnline] = useState(() => navigator.onLine);
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
+
   const { data: smsUnreadData } = useQuery<{ count: number }>({
     queryKey: ["/api/sms-inbox/unread-count"],
     refetchInterval: 60000,
@@ -458,12 +475,57 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
     setLiveChatUnreadCount(countUnreadSessions(liveChatSessions));
   }, [liveChatSessions]);
 
+  // #385 — Overdue task badge in sidebar
+  const { data: overdueTasksData } = useQuery<{ count: number }>({
+    queryKey: ["/api/tasks/overdue-count"],
+    refetchInterval: 60000,
+    enabled: ["admin", "manager", "agent"].includes(role),
+  });
+  const overdueTaskCount = overdueTasksData?.count || 0;
+
+  // #487 — Update page title with unread count (after counts are declared)
+  useEffect(() => {
+    const total = (notificationsUnreadCount || 0) + (smsUnreadCount || 0);
+    document.title = total > 0 ? `(${total}) Liberty Bancard` : "Liberty Bancard";
+  }, [notificationsUnreadCount, smsUnreadCount]);
+
   const badges: Record<string, number> = {
     smsUnread: smsUnreadCount,
     notificationsUnread: notificationsUnreadCount,
     liveChatUnread: liveChatUnreadCount,
     pendingApplications: pendingApplicationsCount,
+    overdueTaskCount,
   };
+
+  // #207 — Global keyboard shortcuts
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      // "/" — focus universal search (skip when typing in an input/textarea)
+      if (e.key === "/" && !["INPUT", "TEXTAREA", "SELECT"].includes((e.target as HTMLElement)?.tagName ?? "")) {
+        e.preventDefault();
+        const searchInput = document.querySelector<HTMLInputElement>('[data-testid="universal-search-input"]');
+        searchInput?.focus();
+      }
+      // "n" — open new contact dialog from anywhere (#242)
+      if (e.key === "n" && !["INPUT", "TEXTAREA", "SELECT"].includes((e.target as HTMLElement)?.tagName ?? "")) {
+        e.preventDefault();
+        const addBtn = document.querySelector<HTMLButtonElement>('[data-testid="button-add-contact-trigger"]');
+        addBtn?.click();
+      }
+      // "g c" sequence — go to contacts
+      if (e.key === "g" && !["INPUT", "TEXTAREA"].includes((e.target as HTMLElement)?.tagName ?? "")) {
+        const next = (e2: KeyboardEvent) => {
+          if (e2.key === "c") setLocation("/dashboard/contacts");
+          if (e2.key === "p") setLocation("/dashboard/pipeline");
+          if (e2.key === "h") setLocation("/dashboard");
+          document.removeEventListener("keydown", next);
+        };
+        document.addEventListener("keydown", next, { once: true });
+      }
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [setLocation]);
 
   // Agent virtual terminal — only if user has permission
   const filteredAgentTools = useMemo(() => {
@@ -668,6 +730,17 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                 <UniversalSearch />
               </div>
               <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+                {/* #348 — Online/offline badge */}
+                {!isOnline && (
+                  <span
+                    className="inline-flex items-center gap-1 text-xs text-destructive font-medium shrink-0"
+                    data-testid="badge-offline"
+                    title="You are offline"
+                  >
+                    <WifiOff className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Offline</span>
+                  </span>
+                )}
                 <Link
                   href="/dashboard/notifications"
                   className="relative inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring hover:bg-accent hover:text-accent-foreground h-9 w-9"
@@ -720,6 +793,8 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
               />
             )}
           </div>
+          {/* Floating data & reporting AI assistant — bottom-right, dashboard-only */}
+          <DashboardDataAgent />
         </div>
       </div>
     </SidebarProvider>
