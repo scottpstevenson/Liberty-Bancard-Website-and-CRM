@@ -901,11 +901,13 @@ ${getEmailSignatureHtml("partners")}
       const org = await storage.getPartnerOrg(proposal.partnerOrgId!);
       if (!org) return res.status(404).json({ message: "Partner not found." });
 
-      const isFirstView = !proposal.viewedAt || (proposal.viewCount || 0) === 0;
-      await trackProposalView(req.params.token);
+      // trackProposalView atomically claims the first view via UPDATE...WHERE viewed_at IS NULL;
+      // only the claim winner fires owner notifications/audit. Use its result to gate GHL side
+      // effects so concurrent page loads don't duplicate tags or workflow enrollments.
+      const { claimedFirstView } = await trackProposalView(req.params.token);
 
-      // T303: First view alerts
-      if (isFirstView && proposal.dealId) {
+      // T303: First view GHL side effects — gated on the atomic claim result
+      if (claimedFirstView && proposal.dealId) {
         try {
           const deal = await storage.getDeal(proposal.dealId!);
           if (deal) {
@@ -919,13 +921,9 @@ ${getEmailSignatureHtml("partners")}
                   enrollInGhlWorkflowCompliant({ workflowKey: "proposal_viewed", ghlContactId: contact!.ghlContactId, contactId: contact!.id })
                 ]);
               }
-              await storage.createNotification({
-                channel: "app",
-                title: "🔔 Proposal Viewed",
-                message: `Proposal for ${proposal.merchantName} was viewed for the first time — follow up now.`,
-                type: "alert",
-                metadata: { dealId: deal.id, proposalId: proposal.id, contactId: deal.contactId }
-              });
+              // Owner-scoped in-app notification is now handled inside trackProposalView
+              // (resolved to a specific user ID, fail-closed). The legacy system-wide
+              // createNotification is intentionally removed to prevent data-scope leaks.
             }
           }
         } catch (err) {

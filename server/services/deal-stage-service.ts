@@ -258,6 +258,24 @@ export async function advanceDealStage(
     );
   }
 
+  // Underwriting stage → auto-initialize document checklist (idempotent)
+  // Vertical is resolved from the linked contact because the deals table has no
+  // vertical column — the canonical vertical lives on contacts.
+  if (newStage.toLowerCase().includes("underwriting")) {
+    import("./underwriting-checklist-service").then(async ({ initUnderwritingChecklist }) => {
+      let vertical: string | null = null;
+      if (updated.contactId) {
+        try {
+          const contact = await storage.getContact(updated.contactId);
+          vertical = contact?.vertical ?? null;
+        } catch { /* non-fatal — falls back to generic checklist */ }
+      }
+      return initUnderwritingChecklist(dealId, vertical);
+    }).catch((err: Error) =>
+      console.error(`[DealStage] Underwriting checklist init error for deal ${dealId}:`, err.message),
+    );
+  }
+
   return updated;
 }
 
@@ -608,6 +626,9 @@ export async function triggerClosedWonOnboarding(salesDeal: Deal): Promise<void>
         }
       }
     }
+    // Note: 30/60/90-day merchant success sequence enrollment is handled by the
+    // daily merchant-success-sequences BullMQ job which fires at the correct milestone
+    // relative to merchantMids.activatedAt — not at Closed Won stage.
   } catch (err) {
     console.error("[Onboarding] triggerClosedWonOnboarding error:", err);
     // Non-fatal — log and continue; caller's response is already committed

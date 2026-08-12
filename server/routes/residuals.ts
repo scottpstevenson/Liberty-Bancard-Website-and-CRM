@@ -571,6 +571,41 @@ export function registerResidualsRoutes(app: Express) {
     }
   });
 
+  /**
+   * GET /api/residuals/imports/:id/reconciliation
+   * #1445 — Compare the CSV row count (stored at import time) against the actual DB row count.
+   * Returns a ✓ reconciled badge or a mismatch warning for display in the import history table.
+   */
+  app.get("/api/residuals/imports/:id/reconciliation", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const importId = Number(req.params.id);
+      if (!Number.isFinite(importId) || importId <= 0) {
+        return res.status(400).json({ message: "Invalid import ID" });
+      }
+
+      const importRecord = await storage.getResidualImport(importId);
+      if (!importRecord) return res.status(404).json({ message: "Import not found" });
+
+      // Count actual rows stored for this import
+      const countResult = await db.execute(
+        sql`SELECT COUNT(*) AS cnt FROM residual_import_rows WHERE import_id = ${importId}`,
+      );
+      const dbRowCount = Number((countResult.rows?.[0] as any)?.cnt ?? 0);
+      const csvRowCount = importRecord.totalRows ?? 0;
+
+      res.json({
+        importId,
+        csvRowCount,
+        dbRowCount,
+        reconciled: dbRowCount === csvRowCount && csvRowCount > 0,
+        difference: dbRowCount - csvRowCount,
+        status: importRecord.status,
+      });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
   app.delete("/api/residuals/imports/:id", requireRole("admin", "manager"), async (req, res) => {
     try {
       const user = req.user as any;

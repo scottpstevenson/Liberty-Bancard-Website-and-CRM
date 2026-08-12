@@ -98,6 +98,7 @@ const KNOWN_MISMATCHES = new Set<string>([
   // Save-cases routes — server handlers exist in server/routes/save-cases.ts (registered via registerSaveCaseRoutes)
   // coverage script sees raw fetch() calls with template literals rather than apiRequest
   "/api/save-cases",
+  "/api/save-cases/my",      // #1445 — GET /api/save-cases/my implemented in registerSaveCaseRoutes; static path precedes :param pattern
   "/api/save-cases/:param",
   "/api/save-cases/:param/advance",
 ]);

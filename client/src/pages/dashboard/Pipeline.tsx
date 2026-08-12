@@ -978,6 +978,18 @@ export default function Pipeline() {
   );
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedDeal, setSelectedDeal] = useState<Deal | null>(null);
+  // #1445 — Underwriting checklist tasks for the currently open deal
+  const { data: uwTasks = [], refetch: refetchUwTasks } = useQuery<any[]>({
+    queryKey: ["/api/deals", selectedDeal?.id, "underwriting-tasks"],
+    queryFn: async () => {
+      if (!selectedDeal?.id) return [];
+      const res = await fetch(`/api/deals/${selectedDeal.id}/underwriting-tasks`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json() as Promise<any[]>;
+    },
+    enabled: !!selectedDeal?.id && !!selectedDeal?.stage?.toLowerCase().includes("underwriting"),
+    staleTime: 0,
+  });
   const [detailOpen, setDetailOpen] = useState(false);
   const search = useSearch();
   const [, navigatePipeline] = useLocation();
@@ -2690,6 +2702,60 @@ export default function Pipeline() {
                   <span className="font-medium text-foreground">
                     {Math.floor((Date.now() - new Date(selectedDeal.createdAt).getTime()) / 86400000)} days
                   </span>
+                </div>
+              )}
+
+              {/* #1445 — Underwriting Checklist: auto-created when deal enters an underwriting stage */}
+              {selectedDeal?.stage?.toLowerCase().includes("underwriting") && (
+                <div className="border rounded-md p-3 space-y-2" data-testid="card-underwriting-checklist">
+                  <p className="text-sm font-medium flex items-center gap-2">
+                    <ListChecks className="w-4 h-4 text-primary" />
+                    Underwriting Checklist
+                    {uwTasks.length > 0 && (
+                      <Badge variant="secondary" className="ml-auto text-xs">
+                        {uwTasks.filter((t: any) => t.status === "completed").length}/{uwTasks.length} done
+                      </Badge>
+                    )}
+                  </p>
+                  {uwTasks.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">
+                      No checklist items yet. Items are auto-created when this deal enters an underwriting stage.
+                    </p>
+                  ) : (
+                    <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                      {uwTasks.map((task: any) => (
+                        <div key={task.id} className="flex items-start gap-2 text-sm">
+                          <button
+                            type="button"
+                            className={`mt-0.5 w-4 h-4 rounded border flex-shrink-0 flex items-center justify-center transition-colors ${
+                              task.status === "completed"
+                                ? "bg-green-500 border-green-500 text-white"
+                                : "border-muted-foreground/40 hover:border-primary"
+                            }`}
+                            onClick={() => {
+                              const newStatus = task.status === "completed" ? "pending" : "completed";
+                              apiRequest("PATCH", `/api/deals/${selectedDeal!.id}/underwriting-tasks/${task.id}`, { status: newStatus })
+                                .then(() => refetchUwTasks())
+                                .catch(() => {});
+                            }}
+                            data-testid={`uw-task-toggle-${task.id}`}
+                          >
+                            {task.status === "completed" && <CheckCircle2 className="w-3 h-3" />}
+                          </button>
+                          <div className="min-w-0 flex-1">
+                            <span className={task.status === "completed" ? "line-through text-muted-foreground" : ""}>
+                              {task.title}
+                            </span>
+                            {task.dueDate && (
+                              <span className="text-xs text-muted-foreground ml-1.5">
+                                (due {new Date(task.dueDate).toLocaleDateString()})
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 

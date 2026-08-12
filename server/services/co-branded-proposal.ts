@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import PDFDocument from "pdfkit";
 import { db } from "../db";
-import { eq, ilike } from "drizzle-orm";
+import { eq, ilike, sql } from "drizzle-orm";
 import { storage } from "../storage";
 import type { PartnerOrganization, Deal, Contact } from "@shared/schema";
 import { contacts } from "@shared/schema";
@@ -729,27 +729,117 @@ ${getEmailSignatureHtml("accounts")}
   return sent;
 }
 
-export async function trackProposalView(token: string): Promise<void> {
+export async function trackProposalView(token: string): Promise<{ claimedFirstView: boolean }> {
   const proposal = await storage.getCoBrandedProposalByToken(token);
-  if (!proposal) return;
+  if (!proposal) return { claimedFirstView: false };
 
-  const updates: any = {
-    viewCount: (proposal.viewCount || 0) + 1,
-  };
+  // ── Step 1: Atomically claim the first view ────────────────────────────────
+  // Only the one concurrent request that successfully sets viewed_at (while it
+  // is still NULL) will get a row back. All other concurrent requests get an
+  // empty RETURNING, skipping the first-view side effects entirely.
+  const claimResult = await db.execute(sql`
+    UPDATE co_branded_proposals
+    SET    viewed_at = NOW(),
+           status    = 'viewed',
+           updated_at = NOW()
+    WHERE  id = ${proposal.id}
+      AND  viewed_at IS NULL
+    RETURNING id
+  `);
+  const claimedFirstView = (claimResult.rowCount ?? 0) > 0;
 
-  if (!proposal.viewedAt) {
-    updates.viewedAt = new Date();
-    updates.status = "viewed";
+  // ── Step 2: Always increment the view counter ─────────────────────────────
+  await db.execute(sql`
+    UPDATE co_branded_proposals
+    SET    view_count = COALESCE(view_count, 0) + 1,
+           updated_at = NOW()
+    WHERE  id = ${proposal.id}
+  `);
 
-    if (proposal.dealId) {
-      await storage.createAuditLog({
-        action: "co_branded_proposal_viewed",
-        entityType: "deal",
-        entityId: proposal.dealId,
-        details: { proposalId: proposal.id, token },
-      });
+  // ── Step 3: Fire first-view side effects only for the claim winner ─────────
+  if (claimedFirstView && proposal.dealId) {
+    await storage.createAuditLog({
+      action: "co_branded_proposal_viewed",
+      entityType: "deal",
+      entityId: proposal.dealId,
+      details: { proposalId: proposal.id, token },
+    });
+
+    // #1445 — Notify the deal owner on first proposal view
+    try {
+      const deal = await storage.getDeal(proposal.dealId);
+      if (deal?.owner) {
+        const prospectName =
+          (proposal as any).prospectName ||
+          (proposal as any).merchantEmail ||
+          (proposal as any).prospectEmail ||
+          "Your prospect";
+
+        // Resolve deal.owner (email string) to the user's string ID so
+        // getNotificationsPaginated(userId) correctly scopes the alert to their inbox.
+        // Fail closed: if the owner cannot be resolved, skip the in-app notification
+        // rather than creating a system-wide alert visible to all dashboard users.
+        let ownerUserId: string | undefined;
+        try {
+          const allUsers = await storage.getUsersByRole(["admin", "manager", "agent"]);
+          const ownerUser = allUsers.find(u => u.email === deal.owner);
+          ownerUserId = ownerUser?.id ?? undefined;
+        } catch {
+          // Non-fatal — will fall through to the skip guard below
+        }
+
+        if (!ownerUserId) {
+          // Fail closed: no resolved owner user ID → skip in-app notification entirely
+          // to avoid broadcasting proposal activity to all dashboard users.
+          console.warn(
+            `[ProposalTracking] Could not resolve owner "${deal.owner}" to a user ID ` +
+              `for deal #${deal.id} — in-app notification skipped to avoid system-wide broadcast`,
+          );
+        } else {
+          await storage.createNotification({
+            channel: "internal",
+            recipientId: ownerUserId,
+            title: "🎉 Proposal Opened!",
+            message: `${prospectName} just opened the co-branded proposal for deal #${deal.id}.`,
+            type: "info",
+            read: false,
+            metadata: {
+              proposalId: proposal.id,
+              dealId: proposal.dealId,
+              eventType: "proposal_opened",
+              viewedAt: new Date().toISOString(),
+              link: `/dashboard/pipeline?id=${deal.id}`,
+            },
+          } as any);
+        }
+
+        // Optional Slack alert fires regardless of whether the user ID was resolved
+        // because Slack is a separate channel not subject to the per-user inbox scope.
+        const slackUrl = process.env.SLACK_WEBHOOK_URL;
+        if (slackUrl) {
+          const viewedAt = new Date().toLocaleString("en-US", {
+            month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
+          });
+          fetch(slackUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              text:
+                `:eyes: *Proposal Opened* — ${prospectName} viewed the co-branded proposal for Deal #${deal.id}.\n` +
+                `Owner: ${deal.owner} · ${viewedAt}`,
+            }),
+          }).catch((err: Error) =>
+            console.warn("[ProposalTracking] Slack alert failed:", err.message),
+          );
+        }
+      }
+    } catch (notifErr) {
+      console.error(
+        "[ProposalTracking] Notification error on first view:",
+        (notifErr as Error).message,
+      );
     }
   }
 
-  await storage.updateCoBrandedProposal(proposal.id, updates);
+  return { claimedFirstView };
 }

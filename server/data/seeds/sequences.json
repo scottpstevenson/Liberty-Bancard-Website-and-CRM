@@ -4590,5 +4590,47 @@
         "body": "<p>Hi {{firstName}},</p><p>Just a brief follow-up on the quarterly review — I know things get busy.</p><p>Even a 10-minute call can surface real savings or flag issues before they grow. We have done this for over a hundred merchants in your category.</p><p>If next week works better, just reply and we will find a time.</p><p>— Liberty Bancard Merchant Success Team</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
       }
     ]
+  },
+  {
+    "name": "Win-Back: Critical Churn Risk",
+    "description": "Automated retention sequence for merchants who have reached critical churn risk. Offers a personalized account review, rate guarantee, and direct outreach from the merchant success team.",
+    "triggerType": "automatic",
+    "triggerConfig": {
+      "category": "win_back",
+      "vertical": "all"
+    },
+    "steps": [
+      {
+        "stepOrder": 1,
+        "actionType": "email",
+        "delayDays": 0,
+        "delayHours": 0,
+        "subject": "{{firstName}}, we want to make things right",
+        "body": "<p>Hi {{firstName}},</p><p>We noticed some changes in your account activity and wanted to reach out personally.</p><p>At Liberty Bancard, long-term relationships matter more than short-term numbers. If anything isn't working — fees, service, equipment, or support — we want to hear it and fix it.</p><p>As a valued merchant, you are eligible for a complimentary account review where we can:</p><ul><li>Identify any savings opportunities on your current rate structure</li><li>Review your chargeback history and suggest dispute prevention steps</li><li>Discuss any friction points and explore solutions</li></ul><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book a Free Account Review</a></p><p>We genuinely want {{companyName}} to thrive with us.</p><p>— Liberty Bancard Merchant Success Team</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      },
+      {
+        "stepOrder": 2,
+        "actionType": "sms",
+        "delayDays": 3,
+        "delayHours": 0,
+        "body": "Hi {{firstName}}, this is Liberty Bancard. We would love to do a quick account review and may be able to save you money or address any concerns. Can we connect this week? Reply YES or book here: https://api.leadconnectorhq.com/widget/bookings/libertybancard"
+      },
+      {
+        "stepOrder": 3,
+        "actionType": "email",
+        "delayDays": 7,
+        "delayHours": 0,
+        "subject": "A rate review offer for {{companyName}}",
+        "body": "<p>Hi {{firstName}},</p><p>I wanted to follow up personally. We have helped many merchants in similar situations find real savings — and we would love the chance to do the same for {{companyName}}.</p><p>Our offer: a no-obligation rate review. If we cannot demonstrate a meaningful savings opportunity based on your current processing volume, we will tell you so upfront.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Claim Your Rate Review</a></p><p>— Liberty Bancard Merchant Success Team</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      },
+      {
+        "stepOrder": 4,
+        "actionType": "email",
+        "delayDays": 14,
+        "delayHours": 0,
+        "subject": "{{firstName}} — one last note before I close the loop",
+        "body": "<p>Hi {{firstName}},</p><p>I do not want to flood your inbox, so this will be my last message for a while.</p><p>If there is ever anything we can do differently — or when you are ready to talk — I am here.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Let's Talk</a></p><p>I genuinely hope to hear from you.</p><p>— Liberty Bancard Merchant Success Team</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      }
+    ]
   }
 ]

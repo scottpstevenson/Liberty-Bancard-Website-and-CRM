@@ -750,6 +750,22 @@ export default function SalesRepHome() {
     staleTime: 5 * 60 * 1000,
   });
 
+  // #1445 — Save Cases assigned to this rep
+  const { data: saveCasesRes } = useQuery<{
+    cases: Array<{
+      id: number;
+      contactId: number;
+      riskTier: string;
+      churnScore: number;
+      playbookDay: number | null;
+      contact?: { firstName: string | null; lastName: string | null; email: string | null };
+    }>;
+  }>({
+    queryKey: ["/api/save-cases/my"],
+    refetchInterval: 120000,
+  });
+  const openSaveCases = saveCasesRes?.cases ?? [];
+
   const today = new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
   const agentName = data?.agent
     ? `${data.agent.firstName} ${data.agent.lastName}`
@@ -962,6 +978,58 @@ export default function SalesRepHome() {
           </Card>
         )}
       </div>
+
+      {/* #1445 — Save Cases priority card: open retention cases assigned to this rep */}
+      {openSaveCases.length > 0 && (
+        <Card className="border-red-200 dark:border-red-800 bg-red-50/30 dark:bg-red-950/10" data-testid="card-save-cases">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-red-600" />
+              Open Save Cases
+              <Badge variant="destructive" className="ml-auto text-xs">{openSaveCases.length}</Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="divide-y divide-red-100 dark:divide-red-900">
+              {openSaveCases.slice(0, 5).map((sc) => (
+                <div
+                  key={sc.id}
+                  className="px-4 py-2.5 flex items-center justify-between gap-3"
+                  data-testid={`save-case-row-${sc.id}`}
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium truncate">
+                      {sc.contact?.firstName || sc.contact?.lastName
+                        ? `${sc.contact.firstName ?? ""} ${sc.contact.lastName ?? ""}`.trim()
+                        : `Contact #${sc.contactId}`}
+                    </div>
+                    <div className="text-xs text-muted-foreground flex items-center gap-2 mt-0.5">
+                      <Badge variant="destructive" className="text-xs py-0 px-1.5">{sc.riskTier}</Badge>
+                      <span>Score: {sc.churnScore}</span>
+                      <span>Day {sc.playbookDay ?? 0} of playbook</span>
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs border-red-300 text-red-700 hover:bg-red-50 dark:text-red-400 dark:border-red-700 flex-shrink-0"
+                    asChild
+                  >
+                    <Link href={`/dashboard/contacts/${sc.contactId}`} data-testid={`link-save-case-${sc.id}`}>
+                      View <ChevronRight className="w-3 h-3 ml-1" />
+                    </Link>
+                  </Button>
+                </div>
+              ))}
+              {openSaveCases.length > 5 && (
+                <div className="px-4 py-2 text-xs text-muted-foreground">
+                  +{openSaveCases.length - 5} more open save cases
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Main Content Grid */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">

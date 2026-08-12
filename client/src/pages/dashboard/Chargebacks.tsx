@@ -573,6 +573,22 @@ function ChargebackDetailPanel({ chargeback: cb, onClose, onUpdated, onOpenCopil
         )}
       </Button>
 
+      {/* #1445 — Download PDF Evidence Packet (available once AI packet is finalized) */}
+      {aiPacket && (aiPacket as any).finalizedAt && (
+        <a
+          href={`/api/chargebacks/${cb.id}/pdf`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="w-full"
+          data-testid="link-download-pdf"
+        >
+          <Button variant="outline" className="w-full border-green-400 text-green-700 hover:bg-green-50 dark:text-green-400 dark:border-green-700">
+            <Download className="w-4 h-4 mr-2" />
+            Download PDF Evidence Packet
+          </Button>
+        </a>
+      )}
+
       <div className="grid grid-cols-2 gap-4 text-sm">
         <div>
           <span className="text-muted-foreground block">Transaction Date</span>

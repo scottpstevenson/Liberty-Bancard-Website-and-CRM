@@ -1,11 +1,11 @@
 import { storage } from "../storage";
 import { db } from "../db";
 import {
-  tickets, npsResponses, sequenceEnrollments, midDailyStats, contacts, deals, merchantProfiles,
-  agents, agentMerchants, saveCases,
+  tickets, npsResponses, sequenceEnrollments, sequenceSteps, followUpSequences, midDailyStats,
+  contacts, deals, merchantProfiles, agents, agentMerchants, saveCases,
   type MerchantHealthScore,
 } from "@shared/schema";
-import { eq, and, gte, desc, sql } from "drizzle-orm";
+import { eq, and, gte, desc, sql, asc } from "drizzle-orm";
 import { createPreferenceAwareNotification } from "./digest-service";
 import { upsertEntityFact, recordAiDecision } from "./ai-memory";
 
@@ -411,6 +411,13 @@ export async function runNightlyChurnScoring(): Promise<{ processed: number; hig
           // Persisted MerchantHealthScore does not store signal labels; pass empty array.
           // The case captures the tier+score which is the durable data; signals are diagnostic.
           await openSaveCaseIfNeeded(contactId, latestDealId, tier, effectiveScore, []);
+
+          // #1445 — Win-back sequence enrollment for Critical churn risk
+          if (tier === "Critical") {
+            enrollInWinBackSequence(contactId, latestDealId ?? undefined).catch((err: Error) =>
+              console.error(`[ChurnScore] Win-back enrollment error for contact ${contactId}:`, err.message),
+            );
+          }
         }
       } catch (err) {
         console.error(`[ChurnScore] Failed for contact ${contactId}:`, err);
@@ -424,6 +431,75 @@ export async function runNightlyChurnScoring(): Promise<{ processed: number; hig
   }
 
   return { processed, highRisk, critical, errors };
+}
+
+/**
+ * #1445 — Enroll a contact in the "Win-Back: Critical Churn Risk" sequence when they
+ * reach Critical churn tier. Idempotent and fail-closed — skips gracefully if the
+ * sequence does not exist or is paused.
+ */
+async function enrollInWinBackSequence(
+  contactId: number,
+  dealId: number | undefined,
+): Promise<void> {
+  const WIN_BACK_SEQ = "Win-Back: Critical Churn Risk";
+  try {
+    const [seq] = await db
+      .select({ id: followUpSequences.id, status: followUpSequences.status })
+      .from(followUpSequences)
+      .where(eq(followUpSequences.name, WIN_BACK_SEQ))
+      .limit(1);
+
+    if (!seq || seq.status !== "active") {
+      console.log(`[ChurnScore] Win-back sequence "${WIN_BACK_SEQ}" not found or paused — skipping`);
+      return;
+    }
+
+    // Idempotency: skip if already enrolled
+    const [existing] = await db
+      .select({ id: sequenceEnrollments.id })
+      .from(sequenceEnrollments)
+      .where(
+        and(
+          eq(sequenceEnrollments.contactId, contactId),
+          eq(sequenceEnrollments.sequenceId, seq.id),
+        ),
+      )
+      .limit(1);
+
+    if (existing) return;
+
+    // Compute initial delay from first step
+    const [firstStep] = await db
+      .select({ delayDays: sequenceSteps.delayDays, delayHours: sequenceSteps.delayHours })
+      .from(sequenceSteps)
+      .where(eq(sequenceSteps.sequenceId, seq.id))
+      .orderBy(asc(sequenceSteps.stepOrder))
+      .limit(1);
+
+    const delayMs = firstStep
+      ? Math.max(
+          (firstStep.delayDays ?? 0) * 86_400_000 + (firstStep.delayHours ?? 0) * 3_600_000,
+          60_000,
+        )
+      : 60_000;
+
+    await storage.createSequenceEnrollment({
+      contactId,
+      sequenceId: seq.id,
+      dealId: dealId ?? undefined,
+      status: "active",
+      currentStep: 0,
+      nextActionAt: new Date(Date.now() + delayMs),
+    } as any);
+
+    console.log(`[ChurnScore] Enrolled contact #${contactId} in win-back sequence`);
+  } catch (err) {
+    console.error(
+      `[ChurnScore] enrollInWinBackSequence error for contact #${contactId}:`,
+      (err as Error).message,
+    );
+  }
 }
 
 /**
@@ -446,12 +522,11 @@ async function openSaveCaseIfNeeded(
       .limit(1);
     if (existing.length > 0) return; // already has an open case
 
-    // Resolve assigned agent for initial assignment
-    const agentUserId = await resolveAssignedAgentUserId(contactId);
+    // Resolve assigned agent for initial assignment.
+    // contact.assignedTo holds the rep's email (set when deals are assigned).
+    // resolveAssignedAgentUserId is used below for the notification recipientId.
     const contact = await storage.getContact(contactId);
-    const agentEmail = agentUserId
-      ? (contact ? undefined : undefined) // agent email lookup would require agents table join; leave null for now
-      : null;
+    const agentEmail = contact?.assignedTo ?? null;
 
     await db.insert(saveCases).values({
       contactId,

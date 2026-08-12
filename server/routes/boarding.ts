@@ -451,6 +451,109 @@ export function registerBoardingRoutes(app: Express) {
     }
   });
 
+  /**
+   * PUT /api/admin/merchants/:id/mid
+   * #1445 — Assign or update a MID for a merchant deal.
+   * The `:id` is the deal ID. Sets the `mid` field and logs the assignment.
+   */
+  app.put("/api/admin/merchants/:id/mid", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const dealId = Number(req.params.id);
+      if (!Number.isFinite(dealId) || dealId <= 0) {
+        return res.status(400).json({ message: "Invalid deal ID" });
+      }
+
+      const { mid, processorName, status } = req.body as {
+        mid?: string;
+        processorName?: string;
+        status?: string;
+      };
+
+      if (!mid || !mid.trim()) {
+        return res.status(400).json({ message: "MID is required" });
+      }
+
+      const deal = await storage.getDeal(dealId);
+      if (!deal) return res.status(404).json({ message: "Deal not found" });
+
+      const updatedDeal = await storage.updateDeal(dealId, { mid: mid.trim() } as any);
+
+      await storage.createAuditLog({
+        action: "mid_assigned",
+        entityType: "deal",
+        entityId: dealId,
+        details: {
+          mid: mid.trim(),
+          processorName: processorName ?? null,
+          status: status ?? "assigned",
+          assignedBy: (req.user as any)?.email ?? "admin",
+          previousMid: deal.mid ?? null,
+        },
+      });
+
+      res.json({
+        success: true,
+        mid: mid.trim(),
+        deal: updatedDeal,
+      });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  /**
+   * GET /api/boarding/mid-registry
+   * #1445 — Return all merchant deals eligible for MID assignment, with status classification.
+   * Includes deals WITHOUT a MID (status=pending) as well as those with one (assigned/live).
+   * Scoped to deals in the Sales or Boarding pipeline that have not been archived or lost.
+   */
+  app.get("/api/boarding/mid-registry", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const result = await db.execute(sql`
+        SELECT
+          d.id          AS deal_id,
+          d.mid,
+          d.pipeline,
+          d.stage,
+          d.owner,
+          c.id          AS contact_id,
+          c.first_name,
+          c.last_name,
+          c.company_name,
+          c.email,
+          d.created_at,
+          d.updated_at,
+          CASE
+            WHEN d.stage IN ('Live', 'Go-Live Scheduled') THEN 'live'
+            WHEN d.mid IS NOT NULL AND d.mid != ''         THEN 'assigned'
+            ELSE 'pending'
+          END AS mid_status
+        FROM deals d
+        LEFT JOIN contacts c ON c.id = d.contact_id
+        WHERE d.archived_at IS NULL
+          AND d.stage NOT IN ('Closed Lost', 'Disqualified')
+          AND (
+            d.pipeline IN ('Sales', 'Boarding', 'Merchant Boarding')
+            OR d.stage IN (
+              'Approved', 'Underwriting', 'Underwriting Review', 'Underwriting Submitted',
+              'Go-Live Scheduled', 'Live', 'Closed Won'
+            )
+          )
+        ORDER BY
+          CASE
+            WHEN d.stage IN ('Live', 'Go-Live Scheduled') THEN 1
+            WHEN d.mid IS NOT NULL AND d.mid != ''         THEN 2
+            ELSE 3
+          END,
+          d.updated_at DESC
+        LIMIT 500
+      `);
+      res.json({ merchants: result.rows });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
   app.get("/api/deals/:id/mid-stats", isDashboardUser, async (req, res) => {
     try {
       const dealId = Number(req.params.id);

@@ -868,6 +868,85 @@ export function registerDealsRoutes(app: Express) {
     }
   });
 
+  /**
+   * GET /api/deals/:id/underwriting-tasks
+   * #1445 — Return all underwriting checklist tasks for a deal.
+   * Tasks are auto-created by initUnderwritingChecklist when a deal enters an underwriting stage.
+   * Applies the same agent-ownership guard as GET /api/deals/:id.
+   */
+  app.get("/api/deals/:id/underwriting-tasks", isDashboardUser, async (req, res) => {
+    try {
+      const dealId = Number(req.params.id);
+      if (!Number.isFinite(dealId) || dealId <= 0) {
+        return res.status(400).json({ message: "Invalid deal ID" });
+      }
+      // Ownership guard: agents may only view tasks for their own deals.
+      const deal = await storage.getDeal(dealId);
+      if (!deal || deal.archivedAt) return res.status(404).json({ message: "Not found" });
+      const role = (req.user as any)?.role;
+      const userEmail = (req.user as any)?.email;
+      if (role === "agent" && deal.owner && deal.owner !== userEmail) {
+        return res.status(403).json({ message: "Forbidden", code: "NOT_YOUR_DEAL" });
+      }
+      const { db: dbConn } = await import("../db");
+      const { tasks: tasksTable } = await import("../../shared/schema");
+      const { eq, and, asc } = await import("drizzle-orm");
+      const rows = await dbConn
+        .select()
+        .from(tasksTable)
+        .where(and(eq(tasksTable.dealId, dealId), eq((tasksTable as any).source, "underwriting")))
+        .orderBy(asc(tasksTable.dueDate));
+      res.json(rows);
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  /**
+   * PATCH /api/deals/:id/underwriting-tasks/:taskId
+   * #1445 — Toggle the status of an underwriting checklist task (pending ↔ completed).
+   * Applies the same agent-ownership guard as PUT /api/deals/:id.
+   */
+  app.patch("/api/deals/:id/underwriting-tasks/:taskId", isDashboardUser, async (req, res) => {
+    try {
+      const dealId = Number(req.params.id);
+      const taskId = Number(req.params.taskId);
+      if (!Number.isFinite(dealId) || !Number.isFinite(taskId)) {
+        return res.status(400).json({ message: "Invalid ID" });
+      }
+      // Ownership guard: agents may only modify tasks on their own deals.
+      const deal = await storage.getDeal(dealId);
+      if (!deal || deal.archivedAt) return res.status(404).json({ message: "Not found" });
+      const role = (req.user as any)?.role;
+      const userEmail = (req.user as any)?.email;
+      if (role === "agent" && deal.owner && deal.owner !== userEmail) {
+        return res.status(403).json({ message: "Forbidden", code: "NOT_YOUR_DEAL" });
+      }
+      const { status } = req.body as { status?: string };
+      const allowed = ["pending", "completed", "skipped"];
+      if (!status || !allowed.includes(status)) {
+        return res.status(400).json({ message: `status must be one of: ${allowed.join(", ")}` });
+      }
+      const { db: dbConn } = await import("../db");
+      const { tasks: tasksTable } = await import("../../shared/schema");
+      const { eq, and } = await import("drizzle-orm");
+      const [updated] = await dbConn
+        .update(tasksTable)
+        .set({
+          status,
+          ...(status === "completed"
+            ? { completedAt: new Date() }
+            : { completedAt: null }),
+        } as any)
+        .where(and(eq(tasksTable.id, taskId), eq(tasksTable.dealId, dealId)))
+        .returning();
+      if (!updated) return res.status(404).json({ message: "Task not found on this deal" });
+      res.json(updated);
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
   // === ENHANCED DEAL STAGE CHANGE WITH AUTOMATION ===
   // (Stage automation is now handled in the existing PUT /api/deals/:id route enhancement)
 

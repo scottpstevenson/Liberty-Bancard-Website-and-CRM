@@ -305,6 +305,24 @@ interface AgentPayout {
 function ImportHistoryRow({ imp, onReimport }: { imp: ResidualImport; onReimport: (month: string) => void }) {
   const [expanded, setExpanded] = useState(false);
 
+  // #1285/#1445 — Reconciliation: compare CSV row count vs actual DB row count
+  const { data: recon } = useQuery<{
+    importId: number;
+    csvRowCount: number;
+    dbRowCount: number;
+    reconciled: boolean;
+    difference: number;
+  }>({
+    queryKey: ["/api/residuals/imports", imp.id, "reconciliation"],
+    queryFn: async () => {
+      const res = await fetch(`/api/residuals/imports/${imp.id}/reconciliation`, { credentials: "include" });
+      if (!res.ok) return null as any;
+      return res.json();
+    },
+    enabled: imp.status === "confirmed",
+    staleTime: 5 * 60 * 1000,
+  });
+
   const { data: detail, isLoading: detailLoading } = useQuery<ResidualImport>({
     queryKey: ["/api/residuals/imports", imp.id],
     queryFn: async () => {
@@ -344,7 +362,22 @@ function ImportHistoryRow({ imp, onReimport }: { imp: ResidualImport; onReimport
         <TableCell className="text-right">{imp.totalRows}</TableCell>
         <TableCell className="text-right">{formatCurrencyDetailed(imp.totalGrossResidual)}</TableCell>
         <TableCell className="text-right font-medium">{formatCurrencyDetailed(imp.totalNetResidual)}</TableCell>
-        <TableCell><ImportStatusBadge status={imp.status} /></TableCell>
+        <TableCell>
+          <div className="flex flex-col gap-1">
+            <ImportStatusBadge status={imp.status} />
+            {recon && (
+              <Badge
+                variant="outline"
+                className={`text-xs whitespace-nowrap ${recon.reconciled ? "border-green-400 text-green-700 dark:text-green-400" : "border-amber-400 text-amber-700 dark:text-amber-400"}`}
+                data-testid={`badge-reconciliation-${imp.id}`}
+              >
+                {recon.reconciled
+                  ? `✓ ${recon.dbRowCount} rows reconciled`
+                  : `⚠ ${recon.dbRowCount}/${recon.csvRowCount} rows`}
+              </Badge>
+            )}
+          </div>
+        </TableCell>
         <TableCell className="text-sm text-muted-foreground">{imp.importedBy || "—"}</TableCell>
         <TableCell>
           <Button

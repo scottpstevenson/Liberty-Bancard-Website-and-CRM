@@ -12,10 +12,51 @@ import type { Express } from "express";
 import { db } from "../db";
 import { saveCases, contacts, deals } from "@shared/schema";
 import { eq, and, desc } from "drizzle-orm";
-import { isAuthenticated, requireRole } from "../replit_integrations/auth";
+import { isAuthenticated, isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { serverError } from "../utils/server-error";
 
 export function registerSaveCaseRoutes(app: Express) {
+  /**
+   * GET /api/save-cases/my
+   * #1445 — Rep-accessible endpoint: returns open save cases assigned to the current user.
+   * Requires isDashboardUser so merchants cannot access rep-only save case data.
+   */
+  app.get(
+    "/api/save-cases/my",
+    isDashboardUser,
+    async (req, res) => {
+      try {
+        const user = req.user as any;
+        const userEmail = user?.email ?? user?.claims?.email;
+        if (!userEmail) return res.json({ cases: [] });
+
+        const rows = await db
+          .select({
+            case: saveCases,
+            contactFirstName: contacts.firstName,
+            contactLastName:  contacts.lastName,
+            contactEmail:     contacts.email,
+          })
+          .from(saveCases)
+          .leftJoin(contacts, eq(saveCases.contactId, contacts.id))
+          .where(and(eq(saveCases.status, "open"), eq(saveCases.assignedTo, userEmail)))
+          .orderBy(desc(saveCases.createdAt))
+          .limit(20);
+
+        res.json({
+          cases: rows.map(r => ({
+            ...r.case,
+            contact: {
+              firstName: r.contactFirstName,
+              lastName:  r.contactLastName,
+              email:     r.contactEmail,
+            },
+          })),
+        });
+      } catch (err: any) { serverError(res, err); }
+    }
+  );
+
   // GET /api/save-cases
   app.get(
     "/api/save-cases",
