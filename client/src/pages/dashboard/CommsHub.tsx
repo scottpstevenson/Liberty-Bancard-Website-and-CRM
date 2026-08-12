@@ -418,7 +418,7 @@ function ThreadPanel({ item, onBack }: { item: InboxItem; onBack: () => void }) 
       )}
 
       {/* Thread / message history */}
-      <ScrollArea className="flex-1 p-4">
+      <ScrollArea className="flex-1 min-h-0 p-4">
         {/* SMS thread */}
         {item.channel === "sms" && (
           <>
@@ -779,7 +779,7 @@ export default function CommsHub() {
           </div>
 
           {/* Item list */}
-          <ScrollArea className="flex-1">
+          <ScrollArea className="flex-1 min-h-0">
             {isLoading ? (
               <div className="flex items-center justify-center py-12">
                 <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />

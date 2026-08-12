@@ -4741,6 +4741,12 @@ export function registerAdminRoutes(app: Express) {
         OR first_name ILIKE 'StatementTest%'
         OR first_name ILIKE 'GoLive-Test%'
         OR (first_name = 'StmtTest' AND last_name = 'QAUser')
+        OR (first_name = 'Test' AND last_name = 'Lead')
+        OR (first_name = 'Test' AND last_name = 'Update')
+        OR company_name ILIKE 'Test Co%'
+        OR first_name ILIKE 'Golive Test%'
+        OR first_name ILIKE 'Getstarted%'
+        OR first_name ILIKE 'Stmttest%'
       `;
 
       const beforeResult = await client.query<{ count: string }>(
