@@ -1678,6 +1678,117 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // === WORKER INTERVAL CONTROLS (Step 1 — #1444) ===
+
+  // GET /api/admin/settings/worker-intervals
+  // Reports the currently-running effective intervals from the live QueueManager
+  // instance (populated at startup from QUEUE_CONFIGS and updated by PUT calls).
+  app.get("/api/admin/settings/worker-intervals", requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const { QUEUE_NAMES: QN, QUEUE_CONFIGS: QC, getEffectiveQueueIntervals } = await import("../services/queue-manager");
+      const GHL_FLOOR  = 30_000;
+      const SLA_FLOOR  = 120_000;
+
+      // Prefer live effective intervals (updated at runtime) → then system_settings
+      // overrides → then the value from QUEUE_CONFIGS (the real startup default).
+      const live = getEffectiveQueueIntervals();
+      const ghlConfig = QC.find(c => c.name === QN.GHL_SYNC);
+      const slaConfig = QC.find(c => c.name === QN.SLA_CHECKS);
+
+      const [ghlRaw, slaRaw] = await Promise.all([
+        storage.getSystemSetting("ghl_sync_interval_ms"),
+        storage.getSystemSetting("sla_check_interval_ms"),
+      ]);
+
+      const ghlEffective  = live[QN.GHL_SYNC]  ?? (typeof ghlRaw === "number" ? ghlRaw  : (ghlConfig?.repeatEveryMs  ?? GHL_FLOOR));
+      const slaEffective  = live[QN.SLA_CHECKS] ?? (typeof slaRaw === "number" ? slaRaw  : (slaConfig?.repeatEveryMs  ?? SLA_FLOOR));
+
+      res.json({
+        ghlSyncIntervalMs:  Math.max(ghlEffective, GHL_FLOOR),
+        slaCheckIntervalMs: Math.max(slaEffective, SLA_FLOOR),
+        ghlFloorMs:  GHL_FLOOR,
+        slaFloorMs:  SLA_FLOOR,
+      });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  // PUT /api/admin/settings/worker-intervals
+  // Persists to system_settings AND live-updates the BullMQ repeatable job
+  // schedule so the change takes effect on the next queue cycle — no restart needed.
+  app.put("/api/admin/settings/worker-intervals", requireRole("admin"), async (req, res) => {
+    try {
+      const { QUEUE_NAMES: QN, updateQueueIntervalLive } = await import("../services/queue-manager");
+      const GHL_FLOOR = 30_000;
+      const SLA_FLOOR = 120_000;
+      const { ghlSyncIntervalMs, slaCheckIntervalMs } = req.body as Record<string, unknown>;
+
+      const results: Record<string, { updated: boolean; effectiveMs: number }> = {};
+
+      if (ghlSyncIntervalMs !== undefined) {
+        const v = Number(ghlSyncIntervalMs);
+        if (!isFinite(v) || v < GHL_FLOOR) return res.status(400).json({ message: `ghlSyncIntervalMs must be >= ${GHL_FLOOR}` });
+        await storage.setSystemSetting("ghl_sync_interval_ms", v);
+        // Live-update the BullMQ repeatable job so this takes effect immediately.
+        results.ghlSync = await updateQueueIntervalLive(QN.GHL_SYNC, v);
+      }
+      if (slaCheckIntervalMs !== undefined) {
+        const v = Number(slaCheckIntervalMs);
+        if (!isFinite(v) || v < SLA_FLOOR) return res.status(400).json({ message: `slaCheckIntervalMs must be >= ${SLA_FLOOR}` });
+        await storage.setSystemSetting("sla_check_interval_ms", v);
+        // Live-update the BullMQ repeatable job so this takes effect immediately.
+        results.slaChecks = await updateQueueIntervalLive(QN.SLA_CHECKS, v);
+      }
+      await storage.createAuditLog({
+        action: "worker_intervals_updated",
+        entityType: "system",
+        userId: (req.user as any)?.id ?? null,
+        details: { ghlSyncIntervalMs, slaCheckIntervalMs, liveUpdateResults: results },
+      });
+      res.json({ ok: true, liveUpdateResults: results });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  // GET /api/admin/worker-heartbeats (Step 2 — #1444)
+  // Derives queue list and expected intervals from QUEUE_CONFIGS (the real registry).
+  // GHL_SYNC is excluded when the legacy setInterval loop has claimed GHL sync duty
+  // for this process — that loop does not write a BullMQ heartbeat, so including it
+  // would produce a permanently stale/misleading entry.
+  app.get("/api/admin/worker-heartbeats", requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const { QUEUE_CONFIGS: QC, getEffectiveQueueIntervals, isLegacyGhlSyncClaimed, QUEUE_NAMES: QN } = await import("../services/queue-manager");
+      const live = getEffectiveQueueIntervals();
+      const legacyGhl = isLegacyGhlSyncClaimed();
+      const now = Date.now();
+
+      // Only include queues that are actively managed by BullMQ in this process.
+      const activeConfigs = legacyGhl ? QC.filter(c => c.name !== QN.GHL_SYNC) : QC;
+
+      const entries = await Promise.all(
+        activeConfigs.map(async (config) => {
+          const raw = await storage.getSystemSetting(`worker_heartbeat_${config.name}`);
+          const lastSeenMs = typeof raw === "number" ? raw : null;
+          // Use the live effective interval (may include a persisted override) if available.
+          const expectedMs = live[config.name] ?? config.repeatEveryMs;
+          const stale = lastSeenMs === null || (now - lastSeenMs) > expectedMs * 2;
+          return {
+            queueName: config.name,
+            lastSeenMs,
+            lastSeenAt: lastSeenMs ? new Date(lastSeenMs).toISOString() : null,
+            expectedIntervalMs: expectedMs,
+            stale,
+          };
+        })
+      );
+      res.json({ heartbeats: entries, asOf: new Date(now).toISOString(), legacyGhlActive: legacyGhl });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
   // === CONTACT SCORING JOB ===
 
   // Preview endpoint: returns eligible count, estimated batches, sample IDs

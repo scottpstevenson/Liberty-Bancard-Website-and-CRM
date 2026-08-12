@@ -52,6 +52,7 @@ export interface OutreachStatus {
   lastOutreachRun: any;
   workerRunning: boolean;
   workerStatus: any;
+  commEventSourceBreakdown?: Array<{ source: string; emailCount: number; smsCount: number; callCount: number; total: number }>;
   serper?: {
     configured: boolean;
     usage: {

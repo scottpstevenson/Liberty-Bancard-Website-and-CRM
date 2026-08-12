@@ -9,11 +9,12 @@ export interface DealIdentityContact {
 /**
  * Returns a coordinated { primary, secondary } pair for deal card display.
  *
- * Resolution order for `primary`:
- *   companyName → fullName (firstName + lastName) → email → phone → dealName → "Unnamed contact"
+ * Resolution order for `primary` (#932):
+ *   contact.companyName → fullName (firstName + lastName) → email → phone
+ *   → dealName → "Unnamed contact"
  *
- * Secondary — first among companyName / email / phone that is NOT equal to primary
- *             (case-insensitive, trimmed); null when nothing distinct is available.
+ * Secondary — first among companyName / email / phone that is NOT equal to
+ *             primary (case-insensitive, trimmed); null when nothing distinct.
  *
  * Callers: Kanban card, DragOverlay, Deal Detail contact field, Onboarding board cards.
  * DO NOT use this for the Deal Detail "Company" labeled field — that field must
@@ -25,7 +26,7 @@ export function getDealCardIdentity(
   contact: DealIdentityContact | undefined
 ): { primary: string; secondary: string | null } {
   if (!contact) {
-    const fallback = (deal.name && deal.name.trim()) || `Unnamed contact`;
+    const fallback = (deal.name && deal.name.trim()) || "Unnamed contact";
     return { primary: fallback, secondary: null };
   }
 

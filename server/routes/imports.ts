@@ -105,7 +105,7 @@ export function registerImportsRoutes(app: Express) {
   });
 
   app.get("/api/outreach/status", isAuthenticated, async (req, res) => {
-    const [entityStats, verticalBreakdown, prospectStats, contactStats, dealStats, ghlStatus, importProgress, cordataProgress, enrichmentProgress, lastOutreachRun, workerStatus, sourceBreakdown] = await Promise.all([
+    const [entityStats, verticalBreakdown, prospectStats, contactStats, dealStats, ghlStatus, importProgress, cordataProgress, enrichmentProgress, lastOutreachRun, workerStatus, sourceBreakdown, commEventRows] = await Promise.all([
       storage.getSunbizAggregateStats(),
       storage.getSunbizVerticalBreakdown(),
       storage.getProspectAggregateStats(),
@@ -118,12 +118,39 @@ export function registerImportsRoutes(app: Express) {
       storage.getSystemSetting("daily_outreach_last_run"),
       storage.getSystemSetting("outreach_worker_status"),
       storage.getContactSourceBreakdown(),
+      // Per-source communication event breakdown (#1444 step 6)
+      pool.query<{ source: string; channel: string; cnt: string }>(`
+        SELECT
+          COALESCE(sent_by, 'automation') AS source,
+          channel,
+          COUNT(*)::text                  AS cnt
+        FROM communication_events
+        WHERE direction = 'outbound'
+          AND created_at >= NOW() - INTERVAL '90 days'
+        GROUP BY COALESCE(sent_by, 'automation'), channel
+        ORDER BY source, channel
+      `).catch(() => ({ rows: [] })),
     ]);
 
     const campaigns = await storage.getCampaigns();
     const activeCampaigns = campaigns.filter(c => c.status === "active").length;
 
     const serperUsage = await getSerperUsage();
+
+    // Aggregate commEventRows into per-source breakdown
+    const commEventMap: Record<string, { emailCount: number; smsCount: number; callCount: number; total: number }> = {};
+    for (const row of commEventRows.rows) {
+      const src = row.source;
+      const cnt = parseInt(row.cnt, 10);
+      if (!commEventMap[src]) commEventMap[src] = { emailCount: 0, smsCount: 0, callCount: 0, total: 0 };
+      if (row.channel === "email") commEventMap[src].emailCount += cnt;
+      else if (row.channel === "sms") commEventMap[src].smsCount += cnt;
+      else if (row.channel === "call") commEventMap[src].callCount += cnt;
+      commEventMap[src].total += cnt;
+    }
+    const commEventSourceBreakdown = Object.entries(commEventMap)
+      .map(([source, counts]) => ({ source, ...counts }))
+      .sort((a, b) => b.total - a.total);
 
     res.json({
       entities: entityStats,
@@ -133,6 +160,7 @@ export function registerImportsRoutes(app: Express) {
       activeCampaigns,
       verticalBreakdown,
       sourceBreakdown,
+      commEventSourceBreakdown,
       ghlSync: ghlStatus,
       importProgress: importProgress || { status: "idle" },
       cordataProgress: cordataProgress || { status: "idle" },

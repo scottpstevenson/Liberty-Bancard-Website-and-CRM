@@ -2350,6 +2350,41 @@ export function registerContactsRoutes(app: Express) {
     }
   });
 
+  // ── DELETE /api/contacts/bulk-delete — admin/manager only (#1444 step 10) ──
+  // Accepts body: { contactIds: number[] }
+  // Soft-archives each contact; agent accounts receive 403 from requireRole.
+  app.delete("/api/contacts/bulk-delete", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const { contactIds } = req.body as { contactIds?: unknown };
+      if (!Array.isArray(contactIds) || contactIds.length === 0) {
+        return res.status(400).json({ message: "contactIds must be a non-empty array" });
+      }
+      const ids = contactIds.map((id) => Number(id)).filter((id) => isFinite(id) && id > 0);
+      if (ids.length === 0) return res.status(400).json({ message: "No valid contact IDs provided" });
+      if (ids.length > 500) return res.status(400).json({ message: "Cannot delete more than 500 contacts at once" });
+
+      let deleted = 0;
+      const errors: number[] = [];
+      for (const id of ids) {
+        try {
+          await storage.archiveContact(id);
+          deleted++;
+        } catch (_err) {
+          errors.push(id);
+        }
+      }
+      await storage.createAuditLog({
+        action: "contacts_bulk_deleted",
+        entityType: "contact",
+        userId: (req.user as any)?.id ?? null,
+        details: { requested: ids.length, deleted, errors },
+      });
+      res.json({ deleted, errors, total: ids.length });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
 }
 
 /**

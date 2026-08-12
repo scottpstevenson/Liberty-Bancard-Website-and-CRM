@@ -750,17 +750,37 @@ export function getVerticalTemplate(vertical: string): VerticalTemplate | null {
 }
 
 export function renderTemplate(template: string, variables: Record<string, string>): string {
-  const result = Object.entries(variables).reduce(
+  const interpolated = Object.entries(variables).reduce(
     (text, [key, value]) => text.replace(new RegExp(`\\{\\{${key}\\}\\}`, "g"), value),
     template
   );
-  // Safety net: warn if any raw {{...}} placeholder survived substitution
-  const remaining = result.match(/\{\{[^}]+\}\}/g);
-  if (remaining) {
-    console.warn(
-      `[renderTemplate] Unresolved template placeholders: ${remaining.join(", ")}. ` +
-      `Provided keys: ${Object.keys(variables).join(", ")}`
-    );
-  }
-  return result;
+  // Safety net: replace any remaining {{token}} placeholders with '' to prevent
+  // raw syntax from reaching prospects, and write an audit log row for each.
+  const remaining = interpolated.match(/\{\{[a-zA-Z][a-zA-Z0-9_]*\}\}/g);
+  if (!remaining) return interpolated;
+
+  console.warn(
+    `[renderTemplate] Unresolved template placeholders replaced with '': ${remaining.join(", ")}. ` +
+    `Provided keys: ${Object.keys(variables).join(", ")}`
+  );
+
+  // Replace all remaining tokens with empty string
+  const cleaned = interpolated.replace(/\{\{[a-zA-Z][a-zA-Z0-9_]*\}\}/g, "");
+
+  // Fire-and-forget audit log — never block the render path
+  Promise.resolve().then(async () => {
+    try {
+      const { storage: s } = await import("../storage");
+      await s.createAuditLog({
+        action: "template_token_unresolved",
+        entityType: "system",
+        userId: null,
+        details: { unresolvedTokens: remaining, providedKeys: Object.keys(variables) },
+      });
+    } catch (_err) {
+      // Non-fatal — audit log write failure should not affect message delivery
+    }
+  });
+
+  return cleaned;
 }

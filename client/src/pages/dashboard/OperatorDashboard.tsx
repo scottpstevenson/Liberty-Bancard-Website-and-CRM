@@ -1261,6 +1261,205 @@ function SilentSequencesWidget() {
   );
 }
 
+// #1444 Step 1 — Worker interval controls
+function WorkerIntervalsPanel() {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+
+  interface WorkerIntervals {
+    ghlSyncIntervalMs: number;
+    slaCheckIntervalMs: number;
+    ghlFloorMs: number;
+    slaFloorMs: number;
+  }
+
+  const { data, isLoading } = useQuery<WorkerIntervals>({
+    queryKey: ["/api/admin/settings/worker-intervals"],
+  });
+
+  const [ghlMs, setGhlMs] = useState("");
+  const [slaMs, setSlaMs] = useState("");
+  const [initialized, setInitialized] = useState(false);
+
+  if (!initialized && data) {
+    setGhlMs(String(data.ghlSyncIntervalMs));
+    setSlaMs(String(data.slaCheckIntervalMs));
+    setInitialized(true);
+  }
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      await apiRequest("PUT", "/api/admin/settings/worker-intervals", {
+        ghlSyncIntervalMs: Number(ghlMs),
+        slaCheckIntervalMs: Number(slaMs),
+      });
+    },
+    onSuccess: () => {
+      toast({ title: "Saved", description: "Worker intervals updated. Changes take effect on the next queue tick." });
+      qc.invalidateQueries({ queryKey: ["/api/admin/settings/worker-intervals"] });
+      setInitialized(false);
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  if (isLoading) return <div className="p-6"><Loader2 className="w-5 h-5 animate-spin" /></div>;
+
+  const msToSeconds = (ms: string) => {
+    const n = Number(ms);
+    return isFinite(n) ? (n / 1000).toFixed(0) : "—";
+  };
+
+  return (
+    <div className="space-y-4" data-testid="panel-worker-intervals">
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <Clock className="w-4 h-4" />
+            Worker Queue Intervals
+          </CardTitle>
+          <p className="text-xs text-muted-foreground mt-1">
+            Set how often each BullMQ repeat job fires. Changes persist to the database and are picked up on the next job cycle.
+            Minimum: GHL sync 30s, SLA checks 120s.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">GHL Sync Interval (ms)</label>
+              <Input
+                type="number"
+                min={data?.ghlFloorMs ?? 30000}
+                step={1000}
+                value={ghlMs}
+                onChange={e => setGhlMs(e.target.value)}
+                className="h-8 text-sm"
+                data-testid="input-ghl-sync-interval"
+              />
+              <p className="text-xs text-muted-foreground">≈ {msToSeconds(ghlMs)}s (floor: {((data?.ghlFloorMs ?? 30000) / 1000).toFixed(0)}s)</p>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">SLA Check Interval (ms)</label>
+              <Input
+                type="number"
+                min={data?.slaFloorMs ?? 120000}
+                step={1000}
+                value={slaMs}
+                onChange={e => setSlaMs(e.target.value)}
+                className="h-8 text-sm"
+                data-testid="input-sla-check-interval"
+              />
+              <p className="text-xs text-muted-foreground">≈ {msToSeconds(slaMs)}s (floor: {((data?.slaFloorMs ?? 120000) / 1000).toFixed(0)}s)</p>
+            </div>
+          </div>
+          <Button
+            size="sm"
+            onClick={() => saveMutation.mutate()}
+            disabled={saveMutation.isPending}
+            data-testid="button-save-worker-intervals"
+          >
+            {saveMutation.isPending ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : null}
+            Save Intervals
+          </Button>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// #1444 Step 2 — Worker heartbeat status panel
+function WorkerHeartbeatPanel() {
+  interface HeartbeatEntry {
+    queueName: string;
+    lastSeenMs: number | null;
+    lastSeenAt: string | null;
+    expectedIntervalMs: number;
+    stale: boolean;
+  }
+  interface HeartbeatsResponse {
+    heartbeats: HeartbeatEntry[];
+    asOf: string;
+  }
+
+  const { data, isLoading, refetch } = useQuery<HeartbeatsResponse>({
+    queryKey: ["/api/admin/worker-heartbeats"],
+    refetchInterval: 30_000,
+  });
+
+  if (isLoading) return <div className="p-6"><Loader2 className="w-5 h-5 animate-spin" /></div>;
+
+  const staleCount = data?.heartbeats.filter(h => h.stale).length ?? 0;
+
+  return (
+    <div className="space-y-4" data-testid="panel-worker-heartbeats">
+      <Card>
+        <CardHeader className="pb-2">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Activity className="w-4 h-4" />
+              Worker Heartbeats
+              {staleCount > 0 && (
+                <span className="ml-1 inline-flex items-center gap-1 rounded-full bg-red-100 dark:bg-red-900/40 px-2 py-0.5 text-xs font-medium text-red-700 dark:text-red-300">
+                  {staleCount} stale
+                </span>
+              )}
+            </CardTitle>
+            <Button variant="ghost" size="sm" onClick={() => refetch()} className="h-6 px-2 text-xs gap-1">
+              <RefreshCw className="w-3 h-3" /> Refresh
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground mt-1">
+            Each BullMQ worker writes a heartbeat at the start of every job. A worker is flagged red when it has not
+            checked in within 2× its expected interval.
+          </p>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b text-xs text-muted-foreground">
+                  <th className="text-left py-2 pr-4 font-medium">Queue</th>
+                  <th className="text-right py-2 px-3 font-medium">Expected interval</th>
+                  <th className="text-right py-2 px-3 font-medium">Last seen</th>
+                  <th className="text-right py-2 pl-3 font-medium">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(data?.heartbeats ?? []).map(h => (
+                  <tr key={h.queueName} className="border-b last:border-0" data-testid={`heartbeat-row-${h.queueName}`}>
+                    <td className="py-2 pr-4">
+                      <code className="text-xs bg-muted px-1.5 py-0.5 rounded font-mono">{h.queueName}</code>
+                    </td>
+                    <td className="text-right py-2 px-3 text-muted-foreground text-xs">
+                      {(h.expectedIntervalMs / 1000 / 60).toFixed(0)} min
+                    </td>
+                    <td className="text-right py-2 px-3 text-xs text-muted-foreground">
+                      {h.lastSeenAt ? new Date(h.lastSeenAt).toLocaleString() : "Never"}
+                    </td>
+                    <td className="text-right py-2 pl-3">
+                      {h.stale ? (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-red-100 dark:bg-red-900/30 px-2 py-0.5 text-xs font-medium text-red-700 dark:text-red-300">
+                          ● Stale
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-green-100 dark:bg-green-900/30 px-2 py-0.5 text-xs font-medium text-green-700 dark:text-green-300">
+                          ● OK
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {data?.asOf && (
+            <p className="text-xs text-muted-foreground mt-2">As of {new Date(data.asOf).toLocaleString()}</p>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 // #1253 — Per-stage pipeline silence thresholds editor
 function PipelineSilenceThresholdsPanel() {
   const { toast } = useToast();
@@ -2896,6 +3095,8 @@ const OPERATOR_NAV_GROUPS: OperatorNavGroup[] = [
       { value: "readiness", label: "Readiness", icon: CheckCircle2 },
       { value: "job-health", label: "Job Health", icon: Server },
       { value: "queue-metrics", label: "Job Queue", icon: Zap },
+      { value: "worker-intervals", label: "Worker Intervals", icon: Clock },
+      { value: "worker-heartbeats", label: "Worker Heartbeats", icon: Activity },
       { value: "deleted-records", label: "Deleted Records", icon: XCircle },
       { value: "outbound-preflight", label: "Outbound Preflight", icon: CheckCircle2 },
       { value: "data-health", label: "Data Health", icon: Database },
@@ -2990,6 +3191,10 @@ function renderOperatorView(view: string, onNavigate: (v: string) => void) {
       return <JobHealthPanel />;
     case "queue-metrics":
       return <QueueMetricsPanel />;
+    case "worker-intervals":
+      return <WorkerIntervalsPanel />;
+    case "worker-heartbeats":
+      return <WorkerHeartbeatPanel />;
     case "deleted-records":
       return <DeletedRecordsPanel />;
     case "launch-readiness":

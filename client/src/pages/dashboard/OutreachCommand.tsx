@@ -232,6 +232,7 @@ export default function OutreachCommand() {
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="flex-wrap h-auto gap-1">
           <TabsTrigger value="overview" data-testid="tab-overview">Pipeline</TabsTrigger>
+          <TabsTrigger value="outreach-sources" data-testid="tab-outreach-sources">Outreach Sources</TabsTrigger>
           <TabsTrigger value="import" data-testid="tab-import">Import</TabsTrigger>
           <TabsTrigger value="enrichment" data-testid="tab-enrichment">Enrich & Classify</TabsTrigger>
           <TabsTrigger value="ghl" data-testid="tab-ghl">GHL Sync</TabsTrigger>
@@ -356,6 +357,51 @@ export default function OutreachCommand() {
               </CardContent>
             </Card>
           )}
+        </TabsContent>
+
+        <TabsContent value="outreach-sources" className="space-y-4" data-testid="tab-content-outreach-sources">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Send className="w-4 h-4" /> Outreach Events by Source (last 90 days)
+              </CardTitle>
+              <p className="text-xs text-muted-foreground mt-1">
+                Counts of outbound communication events grouped by originating source (sequence automation, manual sends, SDR, campaign, etc.).
+              </p>
+            </CardHeader>
+            <CardContent>
+              {(!s.commEventSourceBreakdown || s.commEventSourceBreakdown.length === 0) ? (
+                <p className="text-sm text-muted-foreground italic">No outbound events recorded in the last 90 days.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b text-muted-foreground text-xs">
+                        <th className="text-left py-2 pr-4 font-medium">Source</th>
+                        <th className="text-right py-2 px-3 font-medium">Email</th>
+                        <th className="text-right py-2 px-3 font-medium">SMS</th>
+                        <th className="text-right py-2 px-3 font-medium">Call</th>
+                        <th className="text-right py-2 pl-3 font-medium">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {s.commEventSourceBreakdown.map((row) => (
+                        <tr key={row.source} className="border-b last:border-0 hover:bg-muted/30" data-testid={`comm-source-row-${row.source}`}>
+                          <td className="py-2 pr-4">
+                            <code className="text-xs bg-muted px-1.5 py-0.5 rounded font-mono">{row.source}</code>
+                          </td>
+                          <td className="text-right py-2 px-3 text-blue-700 dark:text-blue-400">{row.emailCount.toLocaleString()}</td>
+                          <td className="text-right py-2 px-3 text-green-700 dark:text-green-400">{row.smsCount.toLocaleString()}</td>
+                          <td className="text-right py-2 px-3 text-amber-700 dark:text-amber-400">{row.callCount.toLocaleString()}</td>
+                          <td className="text-right py-2 pl-3 font-semibold">{row.total.toLocaleString()}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
 
         <TabsContent value="import" className="space-y-4">

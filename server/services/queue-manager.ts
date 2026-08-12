@@ -86,7 +86,7 @@ const SLA_CHECKS_REPEAT_EVERY_MS = IS_DEV
     ? Math.max(_slaChecksEnvMs, SLA_CHECKS_REPEAT_FLOOR_MS)
     : SLA_CHECKS_REPEAT_DEFAULT_MS;
 
-const QUEUE_CONFIGS: QueueConfig[] = [
+export const QUEUE_CONFIGS: QueueConfig[] = [
   {
     name: QUEUE_NAMES.GHL_SYNC,
     // concurrency=3: each tick is a GHL API call; 3 lets slow timeouts drain in parallel
@@ -399,6 +399,30 @@ export async function shutdownQueueManager(): Promise<void> {
   _initPromise = null;
 }
 
+/**
+ * Live-update a queue's repeat interval without a process restart.
+ * Delegates to QueueManager.updateQueueRepeatInterval().
+ * Safe to call when QueueManager is not yet initialized — returns { updated: false }
+ * without throwing.
+ */
+export async function updateQueueIntervalLive(
+  queueName: string,
+  newIntervalMs: number
+): Promise<{ updated: boolean; effectiveMs: number }> {
+  if (!_queueManager) return { updated: false, effectiveMs: newIntervalMs };
+  return _queueManager.updateQueueRepeatInterval(queueName, newIntervalMs);
+}
+
+/**
+ * Returns the currently-running repeat intervals for all queues as reported by
+ * the live QueueManager instance. Returns an empty object when the manager is
+ * not yet initialized.
+ */
+export function getEffectiveQueueIntervals(): Record<string, number> {
+  if (!_queueManager) return {};
+  return _queueManager.getEffectiveIntervals();
+}
+
 interface ThroughputEntry {
   count: number;
   recordedAt: number;
@@ -427,6 +451,10 @@ class QueueManager {
   private throughputBaseline: Map<string, ThroughputEntry> = new Map();
 
   private jobHistory: Map<string, HistoryBucket[]> = new Map();
+
+  /** Runtime-effective repeat intervals. Populated from QUEUE_CONFIGS at startup
+   * and updated by updateQueueRepeatInterval() when an admin changes a setting. */
+  private effectiveIntervals: Map<string, number> = new Map();
 
   /** Configs to actually manage. Excludes GHL_SYNC whenever the legacy
    * setInterval fallback has already claimed GHL sync duty for this process,
@@ -655,6 +683,15 @@ class QueueManager {
       } catch (ksErr) {
         // Kill-switch check failed — fail-open, let the job run normally.
         console.warn(`[AutomationRegistry] Kill-switch check failed for ${queueName}:`, (ksErr as Error).message);
+      }
+
+      // ── Worker heartbeat ─────────────────────────────────────────────────────
+      // Write a timestamp so the operator dashboard can detect stale workers.
+      try {
+        const { storage: hbStorage } = await import("../storage");
+        await hbStorage.setSystemSetting(`worker_heartbeat_${queueName}`, Date.now());
+      } catch (_hbErr) {
+        // Non-fatal — heartbeat write should never block the actual job.
       }
 
       switch (queueName) {
@@ -1074,6 +1111,27 @@ class QueueManager {
   }
 
   private async setupRepeatableJobs(): Promise<void> {
+    // Load operator-persisted interval overrides from system_settings so that an
+    // admin change made via PUT /api/admin/settings/worker-intervals survives a
+    // process restart.  Floor guards are re-applied here to be safe.
+    let ghlOverrideMs: number | null = null;
+    let slaOverrideMs: number | null = null;
+    try {
+      const [ghlRaw, slaRaw] = await Promise.all([
+        storage.getSystemSetting("ghl_sync_interval_ms"),
+        storage.getSystemSetting("sla_check_interval_ms"),
+      ]);
+      if (typeof ghlRaw === "number" && Number.isFinite(ghlRaw) && ghlRaw >= GHL_SYNC_REPEAT_FLOOR_MS) {
+        ghlOverrideMs = ghlRaw;
+      }
+      if (typeof slaRaw === "number" && Number.isFinite(slaRaw) && slaRaw >= SLA_CHECKS_REPEAT_FLOOR_MS) {
+        slaOverrideMs = slaRaw;
+      }
+    } catch (overrideErr) {
+      // Non-fatal: if system_settings is unavailable at startup, fall back to env/defaults
+      console.warn("[QueueManager] Could not load interval overrides from system_settings:", (overrideErr as Error).message);
+    }
+
     for (const config of this.activeConfigs()) {
       const queue = this.queues.get(config.name);
       if (!queue) continue;
@@ -1083,10 +1141,18 @@ class QueueManager {
         await queue.removeRepeatableByKey(job.key);
       }
 
+      // Resolve effective interval: persisted override > config default.
+      let effectiveMs = config.repeatEveryMs;
+      if (!config.cronPattern) {
+        if (config.name === QUEUE_NAMES.GHL_SYNC && ghlOverrideMs !== null) effectiveMs = ghlOverrideMs;
+        if (config.name === QUEUE_NAMES.SLA_CHECKS && slaOverrideMs !== null) effectiveMs = slaOverrideMs;
+        this.effectiveIntervals.set(config.name, effectiveMs);
+      }
+
       await queue.add(config.jobName, {}, {
         repeat: config.cronPattern
           ? { pattern: config.cronPattern }
-          : { every: config.repeatEveryMs },
+          : { every: effectiveMs },
         jobId: `${config.name}-repeatable`,
       });
 
@@ -1097,6 +1163,50 @@ class QueueManager {
         delay: Math.floor(Math.random() * 10000) + 2000,
       });
     }
+    if (ghlOverrideMs !== null) console.log(`[QueueManager] GHL sync interval loaded from system_settings: ${ghlOverrideMs}ms`);
+    if (slaOverrideMs !== null) console.log(`[QueueManager] SLA checks interval loaded from system_settings: ${slaOverrideMs}ms`);
+  }
+
+  /**
+   * Live-update the repeat interval for a queue without restarting the process.
+   * Removes all existing repeatable jobs for the queue and re-adds with the new
+   * interval. The effectiveIntervals map is updated so callers can read back the
+   * current value. Cron-pattern queues are not supported (returns false).
+   */
+  async updateQueueRepeatInterval(queueName: string, newIntervalMs: number): Promise<{ updated: boolean; effectiveMs: number }> {
+    const queue = this.queues.get(queueName);
+    if (!queue) return { updated: false, effectiveMs: newIntervalMs };
+
+    const config = QUEUE_CONFIGS.find(c => c.name === queueName);
+    if (!config) return { updated: false, effectiveMs: newIntervalMs };
+    if (config.cronPattern) return { updated: false, effectiveMs: newIntervalMs };
+
+    // Remove all existing repeatable jobs for this queue
+    const existing = await queue.getRepeatableJobs();
+    for (const job of existing) {
+      await queue.removeRepeatableByKey(job.key);
+    }
+
+    // Add a new repeatable job with the updated interval
+    await queue.add(config.jobName, {}, {
+      repeat: { every: newIntervalMs },
+      jobId: `${queueName}-repeatable`,
+    });
+
+    // Track runtime override
+    this.effectiveIntervals.set(queueName, newIntervalMs);
+    console.log(`[QueueManager] updateQueueRepeatInterval: ${queueName} → ${newIntervalMs}ms`);
+    return { updated: true, effectiveMs: newIntervalMs };
+  }
+
+  /** Returns the currently-running repeat interval for a queue, or null if unknown. */
+  getEffectiveInterval(queueName: string): number | null {
+    return this.effectiveIntervals.get(queueName) ?? null;
+  }
+
+  /** Returns all currently-running repeat intervals keyed by queue name. */
+  getEffectiveIntervals(): Record<string, number> {
+    return Object.fromEntries(this.effectiveIntervals);
   }
 
   private recordHistoryEvent(queueName: string, type: "completed" | "failed"): void {
