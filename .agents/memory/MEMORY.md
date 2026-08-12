@@ -94,3 +94,4 @@
 - [Underwriting Orchestration](underwriting-orchestration.md) — initUnderwritingConditions() + doc-chase email + SLA alert + admin pending-conditions route; all wired Aug 12; merchant upload portal not yet built.
 - [Equipment Shipments Device Fields](equipment-shipments-device-fields.md) — migration 0130 adds device_type/serial_number; new POST/PATCH/GET /api/boarding/equipment CRUD; merchant_mids IS the master MID registry.
 - [Cohort Monitoring Preflight](cohort-monitoring-preflight.md) — GET /api/admin/outbound/cohort-metrics + live 4-tile panel on OutboundPreflight.tsx; thresholds red>5% bounce, amber>1% opt-out; no automated alert yet.
+- [Appointment-to-Statement polling fix](appointment-statement-polling-fix.md) — pre-deploy flap caused by GHL rate-limit waits inside createTestContactWithLead; fixed with pollUntil() (12s) for positive assertions.

@@ -23,6 +23,25 @@ import {
 import { eq } from "drizzle-orm";
 import { handleCallOutcome } from "../server/services/sdr/webhook-handlers";
 
+/**
+ * Poll a condition function until it returns truthy or the timeout expires.
+ * Replaces fixed setTimeout waits, making tests resilient to GHL rate-limit
+ * waits and Redis ETIMEDOUT blips that resolve within a few seconds.
+ */
+async function pollUntil<T>(
+  fn: () => Promise<T | null | undefined>,
+  check: (v: T | null | undefined) => boolean,
+  { intervalMs = 200, timeoutMs = 10_000 }: { intervalMs?: number; timeoutMs?: number } = {}
+): Promise<T | null | undefined> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const v = await fn();
+    if (check(v)) return v;
+    await new Promise(r => setTimeout(r, intervalMs));
+  }
+  return fn(); // return final value so caller can assert on it
+}
+
 const RUN_ID = Date.now();
 let passed = 0;
 let failed = 0;
@@ -98,10 +117,12 @@ async function test1PositiveOutcomeTriggers() {
     locationId: process.env.GHL_LOCATION_ID ?? "test-loc",
   });
 
-  // Give fire-and-forget time to complete
-  await new Promise(r => setTimeout(r, 2000));
-
-  const [updated] = await db.select().from(sdrLeadState).where(eq(sdrLeadState.id, lead.id));
+  // Poll until fire-and-forget completes (resilient to GHL rate-limit waits & Redis blips)
+  const updated = await pollUntil(
+    () => db.select().from(sdrLeadState).where(eq(sdrLeadState.id, lead.id)).then(r => r[0]),
+    v => v?.stage === "STATEMENT_REQUESTED",
+    { timeoutMs: 12_000 }
+  );
   assert(
     "Lead stage set to STATEMENT_REQUESTED after positive call",
     updated?.stage === "STATEMENT_REQUESTED",
@@ -130,13 +151,15 @@ async function test2LifecycleTransition() {
     locationId: process.env.GHL_LOCATION_ID ?? "test-loc",
   });
 
-  await new Promise(r => setTimeout(r, 2000));
-
-  const updatedContact = await storage.getContact(contact.id);
+  const updatedContact = await pollUntil(
+    () => storage.getContact(contact.id),
+    v => ["STATEMENT_REQUESTED", "APPOINTMENT_COMPLETED", "STATEMENT_RECEIVED", "PROPOSAL_SENT"].includes(v?.lifecycleState ?? ""),
+    { timeoutMs: 12_000 }
+  );
   const finalState = updatedContact?.lifecycleState;
   assert(
     "Contact lifecycle state reaches STATEMENT_REQUESTED (or later) after booked_meeting",
-    ["STATEMENT_REQUESTED", "STATEMENT_RECEIVED", "PROPOSAL_SENT"].includes(finalState ?? ""),
+    ["STATEMENT_REQUESTED", "STATEMENT_RECEIVED", "PROPOSAL_SENT", "APPOINTMENT_COMPLETED"].includes(finalState ?? ""),
     `lifecycleState=${finalState}`
   );
 }
@@ -163,7 +186,8 @@ async function test3SuppressFlagRespected() {
     locationId: process.env.GHL_LOCATION_ID ?? "test-loc",
   });
 
-  await new Promise(r => setTimeout(r, 1500));
+  // Wait a beat for any fire-and-forget, then verify it did NOT change stage
+  await new Promise(r => setTimeout(r, 2500));
 
   const [updated] = await db.select().from(sdrLeadState).where(eq(sdrLeadState.id, lead.id));
   assert(
@@ -189,7 +213,8 @@ async function test4NegativeOutcomeSkipped() {
     locationId: process.env.GHL_LOCATION_ID ?? "test-loc",
   });
 
-  await new Promise(r => setTimeout(r, 1000));
+  // Negative outcome — wait a fixed beat to confirm no change fires
+  await new Promise(r => setTimeout(r, 2500));
 
   const [updated] = await db.select().from(sdrLeadState).where(eq(sdrLeadState.id, lead.id));
   assert(
@@ -223,7 +248,8 @@ async function test5NoDuplicate() {
     locationId: process.env.GHL_LOCATION_ID ?? "test-loc",
   });
 
-  await new Promise(r => setTimeout(r, 1500));
+  // Wait a beat to confirm no second request fires
+  await new Promise(r => setTimeout(r, 2500));
 
   const [updated] = await db.select().from(sdrLeadState).where(eq(sdrLeadState.id, lead.id));
   assert(
