@@ -33,6 +33,7 @@ export const users = pgTable("users", {
   totpBackupCodes: jsonb("totp_backup_codes"),
   trustedDevices: jsonb("trusted_devices"),
   permissions: jsonb("permissions").$type<string[]>().default([]),
+  tourCompletedAt: timestamp("tour_completed_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

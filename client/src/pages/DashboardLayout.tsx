@@ -11,6 +11,8 @@ import { InternalSidebarChat } from "@/components/InternalSidebarChat";
 import { DashboardDataAgent } from "@/components/DashboardDataAgent";
 import { EmailComposer } from "@/components/EmailComposer";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { TourProvider } from "@/components/tour/TourProvider";
+import { useTour } from "@/components/tour/TourContext";
 import {
   LayoutDashboard,
   Users,
@@ -102,8 +104,18 @@ import {
 } from "@/components/ui/sidebar";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 
-interface DashboardLayoutProps {
+export interface DashboardLayoutProps {
   children: ReactNode;
+}
+
+// Public export — wraps DashboardLayoutInner in TourProvider so that
+// the tour ? button (inside the header) can call useTour().
+export function DashboardLayout({ children }: DashboardLayoutProps) {
+  return (
+    <TourProvider>
+      <DashboardLayoutInner>{children}</DashboardLayoutInner>
+    </TourProvider>
+  );
 }
 
 type UserRole = "admin" | "manager" | "agent" | "merchant";
@@ -396,7 +408,9 @@ function TwoFaBanner({ role }: { role: UserRole }) {
 
 const MOBILE_REDIRECT_KEY = "desktop_preferred";
 
-export function DashboardLayout({ children }: DashboardLayoutProps) {
+// Inner component — lives inside TourProvider so it can call useTour().
+function DashboardLayoutInner({ children }: DashboardLayoutProps) {
+  const { openTour } = useTour();
   const [location, setLocation] = useLocation();
   const isMobile = useIsMobile();
   const { logout, user } = useAuth();
@@ -757,6 +771,14 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
             )}
 
             <SidebarMenu>
+              {["admin", "manager", "agent"].includes(role) && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton onClick={openTour} data-testid="button-sidebar-replay-tour">
+                    <HelpCircle className="w-4 h-4" />
+                    <span>Replay Tour</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
               <SidebarMenuItem>
                 <SidebarMenuButton onClick={() => logout()} data-testid="button-logout">
                   <LogOut className="w-4 h-4" />
@@ -808,6 +830,18 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                   )}
                 </Link>
                 <ThemeToggle />
+                {["admin", "manager", "agent"].includes(role) && (
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={openTour}
+                    aria-label="Open onboarding tour"
+                    title="Help — replay onboarding tour"
+                    data-testid="button-tour-help"
+                  >
+                    <HelpCircle className="w-4 h-4" />
+                  </Button>
+                )}
                 <Button size="icon" variant="ghost" onClick={() => setEmailOpen(true)} aria-label="Compose email" data-testid="button-compose-email">
                   <Mail className="w-4 h-4" />
                 </Button>
