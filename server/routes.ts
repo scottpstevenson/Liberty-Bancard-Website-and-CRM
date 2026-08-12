@@ -74,6 +74,7 @@ import { registerUnderwritingConditionRoutes } from "./routes/underwriting-condi
 import { registerMerchantMidRoutes } from "./routes/merchant-mids";
 import { registerSaveCaseRoutes } from "./routes/save-cases";
 import { registerAiMemoryRoutes } from "./routes/ai-memory";
+import { registerDailyBriefingRoutes } from "./routes/daily-briefing";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -217,6 +218,7 @@ export async function registerRoutes(
   registerMerchantMidRoutes(app);             // #1404
   registerSaveCaseRoutes(app);                // #1407
   registerAiMemoryRoutes(app);               // #1408/#1409
+  registerDailyBriefingRoutes(app);          // #1476 — daily briefing
 
   // Must be registered before the API 404 catch-all — extracts route
   // permissions by walking the already-populated express router stack

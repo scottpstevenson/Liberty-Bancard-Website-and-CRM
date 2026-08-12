@@ -101,6 +101,9 @@ const KNOWN_MISMATCHES = new Set<string>([
   "/api/save-cases/my",      // #1445 — GET /api/save-cases/my implemented in registerSaveCaseRoutes; static path precedes :param pattern
   "/api/save-cases/:param",
   "/api/save-cases/:param/advance",
+  // Inbox contact thread — server handler exists at GET /api/inbox/contacts/:contactId/thread
+  // coverage script sees the static prefix before the template-literal contactId variable
+  "/api/inbox/contacts",
 ]);
 
 function main() {

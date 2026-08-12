@@ -13,7 +13,7 @@ import {
   Target, ArrowUpRight, ArrowDownRight, Loader2, Brain, Sparkles,
   RefreshCw, DollarSign, Banknote, CalendarDays, BarChart3, Globe,
   Mail, Flame, Thermometer, Snowflake, Ban, PauseCircle, Activity,
-  MessageSquare, Upload, Wifi, WifiOff,
+  MessageSquare, Upload, Wifi, WifiOff, Sunrise, Inbox, Star, Trophy,
 } from "lucide-react";
 import type { Contact, Deal } from "@shared/schema";
 
@@ -21,6 +21,148 @@ function formatResolutionTime(hours: number | null | undefined): string {
   if (hours == null) return "—";
   if (hours >= 24) return `${(hours / 24).toFixed(1)}d`;
   return `${hours.toFixed(1)}h`;
+}
+
+// ─── Daily Briefing Component ───────────────────────────────────────────────
+
+interface DailyBriefingData {
+  tasksDueToday: number;
+  overdueTaskCount: number;
+  overdueSlaCount: number;
+  unreadCount: number;
+  hotLeadsCount: number;
+  closedWonYesterday: number;
+  aiSummary: string | null;
+  role: string;
+  generatedAt: string;
+  dateKey: string;
+}
+
+function DailyBriefing({ userId }: { userId: string }) {
+  const today = new Date().toISOString().split("T")[0];
+  const localKey = `briefing_dismissed_${userId}_${today}`;
+  const [dismissed, setDismissed] = useState(() => localStorage.getItem(localKey) === "1");
+
+  // Only fetch if not dismissed for today
+  const { data, isLoading, refetch } = useQuery<DailyBriefingData>({
+    queryKey: ["/api/overview/daily-briefing"],
+    enabled: !dismissed,
+    staleTime: 3 * 60 * 60 * 1000, // 3 hours — re-fetch only if stale
+    retry: 1,
+  });
+
+  if (dismissed) return null;
+  if (isLoading) {
+    return (
+      <div className="rounded-xl border border-sky-200 dark:border-sky-800 bg-sky-50/60 dark:bg-sky-950/30 p-4 flex items-center gap-3"
+        data-testid="card-daily-briefing-loading">
+        <Loader2 className="w-4 h-4 animate-spin text-sky-500 shrink-0" />
+        <span className="text-sm text-sky-700 dark:text-sky-300">Preparing your morning briefing…</span>
+      </div>
+    );
+  }
+  if (!data) return null;
+
+  return (
+    <div
+      className="rounded-xl border border-sky-200 dark:border-sky-800 bg-gradient-to-r from-sky-50 to-indigo-50/50 dark:from-sky-950/30 dark:to-indigo-950/20 p-4"
+      data-testid="card-daily-briefing"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center gap-2 mb-3">
+          <Sunrise className="w-4 h-4 text-sky-500 shrink-0" />
+          <span className="text-sm font-semibold text-sky-800 dark:text-sky-200">Today's Briefing</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 text-[10px] text-sky-600 dark:text-sky-400 hover:bg-sky-100 dark:hover:bg-sky-900/30 px-2"
+            onClick={async () => {
+              try {
+                // Clear the server-side cache first, then refetch fresh data
+                await apiRequest("POST", "/api/overview/daily-briefing/refresh");
+              } catch { /* ignore — will refetch whatever is cached */ }
+              refetch();
+            }}
+          >
+            <RefreshCw className="w-2.5 h-2.5 mr-1" />
+            Refresh
+          </Button>
+          <button
+            onClick={() => {
+              localStorage.setItem(localKey, "1");
+              setDismissed(true);
+            }}
+            className="text-sky-500 hover:text-sky-700 dark:hover:text-sky-300 p-0.5 rounded"
+            aria-label="Dismiss briefing"
+          >
+            <span className="text-xs">✕</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Quick-stat chips */}
+      <div className="flex flex-wrap gap-2 mb-3">
+        <Link href="/dashboard/tasks">
+          <Badge className={`cursor-pointer gap-1 text-xs font-medium transition-colors ${data.tasksDueToday > 0 ? "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 hover:bg-amber-200" : "bg-muted text-muted-foreground"}`}>
+            <Clock className="w-3 h-3" />
+            {data.tasksDueToday} task{data.tasksDueToday !== 1 ? "s" : ""} due today
+          </Badge>
+        </Link>
+
+        {data.overdueTaskCount > 0 && (
+          <Link href="/dashboard/tasks">
+            <Badge className="cursor-pointer gap-1 text-xs font-medium bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300 hover:bg-red-200 transition-colors">
+              <AlertTriangle className="w-3 h-3" />
+              {data.overdueTaskCount} overdue
+            </Badge>
+          </Link>
+        )}
+
+        {data.overdueSlaCount > 0 && (
+          <Link href="/dashboard/comms-hub">
+            <Badge className="cursor-pointer gap-1 text-xs font-medium bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300 hover:bg-red-200 transition-colors">
+              <AlertTriangle className="w-3 h-3" />
+              {data.overdueSlaCount} SLA breach{data.overdueSlaCount !== 1 ? "es" : ""}
+            </Badge>
+          </Link>
+        )}
+
+        {data.unreadCount > 0 && (
+          <Link href="/dashboard/comms-hub">
+            <Badge className="cursor-pointer gap-1 text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 hover:bg-blue-200 transition-colors">
+              <Inbox className="w-3 h-3" />
+              {data.unreadCount} unread
+            </Badge>
+          </Link>
+        )}
+
+        {data.hotLeadsCount > 0 && (
+          <Link href="/dashboard/contacts">
+            <Badge className="cursor-pointer gap-1 text-xs font-medium bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300 hover:bg-orange-200 transition-colors">
+              <Star className="w-3 h-3" />
+              {data.hotLeadsCount} hot lead{data.hotLeadsCount !== 1 ? "s" : ""}
+            </Badge>
+          </Link>
+        )}
+
+        {data.closedWonYesterday > 0 && (
+          <Badge className="gap-1 text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">
+            <Trophy className="w-3 h-3" />
+            {data.closedWonYesterday} won yesterday
+          </Badge>
+        )}
+      </div>
+
+      {/* AI summary */}
+      {data.aiSummary && (
+        <p className="text-sm text-sky-900 dark:text-sky-100 leading-relaxed italic">
+          "{data.aiSummary}"
+        </p>
+      )}
+    </div>
+  );
 }
 
 // #221 — Animated stat counter (count-up on first viewport entry)
@@ -270,6 +412,9 @@ export default function Overview() {
           {greeting}, {user.firstName}!
         </p>
       )}
+
+      {/* ── #1476 — Daily Briefing ── */}
+      {user?.id && <DailyBriefing userId={String(user.id)} />}
 
       {/* ── OUTBOUND PAUSED BANNER ── */}
       {outboundSettings?.outboundGlobalPaused && (

@@ -59,15 +59,27 @@ export interface InboxItem {
   contactId: number | null;
   contactName: string;
   companyName: string;
-  channel: "email" | "sms" | "ghl_chat";
+  channel: "email" | "sms" | "ghl_chat" | "voicemail" | "site";
   direction: "inbound";
   body: string;
+  subject?: string;
+  preview?: string;
   receivedAt: string;
   intentLabel: string | null;
   confidence: number | null;
   isRead: boolean;
+  assignedTo?: string | null;
+  aiIntent?: string | null;
   phone?: string;
   ghlConversationId?: string;
+  // voicemail-specific
+  voicemailDuration?: number | null;
+  voicemailUrl?: string | null;
+  transcript?: string | null;
+  // site/live-chat-specific
+  liveChatSessionId?: string | null;
+  liveChatStatus?: string | null;
+  pageUrl?: string | null;
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
@@ -173,9 +185,13 @@ export function registerInboxRoutes(app: Express) {
   app.get("/api/inbox/items", isDashboardUser, async (req, res) => {
     try {
       const limit = Math.min(Number(req.query.limit) || 50, 200);
+      const channel = (req.query.channel as string) || "all";
+      const filter = (req.query.filter as string) || "all"; // "all" | "unread" | "needs_reply"
+      const cursor = req.query.cursor as string | undefined; // ISO date string for pagination
       const items: InboxItem[] = [];
 
       // 1. Inbound email events from audit_logs
+      if (channel === "all" || channel === "email")
       try {
         const emailRows = await db.execute(sql`
           SELECT
@@ -227,6 +243,7 @@ export function registerInboxRoutes(app: Express) {
       // 2. Inbound SMS/GHL conversation messages
       const config = getGhlConfig();
       if (config) {
+        if (channel === "all" || channel === "sms")
         try {
           const result = await ghlFetch(
             `/conversations/search?locationId=${config.locationId}&limit=${limit}&type=TYPE_PHONE`
@@ -278,59 +295,162 @@ export function registerInboxRoutes(app: Express) {
         }
 
         // 3. GHL chat/email conversation messages
-        try {
-          const result = await ghlFetch(
-            `/conversations/search?locationId=${config.locationId}&limit=${Math.min(limit, 30)}&type=TYPE_EMAIL`
-          );
-          const conversations = result?.conversations || result?.data || [];
-          for (const c of conversations.slice(0, 20)) {
-            const lastMsg = c.lastMessage || c.lastMessageBody || "";
-            if (!lastMsg) continue;
+        if (channel === "all" || channel === "ghl_chat") {
+          try {
+            const result = await ghlFetch(
+              `/conversations/search?locationId=${config.locationId}&limit=${Math.min(limit, 30)}&type=TYPE_EMAIL`
+            );
+            const conversations = result?.conversations || result?.data || [];
+            for (const c of conversations.slice(0, 20)) {
+              const lastMsg = c.lastMessage || c.lastMessageBody || "";
+              if (!lastMsg) continue;
 
-            let contactName = c.fullName || c.contactName || `${c.firstName || ""} ${c.lastName || ""}`.trim() || "Unknown";
-            let contactId: number | null = null;
+              let contactName = c.fullName || c.contactName || `${c.firstName || ""} ${c.lastName || ""}`.trim() || "Unknown";
+              let contactId: number | null = null;
 
-            if (c.contactId) {
-              try {
-                const localContacts = await db.execute(sql`
-                  SELECT id, first_name, last_name FROM contacts
-                  WHERE ghl_contact_id = ${c.contactId} LIMIT 1
-                `);
-                if (localContacts.rows.length > 0) {
-                  const lc = localContacts.rows[0] as any;
-                  contactId = Number(lc.id);
-                  const name = [lc.first_name, lc.last_name].filter(Boolean).join(" ");
-                  if (name) contactName = name;
-                }
-              } catch { /* ignore */ }
+              if (c.contactId) {
+                try {
+                  const localContacts = await db.execute(sql`
+                    SELECT id, first_name, last_name FROM contacts
+                    WHERE ghl_contact_id = ${c.contactId} LIMIT 1
+                  `);
+                  if (localContacts.rows.length > 0) {
+                    const lc = localContacts.rows[0] as any;
+                    contactId = Number(lc.id);
+                    const name = [lc.first_name, lc.last_name].filter(Boolean).join(" ");
+                    if (name) contactName = name;
+                  }
+                } catch { /* ignore */ }
+              }
+
+              items.push({
+                id: `ghl-${c.id}`,
+                contactId,
+                contactName,
+                companyName: "",
+                channel: "ghl_chat",
+                direction: "inbound",
+                body: String(lastMsg).slice(0, 2000),
+                preview: String(lastMsg).slice(0, 120),
+                receivedAt: c.lastMessageDate || c.dateUpdated || new Date().toISOString(),
+                intentLabel: null,
+                confidence: null,
+                isRead: c.unreadCount === 0,
+                ghlConversationId: c.id,
+              });
             }
-
-            items.push({
-              id: `ghl-${c.id}`,
-              contactId,
-              contactName,
-              companyName: "",
-              channel: "ghl_chat",
-              direction: "inbound",
-              body: String(lastMsg).slice(0, 2000),
-              receivedAt: c.lastMessageDate || c.dateUpdated || new Date().toISOString(),
-              intentLabel: null,
-              confidence: null,
-              isRead: c.unreadCount === 0,
-              ghlConversationId: c.id,
-            });
+          } catch (chatErr: any) {
+            console.warn("[Inbox] GHL chat fetch failed:", chatErr.message);
           }
-        } catch (chatErr: any) {
-          console.warn("[Inbox] GHL chat fetch failed:", chatErr.message);
+        }
+
+        // 4. Voicemail items from GHL (TYPE_VOICE conversations)
+        if ((channel === "all" || channel === "voicemail") && process.env.VOICEMAIL_SYNC_ENABLED !== "false") {
+          try {
+            const result = await ghlFetch(
+              `/conversations/search?locationId=${config.locationId}&limit=20&type=TYPE_VOICE`
+            );
+            const conversations = result?.conversations || result?.data || [];
+            for (const c of conversations.slice(0, 20)) {
+              const lastMsg = c.lastMessage || c.lastMessageBody || c.transcriptText || "";
+              let contactName = c.fullName || c.contactName || `${c.firstName || ""} ${c.lastName || ""}`.trim() || "Unknown";
+              let contactId: number | null = null;
+
+              if (c.contactId) {
+                try {
+                  const localContacts = await db.execute(sql`
+                    SELECT id, first_name, last_name, company_name FROM contacts
+                    WHERE ghl_contact_id = ${c.contactId} LIMIT 1
+                  `);
+                  if (localContacts.rows.length > 0) {
+                    const lc = localContacts.rows[0] as any;
+                    contactId = Number(lc.id);
+                    const name = [lc.first_name, lc.last_name].filter(Boolean).join(" ");
+                    if (name) contactName = name;
+                  }
+                } catch { /* ignore */ }
+              }
+
+              items.push({
+                id: `vm-${c.id}`,
+                contactId,
+                contactName,
+                companyName: "",
+                channel: "voicemail",
+                direction: "inbound",
+                body: lastMsg || "Voicemail received",
+                preview: lastMsg ? String(lastMsg).slice(0, 120) : "Voicemail received",
+                receivedAt: c.lastMessageDate || c.dateUpdated || new Date().toISOString(),
+                intentLabel: null,
+                confidence: null,
+                isRead: c.unreadCount === 0,
+                phone: c.phone || "",
+                ghlConversationId: c.id,
+                voicemailDuration: c.duration || c.lastMessageDuration || null,
+                voicemailUrl: c.mediaUrl || c.recordingUrl || c.lastMessageMedia?.url || null,
+                transcript: c.transcriptText || null,
+              });
+            }
+          } catch (vmErr: any) {
+            console.warn("[Inbox] GHL voicemail fetch failed:", vmErr.message);
+          }
         }
       }
 
-      // Sort by recency
+      // 5. Live-chat sessions as "site" channel items
+      if (channel === "all" || channel === "site") {
+        try {
+          const liveChats = await storage.getAllLiveChats({ limit: 30 });
+          for (const chat of liveChats) {
+            const contactName = chat.visitorName || chat.visitorEmail || "Site Visitor";
+            const preview = `${chat.status === "active" ? "Active" : "Closed"} chat${chat.pageUrl ? ` from ${chat.pageUrl}` : ""}`;
+            items.push({
+              id: `chat-${chat.id}`,
+              contactId: chat.contactId || null,
+              contactName,
+              companyName: "",
+              channel: "site",
+              direction: "inbound",
+              body: preview,
+              preview,
+              receivedAt: chat.lastMessageAt instanceof Date ? chat.lastMessageAt.toISOString() : String(chat.lastMessageAt),
+              intentLabel: null,
+              confidence: null,
+              isRead: chat.status !== "active",
+              pageUrl: chat.pageUrl || null,
+              liveChatSessionId: chat.sessionId,
+              liveChatStatus: chat.status,
+            });
+          }
+        } catch (lcErr: any) {
+          console.warn("[Inbox] Live chat fetch failed:", (lcErr as any).message);
+        }
+      }
+
+      // Sort by recency, apply cursor pagination
       items.sort((a, b) => new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime());
+      let cursorFiltered = items;
+      if (cursor) {
+        const cursorTime = new Date(cursor).getTime();
+        cursorFiltered = items.filter(i => new Date(i.receivedAt).getTime() < cursorTime);
+      }
+
+      // Apply smart filters
+      let filtered = cursorFiltered;
+      if (filter === "unread") {
+        filtered = cursorFiltered.filter(i => !i.isRead);
+      } else if (filter === "needs_reply") {
+        // Items that are unread and have an intent that warrants a reply
+        filtered = cursorFiltered.filter(i => !i.isRead && i.intentLabel !== "stop" && i.intentLabel !== "not_interested");
+      }
+
+      const page = filtered.slice(0, limit);
+      const nextCursor = page.length === limit ? page[page.length - 1].receivedAt : null;
 
       res.json({
-        items: items.slice(0, limit),
+        items: page,
         total: items.length,
+        nextCursor,
         ghlConfigured: !!config,
       });
     } catch (err: any) {
@@ -803,6 +923,194 @@ export function registerInboxRoutes(app: Express) {
       res.json({ ok: true, action, message: `Action "${action}" executed successfully.` });
     } catch (err: any) {
       console.error("[Inbox] action error:", err.message);
+      serverError(res, err);
+    }
+  });
+
+  // ─── GET /api/inbox/contacts/:contactId/thread — cross-channel timeline ───
+  app.get("/api/inbox/contacts/:contactId/thread", isDashboardUser, async (req, res) => {
+    try {
+      const contactId = Number(req.params.contactId);
+      if (!contactId || isNaN(contactId)) {
+        return res.status(400).json({ message: "Invalid contactId" });
+      }
+
+      const { getContactCommunicationEvents } = await import("../services/communication-events");
+      const events = await getContactCommunicationEvents(contactId, 100);
+
+      // Also pull live-chat messages if any sessions are linked to this contact
+      const chatRows = await db.execute(sql`
+        SELECT lc.id, lc.session_id, lc.status, lc.created_at, lc.last_message_at,
+               lcm.id AS msg_id, lcm.sender_type, lcm.sender_name, lcm.content, lcm.created_at AS msg_at
+        FROM live_chats lc
+        LEFT JOIN live_chat_messages lcm ON lcm.chat_id = lc.id
+        WHERE lc.contact_id = ${contactId}
+        ORDER BY lcm.created_at DESC
+        LIMIT 50
+      `).catch(() => ({ rows: [] }));
+
+      const chatEvents = (chatRows.rows as any[])
+        .filter(r => r.msg_id)
+        .map(r => ({
+          id: `chat-msg-${r.msg_id}`,
+          direction: r.sender_type === "agent" ? "outbound" : "inbound",
+          channel: "chat",
+          provider: "internal",
+          body: r.content,
+          subject: null,
+          status: "received",
+          createdAt: r.msg_at,
+          metadata: { sessionId: r.session_id, chatStatus: r.status, senderName: r.sender_name },
+        }));
+
+      // Normalize comm events
+      const normalized = events.map(e => ({
+        id: `comm-${e.id}`,
+        direction: e.direction,
+        channel: e.channel,
+        provider: e.provider,
+        body: e.body,
+        subject: e.subject,
+        status: e.status,
+        intent: e.intentClassification,
+        confidence: e.intentConfidence ? parseFloat(String(e.intentConfidence)) : null,
+        createdAt: e.createdAt,
+        metadata: e.metadata,
+      }));
+
+      // Merge and sort by time
+      const timeline = [...normalized, ...chatEvents]
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+        .slice(0, 100);
+
+      res.json({ contactId, timeline, total: timeline.length });
+    } catch (err: any) {
+      console.error("[Inbox] thread error:", err.message);
+      serverError(res, err);
+    }
+  });
+
+  // ─── POST /api/inbox/reply — email reply via SMTP ─────────────────────────
+  app.post("/api/inbox/reply", requireRole("admin", "manager", "agent"), async (req, res) => {
+    try {
+      const { contactId, subject, body: replyBody, inReplyTo } = req.body as {
+        contactId?: number;
+        subject?: string;
+        body?: string;
+        inReplyTo?: string;
+      };
+
+      if (!replyBody?.trim()) {
+        return res.status(400).json({ message: "body is required" });
+      }
+      if (!contactId) {
+        return res.status(400).json({ message: "contactId is required" });
+      }
+
+      const contact = await storage.getContact(contactId);
+      if (!contact) {
+        return res.status(404).json({ message: "Contact not found" });
+      }
+      if (!contact.email) {
+        return res.status(400).json({ message: "Contact has no email address" });
+      }
+
+      const user = req.user as any;
+      const userId = String(user?.id || "");
+
+      // ── Gate: global pause ────────────────────────────────────────────────
+      const globalPausedRaw = await storage.getSystemSetting("outboundGlobalPaused");
+      const globalPaused = globalPausedRaw === true || globalPausedRaw === "true";
+      if (globalPaused) {
+        await storage.createAuditLog({
+          action: "inbox_reply_blocked_global_pause",
+          entityType: "contact", entityId: contactId, actorType: "user", actorId: userId,
+          details: { contactId, to: contact.email, timestamp: new Date().toISOString() },
+        });
+        return res.status(409).json({ message: "Outbound paused — send blocked." });
+      }
+
+      // ── Gate: email channel pause ─────────────────────────────────────────
+      const emailPausedRaw = await storage.getSystemSetting("emailChannelPaused");
+      const emailPaused = emailPausedRaw !== "false" && emailPausedRaw !== false && emailPausedRaw != null;
+      if (emailPaused) {
+        return res.status(409).json({ message: "Email channel paused — send blocked." });
+      }
+
+      // ── Gate: no-prospect-send guard ──────────────────────────────────────
+      const guardRaw = await storage.getSystemSetting("deliveryNoProspectSendEmail");
+      const guardActive = guardRaw === true || guardRaw === "true";
+      if (guardActive) {
+        const allowlistRaw = await storage.getSystemSetting("deliveryTestEmailAllowlist");
+        const allowlist: string[] = typeof allowlistRaw === "string"
+          ? allowlistRaw.split(",").map((e: string) => e.trim().toLowerCase()).filter(Boolean)
+          : [];
+        const recipientEmail = contact.email.trim().toLowerCase();
+        const isInternal = recipientEmail.endsWith("@libertybancard.com");
+        if (!isInternal && !allowlist.includes(recipientEmail)) {
+          await storage.createAuditLog({
+            action: "inbox_reply_blocked_no_prospect_guard",
+            entityType: "contact", entityId: contactId, actorType: "user", actorId: userId,
+            details: { contactId, to: contact.email, allowlistSize: allowlist.length, timestamp: new Date().toISOString() },
+          });
+          return res.status(409).json({
+            message: `No-prospect-send guard active — ${recipientEmail} is not on the test allowlist.`,
+            blocked: true,
+          });
+        }
+      }
+
+      const { sendSmtpEmail } = await import("../services/smtp-email");
+
+      let deliveryOutcome: "sent" | "failed" | "not_configured" = "sent";
+      let deliveryError: string | null = null;
+
+      try {
+        await sendSmtpEmail({
+          to: contact.email,
+          subject: subject || `Re: Your inquiry`,
+          html: replyBody.replace(/\n/g, "<br>"),
+          text: replyBody,
+          category: "cold_outreach",
+          contactId,
+          ...(inReplyTo && { headers: { "In-Reply-To": inReplyTo, References: inReplyTo } }),
+        });
+      } catch (smtpErr: any) {
+        deliveryOutcome = "failed";
+        deliveryError = smtpErr.message || "SMTP delivery failed";
+        console.error("[Inbox] SMTP reply failed:", deliveryError);
+        await storage.createAuditLog({
+          action: "inbox_email_reply_failed",
+          entityType: "contact", entityId: contactId, actorType: "user", actorId: userId,
+          details: { contactId, to: contact.email, error: deliveryError, timestamp: new Date().toISOString() },
+        });
+        return res.status(502).json({ ok: false, message: safeMessage(deliveryError, "Email delivery failed"), deliveryOutcome: "failed" });
+      }
+
+      // Record as outbound communication event
+      const { recordOutboundSend } = await import("../services/communication-events");
+      await recordOutboundSend({
+        contactId,
+        channel: "email",
+        provider: "smtp",
+        subject: subject || null,
+        body: replyBody,
+        status: "sent",
+        metadata: { repliedBy: userId, inReplyTo: inReplyTo || null },
+      });
+
+      await storage.createAuditLog({
+        action: "inbox_email_reply_sent",
+        entityType: "contact",
+        entityId: contactId,
+        actorType: "user",
+        actorId: userId,
+        details: { contactId, subject: subject || null, to: contact.email, deliveryOutcome, timestamp: new Date().toISOString() },
+      });
+
+      res.json({ ok: true, to: contact.email, deliveryOutcome });
+    } catch (err: any) {
+      console.error("[Inbox] reply error:", err.message);
       serverError(res, err);
     }
   });
