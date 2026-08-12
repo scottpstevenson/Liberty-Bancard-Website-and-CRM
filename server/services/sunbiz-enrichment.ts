@@ -86,11 +86,76 @@ async function writebackEnrichmentToLinkedRecords(
             await storage.updateContact(prospect.contactId, cu as any);
             console.log(`[Writeback] Contact ${prospect.contactId} ← ${Object.keys(cu).join(", ")}`);
           }
+
+          // ── 3. Fire post-enrichment automation if first contact info ────────
+          // Only trigger when this writeback is *adding* the first email or phone
+          // (i.e. the contact was previously unreachable). Guard against re-fires
+          // is also inside the worker (checks postEnrichmentAutomationAt on deal).
+          const addedEmail = !!cu.email;
+          const addedPhone = !!cu.phone;
+          if (addedEmail || addedPhone) {
+            setImmediate(() => {
+              firePostEnrichmentJob(entityId, prospect.contactId!, entity.prospectId!).catch(
+                err => console.warn(`[Writeback] post-enrichment job fire failed (non-critical): ${err?.message}`)
+              );
+            });
+          }
         }
       }
     }
   } catch (err: any) {
     console.error(`[Writeback] entity ${entityId}:`, err?.message || err);
+  }
+}
+
+/**
+ * Fire a post-enrichment BullMQ job for the given contact.
+ * Looks up the most recent open sales deal for the contact and enqueues the job.
+ * Non-throwing: all errors are logged but never surface to the enrichment pipeline.
+ */
+async function firePostEnrichmentJob(
+  entityId: number,
+  contactId: number,
+  _prospectId: number,
+): Promise<void> {
+  try {
+    // Find the most recent open sales deal for this contact
+    const deals = await storage.getDealsByContact(contactId);
+    const openDeal = deals
+      .filter((d: any) =>
+        d.pipeline === "sales" &&
+        d.stage !== "Closed Won" &&
+        d.stage !== "Closed Lost" &&
+        !d.archivedAt
+      )
+      .sort((a: any, b: any) =>
+        new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime()
+      )[0];
+
+    if (!openDeal) {
+      console.log(`[Writeback] No open sales deal for contact ${contactId} — skipping post-enrichment job`);
+      return;
+    }
+
+    // Lazy-import to avoid circular dependency at module load time
+    const { getQueueManager, QUEUE_NAMES } = await import("./queue-manager");
+    const qm = await getQueueManager();
+    const queue = qm.getQueue(QUEUE_NAMES.POST_ENRICHMENT);
+    if (!queue) {
+      console.warn("[Writeback] POST_ENRICHMENT queue not available — skipping job");
+      return;
+    }
+
+    // Unique jobId per deal prevents duplicate jobs if enrichment re-runs
+    const jobId = `post-enrichment-deal-${openDeal.id}`;
+    await queue.add(
+      "post-enrichment-automation",
+      { entityId, contactId, dealId: openDeal.id },
+      { jobId, attempts: 3, backoff: { type: "fixed", delay: 15000 } },
+    );
+    console.log(`[Writeback] Fired post-enrichment job ${jobId} for deal ${openDeal.id}`);
+  } catch (err: any) {
+    console.warn(`[Writeback] firePostEnrichmentJob failed (non-critical): ${err?.message}`);
   }
 }
 

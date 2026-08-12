@@ -410,6 +410,14 @@ export const deals = pgTable("deals", {
   bookingAttributedAt: timestamp("booking_attributed_at"),
   conversionAttributedAt: timestamp("conversion_attributed_at"),
   ghlOpportunityId: text("ghl_opportunity_id"),
+  // ── Post-enrichment automation ────────────────────────────────────────────
+  // Set by the post-enrichment BullMQ worker when it first processes a lead
+  // that received contact info from enrichment. Acts as an idempotency guard
+  // so re-enrichments never double-enroll the contact.
+  postEnrichmentAutomationAt: timestamp("post_enrichment_automation_at"),
+  // Human-readable next action chip shown on the Kanban deal card.
+  // Set by the post-enrichment worker (e.g. "Enrolled — restaurant lead, sequence started").
+  nextAction: text("next_action"),
 }, (table) => [
   index("deals_contact_id_idx").on(table.contactId),
   index("deals_pipeline_idx").on(table.pipeline),
@@ -776,6 +784,7 @@ export const WORKFLOW_ACTIONS = [
 
 export const SALES_STAGES = [
   "New Lead",
+  "Enriched",
   "Statement Received",
   "Review In Progress",
   "Call Booked",

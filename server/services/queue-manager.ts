@@ -29,6 +29,7 @@ export const QUEUE_NAMES = {
   MERCHANT_SUCCESS: "merchant-success",
   WINBACK_OUTREACH: "winback-outreach",
   VOICEMAIL_SYNC: "voicemail-sync",
+  POST_ENRICHMENT: "post-enrichment",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -315,6 +316,17 @@ export const QUEUE_CONFIGS: QueueConfig[] = [
     backoffDelay: 30000,
     repeatEveryMs: 15 * 60 * 1000, // 15 minutes
     jobName: "run",
+  },
+  {
+    name: QUEUE_NAMES.POST_ENRICHMENT,
+    // Event-driven: jobs are enqueued one at a time by writebackEnrichmentToLinkedRecords
+    // whenever enrichment writes the first real email/phone to a contactless lead.
+    // repeatEveryMs is unused (no repeatable job); the queue only processes ad-hoc items.
+    concurrency: 3,
+    attempts: 3,
+    backoffDelay: 15000,
+    repeatEveryMs: 0, // no repeatable job — driven by enrichment events
+    jobName: "post-enrichment-automation",
   },
 ];
 
@@ -1123,6 +1135,11 @@ class QueueManager {
           }
           break;
         }
+        case QUEUE_NAMES.POST_ENRICHMENT: {
+          const { processPostEnrichmentJob } = await import("./post-enrichment-worker");
+          await processPostEnrichmentJob(_job.data as import("./post-enrichment-worker").PostEnrichmentJobData);
+          break;
+        }
         default:
           throw new Error(`Unknown queue: ${queueName}`);
       }
@@ -1152,6 +1169,11 @@ class QueueManager {
     }
 
     for (const config of this.activeConfigs()) {
+      // Skip event-driven queues that have no repeatable schedule (repeatEveryMs === 0).
+      // These queues are populated by ad-hoc queue.add() calls (e.g. post-enrichment
+      // jobs fired inline by the enrichment pipeline) and must not get a repeatable job.
+      if (!config.cronPattern && config.repeatEveryMs === 0) continue;
+
       const queue = this.queues.get(config.name);
       if (!queue) continue;
 

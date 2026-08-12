@@ -49,6 +49,7 @@ import { CSS } from "@dnd-kit/utilities";
 
 const STAGE_COLORS: Record<string, string> = {
   "New Lead": "bg-blue-500",
+  "Enriched": "bg-teal-500",
   "Statement Received": "bg-indigo-500",
   "Review In Progress": "bg-violet-500",
   "Call Booked": "bg-cyan-500",
@@ -760,6 +761,22 @@ function SortableDealCard({
           {(deal as any).vertical && (
             <div className="text-xs text-muted-foreground/70" data-testid={`text-deal-vertical-${deal.id}`}>
               🏷 {(deal as any).vertical}
+            </div>
+          )}
+          {/* Post-enrichment Next Action chip — set by the enrichment automation worker */}
+          {!isDealArchived && (deal as any).nextAction && (
+            <div
+              className={`text-[10px] rounded px-2 py-0.5 border font-medium truncate max-w-full ${
+                (deal as any).nextAction.startsWith("Manual")
+                  ? "bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/30 dark:text-amber-300 dark:border-amber-700"
+                  : (deal as any).nextAction.includes("blocked")
+                  ? "bg-red-50 text-red-800 border-red-200 dark:bg-red-950/30 dark:text-red-300 dark:border-red-700"
+                  : "bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-300 dark:border-emerald-700"
+              }`}
+              data-testid={`badge-next-action-${deal.id}`}
+              title={(deal as any).nextAction}
+            >
+              ⚡ {(deal as any).nextAction}
             </div>
           )}
           {/* Lead import source batch — prefer embedded JOIN field, fall back to contacts map */}
