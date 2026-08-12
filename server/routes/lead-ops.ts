@@ -12,6 +12,10 @@ function getOpenAI() {
   });
 }
 
+// ── In-process health cache (60s TTL) ────────────────────────────────────────
+let _healthCache: { data: any; ts: number } | null = null;
+const HEALTH_CACHE_TTL_MS = 60_000;
+
 export function registerLeadOpsRoutes(app: Express) {
   // ── GET /api/lead-ops/stats ────────────────────────────────────────────────
   // Aggregate stats for the entire sunbiz entity lead pool.
@@ -392,6 +396,176 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
     } catch (err: any) {
       console.error("[LeadOps] run-writeback error:", err?.message);
       res.status(500).json({ error: err?.message || "Writeback failed" });
+    }
+  });
+
+  // ── GET /api/lead-ops/config ───────────────────────────────────────────────
+  // Exposes non-secret boolean flags about the server configuration.
+  app.get("/api/lead-ops/config", requireRole("admin", "manager"), (_req, res) => {
+    res.json({
+      serperConfigured: !!process.env.SERPER_API_KEY,
+      openaiConfigured: !!process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+    });
+  });
+
+  // ── GET /api/lead-ops/health ───────────────────────────────────────────────
+  // Pipeline health stats — enrichment throughput, queue depth, success rate.
+  // Cached for 60 seconds to avoid hammering the DB on every poll.
+  app.get("/api/lead-ops/health", requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const now = Date.now();
+      if (_healthCache && now - _healthCache.ts < HEALTH_CACHE_TTL_MS) {
+        return res.json(_healthCache.data);
+      }
+
+      const result = await db.execute(sql`
+        SELECT
+          COUNT(*) FILTER (WHERE enriched_at >= NOW() - INTERVAL '24 hours')::int          AS enriched_today,
+          COUNT(*) FILTER (
+            WHERE enriched_at >= NOW() - INTERVAL '24 hours'
+              AND (email IS NOT NULL OR owner_email IS NOT NULL)
+          )::int                                                                             AS emails_today,
+          COUNT(*) FILTER (
+            WHERE enriched_at >= NOW() - INTERVAL '24 hours'
+              AND (phone IS NOT NULL OR owner_phone IS NOT NULL)
+          )::int                                                                             AS phones_today,
+          COUNT(*) FILTER (WHERE enrichment_status = 'pending')::int                        AS queue_depth,
+          COUNT(*) FILTER (WHERE enrichment_status = 'enriched')::int                       AS total_enriched,
+          COUNT(*) FILTER (WHERE enrichment_status = 'failed')::int                         AS total_failed,
+          MAX(enriched_at)                                                                   AS last_enriched_at
+        FROM sunbiz_entities
+      `);
+
+      const row = ((result as any).rows ?? result)[0] || {};
+      const successRate = (row.total_enriched + row.total_failed) > 0
+        ? Math.round((row.total_enriched / (row.total_enriched + row.total_failed)) * 100)
+        : 0;
+
+      const lastEnrichedAt = row.last_enriched_at ? new Date(row.last_enriched_at) : null;
+      const minutesSinceLastJob = lastEnrichedAt
+        ? Math.floor((Date.now() - lastEnrichedAt.getTime()) / 60000)
+        : null;
+      const workerActive = minutesSinceLastJob !== null && minutesSinceLastJob < 15;
+
+      const data = {
+        enrichedToday:        row.enriched_today    ?? 0,
+        emailsToday:          row.emails_today      ?? 0,
+        phonesToday:          row.phones_today      ?? 0,
+        queueDepth:           row.queue_depth       ?? 0,
+        totalEnriched:        row.total_enriched    ?? 0,
+        totalFailed:          row.total_failed      ?? 0,
+        successRate,
+        lastEnrichedAt:       lastEnrichedAt?.toISOString() ?? null,
+        minutesSinceLastJob:  minutesSinceLastJob,
+        workerActive,
+      };
+
+      _healthCache = { data, ts: now };
+      res.json(data);
+    } catch (err: any) {
+      console.error("[LeadOps] health error:", err?.message);
+      res.status(500).json({ error: err?.message || "Failed to load health stats" });
+    }
+  });
+
+  // ── POST /api/lead-ops/reset-stuck-jobs ────────────────────────────────────
+  // Resets sunbiz_entities rows that are stuck in 'processing' status for more
+  // than 30 minutes — these are entities the enrichment worker started but never
+  // finished (e.g. after a worker crash or restart). Resetting them to 'pending'
+  // lets the worker pick them up on its next tick.
+  //
+  // NOTE: This intentionally does NOT touch the BullMQ enrichment queue because
+  // that queue is shared with other critical job types (statement-blueprint,
+  // free-contact-enrichment, contact_lead_scoring, etc.) that are unrelated to
+  // the Sunbiz enrichment pipeline and must not be removed.
+  app.post("/api/lead-ops/reset-stuck-jobs", requireRole("admin"), async (_req, res) => {
+    try {
+      const result = await db.execute(sql`
+        UPDATE sunbiz_entities
+        SET enrichment_status = 'pending', updated_at = NOW()
+        WHERE enrichment_status = 'processing'
+          AND updated_at < NOW() - INTERVAL '30 minutes'
+        RETURNING id
+      `);
+      const cleared = ((result as any).rows ?? result).length;
+
+      await storage.createAuditLog({
+        action: "lead_ops_reset_stuck_jobs",
+        entityType: "system",
+        entityId: 0,
+        details: { cleared, method: "db_processing_reset" },
+      });
+
+      // Bust the health cache so the next poll reflects updated counts
+      _healthCache = null;
+
+      res.json({
+        cleared,
+        message: cleared > 0
+          ? `Reset ${cleared} stuck enrichment job(s) from "processing" back to "pending". The enrichment worker will pick them up on its next tick.`
+          : "No stuck jobs found — no entities have been in \"processing\" state for more than 30 minutes.",
+      });
+    } catch (err: any) {
+      console.error("[LeadOps] reset-stuck-jobs error:", err?.message);
+      res.status(500).json({ error: err?.message || "Failed to reset stuck jobs" });
+    }
+  });
+
+  // ── GET /api/lead-ops/export-enriched ─────────────────────────────────────
+  // Streams a CSV of all enriched sunbiz entities for offline analysis.
+  // Columns: entity_id, company_name, vertical, score, has_email, has_phone, enriched_at, city, state
+  // Capped at 50 000 rows.
+  app.get("/api/lead-ops/export-enriched", requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const rows = await db.execute(sql`
+        SELECT
+          id             AS entity_id,
+          entity_name    AS company_name,
+          vertical,
+          score,
+          CASE WHEN email IS NOT NULL OR owner_email IS NOT NULL THEN 'yes' ELSE 'no' END AS has_email,
+          CASE WHEN phone IS NOT NULL OR owner_phone IS NOT NULL THEN 'yes' ELSE 'no' END AS has_phone,
+          enriched_at,
+          principal_city  AS city,
+          principal_state AS state
+        FROM sunbiz_entities
+        WHERE enrichment_status = 'enriched'
+        ORDER BY enriched_at DESC NULLS LAST
+        LIMIT 50000
+      `);
+
+      const data = (rows as any).rows ?? rows;
+
+      // Sanitize a CSV cell value:
+      // 1. Prefix formula-leading chars (=, +, -, @, tab, CR) with an apostrophe so
+      //    spreadsheet apps (Excel, Google Sheets) treat the cell as literal text.
+      // 2. Quote values that contain commas, double-quotes, or newlines.
+      const escape = (v: any) => {
+        if (v === null || v === undefined) return "";
+        let s = String(v);
+        // Strip any leading/trailing whitespace to avoid hidden prefix attacks
+        s = s.trim();
+        // Neutralize spreadsheet formula injection
+        if (s.length > 0 && (s[0] === "=" || s[0] === "+" || s[0] === "-" || s[0] === "@" || s[0] === "\t" || s[0] === "\r")) {
+          s = `'${s}`;
+        }
+        if (s.includes(",") || s.includes('"') || s.includes("\n") || s.includes("\r")) {
+          return `"${s.replace(/"/g, '""')}"`;
+        }
+        return s;
+      };
+
+      const cols = ["entity_id", "company_name", "vertical", "score", "has_email", "has_phone", "enriched_at", "city", "state"];
+      const header = cols.join(",");
+      const lines = (data as any[]).map(r => cols.map(c => escape(r[c])).join(","));
+      const csv = [header, ...lines].join("\n");
+
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader("Content-Disposition", `attachment; filename="enriched-leads-${new Date().toISOString().slice(0, 10)}.csv"`);
+      res.send(csv);
+    } catch (err: any) {
+      console.error("[LeadOps] export-enriched error:", err?.message);
+      res.status(500).json({ error: err?.message || "Export failed" });
     }
   });
 

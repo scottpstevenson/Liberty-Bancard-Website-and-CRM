@@ -21,7 +21,8 @@ import {
 import {
   Sparkles, RefreshCw, Trash2, Search, ChevronLeft, ChevronRight,
   AlertTriangle, CheckCircle, Clock, Zap, Users, Mail, Phone,
-  TrendingUp, Brain, Target, ArrowRight, Download,
+  TrendingUp, Brain, Target, ArrowRight, Download, Activity,
+  X, ShieldAlert, Cpu, RotateCcw,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
@@ -32,6 +33,24 @@ interface LeadOpsStats {
   hot: number; warm: number; cold: number;
   has_email: number; has_phone: number; contactable: number; has_owner_name: number;
   verticals: Array<{ vertical: string; count: number; hot_count: number }>;
+}
+
+interface LeadOpsHealth {
+  enrichedToday: number;
+  emailsToday: number;
+  phonesToday: number;
+  queueDepth: number;
+  totalEnriched: number;
+  totalFailed: number;
+  successRate: number;
+  lastEnrichedAt: string | null;
+  minutesSinceLastJob: number | null;
+  workerActive: boolean;
+}
+
+interface LeadOpsConfig {
+  serperConfigured: boolean;
+  openaiConfigured: boolean;
 }
 
 interface LeadEntity {
@@ -96,6 +115,9 @@ export default function LeadOpsCenter() {
   const [aiAnalysis, setAiAnalysis] = useState<AiAnalysis | null>(null);
   const [showAI, setShowAI] = useState(false);
 
+  // ── SERPER banner dismiss (session-only) ───────────────────────────────────
+  const [serperBannerDismissed, setSerperBannerDismissed] = useState(false);
+
   // ── Queries ────────────────────────────────────────────────────────────────
   const statsQuery = useQuery<LeadOpsStats>({
     queryKey: ["/api/lead-ops/stats"],
@@ -105,6 +127,26 @@ export default function LeadOpsCenter() {
       return r.json();
     },
     refetchInterval: 30000,
+  });
+
+  const healthQuery = useQuery<LeadOpsHealth>({
+    queryKey: ["/api/lead-ops/health"],
+    queryFn: async () => {
+      const r = await fetch("/api/lead-ops/health", { credentials: "include" });
+      if (!r.ok) throw new Error(await r.text());
+      return r.json();
+    },
+    refetchInterval: 60000,
+  });
+
+  const configQuery = useQuery<LeadOpsConfig>({
+    queryKey: ["/api/lead-ops/config"],
+    queryFn: async () => {
+      const r = await fetch("/api/lead-ops/config", { credentials: "include" });
+      if (!r.ok) throw new Error(await r.text());
+      return r.json();
+    },
+    staleTime: 5 * 60 * 1000,
   });
 
   const entitiesParams = new URLSearchParams({
@@ -184,6 +226,31 @@ export default function LeadOpsCenter() {
     onError: (e: Error) => toast({ title: "Failed", description: e.message, variant: "destructive" }),
   });
 
+  const purgeTestMutation = useMutation({
+    mutationFn: async () => {
+      const r = await apiRequest("POST", "/api/admin/purge-test-contacts", {});
+      return r.json();
+    },
+    onSuccess: (data: any) => {
+      toast({ title: "Test data purged", description: data.message });
+      queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/stats"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/health"] });
+    },
+    onError: (e: Error) => toast({ title: "Purge failed", description: e.message, variant: "destructive" }),
+  });
+
+  const resetJobsMutation = useMutation({
+    mutationFn: async () => {
+      const r = await apiRequest("POST", "/api/lead-ops/reset-stuck-jobs", {});
+      return r.json();
+    },
+    onSuccess: (data: any) => {
+      toast({ title: "Queue reset", description: data.message });
+      queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/health"] });
+    },
+    onError: (e: Error) => toast({ title: "Reset failed", description: e.message, variant: "destructive" }),
+  });
+
   // ── Selection helpers ──────────────────────────────────────────────────────
   const allPageSelected = entities.length > 0 && entities.every(e => selectedIds.has(e.id));
   const someSelected    = selectedIds.size > 0;
@@ -212,8 +279,43 @@ export default function LeadOpsCenter() {
     { label: "Hot Leads",     value: stats?.hot?.toLocaleString()         || "—", icon: TrendingUp,   color: "text-red-600 dark:text-red-400" },
   ];
 
+  const health = healthQuery.data;
+  const config = configQuery.data;
+  const showSerperBanner = !serperBannerDismissed && config !== undefined && !config.serperConfigured;
+
   return (
     <div className="space-y-6 pb-12">
+
+      {/* ── SERPER key warning banner ─────────────────────────────────────── */}
+      {showSerperBanner && (
+        <div className="relative flex items-start gap-3 rounded-lg border border-amber-300 bg-amber-50 dark:border-amber-700 dark:bg-amber-950/30 px-4 py-3">
+          <ShieldAlert className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">
+              Google search steps are disabled — email discovery rate is near 0
+            </p>
+            <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
+              Add <code className="bg-amber-100 dark:bg-amber-900 px-1 rounded font-mono">SERPER_API_KEY</code> in{" "}
+              <a
+                href="https://docs.replit.com/replit-workspace/workspace-features/secrets"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline hover:no-underline"
+              >
+                Replit Secrets
+              </a>{" "}
+              to unlock 13 enrichment steps and dramatically improve email discovery.
+            </p>
+          </div>
+          <button
+            onClick={() => setSerperBannerDismissed(true)}
+            className="shrink-0 text-amber-500 hover:text-amber-700 dark:hover:text-amber-300"
+            aria-label="Dismiss"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
 
       {/* ── Page header ──────────────────────────────────────────────────── */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -281,6 +383,188 @@ export default function LeadOpsCenter() {
           </Card>
         ))}
       </div>
+
+      {/* ── Pipeline Health widget ───────────────────────────────────────── */}
+      <Card className="border shadow-sm">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <Activity className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+              <CardTitle className="text-sm">Pipeline Health</CardTitle>
+              {healthQuery.isLoading
+                ? <Skeleton className="h-4 w-20" />
+                : health
+                  ? health.workerActive
+                    ? (
+                      <span className="flex items-center gap-1 text-[11px] font-medium text-green-600 dark:text-green-400">
+                        <span className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
+                        Live
+                      </span>
+                    )
+                    : (
+                      <span className="flex items-center gap-1 text-[11px] font-medium text-amber-600 dark:text-amber-400">
+                        <span className="h-2 w-2 rounded-full bg-amber-500" />
+                        {health.minutesSinceLastJob !== null
+                          ? `Idle ${health.minutesSinceLastJob}m`
+                          : "No activity yet"}
+                      </span>
+                    )
+                  : null
+              }
+            </div>
+            <span className="text-[10px] text-muted-foreground">
+              Auto-refreshes every 60s
+            </span>
+          </div>
+        </CardHeader>
+        <CardContent className="pt-0">
+          {healthQuery.isLoading ? (
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <Skeleton key={i} className="h-14 rounded-lg" />
+              ))}
+            </div>
+          ) : health ? (
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+              {[
+                { label: "Enriched Today",    value: health.enrichedToday.toLocaleString(),    icon: CheckCircle, color: "text-green-600 dark:text-green-400" },
+                { label: "Emails Found Today", value: health.emailsToday.toLocaleString(),     icon: Mail,        color: "text-blue-600 dark:text-blue-400" },
+                { label: "Phones Found Today", value: health.phonesToday.toLocaleString(),     icon: Phone,       color: "text-indigo-600 dark:text-indigo-400" },
+                { label: "Queue Depth",        value: health.queueDepth.toLocaleString(),      icon: Clock,       color: "text-yellow-600 dark:text-yellow-400" },
+                { label: "Success Rate",       value: `${health.successRate}%`,               icon: TrendingUp,  color: "text-emerald-600 dark:text-emerald-400" },
+              ].map((s) => (
+                <div key={s.label} className="rounded-lg border bg-muted/20 p-3">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <s.icon className={`h-3.5 w-3.5 ${s.color}`} />
+                    <span className="text-[11px] text-muted-foreground">{s.label}</span>
+                  </div>
+                  <div className="text-lg font-bold">{s.value}</div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">Could not load health data.</p>
+          )}
+          {health && !health.workerActive && health.minutesSinceLastJob !== null && health.minutesSinceLastJob >= 15 && (
+            <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/20 px-3 py-2">
+              <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+              <p className="text-xs text-amber-700 dark:text-amber-400">
+                No enrichment jobs have completed in the last {health.minutesSinceLastJob} minutes.
+                The worker may be stalled — use "Reset Stuck Queue Jobs" below if this persists.
+              </p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ── Admin Controls card ───────────────────────────────────────────── */}
+      {user?.role === "admin" && (
+        <Card className="border border-dashed border-muted-foreground/30">
+          <CardHeader className="pb-3">
+            <div className="flex items-center gap-2">
+              <Cpu className="h-4 w-4 text-muted-foreground" />
+              <CardTitle className="text-sm text-muted-foreground">Admin Controls</CardTitle>
+            </div>
+            <CardDescription className="text-xs">
+              Pipeline maintenance operations — use with care.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="pt-0 flex flex-wrap gap-3">
+
+            {/* Purge test data */}
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 border-red-200 text-red-700 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950"
+                  disabled={purgeTestMutation.isPending}
+                >
+                  {purgeTestMutation.isPending
+                    ? <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                    : <Trash2 className="h-3.5 w-3.5" />
+                  }
+                  Purge Test Data
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Purge all test contacts?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This permanently deletes all contacts and associated deals, tasks, enrollments,
+                    and audit records matching known test/QA patterns (e.g. @test.invalid,
+                    WebhookTest, StmtTest). This cannot be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    className="bg-red-600 hover:bg-red-700"
+                    onClick={() => purgeTestMutation.mutate()}
+                  >
+                    Purge Test Data
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+
+            {/* Reset stuck queue jobs */}
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5"
+                  disabled={resetJobsMutation.isPending}
+                >
+                  {resetJobsMutation.isPending
+                    ? <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                    : <RotateCcw className="h-3.5 w-3.5" />
+                  }
+                  Reset Stuck Queue Jobs
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Reset stuck enrichment jobs?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This resets any sunbiz entities that have been stuck in "processing" state
+                    for more than 30 minutes back to "pending", so the enrichment worker can
+                    pick them up again on its next tick. Use this if enrichment appears stalled
+                    after a worker crash or restart. No other queue jobs are affected.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={() => resetJobsMutation.mutate()}>
+                    Reset Jobs
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+
+            {/* Download enrichment report */}
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              onClick={() => {
+                const a = document.createElement("a");
+                a.href = "/api/lead-ops/export-enriched";
+                a.download = `enriched-leads-${new Date().toISOString().slice(0, 10)}.csv`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                toast({ title: "Download started", description: "Your enrichment report CSV is being prepared." });
+              }}
+            >
+              <Download className="h-3.5 w-3.5" />
+              Download Enrichment Report
+            </Button>
+
+          </CardContent>
+        </Card>
+      )}
 
       {/* ── AI Intelligence Panel ─────────────────────────────────────────── */}
       <Card className="border-2 border-dashed border-purple-200 dark:border-purple-800 bg-purple-50/40 dark:bg-purple-950/20">
