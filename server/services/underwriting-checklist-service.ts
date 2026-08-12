@@ -6,6 +6,7 @@
  * Idempotent: skips if tasks with source="underwriting" already exist for this deal.
  */
 import { db } from "../db";
+import { storage } from "../storage";
 import { tasks, underwritingConditions } from "@shared/schema";
 import { eq, and, sql } from "drizzle-orm";
 
@@ -247,6 +248,12 @@ async function sendMerchantConditionsEmail(
   name: string | null,
   conditions: ConditionTemplate[],
 ): Promise<void> {
+  const pausedRaw = await storage.getSystemSetting("outboundGlobalPaused");
+  if (pausedRaw === true || pausedRaw === "true") {
+    console.log(`[Underwriting] outboundGlobalPaused — skipping conditions email for deal #${dealId}`);
+    return;
+  }
+
   const { isSmtpConfigured, sendSmtpEmail } = await import("./smtp-email");
   if (!isSmtpConfigured()) return;
 

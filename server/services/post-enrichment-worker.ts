@@ -113,6 +113,13 @@ export async function processPostEnrichmentJob(data: PostEnrichmentJobData): Pro
     return;
   }
 
+  // Global outbound pause gate — bail out before any outbound action
+  const pausedRaw = await storage.getSystemSetting("outboundGlobalPaused");
+  if (pausedRaw === true || pausedRaw === "true") {
+    console.log(`${logPrefix} — outboundGlobalPaused is set — skipping sequence enrollment`);
+    return;
+  }
+
   // Stamp the deal immediately to prevent concurrent re-fires
   await db.execute(sql`
     UPDATE deals

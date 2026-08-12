@@ -759,6 +759,14 @@ const CALL_SITE_ALLOWLIST: Array<{
     reason: "Inbox manual reply — rep-initiated SMTP reply to a specific contact from the CRM inbox UI. Triggered by explicit operator action on an existing conversation thread; never automated or bulk-sent. category field updated from cold_outreach → transactional_merchant to match intent. Reviewed 2026-08-12.",
     reviewDate: "2026-08-12",
   },
+  {
+    file: "server/services/post-enrichment-worker.ts",
+    lineContains: "enrollContactInGhlWorkflow({",
+    channel: "ringless_vm/workflow",
+    category: "sequence_worker",
+    reason: "Post-enrichment auto-advance — enrolls a newly enriched cold lead into a vertical sequence using email-only channel. Contactability is enforced INSIDE enrollContactInGhlWorkflow() via its own evaluateContactability() call (line 374 of ghl-workflow-enrollment.ts). The outer worker also gates on outboundGlobalPaused. Only fires once per deal (idempotency stamp at post_enrichment_automation_at). Reviewed 2026-08-12.",
+    reviewDate: "2026-08-12",
+  },
 ];
 
 
