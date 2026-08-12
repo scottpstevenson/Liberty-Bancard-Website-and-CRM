@@ -3301,6 +3301,106 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // ── Cohort Send Metrics (#1396) ─────────────────────────────────────────────
+  // Returns sends/hour, bounce rate, reply rate, and opt-out rate from the
+  // canonical communication_events table for the monitoring panel.
+  app.get("/api/admin/outbound/cohort-metrics", requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const { pool: pgPool } = await import("../db");
+      const r = await pgPool.query(`
+        WITH
+        s24 AS (
+          SELECT COUNT(*) AS cnt FROM communication_events
+          WHERE direction = 'outbound' AND created_at > NOW() - INTERVAL '24 hours'
+        ),
+        s7 AS (
+          SELECT COUNT(*) AS cnt FROM communication_events
+          WHERE direction = 'outbound' AND created_at > NOW() - INTERVAL '7 days'
+        ),
+        b7 AS (
+          SELECT COUNT(*) AS cnt FROM communication_events
+          WHERE direction = 'outbound' AND status = 'bounced'
+            AND created_at > NOW() - INTERVAL '7 days'
+        ),
+        r7 AS (
+          SELECT COUNT(*) AS cnt FROM communication_events
+          WHERE direction = 'inbound' AND created_at > NOW() - INTERVAL '7 days'
+        ),
+        o7 AS (
+          SELECT COUNT(*) AS cnt FROM communication_events
+          WHERE direction = 'inbound'
+            AND (status = 'unsubscribed'
+              OR (metadata->>'eventType') IN ('opt_out', 'STOP', 'unsubscribe'))
+            AND created_at > NOW() - INTERVAL '7 days'
+        )
+        SELECT
+          s24.cnt::int  AS sends_24h,
+          s7.cnt::int   AS sends_7d,
+          b7.cnt::int   AS bounces_7d,
+          r7.cnt::int   AS replies_7d,
+          o7.cnt::int   AS optouts_7d
+        FROM s24, s7, b7, r7, o7
+      `);
+      const row = r.rows[0] ?? { sends_24h: 0, sends_7d: 0, bounces_7d: 0, replies_7d: 0, optouts_7d: 0 };
+      const s24 = row.sends_24h ?? 0;
+      const s7  = row.sends_7d  ?? 0;
+      res.json({
+        sendsPerHour:   Math.round((s24 / 24) * 10) / 10,
+        sends24h:       s24,
+        sends7d:        s7,
+        bounceRate7d:   s7 > 0 ? Math.round((row.bounces_7d / s7) * 1000) / 10 : 0,
+        replyRate7d:    s7 > 0 ? Math.round((row.replies_7d / s7) * 1000) / 10 : 0,
+        optOutRate7d:   s7 > 0 ? Math.round((row.optouts_7d / s7) * 1000) / 10 : 0,
+        bounces7d:      row.bounces_7d  ?? 0,
+        replies7d:      row.replies_7d  ?? 0,
+        optouts7d:      row.optouts_7d  ?? 0,
+      });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  // ── Pending Underwriting Conditions (#1403) ─────────────────────────────────
+  // Admin view of all open underwriting conditions across all deals.
+  app.get("/api/admin/underwriting/pending-conditions", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const { pool: pgPool } = await import("../db");
+      const overdueOnly = req.query.overdue === "true";
+      const r = await pgPool.query(`
+        SELECT
+          uc.id,
+          uc.deal_id,
+          uc.condition_type,
+          uc.description,
+          uc.status,
+          uc.due_date,
+          uc.submitted_at,
+          uc.approved_at,
+          uc.waived_at,
+          uc.created_at,
+          d.stage        AS deal_stage,
+          d.pipeline     AS deal_pipeline,
+          c.id           AS contact_id,
+          c.first_name,
+          c.last_name,
+          c.company_name,
+          c.email
+        FROM underwriting_conditions uc
+        JOIN deals d ON d.id = uc.deal_id
+        LEFT JOIN contacts c ON c.id = d.contact_id
+        WHERE uc.status = 'pending'
+          AND uc.approved_at IS NULL
+          AND uc.waived_at IS NULL
+          ${overdueOnly ? "AND uc.due_date IS NOT NULL AND uc.due_date < NOW()" : ""}
+        ORDER BY uc.due_date ASC NULLS LAST
+        LIMIT 500
+      `);
+      res.json({ conditions: r.rows, total: r.rows.length });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
   // ── Full 25-subsystem Launch Readiness Audit ────────────────────────────────
   app.get("/api/admin/launch-readiness-full", requireRole("admin", "manager"), async (_req, res) => {
     try {

@@ -1071,7 +1071,7 @@ export function registerInboxRoutes(app: Express) {
           subject: subject || `Re: Your inquiry`,
           html: replyBody.replace(/\n/g, "<br>"),
           text: replyBody,
-          category: "cold_outreach",
+          category: "transactional_merchant",
           contactId,
           ...(inReplyTo && { headers: { "In-Reply-To": inReplyTo, References: inReplyTo } }),
         });

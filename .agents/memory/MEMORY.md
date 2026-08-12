@@ -91,3 +91,6 @@
 - [Pipeline silence thresholds editor](pipeline-silence-thresholds-editor.md) — PipelineSilenceThresholdsPanel in OperatorDashboard.tsx; GET/PUT /api/admin/settings/pipeline-silence-thresholds; key format is "pipeline::stage" → hours; falls back to GLOBAL_THRESHOLD_HOURS env var.
 - [Test contact GHL ID prefixes](test-contact-prefixes.md) — Smoke tests create contacts under two prefixes: wh-test-ghl-* AND ghl-deal-test-*; always clean both; cascade must delete deal FK children before deals before contacts.
 - [Lead Pool Scale](lead-pool-scale.md) — 1.9M sunbiz entities; 190K hot; email discovery crippled without SERPER_API_KEY; Lead Ops Center at /dashboard/lead-ops; writeback fixed Aug 12.
+- [Underwriting Orchestration](underwriting-orchestration.md) — initUnderwritingConditions() + doc-chase email + SLA alert + admin pending-conditions route; all wired Aug 12; merchant upload portal not yet built.
+- [Equipment Shipments Device Fields](equipment-shipments-device-fields.md) — migration 0130 adds device_type/serial_number; new POST/PATCH/GET /api/boarding/equipment CRUD; merchant_mids IS the master MID registry.
+- [Cohort Monitoring Preflight](cohort-monitoring-preflight.md) — GET /api/admin/outbound/cohort-metrics + live 4-tile panel on OutboundPreflight.tsx; thresholds red>5% bounce, amber>1% opt-out; no automated alert yet.

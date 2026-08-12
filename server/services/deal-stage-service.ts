@@ -258,21 +258,26 @@ export async function advanceDealStage(
     );
   }
 
-  // Underwriting stage → auto-initialize document checklist (idempotent)
+  // Underwriting stage → auto-initialize document checklist + conditions (both idempotent).
   // Vertical is resolved from the linked contact because the deals table has no
   // vertical column — the canonical vertical lives on contacts.
   if (newStage.toLowerCase().includes("underwriting")) {
-    import("./underwriting-checklist-service").then(async ({ initUnderwritingChecklist }) => {
+    import("./underwriting-checklist-service").then(async ({ initUnderwritingChecklist, initUnderwritingConditions }) => {
       let vertical: string | null = null;
+      let contactEmail: string | null = null;
+      let contactName: string | null = null;
       if (updated.contactId) {
         try {
           const contact = await storage.getContact(updated.contactId);
-          vertical = contact?.vertical ?? null;
-        } catch { /* non-fatal — falls back to generic checklist */ }
+          vertical      = contact?.vertical  ?? null;
+          contactEmail  = contact?.email     ?? null;
+          contactName   = [contact?.firstName, contact?.lastName].filter(Boolean).join(" ") || null;
+        } catch { /* non-fatal — falls back to generic templates */ }
       }
-      return initUnderwritingChecklist(dealId, vertical);
+      await initUnderwritingChecklist(dealId, vertical);
+      await initUnderwritingConditions(dealId, contactEmail, contactName, updated.contactId ?? null);
     }).catch((err: Error) =>
-      console.error(`[DealStage] Underwriting checklist init error for deal ${dealId}:`, err.message),
+      console.error(`[DealStage] Underwriting init error for deal ${dealId}:`, err.message),
     );
   }
 

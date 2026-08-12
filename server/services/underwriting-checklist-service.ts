@@ -6,7 +6,7 @@
  * Idempotent: skips if tasks with source="underwriting" already exist for this deal.
  */
 import { db } from "../db";
-import { tasks } from "@shared/schema";
+import { tasks, underwritingConditions } from "@shared/schema";
 import { eq, and, sql } from "drizzle-orm";
 
 /** Add N business days (Mon–Fri) to a start date. */
@@ -170,6 +170,110 @@ function getChecklistItems(vertical: string | null): ChecklistTemplate[] {
   const norm = normalizeVertical(vertical);
   const extras = VERTICAL_EXTRA[norm] ?? [];
   return [...BASE_ITEMS, ...extras];
+}
+
+// ─── Standard underwriting conditions (separate from per-rep tasks) ───────────
+// These rows land in underwriting_conditions so admin can track them distinct from
+// internal tasks. Each condition is also surfaced to the merchant via email.
+
+interface ConditionTemplate {
+  conditionType: string;
+  description: string;
+  dueDays: number;
+}
+
+const STANDARD_CONDITIONS: ConditionTemplate[] = [
+  { conditionType: "merchant_application",         description: "Fully signed merchant application — all sections and principals completed", dueDays: 1 },
+  { conditionType: "processing_agreement",         description: "Fully executed merchant processing agreement from all principals with ≥25% ownership", dueDays: 3 },
+  { conditionType: "photo_id",                     description: "Valid government-issued photo ID (driver's license or passport) for each principal", dueDays: 2 },
+  { conditionType: "voided_check",                 description: "Voided business check or signed bank letter for deposit account verification", dueDays: 2 },
+  { conditionType: "bank_statements",              description: "3 consecutive months of business bank statements", dueDays: 3 },
+  { conditionType: "prior_processing_statements",  description: "3 months prior card processing statements (waivable for new merchants — note if not applicable)", dueDays: 3 },
+];
+
+/**
+ * Auto-create underwriting_conditions rows when a deal enters an underwriting stage.
+ *
+ * Idempotent — no-ops if conditions already exist for this deal.
+ * Also sends the merchant an email listing required documents.
+ */
+export async function initUnderwritingConditions(
+  dealId: number,
+  contactEmail: string | null,
+  contactName: string | null,
+  contactId: number | null,
+): Promise<void> {
+  try {
+    // Idempotency: skip if conditions already exist
+    const existing = await db
+      .select({ id: underwritingConditions.id })
+      .from(underwritingConditions)
+      .where(eq(underwritingConditions.dealId, dealId))
+      .limit(1);
+
+    if (existing.length > 0) {
+      console.log(`[Underwriting] Conditions already initialized for deal #${dealId} — skipping`);
+      return;
+    }
+
+    const now = new Date();
+    const conditionRows = STANDARD_CONDITIONS.map((c) => ({
+      dealId,
+      conditionType: c.conditionType,
+      description:   c.description,
+      status:        "pending" as const,
+      merchantVisible: true,
+      dueDate:       addBusinessDays(now, c.dueDays),
+      ...(contactId ? { createdBy: contactId } : {}),
+    }));
+
+    await db.insert(underwritingConditions).values(conditionRows);
+    console.log(`[Underwriting] ${conditionRows.length} conditions created for deal #${dealId}`);
+
+    // Send merchant an email listing required documents
+    if (contactEmail) {
+      await sendMerchantConditionsEmail(dealId, contactEmail, contactName, STANDARD_CONDITIONS).catch(
+        (err: Error) => console.error(`[Underwriting] conditions email error for deal #${dealId}:`, err.message),
+      );
+    }
+  } catch (err) {
+    console.error(`[Underwriting] conditions init error for deal #${dealId}:`, (err as Error).message);
+  }
+}
+
+async function sendMerchantConditionsEmail(
+  dealId: number,
+  email: string,
+  name: string | null,
+  conditions: ConditionTemplate[],
+): Promise<void> {
+  const { isSmtpConfigured, sendSmtpEmail } = await import("./smtp-email");
+  if (!isSmtpConfigured()) return;
+
+  const greeting = name ? `Hi ${name.split(" ")[0]}` : "Hello";
+  const itemsHtml = conditions
+    .map((c, i) => `<li style="margin-bottom:6px"><strong>${i + 1}. ${c.conditionType.replace(/_/g, " ")}</strong><br/>${c.description}</li>`)
+    .join("\n");
+  const itemsText = conditions
+    .map((c, i) => `${i + 1}. ${c.description}`)
+    .join("\n");
+
+  await sendSmtpEmail({
+    to: email,
+    subject: "Action Required: Documents Needed to Complete Your Application",
+    html: `
+      <p>${greeting},</p>
+      <p>Thank you for your merchant application. To advance through underwriting we need the following documents:</p>
+      <ol>${itemsHtml}</ol>
+      <p>Please submit these as soon as possible. Reply to this email or contact your representative if you have questions.</p>
+      <p>Best regards,<br/>Liberty Bancard Underwriting Team</p>
+    `,
+    text: `${greeting},\n\nTo complete underwriting, please submit:\n${itemsText}\n\nReply to this email or contact your rep if you have questions.\n\nBest regards,\nLiberty Bancard Underwriting Team`,
+    category: "transactional_merchant",
+    dealId,
+  });
+
+  console.log(`[Underwriting] Conditions email sent to ${email} for deal #${dealId}`);
 }
 
 /**

@@ -932,6 +932,13 @@
       "when": 1791300001000,
       "tag": "0129_deal_name",
       "breakpoints": false
+    },
+    {
+      "idx": 130,
+      "version": "7",
+      "when": 1791300001001,
+      "tag": "0130_equipment_device_fields",
+      "breakpoints": true
     }
   ]
 }

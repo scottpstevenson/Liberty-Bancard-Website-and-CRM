@@ -5336,6 +5336,8 @@ export const equipmentShipments = pgTable("equipment_shipments", {
   contactId:         integer("contact_id").notNull().references(() => contacts.id, { onDelete: "cascade" }),
   dealId:            integer("deal_id").references(() => deals.id),
   equipmentOrderId:  integer("equipment_order_id"),
+  deviceType:        text("device_type"),
+  serialNumber:      text("serial_number"),
   carrier:           text("carrier"),
   trackingNumber:    text("tracking_number"),
   status:            text("status").notNull().default("pending"),
@@ -5350,7 +5352,11 @@ export const equipmentShipments = pgTable("equipment_shipments", {
   index("idx_equipment_shipments_deal_id").on(t.dealId),
 ]);
 
+export const insertEquipmentShipmentSchema = createInsertSchema(equipmentShipments).omit({
+  id: true, createdAt: true, updatedAt: true,
+});
 export type EquipmentShipment = typeof equipmentShipments.$inferSelect;
+export type InsertEquipmentShipment = z.infer<typeof insertEquipmentShipmentSchema>;
 
 // ─── Save Cases (#1407) ──────────────────────────────────────────────────────
 export const saveCases = pgTable("save_cases", {

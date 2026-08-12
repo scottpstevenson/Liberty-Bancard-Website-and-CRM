@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   CheckCircle2, XCircle, AlertTriangle, Loader2, RefreshCw,
-  Rocket, ShieldCheck, Pause, Play, Zap,
+  Rocket, ShieldCheck, Pause, Play, Zap, BarChart2, TrendingUp, Mail, MessageSquareOff,
 } from "lucide-react";
 import { Link } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
@@ -43,6 +43,18 @@ interface CohortLaunchResult {
   sequenceId: number | null;
   timestamp: string;
   message: string;
+}
+
+interface CohortMetrics {
+  sendsPerHour: number;
+  sends24h: number;
+  sends7d: number;
+  bounceRate7d: number;
+  replyRate7d: number;
+  optOutRate7d: number;
+  bounces7d: number;
+  replies7d: number;
+  optouts7d: number;
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -96,6 +108,11 @@ export default function OutboundPreflight() {
   const { data, isLoading, isError, refetch, isFetching } = useQuery<PreflightReport>({
     queryKey: ["/api/admin/outbound-preflight"],
     refetchInterval: 60_000,
+  });
+
+  const { data: metrics } = useQuery<CohortMetrics>({
+    queryKey: ["/api/admin/outbound/cohort-metrics"],
+    refetchInterval: 5 * 60_000,
   });
 
   const launchMutation = useMutation({
@@ -351,6 +368,64 @@ export default function OutboundPreflight() {
             </CardContent>
           </Card>
         )}
+
+        {/* Live Send Monitoring */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <BarChart2 className="h-4 w-4 text-muted-foreground" />
+              Live Send Monitoring
+            </CardTitle>
+            <CardDescription>
+              Cohort metrics from the past 7 days. Refreshes every 5 minutes.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {metrics ? (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                <div className="rounded-lg border bg-card p-3 text-center">
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide">Sends / hr</p>
+                  <p className="text-2xl font-bold mt-1">{metrics.sendsPerHour}</p>
+                  <p className="text-xs text-muted-foreground">{metrics.sends24h} in 24h</p>
+                </div>
+                <div className={`rounded-lg border p-3 text-center ${metrics.bounceRate7d > 5 ? "border-red-200 bg-red-50" : "bg-card"}`}>
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide flex items-center justify-center gap-1">
+                    <TrendingUp className="h-3 w-3" /> Bounce Rate
+                  </p>
+                  <p className={`text-2xl font-bold mt-1 ${metrics.bounceRate7d > 5 ? "text-red-600" : ""}`}>
+                    {metrics.bounceRate7d}%
+                  </p>
+                  <p className="text-xs text-muted-foreground">{metrics.bounces7d} bounces / 7d</p>
+                </div>
+                <div className="rounded-lg border bg-card p-3 text-center">
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide flex items-center justify-center gap-1">
+                    <Mail className="h-3 w-3" /> Reply Rate
+                  </p>
+                  <p className="text-2xl font-bold mt-1">{metrics.replyRate7d}%</p>
+                  <p className="text-xs text-muted-foreground">{metrics.replies7d} replies / 7d</p>
+                </div>
+                <div className={`rounded-lg border p-3 text-center ${metrics.optOutRate7d > 1 ? "border-amber-200 bg-amber-50" : "bg-card"}`}>
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide flex items-center justify-center gap-1">
+                    <MessageSquareOff className="h-3 w-3" /> Opt-Out Rate
+                  </p>
+                  <p className={`text-2xl font-bold mt-1 ${metrics.optOutRate7d > 1 ? "text-amber-700" : ""}`}>
+                    {metrics.optOutRate7d}%
+                  </p>
+                  <p className="text-xs text-muted-foreground">{metrics.optouts7d} opt-outs / 7d</p>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground py-4 justify-center">
+                <Loader2 className="h-4 w-4 animate-spin" /> Loading metrics…
+              </div>
+            )}
+            {metrics && metrics.sends7d === 0 && (
+              <p className="text-xs text-muted-foreground text-center mt-3">
+                No outbound sends recorded in the past 7 days. Metrics will populate once sends are active.
+              </p>
+            )}
+          </CardContent>
+        </Card>
 
         {/* Explainer */}
         <Card>

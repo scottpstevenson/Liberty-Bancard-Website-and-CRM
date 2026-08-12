@@ -756,10 +756,64 @@ async function runSlaCheck() {
       }
     }
     await autoResolveClearedSlaTasks(activeStuckDealIds);
+    // #1403 — Alert on overdue underwriting conditions (merchant hasn't submitted docs)
+    await checkUnderwritingConditionSlas().catch((err: Error) =>
+      console.error("[SlaLoop] underwriting conditions SLA error:", err.message),
+    );
     await releaseJobLock(JOB_NAMES.SLA_WORKER, true, undefined, lockToken);
   } catch (err: any) {
     console.error("SLA check error:", err);
     await releaseJobLock(JOB_NAMES.SLA_WORKER, false, err?.message ?? String(err), lockToken);
+  }
+}
+
+/**
+ * #1403 — Check for pending underwriting conditions that are past their due date.
+ * Creates a high-priority internal task for each deal with overdue conditions,
+ * deduplicated so only one SLA task exists per deal at a time.
+ */
+async function checkUnderwritingConditionSlas(): Promise<void> {
+  const result = await db.execute(drizzleSql`
+    SELECT
+      uc.deal_id,
+      STRING_AGG(uc.condition_type, ', ' ORDER BY uc.condition_type) AS overdue_conditions,
+      COUNT(*)::int AS overdue_count
+    FROM underwriting_conditions uc
+    WHERE uc.status = 'pending'
+      AND uc.submitted_at IS NULL
+      AND uc.due_date IS NOT NULL
+      AND uc.due_date < NOW()
+      AND uc.merchant_visible = true
+    GROUP BY uc.deal_id
+    LIMIT 100
+  `);
+
+  const rows: Array<{ deal_id: number; overdue_conditions: string; overdue_count: number }> =
+    (result as any).rows ?? (result as any);
+  if (!Array.isArray(rows) || rows.length === 0) return;
+
+  let flagged = 0;
+  for (const row of rows) {
+    const automationKey = `uw_condition_sla_overdue_${row.deal_id}`;
+    await db.execute(drizzleSql`
+      INSERT INTO tasks (deal_id, title, description, status, priority, source, automation_key)
+      SELECT
+        ${row.deal_id},
+        ${"Overdue: merchant has not submitted underwriting documents"},
+        ${`${row.overdue_count} condition(s) past due: ${row.overdue_conditions}. Follow up immediately.`},
+        ${"pending"},
+        ${"high"},
+        ${"underwriting_sla"},
+        ${automationKey}
+      WHERE NOT EXISTS (
+        SELECT 1 FROM tasks WHERE automation_key = ${automationKey} AND status != 'completed'
+      )
+    `);
+    flagged++;
+  }
+
+  if (flagged > 0) {
+    console.log(`[Underwriting SLA] Flagged ${flagged} deal(s) with overdue conditions`);
   }
 }
 

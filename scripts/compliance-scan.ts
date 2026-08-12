@@ -742,6 +742,23 @@ const CALL_SITE_ALLOWLIST: Array<{
     reason: "Sequence step test-send — POST /api/sequences/steps/test-send protected by isDashboardUser; sends a preview of a sequence email step to the authenticated user's own email address only. Never sent to contacts/prospects; purely an internal operator tool for reviewing template output before activation. Reviewed 2026-08-11.",
     reviewDate: "2026-08-11",
   },
+  // ── 2026-08-12 remediation batch ─────────────────────────────────────────
+  {
+    file: "server/services/underwriting-checklist-service.ts",
+    lineContains: "await sendSmtpEmail({",
+    channel: "email",
+    category: "transactional_merchant",
+    reason: "Underwriting document request email — sent to the merchant when their deal enters an underwriting stage, listing the specific documents required to advance. Triggered once per deal by initUnderwritingConditions() (idempotent). Never bulk-sent; always tied to a specific deal transition. Reviewed 2026-08-12.",
+    reviewDate: "2026-08-12",
+  },
+  {
+    file: "server/routes/inbox.ts",
+    lineContains: "await sendSmtpEmail({",
+    channel: "email",
+    category: "transactional_merchant",
+    reason: "Inbox manual reply — rep-initiated SMTP reply to a specific contact from the CRM inbox UI. Triggered by explicit operator action on an existing conversation thread; never automated or bulk-sent. category field updated from cold_outreach → transactional_merchant to match intent. Reviewed 2026-08-12.",
+    reviewDate: "2026-08-12",
+  },
 ];
 
 

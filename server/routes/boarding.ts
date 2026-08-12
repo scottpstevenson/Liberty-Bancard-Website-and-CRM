@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { isAuthenticated, isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { db } from "../db";
-import { sql } from "drizzle-orm";
+import { sql, eq, and } from "drizzle-orm";
 import { getProcessor, getDefaultProcessor, getEnabledAdapterNames, ingestMidDataForActiveMids } from "../services/processors/registry";
 import { serverError, safeMessage } from "../utils/server-error";
 
@@ -549,6 +549,118 @@ export function registerBoardingRoutes(app: Express) {
         LIMIT 500
       `);
       res.json({ merchants: result.rows });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  /**
+   * POST /api/boarding/equipment
+   * #1404 — Create an equipment shipment record with device type and serial number.
+   */
+  app.post("/api/boarding/equipment", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const body = req.body as {
+        contactId: number;
+        dealId?: number;
+        deviceType?: string;
+        serialNumber?: string;
+        carrier?: string;
+        trackingNumber?: string;
+        status?: string;
+        shippedAt?: string;
+        estimatedDelivery?: string;
+        notes?: string;
+      };
+
+      if (!body.contactId) return res.status(400).json({ message: "contactId is required" });
+
+      const { equipmentShipments } = await import("@shared/schema");
+      const [row] = await db.insert(equipmentShipments).values({
+        contactId:         body.contactId,
+        dealId:            body.dealId ?? null,
+        deviceType:        body.deviceType ?? null,
+        serialNumber:      body.serialNumber ?? null,
+        carrier:           body.carrier ?? null,
+        trackingNumber:    body.trackingNumber ?? null,
+        status:            body.status ?? "pending",
+        shippedAt:         body.shippedAt  ? new Date(body.shippedAt)  : null,
+        estimatedDelivery: body.estimatedDelivery ? new Date(body.estimatedDelivery) : null,
+        notes:             body.notes ?? null,
+      }).returning();
+
+      res.status(201).json({ shipment: row });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  /**
+   * PATCH /api/boarding/equipment/:id
+   * #1404 — Update an equipment shipment (status, tracking, delivery, device details).
+   */
+  app.patch("/api/boarding/equipment/:id", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid shipment id" });
+
+      const body = req.body as {
+        deviceType?: string;
+        serialNumber?: string;
+        carrier?: string;
+        trackingNumber?: string;
+        status?: string;
+        shippedAt?: string | null;
+        estimatedDelivery?: string | null;
+        deliveredAt?: string | null;
+        notes?: string;
+      };
+
+      const { equipmentShipments } = await import("@shared/schema");
+      const updates: Record<string, unknown> = { updatedAt: new Date() };
+      if (body.deviceType        !== undefined) updates.deviceType        = body.deviceType;
+      if (body.serialNumber      !== undefined) updates.serialNumber      = body.serialNumber;
+      if (body.carrier           !== undefined) updates.carrier           = body.carrier;
+      if (body.trackingNumber    !== undefined) updates.trackingNumber    = body.trackingNumber;
+      if (body.status            !== undefined) updates.status            = body.status;
+      if (body.shippedAt         !== undefined) updates.shippedAt         = body.shippedAt  ? new Date(body.shippedAt)  : null;
+      if (body.estimatedDelivery !== undefined) updates.estimatedDelivery = body.estimatedDelivery ? new Date(body.estimatedDelivery) : null;
+      if (body.deliveredAt       !== undefined) updates.deliveredAt       = body.deliveredAt ? new Date(body.deliveredAt) : null;
+      if (body.notes             !== undefined) updates.notes             = body.notes;
+
+      const [updated] = await db
+        .update(equipmentShipments)
+        .set(updates as any)
+        .where(eq(equipmentShipments.id, id))
+        .returning();
+
+      if (!updated) return res.status(404).json({ message: "Shipment not found" });
+      res.json({ shipment: updated });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  /**
+   * GET /api/boarding/equipment
+   * #1404 — List equipment shipments for a contact or deal.
+   */
+  app.get("/api/boarding/equipment", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const contactId = req.query.contactId ? Number(req.query.contactId) : null;
+      const dealId    = req.query.dealId    ? Number(req.query.dealId)    : null;
+      if (!contactId && !dealId) return res.status(400).json({ message: "contactId or dealId required" });
+
+      const { equipmentShipments } = await import("@shared/schema");
+      const conditions = [];
+      if (contactId) conditions.push(eq(equipmentShipments.contactId, contactId));
+      if (dealId)    conditions.push(eq(equipmentShipments.dealId, dealId));
+
+      const rows = await db.select().from(equipmentShipments)
+        .where(conditions.length === 1 ? conditions[0] : and(...conditions))
+        .orderBy(equipmentShipments.createdAt);
+
+      res.json({ shipments: rows });
     } catch (err: any) {
       serverError(res, err);
     }
