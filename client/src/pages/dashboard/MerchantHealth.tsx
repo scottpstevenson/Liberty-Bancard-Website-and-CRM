@@ -33,6 +33,7 @@ import {
   Settings,
 } from "lucide-react";
 import type { HealthAlert, MerchantHealthScore, Agent } from "@shared/schema";
+import { PageHeader } from "@/components/ui/page-header";
 
 const ALERT_TYPE_CONFIG: Record<string, { label: string; icon: typeof AlertTriangle }> = {
   volume_decline: { label: "Volume Decline", icon: TrendingDown },
@@ -283,12 +284,11 @@ export default function MerchantHealth() {
 
   return (
     <div className="space-y-8" data-testid="page-merchant-health">
-      <div>
-        <h1 className="text-2xl font-bold" data-testid="text-page-title">Merchant Health Monitor</h1>
-        <p className="text-muted-foreground mt-1" data-testid="text-page-subtitle">
-          Proactive alerts, churn prediction scoring, and at-risk merchant intelligence
-        </p>
-      </div>
+      <PageHeader
+        title="Merchant Health Monitor"
+        subtitle="Proactive alerts, churn prediction scoring, and at-risk merchant intelligence"
+        testId="text-page-title"
+      />
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <Card data-testid="card-kpi-critical">

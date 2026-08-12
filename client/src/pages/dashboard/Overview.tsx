@@ -370,7 +370,7 @@ export default function Overview() {
         </div>
 
         <div className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
             <Card data-testid="card-kpi-today-leads">
               <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
                 <CardTitle className="text-sm font-medium text-muted-foreground">Today's Leads</CardTitle>
@@ -521,7 +521,7 @@ export default function Overview() {
           )}
 
           {/* Contacts, onboarding, pipeline stages, lead sources */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
             <Card data-testid="card-lead-sources">
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">

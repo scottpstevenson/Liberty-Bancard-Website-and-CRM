@@ -1,28 +1,32 @@
 import { useState, useEffect } from "react";
 import { useLocation, useSearch } from "wouter";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Zap, Megaphone, ListOrdered, LineChart } from "lucide-react";
+import { Zap, Megaphone, ListOrdered, LineChart, Users } from "lucide-react";
 import OutreachCommandPage from "./OutreachCommand";
 import CampaignsPage from "./Campaigns";
 import SequencesPage from "./Sequences";
-import AcquisitionHubPage from "./AcquisitionHub";
+import OutreachAnalyticsPage from "./OutreachAnalytics";
+import ColdLeadsPage from "./ColdLeads";
 
 /**
  * Outbound Command Center — unified tabbed shell
- * Merges: Campaigns, Sequences, OutreachCommand, AcquisitionHub
+ * Merges: Campaigns, Sequences, OutreachCommand, ColdLeads, OutreachAnalytics
  *
  * Tab "command"   → Outreach Command (pipeline, import, enrich)
  * Tab "campaigns" → Email campaigns
  * Tab "sequences" → Drip sequences
- * Tab "analytics" → Acquisition analytics hub
+ * Tab "prospects" → Cold leads dormant-contact list
+ * Tab "analytics" → Outreach analytics
  *
- * URL: /dashboard/outbound-center?tab=command|campaigns|sequences|analytics
+ * URL: /dashboard/outbound-center?tab=command|campaigns|sequences|prospects|analytics
  *
  * Legacy routes that redirect here:
  *   /dashboard/campaigns          → tab=campaigns
  *   /dashboard/sequences          → tab=sequences
  *   /dashboard/outreach-command   → tab=command (already redirected in App.tsx)
+ *   /dashboard/cold-leads         → tab=prospects
  *   /dashboard/acquisition-hub    → tab=analytics
+ *   /dashboard/outreach-hub       → redirect to here
  */
 export default function OutboundCenter() {
   const search = useSearch();
@@ -30,7 +34,7 @@ export default function OutboundCenter() {
 
   const params = new URLSearchParams(search);
   const rawTab = params.get("tab") ?? "command";
-  const validTabs = ["command", "campaigns", "sequences", "analytics"];
+  const validTabs = ["command", "campaigns", "sequences", "prospects", "analytics"];
   const initialTab = validTabs.includes(rawTab) ? rawTab : "command";
   const [tab, setTab] = useState(initialTab);
 
@@ -60,6 +64,10 @@ export default function OutboundCenter() {
             <ListOrdered className="w-4 h-4" />
             Sequences
           </TabsTrigger>
+          <TabsTrigger value="prospects" className="gap-2" data-testid="tab-outbound-prospects">
+            <Users className="w-4 h-4" />
+            Prospects
+          </TabsTrigger>
           <TabsTrigger value="analytics" className="gap-2" data-testid="tab-outbound-analytics">
             <LineChart className="w-4 h-4" />
             Analytics
@@ -78,8 +86,12 @@ export default function OutboundCenter() {
           <SequencesPage />
         </TabsContent>
 
+        <TabsContent value="prospects" data-testid="tab-content-prospects">
+          <ColdLeadsPage />
+        </TabsContent>
+
         <TabsContent value="analytics" data-testid="tab-content-analytics">
-          <AcquisitionHubPage />
+          <OutreachAnalyticsPage />
         </TabsContent>
       </Tabs>
     </div>

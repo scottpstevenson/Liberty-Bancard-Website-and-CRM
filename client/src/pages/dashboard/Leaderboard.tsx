@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { PageHeader } from "@/components/ui/page-header";
 import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -194,32 +195,30 @@ export default function Leaderboard() {
 
   return (
     <div className="space-y-6" data-testid="leaderboard-page">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2" data-testid="text-leaderboard-title">
-            <Trophy className="w-7 h-7 text-yellow-500" />
-            Team Leaderboard
-          </h1>
-          <p className="text-muted-foreground mt-1">Top performers ranked by key sales metrics</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Select value={period} onValueChange={(v) => setPeriod(v as TimePeriod)}>
-            <SelectTrigger className="w-40" data-testid="select-time-period">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {(Object.entries(PERIOD_LABELS) as [TimePeriod, string][]).map(([val, label]) => (
-                <SelectItem key={val} value={val}>{label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {isAdmin && (
-            <Button variant="outline" size="icon" aria-label="Leaderboard settings" onClick={openSettings} data-testid="button-leaderboard-settings">
-              <Settings className="w-4 h-4" />
-            </Button>
-          )}
-        </div>
-      </div>
+      <PageHeader
+        title="Team Leaderboard"
+        subtitle="Top performers ranked by key sales metrics"
+        testId="text-leaderboard-title"
+        actions={
+          <>
+            <Select value={period} onValueChange={(v) => setPeriod(v as TimePeriod)}>
+              <SelectTrigger className="w-40" data-testid="select-time-period">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(Object.entries(PERIOD_LABELS) as [TimePeriod, string][]).map(([val, label]) => (
+                  <SelectItem key={val} value={val}>{label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {isAdmin && (
+              <Button variant="outline" size="icon" aria-label="Leaderboard settings" onClick={openSettings} data-testid="button-leaderboard-settings">
+                <Settings className="w-4 h-4" />
+              </Button>
+            )}
+          </>
+        }
+      />
 
       {editingSettings && localSettings && (
         <Card data-testid="card-leaderboard-settings">
@@ -286,7 +285,7 @@ export default function Leaderboard() {
       )}
 
       <Tabs value={activeMetric} onValueChange={(v) => setActiveMetric(v as MetricKey)}>
-        <TabsList data-testid="tabs-leaderboard-metrics">
+        <TabsList className="h-auto flex-wrap gap-1" data-testid="tabs-leaderboard-metrics">
           {tabs.map(({ key, label, icon: Icon }) => (
             <TabsTrigger key={key} value={key} data-testid={`tab-metric-${key}`}>
               <Icon className="w-3.5 h-3.5 mr-1.5" />

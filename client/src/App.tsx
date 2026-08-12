@@ -585,10 +585,10 @@ function Router() {
           <ProtectedRoute component={StatementReview} />
         </Route>
         <Route path="/dashboard/outreach">
-          <Redirect to="/dashboard/outreach-hub?tab=overview" />
+          <Redirect to="/dashboard/outbound-center?tab=command" />
         </Route>
         <Route path="/dashboard/outreach-command">
-          <Redirect to="/dashboard/outreach-hub?tab=command" />
+          <Redirect to="/dashboard/outbound-center?tab=command" />
         </Route>
         <Route path="/dashboard/lead-engine">
           <Redirect to="/dashboard/lead-intelligence" />
@@ -768,7 +768,7 @@ function Router() {
         <Route path="/partners/embed-widget" component={PartnerEmbedWidget} />
 
         <Route path="/dashboard/cold-leads">
-          <Redirect to="/dashboard/outreach-hub?tab=prospects" />
+          <Redirect to="/dashboard/outbound-center?tab=prospects" />
         </Route>
 
         <Route path="/dashboard/underwriting">
@@ -780,8 +780,9 @@ function Router() {
         </Route>
 
         {/* ─── Hub Routes ───────────────────────────────────────────────────── */}
+        {/* outreach-hub retired — redirect to the unified OutboundCenter */}
         <Route path="/dashboard/outreach-hub">
-          <ProtectedRoute component={OutreachHub} allowedRoles={["admin", "manager"]} />
+          <Redirect to="/dashboard/outbound-center" />
         </Route>
         <Route path="/dashboard/ghl-integration">
           <ProtectedRoute component={GhlIntegrationHub} allowedRoles={["admin", "manager"]} />

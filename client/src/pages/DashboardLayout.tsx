@@ -146,46 +146,50 @@ const toolsItems: MenuItem[] = [
 
 // ─── MERCHANT OPS ─────────────────────────────────────────────────────────────
 const merchantOpsItems: MenuItem[] = [
-  { icon: ShieldCheck,   label: "My Portal",          href: "/dashboard/merchant-portal",       roles: ["merchant"] },
-  { icon: Briefcase,     label: "Portfolio",           href: "/dashboard/portfolio",             roles: ["admin", "manager"] },
-  { icon: ClipboardList, label: "Applications",        href: "/dashboard/merchant-applications", roles: ["admin", "manager"], badgeKey: "pendingApplications" },
-  { icon: FileBarChart,  label: "Statement Reviews",   href: "/dashboard/statement-review",      roles: ["admin", "manager"] },
-  { icon: FolderOpen,    label: "Documents",           href: "/dashboard/document-vault",        roles: ["admin", "manager"] },
-  { icon: ShieldCheck,   label: "Underwriting",        href: "/dashboard/underwriting",          roles: ["admin", "manager"] },
-  { icon: Package,       label: "Onboarding",          href: "/dashboard/onboarding",            roles: ["admin", "manager"] },
-  { icon: ShieldAlert,   label: "Merchant Risk",       href: "/dashboard/merchant-risk",         roles: ["admin", "manager"] },
-  { icon: Send,          label: "Boarding",            href: "/dashboard/boarding",              roles: ["admin", "manager"] },
-  { icon: Rocket,        label: "Onboarding Kickoff",  href: "/dashboard/onboarding-kickoff",    roles: ["admin", "manager"] },
-  { icon: HelpCircle,    label: "Knowledge Base",      href: "/dashboard/knowledge-base" },
-  { icon: GraduationCap, label: "Training",            href: "/dashboard/training",              roles: ["admin", "manager", "agent"] },
+  { icon: ShieldCheck,   label: "My Portal",        href: "/dashboard/merchant-portal",       roles: ["merchant"] },
+  { icon: Briefcase,     label: "Portfolio",         href: "/dashboard/portfolio",             roles: ["admin", "manager"] },
+  { icon: ClipboardList, label: "Applications",      href: "/dashboard/merchant-applications", roles: ["admin", "manager"], badgeKey: "pendingApplications" },
+  { icon: FileBarChart,  label: "Statement Reviews", href: "/dashboard/statement-review",      roles: ["admin", "manager"] },
+  { icon: FolderOpen,    label: "Documents",         href: "/dashboard/document-vault",        roles: ["admin", "manager"] },
+  { icon: ShieldCheck,   label: "Underwriting",      href: "/dashboard/underwriting",          roles: ["admin", "manager"] },
+  // Onboarding + Onboarding Kickoff consolidated into a single entry;
+  // the Onboarding page header has a direct "Onboarding Kickoff" button.
+  { icon: Package,       label: "Onboarding",        href: "/dashboard/onboarding",            roles: ["admin", "manager"] },
+  { icon: ShieldAlert,   label: "Merchant Risk",     href: "/dashboard/merchant-risk",         roles: ["admin", "manager"] },
+  { icon: Send,          label: "Boarding",          href: "/dashboard/boarding",              roles: ["admin", "manager"] },
 ];
 
 // ─── OUTBOUND ─────────────────────────────────────────────────────────────────
+// Command / Campaigns / Sequences / Prospects / Analytics all live under OutboundCenter tabs.
+// Sunbiz Lead Gen and Outreach Command are accessible within OutboundCenter's Command tab.
 const outboundItems: MenuItem[] = [
-  { icon: Zap,        label: "Outbound Command Center",      href: "/dashboard/outbound-center", roles: ["admin", "manager"] },
-  { icon: Upload,     label: "Lead Imports / Master Lead DB", href: "/dashboard/lead-imports",   roles: ["admin", "manager"] },
-  { icon: FileSearch, label: "Sunbiz Lead Gen",              href: "/dashboard/lead-gen",        roles: ["admin", "manager"] },
+  { icon: Zap,    label: "Outreach",     href: "/dashboard/outbound-center", roles: ["admin", "manager"] },
+  { icon: Upload, label: "Lead Imports", href: "/dashboard/lead-imports",    roles: ["admin", "manager"] },
 ];
 
 // ─── REPORTS & SETTINGS ───────────────────────────────────────────────────────
+// Financial Hub is accessible as the "Financial" tab within ReportingHub.
+// Agent Management, Integrations, and GHL Integration are tabs within AdminHub (Settings).
+// Referral Program and Partner Orgs moved to the collapsible Partners section below.
 const reportsSettingsItems: MenuItem[] = [
-  { icon: BarChart3,   label: "Reports",          href: "/dashboard/reporting",             roles: ["admin", "manager"] },
-  { icon: DollarSign,  label: "Financial Hub",    href: "/dashboard/financial-hub",         roles: ["admin", "manager"] },
-  { icon: Trophy,      label: "Leaderboard",      href: "/dashboard/leaderboard",           roles: ["admin", "manager", "agent"] },
-  { icon: UserPlus,    label: "Agent Management", href: "/dashboard/agent-management",      roles: ["admin", "manager"] },
-  { icon: FileCheck,   label: "Proposals",        href: "/dashboard/co-branded-proposals",  roles: ["admin", "manager"] },
-  { icon: Handshake,   label: "Referral Program", href: "/dashboard/referral-program",      roles: ["admin", "manager"] },
-  { icon: Link2,       label: "Partner Orgs",     href: "/dashboard/partner-orgs",          roles: ["admin"] },
-  { icon: Settings,    label: "Settings",         href: "/dashboard/admin-hub",             roles: ["admin", "manager"] },
-  { icon: ShieldCheck, label: "Security",         href: "/dashboard/security",              roles: ["admin", "manager", "agent", "merchant"] },
-  { icon: Settings,    label: "Integrations",     href: "/dashboard/settings/integrations", roles: ["admin", "manager"] },
-  { icon: Link2,       label: "GHL Integration",  href: "/dashboard/ghl-integration",       roles: ["admin", "manager"] },
+  { icon: BarChart3,  label: "Reports",    href: "/dashboard/reporting",   roles: ["admin", "manager"] },
+  { icon: Trophy,     label: "Leaderboard", href: "/dashboard/leaderboard", roles: ["admin", "manager", "agent"] },
+  { icon: Settings,   label: "Settings",   href: "/dashboard/admin-hub",   roles: ["admin", "manager"] },
+];
+
+// ─── PARTNERS (collapsible) ────────────────────────────────────────────────────
+const partnersItems: MenuItem[] = [
+  { icon: Handshake, label: "Referral Program", href: "/dashboard/referral-program",      roles: ["admin", "manager"] },
+  { icon: Link2,     label: "Partner Orgs",     href: "/dashboard/partner-orgs",          roles: ["admin"] },
 ];
 
 // ─── RESOURCES (collapsible) ───────────────────────────────────────────────────
 const resourcesItems: MenuItem[] = [
-  { icon: BookOpen, label: "Playbooks",  href: "/dashboard/playbooks", roles: ["admin", "manager", "agent"] },
-  { icon: BookOpen, label: "Collateral", href: "/assets",              roles: ["agent"] },
+  { icon: BookOpen,    label: "Playbooks",     href: "/dashboard/playbooks",    roles: ["admin", "manager", "agent"] },
+  { icon: BookOpen,    label: "Collateral",    href: "/assets",                 roles: ["agent"] },
+  { icon: HelpCircle,  label: "Knowledge Base", href: "/dashboard/knowledge-base" },
+  { icon: GraduationCap, label: "Training",    href: "/dashboard/training",     roles: ["admin", "manager", "agent"] },
+  { icon: ShieldCheck, label: "Security",      href: "/dashboard/security",     roles: ["admin", "manager", "agent", "merchant"] },
 ];
 
 // ─── DEV MODE: ADVANCED TOOLS ──────────────────────────────────────────────────
@@ -228,11 +232,12 @@ const devModeGrowthItems: MenuItem[] = [
 ];
 
 const devModeSystemItems: MenuItem[] = [
-  { icon: Workflow,   label: "GHL Integration", href: "/dashboard/ghl-integration", roles: ["admin", "manager"] },
-  { icon: FileText,   label: "Content Hub",     href: "/dashboard/content-hub",     roles: ["admin", "manager"] },
-  { icon: UserCog,    label: "Admin Hub",       href: "/dashboard/admin-hub",       roles: ["admin", "manager"] },
-  { icon: Database,   label: "Data Requests",  href: "/dashboard/data-requests",   roles: ["admin", "manager"] },
-  { icon: RocketIcon, label: "Outreach Hub",   href: "/dashboard/outreach-hub",    roles: ["admin", "manager"] },
+  { icon: Workflow,   label: "GHL Integration",  href: "/dashboard/ghl-integration",      roles: ["admin", "manager"] },
+  { icon: FileText,   label: "Content Hub",      href: "/dashboard/content-hub",          roles: ["admin", "manager"] },
+  { icon: UserCog,    label: "Admin Hub",        href: "/dashboard/admin-hub",            roles: ["admin", "manager"] },
+  { icon: Database,   label: "Data Requests",    href: "/dashboard/data-requests",        roles: ["admin", "manager"] },
+  { icon: Settings,   label: "Integrations",     href: "/dashboard/settings/integrations", roles: ["admin", "manager"] },
+  { icon: UserPlus,   label: "Agent Management", href: "/dashboard/agent-management",     roles: ["admin", "manager"] },
 ];
 
 function filterByRole(items: MenuItem[], role: UserRole): MenuItem[] {
@@ -405,6 +410,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const [emailOpen, setEmailOpen] = useState(false);
   const [aiChatOpen, setAiChatOpen] = useState(false);
   const [resourcesOpen, setResourcesOpen] = useState(false);
+  const [partnersOpen, setPartnersOpen] = useState(false);
   const role = (user?.role as UserRole) || "merchant";
 
   // Route-level access guard
@@ -537,7 +543,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   // All sidebar items flat list for header label lookup
   const allItems = useMemo(() => [
     ...dailyWorkItems, ...toolsItems, ...merchantOpsItems, ...outboundItems,
-    ...reportsSettingsItems, ...resourcesItems,
+    ...reportsSettingsItems, ...partnersItems, ...resourcesItems,
     ...devModeLeadEngineItems, ...devModeAutomationItems,
     ...devModeGrowthItems, ...devModeSystemItems,
   ], []);
@@ -588,6 +594,49 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
             })}
           </SidebarMenu>
         </SidebarGroupContent>
+      </SidebarGroup>
+    );
+  };
+
+  // Partners group — collapsible (Referral Program + Partner Orgs)
+  const renderPartnersGroup = () => {
+    const filtered = filterByRole(partnersItems, role);
+    if (filtered.length === 0) return null;
+    return (
+      <SidebarGroup>
+        <button
+          onClick={() => setPartnersOpen((o) => !o)}
+          className="flex items-center w-full px-2 py-1 text-xs font-medium uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors"
+          aria-expanded={partnersOpen}
+          data-testid="button-sidebar-partners-toggle"
+        >
+          <span className="flex-1 text-left">Partners</span>
+          {partnersOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+        </button>
+        {partnersOpen && (
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {filtered.map((item) => {
+                const Icon = item.icon;
+                const isActive = location === item.href;
+                return (
+                  <SidebarMenuItem key={item.href + item.label}>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={isActive}
+                      data-testid={`link-sidebar-${item.label.toLowerCase().replace(/\s+/g, "-")}`}
+                    >
+                      <Link href={item.href}>
+                        <Icon className="w-4 h-4" />
+                        <span className="flex-1">{item.label}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                );
+              })}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        )}
       </SidebarGroup>
     );
   };
@@ -657,7 +706,8 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
               : renderGroup("DAILY WORK", dailyWorkItems)}
             {renderGroup("MERCHANT OPS", merchantOpsItems)}
             {renderGroup("OUTBOUND", outboundItems)}
-            {renderGroup("REPORTS & SETTINGS", reportsSettingsItems)}
+            {renderGroup("REPORTS", reportsSettingsItems)}
+            {renderPartnersGroup()}
             {renderResourcesGroup()}
 
             {/* Dev-mode extended sections — only visible when toggle is on */}

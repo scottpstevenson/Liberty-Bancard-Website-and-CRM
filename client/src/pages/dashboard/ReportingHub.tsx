@@ -5,8 +5,9 @@ import GrowthKPI from "./GrowthKPI";
 import WinLoss from "./WinLoss";
 import OutreachAnalytics from "./OutreachAnalytics";
 import OperationsReport from "./OperationsReport";
+import FinancialHub from "./FinancialHub";
 
-const VALID_TABS = ["overview", "growth", "win-loss", "outreach-analytics", "operations"] as const;
+const VALID_TABS = ["overview", "growth", "win-loss", "outreach-analytics", "operations", "financial"] as const;
 type Tab = typeof VALID_TABS[number];
 
 export default function ReportingHub() {
@@ -24,12 +25,14 @@ export default function ReportingHub() {
         <TabsTrigger value="win-loss" data-testid="tab-reporting-win-loss">Win/Loss</TabsTrigger>
         <TabsTrigger value="outreach-analytics" data-testid="tab-reporting-outreach">Outreach Analytics</TabsTrigger>
         <TabsTrigger value="operations" data-testid="tab-reporting-operations">Operations Report</TabsTrigger>
+        <TabsTrigger value="financial" data-testid="tab-reporting-financial">Financial</TabsTrigger>
       </TabsList>
       <TabsContent value="overview"><Reporting /></TabsContent>
       <TabsContent value="growth"><GrowthKPI /></TabsContent>
       <TabsContent value="win-loss"><WinLoss /></TabsContent>
       <TabsContent value="outreach-analytics"><OutreachAnalytics /></TabsContent>
       <TabsContent value="operations"><OperationsReport /></TabsContent>
+      <TabsContent value="financial"><FinancialHub /></TabsContent>
     </Tabs>
   );
 }

@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Calendar, Sparkles, Loader2, Package, CheckCircle2, Circle, Clock, AlertTriangle, FileText, Users, ArrowRight, Timer, Mail, ShieldCheck, ShieldAlert } from "lucide-react";
+import { Calendar, Sparkles, Loader2, Package, CheckCircle2, Circle, Clock, AlertTriangle, FileText, Users, ArrowRight, Timer, Mail, ShieldCheck, ShieldAlert, Rocket } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import type { Deal, Contact } from "@shared/schema";
@@ -315,6 +315,14 @@ export default function Onboarding() {
             Stages: Contract Sent &rarr; Application &rarr; Underwriting &rarr; Approved &rarr; Terminal &rarr; Go-Live &rarr; Active
           </p>
         </div>
+        <a
+          href="/dashboard/onboarding-kickoff"
+          className="inline-flex items-center gap-2 rounded-md border border-input bg-background px-3 py-2 text-sm font-medium shadow-sm hover:bg-accent hover:text-accent-foreground transition-colors shrink-0"
+          data-testid="link-onboarding-kickoff"
+        >
+          <Rocket className="w-4 h-4" />
+          Onboarding Kickoff
+        </a>
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4" data-testid="onboarding-summary-stats">

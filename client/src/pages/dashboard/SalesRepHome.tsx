@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { SALES_STAGES } from "@shared/schema";
 import { trackPhoneCallClick } from "@/lib/analytics";
+import { PageHeader } from "@/components/ui/page-header";
 
 interface Appointment {
   id: string;
@@ -816,26 +817,25 @@ export default function SalesRepHome() {
   return (
     <div className="space-y-6" data-testid="my-day-page">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold" data-testid="text-my-day-title">
-            Good morning, {user?.firstName || "there"}
-          </h1>
-          <p className="text-sm text-muted-foreground mt-0.5" data-testid="text-today-date">{today}</p>
-        </div>
-        <div className="flex gap-2 flex-wrap">
-          <Button variant="outline" size="sm" onClick={() => setOnePagerOpen(true)} data-testid="button-generate-link">
-            <Link2 className="w-4 h-4 mr-2" />
-            Share One-Pager
-          </Button>
-          <Button variant="outline" size="sm" asChild>
-            <Link href="/assets" data-testid="link-collateral">
-              <BookOpen className="w-4 h-4 mr-2" />
-              Collateral
-            </Link>
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title={`Good morning, ${user?.firstName || "there"}`}
+        subtitle={today}
+        testId="text-my-day-title"
+        actions={
+          <>
+            <Button variant="outline" size="sm" onClick={() => setOnePagerOpen(true)} data-testid="button-generate-link">
+              <Link2 className="w-4 h-4 mr-2" />
+              Share One-Pager
+            </Button>
+            <Button variant="outline" size="sm" asChild>
+              <Link href="/assets" data-testid="link-collateral">
+                <BookOpen className="w-4 h-4 mr-2" />
+                Collateral
+              </Link>
+            </Button>
+          </>
+        }
+      />
 
       {/* Quick Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -1032,7 +1032,7 @@ export default function SalesRepHome() {
       )}
 
       {/* Main Content Grid */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
 
         {/* My Contacts Today */}
         <div className="xl:col-span-2 space-y-4">
