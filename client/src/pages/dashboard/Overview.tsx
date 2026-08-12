@@ -598,6 +598,13 @@ export default function Overview() {
                     <span className="text-lg font-medium text-destructive">{(kpi.contacts as any).blocked}</span>
                   </div>
                 )}
+                {/* #1263 — Churn-risk contacts count (server-side aggregate: churn_risk_tier High/Critical) */}
+                {kpi?.contacts && (kpi.contacts as any).churnRisk > 0 && (
+                  <div className="flex items-center justify-between" data-testid="stat-churn-risk-contacts">
+                    <a href="/dashboard/contacts" className="text-sm text-amber-600 hover:underline cursor-pointer">Churn Risk</a>
+                    <span className="text-lg font-medium text-amber-600" data-testid="text-churn-risk-count">{(kpi.contacts as any).churnRisk}</span>
+                  </div>
+                )}
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-muted-foreground">Onboarding Active</span>
                   <span className="text-lg font-medium" data-testid="text-onboarding-active">{kpi?.onboarding.active || 0}</span>

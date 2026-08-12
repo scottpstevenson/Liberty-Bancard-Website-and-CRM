@@ -744,6 +744,12 @@ export default function SalesRepHome() {
     refetchInterval: 60000,
   });
 
+  // #598 — Deals closing this month
+  const { data: closingThisMonth } = useQuery<{ count: number; deals: any[] }>({
+    queryKey: ["/api/analytics/deals-closing-this-month"],
+    staleTime: 5 * 60 * 1000,
+  });
+
   const today = new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
   const agentName = data?.agent
     ? `${data.agent.firstName} ${data.agent.lastName}`
@@ -921,6 +927,40 @@ export default function SalesRepHome() {
             </Card>
           );
         })()}
+        {/* #944 — Deals in Underwriting */}
+        {(() => {
+          const underwritingCount = Object.entries(dealsByStage)
+            .filter(([stage]) => stage.toLowerCase().includes("underwriting"))
+            .reduce((sum, [, stageDeals]) => sum + stageDeals.length, 0);
+          if (underwritingCount === 0) return null;
+          return (
+            <Card data-testid="stat-underwriting-deals">
+              <CardContent className="pt-4 pb-3">
+                <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1">
+                  <Activity className="w-3.5 h-3.5 text-blue-500" />
+                  In Underwriting
+                </div>
+                <div className="text-2xl font-bold text-blue-600" data-testid="text-underwriting-count">
+                  {underwritingCount}
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })()}
+        {/* #598 — Deals closing this month */}
+        {closingThisMonth != null && closingThisMonth.count > 0 && (
+          <Card data-testid="stat-closing-this-month">
+            <CardContent className="pt-4 pb-3">
+              <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1">
+                <CalendarDays className="w-3.5 h-3.5 text-violet-500" />
+                Closing This Month
+              </div>
+              <div className="text-2xl font-bold text-violet-600" data-testid="text-closing-count">
+                {closingThisMonth.count}
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       {/* Main Content Grid */}

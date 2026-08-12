@@ -1100,7 +1100,7 @@ export default function Pipeline() {
   const _initParams = new URLSearchParams(search);
   const [showArchived, setShowArchivedRaw] = useState(() => _initParams.get("archived") === "true");
   const [sortMode, setSortModeRaw] = useState<"default" | "volume_desc" | "trending_down" | "no_activity" | "past_golive" | "urgency">(
-    () => (["default", "volume_desc", "trending_down", "no_activity"].includes(_initParams.get("sort") ?? "")
+    () => (["default", "volume_desc", "trending_down", "no_activity", "urgency", "past_golive"].includes(_initParams.get("sort") ?? "")
       ? _initParams.get("sort") as any : "default")
   );
   const [groupFilterContactId, setGroupFilterContactIdRaw] = useState<number | null>(() => {
@@ -1122,7 +1122,7 @@ export default function Pipeline() {
   };
 
   const setShowArchived = (v: boolean) => { setShowArchivedRaw(v); syncFiltersToUrl({ archived: v }); };
-  const setSortMode = (v: "default" | "volume_desc" | "trending_down" | "no_activity") => { setSortModeRaw(v); syncFiltersToUrl({ sort: v }); };
+  const setSortMode = (v: "default" | "volume_desc" | "trending_down" | "no_activity" | "urgency" | "past_golive") => { setSortModeRaw(v); syncFiltersToUrl({ sort: v }); };
   const setGroupFilterContactId = (v: number | null) => { setGroupFilterContactIdRaw(v); syncFiltersToUrl({ group: v }); };
 
   const [editStage, setEditStage] = useState("");
@@ -2289,6 +2289,28 @@ export default function Pipeline() {
           })()}
         </div>
       )}
+
+      {/* #1157 — Deals per rep summary bar */}
+      {deals && (() => {
+        const allFiltered = SALES_STAGES.flatMap(s => getDealsByStage(s));
+        const repCounts: Record<string, number> = {};
+        for (const d of allFiltered) {
+          const owner = (d as any).owner || (d as any).assignedTo || "Unassigned";
+          repCounts[owner] = (repCounts[owner] || 0) + 1;
+        }
+        const repEntries = Object.entries(repCounts).sort((a, b) => b[1] - a[1]);
+        if (repEntries.length <= 1) return null;
+        return (
+          <div className="flex flex-wrap gap-2 text-xs" data-testid="pipeline-rep-summary">
+            {repEntries.map(([rep, count]) => (
+              <span key={rep} className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 bg-muted/50">
+                <span className="text-muted-foreground truncate max-w-[120px]">{rep.includes("@") ? rep.split("@")[0] : rep}:</span>
+                <span className="font-semibold">{count}</span>
+              </span>
+            ))}
+          </div>
+        );
+      })()}
 
       {/* #450 — Flat list view of deals */}
       {viewMode === "list" && (() => {

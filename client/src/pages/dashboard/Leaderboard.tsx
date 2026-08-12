@@ -31,7 +31,7 @@ import {
 } from "lucide-react";
 
 type TimePeriod = "week" | "month" | "quarter" | "all";
-type MetricKey = "deals" | "revenue" | "proposals" | "calls" | "responseRate";
+type MetricKey = "deals" | "revenue" | "proposals" | "calls" | "responseRate" | "contacts";
 type BooleanSettingKey = "showDeals" | "showRevenue" | "showProposals" | "showCallsMade" | "showResponseRate" | "visibleToAgents";
 
 interface LeaderboardEntry {
@@ -45,12 +45,14 @@ interface LeaderboardEntry {
   callsMade: number;
   responseRate: number;
   closeRate: number;   // #530
+  contactsCreated: number; // #910
   prevDealsClosed: number;
   prevRevenueManaged: number;
   prevProposalsSent: number;
   prevCallsMade: number;
   prevResponseRate: number;
   prevCloseRate: number; // #530
+  prevContactsCreated: number; // #910
   isCurrentUser: boolean;
   goalProgress?: number;
 }
@@ -138,6 +140,7 @@ export default function Leaderboard() {
     calls: "callsMade",
     responseRate: "responseRate",
     closeRate: "closeRate", // #530
+    contacts: "contactsCreated", // #910
   };
 
   const prevMetricKey: Record<string, keyof LeaderboardEntry> = {
@@ -147,6 +150,7 @@ export default function Leaderboard() {
     calls: "prevCallsMade",
     responseRate: "prevResponseRate",
     closeRate: "prevCloseRate", // #530
+    contacts: "prevContactsCreated", // #910
   };
 
   const sortedEntries = [...entries].sort((a, b) => {
@@ -167,6 +171,7 @@ export default function Leaderboard() {
       case "calls": return `${entry.callsMade} calls`;
       case "responseRate": return `${entry.responseRate}%`;
       case "closeRate": return `${entry.closeRate ?? 0}%`; // #530
+      case "contacts": return `${entry.contactsCreated ?? 0} added`; // #910
       default: return "";
     }
   };
@@ -179,6 +184,7 @@ export default function Leaderboard() {
     settings?.showCallsMade !== false && { key: "calls", label: "Calls", icon: PhoneCall },
     settings?.showResponseRate && { key: "responseRate", label: "Response Rate", icon: Percent },
     { key: "closeRate", label: "Close Rate", icon: Percent }, // #530
+    { key: "contacts", label: "Contacts Added", icon: Users }, // #910
   ].filter(Boolean) as MetricTab[];
 
   function openSettings() {
@@ -355,12 +361,12 @@ export default function Leaderboard() {
                           <div className="text-right shrink-0">
                             <div className="flex items-center gap-1 justify-end">
                               <span className="font-semibold text-sm" data-testid={`text-metric-${entry.agentId}`}>
-                                {key === "revenue" ? formatRevenue(metricVal) : key === "responseRate" ? `${metricVal}%` : metricVal}
+                                {key === "revenue" ? formatRevenue(metricVal) : key === "responseRate" || key === "closeRate" ? `${metricVal}%` : metricVal}
                               </span>
                               <TrendIndicator current={metricVal} prev={prevVal} />
                             </div>
                             <span className="text-xs text-muted-foreground">
-                              {key === "deals" ? "deals" : key === "revenue" ? "revenue" : key === "proposals" ? "proposals" : key === "responseRate" ? "response rate" : "calls"}
+                              {key === "deals" ? "deals" : key === "revenue" ? "revenue" : key === "proposals" ? "proposals" : key === "responseRate" ? "response rate" : key === "contacts" ? "contacts added" : "calls"}
                             </span>
                             {/* #1001 — Avg deal size when sorting by deals or revenue */}
                             {(key === "deals" || key === "revenue") && entry.dealsClosed > 0 && (

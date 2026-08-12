@@ -6,8 +6,8 @@ import { contacts, toolClickEvents } from "@shared/schema";
 import { isGhlConfigured, sendGhlEmailForMerchant } from "../services/ghl";
 import { buildWeeklyDigest } from "../services/digest-service";
 import { db } from "../db";
-import { agents, deals, leaderboardSettings } from "@shared/schema";
-import { eq, and, gte, desc, sql, count } from "drizzle-orm";
+import { agents, deals, leaderboardSettings, agentMerchants } from "@shared/schema";
+import { eq, and, gte, lte, desc, sql, count, inArray, isNull } from "drizzle-orm";
 import { publicLeadRateLimit } from "../middleware/public-rate-limit";
 import { serverError } from "../utils/server-error";
 
@@ -106,6 +106,7 @@ export function registerAnalyticsRoutes(app: Express) {
         newContacts30dRow,
         newContacts7dRow,
         blockedContactsRow,
+        churnRiskRow,           // #1263
         revenueRow,
         avgResolutionRow,
         noOutreach24hRow,       // #1063
@@ -168,6 +169,11 @@ export function registerAnalyticsRoutes(app: Express) {
         pool.query<{ cnt: string }>(`
           SELECT COUNT(*)::text AS cnt FROM contacts
           WHERE archived_at IS NULL AND (do_not_contact = true OR email_status IN ('bounced','invalid','opted_out','unsafe'))
+        `),
+        // #1263 — churn-risk contacts (churn_risk_tier = 'High' or 'Critical') — server-side aggregate across all contacts
+        pool.query<{ cnt: string }>(`
+          SELECT COUNT(*)::text AS cnt FROM contacts
+          WHERE archived_at IS NULL AND churn_risk_tier IN ('High', 'Critical')
         `),
         pool.query<{ total_volume: string; total_residual: string; total_profit: string; deal_count: string }>(`
           SELECT
@@ -279,6 +285,7 @@ export function registerAnalyticsRoutes(app: Express) {
           new30d: parseInt(newContacts30dRow.rows[0]?.cnt ?? "0", 10),
           new7d: parseInt(newContacts7dRow.rows[0]?.cnt ?? "0", 10),
           blocked: parseInt(blockedContactsRow.rows[0]?.cnt ?? "0", 10),
+          churnRisk: parseInt(churnRiskRow.rows[0]?.cnt ?? "0", 10), // #1263
           noOutreach24h: parseInt(noOutreach24hRow.rows[0]?.cnt ?? "0", 10), // #1063
         },
         topRepsByPipeline: (topRepsPipelineRows.rows as Array<{ owner: string; cnt: string }>).map(r => ({ owner: r.owner, openDeals: parseInt(r.cnt, 10) })), // #1144
@@ -941,12 +948,12 @@ export function registerAnalyticsRoutes(app: Express) {
         prevEnd = currentStart;
       }
 
-      const [allAgents, dealsResult, callLogsResult, contactsWorkedResult] = await Promise.all([
+      const [allAgents, dealsResult, callLogsResult, contactCreateResult] = await Promise.all([
         storage.getAgents(),
         storage.getDeals({ limit: 10000 }),
         pool.query(`SELECT assigned_to, created_at FROM call_logs WHERE assigned_to IS NOT NULL`).catch(() => ({ rows: [] as any[] })),
-        // #1101 — per-agent contacts-worked count (non-null lastContactedAt in the period)
-        pool.query(`SELECT assigned_to, last_contacted_at FROM contacts WHERE assigned_to IS NOT NULL AND last_contacted_at IS NOT NULL`).catch(() => ({ rows: [] as any[] })),
+        // #910 — contact_created audit events carry the immutable creator (actor_id = users.id, matched via agent.userId)
+        pool.query(`SELECT actor_id, created_at FROM audit_logs WHERE action = 'contact_created' AND actor_type = 'user' AND actor_id IS NOT NULL`).catch(() => ({ rows: [] as any[] })),
       ]);
 
       const allDeals = dealsResult.data;
@@ -1020,15 +1027,14 @@ export function registerAnalyticsRoutes(app: Express) {
           const currentCalls = agentCalls.filter((r: any) => isCurrent(r.created_at)).length;
           const prevCalls = agentCalls.filter((r: any) => isPrev(r.created_at)).length;
 
-          const isCurrentUser = !!(currentUserId && (agent.userId === currentUserId || agent.email === currentUser?.email));
+          // Contacts created — sourced from immutable contact_created audit events (actor_id = users.id matched via agent.userId)
+          const agentContactEvents = agent.userId
+            ? contactCreateResult.rows.filter((r: any) => String(r.actor_id) === String(agent.userId))
+            : [];
+          const currentContactsCreated = agentContactEvents.filter((r: any) => isCurrent(r.created_at)).length;
+          const prevContactsCreated = agentContactEvents.filter((r: any) => isPrev(r.created_at)).length;
 
-          // #1101 — Contacts worked: distinct contacts where lastContactedAt is in the period
-          const agentContactRows = contactsWorkedResult.rows.filter((r: any) => {
-            const assignedTo = (r.assigned_to || "").toLowerCase();
-            return assignedTo === `${agent.firstName} ${agent.lastName}`.toLowerCase() || assignedTo === agent.email?.toLowerCase();
-          });
-          const currentContactsWorked = agentContactRows.filter((r: any) => isCurrent(r.last_contacted_at)).length;
-          const prevContactsWorked = agentContactRows.filter((r: any) => isPrev(r.last_contacted_at)).length;
+          const isCurrentUser = !!(currentUserId && (agent.userId === currentUserId || agent.email === currentUser?.email));
 
           // Response Rate = proposals sent / total deals touched in the period (as %)
           // "Touched" = deal exists in the period (created or updated)
@@ -1057,15 +1063,15 @@ export function registerAnalyticsRoutes(app: Express) {
             callsMade: currentCalls,
             responseRate: currentResponseRate,
             closeRate: currentCloseRate,  // #530
+            contactsCreated: currentContactsCreated, // #910
             prevDealsClosed: prevDeals.length,
             prevRevenueManaged: prevRevenue,
             prevProposalsSent: prevProposals.length,
             prevCallsMade: prevCalls,
             prevResponseRate,
             prevCloseRate, // #530
+            prevContactsCreated: prevContactsCreated, // #910
             isCurrentUser,
-            contactsWorked: currentContactsWorked,    // #1101
-            prevContactsWorked,                        // #1101
           };
         });
 
@@ -1383,14 +1389,65 @@ export function registerAnalyticsRoutes(app: Express) {
   });
 
   // GET /api/analytics/deals-closing-this-month
-  // #598 — Deals with expected close / go-live date this month
+  // #598 — Deals with expected close / go-live date this month.
+  // For agents: scoped to their portfolio via agent_merchants (same ownership model as /api/my-day).
+  // For admins/managers: returns the full org-wide list.
   app.get("/api/analytics/deals-closing-this-month", isDashboardUser, async (req, res) => {
     try {
+      const currentUser = req.user as any;
+      const role = currentUser?.role as string | undefined;
+      const isAgent = role === "agent";
+
       const now = new Date();
       const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
       const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
-      const result = await pool.query<{ id: string; stage: string; total_volume: string | null; expected_go_live_date: string | null }>(`
-        SELECT id, stage, total_volume, expected_go_live_date
+
+      if (isAgent) {
+        // Resolve the agent record for the authenticated user
+        const agentRows = await db
+          .select({ id: agents.id })
+          .from(agents)
+          .where(eq(agents.userId, String(currentUser.id)))
+          .limit(1);
+        const agentRecord = agentRows[0] ?? null;
+
+        if (!agentRecord) {
+          return res.json({ count: 0, deals: [] });
+        }
+
+        // Get deal IDs linked to this agent via agent_merchants (same as /api/my-day)
+        const amRows = await db
+          .select({ dealId: agentMerchants.dealId })
+          .from(agentMerchants)
+          .where(eq(agentMerchants.agentId, agentRecord.id));
+
+        const agentDealIds = amRows
+          .map(r => r.dealId)
+          .filter((id): id is number => typeof id === "number" && !isNaN(id));
+
+        if (agentDealIds.length === 0) {
+          return res.json({ count: 0, deals: [] });
+        }
+
+        // Count deals closing this month within the agent's portfolio
+        const agentDeals = await db
+          .select({ id: deals.id })
+          .from(deals)
+          .where(
+            and(
+              isNull(deals.archivedAt),
+              inArray(deals.id, agentDealIds),
+              gte(deals.expectedGoLiveDate, monthStart),
+              lte(deals.expectedGoLiveDate, monthEnd),
+              sql`${deals.stage} NOT IN ('Closed Won', 'Closed Lost')`
+            )
+          );
+        return res.json({ count: agentDeals.length, deals: [] });
+      }
+
+      // Admins / managers: return full org-wide list
+      const fullResult = await pool.query<{ id: string; stage: string; expected_go_live_date: string | null }>(`
+        SELECT id, stage, expected_go_live_date
         FROM deals
         WHERE archived_at IS NULL
           AND stage NOT IN ('Closed Won', 'Closed Lost')
@@ -1398,7 +1455,7 @@ export function registerAnalyticsRoutes(app: Express) {
         ORDER BY expected_go_live_date ASC
         LIMIT 20
       `, [monthStart.toISOString(), monthEnd.toISOString()]);
-      res.json({ count: result.rows.length, deals: result.rows.map(r => ({ id: Number(r.id), stage: r.stage, totalVolume: r.total_volume, expectedGoLiveDate: r.expected_go_live_date })) });
+      res.json({ count: fullResult.rows.length, deals: fullResult.rows.map(r => ({ id: Number(r.id), stage: r.stage, expectedGoLiveDate: r.expected_go_live_date })) });
     } catch (err: any) {
       serverError(res, err);
     }
