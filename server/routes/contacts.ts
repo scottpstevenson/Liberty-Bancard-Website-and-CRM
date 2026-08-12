@@ -2247,6 +2247,95 @@ export function registerContactsRoutes(app: Express) {
     }
   });
 
+  // GET /api/contacts/:id/voicemails — return inbound voicemail communication events for a contact
+  app.get("/api/contacts/:id/voicemails", isDashboardUser, async (req, res) => {
+    try {
+      const contactId = Number(req.params.id);
+      if (!Number.isFinite(contactId)) return res.status(400).json({ message: "Invalid contact ID" });
+
+      const contact = await storage.getContact(contactId);
+      if (!contact) return res.status(404).json({ message: "Contact not found" });
+
+      // Agent-scope ownership guard
+      const _vmRole = (req.user as any)?.role;
+      const _vmEmail = (req.user as any)?.email;
+      const _vmAssignedTo = (contact as any).assignedTo as string | null | undefined;
+      if (_vmRole === "agent" && _vmAssignedTo && _vmAssignedTo !== _vmEmail) {
+        return res.status(403).json({ message: "Forbidden", code: "NOT_YOUR_CONTACT" });
+      }
+
+      const { communicationEvents: commEventsTable } = await import("@shared/schema");
+      const { desc: descOp, eq: eqOp, and: andOp } = await import("drizzle-orm");
+
+      const rows = await db
+        .select()
+        .from(commEventsTable)
+        .where(
+          andOp(
+            eqOp(commEventsTable.contactId, contactId),
+            eqOp(commEventsTable.channel, "voicemail")
+          )
+        )
+        .orderBy(descOp(commEventsTable.createdAt))
+        .limit(50);
+
+      res.json(rows);
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  // PATCH /api/contacts/:id/notes/:noteId/pin — toggle note pinned state
+  // Scoped: only updates a note that belongs to this contact (entityType="contact", entityId=contactId)
+  // and applies the same agent ownership guard as other contact sub-routes.
+  app.patch("/api/contacts/:id/notes/:noteId/pin", isDashboardUser, async (req, res) => {
+    try {
+      const contactId = Number(req.params.id);
+      const noteId = Number(req.params.noteId);
+      if (!Number.isFinite(contactId) || !Number.isFinite(noteId)) {
+        return res.status(400).json({ message: "Invalid contact or note ID" });
+      }
+
+      const { pinned } = req.body;
+      if (typeof pinned !== "boolean") return res.status(400).json({ message: "pinned (boolean) required" });
+
+      // Ownership guard: agents may only act on their own contacts
+      const contact = await storage.getContact(contactId);
+      if (!contact) return res.status(404).json({ message: "Contact not found" });
+
+      const _pinRole = (req.user as any)?.role;
+      const _pinEmail = (req.user as any)?.email;
+      const _pinAssignedTo = (contact as any).assignedTo as string | null | undefined;
+      if (_pinRole === "agent" && _pinAssignedTo && _pinAssignedTo !== _pinEmail) {
+        return res.status(403).json({ message: "Forbidden", code: "NOT_YOUR_CONTACT" });
+      }
+
+      const { notes: notesTable } = await import("@shared/schema");
+      const { eq: eqOp, and: andOp } = await import("drizzle-orm");
+
+      // Update only when both the note ID AND the contact scoping match
+      const result = await db
+        .update(notesTable)
+        .set({ pinned })
+        .where(
+          andOp(
+            eqOp(notesTable.id, noteId),
+            eqOp((notesTable as any).entityType, "contact"),
+            eqOp((notesTable as any).entityId, contactId)
+          )
+        )
+        .returning({ id: notesTable.id });
+
+      if (result.length === 0) {
+        return res.status(404).json({ message: "Note not found for this contact" });
+      }
+
+      res.json({ success: true });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
   // GET /api/contacts/:id/zerobounce-history — return ZeroBounce validation history for a contact
   app.get("/api/contacts/:id/zerobounce-history", isDashboardUser, async (req, res) => {
     try {

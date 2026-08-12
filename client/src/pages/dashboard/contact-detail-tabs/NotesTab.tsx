@@ -2,7 +2,7 @@ import { useState, useMemo } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, Edit2, Save, X } from "lucide-react";
+import { Plus, Edit2, Save, X, Pin, PinOff } from "lucide-react";
 import type { Note } from "@shared/schema";
 import { formatRelativeTime } from "./shared";
 
@@ -13,20 +13,36 @@ interface NotesTabProps {
   addNote: () => void;
   // #243 — inline note editing; optional so callers that don't support it still work
   onUpdateNote?: (noteId: number, content: string) => Promise<void>;
+  // #1475 — pin toggle support
+  onPinNote?: (noteId: number, pinned: boolean) => Promise<void>;
 }
 
 const NOTES_PAGE_SIZE = 10;
 
-export function NotesTab({ sortedNotes, noteContent, setNoteContent, addNote, onUpdateNote }: NotesTabProps) {
+export function NotesTab({ sortedNotes, noteContent, setNoteContent, addNote, onUpdateNote, onPinNote }: NotesTabProps) {
   // #268 — pagination
   const [notesPage, setNotesPage] = useState(1);
-  const pagedNotes = useMemo(() => sortedNotes.slice(0, notesPage * NOTES_PAGE_SIZE), [sortedNotes, notesPage]);
-  const hasMore = pagedNotes.length < sortedNotes.length;
+
+  // #1475 — sort pinned notes first, then by date
+  const sortedWithPinned = useMemo(() => {
+    return [...sortedNotes].sort((a, b) => {
+      if (a.pinned && !b.pinned) return -1;
+      if (!a.pinned && b.pinned) return 1;
+      return 0;
+    });
+  }, [sortedNotes]);
+
+  const pagedNotes = useMemo(
+    () => sortedWithPinned.slice(0, notesPage * NOTES_PAGE_SIZE),
+    [sortedWithPinned, notesPage]
+  );
+  const hasMore = pagedNotes.length < sortedWithPinned.length;
 
   // #243 — inline editing state per note
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editContent, setEditContent] = useState("");
   const [saving, setSaving] = useState(false);
+  const [togglingPin, setTogglingPin] = useState<number | null>(null);
 
   const startEdit = (note: Note) => {
     setEditingId(note.id!);
@@ -50,6 +66,16 @@ export function NotesTab({ sortedNotes, noteContent, setNoteContent, addNote, on
     }
   };
 
+  const togglePin = async (note: Note) => {
+    if (!onPinNote) return;
+    setTogglingPin(note.id!);
+    try {
+      await onPinNote(note.id!, !note.pinned);
+    } finally {
+      setTogglingPin(null);
+    }
+  };
+
   return (
     <>
       <Card className="mb-4">
@@ -69,12 +95,16 @@ export function NotesTab({ sortedNotes, noteContent, setNoteContent, addNote, on
         </CardContent>
       </Card>
 
-      {sortedNotes.length === 0 ? (
+      {sortedWithPinned.length === 0 ? (
         <p className="text-center text-muted-foreground py-8">No notes yet</p>
       ) : (
         <div className="space-y-3">
           {pagedNotes.map(note => (
-            <Card key={note.id} data-testid={`card-note-${note.id}`}>
+            <Card
+              key={note.id}
+              data-testid={`card-note-${note.id}`}
+              className={note.pinned ? "border-yellow-400/60 bg-yellow-50/30 dark:bg-yellow-950/10" : ""}
+            >
               <CardContent className="py-4">
                 {editingId === note.id ? (
                   // #243 — inline edit mode
@@ -102,6 +132,11 @@ export function NotesTab({ sortedNotes, noteContent, setNoteContent, addNote, on
                   </div>
                 ) : (
                   <>
+                    {note.pinned && (
+                      <div className="flex items-center gap-1 text-[10px] text-yellow-600 dark:text-yellow-400 font-medium mb-1">
+                        <Pin className="h-3 w-3" /> Pinned
+                      </div>
+                    )}
                     <p className="text-sm whitespace-pre-wrap" data-testid={`text-note-content-${note.id}`}>
                       {note.content}
                     </p>
@@ -112,16 +147,31 @@ export function NotesTab({ sortedNotes, noteContent, setNoteContent, addNote, on
                       <span data-testid={`text-note-time-${note.id}`}>
                         {formatRelativeTime(note.createdAt!)}
                       </span>
-                      {onUpdateNote && (
-                        <button
-                          onClick={() => startEdit(note)}
-                          className="ml-auto flex items-center gap-0.5 hover:text-foreground transition-colors"
-                          data-testid={`button-edit-note-${note.id}`}
-                          title="Edit note"
-                        >
-                          <Edit2 className="h-3 w-3" /> Edit
-                        </button>
-                      )}
+                      <div className="ml-auto flex items-center gap-1">
+                        {onPinNote && (
+                          <button
+                            onClick={() => togglePin(note)}
+                            disabled={togglingPin === note.id}
+                            className="flex items-center gap-0.5 hover:text-foreground transition-colors"
+                            data-testid={`button-pin-note-${note.id}`}
+                            title={note.pinned ? "Unpin note" : "Pin note"}
+                          >
+                            {note.pinned
+                              ? <PinOff className="h-3 w-3" />
+                              : <Pin className="h-3 w-3" />}
+                          </button>
+                        )}
+                        {onUpdateNote && (
+                          <button
+                            onClick={() => startEdit(note)}
+                            className="flex items-center gap-0.5 hover:text-foreground transition-colors"
+                            data-testid={`button-edit-note-${note.id}`}
+                            title="Edit note"
+                          >
+                            <Edit2 className="h-3 w-3" /> Edit
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </>
                 )}
@@ -136,7 +186,7 @@ export function NotesTab({ sortedNotes, noteContent, setNoteContent, addNote, on
                 onClick={() => setNotesPage(p => p + 1)}
                 data-testid="button-load-more-notes"
               >
-                Load more ({sortedNotes.length - pagedNotes.length} remaining)
+                Load more ({sortedWithPinned.length - pagedNotes.length} remaining)
               </Button>
             </div>
           )}

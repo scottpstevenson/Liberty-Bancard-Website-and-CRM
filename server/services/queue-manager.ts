@@ -28,6 +28,7 @@ export const QUEUE_NAMES = {
   ACTIVATION_MONITOR: "activation-monitor",
   MERCHANT_SUCCESS: "merchant-success",
   WINBACK_OUTREACH: "winback-outreach",
+  VOICEMAIL_SYNC: "voicemail-sync",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -303,6 +304,16 @@ export const QUEUE_CONFIGS: QueueConfig[] = [
     backoffDelay: 60000,
     repeatEveryMs: 30 * 24 * 60 * 60 * 1000, // fallback ~30 days
     cronPattern: process.env.PARTNER_MONTHLY_DIGEST_CRON ?? "0 9 1 * *", // 1st of month 9 AM UTC
+    jobName: "run",
+  },
+  {
+    name: QUEUE_NAMES.VOICEMAIL_SYNC,
+    // Polls GHL Conversations API for inbound voicemail messages every 15 min.
+    // Only active when VOICEMAIL_SYNC_ENABLED=true env var is set.
+    concurrency: 1,
+    attempts: 2,
+    backoffDelay: 30000,
+    repeatEveryMs: 15 * 60 * 1000, // 15 minutes
     jobName: "run",
   },
 ];
@@ -1102,6 +1113,14 @@ class QueueManager {
         case QUEUE_NAMES.PARTNER_MONTHLY_DIGEST: {
           const { sendMonthlyPartnerResidualsSummary } = await import("./partner-notifications");
           await sendMonthlyPartnerResidualsSummary();
+          break;
+        }
+        case QUEUE_NAMES.VOICEMAIL_SYNC: {
+          // Gate: only run when VOICEMAIL_SYNC_ENABLED is set (checked inside the tick as well)
+          if (process.env.VOICEMAIL_SYNC_ENABLED === "true") {
+            const { runVoicemailSyncTick } = await import("./ghl-voicemail-sync");
+            await runVoicemailSyncTick();
+          }
           break;
         }
         default:

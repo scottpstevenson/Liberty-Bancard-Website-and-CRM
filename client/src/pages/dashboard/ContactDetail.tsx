@@ -91,6 +91,9 @@ import { SalesPrepTab } from "./contact-detail-tabs/SalesPrepTab";
 import { DeliveryLogTab } from "./contact-detail-tabs/DeliveryLogTab";
 import { CommunicationTimelineTab } from "./contact-detail-tabs/CommunicationTimelineTab";
 import { CallLogsTab } from "./contact-detail-tabs/CallLogsTab"; // #460
+import { SalesIntelPanel } from "./contact-detail-tabs/SalesIntelPanel"; // #1475
+import { LogCallSheet } from "./contact-detail-tabs/LogCallSheet"; // #1475
+import { NextStepsWidget } from "./contact-detail-tabs/NextStepsWidget"; // #1475
 
 // ── Confirmation Status Section ───────────────────────────────────────────────
 /**
@@ -1153,6 +1156,7 @@ export default function ContactDetail() {
   const [taskForm, setTaskForm] = useState({ title: "", description: "", dueDate: "" });
 
   const [emailComposerOpen, setEmailComposerOpen] = useState(false);
+  const [logCallOpen, setLogCallOpen] = useState(false); // #1475
 
   const [showCompanyDialog, setShowCompanyDialog] = useState(false);
   const [companyMode, setCompanyMode] = useState<"existing" | "new">("existing");
@@ -1660,7 +1664,12 @@ export default function ContactDetail() {
               </div>
             ) : (
               <h1 className="text-2xl font-bold" data-testid="text-contact-name">
-                {contact.firstName} {contact.lastName}
+                {/* #1475 — Best identifier: company → full name → email → phone */}
+                {contact.companyName ||
+                  `${contact.firstName || ""} ${contact.lastName || ""}`.trim() ||
+                  contact.email ||
+                  contact.phone ||
+                  "Unnamed Contact"}
               </h1>
             )}
 
@@ -2305,6 +2314,9 @@ export default function ContactDetail() {
 
       {/* Quick actions */}
       <div className="flex flex-wrap gap-2" data-testid="section-quick-actions">
+        <Button onClick={() => setLogCallOpen(true)} data-testid="button-log-call">
+          <Phone className="h-4 w-4 mr-1" /> Log Call
+        </Button>
         <Button variant="outline" onClick={() => { setActiveTab("notes"); }} data-testid="button-add-note">
           <StickyNote className="h-4 w-4 mr-1" /> Add Note
         </Button>
@@ -2321,6 +2333,14 @@ export default function ContactDetail() {
 
       {/* Mobile sticky action bar — only visible on small screens */}
       <div className="fixed bottom-0 left-0 right-0 z-40 block sm:hidden bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 px-4 py-2 flex items-center gap-2" style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 8px)" }}>
+        <button
+          onClick={() => setLogCallOpen(true)}
+          className="flex-1 flex flex-col items-center justify-center gap-0.5 min-h-[44px] text-green-600 dark:text-green-400 active:opacity-70"
+          data-testid="mobile-action-log-call"
+        >
+          <Phone className="h-5 w-5" />
+          <span className="text-[10px] font-medium">Log Call</span>
+        </button>
         <button
           onClick={() => setEmailComposerOpen(true)}
           className="flex-1 flex flex-col items-center justify-center gap-0.5 min-h-[44px] text-blue-600 dark:text-blue-400 active:opacity-70"
@@ -2369,6 +2389,12 @@ export default function ContactDetail() {
       {/* Next Best Action Card */}
       <ContactNbaCard contactId={contactId} />
 
+      {/* #1475 — Sales Intelligence Panel */}
+      <SalesIntelPanel
+        contact={contact}
+        nextFollowUp={deals.find(d => d.nextFollowUp && !d.archivedAt)?.nextFollowUp?.toString() ?? null}
+      />
+
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} data-testid="contact-tabs">
         <div className="sticky top-0 z-20 bg-background -mx-4 px-4 md:mx-0 md:px-0 pt-1 pb-1 border-b border-border/50 md:border-0 md:static md:z-auto md:bg-transparent">
@@ -2389,9 +2415,10 @@ export default function ContactDetail() {
           </TabsTrigger>
           <TabsTrigger value="chargebacks" data-testid="tab-chargebacks">Chargebacks</TabsTrigger>
           <TabsTrigger value="activity" data-testid="tab-activity">Activity</TabsTrigger>
-          {/* #460 — Call Logs tab */}
+          {/* #1475 — Calls & Voicemails tab */}
           <TabsTrigger value="call-logs" data-testid="tab-call-logs">
-            📞 Call Logs
+            <Phone className="h-3.5 w-3.5 mr-1" />
+            Calls &amp; VMs
           </TabsTrigger>
           <TabsTrigger value="relationships" data-testid="tab-relationships">
             <GitFork className="h-3.5 w-3.5 mr-1" />
@@ -2497,6 +2524,12 @@ export default function ContactDetail() {
               queryClient.invalidateQueries({ queryKey: ["/api/notes", "contact", contactId] });
               toast({ title: "Note updated" });
             }}
+            onPinNote={async (noteId, pinned) => {
+              // #1475 — pin/unpin note
+              const res = await apiRequest("PATCH", `/api/contacts/${contactId}/notes/${noteId}/pin`, { pinned });
+              if (!res.ok) throw new Error("Failed to update pin state");
+              queryClient.invalidateQueries({ queryKey: ["/api/notes", "contact", contactId] });
+            }}
           />
         </TabsContent>
 
@@ -2524,9 +2557,16 @@ export default function ContactDetail() {
           <ActivityTimelineFull events={activityEvents ?? []} />
         </TabsContent>
 
-        {/* #460 — Call Logs tab */}
+        {/* #1475 — Calls & Voicemails tab */}
         <TabsContent value="call-logs" data-testid="tab-content-call-logs">
-          <CallLogsTab contactId={contactId} />
+          <div className="space-y-3">
+            <div className="flex justify-end">
+              <Button size="sm" onClick={() => setLogCallOpen(true)} data-testid="button-log-call-in-tab">
+                <Phone className="h-3.5 w-3.5 mr-1.5" /> Log Call
+              </Button>
+            </div>
+            <CallLogsTab contactId={contactId} />
+          </div>
         </TabsContent>
 
         <TabsContent value="relationships" data-testid="tab-content-relationships">
@@ -2672,6 +2712,21 @@ export default function ContactDetail() {
           addCompanyAssociation={addCompanyAssociation}
           createAndLinkCompany={createAndLinkCompany}
         />
+
+      {/* #1475 — Log Call Sheet */}
+      <LogCallSheet
+        open={logCallOpen}
+        onClose={() => setLogCallOpen(false)}
+        contactId={contactId}
+        dealId={deals.find(d => !d.archivedAt)?.id ?? null}
+      />
+
+      {/* #1475 — Next Steps sticky widget */}
+      <NextStepsWidget
+        contactId={contactId}
+        dealId={deals.find(d => !d.archivedAt)?.id ?? null}
+        nextFollowUp={deals.find(d => d.nextFollowUp && !d.archivedAt)?.nextFollowUp?.toString() ?? null}
+      />
     </div>
   );
 }
