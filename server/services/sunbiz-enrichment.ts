@@ -14,6 +14,86 @@ function getOpenAI() {
   });
 }
 
+/**
+ * After a sunbiz entity is enriched, write owner contact details back to the
+ * linked prospect and contact records so the Leads tab and CRM show real owner
+ * names, emails, and phones instead of "--".
+ *
+ * Non-throwing: failures are logged but never surface to callers or crash the
+ * enrichment pipeline. Fired fire-and-forget from both enrichment paths.
+ */
+async function writebackEnrichmentToLinkedRecords(
+  entityId: number,
+  entity: {
+    prospectId?: number | null;
+    ownerName?: string | null;
+    ownerEmail?: string | null;
+    ownerPhone?: string | null;
+    email?: string | null;
+    phone?: string | null;
+    vertical?: string | null;
+    score?: string | null;
+    website?: string | null;
+  }
+): Promise<void> {
+  if (!entity.prospectId) return;
+
+  try {
+    const ownerName = entity.ownerName?.trim() || null;
+    let ownerFirstName: string | null = null;
+    let ownerLastName: string | null = null;
+    if (ownerName) {
+      const parts = ownerName.split(/\s+/);
+      ownerFirstName = toProperCase(parts[0] || "");
+      ownerLastName = parts.length > 1 ? toProperCase(parts.slice(1).join(" ")) : null;
+    }
+    const ownerEmail = entity.ownerEmail || entity.email || null;
+    const ownerPhone = entity.ownerPhone || entity.phone || null;
+
+    // ── 1. Update prospect record (shown in Leads tab) ────────────────────
+    const prospect = await storage.getProspect(entity.prospectId);
+    if (prospect) {
+      const pu: Record<string, any> = {};
+      if (ownerFirstName && !prospect.ownerFirstName) pu.ownerFirstName = ownerFirstName;
+      if (ownerLastName && !prospect.ownerLastName) pu.ownerLastName = ownerLastName;
+      if (ownerEmail && !prospect.ownerEmail) pu.ownerEmail = ownerEmail;
+      if (ownerPhone && !prospect.ownerPhone) pu.ownerPhone = ownerPhone;
+      if (entity.vertical && !prospect.vertical) pu.vertical = entity.vertical;
+      if (entity.score && !prospect.score) pu.score = entity.score;
+      if (Object.keys(pu).length > 0) {
+        await storage.updateProspect(entity.prospectId, pu as any);
+        console.log(`[Writeback] Prospect ${entity.prospectId} ← ${Object.keys(pu).join(", ")}`);
+      }
+
+      // ── 2. Update linked contact (shown in CRM / Contacts) ───────────────
+      if (prospect.contactId) {
+        const contact = await storage.getContact(prospect.contactId);
+        if (contact) {
+          const cu: Record<string, any> = {};
+          if (ownerFirstName && !contact.firstName) cu.firstName = ownerFirstName;
+          if (ownerLastName && !contact.lastName) cu.lastName = ownerLastName;
+          if (ownerEmail && !contact.email) cu.email = ownerEmail;
+          if (ownerPhone && !contact.phone) {
+            cu.phone = ownerPhone;
+            // Owner-specific phone vs general business line:
+            // If it differs from the entity's general phone, treat as direct/cell
+            cu.phoneType = (entity.ownerPhone && entity.ownerPhone !== entity.phone)
+              ? "cell" : "main_line";
+          }
+          if (entity.vertical && !contact.vertical) cu.vertical = entity.vertical;
+          if (entity.website && !contact.website) cu.website = entity.website;
+          if (Object.keys(cu).length > 0) {
+            await storage.updateContact(prospect.contactId, cu as any);
+            console.log(`[Writeback] Contact ${prospect.contactId} ← ${Object.keys(cu).join(", ")}`);
+          }
+        }
+      }
+    }
+  } catch (err: any) {
+    console.error(`[Writeback] entity ${entityId}:`, err?.message || err);
+  }
+}
+
 const MAX_RESPONSE_BYTES = 3 * 1024 * 1024; // 3 MB hard cap per fetched body
 
 // Reads a fetch Response body with a hard byte cap. Returns null (and logs)
@@ -864,6 +944,20 @@ export async function enrichSunbizEntity(entityId: number): Promise<SunbizEntity
   };
 
   const updated = await storage.updateSunbizEntity(entityId, updates);
+
+  // Write enrichment data back to the linked prospect/contact records
+  writebackEnrichmentToLinkedRecords(entityId, {
+    prospectId: entity.prospectId,
+    ownerName: (updates.ownerName as string | null) ?? entity.ownerName,
+    ownerEmail: (updates.ownerEmail as string | null) ?? entity.ownerEmail,
+    ownerPhone: (updates.ownerPhone as string | null) ?? entity.ownerPhone,
+    email: (updates.email as string | null) ?? entity.email,
+    phone: (updates.phone as string | null) ?? entity.phone,
+    vertical: (updates.vertical as string | null) ?? entity.vertical,
+    score: (updates.score as string | null) ?? entity.score,
+    website: (updates.website as string | null) ?? entity.website,
+  }).catch(() => {}); // fire-and-forget; errors logged inside
+
   return updated || entity;
 }
 
@@ -1565,6 +1659,18 @@ export async function deepEnrichEntity(entityId: number): Promise<{
 
   try {
     await storage.updateSunbizEntity(entityId, updates);
+    // Write enrichment data back to the linked prospect/contact records
+    writebackEnrichmentToLinkedRecords(entityId, {
+      prospectId: entity.prospectId,
+      ownerName,
+      ownerEmail: bestEmail,
+      ownerPhone: ownerName ? bestPhone : null, // only treat as owner phone if we have owner name
+      email: bestEmail,
+      phone: bestPhone,
+      vertical,
+      score: updates.score as string | null ?? null,
+      website: website ?? null,
+    }).catch(() => {}); // fire-and-forget
   } catch (err) {
     console.error(`[DeepEnrich] DB update failed for ${entityId}:`, err);
     try {

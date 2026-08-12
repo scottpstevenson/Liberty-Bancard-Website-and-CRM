@@ -90,3 +90,4 @@
 - [Sprint 4 queue-manager env overrides](queue-manager-env-overrides.md) — GHL_SYNC_REPEAT_EVERY_MS and SLA_CHECKS_REPEAT_EVERY_MS added to queue-manager.ts with floor guards (30s GHL, 2min SLA); dev short-circuits preserved; startup log updated.
 - [Pipeline silence thresholds editor](pipeline-silence-thresholds-editor.md) — PipelineSilenceThresholdsPanel in OperatorDashboard.tsx; GET/PUT /api/admin/settings/pipeline-silence-thresholds; key format is "pipeline::stage" → hours; falls back to GLOBAL_THRESHOLD_HOURS env var.
 - [Test contact GHL ID prefixes](test-contact-prefixes.md) — Smoke tests create contacts under two prefixes: wh-test-ghl-* AND ghl-deal-test-*; always clean both; cascade must delete deal FK children before deals before contacts.
+- [Lead Pool Scale](lead-pool-scale.md) — 1.9M sunbiz entities; 190K hot; email discovery crippled without SERPER_API_KEY; Lead Ops Center at /dashboard/lead-ops; writeback fixed Aug 12.

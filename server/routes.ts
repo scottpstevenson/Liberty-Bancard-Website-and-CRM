@@ -50,6 +50,7 @@ import { registerSocialRoutes } from "./routes/social";
 import { registerReviewQueueRoutes } from "./routes/review-queue";
 import { registerQueueMetricsRoutes } from "./routes/queue-metrics";
 import { registerRelationshipsRoutes } from "./routes/relationships";
+import { registerLeadOpsRoutes } from "./routes/lead-ops";
 import { registerSavingsRoutes } from "./routes/savings";
 import { registerWidgetRoutes } from "./routes/widget";
 import { registerTerminalEconomicsRoutes } from "./routes/terminal-economics";
@@ -194,6 +195,7 @@ export async function registerRoutes(
   registerSocialRoutes(app);
   registerReviewQueueRoutes(app);
   registerRelationshipsRoutes(app);
+  registerLeadOpsRoutes(app);
   registerSavingsRoutes(app);
   registerWidgetRoutes(app);
   registerTerminalEconomicsRoutes(app);

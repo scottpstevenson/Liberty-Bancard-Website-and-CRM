@@ -228,10 +228,28 @@ async function checkDealSla(rule: typeof DEFAULT_SLA_RULES[0]) {
     const minutesStuck = Math.round((Date.now() - new Date(deal.updatedAt!).getTime()) / 60000);
     const hoursStuck = Math.round(minutesStuck / 60);
 
+    // Skip SLA alerts for leads that have no reachable contact channel — there
+    // is nothing a rep can do until enrichment populates email/phone. The check
+    // re-runs each SLA cycle so alerts resume automatically once data arrives.
+    if (rule.stage === "New Lead" && deal.contactId) {
+      try {
+        const contact = await storage.getContact(deal.contactId);
+        if (contact && !contact.email && !contact.phone) {
+          await storage.createAuditLog({
+            action: "sla_skipped_no_contact",
+            entityType: "deal",
+            entityId: deal.id,
+            details: { rule: rule.name, minutesStuck, stage: rule.stage, reason: "no_email_no_phone" },
+          });
+          continue;
+        }
+      } catch { /* non-critical — fall through to create task */ }
+    }
+
     await storage.createTask({
       dealId: deal.id,
       contactId: deal.contactId || undefined,
-      title: `SLA Alert: ${rule.name} - Deal #${deal.id} stuck ${hoursStuck}hr`,
+      title: `SLA: ${rule.name} — Deal #${deal.id} (${hoursStuck}hr overdue)`,
       assignedTo: deal.owner || "Scott Stevenson",
       priority: "high",
       dueDate: new Date(Date.now() + 60 * 60 * 1000),
