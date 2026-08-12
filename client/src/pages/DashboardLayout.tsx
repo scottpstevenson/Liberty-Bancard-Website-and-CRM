@@ -138,7 +138,6 @@ const dailyWorkItems: MenuItem[] = [
   { icon: TrendingUp,      label: "Pipeline",             href: "/dashboard/pipeline",           roles: ["admin", "manager"] },
   { icon: Inbox,           label: "Messages & Inbox",     href: "/dashboard/comms-hub",          roles: ["admin", "manager"], badgeKey: "smsUnread" },
   { icon: ClipboardList,   label: "Tasks & Appointments", href: "/dashboard/tasks-appointments", roles: ["admin", "manager"], badgeKey: "overdueTaskCount" },
-  { icon: CreditCard,      label: "Virtual Terminal",     href: "/dashboard/virtual-terminal",   roles: ["admin", "manager"] },
   { icon: Brain,           label: "AI Advisor",           href: "/dashboard/chat",               roles: ["admin", "manager"] },
   // Agent
   { icon: Star,            label: "My Day",               href: "/dashboard/my-day",             roles: ["agent"] },
@@ -151,10 +150,8 @@ const dailyWorkItems: MenuItem[] = [
   { icon: DollarSign,      label: "My Earnings",          href: "/dashboard/my-earnings",        roles: ["agent"] },
 ];
 
-// Virtual Terminal for agents with permission (appended at render time)
-const toolsItems: MenuItem[] = [
-  { icon: CreditCard, label: "Virtual Terminal", href: "/dashboard/virtual-terminal", roles: ["agent"] },
-];
+// toolsItems reserved for future per-role tool links
+const toolsItems: MenuItem[] = [];
 
 // ─── MERCHANT OPS ─────────────────────────────────────────────────────────────
 const merchantOpsItems: MenuItem[] = [

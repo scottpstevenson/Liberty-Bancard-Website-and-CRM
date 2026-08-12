@@ -113,6 +113,7 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
         contactEmail: contacts.email,
         contactPhone: contacts.phone,
         contactEmployeeCount: contacts.employeeCount, // #1146
+        contactLeadSource: contacts.leadSource, // #1473 — show source batch on pipeline cards
       })
       .from(deals)
       .leftJoin(contacts, eq(deals.contactId, contacts.id))
@@ -120,7 +121,7 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
       .orderBy(desc(deals.createdAt))
       .limit(limit)
       .offset(offset);
-    const data = rows.map(({ deal, contactFirstName, contactLastName, contactCompanyName, contactEmail, contactPhone, contactEmployeeCount }) => ({
+    const data = rows.map(({ deal, contactFirstName, contactLastName, contactCompanyName, contactEmail, contactPhone, contactEmployeeCount, contactLeadSource }) => ({
       ...deal,
       contactName: (contactFirstName || contactLastName)
         ? `${contactFirstName || ""} ${contactLastName || ""}`.trim()
@@ -129,6 +130,7 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
       contactEmail: contactEmail || null,
       contactPhone: contactPhone || null,
       contactEmployeeCount: contactEmployeeCount ?? null, // #1146
+      contactLeadSource: contactLeadSource || null, // #1473
     }));
     return { data, total: totalResult.count, limit, offset };
   }
@@ -178,6 +180,7 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
         contactEmail: contacts.email,
         contactPhone: contacts.phone,
         contactEmployeeCount: contacts.employeeCount, // #1146
+        contactLeadSource: contacts.leadSource, // #1473 — show source batch on pipeline cards
       })
       .from(deals)
       .leftJoin(contacts, eq(deals.contactId, contacts.id))
@@ -185,7 +188,7 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
       .orderBy(desc(deals.createdAt))
       .limit(limit)
       .offset(offset);
-    const data = rows.map(({ deal, contactFirstName, contactLastName, contactCompanyName, contactEmail, contactPhone, contactEmployeeCount }) => ({
+    const data = rows.map(({ deal, contactFirstName, contactLastName, contactCompanyName, contactEmail, contactPhone, contactEmployeeCount, contactLeadSource }) => ({
       ...deal,
       contactName: (contactFirstName || contactLastName)
         ? `${contactFirstName || ""} ${contactLastName || ""}`.trim()
@@ -194,6 +197,7 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
       contactEmail: contactEmail || null,
       contactPhone: contactPhone || null,
       contactEmployeeCount: contactEmployeeCount ?? null, // #1146
+      contactLeadSource: contactLeadSource || null, // #1473
     }));
     return { data, total: totalResult.count, limit, offset };
   }

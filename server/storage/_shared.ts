@@ -111,7 +111,7 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
   }
 
   const DEFAULT_LIMIT = 100;
-  const MAX_LIMIT = 500;
+  const MAX_LIMIT = 2000;
 
   export function normalizePagination(params?: PaginationParams): { limit: number; offset: number } {
     const limit = Math.min(Math.max(params?.limit ?? DEFAULT_LIMIT, 1), MAX_LIMIT);

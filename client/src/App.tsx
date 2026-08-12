@@ -185,7 +185,7 @@ const TerminalROI = lazy(() => import("@/pages/dashboard/TerminalROI"));
 const SalesRepHome = lazy(() => import("@/pages/dashboard/SalesRepHome"));
 const LiveChatDashboard = lazy(() => import("@/pages/dashboard/LiveChat"));
 const DocumentVault = lazy(() => import("@/pages/dashboard/DocumentVault"));
-const VirtualTerminal = lazy(() => import("@/pages/dashboard/VirtualTerminal"));
+// VirtualTerminal removed — feature decommissioned (#1473)
 const PartnerOrgs = lazy(() => import("@/pages/dashboard/PartnerOrgs"));
 const PartnerReferralPipeline = lazy(() => import("@/pages/dashboard/PartnerReferralPipeline"));
 const PartnerPortalAdmin = lazy(() => import("@/pages/dashboard/PartnerPortalAdmin"));
@@ -747,7 +747,7 @@ function Router() {
           <ProtectedRoute component={DocumentVault} />
         </Route>
         <Route path="/dashboard/virtual-terminal">
-          <ProtectedRoute component={VirtualTerminal} />
+          <Redirect to="/dashboard" />
         </Route>
         <Route path="/dashboard/ghl-sequence-guide">
           <Redirect to="/dashboard/ghl-integration?tab=sequence-guide" />

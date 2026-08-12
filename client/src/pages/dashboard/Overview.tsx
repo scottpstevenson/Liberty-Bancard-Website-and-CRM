@@ -229,7 +229,21 @@ export default function Overview() {
     );
   }
 
-  const recentContacts = contacts?.slice(0, 5) || [];
+  // Filter out test/QA contacts from the Recent Contacts widget
+  const isTestContact = (c: Contact) => {
+    const email = (c.email || "").toLowerCase();
+    const firstName = (c.firstName || "").toLowerCase();
+    if (email.includes("@test.invalid") || email.includes("@test.internal") ||
+        email.includes("@libertybancard.test") || email.includes("@example.test")) return true;
+    if (email.startsWith("wh-test-") || email.startsWith("ghl-deal-test-") ||
+        email.startsWith("qa-release-") || email.startsWith("qa-appt-") ||
+        email.startsWith("no-op-") || email.startsWith("test-ca-")) return true;
+    if (firstName.startsWith("webhooktest") || firstName.startsWith("testnle") ||
+        firstName.startsWith("stmttest") || firstName.startsWith("statementtest") ||
+        firstName.startsWith("golive-test")) return true;
+    return false;
+  };
+  const recentContacts = (contacts || []).filter((c: Contact) => !isTestContact(c)).slice(0, 5);
   const activeDeals = deals?.filter((d: Deal) => d.pipeline === "sales" && d.stage !== "Closed Won" && d.stage !== "Closed Lost").slice(0, 5) || [];
 
   const handleSendDigest = async () => {

@@ -55,7 +55,7 @@ const solutionLinks = [
     featured: false,
   },
   {
-    name: "Virtual Terminal & Equipment",
+    name: "Equipment & Terminals",
     href: "/shop",
     desc: "Browse payment terminals, POS systems, and accessories",
     featured: false,

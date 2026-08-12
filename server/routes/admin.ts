@@ -4714,4 +4714,207 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  /**
+   * POST /api/admin/purge-test-contacts
+   * Hard-deletes all contacts whose email or name matches test/QA prefixes inside a single
+   * database transaction. Rolls back completely if any FK constraint or other error occurs.
+   * Admin-only.
+   */
+  app.post("/api/admin/purge-test-contacts", requireRole("admin"), async (req, res) => {
+    const client = await pool.connect();
+    try {
+      // ── Identify targets (before transaction so we can bail early) ────────────
+      const TEST_COND = `
+        email ILIKE '%@test.invalid'
+        OR email ILIKE '%@test.internal'
+        OR email ILIKE '%@libertybancard.test'
+        OR email ILIKE '%@example.test'
+        OR email ILIKE 'wh-test-%'
+        OR email ILIKE 'ghl-deal-test-%'
+        OR email ILIKE 'qa-release-%'
+        OR email ILIKE 'qa-appt-%'
+        OR email ILIKE 'no-op-%'
+        OR email ILIKE 'test-ca-%'
+        OR first_name ILIKE 'WebhookTest%'
+        OR first_name ILIKE 'testnle%'
+        OR first_name ILIKE 'StmtTest%'
+        OR first_name ILIKE 'StatementTest%'
+        OR first_name ILIKE 'GoLive-Test%'
+        OR (first_name = 'StmtTest' AND last_name = 'QAUser')
+      `;
+
+      const beforeResult = await client.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count FROM contacts WHERE ${TEST_COND}`
+      );
+      const beforeCount = Number(beforeResult.rows[0]?.count ?? 0);
+
+      if (beforeCount === 0) {
+        client.release();
+        return res.json({ deleted: 0, message: "No test contacts found." });
+      }
+
+      // Materialise IDs once so we avoid re-evaluating correlated sub-queries mid-transaction
+      const contactIdRows = await client.query<{ id: number }>(
+        `SELECT id FROM contacts WHERE ${TEST_COND}`
+      );
+      const contactIds = contactIdRows.rows.map(r => r.id);
+      // Build safe IN-list literals (all values are integer PKs from our own query)
+      const cList = contactIds.join(",");
+      const cIn = `(${cList})`;
+
+      const dealIdRows = await client.query<{ id: number }>(
+        `SELECT id FROM deals WHERE contact_id = ANY($1::int[])`,
+        [contactIds]
+      );
+      const dealIds = dealIdRows.rows.map(r => r.id);
+      // Use (0) when empty so IN-clause syntax stays valid
+      const dIn = dealIds.length > 0 ? `(${dealIds.join(",")})` : "(0)";
+
+      // ── Single transaction — any error rolls back everything ──────────────────
+      await client.query("BEGIN");
+
+      // Step 1: Grand-children of deals that have no ON DELETE CASCADE
+      //         underwriting_conditions → underwriting_decisions (cascade would handle it, but
+      //         uw_decisions itself has no cascade from deals so we must clear it explicitly)
+      await client.query(`DELETE FROM underwriting_conditions WHERE deal_id IN ${dIn}`);
+
+      // Step 2: ticket_comments → tickets (ticket_comments.ticket_id has no ON DELETE CASCADE)
+      await client.query(
+        `DELETE FROM ticket_comments
+         WHERE ticket_id IN (SELECT id FROM tickets WHERE contact_id IN ${cIn})`
+      );
+
+      // Step 3: Deal children with no ON DELETE (would block deal delete)
+      await client.query(`DELETE FROM merchant_onboarding_stages WHERE deal_id IN ${dIn}`);
+      await client.query(`DELETE FROM equipment_shipments    WHERE deal_id IN ${dIn}`);
+
+      // Step 3b: Null out nullable deal FKs that have no ON DELETE (would block deal delete)
+      await client.query(`UPDATE residual_import_rows SET matched_deal_id = NULL WHERE matched_deal_id IN ${dIn}`);
+      await client.query(`UPDATE merchant_referrals    SET referred_deal_id = NULL WHERE referred_deal_id IN ${dIn}`);
+
+      // Step 4: Remaining deal-level children (many cascade, but explicit is safer in a txn)
+      const dealChildTables = [
+        "statement_proposals", "statement_requests", "co_branded_proposals",
+        "equipment_orders", "ghl_activity_log", "calendar_events", "call_logs",
+        "chargebacks", "email_logs", "health_alerts", "merchant_applications",
+        "merchant_profiles", "merchant_residuals", "mid_daily_stats", "nps_responses",
+        "onboarding_checklist_items", "onboarding_steps", "rate_review_requests",
+        "referrals", "residual_import_rows", "review_requests", "rfis",
+        "sequence_enrollments", "tasks", "testimonial_submissions",
+        "underwriting_decisions", "agent_merchants", "deal_competitors",
+        "communication_events", "save_cases",
+      ];
+      for (const tbl of dealChildTables) {
+        await client.query(`DELETE FROM ${tbl} WHERE deal_id IN ${dIn}`);
+      }
+
+      // Step 5a: document_access_log.document_id has no ON DELETE — delete before documents
+      await client.query(
+        `DELETE FROM document_access_log
+         WHERE document_id IN (SELECT id FROM documents WHERE deal_id IN ${dIn})`
+      );
+      // Also cover documents that will be deleted via contact_id below
+      await client.query(
+        `DELETE FROM document_access_log
+         WHERE document_id IN (SELECT id FROM documents WHERE contact_id IN ${cIn})`
+      );
+
+      // Step 5b: Null out nullable deal FK on documents (don't delete documents themselves)
+      await client.query(`UPDATE documents SET deal_id = NULL WHERE deal_id IN ${dIn}`);
+
+      // Step 6: Delete the deals
+      await client.query(`DELETE FROM deals WHERE id IN ${dIn}`);
+
+      // Step 6b: Null out nullable contact FKs that have no ON DELETE
+      await client.query(`UPDATE prospects SET conversion_contact_id = NULL WHERE conversion_contact_id IN ${cIn}`);
+
+      // Step 7: Break circular FKs on contacts before removing children
+      await client.query(`UPDATE contacts SET primary_source_event_id = NULL WHERE id IN ${cIn}`);
+      await client.query(`UPDATE contacts SET parent_contact_id      = NULL WHERE parent_contact_id IN ${cIn}`);
+
+      // Step 8: Contact-level children (ordered to respect remaining FK chains)
+      const contactChildPairs: [string, string][] = [
+        ["ghl_activity_log",            "contact_id"],
+        ["outbound_messages",           "contact_id"],
+        ["outbound_send_log",           "contact_id"],
+        ["email_logs",                  "contact_id"],
+        ["call_logs",                   "contact_id"],
+        ["calendar_events",             "contact_id"],
+        ["inbox_items",                 "contact_id"],
+        ["live_chats",                  "contact_id"],
+        ["consent_audit_logs",          "contact_id"],
+        ["contact_ai_cache",            "contact_id"],
+        ["contact_source_events",       "contact_id"],
+        ["contact_lead_scoring_jobs",   "contact_id"],
+        ["enrichment_runs",             "contact_id"],
+        ["sdr_lead_state",              "contact_id"],
+        ["sdr_lead_events",             "contact_id"],
+        ["sdr_channel_attempts",        "contact_id"],
+        ["sdr_compliance_state",        "contact_id"],
+        ["sync_conflicts",              "contact_id"],
+        ["health_alerts",               "contact_id"],
+        ["lead_sources",                "contact_id"],
+        ["analytics_events",            "contact_id"],
+        ["contact_companies",           "contact_id"],
+        ["nps_responses",               "contact_id"],
+        ["testimonial_submissions",     "contact_id"],
+        ["review_requests",             "contact_id"],
+        ["rate_review_requests",        "contact_id"],
+        ["rfis",                        "contact_id"],
+        ["chargebacks",                 "contact_id"],
+        ["equipment_orders",            "contact_id"],
+        ["equipment_shipments",         "contact_id"],
+        ["promotional_enrollment_jobs", "contact_id"],
+        ["merchant_health_scores",      "contact_id"],
+        ["merchant_residuals",          "contact_id"],
+        ["merchant_applications",       "contact_id"],
+        ["merchant_profiles",           "contact_id"],
+        ["merchant_referrals",          "referred_contact_id"],
+        ["co_branded_proposals",        "contact_id"],
+        ["referrals",                   "contact_id"],
+        ["ma_events",                   "counterparty_contact_id"],
+        ["prospects",                   "contact_id"],
+        ["documents",                   "contact_id"],
+        ["statement_proposals",         "contact_id"],
+        ["statement_requests",          "contact_id"],
+        ["statement_reviews",           "contact_id"],
+        ["sequence_enrollments",        "contact_id"],
+        ["tasks",                       "contact_id"],
+        ["tickets",                     "contact_id"],
+        ["communication_events",        "contact_id"],
+        ["save_cases",                  "contact_id"],
+        ["ai_decision_log",             "contact_id"],
+      ];
+      for (const [tbl, col] of contactChildPairs) {
+        await client.query(`DELETE FROM ${tbl} WHERE ${col} IN ${cIn}`);
+      }
+
+      // Step 9: Delete the contacts
+      const deleteResult = await client.query<{ id: number }>(
+        `DELETE FROM contacts WHERE id IN ${cIn} RETURNING id`
+      );
+      const deleted = deleteResult.rowCount ?? deleteResult.rows.length;
+
+      await client.query("COMMIT");
+      client.release();
+
+      // Audit log (fire-and-forget, outside the now-committed transaction)
+      auditChange({
+        actorType: "user",
+        userId: (req.user as any)?.id ?? null,
+        action: "admin_purge_test_contacts",
+        entityType: "contacts",
+        entityKey: "bulk",
+        before: { count: beforeCount },
+        after: { deleted },
+      }).catch((e: Error) => console.error("[PurgeTest] Audit log failed:", e.message));
+
+      res.json({ deleted, message: `Purged ${deleted} test contact(s) and their associated data.` });
+    } catch (err: any) {
+      await client.query("ROLLBACK").catch(() => {});
+      client.release();
+      serverError(res, err);
+    }
+  });
+
 }

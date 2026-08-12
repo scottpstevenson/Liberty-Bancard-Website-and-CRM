@@ -40,7 +40,7 @@ import { registerChurnRoutes } from "./routes/churn";
 import { registerPortfolioRoutes } from "./routes/portfolio";
 import { registerRateReviewRoutes } from "./routes/rate-review";
 import { registerResidualsRoutes } from "./routes/residuals";
-import { registerVirtualTerminalRoutes } from "./routes/virtual-terminal";
+// registerVirtualTerminalRoutes removed — Virtual Terminal feature decommissioned (#1473)
 import { registerBoardingRoutes } from "./routes/boarding";
 import { registerPushRoutes } from "./routes/push";
 import { registerPartnerOrgsRoutes } from "./routes/partner-orgs";
@@ -186,7 +186,7 @@ export async function registerRoutes(
   registerPortfolioRoutes(app);
   registerRateReviewRoutes(app);
   registerResidualsRoutes(app);
-  registerVirtualTerminalRoutes(app);
+  // registerVirtualTerminalRoutes(app); — removed (#1473)
   registerBoardingRoutes(app);
   registerPushRoutes(app);
   registerContentRoutes(app);

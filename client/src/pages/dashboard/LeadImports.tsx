@@ -784,6 +784,32 @@ export default function LeadImports() {
     },
   });
 
+  const purgeTestContactsMutation = useMutation({
+    mutationFn: async () => {
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      const csrf = getCsrfToken();
+      if (csrf) headers["X-CSRF-Token"] = csrf;
+      const res = await fetch("/api/admin/purge-test-contacts", {
+        method: "POST",
+        headers,
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: "Request failed" }));
+        throw new Error(err.message);
+      }
+      return res.json() as Promise<{ deleted: number; message: string }>;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/contacts"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/csv-imports"] });
+      toast({ title: "Test contacts purged", description: data.message });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Purge failed", description: err.message, variant: "destructive" });
+    },
+  });
+
   const markInterruptedMutation = useMutation({
     mutationFn: async (importId: number) => {
       const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -1183,6 +1209,20 @@ export default function LeadImports() {
               >
                 {demoCleanupMutation.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Trash2 className="h-4 w-4 mr-1" />}
                 Archive Demo Data
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => {
+                  if (confirm("Permanently delete all QA/test contacts (WebhookTest, StmtTest, StatementTest, qa-release-*, GoLive-Test-*, ghl-deal-test-*, wh-test-ghl-*) and their associated deals, tasks, and enrollments? This CANNOT be undone.")) {
+                    purgeTestContactsMutation.mutate();
+                  }
+                }}
+                disabled={purgeTestContactsMutation.isPending}
+                data-testid="button-purge-test-contacts"
+              >
+                {purgeTestContactsMutation.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <OctagonAlert className="h-4 w-4 mr-1" />}
+                Purge Test Contacts
               </Button>
             </div>
           </div>

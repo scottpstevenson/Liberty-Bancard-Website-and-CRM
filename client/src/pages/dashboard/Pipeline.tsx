@@ -257,6 +257,7 @@ function SortableDealCard({
   getDealCardIdentity,
   getContactVertical,
   getContactEmployeeCount,
+  getContactLeadSource,
   midSummary,
   proposals,
   proposalsFailed,
@@ -274,6 +275,7 @@ function SortableDealCard({
   getDealCardIdentity: (deal: { id: number }, contactId: number | null) => { primary: string; secondary: string | null };
   getContactVertical: (id: number | null) => string | null;
   getContactEmployeeCount: (id: number | null, embedded?: number | null) => number | null;
+  getContactLeadSource: (id: number | null) => string | null;
   midSummary?: MidSummary;
   proposals?: CoBrandedProposal[];
   proposalsFailed?: boolean;
@@ -456,6 +458,22 @@ function SortableDealCard({
               🏷 {(deal as any).vertical}
             </div>
           )}
+          {/* Lead import source batch — prefer embedded JOIN field, fall back to contacts map */}
+          {(() => {
+            const src = (deal as any).contactLeadSource || getContactLeadSource(deal.contactId);
+            if (!src) return null;
+            const label = src === "google_ads" ? "Google Ads"
+              : src === "sunbiz" ? "Sunbiz"
+              : src === "imported_list" ? "Imported List"
+              : src === "referral" ? "Referral"
+              : src === "outbound" ? "Outbound"
+              : src.replace(/_/g, " ");
+            return (
+              <div className="text-[10px] text-muted-foreground/60 truncate" data-testid={`text-deal-source-${deal.id}`}>
+                📋 {label}
+              </div>
+            );
+          })()}
           {/* #1146 — Company size badge: uses embedded contactEmployeeCount from deal JOIN, fallback to map */}
           {!isDealArchived && (() => {
             const empCount = getContactEmployeeCount(deal.contactId, (deal as any).contactEmployeeCount);
@@ -724,6 +742,7 @@ function DroppableColumn({
   getDealCardIdentity,
   getContactVertical,
   getContactEmployeeCount,
+  getContactLeadSource,
   setCreateOpen,
   midSummaries,
   proposalsByDeal,
@@ -743,6 +762,7 @@ function DroppableColumn({
   getDealCardIdentity: (deal: { id: number }, contactId: number | null) => { primary: string; secondary: string | null };
   getContactVertical: (id: number | null) => string | null;
   getContactEmployeeCount: (id: number | null, embedded?: number | null) => number | null;
+  getContactLeadSource: (id: number | null) => string | null;
   setCreateOpen: (open: boolean) => void;
   midSummaries: Record<string, MidSummary>;
   proposalsByDeal: Record<string, CoBrandedProposal[]>;
@@ -794,6 +814,7 @@ function DroppableColumn({
                 getDealCardIdentity={getDealCardIdentity}
                 getContactVertical={getContactVertical}
                 getContactEmployeeCount={getContactEmployeeCount}
+                getContactLeadSource={getContactLeadSource}
                 midSummary={midSummaries[String(deal.id)]}
                 proposals={proposalsByDeal[String(deal.id)]}
                 proposalsFailed={proposalsFailedByDeal?.[String(deal.id)]}
@@ -1198,7 +1219,7 @@ export default function Pipeline() {
   const { data: dealsResult, isLoading: dealsLoading, isError: dealsError, refetch: refetchDeals } = useQuery<{ data: Deal[]; total: number }>({
     queryKey: ["/api/deals", { pipeline: "sales" }],
     queryFn: async () => {
-      const res = await fetch("/api/deals?pipeline=sales&limit=500", { credentials: "include" });
+      const res = await fetch("/api/deals?pipeline=sales&limit=2000", { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch deals");
       const result = await res.json();
       
@@ -1614,6 +1635,13 @@ export default function Pipeline() {
     const contact = contactsMap.get(contactId);
     const ec = (contact as any)?.employeeCount;
     return ec != null ? Number(ec) || null : null;
+  };
+
+  // Lead source / import batch from the contact record
+  const getContactLeadSource = (contactId: number | null): string | null => {
+    if (!contactId) return null;
+    const contact = contactsMap.get(contactId);
+    return (contact as any)?.leadSource || null;
   };
 
   const handleCreateDeal = () => {
@@ -2429,6 +2457,7 @@ export default function Pipeline() {
                   getDealCardIdentity={getDealCardIdentity}
                   getContactVertical={getContactVertical}
                   getContactEmployeeCount={getContactEmployeeCount}
+                  getContactLeadSource={getContactLeadSource}
                   setCreateOpen={setCreateOpen}
                   midSummaries={midSummaries}
                   proposalsByDeal={proposalsByDeal}
