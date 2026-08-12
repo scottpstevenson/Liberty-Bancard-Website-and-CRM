@@ -143,8 +143,9 @@ export default function Overview() {
     onboarding: { active: number; live: number };
     support: { openTickets: number; breachedSla: number; avgResolutionHours: number | null };
     tasks: { pending: number; overdue: number };
-    contacts: { total: number; new30d: number };
+    contacts: { total: number; new30d: number; noOutreach24h: number }; // #1063 — noOutreach24h is a full-table server aggregate
     revenue: { totalEstVolume: number; totalEstResidual: number; totalEstProfit: number; avgDealProfit: number };
+    topRepsByPipeline: Array<{ owner: string; openDeals: number }>; // #1144 — full-table server aggregate
   }>({ queryKey: ["/api/kpi/summary"], refetchInterval: 30000 });
 
   const { data: contactsResult, isLoading: contactsLoading } = useQuery<{ data: Contact[]; total: number }>({ queryKey: ["/api/contacts"], refetchInterval: 30000 });
@@ -572,6 +573,17 @@ export default function Overview() {
                   <span className="text-sm text-muted-foreground">New (30d)</span>
                   <span className="text-lg font-medium">{kpi?.contacts.new30d || 0}</span>
                 </div>
+                {/* #1063 — New leads in last 24h with no outreach (server-side full-table aggregate) */}
+                {kpi?.contacts && kpi.contacts.noOutreach24h > 0 && (
+                  <div className="flex items-center justify-between" data-testid="stat-no-outreach-24h">
+                    <span className="text-sm text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                      <Clock className="w-3 h-3" /> No outreach (24h)
+                    </span>
+                    <Link href="/dashboard/contacts" className="text-lg font-medium text-amber-600 dark:text-amber-400 hover:underline" data-testid="text-no-outreach-24h">
+                      {kpi.contacts.noOutreach24h}
+                    </Link>
+                  </div>
+                )}
                 {/* #673 — Contacts added this week */}
                 {kpi?.contacts && (kpi.contacts as any).new7d != null && (
                   <div className="flex items-center justify-between" data-testid="stat-contacts-this-week">
@@ -1066,6 +1078,28 @@ export default function Overview() {
                         <span className="text-xs text-muted-foreground">{d.updatedAt ? new Date(d.updatedAt).toLocaleDateString() : "—"}</span>
                       </div>
                     ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* #1144 — Top 5 reps by open deals (server-side full-table aggregate via kpi/summary) */}
+          {kpi?.topRepsByPipeline && kpi.topRepsByPipeline.length > 0 && (
+            <Card data-testid="card-top-reps-pipeline">
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Users className="w-4 h-4 text-primary" />
+                  Top Reps by Open Deals
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  {kpi.topRepsByPipeline.map((rep, i) => (
+                    <div key={rep.owner} className="flex items-center justify-between text-sm" data-testid={`top-rep-pipeline-${i}`}>
+                      <span className="font-medium truncate max-w-[60%]">{rep.owner}</span>
+                      <Badge variant="secondary">{rep.openDeals} open</Badge>
+                    </div>
+                  ))}
                 </div>
               </CardContent>
             </Card>

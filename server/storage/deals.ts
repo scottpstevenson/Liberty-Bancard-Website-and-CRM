@@ -112,6 +112,7 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
         contactCompanyName: contacts.companyName,
         contactEmail: contacts.email,
         contactPhone: contacts.phone,
+        contactEmployeeCount: contacts.employeeCount, // #1146
       })
       .from(deals)
       .leftJoin(contacts, eq(deals.contactId, contacts.id))
@@ -119,7 +120,7 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
       .orderBy(desc(deals.createdAt))
       .limit(limit)
       .offset(offset);
-    const data = rows.map(({ deal, contactFirstName, contactLastName, contactCompanyName, contactEmail, contactPhone }) => ({
+    const data = rows.map(({ deal, contactFirstName, contactLastName, contactCompanyName, contactEmail, contactPhone, contactEmployeeCount }) => ({
       ...deal,
       contactName: (contactFirstName || contactLastName)
         ? `${contactFirstName || ""} ${contactLastName || ""}`.trim()
@@ -127,6 +128,7 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
       companyName: contactCompanyName || null,
       contactEmail: contactEmail || null,
       contactPhone: contactPhone || null,
+      contactEmployeeCount: contactEmployeeCount ?? null, // #1146
     }));
     return { data, total: totalResult.count, limit, offset };
   }
@@ -175,6 +177,7 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
         contactCompanyName: contacts.companyName,
         contactEmail: contacts.email,
         contactPhone: contacts.phone,
+        contactEmployeeCount: contacts.employeeCount, // #1146
       })
       .from(deals)
       .leftJoin(contacts, eq(deals.contactId, contacts.id))
@@ -182,7 +185,7 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
       .orderBy(desc(deals.createdAt))
       .limit(limit)
       .offset(offset);
-    const data = rows.map(({ deal, contactFirstName, contactLastName, contactCompanyName, contactEmail, contactPhone }) => ({
+    const data = rows.map(({ deal, contactFirstName, contactLastName, contactCompanyName, contactEmail, contactPhone, contactEmployeeCount }) => ({
       ...deal,
       contactName: (contactFirstName || contactLastName)
         ? `${contactFirstName || ""} ${contactLastName || ""}`.trim()
@@ -190,6 +193,7 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
       companyName: contactCompanyName || null,
       contactEmail: contactEmail || null,
       contactPhone: contactPhone || null,
+      contactEmployeeCount: contactEmployeeCount ?? null, // #1146
     }));
     return { data, total: totalResult.count, limit, offset };
   }

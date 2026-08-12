@@ -662,8 +662,28 @@ export function registerCampaignsRoutes(app: Express) {
   // === SEQUENCE STEPS ===
   app.get("/api/sequences/:sequenceId/steps", isAuthenticated, async (req, res) => {
     try {
-      const steps = await storage.getSequenceSteps(Number(req.params.sequenceId));
-      res.json(steps);
+      const sequenceId = Number(req.params.sequenceId);
+      const steps = await storage.getSequenceSteps(sequenceId);
+      // #902 — Annotate each step with how many outbound sends it has produced
+      const sentCountsResult = await pool.query(
+        `SELECT sequence_step_id, COUNT(*) AS sent_count
+         FROM communication_events
+         WHERE sequence_id = $1
+           AND direction = 'outbound'
+           AND status IN ('sent', 'delivered')
+           AND sequence_step_id IS NOT NULL
+         GROUP BY sequence_step_id`,
+        [sequenceId]
+      ).catch(() => ({ rows: [] as any[] }));
+      const sentByStepId = new Map<number, number>();
+      for (const row of sentCountsResult.rows) {
+        sentByStepId.set(Number(row.sequence_step_id), Number(row.sent_count));
+      }
+      const stepsWithCounts = steps.map((s: any) => ({
+        ...s,
+        sentCount: sentByStepId.get(s.id) ?? 0,
+      }));
+      res.json(stepsWithCounts);
     } catch (err: any) {
       serverError(res, err);
     }

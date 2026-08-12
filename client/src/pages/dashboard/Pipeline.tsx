@@ -256,6 +256,7 @@ function SortableDealCard({
   restoreDealMutation,
   getDealCardIdentity,
   getContactVertical,
+  getContactEmployeeCount,
   midSummary,
   proposals,
   proposalsFailed,
@@ -272,6 +273,7 @@ function SortableDealCard({
   restoreDealMutation: any;
   getDealCardIdentity: (deal: { id: number }, contactId: number | null) => { primary: string; secondary: string | null };
   getContactVertical: (id: number | null) => string | null;
+  getContactEmployeeCount: (id: number | null, embedded?: number | null) => number | null;
   midSummary?: MidSummary;
   proposals?: CoBrandedProposal[];
   proposalsFailed?: boolean;
@@ -454,6 +456,25 @@ function SortableDealCard({
               🏷 {(deal as any).vertical}
             </div>
           )}
+          {/* #1146 — Company size badge: uses embedded contactEmployeeCount from deal JOIN, fallback to map */}
+          {!isDealArchived && (() => {
+            const empCount = getContactEmployeeCount(deal.contactId, (deal as any).contactEmployeeCount);
+            if (!empCount || empCount <= 0) return null;
+            const tier = empCount < 10 ? "< 10"
+              : empCount <= 50 ? "10–50"
+              : empCount <= 200 ? "51–200"
+              : "200+";
+            return (
+              <Badge
+                variant="outline"
+                className="text-[10px] no-default-hover-elevate no-default-active-elevate border-slate-200 bg-slate-50 text-slate-600 dark:bg-slate-900/20 dark:border-slate-700 dark:text-slate-400"
+                data-testid={`badge-company-size-${deal.id}`}
+                title={`${empCount} employees`}
+              >
+                👥 {tier} emp.
+              </Badge>
+            );
+          })()}
           {/* #477 — High-value merchant badge (>$100K monthly volume) */}
           {Number((deal as any).totalVolume) >= 100000 && (
             <Badge
@@ -702,6 +723,7 @@ function DroppableColumn({
   restoreDealMutation,
   getDealCardIdentity,
   getContactVertical,
+  getContactEmployeeCount,
   setCreateOpen,
   midSummaries,
   proposalsByDeal,
@@ -720,6 +742,7 @@ function DroppableColumn({
   restoreDealMutation: any;
   getDealCardIdentity: (deal: { id: number }, contactId: number | null) => { primary: string; secondary: string | null };
   getContactVertical: (id: number | null) => string | null;
+  getContactEmployeeCount: (id: number | null, embedded?: number | null) => number | null;
   setCreateOpen: (open: boolean) => void;
   midSummaries: Record<string, MidSummary>;
   proposalsByDeal: Record<string, CoBrandedProposal[]>;
@@ -770,6 +793,7 @@ function DroppableColumn({
                 restoreDealMutation={restoreDealMutation}
                 getDealCardIdentity={getDealCardIdentity}
                 getContactVertical={getContactVertical}
+                getContactEmployeeCount={getContactEmployeeCount}
                 midSummary={midSummaries[String(deal.id)]}
                 proposals={proposalsByDeal[String(deal.id)]}
                 proposalsFailed={proposalsFailedByDeal?.[String(deal.id)]}
@@ -1569,6 +1593,16 @@ export default function Pipeline() {
     return contact?.vertical || null;
   };
 
+  // #1146 — Employee count: read from deal's embedded contactEmployeeCount (included by server JOIN)
+  // Fallback to contactsMap for any deals not covered by the join result
+  const getContactEmployeeCount = (contactId: number | null, dealEmployeeCount?: number | null): number | null => {
+    if (dealEmployeeCount != null) return Number(dealEmployeeCount) || null;
+    if (!contactId) return null;
+    const contact = contactsMap.get(contactId);
+    const ec = (contact as any)?.employeeCount;
+    return ec != null ? Number(ec) || null : null;
+  };
+
   const handleCreateDeal = () => {
     if (!newDeal.stage) {
       toast({ title: "Stage required", description: "Select a pipeline stage before creating the deal.", variant: "destructive" });
@@ -2336,6 +2370,7 @@ export default function Pipeline() {
                   restoreDealMutation={restoreDealMutation}
                   getDealCardIdentity={getDealCardIdentity}
                   getContactVertical={getContactVertical}
+                  getContactEmployeeCount={getContactEmployeeCount}
                   setCreateOpen={setCreateOpen}
                   midSummaries={midSummaries}
                   proposalsByDeal={proposalsByDeal}

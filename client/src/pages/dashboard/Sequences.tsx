@@ -700,14 +700,21 @@ export default function Sequences() {
                           </Badge>
                         )}
                         <WiringBadge status={wiring.status} />
+                      {/* #986 — Enrolled contacts count badge */}
+                      {seqEnrollments.length > 0 && (
+                        <Badge variant="outline" className="text-xs border-blue-300 text-blue-700 bg-blue-50 dark:bg-blue-900/20" data-testid={`badge-enrolled-${seq.id}`}>
+                          <Users className="w-3 h-3 mr-1" />{seqEnrollments.length} enrolled
+                        </Badge>
+                      )}
                       </div>
                       {seq.description && (
                         <p className="text-sm text-muted-foreground mt-1 truncate">{seq.description}</p>
                       )}
+                      {/* #905 — Avg sequence length + step count sub-line */}
                       <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
-                        <span>{seq.totalSteps || 0} steps</span>
-                        <span>{seqEnrollments.length} enrolled</span>
+                        <span data-testid={`text-step-count-${seq.id}`}>{seq.totalSteps || 0}-step sequence</span>
                         <span>{seqEnrollments.filter((e: any) => e.status === "active").length} active</span>
+                        <span>{seqEnrollments.filter((e: any) => e.status === "completed").length} completed</span>
                       </div>
                       {/* #547 — Per-card completion percent bar */}
                       {seqEnrollments.length > 0 && (() => {
@@ -1683,6 +1690,21 @@ function SequenceStepsView({ sequenceId, enrollments }: { sequenceId: number; en
                           <AlertTriangle className="w-3 h-3 mr-1" /> Needs Orchestrator
                         </Badge>
                       )}
+                      {/* #902 — Per-step email sent count badge */}
+                      {(() => {
+                        const abRes = step.abTestResults as any;
+                        const sentCount = step.sentCount != null
+                          ? step.sentCount
+                          : abRes
+                          ? (abRes.variantASent || 0) + (abRes.variantBSent || 0)
+                          : null;
+                        if (!sentCount) return null;
+                        return (
+                          <Badge variant="secondary" className="text-xs shrink-0" data-testid={`badge-step-sent-${step.id}`}>
+                            <Send className="w-3 h-3 mr-1" />{sentCount} sent
+                          </Badge>
+                        );
+                      })()}
                     </div>
                     {(step.delayDays > 0 || step.delayHours > 0) && (
                       <Badge variant="secondary" className="text-xs shrink-0">

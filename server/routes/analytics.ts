@@ -108,6 +108,8 @@ export function registerAnalyticsRoutes(app: Express) {
         blockedContactsRow,
         revenueRow,
         avgResolutionRow,
+        noOutreach24hRow,       // #1063
+        topRepsPipelineRows,    // #1144
       ] = await Promise.all([
         pool.query<{ stage: string; cnt: string }>(`
           SELECT stage, COUNT(*)::text AS cnt FROM deals
@@ -199,6 +201,24 @@ export function registerAnalyticsRoutes(app: Express) {
               )
             )
         `, [thirtyDaysAgo]),
+        // #1063 — new contacts in last 24 h with no outreach (full-table aggregate, no pagination)
+        pool.query<{ cnt: string }>(`
+          SELECT COUNT(*)::text AS cnt FROM contacts
+          WHERE archived_at IS NULL
+            AND created_at >= NOW() - INTERVAL '24 hours'
+            AND last_contacted_at IS NULL
+        `),
+        // #1144 — top 5 reps by open deal count (full-table aggregate)
+        pool.query<{ owner: string; cnt: string }>(`
+          SELECT owner, COUNT(*)::text AS cnt
+          FROM deals
+          WHERE archived_at IS NULL
+            AND owner IS NOT NULL
+            AND stage NOT IN ('Closed Won', 'Closed Lost')
+          GROUP BY owner
+          ORDER BY COUNT(*) DESC
+          LIMIT 5
+        `),
       ]);
 
       const stagesCount: Record<string, number> = {};
@@ -259,7 +279,9 @@ export function registerAnalyticsRoutes(app: Express) {
           new30d: parseInt(newContacts30dRow.rows[0]?.cnt ?? "0", 10),
           new7d: parseInt(newContacts7dRow.rows[0]?.cnt ?? "0", 10),
           blocked: parseInt(blockedContactsRow.rows[0]?.cnt ?? "0", 10),
+          noOutreach24h: parseInt(noOutreach24hRow.rows[0]?.cnt ?? "0", 10), // #1063
         },
+        topRepsByPipeline: (topRepsPipelineRows.rows as Array<{ owner: string; cnt: string }>).map(r => ({ owner: r.owner, openDeals: parseInt(r.cnt, 10) })), // #1144
         revenue: {
           totalEstVolume: parseFloat(rev?.total_volume ?? "0"),
           totalEstResidual: parseFloat(rev?.total_residual ?? "0"),
@@ -919,10 +941,12 @@ export function registerAnalyticsRoutes(app: Express) {
         prevEnd = currentStart;
       }
 
-      const [allAgents, dealsResult, callLogsResult] = await Promise.all([
+      const [allAgents, dealsResult, callLogsResult, contactsWorkedResult] = await Promise.all([
         storage.getAgents(),
         storage.getDeals({ limit: 10000 }),
         pool.query(`SELECT assigned_to, created_at FROM call_logs WHERE assigned_to IS NOT NULL`).catch(() => ({ rows: [] as any[] })),
+        // #1101 — per-agent contacts-worked count (non-null lastContactedAt in the period)
+        pool.query(`SELECT assigned_to, last_contacted_at FROM contacts WHERE assigned_to IS NOT NULL AND last_contacted_at IS NOT NULL`).catch(() => ({ rows: [] as any[] })),
       ]);
 
       const allDeals = dealsResult.data;
@@ -998,6 +1022,14 @@ export function registerAnalyticsRoutes(app: Express) {
 
           const isCurrentUser = !!(currentUserId && (agent.userId === currentUserId || agent.email === currentUser?.email));
 
+          // #1101 — Contacts worked: distinct contacts where lastContactedAt is in the period
+          const agentContactRows = contactsWorkedResult.rows.filter((r: any) => {
+            const assignedTo = (r.assigned_to || "").toLowerCase();
+            return assignedTo === `${agent.firstName} ${agent.lastName}`.toLowerCase() || assignedTo === agent.email?.toLowerCase();
+          });
+          const currentContactsWorked = agentContactRows.filter((r: any) => isCurrent(r.last_contacted_at)).length;
+          const prevContactsWorked = agentContactRows.filter((r: any) => isPrev(r.last_contacted_at)).length;
+
           // Response Rate = proposals sent / total deals touched in the period (as %)
           // "Touched" = deal exists in the period (created or updated)
           const currentTouched = agentDeals.filter(d => isCurrent(d.createdAt || d.updatedAt));
@@ -1032,6 +1064,8 @@ export function registerAnalyticsRoutes(app: Express) {
             prevResponseRate,
             prevCloseRate, // #530
             isCurrentUser,
+            contactsWorked: currentContactsWorked,    // #1101
+            prevContactsWorked,                        // #1101
           };
         });
 

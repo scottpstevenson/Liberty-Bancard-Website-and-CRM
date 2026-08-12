@@ -389,6 +389,10 @@ interface MyDayData {
     contactLastName: string | null;
     contactCompanyName: string | null;
   }>;
+  // #979 / #1107 — added by server
+  closedDealsHistory: Array<{ id: number; stage: string; updatedAt: string | null; closedAt: string | null }>;
+  totalAssignedContacts: number;
+  contactedCount: number;
 }
 
 const STAGE_COLORS: Record<string, string> = {
@@ -767,7 +771,7 @@ export default function SalesRepHome() {
     );
   }
 
-  const { contacts = [], dealsByStage = {}, quota, closedWonThisMonth = 0, tasksToday = [], recentActivity = [] } = data ?? {};
+  const { contacts = [], dealsByStage = {}, quota, closedWonThisMonth = 0, tasksToday = [], recentActivity = [], closedDealsHistory = [], totalAssignedContacts = 0, contactedCount = 0 } = data ?? {};
 
   const stagesWithDeals = SALES_STAGES.filter(
     (s) => s !== "Closed Won" && s !== "Closed Lost" && (dealsByStage[s]?.length ?? 0) > 0
@@ -833,6 +837,43 @@ export default function SalesRepHome() {
             </div>
           </CardContent>
         </Card>
+        {/* #979 — Win streak: consecutive Closed Won deals from server-provided history */}
+        {(() => {
+          // closedDealsHistory is pre-sorted by close date desc by the server
+          let streak = 0;
+          for (const d of closedDealsHistory) {
+            if (d.stage === "Closed Won") streak++;
+            else break;
+          }
+          if (streak === 0) return null;
+          return (
+            <Card data-testid="stat-win-streak">
+              <CardContent className="pt-4 pb-3">
+                <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1">
+                  🔥 Win Streak
+                </div>
+                <div className="text-2xl font-bold text-amber-500" data-testid="text-win-streak">{streak}</div>
+                <div className="text-xs text-muted-foreground">consecutive wins</div>
+              </CardContent>
+            </Card>
+          );
+        })()}
+        {/* #1107 — Rep first-contact rate: server supplies both numerator and denominator across full population */}
+        {totalAssignedContacts > 0 && (() => {
+          const rate = Math.round((contactedCount / totalAssignedContacts) * 100);
+          return (
+            <Card data-testid="stat-contact-rate">
+              <CardContent className="pt-4 pb-3">
+                <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  Contact Rate
+                </div>
+                <div className="text-2xl font-bold" data-testid="text-contact-rate">{rate}%</div>
+                <div className="text-xs text-muted-foreground">{contactedCount}/{totalAssignedContacts} reached</div>
+              </CardContent>
+            </Card>
+          );
+        })()}
         <Card data-testid="stat-tasks-due">
           <CardContent className="pt-4 pb-3">
             <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1">

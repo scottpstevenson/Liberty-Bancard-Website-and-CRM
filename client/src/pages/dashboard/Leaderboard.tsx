@@ -368,6 +368,17 @@ export default function Leaderboard() {
                                 avg {formatRevenue(Math.round(entry.revenueManaged / entry.dealsClosed))}
                               </span>
                             )}
+                            {/* #1101 — Rep efficiency score (deals closed ÷ contacts worked) */}
+                            {key === "deals" && (() => {
+                              const contactsWorked = (entry as any).contactsWorked as number | undefined;
+                              if (!contactsWorked || contactsWorked === 0) return null;
+                              const eff = entry.dealsClosed / contactsWorked;
+                              return (
+                                <span className="text-[10px] text-primary/70 block" data-testid={`text-efficiency-${entry.agentId}`}>
+                                  {(eff * 100).toFixed(1)}% efficiency
+                                </span>
+                              );
+                            })()}
                           </div>
                         </div>
                       );

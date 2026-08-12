@@ -3,7 +3,7 @@ import { isAuthenticated } from "../replit_integrations/auth";
 import { db } from "../db";
 import { storage } from "../storage";
 import { agents, agentMerchants, agentQuotas, deals, contacts, tasks, callLogs, SALES_STAGES } from "@shared/schema";
-import { eq, and, lte, gte, isNull, or, desc, inArray, sql } from "drizzle-orm";
+import { eq, and, lte, gte, isNull, isNotNull, or, desc, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 
 const ALLOWED_ACTIVITY_TYPES = ["call", "email", "sms", "meeting", "voicemail"] as const;
@@ -60,6 +60,9 @@ export function registerMyDayRoutes(app: Express) {
           quota: null,
           closedWonThisMonth: 0,
           tasksToday: [],
+          closedDealsHistory: [],
+          totalAssignedContacts: 0,
+          contactedCount: 0,
         });
       }
 
@@ -203,6 +206,37 @@ export function registerMyDayRoutes(app: Express) {
           .limit(10);
       }
 
+      // #1107 — First-contact rate: use contacts.assignedTo ownership (not deal-linked IDs)
+      // Both numerator and denominator use the same predicate so they cover the same population.
+      const agentEmail = agent.email ?? "";
+      const agentFullName = `${agent.firstName} ${agent.lastName}`;
+      const ownershipFilter = or(
+        eq(contacts.assignedTo, agentEmail),
+        eq(contacts.assignedTo, agentFullName),
+      );
+      const [totalContactsResult, contactedResult] = await Promise.all([
+        db.select({ count: sql<number>`cast(count(*) as integer)` })
+          .from(contacts)
+          .where(and(isNull(contacts.archivedAt), ownershipFilter)),
+        db.select({ count: sql<number>`cast(count(*) as integer)` })
+          .from(contacts)
+          .where(and(isNull(contacts.archivedAt), isNotNull(contacts.lastContactedAt), ownershipFilter)),
+      ]);
+      const totalAssignedContacts = totalContactsResult[0]?.count ?? 0;
+      const contactedCount = contactedResult[0]?.count ?? 0;
+
+      // #979 — Win streak: recent closed deals sorted by close date for consecutive-win calc
+      const closedDealsHistory = myDeals
+        .filter((d) => d.stage === "Closed Won" || d.stage === "Closed Lost")
+        .sort((a, b) => {
+          const aTime = new Date(a.closedAt ?? a.updatedAt ?? 0).getTime();
+          const bTime = new Date(b.closedAt ?? b.updatedAt ?? 0).getTime();
+          return bTime - aTime;
+        })
+        .slice(0, 50)
+        .map((d) => ({ id: d.id, stage: d.stage, updatedAt: d.updatedAt, closedAt: d.closedAt }));
+
+
       return res.json({
         agent,
         contacts: contactsForDeals,
@@ -212,6 +246,9 @@ export function registerMyDayRoutes(app: Express) {
         closedWonThisMonth: closedWonThisMonth.length,
         tasksToday: myTasks,
         recentActivity,
+        closedDealsHistory,
+        totalAssignedContacts,
+        contactedCount,
       });
     } catch (err) {
       console.error("my-day GET error:", err);
