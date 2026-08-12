@@ -576,10 +576,10 @@ export default function Overview() {
                 {/* #1063 — New leads in last 24h with no outreach (server-side full-table aggregate) */}
                 {kpi?.contacts && kpi.contacts.noOutreach24h > 0 && (
                   <div className="flex items-center justify-between" data-testid="stat-no-outreach-24h">
-                    <span className="text-sm text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                    <Link href="/dashboard/contacts?noOutreach=24h" className="text-sm text-amber-600 dark:text-amber-400 flex items-center gap-1 hover:underline">
                       <Clock className="w-3 h-3" /> No outreach (24h)
-                    </span>
-                    <Link href="/dashboard/contacts" className="text-lg font-medium text-amber-600 dark:text-amber-400 hover:underline" data-testid="text-no-outreach-24h">
+                    </Link>
+                    <Link href="/dashboard/contacts?noOutreach=24h" className="text-lg font-medium text-amber-600 dark:text-amber-400 hover:underline" data-testid="text-no-outreach-24h">
                       {kpi.contacts.noOutreach24h}
                     </Link>
                   </div>
@@ -601,8 +601,8 @@ export default function Overview() {
                 {/* #1263 — Churn-risk contacts count (server-side aggregate: churn_risk_tier High/Critical) */}
                 {kpi?.contacts && (kpi.contacts as any).churnRisk > 0 && (
                   <div className="flex items-center justify-between" data-testid="stat-churn-risk-contacts">
-                    <a href="/dashboard/contacts" className="text-sm text-amber-600 hover:underline cursor-pointer">Churn Risk</a>
-                    <span className="text-lg font-medium text-amber-600" data-testid="text-churn-risk-count">{(kpi.contacts as any).churnRisk}</span>
+                    <Link href="/dashboard/contacts?churnRisk=high" className="text-sm text-amber-600 hover:underline cursor-pointer">Churn Risk</Link>
+                    <Link href="/dashboard/contacts?churnRisk=high" className="text-lg font-medium text-amber-600 hover:underline" data-testid="text-churn-risk-count">{(kpi.contacts as any).churnRisk}</Link>
                   </div>
                 )}
                 <div className="flex items-center justify-between">

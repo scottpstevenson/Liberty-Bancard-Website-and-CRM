@@ -362,7 +362,26 @@ export function registerCampaignsRoutes(app: Express) {
   app.get("/api/sequences", isAuthenticated, async (req, res) => {
     try {
       const sequences = await storage.getFollowUpSequences();
-      res.json(sequences);
+      // #1443 — Augment each sequence with avgDelayDays computed from its steps
+      if (sequences.length === 0) return res.json(sequences);
+      const seqIds = sequences.map((s: any) => s.id);
+      const placeholders = seqIds.map((_: any, i: number) => `$${i + 1}`).join(",");
+      const avgResult = await pool.query(
+        `SELECT sequence_id, ROUND(AVG(delay_days)::numeric, 1) AS avg_delay_days
+         FROM sequence_steps
+         WHERE sequence_id IN (${placeholders})
+         GROUP BY sequence_id`,
+        seqIds,
+      ).catch(() => ({ rows: [] as any[] }));
+      const avgMap = new Map<number, number>();
+      for (const row of avgResult.rows) {
+        avgMap.set(Number(row.sequence_id), Number(row.avg_delay_days));
+      }
+      const enriched = sequences.map((s: any) => ({
+        ...s,
+        avgDelayDays: avgMap.get(s.id) ?? null,
+      }));
+      res.json(enriched);
     } catch (err: any) {
       serverError(res, err);
     }

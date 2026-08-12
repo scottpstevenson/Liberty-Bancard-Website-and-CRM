@@ -413,7 +413,29 @@ function DuplicateFinderDialog({ open, onOpenChange }: { open: boolean; onOpenCh
 export default function Contacts() {
   const [page, setPage] = useState(0);
   const pageSize = 100;
-  const { data: contactsResult, isLoading, isError, refetch } = useContacts({ limit: pageSize, offset: page * pageSize });
+  // #1443 — Declare server-filter states BEFORE useContacts so they can be passed as
+  // reactive query params. Initialized synchronously from URL search params so the very
+  // first fetch already carries the filter (no double-fetch / empty-flash from useEffect).
+  const [churnRiskOnly, setChurnRiskOnly] = useState<boolean>(
+    () => new URLSearchParams(window.location.search).get("churnRisk") === "high",
+  );
+  const [noOutreach24hOnly, setNoOutreach24hOnly] = useState<boolean>(
+    () => new URLSearchParams(window.location.search).get("noOutreach") === "24h",
+  );
+  const [blockedOnly, setBlockedOnly] = useState<boolean>(
+    () => new URLSearchParams(window.location.search).get("blocked") === "true",
+  );
+  // #1443 — Reset to page 0 whenever a server-side filter toggles so the paginated
+  // response starts from the beginning of the new filtered result set.
+  useEffect(() => { setPage(0); }, [churnRiskOnly, noOutreach24hOnly, blockedOnly]);
+
+  const { data: contactsResult, isLoading, isError, refetch } = useContacts({
+    limit: pageSize,
+    offset: page * pageSize,
+    churnRisk: churnRiskOnly ? "high" : undefined,
+    noOutreach: noOutreach24hOnly ? "24h" : undefined,
+    blocked: blockedOnly ? "true" : undefined,
+  });
   const contacts = contactsResult?.data;
   const totalContacts = contactsResult?.total ?? 0;
   const totalPages = Math.ceil(totalContacts / pageSize);
@@ -436,11 +458,12 @@ export default function Contacts() {
   const [recentlyUpdated, setRecentlyUpdated] = useState(false); // #543
   const [noDealOnly, setNoDealOnly] = useState(false); // #835
   const [notContactedIn30Only, setNotContactedIn30Only] = useState(false); // #1245
+  // churnRiskOnly / noOutreach24hOnly / blockedOnly declared early (before useContacts) — see above
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [selectedContact, setSelectedContact] = useState<any>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [duplicatesOpen, setDuplicatesOpen] = useState(false);
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
   const [showArchived, setShowArchived] = useState(false);
   const createContact = useCreateContact();
   const updateContact = useUpdateContact();
@@ -561,6 +584,23 @@ export default function Contacts() {
       (c.companyName?.toLowerCase() ?? "").includes(searchTerm.toLowerCase());
     const isArchived = !!c.archivedAt;
     if (!showArchived && isArchived) return false;
+    // #1443 — Blocked contacts filter
+    if (blockedOnly) {
+      const isBlocked = (c.doNotContact === true) ||
+        ["bounced", "invalid", "opted_out", "unsafe"].includes(c.emailStatus || "");
+      if (!isBlocked) return false;
+    }
+    // #1443 — Churn risk filter (churnRiskTier is High or Critical, matching server KPI predicate)
+    if (churnRiskOnly) {
+      const tier = (c as any).churnRiskTier;
+      if (tier !== "High" && tier !== "Critical") return false;
+    }
+    // #1443 — No-outreach 24h filter (created last 24h with null lastContactedAt)
+    if (noOutreach24hOnly) {
+      const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
+      if (!c.createdAt || new Date(c.createdAt).getTime() < oneDayAgo) return false;
+      if (c.lastContactedAt) return false;
+    }
     if (statusFilter && c.status !== statusFilter) return false;
     if (emailHealthFilter) {
       const contactEmailStatus = (c.emailStatus || "active");
@@ -1002,6 +1042,45 @@ export default function Contacts() {
             <PhoneMissed className="h-3 w-3" />
             No call (30d)
           </button>
+          {/* #1443 — Blocked contacts chip */}
+          <button
+            onClick={() => setBlockedOnly(v => !v)}
+            data-testid="chip-blocked-contacts"
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+              blockedOnly
+                ? "bg-red-50 border-red-300 text-red-700 dark:bg-red-900/30 dark:border-red-700 dark:text-red-300"
+                : "bg-background border-border text-muted-foreground hover:bg-muted"
+            }`}
+          >
+            <BellOff className="h-3 w-3" />
+            Blocked
+          </button>
+          {/* #1443 — Churn risk chip */}
+          <button
+            onClick={() => setChurnRiskOnly(v => !v)}
+            data-testid="chip-churn-risk"
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+              churnRiskOnly
+                ? "bg-amber-50 border-amber-300 text-amber-700 dark:bg-amber-900/30 dark:border-amber-700 dark:text-amber-300"
+                : "bg-background border-border text-muted-foreground hover:bg-muted"
+            }`}
+          >
+            <TrendingUp className="h-3 w-3" />
+            Churn Risk
+          </button>
+          {/* #1443 — No-outreach 24h chip */}
+          <button
+            onClick={() => setNoOutreach24hOnly(v => !v)}
+            data-testid="chip-no-outreach-24h"
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+              noOutreach24hOnly
+                ? "bg-amber-50 border-amber-300 text-amber-700 dark:bg-amber-900/30 dark:border-amber-700 dark:text-amber-300"
+                : "bg-background border-border text-muted-foreground hover:bg-muted"
+            }`}
+          >
+            <Clock className="h-3 w-3" />
+            No outreach (24h)
+          </button>
           {/* #835 — No-deal contacts chip */}
           <button
             onClick={() => setNoDealOnly(v => !v)}
@@ -1227,6 +1306,25 @@ export default function Contacts() {
           <Button variant="outline" size="sm" className="gap-2" onClick={() => setDuplicatesOpen(true)} data-testid="button-find-duplicates">
             <Users className="w-4 h-4" /> Find Duplicates
           </Button>
+          {/* #1443 — Export blocked contacts CSV (server-side, no row cap) */}
+          {blockedOnly && isManagerOrAdmin && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2 border-red-300 text-red-700 hover:bg-red-50 dark:border-red-700 dark:text-red-300 dark:hover:bg-red-900/20"
+              data-testid="button-export-blocked-contacts"
+              onClick={() => {
+                const a = document.createElement("a");
+                a.href = `/api/contacts/blocked/export-csv`;
+                a.download = `blocked-contacts-${new Date().toISOString().split("T")[0]}.csv`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+              }}
+            >
+              <Download className="w-4 h-4" /> Export Blocked CSV
+            </Button>
+          )}
           {(emailHealthFilter === "bounced" || emailHealthFilter === "invalid" || emailHealthFilter === "opted_out") && (
             <Button variant="outline" size="sm" className="gap-2 border-red-300 text-red-700 hover:bg-red-50 dark:border-red-700 dark:text-red-300 dark:hover:bg-red-900/20" onClick={() => exportToCSV(filteredContacts || [], `contacts_${emailHealthFilter}`, [
               { key: "firstName", label: "First Name" },

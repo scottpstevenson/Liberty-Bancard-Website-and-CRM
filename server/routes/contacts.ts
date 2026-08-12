@@ -4,8 +4,8 @@ import { storage } from "../storage";
 import { z } from "zod";
 import { DateValidationError } from "../utils/date-coerce";
 import { pool, db } from "../db";
-import { sdrLeadState, insertCompanySchema, insertContactSchema } from "@shared/schema";
-import { eq } from "drizzle-orm";
+import { sdrLeadState, insertCompanySchema, insertContactSchema, contacts as contactsTable } from "@shared/schema";
+import { eq, inArray, isNull, and, gte, count as drizzleCount, asc } from "drizzle-orm";
 import crypto from "crypto";
 import { enrollContactInGhlWorkflow } from "../services/ghl-workflow-enrollment";
 import { enrichContactBatch, isContactEnrichRunning } from "../services/enrichment";
@@ -41,6 +41,52 @@ export function registerContactsRoutes(app: Express) {
       const offset = req.query.offset ? Number(req.query.offset) : undefined;
       const emailStatus = req.query.emailStatus ? String(req.query.emailStatus) : undefined;
       const assignedTo = req.query.assignedTo ? String(req.query.assignedTo) : undefined;
+      const churnRisk = req.query.churnRisk ? String(req.query.churnRisk) : undefined;
+      const noOutreach = req.query.noOutreach ? String(req.query.noOutreach) : undefined;
+      const blockedFilter = req.query.blocked ? String(req.query.blocked) : undefined;
+
+      // #1443 — Server-side special filters (churnRisk, noOutreach, blocked): paginated query
+      // using a filtered COUNT(*) for total and deterministic LIMIT/OFFSET for data, matching
+      // the normal { data, total, limit, offset } response shape so the Contacts table
+      // paginates correctly across the full filtered result set.
+      if (churnRisk === "high" || noOutreach === "24h" || blockedFilter === "true") {
+        const pageLimit = (limit != null && Number.isFinite(limit) && limit > 0) ? Math.min(limit, 500) : 100;
+        const pageOffset = (offset != null && Number.isFinite(offset) && offset >= 0) ? offset : 0;
+
+        const { or, sql: sqlExpr } = await import("drizzle-orm");
+        const conditions: any[] = [isNull(contactsTable.archivedAt)];
+        if (churnRisk === "high") {
+          conditions.push(inArray((contactsTable as any).churnRiskTier, ["High", "Critical"]));
+        }
+        if (noOutreach === "24h") {
+          const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+          conditions.push(gte((contactsTable as any).createdAt, oneDayAgo));
+          conditions.push(isNull((contactsTable as any).lastContactedAt));
+        }
+        if (blockedFilter === "true") {
+          // Matches the same predicate used by /api/contacts/blocked and the CSV export
+          conditions.push(
+            or(
+              sqlExpr`${(contactsTable as any).doNotContact} = true`,
+              inArray((contactsTable as any).emailStatus, ["bounced", "invalid", "opted_out", "unsafe"]),
+            ),
+          );
+        }
+
+        const where = and(...conditions);
+        const [{ total }] = await db
+          .select({ total: drizzleCount() })
+          .from(contactsTable)
+          .where(where);
+        const data = await db.select().from(contactsTable)
+          .where(where)
+          .orderBy(asc((contactsTable as any).createdAt))
+          .limit(pageLimit)
+          .offset(pageOffset);
+
+        return res.json({ data, total, limit: pageLimit, offset: pageOffset });
+      }
+
       const result = await storage.getContacts({ limit, offset, emailStatus, assignedTo });
       res.json(result);
     } catch (err: any) {
@@ -2127,6 +2173,43 @@ export function registerContactsRoutes(app: Express) {
       });
 
       res.json({ success: true, email: contact.email, status: zbResult.status, subStatus: zbResult.subStatus ?? null });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  // GET /api/contacts/:id/lifecycle-history — return lifecycle stage transition history for a contact
+  app.get("/api/contacts/:id/lifecycle-history", isDashboardUser, async (req, res) => {
+    try {
+      const contactId = Number(req.params.id);
+      if (!Number.isFinite(contactId)) return res.status(400).json({ message: "Invalid contact ID" });
+
+      const contact = await storage.getContact(contactId);
+      if (!contact) return res.status(404).json({ message: "Contact not found" });
+
+      // Agent-scope ownership guard: mirrors the same guard on GET/PUT /contacts/:id.
+      // Agents may only view history for contacts assigned to them.
+      const _lcRole = (req.user as any)?.role;
+      const _lcEmail = (req.user as any)?.email;
+      const _lcAssignedTo = (contact as any).assignedTo as string | null | undefined;
+      if (_lcRole === "agent" && _lcAssignedTo && _lcAssignedTo !== _lcEmail) {
+        return res.status(403).json({ message: "Forbidden", code: "NOT_YOUR_CONTACT" });
+      }
+
+      const { LifecycleService } = await import("../services/lifecycle-service");
+      const history = await LifecycleService.getHistory(contactId, 50);
+
+      res.json(history.map((h: any) => ({
+        id: h.id,
+        fromState: h.fromState ?? null,
+        toState: h.toState,
+        trigger: h.trigger ?? null,
+        actorType: h.actorType ?? null,
+        actorId: h.actorId ?? null,
+        source: h.source ?? null,
+        reason: h.reason ?? null,
+        transitionedAt: h.transitionedAt,
+      })));
     } catch (err: any) {
       serverError(res, err);
     }

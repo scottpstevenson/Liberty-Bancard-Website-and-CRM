@@ -1151,6 +1151,7 @@ export default function Pipeline() {
   const [viewMode, setViewMode] = useState<"kanban" | "list">("kanban");
   // #450 — List sort
   const [listSortField, setListSortField] = useState<"stage" | "volume" | "updatedAt" | "owner">("updatedAt");
+  const [repPeriod, setRepPeriod] = useState<30 | 60 | 90>(30); // #1443 — period toggle for rep summary bar
   // #427 — Notes dialog handled inside NotesExpandButton (self-contained)
 
   const fetchSingleDealProposals = async (dealId: number): Promise<CoBrandedProposal[] | null> => {
@@ -2290,24 +2291,47 @@ export default function Pipeline() {
         </div>
       )}
 
-      {/* #1157 — Deals per rep summary bar */}
+      {/* #1157 / #1443 — Deals per rep summary bar with 30/60/90-day period toggle */}
       {deals && (() => {
+        const now = Date.now();
+        const cutoff = now - repPeriod * 24 * 60 * 60 * 1000;
         const allFiltered = SALES_STAGES.flatMap(s => getDealsByStage(s));
+        // Snapshot (current): all deals; Period: only deals created within the period
+        const periodDeals = allFiltered.filter((d: any) => d.createdAt && new Date(d.createdAt).getTime() >= cutoff);
         const repCounts: Record<string, number> = {};
-        for (const d of allFiltered) {
+        for (const d of periodDeals) {
           const owner = (d as any).owner || (d as any).assignedTo || "Unassigned";
           repCounts[owner] = (repCounts[owner] || 0) + 1;
         }
         const repEntries = Object.entries(repCounts).sort((a, b) => b[1] - a[1]);
-        if (repEntries.length <= 1) return null;
+        if (allFiltered.length === 0) return null;
         return (
-          <div className="flex flex-wrap gap-2 text-xs" data-testid="pipeline-rep-summary">
-            {repEntries.map(([rep, count]) => (
-              <span key={rep} className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 bg-muted/50">
-                <span className="text-muted-foreground truncate max-w-[120px]">{rep.includes("@") ? rep.split("@")[0] : rep}:</span>
-                <span className="font-semibold">{count}</span>
-              </span>
-            ))}
+          <div className="space-y-1.5" data-testid="pipeline-rep-summary">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">New deals per rep:</span>
+              {([30, 60, 90] as const).map(p => (
+                <button
+                  key={p}
+                  onClick={() => setRepPeriod(p)}
+                  className={`text-xs px-2 py-0.5 rounded border transition-colors ${repPeriod === p ? "bg-secondary border-primary text-primary" : "border-border text-muted-foreground hover:bg-muted"}`}
+                  data-testid={`rep-period-${p}d`}
+                >
+                  {p}d
+                </button>
+              ))}
+            </div>
+            {repEntries.length === 0 ? (
+              <span className="text-xs text-muted-foreground">No new deals in the last {repPeriod} days</span>
+            ) : (
+              <div className="flex flex-wrap gap-2 text-xs">
+                {repEntries.map(([rep, count]) => (
+                  <span key={rep} className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 bg-muted/50">
+                    <span className="text-muted-foreground truncate max-w-[120px]">{rep.includes("@") ? rep.split("@")[0] : rep}:</span>
+                    <span className="font-semibold">{count}</span>
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
         );
       })()}

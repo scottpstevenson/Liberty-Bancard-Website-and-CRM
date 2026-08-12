@@ -337,6 +337,95 @@ function ZeroBounceHistorySection({ contactId }: { contactId: number }) {
   );
 }
 
+// ── Lifecycle Stage Transition History ───────────────────────────────────────
+interface LifecycleHistoryEntry {
+  id: number;
+  fromState: string | null;
+  toState: string;
+  trigger: string | null;
+  actorType: string | null;
+  actorId: string | null;
+  source: string | null;
+  reason: string | null;
+  transitionedAt: string;
+}
+
+function LifecycleHistorySection({ contactId }: { contactId: number }) {
+  const [open, setOpen] = useState(false);
+
+  const { data: history = [], isLoading } = useQuery<LifecycleHistoryEntry[]>({
+    queryKey: ["/api/contacts", contactId, "lifecycle-history"],
+    queryFn: async () => {
+      const r = await fetch(`/api/contacts/${contactId}/lifecycle-history`, { credentials: "include" });
+      if (!r.ok) throw new Error("Failed to load lifecycle history");
+      return r.json();
+    },
+    staleTime: 60_000,
+    enabled: open,
+  });
+
+  const formatState = (s: string | null) =>
+    s ? s.replace(/_/g, " ").toLowerCase().replace(/\b\w/g, c => c.toUpperCase()) : "—";
+
+  return (
+    <Card data-testid="section-lifecycle-history">
+      <CardContent className="pt-4 pb-4">
+        <button
+          className="flex items-center justify-between w-full text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+          onClick={() => setOpen(o => !o)}
+          data-testid="button-toggle-lifecycle-history"
+          aria-expanded={open}
+        >
+          <span className="flex items-center gap-1.5">
+            <GitFork className="h-4 w-4" />
+            Stage History
+          </span>
+          {open ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+        </button>
+
+        {open && (
+          <div className="mt-3 space-y-0" data-testid="list-lifecycle-history">
+            {isLoading && <p className="text-xs text-muted-foreground">Loading…</p>}
+            {!isLoading && history.length === 0 && (
+              <p className="text-xs text-muted-foreground">No stage transitions recorded yet.</p>
+            )}
+            {history.map(entry => (
+              <div
+                key={entry.id}
+                className="flex items-start gap-2 py-1.5 border-b last:border-0 text-xs"
+                data-testid={`lifecycle-history-row-${entry.id}`}
+              >
+                <div className="flex-1 min-w-0">
+                  <span className="font-medium">
+                    {entry.fromState ? `${formatState(entry.fromState)} → ` : "Entered "}
+                    {formatState(entry.toState)}
+                  </span>
+                  {(entry.trigger || entry.reason) && (
+                    <span className="text-muted-foreground ml-1">
+                      · {entry.trigger ?? entry.reason}
+                    </span>
+                  )}
+                  {entry.actorType && (
+                    <span className="text-muted-foreground/60 ml-1 text-[10px]">
+                      via {entry.actorType}
+                    </span>
+                  )}
+                </div>
+                <span className="text-muted-foreground shrink-0">
+                  {new Date(entry.transitionedAt).toLocaleString("en-US", {
+                    month: "short", day: "numeric",
+                    hour: "numeric", minute: "2-digit",
+                  })}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 // ── NPS History Panel ─────────────────────────────────────────────────────────
 interface NpsResponse {
   id: number;
@@ -991,6 +1080,7 @@ export default function ContactDetail() {
   const [isEditing, setIsEditing] = useState(false);
   const [editFields, setEditFields] = useState<Record<string, string | null | undefined>>({});
   const [tagInput, setTagInput] = useState("");
+  const [editSupportedVerticals, setEditSupportedVerticals] = useState<string[]>([]); // #1443
 
   // #259 — warn before leaving with unsaved edits
   useEffect(() => {
@@ -1363,6 +1453,11 @@ export default function ContactDetail() {
       assignedTo: (contact as any).assignedTo ?? null,
       referralSource: (contact as any).referralSource ?? "", // #508
     });
+    // #1443 — Initialise supported verticals from tags prefixed with "vertical:"
+    const tagVerticals = (contact.tags ?? [])
+      .filter((t: string) => t.startsWith("vertical:"))
+      .map((t: string) => t.slice("vertical:".length));
+    setEditSupportedVerticals(tagVerticals);
     setIsEditing(true);
   };
 
@@ -1393,7 +1488,10 @@ export default function ContactDetail() {
         }
       }
 
-      await updateContact.mutateAsync({ id: contactId, ...otherFields });
+      // #1443 — Merge supportedVerticals back into tags as "vertical:X" prefixed entries
+      const currentTags = (contact.tags ?? []).filter((t: string) => !t.startsWith("vertical:"));
+      const newTags = [...currentTags, ...editSupportedVerticals.map(v => `vertical:${v}`)];
+      await updateContact.mutateAsync({ id: contactId, ...otherFields, tags: newTags });
 
       queryClient.invalidateQueries({ queryKey: ["/api/contacts", contactId, "detail"] });
       setIsEditing(false);
@@ -1680,6 +1778,51 @@ export default function ContactDetail() {
                   🔗 {(contact as any).referralSource}
                 </span>
               )}
+              {/* #1443 — Supported Verticals multi-select (edit mode) */}
+              {isEditing && (
+                <span className="flex flex-col gap-1 text-xs w-full" data-testid="edit-supported-verticals">
+                  <span className="text-muted-foreground font-medium">Supported Verticals</span>
+                  <span className="flex flex-wrap gap-1.5">
+                    {VERTICALS.map(v => {
+                      const selected = editSupportedVerticals.includes(v);
+                      return (
+                        <button
+                          key={v}
+                          type="button"
+                          onClick={() => setEditSupportedVerticals(prev =>
+                            selected ? prev.filter(x => x !== v) : [...prev, v]
+                          )}
+                          data-testid={`toggle-vertical-${v.toLowerCase().replace(/\W+/g, "-")}`}
+                          className={`px-2 py-0.5 rounded border text-xs transition-colors ${
+                            selected
+                              ? "bg-primary/10 border-primary text-primary"
+                              : "border-border text-muted-foreground hover:bg-muted"
+                          }`}
+                        >
+                          {v}
+                        </button>
+                      );
+                    })}
+                  </span>
+                </span>
+              )}
+              {/* #1443 — Supported Verticals read display */}
+              {!isEditing && (() => {
+                const suppVerts = (contact.tags ?? [])
+                  .filter((t: string) => t.startsWith("vertical:"))
+                  .map((t: string) => t.slice("vertical:".length));
+                if (suppVerts.length === 0) return null;
+                return (
+                  <span className="flex items-center gap-1 flex-wrap" data-testid="supported-verticals-display">
+                    <span className="text-xs text-muted-foreground">Also serves:</span>
+                    {suppVerts.map((v: string) => (
+                      <Badge key={v} variant="outline" className="text-xs py-0">
+                        {v}
+                      </Badge>
+                    ))}
+                  </span>
+                );
+              })()}
               <Badge variant={statusColor(contact.status)} data-testid="badge-status">
                 {contact.status}
               </Badge>
@@ -1955,6 +2098,9 @@ export default function ContactDetail() {
 
       {/* ZeroBounce Validation History */}
       {contact.email && <ZeroBounceHistorySection contactId={contactId} />}
+
+      {/* Lifecycle Stage Transition History */}
+      <LifecycleHistorySection contactId={contactId} />
 
       {/* Tags */}
       <Card data-testid="section-tags">

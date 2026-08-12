@@ -7,12 +7,28 @@ import type { z } from "zod";
 type CreateContactInput = z.infer<typeof api.contacts.create.input>;
 type UpdateContactInput = z.infer<typeof api.contacts.update.input>;
 
-export function useContacts(params?: { limit?: number; offset?: number }) {
+export function useContacts(params?: {
+  limit?: number;
+  offset?: number;
+  /** Server-side churn risk filter: "high" = churnRiskTier IN ('High','Critical') */
+  churnRisk?: string;
+  /** Server-side no-outreach filter: "24h" = created last 24h + lastContactedAt IS NULL */
+  noOutreach?: string;
+  /** Server-side blocked filter: "true" = doNotContact OR emailStatus in bounced/invalid/opted_out/unsafe */
+  blocked?: string;
+}) {
   const limit = params?.limit ?? 100;
   const offset = params?.offset ?? 0;
-  const url = `${api.contacts.list.path}?limit=${limit}&offset=${offset}`;
+  const churnRisk = params?.churnRisk;
+  const noOutreach = params?.noOutreach;
+  const blocked = params?.blocked;
+  const searchParams = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+  if (churnRisk) searchParams.set("churnRisk", churnRisk);
+  if (noOutreach) searchParams.set("noOutreach", noOutreach);
+  if (blocked) searchParams.set("blocked", blocked);
+  const url = `${api.contacts.list.path}?${searchParams.toString()}`;
   return useQuery({
-    queryKey: [api.contacts.list.path, { limit, offset }],
+    queryKey: [api.contacts.list.path, { limit, offset, churnRisk, noOutreach, blocked }],
     queryFn: async () => {
       const res = await fetch(url, { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch contacts");

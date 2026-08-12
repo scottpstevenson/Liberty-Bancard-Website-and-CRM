@@ -713,6 +713,10 @@ export default function Sequences() {
                       {/* #905 — Avg sequence length + step count sub-line */}
                       <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
                         <span data-testid={`text-step-count-${seq.id}`}>{seq.totalSteps || 0}-step sequence</span>
+                        {/* #1443 — Avg step delay computed from sequence steps */}
+                        {(seq as any).avgDelayDays != null && (
+                          <span data-testid={`text-avg-delay-${seq.id}`}>~{(seq as any).avgDelayDays}d avg delay</span>
+                        )}
                         <span>{seqEnrollments.filter((e: any) => e.status === "active").length} active</span>
                         <span>{seqEnrollments.filter((e: any) => e.status === "completed").length} completed</span>
                       </div>

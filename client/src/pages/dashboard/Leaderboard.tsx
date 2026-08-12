@@ -381,7 +381,7 @@ export default function Leaderboard() {
                               const eff = entry.dealsClosed / contactsWorked;
                               return (
                                 <span className="text-[10px] text-primary/70 block" data-testid={`text-efficiency-${entry.agentId}`}>
-                                  {(eff * 100).toFixed(1)}% efficiency
+                                  {Math.round(eff * 100)}% efficiency
                                 </span>
                               );
                             })()}
