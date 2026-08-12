@@ -126,7 +126,7 @@ function buildNpsSurveyEmailHtml(params: {
  * Returns true on SMTP handoff success, false on failure.
  */
 export async function sendNpsSurveyEmail(params: NpsSurveyEmailParams): Promise<boolean> {
-  const { toEmail, toName, token, dayTrigger } = params;
+  const { toEmail, toName, token, dayTrigger, contactId } = params;
   const surveyUrl = `${BASE_URL}/nps/${token}`;
 
   const signatureHtml = await getEmailSignatureHtmlAsync("onboarding", undefined, null);
@@ -143,6 +143,7 @@ export async function sendNpsSurveyEmail(params: NpsSurveyEmailParams): Promise<
     subject: subjectLine,
     html,
     category: "onboarding",
+    contactId,
   });
 
   if (result.success) {

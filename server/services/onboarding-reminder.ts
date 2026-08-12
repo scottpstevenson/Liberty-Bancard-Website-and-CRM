@@ -61,6 +61,35 @@ export async function runOnboardingReminderTick(): Promise<{ processed: number; 
         // triggering a GHL native workflow directly. Liberty now composes the message
         // and the orchestrator routes it through the GHL email transport.
         if (contact && deal.contactId) {
+          // Durable 24-hour cooldown: check for a recent successful send BEFORE
+          // acquiring any lock, so the audit log is the authoritative idempotency
+          // record that survives restarts, redeploys, and TTL expiry.
+          const recentSendResult = await db.execute(sql`
+            SELECT id FROM audit_logs
+            WHERE action = 'onboarding_reminder_sent'
+              AND entity_type = 'contact'
+              AND entity_id = ${deal.contactId}
+              AND created_at > NOW() - INTERVAL '24 hours'
+            LIMIT 1
+          `);
+          if (recentSendResult.rows.length > 0) {
+            console.log(`[OnboardingReminder] Contact ${deal.contactId} already reminded in last 24h — skipping`);
+            continue;
+          }
+
+          // Concurrent-execution lock: prevent two workers in the same deployment
+          // from racing on the same contact within the same worker-tick window.
+          // We do NOT release this lock on success — the audit log above is the
+          // source of truth for the 24h cooldown; the lock's 20-min TTL only
+          // prevents intra-tick duplication.
+          const { acquireJobLock, releaseJobLock } = await import("./job-registry");
+          const lockKey = `onboarding-reminder:${deal.contactId}`;
+          const reminderLock = await acquireJobLock(lockKey);
+          if (!reminderLock) {
+            console.log(`[OnboardingReminder] Lock already held for contact ${deal.contactId} — skipping duplicate send`);
+            continue;
+          }
+
           const { channelOrchestrator } = await import("./transports/index");
           const contactName =
             contact.companyName ||
@@ -69,33 +98,74 @@ export async function runOnboardingReminderTick(): Promise<{ processed: number; 
           const pendingItems = stalePendingItems.map(i => `<li>${i.itemKey}</li>`).join("");
           const reminderSubject = `Action Required: ${stalePendingItems.length} Onboarding Item${stalePendingItems.length > 1 ? "s" : ""} Pending`;
           const reminderBody = `<p>Hi ${contactName},</p><p>Your Liberty Bancard onboarding has ${stalePendingItems.length} item${stalePendingItems.length > 1 ? "s" : ""} that still need${stalePendingItems.length === 1 ? "s" : ""} attention:</p><ul>${pendingItems}</ul><p>Please complete these items so we can finish activating your account. Reply to this email or contact your account manager if you need help.</p>`;
-          await channelOrchestrator.sendEmail(
-            {
-              contactId: deal.contactId,
-              subject: reminderSubject,
-              body: reminderBody,
-              category: "onboarding",
-            },
-            {
-              // Full compliance fence — onboarding reminders respect DNC and global pause
-              skipContactabilityCheck: false,
-              skipGlobalPauseCheck: false,
-            },
-          ).then(async () => {
-            // #1397 — record to canonical communication_events table
-            const { recordOutboundSend } = await import("./communication-events");
-            recordOutboundSend({
-              contactId: deal.contactId!,
-              dealId: deal.id,
-              channel: "email",
-              provider: "ghl",
-              subject: reminderSubject,
-              status: "sent",
-              metadata: { worker: "onboarding_reminder", stalePendingCount: stalePendingItems.length },
-            }).catch((e: any) => console.warn("[OnboardingReminder] recordOutboundSend failed:", e.message));
-          }).catch(err =>
-            console.error(`[OnboardingReminder] Orchestrator email error for deal ${deal.id}:`, err),
-          );
+          // channelOrchestrator.sendEmail() resolves (never rejects) for both
+          // success and failure; we must inspect result.success explicitly.
+          let orchResult: { success: boolean; skipReason?: string; error?: string } = { success: false };
+          try {
+            orchResult = await channelOrchestrator.sendEmail(
+              {
+                contactId: deal.contactId,
+                subject: reminderSubject,
+                body: reminderBody,
+                category: "onboarding",
+              },
+              {
+                // Full compliance fence — onboarding reminders respect DNC and global pause
+                skipContactabilityCheck: false,
+                skipGlobalPauseCheck: false,
+              },
+            );
+          } catch (orchErr: any) {
+            // Unexpected throw (e.g. Redis down) — treat as failure
+            console.error(`[OnboardingReminder] Orchestrator threw for deal ${deal.id}:`, orchErr.message);
+            orchResult = { success: false, error: orchErr.message };
+          }
+
+          if (orchResult.success) {
+            // Write the durable idempotency record ONLY when delivery confirmed.
+            // Await the write — if it fails, we do NOT retain the success lock so
+            // the audit-log-based 24h dedup will not suppress the next tick.
+            let auditWritten = false;
+            try {
+              await storage.createAuditLog({
+                action: "onboarding_reminder_sent",
+                entityType: "contact",
+                entityId: deal.contactId!,
+                details: { dealId: deal.id, stalePendingCount: stalePendingItems.length },
+              });
+              auditWritten = true;
+            } catch (auditErr: any) {
+              console.error(`[OnboardingReminder] Audit log write failed for contact ${deal.contactId} — releasing lock so next tick can retry:`, auditErr.message);
+              // Release lock so the dedup check can guard the next attempt
+              releaseJobLock(lockKey, false, auditErr.message, reminderLock).catch(() => {});
+            }
+
+            if (auditWritten) {
+              // #1397 — record to canonical communication_events table
+              const { recordOutboundSend } = await import("./communication-events");
+              recordOutboundSend({
+                contactId: deal.contactId!,
+                dealId: deal.id,
+                channel: "email",
+                provider: "ghl",
+                subject: reminderSubject,
+                status: "sent",
+                metadata: { worker: "onboarding_reminder", stalePendingCount: stalePendingItems.length },
+              }).catch((e: any) => console.warn("[OnboardingReminder] recordOutboundSend failed:", e.message));
+              // Lock intentionally NOT released on confirmed, durably-recorded success.
+              // The audit log handles the 24h cooldown; the lock's 20-min TTL prevents
+              // intra-tick re-acquisition by another concurrent worker.
+              // reminded++ only here: delivery is confirmed AND the idempotency record
+              // was durably written; not on send-only or audit-write-failed paths.
+              reminded++;
+            }
+          } else {
+            // Failed, skipped (DNC/global-pause), or suppressed — release the lock
+            // so the next eligible tick can retry. Do NOT write the audit log.
+            const reason = orchResult.error ?? orchResult.skipReason ?? "send failed or suppressed";
+            console.warn(`[OnboardingReminder] Send not confirmed for deal ${deal.id} (${reason}) — releasing lock for retry`);
+            releaseJobLock(lockKey, false, reason, reminderLock).catch(() => {});
+          }
         }
 
         await storage.createNotification({
@@ -105,8 +175,6 @@ export async function runOnboardingReminderTick(): Promise<{ processed: number; 
           type: "urgent",
           metadata: { dealId: deal.id, contactId: deal.contactId, eventType: "onboarding_reminder", stalePendingCount: stalePendingItems.length },
         });
-
-        reminded++;
       } catch (dealErr: any) {
         console.error(`[OnboardingReminder] Error processing deal ${deal.id}:`, dealErr.message);
         errors++;

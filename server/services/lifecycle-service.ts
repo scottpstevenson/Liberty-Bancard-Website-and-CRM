@@ -228,6 +228,71 @@ export const LifecycleService = {
 };
 
 // ---------------------------------------------------------------------------
+// Admin override — bypasses forward-only guard
+// ---------------------------------------------------------------------------
+
+/**
+ * Force a contact into any lifecycle state, bypassing the forward-only guard.
+ * Admin/manager only. Writes a `lifecycle_manual_override` audit log row.
+ *
+ * Use cases:
+ *  - CHURNED → ACTIVE (win-back after re-sign)
+ *  - AT_RISK → HEALTHY (manual recovery confirmation)
+ */
+export async function adminOverrideTransition(
+  contactId: number,
+  targetState: LifecycleState,
+  actorId: string,
+): Promise<LifecycleState> {
+  const [row] = await db
+    .select({ lifecycleState: contacts.lifecycleState })
+    .from(contacts)
+    .where(eq(contacts.id, contactId))
+    .limit(1);
+
+  if (!row) {
+    throw new Error(`[Lifecycle] Contact #${contactId} not found`);
+  }
+
+  const fromState = (row.lifecycleState ?? "PROSPECT") as LifecycleState;
+
+  // Idempotent: already in target state
+  if (fromState === targetState) return fromState;
+
+  await db.transaction(async (tx) => {
+    await tx
+      .update(contacts)
+      .set({ lifecycleState: targetState, lifecycleStateUpdatedAt: new Date() })
+      .where(eq(contacts.id, contactId));
+
+    await tx.insert(contactLifecycleHistory).values({
+      contactId,
+      fromState,
+      toState: targetState,
+      transitionedAt: new Date(),
+      trigger: "admin_override",
+      actorType: "admin",
+      actorId,
+      source: "manual",
+      reason: "Admin manual lifecycle override",
+      automationKey: null,
+      metadata: { bypass: "forward_only_guard" },
+    });
+  });
+
+  console.log(
+    `[Lifecycle] Admin override contact #${contactId}: ${fromState} → ${targetState} (actor: ${actorId})`,
+  );
+
+  // Fire-and-forget NBA invalidation
+  import("./nba-service")
+    .then(({ NBAService }) => NBAService.invalidateNBA(contactId))
+    .catch(err => console.warn(`[Lifecycle] NBA invalidation failed for #${contactId}:`, err?.message));
+
+  return targetState;
+}
+
+// ---------------------------------------------------------------------------
 // Stage → LifecycleState mapping helpers
 // ---------------------------------------------------------------------------
 

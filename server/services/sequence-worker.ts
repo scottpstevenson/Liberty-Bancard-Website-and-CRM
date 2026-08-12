@@ -1262,6 +1262,7 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
                     subject: deliverySubject,
                     html: emailBody,
                     category: "department_accounts" as any,
+                    contactId: enrollment.contactId,
                     unsubscribeUrl,
                   });
                   if (!result.success) throw new Error(result.error || "Gmail send failed");
@@ -1284,6 +1285,7 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
                     subject: deliverySubject,
                     html: emailBody,
                     category: "cold_outreach",
+                    contactId: enrollment.contactId,
                     unsubscribeUrl,
                     unsubscribeMailto: "Scott@mail.libertybancard.com",
                   });

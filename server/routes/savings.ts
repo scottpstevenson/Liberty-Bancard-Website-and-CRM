@@ -219,7 +219,7 @@ export function registerSavingsRoutes(app: Express) {
         }
 
         if (!emailSent && isSmtpConfigured()) {
-          const result = await sendSmtpEmail({ to: contact.email, subject, html, category: "accounts" });
+          const result = await sendSmtpEmail({ to: contact.email, subject, html, category: "accounts", contactId: contact.id });
           if (result.success) {
             emailSent = true;
             deliveryMethod = "smtp";

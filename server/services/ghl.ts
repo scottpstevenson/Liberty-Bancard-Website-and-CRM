@@ -3,6 +3,7 @@ import { storage } from "../storage";
 import type { Contact, Deal } from "@shared/schema";
 import OpenAI from "openai";
 import { checkAiGate, recordAiSpend } from "./ai-audit-logger";
+import { injectCanSpamFooter } from "./can-spam-footer";
 
 function getOpenAI() {
   return new OpenAI({ apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY, baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL });
@@ -633,7 +634,7 @@ export async function sendGhlEmail(params: {
       type: "Email",
       contactId: ghlContactId,
       subject: params.subject,
-      html: params.body,
+      html: injectCanSpamFooter(params.body, params.contactId),
     };
 
     if (params.fromEmail) {
@@ -700,6 +701,11 @@ export async function sendGhlEmailForMerchant(params: {
   body: string;
   fromEmail?: string;
   fromName?: string;
+  /**
+   * DB contact ID used to generate a signed CAN-SPAM unsubscribe token.
+   * When provided, the injected footer contains a functional `/unsubscribe?t=…` link.
+   */
+  contactId?: number;
 }): Promise<{ success: boolean; error?: string }> {
   try {
     const config = getConfig();
@@ -709,7 +715,7 @@ export async function sendGhlEmailForMerchant(params: {
       type: "Email",
       email: params.email,
       subject: params.subject,
-      html: params.body,
+      html: injectCanSpamFooter(params.body, params.contactId),
     };
 
     if (params.fromEmail) {

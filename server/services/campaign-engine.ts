@@ -9,6 +9,87 @@ import { sendSmtpEmail, isSmtpConfigured } from "./smtp-email";
 import { logAiCall } from "./ai-audit-logger";
 import { evaluateContactability } from "./contactability";
 import { READINESS_MODEL_VERSION } from "./contact-readiness";
+import { verifyEmail } from "./sdr/zerobounce";
+import { claimZeroBounceCredit, checkZeroBounceBudget } from "./zerobounce-daily-limiter";
+
+// ZeroBounce statuses that are undeliverable — contacts with these are skipped without queuing.
+const ZB_INVALID_STATUSES = new Set(["invalid", "unsafe", "bounced", "do_not_mail", "spam_trap", "abuse"]);
+
+/**
+ * Lazy ZeroBounce validation for a CRM contact before queuing a campaign email.
+ * Returns false if the contact should be skipped (and logs the reason).
+ * Returns true if the send is safe to proceed.
+ * Never throws — if ZeroBounce is unavailable we fail open so the batch continues.
+ */
+async function passesZeroBounceCheck(
+  contact: { id: number; email: string; emailStatus?: string | null },
+  campaignId: number,
+): Promise<boolean> {
+  const { emailStatus, email, id: contactId } = contact;
+
+  // Fast path: already flagged as bad
+  if (emailStatus && ZB_INVALID_STATUSES.has(emailStatus)) {
+    await storage.createAuditLog({
+      actorType: "system",
+      action: "campaign_queue_skipped_zb_invalid",
+      entityType: "contact",
+      entityId: contactId,
+      details: { campaignId, email, emailStatus, reason: "Pre-existing invalid email status" },
+    });
+    return false;
+  }
+
+  // Fast pass: email was already validated by ZeroBounce (any persisted result that
+  // isn't clearly bad means we already spent a credit — don't re-validate).
+  // This covers: "valid", "unverified" (catch-all), "unknown" — all non-blocking.
+  // Only null or "active" (the DB default for never-validated contacts) triggers a live API call.
+  if (emailStatus && emailStatus !== "active") return true;
+
+  // No email address — the contactability gate handles this case upstream.
+  if (!email) return true;
+
+  try {
+    const budgetCheck = await checkZeroBounceBudget();
+    if (!budgetCheck.allowed) {
+      console.warn(`[CampaignEngine] ZeroBounce daily cap reached (${budgetCheck.used}/${budgetCheck.limit}), skipping validation for contact ${contactId}`);
+      return true; // fail open when budget exhausted
+    }
+
+    const credited = await claimZeroBounceCredit();
+    if (!credited) return true; // fail open
+
+    const zbResult = await verifyEmail(email);
+
+    // Persist the result so we never re-validate the same address
+    const { db: zbDb } = await import("../db");
+    const { sql: zbSql } = await import("drizzle-orm");
+    await zbDb.execute(zbSql`UPDATE contacts SET email_status = ${zbResult.status} WHERE id = ${contactId}`);
+
+    await storage.createAuditLog({
+      actorType: "system",
+      action: "campaign_queue_zerobounce_validated",
+      entityType: "contact",
+      entityId: contactId,
+      details: { campaignId, email, zbStatus: zbResult.status, zbSubStatus: zbResult.subStatus ?? null },
+    });
+
+    if (ZB_INVALID_STATUSES.has(zbResult.status)) {
+      await storage.createAuditLog({
+        actorType: "system",
+        action: "campaign_queue_skipped_zb_invalid",
+        entityType: "contact",
+        entityId: contactId,
+        details: { campaignId, email, zbStatus: zbResult.status, reason: `ZeroBounce flagged as '${zbResult.status}'` },
+      });
+      return false;
+    }
+  } catch (zbErr: any) {
+    console.warn(`[CampaignEngine] ZeroBounce validation error for contact ${contactId}:`, zbErr.message);
+    // Non-fatal: fail open so the batch continues
+  }
+
+  return true;
+}
 
 function getOpenAI() {
   return new OpenAI({ apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY, baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL });
@@ -395,6 +476,10 @@ export async function queueContactCampaignMessages(campaignId: number, maxToQueu
         });
         continue; // Do NOT create the outbound_messages row.
       }
+
+      // ── ZeroBounce validation gate ─────────────────────────────────────────
+      const zbOk = await passesZeroBounceCheck(contact, campaignId);
+      if (!zbOk) continue; // audit log already written by passesZeroBounceCheck
 
       const scheduledFor = new Date(now.getTime() + queued * SEND_INTERVAL_MS);
 

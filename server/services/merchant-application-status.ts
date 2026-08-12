@@ -126,6 +126,7 @@ export async function sendApplicationApprovedEmail(application: MerchantApplicat
       contactId: ghlContactId,
       subject,
       htmlBody: buildApprovalEmail(firstName, businessName),
+      dbContactId: application.contactId ?? undefined,
     });
     console.log(`[Application Approval Email] Sent for application #${application.id} to ${recipient}`);
 
@@ -162,6 +163,7 @@ export async function sendApplicationDeclinedEmail(application: MerchantApplicat
       contactId: ghlContactId,
       subject,
       htmlBody: buildDeclineEmail(firstName, businessName, application.declineReason ?? null),
+      dbContactId: application.contactId ?? undefined,
     });
     console.log(`[Application Decline Email] Sent for application #${application.id} to ${recipient}`);
 

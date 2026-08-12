@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { injectCanSpamFooter } from "../can-spam-footer";
 
 const DEFAULT_GHL_BASE_URL = "https://services.leadconnectorhq.com";
 const RATE_LIMIT_MAX = 100;
@@ -555,12 +556,18 @@ export async function sendEmailReply(params: {
   fromEmail?: string;
   /** From display name (combined with fromEmail as "Name <email>" when both present). */
   fromName?: string;
+  /**
+   * DB (integer) contact ID used to generate a signed CAN-SPAM unsubscribe token.
+   * When provided, the injected footer includes a functional /unsubscribe?t=… link.
+   * When absent, a reply-to-unsubscribe instruction is used instead.
+   */
+  dbContactId?: number;
 }): Promise<SendMessageResult> {
   const payload: Record<string, unknown> = {
     type: "Email",
     contactId: params.contactId,
     subject: params.subject,
-    html: params.htmlBody,
+    html: injectCanSpamFooter(params.htmlBody, params.dbContactId),
   };
   if (params.fromEmail) {
     payload.emailFrom = params.fromName

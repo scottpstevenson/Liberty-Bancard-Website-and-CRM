@@ -136,5 +136,17 @@ export async function sendPartnerWelcomeEmail(partner: Partner): Promise<void> {
     }
   } catch (err) {
     console.error(`[Partner Welcome] Failed to send welcome email for partner #${partner.id}:`, err);
+    // Write a skipped/failed audit row so operators know the welcome was not delivered
+    await storage.createAuditLog({
+      action: "partner_welcome_skipped",
+      entityType: "partner",
+      entityId: partner.id,
+      details: {
+        email: partner.email,
+        reason: err instanceof Error ? err.message : String(err),
+      },
+    }).catch((auditErr: Error) =>
+      console.error(`[Partner Welcome] Failed to write partner_welcome_skipped audit log for partner #${partner.id}:`, auditErr.message),
+    );
   }
 }

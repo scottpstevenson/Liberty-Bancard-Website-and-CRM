@@ -76,7 +76,7 @@ export function registerIntegrationsRoutes(app: Express) {
     }
   });
 
-  app.get("/api/ghl/calendar-url", (req, res) => {
+  app.get("/api/ghl/calendar-url", isAuthenticated, (req, res) => {
     const url = getCalendarBookingUrl({
       contactEmail: req.query.email as string,
       contactName: req.query.name as string,

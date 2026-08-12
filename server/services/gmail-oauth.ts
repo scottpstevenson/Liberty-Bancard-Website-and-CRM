@@ -19,6 +19,7 @@ import { google } from "googleapis";
 import { storage } from "../storage";
 import { resolvePolicy, assertNotProhibitedSync } from "./sender-policy";
 import type { MessageCategory } from "./sender-policy";
+import { injectCanSpamFooter } from "./can-spam-footer";
 import {
   encryptCredential,
   decryptCredential,
@@ -354,6 +355,12 @@ export async function sendGmailEmail(params: {
   replyTo?: string;
   unsubscribeUrl?: string;
   unsubscribeMailto?: string;
+  /**
+   * DB contact ID used to generate a signed CAN-SPAM unsubscribe token.
+   * When provided, the injected footer contains a functional /unsubscribe?t=… link.
+   * When absent, a reply-to-unsubscribe instruction is used instead.
+   */
+  contactId?: number;
 }): Promise<{ success: boolean; messageId?: string; threadId?: string; error?: string }> {
   if (!isGmailOAuthSecretsPresent()) {
     return { success: false, error: "Gmail OAuth not configured (GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET missing)" };
@@ -397,7 +404,7 @@ export async function sendGmailEmail(params: {
       from: fromAddress,
       to:   params.to,
       subject: params.subject,
-      html:    params.html,
+      html:    injectCanSpamFooter(params.html, params.contactId),
       replyTo: replyToAddr,
       unsubscribeUrl:    params.unsubscribeUrl,
       unsubscribeMailto: params.unsubscribeMailto,

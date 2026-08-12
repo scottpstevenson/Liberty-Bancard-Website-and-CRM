@@ -208,7 +208,7 @@ export async function sendMerchantPortalWelcomeEmail(profile: MerchantProfile): 
   // GHL-Direct: direct email via GHL contact ID
   if (!method && ghlContactId) {
     try {
-      await sendEmailReply({ contactId: ghlContactId, subject: portalSubject, htmlBody: portalHtml, fromEmail: "onboarding@libertybancard.com", fromName: "Liberty Bancard Onboarding" });
+      await sendEmailReply({ contactId: ghlContactId, subject: portalSubject, htmlBody: portalHtml, fromEmail: "onboarding@libertybancard.com", fromName: "Liberty Bancard Onboarding", dbContactId: contact.id });
       method = "ghl_direct_email";
       console.log(`${TAG} Portal welcome email sent to contact #${contact.id} via ghl_direct_email`);
     } catch (ghlErr) {
@@ -219,7 +219,7 @@ export async function sendMerchantPortalWelcomeEmail(profile: MerchantProfile): 
   // SMTP-Fallback: used when GHL is unavailable or unconfigured
   if (!method) {
     if (isSmtpConfigured()) {
-      const result = await sendSmtpEmail({ to: contact.email, subject: portalSubject, html: portalHtml, category: "onboarding" });
+      const result = await sendSmtpEmail({ to: contact.email, subject: portalSubject, html: portalHtml, category: "onboarding", contactId: contact.id });
       if (!result.success) {
         throw new Error(`SMTP fallback failed for contact #${contact.id}: ${result.error}`);
       }
@@ -268,7 +268,7 @@ export async function sendMerchantWelcomeEmail(contact: Contact, deal: Deal): Pr
       const companyName = contact.companyName || "your business";
       const subject = `Welcome to Liberty Bancard, ${firstName} — here's what happens next`;
       const htmlBody = buildMerchantWelcomeEmail(firstName, companyName);
-      const result = await sendSmtpEmail({ to: contact.email, subject, html: htmlBody, category: "onboarding" });
+      const result = await sendSmtpEmail({ to: contact.email, subject, html: htmlBody, category: "onboarding", contactId: contact.id });
       if (result.success) {
         console.log(`${TAG} Merchant welcome sent via SMTP fallback for contact #${contact.id}`);
         await storage.createAuditLog({
@@ -322,7 +322,7 @@ export async function sendMerchantWelcomeEmail(contact: Contact, deal: Deal): Pr
 
   // SMTP-Fallback: used when GHL fails
   if (!method && contact.email && isSmtpConfigured()) {
-    const smtpResult = await sendSmtpEmail({ to: contact.email, subject: welcomeSubject, html: welcomeHtml, category: "onboarding" });
+    const smtpResult = await sendSmtpEmail({ to: contact.email, subject: welcomeSubject, html: welcomeHtml, category: "onboarding", contactId: contact.id });
     if (smtpResult.success) {
       method = "smtp_fallback";
       console.log(`[Closed Won] Merchant welcome sent via SMTP-Fallback for contact #${contact.id}`);

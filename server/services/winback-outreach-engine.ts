@@ -63,8 +63,7 @@ function buildWinbackHtml(contact: {
 
   <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0"/>
   <p style="font-size:12px;color:#6b7280">
-    Liberty Bancard LLC · 1 SE 3rd Ave · Miami FL 33131<br/>
-    <a href="${appUrl}/unsubscribe?email={{email}}">Unsubscribe</a>
+    Liberty Bancard LLC · 1 SE 3rd Ave · Miami FL 33131
   </p>
 </div>`;
 }
@@ -163,6 +162,7 @@ export async function runWinbackOutreachEngine(): Promise<{
           companyName: row.company_name,
         }),
         category: "accounts",
+        contactId: row.contact_id,
         unsubscribeUrl: unsubUrl,
         unsubscribeMailto: `mailto:${unsubMailto}`,
       });

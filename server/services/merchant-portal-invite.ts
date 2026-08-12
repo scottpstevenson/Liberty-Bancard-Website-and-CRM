@@ -202,6 +202,7 @@ export async function sendMerchantPortalInvite(
       subject: "Your Liberty Bancard merchant portal is ready",
       html,
       category: "onboarding",
+      contactId: contact.id,
     });
 
     if (!result.success) {

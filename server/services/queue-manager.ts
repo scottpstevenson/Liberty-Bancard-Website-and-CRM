@@ -545,7 +545,7 @@ class QueueManager {
     }
 
     if (totalCleaned > 0) {
-      console.log(`[QueueManager] Startup cleanup: moved ${totalCleaned} stale active job(s) to failed state`);
+      console.log(`[QueueManager] Startup cleanup: moved/removed ${totalCleaned} stale active job(s)`);
     }
   }
 

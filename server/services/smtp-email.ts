@@ -1,6 +1,7 @@
 import nodemailer from "nodemailer";
 import { resolvePolicy, assertNotProhibitedSync, isProhibitedAddress } from "./sender-policy";
 import type { MessageCategory } from "./sender-policy";
+import { injectCanSpamFooter } from "./can-spam-footer";
 
 let transporter: nodemailer.Transporter | null = null;
 
@@ -113,6 +114,12 @@ export async function sendSmtpEmail(params: {
    */
   unsubscribeMailto?: string;
   unsubscribeUrl?: string;
+  /**
+   * DB contact ID used to generate a signed CAN-SPAM unsubscribe token.
+   * When provided, the injected footer contains a functional `/unsubscribe?t=…`
+   * link. When absent, a reply-to-unsubscribe instruction is used instead.
+   */
+  contactId?: number;
 }): Promise<{ success: boolean; messageId?: string; error?: string }> {
   const transport = getTransporter();
   if (!transport) {
@@ -175,7 +182,7 @@ export async function sendSmtpEmail(params: {
       from: fromAddress,
       to: effectiveTo,
       subject: effectiveSubject,
-      html: params.html,
+      html: injectCanSpamFooter(params.html, params.contactId),
       ...(replyToAddress ? { replyTo: replyToAddress } : {}),
       ...(Object.keys(headers).length > 0 ? { headers } : {}),
     });

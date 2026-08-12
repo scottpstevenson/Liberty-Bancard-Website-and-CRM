@@ -666,7 +666,7 @@ ${getEmailSignatureHtml("accounts")}
 
   if (!sent && isGhlConfigured() && merchantEmail) {
     try {
-      const ghlEmailResult = await sendGhlEmailForMerchant({ email: merchantEmail, subject, body: html, fromEmail: "accounts@libertybancard.com", fromName: "Your Liberty Bancard Account Team" });
+      const ghlEmailResult = await sendGhlEmailForMerchant({ email: merchantEmail, subject, body: html, fromEmail: "accounts@libertybancard.com", fromName: "Your Liberty Bancard Account Team", contactId: proposal.contactId ?? undefined });
       if (ghlEmailResult.success) {
         sent = true;
         sentChannel = "ghl_email";
@@ -680,7 +680,7 @@ ${getEmailSignatureHtml("accounts")}
 
   if (!sent) {
     try {
-      const smtpResult = await sendSmtpEmail({ to: merchantEmail!, subject, html, category: "accounts" });
+      const smtpResult = await sendSmtpEmail({ to: merchantEmail!, subject, html, category: "accounts", contactId: proposal.contactId ?? undefined });
       if (smtpResult.success) {
         sent = true;
         sentChannel = "SMTP-Fallback";

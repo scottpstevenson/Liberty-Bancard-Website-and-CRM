@@ -27,7 +27,8 @@ import path from "path";
 import { sendPushToAllReps } from "../services/push-service";
 import { extractRelationshipsForContact, extractRelationshipsForContactsBatch, propagateRiskFlagToRelatedEntities } from "../services/relationship-extractor";
 import { serverError, safeMessage } from "../utils/server-error";
-import { LifecycleService } from "../services/lifecycle-service";
+import { LifecycleService, adminOverrideTransition, LIFECYCLE_STATES } from "../services/lifecycle-service";
+import type { LifecycleState } from "../services/lifecycle-service";
 
 function isUniqueEmailViolation(err: any): boolean {
   return err?.code === "23505" && (err?.constraint?.includes("email") || err?.message?.includes("contacts_email_unique_idx"));
@@ -1371,6 +1372,37 @@ export function registerContactsRoutes(app: Express) {
       res.json(updated);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      serverError(res, err);
+    }
+  });
+
+  // === LIFECYCLE ADMIN OVERRIDE ===
+  // Allows admin/manager to force a contact into any lifecycle state, bypassing
+  // the forward-only guard. Writes a lifecycle_manual_override audit log row.
+  app.put("/api/contacts/:id/lifecycle-override", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const contactId = Number(req.params.id);
+      if (!contactId || isNaN(contactId)) return res.status(400).json({ message: "Invalid contact ID" });
+
+      const { targetState } = z.object({
+        targetState: z.enum(LIFECYCLE_STATES as unknown as [string, ...string[]]),
+      }).parse(req.body);
+
+      const actorId = String((req.user as any)?.id ?? "unknown");
+      const newState = await adminOverrideTransition(contactId, targetState as LifecycleState, actorId);
+
+      await storage.createAuditLog({
+        action: "lifecycle_manual_override",
+        entityType: "contact",
+        entityId: contactId,
+        actorType: "user",
+        details: { targetState, newState, actorId },
+      });
+
+      res.json({ success: true, contactId, lifecycle_state: newState });
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err?.message?.includes("not found")) return res.status(404).json({ message: err.message });
       serverError(res, err);
     }
   });

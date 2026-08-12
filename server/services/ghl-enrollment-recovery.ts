@@ -119,6 +119,11 @@ export async function retryDeferredEnrollments(): Promise<{
   stillPending: number;
 }> {
   const stats = { attempted: 0, succeeded: 0, permanentlyFailed: 0, stillPending: 0 };
+  // Track (ghlContactId, workflowKey) pairs processed in this tick.
+  // Deduplication is per the table's logical identity — two distinct workflow
+  // enrollments for the same contact are independent records and must both run;
+  // only the exact same (contact, workflow) pair is skipped if re-encountered.
+  const processedInThisTick = new Set<string>();
 
   // Count total pending for reporting (non-locking)
   const pendingResult = await db.execute(sql`
@@ -241,6 +246,31 @@ export async function retryDeferredEnrollments(): Promise<{
       );
     }
 
+    // In-tick dedup: skip sequential entries for the same contact within this run.
+    // The per-contact lock below covers concurrent cross-process races; this Set
+    // prevents same-contact duplicate processing within a single tick's loop.
+    const dedupKey = `${entry.ghl_contact_id}::${entry.workflow_key}`;
+    if (processedInThisTick.has(dedupKey)) {
+      console.log(`[GHL Recovery] (${entry.ghl_contact_id}, ${entry.workflow_key}) already processed this tick — skipping sequential duplicate`);
+      stats.stillPending++;
+      continue;
+    }
+
+    // Per-enrollment lock: keyed by the same composite identity as dedupKey so
+    // that distinct workflow enrollments for the same contact can both acquire
+    // their own lock and be processed within the same tick.
+    // Released only on failure (so the next tick can retry); on success the lock
+    // is left to expire via TTL — the durable idempotency record is the DB row
+    // deletion / audit log, not the lock state.
+    const { acquireJobLock, releaseJobLock } = await import("./job-registry");
+    const lockKey = `enrollment-recovery:${dedupKey}`;
+    const recoveryLock = await acquireJobLock(lockKey);
+    if (!recoveryLock) {
+      console.log(`[GHL Recovery] Lock already held for (${entry.ghl_contact_id}, ${entry.workflow_key}) — skipping concurrent duplicate`);
+      continue;
+    }
+
+    let enrollmentSucceeded = false;
     try {
       const result = await enrollInGhlWorkflow({
         workflowKey: entry.workflow_key,
@@ -274,6 +304,11 @@ export async function retryDeferredEnrollments(): Promise<{
           `[GHL Recovery] Recovered: workflowKey=${entry.workflow_key}` +
           ` ghlContactId=${entry.ghl_contact_id} (attempt ${entry.retry_count + 1})`
         );
+        // Mark as processed in this tick so sequential entries for the same
+        // contact are skipped — the durable record (DB row deleted + audit log)
+        // is the source of truth, not the lock state.
+        processedInThisTick.add(dedupKey);
+        enrollmentSucceeded = true;
         stats.succeeded++;
       } else {
         // Non-retryable config error → drop without burning retry budget
@@ -318,6 +353,14 @@ export async function retryDeferredEnrollments(): Promise<{
         ` error="${lastError}" — next retry in ~${delayMin} min`
       );
       stats.stillPending++;
+      // Release lock on failure so the next tick can retry this entry.
+      releaseJobLock(lockKey, false, undefined, recoveryLock).catch(() => {});
+    }
+    if (enrollmentSucceeded) {
+      // Lock intentionally NOT released on success — the deleted DB row and the
+      // audit log are the durable idempotency record for this contact+workflow.
+      // Leaving the lock in place prevents another concurrent worker from
+      // re-processing the same contact within the lock's TTL window.
     }
   }
 
