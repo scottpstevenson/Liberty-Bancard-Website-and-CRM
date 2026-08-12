@@ -13,6 +13,7 @@ import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -246,6 +247,298 @@ function NotesExpandButton({ deal, identity }: { deal: Deal; identity: { primary
   );
 }
 
+// ── Deal Quick-Edit Sheet ──────────────────────────────────────────────────
+function DealQuickEditSheet({
+  deal,
+  open,
+  onClose,
+}: {
+  deal: Deal | null;
+  open: boolean;
+  onClose: () => void;
+}) {
+  const { toast } = useToast();
+  const [contactFields, setContactFields] = useState({
+    firstName: "",
+    lastName: "",
+    email: "",
+    phone: "",
+    companyName: "",
+    vertical: "",
+    monthlyVolume: "",
+    currentProvider: "",
+    leadSource: "",       // schema column is leadSource (not source)
+    preferredChannel: "",
+  });
+  const [dealFields, setDealFields] = useState({
+    name: "",
+    offerPath: "",
+  });
+  const [saving, setSaving] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [contactId, setContactId] = useState<number | null>(null);
+
+  // Load contact when sheet opens
+  useEffect(() => {
+    if (!open || !deal) return;
+    setErrors({});
+    setDealFields({
+      name: (deal as any).name ?? "",
+      offerPath: (deal as any).offerPath ?? "",
+    });
+    if (!deal.contactId) {
+      setContactId(null);
+      return;
+    }
+    setContactId(deal.contactId);
+    fetch(`/api/contacts/${deal.contactId}`, { credentials: "include" })
+      .then((r) => r.ok ? r.json() : null)
+      .then((c) => {
+        if (!c) return;
+        setContactFields({
+          firstName: c.firstName ?? "",
+          lastName: c.lastName ?? "",
+          email: c.email ?? "",
+          phone: c.phone ?? "",
+          companyName: c.companyName ?? "",
+          vertical: c.vertical ?? "",
+          monthlyVolume: c.monthlyVolume ?? "",
+          currentProvider: c.currentProvider ?? "",
+          leadSource: c.leadSource ?? "",   // correct column name
+          preferredChannel: c.preferredChannel ?? "",
+        });
+      })
+      .catch(() => {});
+  }, [open, deal]);
+
+  const validate = () => {
+    const errs: Record<string, string> = {};
+    // firstName/lastName/companyName: at least one identifier required
+    if (!contactFields.firstName.trim() && !contactFields.lastName.trim() && !contactFields.companyName.trim()) {
+      errs.name = "At least first name, last name, or company name is required.";
+    }
+    // email and phone are NOT NULL in the schema — cannot be cleared to null
+    if (!contactFields.email.trim()) errs.email = "Email is required.";
+    if (!contactFields.phone.trim()) errs.phone = "Phone is required.";
+    setErrors(errs);
+    return Object.keys(errs).length === 0;
+  };
+
+  const handleSave = async () => {
+    if (!deal || !validate()) return;
+    setSaving(true);
+    try {
+      // Save deal fields.
+      // name and offerPath are both nullable columns — send null to clear.
+      const dealPayload: Record<string, unknown> = {
+        name: dealFields.name.trim() || null,
+        offerPath: dealFields.offerPath || null,
+      };
+      const dr = await apiRequest("PUT", `/api/deals/${deal.id}`, dealPayload);
+      if (!dr.ok) {
+        const body = await dr.json().catch(() => ({}));
+        throw new Error(body.message || "Failed to save deal");
+      }
+      // Save contact fields.
+      // NOT NULL columns (firstName, lastName, email, phone): only include when non-empty
+      //   (omitting preserves the existing DB value; validation above already ensured they're set).
+      //   Never send null — that would violate the DB constraint.
+      // Nullable columns: send null to explicitly clear.
+      if (contactId) {
+        const contactPayload: Record<string, unknown> = {
+          // NOT NULL — only update when non-empty (validation guarantees this for email/phone)
+          firstName: contactFields.firstName.trim() || undefined,
+          lastName: contactFields.lastName.trim() || undefined,
+          email: contactFields.email.trim() || undefined,
+          phone: contactFields.phone.trim() || undefined,
+          // Nullable — send null to clear
+          companyName: contactFields.companyName.trim() || null,
+          vertical: contactFields.vertical || null,
+          monthlyVolume: contactFields.monthlyVolume.trim() || null,
+          currentProvider: contactFields.currentProvider.trim() || null,
+          leadSource: contactFields.leadSource.trim() || null,
+          preferredChannel: contactFields.preferredChannel || null,
+        };
+        const cr = await apiRequest("PUT", `/api/contacts/${contactId}`, contactPayload);
+        if (!cr.ok) {
+          const body = await cr.json().catch(() => ({}));
+          throw new Error(body.message || "Failed to save contact");
+        }
+      }
+      queryClient.invalidateQueries({ queryKey: ["/api/deals"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/contacts"] });
+      toast({ title: "Lead updated", description: "Changes saved successfully." });
+      onClose();
+    } catch (err: any) {
+      toast({ title: "Failed to save", description: err?.message, variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Sheet open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <SheetContent className="w-full sm:max-w-lg overflow-y-auto" data-testid="sheet-deal-quick-edit">
+        <SheetHeader>
+          <SheetTitle>Edit Lead</SheetTitle>
+        </SheetHeader>
+        <div className="mt-6 space-y-5">
+          {/* Contact name */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>First Name</Label>
+              <Input
+                value={contactFields.firstName}
+                onChange={(e) => setContactFields((p) => ({ ...p, firstName: e.target.value }))}
+                data-testid="input-qe-first-name"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Last Name</Label>
+              <Input
+                value={contactFields.lastName}
+                onChange={(e) => setContactFields((p) => ({ ...p, lastName: e.target.value }))}
+                data-testid="input-qe-last-name"
+              />
+            </div>
+          </div>
+          {errors.name && <p className="text-xs text-destructive" data-testid="error-qe-name">{errors.name}</p>}
+
+          <div className="space-y-1.5">
+            <Label>Company Name</Label>
+            <Input
+              value={contactFields.companyName}
+              onChange={(e) => setContactFields((p) => ({ ...p, companyName: e.target.value }))}
+              data-testid="input-qe-company"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Email <span className="text-destructive">*</span></Label>
+            <Input
+              type="email"
+              value={contactFields.email}
+              onChange={(e) => setContactFields((p) => ({ ...p, email: e.target.value }))}
+              data-testid="input-qe-email"
+            />
+            {errors.email && <p className="text-xs text-destructive" data-testid="error-qe-email">{errors.email}</p>}
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Phone <span className="text-destructive">*</span></Label>
+            <Input
+              value={contactFields.phone}
+              onChange={(e) => setContactFields((p) => ({ ...p, phone: e.target.value }))}
+              data-testid="input-qe-phone"
+            />
+            {errors.phone && <p className="text-xs text-destructive" data-testid="error-qe-phone">{errors.phone}</p>}
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Vertical</Label>
+            <Select
+              value={contactFields.vertical || "_none"}
+              onValueChange={(v) => setContactFields((p) => ({ ...p, vertical: v === "_none" ? "" : v }))}
+            >
+              <SelectTrigger data-testid="select-qe-vertical">
+                <SelectValue placeholder="Select vertical" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="_none">None</SelectItem>
+                {VERTICALS.map((v) => (
+                  <SelectItem key={v} value={v}>{v}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Monthly Volume</Label>
+            <Input
+              value={contactFields.monthlyVolume}
+              onChange={(e) => setContactFields((p) => ({ ...p, monthlyVolume: e.target.value }))}
+              placeholder="e.g. 50000"
+              data-testid="input-qe-monthly-volume"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Current Processor</Label>
+            <Input
+              value={contactFields.currentProvider}
+              onChange={(e) => setContactFields((p) => ({ ...p, currentProvider: e.target.value }))}
+              data-testid="input-qe-current-provider"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Lead Source</Label>
+            <Input
+              value={contactFields.leadSource}
+              onChange={(e) => setContactFields((p) => ({ ...p, leadSource: e.target.value }))}
+              data-testid="input-qe-source"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Preferred Contact Method</Label>
+            <Select
+              value={contactFields.preferredChannel || "_none"}
+              onValueChange={(v) => setContactFields((p) => ({ ...p, preferredChannel: v === "_none" ? "" : v }))}
+            >
+              <SelectTrigger data-testid="select-qe-preferred-channel">
+                <SelectValue placeholder="Select method" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="_none">None</SelectItem>
+                {["email", "phone", "sms", "in-person"].map((ch) => (
+                  <SelectItem key={ch} value={ch}>{ch.charAt(0).toUpperCase() + ch.slice(1)}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="border-t pt-4 space-y-3">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Deal Fields</p>
+            <div className="space-y-1.5">
+              <Label>Deal Name</Label>
+              <Input
+                value={dealFields.name}
+                onChange={(e) => setDealFields((p) => ({ ...p, name: e.target.value }))}
+                data-testid="input-qe-deal-name"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Offer Path</Label>
+              <Select
+                value={dealFields.offerPath || "_none"}
+                onValueChange={(v) => setDealFields((p) => ({ ...p, offerPath: v === "_none" ? "" : v }))}
+              >
+                <SelectTrigger data-testid="select-qe-offer-path">
+                  <SelectValue placeholder="Select offer path" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="_none">None</SelectItem>
+                  {OFFER_PATHS.map((op) => (
+                    <SelectItem key={op} value={op}>{op}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="outline" onClick={onClose} data-testid="button-qe-cancel">Cancel</Button>
+            <Button onClick={handleSave} disabled={saving} data-testid="button-qe-save">
+              {saving ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Saving…</> : "Save Changes"}
+            </Button>
+          </div>
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
 function SortableDealCard({
   deal,
   isDealArchived,
@@ -264,6 +557,7 @@ function SortableDealCard({
   onRetryProposals,
   proposalsRetrying,
   confirmationFailed,
+  onQuickEdit,
 }: {
   deal: Deal;
   isDealArchived: boolean;
@@ -282,6 +576,7 @@ function SortableDealCard({
   onRetryProposals?: (dealId: number) => void;
   proposalsRetrying?: boolean;
   confirmationFailed?: ConfirmationFailedStatus | null;
+  onQuickEdit?: (deal: Deal) => void;
 }) {
   const { data: checklistSummary } = useQuery<{ total: number; completed: number }>({
     queryKey: ["/api/deals", deal.id, "checklist-summary"],
@@ -340,6 +635,15 @@ function SortableDealCard({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
+                <DropdownMenuItem
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onQuickEdit?.(deal);
+                  }}
+                  data-testid={`menu-quick-edit-deal-${deal.id}`}
+                >
+                  <Pencil className="w-4 h-4 mr-2" /> Edit Lead
+                </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={(e) => {
                     e.stopPropagation();
@@ -750,6 +1054,7 @@ function DroppableColumn({
   onRetryProposals,
   proposalsRetryingByDeal,
   confirmationFailedMap,
+  onQuickEdit,
 }: {
   stage: string;
   colorClass: string;
@@ -770,6 +1075,7 @@ function DroppableColumn({
   onRetryProposals?: (dealId: number) => void;
   proposalsRetryingByDeal?: Record<string, boolean>;
   confirmationFailedMap?: Map<number, ConfirmationFailedStatus>;
+  onQuickEdit?: (deal: Deal) => void;
 }) {
   return (
     <div className="w-[270px] max-w-[300px] flex-shrink-0" data-testid={`stage-column-${stage.replace(/\s+/g, "-").toLowerCase()}`}>{/* #233 — kanban column max-width cap */}
@@ -821,6 +1127,7 @@ function DroppableColumn({
                 onRetryProposals={onRetryProposals}
                 proposalsRetrying={proposalsRetryingByDeal?.[String(deal.id)]}
                 confirmationFailed={deal.contactId != null ? confirmationFailedMap?.get(deal.contactId) : undefined}
+                onQuickEdit={onQuickEdit}
               />
             );
           })}
@@ -999,6 +1306,7 @@ export default function Pipeline() {
   );
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedDeal, setSelectedDeal] = useState<Deal | null>(null);
+  const [quickEditDeal, setQuickEditDeal] = useState<Deal | null>(null);
   // #1445 — Underwriting checklist tasks for the currently open deal
   const { data: uwTasks = [], refetch: refetchUwTasks } = useQuery<any[]>({
     queryKey: ["/api/deals", selectedDeal?.id, "underwriting-tasks"],
@@ -2465,6 +2773,7 @@ export default function Pipeline() {
                   onRetryProposals={retryDealProposals}
                   proposalsRetryingByDeal={proposalsRetryingByDeal}
                   confirmationFailedMap={confirmationFailedMap}
+                  onQuickEdit={(deal) => setQuickEditDeal(deal)}
                 />
               );
             })}
@@ -2489,6 +2798,13 @@ export default function Pipeline() {
           })()}
         </DragOverlay>
       </DndContext>
+
+      {/* ── Deal Quick-Edit Sheet ─────────────────────────────────── */}
+      <DealQuickEditSheet
+        deal={quickEditDeal}
+        open={quickEditDeal !== null}
+        onClose={() => setQuickEditDeal(null)}
+      />
 
       <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto" data-testid="dialog-deal-detail">

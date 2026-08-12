@@ -11,12 +11,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Select as UISelect, SelectContent as UISelectContent, SelectItem as UISelectItem, SelectTrigger as UISelectTrigger, SelectValue as UISelectValue } from "@/components/ui/select";
 import {
   Search, FileText, Building2, Mail, Calendar,
   CheckCircle2, XCircle, SendHorizonal, MessageSquarePlus,
   ChevronLeft, Loader2, User, CreditCard,
   MapPin, Landmark, ClipboardCheck, Paperclip, ExternalLink, History, MailCheck,
-  AlertTriangle, GitFork,
+  AlertTriangle, GitFork, Pencil, Save, X,
 } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import type { MerchantApplication, MerchantProfile, Document as DocType, UnderwritingNoteEntry } from "@shared/schema";
@@ -166,6 +167,16 @@ function ApplicationDetailView({
   const [showRequestInfo, setShowRequestInfo] = useState(false);
   const [declineReason, setDeclineReason] = useState("");
   const [showDecline, setShowDecline] = useState(false);
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [editFields, setEditFieldsApp] = useState({
+    legalBusinessName: application.legalBusinessName || "",
+    dba: (application as any).dba || "",
+    ownerFirstName: application.ownerFirstName || "",
+    ownerLastName: application.ownerLastName || "",
+    ownerEmail: application.ownerEmail || "",
+    businessEmail: application.businessEmail || "",
+    status: application.status || "submitted",
+  });
 
   const { data: riskRelationships } = useQuery<Array<{
     id: number;
@@ -439,9 +450,32 @@ function ApplicationDetailView({
     }
   };
 
-  const businessName = application.legalBusinessName || application.dba || "Unnamed Business";
+  const handleSaveEditFields = async () => {
+    try {
+      // Send null for cleared optional fields so storage persists the clear.
+      const payload: Partial<MerchantApplication> = {
+        legalBusinessName: editFields.legalBusinessName.trim() || null,
+        ownerFirstName: editFields.ownerFirstName.trim() || null,
+        ownerLastName: editFields.ownerLastName.trim() || null,
+        ownerEmail: editFields.ownerEmail.trim() || null,
+        businessEmail: editFields.businessEmail.trim() || null,
+        status: (editFields.status as any) || undefined, // status must be a valid enum; undefined = no change
+      };
+      // dba stored in metadata or as top-level; pass through if supported
+      (payload as any).dba = editFields.dba.trim() || null;
+      await updateMutation.mutateAsync(payload);
+      toast({ title: "Application updated", description: "Changes saved successfully." });
+      setIsEditMode(false);
+    } catch {
+      toast({ title: "Error", description: "Could not save changes.", variant: "destructive" });
+    }
+  };
+
+  const businessName = application.legalBusinessName || (application as any).dba || "Unnamed Business";
   const contactName = [application.ownerFirstName, application.ownerLastName].filter(Boolean).join(" ") || "—";
   const contactEmail = application.ownerEmail || application.businessEmail || "—";
+
+  const APPLICATION_STATUSES = ["draft", "submitted", "in_progress", "under_review", "approved", "declined", "withdrawn"] as const;
 
   return (
     <div className="space-y-6" data-testid="application-detail-view">
@@ -527,6 +561,25 @@ function ApplicationDetailView({
               </Button>
             </>
           )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setEditFieldsApp({
+                legalBusinessName: application.legalBusinessName || "",
+                dba: (application as any).dba || "",
+                ownerFirstName: application.ownerFirstName || "",
+                ownerLastName: application.ownerLastName || "",
+                ownerEmail: application.ownerEmail || "",
+                businessEmail: application.businessEmail || "",
+                status: application.status || "submitted",
+              });
+              setIsEditMode(!isEditMode);
+            }}
+            data-testid="button-edit-application"
+          >
+            {isEditMode ? <><X className="w-4 h-4 mr-2" />Cancel Edit</> : <><Pencil className="w-4 h-4 mr-2" />Edit Details</>}
+          </Button>
           {application.status === "approved" && merchantProfile?.accountStatus === "active" && (
             <div className="flex flex-col items-start gap-1">
               <Button
@@ -554,6 +607,117 @@ function ApplicationDetailView({
           )}
         </div>
       </div>
+
+      {/* ── Inline Field Edit Form ─────────────────────────────────────────── */}
+      {isEditMode && (
+        <Card data-testid="card-edit-application-fields">
+          <CardContent className="p-4 space-y-4">
+            <p className="text-sm font-semibold text-foreground">Edit Application Details</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-legal-name">Legal Business Name</Label>
+                <Input
+                  id="edit-legal-name"
+                  value={editFields.legalBusinessName}
+                  onChange={(e) => setEditFieldsApp((p) => ({ ...p, legalBusinessName: e.target.value }))}
+                  placeholder="Legal business name"
+                  data-testid="input-edit-app-legal-name"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-dba">DBA (Trade Name)</Label>
+                <Input
+                  id="edit-dba"
+                  value={editFields.dba}
+                  onChange={(e) => setEditFieldsApp((p) => ({ ...p, dba: e.target.value }))}
+                  placeholder="Doing business as..."
+                  data-testid="input-edit-app-dba"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-owner-first">Owner First Name</Label>
+                <Input
+                  id="edit-owner-first"
+                  value={editFields.ownerFirstName}
+                  onChange={(e) => setEditFieldsApp((p) => ({ ...p, ownerFirstName: e.target.value }))}
+                  placeholder="First name"
+                  data-testid="input-edit-app-owner-first"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-owner-last">Owner Last Name</Label>
+                <Input
+                  id="edit-owner-last"
+                  value={editFields.ownerLastName}
+                  onChange={(e) => setEditFieldsApp((p) => ({ ...p, ownerLastName: e.target.value }))}
+                  placeholder="Last name"
+                  data-testid="input-edit-app-owner-last"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-owner-email">Owner Email</Label>
+                <Input
+                  id="edit-owner-email"
+                  type="email"
+                  value={editFields.ownerEmail}
+                  onChange={(e) => setEditFieldsApp((p) => ({ ...p, ownerEmail: e.target.value }))}
+                  placeholder="owner@example.com"
+                  data-testid="input-edit-app-owner-email"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-business-email">Business Email</Label>
+                <Input
+                  id="edit-business-email"
+                  type="email"
+                  value={editFields.businessEmail}
+                  onChange={(e) => setEditFieldsApp((p) => ({ ...p, businessEmail: e.target.value }))}
+                  placeholder="info@business.com"
+                  data-testid="input-edit-app-business-email"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-app-status">Status</Label>
+                <UISelect
+                  value={editFields.status}
+                  onValueChange={(v) => setEditFieldsApp((p) => ({ ...p, status: v }))}
+                >
+                  <UISelectTrigger id="edit-app-status" data-testid="select-edit-app-status">
+                    <UISelectValue />
+                  </UISelectTrigger>
+                  <UISelectContent>
+                    {APPLICATION_STATUSES.map((s) => (
+                      <UISelectItem key={s} value={s}>{getStatusLabel(s)}</UISelectItem>
+                    ))}
+                  </UISelectContent>
+                </UISelect>
+              </div>
+            </div>
+            <div className="flex gap-2 pt-2">
+              <Button
+                size="sm"
+                onClick={handleSaveEditFields}
+                disabled={updateMutation.isPending}
+                data-testid="button-save-edit-app-fields"
+              >
+                {updateMutation.isPending ? (
+                  <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Saving…</>
+                ) : (
+                  <><Save className="w-4 h-4 mr-2" />Save Changes</>
+                )}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setIsEditMode(false)}
+                data-testid="button-cancel-edit-app-fields"
+              >
+                Cancel
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {showDecline && (
         <Card data-testid="card-decline-reason">

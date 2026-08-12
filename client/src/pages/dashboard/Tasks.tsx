@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Plus, ArrowRight, Sparkles, Loader2, ChevronDown, UserPlus, CheckCircle, Trash2, MessageSquare } from "lucide-react";
+import { Plus, ArrowRight, Sparkles, Loader2, ChevronDown, UserPlus, CheckCircle, Trash2, MessageSquare, Pencil } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import Comments from "@/components/Comments";
@@ -104,6 +104,14 @@ export default function Tasks() {
   const [bulkAssignTo, setBulkAssignTo] = useState("");
   const [bulkDeleteConfirmOpen, setBulkDeleteConfirmOpen] = useState(false);
   const [expandedTaskId, setExpandedTaskId] = useState<number | null>(null);
+  const [editTaskId, setEditTaskId] = useState<number | null>(null);
+  const [editTaskFields, setEditTaskFields] = useState({
+    title: "",
+    description: "",
+    assignedTo: "",
+    dueDate: "",
+    priority: "normal",
+  });
 
   const handleSourceFilterChange = (value: string) => {
     setFilterSource(value);
@@ -276,6 +284,49 @@ export default function Tasks() {
     if (newTask.contactId) payload.contactId = Number(newTask.contactId);
     if (newTask.ticketId) payload.ticketId = Number(newTask.ticketId);
     createTaskMutation.mutate(payload);
+  };
+
+  const openEditTask = (task: Task) => {
+    let dueDateLocal = "";
+    if (task.dueDate) {
+      const d = new Date(task.dueDate);
+      if (!isNaN(d.getTime())) {
+        // Convert to local datetime-local format (YYYY-MM-DDTHH:mm)
+        const pad = (n: number) => String(n).padStart(2, "0");
+        dueDateLocal = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+      }
+    }
+    setEditTaskFields({
+      title: task.title || "",
+      description: task.description || "",
+      assignedTo: task.assignedTo || "",
+      dueDate: dueDateLocal,
+      priority: task.priority || "normal",
+    });
+    setEditTaskId(task.id);
+  };
+
+  const handleSaveEditTask = () => {
+    if (!editTaskId) return;
+    if (!editTaskFields.title.trim()) {
+      toast({ title: "Title is required", variant: "destructive" });
+      return;
+    }
+    // Explicitly send null for cleared optional fields so the server can persist the clear.
+    const payload: Record<string, unknown> = {
+      title: editTaskFields.title.trim(),
+      description: editTaskFields.description.trim() || null,
+      assignedTo: editTaskFields.assignedTo.trim() || null,
+      priority: editTaskFields.priority,
+      // Send null when dueDate is cleared so the server actually removes the deadline.
+      dueDate: editTaskFields.dueDate ? new Date(editTaskFields.dueDate).toISOString() : null,
+    };
+    updateTaskMutation.mutate(
+      { id: editTaskId, ...payload },
+      {
+        onSuccess: () => setEditTaskId(null),
+      }
+    );
   };
 
   const handleAdvanceStatus = (task: Task) => {
@@ -596,6 +647,84 @@ export default function Tasks() {
         </DialogContent>
       </Dialog>
 
+      {/* ── Inline Task Edit Dialog ───────────────────────────────── */}
+      <Dialog open={editTaskId !== null} onOpenChange={(open) => { if (!open) setEditTaskId(null); }}>
+        <DialogContent data-testid="dialog-edit-task">
+          <DialogHeader>
+            <DialogTitle>Edit Task</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
+            <div className="space-y-2">
+              <Label>Title <span className="text-destructive">*</span></Label>
+              <Input
+                value={editTaskFields.title}
+                onChange={(e) => setEditTaskFields((p) => ({ ...p, title: e.target.value }))}
+                placeholder="Task title"
+                data-testid="input-edit-task-title"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Description</Label>
+              <Textarea
+                value={editTaskFields.description}
+                onChange={(e) => setEditTaskFields((p) => ({ ...p, description: e.target.value }))}
+                placeholder="Task description..."
+                data-testid="input-edit-task-description"
+                rows={3}
+              />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Assigned To</Label>
+                <Input
+                  value={editTaskFields.assignedTo}
+                  onChange={(e) => setEditTaskFields((p) => ({ ...p, assignedTo: e.target.value }))}
+                  placeholder="Name or email"
+                  data-testid="input-edit-task-assigned"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Due Date</Label>
+                <Input
+                  type="datetime-local"
+                  value={editTaskFields.dueDate}
+                  onChange={(e) => setEditTaskFields((p) => ({ ...p, dueDate: e.target.value }))}
+                  data-testid="input-edit-task-duedate"
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Priority</Label>
+              <Select
+                value={editTaskFields.priority}
+                onValueChange={(v) => setEditTaskFields((p) => ({ ...p, priority: v }))}
+              >
+                <SelectTrigger data-testid="select-edit-task-priority">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {PRIORITY_OPTIONS.map((p) => (
+                    <SelectItem key={p} value={p}>{getPriorityLabel(p)}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="outline" onClick={() => setEditTaskId(null)} data-testid="button-cancel-edit-task">
+                Cancel
+              </Button>
+              <Button
+                onClick={handleSaveEditTask}
+                disabled={updateTaskMutation.isPending}
+                data-testid="button-save-edit-task"
+              >
+                {updateTaskMutation.isPending ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Saving…</> : "Save Changes"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <SavedFilterBar
         entityType="task"
         currentFilters={{ filterStatus, filterSource }}
@@ -706,28 +835,40 @@ export default function Tasks() {
                     </div>
                   </TableCell>
                   <TableCell>
-                    {nextStatus && (
+                    <div className="flex items-center gap-1 flex-wrap">
+                      {nextStatus && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="gap-1"
+                          onClick={() => handleAdvanceStatus(task)}
+                          disabled={updateTaskMutation.isPending}
+                          data-testid={`button-advance-${task.id}`}
+                        >
+                          <ArrowRight className="w-3 h-3" />
+                          {getStatusLabel(nextStatus)}
+                        </Button>
+                      )}
                       <Button
                         size="sm"
-                        variant="outline"
+                        variant="ghost"
                         className="gap-1"
-                        onClick={() => handleAdvanceStatus(task)}
-                        disabled={updateTaskMutation.isPending}
-                        data-testid={`button-advance-${task.id}`}
+                        title="Edit task"
+                        onClick={() => openEditTask(task)}
+                        data-testid={`button-edit-task-${task.id}`}
                       >
-                        <ArrowRight className="w-3 h-3" />
-                        {getStatusLabel(nextStatus)}
+                        <Pencil className="w-3 h-3" />
                       </Button>
-                    )}
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="gap-1"
-                      onClick={() => setExpandedTaskId(expandedTaskId === task.id ? null : task.id)}
-                      data-testid={`button-comments-${task.id}`}
-                    >
-                      <MessageSquare className="w-3 h-3" />
-                    </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="gap-1"
+                        onClick={() => setExpandedTaskId(expandedTaskId === task.id ? null : task.id)}
+                        data-testid={`button-comments-${task.id}`}
+                      >
+                        <MessageSquare className="w-3 h-3" />
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
                 {expandedTaskId === task.id && (

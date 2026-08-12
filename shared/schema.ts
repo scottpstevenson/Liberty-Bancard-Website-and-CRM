@@ -316,6 +316,7 @@ export const deals = pgTable("deals", {
   companyId: integer("company_id").references(() => companies.id),
   pipeline: text("pipeline").notNull().default("sales"),
   stage: text("stage").notNull().default("New Lead"),
+  name: text("name"),
   owner: text("owner"),
   priorityScore: integer("priority_score").default(0),
   offerPath: text("offer_path"),

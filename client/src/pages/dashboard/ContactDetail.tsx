@@ -6,7 +6,8 @@ import { apiRequest, getCsrfToken } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import type { Contact, Deal, Ticket as TicketType, Task as TaskType, Note, Company, ContactCompany, Document, Agent } from "@shared/schema";
-import { VERTICALS } from "@shared/schema";
+import { VERTICALS, OFFER_PATHS } from "@shared/schema";
+import RfiTab from "@/components/RfiTab";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -24,7 +25,7 @@ import {
   RefreshCw, CheckCircle2, AlertCircle, Linkedin, FolderOpen, Info,
   ChevronDown, ChevronUp, Brain, AlertOctagon, ShieldCheck, GitFork, Bot, MapPin, Store,
   FileSearch2, Merge, SendHorizonal, ClipboardList, BarChart2, UserCheck,
-  Zap, Clock, User, Copy, Check as CheckIcon,
+  Zap, Clock, User, Copy, Check as CheckIcon, FileText,
 } from "lucide-react";
 import {
   labelForConfirmationStatus,
@@ -1081,6 +1082,10 @@ export default function ContactDetail() {
   const [editFields, setEditFields] = useState<Record<string, string | null | undefined>>({});
   const [tagInput, setTagInput] = useState("");
   const [editSupportedVerticals, setEditSupportedVerticals] = useState<string[]>([]); // #1443
+  // Deal field editing — populated from the first active deal when entering edit mode
+  const [editDealId, setEditDealId] = useState<number | null>(null);
+  const [editDealFields, setEditDealFields] = useState<{ name: string; offerPath: string }>({ name: "", offerPath: "" });
+  // (RFI dialog state is managed inside RfiTab component)
 
   // #259 — warn before leaving with unsaved edits
   useEffect(() => {
@@ -1458,6 +1463,18 @@ export default function ContactDetail() {
       .filter((t: string) => t.startsWith("vertical:"))
       .map((t: string) => t.slice("vertical:".length));
     setEditSupportedVerticals(tagVerticals);
+    // Populate deal edit fields from the first active (non-archived, non-closed) deal
+    const activeDeal = deals?.find((d: any) => !d.archivedAt && d.stage !== "Closed Won" && d.stage !== "Closed Lost");
+    if (activeDeal) {
+      setEditDealId(activeDeal.id);
+      setEditDealFields({
+        name: (activeDeal as any).name ?? "",
+        offerPath: (activeDeal as any).offerPath ?? "",
+      });
+    } else {
+      setEditDealId(null);
+      setEditDealFields({ name: "", offerPath: "" });
+    }
     setIsEditing(true);
   };
 
@@ -1492,6 +1509,21 @@ export default function ContactDetail() {
       const currentTags = (contact.tags ?? []).filter((t: string) => !t.startsWith("vertical:"));
       const newTags = [...currentTags, ...editSupportedVerticals.map(v => `vertical:${v}`)];
       await updateContact.mutateAsync({ id: contactId, ...otherFields, tags: newTags });
+
+      // Save deal name + offerPath if a deal was selected for editing.
+      // A failure here is surfaced to the user — we must not exit edit mode or toast success
+      // when the deal fields were not persisted (reviewer feedback on silent partial-saves).
+      if (editDealId) {
+        const dealPayload: Record<string, unknown> = {
+          name: editDealFields.name.trim() || null,
+          offerPath: editDealFields.offerPath || null,
+        };
+        const dealRes = await apiRequest("PUT", `/api/deals/${editDealId}`, dealPayload);
+        if (!dealRes.ok) {
+          const errBody = await dealRes.json().catch(() => ({}));
+          throw new Error(errBody.message || "Failed to save deal name / offer path");
+        }
+      }
 
       queryClient.invalidateQueries({ queryKey: ["/api/contacts", contactId, "detail"] });
       setIsEditing(false);
@@ -1776,6 +1808,35 @@ export default function ContactDetail() {
               {!isEditing && (contact as any).referralSource && (
                 <span className="flex items-center gap-1 text-xs text-muted-foreground" data-testid="text-referral-source">
                   🔗 {(contact as any).referralSource}
+                </span>
+              )}
+              {/* Deal name + offer path (edit mode) — shown when an active deal is linked */}
+              {isEditing && editDealId && (
+                <span className="flex flex-col gap-1 text-xs w-full" data-testid="edit-deal-fields">
+                  <span className="text-muted-foreground font-medium">Active Deal Fields</span>
+                  <span className="flex flex-wrap gap-2">
+                    <Input
+                      placeholder="Deal name"
+                      value={editDealFields.name}
+                      onChange={e => setEditDealFields(p => ({ ...p, name: e.target.value }))}
+                      className="w-44 h-7 text-xs"
+                      data-testid="input-edit-deal-name"
+                    />
+                    <Select
+                      value={editDealFields.offerPath || "_none"}
+                      onValueChange={(v) => setEditDealFields(p => ({ ...p, offerPath: v === "_none" ? "" : v }))}
+                    >
+                      <SelectTrigger className="w-44 h-7 text-xs" data-testid="select-edit-deal-offer-path">
+                        <SelectValue placeholder="Offer path" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="_none">No offer path</SelectItem>
+                        {OFFER_PATHS.map(op => (
+                          <SelectItem key={op} value={op}>{op}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </span>
                 </span>
               )}
               {/* #1443 — Supported Verticals multi-select (edit mode) */}
@@ -2379,6 +2440,10 @@ export default function ContactDetail() {
               Onboarding Checklist
             </TabsTrigger>
           )}
+          <TabsTrigger value="rfis" data-testid="tab-rfis">
+            <FileText className="h-3.5 w-3.5 mr-1" />
+            RFIs
+          </TabsTrigger>
           <TabsTrigger value="nps" data-testid="tab-nps">
             <BarChart2 className="h-3.5 w-3.5 mr-1" />
             NPS
@@ -2522,6 +2587,11 @@ export default function ContactDetail() {
             ))}
           </TabsContent>
         )}
+
+        {/* ── RFIs Tab ───────────────────────────────────────────────── */}
+        <TabsContent value="rfis" data-testid="tab-content-rfis">
+          <RfiTab contactId={contactId} />
+        </TabsContent>
 
         <TabsContent value="nps" data-testid="tab-content-nps">
           <NpsHistoryPanel contactId={contactId} />

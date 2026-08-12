@@ -13,7 +13,11 @@ export function registerWorkflowsRoutes(app: Express) {
   app.get("/api/rfis", isAuthenticated, async (req, res) => {
     try {
       const allRfis = await storage.getRfis();
-      res.json(allRfis);
+      const contactId = req.query.contactId ? Number(req.query.contactId) : undefined;
+      const filtered = contactId && !isNaN(contactId)
+        ? allRfis.filter((r) => r.contactId === contactId)
+        : allRfis;
+      res.json(filtered);
     } catch (err: any) {
       serverError(res, err);
     }
