@@ -8,6 +8,12 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
+import {
   Search,
   Rocket,
   Receipt,
@@ -18,6 +24,7 @@ import {
   ArrowRight,
   BookOpen,
 } from "lucide-react";
+import { PublicCTA } from "@/components/public/PublicCTA";
 import {
   helpCategories,
   helpArticles,
@@ -209,32 +216,52 @@ export default function HelpCenter() {
             >
               Frequently Asked Questions
             </h2>
-            <div className="space-y-4">
+            {/* Audit item 15: collapsible FAQ accordion for fast scanning */}
+            <Accordion type="single" collapsible className="w-full space-y-2">
               {faqItems.map((faq, i) => (
-                <Card key={i} className={`reveal reveal-delay-${(i % 3) + 1}`} data-testid={`card-faq-${i}`}>
-                  <CardContent className="pt-6">
-                    <h3 className="font-semibold text-foreground mb-2">{faq.question}</h3>
-                    <p className="text-sm text-muted-foreground leading-relaxed">{faq.answer}</p>
-                  </CardContent>
-                </Card>
+                <AccordionItem
+                  key={i}
+                  value={`faq-${i}`}
+                  className={`reveal reveal-delay-${(i % 3) + 1} border border-border rounded-lg px-4`}
+                  data-testid={`card-faq-${i}`}
+                >
+                  <AccordionTrigger className="text-left font-semibold text-foreground text-sm hover:no-underline py-4">
+                    {faq.question}
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    <p className="text-sm text-muted-foreground leading-relaxed pb-2">{faq.answer}</p>
+                  </AccordionContent>
+                </AccordionItem>
               ))}
-            </div>
+            </Accordion>
           </div>
         </section>
 
-        <section className="bg-primary text-primary-foreground py-12" data-testid="section-help-cta">
+        {/* Audit item: increase CTA prominence at bottom of Help Center */}
+        <section className="bg-primary text-primary-foreground py-16" data-testid="section-help-cta">
           <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center reveal">
-            <h2 className="text-2xl font-bold mb-3" data-testid="text-help-cta-heading">
+            <h2 className="text-2xl md:text-3xl font-bold mb-3" data-testid="text-help-cta-heading">
               Still need help?
             </h2>
-            <p className="text-primary-foreground/70 mb-6" data-testid="text-help-cta-body">
+            <p className="text-primary-foreground/70 mb-8 text-lg" data-testid="text-help-cta-body">
               Our support team responds within 4 business hours. Submit a request and a real person will follow up.
             </p>
-            <Link href="/support" data-testid="link-help-contact-support">
-              <span className="inline-flex items-center gap-2 px-6 py-3 rounded-md bg-background text-foreground font-medium hover:opacity-90 transition-opacity">
-                Contact Support <ArrowRight className="w-4 h-4" />
-              </span>
-            </Link>
+            <div className="flex flex-col sm:flex-row gap-3 justify-center">
+              <Link href="/support" data-testid="link-help-contact-support">
+                <span className="inline-flex items-center gap-2 px-8 py-4 rounded-md bg-background text-foreground font-semibold text-base hover:opacity-90 transition-opacity shadow-md">
+                  Contact Support <ArrowRight className="w-5 h-5" />
+                </span>
+              </Link>
+              {/* Standardised Upload/Book CTA via PublicCTA; inverse scheme for dark bg */}
+              <PublicCTA
+                variant="both"
+                scheme="inverse"
+                primaryLabel="Upload My Statement"
+                secondaryLabel="Book a Free Call"
+                ctaLocation="helpcenter_bottom"
+                className="justify-center"
+              />
+            </div>
           </div>
         </section>
       </main>

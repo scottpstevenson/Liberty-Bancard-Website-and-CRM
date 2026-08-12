@@ -3,6 +3,7 @@ import { Link } from "wouter";
 import { SEO } from "@/components/SEO";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
+import { PublicHero } from "@/components/public/PublicHero";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -305,39 +306,20 @@ export default function ISOPartnerProgram() {
       <main className="marketing-surface flex-grow pt-28">
 
         {/* Hero */}
-        <section className="relative overflow-hidden bg-background py-16 md:py-24 border-b border-border">
-          <div className="pointer-events-none absolute inset-0 ledger-texture opacity-[0.5]" aria-hidden="true" />
-          <div className="relative max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="accent-rule pt-5 max-w-3xl">
-              <Badge variant="outline" className="mb-4 text-primary border-primary/30 bg-primary/5">
-                ISO & Partner Program
-              </Badge>
-              <h1 className="text-3xl md:text-5xl font-display font-bold text-foreground leading-tight mb-6">
-                Earn Residual Income for Every Merchant You Refer
-              </h1>
-              <p className="text-lg md:text-xl text-muted-foreground leading-relaxed mb-8">
-                Liberty Bancard's partner program is built for professionals who work with business owners — ISOs, CPAs, bookkeepers, consultants, and financial advisors. Refer merchants, earn residuals, and get paid every month for the life of the account.
-              </p>
-              <div className="flex flex-col sm:flex-row gap-3">
-                <a href="#apply">
-                  <Button size="lg" className="gap-2 w-full sm:w-auto" data-testid="button-hero-apply">
-                    Apply as a Partner <ArrowRight className="w-4 h-4" />
-                  </Button>
-                </a>
-                <a href="#calculator">
-                  <Button size="lg" variant="outline" className="gap-2 w-full sm:w-auto" data-testid="button-hero-calculator">
-                    <Calculator className="w-4 h-4" /> Estimate My Income
-                  </Button>
-                </a>
-                <Link href="/partner-portal">
-                  <Button size="lg" variant="ghost" className="gap-2 w-full sm:w-auto" data-testid="button-hero-portal">
-                    Partner Login
-                  </Button>
-                </Link>
-              </div>
-            </div>
-          </div>
-        </section>
+        <PublicHero
+          headline="Earn Residual Income for Every Merchant You Refer"
+          subheadline="Liberty Bancard's partner program is built for professionals who work with business owners — ISOs, CPAs, bookkeepers, consultants, and financial advisors. Refer merchants, earn residuals, and get paid every month for the life of the account."
+          primaryCta={{ label: "Apply as a Partner", href: "#apply" }}
+          secondaryCta={{ label: "Estimate My Income", href: "#calculator", icon: <Calculator className="w-4 h-4 shrink-0" /> }}
+          tertiaryLinks={[{ label: "Partner Login", href: "/partner-portal" }]}
+          badge={
+            <Badge variant="outline" className="text-primary border-primary/30 bg-primary/5">
+              ISO & Partner Program
+            </Badge>
+          }
+          trustBadges={["Free to join", "No volume minimums", "Monthly residual payments", "Dedicated partner rep"]}
+          data-testid="section-iso-hero"
+        />
 
         {/* Who Is This For */}
         <section className="py-16 md:py-20">
@@ -488,7 +470,8 @@ export default function ISOPartnerProgram() {
         </section>
 
         {/* Calculator */}
-        <section className="py-16 md:py-20" id="calculator">
+        {/* scroll-mt-20 offsets the fixed navbar height so the section heading isn't obscured */}
+        <section className="py-16 md:py-20 scroll-mt-20" id="calculator">
           <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="text-center mb-10">
               <h2 className="text-2xl md:text-3xl font-display font-bold text-foreground mb-4">
@@ -503,7 +486,8 @@ export default function ISOPartnerProgram() {
         </section>
 
         {/* Partner Application Form */}
-        <section className="py-16 md:py-20 bg-muted/30 border-t border-border/30" id="apply">
+        {/* scroll-mt-20 offsets the fixed navbar height so the section heading isn't obscured */}
+        <section className="py-16 md:py-20 bg-muted/30 border-t border-border/30 scroll-mt-20" id="apply">
           <div className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8">
             {view === "success" ? (
               <div className="text-center py-8">

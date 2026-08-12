@@ -8,6 +8,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ArrowRight, Clock, User, Search } from "lucide-react";
+import { PublicCTA } from "@/components/public/PublicCTA";
 import { allBlogPosts, type GeneratedBlogPostResponse, dbPostToBlogPost } from "@/lib/all-blog-data";
 import { useQuery } from "@tanstack/react-query";
 
@@ -99,6 +100,7 @@ export default function Blog() {
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                 <input
                   type="text"
+                  aria-label="Search articles"
                   placeholder="Search articles..."
                   value={searchQuery}
                   onChange={(e) => {
@@ -111,10 +113,11 @@ export default function Blog() {
               </div>
             </div>
 
-            <div className="flex flex-wrap gap-2 mb-10">
+            {/* Category filter — horizontally scrollable on mobile */}
+            <div className="flex overflow-x-auto gap-2 pb-1 mb-10 scrollbar-hide -mx-4 px-4 sm:mx-0 sm:px-0 sm:flex-wrap">
               <button
                 onClick={() => { setActiveCategory("All"); setVisibleCount(POSTS_PER_PAGE); }}
-                className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${activeCategory === "All" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"}`}
+                className={`flex-shrink-0 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${activeCategory === "All" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"}`}
                 data-testid="button-category-all"
               >
                 All ({combinedPosts.length})
@@ -123,7 +126,7 @@ export default function Blog() {
                 <button
                   key={cat}
                   onClick={() => { setActiveCategory(cat); setVisibleCount(POSTS_PER_PAGE); }}
-                  className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${activeCategory === cat ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"}`}
+                  className={`flex-shrink-0 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${activeCategory === cat ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"}`}
                   data-testid={`button-category-${cat.toLowerCase().replace(/\s+/g, "-")}`}
                 >
                   {cat} ({combinedPosts.filter((p) => p.category === cat).length})
@@ -133,7 +136,7 @@ export default function Blog() {
 
             {featured && (
               <Link href={`/blog/${featured.slug}`} data-testid="link-featured-post">
-                <Card className="hover-elevate mb-12">
+                <Card className="hover-elevate mb-12 border-2 border-primary/20 bg-primary/[0.02]">
                   <CardContent className="p-6 md:p-8">
                     <div className="flex flex-col md:flex-row gap-6 md:gap-8">
                       <div className="flex-1">
@@ -176,7 +179,7 @@ export default function Blog() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {visible.map((post) => (
                 <Link key={post.slug} href={`/blog/${post.slug}`} data-testid={`link-post-${post.slug}`}>
-                  <Card className="hover-elevate h-full">
+                  <Card className="hover-elevate h-full min-h-[320px]">
                     <CardContent className="p-6 flex flex-col h-full">
                       <div className="flex items-center gap-2 mb-3 flex-wrap">
                         <Badge variant="outline">{post.category}</Badge>
@@ -223,19 +226,15 @@ export default function Blog() {
             <p className="text-primary-foreground/80 mb-6">
               Upload your processing statement for a free, line-by-line breakdown. Keep the analysis even if you don't switch.
             </p>
-            <div className="flex flex-col sm:flex-row gap-4 justify-center flex-wrap">
-              <Link href="/upload-statement" data-testid="link-blog-cta-upload">
-                <Button size="lg" variant="secondary" className="gap-2">
-                  Upload Statement
-                  <ArrowRight className="w-4 h-4" />
-                </Button>
-              </Link>
-              <Link href="/savings-calculator" data-testid="link-blog-cta-calculator">
-                <Button size="lg" variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white">
-                  Try Savings Calculator
-                </Button>
-              </Link>
-            </div>
+            {/* Audit item 1: standardised CTA pair via PublicCTA; inverse scheme for dark bg */}
+            <PublicCTA
+              variant="both"
+              scheme="inverse"
+              primaryLabel="Upload My Statement"
+              secondaryLabel="Book a Free Call"
+              ctaLocation="blog_bottom"
+              className="justify-center"
+            />
           </div>
         </section>
       </main>

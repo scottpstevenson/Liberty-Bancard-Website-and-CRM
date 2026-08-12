@@ -5,6 +5,7 @@ import { Footer } from "@/components/Footer";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Link } from "wouter";
+import { PublicHero } from "@/components/public/PublicHero";
 import { Input } from "@/components/ui/input";
 import { PewcCheckbox } from "@/components/PewcCheckbox";
 import { apiRequest } from "@/lib/queryClient";
@@ -381,19 +382,14 @@ export default function GetStarted() {
       <SEO title="Get Started - Free Statement Analysis" description="Answer a few questions and get a personalized processing recommendation. Free statement review, no obligation." path="/get-started" breadcrumbs={[{ name: "Get Started", path: "/get-started" }]} />
       <Navbar />
       <main className="marketing-surface flex-grow pt-28">
-        <section className="marketing-surface relative overflow-hidden bg-background border-b border-border" data-testid="section-get-started-hero">
-          <div className="pointer-events-none absolute inset-0 ledger-texture opacity-[0.5]" aria-hidden="true" />
-          <div className="relative max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 py-16 lg:py-20 text-center">
-            <div className="accent-rule pt-5">
-              <h1 className="text-3xl md:text-4xl lg:text-5xl font-display font-bold text-foreground mb-2" data-testid="text-get-started-heading">
-                Find Your <span className="text-accent">Best Path</span> Forward
-              </h1>
-              <p className="text-muted-foreground" data-testid="text-get-started-subheadline">
-                60 seconds. 6 questions. We'll tell you exactly what to do next.
-              </p>
-            </div>
-          </div>
-        </section>
+        <PublicHero
+          data-testid="section-get-started-hero"
+          headline={<>Find Your <span className="text-accent">Best Path</span> Forward</>}
+          subheadline="60 seconds. 6 questions. We'll tell you exactly what to do next."
+          primaryCta={{ label: "Start the Quiz", href: "#quiz-section" }}
+          secondaryCta={{ label: "Upload My Statement", href: "/upload-statement" }}
+          trustBadges={["Free, no obligation", "No processor login needed", "Results in 60 seconds"]}
+        />
 
         <div className="bg-muted/50 border-b border-border py-3" data-testid="section-trust-strip">
           <div className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -407,7 +403,8 @@ export default function GetStarted() {
           </div>
         </div>
 
-        <section className="bg-muted/30 py-12" data-testid="section-get-started">
+        {/* scroll-mt-20 offsets the fixed navbar height so the quiz isn't obscured on fragment scroll */}
+        <section className="bg-muted/30 py-12 scroll-mt-20" id="quiz-section" data-testid="section-get-started">
           <div className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex items-center gap-1 mb-2" data-testid="progress-indicator">
               {Array.from({ length: TOTAL_STEPS }, (_, i) => (
