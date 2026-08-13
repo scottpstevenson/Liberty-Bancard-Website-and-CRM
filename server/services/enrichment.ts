@@ -1,5 +1,5 @@
 import { storage } from "../storage";
-import { db } from "../db";
+import { db, pool as dbPool } from "../db";
 import { enrichmentRuns, businesses } from "@shared/schema";
 import type { Prospect } from "@shared/schema";
 import { eq } from "drizzle-orm";
@@ -397,6 +397,14 @@ export async function enrichContactBatch(
           if (Object.keys(updates).length > 0) {
             await updateContactGhlFirst(contactId, updates);
             enqueueReadinessRecalculation(contactId).catch(() => {});
+            // Clear outreach queue skip flag if new contact data was found —
+            // this makes the contact re-appear in the Ready-for-Outreach queue.
+            if (updates.email || updates.phone) {
+              dbPool.query(
+                `UPDATE contacts SET outreach_queue_skipped_at = NULL WHERE id = $1 AND outreach_queue_skipped_at IS NOT NULL`,
+                [contactId],
+              ).catch(() => { /* non-critical */ });
+            }
           } else {
             processed++;
             continue;

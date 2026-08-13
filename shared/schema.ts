@@ -96,6 +96,7 @@ export const contacts = pgTable("contacts", {
   linkedinUrl: text("linkedin_url"),
   facebookUrl: text("facebook_url"),
   linkedinEnrichedAt: timestamp("linkedin_enriched_at"),
+  outreachQueueSkippedAt: timestamp("outreach_queue_skipped_at"),
   linkedinEnrichmentLog: jsonb("linkedin_enrichment_log"),
   industry: text("industry"),
   leadSource: text("lead_source"),

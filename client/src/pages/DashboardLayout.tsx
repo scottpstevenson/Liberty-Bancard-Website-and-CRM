@@ -141,6 +141,7 @@ const dailyWorkItems: MenuItem[] = [
   { icon: Brain,           label: "AI Advisor",           href: "/dashboard/chat",               roles: ["admin", "manager"] },
   // Agent
   { icon: Star,            label: "My Day",               href: "/dashboard/my-day",             roles: ["agent"] },
+  { icon: Rocket,          label: "Ready for Outreach",   href: "/dashboard/outreach-queue",     roles: ["agent"], badgeKey: "outreachQueueCount" },
   { icon: Briefcase,       label: "My Portfolio",         href: "/dashboard/portfolio",          roles: ["agent"] },
   { icon: Users,           label: "My Contacts",          href: "/dashboard/contacts",           roles: ["agent"] },
   { icon: TrendingUp,      label: "My Pipeline",          href: "/dashboard/pipeline",           roles: ["agent"] },
@@ -172,9 +173,10 @@ const merchantOpsItems: MenuItem[] = [
 // Command / Campaigns / Sequences / Prospects / Analytics all live under OutboundCenter tabs.
 // Sunbiz Lead Gen and Outreach Command are accessible within OutboundCenter's Command tab.
 const outboundItems: MenuItem[] = [
-  { icon: Database, label: "Lead Ops Center", href: "/dashboard/lead-ops",        roles: ["admin", "manager"] },
-  { icon: Zap,      label: "Outreach",        href: "/dashboard/outbound-center", roles: ["admin", "manager"] },
-  { icon: Upload,   label: "Lead Imports",    href: "/dashboard/lead-imports",    roles: ["admin", "manager"] },
+  { icon: Database, label: "Lead Ops Center",    href: "/dashboard/lead-ops",        roles: ["admin", "manager"] },
+  { icon: Rocket,   label: "Ready for Outreach", href: "/dashboard/outreach-queue",  roles: ["admin", "manager"], badgeKey: "outreachQueueCount" },
+  { icon: Zap,      label: "Outreach",            href: "/dashboard/outbound-center", roles: ["admin", "manager"] },
+  { icon: Upload,   label: "Lead Imports",        href: "/dashboard/lead-imports",    roles: ["admin", "manager"] },
 ];
 
 // ─── REPORTS & SETTINGS ───────────────────────────────────────────────────────
@@ -501,6 +503,14 @@ function DashboardLayoutInner({ children }: DashboardLayoutProps) {
   });
   const overdueTaskCount = overdueTasksData?.count || 0;
 
+  // #1493 — Ready-for-Outreach queue badge
+  const { data: outreachQueueData } = useQuery<{ count: number }>({
+    queryKey: ["/api/outreach-queue/count"],
+    refetchInterval: 120000,
+    enabled: ["admin", "manager", "agent"].includes(role),
+  });
+  const outreachQueueCount = outreachQueueData?.count || 0;
+
   // #487 — Update page title with unread count (after counts are declared)
   useEffect(() => {
     const total = (notificationsUnreadCount || 0) + (smsUnreadCount || 0);
@@ -513,6 +523,7 @@ function DashboardLayoutInner({ children }: DashboardLayoutProps) {
     liveChatUnread: liveChatUnreadCount,
     pendingApplications: pendingApplicationsCount,
     overdueTaskCount,
+    outreachQueueCount,
   };
 
   // #207 — Global keyboard shortcuts

@@ -197,6 +197,7 @@ const SystemReadiness = lazy(() => import("@/pages/dashboard/SystemReadiness"));
 const EmailHealth = lazy(() => import("@/pages/dashboard/EmailHealth"));
 const SystemAudit = lazy(() => import("@/pages/dashboard/SystemAudit"));
 const LeadOpsCenter = lazy(() => import("@/pages/dashboard/LeadOpsCenter"));
+const OutreachQueue = lazy(() => import("@/pages/dashboard/OutreachQueue"));
 const ExecutiveDashboard = lazy(() => import("@/pages/dashboard/Executive"));
 const LaunchReadiness = lazy(() => import("@/pages/dashboard/LaunchReadiness"));
 const OutboundReadiness = lazy(() => import("@/pages/dashboard/OutboundReadiness"));
@@ -862,6 +863,9 @@ function Router() {
         </Route>
         <Route path="/dashboard/lead-ops">
           <ProtectedRoute component={LeadOpsCenter} allowedRoles={["admin", "manager"]} />
+        </Route>
+        <Route path="/dashboard/outreach-queue">
+          <ProtectedRoute component={OutreachQueue} allowedRoles={["admin", "manager", "agent"]} />
         </Route>
         <Route path="/dashboard/executive">
           <ProtectedRoute component={ExecutiveDashboard} allowedRoles={["admin", "manager"]} />
