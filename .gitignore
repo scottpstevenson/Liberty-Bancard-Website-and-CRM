@@ -6,3 +6,9 @@ vite.config.ts.*
 *.tar.gz
 uploads/og-cache/
 uploads/statements/
+
+# Large uploaded assets — never commit these to git
+attached_assets/*.zip
+attached_assets/*.csv
+attached_assets/cordata.zip
+attached_assets/100k_leads*
