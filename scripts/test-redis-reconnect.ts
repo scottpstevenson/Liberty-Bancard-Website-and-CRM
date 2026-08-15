@@ -7,12 +7,14 @@
  *      and was the direct cause of the "Command timed out" production storm)
  *   3. diagnoseRedisCapacity() reports correct connection count under the
  *      shared-client architecture (1 + N workers, NOT N × 3)
- *   4. 11-queue production setup is safe for Upstash free tier (≤ 20 connections)
+ *   4. Provider-neutral capacity model: status="unknown" without REDIS_CONNECTION_LIMIT;
+ *      status reflects safe/warning/unsafe when limit is known
  *
  * Exit 0 = all checks pass. Exit 1 = at least one failure.
  */
 
 import { diagnoseRedisCapacity } from "../server/services/queue-connection";
+import { QUEUE_CONFIGS } from "../server/services/queue-manager";
 
 let failures = 0;
 
@@ -82,57 +84,94 @@ assert(
 
 // ── 3. Shared-client architecture — diagnoseRedisCapacity uses 1+N formula ────
 
-console.log("\n[3] diagnoseRedisCapacity() — shared-client connection count (1 + N workers)");
+console.log("\n[3] diagnoseRedisCapacity() — provider-neutral shared-client count (1 + N workers)");
 
-const reportSmall = diagnoseRedisCapacity(7);
-assert(reportSmall.queues === 7, "queues field matches input");
-assert(reportSmall.upstashFreeTierMax === 20, "upstashFreeTierMax is 20 (Upstash free tier)");
-assert(typeof reportSmall.estimatedBullMqConnections === "number", "estimatedBullMqConnections is a number");
-assert(typeof reportSmall.safeForUpstashFree === "boolean", "safeForUpstashFree is a boolean");
-assert(typeof reportSmall.recommendation === "string" && reportSmall.recommendation.length > 0, "recommendation is non-empty string");
-assert(reportSmall.estimatedBullMqConnections > 0, "estimatedBullMqConnections > 0");
+// Ensure no limit is configured so we test the formula independently
+const origLimit = process.env.REDIS_CONNECTION_LIMIT;
+delete process.env.REDIS_CONNECTION_LIMIT;
 
-// Shared-client formula: 1 + queueCount (1 shared + 1 blocking per Worker)
-// 7 queues → 8 connections (well within 20)
-assert(
-  reportSmall.safeForUpstashFree,
-  "7 queues is safe for Upstash free tier with shared-client architecture (8 connections)"
-);
-assert(
-  reportSmall.estimatedBullMqConnections === 8,
-  `7 queues → 8 connections (1 shared + 7 blocking), got ${reportSmall.estimatedBullMqConnections}`
-);
+try {
+  const report7 = diagnoseRedisCapacity({ physicalWorkerCount: 7 });
+  assert(report7.physicalWorkerCount === 7, "physicalWorkerCount matches input (7)");
+  assert(report7.sharedClientCount === 1, "sharedClientCount defaults to 1");
+  assert(report7.estimatedProcessConnections === 8, `7 workers → 8 estimated process connections (got ${report7.estimatedProcessConnections})`);
+  assert(typeof report7.capturedAt === "string" && !isNaN(new Date(report7.capturedAt).getTime()), "capturedAt is valid ISO string");
+  assert(report7.status === "unknown", `status=unknown when no limit configured (got ${report7.status})`);
+  assert(Array.isArray(report7.reasons) && report7.reasons.length > 0, "reasons is non-empty array");
+  assert(report7.configuredConnectionLimit === null, "configuredConnectionLimit is null without env var");
 
-// 11-queue production setup
-const report11 = diagnoseRedisCapacity(11);
-assert(
-  report11.safeForUpstashFree,
-  "11 queues (production) is safe for Upstash free tier (12 connections ≤ 20)"
-);
-assert(
-  report11.estimatedBullMqConnections === 12,
-  `11 queues → 12 connections (1 shared + 11 blocking), got ${report11.estimatedBullMqConnections}`
-);
+  const report1 = diagnoseRedisCapacity({ physicalWorkerCount: 1 });
+  assert(report1.estimatedProcessConnections === 2, `1 worker → 2 estimated process connections (got ${report1.estimatedProcessConnections})`);
 
-const reportTiny = diagnoseRedisCapacity(1);
-assert(reportTiny.queues === 1, "single queue report");
-assert(reportTiny.safeForUpstashFree, "1 queue is safe for Upstash free tier");
-assert(reportTiny.estimatedBullMqConnections === 2, `1 queue → 2 connections, got ${reportTiny.estimatedBullMqConnections}`);
+  // Actual QUEUE_CONFIGS count — 1 shared + N Workers
+  const actualWorkerCount = QUEUE_CONFIGS.length;
+  const reportActual = diagnoseRedisCapacity({ physicalWorkerCount: actualWorkerCount });
+  assert(
+    reportActual.estimatedProcessConnections === 1 + actualWorkerCount,
+    `${actualWorkerCount} workers → ${1 + actualWorkerCount} estimated process connections (got ${reportActual.estimatedProcessConnections})`
+  );
+  assert(reportActual.status === "unknown", "status=unknown without REDIS_CONNECTION_LIMIT (cannot assert safe without known limit)");
 
-// ── 4. Old formula would have flagged 11 queues as unsafe ─────────────────────
+  // Fleet estimate is null without REDIS_DEPLOYMENT_PROCESS_COUNT
+  assert(reportActual.estimatedFleetConnections === null, "estimatedFleetConnections is null without deploymentProcessCount");
 
-console.log("\n[4] Old formula (N×3) would exceed limit — new formula does not");
+  // Supply deploymentProcessCount manually
+  const reportFleet = diagnoseRedisCapacity({ physicalWorkerCount: actualWorkerCount, deploymentProcessCount: 2 });
+  assert(
+    reportFleet.estimatedFleetConnections === (1 + actualWorkerCount) * 2,
+    `Fleet estimate = ${(1 + actualWorkerCount) * 2} with 2 processes (got ${reportFleet.estimatedFleetConnections})`
+  );
+} finally {
+  if (origLimit !== undefined) process.env.REDIS_CONNECTION_LIMIT = origLimit;
+}
 
-const OLD_ESTIMATED = 11 * 3; // old formula: queueCount × 3 connections
-const NEW_ESTIMATED = 1 + 11;  // new formula: 1 shared + 1 per Worker
-assert(
-  OLD_ESTIMATED > 20,
-  `Old formula: 11 queues × 3 = ${OLD_ESTIMATED} connections > 20 (would exceed Upstash free tier)`
-);
-assert(
-  NEW_ESTIMATED <= 20,
-  `New formula: 1 + 11 = ${NEW_ESTIMATED} connections ≤ 20 (safe for Upstash free tier)`
-);
+// ── 4. Known limit — safe / warning / unsafe status ─────────────────────────
+
+console.log("\n[4] Known limit — capacity status: safe / warning / unsafe");
+
+const origLimit2 = process.env.REDIS_CONNECTION_LIMIT;
+process.env.REDIS_CONNECTION_LIMIT = "30";
+
+try {
+  // Well below limit → safe
+  const safe = diagnoseRedisCapacity({ physicalWorkerCount: 5 });
+  assert(safe.status === "safe", `5 workers → safe under limit=30 (got ${safe.status})`);
+  assert(safe.configuredConnectionLimit === 30, `configuredConnectionLimit=30 (got ${safe.configuredConnectionLimit})`);
+
+  // Over limit → unsafe
+  const unsafe = diagnoseRedisCapacity({ physicalWorkerCount: 35 });
+  assert(unsafe.status === "unsafe", `35 workers → unsafe over limit=30 (got ${unsafe.status})`);
+
+  // Old formula (N×3) vs new formula (1+N) — new formula uses far fewer connections
+  const OLD_ESTIMATED_23 = 23 * 3; // before shared-client fix: 69 connections
+  const NEW_ESTIMATED_23 = 1 + 23;  // after shared-client fix: 24 connections
+  assert(
+    OLD_ESTIMATED_23 > NEW_ESTIMATED_23,
+    `Old formula (${OLD_ESTIMATED_23}) >> new formula (${NEW_ESTIMATED_23}) — fix dramatically reduces connection count`
+  );
+} finally {
+  if (origLimit2 !== undefined) process.env.REDIS_CONNECTION_LIMIT = origLimit2;
+  else delete process.env.REDIS_CONNECTION_LIMIT;
+}
+
+// ── 5. Invalid limit values → unknown ──────────────────────────────────────
+
+console.log("\n[5] Invalid REDIS_CONNECTION_LIMIT values → status=unknown");
+
+for (const invalidValue of ["", "abc", "-5", "0", "1.5", "1abc", " "]) {
+  const orig = process.env.REDIS_CONNECTION_LIMIT;
+  process.env.REDIS_CONNECTION_LIMIT = invalidValue;
+  try {
+    const result = diagnoseRedisCapacity({ physicalWorkerCount: 10 });
+    assert(
+      result.status === "unknown" && result.configuredConnectionLimit === null,
+      `REDIS_CONNECTION_LIMIT="${invalidValue}" → status=unknown, limit=null (got status=${result.status}, limit=${result.configuredConnectionLimit})`
+    );
+  } finally {
+    if (orig !== undefined) process.env.REDIS_CONNECTION_LIMIT = orig;
+    else delete process.env.REDIS_CONNECTION_LIMIT;
+  }
+}
 
 // ── Summary ───────────────────────────────────────────────────────────────────
 

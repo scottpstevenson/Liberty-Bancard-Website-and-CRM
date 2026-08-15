@@ -7,6 +7,7 @@ import { storage } from "../storage";
 import { db } from "../db";
 import { sql } from "drizzle-orm";
 import { diagnoseRedisCapacity } from "../services/queue-connection";
+import type { QueueTopologySnapshot } from "../services/queue-manager";
 
 const DLQ_ALERT_WARN = 5;
 const DLQ_ALERT_ERROR = 20;
@@ -74,17 +75,38 @@ export function registerQueueMetricsRoutes(app: Express) {
         }
       } catch (_e) {}
 
-      // Redis capacity diagnosis (uses shared-client architecture estimate)
-      const activeQueueCount = Object.keys(metrics).length;
-      const redisCapacity = diagnoseRedisCapacity(activeQueueCount);
+      // Redis capacity diagnosis — uses actual instantiated Worker count from the
+      // topology snapshot, not the response-shape key count (which was always 2).
+      const { queues: queueMetrics, usingMock } = metrics;
+
+      let topologySnapshot: QueueTopologySnapshot | null = null;
+      let redisCapacity = null;
+      try {
+        topologySnapshot = qm.getTopologySnapshot();
+        redisCapacity = diagnoseRedisCapacity({
+          physicalWorkerCount: topologySnapshot.instantiatedWorkerCount,
+          observedAccountConnectedClients: redisConnectionCount,
+        });
+      } catch (_capacityErr) {
+        // Probe failure must not produce a false-green — leave status unknown.
+        redisCapacity = {
+          status: "unknown",
+          reasons: ["Capacity probe failed — topology unavailable"],
+          estimatedProcessConnections: null,
+          capturedAt: new Date().toISOString(),
+        };
+      }
 
       res.json({
-        ...metrics,
+        queues: queueMetrics,
+        usingMock,
         sequenceBacklog,
         sequenceOldestDueMs,
         sequenceLastRunMs,
         redisConnectionCount,
         redisCapacity,
+        topologySnapshot,
+        capturedAt: topologySnapshot?.capturedAt ?? new Date().toISOString(),
       });
     } catch (err: any) {
       serverError(res, err);

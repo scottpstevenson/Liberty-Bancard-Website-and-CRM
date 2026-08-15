@@ -358,6 +358,102 @@ export interface DlqItem {
   data: any;
 }
 
+export interface QueueTopologySnapshot {
+  manifestConfigCount: number;
+  activeConfigCount: number;
+  instantiatedQueueCount: number;
+  instantiatedWorkerCount: number;
+  logicalJobCount: number;        // equals instantiatedWorkerCount until #1523B
+  legacyGhlClaimed: boolean;
+  usingMockRedis: boolean;
+  processId: number;
+  processIdentity: string | null;
+  releaseSha: string | null;
+  capturedAt: string;
+}
+
+type WorkerFailureClass =
+  | "provider:connection-rejected"
+  | "network:timeout"
+  | "redis:command-timeout"
+  | "redis:auth-failure"
+  | "bullmq:stall"
+  | "db:timeout"
+  | "app:handler-error"
+  | "unknown";
+
+/** Classify a Worker error into a structured category without silently collapsing unknowns. */
+function classifyWorkerError(err: Error): WorkerFailureClass {
+  const msg = (err.message ?? "").toLowerCase();
+  const code = ((err as any).code ?? "").toLowerCase();
+
+  if (
+    msg.includes("max number of clients") ||
+    msg.includes("max clients reached") ||
+    msg.includes("err max") ||
+    msg.includes("connection limit")
+  ) {
+    return "provider:connection-rejected";
+  }
+  if (
+    msg.includes("stalled") ||
+    msg.includes("lock renewal") ||
+    msg.includes("lock expired") ||
+    msg.includes("could not renew")
+  ) {
+    return "bullmq:stall";
+  }
+  if (msg.includes("command timed out") || msg.includes("command timeout")) {
+    return "redis:command-timeout";
+  }
+  if (
+    msg.includes("wrongpass") ||
+    msg.includes("noauth") ||
+    msg.includes("err auth") ||
+    msg.includes("invalid password") ||
+    msg.includes("authentication failed") ||
+    msg.includes("auth required")
+  ) {
+    return "redis:auth-failure";
+  }
+  if (
+    msg.includes("statement timeout") ||
+    msg.includes("query_canceled") ||
+    msg.includes("canceling statement") ||
+    (msg.includes("timeout") && (code === "57014" || msg.includes("db") || msg.includes("postgres") || msg.includes("database")))
+  ) {
+    return "db:timeout";
+  }
+  if (
+    code === "etimedout" ||
+    code === "econnrefused" ||
+    code === "enotfound" ||
+    code === "econnreset" ||
+    msg.includes("etimedout") ||
+    msg.includes("econnrefused") ||
+    msg.includes("enotfound") ||
+    msg.includes("dns") ||
+    msg.includes("tls") ||
+    msg.includes("ssl") ||
+    msg.includes("network")
+  ) {
+    return "network:timeout";
+  }
+  // "unknown" — do not silently collapse; explicit fallthrough required
+  return "unknown";
+}
+
+/** Redact URLs, IPs, tokens, and email addresses from an error message for safe logging. */
+function redactWorkerErrorMessage(message: string): string {
+  return message
+    .replace(/rediss?:\/\/[^\s"']+/gi, "redis://[REDACTED]")
+    .replace(/https?:\/\/[^\s"']+/gi, "[URL-REDACTED]")
+    .replace(/\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(:\d+)?\b/g, "[IP-REDACTED]")
+    .replace(/[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g, "[EMAIL-REDACTED]")
+    .replace(/password[=:]\S+/gi, "password=[REDACTED]")
+    .slice(0, 500);
+}
+
 let _queueManager: QueueManager | null = null;
 // In-flight initialization promise. Guards against a race where two concurrent
 // first-time callers (e.g. index.ts's startup call and a request-triggered
@@ -495,32 +591,41 @@ class QueueManager {
     await this.setupRepeatableJobs();
     await this.cleanupStaleActiveJobs();
 
-    // Log total queue+worker count and warn if approaching Upstash connection cap.
-    // Connection math (shared-client architecture):
-    //   • 1 shared IORedis instance for all Queue non-blocking ops
-    //   • 1 blocking duplicate per Worker (internal BullMQ .duplicate() — unavoidable)
-    //   Total ≈ 1 + queueCount.  Use diagnoseRedisCapacity() for the full breakdown.
-    const activeConfigs = this.activeConfigs();
+    // Emit structured startup topology log — no credentials, no PII, no Redis URLs.
+    // Connection math (BullMQ v5 shared-client architecture):
+    //   • 1 shared IORedis instance for ALL Queue non-blocking ops + Worker non-blocking ops
+    //   • 1 blocking connection per instantiated Worker (internal .duplicate() — unavoidable)
+    //   estimatedProcessConnections = 1 (shared) + instantiatedWorkerCount
     const { diagnoseRedisCapacity } = await import("./queue-connection");
-    const capacity = diagnoseRedisCapacity(activeConfigs.length);
-    const totalConnections = capacity.estimatedBullMqConnections;
+    const snapshot = this.getTopologySnapshot();
+    const capacity = diagnoseRedisCapacity({
+      physicalWorkerCount: snapshot.instantiatedWorkerCount,
+    });
     const REDIS_CONNECTION_WARN_THRESHOLD =
       parseInt(process.env.REDIS_CONNECTION_WARN_THRESHOLD ?? "18", 10) || 18;
-    console.log(
-      `[QueueManager] All queues and workers initialized (${activeConfigs.length} queues, ~${totalConnections} Redis connections). ` +
-      `Sequences repeat interval: ${SEQUENCES_REPEAT_EVERY_MS / 1000}s` +
-      (IS_DEV ? " (dev override)" : process.env.SEQUENCES_REPEAT_EVERY_MS ? " (SEQUENCES_REPEAT_EVERY_MS env var)" : " (default)") + ". " +
-      `GHL sync interval: ${GHL_SYNC_REPEAT_EVERY_MS / 1000}s` +
-      (IS_DEV ? " (dev override)" : process.env.GHL_SYNC_REPEAT_EVERY_MS ? " (GHL_SYNC_REPEAT_EVERY_MS env var)" : " (default)") + ". " +
-      `SLA check interval: ${SLA_CHECKS_REPEAT_EVERY_MS / 1000}s` +
-      (IS_DEV ? " (dev override)" : process.env.SLA_CHECKS_REPEAT_EVERY_MS ? " (SLA_CHECKS_REPEAT_EVERY_MS env var)" : " (default)") + ". " +
-      capacity.recommendation
-    );
-    if (totalConnections >= REDIS_CONNECTION_WARN_THRESHOLD) {
+    console.log(JSON.stringify({
+      event: "queue-manager:initialized",
+      manifestConfigCount: snapshot.manifestConfigCount,
+      activeConfigCount: snapshot.activeConfigCount,
+      instantiatedQueueCount: snapshot.instantiatedQueueCount,
+      instantiatedWorkerCount: snapshot.instantiatedWorkerCount,
+      estimatedProcessConnections: capacity.estimatedProcessConnections,
+      capacityStatus: capacity.status,
+      legacyGhlClaimed: snapshot.legacyGhlClaimed,
+      usingMockRedis: snapshot.usingMockRedis,
+      processIdentity: snapshot.processIdentity,
+      releaseSha: snapshot.releaseSha,
+      sequencesRepeatEveryMs: SEQUENCES_REPEAT_EVERY_MS,
+      ghlSyncRepeatEveryMs: GHL_SYNC_REPEAT_EVERY_MS,
+      slaChecksRepeatEveryMs: SLA_CHECKS_REPEAT_EVERY_MS,
+      capturedAt: snapshot.capturedAt,
+    }));
+    if (capacity.estimatedProcessConnections >= REDIS_CONNECTION_WARN_THRESHOLD) {
       console.warn(
-        `[QueueManager] ⚠️  Redis connection headroom warning: ~${totalConnections} connections in use ` +
-        `(threshold=${REDIS_CONNECTION_WARN_THRESHOLD}, cap=${capacity.upstashFreeTierMax}). ` +
-        `Set REDIS_CONNECTION_WARN_THRESHOLD env var to adjust.`
+        `[QueueManager] ⚠️  Redis connection headroom warning: ~${capacity.estimatedProcessConnections} estimated process connections ` +
+        `(threshold=${REDIS_CONNECTION_WARN_THRESHOLD}). ` +
+        `Set REDIS_CONNECTION_LIMIT env var to enable capacity status monitoring. ` +
+        `Set REDIS_CONNECTION_WARN_THRESHOLD env var to adjust this threshold.`
       );
     }
 
@@ -685,8 +790,51 @@ class QueueManager {
         }
       });
 
+      // ── Worker lifecycle telemetry ───────────────────────────────────────────
+      // Structured logs for ready / error / closed events.
+      // Never logs: Redis URLs, credentials, job payloads, contact PII, merchant data.
+
+      worker.on("ready", () => {
+        console.log(JSON.stringify({
+          event: "worker:ready",
+          queue: config.name,
+          processId: process.pid,
+          processIdentity: process.env.PROCESS_IDENTITY ?? null,
+          releaseSha: process.env.RELEASE_SHA ?? null,
+          timestamp: new Date().toISOString(),
+        }));
+      });
+
+      // Extend existing error listener with structured classification + redaction.
       worker.on("error", (err: Error) => {
+        // Original behavior preserved
         console.error(`[Queue:${config.name}] Worker error:`, err.message);
+        // Extended structured log with classification
+        const failureClass = classifyWorkerError(err);
+        const redactedMessage = redactWorkerErrorMessage(err.message ?? "");
+        console.error(JSON.stringify({
+          event: "worker:error",
+          queue: config.name,
+          errorClass: err.constructor?.name ?? "Error",
+          errorCode: (err as any).code ?? null,
+          redactedMessage,
+          failureClass,
+          processId: process.pid,
+          processIdentity: process.env.PROCESS_IDENTITY ?? null,
+          releaseSha: process.env.RELEASE_SHA ?? null,
+          timestamp: new Date().toISOString(),
+        }));
+      });
+
+      worker.on("closed", () => {
+        console.log(JSON.stringify({
+          event: "worker:closed",
+          queue: config.name,
+          processId: process.pid,
+          processIdentity: process.env.PROCESS_IDENTITY ?? null,
+          releaseSha: process.env.RELEASE_SHA ?? null,
+          timestamp: new Date().toISOString(),
+        }));
       });
 
       this.workers.set(config.name, worker);
@@ -1248,6 +1396,27 @@ class QueueManager {
   /** Returns all currently-running repeat intervals keyed by queue name. */
   getEffectiveIntervals(): Record<string, number> {
     return Object.fromEntries(this.effectiveIntervals);
+  }
+
+  /**
+   * Returns a structured, PII-free snapshot of the current queue topology.
+   * Safe to include in operator dashboards and structured logs.
+   * No Redis URLs, credentials, job payloads, contact/merchant data.
+   */
+  getTopologySnapshot(): QueueTopologySnapshot {
+    return {
+      manifestConfigCount: QUEUE_CONFIGS.length,
+      activeConfigCount: this.activeConfigs().length,
+      instantiatedQueueCount: this.queues.size,
+      instantiatedWorkerCount: this.workers.size,
+      logicalJobCount: this.workers.size, // equals instantiatedWorkerCount until #1523B
+      legacyGhlClaimed: isLegacyGhlSyncClaimed(),
+      usingMockRedis: isUsingMockRedis(),
+      processId: process.pid,
+      processIdentity: process.env.PROCESS_IDENTITY ?? null,
+      releaseSha: process.env.RELEASE_SHA ?? null,
+      capturedAt: new Date().toISOString(),
+    };
   }
 
   private recordHistoryEvent(queueName: string, type: "completed" | "failed"): void {

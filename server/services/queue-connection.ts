@@ -170,54 +170,142 @@ export function getSharedRedisClientIfReady(): Redis | null {
 }
 
 // ── Redis connection-capacity diagnostic ───────────────────────────────────────
+//
+// Connection-count model (BullMQ v5 + shared-client architecture):
+//   • 1 shared IORedis client for ALL Queue non-blocking ops AND Worker non-blocking ops
+//   • 1 blocking connection per instantiated Worker (internal .duplicate() — unavoidable)
+//
+// Formula for this process:
+//   estimatedProcessConnections = sharedClientCount + physicalWorkerCount
+//
+// With 23 instantiated Workers: 1 + 23 = 24 connections from this process.
+// When legacy GHL sync is claimed (GHL_SYNC Worker not instantiated): 1 + 22 = 23.
+//
+// Fleet estimate (optional, requires REDIS_DEPLOYMENT_PROCESS_COUNT env var):
+//   estimatedFleetConnections = estimatedProcessConnections × deploymentProcessCount
+//
+// Capacity status requires a known limit (REDIS_CONNECTION_LIMIT env var).
+// Without it, status is always "unknown" — we never assert "safe" on guesswork.
+//
+// NOTE: observedAccountConnectedClients comes from Redis INFO clients and reflects
+// ALL clients on the Redis server/account, not just this process. Label it accordingly.
+
+export type CapacityStatus = "safe" | "warning" | "unsafe" | "unknown";
 
 export interface RedisCapacityDiagnosis {
-  upstashFreeTierMax: number;
-  queues: number;
-  /**
-   * Estimated ioredis connections with the shared-client architecture:
-   *   • 1 shared client (all Queue instances + all Worker non-blocking ops)
-   *   • 1 blocking connection per Worker (internal .duplicate() — unavoidable)
-   *
-   * Formula: 1 + queueCount
-   *
-   * With 11 named queues: 1 + 11 = 12 connections — well within the free tier.
-   *
-   * BEFORE the shared-client fix, BullMQ created connections per-Queue and
-   * per-Worker (plain ConnectionOptions object): queueCount × 3 = 33 connections
-   * for 11 queues, which exceeded the Upstash free-tier limit of 20 and caused
-   * the "Command timed out" storm.
-   */
-  estimatedBullMqConnections: number;
-  safeForUpstashFree: boolean;
-  recommendation: string;
+  physicalWorkerCount: number;
+  sharedClientCount: number;
+  estimatedProcessConnections: number;
+  observedAccountConnectedClients: number | null;
+  configuredConnectionLimit: number | null;
+  configuredWarningHeadroom: number | null;
+  deploymentProcessCount: number | null;
+  estimatedFleetConnections: number | null;
+  status: CapacityStatus;
+  reasons: string[];
+  capturedAt: string;
 }
 
-export function diagnoseRedisCapacity(queueCount: number): RedisCapacityDiagnosis {
-  const UPSTASH_FREE_MAX = 20;
-  // 1 shared client + 1 blocking connection per Worker (via internal .duplicate())
-  const estimated = 1 + queueCount;
-  const safe = estimated <= UPSTASH_FREE_MAX;
+export interface DiagnoseRedisCapacityOpts {
+  physicalWorkerCount: number;
+  sharedClientCount?: number;                          // default 1
+  observedAccountConnectedClients?: number | null;
+  configuredConnectionLimit?: number | null;
+  configuredWarningHeadroom?: number | null;
+  deploymentProcessCount?: number | null;
+}
 
-  let recommendation: string;
-  if (safe) {
-    recommendation =
-      `Shared-client architecture: 1 shared connection + ${queueCount} Worker blocking connections = ` +
-      `${estimated} total — within Upstash free-tier limit (${UPSTASH_FREE_MAX}). ✓`;
+export function diagnoseRedisCapacity(opts: DiagnoseRedisCapacityOpts): RedisCapacityDiagnosis {
+  const {
+    physicalWorkerCount,
+    sharedClientCount = 1,
+    observedAccountConnectedClients = null,
+    configuredWarningHeadroom = null,
+  } = opts;
+
+  // Read connection limit from env var only — never hardcode a provider plan value.
+  // Strict integer validation: only accept strings matching /^\d+$/ (no decimals,
+  // no negative signs, no leading non-digit characters). "1.5" → rejected, "1abc" → rejected.
+  const rawLimitStr = (process.env.REDIS_CONNECTION_LIMIT ?? "").trim();
+  const rawLimit = /^\d+$/.test(rawLimitStr) ? parseInt(rawLimitStr, 10) : NaN;
+  const configuredConnectionLimit =
+    Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : (opts.configuredConnectionLimit ?? null);
+
+  // Read fleet process count from env var — null until explicitly supplied.
+  const rawProcCount = parseInt(process.env.REDIS_DEPLOYMENT_PROCESS_COUNT ?? "", 10);
+  const deploymentProcessCount =
+    Number.isFinite(rawProcCount) && rawProcCount > 0
+      ? rawProcCount
+      : (opts.deploymentProcessCount ?? null);
+
+  const estimatedProcessConnections = sharedClientCount + physicalWorkerCount;
+  const estimatedFleetConnections =
+    deploymentProcessCount !== null ? estimatedProcessConnections * deploymentProcessCount : null;
+
+  const capturedAt = new Date().toISOString();
+  const reasons: string[] = [];
+  let status: CapacityStatus = "unknown";
+
+  if (configuredConnectionLimit === null) {
+    reasons.push(
+      "REDIS_CONNECTION_LIMIT env var not set — cannot determine capacity status. " +
+      "Set it to the documented limit for your Redis provider/plan to enable capacity monitoring."
+    );
+    status = "unknown";
   } else {
-    const overage = estimated - UPSTASH_FREE_MAX;
-    recommendation =
-      `Shared-client architecture: 1 shared + ${queueCount} Worker blocking = ` +
-      `${estimated} connections — EXCEEDS free-tier limit (${UPSTASH_FREE_MAX}) by ${overage}. ` +
-      `Options: (1) upgrade to Upstash Pay-As-You-Go, ` +
-      `(2) reduce Worker count by consolidating low-frequency queues.`;
+    // Use the higher of observed account clients and the fleet estimate as the comparison point.
+    const comparisonCount = Math.max(
+      observedAccountConnectedClients ?? 0,
+      estimatedFleetConnections ?? estimatedProcessConnections
+    );
+
+    const headroom = configuredConnectionLimit - comparisonCount;
+    const warningThreshold =
+      configuredWarningHeadroom !== null
+        ? configuredWarningHeadroom
+        : Math.ceil(configuredConnectionLimit * 0.1); // default 10% headroom
+
+    if (comparisonCount > configuredConnectionLimit) {
+      status = "unsafe";
+      reasons.push(
+        `Comparison count (${comparisonCount}) exceeds configured limit (${configuredConnectionLimit}) ` +
+        `by ${comparisonCount - configuredConnectionLimit}.`
+      );
+    } else if (headroom < warningThreshold) {
+      status = "warning";
+      reasons.push(
+        `Headroom (${headroom}) is below warning threshold (${warningThreshold}) ` +
+        `against configured limit (${configuredConnectionLimit}).`
+      );
+    } else {
+      status = "safe";
+      reasons.push(
+        `Estimated process connections: ${estimatedProcessConnections}. ` +
+        (estimatedFleetConnections !== null
+          ? `Fleet estimate: ${estimatedFleetConnections}. `
+          : "") +
+        `Configured limit: ${configuredConnectionLimit}. Headroom: ${headroom}.`
+      );
+    }
+
+    if (observedAccountConnectedClients !== null) {
+      reasons.push(
+        `Observed connected_clients (server-wide, not process-local): ${observedAccountConnectedClients}.`
+      );
+    }
   }
 
   return {
-    upstashFreeTierMax: UPSTASH_FREE_MAX,
-    queues: queueCount,
-    estimatedBullMqConnections: estimated,
-    safeForUpstashFree: safe,
-    recommendation,
+    physicalWorkerCount,
+    sharedClientCount,
+    estimatedProcessConnections,
+    observedAccountConnectedClients,
+    configuredConnectionLimit,
+    configuredWarningHeadroom,
+    deploymentProcessCount,
+    estimatedFleetConnections,
+    status,
+    reasons,
+    capturedAt,
   };
 }
