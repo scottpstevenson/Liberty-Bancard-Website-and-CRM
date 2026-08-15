@@ -533,6 +533,7 @@ import { coerceDateFields } from "../utils/date-coerce";
           ne(contacts.emailStatus, "invalid"),
           ne(contacts.emailStatus, "opted_out"),
           ne(contacts.emailStatus, "unsubscribed"),
+          ne(contacts.emailStatus, "unvalidated"),
           sql`${contacts.optedOutEmail} IS NOT TRUE`,
           opts.minCompletenessScore != null
             ? gte(contacts.dataCompletenessScore, opts.minCompletenessScore)
@@ -600,6 +601,7 @@ import { coerceDateFields } from "../utils/date-coerce";
           ne(contacts.emailStatus, "invalid"),
           ne(contacts.emailStatus, "opted_out"),
           ne(contacts.emailStatus, "unsubscribed"),
+          ne(contacts.emailStatus, "unvalidated"),
           sql`${contacts.optedOutEmail} IS NOT TRUE`,
           opts.minCompletenessScore != null
             ? gte(contacts.dataCompletenessScore, opts.minCompletenessScore)

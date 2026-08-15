@@ -112,7 +112,7 @@ export const contacts = pgTable("contacts", {
   isParentAccount: boolean("is_parent_account").default(false),
   parentContactId: integer("parent_contact_id"),
   locationName: text("location_name"),
-  emailStatus: text("email_status").notNull().default("active"),
+  emailStatus: text("email_status").notNull().default("unvalidated"),
   bouncedAt: timestamp("bounced_at"),
   isDecisionMaker: boolean("is_decision_maker").notNull().default(false),
   decisionMakerConfidence: integer("decision_maker_confidence").notNull().default(0),

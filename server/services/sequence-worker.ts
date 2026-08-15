@@ -97,6 +97,20 @@ import { getCanonicalUrl } from "../lib/canonical-url";
 import { verifyEmail } from "./sdr/zerobounce";
 import { claimZeroBounceCredit, checkZeroBounceBudget } from "./zerobounce-daily-limiter";
 
+/**
+ * ZeroBounce statuses that are definitively undeliverable.
+ * Used consistently across: the per-step lazy ZB gate, the pre-enrollment ZB gate,
+ * and the at-load bounce guard. Keep in sync with ZB_INVALID_STATUSES in campaign-engine.ts.
+ */
+const ZB_UNDELIVERABLE = new Set([
+  "invalid",
+  "unsafe",     // spam traps, abuse addresses, do_not_mail
+  "bounced",
+  "do_not_mail",
+  "spam_trap",
+  "abuse",
+]);
+
 // ╔══════════════════════════════════════════════════════════════════════════╗
 // ║  ARCHITECTURE BOUNDARY — Replit Orchestrates, GHL Transports            ║
 // ║                                                                          ║
@@ -273,12 +287,159 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
         }
 
         if (currentStep === 0 && enrollment.contactId) {
-          // Gate (a): Evaluate contactability before GHL workflow enrollment (automated outreach)
+          // ── Pre-enrollment ZeroBounce validation ─────────────────────────────
+          // Run ZB validation BEFORE the contactability check so that the check
+          // sees the real ZB result rather than permanently blocking on the
+          // 'unvalidated' (new default) or 'active' (legacy default) status.
+          // This prevents new contacts from being permanently paused at Step 9.
+          //
+          // Only runs for email-typed step-0 sequences and only when the contact
+          // hasn't been validated yet (null / 'active' / 'unvalidated').
+          //
+          // Budget exhaustion or a failed credit claim → defer enrollment (status:
+          // paused + audit log). Next worker tick retries the same step naturally.
+          {
+            const firstStep = steps.find(s => s.stepOrder === 1) ?? steps[0];
+            if (firstStep?.actionType === "email") {
+              const preEnrollContact = await storage.getContact(enrollment.contactId);
+              const preEnrollStatus = preEnrollContact?.emailStatus;
+              const needsZbValidation =
+                preEnrollContact?.email &&
+                (preEnrollStatus == null || preEnrollStatus === "active" || preEnrollStatus === "unvalidated");
+
+              if (needsZbValidation) {
+                // Retry delay: 1 hour. Keeps enrollment ACTIVE so the worker naturally
+                // re-checks it on the next tick after nextActionAt passes.
+                const ZB_RETRY_DELAY_MS = 60 * 60 * 1000;
+
+                const budgetCheck = await checkZeroBounceBudget();
+                if (!budgetCheck.allowed) {
+                  // ZB budget exhausted — cannot validate. Keep enrollment ACTIVE and
+                  // set nextActionAt to 1 h from now so the worker retries automatically.
+                  console.warn(
+                    `[SequenceWorker] ZeroBounce budget exhausted (${budgetCheck.used}/${budgetCheck.limit}) — deferring unvalidated contact ${enrollment.contactId} for 1 h`,
+                  );
+                  await storage.updateSequenceEnrollment(enrollment.id, {
+                    nextActionAt: new Date(Date.now() + ZB_RETRY_DELAY_MS),
+                  });
+                  await storage.createAuditLog({
+                    action: "sequence_enrollment_deferred_zb_budget",
+                    entityType: "contact",
+                    entityId: enrollment.contactId,
+                    actorType: "system",
+                    details: {
+                      enrollmentId: enrollment.id,
+                      sequenceId: sequence.id,
+                      sequenceName: sequence.name,
+                      reason: "ZeroBounce budget exhausted; contact email unvalidated — retrying in 1 h",
+                      zbUsed: budgetCheck.used,
+                      zbLimit: budgetCheck.limit,
+                      retryAfter: new Date(Date.now() + ZB_RETRY_DELAY_MS).toISOString(),
+                    },
+                  });
+                  processed++;
+                  continue;
+                }
+
+                const credited = await claimZeroBounceCredit();
+                if (!credited) {
+                  // Credit claim race (atomicity race against another worker process) —
+                  // treat like budget exhaustion: keep ACTIVE, retry in 1 h.
+                  console.warn(
+                    `[SequenceWorker] ZeroBounce credit claim failed at pre-enrollment for contact ${enrollment.contactId} — deferring for 1 h`,
+                  );
+                  await storage.updateSequenceEnrollment(enrollment.id, {
+                    nextActionAt: new Date(Date.now() + ZB_RETRY_DELAY_MS),
+                  });
+                  await storage.createAuditLog({
+                    action: "sequence_enrollment_deferred_zb_budget",
+                    entityType: "contact",
+                    entityId: enrollment.contactId,
+                    actorType: "system",
+                    details: {
+                      enrollmentId: enrollment.id,
+                      sequenceId: sequence.id,
+                      sequenceName: sequence.name,
+                      reason: "ZeroBounce credit claim race; contact email unvalidated — retrying in 1 h",
+                      retryAfter: new Date(Date.now() + ZB_RETRY_DELAY_MS).toISOString(),
+                    },
+                  });
+                  processed++;
+                  continue;
+                }
+
+                try {
+                  const zbResult = await verifyEmail(preEnrollContact!.email!);
+                  // Persist the ZB result so the contactability check (next block) sees it.
+                  const { db: zbDb } = await import("../db");
+                  const { sql: zbSql } = await import("drizzle-orm");
+                  await zbDb.execute(zbSql`UPDATE contacts SET email_status = ${zbResult.status} WHERE id = ${preEnrollContact!.id}`);
+
+                  await storage.createAuditLog({
+                    action: "zerobounce_email_validated",
+                    entityType: "contact",
+                    entityId: preEnrollContact!.id,
+                    actorType: "system",
+                    details: {
+                      enrollmentId: enrollment.id,
+                      sequenceId: sequence.id,
+                      email: preEnrollContact!.email,
+                      zbStatus: zbResult.status,
+                      source: "sequence_worker_pre_enrollment",
+                    },
+                  });
+
+                  // If ZB flagged the address as undeliverable, pause immediately.
+                  if (ZB_UNDELIVERABLE.has(zbResult.status)) {
+                    await storage.updateSequenceEnrollment(enrollment.id, { status: "paused" });
+                    await storage.createAuditLog({
+                      action: "sequence_enrollment_blocked_zb_invalid",
+                      entityType: "contact",
+                      entityId: preEnrollContact!.id,
+                      actorType: "system",
+                      details: {
+                        enrollmentId: enrollment.id,
+                        sequenceId: sequence.id,
+                        sequenceName: sequence.name,
+                        email: preEnrollContact!.email,
+                        zbStatus: zbResult.status,
+                        reason: `ZeroBounce flagged email as '${zbResult.status}' at pre-enrollment`,
+                      },
+                    });
+                    processed++;
+                    continue;
+                  }
+                  // Good ZB result (valid / unverified / unknown) — fall through to
+                  // the contactability check, which now reads the persisted status.
+                } catch (zbErr: any) {
+                  console.warn(
+                    `[SequenceWorker] ZeroBounce pre-enrollment API error for contact ${enrollment.contactId}:`,
+                    zbErr.message,
+                  );
+                  // ZB API down — a credit was spent but the check failed.
+                  // Fall through; the contactability check will still block on 'unvalidated'.
+                }
+              }
+            }
+          }
+
+          // Gate (a): Evaluate contactability before GHL workflow enrollment (automated outreach).
+          // Use the first step's action type as the channel so that SMS-first sequences are
+          // checked against SMS eligibility (not email eligibility). This prevents the email
+          // Step 9 status check from blocking unvalidated contacts enrolled in SMS-first sequences,
+          // where email is never the initial send channel and ZB validation fires per-step.
           {
             const { evaluateContactability } = await import("./contactability");
+            const gateFirstStep = steps.find(s => s.stepOrder === 1) ?? steps[0];
+            type ContactabilityChannel = "email" | "sms" | "voice_ai" | "ringless_vm" | "manual_call";
+            const enrollChannel: ContactabilityChannel =
+              gateFirstStep?.actionType === "sms" ? "sms" :
+              gateFirstStep?.actionType === "voice_ai" ? "voice_ai" :
+              gateFirstStep?.actionType === "ringless_vm" ? "ringless_vm" :
+              "email"; // default to email for email steps and any unrecognized type
             const contactabilityCheck = await evaluateContactability({
               contactId: enrollment.contactId,
-              channel: "email",
+              channel: enrollChannel,
               campaignType: "sequence_enrollment",
               mode: "enforcement",
             });
@@ -487,7 +648,7 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
           // Bounce guard: skip email steps for bounced/invalid/unsafe contacts.
           // "unsafe" covers ZeroBounce-flagged spam traps, abuse addresses, and do_not_mail —
           // including contacts that were validated by the batch/manual route before this send.
-          if (contact && (contact.emailStatus === "bounced" || contact.emailStatus === "invalid" || contact.emailStatus === "unsafe")) {
+          if (contact && contact.emailStatus && ZB_UNDELIVERABLE.has(contact.emailStatus)) {
             await storage.updateSequenceEnrollment(enrollment.id, { status: "paused" });
             await storage.createAuditLog({
               action: "sequence_enrollment_skipped_bad_email",
@@ -509,80 +670,125 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
           // ── ZeroBounce lazy validation gate ────────────────────────────────
           // Fire once per contact, only for email steps, when emailStatus is unknown.
           // Writes the result back to contacts.email_status so we never re-spend credits.
+          //
+          // Fail-closed: budget exhaustion OR credit-claim race → defer the step
+          // (advance nextActionAt by 1 h, keep enrollment ACTIVE for natural retry).
+          // This path is reached for steps beyond step 0 (or sequences that begin
+          // with a non-email step); the pre-enrollment gate covers step 0.
           if (
             contact &&
             step &&
             step.actionType === "email" &&
-            (contact.emailStatus == null || contact.emailStatus === "active")
+            (contact.emailStatus == null || contact.emailStatus === "active" || contact.emailStatus === "unvalidated")
           ) {
-            const zbStatuses = new Set(["valid", "unsafe", "unverified", "unknown"]);
-            if (!zbStatuses.has(contact.emailStatus)) {
-              const budgetCheck = await checkZeroBounceBudget();
-              if (!budgetCheck.allowed) {
+            const ZB_RETRY_MS = 60 * 60 * 1000; // 1 hour
+            const budgetCheck = await checkZeroBounceBudget();
+            if (!budgetCheck.allowed) {
+              console.warn(
+                `[SequenceWorker] ZeroBounce daily cap reached (${budgetCheck.used}/${budgetCheck.limit}) — deferring unvalidated contact ${contact.id} for 1 h`,
+              );
+              await storage.updateSequenceEnrollment(enrollment.id, {
+                nextActionAt: new Date(Date.now() + ZB_RETRY_MS),
+              });
+              await storage.createAuditLog({
+                action: "sequence_enrollment_deferred_zb_budget",
+                entityType: "contact",
+                entityId: contact.id,
+                actorType: "system",
+                details: {
+                  enrollmentId: enrollment.id,
+                  sequenceId: sequence.id,
+                  sequenceName: sequence.name,
+                  reason: "ZeroBounce budget exhausted; contact email unvalidated — retrying in 1 h",
+                  zbUsed: budgetCheck.used,
+                  zbLimit: budgetCheck.limit,
+                  retryAfter: new Date(Date.now() + ZB_RETRY_MS).toISOString(),
+                },
+              });
+              processed++;
+              continue;
+            }
+
+            if (!contact.email) {
+              // No email address — let the downstream contactability gate handle it.
+            } else {
+              const credited = await claimZeroBounceCredit();
+              if (!credited) {
+                // Atomicity race — another process claimed the last credit.
+                // Fail-closed: defer this step rather than sending to an unvalidated address.
                 console.warn(
-                  `[SequenceWorker] ZeroBounce daily cap reached (${budgetCheck.used}/${budgetCheck.limit}), skipping validation for contact ${contact.id}`,
+                  `[SequenceWorker] ZeroBounce credit claim failed for contact ${contact.id} — deferring for 1 h`,
                 );
-              } else if (contact.email) {
-                const credited = await claimZeroBounceCredit();
-                if (credited) {
-                  try {
-                    const zbResult = await verifyEmail(contact.email);
-                    // Write result back via raw SQL — Drizzle update().set() silently drops
-                    // string columns when passed a union type; raw SQL is the safe path.
-                    const { db: zbDb } = await import("../db");
-                    const { sql: zbSql } = await import("drizzle-orm");
-                    await zbDb.execute(zbSql`UPDATE contacts SET email_status = ${zbResult.status} WHERE id = ${contact.id}`);
-                    contact = { ...contact, emailStatus: zbResult.status };
+                await storage.updateSequenceEnrollment(enrollment.id, {
+                  nextActionAt: new Date(Date.now() + ZB_RETRY_MS),
+                });
+                await storage.createAuditLog({
+                  action: "sequence_enrollment_deferred_zb_budget",
+                  entityType: "contact",
+                  entityId: contact.id,
+                  actorType: "system",
+                  details: {
+                    enrollmentId: enrollment.id,
+                    sequenceId: sequence.id,
+                    sequenceName: sequence.name,
+                    reason: "ZeroBounce credit claim race; contact email unvalidated — retrying in 1 h",
+                    retryAfter: new Date(Date.now() + ZB_RETRY_MS).toISOString(),
+                  },
+                });
+                processed++;
+                continue;
+              }
 
-                    await storage.createAuditLog({
-                      action: "zerobounce_email_validated",
-                      entityType: "contact",
-                      entityId: contact.id,
-                      actorType: "system",
-                      details: {
-                        enrollmentId: enrollment.id,
-                        sequenceId: sequence.id,
-                        email: contact.email,
-                        zbStatus: zbResult.status,
-                        zbSubStatus: zbResult.subStatus ?? null,
-                        skipped: zbResult.skipped ?? false,
-                      },
-                    });
+              try {
+                const zbResult = await verifyEmail(contact.email);
+                // Write result back via raw SQL — Drizzle update().set() silently drops
+                // string columns when passed a union type; raw SQL is the safe path.
+                const { db: zbDb } = await import("../db");
+                const { sql: zbSql } = await import("drizzle-orm");
+                await zbDb.execute(zbSql`UPDATE contacts SET email_status = ${zbResult.status} WHERE id = ${contact.id}`);
+                contact = { ...contact, emailStatus: zbResult.status };
 
-                    // Block the send if the result is bad.
-                    // "unsafe" = spam traps, abuse, do_not_mail.
-                    // "invalid" and "bounced" are also undeliverable — treat them
-                    // identically so we never send to an address that ZeroBounce
-                    // just classified as bad in the same worker tick.
-                    if (
-                      zbResult.status === "unsafe" ||
-                      zbResult.status === "invalid" ||
-                      (zbResult.status as string) === "bounced"
-                    ) {
-                      await storage.updateSequenceEnrollment(enrollment.id, { status: "paused" });
-                      await storage.createAuditLog({
-                        action: "sequence_step_blocked_email_invalid",
-                        entityType: "contact",
-                        entityId: contact.id,
-                        actorType: "system",
-                        details: {
-                          enrollmentId: enrollment.id,
-                          sequenceId: sequence.id,
-                          sequenceName: sequence.name,
-                          email: contact.email,
-                          zbStatus: zbResult.status,
-                          zbSubStatus: zbResult.subStatus ?? null,
-                          reason: `ZeroBounce flagged email as '${zbResult.status}' — enrollment paused`,
-                        },
-                      });
-                      processed++;
-                      continue;
-                    }
-                  } catch (zbErr) {
-                    console.warn(`[SequenceWorker] ZeroBounce validation error for contact ${contact.id}:`, (zbErr as Error).message);
-                    // Non-fatal: proceed with the send if ZeroBounce itself fails
-                  }
+                await storage.createAuditLog({
+                  action: "zerobounce_email_validated",
+                  entityType: "contact",
+                  entityId: contact.id,
+                  actorType: "system",
+                  details: {
+                    enrollmentId: enrollment.id,
+                    sequenceId: sequence.id,
+                    email: contact.email,
+                    zbStatus: zbResult.status,
+                    zbSubStatus: zbResult.subStatus ?? null,
+                    skipped: zbResult.skipped ?? false,
+                  },
+                });
+
+                // Pause enrollment if ZeroBounce flagged the address as undeliverable.
+                // Uses the shared ZB_UNDELIVERABLE set (unsafe/invalid/bounced/do_not_mail/spam_trap/abuse).
+                if (ZB_UNDELIVERABLE.has(zbResult.status)) {
+                  await storage.updateSequenceEnrollment(enrollment.id, { status: "paused" });
+                  await storage.createAuditLog({
+                    action: "sequence_step_blocked_email_invalid",
+                    entityType: "contact",
+                    entityId: contact.id,
+                    actorType: "system",
+                    details: {
+                      enrollmentId: enrollment.id,
+                      sequenceId: sequence.id,
+                      sequenceName: sequence.name,
+                      email: contact.email,
+                      zbStatus: zbResult.status,
+                      zbSubStatus: zbResult.subStatus ?? null,
+                      reason: `ZeroBounce flagged email as '${zbResult.status}' — enrollment paused`,
+                    },
+                  });
+                  processed++;
+                  continue;
                 }
+              } catch (zbErr) {
+                console.warn(`[SequenceWorker] ZeroBounce validation error for contact ${contact.id}:`, (zbErr as Error).message);
+                // Non-fatal: ZB API down — a credit was spent but check failed.
+                // Fall through so the send proceeds (batch continues).
               }
             }
           }

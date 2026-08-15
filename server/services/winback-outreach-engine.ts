@@ -110,7 +110,7 @@ export async function runWinbackOutreachEngine(): Promise<{
       AND (n.expires_at IS NULL OR n.expires_at > NOW())
       AND c.email IS NOT NULL
       AND c.email != ''
-      AND (c.email_status IS NULL OR c.email_status NOT IN ('invalid', 'catch-all', 'do_not_email'))
+      AND c.email_status = 'valid'
     ORDER BY n.due_at ASC NULLS LAST
     LIMIT ${MAX_BATCH}
   `);

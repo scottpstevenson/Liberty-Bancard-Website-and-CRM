@@ -61,7 +61,7 @@ export function registerOutreachQueueRoutes(app: Express) {
         // Has contactable data
         `(
           (c.phone IS NOT NULL AND TRIM(c.phone) <> '')
-          OR (c.email IS NOT NULL AND TRIM(c.email) <> '' AND COALESCE(c.email_status,'active') NOT IN ('bounced','invalid','opted_out','unsafe'))
+          OR (c.email IS NOT NULL AND TRIM(c.email) <> '' AND COALESCE(c.email_status,'unvalidated') NOT IN ('bounced','invalid','opted_out','unsafe','unvalidated'))
         )`,
         // Not DNC
         `(c.do_not_contact IS NULL OR c.do_not_contact = FALSE)`,
@@ -167,7 +167,7 @@ export function registerOutreachQueueRoutes(app: Express) {
           AND (
             (c.phone IS NOT NULL AND TRIM(c.phone) <> '')
             OR (c.email IS NOT NULL AND TRIM(c.email) <> ''
-                AND COALESCE(c.email_status,'active') NOT IN ('bounced','invalid','opted_out','unsafe'))
+                AND COALESCE(c.email_status,'unvalidated') NOT IN ('bounced','invalid','opted_out','unsafe','unvalidated'))
           )
           AND (c.do_not_contact IS NULL OR c.do_not_contact = FALSE)
           AND c.outreach_queue_skipped_at IS NULL
@@ -197,7 +197,7 @@ export function registerOutreachQueueRoutes(app: Express) {
         `archived_at IS NULL`,
         `(
           (phone IS NOT NULL AND TRIM(phone) <> '')
-          OR (email IS NOT NULL AND TRIM(email) <> '' AND COALESCE(email_status,'active') NOT IN ('bounced','invalid','opted_out','unsafe'))
+          OR (email IS NOT NULL AND TRIM(email) <> '' AND COALESCE(email_status,'unvalidated') NOT IN ('bounced','invalid','opted_out','unsafe','unvalidated'))
         )`,
         `(do_not_contact IS NULL OR do_not_contact = FALSE)`,
         `outreach_queue_skipped_at IS NULL`,
@@ -251,7 +251,7 @@ export function registerOutreachQueueRoutes(app: Express) {
         return res.status(422).json({ message: "Contact is marked Do Not Contact" });
       }
       const hasPhone = !!(contact as any).phone?.trim();
-      const badEmailStatuses = ["bounced", "invalid", "opted_out", "unsafe"];
+      const badEmailStatuses = ["bounced", "invalid", "opted_out", "unsafe", "unvalidated"];
       const emailOk = !!(contact as any).email?.trim() && !badEmailStatuses.includes((contact as any).emailStatus ?? "");
       if (!hasPhone && !emailOk) {
         return res.status(422).json({ message: "Contact has no reachable phone or email" });

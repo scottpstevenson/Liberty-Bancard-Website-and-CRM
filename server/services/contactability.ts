@@ -612,13 +612,21 @@ export async function evaluateContactability(
   // ── Step 9: Email status for email channel ───────────────────────────
   // Blocks deliverability failures and admin-suppressed addresses.
   // "opted_out" / "unsubscribed" are handled upstream at Step 3.
+  // "unsafe" is ZeroBounce's umbrella for do_not_mail/spam_trap/abuse addresses;
+  // we also block those persisted statuses explicitly so a writeback from one
+  // provider cannot be bypassed by the gate even before ZB sets "unsafe".
   if (channel === "email") {
-    if (
-      contact.emailStatus === "bounced" ||
-      contact.emailStatus === "invalid" ||
-      contact.emailStatus === "unsafe" ||
-      contact.emailStatus === "blocked"
-    ) {
+    const EMAIL_STATUS_BLOCK = new Set([
+      "bounced",
+      "invalid",
+      "unsafe",
+      "blocked",
+      "unvalidated",
+      "do_not_mail",
+      "spam_trap",
+      "abuse",
+    ]);
+    if (contact.emailStatus && EMAIL_STATUS_BLOCK.has(contact.emailStatus)) {
       return blocked(
         `Email channel blocked — email status: ${contact.emailStatus}`,
         {
@@ -1000,7 +1008,7 @@ export async function summarizeChannelSafety(): Promise<ChannelSafetySummary> {
       and(
         eq(contacts.doNotContact, false),
         eq(contacts.doNotAutoContact, false),
-        not(inArray(contacts.emailStatus, ["bounced", "invalid", "opted_out", "unsubscribed"]))
+        not(inArray(contacts.emailStatus, ["bounced", "invalid", "opted_out", "unsubscribed", "unvalidated"]))
       )
     );
   const emailEligible = Number(emailRow?.cnt ?? 0);

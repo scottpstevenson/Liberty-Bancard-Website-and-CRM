@@ -15,80 +15,135 @@ import { claimZeroBounceCredit, checkZeroBounceBudget } from "./zerobounce-daily
 // ZeroBounce statuses that are undeliverable — contacts with these are skipped without queuing.
 const ZB_INVALID_STATUSES = new Set(["invalid", "unsafe", "bounced", "do_not_mail", "spam_trap", "abuse"]);
 
+/** Injectable dependencies for passesZeroBounceCheck — used in tests to mock ZB calls. */
+export interface ZeroBounceCheckDeps {
+  checkBudget?: () => Promise<{ allowed: boolean; used: number; limit: number }>;
+  claimCredit?: () => Promise<boolean>;
+  runVerifyEmail?: (email: string) => Promise<{ status: string; subStatus?: string | null }>;
+  runAuditLog?: (opts: Parameters<typeof storage.createAuditLog>[0]) => Promise<unknown>;
+}
+
 /**
  * Lazy ZeroBounce validation for a CRM contact before queuing a campaign email.
  * Returns false if the contact should be skipped (and logs the reason).
  * Returns true if the send is safe to proceed.
- * Never throws — if ZeroBounce is unavailable we fail open so the batch continues.
+ *
+ * Structured in isolated phases so that audit-write failures cannot alter the
+ * block decision:
+ *  Phase 1  — fast-path checks (already-bad or already-validated status)
+ *  Phase 2  — budget / credit-claim gate (fail-closed for unvalidated contacts)
+ *  Phase 3  — ZeroBounce API call (fail-open: if ZB is down, continue batch)
+ *  Phase 4  — best-effort DB writeback (failure does not affect block decision)
+ *  Phase 5  — capture shouldBlock BEFORE any audit I/O
+ *  Phase 6  — best-effort audit writes in their own isolated try/catch
+ *  Return   — based on shouldBlock, independent of audit success
+ *
+ * Exported for direct unit-testing; not part of the public API surface.
+ * Pass `_deps` to inject mocked ZB functions in tests.
  */
-async function passesZeroBounceCheck(
+export async function passesZeroBounceCheck(
   contact: { id: number; email: string; emailStatus?: string | null },
   campaignId: number,
+  _deps: ZeroBounceCheckDeps = {},
 ): Promise<boolean> {
   const { emailStatus, email, id: contactId } = contact;
+  const checkBudget = _deps.checkBudget ?? checkZeroBounceBudget;
+  const claimCredit = _deps.claimCredit ?? claimZeroBounceCredit;
+  const runVerifyEmail = _deps.runVerifyEmail ?? verifyEmail;
+  const runAuditLog = _deps.runAuditLog ?? storage.createAuditLog.bind(storage);
 
-  // Fast path: already flagged as bad
+  // ── Phase 1: Fast paths ───────────────────────────────────────────────────
+
+  // Already flagged as bad — skip immediately.
   if (emailStatus && ZB_INVALID_STATUSES.has(emailStatus)) {
-    await storage.createAuditLog({
-      actorType: "system",
-      action: "campaign_queue_skipped_zb_invalid",
-      entityType: "contact",
-      entityId: contactId,
-      details: { campaignId, email, emailStatus, reason: "Pre-existing invalid email status" },
-    });
+    try {
+      await storage.createAuditLog({
+        actorType: "system",
+        action: "campaign_queue_skipped_zb_invalid",
+        entityType: "contact",
+        entityId: contactId,
+        details: { campaignId, email, emailStatus, reason: "Pre-existing invalid email status" },
+      });
+    } catch (_) { /* audit is best-effort; block decision is already determined */ }
     return false;
   }
 
-  // Fast pass: email was already validated by ZeroBounce (any persisted result that
-  // isn't clearly bad means we already spent a credit — don't re-validate).
-  // This covers: "valid", "unverified" (catch-all), "unknown" — all non-blocking.
-  // Only null or "active" (the DB default for never-validated contacts) triggers a live API call.
-  if (emailStatus && emailStatus !== "active") return true;
+  // Already validated by ZeroBounce (any persisted result that isn't clearly bad).
+  // "valid", "unverified" (catch-all), "unknown" — all non-blocking.
+  // null, "active" (legacy DB default), or "unvalidated" (new default) → fall through to live API call.
+  if (emailStatus && emailStatus !== "active" && emailStatus !== "unvalidated") return true;
 
   // No email address — the contactability gate handles this case upstream.
   if (!email) return true;
 
+  // ── Phase 2: Budget / credit-claim gate ───────────────────────────────────
+  // For contacts that have never been validated (null/active/unvalidated), budget
+  // exhaustion or a failed atomic credit claim means we cannot confirm deliverability.
+  // Return false to defer rather than risk sending to an unverified address.
+  // Contacts with a prior ZB result (unverified/unknown) are already checked — let them through.
+  const unvalidatedContact = !emailStatus || emailStatus === "active" || emailStatus === "unvalidated";
+
+  const budgetCheck = await checkBudget();
+  if (!budgetCheck.allowed) {
+    console.warn(`[CampaignEngine] ZeroBounce daily cap reached (${budgetCheck.used}/${budgetCheck.limit}), skipping validation for contact ${contactId}`);
+    return !unvalidatedContact;
+  }
+
+  const credited = await claimCredit();
+  if (!credited) {
+    console.warn(`[CampaignEngine] ZeroBounce credit claim failed (atomicity race) for contact ${contactId}`);
+    return !unvalidatedContact;
+  }
+
+  // ── Phase 3: ZeroBounce API call ─────────────────────────────────────────
+  let zbResult: { status: string; subStatus?: string | null } | null = null;
   try {
-    const budgetCheck = await checkZeroBounceBudget();
-    if (!budgetCheck.allowed) {
-      console.warn(`[CampaignEngine] ZeroBounce daily cap reached (${budgetCheck.used}/${budgetCheck.limit}), skipping validation for contact ${contactId}`);
-      return true; // fail open when budget exhausted
-    }
+    zbResult = await runVerifyEmail(email);
+  } catch (zbErr: any) {
+    console.warn(`[CampaignEngine] ZeroBounce API error for contact ${contactId}:`, zbErr.message);
+    // ZB API unavailable — a credit was claimed but verification failed.
+    // Fail open so the batch continues; the credit is lost.
+    return true;
+  }
 
-    const credited = await claimZeroBounceCredit();
-    if (!credited) return true; // fail open
-
-    const zbResult = await verifyEmail(email);
-
-    // Persist the result so we never re-validate the same address
+  // ── Phase 4: Best-effort DB writeback ─────────────────────────────────────
+  try {
     const { db: zbDb } = await import("../db");
     const { sql: zbSql } = await import("drizzle-orm");
     await zbDb.execute(zbSql`UPDATE contacts SET email_status = ${zbResult.status} WHERE id = ${contactId}`);
+  } catch (dbErr: any) {
+    console.warn(`[CampaignEngine] ZeroBounce writeback failed for contact ${contactId}:`, dbErr.message);
+    // Write failure does not affect the block decision in Phase 5.
+  }
 
-    await storage.createAuditLog({
+  // ── Phase 5: Capture block decision BEFORE any audit I/O ──────────────────
+  // shouldBlock is set here so a thrown audit write cannot change what we return.
+  const shouldBlock = ZB_INVALID_STATUSES.has(zbResult.status);
+
+  // ── Phase 6: Best-effort audit writes — isolated from the block decision ───
+  try {
+    await runAuditLog({
       actorType: "system",
       action: "campaign_queue_zerobounce_validated",
       entityType: "contact",
       entityId: contactId,
       details: { campaignId, email, zbStatus: zbResult.status, zbSubStatus: zbResult.subStatus ?? null },
     });
-
-    if (ZB_INVALID_STATUSES.has(zbResult.status)) {
-      await storage.createAuditLog({
+    if (shouldBlock) {
+      await runAuditLog({
         actorType: "system",
         action: "campaign_queue_skipped_zb_invalid",
         entityType: "contact",
         entityId: contactId,
         details: { campaignId, email, zbStatus: zbResult.status, reason: `ZeroBounce flagged as '${zbResult.status}'` },
       });
-      return false;
     }
-  } catch (zbErr: any) {
-    console.warn(`[CampaignEngine] ZeroBounce validation error for contact ${contactId}:`, zbErr.message);
-    // Non-fatal: fail open so the batch continues
+  } catch (auditErr: any) {
+    console.warn(`[CampaignEngine] ZeroBounce audit write failed for contact ${contactId}:`, auditErr.message);
+    // Intentionally not re-throwing — the block decision is already captured in shouldBlock.
   }
 
-  return true;
+  return !shouldBlock;
 }
 
 function getOpenAI() {
@@ -888,7 +943,7 @@ export async function processSendQueue(maxToSend?: number): Promise<{ sent: numb
 
       if (prospect.contactId) {
         let contact = await storage.getContact(prospect.contactId);
-        if (contact && (contact.emailStatus === "bounced" || contact.emailStatus === "invalid")) {
+        if (contact && (contact.emailStatus === "bounced" || contact.emailStatus === "invalid" || contact.emailStatus === "unsafe")) {
           await storage.updateOutboundMessage(msg.id, { status: "skipped", error: `Email status: ${contact.emailStatus}` });
           await storage.createAuditLog({
             actorType: "system",
@@ -902,9 +957,10 @@ export async function processSendQueue(maxToSend?: number): Promise<{ sent: numb
 
         // ── ZeroBounce lazy validation gate ───────────────────────────────────
         // Mirrors the same gate in sequence-worker. Fire once per contact for
-        // email sends when status is unverified ('active' default). Writes the
-        // result back so we never re-spend credits on the same address.
-        if (contact && prospect.email && (contact.emailStatus == null || contact.emailStatus === "active")) {
+        // email sends when status is unverified. 'null', 'active' (legacy default),
+        // and 'unvalidated' (new default) all trigger a live ZB check so the contact
+        // can progress to a confirmed-deliverable status rather than being silently skipped.
+        if (contact && prospect.email && (contact.emailStatus == null || contact.emailStatus === "active" || contact.emailStatus === "unvalidated")) {
           try {
             const { checkZeroBounceBudget, claimZeroBounceCredit } = await import("./zerobounce-daily-limiter");
             const { verifyEmail } = await import("./sdr/zerobounce");
