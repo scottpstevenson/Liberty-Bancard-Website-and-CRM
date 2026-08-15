@@ -7,3 +7,4 @@ description: Durable invariants of the email-validation campaign model
 - A campaign may only auto-complete when zero eligible contacts remain AND zero pending attempts exist.
 - Admin cancel abandons the whole campaign (even via a terminal run's ID), so the next batch start builds a fresh campaign from its own filter — otherwise the singleton active campaign traps admins in a stale cohort.
 - Stale-run interruption + pending reconciliation must be invoked at every entry point (start route, read routes, worker start), not just one.
+- Campaign tracker card (DataQuality) derives UI state client-side from latestRun.state + counts; poll (10s) is gated on latestRun.state === 'running' only — never poll with no campaign or terminal run. remainingEligible===0 && pending===0 overrides run state as "completed".

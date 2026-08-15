@@ -10,6 +10,7 @@ import {
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { ZeroBounceCampaign } from "@/components/ZeroBounceCampaign";
 import {
   Users, Mail, Phone, Tag, User, CheckCircle2, XCircle, AlertCircle,
   RefreshCw, Loader2, ShieldCheck, ShieldX, ShieldAlert, Zap,
@@ -206,6 +207,12 @@ export default function DataQuality() {
           </Button>
         </div>
       )}
+
+      {/* ── Validation campaign tracker (task 1540C) ── */}
+      <ZeroBounceCampaign
+        fallbackEligible={summary?.unvalidated_email}
+        fallbackDailyLimit={summary?.zerobounce.dailyLimit}
+      />
 
       {/* ── Aggregate stat cards ── */}
       {summaryLoading ? (
