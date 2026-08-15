@@ -1,0 +1,150 @@
+name: Wave 12 CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ── Job 1: Static checks — no database or live server required ──────────────
+  static:
+    name: Static Checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Compliance scan (AST — no send site escapes the gate)
+        run: npx tsx scripts/compliance-scan.ts
+
+      - name: API coverage check (frontend calls vs server routes)
+        run: npx tsx scripts/check-api-coverage.ts
+
+      - name: Redis topology tests (capacity model + kill-line assertions)
+        run: npx tsx scripts/test-redis-topology.ts
+
+  # ── Job 2: Integration tests — PostgreSQL + live dev server ─────────────────
+  integration:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: static
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: liberty_bancard_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/liberty_bancard_ci
+      SESSION_SECRET: ci-session-secret-not-for-production
+      NODE_ENV: development
+      PORT: 5000
+      BASE_URL: http://localhost:5000
+      # GHL kill line — leave GHL_PRIVATE_INTEGRATION_TOKEN unset so the API
+      # layer returns errors safely; set GHL_TEST_MODE so test-forms.ts
+      # explicitly acknowledges isolation even if a token appears in CI secrets
+      GHL_TEST_MODE: "true"
+      ADMIN_SEED_EMAIL: ${{ secrets.ADMIN_SEED_EMAIL }}
+      ADMIN_SEED_PASSWORD: ${{ secrets.ADMIN_SEED_PASSWORD }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run database migrations
+        run: npx tsx scripts/migrate.ts
+
+      - name: Start dev server (background)
+        run: npm run dev &
+
+      - name: Wait for server to be ready
+        run: |
+          echo "Polling http://localhost:5000/api/health ..."
+          for i in $(seq 1 40); do
+            if curl -sf http://localhost:5000/api/health > /dev/null 2>&1; then
+              echo "Server ready after ${i}x2s polls."
+              break
+            fi
+            echo "  attempt $i/40 — not ready, sleeping 2s..."
+            sleep 2
+          done
+          curl -sf http://localhost:5000/api/health > /dev/null \
+            || { echo "ERROR: server did not start within 80s"; exit 1; }
+
+      # ── Script 1: Role guard smoke test ──────────────────────────────────────
+      # Requires: live server + DB + ADMIN_SEED_EMAIL / ADMIN_SEED_PASSWORD
+      - name: Role guard smoke test
+        run: npx tsx scripts/smoke-role-guards.ts
+
+      # ── Script 2: Contactability engine tests ─────────────────────────────
+      # Requires: DB (direct Drizzle) + live server (API-level assertions)
+      - name: Contactability engine tests
+        run: npx tsx scripts/test-contactability.ts
+
+      # ── Script 3: Sequence compliance tests ──────────────────────────────
+      # Requires: DB (direct Drizzle) — no live server call
+      - name: Sequence compliance tests
+        run: npx tsx scripts/test-sequence-compliance.ts
+
+      # ── Script 4: Form integration tests ─────────────────────────────────
+      # Requires: live server + DB + GHL_TEST_MODE=true (no real GHL contacts)
+      - name: Form integration tests
+        run: npx tsx scripts/test-forms.ts
+
+      # ── Script 5: SEO audit ───────────────────────────────────────────────
+      # Requires: live server — crawls every public route
+      - name: SEO audit
+        run: npx tsx scripts/seo-audit.ts
+
+      # ── Script 6: Mobile screenshots ──────────────────────────────────────
+      # Requires: live server + Playwright Chromium
+      # Exit 0 = all 5 screenshots captured
+      # Exit 2 = Playwright environment limitation (not a code failure — acceptable)
+      # Exit 1 = a conversion page returned 404 — real CI failure, blocks merge
+      - name: Install Playwright Chromium
+        run: npx playwright install chromium --with-deps
+
+      - name: Mobile screenshots (390px viewport)
+        run: |
+          set +e
+          npx tsx scripts/mobile-screenshots.ts
+          code=$?
+          set -e
+          if [ $code -eq 2 ]; then
+            echo "Mobile screenshots: environment limitation (exit 2) — not a code failure, continuing."
+            exit 0
+          fi
+          exit $code
+
+      - name: Upload mobile screenshots as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-screenshots
+          path: attached_assets/screenshots/*-mobile-390.jpg
+          if-no-files-found: ignore
