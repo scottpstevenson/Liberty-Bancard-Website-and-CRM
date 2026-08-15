@@ -783,7 +783,7 @@ export function registerCampaignsRoutes(app: Express) {
   });
 
   // === SEQUENCE ENROLLMENTS ===
-  app.get("/api/sequence-enrollments", isAuthenticated, async (req, res) => {
+  app.get("/api/sequence-enrollments", isDashboardUser, async (req, res) => {
     try {
       const sequenceId = req.query.sequenceId ? Number(req.query.sequenceId) : undefined;
       const enrollments = await storage.getSequenceEnrollments(sequenceId);
@@ -793,42 +793,109 @@ export function registerCampaignsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/sequence-enrollments", isAuthenticated, async (req, res) => {
+  app.post("/api/sequence-enrollments", isDashboardUser, async (req, res) => {
     try {
-      const { canEnrollContactInSequence } = await import("../services/sequence-eligibility");
-      const input = insertSequenceEnrollmentSchema.parse(req.body);
-      if (input.sequenceId) {
-        const seq = await storage.getFollowUpSequence(input.sequenceId);
-        if (!seq) return res.status(404).json({ message: "Sequence not found." });
-        if (seq.status !== "active") return res.status(409).json({ message: `Sequence "${seq.name}" is ${seq.status}. Activate it before enrolling contacts.` });
-        if (input.contactId) {
-          const eligibility = await canEnrollContactInSequence(input.contactId, seq);
-          if (!eligibility.allowed) {
-            await storage.createAuditLog({
-              action: "sequence_enrollment_blocked_consent",
-              entityType: "contact",
-              entityId: input.contactId,
-              actorType: "system",
-              details: {
-                sequenceId: seq.id,
-                sequenceName: seq.name,
-                sequenceFamily: seq.sequenceFamily,
-                reason: eligibility.reason,
-                contactConsentTier: eligibility.contactConsentTier,
-                eligibleConsentTiers: eligibility.eligibleConsentTiers,
-              },
-            });
-            return res.status(400).json({
-              message: eligibility.reason || "Contact is not eligible for this sequence.",
-              code: "ENROLLMENT_BLOCKED_CONSENT",
+      // Strict request schema — clients may only supply identity fields.
+      // status, currentStep, nextActionAt, and metadata are server-derived.
+      const enrollRequestSchema = z.object({
+        sequenceId: z.number().int().positive(),
+        contactId: z.number().int().positive().optional(),
+        dealId: z.number().int().positive().optional(),
+      }).refine(d => d.contactId || d.dealId, {
+        message: "Either contactId or dealId is required.",
+      });
+      const input = enrollRequestSchema.parse(req.body);
+
+      // ── Global pause hard-stop ──────────────────────────────────────────
+      const pausedRaw = await storage.getSystemSetting("outboundGlobalPaused");
+      const isPaused = pausedRaw === true || pausedRaw === "true";
+      if (isPaused) {
+        const reason = await storage.getSystemSetting("outboundGlobalPausedReason");
+        return res.status(409).json({
+          message: `Enrollment blocked: ${typeof reason === "string" ? reason : "Global outbound pause active"}`,
+          code: "GLOBAL_PAUSE_ACTIVE",
+        });
+      }
+
+      const seq = await storage.getFollowUpSequence(input.sequenceId);
+      if (!seq) return res.status(404).json({ message: "Sequence not found." });
+      if (seq.status !== "active") return res.status(409).json({ message: `Sequence "${seq.name}" is ${seq.status}. Activate it before enrolling contacts.` });
+
+      // ── Resolve contact — always required for eligibility evaluation ────
+      // Fix deal-only bypass: when only dealId is provided the original code
+      // skipped all eligibility checks.  We now always resolve a contactId.
+      let resolvedContactId = input.contactId;
+      if (!resolvedContactId && input.dealId) {
+        const deal = await storage.getDeal(input.dealId);
+        if (!deal) return res.status(404).json({ message: "Deal not found." });
+        if (!deal.contactId) return res.status(400).json({ message: "Deal has no linked contact — cannot evaluate enrollment eligibility." });
+        resolvedContactId = deal.contactId;
+      }
+
+      if (resolvedContactId) {
+        const { canEnrollContactInSequence, sequenceHasEmailSteps } = await import("../services/sequence-eligibility");
+
+        // DNC / consent-tier gate
+        const eligibility = await canEnrollContactInSequence(resolvedContactId, seq);
+        if (!eligibility.allowed) {
+          await storage.createAuditLog({
+            action: "sequence_enrollment_blocked_consent",
+            entityType: "contact",
+            entityId: resolvedContactId,
+            actorType: "system",
+            details: {
+              sequenceId: seq.id,
+              sequenceName: seq.name,
+              sequenceFamily: seq.sequenceFamily,
+              reason: eligibility.reason,
               contactConsentTier: eligibility.contactConsentTier,
               eligibleConsentTiers: eligibility.eligibleConsentTiers,
-              campaignFamily: eligibility.campaignFamily,
+            },
+          });
+          return res.status(400).json({
+            message: eligibility.reason || "Contact is not eligible for this sequence.",
+            code: "ENROLLMENT_BLOCKED_CONSENT",
+            contactConsentTier: eligibility.contactConsentTier,
+            eligibleConsentTiers: eligibility.eligibleConsentTiers,
+            campaignFamily: eligibility.campaignFamily,
+          });
+        }
+
+        // Email-channel contactability gate (only when the sequence has email steps)
+        const hasEmailSteps = await sequenceHasEmailSteps(seq.id);
+        if (hasEmailSteps) {
+          const { evaluateContactability } = await import("../services/contactability");
+          const emailCheck = await evaluateContactability({
+            contactId: resolvedContactId,
+            channel: "email",
+            campaignType: "sequence_enrollment",
+            mode: "enforcement",
+          });
+          if (!emailCheck.allowed) {
+            await storage.createAuditLog({
+              action: "sequence_enrollment_blocked_email_status",
+              entityType: "contact",
+              entityId: resolvedContactId,
+              actorType: "system",
+              details: { sequenceId: seq.id, sequenceName: seq.name, reason: emailCheck.reason },
+            });
+            return res.status(400).json({
+              message: emailCheck.reason || "Contact email is not eligible for this sequence.",
+              code: "ENROLLMENT_BLOCKED_EMAIL",
             });
           }
         }
       }
-      const enrollment = await storage.createSequenceEnrollment(input);
+
+      // Server-derives all state — clients cannot set status, currentStep, or timestamps
+      const enrollment = await storage.createSequenceEnrollment({
+        sequenceId: input.sequenceId,
+        contactId: resolvedContactId,
+        dealId: input.dealId,
+        status: "active",
+        currentStep: 0,
+        nextActionAt: new Date(),
+      });
       if (enrollment === null) {
         return res.status(409).json({ message: "Contact is already enrolled in an active or paused sequence." });
       }
@@ -840,14 +907,17 @@ export function registerCampaignsRoutes(app: Express) {
     }
   });
 
-  app.put("/api/sequence-enrollments/:id", isAuthenticated, async (req, res) => {
+  app.put("/api/sequence-enrollments/:id", isDashboardUser, async (req, res) => {
     try {
-      const enrollmentDateSchema = z.object({
+      // Strict allowlist — clients may only reschedule nextActionAt or record
+      // completion/pause timestamps.  status, currentStep, contactId, sequenceId,
+      // dealId, and metadata are not writable from the client.
+      const enrollmentUpdateSchema = z.object({
         nextActionAt: z.coerce.date().optional().nullable(),
         completedAt: z.coerce.date().optional().nullable(),
         pausedAt: z.coerce.date().optional().nullable(),
-      }).passthrough();
-      const body = enrollmentDateSchema.parse(req.body);
+      });
+      const body = enrollmentUpdateSchema.parse(req.body);
       const updated = await storage.updateSequenceEnrollment(Number(req.params.id), body);
       if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
@@ -1108,14 +1178,23 @@ export function registerCampaignsRoutes(app: Express) {
       if (!seq) return res.status(404).json({ message: "Sequence not found." });
       if (seq.status !== "active") return res.status(409).json({ message: `Sequence "${seq.name}" is ${seq.status}. Activate it before enrolling contacts.` });
 
-      const { canEnrollContactInSequence } = await import("../services/sequence-eligibility");
+      // Surface global-pause state without blocking preview — admins need to
+      // preview before deciding whether to lift the pause.
+      const pausedRaw = await storage.getSystemSetting("outboundGlobalPaused");
+      const globalPauseActive = pausedRaw === true || pausedRaw === "true";
+
+      const { canEnrollContactInSequence, sequenceHasEmailSteps } = await import("../services/sequence-eligibility");
+      const hasEmailSteps = await sequenceHasEmailSteps(seqId);
       const contactsInVertical = await storage.getContactsByVertical(vertical);
       const totalMatching = contactsInVertical.length;
 
+      // Include paused enrollments in the already-enrolled set — the DB unique
+      // index prevents re-enrollment of active OR paused contacts, so preview
+      // must match that semantic.
       const existingEnrollments = await storage.getSequenceEnrollments(seqId);
       const enrolledContactIds = new Set(
         existingEnrollments
-          .filter(e => e.status === "active" || e.status === "completed")
+          .filter(e => e.status === "active" || e.status === "paused" || e.status === "completed")
           .map(e => e.contactId)
           .filter(Boolean) as number[]
       );
@@ -1131,16 +1210,38 @@ export function registerCampaignsRoutes(app: Express) {
           alreadyEnrolled++;
           continue;
         }
+        // Missing contact info (mirrors live route)
+        if (!c.email && !c.phone) {
+          notEligible++;
+          skippedBreakdown["missing_contact_info"] = (skippedBreakdown["missing_contact_info"] ?? 0) + 1;
+          continue;
+        }
         const eligibility = await canEnrollContactInSequence(c.id, seq);
         if (!eligibility.allowed) {
           notEligible++;
           const reason = eligibility.reason ?? "ineligible";
           skippedBreakdown[reason] = (skippedBreakdown[reason] ?? 0) + 1;
-        } else {
-          eligible++;
-          if (previewContacts.length < 5) {
-            previewContacts.push({ id: c.id, firstName: c.firstName, lastName: c.lastName, email: c.email });
+          continue;
+        }
+        // Email-channel contactability check (same gate as live route)
+        if (hasEmailSteps) {
+          const { evaluateContactability } = await import("../services/contactability");
+          const emailCheck = await evaluateContactability({
+            contactId: c.id,
+            channel: "email",
+            campaignType: "sequence_enrollment",
+            mode: "enforcement",
+          });
+          if (!emailCheck.allowed) {
+            notEligible++;
+            const reason = emailCheck.reason ?? "email_blocked";
+            skippedBreakdown[reason] = (skippedBreakdown[reason] ?? 0) + 1;
+            continue;
           }
+        }
+        eligible++;
+        if (previewContacts.length < 5) {
+          previewContacts.push({ id: c.id, firstName: c.firstName, lastName: c.lastName, email: c.email });
         }
       }
 
@@ -1151,10 +1252,10 @@ export function registerCampaignsRoutes(app: Express) {
         entityId: seqId,
         userId,
         actorType: "user",
-        details: { sequenceId: seqId, vertical, totalMatching, eligible, alreadyEnrolled, notEligible, dryRun: true },
+        details: { sequenceId: seqId, vertical, totalMatching, eligible, alreadyEnrolled, notEligible, globalPauseActive, dryRun: true },
       });
 
-      res.json({ totalMatching, eligible, alreadyEnrolled, notEligible, skippedBreakdown, previewContacts });
+      res.json({ totalMatching, eligible, alreadyEnrolled, notEligible, skippedBreakdown, previewContacts, globalPauseActive });
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
       serverError(res, err);
@@ -1170,17 +1271,62 @@ export function registerCampaignsRoutes(app: Express) {
       });
       const { vertical } = schema.parse(req.body);
 
+      // ── Global pause hard-stop ──────────────────────────────────────────
+      // Reject enrollment while outbound is globally paused.  The sequence
+      // worker would pause each active row on its next tick anyway, but that
+      // creates a stuck-paused cohort requiring manual per-enrollment resume.
+      // Blocking here gives the admin clear feedback and keeps the DB clean.
+      const pausedRaw = await storage.getSystemSetting("outboundGlobalPaused");
+      const isPaused = pausedRaw === true || pausedRaw === "true";
+      if (isPaused) {
+        const pauseReason = await storage.getSystemSetting("outboundGlobalPausedReason");
+        const userId = (req as any).user?.id?.toString() ?? null;
+        await storage.createAuditLog({
+          action: "sequence_vertical_bulk_enroll_blocked_global_pause",
+          entityType: "sequence",
+          entityId: seqId,
+          userId,
+          actorType: "user",
+          details: {
+            sequenceId: seqId,
+            vertical,
+            reason: typeof pauseReason === "string" ? pauseReason : "Global outbound pause active",
+          },
+        });
+        return res.status(409).json({
+          message: `Enrollment blocked: ${typeof pauseReason === "string" ? pauseReason : "Global outbound pause active"}`,
+          code: "GLOBAL_PAUSE_ACTIVE",
+        });
+      }
+
       const seq = await storage.getFollowUpSequence(seqId);
       if (!seq) return res.status(404).json({ message: "Sequence not found." });
       if (seq.status !== "active") return res.status(409).json({ message: `Sequence "${seq.name}" is ${seq.status}. Activate it before enrolling contacts.` });
 
-      const { canEnrollContactInSequence } = await import("../services/sequence-eligibility");
-      const contactsInVertical = await storage.getContactsByVertical(vertical);
+      // ── Resolve email-step presence once for the whole batch ────────────
+      const { canEnrollContactInSequence, sequenceHasEmailSteps } = await import("../services/sequence-eligibility");
+      const hasEmailSteps = await sequenceHasEmailSteps(seqId);
 
+      // ── Cohort size guard ───────────────────────────────────────────────
+      // Synchronous bulk loop is only safe for moderate cohort sizes.
+      // Above the threshold, route the request to a background job.
+      const COHORT_SIZE_LIMIT = 500;
+      const contactsInVertical = await storage.getContactsByVertical(vertical);
+      if (contactsInVertical.length > COHORT_SIZE_LIMIT) {
+        return res.status(400).json({
+          message: `Cohort size (${contactsInVertical.length}) exceeds the per-request limit of ${COHORT_SIZE_LIMIT}. Please contact an admin to run a background bulk-enrollment job for larger cohorts.`,
+          code: "COHORT_TOO_LARGE",
+          cohortSize: contactsInVertical.length,
+          limit: COHORT_SIZE_LIMIT,
+        });
+      }
+
+      // Include paused enrollments in already-enrolled set — the DB unique index
+      // treats active AND paused as duplicates; the route must match that semantic.
       const existingEnrollments = await storage.getSequenceEnrollments(seqId);
       const enrolledContactIds = new Set(
         existingEnrollments
-          .filter(e => e.status === "active" || e.status === "completed")
+          .filter(e => e.status === "active" || e.status === "paused" || e.status === "completed")
           .map(e => e.contactId)
           .filter(Boolean) as number[]
       );
@@ -1200,37 +1346,71 @@ export function registerCampaignsRoutes(app: Express) {
       let skippedAlreadyEnrolled = 0;
       let skippedIneligible = 0;
       let skippedMissingInfo = 0;
+      let errors = 0;
       const skippedBreakdown: Record<string, number> = {};
 
       const BATCH_SIZE = 50;
       for (let i = 0; i < contactsInVertical.length; i += BATCH_SIZE) {
         const batch = contactsInVertical.slice(i, i + BATCH_SIZE);
         for (const c of batch) {
-          if (enrolledContactIds.has(c.id)) {
-            skippedAlreadyEnrolled++;
-            continue;
+          try {
+            if (enrolledContactIds.has(c.id)) {
+              skippedAlreadyEnrolled++;
+              continue;
+            }
+            if (!c.email && !c.phone) {
+              skippedMissingInfo++;
+              skippedBreakdown["missing_contact_info"] = (skippedBreakdown["missing_contact_info"] ?? 0) + 1;
+              continue;
+            }
+            const eligibility = await canEnrollContactInSequence(c.id, seq);
+            if (!eligibility.allowed) {
+              skippedIneligible++;
+              const reason = eligibility.reason ?? "ineligible";
+              skippedBreakdown[reason] = (skippedBreakdown[reason] ?? 0) + 1;
+              continue;
+            }
+            // Email-channel contactability check — only when the sequence has
+            // email steps.  This correctly blocks opted_out, unsubscribed,
+            // bounced, invalid, unsafe, and blocked email addresses while NOT
+            // over-blocking contacts in SMS-only or manual-task sequences.
+            if (hasEmailSteps) {
+              const { evaluateContactability } = await import("../services/contactability");
+              const emailCheck = await evaluateContactability({
+                contactId: c.id,
+                channel: "email",
+                campaignType: "sequence_enrollment",
+                mode: "enforcement",
+              });
+              if (!emailCheck.allowed) {
+                skippedIneligible++;
+                const reason = emailCheck.reason ?? "email_blocked";
+                skippedBreakdown[reason] = (skippedBreakdown[reason] ?? 0) + 1;
+                continue;
+              }
+            }
+            // Only count as queued when the writer confirms a new row was created.
+            // createSequenceEnrollment() returns null for paused/active duplicates
+            // (the DB unique index is the hard backstop).
+            const created = await storage.createSequenceEnrollment({
+              sequenceId: seqId,
+              contactId: c.id,
+              status: "active",
+              currentStep: 0,
+              nextActionAt: new Date(),
+            });
+            if (created !== null) {
+              enrolledContactIds.add(c.id);
+              queued++;
+            } else {
+              // Writer returned null — duplicate that slipped through the pre-check
+              skippedAlreadyEnrolled++;
+            }
+          } catch (contactErr: any) {
+            // Per-contact errors are isolated — log and continue the batch
+            console.error(`[enroll-vertical] Error enrolling contact ${c.id}:`, contactErr?.message);
+            errors++;
           }
-          if (!c.email && !c.phone) {
-            skippedMissingInfo++;
-            skippedBreakdown["missing_contact_info"] = (skippedBreakdown["missing_contact_info"] ?? 0) + 1;
-            continue;
-          }
-          const eligibility = await canEnrollContactInSequence(c.id, seq);
-          if (!eligibility.allowed) {
-            skippedIneligible++;
-            const reason = eligibility.reason ?? "ineligible";
-            skippedBreakdown[reason] = (skippedBreakdown[reason] ?? 0) + 1;
-            continue;
-          }
-          await storage.createSequenceEnrollment({
-            sequenceId: seqId,
-            contactId: c.id,
-            status: "active",
-            currentStep: 0,
-            nextActionAt: new Date(),
-          });
-          enrolledContactIds.add(c.id);
-          queued++;
         }
       }
 
@@ -1249,6 +1429,7 @@ export function registerCampaignsRoutes(app: Express) {
           eligible: queued,
           queued,
           skipped,
+          errors,
           skippedBreakdown: { alreadyEnrolled: skippedAlreadyEnrolled, ineligible: skippedIneligible, missingInfo: skippedMissingInfo, ...skippedBreakdown },
           dryRun: false,
         },
@@ -1257,10 +1438,12 @@ export function registerCampaignsRoutes(app: Express) {
       res.json({
         queued,
         skipped,
+        errors,
         skippedBreakdown: {
           alreadyEnrolled: skippedAlreadyEnrolled,
           ineligible: skippedIneligible,
           missingInfo: skippedMissingInfo,
+          ...skippedBreakdown,
         },
       });
     } catch (err: any) {

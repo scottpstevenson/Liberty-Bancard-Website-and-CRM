@@ -132,6 +132,20 @@ export async function canEnrollContactInSequence(
 }
 
 /**
+ * Returns true when a sequence has at least one email step.
+ * Used by enrollment routes to decide whether to run the email-channel
+ * contactability check before enrolling a contact.
+ *
+ * Email-only suppressions (bounced, invalid, unsafe, blocked, opted_out) must
+ * NOT block enrollment into SMS-only or manual-task sequences — this helper
+ * lets callers apply the check only when it's relevant.
+ */
+export async function sequenceHasEmailSteps(sequenceId: number): Promise<boolean> {
+  const steps = await storage.getSequenceSteps(sequenceId);
+  return steps.some(s => (s as any).actionType === "email");
+}
+
+/**
  * Offer-route-to-family mapping.
  *
  * Each offer path maps to an ordered list of Wave 6 sequence family keys

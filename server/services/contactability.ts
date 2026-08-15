@@ -610,10 +610,14 @@ export async function evaluateContactability(
   }
 
   // ── Step 9: Email status for email channel ───────────────────────────
+  // Blocks deliverability failures and admin-suppressed addresses.
+  // "opted_out" / "unsubscribed" are handled upstream at Step 3.
   if (channel === "email") {
     if (
       contact.emailStatus === "bounced" ||
-      contact.emailStatus === "invalid"
+      contact.emailStatus === "invalid" ||
+      contact.emailStatus === "unsafe" ||
+      contact.emailStatus === "blocked"
     ) {
       return blocked(
         `Email channel blocked — email status: ${contact.emailStatus}`,
