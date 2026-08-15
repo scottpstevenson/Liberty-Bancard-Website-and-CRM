@@ -1,0 +1,626 @@
+Build Spec #1521 Full Audit
+
+Fix Vertical Bulk Enrollment Compliance Bypass
+
+Audit date: 2026-08-15 (America/New_York)
+Repository: scottpstevenson/Liberty-Bancard-Website-and-CRM
+Verified branch / commit: main / 4819cefac1478ae700c9996427174e822d97c5a5
+Verified migration journal head: 136 entries; idx=135, tag=0132_outreach_queue_skipped_at
+Build spec audited: Pasted markdown(2).md
+Mode: read-only repository, code, schema, test, history, and supplied-audit review
+
+Executive verdict
+
+NO-GO — reject the build spec as written and rewrite it before implementation.
+
+The task identifies a real policy gap: the vertical bulk route creates active sequence enrollments without an enrollment-time global-pause decision and without applying channel-specific contactability to the selected sequence. The proposed implementation is not safe or complete, however.
+
+It would:
+
+put email-only suppression rules into a helper that is explicitly designed to be channel-agnostic;
+
+fail to block the exact 51-row conflict cited as justification;
+
+leave the single-enrollment endpoint broadly accessible to any authenticated role and able to accept client-controlled enrollment state;
+
+leave preview and live execution inconsistent and produce incorrect enrollment counts;
+
+preserve multiple direct enrollment writers instead of establishing the canonical policy owner required by the current audit contract; and
+
+require a smoke-test pattern that mutates shared database settings and can execute the real sequence worker over all due active enrollments.
+
+No application code should be built from this spec until the blockers below are corrected. The issue should remain a precondition for any live promotional enrollment, but it is not a substitute for the five higher-priority containment/foundation tasks in the current execution roadmap.
+
+Scope and evidence
+
+Repository verification
+
+Local audit checkout is pinned to current origin/main at 4819cef with a clean worktree.
+
+GitHub repository metadata was checked during the audit; the repository is still public.
+
+The checked-in Drizzle journal matches the build spec's migration baseline: 136 entries, last entry idx=135, 0132_outreach_queue_skipped_at.
+
+The older SHA 2075729957b5592504bbd49584c98c2ac684ebf9 cited by the Master Knowledge Brief and old Master Audit Roadmap is not resolvable in the current Git repository.
+
+Dependencies are not installed in the audit checkout. Typecheck/build/test execution was therefore not performed.
+
+Documents reviewed
+
+All supplied documents were read and cross-referenced:
+
+CODEX_CRM_EXECUTION_ROADMAP(1).md
+
+CODEX_CRM_UI_TAB_AUDIT(1).md
+
+CODEX_CRM_AUDIT_MASTER_INDEX(1).md
+
+CODEX_ENRICHMENT_CRAWLER_RUNTIME_AUDIT(1).md
+
+LIBERTY_BANCARD_MASTER_AUDIT_ROADMAP(1).md
+
+CODEX_CRM_DATA_AND_CANONICAL_SOURCE_AUDIT(1).md
+
+CODEX_CURRENT_STATE_AUDIT (1).md
+
+LIBERTY_BANCARD_KNOWLEDGE_BRIEF(1).md
+
+Aggregate database counts in this report, including the 51 opt-out conflicts, come from those supplied audits. They were not independently re-queried because this was a read-only code/spec audit and the available scripts are not safely isolated from shared runtime state.
+
+Findings by severity
+
+Blocker B-01 — The proposed policy is placed in the wrong function
+
+The spec adds unconditional emailStatus and optedOutEmail blocks to canEnrollContactInSequence().
+
+That helper explicitly documents the opposite contract:
+
+it evaluates DNC, consent tier, lifecycle stage, and sequence-family guards;
+
+it does not accept a selected channel or sequence steps; and
+
+it says it must not over-block based on channel presence, because mixed sequences intentionally skip channel-specific steps later.
+
+Evidence: server/services/sequence-eligibility.ts:26-55.
+
+The schema supports mixed-channel sequences through follow_up_sequences.channels_allowed and per-step sequence_steps.action_type (shared/schema.ts:1430-1473). The worker confirms this design by skipping an SMS step for a contact without PEWC while allowing later email steps to continue (server/services/sequence-worker.ts:590-659).
+
+Consequences of the proposed change:
+
+a bounced email address could prevent enrollment in an SMS-only or manual-task sequence;
+
+an email opt-out could prevent a permitted manual-call task;
+
+a mixed sequence would be rejected even when another channel remains lawful and usable; and
+
+every existing caller of the generic helper would inherit this overblocking, including transactional or service workflows that were not analyzed by the spec.
+
+Required correction: Resolve the selected sequence's actual automated channels, then run the canonical contactability decision for those channels. Email fields may block email; they must not automatically block unrelated channels. Hard global suppression and doNotAutoContact can still block the appropriate scope.
+
+Blocker B-02 — The proposed fix does not close the cited 51-row gap
+
+The supplied audits report 51 contacts with:
+
+email_status = 'opted_out';
+
+opted_out_email = false; and
+
+a nonsuppressed consent tier.
+
+Evidence: CODEX_CRM_DATA_AND_CANONICAL_SOURCE_AUDIT(1).md:26-31 and CODEX_CURRENT_STATE_AUDIT (1).md:265-274.
+
+The spec proposes to block:
+
+emailStatus only when it is one of bounced, invalid, unsafe, or blocked; and
+
+optedOutEmail only when it is true.
+
+Those 51 records satisfy neither proposed condition. They would still pass the proposed new checks. This directly contradicts VFC-04, the root-cause section, Done Looks Like, and the kill-line rationale.
+
+Required correction: The email decision must fail closed on every blocking legacy representation, including at least emailStatus in {'opted_out','unsubscribed','bounced','invalid','unsafe','blocked'} or optedOutEmail=true, until the data conflict queue has reconciled those projections. Apply this only to the email channel. Stable reason codes should distinguish opt-out from deliverability failure.
+
+Blocker B-03 — The single-enrollment and update APIs have material RBAC and overposting gaps
+
+The spec acknowledges POST /api/sequence-enrollments but only evaluates the two admin/manager vertical routes in its authorization table.
+
+Current code:
+
+protects POST /api/sequence-enrollments with isAuthenticated only (campaigns.ts:796-841);
+
+tags isAuthenticated as any-authenticated, while isDashboardUser is limited to admin/manager/agent (replit_integrations/auth/replitAuth.ts:923-944, 982-992);
+
+parses the full insert schema, allowing the client to provide status, currentStep, nextActionAt, dealId, contactId, and metadata (shared/schema.ts:1504-1527);
+
+skips contact eligibility completely when only dealId is supplied (campaigns.ts:800-830); and
+
+protects PUT /api/sequence-enrollments/:id with isAuthenticated, uses a .passthrough() schema, and spreads the result into the enrollment update (campaigns.ts:843-859; storage/automation.ts:308-314).
+
+Thus an authenticated merchant or partner account can reach server-side mutation paths not included in the spec's role matrix. A caller can also attempt to set server-owned state directly. UI hiding does not mitigate this: API authorization is authoritative.
+
+Required correction:
+
+apply an explicit server role policy to create/update/pause/resume/cancel routes;
+
+decide whether agents may enroll only assigned contacts or whether enrollment is admin/manager-only;
+
+reject deal-only enrollment unless the server resolves and authorizes the linked contact;
+
+replace full insert-schema parsing and .passthrough() with strict, purpose-built request schemas; and
+
+derive status, currentStep, nextActionAt, actor, source, and policy metadata on the server.
+
+Blocker B-04 — The prescribed test plan is unsafe on a shared or production-connected database
+
+The spec requires running scripts/test-sequence-compliance.ts and tells the new test to use it as a pattern.
+
+That existing script:
+
+directly inserts and deletes contacts, sequences, steps, enrollments, consent logs, audit rows, and send counters;
+
+writes the global outboundGlobalPaused setting repeatedly;
+
+sets it to false in multiple cases and even leaves it false in intermediate finally blocks;
+
+resets the durable sequence-worker job lock to idle; and
+
+calls processSequenceEnrollments(), which queries and iterates all due active enrollments, not only test-owned rows.
+
+Evidence: scripts/test-sequence-compliance.ts:147-180, 383-420, 1028-1443, 1569-1615.
+
+Setting process-local TEST_MODE or DRY_RUN does not isolate the database query, the global setting, the worker lock, other app processes, or every transport implementation. The script's cleanup attempts are not a substitute for isolation. A crash, competing worker, or unguarded transport can create real operational effects.
+
+Required correction: Tests must refuse to run unless an explicit test database identity is proven. Use an isolated database/schema and mocked transport/queue adapters. Do not toggle shared production settings, reset a live worker lock, or run the real worker across unconstrained due rows. The pre-deploy gate must have the same environment guard.
+
+High H-01 — Global-pause behavior is incomplete and inaccurately described
+
+The observation is correct: the vertical live route does not check outboundGlobalPaused before creating active enrollments (campaigns.ts:1164-1233).
+
+The claimed consequence is not correct. On the next worker tick, the worker changes each due active enrollment to paused (sequence-worker.ts:166-205). Merely lifting outboundGlobalPaused later does not reactivate those paused rows. There is no global automatic paused-to-active transition in the inspected pause-setting route. Re-activation is instead possible through separate enrollment mutation/resume paths.
+
+The SELECT ... FOR UPDATE in createSequenceEnrollment() locks the follow_up_sequences row and prevents a race with sequence-status changes. It does not lock or atomically coordinate the system_settings.outboundGlobalPaused row (storage/automation.ts:222-304). The spec's concurrency explanation conflates these two pause concepts.
+
+The spec also adds the enrollment-time pause check only to the vertical route, while leaving the single-enrollment route and many direct writer call sites open. That makes global-pause enrollment behavior depend on the initiator.
+
+Required correction: Define one system-wide promotional enrollment semantic:
+
+hard-stop model: reject all new promotional enrollments while globally paused; or
+
+staging model: permit policy evaluation but create a non-runnable paused/pending enrollment that requires an explicit, rate-limited release.
+
+Whichever model is selected must be implemented by the canonical enrollment service for every promotional initiator. A route-only read is useful UX feedback but is not an atomic safety guarantee.
+
+High H-02 — Preview and live execution already disagree
+
+The proposed changes do not make preview and execution consistent.
+
+Confirmed differences:
+
+Preview treats active and completed as already enrolled; live does the same. Both omit paused, although the database uniqueness rule treats active and paused as duplicates (campaigns.ts:1115-1121, 1180-1186; shared/schema.ts:1517-1520).
+
+Preview does not apply live's !email && !phone missing-contact-info check (campaigns.ts:1129-1145 versus 1213-1217).
+
+The live writer returns null when an active/paused duplicate exists, but the route ignores the return value, adds the contact ID, and increments queued (campaigns.ts:1225-1233; storage/automation.ts:243-300).
+
+Live builds detailed reason counts in skippedBreakdown, writes them to the audit summary, but omits them from the HTTP response (campaigns.ts:1203-1253, 1257-1265). This means Done Looks Like cannot pass through the change proposed in the spec.
+
+Preview keys the breakdown by human-readable reason strings from canEnrollContactInSequence(), not stable reason codes (campaigns.ts:1134-1138).
+
+Completed-enrollment semantics conflict with the database: the unique index permits re-enrollment after completion, while the route permanently treats completed as already enrolled.
+
+Required correction: Preview and live must consume the same evaluator and the same immutable candidate snapshot. Duplicate semantics must be defined once. Count an enrollment only when the writer returns a created row. Return all stable reason-code counts to the client.
+
+High H-03 — The source-of-truth and propagation claims are false
+
+The build spec calls canEnrollContactInSequence() the canonical eligibility gate and says other enrollment callers already use it.
+
+The repository contains 22 direct createSequenceEnrollment() matches outside the storage interface/definition, while only 11 non-definition matches invoke canEnrollContactInSequence(). Examples include activity, deals, wizard, churn, merchant welcome, attrition, SDR voice, smart router, statement acquisition, VAS upsell, workflow execution, and others.
+
+createSequenceEnrollment() is a canonical persistence helper for sequence-status locking and duplicate prevention. It is not a compliance-policy authority: it does not evaluate global pause, contactability, consent, source/provenance, or channel policy.
+
+The current canonical-source audit explicitly sets the target contract: all promotional initiators must call one idempotent promotional eligibility/enrollment service and store the eligibility snapshot and reasons (CODEX_CRM_DATA_AND_CANONICAL_SOURCE_AUDIT(1).md:50-74). The build spec's instruction to keep the promotional path separate and untouched conflicts with that target.
+
+Required correction: Introduce or extend a policy-aware service for enrollment into a specific sequence. Do not force the existing trigger-based enqueuePromotionalEnrollment() API to select a manually chosen sequence without redesign; its current input has no sequenceId and its durable idempotency model is based on sourceEventId (promotional-enrollment-eligibility.ts:41-52, 337-447).
+
+High H-04 — The synchronous vertical loop is not production-safe at scale
+
+The route loads the full vertical population, then performs sequential per-contact reads and per-contact transactions. BATCH_SIZE = 50 only slices the array; it does not create a durable job, transaction boundary, concurrency limit, checkpoint, or retry unit (campaigns.ts:1205-1235).
+
+Because contacts were already loaded, canEnrollContactInSequence() performs a redundant getContact() for each row. Each eligible row then opens an enrollment transaction. A single exception aborts the HTTP request after any earlier rows have already committed, producing a partial result with no resumable job state.
+
+The repository already has a bulk-enrollment-job.ts with progress and cancellation concepts, but it contains its own channel assumptions and is not a drop-in canonical implementation (bulk-enrollment-job.ts:120-195, 270-330).
+
+Required correction: Use a durable, bounded bulk job with checkpointed progress, exact per-row outcomes, cancellation, retry policy, and an immutable preview/cohort token. Set a maximum cohort size and require typed confirmation above the threshold.
+
+High H-05 — Existing worker behavior is not a reliable substitute for correct enrollment policy
+
+The spec puts sequence-worker.ts entirely out of scope and describes it as already handling the relevant concerns. Static inspection found adjacent channel-policy drift:
+
+the early bad-email guard pauses the whole enrollment for bounced, invalid, or unsafe before checking whether the current step is email (sequence-worker.ts:484-507);
+
+it omits blocked from that guard;
+
+the first-step contactability gate always evaluates the email channel regardless of the sequence's actual channels (sequence-worker.ts:275-304); and
+
+lazy ZeroBounce validation is correctly limited to email steps but fails open when provider/budget/credit checks cannot validate (sequence-worker.ts:509-588).
+
+These defects do not justify broadening the current task without control, but they invalidate the claim that the worker is an already-correct backstop. At minimum, the rewritten spec must add regression coverage and create a linked follow-up issue. If the new enrollment service depends on worker channel semantics, the first-step and bad-email gates become in scope.
+
+Medium M-01 — The canonical contactability implementation is incomplete for the claimed field set
+
+evaluateContactability() is the strongest existing channel-specific authority. It correctly applies email opt-out statuses only to email, SMS opt-out to SMS/automated phone, and doNotAutoContact to automated channels (contactability.ts:516-559).
+
+However:
+
+it does not reference optedOutEmail directly;
+
+its email deliverability check only lists bounced and invalid, not unsafe or blocked (contactability.ts:612-626); and
+
+it relies on multiple legacy fields whose conflicts are documented in the aggregate audit.
+
+The rewritten task should improve this canonical composite decision or introduce a consent/suppression projection, rather than adding a second partial field set to sequence-eligibility.ts.
+
+Medium M-02 — Existing tests duplicate coverage without a safe test architecture
+
+scripts/smoke-enrollment-quality-gate.ts already verifies the four proposed blocked email statuses in the promotional eligibility service (smoke-enrollment-quality-gate.ts:1-23, 81-153). It also inserts and deletes database rows directly. The new test would duplicate this status matrix while adding route behavior, but neither script provides database isolation.
+
+There is no standard test runner script in package.json; only dev, build, start, check, and the forbidden db:push command are declared. Pre-deploy invokes custom scripts directly. This increases the importance of an explicit environment guard and deterministic fixture lifecycle.
+
+Low L-01 — Editorial and acceptance defects
+
+The title is #1521, while the Preflight Reference says task #1510.
+
+Several Markdown tables are malformed.
+
+The audit-action naming uses blocked_consent for denials that may be deliverability, lifecycle, family, or policy failures.
+
+The spec says the canonical audit must be called for blocked and enrolled contacts, but bulk execution records one aggregate audit rather than a per-contact decision record.
+
+It declares “Migration required: NO” before deciding whether immutable policy snapshots, reason versions, or a durable bulk cohort need a schema contract.
+
+VFC re-evaluation
+
+VFC
+
+Audit verdict
+
+Corrected result
+
+VFC-01
+
+Confirmed partial, but incomplete
+
+Vertical preview/live do call canEnrollContactInSequence(). That helper is a limited consent/lifecycle/family gate, not the complete promotional contactability fence.
+
+VFC-02
+
+Partly confirmed
+
+No enrollment-time global-pause decision exists. The claim that paused rows all automatically fire when the pause is lifted is false; worker-paused rows remain paused until another path reactivates them.
+
+VFC-03
+
+Observation confirmed; prescribed fix rejected
+
+The generic helper does not check email deliverability, by design. Email deliverability belongs in a channel-aware decision using the selected sequence's channels.
+
+VFC-04
+
+Data conflict confirmed from supplied audits; fix ineffective
+
+The 51 cited rows have optedOutEmail=false, and the proposed status set excludes opted_out; they remain eligible under the proposed logic.
+
+VFC-05
+
+Confirmed state; risk misstated
+
+Bulk creates status='active'. The worker changes due rows to paused while global pause is true. Define reject-versus-staging semantics and enforce them centrally.
+
+VFC-06
+
+Confirmed gap; remediation incomplete
+
+The single route shares missing policy gates, but it also has RBAC, deal-only bypass, and client-overposting risks. A helper-only change does not close them.
+
+Audit-document reconciliation
+
+The documents describe three different points in time or architectural maturity:
+
+Source
+
+Relevant claim
+
+Current interpretation
+
+Master Knowledge Brief / old Master Audit Roadmap
+
+Vertical route completely bypasses canonical promotional enrollment; old SHA 2075729...
+
+Stale and partly incorrect. The SHA is not resolvable and the route now calls canEnrollContactInSequence().
+
+Enrichment/Crawler Runtime Audit and Current State Audit
+
+Vertical route has been routed through the sequence eligibility path; old full-bypass claim is outdated
+
+Correct for current code, but “fixed” means the limited helper is called—not that all channel-specific promotional policy is centralized.
+
+Data and Canonical Source Audit
+
+All promotional initiators must call one idempotent eligibility/enrollment service and persist decision snapshot/reasons
+
+This is the correct target contract and the build spec does not meet it.
+
+UI Audit
+
+Keep the Sequences surface; vertical bulk must remain behind canonical promotional eligibility; server role policy must match UI
+
+Supports a rewrite that combines policy centralization with server RBAC.
+
+Current Execution Roadmap
+
+First tasks are commercial truth, repository containment, Redis stability, identity/provenance, and crawler scheduling; P1-05 resolves consent conflicts
+
+#1521 remains a before-live-enrollment dependency, but the old roadmap's P0-1 ordering is outdated.
+
+Corrected build boundary
+
+Recommended task name
+
+Centralize policy-aware sequence enrollment and harden enrollment APIs
+
+In scope
+
+A single policy evaluator for enrollment into a specific sequence.
+
+Channel resolution from channelsAllowed plus actual step action types.
+
+Composite fail-closed suppression using all legacy fields until reconciled.
+
+Defined global-pause enrollment semantics applied to every promotional initiator.
+
+A canonical idempotent writer/service boundary with a discriminated outcome.
+
+Vertical preview/live consistency and immutable cohort identity.
+
+RBAC and strict input schemas for create/update/pause/resume/cancel enrollment endpoints.
+
+Exact audit reason codes, policy version, actor/source, and per-row outcomes.
+
+Isolated unit, integration, concurrency, worker-regression, and route authorization tests.
+
+Explicitly separate but linked
+
+Reconcile the 51 email opt-out conflicts, 199 DNC/tier conflicts, and noncanonical PEWC values through the P1-05 data-quality task.
+
+Correct the worker's channel-agnostic bad-email and first-step email gates if not included in this implementation.
+
+Inventory and classify every direct createSequenceEnrollment() caller as promotional, transactional, manual-task-only, or legacy.
+
+Continue the higher-priority repository containment, commercial record classification, raw-send gateway, Redis, and identity/provenance work.
+
+Proposed service contract
+
+The exact names are illustrative, but the ownership boundary should be explicit.
+
+type EnrollmentDecision = {
+  allowed: boolean;
+  reasonCodes: string[];
+  allowedChannels: Array<"email" | "sms" | "voice_ai" | "ringless_vm" | "manual_call">;
+  blockedChannels: Record<string, string[]>;
+  policyVersion: string;
+  contactVersion?: string;
+  sequenceVersion?: string;
+  globalPauseState: boolean;
+};
+
+evaluateSequenceEnrollmentPolicy({
+  contactId,
+  sequenceId,
+  source,
+  mode: "preview" | "enforce",
+}): Promise<EnrollmentDecision>;
+
+enrollContactInSequence({
+  contactId,
+  sequenceId,
+  actorId,
+  source,
+  idempotencyKey,
+  expectedDecisionVersion,
+}): Promise<
+  | { outcome: "created"; enrollmentId: number }
+  | { outcome: "already_enrolled"; enrollmentId: number }
+  | { outcome: "blocked"; reasonCodes: string[] }
+  | { outcome: "staged_paused"; enrollmentId: number }
+>;
+
+The service should server-derive enrollment state and persist the decision snapshot in sequence_enrollments.metadata if that is an accepted durable contract. If queryability, retention, or immutable audience replay requires dedicated columns/tables, a migration is required. Therefore “no migration” is not yet an auditable conclusion.
+
+Corrected acceptance criteria
+
+Policy and channel behavior
+
+DNC/global opt-out blocks all automated enrollment as defined by policy.
+
+doNotAutoContact blocks automated channels but does not prevent an otherwise valid manual-call-only task sequence.
+
+optedOutEmail=true or emailStatus in {'opted_out','unsubscribed'} blocks email only.
+
+emailStatus in {'bounced','invalid','unsafe','blocked'} blocks email only.
+
+SMS/voice opt-out and PEWC rules affect SMS/voice channels, not email/manual call.
+
+A mixed sequence is allowed only if the product policy permits it and at least one sequence channel is lawful/usable; blocked steps have deterministic handling.
+
+channelsAllowed, actual step types, and trigger configuration conflicts fail closed with an explicit reason.
+
+Pause semantics
+
+While global pause is true, every promotional initiator returns the same outcome.
+
+If hard-stop is selected, no runnable enrollment row is created.
+
+If staging is selected, the row is non-runnable and cannot become active merely through a client payload.
+
+Releasing global pause does not implicitly create an uncontrolled mass release; activation requires a bounded, audited ramp.
+
+Authorization and integrity
+
+Public, merchant, partner, and unauthorized agent requests receive 401/403 as appropriate.
+
+Agents, if allowed, can affect only assigned contacts and approved sequences.
+
+Manager/admin permissions are explicit.
+
+Client attempts to set status, currentStep, nextActionAt, contact/deal identity, policy metadata, or actor fields outside the request contract are rejected.
+
+Deal-only requests resolve an authorized contact or fail.
+
+Preview/run/idempotency
+
+Preview and execution consume the same policy function and candidate snapshot.
+
+Preview totals reconcile exactly: total = createdCandidate + alreadyEnrolled + blocked + missing + errors, with defined completed/re-enrollment semantics.
+
+Paused duplicates are counted as already enrolled.
+
+A null/duplicate writer result never increments queued.
+
+Replaying the same idempotency key produces no duplicate and returns the original outcome.
+
+Partial failures are checkpointed and visible; retries resume safely.
+
+HTTP and audit responses include the same stable reason-code breakdown.
+
+Observability
+
+Every bulk run has a run/cohort ID, actor, source, sequence, policy version, candidate count, outcome counts, timestamps, and status.
+
+Every per-contact decision can be reconstructed without logging sensitive contact values.
+
+Dashboards distinguish requested, eligible, created, already enrolled, staged, blocked, failed, and cancelled.
+
+Corrected test plan
+
+Mandatory test isolation
+
+Before any test runs:
+
+assert a dedicated test database/schema identifier;
+
+assert no production hostname/database marker;
+
+mock GHL, SMTP, Gmail, queue, and worker transport boundaries;
+
+prohibit global setting mutation outside the isolated test database;
+
+limit worker queries to fixture-owned enrollment IDs; and
+
+restore all state transactionally or destroy the disposable database/schema.
+
+Unit matrix
+
+Test email-only, SMS-only, voice-only, manual-task-only, and mixed sequences against:
+
+DNC;
+
+doNotAutoContact;
+
+each email status including opted_out and unsubscribed;
+
+optedOutEmail true/false conflicts;
+
+SMS opt-out;
+
+each consent tier, including noncanonical legacy spellings;
+
+missing email/phone;
+
+lifecycle and family guards; and
+
+conflicting/missing sequence channel declarations.
+
+Route integration
+
+role matrix for public/merchant/partner/agent/manager/admin;
+
+strict-body rejection and overposting attempts;
+
+contact-only and deal-only enrollment;
+
+global hard-stop or staging behavior;
+
+preview/run snapshot consistency;
+
+stable reason breakdown in response and audit;
+
+paused/active/completed/cancelled duplicate semantics; and
+
+partial-failure/retry behavior.
+
+Concurrency and idempotency
+
+concurrent duplicate enrollment;
+
+sequence status flips during enrollment;
+
+global pause flips during evaluation/write;
+
+replay of bulk job and individual idempotency key; and
+
+writer null/unique-conflict outcomes.
+
+Worker regression
+
+no email send or whole-enrollment pause for an SMS/manual-only sequence solely because email is bad;
+
+email steps are blocked for every blocking email representation;
+
+mixed-sequence blocked-step behavior is deterministic;
+
+global pause remains a final pre-send fence; and
+
+no external transport call occurs in any test.
+
+Static/release gates
+
+npm run check;
+
+focused unit/integration suite in isolated test DB;
+
+authorization coverage scan;
+
+direct enrollment-writer inventory with explicit allowlist/classification;
+
+full pre-deploy only in a safe test environment; and
+
+controlled runtime canary with all outbound pause flags true and zero external sends.
+
+Priority decision
+
+The task should be treated as:
+
+mandatory before any vertical bulk or broad promotional enrollment is enabled;
+
+not build-ready in its current form; and
+
+not a reason to displace the current higher-priority containment/foundation queue unless an operator intends to use the enrollment surfaces immediately.
+
+The current roadmap's next five tasks remain the better sequence: commercial record classification/report quarantine, repository/data exposure containment, Redis/BullMQ remediation, canonical identity/provenance intake, and crawler/enrichment scheduler unification. Canonical outbound/send authority and consent conflict reconciliation remain prerequisites before live outreach. This rewritten enrollment task should be scheduled alongside that safety work and completed before the first controlled audience is enrolled.
+
+What was not done
+
+No code was modified.
+
+No dependency was installed.
+
+No test or pre-deploy suite was run.
+
+No database query or mutation was executed.
+
+No system setting, queue, worker lock, enrollment, or deployment was changed.
+
+No backup or bulk lead-export content was inspected.
+
+Final decision
+
+Reject #1521 as written. Preserve the business goal, but replace the proposed two-file patch with a policy-aware enrollment service, route/RBAC hardening, exact preview/run behavior, and an isolated test architecture. Re-review the rewritten spec before implementation.
