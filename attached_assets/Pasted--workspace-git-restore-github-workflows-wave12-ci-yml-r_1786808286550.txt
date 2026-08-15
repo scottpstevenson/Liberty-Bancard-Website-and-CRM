@@ -1,0 +1,39 @@
+~/workspace$ git restore .github/workflows/wave12-ci.yml   # revert the workflow file
+git push                                       # push everything else
+Enumerating objects: 82, done.
+Counting objects: 100% (82/82), done.
+Delta compression using up to 8 threads
+Compressing objects: 100% (23/23), done.
+Writing objects: 100% (50/50), 63.01 KiB | 21.00 MiB/s, done.
+Total 50 (delta 31), reused 39 (delta 25), pack-reused 0 (from 0)
+remote: Resolving deltas: 100% (31/31), completed with 29 local objects.
+To https://github.com/scottpstevenson/Liberty-Bancard-Website-and-CRM.git
+ ! [remote rejected]   main -> main (refusing to allow an OAuth App to create or update workflow `.github/workflows/wave12-ci.yml` without `workflow` scope)
+error: failed to push some refs to 'https://github.com/scottpstevenson/Liberty-Bancard-Website-and-CRM.git'
+~/workspace$ git rm --cached .github/workflows/wave12-ci.yml
+git commit --amend --no-edit
+git push
+rm '.github/workflows/wave12-ci.yml'
+On branch main
+Your branch is ahead of 'origin/main' by 3 commits.
+  (use "git push" to publish your local commits)
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+    .github/
+
+No changes
+You asked to amend the most recent commit, but doing so would make
+it empty. You can repeat your command with --allow-empty, or you can
+remove the commit entirely with "git reset HEAD^".
+Enumerating objects: 82, done.
+Counting objects: 100% (82/82), done.
+Delta compression using up to 8 threads
+Compressing objects: 100% (23/23), done.
+Writing objects: 100% (50/50), 63.01 KiB | 63.01 MiB/s, done.
+Total 50 (delta 31), reused 39 (delta 25), pack-reused 0 (from 0)
+remote: Resolving deltas: 100% (31/31), completed with 29 local objects.
+To https://github.com/scottpstevenson/Liberty-Bancard-Website-and-CRM.git
+ ! [remote rejected]   main -> main (refusing to allow an OAuth App to create or update workflow `.github/workflows/wave12-ci.yml` without `workflow` scope)
+error: failed to push some refs to 'https://github.com/scottpstevenson/Liberty-Bancard-Website-and-CRM.git'
+~/workspace$ 
