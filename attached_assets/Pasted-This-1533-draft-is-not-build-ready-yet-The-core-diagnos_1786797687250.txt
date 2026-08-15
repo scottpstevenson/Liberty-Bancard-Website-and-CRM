@@ -1,0 +1,39 @@
+This #1533 draft is not build-ready yet. The core diagnosis is correct, but the proposed implementation would leave the existing 155K+ `active` population sendable and misses additional fail-open paths.
+
+Critical corrections:
+
+1. Use an allow-list for automated promotional email: only `emailStatus === "valid"` may send. `active`, `unvalidated`, `unknown`, `unverified`, null, and malformed values must not pass automatically.
+
+2. Do not permanently skip a sequence step when ZeroBounce is temporarily unavailable. Budget exhaustion, credit-claim failure, timeout, and provider failure should defer the same step with bounded retry/backoff. A bare `continue` currently does not advance the enrollment anyway.
+
+3. Cover both ZeroBounce implementations in `campaign-engine.ts`:
+
+   * `passesZeroBounceCheck()` explicitly fails open.
+   * The legacy prospect send path also fails open.
+
+4. `verifyEmail()` normally catches provider errors and returns `unknown`; it does not throw. Therefore, merely changing the sequence worker’s `catch` block will not close the main failure path.
+
+5. Move invalid-status blocking before audit persistence. Currently an audit-write failure after an `unsafe` result can bypass the subsequent block and continue toward sending.
+
+6. Add omitted audience surfaces:
+
+   * `countContactsForCampaignAudience()`
+   * readiness-breakdown SQL in `server/storage/contacts.ts`
+   * winback outreach eligibility/direct SMTP path
+   * campaign queue-time and send-time validation
+   * any direct caller relying solely on `evaluateContactability()`
+
+7. Correct VFC-03: current contactability Step 9 blocks only `bounced` and `invalid`, not `unsafe` or `blocked`.
+
+8. Correct the test count: there are 34 existing cases; after adding one, the expected suite contains at least 35.
+
+9. Replace the smoke assertion that legacy `active` is accepted. Prove instead:
+
+   * `active` and `unvalidated` trigger validation;
+   * a mocked `valid` result permits progression;
+   * budget/provider/unknown results cannot send;
+   * no real ZeroBounce or email provider is called.
+
+10. The `155,660 / 99.7%` population claim requires runtime recapture. Static documents contain a prior snapshot of 156,382 `active` contacts, so the exact count should not be an immutable acceptance criterion.
+
+Most importantly, the current “no backfill and keep `active` passable” approach does not resolve the stated production risk. Existing `active` records may remain unchanged in storage, but automated promotional sends must treat them as unvalidated until ZeroBounce returns `valid`. Keep outbound paused while the existing cohort is validated operationally.

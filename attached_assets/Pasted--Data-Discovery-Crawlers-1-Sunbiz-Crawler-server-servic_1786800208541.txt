@@ -1,0 +1,105 @@
+🔍 Data Discovery / Crawlers
+1. Sunbiz Crawler (server/services/sunbiz-enrichment.ts)
+The biggest source of raw contacts — 1.9M Florida business registry entities. For each entity it:
+
+Scrapes the Sunbiz detail page for officers and registered agents
+Hits Serper (Google Search API) for website, email, phone
+Scrapes the business website + contact/about/team pages
+Falls back to Facebook → Yelp → YellowPages → LinkedIn → BBB
+Runs a DBPR license lookup
+Does a final Serper email discovery pass
+Deduplicates emails/phones found across all sources
+Runs AI classification to pick the best email/phone from everything found
+Auto-converts hot/warm enriched entities into prospects if they have contact details
+2. SERPER Web Search (server/services/serper.ts, server/services/sdr/serper-enrichment.ts)
+Used in three places:
+
+Inside Sunbiz enrichment (business + contact + email search passes)
+In general prospect enrichment (if website/email/phone is missing)
+As a standalone SDR enrichment: hits Google Places for website, phone, address, rating, review count; then searches for email patterns on the domain
+3. LinkedIn Enrichment (server/services/linkedin-enrichment.ts)
+A separate enrichment module — UI exists at ContactDetail → LinkedinEnrichmentSection. Writes back to the contact record.
+
+4. SDR Sub-Enrichment Modules
+Four specialized crawlers under server/services/sdr/:
+
+rdap-enrichment.ts — domain registration / WHOIS data
+jsonld-enrichment.ts — structured data extraction from website pages (JSON-LD schema)
+contactpage-enrichment.ts — dedicated scraper for /contact pages
+re-enrichment.ts — re-runs enrichment when data goes stale or is incomplete
+5. Optional Third-Party Providers
+Configured but not always active: Outscraper, Apify, Apollo — imported via integration-validator.ts. CSV imports also normalize data from these formats.
+
+🤖 AI Enrichment
+6. GPT-4o-mini Business Analyzer (server/services/enrichment.ts:65-124 — enrichWithAI())
+Takes company name, email, phone, location, current vertical, and website text → asks GPT to return:
+
+Canonical vertical classification
+Revenue range estimate
+Business description
+Pain-point tags
+Hot / Warm / Cold / Unqualified score + reason
+7. AI Website Quality Scorer (server/services/sdr/scoring.ts:625-659 — aiAssessWebsiteQuality())
+GPT-4o-mini rates the business website on maturity and quality — used as a signal in the SDR scoring pipeline.
+
+8. Decision-Maker Confidence (server/services/enrichment.ts:126-147)
+Rule-based, not AI. Looks at the contact's job title keywords and assigns confidence levels: 95 / 80 / 60 / 40 / 0. Written to isDecisionMaker and decisionMakerConfidence columns.
+
+9. AI Lead Segmentation (server/routes/lead-ops.ts:193-305)
+Admin-triggered. OpenAI analyzes the current lead pool and returns segment recommendations — accessible from the Lead Ops Center.
+
+10. NBA Explanation (server/services/nba-service.ts:402-431)
+GPT writes a 1–2 sentence explanation after the NBA action is already determined by rules. Does not drive the score itself.
+
+📊 Scoring Engines
+11. Data Readiness Score (server/services/contact-readiness.ts)
+Pure field-completeness score. Max 100.
+
+Signal	Points
+Valid non-placeholder email	25
+Real company name	15
+Canonical vertical classification	15
+Phone present + valid type	15
+First name	10
+City	5
+2-letter state	5
+Valid website	5
+Last name	5
+Grades: A ≥80 / B ≥60 / C ≥40 / D ≥20 / F. Written to dataReadinessScore, dataReadinessGrade, readinessBreakdown. Does not include consent, behavior, or lead intent — pure data quality only. Recomputed in a BullMQ queue via enqueueReadinessRecalculation().
+
+12. Lead Score (server/services/lead-scoring.ts)
+Behavioral + commercial intent score. Max 100.
+
+Component	Max
+Revenue potential (from deal/contact fields)	30
+Switchability (how likely to switch processors)	25
+Underwriting confidence (deal quality)	25
+Engagement (email replies, call connections, sequence membership)	20
+Quiz bonus (if they completed a savings quiz)	20
+Offer confidence bonus	bonus
+Written to leadScore, revPotentialScore, switchabilityScore, uwConfidenceScore, engagementScore, scoreBreakdown. Also writes deal priority/tier. Recomputed via the same BullMQ queue worker.
+
+13. Sunbiz Hot/Warm/Cold Score (AI-assigned)
+Different from lead score — assigned by enrichWithAI() during Sunbiz enrichment. Stored on the Sunbiz entity and written back to the linked contact/prospect during writebackEnrichmentToLinkedRecords(). Controls auto-conversion eligibility.
+
+14. Churn Score (server/services/churn-score.ts)
+For existing merchants only (post-activation). Six signal families:
+
+Signal	Max Points
+Processing volume decline (10/25/50%)	30
+Chargeback ratio / trend	25
+Support ticket velocity	20
+NPS score	25
+Merchant portal inactivity	20
+No reply to outreach sequences	15
+Weighted, normalized 0–100. Tiers: Critical >85 / High >70 / Medium ≥40 / Low. Fires openSaveCaseIfNeeded() automatically at High/Critical.
+
+🔄 Contactability / Send-Gate Scoring
+15. Contactability Fence (server/services/contactability.ts)
+Not a score — a pass/fail gate evaluated per channel (email, SMS, voice_ai, manual_call, ringless_vm) before every send. Checks: consent tier, lifecycle state, DNC flags, email status, phone type, state time-of-day, daily rate limits, business hours. Returns blocked/allowed + reason. Writes enforcement audit logs for automated channels.
+
+16. ZeroBounce Email Status (server/services/sdr/zerobounce.ts)
+Writes email_status → valid / unsafe / unverified / unknown. The fix in #1533 makes unvalidated the default for new contacts. This is what #1513 batch-sweeps across the existing population.
+
+🔁 Lifecycle State Machine (server/services/LifecycleService.ts)
+27 states (cold_lead → engaged → converted → churned etc.). Drives NBA actions, sequence targeting, and contactability decisions. Transitions are event-driven (form submission, email reply, call connection, deal creation, etc.) — not a score but positions each contact on the pipeline board.
