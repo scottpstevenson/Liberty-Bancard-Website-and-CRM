@@ -3271,7 +3271,22 @@ export function registerAdminRoutes(app: Express) {
       }
 
       // ── Remove global outbound pause ────────────────────────────────────────
-      await storage.setSystemSetting("outboundGlobalPaused", false);
+      // Route through OutboundControlService so the canonical control table,
+      // audit log, epoch, and legacy system_settings are all updated atomically.
+      {
+        const { applyPauseMutation } = await import("../services/outbound-control-service");
+        await applyPauseMutation({
+          outboundGlobalPaused: false,
+          reason: "Cohort launch initiated — global pause lifted for outbound enrollment",
+          actor: (req as any).user?.email ?? "cohort-launch",
+          idempotencyKey: `cohort-launch-${Date.now()}`,
+        }).catch((mutErr: any) => {
+          // Log but don't block the cohort launch audit entry; canonical
+          // system_settings was NOT written; callers must check control table.
+          console.error("[CohortLaunch] applyPauseMutation failed:", mutErr?.message);
+          throw mutErr; // re-throw so the response shows a 500
+        });
+      }
 
       // ── Audit ───────────────────────────────────────────────────────────────
       await storage.createAuditLog({

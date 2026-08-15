@@ -15,6 +15,7 @@
  *   GOOGLE_REDIRECT_URI     — (optional) Override; default is APP_URL + /api/admin/gmail-oauth/callback
  */
 
+import crypto from "crypto";
 import { google } from "googleapis";
 import { storage } from "../storage";
 import { resolvePolicy, assertNotProhibitedSync } from "./sender-policy";
@@ -398,6 +399,38 @@ export async function sendGmailEmail(params: {
     return { success: false, error: prohibitErr.message };
   }
 
+  // ── Unavoidable pause authority gate (transport boundary) ──────────────────
+  // Required ordering: authorize → await registerInflight → recheckEpoch → I/O
+  let _pauseInflightToken: string | undefined;
+  let _pauseEpoch: bigint | undefined;
+  try {
+    const { authorize, recheckEpoch } = await import("./outbound-pause-authority");
+    const { registerInflight, deregisterInflight } = await import("./outbound-control-service");
+    const decision = await authorize({});
+    if (!decision.allowed) {
+      console.warn(`[Gmail OAuth] Blocked by pause authority: ${decision.reasonCode} (to=${params.to})`);
+      return { success: false, error: `Outbound paused: ${decision.reasonCode}` };
+    }
+    const tokenId = crypto.randomUUID();
+    await registerInflight(tokenId);
+    _pauseInflightToken = tokenId;
+    _pauseEpoch = decision.epoch;
+    const epochOk = await recheckEpoch(decision.epoch);
+    if (!epochOk) {
+      deregisterInflight(tokenId);
+      _pauseInflightToken = undefined;
+      return { success: false, error: "Outbound paused: epoch changed before Gmail send" };
+    }
+    // Token held through the gmail.users.messages.send call below
+  } catch (gateErr: any) {
+    if (_pauseInflightToken) {
+      const { deregisterInflight } = await import("./outbound-control-service");
+      deregisterInflight(_pauseInflightToken);
+    }
+    console.error(`[Gmail OAuth] Pause authority gate error — fail closed: ${gateErr.message}`);
+    return { success: false, error: `Pause gate error: ${gateErr.message}` };
+  }
+
   try {
     const gmail = google.gmail({ version: "v1", auth: client });
     const raw   = buildRawEmail({
@@ -409,6 +442,13 @@ export async function sendGmailEmail(params: {
       unsubscribeUrl:    params.unsubscribeUrl,
       unsubscribeMailto: params.unsubscribeMailto,
     });
+
+    // Final epoch recheck immediately before network I/O (post-registration)
+    const { recheckEpochFromDB } = await import("./outbound-pause-authority");
+    const stillOk = await recheckEpochFromDB(_pauseEpoch!);
+    if (!stillOk) {
+      return { success: false, error: "Outbound paused: epoch invalidated immediately before Gmail send" };
+    }
 
     const resp = await gmail.users.messages.send({
       userId: "me",
@@ -423,5 +463,10 @@ export async function sendGmailEmail(params: {
     const msg = err?.response?.data?.error?.message || err.message || String(err);
     console.error(`[Gmail OAuth] Failed to send to ${params.to}:`, msg);
     return { success: false, error: msg };
+  } finally {
+    if (_pauseInflightToken) {
+      const { deregisterInflight } = await import("./outbound-control-service");
+      deregisterInflight(_pauseInflightToken);
+    }
   }
 }

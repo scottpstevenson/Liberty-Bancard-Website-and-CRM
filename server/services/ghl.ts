@@ -33,25 +33,46 @@ function getConfig(): GhlConfig | null {
 // indefinitely — exhausting the lock duration and causing "could not renew lock".
 const GHL_REQUEST_TIMEOUT_MS = parseInt(process.env.GHL_REQUEST_TIMEOUT_MS ?? "20000", 10);
 
-async function ghlFetch(path: string, options: RequestInit = {}, retries = 3): Promise<any> {
+// Options type that carries the authorized pause epoch through retry loops.
+// Strip `pauseEpoch` before passing to the native fetch() call.
+type GhlFetchOptions = RequestInit & { pauseEpoch?: bigint };
+
+async function ghlFetch(path: string, options: GhlFetchOptions = {}, retries = 3): Promise<any> {
   const config = getConfig();
   if (!config) throw new Error("GHL not configured. Set GHL_API_KEY and GHL_LOCATION_ID.");
+
+  // Extract pause epoch before building the fetch-compatible options
+  const { pauseEpoch, ...fetchOptions } = options;
 
   const url = `${GHL_API_BASE}${path}`;
   const headers: Record<string, string> = {
     "Authorization": `Bearer ${config.apiKey}`,
     "Content-Type": "application/json",
     "Version": "2021-07-28",
-    ...(options.headers as Record<string, string> || {}),
+    ...(fetchOptions.headers as Record<string, string> || {}),
   };
 
   for (let attempt = 0; attempt < retries; attempt++) {
+    // ── Per-attempt cross-process epoch recheck ────────────────────────────
+    // Called at the TOP of every iteration (including after backoff waits) so
+    // a pause committed in any process blocks subsequent retry attempts even
+    // when the initial authorize() + recheckEpoch() already passed.
+    if (pauseEpoch !== undefined) {
+      const { recheckEpochFromDB } = await import("./outbound-pause-authority");
+      const epochOk = await recheckEpochFromDB(pauseEpoch);
+      if (!epochOk) {
+        throw new Error(
+          `[GHL] Outbound blocked: pause was activated after authorization ` +
+          `(epoch ${pauseEpoch} no longer current). Aborting retry.`,
+        );
+      }
+    }
     // Fresh AbortController per attempt so a previous timeout signal doesn't
     // leak into the next retry.
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), GHL_REQUEST_TIMEOUT_MS);
     try {
-      const response = await fetch(url, { ...options, headers, signal: controller.signal });
+      const response = await fetch(url, { ...fetchOptions, headers, signal: controller.signal });
       clearTimeout(timeoutId);
 
       if (response.status === 429) {
@@ -617,6 +638,52 @@ export async function sendGhlEmail(params: {
    */
   skipActivityLog?: boolean;
 }): Promise<{ success: boolean; messageId?: string; error?: string }> {
+  // ── Unavoidable pause authority gate (transport boundary) ────────────────
+  // Every provider send must clear the canonical pause authority BEFORE any
+  // network I/O. This is the final enforcement boundary — caller-level checks
+  // are defense-in-depth; this gate cannot be bypassed.
+  try {
+    const { authorize, recheckEpoch } = await import("./outbound-pause-authority");
+    const { registerInflight, deregisterInflight } = await import("./outbound-control-service");
+    const decision = await authorize({});
+    if (!decision.allowed) {
+      console.warn(
+        `[GHL:sendGhlEmail] Blocked by pause authority: ${decision.reasonCode} ` +
+        `(contactId=${params.contactId}, subject="${params.subject}")`,
+      );
+      return { success: false, error: `Outbound paused: ${decision.reasonCode}` };
+    }
+    // Register in-flight token so pause barrier can drain us
+    const token = crypto.randomUUID();
+    await registerInflight(token);
+    try {
+      // Final epoch recheck immediately before network I/O
+      const epochOk = await recheckEpoch(decision.epoch);
+      if (!epochOk) {
+        return { success: false, error: "Outbound paused: epoch changed before send (pause activated)" };
+      }
+      return await _sendGhlEmailInner(params, decision.epoch);
+    } finally {
+      deregisterInflight(token);
+    }
+  } catch (gateErr: any) {
+    // Gate itself failed (DB down, module error) — fail closed
+    console.error(`[GHL:sendGhlEmail] Pause authority gate error — fail closed: ${gateErr.message}`);
+    return { success: false, error: `Pause gate error: ${gateErr.message}` };
+  }
+}
+
+async function _sendGhlEmailInner(params: {
+  contactId: number;
+  dealId?: number;
+  subject: string;
+  body: string;
+  templateId?: number;
+  fromEmail?: string;
+  fromName?: string;
+  replyTo?: string;
+  skipActivityLog?: boolean;
+}, _pauseEpoch: bigint): Promise<{ success: boolean; messageId?: string; error?: string }> {
   try {
     const contact = await storage.getContact(params.contactId);
     if (!contact) throw new Error("Contact not found");
@@ -657,6 +724,7 @@ export async function sendGhlEmail(params: {
     const result = await ghlFetch("/conversations/messages", {
       method: "POST",
       body: JSON.stringify(emailPayload),
+      pauseEpoch: _pauseEpoch,
     });
 
     if (result?.messageId) trackOutboundMessageId(result.messageId);
@@ -707,6 +775,43 @@ export async function sendGhlEmailForMerchant(params: {
    */
   contactId?: number;
 }): Promise<{ success: boolean; error?: string }> {
+  // ── Unavoidable pause authority gate (transport boundary) ────────────────
+  try {
+    const { authorize, recheckEpoch } = await import("./outbound-pause-authority");
+    const { registerInflight, deregisterInflight } = await import("./outbound-control-service");
+    const decision = await authorize({});
+    if (!decision.allowed) {
+      console.warn(
+        `[GHL:sendGhlEmailForMerchant] Blocked by pause authority: ${decision.reasonCode} ` +
+        `(email=${params.email}, subject="${params.subject}")`,
+      );
+      return { success: false, error: `Outbound paused: ${decision.reasonCode}` };
+    }
+    const token = crypto.randomUUID();
+    await registerInflight(token);
+    try {
+      const epochOk = await recheckEpoch(decision.epoch);
+      if (!epochOk) {
+        return { success: false, error: "Outbound paused: epoch changed before send" };
+      }
+      return await _sendGhlEmailForMerchantInner(params, decision.epoch);
+    } finally {
+      deregisterInflight(token);
+    }
+  } catch (gateErr: any) {
+    console.error(`[GHL:sendGhlEmailForMerchant] Pause gate error — fail closed: ${gateErr.message}`);
+    return { success: false, error: `Pause gate error: ${gateErr.message}` };
+  }
+}
+
+async function _sendGhlEmailForMerchantInner(params: {
+  email: string;
+  subject: string;
+  body: string;
+  fromEmail?: string;
+  fromName?: string;
+  contactId?: number;
+}, _pauseEpoch: bigint): Promise<{ success: boolean; error?: string }> {
   try {
     const config = getConfig();
     if (!config) throw new Error("GHL not configured");
@@ -730,6 +835,7 @@ export async function sendGhlEmailForMerchant(params: {
     const result = await ghlFetch("/conversations/messages", {
       method: "POST",
       body: JSON.stringify(emailPayload),
+      pauseEpoch: _pauseEpoch,
     });
 
     if (result?.messageId) trackOutboundMessageId(result.messageId);
@@ -749,6 +855,41 @@ export async function sendGhlSms(params: {
   body: string;
   templateId?: number;
 }): Promise<{ success: boolean; messageId?: string; error?: string }> {
+  // ── Unavoidable pause authority gate (transport boundary) ────────────────
+  try {
+    const { authorize, recheckEpoch } = await import("./outbound-pause-authority");
+    const { registerInflight, deregisterInflight } = await import("./outbound-control-service");
+    const decision = await authorize({});
+    if (!decision.allowed) {
+      console.warn(
+        `[GHL:sendGhlSms] Blocked by pause authority: ${decision.reasonCode} ` +
+        `(contactId=${params.contactId})`,
+      );
+      return { success: false, error: `Outbound paused: ${decision.reasonCode}` };
+    }
+    const token = crypto.randomUUID();
+    await registerInflight(token);
+    try {
+      const epochOk = await recheckEpoch(decision.epoch);
+      if (!epochOk) {
+        return { success: false, error: "Outbound paused: epoch changed before send" };
+      }
+      return await _sendGhlSmsInner(params, decision.epoch);
+    } finally {
+      deregisterInflight(token);
+    }
+  } catch (gateErr: any) {
+    console.error(`[GHL:sendGhlSms] Pause gate error — fail closed: ${gateErr.message}`);
+    return { success: false, error: `Pause gate error: ${gateErr.message}` };
+  }
+}
+
+async function _sendGhlSmsInner(params: {
+  contactId: number;
+  dealId?: number;
+  body: string;
+  templateId?: number;
+}, _pauseEpoch: bigint): Promise<{ success: boolean; messageId?: string; error?: string }> {
   try {
     const contact = await storage.getContact(params.contactId);
     if (!contact) throw new Error("Contact not found");
@@ -769,6 +910,7 @@ export async function sendGhlSms(params: {
     const result = await ghlFetch("/conversations/messages", {
       method: "POST",
       body: JSON.stringify(smsPayload),
+      pauseEpoch: _pauseEpoch,
     });
 
     if (result?.messageId) trackOutboundMessageId(result.messageId);
@@ -1539,43 +1681,64 @@ export async function sendDocumentForEsign(opts: {
   recipientEmail: string;
   applicationId: number;
 }): Promise<{ success: boolean; documentId?: string; signingUrl?: string; error?: string }> {
+  // ── Unavoidable pause authority gate (transport boundary) ──────────────────
+  // Document send delivers a recipient-facing email via GHL — must clear the
+  // canonical pause authority before any network I/O.
   try {
-    const config = getConfig();
-    if (!config) {
-      return { success: false, error: "GHL not configured. Set GHL_API_KEY and GHL_LOCATION_ID." };
+    const { authorize, recheckEpoch } = await import("./outbound-pause-authority");
+    const { registerInflight, deregisterInflight } = await import("./outbound-control-service");
+    const decision = await authorize({});
+    if (!decision.allowed) {
+      console.warn(`[GHL E-Sign] Blocked by pause authority: ${decision.reasonCode}`);
+      return { success: false, error: `Outbound paused: ${decision.reasonCode}` };
     }
+    const token = crypto.randomUUID();
+    await registerInflight(token);
+    try {
+      const epochOk = await recheckEpoch(decision.epoch);
+      if (!epochOk) {
+        return { success: false, error: "Outbound paused: epoch changed before document send" };
+      }
+      const config = getConfig();
+      if (!config) {
+        return { success: false, error: "GHL not configured. Set GHL_API_KEY and GHL_LOCATION_ID." };
+      }
 
-    const payload: Record<string, any> = {
-      locationId: config.locationId,
-      templateId: opts.documentTemplateId,
-      name: `Merchant Processing Agreement - ${opts.recipientName}`,
-      recipients: [
-        {
-          name: opts.recipientName,
-          email: opts.recipientEmail,
-          role: "signer",
+      const payload: Record<string, any> = {
+        locationId: config.locationId,
+        templateId: opts.documentTemplateId,
+        name: `Merchant Processing Agreement - ${opts.recipientName}`,
+        recipients: [
+          {
+            name: opts.recipientName,
+            email: opts.recipientEmail,
+            role: "signer",
+          },
+        ],
+        emailSettings: {
+          subject: "Liberty Bancard - Merchant Processing Agreement for E-Signature",
+          fromName: "Liberty Bancard",
         },
-      ],
-      emailSettings: {
-        subject: "Liberty Bancard - Merchant Processing Agreement for E-Signature",
-        fromName: "Liberty Bancard",
-      },
-    };
+      };
 
-    if (opts.contactId) {
-      payload.contactId = opts.contactId;
+      if (opts.contactId) {
+        payload.contactId = opts.contactId;
+      }
+
+      const result = await ghlFetch("/documents/", {
+        method: "POST",
+        body: JSON.stringify(payload),
+        pauseEpoch: decision.epoch,
+      });
+
+      return {
+        success: true,
+        documentId: result?.id || result?.documentId,
+        signingUrl: result?.signingUrl || result?.publicUrl || null,
+      };
+    } finally {
+      deregisterInflight(token);
     }
-
-    const result = await ghlFetch("/documents/", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    });
-
-    return {
-      success: true,
-      documentId: result?.id || result?.documentId,
-      signingUrl: result?.signingUrl || result?.publicUrl || null,
-    };
   } catch (err: any) {
     console.error("[GHL E-Sign] Error sending document:", err.message);
     return { success: false, error: err.message };

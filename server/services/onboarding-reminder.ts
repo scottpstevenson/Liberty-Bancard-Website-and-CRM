@@ -13,10 +13,11 @@ export async function runOnboardingReminderTick(): Promise<{ processed: number; 
   let reminded = 0;
   let errors = 0;
 
-  // ── Global-pause gate ────────────────────────────────────────────────────
-  const globalPausedRaw = await storage.getSystemSetting("outboundGlobalPaused").catch(() => null);
-  if (globalPausedRaw === true || globalPausedRaw === "true") {
-    console.log("[OnboardingReminder] outboundGlobalPaused is set — skipping entire run");
+  // ── Global-pause gate — canonical authority with fail-closed semantics ──
+  const { authorize: pauseAuthorize } = await import("./outbound-pause-authority");
+  const pauseDecision = await pauseAuthorize({}).catch(() => ({ allowed: false }));
+  if (!pauseDecision.allowed) {
+    console.log("[OnboardingReminder] Global outbound pause active — skipping entire run");
     return { processed, reminded, errors };
   }
 
@@ -112,7 +113,7 @@ export async function runOnboardingReminderTick(): Promise<{ processed: number; 
               {
                 // Full compliance fence — onboarding reminders respect DNC and global pause
                 skipContactabilityCheck: false,
-                skipGlobalPauseCheck: false,
+                // pauseExceptionKey is intentionally absent — standard automated send
               },
             );
           } catch (orchErr: any) {

@@ -36,50 +36,82 @@ export async function runContentSchedulerTick(): Promise<{ blogsPublished: numbe
         // can copy/paste manually from /dashboard/social.
         const enableAutoPublish = process.env.LINKEDIN_AUTO_PUBLISH === "true";
         if (enableAutoPublish && post.platform === "linkedin") {
-          // LinkedIn UGC Posts API (#198) — requires LINKEDIN_ACCESS_TOKEN and LINKEDIN_AUTHOR_URN
+          // LinkedIn UGC Posts API — requires LINKEDIN_ACCESS_TOKEN and LINKEDIN_AUTHOR_URN
           const token = process.env.LINKEDIN_ACCESS_TOKEN;
           const authorUrn = process.env.LINKEDIN_AUTHOR_URN; // e.g. "urn:li:organization:123456"
           if (!token || !authorUrn) {
             console.warn(`[ContentScheduler] LinkedIn auto-publish skipped — LINKEDIN_ACCESS_TOKEN or LINKEDIN_AUTHOR_URN not set`);
             await storage.updateSocialPost(post.id, { status: "ready_to_publish" });
           } else {
+            // ── Outbound pause authority gate ─────────────────────────────────
+            // LinkedIn publication is an external outbound action — must clear
+            // the canonical pause authority before any network I/O.
+            let _inflightToken: string | undefined;
             try {
-              const payload = {
-                author: authorUrn,
-                lifecycleState: "PUBLISHED",
-                specificContent: {
-                  "com.linkedin.ugc.ShareContent": {
-                    shareCommentary: { text: (post as any).content ?? (post as any).text ?? "" },
-                    shareMediaCategory: "NONE",
-                  },
-                },
-                visibility: {
-                  "com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC",
-                },
-              };
-              const liRes = await fetch("https://api.linkedin.com/v2/ugcPosts", {
-                method: "POST",
-                headers: {
-                  "Authorization": `Bearer ${token}`,
-                  "Content-Type": "application/json",
-                  "X-Restli-Protocol-Version": "2.0.0",
-                },
-                body: JSON.stringify(payload),
-              });
-              if (!liRes.ok) {
-                const errText = await liRes.text();
-                throw new Error(`LinkedIn API ${liRes.status}: ${errText}`);
+              const { authorize, recheckEpoch } = await import("./outbound-pause-authority");
+              const { registerInflight, deregisterInflight } = await import("./outbound-control-service");
+              const decision = await authorize({});
+              if (!decision.allowed) {
+                console.warn(`[ContentScheduler] LinkedIn auto-publish blocked by pause authority: ${decision.reasonCode}`);
+                await storage.updateSocialPost(post.id, { status: "ready_to_publish" });
+              } else {
+                const tokenId = (await import("crypto")).randomUUID();
+                await registerInflight(tokenId);
+                _inflightToken = tokenId;
+                const epochOk = await recheckEpoch(decision.epoch);
+                if (!epochOk) {
+                  console.warn(`[ContentScheduler] LinkedIn auto-publish epoch check failed — pause activated mid-flight`);
+                  await storage.updateSocialPost(post.id, { status: "ready_to_publish" });
+                } else {
+                  try {
+                    const payload = {
+                      author: authorUrn,
+                      lifecycleState: "PUBLISHED",
+                      specificContent: {
+                        "com.linkedin.ugc.ShareContent": {
+                          shareCommentary: { text: (post as any).content ?? (post as any).text ?? "" },
+                          shareMediaCategory: "NONE",
+                        },
+                      },
+                      visibility: {
+                        "com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC",
+                      },
+                    };
+                    const liRes = await fetch("https://api.linkedin.com/v2/ugcPosts", {
+                      method: "POST",
+                      headers: {
+                        "Authorization": `Bearer ${token}`,
+                        "Content-Type": "application/json",
+                        "X-Restli-Protocol-Version": "2.0.0",
+                      },
+                      body: JSON.stringify(payload),
+                    });
+                    if (!liRes.ok) {
+                      const errText = await liRes.text();
+                      throw new Error(`LinkedIn API ${liRes.status}: ${errText}`);
+                    }
+                    const liJson = await liRes.json() as any;
+                    const externalId: string | undefined = liJson?.id ?? liJson?.value?.id;
+                    await storage.updateSocialPost(post.id, {
+                      status: "published",
+                      publishedAt: new Date(),
+                      ...(externalId ? { externalPostId: externalId } : {}),
+                    });
+                    console.log(`[ContentScheduler] LinkedIn post published for #${post.id}${externalId ? ` — id: ${externalId}` : ""}`);
+                  } catch (liErr: any) {
+                    console.error(`[ContentScheduler] LinkedIn publish failed for #${post.id}:`, liErr.message);
+                    await storage.updateSocialPost(post.id, { status: "ready_to_publish" });
+                  }
+                }
+                deregisterInflight(_inflightToken);
+                _inflightToken = undefined;
               }
-              const liJson = await liRes.json() as any;
-              const externalId: string | undefined = liJson?.id ?? liJson?.value?.id;
-              await storage.updateSocialPost(post.id, {
-                status: "published",
-                publishedAt: new Date(),
-                ...(externalId ? { externalPostId: externalId } : {}),
-              });
-              console.log(`[ContentScheduler] LinkedIn post published for #${post.id}${externalId ? ` — id: ${externalId}` : ""}`);
-            } catch (liErr: any) {
-              console.error(`[ContentScheduler] LinkedIn publish failed for #${post.id}:`, liErr.message);
+            } catch (gateErr: any) {
+              if (_inflightToken) {
+                const { deregisterInflight } = await import("./outbound-control-service");
+                deregisterInflight(_inflightToken);
+              }
+              console.error(`[ContentScheduler] Pause gate error — marking ready_to_publish: ${gateErr.message}`);
               await storage.updateSocialPost(post.id, { status: "ready_to_publish" });
             }
           }

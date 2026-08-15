@@ -4,6 +4,7 @@
  * Unified inbound message feed with AI classification, reply drafting,
  * and gated action dispatch.
  */
+import crypto from "crypto";
 import type { Express } from "express";
 import { isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
@@ -723,12 +724,48 @@ export function registerInboxRoutes(app: Express) {
           }
         }
 
+        // ── Pause authority gate (transport boundary) ─────────────────────────
+        // Required ordering (prevents pause-activation race):
+        //   1. authorize()         — check current state
+        //   2. registerInflight()  — hold the token so the activation barrier
+        //                            counts us; drain waits for us before pausing
+        //   3. recheckEpoch()      — verify epoch unchanged after we hold the token
+        //   4. ghlFetch()          — network I/O (the actual send)
+        //   5. deregisterInflight() — release in finally
+        //
+        // Placing recheckEpoch() AFTER registerInflight() closes the race window
+        // where a pause could commit between check and hold with no token visible.
         let ghlMessageId: string | null = null;
         try {
-          const sendResult = await ghlFetch("/conversations/messages", {
-            method: "POST",
-            body: JSON.stringify(ghlPayload),
-          });
+          const { authorize, recheckEpoch } = await import("../services/outbound-pause-authority");
+          const { registerInflight, deregisterInflight } = await import("../services/outbound-control-service");
+
+          // Step 1: authorize
+          const pauseDecision = await authorize({});
+          if (!pauseDecision.allowed) {
+            return res.status(503).json({ message: `Outbound paused: ${pauseDecision.reasonCode}` });
+          }
+
+          // Step 2: register in-flight BEFORE epoch recheck
+          const inflightToken = crypto.randomUUID();
+          await registerInflight(inflightToken);
+          let sendResult: any;
+          try {
+            // Step 3: epoch recheck after registration (drain sees our token now)
+            const epochOk = await recheckEpoch(pauseDecision.epoch);
+            if (!epochOk) {
+              return res.status(503).json({ message: "Outbound paused: epoch changed before send" });
+            }
+
+            // Step 4: network I/O
+            sendResult = await ghlFetch("/conversations/messages", {
+              method: "POST",
+              body: JSON.stringify(ghlPayload),
+            });
+          } finally {
+            // Step 5: always deregister, even on error or early return
+            deregisterInflight(inflightToken);
+          }
           ghlMessageId = sendResult?.messageId || sendResult?.id || null;
         } catch (sendErr: any) {
           // Delivery failed — write failure audit and return error (fail-fast)
@@ -1070,10 +1107,8 @@ export function registerInboxRoutes(app: Express) {
           to: contact.email,
           subject: subject || `Re: Your inquiry`,
           html: replyBody.replace(/\n/g, "<br>"),
-          text: replyBody,
-          category: "transactional_merchant",
+          category: "support",
           contactId,
-          ...(inReplyTo && { headers: { "In-Reply-To": inReplyTo, References: inReplyTo } }),
         });
       } catch (smtpErr: any) {
         deliveryOutcome = "failed";

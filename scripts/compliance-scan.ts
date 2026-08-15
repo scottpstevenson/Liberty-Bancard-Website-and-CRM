@@ -1099,6 +1099,194 @@ function walkDir(dir: string): Finding[] {
   return results;
 }
 
+// ── Architectural Boundary Check (Task #1531) ─────────────────────────────────
+//
+// Fails when any production module:
+//   1. Uses `skipGlobalPauseCheck` (removed; must use pauseExceptionKey or
+//      route through the versioned exception registry instead)
+//   2. Imports a raw transport primitive outside an approved adapter boundary
+//      without also importing from outbound-pause-authority (requires AuthorizedSendDecision)
+//
+// Transport adapter files are exempt (they ARE the boundary).
+
+const BOUNDARY_ADAPTER_FILES = new Set([
+  "server/services/ghl.ts",
+  "server/services/smtp-email.ts",
+  "server/services/gmail-oauth.ts",           // Gmail API transport boundary
+  "server/services/sdr/ghl-client.ts",
+  "server/services/ghl-workflow-enrollment.ts",
+  "server/services/transports/ghl-email-transport.ts",
+  "server/services/transports/ghl-sms-transport.ts",
+  "server/services/transports/ghl-rvm-transport.ts",
+  "server/services/transports/index.ts",
+  "server/services/transports/sms-transport.ts",
+  "server/services/transports/email-transport.ts",
+  "server/services/channel-orchestrator.ts",
+  "server/services/outbound-pause-authority.ts",
+  "server/services/outbound-control-service.ts",
+  "server/routes/social.ts",                     // LinkedIn publish boundary (gated inline)
+  "server/services/content-scheduler.ts",        // LinkedIn auto-publish boundary (gated inline)
+]);
+
+/**
+ * Raw provider-send sink patterns. Any production file that calls one of these
+ * outside an approved adapter boundary must also import from
+ * outbound-pause-authority (assertPauseAllowed / authorize) AND from
+ * outbound-control-service (registerInflight / deregisterInflight).
+ *
+ * The adapter files in BOUNDARY_ADAPTER_FILES are exempt — they ARE the boundary.
+ * Route files that contain a local ghlFetch helper AND only read (GET conversations)
+ * are also excluded via the ROUTE_READ_ONLY_EXEMPTIONS set.
+ */
+const RAW_SEND_SINKS: Array<{ pattern: RegExp; label: string }> = [
+  // Direct GHL conversation message POST (both location-scoped and SDR clients)
+  { pattern: /sdrGhlFetch\s*\(\s*["'`]\/conversations\/messages["'`]/, label: "sdrGhlFetch(/conversations/messages)" },
+  { pattern: /ghlFetch\s*\(\s*["'`]\/conversations\/messages["'`]/, label: "ghlFetch(/conversations/messages)" },
+  // SDR workflow trigger
+  { pattern: /sdrGhlFetch\s*\(.*\/workflow\//, label: "sdrGhlFetch(/workflow/)" },
+  // Gmail API — delivers email via Google's transport
+  { pattern: /gmail\.users\.messages\.send\s*\(/, label: "gmail.users.messages.send()" },
+  // GHL document send — delivers a recipient-facing signing email
+  { pattern: /ghlFetch\s*\(\s*["'`]\/documents\//, label: "ghlFetch(/documents/) — delivers signing email to recipient" },
+  // LinkedIn API — public outbound content publish
+  { pattern: /fetch\s*\(\s*["'`]https:\/\/api\.linkedin\.com\/v2\/ugcPosts["'`]/, label: "fetch(api.linkedin.com/v2/ugcPosts) — LinkedIn publish" },
+];
+
+/** Files that provide ghlFetch as a READ-ONLY internal tool (no message sends). */
+const ROUTE_READ_ONLY_FILES = new Set<string>([
+  // add here if any route file uses a local ghlFetch only for reads
+]);
+
+/**
+ * Approved upstream callers: files that invoke gated adapter functions
+ * (sendGhlEmail, sendGhlSms, sendSmtpEmail, sendGmailEmail) and therefore
+ * go through the pause authority gate transitively.  They must NOT call raw
+ * provider sinks directly.  The check below verifies this property.
+ */
+const APPROVED_UPSTREAM_CALLERS = new Set([
+  "server/services/ghl-workflow-enrollment.ts",
+  "server/services/sdr/statement-flow.ts",
+  "server/services/sdr/terminal-shipping.ts",
+  "server/services/sdr/proposal-tracking.ts",
+  "server/services/sdr/voice-orchestrator.ts",
+  "server/services/campaign-engine.ts",
+  "server/services/co-branded-proposal.ts",
+  "server/services/proposal-engine.ts",
+  "server/services/sla-worker.ts",
+  "server/services/workflow-executor.ts",
+  "server/routes/activity.ts",
+  "server/routes/contacts.ts",
+  "server/routes/helpers.ts",
+  "server/routes/integrations.ts",
+  "server/routes/public.ts",
+  "server/routes/savings.ts",
+  "server/routes/wizard.ts",
+]);
+
+function checkArchitecturalBoundaries(): { passed: boolean; violations: string[] } {
+  const violations: string[] = [];
+
+  function walkForBoundary(dir: string, files: string[] = []): string[] {
+    if (!fs.existsSync(dir)) return files;
+    for (const entry of fs.readdirSync(dir)) {
+      const full = `${dir}/${entry}`;
+      const st = fs.statSync(full);
+      if (st.isDirectory()) {
+        walkForBoundary(full, files);
+      } else if (entry.endsWith(".ts") && !entry.endsWith(".d.ts")) {
+        files.push(full);
+      }
+    }
+    return files;
+  }
+
+  const allFiles = [
+    ...walkForBoundary("server/services"),
+    ...walkForBoundary("server/routes"),
+  ];
+
+  for (const filePath of allFiles) {
+    const rel = path.relative(process.cwd(), filePath).replace(/\\/g, "/");
+    if (BOUNDARY_ADAPTER_FILES.has(rel)) continue;
+    if (ROUTE_READ_ONLY_FILES.has(rel)) continue;
+    if (rel.endsWith(".d.ts")) continue;
+
+    let content: string;
+    try {
+      content = fs.readFileSync(filePath, "utf8");
+    } catch {
+      continue;
+    }
+
+    // Check 1: skipGlobalPauseCheck must not appear in production code
+    if (content.includes("skipGlobalPauseCheck")) {
+      const lines = content.split("\n");
+      lines.forEach((line, idx) => {
+        if (line.includes("skipGlobalPauseCheck") && !/^\s*\/\//.test(line) && !/^\s*\*/.test(line)) {
+          violations.push(
+            `BOUNDARY VIOLATION: ${rel}:${idx + 1} — ` +
+            `skipGlobalPauseCheck is removed (use pauseExceptionKey + versioned exception registry): ${line.trim().slice(0, 100)}`,
+          );
+        }
+      });
+    }
+
+    // Check 2: Raw provider-send sink used without pause authority import
+    for (const { pattern, label } of RAW_SEND_SINKS) {
+      if (!pattern.test(content)) continue;
+
+      // Check that this file imports from outbound-pause-authority
+      const hasAuthorityImport =
+        content.includes("outbound-pause-authority") ||
+        content.includes("assertPauseAllowed");
+
+      if (!hasAuthorityImport) {
+        const lines = content.split("\n");
+        lines.forEach((lineText, idx) => {
+          if (pattern.test(lineText) && !/^\s*\/\//.test(lineText) && !/^\s*\*/.test(lineText)) {
+            violations.push(
+              `BOUNDARY VIOLATION: ${rel}:${idx + 1} — ` +
+              `raw send sink "${label}" called without pause authority import ` +
+              `(outbound-pause-authority must be imported and authorize()/assertPauseAllowed() must gate this call): ` +
+              lineText.trim().slice(0, 120),
+            );
+          }
+        });
+      }
+    }
+  }
+
+  // ── Check 3: Approved upstream callers must NOT call raw sinks directly ──────
+  // They route through sendGhlEmail/sendGhlSms/sendSmtpEmail/sendGmailEmail
+  // (gated adapters). Calling a raw sink directly in addition would bypass
+  // the gate for that specific call, making their "transitive gate" claim false.
+  for (const callerPath of APPROVED_UPSTREAM_CALLERS) {
+    let callerContent: string;
+    try {
+      callerContent = fs.readFileSync(callerPath, "utf8");
+    } catch {
+      // File may not exist; skip
+      continue;
+    }
+    for (const { pattern, label } of RAW_SEND_SINKS) {
+      if (!pattern.test(callerContent)) continue;
+      const lines = callerContent.split("\n");
+      lines.forEach((lineText, idx) => {
+        if (pattern.test(lineText) && !/^\s*\/\//.test(lineText) && !/^\s*\*/.test(lineText)) {
+          violations.push(
+            `APPROVED_CALLER VIOLATION: ${callerPath}:${idx + 1} — ` +
+            `approved upstream caller calls raw send sink "${label}" directly ` +
+            `(must only send through gated adapter functions): ` +
+            lineText.trim().slice(0, 120),
+          );
+        }
+      });
+    }
+  }
+
+  return { passed: violations.length === 0, violations };
+}
+
 // ── Main ─────────────────────────────────────────────────────────────────────
 
 function main(): void {
@@ -1167,8 +1355,25 @@ function main(): void {
   console.log(`  FAIL: ${failures.length}`);
   console.log(`  Email call sites classified: ${emailFindings.length}`);
 
-  if (failures.length > 0) {
-    console.error(`\n✗ Compliance scan FAILED: ${failures.length} call site(s) require remediation before go-live.`);
+  // ── Architectural boundary check ─────────────────────────────────────────
+  console.log("\n── Architectural Boundary Check (pause authority) ─────────────────\n");
+  const boundaryResult = checkArchitecturalBoundaries();
+  if (boundaryResult.passed) {
+    console.log("  ✓ No skipGlobalPauseCheck usage outside approved adapter files");
+    console.log("  ✓ Architectural boundary: pause authority pattern enforced");
+  } else {
+    for (const v of boundaryResult.violations) {
+      console.error(`  ✗ ${v}`);
+    }
+  }
+
+  const totalFailures = failures.length + (boundaryResult.passed ? 0 : boundaryResult.violations.length);
+
+  if (totalFailures > 0) {
+    console.error(
+      `\n✗ Compliance scan FAILED: ${failures.length} call site(s) require remediation; ` +
+      `${boundaryResult.violations.length} architectural boundary violation(s).`,
+    );
     process.exit(1);
   } else {
     console.log(`\n✅ Compliance scan PASSED: all ${passes.length} call sites are properly gated or allowlisted.\n`);

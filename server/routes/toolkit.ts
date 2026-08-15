@@ -1,4 +1,5 @@
 import type { Express } from "express";
+import crypto from "crypto";
 import { isAuthenticated, isAdmin, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { serverError, safeMessage } from "../utils/server-error";
@@ -144,16 +145,34 @@ export function registerToolkitRoutes(app: Express) {
         const contact = await storage.getContact(Number(contactId));
         if (contact?.ghlContactId) ghlContactId = contact.ghlContactId;
       }
-      const payload: any = {
-        type: "SMS",
-        message,
-      };
-      if (conversationId) payload.conversationId = conversationId;
-      else payload.contactId = ghlContactId;
-      const result = await ghlFetch("/conversations/messages", {
-        method: "POST",
-        body: JSON.stringify(payload),
-      });
+      // ── Pause authority gate (transport boundary) ──────────────────────────
+      const { authorize, recheckEpoch } = await import("../services/outbound-pause-authority");
+      const { registerInflight, deregisterInflight } = await import("../services/outbound-control-service");
+      const pauseDecision = await authorize({});
+      if (!pauseDecision.allowed) {
+        return res.status(503).json({ message: `Outbound paused: ${pauseDecision.reasonCode}` });
+      }
+      const inflightToken = crypto.randomUUID();
+      await registerInflight(inflightToken);
+      let result: any;
+      try {
+        const epochOk = await recheckEpoch(pauseDecision.epoch);
+        if (!epochOk) {
+          return res.status(503).json({ message: "Outbound paused: epoch changed before send" });
+        }
+        const payload: any = {
+          type: "SMS",
+          message,
+        };
+        if (conversationId) payload.conversationId = conversationId;
+        else payload.contactId = ghlContactId;
+        result = await ghlFetch("/conversations/messages", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+      } finally {
+        deregisterInflight(inflightToken);
+      }
       res.json({ success: true, messageId: result?.messageId });
     } catch (err: any) {
       console.error("[SMS Inbox] reply error:", err.message);

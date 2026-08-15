@@ -173,9 +173,14 @@ const MANDATORY_SUITES: Suite[] = [
     skipWhenServerDown: true, // tests live-mode handoff timing; skipped when server absent
   },
   {
-    name: "Outbound Pause Fence (persisted DB rows, not code defaults)",
+    name: "Outbound Pause Fence (persisted DB rows, not code defaults, + control authority table)",
     script: "scripts/test-pause-fence.ts",
     timeoutSecs: 30,
+  },
+  {
+    name: "Outbound Pause Authority (#1531: fail-closed semantics, epoch, atomicity, no skipGlobalPauseCheck)",
+    script: "scripts/test-outbound-pause-authority.ts",
+    timeoutSecs: 60,
   },
   {
     name: "Email Signature Coverage (all 6 types, CAN-SPAM footer, sender policy, call-site checks)",

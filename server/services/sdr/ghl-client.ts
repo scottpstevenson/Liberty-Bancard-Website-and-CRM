@@ -1,6 +1,30 @@
 import crypto from "crypto";
 import { injectCanSpamFooter } from "../can-spam-footer";
 
+// ---------------------------------------------------------------------------
+// Unavoidable pause authority guard
+// ---------------------------------------------------------------------------
+// Every outbound send function in this file MUST call assertPauseAllowed()
+// before any sdrGhlFetch network I/O. This is the transport boundary —
+// caller-level checks are defense-in-depth only; this gate is mandatory.
+async function assertPauseAllowed(tag: string): Promise<{ tokenId: string; epoch: bigint }> {
+  const { authorize, recheckEpoch } = await import("../outbound-pause-authority");
+  const { registerInflight, deregisterInflight } = await import("../outbound-control-service");
+  const decision = await authorize({});
+  if (!decision.allowed) {
+    throw new Error(`[SDR:${tag}] Outbound blocked by pause authority: ${decision.reasonCode}`);
+  }
+  // register BEFORE recheckEpoch so the pause drain sees the token
+  const tokenId = crypto.randomUUID();
+  await registerInflight(tokenId);
+  const epochOk = await recheckEpoch(decision.epoch);
+  if (!epochOk) {
+    deregisterInflight(tokenId);
+    throw new Error(`[SDR:${tag}] Outbound blocked: epoch changed before send (pause activated)`);
+  }
+  return { tokenId, epoch: decision.epoch };
+}
+
 const DEFAULT_GHL_BASE_URL = "https://services.leadconnectorhq.com";
 const RATE_LIMIT_MAX = 100;
 const RATE_LIMIT_WINDOW_MS = 60_000;
@@ -43,9 +67,15 @@ export interface GhlApiResponse {
   [key: string]: unknown;
 }
 
-async function sdrGhlFetch(path: string, options: RequestInit = {}, retries = 3): Promise<GhlApiResponse> {
+// Options type that carries the authorized pause epoch through retry loops.
+type SdrGhlFetchOptions = RequestInit & { pauseEpoch?: bigint };
+
+async function sdrGhlFetch(path: string, options: SdrGhlFetchOptions = {}, retries = 3): Promise<GhlApiResponse> {
   const token = getAuthToken();
   if (!token) throw new Error("GHL not configured. Set GHL_PRIVATE_INTEGRATION_TOKEN or GHL_API_KEY.");
+
+  // Extract pause epoch before building the fetch-compatible options
+  const { pauseEpoch, ...fetchOptions } = options;
 
   await rateLimit();
 
@@ -54,12 +84,25 @@ async function sdrGhlFetch(path: string, options: RequestInit = {}, retries = 3)
     "Authorization": `Bearer ${token}`,
     "Content-Type": "application/json",
     "Version": "2021-07-28",
-    ...(options.headers as Record<string, string> || {}),
+    ...(fetchOptions.headers as Record<string, string> || {}),
   };
 
   for (let attempt = 0; attempt < retries; attempt++) {
+    // ── Per-attempt cross-process epoch recheck ────────────────────────────
+    // Called at the TOP of every iteration (including after backoff waits) so
+    // a pause committed in any process blocks subsequent retry attempts.
+    if (pauseEpoch !== undefined) {
+      const { recheckEpochFromDB } = await import("../../services/outbound-pause-authority");
+      const epochOk = await recheckEpochFromDB(pauseEpoch);
+      if (!epochOk) {
+        throw new Error(
+          `[SDR GHL] Outbound blocked: pause was activated after authorization ` +
+          `(epoch ${pauseEpoch} no longer current). Aborting retry.`,
+        );
+      }
+    }
     try {
-      const response = await fetch(url, { ...options, headers });
+      const response = await fetch(url, { ...fetchOptions, headers });
 
       if (response.status === 429) {
         const retryAfter = parseInt(response.headers.get("retry-after") || "5", 10);
@@ -222,10 +265,17 @@ export async function triggerWorkflow(params: {
   contactId: string;
   metadata?: Record<string, unknown>;
 }): Promise<WorkflowTriggerResult> {
-  return sdrGhlFetch(`/contacts/${params.contactId}/workflow/${params.workflowId}`, {
-    method: "POST",
-    body: JSON.stringify(params.metadata || {}),
-  }) as unknown as WorkflowTriggerResult;
+  const { deregisterInflight } = await import("../outbound-control-service");
+  const { tokenId, epoch } = await assertPauseAllowed("triggerWorkflow");
+  try {
+    return await sdrGhlFetch(`/contacts/${params.contactId}/workflow/${params.workflowId}`, {
+      method: "POST",
+      body: JSON.stringify(params.metadata || {}),
+      pauseEpoch: epoch,
+    }) as unknown as WorkflowTriggerResult;
+  } finally {
+    deregisterInflight(tokenId);
+  }
 }
 
 export interface GhlCalendar {
@@ -519,33 +569,46 @@ export async function sendChatReply(params: {
   message: string;
   conversationId?: string;
 }): Promise<SendMessageResult> {
-  const payload: Record<string, unknown> = {
-    type: "Custom",
-    contactId: params.contactId,
-    message: params.message,
-  };
-  if (params.conversationId) {
-    payload.conversationId = params.conversationId;
+  const { deregisterInflight } = await import("../outbound-control-service");
+  const { tokenId, epoch } = await assertPauseAllowed("sendChatReply");
+  try {
+    const payload: Record<string, unknown> = {
+      type: "Custom",
+      contactId: params.contactId,
+      message: params.message,
+    };
+    if (params.conversationId) {
+      payload.conversationId = params.conversationId;
+    }
+    return await sdrGhlFetch("/conversations/messages", {
+      method: "POST",
+      body: JSON.stringify(payload),
+      pauseEpoch: epoch,
+    }) as unknown as SendMessageResult;
+  } finally {
+    deregisterInflight(tokenId);
   }
-
-  return sdrGhlFetch("/conversations/messages", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  }) as unknown as SendMessageResult;
 }
 
 export async function sendSmsReply(params: {
   contactId: string;
   message: string;
 }): Promise<SendMessageResult> {
-  return sdrGhlFetch("/conversations/messages", {
-    method: "POST",
-    body: JSON.stringify({
-      type: "SMS",
-      contactId: params.contactId,
-      message: params.message,
-    }),
-  }) as unknown as SendMessageResult;
+  const { deregisterInflight } = await import("../outbound-control-service");
+  const { tokenId, epoch } = await assertPauseAllowed("sendSmsReply");
+  try {
+    return await sdrGhlFetch("/conversations/messages", {
+      method: "POST",
+      body: JSON.stringify({
+        type: "SMS",
+        contactId: params.contactId,
+        message: params.message,
+      }),
+      pauseEpoch: epoch,
+    }) as unknown as SendMessageResult;
+  } finally {
+    deregisterInflight(tokenId);
+  }
 }
 
 export async function sendEmailReply(params: {
@@ -563,22 +626,29 @@ export async function sendEmailReply(params: {
    */
   dbContactId?: number;
 }): Promise<SendMessageResult> {
-  const payload: Record<string, unknown> = {
-    type: "Email",
-    contactId: params.contactId,
-    subject: params.subject,
-    html: injectCanSpamFooter(params.htmlBody, params.dbContactId),
-  };
-  if (params.fromEmail) {
-    payload.emailFrom = params.fromName
-      ? `${params.fromName} <${params.fromEmail}>`
-      : params.fromEmail;
-    payload.emailReplyMode = "custom";
+  const { deregisterInflight } = await import("../outbound-control-service");
+  const { tokenId, epoch } = await assertPauseAllowed("sendEmailReply");
+  try {
+    const payload: Record<string, unknown> = {
+      type: "Email",
+      contactId: params.contactId,
+      subject: params.subject,
+      html: injectCanSpamFooter(params.htmlBody, params.dbContactId),
+    };
+    if (params.fromEmail) {
+      payload.emailFrom = params.fromName
+        ? `${params.fromName} <${params.fromEmail}>`
+        : params.fromEmail;
+      payload.emailReplyMode = "custom";
+    }
+    return await sdrGhlFetch("/conversations/messages", {
+      method: "POST",
+      body: JSON.stringify(payload),
+      pauseEpoch: epoch,
+    }) as unknown as SendMessageResult;
+  } finally {
+    deregisterInflight(tokenId);
   }
-  return sdrGhlFetch("/conversations/messages", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  }) as unknown as SendMessageResult;
 }
 
 export async function disableConversationAi(contactId: string): Promise<void> {
@@ -838,6 +908,8 @@ export async function sendTemplateResponse(
 
   try {
     const workflowId = process.env[`GHL_WORKFLOW_TEMPLATE_${templateKey.toUpperCase()}`] || process.env.GHL_WORKFLOW_TEMPLATE_RESPONSE;
+    // triggerWorkflow already carries the pause gate; for the direct-message
+    // fallback path, assertPauseAllowed() is required before the network call.
     if (workflowId) {
       await triggerWorkflow({
         workflowId,
@@ -845,14 +917,21 @@ export async function sendTemplateResponse(
         metadata: { templateKey, message: template, channel },
       });
     } else {
-      await sdrGhlFetch(`/conversations/messages`, {
-        method: "POST",
-        body: JSON.stringify({
-          type: channel === "email" ? "Email" : "SMS",
-          contactId: merchant.ghlContactId,
-          message: template.replace("{{booking_link}}", process.env.GHL_DEFAULT_BOOKING_LINK || process.env.SALES_CALENDAR_URL || "https://calendly.com/libertybancard"),
-        }),
-      });
+      const { deregisterInflight } = await import("../outbound-control-service");
+      const { tokenId: pauseTokenId, epoch: pauseEpoch } = await assertPauseAllowed("sendTemplateResponse");
+      try {
+        await sdrGhlFetch(`/conversations/messages`, {
+          method: "POST",
+          body: JSON.stringify({
+            type: channel === "email" ? "Email" : "SMS",
+            contactId: merchant.ghlContactId,
+            message: template.replace("{{booking_link}}", process.env.GHL_DEFAULT_BOOKING_LINK || process.env.SALES_CALENDAR_URL || "https://calendly.com/libertybancard"),
+          }),
+          pauseEpoch,
+        });
+      } finally {
+        deregisterInflight(pauseTokenId);
+      }
     }
 
     await db.insert(sdrLeadEvents).values({

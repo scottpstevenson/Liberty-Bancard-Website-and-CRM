@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import nodemailer from "nodemailer";
 import { resolvePolicy, assertNotProhibitedSync, isProhibitedAddress } from "./sender-policy";
 import type { MessageCategory } from "./sender-policy";
@@ -119,6 +120,48 @@ export async function sendSmtpEmail(params: {
    * When provided, the injected footer contains a functional `/unsubscribe?t=…`
    * link. When absent, a reply-to-unsubscribe instruction is used instead.
    */
+  contactId?: number;
+}): Promise<{ success: boolean; messageId?: string; error?: string }> {
+  // ── Unavoidable pause authority gate (transport boundary) ────────────────
+  // Every SMTP send must clear the canonical pause authority BEFORE any
+  // network I/O. This is the final enforcement boundary.
+  try {
+    const { authorize, recheckEpoch } = await import("./outbound-pause-authority");
+    const { registerInflight, deregisterInflight } = await import("./outbound-control-service");
+    const decision = await authorize({});
+    if (!decision.allowed) {
+      console.warn(
+        `[SMTP] Blocked by pause authority: ${decision.reasonCode} ` +
+        `(subject="${params.subject}", to=${params.to})`,
+      );
+      return { success: false, error: `Outbound paused: ${decision.reasonCode}` };
+    }
+    const token = crypto.randomUUID();
+    await registerInflight(token);
+    try {
+      const epochOk = await recheckEpoch(decision.epoch);
+      if (!epochOk) {
+        return { success: false, error: "Outbound paused: epoch changed before send" };
+      }
+      return await _sendSmtpEmailInner(params);
+    } finally {
+      deregisterInflight(token);
+    }
+  } catch (gateErr: any) {
+    console.error(`[SMTP] Pause authority gate error — fail closed: ${gateErr.message}`);
+    return { success: false, error: `Pause gate error: ${gateErr.message}` };
+  }
+}
+
+async function _sendSmtpEmailInner(params: {
+  to: string;
+  subject: string;
+  html: string;
+  category?: import("./sender-policy").MessageCategory;
+  from?: string;
+  replyTo?: string;
+  unsubscribeMailto?: string;
+  unsubscribeUrl?: string;
   contactId?: number;
 }): Promise<{ success: boolean; messageId?: string; error?: string }> {
   const transport = getTransporter();

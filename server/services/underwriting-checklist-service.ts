@@ -275,9 +275,8 @@ async function sendMerchantConditionsEmail(
       <p>Please submit these as soon as possible. Reply to this email or contact your representative if you have questions.</p>
       <p>Best regards,<br/>Liberty Bancard Underwriting Team</p>
     `,
-    text: `${greeting},\n\nTo complete underwriting, please submit:\n${itemsText}\n\nReply to this email or contact your rep if you have questions.\n\nBest regards,\nLiberty Bancard Underwriting Team`,
-    category: "transactional_merchant",
-    dealId,
+    category: "onboarding",
+    contactId: undefined, // dealId not tracked at SMTP level
   });
 
   console.log(`[Underwriting] Conditions email sent to ${email} for deal #${dealId}`);

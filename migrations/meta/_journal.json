@@ -953,6 +953,20 @@
       "when": 1791500000000,
       "tag": "0132_outreach_queue_skipped_at",
       "breakpoints": true
+    },
+    {
+      "idx": 136,
+      "version": "7",
+      "when": 1791600000000,
+      "tag": "0133_outbound_pause_control",
+      "breakpoints": false
+    },
+    {
+      "idx": 137,
+      "version": "7",
+      "when": 1791700000000,
+      "tag": "0134_outbound_inflight_sends",
+      "breakpoints": false
     }
   ]
 }

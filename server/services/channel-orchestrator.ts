@@ -9,9 +9,17 @@
  *
  * Business code (sequence worker, proposal follow-up, onboarding reminder, etc.)
  * should call this orchestrator rather than GHL functions directly.
+ *
+ * PAUSE AUTHORITY: The global pause gate is now enforced via OutboundPauseAuthority
+ * with fail-closed semantics. The former caller-controlled bypass boolean has been
+ * removed. Any caller requiring a narrow exception must use the versioned exception
+ * registry in outbound-pause-authority.ts; the authority still evaluates the state.
  */
 
 import type { ContactabilityChannel } from "./contactability";
+import type { AuthorizedSendDecision } from "./outbound-pause-authority";
+import { authorize, recheckEpoch } from "./outbound-pause-authority";
+import { registerInflight, deregisterInflight } from "./outbound-control-service";
 
 // ---------------------------------------------------------------------------
 // Transport result
@@ -91,6 +99,8 @@ export interface ChannelComplianceResult {
   allowed: boolean;
   reason?: string;
   blockedChannel?: ContactabilityChannel;
+  /** Epoch at which the authorization was granted. Used for final recheck. */
+  pauseDecision?: AuthorizedSendDecision;
 }
 
 // ---------------------------------------------------------------------------
@@ -100,8 +110,13 @@ export interface ChannelComplianceResult {
 export interface OrchestratorSendOptions {
   /** Channels the send may touch — used for contactability check. Defaults to ["email"]. */
   outboundChannels?: ContactabilityChannel[];
-  /** Skip the global-pause check (e.g., transactional system emails). Default false. */
-  skipGlobalPauseCheck?: boolean;
+  /**
+   * Exception registry key for narrow registered exceptions that must still
+   * route through the pause authority (not a bypass). Omit for standard automated sends.
+   * The authority evaluates the state; the key is an advisory label only.
+   * @see server/services/outbound-pause-authority.ts EXCEPTION_REGISTRY
+   */
+  pauseExceptionKey?: string;
   /** Skip the DNC / contactability gate entirely (e.g., legal/compliance notices). Default false. */
   skipContactabilityCheck?: boolean;
 }
@@ -132,15 +147,22 @@ export class ChannelOrchestrator {
   async checkCompliance(
     contactId: number,
     channels: ContactabilityChannel[],
-    opts: Pick<OrchestratorSendOptions, "skipGlobalPauseCheck" | "skipContactabilityCheck"> = {},
+    opts: Pick<OrchestratorSendOptions, "pauseExceptionKey" | "skipContactabilityCheck"> = {},
   ): Promise<ChannelComplianceResult> {
-    // 1. Global pause check
-    if (!opts.skipGlobalPauseCheck) {
-      const { storage } = await import("../storage");
-      const paused = await storage.getSystemSetting("outboundGlobalPaused");
-      if (paused === true || paused === "true") {
-        return { allowed: false, reason: "Outbound communications are globally paused" };
-      }
+    // 1. Global pause check — canonical authority with fail-closed semantics
+    const pauseDecision = await authorize({ exceptionKey: opts.pauseExceptionKey });
+    if (!pauseDecision.allowed) {
+      const reason =
+        pauseDecision.reasonCode === "activating"
+          ? "Outbound pause activation in progress — all sends blocked"
+          : pauseDecision.reasonCode === "safe_default"
+          ? "Outbound communications are globally paused (fail-closed default)"
+          : "Outbound communications are globally paused";
+      return {
+        allowed: false,
+        reason,
+        pauseDecision,
+      };
     }
 
     // 2. Communication arbitration — suppress if rep recently touched or auto-send too soon
@@ -154,6 +176,7 @@ export class ChannelOrchestrator {
         return {
           allowed: false,
           reason: arbitration.reason ?? "Communication arbitration suppressed this send",
+          pauseDecision,
         };
       }
     }
@@ -173,12 +196,13 @@ export class ChannelOrchestrator {
             allowed: false,
             reason: result.reason ?? `Channel ${ch} blocked by contactability gate`,
             blockedChannel: ch,
+            pauseDecision,
           };
         }
       }
     }
 
-    return { allowed: true };
+    return { allowed: true, pauseDecision };
   }
 
   // -------------------------------------------------------------------------
@@ -201,7 +225,24 @@ export class ChannelOrchestrator {
       };
     }
 
-    return this.emailTransport.send(params);
+    // Final epoch recheck immediately before provider I/O
+    const decision = compliance.pauseDecision!;
+    const token = crypto.randomUUID();
+    await registerInflight(token);
+    try {
+      const epochOk = await recheckEpoch(decision.epoch);
+      if (!epochOk) {
+        return {
+          success: false,
+          skipped: true,
+          skipReason: "Outbound paused after authorization — epoch recheck failed",
+          provider: this.emailTransport.name,
+        };
+      }
+      return await this.emailTransport.send(params);
+    } finally {
+      deregisterInflight(token);
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -224,7 +265,23 @@ export class ChannelOrchestrator {
       };
     }
 
-    return this.smsTransport.send(params);
+    const decision = compliance.pauseDecision!;
+    const token = crypto.randomUUID();
+    await registerInflight(token);
+    try {
+      const epochOk = await recheckEpoch(decision.epoch);
+      if (!epochOk) {
+        return {
+          success: false,
+          skipped: true,
+          skipReason: "Outbound paused after authorization — epoch recheck failed",
+          provider: this.smsTransport.name,
+        };
+      }
+      return await this.smsTransport.send(params);
+    } finally {
+      deregisterInflight(token);
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -247,7 +304,23 @@ export class ChannelOrchestrator {
       };
     }
 
-    return this.rvmTransport.send(params);
+    const decision = compliance.pauseDecision!;
+    const token = crypto.randomUUID();
+    await registerInflight(token);
+    try {
+      const epochOk = await recheckEpoch(decision.epoch);
+      if (!epochOk) {
+        return {
+          success: false,
+          skipped: true,
+          skipReason: "Outbound paused after authorization — epoch recheck failed",
+          provider: this.rvmTransport.name,
+        };
+      }
+      return await this.rvmTransport.send(params);
+    } finally {
+      deregisterInflight(token);
+    }
   }
 
   // -------------------------------------------------------------------------

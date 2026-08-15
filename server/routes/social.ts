@@ -87,6 +87,38 @@ export function registerSocialRoutes(app: Express) {
     if (!post) return res.status(404).json({ error: "Not found" });
 
     if (post.platform === "linkedin" && process.env.LINKEDIN_ACCESS_TOKEN) {
+      // ── Outbound pause authority gate ─────────────────────────────────────
+      // LinkedIn publication delivers public outbound content — must clear the
+      // canonical pause authority before any network I/O.
+      let _liInflightToken: string | undefined;
+      let _liPauseEpoch: bigint | undefined;
+      try {
+        const { authorize, recheckEpoch } = await import("../services/outbound-pause-authority");
+        const { registerInflight, deregisterInflight } = await import("../services/outbound-control-service");
+        const decision = await authorize({});
+        if (!decision.allowed) {
+          console.warn(`[LinkedIn] Blocked by pause authority: ${decision.reasonCode}`);
+          return res.status(503).json({ error: "Outbound paused", detail: decision.reasonCode });
+        }
+        const tokenId = crypto.randomUUID();
+        await registerInflight(tokenId);
+        _liInflightToken = tokenId;
+        _liPauseEpoch = decision.epoch;
+        const epochOk = await recheckEpoch(decision.epoch);
+        if (!epochOk) {
+          deregisterInflight(tokenId);
+          _liInflightToken = undefined;
+          return res.status(503).json({ error: "Outbound paused", detail: "epoch changed before LinkedIn send" });
+        }
+      } catch (gateErr: any) {
+        if (_liInflightToken) {
+          const { deregisterInflight } = await import("../services/outbound-control-service");
+          deregisterInflight(_liInflightToken);
+        }
+        console.error(`[LinkedIn] Pause authority gate error — fail closed: ${gateErr.message}`);
+        return res.status(503).json({ error: "Outbound pause gate error", detail: gateErr.message });
+      }
+
       try {
         const orgUrn = process.env.LINKEDIN_ORG_URN;
         const authorUrn = orgUrn || `urn:li:person:${process.env.LINKEDIN_PERSON_URN || "me"}`;
@@ -142,6 +174,11 @@ export function registerSocialRoutes(app: Express) {
       } catch (err: any) {
         console.error("[LinkedIn] Publish error:", err.message);
         return serverError(res, err);
+      } finally {
+        if (_liInflightToken) {
+          const { deregisterInflight } = await import("../services/outbound-control-service");
+          deregisterInflight(_liInflightToken);
+        }
       }
     }
 

@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, boolean, timestamp, jsonb, varchar, real, numeric, index, uniqueIndex, unique, date, uuid, check, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, jsonb, varchar, real, numeric, index, uniqueIndex, unique, date, uuid, check, bigint, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -5508,3 +5508,35 @@ export const goldenExamples = pgTable("golden_examples", {
 export type GoldenExample = typeof goldenExamples.$inferSelect;
 
 export type InsertExecutiveGoal = z.infer<typeof insertExecutiveGoalSchema>;
+
+// ─── Outbound Pause Control Authority (#1531) ─────────────────────────────────
+
+export const outboundPauseControl = pgTable("outbound_pause_control", {
+  id:              serial("id").primaryKey(),
+  state:           text("state").notNull(),       // 'paused' | 'activating' | 'unpaused'
+  reason:          text("reason"),
+  epoch:           bigint("epoch", { mode: "bigint" }).notNull().default(1n),
+  actor:           text("actor"),
+  idempotencyKey:  text("idempotency_key"),
+  committedAt:     timestamp("committed_at", { withTimezone: true }).defaultNow(),
+});
+
+export type OutboundPauseControl = typeof outboundPauseControl.$inferSelect;
+
+export const outboundPauseAudit = pgTable("outbound_pause_audit", {
+  id:            serial("id").primaryKey(),
+  epoch:         bigint("epoch", { mode: "bigint" }).notNull(),
+  changeType:    text("change_type").notNull(),   // 'state-transition' | 'metadata-revision' | 'idempotent-return'
+  fromState:     text("from_state").notNull(),
+  toState:       text("to_state").notNull(),
+  actor:         text("actor"),
+  correlationId: text("correlation_id"),
+  reason:        text("reason"),
+  details:       jsonb("details"),
+  createdAt:     timestamp("created_at", { withTimezone: true }).defaultNow(),
+}, (t) => [
+  index("outbound_pause_audit_epoch_idx").on(t.epoch),
+  index("outbound_pause_audit_created_at_idx").on(t.createdAt),
+]);
+
+export type OutboundPauseAudit = typeof outboundPauseAudit.$inferSelect;

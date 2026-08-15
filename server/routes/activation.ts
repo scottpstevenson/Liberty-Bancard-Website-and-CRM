@@ -1463,7 +1463,17 @@ export function registerActivationRoutes(app: Express) {
     }
   });
 
-  // PATCH /api/system/outbound-settings — admin only: toggle pause and/or set cap
+  // PATCH /api/system/outbound-settings — admin only: toggle global pause and/or set cap.
+  //
+  // Global pause (outboundGlobalPaused) is now handled by OutboundControlService which:
+  //   - Acquires a transaction-scoped advisory lock (serializes concurrent PATCHes)
+  //   - For pause: transitions through "activating", drains in-flight sends, commits "paused"
+  //   - Writes state and audit atomically in a single transaction
+  //   - Returns committed epoch and state
+  //
+  // Channel-level pauses (email/SMS/cold-email) and daily-cap settings are still
+  // stored in system_settings as they are independent of the global pause authority.
+  // Global unpause does NOT clear channel pauses, DNC, consent, or any other hold.
   app.patch("/api/system/outbound-settings", requireRole("admin"), async (req, res) => {
     try {
       const {
@@ -1473,42 +1483,102 @@ export function registerActivationRoutes(app: Express) {
         emailChannelPaused,
         smsChannelPaused,
         coldEmailChannelPaused,
+        idempotencyKey,
+        correlationId,
       } = req.body ?? {};
 
-      const saves: Promise<void>[] = [];
-      if (typeof outboundGlobalPaused === "boolean")
-        saves.push(storage.setSystemSetting("outboundGlobalPaused", outboundGlobalPaused));
-      if (typeof outboundGlobalPausedReason === "string" || outboundGlobalPausedReason === null)
-        saves.push(storage.setSystemSetting("outboundGlobalPausedReason", outboundGlobalPausedReason ?? null));
+      const actorEmail = (req.user as any)?.email ?? "unknown";
+      const actorId = (req.user as any)?.id ?? null;
+
+      // ── 1. Handle global pause via OutboundControlService ─────────────────
+      let pauseControlResult: import("../services/outbound-control-service").PauseControlResult | undefined;
+
+      if (typeof outboundGlobalPaused === "boolean") {
+        const reason = typeof outboundGlobalPausedReason === "string" && outboundGlobalPausedReason.trim()
+          ? outboundGlobalPausedReason.trim()
+          : outboundGlobalPaused
+            ? "Admin paused outbound communications"
+            : "Admin unpaused outbound communications";
+
+        const { applyPauseMutation } = await import("../services/outbound-control-service");
+        pauseControlResult = await applyPauseMutation({
+          outboundGlobalPaused,
+          reason,
+          actor: actorEmail,
+          idempotencyKey: typeof idempotencyKey === "string" ? idempotencyKey : undefined,
+          correlationId: typeof correlationId === "string" ? correlationId : undefined,
+        });
+      } else if (
+        (typeof outboundGlobalPausedReason === "string" || outboundGlobalPausedReason === null) &&
+        outboundGlobalPausedReason !== undefined
+      ) {
+        // Reason-only update: read current state, apply as metadata revision if changed
+        const { applyPauseMutation } = await import("../services/outbound-control-service");
+        const { getPauseState } = await import("../services/outbound-pause-authority");
+        const curPauseState = await getPauseState();
+        const currentState = { outboundGlobalPaused: curPauseState.state !== "unpaused" };
+        if (currentState && typeof outboundGlobalPausedReason === "string" && outboundGlobalPausedReason.trim()) {
+          pauseControlResult = await applyPauseMutation({
+            outboundGlobalPaused: currentState.outboundGlobalPaused,
+            reason: outboundGlobalPausedReason.trim(),
+            actor: actorEmail,
+            idempotencyKey: typeof idempotencyKey === "string" ? idempotencyKey : undefined,
+            correlationId: typeof correlationId === "string" ? correlationId : undefined,
+          });
+        }
+      }
+
+      // ── 2. Channel-level pauses and cap (non-global, stored in system_settings) ──
+      // These are independent of the global pause authority.
+      const channelSaves: Promise<void>[] = [];
       if (typeof outboundDailyEmailCap === "number" && outboundDailyEmailCap > 0)
-        saves.push(storage.setSystemSetting("outboundDailyEmailCap", outboundDailyEmailCap));
+        channelSaves.push(storage.setSystemSetting("outboundDailyEmailCap", outboundDailyEmailCap));
       if (typeof emailChannelPaused === "boolean")
-        saves.push(storage.setSystemSetting("emailChannelPaused", emailChannelPaused));
+        channelSaves.push(storage.setSystemSetting("emailChannelPaused", emailChannelPaused));
       if (typeof smsChannelPaused === "boolean")
-        saves.push(storage.setSystemSetting("smsChannelPaused", smsChannelPaused));
+        channelSaves.push(storage.setSystemSetting("smsChannelPaused", smsChannelPaused));
       if (typeof coldEmailChannelPaused === "boolean")
-        saves.push(storage.setSystemSetting("coldEmailChannelPaused", coldEmailChannelPaused));
-      await Promise.all(saves);
+        channelSaves.push(storage.setSystemSetting("coldEmailChannelPaused", coldEmailChannelPaused));
+      if (channelSaves.length > 0) await Promise.all(channelSaves);
 
-      const actorEmail = (req.user as any)?.email ?? null;
-      await storage.createAuditLog({
-        action: "outbound_settings_updated",
-        entityType: "system",
-        entityId: 0,
-        actorType: "user",
-        actorId: (req.user as any)?.id ?? null,
-        details: {
-          actorEmail,
-          changes: {
-            outboundGlobalPaused, outboundGlobalPausedReason, outboundDailyEmailCap,
-            emailChannelPaused, smsChannelPaused, coldEmailChannelPaused,
+      // ── 3. Audit log for channel-level changes ────────────────────────────
+      // The global pause audit is written atomically inside OutboundControlService.
+      // This log covers channel-level and cap changes only.
+      if (channelSaves.length > 0) {
+        await storage.createAuditLog({
+          action: "outbound_channel_settings_updated",
+          entityType: "system",
+          entityId: 0,
+          actorType: "user",
+          actorId,
+          details: {
+            actorEmail,
+            changes: {
+              outboundDailyEmailCap,
+              emailChannelPaused,
+              smsChannelPaused,
+              coldEmailChannelPaused,
+            },
+            correlationId: typeof correlationId === "string" ? correlationId : undefined,
           },
-        },
-      });
+        });
+      }
 
-      res.json({ ok: true });
+      // ── 4. Build response ─────────────────────────────────────────────────
+      if (pauseControlResult) {
+        res.json(pauseControlResult);
+      } else {
+        res.json({
+          ok: true,
+          control: null,
+          sendEnforcement: { status: "enforced", policyVersion: "1.0" },
+          queueBackpressure: { status: "not_configured" },
+          changeType: "channel-only",
+        });
+      }
     } catch (err: any) {
       serverError(res, err);
     }
   });
 }
+

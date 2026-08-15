@@ -377,6 +377,61 @@ app.use((req, res, next) => {
     async () => {
       log(`serving on port ${port}`);
       logEnvVarChecklist();
+
+      // ── PAUSE AUTHORITY INITIALIZATION (must complete before any worker starts) ──
+      // Read and validate the global outbound pause state before starting any
+      // outbound-capable service or worker. Missing/malformed/DB-error resolves
+      // to paused (fail-closed). Only after the state is known and logged may
+      // workers initialize. This prevents the startup race where workers could
+      // begin processing before pause state is known.
+      let pauseInitialized = false;
+      try {
+        const { initializePauseControl } = await import("./services/outbound-control-service");
+        const pauseState = await initializePauseControl();
+        log(
+          `[PauseAuthority] Startup state: ${pauseState.state} epoch=${pauseState.epoch} ` +
+          `source=${pauseState.source}` +
+          (pauseState.reason ? ` reason="${pauseState.reason}"` : ""),
+        );
+        // Treat safe_default as a failed initialization — the canonical control
+        // table was missing or unreadable. Workers must not start until the table
+        // exists and can be read, because the authority cannot make authoritative
+        // decisions and cannot fall back to legacy system_settings (which may be
+        // explicitly unpaused).
+        if (pauseState.source === "safe_default") {
+          throw new Error(
+            `Pause control table missing or unreadable (source=safe_default, state=${pauseState.state}). ` +
+            `Apply migration 0133 and restart before starting outbound-capable workers.`,
+          );
+        }
+        pauseInitialized = true;
+      } catch (pauseInitErr: any) {
+        // Fail-closed: if pause initialization throws or returns safe_default,
+        // do NOT start outbound-capable workers.
+        console.error(
+          `[PauseAuthority] STARTUP ERROR: pause initialization failed — ` +
+          `outbound workers blocked until resolved: ${pauseInitErr.message}`,
+        );
+        pauseInitialized = false;
+      }
+
+      // Seed legacy system_settings pause keys (for backward compat, channel-level pauses)
+      (async () => {
+        const CHANNEL_PAUSE_KEYS = [
+          "outboundGlobalPaused",
+          "emailChannelPaused",
+          "smsChannelPaused",
+          "coldEmailChannelPaused",
+        ] as const;
+        for (const key of CHANNEL_PAUSE_KEYS) {
+          const existing = await storage.getSystemSetting(key);
+          if (existing === null) {
+            await storage.setSystemSetting(key, true);
+            log(`[PauseSeed] ${key}=true seeded (fail-closed default)`);
+          }
+        }
+      })().catch(err => console.warn("[PauseSeed] Non-critical seeding error:", err.message));
+
       seedDefaultData();
       seedSequences();
       seedVerticalCampaigns();
@@ -386,10 +441,22 @@ app.use((req, res, next) => {
         seedDemoProspects();
       }
 
+      // ── Workers start only after pause state is initialized ───────────────
+      // If pauseInitialized=false, workers are skipped entirely (fail-closed).
+      if (!pauseInitialized) {
+        console.error(
+          "[PauseAuthority] Workers NOT started — pause state unknown. " +
+          "Resolve the DB error and restart to enable outbound processing.",
+        );
+        // Continue with non-outbound startup (routes, seeds, etc.)
+      }
+
       // BullMQ durable job queue — replaces setInterval workers for GHL sync,
       // SLA checks, sequence processing, enrichment, discovery, and digests.
       // Requires a real Redis connection (REDIS_URL). Without it, falls back
       // to lightweight setInterval workers so the server still functions.
+      // NOTE: This block only executes when pause state was successfully initialized.
+      if (!pauseInitialized) { /* skip workers — outbound state unknown */ } else
       getQueueManager().then(async qm => {
         log("[Queue] BullMQ job queues initialized");
         // BullMQ's GHL_SYNC repeatable job is now the sole active GHL sync mechanism.
@@ -472,27 +539,9 @@ app.use((req, res, next) => {
         console.error("[Seed] Failed to seed inbound message workflows:", err);
       });
 
-      // Seed outbound pause flags as explicit persisted DB rows (fail-closed).
-      // Seeding only writes a row when the key does not already exist, so a
-      // previously saved value (true=paused or false=unpaused) is never overwritten.
-      // This lets the pre-deploy gate distinguish "persisted pause" from "code default".
+      // Seed statement acquisition cadence config if not already set.
+      // Admins can tune these via the system_settings table without a redeploy.
       (async () => {
-        const PAUSE_KEYS = [
-          "outboundGlobalPaused",
-          "emailChannelPaused",
-          "smsChannelPaused",
-          "coldEmailChannelPaused",
-        ] as const;
-        for (const key of PAUSE_KEYS) {
-          const existing = await storage.getSystemSetting(key);
-          if (existing === null) {
-            await storage.setSystemSetting(key, true);
-            log(`[PauseSeed] ${key}=true seeded (fail-closed default)`);
-          }
-        }
-
-        // Seed statement acquisition cadence config if not already set.
-        // Admins can tune these via the system_settings table without a redeploy.
         const acqCfg = await storage.getSystemSetting("statement_acquisition_config");
         if (acqCfg === null) {
           await storage.setSystemSetting("statement_acquisition_config", {
@@ -503,12 +552,18 @@ app.use((req, res, next) => {
           });
           log("[StatementAcquisition] Default cadence config seeded into system_settings");
         }
-      })().catch(err => console.warn("[PauseSeed] Non-critical seeding error:", err.message));
+      })().catch(err => console.warn("[StatementAcquisition] Non-critical seeding error:", err.message));
 
       startDailyMaintenanceScheduler();
 
       // Task #179 — Content Engine: scheduled blog publish + LinkedIn drafts
-      startContentScheduler();
+      // Only start when pause state is known — LinkedIn auto-publish is an
+      // external outbound action and must not run when workers are blocked.
+      if (pauseInitialized) {
+        startContentScheduler();
+      } else {
+        console.warn("[ContentScheduler] NOT started — pause state unknown; LinkedIn auto-publish blocked until restart with control table available");
+      }
       seedContentEngine().catch(err => {
         console.error("[Seed] Content Engine seeding failed:", err);
       });
