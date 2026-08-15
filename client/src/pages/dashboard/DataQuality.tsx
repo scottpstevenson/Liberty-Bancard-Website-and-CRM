@@ -96,7 +96,7 @@ function StatCard({
 }
 
 function EmailStatusBadge({ status }: { status: string | null }) {
-  if (!status || status === "active") {
+  if (!status || status === "active" || status === "unvalidated") {
     return <Badge variant="outline" className="text-xs text-yellow-700 border-yellow-300 bg-yellow-50">unvalidated</Badge>;
   }
   const map: Record<string, { label: string; icon: React.ReactNode; cls: string }> = {
@@ -360,7 +360,7 @@ export default function DataQuality() {
                           <Badge variant="secondary" className="text-xs">{c.lead_score ?? 0}</Badge>
                         </td>
                         <td className="py-2 text-right">
-                          {(c.email_status == null || c.email_status === "active") && (
+                          {(c.email_status == null || c.email_status === "active" || c.email_status === "unvalidated") && (
                             <Button
                               size="sm"
                               variant="ghost"

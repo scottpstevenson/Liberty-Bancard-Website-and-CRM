@@ -30,6 +30,132 @@ import { serverError, safeMessage } from "../utils/server-error";
 import { LifecycleService, adminOverrideTransition, LIFECYCLE_STATES } from "../services/lifecycle-service";
 import type { LifecycleState } from "../services/lifecycle-service";
 
+// ── Canonical email-validation predicates (task #1540A) ─────────────────────
+// #1533 changed contacts.email_status default from 'active' to 'unvalidated'.
+// Every filter that selects contacts needing validation MUST use these
+// constants — do not hand-write the predicate anywhere else.
+export const UNVALIDATED_EMAIL_PREDICATE =
+  `(email_status IS NULL OR email_status IN ('active', 'unvalidated'))`;
+
+// Eligibility filter for ZeroBounce candidates: non-blank real addresses only.
+// Excludes synthetic placeholders written by CSV import
+// (no-email-<uuid>@no-email.libertybancard.internal).
+export const VALID_EMAIL_ELIGIBILITY =
+  `(COALESCE(TRIM(email), '') != '' AND email NOT ILIKE '%.internal' AND email NOT ILIKE 'no-email-%' AND archived_at IS NULL)`;
+
+/** True for synthetic placeholder addresses that must never reach ZeroBounce. */
+export function isPlaceholderEmail(email: string | null | undefined): boolean {
+  if (!email || email.trim() === "") return true;
+  const e = email.trim().toLowerCase();
+  return e.endsWith(".internal") || e.startsWith("no-email-");
+}
+
+/**
+ * True when a ZeroBounce result represents a transport/configuration failure
+ * (missing key, HTTP non-2xx, timeout, exception) rather than a completed
+ * provider decision. Retryable failures must NOT overwrite email_status.
+ */
+export function isRetryableZbFailure(r: { skipped?: boolean; reason?: string }): boolean {
+  return r.skipped === true || r.reason != null;
+}
+
+/** True when the ZeroBounce provider is configured (API key present). */
+export function isZeroBounceConfigured(): boolean {
+  return !!process.env.ZEROBOUNCE_API_KEY;
+}
+
+/**
+ * Resolve explicit contact IDs into an eligible, deduplicated candidate list.
+ * Drops duplicates, archived contacts, blank emails, and synthetic placeholder
+ * addresses via VALID_EMAIL_ELIGIBILITY. Terminal-status contacts are kept on
+ * purpose: explicit IDs are the operator's deliberate re-validation gate.
+ */
+export async function resolveZbExplicitCandidates(ids: number[], limit: number): Promise<number[]> {
+  const unique = Array.from(new Set(ids));
+  if (unique.length === 0) return [];
+  const rows = await pool.query(
+    `SELECT id FROM contacts WHERE id = ANY($1::int[]) AND ${VALID_EMAIL_ELIGIBILITY}`,
+    [unique],
+  );
+  const eligible = new Set<number>(rows.rows.map((r: any) => r.id));
+  return unique.filter((id) => eligible.has(id)).slice(0, limit);
+}
+
+export interface ZbBatchDeps {
+  verifyEmail: (email: string) => Promise<import("../services/sdr/zerobounce").ZeroBounceResult>;
+  claimCredit: () => Promise<boolean>;
+  hasProviderKey: () => boolean;
+}
+
+export interface ZbBatchCounters {
+  processed: number;
+  valid: number;
+  blocked: number;
+  errors: number;
+  retryableErrors: number;
+}
+
+/**
+ * Production batch-validation loop shared by the batch route (and tests, via
+ * injected deps). Guarantees:
+ *  - Missing provider key: NO credits are claimed and NO statuses are written;
+ *    every queued contact counts as a retryable error.
+ *  - Placeholder/blank emails: skipped BEFORE claiming a credit.
+ *  - Transport/HTTP/timeout failures: the credit may already be spent
+ *    provider-side, but email_status is left unchanged and the contact stays
+ *    eligible for the next run (counted in retryableErrors).
+ *  - Only completed provider decisions write contacts.email_status.
+ */
+export async function runZbValidationBatch(
+  toProcess: number[],
+  actorId: string,
+  deps: ZbBatchDeps,
+): Promise<ZbBatchCounters> {
+  const counters: ZbBatchCounters = { processed: 0, valid: 0, blocked: 0, errors: 0, retryableErrors: 0 };
+
+  // Preflight: a missing API key is definitively not billable — do not burn
+  // a single local credit on a misconfigured batch.
+  if (!deps.hasProviderKey()) {
+    counters.retryableErrors = toProcess.length;
+    return counters;
+  }
+
+  for (const contactId of toProcess) {
+    try {
+      const contact = await storage.getContact(contactId);
+      if (!contact?.email) continue;
+      // Never send synthetic placeholder addresses to ZeroBounce, and never
+      // let them consume a daily credit (checked BEFORE claiming).
+      if (isPlaceholderEmail(contact.email)) continue;
+      const credited = await deps.claimCredit();
+      if (!credited) break;
+
+      const zbResult = await deps.verifyEmail(contact.email);
+      // Transport/config failures (HTTP error, timeout, exception) must NOT
+      // overwrite email_status — leave the contact eligible for the next run.
+      if (isRetryableZbFailure(zbResult)) {
+        counters.retryableErrors++;
+        continue;
+      }
+      await pool.query(`UPDATE contacts SET email_status = $1 WHERE id = $2`, [zbResult.status, contactId]);
+      await storage.createAuditLog({
+        action: "zerobounce_email_validated",
+        entityType: "contact",
+        entityId: contactId,
+        actorType: "admin",
+        actorId,
+        details: { email: contact.email, zbStatus: zbResult.status, zbSubStatus: zbResult.subStatus ?? null, source: "batch" },
+      });
+      counters.processed++;
+      if (zbResult.status === "valid") counters.valid++;
+      else if (zbResult.status === "unsafe") counters.blocked++;
+    } catch (e) {
+      counters.errors++;
+    }
+  }
+  return counters;
+}
+
 function isUniqueEmailViolation(err: any): boolean {
   return err?.code === "23505" && (err?.constraint?.includes("email") || err?.message?.includes("contacts_email_unique_idx"));
 }
@@ -251,7 +377,7 @@ export function registerContactsRoutes(app: Express) {
       const result = await pool.query(`
         SELECT
           COUNT(*)::int AS total,
-          COUNT(*) FILTER (WHERE COALESCE(email_status, 'active') = 'active')::int   AS active,
+          COUNT(*) FILTER (WHERE ${UNVALIDATED_EMAIL_PREDICATE})::int                 AS active,
           COUNT(*) FILTER (WHERE email_status = 'bounced')::int                       AS bounced,
           COUNT(*) FILTER (WHERE email_status = 'invalid')::int                       AS invalid,
           COUNT(*) FILTER (WHERE email_status = 'opted_out')::int                     AS opted_out
@@ -305,7 +431,7 @@ export function registerContactsRoutes(app: Express) {
         SELECT
           COUNT(*)::int                                                                          AS total_contacts,
           COUNT(*) FILTER (WHERE COALESCE(TRIM(first_name), '') = '')::int                      AS blank_first_name,
-          COUNT(*) FILTER (WHERE email_status IS NULL OR email_status = 'active')::int          AS unvalidated_email,
+          COUNT(*) FILTER (WHERE ${UNVALIDATED_EMAIL_PREDICATE})::int                           AS unvalidated_email,
           COUNT(*) FILTER (WHERE email_status IN ('bounced', 'invalid', 'unsafe'))::int         AS bad_email,
           COUNT(*) FILTER (WHERE COALESCE(TRIM(vertical), '') = '')::int                       AS missing_vertical,
           COUNT(*) FILTER (WHERE COALESCE(TRIM(phone), '') = '')::int                          AS missing_phone,
@@ -341,7 +467,7 @@ export function registerContactsRoutes(app: Express) {
 
       const issueFilters: Record<string, string> = {
         blank_name:        `COALESCE(TRIM(first_name), '') = ''`,
-        unvalidated_email: `(email_status IS NULL OR email_status = 'active')`,
+        unvalidated_email: UNVALIDATED_EMAIL_PREDICATE,
         bad_email:         `email_status IN ('bounced', 'invalid', 'unsafe')`,
         missing_vertical:  `COALESCE(TRIM(vertical), '') = ''`,
         missing_phone:     `COALESCE(TRIM(phone), '') = ''`,
@@ -2071,6 +2197,13 @@ export function registerContactsRoutes(app: Express) {
       const { checkZeroBounceBudget, claimZeroBounceCredit } = await import("../services/zerobounce-daily-limiter");
       const { verifyEmail } = await import("../services/sdr/zerobounce");
 
+      // Preflight: missing provider key must never burn credits or write status.
+      if (!isZeroBounceConfigured()) {
+        return res.status(503).json({
+          message: "ZeroBounce is not configured (missing ZEROBOUNCE_API_KEY). No credits were consumed and no contact statuses were changed.",
+        });
+      }
+
       const budget = await checkZeroBounceBudget();
       if (!budget.allowed) {
         return res.status(429).json({
@@ -2081,20 +2214,22 @@ export function registerContactsRoutes(app: Express) {
       // Determine candidate contact IDs
       let candidateIds: number[];
       if (explicitIds.length > 0) {
-        candidateIds = explicitIds.slice(0, batchLimit);
+        // Deduplicate and re-check eligibility server-side: archived contacts,
+        // blank emails, and synthetic placeholders are dropped even when the
+        // caller passes their IDs explicitly.
+        candidateIds = await resolveZbExplicitCandidates(explicitIds, batchLimit);
       } else {
         const issueFilters: Record<string, string> = {
           blank_name:        `COALESCE(TRIM(first_name), '') = ''`,
-          unvalidated_email: `(email_status IS NULL OR email_status = 'active')`,
+          unvalidated_email: UNVALIDATED_EMAIL_PREDICATE,
           bad_email:         `email_status IN ('bounced', 'invalid', 'unsafe')`,
           missing_vertical:  `COALESCE(TRIM(vertical), '') = ''`,
           missing_phone:     `COALESCE(TRIM(phone), '') = ''`,
         };
-        const whereClause = issueFilters[issue] ?? `(email_status IS NULL OR email_status = 'active')`;
+        const whereClause = issueFilters[issue] ?? UNVALIDATED_EMAIL_PREDICATE;
         const rows = await pool.query(`
           SELECT id FROM contacts
-          WHERE archived_at IS NULL
-            AND COALESCE(TRIM(email), '') != ''
+          WHERE ${VALID_EMAIL_ELIGIBILITY}
             AND COALESCE(lead_score, 0) >= ${minLeadScore}
             AND (${whereClause})
           ORDER BY COALESCE(lead_score, 0) DESC
@@ -2112,39 +2247,19 @@ export function registerContactsRoutes(app: Express) {
       const actorId = String((req.user as any)?.id ?? "system");
 
       await storage.setSystemSetting(`zerobounce_batch_job_${jobId}`, {
-        done: false, processed: 0, valid: 0, blocked: 0, errors: 0,
+        done: false, processed: 0, valid: 0, blocked: 0, errors: 0, retryableErrors: 0,
         queued: toProcess.length, startedAt: new Date().toISOString(),
       });
 
       setImmediate(async () => {
-        let processed = 0, valid = 0, blocked = 0, errors = 0;
-        for (const contactId of toProcess) {
-          try {
-            const contact = await storage.getContact(contactId);
-            if (!contact?.email) continue;
-            const credited = await claimZeroBounceCredit();
-            if (!credited) break;
-
-            const zbResult = await verifyEmail(contact.email);
-            await pool.query(`UPDATE contacts SET email_status = $1 WHERE id = $2`, [zbResult.status, contactId]);
-            await storage.createAuditLog({
-              action: "zerobounce_email_validated",
-              entityType: "contact",
-              entityId: contactId,
-              actorType: "admin",
-              actorId,
-              details: { email: contact.email, zbStatus: zbResult.status, zbSubStatus: zbResult.subStatus ?? null, source: "batch" },
-            });
-            processed++;
-            if (zbResult.status === "valid") valid++;
-            else if (zbResult.status === "unsafe") blocked++;
-          } catch (e) {
-            errors++;
-          }
-        }
+        const counters = await runZbValidationBatch(toProcess, actorId, {
+          verifyEmail,
+          claimCredit: claimZeroBounceCredit,
+          hasProviderKey: isZeroBounceConfigured,
+        });
         // Overwrite with final done state
         await storage.setSystemSetting(`zerobounce_batch_job_${jobId}`, {
-          done: true, processed, valid, blocked, errors,
+          done: true, ...counters,
           queued: toProcess.length, completedAt: new Date().toISOString(),
         });
       });
@@ -2181,9 +2296,21 @@ export function registerContactsRoutes(app: Express) {
       const contact = await storage.getContact(contactId);
       if (!contact) return res.status(404).json({ message: "Contact not found" });
       if (!contact.email) return res.status(400).json({ message: "Contact has no email address" });
+      if (isPlaceholderEmail(contact.email)) {
+        return res.status(400).json({ message: "Contact has a synthetic placeholder email address; nothing to validate" });
+      }
 
       const { checkZeroBounceBudget, claimZeroBounceCredit } = await import("../services/zerobounce-daily-limiter");
       const { verifyEmail } = await import("../services/sdr/zerobounce");
+
+      // Preflight: missing provider key must never burn a credit or write status.
+      if (!isZeroBounceConfigured()) {
+        return res.status(503).json({
+          success: false,
+          retryable: true,
+          message: "ZeroBounce is not configured (missing ZEROBOUNCE_API_KEY); no credit consumed, contact status unchanged",
+        });
+      }
 
       const budget = await checkZeroBounceBudget();
       if (!budget.allowed) {
@@ -2194,6 +2321,16 @@ export function registerContactsRoutes(app: Express) {
       if (!credited) return res.status(429).json({ message: "Could not claim ZeroBounce credit" });
 
       const zbResult = await verifyEmail(contact.email);
+      // Retryable transport/config failure: do NOT overwrite email_status.
+      if (isRetryableZbFailure(zbResult)) {
+        return res.status(502).json({
+          success: false,
+          retryable: true,
+          message: zbResult.skipped
+            ? "ZeroBounce is not configured (missing API key); contact status unchanged"
+            : `ZeroBounce validation failed (${zbResult.reason}); contact status unchanged`,
+        });
+      }
       await pool.query(`UPDATE contacts SET email_status = $1 WHERE id = $2`, [zbResult.status, contactId]);
       await storage.createAuditLog({
         action: "zerobounce_email_validated",

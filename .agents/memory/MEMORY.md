@@ -96,3 +96,4 @@
 - [Cohort Monitoring Preflight](cohort-monitoring-preflight.md) — GET /api/admin/outbound/cohort-metrics + live 4-tile panel on OutboundPreflight.tsx; thresholds red>5% bounce, amber>1% opt-out; no automated alert yet.
 - [Appointment-to-Statement polling fix](appointment-statement-polling-fix.md) — pre-deploy flap caused by GHL rate-limit waits inside createTestContactWithLead; fixed with pollUntil() (12s) for positive assertions.
 - [Outbound Pause Authority (#1531)](outbound-pause-authority.md) — canonical pause read/write via OutboundPauseAuthority + OutboundControlService; outbound_pause_control singleton table (migration 0133); skipGlobalPauseCheck removed; workers start only after initializePauseControl() succeeds.
+- [ZeroBounce validation safety](zerobounce-validation-safety.md) — canonical predicates + retryable-failure guard in contacts routes; no-key preflight claims zero credits; explicit IDs must pass eligibility query.
