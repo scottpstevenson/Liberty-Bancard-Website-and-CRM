@@ -5540,3 +5540,63 @@ export const outboundPauseAudit = pgTable("outbound_pause_audit", {
 ]);
 
 export type OutboundPauseAudit = typeof outboundPauseAudit.$inferSelect;
+
+// ─── ZeroBounce Durable Batch Campaign Engine (#1541 / 1540B) ─────────────────
+
+export const zerobounceCampaigns = pgTable("zerobounce_campaigns", {
+  id:                   varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  filterDefinition:     jsonb("filter_definition").notNull().default(sql`'{}'::jsonb`),
+  initialEligibleTotal: integer("initial_eligible_total").notNull().default(0),
+  status:               text("status").notNull().default("active"), // active | completed | cancelled
+  createdBy:            text("created_by"),
+  createdAt:            timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt:            timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  completedAt:          timestamp("completed_at", { withTimezone: true }),
+});
+export type ZerobounceCampaign = typeof zerobounceCampaigns.$inferSelect;
+
+export const zerobounceRuns = pgTable("zerobounce_runs", {
+  id:              varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  campaignId:      varchar("campaign_id").notNull().references(() => zerobounceCampaigns.id, { onDelete: "cascade" }),
+  bullJobId:       text("bull_job_id"),
+  // running | completed | budget_stopped | cancelled | interrupted | error
+  state:           text("state").notNull().default("running"),
+  stopReason:      text("stop_reason"),
+  cancelRequested: boolean("cancel_requested").notNull().default(false),
+  contactLimit:    integer("contact_limit").notNull().default(100),
+  claimedCount:    integer("claimed_count").notNull().default(0),
+  completedCount:  integer("completed_count").notNull().default(0),
+  retryableCount:  integer("retryable_count").notNull().default(0),
+  skippedCount:    integer("skipped_count").notNull().default(0),
+  errorCount:      integer("error_count").notNull().default(0),
+  validCount:      integer("valid_count").notNull().default(0),
+  blockedCount:    integer("blocked_count").notNull().default(0),
+  lastHeartbeatAt: timestamp("last_heartbeat_at", { withTimezone: true }),
+  startedAt:       timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+  finishedAt:      timestamp("finished_at", { withTimezone: true }),
+  createdAt:       timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index("zb_runs_campaign_idx").on(t.campaignId, t.createdAt),
+]);
+export type ZerobounceRun = typeof zerobounceRuns.$inferSelect;
+
+export const zerobounceAttempts = pgTable("zerobounce_attempts", {
+  id:             bigint("id", { mode: "number" }).primaryKey().generatedByDefaultAsIdentity(),
+  campaignId:     varchar("campaign_id").notNull().references(() => zerobounceCampaigns.id, { onDelete: "cascade" }),
+  runId:          varchar("run_id").notNull().references(() => zerobounceRuns.id, { onDelete: "cascade" }),
+  contactId:      integer("contact_id").notNull(),
+  // pending | completed | retryable_failed | skipped
+  outcome:        text("outcome").notNull().default("pending"),
+  providerStatus: text("provider_status"),
+  subStatus:      text("sub_status"),
+  // none | reserved — 'reserved' is a LOCAL daily-cap reservation, NOT confirmed provider billing
+  creditState:    text("credit_state").notNull().default("none"),
+  retryable:      boolean("retryable").notNull().default(false),
+  errorCode:      text("error_code"),
+  createdAt:      timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt:      timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("zb_attempts_campaign_contact_idx").on(t.campaignId, t.contactId),
+  index("zb_attempts_run_idx").on(t.runId),
+]);
+export type ZerobounceAttempt = typeof zerobounceAttempts.$inferSelect;

@@ -974,6 +974,13 @@
       "when": 1791800000000,
       "tag": "0135_contacts_email_status_unvalidated_default",
       "breakpoints": true
+    },
+    {
+      "idx": 139,
+      "version": "7",
+      "when": 1791900000000,
+      "tag": "0136_zerobounce_campaign_engine",
+      "breakpoints": false
     }
   ]
 }

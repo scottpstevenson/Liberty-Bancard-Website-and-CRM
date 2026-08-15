@@ -97,3 +97,4 @@
 - [Appointment-to-Statement polling fix](appointment-statement-polling-fix.md) — pre-deploy flap caused by GHL rate-limit waits inside createTestContactWithLead; fixed with pollUntil() (12s) for positive assertions.
 - [Outbound Pause Authority (#1531)](outbound-pause-authority.md) — canonical pause read/write via OutboundPauseAuthority + OutboundControlService; outbound_pause_control singleton table (migration 0133); skipGlobalPauseCheck removed; workers start only after initializePauseControl() succeeds.
 - [ZeroBounce validation safety](zerobounce-validation-safety.md) — canonical predicates + retryable-failure guard in contacts routes; no-key preflight claims zero credits; explicit IDs must pass eligibility query.
+- [ZeroBounce campaign engine](zerobounce-campaign-engine.md) — attempts table is claim + source of truth; budget-stop deletes un-credited claim; campaign GET route must precede /api/contacts/:id.

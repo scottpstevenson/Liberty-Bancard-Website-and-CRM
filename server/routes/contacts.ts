@@ -31,38 +31,25 @@ import { LifecycleService, adminOverrideTransition, LIFECYCLE_STATES } from "../
 import type { LifecycleState } from "../services/lifecycle-service";
 
 // ── Canonical email-validation predicates (task #1540A) ─────────────────────
-// #1533 changed contacts.email_status default from 'active' to 'unvalidated'.
-// Every filter that selects contacts needing validation MUST use these
-// constants — do not hand-write the predicate anywhere else.
-export const UNVALIDATED_EMAIL_PREDICATE =
-  `(email_status IS NULL OR email_status IN ('active', 'unvalidated'))`;
-
-// Eligibility filter for ZeroBounce candidates: non-blank real addresses only.
-// Excludes synthetic placeholders written by CSV import
-// (no-email-<uuid>@no-email.libertybancard.internal).
-export const VALID_EMAIL_ELIGIBILITY =
-  `(COALESCE(TRIM(email), '') != '' AND email NOT ILIKE '%.internal' AND email NOT ILIKE 'no-email-%' AND archived_at IS NULL)`;
-
-/** True for synthetic placeholder addresses that must never reach ZeroBounce. */
-export function isPlaceholderEmail(email: string | null | undefined): boolean {
-  if (!email || email.trim() === "") return true;
-  const e = email.trim().toLowerCase();
-  return e.endsWith(".internal") || e.startsWith("no-email-");
-}
-
-/**
- * True when a ZeroBounce result represents a transport/configuration failure
- * (missing key, HTTP non-2xx, timeout, exception) rather than a completed
- * provider decision. Retryable failures must NOT overwrite email_status.
- */
-export function isRetryableZbFailure(r: { skipped?: boolean; reason?: string }): boolean {
-  return r.skipped === true || r.reason != null;
-}
-
-/** True when the ZeroBounce provider is configured (API key present). */
-export function isZeroBounceConfigured(): boolean {
-  return !!process.env.ZEROBOUNCE_API_KEY;
-}
+// Moved to server/services/zerobounce-eligibility.ts in #1541 so the durable
+// BullMQ campaign worker can share them; re-exported here to preserve existing
+// import paths (tests import them from this module).
+import {
+  UNVALIDATED_EMAIL_PREDICATE,
+  VALID_EMAIL_ELIGIBILITY,
+  ZB_ISSUE_FILTERS,
+  isPlaceholderEmail,
+  isRetryableZbFailure,
+  isZeroBounceConfigured,
+  type ZbCampaignFilter,
+} from "../services/zerobounce-eligibility";
+export {
+  UNVALIDATED_EMAIL_PREDICATE,
+  VALID_EMAIL_ELIGIBILITY,
+  isPlaceholderEmail,
+  isRetryableZbFailure,
+  isZeroBounceConfigured,
+};
 
 /**
  * Resolve explicit contact IDs into an eligible, deduplicated candidate list.
@@ -723,6 +710,88 @@ export function registerContactsRoutes(app: Express) {
   });
 
   // ── Generic contact lookup (must stay after all fixed-path /contacts/* routes) ──
+  // GET /api/contacts/validate-emails-campaign — active campaign summary (#1541).
+  // Active campaign joined with its latest run, counts from zerobounce_attempts
+  // (source of truth), and a live remaining-eligible count.
+  app.get("/api/contacts/validate-emails-campaign", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const { markStaleRunsInterrupted } = await import("../services/zerobounce-campaign-worker");
+      const { buildZbEligibilityWhere } = await import("../services/zerobounce-eligibility");
+      const { checkZeroBounceBudget } = await import("../services/zerobounce-daily-limiter");
+      await markStaleRunsInterrupted();
+
+      const campaign = (await pool.query(
+        `SELECT * FROM zerobounce_campaigns WHERE status = 'active' LIMIT 1`,
+      )).rows[0];
+      if (!campaign) return res.json({ active: false, campaign: null, latestRun: null });
+
+      const [latestRun, counts, budget] = await Promise.all([
+        pool.query(
+          `SELECT * FROM zerobounce_runs WHERE campaign_id = $1 ORDER BY created_at DESC LIMIT 1`,
+          [campaign.id],
+        ).then(r => r.rows[0] ?? null),
+        pool.query(
+          `SELECT
+             COUNT(*)::int                                             AS claimed,
+             COUNT(*) FILTER (WHERE outcome = 'completed')::int        AS completed,
+             COUNT(*) FILTER (WHERE outcome = 'retryable_failed')::int AS retryable_failed,
+             COUNT(*) FILTER (WHERE outcome = 'skipped')::int          AS skipped,
+             COUNT(*) FILTER (WHERE outcome = 'error')::int            AS errors,
+             COUNT(*) FILTER (WHERE outcome = 'pending')::int          AS pending,
+             COUNT(*) FILTER (WHERE provider_status = 'valid')::int    AS valid,
+             COUNT(*) FILTER (WHERE provider_status = 'unsafe')::int   AS blocked
+           FROM zerobounce_attempts WHERE campaign_id = $1`,
+          [campaign.id],
+        ).then(r => r.rows[0]),
+        checkZeroBounceBudget(),
+      ]);
+
+      const filter = (campaign.filter_definition ?? {}) as ZbCampaignFilter;
+      const remainingRow = await pool.query(
+        `SELECT COUNT(*)::int AS n FROM contacts c
+          WHERE ${buildZbEligibilityWhere(filter)}
+            AND NOT EXISTS (SELECT 1 FROM zerobounce_attempts a WHERE a.campaign_id = $1 AND a.contact_id = c.id)`,
+        [campaign.id],
+      );
+
+      res.json({
+        active: true,
+        campaign: {
+          id: campaign.id,
+          filterDefinition: filter,
+          initialEligibleTotal: campaign.initial_eligible_total,
+          status: campaign.status,
+          createdAt: campaign.created_at,
+          createdBy: campaign.created_by,
+        },
+        counts: {
+          claimed: counts.claimed,
+          providerCompleted: counts.completed,
+          retryableFailed: counts.retryable_failed,
+          skippedPlaceholders: counts.skipped,
+          errors: counts.errors,
+          pending: counts.pending,
+          valid: counts.valid,
+          blocked: counts.blocked,
+          remainingEligible: remainingRow.rows[0]?.n ?? 0,
+        },
+        dailyBudget: { used: budget.used, limit: budget.limit },
+        latestRun: latestRun ? {
+          id: latestRun.id,
+          state: latestRun.state,
+          stopReason: latestRun.stop_reason,
+          cancelRequested: latestRun.cancel_requested,
+          contactLimit: latestRun.contact_limit,
+          lastHeartbeatAt: latestRun.last_heartbeat_at,
+          startedAt: latestRun.started_at,
+          finishedAt: latestRun.finished_at,
+        } : null,
+      });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
   app.get("/api/contacts/:id", isDashboardUser, async (req, res) => {
     try {
       const contactId = Number(req.params.id);
@@ -2179,7 +2248,9 @@ export function registerContactsRoutes(app: Express) {
   });
 
   // POST /api/contacts/validate-emails-batch
-  // Runs ZeroBounce on a filtered set of contacts, respecting the daily cap.
+  // #1541 (1540B): starts a DURABLE ZeroBounce validation run. Creates/reuses a
+  // zerobounce_campaigns row, inserts a zerobounce_runs row, and enqueues a
+  // BullMQ job. No setImmediate; work survives server restarts.
   app.post("/api/contacts/validate-emails-batch", requireRole("admin", "manager"), async (req, res) => {
     try {
       const schema = z.object({
@@ -2194,8 +2265,9 @@ export function registerContactsRoutes(app: Express) {
       }
       const { issue, minLeadScore, limit: batchLimit, contactIds: explicitIds } = parsed.data;
 
-      const { checkZeroBounceBudget, claimZeroBounceCredit } = await import("../services/zerobounce-daily-limiter");
-      const { verifyEmail } = await import("../services/sdr/zerobounce");
+      const { checkZeroBounceBudget } = await import("../services/zerobounce-daily-limiter");
+      const { markStaleRunsInterrupted } = await import("../services/zerobounce-campaign-worker");
+      const { enqueueZeroBounceRun } = await import("../services/queue-manager");
 
       // Preflight: missing provider key must never burn credits or write status.
       if (!isZeroBounceConfigured()) {
@@ -2211,81 +2283,207 @@ export function registerContactsRoutes(app: Express) {
         });
       }
 
-      // Determine candidate contact IDs
-      let candidateIds: number[];
-      if (explicitIds.length > 0) {
-        // Deduplicate and re-check eligibility server-side: archived contacts,
-        // blank emails, and synthetic placeholders are dropped even when the
-        // caller passes their IDs explicitly.
-        candidateIds = await resolveZbExplicitCandidates(explicitIds, batchLimit);
-      } else {
-        const issueFilters: Record<string, string> = {
-          blank_name:        `COALESCE(TRIM(first_name), '') = ''`,
-          unvalidated_email: UNVALIDATED_EMAIL_PREDICATE,
-          bad_email:         `email_status IN ('bounced', 'invalid', 'unsafe')`,
-          missing_vertical:  `COALESCE(TRIM(vertical), '') = ''`,
-          missing_phone:     `COALESCE(TRIM(phone), '') = ''`,
+      // Recover any run orphaned by a restart before checking active-run state.
+      await markStaleRunsInterrupted();
+
+      // ── Find or create the active campaign ─────────────────────────────────
+      const actorId = String((req.user as any)?.id ?? "system");
+      let campaign = (await pool.query(
+        `SELECT * FROM zerobounce_campaigns WHERE status = 'active' LIMIT 1`,
+      )).rows[0];
+
+      if (!campaign) {
+        const filter: ZbCampaignFilter = {
+          issue,
+          minLeadScore,
+          ...(explicitIds.length > 0
+            ? { contactIds: (await resolveZbExplicitCandidates(explicitIds, explicitIds.length)) }
+            : {}),
         };
-        const whereClause = issueFilters[issue] ?? UNVALIDATED_EMAIL_PREDICATE;
-        const rows = await pool.query(`
-          SELECT id FROM contacts
-          WHERE ${VALID_EMAIL_ELIGIBILITY}
-            AND COALESCE(lead_score, 0) >= ${minLeadScore}
-            AND (${whereClause})
-          ORDER BY COALESCE(lead_score, 0) DESC
-          LIMIT ${batchLimit}
-        `);
-        candidateIds = rows.rows.map((r: any) => r.id);
+        const { buildZbEligibilityWhere } = await import("../services/zerobounce-eligibility");
+        const totalRow = await pool.query(
+          `SELECT COUNT(*)::int AS n FROM contacts WHERE ${buildZbEligibilityWhere(filter)}`,
+        );
+        const initialTotal = totalRow.rows[0]?.n ?? 0;
+        // Partial unique index zb_campaigns_one_active_idx makes concurrent
+        // creation race-safe: the loser gets 0 rows and re-reads the winner.
+        const ins = await pool.query(
+          `INSERT INTO zerobounce_campaigns (filter_definition, initial_eligible_total, created_by)
+           VALUES ($1::jsonb, $2, $3)
+           ON CONFLICT DO NOTHING
+           RETURNING *`,
+          [JSON.stringify(filter), initialTotal, actorId],
+        );
+        campaign = ins.rows[0] ?? (await pool.query(
+          `SELECT * FROM zerobounce_campaigns WHERE status = 'active' LIMIT 1`,
+        )).rows[0];
+        if (!campaign) return res.status(500).json({ message: "Failed to create campaign" });
       }
 
-      const maxToProcess = Math.min(candidateIds.length, budget.limit - budget.used);
-      const toProcess = candidateIds.slice(0, maxToProcess);
-
-      // Fire-and-forget: process in background, return job handle immediately.
-      // Write initial state BEFORE setImmediate so the first poll never 404s.
-      const jobId = crypto.randomUUID();
-      const actorId = String((req.user as any)?.id ?? "system");
-
-      await storage.setSystemSetting(`zerobounce_batch_job_${jobId}`, {
-        done: false, processed: 0, valid: 0, blocked: 0, errors: 0, retryableErrors: 0,
-        queued: toProcess.length, startedAt: new Date().toISOString(),
-      });
-
-      setImmediate(async () => {
-        const counters = await runZbValidationBatch(toProcess, actorId, {
-          verifyEmail,
-          claimCredit: claimZeroBounceCredit,
-          hasProviderKey: isZeroBounceConfigured,
+      // ── Active-run enforcement: one running run per campaign ───────────────
+      const existingRunning = (await pool.query(
+        `SELECT id, state FROM zerobounce_runs WHERE campaign_id = $1 AND state = 'running' LIMIT 1`,
+        [campaign.id],
+      )).rows[0];
+      if (existingRunning) {
+        return res.status(200).json({
+          jobId: existingRunning.id,
+          runId: existingRunning.id,
+          campaignId: campaign.id,
+          alreadyRunning: true,
+          queued: 0,
+          budgetRemaining: budget.limit - budget.used,
+          message: `A validation run is already in progress. Poll /api/contacts/validate-emails-batch/${existingRunning.id} for status.`,
         });
-        // Overwrite with final done state
-        await storage.setSystemSetting(`zerobounce_batch_job_${jobId}`, {
-          done: true, ...counters,
-          queued: toProcess.length, completedAt: new Date().toISOString(),
-        });
-      });
+      }
+
+      // Insert the run. The partial unique index (campaign_id) WHERE state='running'
+      // closes the remaining race: a concurrent POST loses the insert and re-reads.
+      let run;
+      try {
+        run = (await pool.query(
+          `INSERT INTO zerobounce_runs (campaign_id, contact_limit, state, last_heartbeat_at)
+           VALUES ($1, $2, 'running', NOW())
+           RETURNING *`,
+          [campaign.id, batchLimit],
+        )).rows[0];
+      } catch (insErr: any) {
+        if (insErr?.code === "23505") {
+          const winner = (await pool.query(
+            `SELECT id FROM zerobounce_runs WHERE campaign_id = $1 AND state = 'running' LIMIT 1`,
+            [campaign.id],
+          )).rows[0];
+          if (winner) {
+            return res.status(200).json({
+              jobId: winner.id, runId: winner.id, campaignId: campaign.id,
+              alreadyRunning: true, queued: 0,
+              budgetRemaining: budget.limit - budget.used,
+              message: `A validation run is already in progress. Poll /api/contacts/validate-emails-batch/${winner.id} for status.`,
+            });
+          }
+        }
+        throw insErr;
+      }
+
+      // ── Enqueue the durable BullMQ job ──────────────────────────────────────
+      const bullJobId = await enqueueZeroBounceRun(run.id);
+      if (!bullJobId) {
+        // No in-process fallback: mark the run interrupted and fail loudly.
+        await pool.query(
+          `UPDATE zerobounce_runs SET state = 'interrupted', stop_reason = 'enqueue_failed', finished_at = NOW() WHERE id = $1`,
+          [run.id],
+        );
+        return res.status(503).json({ message: "Background queue unavailable; run not started. Try again shortly." });
+      }
+      await pool.query(`UPDATE zerobounce_runs SET bull_job_id = $1 WHERE id = $2`, [bullJobId, run.id]);
 
       res.json({
-        jobId,
-        queued: toProcess.length,
+        jobId: run.id, // backward-compatible field name for DataQuality.tsx polling
+        runId: run.id,
+        campaignId: campaign.id,
+        queued: run.contact_limit,
         budgetRemaining: budget.limit - budget.used,
-        message: `Validating ${toProcess.length} email(s) in the background. Poll /api/contacts/validate-emails-batch/${jobId} for status.`,
+        message: `Validation run started (up to ${run.contact_limit} contacts). Poll /api/contacts/validate-emails-batch/${run.id} for status.`,
       });
     } catch (err: any) {
       serverError(res, err);
     }
   });
 
-  // GET /api/contacts/validate-emails-batch/:jobId — poll batch job status
+  // GET /api/contacts/validate-emails-batch/:jobId — poll run status (#1541).
+  // Reads zerobounce_runs by run ID; response keeps the legacy shape
+  // ({ done, processed, valid, blocked, errors, retryableErrors, queued, ... })
+  // so DataQuality.tsx keeps working, plus the new run fields.
   app.get("/api/contacts/validate-emails-batch/:jobId", requireRole("admin", "manager"), async (req, res) => {
     try {
-      const jobId = req.params.jobId;
-      const status = await storage.getSystemSetting(`zerobounce_batch_job_${jobId}`);
-      if (!status) return res.status(404).json({ message: "Job not found or still starting" });
-      res.json(status);
+      const runId = req.params.jobId;
+      const { markStaleRunsInterrupted } = await import("../services/zerobounce-campaign-worker");
+      await markStaleRunsInterrupted();
+
+      const run = (await pool.query(`SELECT * FROM zerobounce_runs WHERE id = $1`, [runId])).rows[0];
+      if (!run) {
+        // Legacy fallback: pre-#1541 jobs stored status in system_settings.
+        const legacy = await storage.getSystemSetting(`zerobounce_batch_job_${runId}`);
+        if (legacy) return res.json(legacy);
+        return res.status(404).json({ message: "Run not found" });
+      }
+
+      res.json({
+        // Legacy-compatible fields
+        done: run.state !== "running",
+        processed: run.completed_count,
+        valid: run.valid_count,
+        blocked: run.blocked_count,
+        errors: run.error_count,
+        retryableErrors: run.retryable_count,
+        queued: run.contact_limit,
+        startedAt: run.started_at,
+        completedAt: run.finished_at,
+        // New durable-run fields
+        runId: run.id,
+        campaignId: run.campaign_id,
+        state: run.state,
+        stopReason: run.stop_reason,
+        cancelRequested: run.cancel_requested,
+        claimed: run.claimed_count,
+        skipped: run.skipped_count,
+        lastHeartbeatAt: run.last_heartbeat_at,
+      });
     } catch (err: any) {
       serverError(res, err);
     }
   });
+
+  // DELETE /api/contacts/validate-emails-batch/:runId — request cancellation (#1541).
+  // Sets cancel_requested; the worker polls it between contacts and exits with
+  // stop_reason='cancelled'.
+  app.delete("/api/contacts/validate-emails-batch/:runId", requireRole("admin"), async (req, res) => {
+    try {
+      const runId = req.params.runId;
+      const run = (await pool.query(
+        `SELECT id, state, campaign_id FROM zerobounce_runs WHERE id = $1`, [runId],
+      )).rows[0];
+      if (!run) return res.status(404).json({ message: "Run not found" });
+
+      // Cancelling always abandons the whole CAMPAIGN, not just the run:
+      // even if this run is already terminal (budget_stopped, completed via
+      // contact limit, interrupted), the admin's intent is "stop this
+      // validation campaign so a new one can be started with a fresh filter".
+      const { cancelZeroBounceCampaignByRun } = await import("../services/zerobounce-campaign-worker");
+      const result = await cancelZeroBounceCampaignByRun(String(runId));
+      if (!result.ok) {
+        return res.status(409).json({
+          message: `Nothing to cancel: run is ${run.state} and its campaign is not active.`,
+          state: run.state,
+        });
+      }
+      const { runCancelRequested: cancelRequested, campaignCancelled } = result;
+      await storage.createAuditLog({
+        action: "zerobounce_campaign_cancel_requested",
+        entityType: "zerobounce_campaign",
+        details: {
+          runId,
+          campaignId: run.campaign_id,
+          runState: run.state,
+          runCancelRequested: cancelRequested,
+          campaignCancelled,
+          requestedBy: String((req.user as any)?.id ?? "unknown"),
+        },
+      });
+      res.json({
+        runId,
+        campaignId: run.campaign_id,
+        cancelRequested,
+        campaignCancelled,
+        message: cancelRequested
+          ? "Cancellation requested; the worker will stop between contacts and the campaign is cancelled."
+          : "Campaign cancelled; the next batch start will create a fresh campaign from its own filter.",
+      });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
 
   // POST /api/contacts/:id/validate-email — validate a single contact's email via ZeroBounce
   app.post("/api/contacts/:id/validate-email", requireRole("admin", "manager"), async (req, res) => {

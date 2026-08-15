@@ -30,6 +30,7 @@ export const QUEUE_NAMES = {
   WINBACK_OUTREACH: "winback-outreach",
   VOICEMAIL_SYNC: "voicemail-sync",
   POST_ENRICHMENT: "post-enrichment",
+  ZEROBOUNCE_BATCH: "zerobounce-batch-validate",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -327,6 +328,20 @@ export const QUEUE_CONFIGS: QueueConfig[] = [
     backoffDelay: 15000,
     repeatEveryMs: 0, // no repeatable job — driven by enrichment events
     jobName: "post-enrichment-automation",
+  },
+  {
+    name: QUEUE_NAMES.ZEROBOUNCE_BATCH,
+    // Event-driven (#1541): jobs are enqueued by POST /api/contacts/validate-emails-batch
+    // with a { runId } payload. concurrency=1: the zerobounce_attempts unique
+    // claim makes concurrent runs safe, but serial processing keeps daily-cap
+    // consumption deterministic. attempts=1: a crashed run is recovered via
+    // stale-heartbeat detection + a new operator-initiated run, not a blind
+    // BullMQ retry (which could double-report a terminal state).
+    concurrency: 1,
+    attempts: 1,
+    backoffDelay: 10000,
+    repeatEveryMs: 0, // no repeatable job — driven by batch-start requests
+    jobName: "run",
   },
 ];
 
@@ -1283,6 +1298,13 @@ class QueueManager {
           }
           break;
         }
+        case QUEUE_NAMES.ZEROBOUNCE_BATCH: {
+          const { processZeroBounceRun } = await import("./zerobounce-campaign-worker");
+          const runId = (_job.data as { runId?: string })?.runId;
+          if (!runId) throw new Error("zerobounce-batch-validate job missing runId");
+          await processZeroBounceRun(runId);
+          break;
+        }
         case QUEUE_NAMES.POST_ENRICHMENT: {
           const { processPostEnrichmentJob } = await import("./post-enrichment-worker");
           await processPostEnrichmentJob(_job.data as import("./post-enrichment-worker").PostEnrichmentJobData);
@@ -2114,6 +2136,29 @@ export async function enqueueStatementAnalysis(dealId: number): Promise<string |
     console.log(`[Queue:enrichment] Enqueued statement-blueprint for deal #${dealId} → job ${job.id}`);
     return job.id ?? null;
   } catch {
+    return null;
+  }
+}
+
+/**
+ * Enqueue a one-off zerobounce-batch-validate job for a run (#1541).
+ * Returns the BullMQ job ID, or null if the queue is unavailable
+ * (Redis down / QueueManager not initialised) — callers must treat null as
+ * a hard failure and mark the run interrupted; there is NO in-process fallback.
+ */
+export async function enqueueZeroBounceRun(runId: string): Promise<string | null> {
+  try {
+    const qm = await getQueueManager();
+    const queue = qm.getQueue(QUEUE_NAMES.ZEROBOUNCE_BATCH);
+    if (!queue) return null;
+    const job = await queue.add("run", { runId }, {
+      attempts: 1,
+      jobId: `zb-run-${runId}`,
+    });
+    console.log(`[Queue:zerobounce-batch-validate] Enqueued run ${runId} → job ${job.id}`);
+    return job.id ?? null;
+  } catch (err: any) {
+    console.error(`[Queue:zerobounce-batch-validate] Failed to enqueue run ${runId}:`, err?.message ?? err);
     return null;
   }
 }
