@@ -113,14 +113,8 @@ export async function processPostEnrichmentJob(data: PostEnrichmentJobData): Pro
     return;
   }
 
-  // Global outbound pause gate — bail out before any outbound action
-  const pausedRaw = await storage.getSystemSetting("outboundGlobalPaused");
-  if (pausedRaw === true || pausedRaw === "true") {
-    console.log(`${logPrefix} — outboundGlobalPaused is set — skipping sequence enrollment`);
-    return;
-  }
-
-  // Stamp the deal immediately to prevent concurrent re-fires
+  // ── Phase A: stamp deal immediately (safe, unconditional, prevents concurrent re-fires) ──
+  // This runs regardless of outbound pause state, so stage work is never lost.
   await db.execute(sql`
     UPDATE deals
     SET post_enrichment_automation_at = NOW(), updated_at = NOW()
@@ -202,7 +196,54 @@ export async function processPostEnrichmentJob(data: PostEnrichmentJobData): Pro
   const sequenceSource = vertical ? `vertical "${vertical}"` : "fallback (no vertical)";
   console.log(`${logPrefix} — resolved sequence "${sequence.name}" (id=${sequence.id}) via ${sequenceSource}`);
 
-  // ── 5. Enroll the contact ─────────────────────────────────────────────────
+  // ── 5. Enroll the contact (Phase B: gated by coordinator) ────────────────
+  // If a hold is active, write a durable intent to the outbox table and defer.
+  // Stage work (Phase A) above already completed — it is never lost.
+  {
+    const { authorize } = await import("./outbound-pause-authority");
+    const { canExecute } = await import("./outbound-queue-coordinator");
+    const decision = await authorize({});
+    const coordOk = decision.allowed ? await canExecute("post-enrichment-enrollment") : false;
+
+    if (!decision.allowed || !coordOk) {
+      // Write durable enrollment intent to outbox for later recovery
+      const idempotencyKey = `pe-enroll-${dealId}-${sequence.id}`;
+      try {
+        const { pool } = await import("../db");
+        await pool.query(
+          `INSERT INTO post_enrichment_enrollment_intents
+             (deal_id, contact_id, entity_id, idempotency_key, status, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, 'pending', NOW(), NOW())
+           ON CONFLICT (idempotency_key) DO NOTHING`,
+          [dealId, contactId, entityId ?? null, idempotencyKey],
+        );
+      } catch (intentErr: any) {
+        // Non-fatal if table doesn't exist yet (pre-migration)
+        if (!intentErr.message?.includes("does not exist")) {
+          console.warn(`${logPrefix} — intent write failed: ${intentErr.message}`);
+        }
+      }
+      await storage.createAuditLog({
+        action: "post_enrichment_enrollment_deferred",
+        entityType: "deal",
+        entityId: dealId,
+        details: {
+          contactId,
+          sequenceId: sequence.id,
+          sequenceName: sequence.name,
+          vertical,
+          holdReason: !decision.allowed ? decision.reasonCode : "coordinator-hold",
+          idempotencyKey,
+        },
+      });
+      await db.execute(sql`
+        UPDATE deals SET next_action = ${'Enrollment deferred — outbound hold active'}, updated_at = NOW() WHERE id = ${dealId}
+      `);
+      console.log(`${logPrefix} — enrollment deferred (hold active), intent written as ${idempotencyKey}`);
+      return;
+    }
+  }
+
   let enrollmentResult: { enrolled: boolean; method: string; reason?: string };
   try {
     enrollmentResult = await enrollContactInGhlWorkflow({

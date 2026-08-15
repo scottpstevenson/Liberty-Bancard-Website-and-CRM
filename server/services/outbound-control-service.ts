@@ -22,6 +22,7 @@
 import { pool } from "../db";
 import { invalidatePauseStateCache, getPauseState } from "./outbound-pause-authority";
 import type { PauseState, OutboundPauseStateResult } from "./outbound-pause-authority";
+import { outboundQueueCoordinator } from "./outbound-queue-coordinator";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -43,7 +44,8 @@ export interface PauseControlResult {
     policyVersion: "1.0";
   };
   queueBackpressure: {
-    status: "not_configured";
+    status: "not_configured" | "coordinator";
+    enrollmentsRestored?: number;
   };
   changeType: ChangeType;
 }
@@ -396,6 +398,21 @@ export async function applyPauseMutation(
         },
       });
 
+      // Write global_outbound coordinator holds (same transaction as paused commit)
+      try {
+        await outboundQueueCoordinator.writeGlobalOutboundHolds(
+          client,
+          pausedEpoch,
+          request.actor,
+          request.correlationId,
+        );
+      } catch (holdErr: any) {
+        console.warn(
+          `[OutboundControlService] Coordinator hold write failed (non-fatal, table may not exist yet): ${holdErr.message}`,
+        );
+        // Non-fatal if table doesn't exist (pre-migration graceful degradation)
+      }
+
       await client.query("COMMIT");
       invalidatePauseStateCache();
 
@@ -405,7 +422,7 @@ export async function applyPauseMutation(
 
       return buildResult("paused", request.reason, pausedEpoch, now2, "state-transition");
     } else {
-      // Unpause — straightforward single-transaction commit
+      // Unpause — single-transaction commit with VFC-22 restoration + coordinator integration
       const newEpoch = currentEpoch + 1n;
       const now = new Date();
 
@@ -430,13 +447,74 @@ export async function applyPauseMutation(
         details: { idempotencyKey: request.idempotencyKey ?? null },
       });
 
+      // ── VFC-22 fix: restore _globalPauseBlock* enrollments to 'active' ───────
+      // sequence-worker.ts mutates enrollment status to 'paused' + sets
+      // _globalPauseBlock* metadata when globally paused. These enrollments are
+      // permanently stuck unless explicitly restored here.
+      // This sweep runs atomically within the same transaction as the control row commit.
+      let restoredCount = 0;
+      try {
+        const restored = await client.query<{ id: number }>(
+          `UPDATE sequence_enrollments
+           SET status     = 'active',
+               metadata   = metadata
+                            - '_globalPauseBlockStep'
+                            - '_globalPauseBlockReason',
+               updated_at = NOW()
+           WHERE status = 'paused'
+             AND metadata->>'_globalPauseBlockReason' IS NOT NULL
+           RETURNING id`,
+        );
+        restoredCount = restored.rows.length;
+        if (restoredCount > 0) {
+          console.log(
+            `[OutboundControlService] VFC-22: restored ${restoredCount} _globalPauseBlock* ` +
+            `enrollment(s) to active within unpause transaction`,
+          );
+          // Write audit entries for restored enrollments (fire-and-forget outside transaction)
+          const restoredIds = restored.rows.map(r => r.id);
+          setImmediate(() => {
+            writeEnrollmentRestorationAudit(restoredIds, request.actor).catch(e =>
+              console.warn("[OutboundControlService] Enrollment restoration audit failed:", e.message),
+            );
+          });
+        }
+      } catch (restoreErr: any) {
+        // Non-fatal — the column may not exist (pre-existing DB without the column)
+        // or the table may not have metadata. Log and continue.
+        const isSchemaErr =
+          restoreErr.message?.includes("does not exist") ||
+          restoreErr.message?.includes("column") ||
+          restoreErr.message?.includes("relation");
+        if (!isSchemaErr) {
+          console.warn(
+            `[OutboundControlService] VFC-22 restoration sweep warning: ${restoreErr.message}`,
+          );
+        }
+      }
+
+      // Transition coordinator global_outbound holds to release_pending
+      // (does NOT delete immediately — mixed handlers remain blocked until
+      // admin-triggered staged-release approval)
+      try {
+        await outboundQueueCoordinator.transitionGlobalHoldsToReleasePending(
+          client,
+          request.actor,
+          request.correlationId,
+        );
+      } catch (holdErr: any) {
+        console.warn(
+          `[OutboundControlService] Coordinator hold transition failed (non-fatal): ${holdErr.message}`,
+        );
+      }
+
       await client.query("COMMIT");
       invalidatePauseStateCache();
 
       // Also persist into system_settings for backward compat
       await syncToLegacySystemSetting(false);
 
-      return buildResult("unpaused", request.reason, newEpoch, now, "state-transition");
+      return buildResult("unpaused", request.reason, newEpoch, now, "state-transition", restoredCount);
     }
   } catch (err) {
     try {
@@ -547,6 +625,7 @@ function buildResult(
   epoch: bigint,
   committedAt: Date | null,
   changeType: ChangeType,
+  enrollmentsRestored = 0,
 ): PauseControlResult {
   return {
     ok: true,
@@ -562,11 +641,42 @@ function buildResult(
       policyVersion: "1.0",
     },
     queueBackpressure: {
-      status: "not_configured",
+      status: "coordinator",
+      enrollmentsRestored,
     },
     changeType,
   };
 }
+
+/**
+ * Write audit log entries for enrollments restored during VFC-22 sweep.
+ * Fire-and-forget; called outside the unpause transaction.
+ */
+async function writeEnrollmentRestorationAudit(
+  enrollmentIds: number[],
+  actor: string,
+): Promise<void> {
+  if (enrollmentIds.length === 0) return;
+  // Write a single batch audit entry
+  try {
+    await pool.query(
+      `INSERT INTO audit_logs (action, entity_type, entity_id, actor_type, details, created_at)
+       VALUES ('global_pause_enrollments_restored', 'system', 0, 'system', $1, NOW())`,
+      [
+        JSON.stringify({
+          restoredCount: enrollmentIds.length,
+          enrollmentIds: enrollmentIds.slice(0, 100), // truncate for storage
+          actor,
+          restorationType: "vfc22_global_pause_block_sweep",
+        }),
+      ],
+    );
+  } catch (auditErr: any) {
+    console.warn(`[OutboundControlService] Enrollment restoration audit write failed: ${auditErr.message}`);
+  }
+}
+
+export { writeEnrollmentRestorationAudit };
 
 // ---------------------------------------------------------------------------
 // Startup initialization

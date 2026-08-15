@@ -981,6 +981,13 @@
       "when": 1791900000000,
       "tag": "0136_zerobounce_campaign_engine",
       "breakpoints": false
+    },
+    {
+      "idx": 140,
+      "version": "7",
+      "when": 1792000000000,
+      "tag": "0137_logical_job_control_holds",
+      "breakpoints": false
     }
   ]
 }

@@ -708,37 +708,65 @@ export async function runDailyOutreach(): Promise<{
 }> {
   console.log(`[Daily Outreach] Starting daily outreach cycle...`);
 
-  const dailyCount = await getDailySendCount();
-  const remaining = Math.max(0, DAILY_OUTREACH_LIMIT - dailyCount);
-  if (remaining === 0) {
-    console.log(`[Daily Outreach] Daily limit reached (${dailyCount}/${DAILY_OUTREACH_LIMIT}), skipping`);
-    return { enriched: 0, promoted: 0, dealsCreated: 0, queued: 0, sent: { sent: 0, failed: 0 } };
-  }
+  // ── Phase gating (#1532): 4 independently-gated logical phases ────────────
+  // Phase A (enrichment/DB work) is always safe — runs unconditionally.
+  // Phases B/C/D (promotion, enrollment, send) are outbound-gated by coordinator.
+  // The daily send-cap early return applies only to outbound phases, not enrichment.
+  const { authorize } = await import("./outbound-pause-authority");
+  const { canExecute } = await import("./outbound-queue-coordinator");
+  const decision = await authorize({});
+  const discoveryPromotionOk  = decision.allowed && await canExecute("discovery-promotion");
+  const discoveryEnrollmentOk = decision.allowed && await canExecute("discovery-enrollment");
+  const discoverySendOk       = decision.allowed && await canExecute("discovery-send");
 
-  console.log(`[Daily Outreach] Step 1: Re-enriching unenriched entities (batch of ${ENRICHMENT_BATCH_SIZE})...`);
+  // Phase A: Lead enrichment/DB work — runs regardless of outbound pause
+  console.log(`[Daily Outreach] Step 1 (Phase A — always runs): Re-enriching unenriched entities (batch of ${ENRICHMENT_BATCH_SIZE})...`);
   const enrichResult = await reEnrichAllSunbizEntities(ENRICHMENT_BATCH_SIZE);
 
-  console.log(`[Daily Outreach] Step 2: Promoting qualified leads to contacts...`);
-  const promoteResult = await promoteQualifiedToContacts();
+  // Daily cap check only relevant for outbound phases
+  const dailyCount = await getDailySendCount();
+  const remaining = Math.max(0, DAILY_OUTREACH_LIMIT - dailyCount);
 
-  console.log(`[Daily Outreach] Step 2b: Processing quiz leads for Sunbiz matching...`);
-  const quizLeadsProcessed = await processQuizLeadsForSunbizMatch();
-  console.log(`[Daily Outreach] Quiz leads matched: ${quizLeadsProcessed}`);
-
-  console.log(`[Daily Outreach] Step 3: Queueing campaign messages (up to ${remaining})...`);
-  let totalQueued = 0;
-  const campaigns = await storage.getCampaigns();
-  const activeCampaigns = campaigns.filter(c => c.status === "active");
-  for (const campaign of activeCampaigns) {
-    const budgetLeft = remaining - totalQueued;
-    if (budgetLeft <= 0) break;
-    const queued = await queueCampaignMessages(campaign.id, budgetLeft);
-    totalQueued += queued;
+  // Phase B: Promotion evaluation — gated
+  let promoteResult = { promoted: 0, dealsCreated: 0 };
+  let quizLeadsProcessed = 0;
+  if (discoveryPromotionOk) {
+    console.log(`[Daily Outreach] Step 2 (Phase B): Promoting qualified leads to contacts...`);
+    promoteResult = await promoteQualifiedToContacts();
+    console.log(`[Daily Outreach] Step 2b: Processing quiz leads for Sunbiz matching...`);
+    quizLeadsProcessed = await processQuizLeadsForSunbizMatch();
+    console.log(`[Daily Outreach] Quiz leads matched: ${quizLeadsProcessed}`);
+  } else {
+    console.log(`[Daily Outreach] Step 2 (Phase B) SKIPPED — coordinator hold on 'discovery-promotion' or authority blocked (reason=${decision.reasonCode})`);
   }
 
-  console.log(`[Daily Outreach] Step 4: Processing send queue (budget remaining: ${remaining - totalQueued})...`);
-  const sendBudget = Math.max(0, remaining - totalQueued);
-  const sendResult = await processSendQueue(sendBudget > 0 ? sendBudget : 0);
+  // Phase C: Enrollment/workflow triggering — gated
+  let totalQueued = 0;
+  if (discoveryEnrollmentOk && remaining > 0) {
+    console.log(`[Daily Outreach] Step 3 (Phase C): Queueing campaign messages (up to ${remaining})...`);
+    const campaigns = await storage.getCampaigns();
+    const activeCampaigns = campaigns.filter(c => c.status === "active");
+    for (const campaign of activeCampaigns) {
+      const budgetLeft = remaining - totalQueued;
+      if (budgetLeft <= 0) break;
+      const queued = await queueCampaignMessages(campaign.id, budgetLeft);
+      totalQueued += queued;
+    }
+  } else if (!discoveryEnrollmentOk) {
+    console.log(`[Daily Outreach] Step 3 (Phase C) SKIPPED — coordinator hold on 'discovery-enrollment' or authority blocked`);
+  } else {
+    console.log(`[Daily Outreach] Daily limit reached (${dailyCount}/${DAILY_OUTREACH_LIMIT}), skipping enrollment phase`);
+  }
+
+  // Phase D: Send queue — gated
+  let sendResult = { sent: 0, failed: 0 };
+  if (discoverySendOk && remaining > 0) {
+    console.log(`[Daily Outreach] Step 4 (Phase D): Processing send queue (budget remaining: ${remaining - totalQueued})...`);
+    const sendBudget = Math.max(0, remaining - totalQueued);
+    sendResult = await processSendQueue(sendBudget > 0 ? sendBudget : 0);
+  } else if (!discoverySendOk) {
+    console.log(`[Daily Outreach] Step 4 (Phase D) SKIPPED — coordinator hold on 'discovery-send' or authority blocked`);
+  }
 
   await storage.setSystemSetting("daily_outreach_last_run", {
     timestamp: new Date().toISOString(),

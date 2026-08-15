@@ -78,10 +78,20 @@ export async function runWinbackOutreachEngine(): Promise<{
   suppressed: number;
   errors: number;
 }> {
-  // Global outbound pause gate (required by pre-deploy compliance check)
-  const paused = await storage.getSystemSetting("outboundGlobalPaused");
-  if (paused === true || paused === "true") {
-    return { checked: 0, sent: 0, suppressed: 0, errors: 0 };
+  // Global outbound pause gate — upgraded to OutboundPauseAuthority + coordinator (#1532)
+  {
+    const { authorize } = await import("./outbound-pause-authority");
+    const { canExecute } = await import("./outbound-queue-coordinator");
+    const decision = await authorize({});
+    if (!decision.allowed) {
+      console.log(`[WinbackOutreach] Blocked by OutboundPauseAuthority (reason=${decision.reasonCode})`);
+      return { checked: 0, sent: 0, suppressed: 0, errors: 0 };
+    }
+    const coordOk = await canExecute("winback-outreach");
+    if (!coordOk) {
+      console.log("[WinbackOutreach] Blocked by coordinator hold on 'winback-outreach'");
+      return { checked: 0, sent: 0, suppressed: 0, errors: 0 };
+    }
   }
 
   // 1. Pull all OPEN, automationEligible WINBACK_OUTREACH NBAs

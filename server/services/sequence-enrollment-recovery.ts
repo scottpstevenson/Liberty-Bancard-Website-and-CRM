@@ -52,6 +52,24 @@ export async function recoverDeferredEnrollments(): Promise<{
     const { db } = await import("../db");
     const { sql } = await import("drizzle-orm");
 
+    // ── Coordinator gate (#1532): check before capacity reservation + reactivation ──
+    {
+      const { authorize } = await import("./outbound-pause-authority");
+      const { canExecute } = await import("./outbound-queue-coordinator");
+      const decision = await authorize({});
+      if (!decision.allowed) {
+        console.log(`[EnrollmentRecovery] Blocked by OutboundPauseAuthority (reason=${decision.reasonCode}) — skipping recovery run`);
+        await releaseJobLock(JOB_NAME, true, undefined, lockToken);
+        return { recovered: 0, reDeferred: 0, failed: 0, skipped: 0 };
+      }
+      const coordOk = await canExecute("enrollment-recovery");
+      if (!coordOk) {
+        console.log("[EnrollmentRecovery] Coordinator hold on 'enrollment-recovery' — skipping recovery run");
+        await releaseJobLock(JOB_NAME, true, undefined, lockToken);
+        return { recovered: 0, reDeferred: 0, failed: 0, skipped: 0 };
+      }
+    }
+
     const todayStr = new Date().toISOString().slice(0, 10);
 
     // ── 1. Find all paused enrollments with an outstanding cap-defer ────────

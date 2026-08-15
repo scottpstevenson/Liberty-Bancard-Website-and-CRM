@@ -450,28 +450,33 @@ export const NBAService = {
 
     const lifecycleState = (contact.lifecycleState ?? "PROSPECT") as LifecycleState;
 
-    // ── 2. Check global pause ────────────────────────────────────────────────
-    const paused = await storage.getSystemSetting("outboundGlobalPaused");
-    if (paused === "true" || paused === true) {
-      return NBAService._persistNBA({
-        contactId,
-        actionType: "NO_ACTION",
-        channel: null,
-        ownerRole: "system",
-        dueAt: null,
-        urgency: "low",
-        expiresAt: null,
-        reasonCode: "global_pause_active",
-        explanation: "Outbound communications are globally paused.",
-        confidence: 100,
-        opportunityValueCents: null,
-        automationEligible: false,
-        humanRequired: false,
-        ruleVersion: NBA_RULE_VERSION,
-        modelVersion: null,
-        evidence: { lifecycleState, globalPaused: true },
-        status: "BLOCKED",
-      });
+    // ── 2. Check global pause (upgraded to OutboundPauseAuthority) ───────────
+    {
+      const { authorize } = await import("./outbound-pause-authority");
+      const { canExecute } = await import("./outbound-queue-coordinator");
+      const decision = await authorize({});
+      const coordOk = decision.allowed ? await canExecute("nba-service") : false;
+      if (!decision.allowed || !coordOk) {
+        return NBAService._persistNBA({
+          contactId,
+          actionType: "NO_ACTION",
+          channel: null,
+          ownerRole: "system",
+          dueAt: null,
+          urgency: "low",
+          expiresAt: null,
+          reasonCode: "global_pause_active",
+          explanation: "Outbound communications are globally paused.",
+          confidence: 100,
+          opportunityValueCents: null,
+          automationEligible: false,
+          humanRequired: false,
+          ruleVersion: NBA_RULE_VERSION,
+          modelVersion: null,
+          evidence: { lifecycleState, globalPaused: true, reasonCode: decision.reasonCode, coordBlocked: !coordOk },
+          status: "BLOCKED",
+        });
+      }
     }
 
     // ── 3. Check DNC ─────────────────────────────────────────────────────────

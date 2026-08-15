@@ -225,18 +225,27 @@ export async function enrollInGhlWorkflowCompliant(params: {
   const isMarketingCategory =
     category === "sdr_outbound" || category === "nurture" || category === "sales";
 
-  // ── Global pause — marketing/nurture/SDR only ────────────────────────────
+  // ── Global pause — marketing/nurture/SDR only (upgraded to OutboundPauseAuthority) ──
   if (isMarketingCategory) {
     try {
-      const paused = await storage.getSystemSetting("outboundGlobalPaused");
-      if (paused === true || paused === "true") {
+      const { authorize } = await import("./outbound-pause-authority");
+      const { canExecute } = await import("./outbound-queue-coordinator");
+      const decision = await authorize({});
+      if (!decision.allowed) {
         console.log(
-          `[GHL Compliance] Workflow "${params.workflowKey}" blocked — global pause active`
+          `[GHL Compliance] Workflow "${params.workflowKey}" blocked by OutboundPauseAuthority (reason=${decision.reasonCode})`
         );
         return { success: false, error: "Global outbound pause is active", skipped: true };
       }
+      const coordOk = await canExecute("ghl-workflows-marketing");
+      if (!coordOk) {
+        console.log(
+          `[GHL Compliance] Workflow "${params.workflowKey}" blocked by coordinator hold on 'ghl-workflows-marketing'`
+        );
+        return { success: false, error: "Coordinator hold active for outbound marketing", skipped: true };
+      }
     } catch (_) {
-      // If DB check fails, fail-closed for marketing sends
+      // If authority check fails, fail-closed for marketing sends
       return { success: false, error: "Could not verify global pause state", skipped: true };
     }
   }

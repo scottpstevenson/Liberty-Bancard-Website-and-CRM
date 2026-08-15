@@ -39,6 +39,22 @@ export async function runMerchantSuccessSequences(): Promise<{
   let enrolled = 0;
   let skipped = 0;
 
+  // ── Coordinator gate (#1532): check before creating any enrollments ──────
+  {
+    const { authorize } = await import("./outbound-pause-authority");
+    const { canExecute } = await import("./outbound-queue-coordinator");
+    const decision = await authorize({});
+    if (!decision.allowed) {
+      console.log(`[MerchantSuccess] Blocked by OutboundPauseAuthority (reason=${decision.reasonCode}) — skipping enrollment run`);
+      return { checked: 0, enrolled: 0, skipped: 0 };
+    }
+    const coordOk = await canExecute("merchant-success");
+    if (!coordOk) {
+      console.log("[MerchantSuccess] Coordinator hold on 'merchant-success' — skipping enrollment run");
+      return { checked: 0, enrolled: 0, skipped: 0 };
+    }
+  }
+
   // Load all active sequences with a merchant_success family so we look them
   // up once instead of per-contact.
   const successSequences = await db

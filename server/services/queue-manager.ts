@@ -519,10 +519,54 @@ export async function getQueueManager(): Promise<QueueManager> {
     }
     _queueManager = qm;
     _initPromise = null;
+
+    // (#1532) Inject coordinator reference so physical reconciliation can call
+    // queue.pause()/queue.resume()/queue.isPaused() for Phase 4 pilot queues.
+    try {
+      const { outboundQueueCoordinator } = await import("./outbound-queue-coordinator");
+      outboundQueueCoordinator.setQueueManager(qm);
+    } catch (coordinatorErr: any) {
+      console.warn("[QueueManager] Coordinator injection failed (non-fatal):", coordinatorErr.message);
+    }
+
     return qm;
   })();
 
   return _initPromise;
+}
+
+/**
+ * (#1532) Returns the initialized QueueManager if fully initialized; throws otherwise.
+ * Route handlers and health probes MUST use this instead of getQueueManager() so they
+ * report 'not_initialized' rather than lazily starting the full worker fleet.
+ *
+ * G-02 gate: no route, probe, or producer may create/start Workers.
+ */
+export function requireQueueManagerReady(): QueueManager {
+  if (!_queueManager) {
+    throw new Error(
+      "QueueManager not yet initialized — use getQueueManager() from server/index.ts startup, " +
+      "not from route handlers or health probes. This prevents lazy worker initialization from HTTP requests.",
+    );
+  }
+  return _queueManager;
+}
+
+/**
+ * (#1532) Returns the BullMQ Queue instance for producer-only operations (enqueue jobs).
+ * Does NOT initialize workers or schedulers. Returns null if QueueManager is not yet ready.
+ * Producers (enrichment triggers, promotional enrollment triggers, etc.) use this to enqueue
+ * without accidentally spawning the full worker fleet.
+ */
+export function getQueueManagerProducers(): QueueManager | null {
+  return _queueManager;
+}
+
+/**
+ * (#1532) Returns true if the QueueManager is fully initialized (queues + workers + schedules).
+ */
+export function isQueueManagerReady(): boolean {
+  return _queueManager !== null;
 }
 
 export async function shutdownQueueManager(): Promise<void> {

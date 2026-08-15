@@ -1568,11 +1568,31 @@ export function registerActivationRoutes(app: Express) {
       if (pauseControlResult) {
         res.json(pauseControlResult);
       } else {
+        // (#1532) Fill queueBackpressure with real coordinator-derived state
+        let queueBackpressure: Record<string, unknown> = { status: "not_configured" };
+        try {
+          const { outboundQueueCoordinator } = await import("../services/outbound-queue-coordinator");
+          const coordinatorStatus = await outboundQueueCoordinator.getStatus();
+          const activeHoldKeys = Object.keys(coordinatorStatus.desiredLogicalHolds);
+          queueBackpressure = {
+            status: activeHoldKeys.length > 0 ? "held" : "running",
+            activeHoldCount: activeHoldKeys.length,
+            physicalQueueStates: coordinatorStatus.physicalQueueStates.map(q => ({
+              queue: q.physicalQueue,
+              desired: q.desiredState,
+              observed: q.observedState,
+              outcome: q.outcome,
+            })),
+            ledgerEpoch: coordinatorStatus.ledgerEpoch.toString(),
+          };
+        } catch (_e) {
+          queueBackpressure = { status: "not_configured" };
+        }
         res.json({
           ok: true,
           control: null,
           sendEnforcement: { status: "enforced", policyVersion: "1.0" },
-          queueBackpressure: { status: "not_configured" },
+          queueBackpressure,
           changeType: "channel-only",
         });
       }

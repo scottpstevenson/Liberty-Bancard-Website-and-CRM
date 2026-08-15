@@ -1127,11 +1127,17 @@ export async function processSendQueue(maxToSend?: number): Promise<{ sent: numb
         sendingAt: new Date(),
       });
 
-      // Global pause check — campaign-engine sends directly without ChannelOrchestrator (#1380)
+      // Global pause check — upgraded to OutboundPauseAuthority + coordinator (#1532)
       {
-        const campaignPaused = await storage.getSystemSetting("outboundGlobalPaused");
-        if (campaignPaused === true || campaignPaused === "true") {
-          throw new Error("Outbound communications are globally paused");
+        const { authorize } = await import("./outbound-pause-authority");
+        const { canExecute } = await import("./outbound-queue-coordinator");
+        const decision = await authorize({});
+        if (!decision.allowed) {
+          throw new Error(`Outbound communications are globally paused (reason=${decision.reasonCode})`);
+        }
+        const coordOk = await canExecute("discovery-send");
+        if (!coordOk) {
+          throw new Error("Coordinator hold active for discovery-send");
         }
       }
 
@@ -1331,11 +1337,18 @@ async function sendContactCampaignMessage(
     sendingAt: new Date(),
   });
 
-  // Global pause check — contact-mode send path bypasses ChannelOrchestrator (#1380)
+  // Global pause check — upgraded to OutboundPauseAuthority + coordinator (#1532)
   {
-    const contactModePaused = await storage.getSystemSetting("outboundGlobalPaused");
-    if (contactModePaused === true || contactModePaused === "true") {
-      await storage.updateOutboundMessage(msg.id, { status: "failed", error: "Outbound communications are globally paused" });
+    const { authorize } = await import("./outbound-pause-authority");
+    const { canExecute } = await import("./outbound-queue-coordinator");
+    const decision = await authorize({});
+    if (!decision.allowed) {
+      await storage.updateOutboundMessage(msg.id, { status: "failed", error: `Outbound communications are globally paused (reason=${decision.reasonCode})` });
+      return "failed";
+    }
+    const coordOk = await canExecute("discovery-send");
+    if (!coordOk) {
+      await storage.updateOutboundMessage(msg.id, { status: "failed", error: "Coordinator hold active for discovery-send" });
       return "failed";
     }
   }

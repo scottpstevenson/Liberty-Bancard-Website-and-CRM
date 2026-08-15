@@ -1362,14 +1362,20 @@ export async function sweepLeads(): Promise<{ processed: number; errors: number;
     return { processed: 0, errors: 0 };
   }
 
-  // ── DB-level global-pause gate ───────────────────────────────────────────
-  // Mirrors the check in sequence-worker.ts and proposal-followup-worker.ts.
-  // Reads the persisted outboundGlobalPaused flag on every sweep so the toggle
-  // takes effect within one sweep interval without requiring a process restart.
-  const dbPausedRaw = await storage.getSystemSetting("outboundGlobalPaused").catch(() => null);
-  if (dbPausedRaw === true || dbPausedRaw === "true") {
-    console.log("[SDR Orchestrator] outboundGlobalPaused is set in DB — skipping sweep");
-    return { processed: 0, errors: 0 };
+  // ── Global-pause gate (upgraded to OutboundPauseAuthority + coordinator) ──
+  {
+    const { authorize } = await import("../outbound-pause-authority");
+    const { canExecute } = await import("../outbound-queue-coordinator");
+    const decision = await authorize({});
+    if (!decision.allowed) {
+      console.log(`[SDR Orchestrator] Blocked by OutboundPauseAuthority (reason=${decision.reasonCode}) — skipping sweep`);
+      return { processed: 0, errors: 0 };
+    }
+    const coordOk = await canExecute("sdr-orchestrator");
+    if (!coordOk) {
+      console.log("[SDR Orchestrator] Blocked by coordinator hold on 'sdr-orchestrator' — skipping sweep");
+      return { processed: 0, errors: 0 };
+    }
   }
 
   // ── Automation registry kill-switch ─────────────────────────────────────

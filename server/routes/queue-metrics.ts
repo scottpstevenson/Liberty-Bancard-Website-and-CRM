@@ -159,9 +159,21 @@ export function registerQueueMetricsRoutes(app: Express) {
   app.post("/api/operator/queue/:name/pause", isAdmin, async (req, res) => {
     try {
       const name = req.params.name as string;
-      const qm = await getQueueManager();
-      await qm.pauseQueue(name);
-      res.json({ success: true, message: `Queue ${name} paused` });
+      const { actor, reason_code, source_key } = req.body ?? {};
+      const actorStr = (actor as string) || (req as any).user?.email || "admin";
+      const { outboundQueueCoordinator } = await import("../services/outbound-queue-coordinator");
+      // Route coordinator hold for this queue's logical keys; falls back to direct BullMQ if not found
+      await outboundQueueCoordinator.addHold({
+        logicalJobKey: name,
+        reasonCode: (reason_code as any) || "manual_operator",
+        sourceType: "operator",
+        sourceKey: source_key || actorStr,
+        actor: actorStr,
+        metadata: { queueName: name, via: "operator-pause-endpoint" },
+      });
+      // Physical actuation via coordinator (only for WINBACK_OUTREACH in Phase 4)
+      const result = await outboundQueueCoordinator.triggerReconciliation(name);
+      res.json({ success: true, message: `Queue ${name} hold added`, reconciliation: result });
     } catch (err: any) {
       serverError(res, err);
     }
@@ -170,9 +182,17 @@ export function registerQueueMetricsRoutes(app: Express) {
   app.post("/api/operator/queue/:name/resume", isAdmin, async (req, res) => {
     try {
       const name = req.params.name as string;
-      const qm = await getQueueManager();
-      await qm.resumeQueue(name);
-      res.json({ success: true, message: `Queue ${name} resumed` });
+      const { actor, reason_code, source_key } = req.body ?? {};
+      const actorStr = (actor as string) || (req as any).user?.email || "admin";
+      const { outboundQueueCoordinator } = await import("../services/outbound-queue-coordinator");
+      await outboundQueueCoordinator.clearHold({
+        logicalJobKey: name,
+        reasonCode: (reason_code as any) || "manual_operator",
+        sourceKey: source_key || actorStr,
+        actor: actorStr,
+      });
+      const result = await outboundQueueCoordinator.triggerReconciliation(name);
+      res.json({ success: true, message: `Queue ${name} hold cleared`, reconciliation: result });
     } catch (err: any) {
       serverError(res, err);
     }

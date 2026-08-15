@@ -5600,3 +5600,101 @@ export const zerobounceAttempts = pgTable("zerobounce_attempts", {
   index("zb_attempts_run_idx").on(t.runId),
 ]);
 export type ZerobounceAttempt = typeof zerobounceAttempts.$inferSelect;
+
+// ─── Logical Job Control Holds (#1532) ───────────────────────────────────────
+
+export const logicalJobControlHolds = pgTable("logical_job_control_holds", {
+  holdId:        varchar("hold_id").primaryKey().default(sql`gen_random_uuid()`),
+  logicalJobKey: text("logical_job_key").notNull(),
+  reasonCode:    text("reason_code").notNull(), // global_outbound | manual_operator | maintenance | incident | automation_kill_switch | channel_pause
+  sourceType:    text("source_type").notNull(), // system | operator | automation | channel
+  sourceKey:     text("source_key").notNull(),  // owner identity
+  sourceEpoch:   bigint("source_epoch", { mode: "bigint" }),
+  ledgerEpoch:   bigint("ledger_epoch", { mode: "bigint" }).notNull(),
+  active:        boolean("active").notNull().default(true),
+  activatedAt:   timestamp("activated_at", { withTimezone: true }).notNull().defaultNow(),
+  releasedAt:    timestamp("released_at", { withTimezone: true }),
+  expiresAt:     timestamp("expires_at", { withTimezone: true }),
+  actor:         text("actor"),
+  correlationId: text("correlation_id"),
+  metadata:      jsonb("metadata"),
+  updatedAt:     timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index("logical_job_holds_active_key_idx").on(t.logicalJobKey).where(sql`${t.active} = true`),
+  index("logical_job_holds_expires_idx").on(t.expiresAt).where(sql`${t.active} = true AND ${t.expiresAt} IS NOT NULL`),
+]);
+
+export type LogicalJobControlHold = typeof logicalJobControlHolds.$inferSelect;
+export type InsertLogicalJobControlHold = typeof logicalJobControlHolds.$inferInsert;
+
+export const logicalJobHoldEvents = pgTable("logical_job_hold_events", {
+  id:            bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+  holdId:        varchar("hold_id").notNull(),
+  eventType:     text("event_type").notNull(), // activated | released | expired | superseded
+  logicalJobKey: text("logical_job_key").notNull(),
+  reasonCode:    text("reason_code").notNull(),
+  sourceKey:     text("source_key").notNull(),
+  ledgerEpoch:   bigint("ledger_epoch", { mode: "bigint" }).notNull(),
+  actor:         text("actor"),
+  correlationId: text("correlation_id"),
+  metadata:      jsonb("metadata"),
+  createdAt:     timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index("hold_events_hold_id_idx").on(t.holdId),
+  index("hold_events_created_at_idx").on(t.createdAt),
+  index("hold_events_logical_job_key_idx").on(t.logicalJobKey, t.createdAt),
+]);
+
+export type LogicalJobHoldEvent = typeof logicalJobHoldEvents.$inferSelect;
+
+export const queueReconciliationState = pgTable("queue_reconciliation_state", {
+  physicalQueue:  text("physical_queue").primaryKey(),
+  desiredState:   text("desired_state"),   // 'paused' | 'running'
+  desiredEpoch:   bigint("desired_epoch", { mode: "bigint" }),
+  observedState:  text("observed_state"),  // 'paused' | 'running' | null
+  observedEpoch:  bigint("observed_epoch", { mode: "bigint" }),
+  reconciledAt:   timestamp("reconciled_at", { withTimezone: true }),
+  lastAttemptAt:  timestamp("last_attempt_at", { withTimezone: true }),
+  lastError:      text("last_error"),
+  updatedAt:      timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type QueueReconciliationState = typeof queueReconciliationState.$inferSelect;
+
+export const postEnrichmentEnrollmentIntents = pgTable("post_enrichment_enrollment_intents", {
+  id:             bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+  dealId:         integer("deal_id").notNull(),
+  contactId:      integer("contact_id").notNull(),
+  entityId:       integer("entity_id"),
+  idempotencyKey: text("idempotency_key").notNull().unique(),
+  status:         text("status").notNull().default("pending"), // pending | processing | completed | failed | cancelled
+  attempts:       integer("attempts").notNull().default(0),
+  lastError:      text("last_error"),
+  createdAt:      timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt:      timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  processedAt:    timestamp("processed_at", { withTimezone: true }),
+  eligibleAfter:  timestamp("eligible_after", { withTimezone: true }),
+}, (t) => [
+  index("pe_intents_pending_idx").on(t.status, t.eligibleAfter).where(sql`${t.status} = 'pending'`),
+  index("pe_intents_deal_idx").on(t.dealId),
+]);
+
+export type PostEnrichmentEnrollmentIntent = typeof postEnrichmentEnrollmentIntents.$inferSelect;
+
+export const backlogReleaseRuns = pgTable("backlog_release_runs", {
+  id:             varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  scope:          text("scope").notNull(),  // logical_job_key or '*'
+  limits:         jsonb("limits").notNull(), // { chunkSize, ratePerMin, maxTotal }
+  actor:          text("actor").notNull(),
+  stage:          text("stage").notNull().default("pending"), // pending | running | completed | aborted | failed
+  cursor:         jsonb("cursor"),
+  abortRequested: boolean("abort_requested").notNull().default(false),
+  createdAt:      timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt:      timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  startedAt:      timestamp("started_at", { withTimezone: true }),
+  completedAt:    timestamp("completed_at", { withTimezone: true }),
+  abortedAt:      timestamp("aborted_at", { withTimezone: true }),
+  stats:          jsonb("stats"),
+});
+
+export type BacklogReleaseRun = typeof backlogReleaseRuns.$inferSelect;

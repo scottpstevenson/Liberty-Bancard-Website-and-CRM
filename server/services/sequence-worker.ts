@@ -177,29 +177,42 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
         const steps = await storage.getSequenceSteps(sequence.id);
         const currentStep = enrollment.currentStep || 0;
 
-        // ── Gate (global-pause): Platform-level kill switch ────────────────────
-        // Checked FIRST — before contactability, step lookup, and GHL enrollment.
-        // Reads from DB on every call (getSystemSetting has no cache — confirmed).
-        // A pause toggle takes effect on the very next worker tick, for every
-        // enrollment, regardless of consent tier or sequence type.
+        // ── Gate (global-pause + coordinator): Platform-level kill switch ─────
+        // Upgraded from raw system_settings read to OutboundPauseAuthority + coordinator.
+        // (#1532) FIX: enrollment status is NO LONGER mutated to 'paused'.
+        // Instead, a durable _holdDeferred marker is written without changing status,
+        // so the enrollment remains 'active' and is not permanently stuck.
+        // The VFC-22 restoration sweep in OutboundControlService handles historically-stuck rows.
         {
-          const pausedRaw = await storage.getSystemSetting("outboundGlobalPaused");
-          const isPaused = pausedRaw === true || pausedRaw === "true";
-          if (isPaused) {
-            const pausedReasonRaw = await storage.getSystemSetting("outboundGlobalPausedReason");
-            const pauseReason = typeof pausedReasonRaw === "string" ? pausedReasonRaw : "Global outbound pause active";
-            // Dedup: skip audit write if already recorded for this enrollment+step
+          const { authorize } = await import("./outbound-pause-authority");
+          const { canExecute } = await import("./outbound-queue-coordinator");
+          const decision = await authorize({});
+          const coordOk = decision.allowed ? await canExecute("sequences") : false;
+          const isHeld = !decision.allowed || !coordOk;
+
+          if (isHeld) {
+            const holdReason = !decision.allowed
+              ? `OutboundPauseAuthority blocked (${decision.reasonCode})`
+              : "Coordinator hold active on 'sequences'";
+
+            // Write durable deferral marker WITHOUT changing status (enrollment stays 'active')
             const enrollMeta = (enrollment.metadata as Record<string, unknown> | null) ?? {};
-            const alreadyPaused =
-              enrollMeta._globalPauseBlockStep === currentStep &&
-              enrollMeta._globalPauseBlockReason === pauseReason;
-            if (!alreadyPaused) {
+            const alreadyDeferred =
+              enrollMeta._holdDeferredStep === currentStep &&
+              enrollMeta._holdDeferredReason === holdReason;
+
+            if (!alreadyDeferred) {
               await storage.updateSequenceEnrollment(enrollment.id, {
-                status: "paused",
-                metadata: { ...enrollMeta, _globalPauseBlockStep: currentStep, _globalPauseBlockReason: pauseReason },
+                // status intentionally NOT changed — enrollment remains 'active'
+                metadata: {
+                  ...enrollMeta,
+                  _holdDeferredStep: currentStep,
+                  _holdDeferredReason: holdReason,
+                  _holdDeferredAt: new Date().toISOString(),
+                },
               });
               await storage.createAuditLog({
-                action: "sequence_step_skipped_global_pause",
+                action: "sequence_step_hold_deferred",
                 entityType: "contact",
                 entityId: enrollment.contactId ?? 0,
                 actorType: "system",
@@ -208,14 +221,25 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
                   sequenceId: sequence.id,
                   sequenceName: sequence.name,
                   currentStep,
-                  pauseReason,
+                  holdReason,
+                  reasonCode: decision.reasonCode,
+                  coordBlocked: !coordOk,
                 },
               });
-            } else {
-              await storage.updateSequenceEnrollment(enrollment.id, { status: "paused" });
             }
+            // enrollment status stays 'active' — getActiveEnrollments() will pick it up again
             processed++;
             continue;
+          }
+
+          // If previously deferred but now unblocked, clear the deferral marker
+          const enrollMeta = (enrollment.metadata as Record<string, unknown> | null) ?? {};
+          if (enrollMeta._holdDeferredStep !== undefined) {
+            const cleanMeta = { ...enrollMeta };
+            delete cleanMeta._holdDeferredStep;
+            delete cleanMeta._holdDeferredReason;
+            delete cleanMeta._holdDeferredAt;
+            await storage.updateSequenceEnrollment(enrollment.id, { metadata: cleanMeta });
           }
         }
 
@@ -1474,11 +1498,12 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
                   if (!result.success) throw new Error(result.error || "Gmail send failed");
                   await markSendSent({ idempotencyKey: emailIdemKey, providerMessageId: result.messageId, fromAddress: "gmail_oauth" });
                 } else if (useSmtpForThisStep && contact?.email) {
-                  // Global pause check — SMTP path bypasses ChannelOrchestrator, fence it here (#1399)
+                  // Global pause check — upgraded to OutboundPauseAuthority (#1532, was #1399)
                   {
-                    const smtpPaused = await storage.getSystemSetting("outboundGlobalPaused");
-                    if (smtpPaused === true || smtpPaused === "true") {
-                      throw new Error("Outbound communications are globally paused");
+                    const { authorize } = await import("./outbound-pause-authority");
+                    const decision = await authorize({});
+                    if (!decision.allowed) {
+                      throw new Error(`Outbound communications are globally paused (reason=${decision.reasonCode})`);
                     }
                   }
                   // SMTP: cold outreach with List-Unsubscribe header

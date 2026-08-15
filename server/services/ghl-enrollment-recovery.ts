@@ -119,6 +119,24 @@ export async function retryDeferredEnrollments(): Promise<{
   stillPending: number;
 }> {
   const stats = { attempted: 0, succeeded: 0, permanentlyFailed: 0, stillPending: 0 };
+
+  // ── Coordinator gate (#1532): check before processing retries ─────────────
+  // IMPORTANT: during global pause, we must NOT increment retry_count or consume
+  // send-counter capacity. Defer without touching the row's retry state.
+  {
+    const { authorize } = await import("./outbound-pause-authority");
+    const { canExecute } = await import("./outbound-queue-coordinator");
+    const decision = await authorize({});
+    if (!decision.allowed) {
+      console.log(`[GHL Recovery] Blocked by OutboundPauseAuthority (reason=${decision.reasonCode}) — deferring without incrementing retry_count`);
+      return stats;
+    }
+    const coordOk = await canExecute("ghl-enrollment-recovery");
+    if (!coordOk) {
+      console.log("[GHL Recovery] Coordinator hold on 'ghl-enrollment-recovery' — deferring without incrementing retry_count");
+      return stats;
+    }
+  }
   // Track (ghlContactId, workflowKey) pairs processed in this tick.
   // Deduplication is per the table's logical identity — two distinct workflow
   // enrollments for the same contact are independent records and must both run;

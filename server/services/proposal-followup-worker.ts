@@ -20,11 +20,20 @@ export async function runProposalFollowUpCheck(): Promise<{
   let suppressed = 0;
   let errors = 0;
 
-  // ── Global-pause gate ────────────────────────────────────────────────────
-  const globalPausedRaw = await storage.getSystemSetting("outboundGlobalPaused").catch(() => null);
-  if (globalPausedRaw === true || globalPausedRaw === "true") {
-    console.log("[ProposalFollowUpWorker] outboundGlobalPaused is set — skipping entire run");
-    return { checked, resendsSent, skipped, suppressed, errors };
+  // ── Global-pause gate (upgraded from raw setting to OutboundPauseAuthority + coordinator) ──
+  {
+    const { authorize } = await import("./outbound-pause-authority");
+    const { canExecute } = await import("./outbound-queue-coordinator");
+    const decision = await authorize({});
+    if (!decision.allowed) {
+      console.log(`[ProposalFollowUpWorker] Blocked by OutboundPauseAuthority (reason=${decision.reasonCode})`);
+      return { checked, resendsSent, skipped, suppressed, errors };
+    }
+    const coordOk = await canExecute("proposal-followup");
+    if (!coordOk) {
+      console.log("[ProposalFollowUpWorker] Blocked by coordinator hold on 'proposal-followup'");
+      return { checked, resendsSent, skipped, suppressed, errors };
+    }
   }
 
   try {

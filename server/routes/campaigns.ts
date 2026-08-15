@@ -1276,27 +1276,36 @@ export function registerCampaignsRoutes(app: Express) {
       // worker would pause each active row on its next tick anyway, but that
       // creates a stuck-paused cohort requiring manual per-enrollment resume.
       // Blocking here gives the admin clear feedback and keeps the DB clean.
-      const pausedRaw = await storage.getSystemSetting("outboundGlobalPaused");
-      const isPaused = pausedRaw === true || pausedRaw === "true";
-      if (isPaused) {
-        const pauseReason = await storage.getSystemSetting("outboundGlobalPausedReason");
-        const userId = (req as any).user?.id?.toString() ?? null;
-        await storage.createAuditLog({
-          action: "sequence_vertical_bulk_enroll_blocked_global_pause",
-          entityType: "sequence",
-          entityId: seqId,
-          userId,
-          actorType: "user",
-          details: {
-            sequenceId: seqId,
-            vertical,
-            reason: typeof pauseReason === "string" ? pauseReason : "Global outbound pause active",
-          },
-        });
-        return res.status(409).json({
-          message: `Enrollment blocked: ${typeof pauseReason === "string" ? pauseReason : "Global outbound pause active"}`,
-          code: "GLOBAL_PAUSE_ACTIVE",
-        });
+      // Global pause check — upgraded to OutboundPauseAuthority + coordinator (#1532)
+      {
+        const { authorize } = await import("../services/outbound-pause-authority");
+        const { canExecute } = await import("../services/outbound-queue-coordinator");
+        const decision = await authorize({});
+        const coordOk = decision.allowed ? await canExecute("discovery-enrollment") : false;
+        if (!decision.allowed || !coordOk) {
+          const reason = !decision.allowed
+            ? (decision.reasonCode ?? "Global outbound pause active")
+            : "Coordinator hold active for discovery-enrollment";
+          const userId = (req as any).user?.id?.toString() ?? null;
+          await storage.createAuditLog({
+            action: "sequence_vertical_bulk_enroll_blocked_global_pause",
+            entityType: "sequence",
+            entityId: seqId,
+            userId,
+            actorType: "user",
+            details: {
+              sequenceId: seqId,
+              vertical,
+              reason,
+              reasonCode: decision.reasonCode,
+              coordBlocked: !coordOk,
+            },
+          });
+          return res.status(409).json({
+            message: `Enrollment blocked: ${reason}`,
+            code: "GLOBAL_PAUSE_ACTIVE",
+          });
+        }
       }
 
       const seq = await storage.getFollowUpSequence(seqId);

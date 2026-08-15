@@ -2608,6 +2608,100 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // ── Queue Hold Ledger (#1532) — admin-only CRUD ───────────────────────────
+
+  /** GET /api/admin/queue-holds — read all active holds + reconciliation state */
+  app.get("/api/admin/queue-holds", requireRole("admin"), async (_req, res) => {
+    try {
+      const { outboundQueueCoordinator } = await import("../services/outbound-queue-coordinator");
+      const status = await outboundQueueCoordinator.getStatus();
+      res.json({
+        ok: true,
+        desiredLogicalHolds: status.desiredLogicalHolds,
+        physicalQueueStates: status.physicalQueueStates,
+        ledgerEpoch: status.ledgerEpoch.toString(),
+        reconciledAt: status.reconciledAt?.toISOString() ?? null,
+      });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  /** POST /api/admin/queue-holds — add a hold */
+  app.post("/api/admin/queue-holds", requireRole("admin"), async (req, res) => {
+    try {
+      const { z } = await import("zod");
+      const schema = z.object({
+        logical_job_key: z.string().min(1),
+        reason_code: z.enum(["manual_operator", "maintenance", "incident", "automation_kill_switch", "channel_pause"]),
+        source_type: z.string().default("operator"),
+        source_key: z.string().min(1),
+        expires_at: z.string().optional(),
+        correlation_id: z.string().optional(),
+        metadata: z.record(z.unknown()).optional(),
+      });
+      const body = schema.parse(req.body);
+      const actor = (req as any).user?.email || "admin";
+      const { outboundQueueCoordinator } = await import("../services/outbound-queue-coordinator");
+      const holdId = await outboundQueueCoordinator.addHold({
+        logicalJobKey: body.logical_job_key,
+        reasonCode: body.reason_code,
+        sourceType: body.source_type,
+        sourceKey: body.source_key,
+        actor,
+        correlationId: body.correlation_id,
+        expiresAt: body.expires_at ? new Date(body.expires_at) : undefined,
+        metadata: body.metadata,
+      });
+      res.json({ ok: true, holdId });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  /** DELETE /api/admin/queue-holds — clear a hold by (logicalJobKey, reasonCode, sourceKey) */
+  app.delete("/api/admin/queue-holds", requireRole("admin"), async (req, res) => {
+    try {
+      const { z } = await import("zod");
+      const schema = z.object({
+        logical_job_key: z.string().min(1),
+        reason_code: z.string().min(1),
+        source_key: z.string().min(1),
+        correlation_id: z.string().optional(),
+      });
+      const body = schema.parse(req.body);
+      const actor = (req as any).user?.email || "admin";
+      const { outboundQueueCoordinator } = await import("../services/outbound-queue-coordinator");
+      const cleared = await outboundQueueCoordinator.clearHold({
+        logicalJobKey: body.logical_job_key,
+        reasonCode: body.reason_code as any,
+        sourceKey: body.source_key,
+        actor,
+        correlationId: body.correlation_id,
+      });
+      res.json({ ok: cleared, message: cleared ? "Hold cleared" : "No active hold found for that owner" });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  /** POST /api/admin/queue-holds/release-approval — approve staged release */
+  app.post("/api/admin/queue-holds/release-approval", requireRole("admin"), async (req, res) => {
+    try {
+      const actor = (req as any).user?.email || "admin";
+      const { logical_job_keys, correlation_id } = req.body ?? {};
+      const { outboundQueueCoordinator } = await import("../services/outbound-queue-coordinator");
+      const count = await outboundQueueCoordinator.approveRelease(
+        Array.isArray(logical_job_keys) ? logical_job_keys : "all",
+        actor,
+        correlation_id,
+      );
+      res.json({ ok: true, releasedHolds: count, actor });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
   // ── Queue Metrics ─────────────────────────────────────────────────────────
   app.get("/api/admin/queue-metrics", requireRole("admin", "manager"), async (_req, res) => {
     try {

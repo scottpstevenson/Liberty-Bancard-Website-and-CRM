@@ -248,10 +248,20 @@ async function sendMerchantConditionsEmail(
   name: string | null,
   conditions: ConditionTemplate[],
 ): Promise<void> {
-  const pausedRaw = await storage.getSystemSetting("outboundGlobalPaused");
-  if (pausedRaw === true || pausedRaw === "true") {
-    console.log(`[Underwriting] outboundGlobalPaused — skipping conditions email for deal #${dealId}`);
-    return;
+  // Upgraded to OutboundPauseAuthority + coordinator (#1532)
+  {
+    const { authorize } = await import("./outbound-pause-authority");
+    const { canExecute } = await import("./outbound-queue-coordinator");
+    const decision = await authorize({});
+    if (!decision.allowed) {
+      console.log(`[Underwriting] Blocked by OutboundPauseAuthority (reason=${decision.reasonCode}) — skipping conditions email for deal #${dealId}`);
+      return;
+    }
+    const coordOk = await canExecute("underwriting-notifications");
+    if (!coordOk) {
+      console.log(`[Underwriting] Coordinator hold on 'underwriting-notifications' — skipping conditions email for deal #${dealId}`);
+      return;
+    }
   }
 
   const { isSmtpConfigured, sendSmtpEmail } = await import("./smtp-email");
