@@ -20,9 +20,28 @@ import { parse } from "csv-parse/sync";
 import { createContactGhlFirst } from "../services/contact-writer";
 import { serverError, safeMessage } from "../utils/server-error";
 
+// ── Build identity — frozen at process start, never derived at request time ──
+// RELEASE_SHA must be a 40-hex string injected by the deployment pipeline via
+// the RELEASE_SHA environment variable (set to `git rev-parse HEAD` at deploy
+// time). If absent or malformed the endpoint signals "release-unverified".
+const _SHA_PATTERN = /^[0-9a-f]{40}$/i;
+const _RELEASE_SHA_RAW = process.env.RELEASE_SHA ?? "";
+const _RELEASE_SHA_VALID = _SHA_PATTERN.test(_RELEASE_SHA_RAW);
+const BUILD_SHA: string = _RELEASE_SHA_VALID ? _RELEASE_SHA_RAW : "unset";
+const BUILD_AT: string = new Date().toISOString();
+const BUILD_ENV: string = process.env.NODE_ENV ?? "unknown";
+
+if (!_RELEASE_SHA_VALID) {
+  console.warn(
+    "[Health] RELEASE_SHA is missing or malformed — health endpoints will report status='release-unverified'. " +
+    "Set RELEASE_SHA to `git rev-parse HEAD` in the deployment environment."
+  );
+}
+
 export function registerSdrRoutes(app: Express) {
   // === HEALTH ENDPOINTS ===
-  // Public minimal health check — intentionally reveals nothing about internals
+  // Public minimal health check — intentionally reveals nothing about internals.
+  // Build identity fields (sha, builtAt, env) are frozen at process start.
   app.get("/health", async (_req, res) => {
     let dbOk = false;
     try {
@@ -32,12 +51,18 @@ export function registerSdrRoutes(app: Express) {
       console.error("[Health] DB check failed:", err);
     }
     if (!dbOk) {
-      return res.status(503).json({ status: "degraded" });
+      return res.status(503).json({ status: "degraded", sha: BUILD_SHA, builtAt: BUILD_AT, env: BUILD_ENV });
     }
-    return res.status(200).json({ status: "ok" });
+    return res.status(200).json({
+      status: _RELEASE_SHA_VALID ? "ok" : "release-unverified",
+      sha: BUILD_SHA,
+      builtAt: BUILD_AT,
+      env: BUILD_ENV,
+    });
   });
 
-  // Public minimal API health check — no internals exposed
+  // Public minimal API health check — no internals exposed.
+  // Build identity fields (sha, builtAt, env) are frozen at process start.
   app.get("/api/health", async (_req, res) => {
     let dbOk = false;
     try {
@@ -45,9 +70,14 @@ export function registerSdrRoutes(app: Express) {
       dbOk = result.rows.length > 0;
     } catch {}
     if (!dbOk) {
-      return res.status(503).json({ status: "degraded" });
+      return res.status(503).json({ status: "degraded", sha: BUILD_SHA, builtAt: BUILD_AT, env: BUILD_ENV });
     }
-    res.json({ status: "ok" });
+    res.json({
+      status: _RELEASE_SHA_VALID ? "ok" : "release-unverified",
+      sha: BUILD_SHA,
+      builtAt: BUILD_AT,
+      env: BUILD_ENV,
+    });
   });
 
   // Verbose health check — dashboard users only
@@ -106,6 +136,9 @@ export function registerSdrRoutes(app: Express) {
       },
       smtp: smtpOk ? "configured" : "missing",
       timestamp: new Date().toISOString(),
+      sha: BUILD_SHA,
+      builtAt: BUILD_AT,
+      env: BUILD_ENV,
     });
   });
 

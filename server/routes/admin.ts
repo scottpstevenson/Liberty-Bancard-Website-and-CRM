@@ -4288,6 +4288,7 @@ export function registerAdminRoutes(app: Express) {
           critical: criticalChecks.length,
           criticalOk: criticalChecks.filter(c => c.status === "ok").length,
         },
+        releaseSha: process.env.RELEASE_SHA ?? null,
         cached: false,
         cacheAgeMs: 0,
       };

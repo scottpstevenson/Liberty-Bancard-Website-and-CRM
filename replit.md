@@ -71,6 +71,33 @@ When GHL is not configured or a contact has no GHL contact ID, the system can fa
 
 The SMTP service is in `server/services/smtp-email.ts`.
 
+## Build Identity & Release SHA
+
+Every deployment must have `RELEASE_SHA` set to the 40-character hex output of `git rev-parse HEAD` at the time the deployment is created. This is the canonical build identity variable used by health endpoints and the pre-deploy gate.
+
+**Setting RELEASE_SHA in Replit Deployments:**
+
+1. In the Replit deployment environment variables, add:
+   ```
+   RELEASE_SHA = <output of git rev-parse HEAD>
+   ```
+2. Example (run locally before deploying):
+   ```bash
+   export RELEASE_SHA=$(git rev-parse HEAD)
+   bash scripts/run-pre-deploy.sh
+   ```
+3. The pre-deploy gate (`scripts/pre-deploy.ts`) asserts `RELEASE_SHA` is set and matches the 40-hex format before running any test suite. An invalid or missing value causes an immediate `exit 1`.
+
+**Health endpoint behavior:**
+- `GET /api/health` — returns `{ status, sha, builtAt, env }`. When `RELEASE_SHA` is valid: `status="ok"` (subject to DB). When absent/malformed: `status="release-unverified"`, `sha="unset"` (HTTP 200 to avoid false load-balancer alerts).
+- `GET /api/admin/live-health` — includes `releaseSha` alongside all background-worker checks.
+- `BUILD_SHA` and `BUILD_AT` are frozen at process startup — never derived at request time.
+
+**Smoke test:**
+```bash
+npx tsx scripts/test-build-identity.ts
+```
+
 ## External Dependencies
 - **PostgreSQL**: Primary relational database.
 - **OpenAI API**: For AI functionalities.

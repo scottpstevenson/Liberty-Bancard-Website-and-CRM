@@ -369,6 +369,28 @@ function printSectionHeader(text: string) {
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
+  // ── RELEASE_SHA assertion — must pass before any other gate work ─────────────
+  // RELEASE_SHA must be a 40-character hex git SHA set at deploy time.
+  // This is the canonical build identity var used throughout the codebase.
+  // Without it, the deployment cannot be uniquely identified, so we fail fast.
+  const SHA_PATTERN = /^[0-9a-f]{40}$/i;
+  const releaseSha = process.env.RELEASE_SHA ?? "";
+  if (!SHA_PATTERN.test(releaseSha)) {
+    console.error("╔══════════════════════════════════════════════════════════════╗");
+    console.error("║  KILL: RELEASE_SHA assertion failed                          ║");
+    console.error("╚══════════════════════════════════════════════════════════════╝");
+    console.error("");
+    console.error("  RELEASE_SHA must be a 40-character hex SHA (e.g. git rev-parse HEAD).");
+    console.error("  Set it in the deployment environment before running the pre-deploy gate.");
+    console.error("");
+    console.error("  Example:");
+    console.error("    RELEASE_SHA=$(git rev-parse HEAD) bash scripts/run-pre-deploy.sh");
+    console.error("");
+    console.error(`  Current value: ${releaseSha ? JSON.stringify(releaseSha) : "(not set)"}`);
+    process.exit(1);
+  }
+  console.log(`\n  ✓ RELEASE_SHA confirmed: ${releaseSha}`);
+
   printBanner("Liberty Bancard — Pre-Deploy Launch Gate");
   console.log(`  Date: ${new Date().toISOString()}`);
   console.log(`  Server: ${BASE_URL}`);
