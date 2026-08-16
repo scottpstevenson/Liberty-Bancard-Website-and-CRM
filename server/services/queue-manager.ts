@@ -45,6 +45,26 @@ interface QueueConfig {
   jobName: string;
 }
 
+/**
+ * Named schedule entry: an additional repeatable job attached to an existing
+ * physical queue under a distinct job name. Used when an event-driven queue
+ * (repeatEveryMs=0 in QUEUE_CONFIGS) also needs a periodic recovery sweep.
+ *
+ * Crucially, installing a named schedule ONLY removes repeatable jobs whose
+ * BullMQ key contains this entry's jobId prefix — it never removes jobs
+ * belonging to other named entries or the base queue config.
+ */
+interface NamedQueueSchedule {
+  /** Physical queue name — must exist in QUEUE_CONFIGS */
+  queueName: QueueName;
+  /** Job name dispatched by worker on job.name */
+  jobName: string;
+  /** Repeat interval in milliseconds */
+  repeatEveryMs: number;
+  /** Stable BullMQ jobId used to identify + deduplicate this schedule */
+  jobId: string;
+}
+
 // Alert threshold: how many consecutive failures before an operator alert is written.
 const WORKER_FAILURE_ALERT_THRESHOLD =
   parseInt(process.env.WORKER_FAILURE_ALERT_THRESHOLD ?? "10", 10) || 10;
@@ -323,6 +343,7 @@ export const QUEUE_CONFIGS: QueueConfig[] = [
     // Event-driven: jobs are enqueued one at a time by writebackEnrichmentToLinkedRecords
     // whenever enrichment writes the first real email/phone to a contactless lead.
     // repeatEveryMs is unused (no repeatable job); the queue only processes ad-hoc items.
+    // A named recovery schedule is installed separately via NAMED_QUEUE_SCHEDULES.
     concurrency: 3,
     attempts: 3,
     backoffDelay: 15000,
@@ -342,6 +363,27 @@ export const QUEUE_CONFIGS: QueueConfig[] = [
     backoffDelay: 10000,
     repeatEveryMs: 0, // no repeatable job — driven by batch-start requests
     jobName: "run",
+  },
+];
+
+/**
+ * Additional named schedules for event-driven queues (repeatEveryMs=0 in
+ * QUEUE_CONFIGS). Each entry installs exactly one repeatable job on an
+ * existing physical queue under a distinct job name.
+ *
+ * setupRepeatableJobs() processes these AFTER the main QUEUE_CONFIGS loop.
+ * It removes only the repeatable job whose BullMQ key matches this entry's
+ * jobId — never all jobs for the queue — so multiple named schedules on the
+ * same queue coexist safely.
+ */
+const NAMED_QUEUE_SCHEDULES: NamedQueueSchedule[] = [
+  {
+    queueName:    QUEUE_NAMES.POST_ENRICHMENT,
+    jobName:      "post-enrichment-intent-recovery",
+    repeatEveryMs: parseInt(process.env.PE_INTENT_RECOVERY_INTERVAL_MS ?? "", 10) > 0
+      ? parseInt(process.env.PE_INTENT_RECOVERY_INTERVAL_MS!, 10)
+      : (IS_DEV ? 5 * 60 * 1000 : 15 * 60 * 1000), // 15 min prod, 5 min dev
+    jobId: "pe-intent-recovery-repeatable",
   },
 ];
 
@@ -1350,8 +1392,18 @@ class QueueManager {
           break;
         }
         case QUEUE_NAMES.POST_ENRICHMENT: {
-          const { processPostEnrichmentJob } = await import("./post-enrichment-worker");
-          await processPostEnrichmentJob(_job.data as import("./post-enrichment-worker").PostEnrichmentJobData);
+          if (_job.name === "post-enrichment-intent-recovery") {
+            // Recovery path: dispatch to the dedicated recovery worker function.
+            // This MUST NOT go through processPostEnrichmentJob() to keep the two
+            // paths cleanly separated (kill line from 1548C spec).
+            const { recoverPendingEnrollmentIntents } = await import("./post-enrichment-worker");
+            const workerId = `pe-recovery-${process.pid}-${_job.id ?? "noid"}`;
+            await recoverPendingEnrollmentIntents(workerId);
+          } else {
+            // Event-driven path: standard post-enrichment automation
+            const { processPostEnrichmentJob } = await import("./post-enrichment-worker");
+            await processPostEnrichmentJob(_job.data as import("./post-enrichment-worker").PostEnrichmentJobData);
+          }
           break;
         }
         default:
@@ -1420,6 +1472,34 @@ class QueueManager {
     }
     if (ghlOverrideMs !== null) console.log(`[QueueManager] GHL sync interval loaded from system_settings: ${ghlOverrideMs}ms`);
     if (slaOverrideMs !== null) console.log(`[QueueManager] SLA checks interval loaded from system_settings: ${slaOverrideMs}ms`);
+
+    // ── Named queue schedules ─────────────────────────────────────────────────
+    // Install additional repeatable jobs on event-driven queues (repeatEveryMs=0
+    // in QUEUE_CONFIGS). Each named schedule is installed independently — only its
+    // own matching repeatable job is replaced, never jobs from other named entries
+    // or from the base queue config. This satisfies P1-1: a second schedule entry
+    // on the same physical queue does NOT delete any other queue's jobs.
+    for (const sched of NAMED_QUEUE_SCHEDULES) {
+      const queue = this.queues.get(sched.queueName);
+      if (!queue) continue;
+
+      // Remove only the repeatable job(s) whose BullMQ key matches this entry's jobId.
+      // BullMQ encodes the jobId into the repeatable key as part of the key string.
+      const existingJobs = await queue.getRepeatableJobs();
+      for (const job of existingJobs) {
+        // Match by jobId suffix: BullMQ repeatable key format includes the jobId
+        if (job.id === sched.jobId || job.key.includes(sched.jobId)) {
+          await queue.removeRepeatableByKey(job.key);
+        }
+      }
+
+      await queue.add(sched.jobName, {}, {
+        repeat: { every: sched.repeatEveryMs },
+        jobId: sched.jobId,
+      });
+
+      console.log(`[QueueManager] Named schedule installed: ${sched.jobName} on ${sched.queueName} every ${sched.repeatEveryMs}ms (jobId=${sched.jobId})`);
+    }
   }
 
   /**

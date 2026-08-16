@@ -760,6 +760,49 @@ class OutboundQueueCoordinator {
       const count = updateResult.rows.length;
       const releasedKeys = updateResult.rows.map(r => r.logical_job_key);
       console.log(`[Coordinator] Staged release approved: ${count} release_pending holds cleared by ${actor}`);
+
+      // ── Post-commit nudge: enqueue one-off recovery job for post-enrichment
+      // intents if that key was among the released ones. This is a best-effort
+      // acceleration; the periodic named schedule is the guarantee if the nudge
+      // enqueue fails. Wrap in try/catch; nudge failure must NOT fail the release.
+      const peKey = "post-enrichment-enrollment";
+      const peReleased = logicalJobKeys === "all" || releasedKeys.includes(peKey);
+      if (peReleased) {
+        try {
+          const { getQueueManagerProducers } = await import("./queue-manager");
+          const qm = getQueueManagerProducers();
+          if (qm) {
+            const queue = qm.getQueue("post-enrichment");
+            if (queue) {
+              const nudgeJobId = `pe-intent-recovery-nudge-${newLedgerEpoch}`;
+              await queue.add("post-enrichment-intent-recovery", {}, {
+                jobId: nudgeJobId,
+                delay: 0,
+              });
+              console.log(`[Coordinator] approveRelease: enqueued PE recovery nudge (jobId=${nudgeJobId})`);
+            }
+          }
+        } catch (nudgeErr: any) {
+          // Non-fatal: write audit and continue
+          console.warn(`[Coordinator] approveRelease: PE recovery nudge failed (degraded): ${nudgeErr?.message}`);
+          try {
+            const { storage } = await import("../storage");
+            await storage.createAuditLog({
+              action: "pe_recovery_nudge_failed",
+              entityType: "system",
+              entityId: 0,
+              details: {
+                error: nudgeErr?.message,
+                status: "degraded",
+                actor,
+                correlationId: correlationId ?? null,
+                newLedgerEpoch: newLedgerEpoch.toString(),
+              },
+            });
+          } catch { /* ignore audit failure */ }
+        }
+      }
+
       return { count, releasedKeys, newLedgerEpoch };
     } catch (err) {
       try { await client.query("ROLLBACK"); } catch { /* ignore */ }

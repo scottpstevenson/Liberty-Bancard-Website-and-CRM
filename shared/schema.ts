@@ -5662,21 +5662,39 @@ export const queueReconciliationState = pgTable("queue_reconciliation_state", {
 export type QueueReconciliationState = typeof queueReconciliationState.$inferSelect;
 
 export const postEnrichmentEnrollmentIntents = pgTable("post_enrichment_enrollment_intents", {
-  id:             bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
-  dealId:         integer("deal_id").notNull(),
-  contactId:      integer("contact_id").notNull(),
-  entityId:       integer("entity_id"),
-  idempotencyKey: text("idempotency_key").notNull().unique(),
-  status:         text("status").notNull().default("pending"), // pending | processing | completed | failed | cancelled
-  attempts:       integer("attempts").notNull().default(0),
-  lastError:      text("last_error"),
-  createdAt:      timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt:      timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-  processedAt:    timestamp("processed_at", { withTimezone: true }),
-  eligibleAfter:  timestamp("eligible_after", { withTimezone: true }),
+  id:                     bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+  dealId:                 integer("deal_id").notNull(),
+  contactId:              integer("contact_id").notNull(),
+  entityId:               integer("entity_id"),
+  idempotencyKey:         text("idempotency_key").notNull().unique(),
+  status:                 text("status").notNull().default("pending"), // pending | processing | completed | failed | cancelled
+  attempts:               integer("attempts").notNull().default(0),
+  lastError:              text("last_error"),
+  createdAt:              timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt:              timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  processedAt:            timestamp("processed_at", { withTimezone: true }),
+  eligibleAfter:          timestamp("eligible_after", { withTimezone: true }),
+  // ── 0138: Transactional intent fields ─────────────────────────────────────
+  // sequenceId: nullable in DB (pre-0138 rows may be null/failed); app always sets on new rows
+  sequenceId:             integer("sequence_id"),
+  purpose:                varchar("purpose", { length: 100 }),
+  channels:               jsonb("channels").$type<string[]>(),
+  selectionPolicyVersion: varchar("selection_policy_version", { length: 50 }),
+  selectionSnapshot:      jsonb("selection_snapshot").$type<Record<string, unknown>>(),
+  // Claim/lease fields for exactly-once processing
+  claimToken:             uuid("claim_token"),
+  claimedAt:              timestamp("claimed_at", { withTimezone: true }),
+  leaseExpiresAt:         timestamp("lease_expires_at", { withTimezone: true }),
+  claimedBy:              varchar("claimed_by", { length: 100 }),
+  maxAttempts:            integer("max_attempts").notNull().default(5),
+  // Terminal outcome classification
+  lastErrorCode:          varchar("last_error_code", { length: 100 }),
+  lastErrorClass:         varchar("last_error_class", { length: 50 }), // retryable | permanent | terminal_no_op
+  completedEnrollmentId:  integer("completed_enrollment_id"),
 }, (t) => [
   index("pe_intents_pending_idx").on(t.status, t.eligibleAfter).where(sql`${t.status} = 'pending'`),
   index("pe_intents_deal_idx").on(t.dealId),
+  index("pe_intents_claim_idx").on(t.status, t.leaseExpiresAt).where(sql`${t.status} IN ('pending', 'processing')`),
 ]);
 
 export type PostEnrichmentEnrollmentIntent = typeof postEnrichmentEnrollmentIntents.$inferSelect;
