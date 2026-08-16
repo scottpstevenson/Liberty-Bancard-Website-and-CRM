@@ -1,4 +1,7 @@
 import { storage } from "../storage";
+import { db as defaultSequenceWorkerDb } from "../db";
+import { sequenceEnrollments as sequenceEnrollmentsTable } from "../../shared/schema";
+import { eq as drizzleEq } from "drizzle-orm";
 import { isGhlConfigured } from "./ghl";
 // sendGhlEmail / sendGhlSms are now invoked via ChannelOrchestrator transport adapters (Wave 1A).
 // Do not re-import them here — use channelOrchestrator.sendEmail / sendSms instead.
@@ -134,6 +137,63 @@ const ZB_UNDELIVERABLE = new Set([
 
 const GHL_WORKFLOW_ONLY = process.env.GHL_WORKFLOW_ONLY_MODE === "true";
 
+// ── Hold-deferral helper (exported for isolated testing) ──────────────────────
+/**
+ * Writes the durable `_holdDeferred` marker to a sequence enrollment without
+ * changing its `status` (enrollment remains `'active'`).
+ *
+ * Idempotent: if `currentStep` AND `holdReason` already match the stored
+ * marker fields, no DB write is performed and the original `_holdDeferredAt`
+ * timestamp is preserved.
+ *
+ * @param enrollmentId   PK of the `sequence_enrollments` row to update
+ * @param currentStep    Current step index (`enrollment.currentStep`)
+ * @param holdReason     Human-readable reason string for the deferral
+ * @param existingMeta   Current `enrollment.metadata` value (or null)
+ * @param dbInstance     Drizzle db instance to use; defaults to the global db.
+ *                       Pass a test-DB instance for isolated unit tests.
+ * @returns `{ written, _holdDeferredAt }` — `written` is false when
+ *          idempotency short-circuited the write.
+ */
+export async function writeHoldDeferralMarker(
+  enrollmentId: number,
+  currentStep: number,
+  holdReason: string,
+  existingMeta: Record<string, unknown> | null,
+  dbInstance?: typeof defaultSequenceWorkerDb,
+): Promise<{ written: boolean; _holdDeferredAt: string | null }> {
+  const meta = existingMeta ?? {};
+  const alreadyDeferred =
+    meta._holdDeferredStep === currentStep &&
+    meta._holdDeferredReason === holdReason;
+
+  if (alreadyDeferred) {
+    return {
+      written: false,
+      _holdDeferredAt: typeof meta._holdDeferredAt === "string" ? meta._holdDeferredAt : null,
+    };
+  }
+
+  const deferredAt = new Date().toISOString();
+  const target = dbInstance ?? defaultSequenceWorkerDb;
+
+  await target
+    .update(sequenceEnrollmentsTable)
+    .set({
+      // status intentionally NOT changed — enrollment remains 'active'
+      metadata: {
+        ...meta,
+        _holdDeferredStep: currentStep,
+        _holdDeferredReason: holdReason,
+        _holdDeferredAt: deferredAt,
+      } as any,
+      updatedAt: new Date(),
+    })
+    .where(drizzleEq(sequenceEnrollmentsTable.id, enrollmentId));
+
+  return { written: true, _holdDeferredAt: deferredAt };
+}
+
 export async function processSequenceEnrollments(): Promise<{ processed: number; errors: number }> {
   const { acquireJobLock, releaseJobLock, JOB_NAMES } = await import("./job-registry");
   const lockToken = await acquireJobLock(JOB_NAMES.SEQUENCE_WORKER);
@@ -202,15 +262,13 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
               enrollMeta._holdDeferredReason === holdReason;
 
             if (!alreadyDeferred) {
-              await storage.updateSequenceEnrollment(enrollment.id, {
-                // status intentionally NOT changed — enrollment remains 'active'
-                metadata: {
-                  ...enrollMeta,
-                  _holdDeferredStep: currentStep,
-                  _holdDeferredReason: holdReason,
-                  _holdDeferredAt: new Date().toISOString(),
-                },
-              });
+              await writeHoldDeferralMarker(
+                enrollment.id,
+                currentStep,
+                holdReason,
+                enrollMeta,
+                // No injected dbInstance — uses global db (production path)
+              );
               await storage.createAuditLog({
                 action: "sequence_step_hold_deferred",
                 entityType: "contact",

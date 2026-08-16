@@ -87,6 +87,13 @@ echo "   ✓ Server ready at ${BASE_URL}"
 echo ""
 
 # ── 3. Run the pre-deploy gate ────────────────────────────────────────────────
+# IMPORTANT: Do NOT set INTEGRATION_TESTS_OPT_IN here. The isolated pause
+# state-machine test (scripts/test-pause-cycle-unit.ts) requires a separate
+# test database and Redis prefix, and must never run in ordinary CI without
+# explicit operator action. If you need to run the isolated test, set:
+#   NODE_ENV=test TEST_DATABASE_URL=<test-db> TEST_REDIS_PREFIX=<prefix>
+#   INTEGRATION_TESTS_OPT_IN=1 npx tsx scripts/pre-deploy.ts
+# (Do NOT add INTEGRATION_TESTS_OPT_IN to this wrapper script.)
 echo "▶  Running pre-deploy gate (scripts/pre-deploy.ts)…"
 echo ""
 npx tsx scripts/pre-deploy.ts

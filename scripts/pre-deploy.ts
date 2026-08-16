@@ -697,7 +697,48 @@ async function main() {
     await setPauseSetting(true);
   }
 
-  // ── 4. External config report ─────────────────────────────────────────────
+  // ── 4. Opt-in: Isolated Pause State-Machine test ─────────────────────────
+  // This test mutates an isolated test namespace and requires TEST_DATABASE_URL,
+  // TEST_REDIS_PREFIX, and NODE_ENV=test to be set by the caller.
+  //
+  // IMPORTANT: scripts/run-pre-deploy.sh must NOT set INTEGRATION_TESTS_OPT_IN.
+  // This test is NEVER executed in ordinary CI without explicit operator action.
+  //
+  // Kill lines enforced by the test itself:
+  //   - Refuses to run unless all four isolation guards are set
+  //   - Provider fakes throw on any accidental outbound call
+  //   - Cleanup leaves test namespace paused (not shared) on failure
+  if (process.env.INTEGRATION_TESTS_OPT_IN === "1") {
+    printSectionHeader("Opt-in: Isolated Pause State-Machine test (#1548B)");
+    console.log("  INTEGRATION_TESTS_OPT_IN=1 detected — running isolated pause cycle unit test");
+    console.log("  ⚠  This test uses TEST_DATABASE_URL and TEST_REDIS_PREFIX (isolated namespace).");
+    console.log("  ⚠  It does NOT touch the shared development database or pause state.\n");
+
+    const isolatedResult = spawnSync(
+      "npx",
+      ["tsx", "scripts/test-pause-cycle-unit.ts"],
+      {
+        env: { ...process.env },
+        stdio: "inherit",
+        encoding: "utf8",
+        timeout: 120 * 1000,
+      },
+    );
+
+    if ((isolatedResult.status ?? 1) !== 0) {
+      console.error("\n  ✗ KILL: Isolated Pause State-Machine test FAILED");
+      console.error("    Review the output above. Fix the state-machine regression before deploying.");
+      process.exit(1);
+    }
+    console.log("\n  ✓ Isolated Pause State-Machine test passed");
+  } else {
+    console.log("\n▶  Isolated Pause State-Machine test (opt-in)");
+    console.log("   SKIPPED — INTEGRATION_TESTS_OPT_IN is not set.");
+    console.log("   To run: set NODE_ENV=test TEST_DATABASE_URL=<test-db> TEST_REDIS_PREFIX=<prefix>");
+    console.log("           INTEGRATION_TESTS_OPT_IN=1 npx tsx scripts/pre-deploy.ts");
+  }
+
+  // ── 5. External config report ─────────────────────────────────────────────
   printSectionHeader("External provider configuration (non-blocking)");
 
   const configByCategory: Record<string, ConfigItem[]> = {};
