@@ -1,0 +1,76 @@
+Perform the complete runtime verification defined in `LIBERTY_BANCARD_RUNTIME_VERIFICATION_REGISTER.md`.
+
+Use `LIBERTY_BANCARD_AUDIT_RECONCILIATION_LEDGER.md` only to map runtime checks back to their finding IDs and closure requirements.
+
+This is a READ-ONLY AUDIT. Do not fix, deploy, restart, migrate, enqueue, backfill, modify configuration, change secrets, change database records, clear queues, lift pauses, or alter code.
+
+Safety requirements:
+
+* Do not lift the global outbound pause or any channel pause.
+* Do not send email, SMS, workflow enrollment, voice/RVM, Gmail, SMTP, GHL, or any other external provider action.
+* Do not contact a real prospect or merchant.
+* Do not display secret values, credentials, API keys, tokens, message bodies, recipient data, SSNs, bank data, or other sensitive information.
+* You may report whether a required secret is present, but never report its value.
+* Use read-only database queries, Redis inspection, logs, deployment metadata, authenticated UI inspection, and provider status/usage reads only.
+* Do not treat the existence of code, a task description, or a prior audit statement as runtime evidence.
+* Do not reuse stale counts from the attached documents.
+* Every observed value must include a current timestamp and environment.
+* If a check cannot be safely verified, mark it `INCONCLUSIVE`; do not infer or manufacture a result.
+
+First establish and report:
+
+1. Current deployed Git SHA.
+2. Deployment identifier and deployment timestamp.
+3. Environment inspected.
+4. Database identity in redacted form.
+5. Redis identity/prefix in redacted form.
+6. Whether the deployed SHA exactly matches `68eae86cbb938c6448de7ae792c24381177263f7`.
+
+Then execute every applicable `RV-*` check in the runtime verification register.
+
+For every check, report:
+
+| Field                | Required content                                                                         |
+| -------------------- | ---------------------------------------------------------------------------------------- |
+| RV ID                | Exact identifier from the register                                                       |
+| Related finding IDs  | Ledger findings affected                                                                 |
+| Verdict              | `PASS`, `FAIL`, `INCONCLUSIVE`, or `NOT_APPLICABLE`                                      |
+| Timestamp            | Exact observation time with timezone                                                     |
+| Environment          | Production, staging, isolated test, GitHub, or provider                                  |
+| Method               | Read-only query, log search, UI observation, or metadata inspection                      |
+| Observed result      | Actual sanitized result and counts                                                       |
+| Expected condition   | Requirement from the register                                                            |
+| Evidence             | Sanitized query/result, log event, heartbeat, deployment record, or screenshot reference |
+| Residual uncertainty | Anything the evidence did not prove                                                      |
+| Required action      | `NONE`, additional verification, or a proposed corrective build task                     |
+
+Additional requirements:
+
+* Distinguish current state from historical state.
+* Report queue and worker heartbeats with their ages, not merely that rows exist.
+* Report scheduled jobs with names, repeat intervals, next-run state, and ownership.
+* Report post-enrichment intent counts by status, including missing leases, expired leases, attempts, terminal failures, orphans, and oldest age.
+* Confirm whether the #1548C recovery schedule actually exists in the running environment.
+* Confirm migration head and whether migrations `0135` and `0136` are applied.
+* Confirm QueueManager readiness and Redis connection/capacity/failure state.
+* Verify Serper configuration status, last attempted call, last successful call, recent successes/failures, quota, and enrichment yield without exposing the API key.
+* Verify ZeroBounce campaign progress, remaining candidates, credits, errors, worker heartbeat, and last completed run without starting a validation run.
+* Verify GHL sync coverage and circuit state without initiating a sync.
+* Verify readiness and lead-score coverage using fresh database counts.
+* Verify UI runtime checks without causing external effects.
+* Separate anything requiring GitHub branch-protection evidence or an external provider console from what Replit can prove.
+
+Do not declare a ledger finding `CLOSED_RUNTIME` yourself. Produce the evidence packet only.
+
+Save the complete result as:
+
+`LIBERTY_BANCARD_RUNTIME_EVIDENCE_PACKET_68EAE86.md`
+
+End the report with four sections:
+
+1. `Runtime checks that passed`
+2. `Runtime checks that failed`
+3. `Runtime checks that remain inconclusive`
+4. `Corrective build tasks recommended from failed evidence`
+
+For each recommended build task, include the affected finding and RV IDs, exact failure evidence, relevant files/services, acceptance gate, tests, and kill lines. Do not implement those tasks.
