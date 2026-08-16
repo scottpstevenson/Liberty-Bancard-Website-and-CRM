@@ -1573,18 +1573,29 @@ export function registerActivationRoutes(app: Express) {
         try {
           const { outboundQueueCoordinator } = await import("../services/outbound-queue-coordinator");
           const coordinatorStatus = await outboundQueueCoordinator.getStatus();
-          const activeHoldKeys = Object.keys(coordinatorStatus.desiredLogicalHolds);
-          queueBackpressure = {
-            status: activeHoldKeys.length > 0 ? "held" : "running",
-            activeHoldCount: activeHoldKeys.length,
-            physicalQueueStates: coordinatorStatus.physicalQueueStates.map(q => ({
-              queue: q.physicalQueue,
-              desired: q.desiredState,
-              observed: q.observedState,
-              outcome: q.outcome,
-            })),
-            ledgerEpoch: coordinatorStatus.ledgerEpoch.toString(),
-          };
+          if (coordinatorStatus.status === "degraded") {
+            // DB read failed — report degraded rather than claiming "running"
+            queueBackpressure = {
+              status: "degraded",
+              errorCode: (coordinatorStatus as any).errorCode ?? "UNKNOWN_ERROR",
+              activeHoldCount: 0,
+              physicalQueueStates: [],
+              ledgerEpoch: coordinatorStatus.ledgerEpoch,
+            };
+          } else {
+            const activeHoldKeys = Object.keys(coordinatorStatus.desiredLogicalHolds);
+            queueBackpressure = {
+              status: activeHoldKeys.length > 0 ? "held" : "running",
+              activeHoldCount: activeHoldKeys.length,
+              physicalQueueStates: coordinatorStatus.physicalQueueStates.map(q => ({
+                queue: q.physicalQueue,
+                desired: q.desiredState,
+                observed: q.observedState,
+                outcome: q.outcome,
+              })),
+              ledgerEpoch: coordinatorStatus.ledgerEpoch,
+            };
+          }
         } catch (_e) {
           queueBackpressure = { status: "not_configured" };
         }

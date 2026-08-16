@@ -2615,11 +2615,14 @@ export function registerAdminRoutes(app: Express) {
     try {
       const { outboundQueueCoordinator } = await import("../services/outbound-queue-coordinator");
       const status = await outboundQueueCoordinator.getStatus();
+      // All epoch fields are already decimal strings in the DTO — safe for JSON.stringify.
       res.json({
         ok: true,
+        status: status.status,
+        ...(status.status === "degraded" ? { errorCode: (status as any).errorCode } : {}),
         desiredLogicalHolds: status.desiredLogicalHolds,
         physicalQueueStates: status.physicalQueueStates,
-        ledgerEpoch: status.ledgerEpoch.toString(),
+        ledgerEpoch: status.ledgerEpoch,
         reconciledAt: status.reconciledAt?.toISOString() ?? null,
       });
     } catch (err: any) {
@@ -2688,15 +2691,45 @@ export function registerAdminRoutes(app: Express) {
   /** POST /api/admin/queue-holds/release-approval — approve staged release */
   app.post("/api/admin/queue-holds/release-approval", requireRole("admin"), async (req, res) => {
     try {
+      const { z } = await import("zod");
+      const { LOGICAL_JOB_MANIFEST } = await import("../services/logical-job-manifest");
+      const validLogicalKeys = LOGICAL_JOB_MANIFEST.map((e: { logicalKey: string }) => e.logicalKey) as [string, ...string[]];
+
+      const schema = z.object({
+        logical_job_keys: z.union([
+          z.literal("all"),
+          z.array(z.enum(validLogicalKeys)),
+        ]).optional(),
+        correlation_id: z.string().optional(),
+      });
+
+      let body: { logical_job_keys?: string[] | "all"; correlation_id?: string };
+      try {
+        body = schema.parse(req.body ?? {});
+      } catch (parseErr: any) {
+        const issue = parseErr.errors?.[0];
+        const offendingKey = issue?.received ?? issue?.message ?? "unknown";
+        return res.status(400).json({
+          ok: false,
+          error: "Invalid logical_job_key",
+          offendingKey,
+          validKeys: validLogicalKeys,
+        });
+      }
+
       const actor = (req as any).user?.email || "admin";
-      const { logical_job_keys, correlation_id } = req.body ?? {};
       const { outboundQueueCoordinator } = await import("../services/outbound-queue-coordinator");
-      const count = await outboundQueueCoordinator.approveRelease(
-        Array.isArray(logical_job_keys) ? logical_job_keys : "all",
+      const result = await outboundQueueCoordinator.approveRelease(
+        Array.isArray(body.logical_job_keys) ? body.logical_job_keys : "all",
         actor,
-        correlation_id,
+        body.correlation_id,
       );
-      res.json({ ok: true, releasedHolds: count, actor });
+      res.json({
+        ok: true,
+        releasedKeys: result.releasedKeys,
+        ledgerEpoch: result.newLedgerEpoch.toString(),
+        actor,
+      });
     } catch (err: any) {
       serverError(res, err);
     }

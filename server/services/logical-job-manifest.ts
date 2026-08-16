@@ -50,6 +50,7 @@ export type BacklogSource =
   | "outbound_messages"
   | "deferred_ghl"
   | "promotional_enrollment_jobs"
+  | "post_enrichment_enrollment_intents"
   | "none";
 
 // ---------------------------------------------------------------------------
@@ -518,7 +519,7 @@ export const LOGICAL_JOB_MANIFEST: readonly ManifestEntry[] = [
     owner: "post-enrichment-worker",
     effect: "lifecycle_enrollment",
     canRunWhileGlobalOutboundPaused: false,
-    backlogSource: "promotional_enrollment_jobs",
+    backlogSource: "post_enrichment_enrollment_intents",
     releaseController: "OutboundQueueCoordinator",
   },
 

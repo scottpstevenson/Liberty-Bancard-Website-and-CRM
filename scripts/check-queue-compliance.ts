@@ -209,7 +209,7 @@ async function checkManifestValid(): Promise<CheckResult> {
     const { validateManifest } = await import("../server/services/logical-job-manifest");
     const result = validateManifest();
     return {
-      pass: result.valid,
+      pass: result.ok,
       label: "Logical job manifest valid (all QUEUE_NAMES have entries, no unclassified)",
       details: result.errors,
     };
@@ -222,7 +222,19 @@ async function checkManifestValid(): Promise<CheckResult> {
   }
 }
 
-// ── Check 6: No sequence-worker enrollment status mutation to 'paused' ────────
+// ── Check 6: No enrollment status mutation to 'paused' inside the hold-gate block ─
+//
+// VFC-22 regression check: the global-pause + coordinator hold-gate block in
+// sequence-worker.ts must NOT directly set enrollment status='paused'. It must
+// only write the _holdDeferred metadata marker and leave status='active'.
+//
+// Approach:
+//   1. Find the hold-gate block bounds (start = line with the canonical gate comment;
+//      end = estimated by counting open/close braces from the opening `{`).
+//   2. Flag any line INSIDE that block that writes status='paused' via ANY mechanism
+//      (storage.updateSequenceEnrollment, db.update, raw SQL, etc.).
+//   3. Lines OUTSIDE the hold-gate block are contactability/cap/validation/error pauses
+//      and are NOT violations — they are intentional per-enrollment pause writes.
 
 function checkNoEnrollmentStatusPaused(): CheckResult {
   const f = join(process.cwd(), "server/services/sequence-worker.ts");
@@ -230,23 +242,67 @@ function checkNoEnrollmentStatusPaused(): CheckResult {
   const violations: string[] = [];
 
   const lines = src.split("\n");
-  lines.forEach((line, i) => {
+
+  // Step 1: locate the hold-gate block bounds.
+  // The block starts at the comment line and the `{` that immediately follows the gate setup.
+  const GATE_START_MARKER = "// ── Gate (global-pause + coordinator)";
+  let gateStartLine = -1;
+  let gateEndLine = -1;
+
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].includes(GATE_START_MARKER)) {
+      gateStartLine = i;
+      // Find the opening `{` of the gate block (the bare `{` on its own line).
+      let braceDepth = 0;
+      let blockOpenLine = -1;
+      for (let j = i; j < Math.min(i + 10, lines.length); j++) {
+        if (lines[j].trim() === "{") {
+          blockOpenLine = j;
+          braceDepth = 1;
+          // Walk forward to find the matching `}` that closes this block.
+          for (let k = j + 1; k < lines.length && braceDepth > 0; k++) {
+            for (const ch of lines[k]) {
+              if (ch === "{") braceDepth++;
+              else if (ch === "}") braceDepth--;
+            }
+            if (braceDepth === 0) {
+              gateEndLine = k;
+              break;
+            }
+          }
+          break;
+        }
+      }
+      break;
+    }
+  }
+
+  if (gateStartLine === -1) {
+    // Gate block not found — the structure changed; flag for manual review.
+    return {
+      pass: false,
+      label: "sequence-worker does not mutate enrollment status to 'paused' on hold (VFC-22 fix)",
+      details: [
+        `${f} — Hold-gate block comment not found. The gate structure may have changed; ` +
+        `verify manually that no status='paused' write exists in the global-pause gate.`,
+      ],
+    };
+  }
+
+  // Step 2: scan ONLY the hold-gate block for status='paused' writes.
+  const blockEnd = gateEndLine >= 0 ? gateEndLine : gateStartLine + 120; // fallback estimate
+  for (let i = gateStartLine; i <= blockEnd && i < lines.length; i++) {
+    const line = lines[i];
     const trimmed = line.trim();
-    if (trimmed.startsWith("//") || trimmed.startsWith("*")) return;
-    // Look for status: "paused" assignment in context that's NOT a comment or the recovery sweep
-    if (
-      /status\s*:\s*["']paused["']/.test(line) &&
-      !line.includes("_globalPauseBlock") &&
-      !line.includes("// ") &&
-      // Allow the _capDefer pattern which legitimately sets status=paused
-      !line.includes("_capDefer")
-    ) {
+    if (trimmed.startsWith("//") || trimmed.startsWith("*")) continue;
+    // Flag any direct status='paused' write within the hold-gate block.
+    if (/status\s*:\s*["']paused["']/.test(line)) {
       violations.push(
-        `${f}:${i + 1} — sequence-worker sets enrollment status='paused' directly. ` +
-        `Must use _holdDeferred marker instead (VFC-22 fix).`,
+        `${f}:${i + 1} — enrollment status='paused' written directly inside the hold-gate block. ` +
+        `Must use _holdDeferred metadata marker instead (VFC-22 fix).`,
       );
     }
-  });
+  }
 
   return {
     pass: violations.length === 0,

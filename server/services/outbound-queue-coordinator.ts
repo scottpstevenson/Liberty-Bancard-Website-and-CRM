@@ -81,6 +81,85 @@ export interface CoordinatorStatus {
   reconciledAt: Date | null;
 }
 
+// ---------------------------------------------------------------------------
+// DTO types — all bigint epoch fields serialized as decimal strings
+// ---------------------------------------------------------------------------
+
+export interface HoldEntryDto {
+  holdId: string;
+  logicalJobKey: string;
+  reasonCode: HoldReasonCode;
+  sourceType: string;
+  sourceKey: string;
+  sourceEpoch: string | null;
+  ledgerEpoch: string;
+  active: boolean;
+  activatedAt: Date;
+  releasedAt: Date | null;
+  expiresAt: Date | null;
+  actor: string | null;
+  correlationId: string | null;
+  metadata: Record<string, unknown> | null;
+}
+
+export interface ReconciliationResultDto {
+  physicalQueue: string;
+  desiredState: "paused" | "running";
+  observedState: "paused" | "running" | "unknown";
+  outcome: ReconciliationOutcome;
+  desiredEpoch: string;
+  observedEpoch: string | null;
+  error: string | null;
+}
+
+export type CoordinatorStatusDto =
+  | {
+      status: "ok";
+      desiredLogicalHolds: Record<string, HoldEntryDto[]>;
+      physicalQueueStates: ReconciliationResultDto[];
+      ledgerEpoch: string;
+      reconciledAt: Date | null;
+    }
+  | {
+      status: "degraded";
+      errorCode: string;
+      desiredLogicalHolds: Record<string, HoldEntryDto[]>;
+      physicalQueueStates: ReconciliationResultDto[];
+      ledgerEpoch: string;
+      reconciledAt: Date | null;
+    };
+
+function toHoldEntryDto(entry: HoldEntry): HoldEntryDto {
+  return {
+    holdId: entry.holdId,
+    logicalJobKey: entry.logicalJobKey,
+    reasonCode: entry.reasonCode,
+    sourceType: entry.sourceType,
+    sourceKey: entry.sourceKey,
+    sourceEpoch: entry.sourceEpoch != null ? entry.sourceEpoch.toString() : null,
+    ledgerEpoch: entry.ledgerEpoch.toString(),
+    active: entry.active,
+    activatedAt: entry.activatedAt,
+    releasedAt: entry.releasedAt,
+    expiresAt: entry.expiresAt,
+    actor: entry.actor,
+    correlationId: entry.correlationId,
+    metadata: entry.metadata,
+  };
+}
+
+function toReconciliationResultDto(r: ReconciliationResult): ReconciliationResultDto {
+  return {
+    physicalQueue: r.physicalQueue,
+    desiredState: r.desiredState,
+    observedState: r.observedState,
+    outcome: r.outcome,
+    desiredEpoch: r.desiredEpoch.toString(),
+    observedEpoch: r.observedEpoch != null ? r.observedEpoch.toString() : null,
+    error: r.error,
+  };
+}
+
 export interface AddHoldRequest {
   logicalJobKey: string;
   reasonCode: HoldReasonCode;
@@ -188,7 +267,7 @@ class OutboundQueueCoordinator {
    * Side-effect-free status accessor for routes and health checks.
    * Never throws — returns partial/empty status on error.
    */
-  async getStatus(): Promise<CoordinatorStatus> {
+  async getStatus(): Promise<CoordinatorStatusDto> {
     try {
       const client = await pool.connect();
       try {
@@ -219,7 +298,7 @@ class OutboundQueueCoordinator {
            ORDER BY logical_job_key, ledger_epoch DESC`,
         );
 
-        const desiredLogicalHolds: Record<string, HoldEntry[]> = {};
+        const desiredLogicalHoldsInternal: Record<string, HoldEntry[]> = {};
         let maxLedgerEpoch = 0n;
         for (const r of holdsResult.rows) {
           const entry: HoldEntry = {
@@ -238,10 +317,10 @@ class OutboundQueueCoordinator {
             correlationId: r.correlation_id,
             metadata: r.metadata,
           };
-          if (!desiredLogicalHolds[r.logical_job_key]) {
-            desiredLogicalHolds[r.logical_job_key] = [];
+          if (!desiredLogicalHoldsInternal[r.logical_job_key]) {
+            desiredLogicalHoldsInternal[r.logical_job_key] = [];
           }
-          desiredLogicalHolds[r.logical_job_key].push(entry);
+          desiredLogicalHoldsInternal[r.logical_job_key].push(entry);
           if (entry.ledgerEpoch > maxLedgerEpoch) {
             maxLedgerEpoch = entry.ledgerEpoch;
           }
@@ -263,20 +342,28 @@ class OutboundQueueCoordinator {
            ORDER BY physical_queue`,
         );
 
-        const physicalQueueStates: ReconciliationResult[] = reconResult.rows.map(r => ({
+        const physicalQueueStatesInternal: ReconciliationResult[] = reconResult.rows.map(r => ({
           physicalQueue: r.physical_queue,
           desiredState: (r.desired_state ?? "running") as "paused" | "running",
           observedState: (r.observed_state ?? "unknown") as "paused" | "running" | "unknown",
-          outcome: "noop",
+          outcome: "noop" as ReconciliationOutcome,
           desiredEpoch: r.desired_epoch ? BigInt(r.desired_epoch) : 0n,
           observedEpoch: r.observed_epoch ? BigInt(r.observed_epoch) : null,
           error: r.last_error,
         }));
 
+        // Convert bigint fields to decimal strings for JSON-safe transport
+        const desiredLogicalHolds: Record<string, HoldEntryDto[]> = {};
+        for (const [key, entries] of Object.entries(desiredLogicalHoldsInternal)) {
+          desiredLogicalHolds[key] = entries.map(toHoldEntryDto);
+        }
+        const physicalQueueStates = physicalQueueStatesInternal.map(toReconciliationResultDto);
+
         return {
+          status: "ok",
           desiredLogicalHolds,
           physicalQueueStates,
-          ledgerEpoch: maxLedgerEpoch,
+          ledgerEpoch: maxLedgerEpoch.toString(),
           reconciledAt: reconResult.rows[0]?.reconciled_at ?? null,
         };
       } finally {
@@ -285,9 +372,11 @@ class OutboundQueueCoordinator {
     } catch (err: any) {
       console.warn(`[Coordinator] getStatus() failed: ${err.message}`);
       return {
+        status: "degraded",
+        errorCode: err.code ?? err.message ?? "UNKNOWN_ERROR",
         desiredLogicalHolds: {},
         physicalQueueStates: [],
-        ledgerEpoch: 0n,
+        ledgerEpoch: "0",
         reconciledAt: null,
       };
     }
@@ -620,7 +709,7 @@ class OutboundQueueCoordinator {
     logicalJobKeys: string[] | "all",
     actor: string,
     correlationId?: string,
-  ): Promise<number> {
+  ): Promise<{ count: number; releasedKeys: string[]; newLedgerEpoch: bigint }> {
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
@@ -669,8 +758,9 @@ class OutboundQueueCoordinator {
       await client.query("COMMIT");
 
       const count = updateResult.rows.length;
+      const releasedKeys = updateResult.rows.map(r => r.logical_job_key);
       console.log(`[Coordinator] Staged release approved: ${count} release_pending holds cleared by ${actor}`);
-      return count;
+      return { count, releasedKeys, newLedgerEpoch };
     } catch (err) {
       try { await client.query("ROLLBACK"); } catch { /* ignore */ }
       throw err;
