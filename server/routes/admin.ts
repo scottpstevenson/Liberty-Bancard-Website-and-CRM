@@ -2630,6 +2630,18 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  /** GET /api/admin/queue-holds/backlog-preview — per-source risk preview */
+  app.get("/api/admin/queue-holds/backlog-preview", requireRole("admin"), async (_req, res) => {
+    try {
+      const { createBacklogPreviewService } = await import("../services/backlog-preview-service");
+      const svc = createBacklogPreviewService(db);
+      const preview = await svc.getBacklogPreview();
+      res.json(preview);
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
   /** POST /api/admin/queue-holds — add a hold */
   app.post("/api/admin/queue-holds", requireRole("admin"), async (req, res) => {
     try {

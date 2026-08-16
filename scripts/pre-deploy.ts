@@ -248,6 +248,12 @@ const MANDATORY_SUITES: Suite[] = [
     script: "scripts/smoke-attrition-cooldown.ts",
     timeoutSecs: 60,
   },
+  // ── #1552 — Backlog preview (per-source envelopes, step-index mapping, schema_missing) ──
+  {
+    name: "Backlog Preview (per-source envelopes, next_action_at, schema_missing, non-additive)",
+    script: "scripts/test-backlog-preview.ts",
+    timeoutSecs: 60,
+  },
 ];
 
 // ── External config items — non-blocking, reported separately ─────────────────

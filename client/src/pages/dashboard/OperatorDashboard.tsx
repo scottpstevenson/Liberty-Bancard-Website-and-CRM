@@ -3099,6 +3099,7 @@ const OPERATOR_NAV_GROUPS: OperatorNavGroup[] = [
       { value: "worker-heartbeats", label: "Worker Heartbeats", icon: Activity },
       { value: "deleted-records", label: "Deleted Records", icon: XCircle },
       { value: "outbound-preflight", label: "Outbound Preflight", icon: CheckCircle2 },
+      { value: "queue-holds", label: "Queue Holds", icon: Server },
       { value: "data-health", label: "Data Health", icon: Database },
       { value: "system-audit", label: "System Audit", icon: Shield },
       { value: "launch-readiness", label: "Launch Readiness", icon: CheckCircle2 },
@@ -3228,6 +3229,24 @@ function renderOperatorView(view: string, onNavigate: (v: string) => void) {
             className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
           >
             Open Outbound Preflight
+          </a>
+        </div>
+      );
+    case "queue-holds":
+      return (
+        <div className="flex flex-col items-center justify-center h-64 gap-4">
+          <Server className="w-12 h-12 text-muted-foreground" />
+          <p className="text-lg font-medium">Queue Holds &amp; Backlog Preview</p>
+          <p className="text-sm text-muted-foreground text-center max-w-md">
+            Hold ledger with active logical job holds, coordinator state, and per-source
+            bounded backlog risk preview (sequence enrollments, outbound messages, GHL deferrals,
+            post-enrichment intents, and BullMQ queue depths).
+          </p>
+          <a
+            href="/dashboard/queue-holds"
+            className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+          >
+            Open Queue Holds
           </a>
         </div>
       );
