@@ -1,0 +1,88 @@
+Do not run #1562 exactly as written yet. Both repairs are merged, but the runtime task needs several corrections to avoid false passes and shared-environment mutations.
+
+Current `origin/main` is:
+
+`60cc6a7cedb12aaa3f14bb214185f9bcb1ed2499`
+
+It includes:
+
+* #1565 build identity: `9249dbee`
+* #1564 GHL circuit repair: `60cc6a7c`
+
+## Required corrections
+
+| Priority | Problem                                               | Required correction                                                                                                                                                    |
+| -------- | ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| P0       | Register still targets `68eae86c`                     | Make `60cc6a7c…` the post-repair target SHA.                                                                                                                           |
+| P0       | GHL circuit test is not read-only                     | Do not execute `scripts/test-ghl-circuit-classification.ts` against shared infrastructure. Its hooks write circuit state/audit rows and can trigger Slack/SMTP alerts. |
+| P0       | 24-hour GHL results mix pre- and post-repair behavior | Split results at the actual deployment timestamp for `60cc6a7c`. Only the post-deployment window can verify #1564.                                                     |
+| P1       | `/api/build` does not exist                           | Probe `/health`, `/api/health`, authenticated `/api/admin/health`, and `/api/admin/live-health`.                                                                       |
+| P1       | SHA gate validates format only                        | Separately verify the endpoint SHA equals `60cc6a7c…`. Any valid 40-character SHA currently passes predeploy.                                                          |
+| P1       | `builtAt` is process-start time                       | Report it as process initialization time, not a true build timestamp.                                                                                                  |
+| P1       | `ZCARD` is not a universal BullMQ depth fix           | Prefer `queue.getJobCounts()`. For raw Redis, inspect `TYPE` and use `LLEN`, `ZCARD`, or `XLEN` accordingly.                                                           |
+| P1       | Alert timestamp requirement is unconditional          | Require a new alert only if a post-repair circuit-open transition occurred. A healthy system should not generate one.                                                  |
+| P1       | A 401 may not occur naturally                         | If no post-repair 401 exists, record `NOT OBSERVED`; do not induce one against GHL.                                                                                    |
+| P1       | Evidence fields are incomplete                        | Add operator/reviewer and evidence expiry/recheck cadence to every RV row.                                                                                             |
+
+## Static #1564 residual to include
+
+The repair is materially present, but two code-level concerns must be recorded:
+
+1. The circuit test’s hooks invoke production persistence and alert functions. It is unsafe in the shared environment despite claiming no live GHL calls.
+2. Production `catch` branches use `classifyGhlSyncError()` only to detect `auth`; every other thrown exception increments failures, including a thrown value that the dispatch table might otherwise classify as `skip`. The claim that every counting decision goes through the dispatch table is therefore not fully true.
+
+These should be noted as static residuals. #1562 must not attempt to induce them at runtime.
+
+## Add this to the beginning of #1562
+
+> **Post-repair evidence target:** `60cc6a7cedb12aaa3f14bb214185f9bcb1ed2499`. This supersedes the register’s earlier `68eae86c` target for this evidence pass.
+>
+> First identify the SHA and process-start timestamp reported by the running published deployment. If the deployment does not report `60cc6a7c…`, continue collecting safe observations but label all #1564/#1565 results `INCONCLUSIVE — REPAIR NOT ATTRIBUTABLE TO OBSERVED PROCESS`.
+>
+> Split all GHL evidence into pre-deployment and post-deployment windows using the actual deployment/process-start timestamp. Do not use a rolling 24-hour total as proof of post-repair behavior when the window includes pre-repair events.
+>
+> Do not execute `scripts/test-ghl-circuit-classification.ts` against shared DB/Redis or configured alert transports. Static-inspect it only. Do not run the full predeploy suite because it writes pause/channel state. The build-identity endpoint smoke may be run read-only.
+>
+> Execute database queries inside read-only transactions with bounded statement timeouts. Return sanitized aggregates only.
+
+## Replace Step 1
+
+Probe:
+
+* `/health`
+* `/api/health`
+* authenticated `/api/admin/health`
+* authenticated `/api/admin/live-health`
+
+Record separately:
+
+* Endpoint SHA
+* Whether `RELEASE_SHA` is present
+* Whether it is valid 40-hex
+* Whether it exactly equals `60cc6a7c…`
+* Endpoint status
+* Process initialization timestamp
+* Environment label
+* Whether all observed processes report the same SHA
+
+`sha='unset'` proves fail-closed behavior but does not pass `RV-1548-01`.
+
+## Replace Step 6
+
+Use BullMQ’s `getJobCounts()` and `getRepeatableJobs()` wherever possible. If raw Redis inspection is necessary, first read each key’s type and use the matching non-mutating command. Report waiting, active, delayed, prioritized, failed, completed and paused state separately. Never infer zero depth from a `WRONGTYPE` error.
+
+## Replace Step 13
+
+For GHL:
+
+* Establish the `60cc6a7c` deployment/process-start boundary.
+* Produce separate pre-repair and post-repair matrices.
+* Report circuit `state`, legacy `open`, `consecutiveFailures`, `halfOpenProbeSuccesses`, `lastFullSuccessTickAt`, `updatedAt`, alert timestamp and recovery-alert timestamp.
+* Do not require a 401 sample; report whether one occurred.
+* If a 401 occurred post-repair, verify an immediate-open transition.
+* Require an updated alert timestamp only when a post-repair open transition occurred.
+* Separate identity conflicts/data skips from provider/auth/rate-limit/retryable failures.
+* Do not invoke sync or a failing credential probe.
+* Record the unsafe circuit-test hooks and incomplete catch-path dispatch as static residuals.
+
+With those amendments, #1562 is the correct next Replit task. Without them, it can produce another misleading evidence packet or mutate shared runtime state.
