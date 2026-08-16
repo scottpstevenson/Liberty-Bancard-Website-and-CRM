@@ -1826,8 +1826,43 @@ const syncedCompanyIds = new Set<number>();
 const syncedTaskIds = new Set<number>();
 
 const GHL_CIRCUIT_THRESHOLD = 5;
+const GHL_HALF_OPEN_PROBES_REQUIRED = 3;
+const GHL_ROLLING_UNHEALTHY_MS = 60 * 60 * 1000; // 60 min without a successful full tick → force half-open probe
+
+export type GhlCircuitStateEnum = "closed" | "open" | "half-open";
+let ghlCircuitState: GhlCircuitStateEnum = "closed";
 let consecutiveGhlFailures = 0;
-let ghlCircuitOpen = false;
+let halfOpenProbeSuccesses = 0;
+let lastFullSuccessTickAt = Date.now();
+
+export type GhlSyncErrorClass = "auth" | "rate-limit" | "skip" | "retryable";
+
+/**
+ * Single classification dispatch for GHL sync error strings.  ALL circuit-
+ * breaker counting decisions in runGhlFullSyncTick flow through this table.
+ *
+ * - "auth"       → 401 / unauthorized: opens the circuit IMMEDIATELY.
+ * - "rate-limit" → 429: counts toward the threshold (retryable pressure).
+ * - "skip"       → data-dependency misses (local record not found, GHL not
+ *                  configured, GHL 400 not-found on stale/fake IDs, identity
+ *                  conflicts, stage-map config errors): never counted.
+ * - "retryable"  → everything else: counts toward the threshold.
+ */
+export function classifyGhlSyncError(error: string | undefined, httpStatus?: number): GhlSyncErrorClass {
+  if (httpStatus === 401) return "auth";
+  if (httpStatus === 429) return "rate-limit";
+  if (!error) return "retryable";
+  if (/GHL API error 401/i.test(error) || /\bunauthorized\b/i.test(error)) return "auth";
+  if (/GHL API error 429/i.test(error) || /rate.?limit/i.test(error)) return "rate-limit";
+  if (error === "ghl_identity_conflict") return "skip";
+  if (error === "GHL not configured") return "skip";
+  if (/^No GHL contact linked/i.test(error)) return "skip";
+  if (/OPPORTUNITY_STAGE_ID_INVALID/.test(error)) return "skip";
+  // Local DB misses: "Contact not found", "Deal not found", "Task not found", "Company not found"
+  if (/^[A-Za-z ]*not found$/i.test(error.trim())) return "skip";
+  if (isGhlNotFoundError(error)) return "skip";
+  return "retryable";
+}
 
 /**
  * Returns true when the error string represents a GHL 400 "not found" response
@@ -1840,8 +1875,79 @@ function isGhlNotFoundError(errorMessage: string | undefined): boolean {
   if (!errorMessage) return false;
   return /GHL API error 400/i.test(errorMessage) && /not.?found/i.test(errorMessage);
 }
+
+/** Open the circuit immediately on a 401/auth classification. */
+function tripCircuitAuth(phase: string): void {
+  ghlCircuitState = "open";
+  consecutiveGhlFailures = Math.max(consecutiveGhlFailures, GHL_CIRCUIT_THRESHOLD);
+  halfOpenProbeSuccesses = 0;
+  console.error(`[Queue:ghl-sync] GHL_CIRCUIT_OPEN_AUTH — auth (401) failure in ${phase}, opening circuit immediately`);
+  storage.createAuditLog({ action: "GHL_CIRCUIT_OPEN_AUTH", entityType: "system", details: `Circuit opened immediately: GHL auth (401) failure in ${phase}` }).catch(() => {});
+  maybeSendCircuitAlert();
+  persistGhlCircuit();
+}
+
+/** Open the circuit because the consecutive-failure threshold was reached. */
+function tripCircuitThreshold(phase: string): void {
+  ghlCircuitState = "open";
+  halfOpenProbeSuccesses = 0;
+  console.error(`[Queue:ghl-sync] GHL_CIRCUIT_OPEN — ${consecutiveGhlFailures} consecutive failures in ${phase}, aborting tick`);
+  storage.createAuditLog({ action: "GHL_CIRCUIT_OPEN", entityType: "system", details: `Circuit opened: ${consecutiveGhlFailures} consecutive GHL failures in ${phase} — tick aborted` }).catch(() => {});
+  maybeSendCircuitAlert();
+  persistGhlCircuit();
+}
+
+/** Close the circuit after the required number of half-open probe successes. */
+function closeCircuitAfterProbes(): void {
+  const probes = halfOpenProbeSuccesses;
+  ghlCircuitState = "closed";
+  consecutiveGhlFailures = 0;
+  halfOpenProbeSuccesses = 0;
+  lastFullSuccessTickAt = Date.now();
+  console.log(`[Queue:ghl-sync] GHL_CIRCUIT_CLOSED — circuit recovered after ${probes} successful probes`);
+  storage.createAuditLog({ action: "GHL_CIRCUIT_CLOSED", entityType: "system", details: `Circuit closed: ${probes} consecutive successful half-open probes` }).catch(() => {});
+  maybeSendCircuitRecoveryAlert(probes);
+  persistGhlCircuit();
+}
 let lastCircuitAlertAt = 0;
 const GHL_CIRCUIT_ALERT_KEY = "ghl_circuit_alert_at";
+let lastCircuitRecoveryAlertAt = 0;
+const GHL_CIRCUIT_RECOVERY_ALERT_KEY = "ghl_circuit_recovery_alert_at";
+
+/**
+ * Recovery (half-open → closed) notification with its own 1-hour cooldown,
+ * persisted under GHL_CIRCUIT_RECOVERY_ALERT_KEY so restarts don't re-fire.
+ */
+function maybeSendCircuitRecoveryAlert(probeSuccesses: number): void {
+  const now = Date.now();
+  if (now - lastCircuitRecoveryAlertAt < 60 * 60 * 1000) return;
+  lastCircuitRecoveryAlertAt = now;
+  const alertAt = new Date().toISOString();
+  db.insert(systemSettings)
+    .values({ key: GHL_CIRCUIT_RECOVERY_ALERT_KEY, value: { at: alertAt } })
+    .onConflictDoUpdate({ target: systemSettings.key, set: { value: { at: alertAt } } })
+    .catch(() => {});
+  import("./system-audit/slack-notifier").then(({ sendCriticalAlert }) => {
+    sendCriticalAlert({
+      subsystem: "ghl-auth",
+      status: "ok",
+      summary: `GHL sync circuit breaker recovered after ${probeSuccesses} successful probes.`,
+      details: { probeSuccesses, probesRequired: GHL_HALF_OPEN_PROBES_REQUIRED },
+    }).catch(() => {});
+  }).catch(() => {});
+  import("./smtp-email").then(({ sendSmtpEmail, isSmtpConfigured }) => {
+    if (!isSmtpConfigured()) return;
+    const adminEmail = process.env.ADMIN_ALERT_EMAIL || "accounts@libertybancard.com";
+    const subject = "✅ GHL Sync Circuit Breaker RECOVERED";
+    const html = `
+      <h2 style="color:#27ae60;">GHL Sync Circuit Breaker CLOSED</h2>
+      <p>The GHL sync circuit breaker recovered at <strong>${alertAt}</strong> after <strong>${probeSuccesses} successful probes</strong>.</p>
+      <p>Full sync has resumed automatically.</p>
+      <p style="color:#7f8c8d;font-size:12px;">This alert has a 1-hour cooldown to prevent spam.</p>
+    `;
+    sendSmtpEmail({ to: adminEmail, subject, html, category: "internal_ops" }).catch(() => {});
+  }).catch(() => {});
+}
 
 // ── Circuit-breaker persistence (survives process restarts) ─────────────────
 const GHL_CIRCUIT_STATE_KEY = "ghl_circuit_state";
@@ -1851,8 +1957,11 @@ let circuitStateRestored = false;
 function persistGhlCircuit(): void {
   // systemSettings.value is jsonb — store the object directly, no JSON.stringify.
   const value = {
-    open: ghlCircuitOpen,
+    state: ghlCircuitState,
+    open: ghlCircuitState === "open", // legacy alias for older readers
     consecutiveFailures: consecutiveGhlFailures,
+    halfOpenProbeSuccesses,
+    lastFullSuccessTickAt,
     updatedAt: new Date().toISOString(),
   };
   db.insert(systemSettings)
@@ -1864,24 +1973,37 @@ function persistGhlCircuit(): void {
 /**
  * Restore circuit state saved by a previous process.  Runs at most once per
  * process lifetime so the very first tick knows whether GHL was unhealthy at
- * shutdown.  The tick still resets counters immediately after restoring, so
- * operational behaviour is unchanged — this only improves logging accuracy.
+ * shutdown.  The restored state is authoritative — the tick does NOT reset it.
  */
 async function restoreGhlCircuit(): Promise<void> {
   if (circuitStateRestored) return;
   circuitStateRestored = true;
   try {
     const rows = await db.select().from(systemSettings).where(
-      sql`key IN (${GHL_CIRCUIT_STATE_KEY}, ${GHL_CIRCUIT_ALERT_KEY})`
+      sql`key IN (${GHL_CIRCUIT_STATE_KEY}, ${GHL_CIRCUIT_ALERT_KEY}, ${GHL_CIRCUIT_RECOVERY_ALERT_KEY})`
     );
     for (const row of rows) {
       if (row.key === GHL_CIRCUIT_STATE_KEY && row.value) {
-        const saved = row.value as { open?: boolean; consecutiveFailures?: number };
-        if (saved.open) {
-          ghlCircuitOpen = true;
-          consecutiveGhlFailures = saved.consecutiveFailures ?? GHL_CIRCUIT_THRESHOLD;
-          console.log(`[GHL Sync] Restored circuit state from DB — open=true, failures=${consecutiveGhlFailures} (will reset this tick)`);
+        const saved = row.value as {
+          state?: GhlCircuitStateEnum;
+          open?: boolean;
+          consecutiveFailures?: number;
+          halfOpenProbeSuccesses?: number;
+          lastFullSuccessTickAt?: number;
+        };
+        ghlCircuitState = saved.state ?? (saved.open ? "open" : "closed");
+        consecutiveGhlFailures = saved.consecutiveFailures ?? (saved.open ? GHL_CIRCUIT_THRESHOLD : 0);
+        halfOpenProbeSuccesses = saved.halfOpenProbeSuccesses ?? 0;
+        if (typeof saved.lastFullSuccessTickAt === "number") {
+          lastFullSuccessTickAt = saved.lastFullSuccessTickAt;
         }
+        if (ghlCircuitState !== "closed") {
+          console.log(`[GHL Sync] Restored circuit state from DB — state=${ghlCircuitState}, failures=${consecutiveGhlFailures}, probeSuccesses=${halfOpenProbeSuccesses}`);
+        }
+      }
+      if (row.key === GHL_CIRCUIT_RECOVERY_ALERT_KEY && row.value) {
+        const saved = row.value as { at?: string };
+        if (saved.at) lastCircuitRecoveryAlertAt = new Date(saved.at).getTime();
       }
       if (row.key === GHL_CIRCUIT_ALERT_KEY && row.value) {
         // Restore alert cooldown so a restart doesn't re-fire the alert within the same hour
@@ -1941,8 +2063,8 @@ function maybeSendCircuitAlert(): void {
   }).catch(() => {});
 }
 
-export function getGhlCircuitState(): { open: boolean; consecutiveFailures: number } {
-  return { open: ghlCircuitOpen, consecutiveFailures: consecutiveGhlFailures };
+export function getGhlCircuitState(): { open: boolean; state: GhlCircuitStateEnum; consecutiveFailures: number } {
+  return { open: ghlCircuitState === "open", state: ghlCircuitState, consecutiveFailures: consecutiveGhlFailures };
 }
 
 export function startAutoSyncLoop(intervalMs: number = 45000): void {
@@ -1967,20 +2089,62 @@ export function stopAutoSyncLoop(): void {
   }
 }
 
-export function getGhlCircuitStatus(): { circuitOpen: boolean; consecutiveFailures: number; threshold: number } {
+export function getGhlCircuitStatus(): {
+  circuitOpen: boolean;
+  circuitState: GhlCircuitStateEnum;
+  consecutiveFailures: number;
+  threshold: number;
+} {
   return {
-    circuitOpen: consecutiveGhlFailures >= GHL_CIRCUIT_THRESHOLD,
+    // open AND half-open both count as unhealthy for consumers
+    circuitOpen: ghlCircuitState !== "closed",
+    circuitState: ghlCircuitState,
     consecutiveFailures: consecutiveGhlFailures,
     threshold: GHL_CIRCUIT_THRESHOLD,
   };
 }
 
 export function resetGhlCircuit(): void {
+  ghlCircuitState = "closed";
   consecutiveGhlFailures = 0;
-  ghlCircuitOpen = false;
+  halfOpenProbeSuccesses = 0;
+  lastFullSuccessTickAt = Date.now();
   persistGhlCircuit(); // persist so the next process restart doesn't re-open from stale DB state
-  console.log("[GHL Sync] Circuit breaker manually reset by operator — state cleared and persisted");
+  console.log("[GHL Sync] Circuit breaker manually reset by operator — full state cleared and persisted");
 }
+
+/**
+ * TEST-ONLY hooks for scripts/test-ghl-circuit-classification.ts.
+ * Never call these from production code paths.
+ */
+export const __ghlCircuitTestHooks = {
+  setState(partial: Partial<{ state: GhlCircuitStateEnum; consecutiveFailures: number; halfOpenProbeSuccesses: number; lastFullSuccessTickAt: number; restored: boolean }>): void {
+    if (partial.state !== undefined) ghlCircuitState = partial.state;
+    if (partial.consecutiveFailures !== undefined) consecutiveGhlFailures = partial.consecutiveFailures;
+    if (partial.halfOpenProbeSuccesses !== undefined) halfOpenProbeSuccesses = partial.halfOpenProbeSuccesses;
+    if (partial.lastFullSuccessTickAt !== undefined) lastFullSuccessTickAt = partial.lastFullSuccessTickAt;
+    if (partial.restored !== undefined) circuitStateRestored = partial.restored;
+  },
+  getState(): { state: GhlCircuitStateEnum; consecutiveFailures: number; halfOpenProbeSuccesses: number; lastFullSuccessTickAt: number } {
+    return { state: ghlCircuitState, consecutiveFailures: consecutiveGhlFailures, halfOpenProbeSuccesses, lastFullSuccessTickAt };
+  },
+  recordFailure(errorMessage: string | undefined, phase: string): GhlSyncErrorClass {
+    const kind = classifyGhlSyncError(errorMessage);
+    if (kind === "auth") tripCircuitAuth(phase);
+    else if (kind !== "skip") consecutiveGhlFailures++;
+    if (kind !== "auth" && consecutiveGhlFailures >= GHL_CIRCUIT_THRESHOLD) tripCircuitThreshold(phase);
+    return kind;
+  },
+  recordProbeSuccess(): void {
+    halfOpenProbeSuccesses++;
+    if (halfOpenProbeSuccesses >= GHL_HALF_OPEN_PROBES_REQUIRED) closeCircuitAfterProbes();
+  },
+  constants: {
+    threshold: GHL_CIRCUIT_THRESHOLD,
+    probesRequired: GHL_HALF_OPEN_PROBES_REQUIRED,
+    rollingUnhealthyMs: GHL_ROLLING_UNHEALTHY_MS,
+  },
+};
 
 /**
  * Full GHL sync tick — mirrors the complete body of startAutoSyncLoop's
@@ -1991,28 +2155,86 @@ export function resetGhlCircuit(): void {
 export async function runGhlFullSyncTick(): Promise<void> {
   if (!isGhlConfigured()) return;
   // Restore persisted circuit state on first tick after a process restart.
+  // The restored state is AUTHORITATIVE — it is never unconditionally reset.
   await restoreGhlCircuit();
-  if (ghlCircuitOpen) {
-    console.log("[Queue:ghl-sync] GHL_CIRCUIT_RESET — new tick detected, resetting circuit breaker to allow recovery");
-    storage.createAuditLog({ action: "GHL_CIRCUIT_RESET", entityType: "system", details: "Circuit breaker reset at start of new sync tick — GHL will be retried" }).catch(() => {});
-  }
-  consecutiveGhlFailures = 0;
-  ghlCircuitOpen = false;
-  persistGhlCircuit(); // persist the reset state
   const { acquireJobLock, releaseJobLock, JOB_NAMES } = await import("./job-registry");
   const lockToken = await acquireJobLock(JOB_NAMES.GHL_SYNC);
   if (!lockToken) return;
+
+  // ── Circuit entry transitions (inside the lock) ──────────────────────────
+  if (ghlCircuitState === "open") {
+    // Open circuit → half-open: attempt a single probe, not a full batch.
+    ghlCircuitState = "half-open";
+    halfOpenProbeSuccesses = 0;
+    console.log("[Queue:ghl-sync] GHL_CIRCUIT_HALF_OPEN — circuit was open, entering half-open probe mode");
+    storage.createAuditLog({ action: "GHL_CIRCUIT_HALF_OPEN", entityType: "system", details: "Circuit transitioned open → half-open; single probe sync this tick" }).catch(() => {});
+    persistGhlCircuit();
+  } else if (ghlCircuitState === "closed" && Date.now() - lastFullSuccessTickAt > GHL_ROLLING_UNHEALTHY_MS) {
+    // Rolling unhealthy window: zero successful full ticks in the last 60 min —
+    // do not run a full batch until a probe proves GHL is healthy again.
+    ghlCircuitState = "half-open";
+    halfOpenProbeSuccesses = 0;
+    console.log(`[Queue:ghl-sync] GHL_CIRCUIT_HALF_OPEN — no successful full tick since ${new Date(lastFullSuccessTickAt).toISOString()}, entering probe mode`);
+    storage.createAuditLog({ action: "GHL_CIRCUIT_HALF_OPEN", entityType: "system", details: `Rolling unhealthy window exceeded (${Math.round((Date.now() - lastFullSuccessTickAt) / 60000)} min since last successful tick) — probe mode` }).catch(() => {});
+    persistGhlCircuit();
+  }
+
+  // ── Half-open: probe a single contact, then return. Never a full batch. ──
+  if (ghlCircuitState === "half-open") {
+    try {
+      const probeCandidates = await storage.getUnsyncedContactsForGhl(1);
+      let probeOutcome: "success" | "skip" | "auth" | "failure" = "success";
+      if (probeCandidates.length === 0) {
+        // Nothing to sync — a healthy no-op probe (prevents a permanently
+        // half-open circuit on an idle system).
+        console.log("[Queue:ghl-sync] Half-open probe: no unsynced contacts — counting as healthy probe");
+      } else {
+        try {
+          const result = await syncContactToGhl(probeCandidates[0].id);
+          if (result.success) {
+            probeOutcome = "success";
+          } else {
+            const kind = classifyGhlSyncError(result.error);
+            probeOutcome = kind === "auth" ? "auth" : kind === "skip" ? "skip" : "failure";
+          }
+        } catch (e: any) {
+          probeOutcome = classifyGhlSyncError(e?.message) === "auth" ? "auth" : "failure";
+        }
+      }
+      if (probeOutcome === "success") {
+        halfOpenProbeSuccesses++;
+        console.log(`[Queue:ghl-sync] Half-open probe success ${halfOpenProbeSuccesses}/${GHL_HALF_OPEN_PROBES_REQUIRED}`);
+        if (halfOpenProbeSuccesses >= GHL_HALF_OPEN_PROBES_REQUIRED) {
+          closeCircuitAfterProbes();
+        } else {
+          persistGhlCircuit();
+        }
+      } else if (probeOutcome === "auth") {
+        tripCircuitAuth("half-open probe");
+      } else if (probeOutcome === "failure") {
+        ghlCircuitState = "open";
+        halfOpenProbeSuccesses = 0;
+        console.error("[Queue:ghl-sync] GHL_CIRCUIT_OPEN — half-open probe failed, re-opening circuit");
+        storage.createAuditLog({ action: "GHL_CIRCUIT_OPEN", entityType: "system", details: "Half-open probe failed — circuit re-opened" }).catch(() => {});
+        maybeSendCircuitAlert();
+        persistGhlCircuit();
+      }
+      // "skip" → inconclusive probe; remain half-open, no state change.
+      await releaseJobLock(JOB_NAMES.GHL_SYNC, true, undefined, lockToken);
+    } catch (err: any) {
+      await releaseJobLock(JOB_NAMES.GHL_SYNC, false, err.message, lockToken);
+      throw err;
+    }
+    return;
+  }
+
   try {
     // Indexed DB query — fetches only contacts without a ghlContactId; never limited to 500 rows.
     const unsyncedContacts = await storage.getUnsyncedContactsForGhl(10);
     let synced = 0;
     for (const contact of unsyncedContacts) {
       if (consecutiveGhlFailures >= GHL_CIRCUIT_THRESHOLD) {
-        console.error(`[Queue:ghl-sync] GHL_CIRCUIT_OPEN — ${consecutiveGhlFailures} consecutive failures, aborting tick`);
-        storage.createAuditLog({ action: "GHL_CIRCUIT_OPEN", entityType: "system", details: `Circuit opened: ${consecutiveGhlFailures} consecutive GHL failures in contacts phase — tick aborted` }).catch(() => {});
-        maybeSendCircuitAlert();
-        ghlCircuitOpen = true;
-        persistGhlCircuit();
+        tripCircuitThreshold("contacts phase");
         await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN", lockToken);
         return;
       }
@@ -2021,29 +2243,32 @@ export async function runGhlFullSyncTick(): Promise<void> {
         if (result.success) {
           consecutiveGhlFailures = 0;
           synced++;
-        } else if (result.error === "ghl_identity_conflict") {
-          // Ownership conflict — safe data-skip; do not trip the circuit breaker.
-          console.log(`[Queue:ghl-sync] Contact ${contact.id} identity conflict — skipping, not counted as GHL failure`);
-        } else if (isGhlNotFoundError(result.error)) {
-          // GHL returned 400 not-found for a fake/stale GHL ID (e.g. leftover
-          // from a smoke-test run).  This is a data-skip, not an API failure.
-          console.log(`[Queue:ghl-sync] Contact ${contact.id} not found in GHL (400) — skipping, not counted as failure`);
         } else {
-          consecutiveGhlFailures++;
+          const kind = classifyGhlSyncError(result.error);
+          if (kind === "auth") {
+            tripCircuitAuth("contacts phase");
+            await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN_AUTH", lockToken);
+            return;
+          } else if (kind === "skip") {
+            console.log(`[Queue:ghl-sync] Contact ${contact.id} skipped (${result.error}) — not counted as GHL failure`);
+          } else {
+            consecutiveGhlFailures++;
+          }
         }
         await new Promise(r => setTimeout(r, 300));
       } catch (e: any) {
+        if (classifyGhlSyncError(e?.message) === "auth") {
+          tripCircuitAuth("contacts phase");
+          await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN_AUTH", lockToken);
+          return;
+        }
         consecutiveGhlFailures++;
         console.error(`[Queue:ghl-sync] Contact ${contact.id} sync error:`, e.message);
       }
     }
 
     if (consecutiveGhlFailures >= GHL_CIRCUIT_THRESHOLD) {
-      console.error(`[Queue:ghl-sync] GHL_CIRCUIT_OPEN — ${consecutiveGhlFailures} consecutive failures after contacts phase, aborting tick`);
-      storage.createAuditLog({ action: "GHL_CIRCUIT_OPEN", entityType: "system", details: `Circuit opened: ${consecutiveGhlFailures} consecutive GHL failures after contacts phase — tick aborted` }).catch(() => {});
-      maybeSendCircuitAlert();
-      ghlCircuitOpen = true;
-      persistGhlCircuit();
+      tripCircuitThreshold("after contacts phase");
       await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN", lockToken);
       return;
     }
@@ -2068,17 +2293,25 @@ export async function runGhlFullSyncTick(): Promise<void> {
             consecutiveGhlFailures = 0;
             synced++;
             console.log(`[Queue:ghl-sync] Retry succeeded for failed contact ${contactId}`);
-          } else if (result.error === "ghl_identity_conflict") {
-            // Ownership conflict — safe data-skip; do not trip the circuit breaker.
-            console.log(`[Queue:ghl-sync] Retry contact ${contactId} identity conflict — skipping, not counted as GHL failure`);
-          } else if (isGhlNotFoundError(result.error)) {
-            // GHL 400 not-found — stale/fake GHL ID, data-skip.
-            console.log(`[Queue:ghl-sync] Retry contact ${contactId} not found in GHL (400) — skipping, not counted as failure`);
           } else {
-            consecutiveGhlFailures++;
+            const kind = classifyGhlSyncError(result.error);
+            if (kind === "auth") {
+              tripCircuitAuth("contact retry phase");
+              await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN_AUTH", lockToken);
+              return;
+            } else if (kind === "skip") {
+              console.log(`[Queue:ghl-sync] Retry contact ${contactId} skipped (${result.error}) — not counted as GHL failure`);
+            } else {
+              consecutiveGhlFailures++;
+            }
           }
           await new Promise(r => setTimeout(r, 300));
         } catch (e: any) {
+          if (classifyGhlSyncError(e?.message) === "auth") {
+            tripCircuitAuth("contact retry phase");
+            await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN_AUTH", lockToken);
+            return;
+          }
           consecutiveGhlFailures++;
           console.warn(`[Queue:ghl-sync] Retry failed for contact ${contactId}:`, e.message);
         }
@@ -2088,11 +2321,7 @@ export async function runGhlFullSyncTick(): Promise<void> {
     }
 
     if (consecutiveGhlFailures >= GHL_CIRCUIT_THRESHOLD) {
-      console.error(`[Queue:ghl-sync] GHL_CIRCUIT_OPEN — ${consecutiveGhlFailures} consecutive failures, aborting tick before deals`);
-      storage.createAuditLog({ action: "GHL_CIRCUIT_OPEN", entityType: "system", details: `Circuit opened: ${consecutiveGhlFailures} consecutive GHL failures before deals phase — tick aborted` }).catch(() => {});
-      maybeSendCircuitAlert();
-      ghlCircuitOpen = true;
-      persistGhlCircuit();
+      tripCircuitThreshold("before deals phase");
       await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN", lockToken);
       return;
     }
@@ -2102,10 +2331,7 @@ export async function runGhlFullSyncTick(): Promise<void> {
     let dealsSynced = 0;
     for (const deal of unsyncedDeals.slice(0, 5)) {
       if (consecutiveGhlFailures >= GHL_CIRCUIT_THRESHOLD) {
-        console.error(`[Queue:ghl-sync] GHL_CIRCUIT_OPEN — ${consecutiveGhlFailures} consecutive failures, aborting deals phase`);
-        storage.createAuditLog({ action: "GHL_CIRCUIT_OPEN", entityType: "system", details: `Circuit opened: ${consecutiveGhlFailures} consecutive GHL failures in deals phase — tick aborted` }).catch(() => {});
-        maybeSendCircuitAlert();
-        ghlCircuitOpen = true;
+        tripCircuitThreshold("deals phase");
         await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN", lockToken);
         return;
       }
@@ -2114,34 +2340,35 @@ export async function runGhlFullSyncTick(): Promise<void> {
         if (result.success) {
           consecutiveGhlFailures = 0;
           dealsSynced++;
-        } else if (result.error === "No GHL contact linked" || result.error === "GHL not configured" || result.error === "Deal not found") {
-          // Data-dependency skip — not a GHL API failure; do not trip the circuit.
-          console.log(`[Queue:ghl-sync] Deal ${deal.id} skipped (${result.error}) — not counted as GHL failure`);
-        } else if (result.error?.includes("OPPORTUNITY_STAGE_ID_INVALID")) {
-          // Stage name mismatch — our internal stage names don't match GHL pipeline stage
-          // names. This is a one-time config fix (set GHL_STAGE_ID_MAP), not a transient
-          // API failure — skip without counting toward the circuit breaker threshold.
-          console.warn(`[Queue:ghl-sync] Deal ${deal.id} stage ID rejected by GHL (name mismatch) — skipping. Fix: set GHL_STAGE_ID_MAP env var with a JSON map of stage names → GHL stage UUIDs.`);
-        } else if (isGhlNotFoundError(result.error)) {
-          // GHL 400 not-found — stale/fake opportunity ID (e.g. leftover smoke-test
-          // record). Data-skip; do not count toward the circuit breaker threshold.
-          console.log(`[Queue:ghl-sync] Deal ${deal.id} not found in GHL (400) — skipping, not counted as failure`);
         } else {
-          consecutiveGhlFailures++;
-          console.warn(`[Queue:ghl-sync] Deal ${deal.id} sync failed: ${result.error}`);
+          const kind = classifyGhlSyncError(result.error);
+          if (kind === "auth") {
+            tripCircuitAuth("deals phase");
+            await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN_AUTH", lockToken);
+            return;
+          } else if (kind === "skip") {
+            // Data-dependency skip, stage-map config error, or GHL 400 not-found —
+            // not a transient API failure; do not trip the circuit.
+            console.log(`[Queue:ghl-sync] Deal ${deal.id} skipped (${result.error}) — not counted as GHL failure`);
+          } else {
+            consecutiveGhlFailures++;
+            console.warn(`[Queue:ghl-sync] Deal ${deal.id} sync failed: ${result.error}`);
+          }
         }
         await new Promise(r => setTimeout(r, 300));
       } catch (e: any) {
+        if (classifyGhlSyncError(e?.message) === "auth") {
+          tripCircuitAuth("deals phase");
+          await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN_AUTH", lockToken);
+          return;
+        }
         consecutiveGhlFailures++;
         console.error(`[Queue:ghl-sync] Deal ${deal.id} sync error:`, e.message);
       }
     }
 
     if (consecutiveGhlFailures >= GHL_CIRCUIT_THRESHOLD) {
-      console.error(`[Queue:ghl-sync] GHL_CIRCUIT_OPEN — ${consecutiveGhlFailures} consecutive failures after deals phase, aborting tick`);
-      storage.createAuditLog({ action: "GHL_CIRCUIT_OPEN", entityType: "system", details: `Circuit opened: ${consecutiveGhlFailures} consecutive GHL failures after deals phase — tick aborted` }).catch(() => {});
-      maybeSendCircuitAlert();
-      ghlCircuitOpen = true;
+      tripCircuitThreshold("after deals phase");
       await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN", lockToken);
       return;
     }
@@ -2155,10 +2382,7 @@ export async function runGhlFullSyncTick(): Promise<void> {
     let tasksSynced = 0;
     for (const task of recentTasks.slice(0, 5)) {
       if (consecutiveGhlFailures >= GHL_CIRCUIT_THRESHOLD) {
-        console.error(`[Queue:ghl-sync] GHL_CIRCUIT_OPEN — ${consecutiveGhlFailures} consecutive failures, aborting tasks phase`);
-        storage.createAuditLog({ action: "GHL_CIRCUIT_OPEN", entityType: "system", details: `Circuit opened: ${consecutiveGhlFailures} consecutive GHL failures in tasks phase — tick aborted` }).catch(() => {});
-        maybeSendCircuitAlert();
-        ghlCircuitOpen = true;
+        tripCircuitThreshold("tasks phase");
         await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN", lockToken);
         return;
       }
@@ -2168,30 +2392,36 @@ export async function runGhlFullSyncTick(): Promise<void> {
           consecutiveGhlFailures = 0;
           tasksSynced++;
           syncedTaskIds.add(task.id);
-        } else if (
-          result.error === "No GHL contact linked to task" ||
-          result.error === "GHL not configured" ||
-          result.error === "Task not found"
-        ) {
-          // Data-availability skips — not real GHL API failures; don't count
-          // toward the circuit-breaker threshold.
-          console.log(`[Queue:ghl-sync] Task ${task.id} skipped (${result.error}) — not counted as GHL failure`);
-          syncedTaskIds.add(task.id); // prevent retry every tick
         } else {
-          consecutiveGhlFailures++;
+          const kind = classifyGhlSyncError(result.error);
+          if (kind === "auth") {
+            tripCircuitAuth("tasks phase");
+            await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN_AUTH", lockToken);
+            return;
+          } else if (kind === "skip") {
+            // Data-availability skips AND GHL 400 not-found (stale task-linked
+            // contact IDs) — not real GHL API failures; don't count toward the
+            // circuit-breaker threshold.
+            console.log(`[Queue:ghl-sync] Task ${task.id} skipped (${result.error}) — not counted as GHL failure`);
+            syncedTaskIds.add(task.id); // prevent retry every tick
+          } else {
+            consecutiveGhlFailures++;
+          }
         }
         await new Promise(r => setTimeout(r, 300));
       } catch (e: any) {
+        if (classifyGhlSyncError(e?.message) === "auth") {
+          tripCircuitAuth("tasks phase");
+          await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN_AUTH", lockToken);
+          return;
+        }
         consecutiveGhlFailures++;
         console.error(`[Queue:ghl-sync] Task ${task.id} sync error:`, e.message);
       }
     }
 
     if (consecutiveGhlFailures >= GHL_CIRCUIT_THRESHOLD) {
-      console.error(`[Queue:ghl-sync] GHL_CIRCUIT_OPEN — ${consecutiveGhlFailures} consecutive failures after tasks phase, aborting tick`);
-      storage.createAuditLog({ action: "GHL_CIRCUIT_OPEN", entityType: "system", details: `Circuit opened: ${consecutiveGhlFailures} consecutive GHL failures after tasks phase — tick aborted` }).catch(() => {});
-      maybeSendCircuitAlert();
-      ghlCircuitOpen = true;
+      tripCircuitThreshold("after tasks phase");
       await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN", lockToken);
       return;
     }
@@ -2201,10 +2431,7 @@ export async function runGhlFullSyncTick(): Promise<void> {
     let companiesSynced = 0;
     for (const company of unsyncedCompanies.slice(0, 5)) {
       if (consecutiveGhlFailures >= GHL_CIRCUIT_THRESHOLD) {
-        console.error(`[Queue:ghl-sync] GHL_CIRCUIT_OPEN — ${consecutiveGhlFailures} consecutive failures, aborting companies phase`);
-        storage.createAuditLog({ action: "GHL_CIRCUIT_OPEN", entityType: "system", details: `Circuit opened: ${consecutiveGhlFailures} consecutive GHL failures in companies phase — tick aborted` }).catch(() => {});
-        maybeSendCircuitAlert();
-        ghlCircuitOpen = true;
+        tripCircuitThreshold("companies phase");
         await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN", lockToken);
         return;
       }
@@ -2220,10 +2447,27 @@ export async function runGhlFullSyncTick(): Promise<void> {
           // retrying on every tick.
           syncedCompanyIds.add(company.id);
         } else {
-          consecutiveGhlFailures++;
+          const kind = classifyGhlSyncError(result.error);
+          if (kind === "auth") {
+            tripCircuitAuth("companies phase");
+            await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN_AUTH", lockToken);
+            return;
+          } else if (kind === "skip") {
+            // "Company not found" / "GHL not configured" — local data misses,
+            // not API failures; mark as synced so we stop retrying every tick.
+            console.log(`[Queue:ghl-sync] Company ${company.id} skipped (${result.error}) — not counted as GHL failure`);
+            syncedCompanyIds.add(company.id);
+          } else {
+            consecutiveGhlFailures++;
+          }
         }
         await new Promise(r => setTimeout(r, 300));
       } catch (e: any) {
+        if (classifyGhlSyncError(e?.message) === "auth") {
+          tripCircuitAuth("companies phase");
+          await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN_AUTH", lockToken);
+          return;
+        }
         consecutiveGhlFailures++;
         console.error(`[Queue:ghl-sync] Company ${company.id} sync error:`, e.message);
       }
@@ -2241,7 +2485,11 @@ export async function runGhlFullSyncTick(): Promise<void> {
 
     if (synced > 0 || dealsSynced > 0 || tasksSynced > 0 || companiesSynced > 0) {
       console.log(`[Queue:ghl-sync] Batch: ${synced} contacts, ${dealsSynced} deals, ${tasksSynced} tasks, ${companiesSynced} companies`);
+      // Rolling health window: only a tick with at least one successful entity
+      // sync counts as a "successful full tick".
+      lastFullSuccessTickAt = Date.now();
     }
+    persistGhlCircuit(); // carry counter/state forward across ticks and restarts
     await releaseJobLock(JOB_NAMES.GHL_SYNC, true, undefined, lockToken);
   } catch (err: any) {
     await releaseJobLock(JOB_NAMES.GHL_SYNC, false, err.message, lockToken);
