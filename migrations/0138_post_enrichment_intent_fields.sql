@@ -8,7 +8,7 @@
 -- ── Step 1: Add new columns (all nullable to allow in-place migration) ────────
 
 ALTER TABLE post_enrichment_enrollment_intents
-  ADD COLUMN IF NOT EXISTS sequence_id            INTEGER REFERENCES sequences(id),
+  ADD COLUMN IF NOT EXISTS sequence_id            INTEGER REFERENCES follow_up_sequences(id),
   ADD COLUMN IF NOT EXISTS purpose                VARCHAR(100),
   ADD COLUMN IF NOT EXISTS channels               JSONB,
   ADD COLUMN IF NOT EXISTS selection_policy_version VARCHAR(50),
