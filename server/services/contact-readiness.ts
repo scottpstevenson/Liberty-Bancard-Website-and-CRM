@@ -78,7 +78,7 @@ const COMPANY_PLACEHOLDERS = new Set([
 
 const INVALID_PHONE_TYPES = new Set(["invalid", "landline_unverified"]);
 
-function isValidEmail(email: string | null | undefined): boolean {
+export function isValidEmail(email: string | null | undefined): boolean {
   if (!email || !email.trim()) return false;
   const e = email.trim().toLowerCase();
   if (EMAIL_PLACEHOLDERS.has(e)) return false;

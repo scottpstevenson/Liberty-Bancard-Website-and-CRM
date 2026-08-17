@@ -141,7 +141,10 @@ import { coerceDateFields } from "../utils/date-coerce";
       .where(and(
         isNull(contacts.ghlContactId),
         isNull(contacts.archivedAt),
-        ne(contacts.email, ""),
+        // A contact is syncable with EITHER identity field: email OR phone.
+        // Contacts with an invalid email but a valid phone sync phone-only
+        // (task #1604) — requiring email here would starve them forever.
+        sql`(${contacts.email} <> '' OR coalesce(${contacts.phone}, '') <> '')`,
         afterId > 0 ? gt(contacts.id, afterId) : undefined,
       ))
       .orderBy(asc(contacts.id))

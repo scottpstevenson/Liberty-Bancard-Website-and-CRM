@@ -4,6 +4,7 @@ import type { Contact, Deal } from "@shared/schema";
 import OpenAI from "openai";
 import { checkAiGate, recordAiSpend } from "./ai-audit-logger";
 import { injectCanSpamFooter } from "./can-spam-footer";
+import { isValidEmail } from "./contact-readiness";
 
 function getOpenAI() {
   return new OpenAI({ apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY, baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL });
@@ -340,7 +341,102 @@ export class GhlIdentityConflictError extends Error {
   }
 }
 
+/**
+ * Terminal-skip codes for contact-level data-quality failures (task #1604).
+ * These are thrown as GhlInvalidContactError.message so every caller's error
+ * string classifies as "skip" and no raw provider response body leaks into logs.
+ */
+export const GHL_NO_USABLE_IDENTITY = "ghl_contact_no_usable_identity";
+export const GHL_EMAIL_VALIDATION_REJECTED = "ghl_contact_email_validation_rejected";
+
+/**
+ * Thrown by `upsertGhlContact` when a contact is terminally un-syncable due to
+ * data quality: no usable identity fields, or GHL rejected the email with a
+ * known field-validation 422. A sanitized audit has ALREADY been written by
+ * the time this is thrown — callers must treat it as a skip: no retry, no
+ * `ghl_sync_failed` logging, no circuit-breaker counting.
+ */
+export class GhlInvalidContactError extends Error {
+  readonly code: string;
+  readonly contactId: number | null;
+  constructor(code: string, contactId: number | null) {
+    super(code);
+    this.name = "GhlInvalidContactError";
+    this.code = code;
+    this.contactId = contactId;
+  }
+}
+
+/**
+ * Pure pre-send validation of the GHL identity fields (email/phone).
+ * - Valid email → proceed normally.
+ * - Invalid email but usable phone (≥10 digits) → omit email from payload.
+ * - Neither usable → terminal skip; no provider call may be made.
+ */
+export function validateGhlIdentityFields(fields: { email?: string | null; phone?: string | null }):
+  | { ok: true; emailOmitted: boolean }
+  | { ok: false; reason: typeof GHL_NO_USABLE_IDENTITY } {
+  if (isValidEmail(fields.email)) return { ok: true, emailOmitted: false };
+  const digits = (fields.phone ?? "").replace(/\D/g, "");
+  if (digits.length >= 10) return { ok: true, emailOmitted: true };
+  return { ok: false, reason: GHL_NO_USABLE_IDENTITY };
+}
+
+/**
+ * Returns true when the error string is a GHL 422 whose body matches a known
+ * email field-validation error. Unknown 422 bodies do NOT match and remain
+ * "retryable" (conservative classification preserved).
+ */
+export function isGhlEmailValidation422(errorMessage: string | undefined): boolean {
+  if (!errorMessage) return false;
+  if (!/GHL API error 422/i.test(errorMessage)) return false;
+  return /email[^"]*invalid|invalid[^"]*email|CONTACT_EMAIL_INVALID|email_invalid|email must be a valid/i.test(errorMessage);
+}
+
+async function writeInvalidContactSkipAudit(contactId: number | null, reason: string, stage: string): Promise<void> {
+  // Sanitized: internal id + normalized reason + stage only. Never the email,
+  // phone, GHL payload, token, or provider response body.
+  await storage.createAuditLog({
+    action: "ghl_sync_skipped_invalid_contact",
+    entityType: "contact",
+    entityId: contactId ?? undefined,
+    details: { reason, stage, retryable: false },
+  }).catch(() => {});
+}
+
+/**
+ * Shared validated boundary for ALL GHL contact upserts (sync loop, contact
+ * writer create/update flows, proposals). Performs pre-send identity
+ * validation, strips an invalid email when a usable phone exists, and converts
+ * known email-validation 422s from GHL into sanitized terminal skips.
+ */
 export async function upsertGhlContact(contact: GhlContactInput): Promise<string> {
+  const identity = validateGhlIdentityFields({ email: contact.email, phone: contact.phone });
+  if (!identity.ok) {
+    console.warn(`[GHL] Contact ${contact.id || "(new)"} skipped — no usable identity fields (invalid email, no valid phone)`);
+    await writeInvalidContactSkipAudit(contact.id || null, GHL_NO_USABLE_IDENTITY, "pre_send_validation");
+    throw new GhlInvalidContactError(GHL_NO_USABLE_IDENTITY, contact.id || null);
+  }
+  const toSend = identity.emailOmitted
+    ? ({ ...contact, email: undefined } as unknown as GhlContactInput)
+    : contact;
+  if (identity.emailOmitted) {
+    console.warn(`[GHL] Contact ${contact.id || "(new)"} has invalid email — syncing phone-only (email omitted from payload)`);
+  }
+  try {
+    return await doUpsertGhlContact(toSend);
+  } catch (err: any) {
+    if (err instanceof GhlInvalidContactError || err instanceof GhlIdentityConflictError) throw err;
+    if (isGhlEmailValidation422(err?.message)) {
+      console.warn(`[GHL] Contact ${contact.id || "(new)"} rejected by GHL email validation (422) — terminal skip, not retried`);
+      await writeInvalidContactSkipAudit(contact.id || null, GHL_EMAIL_VALIDATION_REJECTED, "provider_422_email_validation");
+      throw new GhlInvalidContactError(GHL_EMAIL_VALIDATION_REJECTED, contact.id || null);
+    }
+    throw err;
+  }
+}
+
+async function doUpsertGhlContact(contact: GhlContactInput): Promise<string> {
   const config = getConfig();
   if (!config) throw new Error("GHL not configured");
 

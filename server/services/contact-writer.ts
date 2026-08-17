@@ -9,7 +9,7 @@ import {
   type ServerInsertContact,
 } from "@shared/schema";
 import { eq, sql } from "drizzle-orm";
-import { isGhlConfigured, upsertGhlContact, GhlIdentityConflictError } from "./ghl";
+import { isGhlConfigured, upsertGhlContact, GhlIdentityConflictError, GhlInvalidContactError } from "./ghl";
 import { normalizeGhlId } from "../utils/normalize";
 import { syncContactToGhl } from "./ghl-sync";
 import { READINESS_DEPENDENT_FIELDS, enqueueReadinessRecalculation } from "./contact-readiness";
@@ -175,6 +175,11 @@ export async function writeContact(args: {
         // Another local contact owns the GHL ID this contact would map to — safe skip.
         // Do not mark ghlSyncPending; retrying will hit the same conflict indefinitely.
         console.warn(`[ContactWriter] GHL pre-write identity conflict (skip, no retry): GHL ID ${ghlErr.ghlContactId} owned by contact ${ghlErr.owningContactId}`);
+      } else if (ghlErr instanceof GhlInvalidContactError) {
+        // Terminal data-quality skip — sanitized audit already written by the
+        // upsert boundary. Do NOT mark ghlSyncPending: retrying an invalid
+        // contact would fail identically and pollute the failed-retry queue.
+        console.warn(`[ContactWriter] GHL pre-write terminal skip (${ghlErr.code}) — no retry`);
       } else {
         const msg = ghlErr instanceof Error ? ghlErr.message : String(ghlErr);
         console.warn(`[ContactWriter] GHL pre-write failed (will retry): ${msg}`);
@@ -384,6 +389,11 @@ export async function updateContactGhlFirst(
         if (ghlErr instanceof GhlIdentityConflictError) {
           // Another local contact owns the GHL ID — safe skip; do not retry.
           console.warn(`[ContactWriter] GHL pre-update identity conflict for contact ${contactId} (skip, no retry): GHL ID ${ghlErr.ghlContactId} owned by contact ${ghlErr.owningContactId}`);
+        } else if (ghlErr instanceof GhlInvalidContactError) {
+          // Terminal data-quality skip — sanitized audit already written by the
+          // upsert boundary. No ghl_sync_failed log (it feeds the retry queue),
+          // no ghlSyncFailed flag; the local update still proceeds.
+          console.warn(`[ContactWriter] GHL pre-update terminal skip (${ghlErr.code}) for contact ${contactId} — no retry`);
         } else {
           const msg = ghlErr instanceof Error ? ghlErr.message : String(ghlErr);
           console.warn(`[ContactWriter] GHL pre-update failed for contact ${contactId}: ${msg}`);

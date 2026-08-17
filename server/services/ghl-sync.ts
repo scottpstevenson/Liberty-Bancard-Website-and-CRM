@@ -2,7 +2,19 @@ import { storage } from "../storage";
 import { db } from "../db";
 import type { Contact, Deal, Company, Task, Ticket, Note, UpdateContactRequest } from "@shared/schema";
 import { ghlSyncStatus, GHL_PIPELINE_STAGE_MAP, GHL_PIPELINE_STAGE_REVERSE, ACTIVE_DEAL_STAGES, systemSettings } from "@shared/schema";
-import { upsertGhlContact, isGhlConfigured, sendGhlEmail, GhlIdentityConflictError } from "./ghl";
+import {
+  upsertGhlContact,
+  isGhlConfigured,
+  sendGhlEmail,
+  GhlIdentityConflictError,
+  GhlInvalidContactError,
+  validateGhlIdentityFields,
+  isGhlEmailValidation422,
+  GHL_NO_USABLE_IDENTITY,
+  GHL_EMAIL_VALIDATION_REJECTED,
+} from "./ghl";
+// Re-export the shared validation boundary so existing consumers/tests keep working.
+export { validateGhlIdentityFields, GHL_NO_USABLE_IDENTITY, GHL_EMAIL_VALIDATION_REJECTED };
 import { normalizeGhlId } from "../utils/normalize";
 import { getEmailSignatureHtml } from "./email-signatures";
 import { auditChange } from "./audit-change";
@@ -218,15 +230,54 @@ async function updateSyncStatusRecord(entityType: string, direction: string, syn
   }
 }
 
+/**
+ * TEST-ONLY override for the provider upsert call so scripts can drive the
+ * real syncContactToGhl error-handling paths (e.g. the 422 email-validation
+ * terminal skip) with a fake provider. Never set in production code paths.
+ */
+let _upsertGhlContactOverride: ((contact: Contact) => Promise<string>) | null = null;
+export function __setUpsertGhlContactOverrideForTests(fn: ((contact: Contact) => Promise<string>) | null): void {
+  _upsertGhlContactOverride = fn;
+}
+
 export async function syncContactToGhl(contactId: number): Promise<{ success: boolean; ghlContactId?: string; error?: string }> {
   try {
-    if (!isGhlConfigured()) return { success: false, error: "GHL not configured" };
+    if (!isGhlConfigured() && !_upsertGhlContactOverride) return { success: false, error: "GHL not configured" };
     const contact = await storage.getContact(contactId);
     if (!contact) return { success: false, error: "Contact not found" };
 
+    // ── Pre-send payload validation (task #1604) ─────────────────────────────
+    // A single malformed/placeholder email causes GHL to 422, which (as a
+    // "retryable" classification) would wedge circuit recovery. Strip the bad
+    // email when a usable phone exists; terminal-skip when neither identity
+    // field is usable — with NO provider I/O.
+    const identity = validateGhlIdentityFields({ email: contact.email, phone: contact.phone });
+    if (!identity.ok) {
+      // Sanitized audit — internal id + reason code only; no email/phone/payload.
+      await storage.createAuditLog({
+        action: "ghl_sync_skipped_invalid_contact",
+        entityType: "contact",
+        entityId: contactId,
+        details: {
+          reason: GHL_NO_USABLE_IDENTITY,
+          stage: "pre_send_validation",
+          retryable: false,
+        },
+      }).catch(() => {});
+      console.warn(`[GHL Sync] Contact #${contactId} skipped — no usable identity fields (invalid email, no valid phone)`);
+      return { success: false, error: GHL_NO_USABLE_IDENTITY };
+    }
+    const contactForUpsert = identity.emailOmitted
+      ? ({ ...contact, email: undefined } as unknown as Contact)
+      : contact;
+    if (identity.emailOmitted) {
+      console.warn(`[GHL Sync] Contact #${contactId} has invalid email — syncing phone-only (email omitted from GHL payload)`);
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
     let rawGhlId: string;
     try {
-      rawGhlId = await upsertGhlContact(contact);
+      rawGhlId = await (_upsertGhlContactOverride ?? upsertGhlContact)(contactForUpsert);
     } catch (upsertErr: any) {
       if (upsertErr instanceof GhlIdentityConflictError) {
         // Ownership conflict — another local contact already holds this GHL ID.
@@ -292,6 +343,31 @@ export async function syncContactToGhl(contactId: number): Promise<{ success: bo
     }).catch(() => {});
     return { success: true, ghlContactId: ghlId };
   } catch (err: any) {
+    // ── Terminal data-quality skip from the shared upsert boundary ──────────
+    // upsertGhlContact already wrote the sanitized skip audit; just propagate
+    // the normalized code (classified "skip") without any failure logging.
+    if (err instanceof GhlInvalidContactError) {
+      return { success: false, error: err.code };
+    }
+    // ── Known email-validation 422 from GHL → terminal entity skip ──────────
+    // Emit ONLY the sanitized skip audit (no response body, no email/phone,
+    // no ghl_sync_failed entry — that action string feeds the failed-contact
+    // retry query, and a data-quality 422 must not be retried).
+    if (isGhlEmailValidation422(err?.message)) {
+      console.warn(`[GHL Sync] Contact #${contactId} rejected by GHL email validation (422) — terminal skip, not retried`);
+      await storage.createAuditLog({
+        action: "ghl_sync_skipped_invalid_contact",
+        entityType: "contact",
+        entityId: contactId,
+        details: {
+          reason: GHL_EMAIL_VALIDATION_REJECTED,
+          stage: "provider_422_email_validation",
+          retryable: false,
+        },
+      }).catch(() => {});
+      return { success: false, error: GHL_EMAIL_VALIDATION_REJECTED };
+    }
+    // ─────────────────────────────────────────────────────────────────────────
     console.error(`[GHL Sync] Failed to sync contact ${contactId}:`, err.message);
     await updateSyncStatusRecord("contacts", "outbound", 0, 1, err.message);
     await auditChange({
@@ -1861,6 +1937,11 @@ export function classifyGhlSyncError(error: string | undefined, httpStatus?: num
   if (/GHL API error 401/i.test(error) || /\bunauthorized\b/i.test(error)) return "auth";
   if (/GHL API error 429/i.test(error) || /rate.?limit/i.test(error)) return "rate-limit";
   if (error === "ghl_identity_conflict") return "skip";
+  if (error === GHL_NO_USABLE_IDENTITY) return "skip";
+  if (error === GHL_EMAIL_VALIDATION_REJECTED) return "skip";
+  // GHL 422 field-validation on email — permanent data-quality issue with one
+  // record, not a provider outage. Unknown 422 bodies stay "retryable".
+  if (isGhlEmailValidation422(error)) return "skip";
   if (error === "GHL not configured") return "skip";
   if (/^No GHL contact linked/i.test(error)) return "skip";
   if (/OPPORTUNITY_STAGE_ID_INVALID/.test(error)) return "skip";
@@ -2221,9 +2302,14 @@ export async function runHalfOpenProbeTick(deps?: {
     }
 
     if (outcome === "skip") {
-      // Inconclusive candidate — move to the next one. Never increments
-      // halfOpenProbeSuccesses or consecutiveGhlFailures.
-      console.log(`[Queue:ghl-sync] Half-open probe: contact ${candidate.id} skipped — trying next candidate`);
+      // Inconclusive candidate — advance the cursor past it and move on.
+      // Committing here (task #1604) ensures a later provider failure in the
+      // same page cannot cause already-skipped contacts (e.g. terminal
+      // invalid-identity skips) to be re-examined on every recovery attempt.
+      // Never increments halfOpenProbeSuccesses or consecutiveGhlFailures.
+      halfOpenProbeCursorId = candidate.id;
+      persistGhlCircuit();
+      console.log(`[Queue:ghl-sync] Half-open probe: contact ${candidate.id} skipped — cursor advanced to ${candidate.id}, trying next candidate`);
       continue;
     }
     if (outcome === "success") {
