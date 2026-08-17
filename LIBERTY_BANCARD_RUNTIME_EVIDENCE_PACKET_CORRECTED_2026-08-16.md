@@ -432,10 +432,23 @@ The repaired circuit correctly:
 1. `__ghlCircuitTestHooks.recordFailure()` calls `tripCircuitAuth()`/`tripCircuitThreshold()`, which write `audit_logs` rows, update `system_settings["ghl_circuit_state"]` and `ghl_circuit_alert_at"`, and fire Slack/SMTP alerts. This script is **not safe** to run against shared infrastructure despite the header claiming "No live GHL calls."
 2. Production catch blocks in `runGhlFullSyncTick()` (contacts, retry, deals phases) check `classifyGhlSyncError(e?.message) === "auth"` and then unconditionally increment `consecutiveGhlFailures` for all other thrown exceptions — they do NOT check for `"skip"`. A thrown error whose message the dispatch table would classify as `"skip"` would incorrectly increment the counter. In practice, skip cases are returned as `{success:false, error:...}` rather than thrown, so practical blast radius is low, but the architectural claim that all counting decisions go through the dispatch table is false for thrown exceptions.
 
-| **Residual uncertainty** | No `ghl_sync_completed` event exists in either window. GHL sync is processing test contacts with stale IDs and leaving real contacts unsynced (67 deals missing `ghl_opportunity_id` per prior pass). The circuit repair is correct but real sync success requires clean test data removal. |
-| **Required action** | Remove stale test contacts (`ghl-deal-test-*`, `wh-test-ghl-*`, `c1-test-*`) from the shared database to allow real GHL sync to proceed. Then re-verify `ghl_sync_completed` events in a subsequent pass. |
+| **Residual uncertainty** | ~~No `ghl_sync_completed` event exists in either window.~~ **CORRECTION (2026-08-17, Task #1570):** `ghl_sync_completed` is a query-side label only — it is **never written** by any code path (`server/services/ghl-sync.ts` emits `ghl_sync_success`, `ghl_sync_error`, `ghl_sync_failed`, `ghl_sync_identity_conflict`, and circuit events). The correct closing criterion is `ghl_sync_success`. |
+| **Required action** | ~~Remove stale test contacts…~~ **DONE 2026-08-17 (Task #1570)** — see RV-GHL-01 closure addendum below. |
 | **Operator/reviewer** | Replit Agent (read-only) |
 | **Evidence expiry** | 24 hours; recheck after test data cleanup |
+
+#### RV-GHL-01 closure addendum — Task #1570 (2026-08-17)
+
+| Field | Value |
+|---|---|
+| **Verdict** | **CLOSED_RUNTIME** (criterion: `ghl_sync_success`, the action the sync engine actually emits — NOT `ghl_sync_completed`, which is never written anywhere) |
+| **Prod publish verified** | `GET https://dev.libertybancard.com/health` → sha `8778c2f3c8b5c2013c4dc674df9009b1e5f801f1` (40-char, Task #1571) |
+| **Cleanup window** | GHL sync queue paused 2026-08-17T14:26:35Z → resumed 14:27:24Z |
+| **Rows removed (single transaction, `scripts/cleanup-smoke-contacts.ts`)** | contacts 934 (872 by prefix `wh-test-ghl-*`/`ghl-deal-test-*`/`c1-test-*` + glg test emails), deals 191, sdr_merchants 408, sdr_lead_state 166, agent users 63 |
+| **Post-deletion verification** | Inventory queries across `contacts`, `deals`, `sdr_merchants`, `sdr_lead_state` all return **0** for all three prefixes |
+| **Closing evidence** | `SELECT action, COUNT(*), MAX(created_at) FROM audit_logs WHERE action='ghl_sync_success' AND created_at >= '2026-08-17 14:27:24'` → `ghl_sync_success, 1, 2026-08-17 14:45:30.606601` (real contact #152540 synced → GHL ID `dwBLoNFUBWe8XgDUCVBV`) |
+| **Pre-deploy suite** | `GHL_TEST_MODE=true bash scripts/run-pre-deploy.sh` → 32/32 suites passed. Post-run dry-run found 13 new orphan contacts (suite teardown gap under GHL rate limits — tracked separately); removed with a second transactional cleanup run; final dry-run shows 0 across all tables. |
+| **Known residuals (out of scope)** | Circuit was `half-open` at cleanup time and its probe always selects the lowest-id unsynced contact (#32), a permanent identity-conflict skip — probe starvation keeps the circuit half-open on this dataset. Additional test families exist outside this task's prefixes (`venroll-test-*@libertybancard.test`, `go-live-check-*@libertybancard-test.internal`, fake `…555…` phones) that cause GHL phone-dedupe identity conflicts. |
 
 ---
 
@@ -509,7 +522,7 @@ All three previously stale workers are within expected age thresholds. No stale 
 | RV-ENR-06 | RERUN_REQUIRED | PARTIAL | Now executed with correct column names — 75.3% null `data_readiness_score` |
 | RV-ENR-07 | PASS (wrong interpretation) | PARTIAL | Corrected — 96.2% at zero (unscored default), not meaningfully scored |
 | RV-REV-02 | INCONCLUSIVE (omitted) | PARTIAL | Now executed — tables exist, 0 rows; no residual data imported yet |
-| RV-GHL-01 | CONFIRMED_FAIL | PARTIAL | Post-repair circuit healthy; all post-repair errors are test-data skips; circuit correctly not tripping; no GHL_CIRCUIT_OPEN events since merge |
+| RV-GHL-01 | CONFIRMED_FAIL | CLOSED_RUNTIME (2026-08-17, Task #1570) | Test contacts removed transactionally; real `ghl_sync_success` at 2026-08-17T14:45:30Z post-resume; closing criterion corrected to `ghl_sync_success` (`ghl_sync_completed` is never emitted) |
 | RV-QUE-04 | INCONCLUSIVE | PARTIAL | Alert-not-firing during pre-repair flood is resolved; post-repair circuit healthy and correctly silent |
 
 ---
@@ -518,7 +531,7 @@ All three previously stale workers are within expected age thresholds. No stale 
 
 Following the reconciliation document's standard: **0 CLOSED_RUNTIME** (no change). Evidence is now corrected and more complete, but no finding moves to CLOSED_RUNTIME in this pass because:
 - RV-1548-01: published deployment SHA still unverifiable without `RELEASE_SHA` injection
-- RV-GHL-01: circuit is healthy but no `ghl_sync_completed` event exists; test data cleanup needed before real sync can be confirmed
+- RV-GHL-01: ~~circuit is healthy but no `ghl_sync_completed` event exists; test data cleanup needed before real sync can be confirmed~~ **CLOSED_RUNTIME 2026-08-17 (Task #1570)** — test data removed, real `ghl_sync_success` observed post-resume; `ghl_sync_completed` is a never-emitted query-side label and is not a valid criterion
 - All other checks move from prior PASS/INCONCLUSIVE to correctly-labelled PARTIAL with clear required actions
 
 The resulting disposition: **0 CLOSED_RUNTIME**, 0 CLOSED_STATIC changes from this pass. The 12 methodology corrections from the follow-up document are fully addressed.
