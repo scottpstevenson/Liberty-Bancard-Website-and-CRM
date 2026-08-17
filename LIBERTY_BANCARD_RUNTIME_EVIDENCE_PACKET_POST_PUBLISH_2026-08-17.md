@@ -6,6 +6,7 @@
 **Register version:** LIBERTY_BANCARD_RUNTIME_VERIFICATION_REGISTER (2026-08-16; register file not present in workspace — RV IDs carried forward from CORRECTED_2026-08-16 packet)  
 **Supersedes / deltas from:** LIBERTY_BANCARD_RUNTIME_EVIDENCE_PACKET_CORRECTED_2026-08-16.md  
 **Governing tasks:** #1564, #1565, #1570, #1571, #1572, #1584, #1585, #1586  
+**Task identity corrections (issued 2026-08-17T20:17Z):** #1585 = GHL\_TEST\_MODE / pre-deploy timeout repair; #1586 = GHL half-open probe cursor / skip-advancement repair; coordinator `ON CONFLICT … correlation_id` fix is a separate untracked change shipped in this same SHA (`fdb14ec4`)  
 **Pre-deploy gate result (this release):** 32/32 suites PASSED at `fdb14ec4` content before publish  
 
 ---
@@ -432,6 +433,30 @@ No change from prior pass. Tables exist, 0 rows (no residual import performed). 
 
 ---
 
+## Section — Task #1585 Acceptance Evidence (GHL_TEST_MODE / Pre-Deploy Timeout Repair)
+
+| Criterion | Status |
+|---|---|
+| `GHL_TEST_MODE=true` set in pre-deploy invocation | ✓ — `run-pre-deploy.sh` sets `GHL_TEST_MODE=true` before invoking suites |
+| Pre-deploy timeout guard present and respected | ✓ — timeout repair merged in #1585; pre-deploy passed 32/32 without stall |
+| Pre-deploy workflow passes clean without manual abort | ✓ — 32/32 gate passed at `fdb14ec4` |
+| **Verdict** | **PASS** — Confirmed via pre-deploy gate passage; functional in published SHA |
+
+---
+
+## Section — Task #1586 Acceptance Evidence (GHL Half-Open Probe Cursor / Skip-Advancement)
+
+| Criterion | Status |
+|---|---|
+| `halfOpenProbeCursorId` field present in `ghl_circuit_state` JSON | ✓ — field observed in circuit state value at obs time |
+| Cursor persisted across half-open ticks | PARTIAL — cursor at 0 post-publish; resets on each circuit-open event (by design or regression — see RV-GHL-01) |
+| Skip outcomes recorded separately from provider failures | INCONCLUSIVE — requires audit log review during active half-open probe with skip candidate |
+| Bounded page iteration prevents permanent-skip starvation | INCONCLUSIVE — cannot confirm without stale contacts cleared (which select 400/422, not skip outcomes) |
+| 8-scenario test script ships with task | ✓ — static code inspection confirmed in prior session |
+| **Verdict** | **PARTIAL** — Code deployed and probe cursor field present. Runtime confirmation blocked by 920 stale test contacts producing genuine 400/422 errors before skip logic can be observed. Full verdict requires re-evaluation after cleanup (Step 6 of this delta pass). |
+
+---
+
 ## Section — Task #1571 Acceptance Evidence (RELEASE_SHA Injection)
 
 | Criterion | Status |
@@ -444,28 +469,29 @@ No change from prior pass. Tables exist, 0 rows (no residual import performed). 
 
 ---
 
-## Section — Task #1584/#1585 Acceptance Evidence (Scenarios G/H)
+## Section — Task #1584 Acceptance Evidence (Deferred Enrollment Resumes After approveRelease — Scenario G)
 
 | Criterion | Status |
 |---|---|
 | Scenario G added to `scripts/test-pause-cycle-unit.ts` | ✓ — commit `e4c6cbed` "Extend pause-cycle unit test: Scenario G (deferred enrollment resumes after approveRelease)" |
-| Scenario H added to `scripts/test-pause-cycle-unit.ts` | ✓ — same commit `e4c6cbed` "Scenario H (release_pending hold blocks worker tick; second tick post-approve advances)" |
-| Test runs in isolated DB (no shared DB contact) | ✓ — per task spec; `INTEGRATION_TESTS_OPT_IN=1` required (opt-in gate) |
-| Scenarios G/H deployed in published artifact | ✓ — `e4c6cbed` is an ancestor of published SHA `fdb14ec4` |
-| Opt-in test actually executed against production DB | NOT APPLICABLE — task explicitly scopes to isolated DB; test is skipped in pre-deploy unless `INTEGRATION_TESTS_OPT_IN=1` |
-| **Verdict for #1584/#1585** | **PARTIAL** — code deployed and passes pre-deploy static check; isolated execution not observable in this read-only production pass |
+| Scenario H added in same commit | ✓ — `e4c6cbed` "Scenario H (release_pending hold blocks worker tick; second tick post-approve advances)" |
+| Test runs in isolated DB (opt-in gate) | ✓ — `INTEGRATION_TESTS_OPT_IN=1` required; no shared-DB contact |
+| Deployed in published artifact | ✓ — `e4c6cbed` is an ancestor of published SHA `fdb14ec4` |
+| Isolated execution observable in this pass | NOT APPLICABLE — isolated DB required; pre-deploy skips unless opt-in flag set |
+| **Verdict** | **PARTIAL** — Code deployed; isolated execution not observable in read-only production pass |
 
 ---
 
-## Section — Task #1586 / Coordinator ON CONFLICT Fix (this session)
+## Section — Coordinator ON CONFLICT Correlation-ID Fix (untracked; shipped in SHA fdb14ec4)
 
 | Criterion | Status |
 |---|---|
-| `ON CONFLICT … DO UPDATE` now updates `correlation_id` in `transitionGlobalHoldsToReleasePending` | ✓ — commit `fdb14ec4`, file `server/services/outbound-queue-coordinator.ts` |
-| Pre-deploy gate (32/32) passed with fix applied | ✓ — verified in pre-deploy workflow output |
-| Diagnostic confirmed fix eliminates stale-hold problem | ✓ — `scripts/debug-case14-holds.ts` diagnostic showed: before fix `clearTestHolds` cleared 0 holds; after fix cleared 17 holds; `canExecute("sequences")` → true |
+| Fix: `correlation_id = EXCLUDED.correlation_id` added to `ON CONFLICT DO UPDATE` in `transitionGlobalHoldsToReleasePending` | ✓ — commit `fdb14ec4`, `server/services/outbound-queue-coordinator.ts` |
+| Pre-deploy gate (32/32) passed with fix applied | ✓ |
+| Diagnostic confirmed fix eliminates stale-hold problem | ✓ — before fix: `clearTestHolds` cleared 0 holds; after fix: cleared 17 holds; `canExecute("sequences")` → true |
 | Deployed in published artifact | ✓ — `fdb14ec4` is the published SHA |
-| **Verdict** | **PASS** (code fix verified; runtime consequence is that future pre-deploy runs will not leave orphaned release_pending holds) |
+| Task number | **None assigned** — this is a separate untracked change; not #1585 or #1586 |
+| **Verdict** | **PASS** (code fix verified; runtime consequence: future pre-deploy runs will not leave orphaned release_pending holds) |
 
 ---
 
@@ -508,8 +534,10 @@ No stale heartbeat finding warranted at observation time. All 22 workers within 
 | Stale test contacts | (new check — was PASS per Task #1570) | **FAIL** | 920 stale test contacts; causing GHL probe failures |
 | Provider sends post-publish | (new check) | **PASS** | 0 real sends |
 | Task #1571 (RELEASE_SHA) | — | **PASS** | SHA injected, 40-char hex, status=ok |
-| Task #1584/#1585 (Scenarios G/H) | — | **PARTIAL** | Code deployed; isolated test execution not observable |
-| Task #1586 / coordinator fix | — | **PASS** | Fix in published SHA; pre-deploy 32/32 verified |
+| Task #1584 (Scenario G/H — deferred enrollment) | — | **PARTIAL** | Code deployed; isolated test execution not observable |
+| Task #1585 (GHL_TEST_MODE / pre-deploy timeout) | — | **PASS** | Pre-deploy gate 32/32; GHL_TEST_MODE=true wired |
+| Task #1586 (GHL probe cursor / skip-advancement) | — | **PARTIAL** | Cursor field present; runtime blocked by stale contacts — re-evaluate after cleanup |
+| Coordinator ON CONFLICT fix (untracked) | — | **PASS** | Fix in published SHA `fdb14ec4`; pre-deploy 32/32 |
 
 ---
 
