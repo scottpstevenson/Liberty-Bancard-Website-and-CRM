@@ -1,0 +1,182 @@
+I can audit and identify the fixes. Replit does not need to diagnose these three failures; it is only needed to implement/rerun the database-backed gate afterward.
+
+I audited the merged code tree and the complete failed-gate transcript. The failures are mostly stale tests—not three broken production systems.
+
+## Audit verdict
+
+| Suite                      |       Failures | Root cause                                                                                                                  | Classification      |
+| -------------------------- | -------------: | --------------------------------------------------------------------------------------------------------------------------- | ------------------- |
+| Sequence Compliance        |             13 | Tests manipulate the retired legacy pause row and expect pre-#1532 behavior                                                 | Test-harness drift  |
+| New-Lead Enrollment Policy |              1 | B23 creates an email with the new default `emailStatus="unvalidated"`, which contactability correctly blocks                | Test-fixture bug    |
+| NBA Engine                 |             10 | Tests attempt to unpause using the legacy row; canonical pause remains active, so every recommendation is correctly blocked | Test-harness drift  |
+| Predeploy wrapper          | Separate issue | It accepted an existing server on port 5000 while its own server crashed with `EADDRINUSE`                                  | Real harness defect |
+
+## 1. Sequence Compliance — 13 failures
+
+Production now checks `OutboundPauseAuthority` and the queue coordinator at the beginning of `processSequenceEnrollments()`.
+
+The tests still do this:
+
+```ts
+await storage.setSystemSetting("outboundGlobalPaused", false);
+```
+
+That only changes the legacy compatibility row. It does not change canonical `outbound_pause_control`, which remained paused. Consequently, the worker correctly stopped at the canonical global hold before reaching:
+
+* contactability
+* CAN-SPAM address checks
+* daily-cap handling
+* ZeroBounce deferral
+
+There is also an obsolete expectation. Since #1532, global pause intentionally:
+
+* leaves the enrollment `active`
+* adds `_holdDeferredStep`, `_holdDeferredReason`, and `_holdDeferredAt`
+* writes `sequence_step_hold_deferred`
+
+The failing tests still expect:
+
+* `status="paused"`
+* `sequence_step_skipped_global_pause`
+
+### Required fixes
+
+In `scripts/test-sequence-compliance.ts`:
+
+1. Rewrite Cases 26–27 to verify the current contract:
+
+   * enrollment remains `active`
+   * `_holdDeferred*` metadata exists
+   * exactly one `sequence_step_hold_deferred` event is written
+   * the second tick does not duplicate that event
+
+2. Stop changing `system_settings.outboundGlobalPaused` to reach downstream gates.
+
+3. Test downstream contactability, CAN-SPAM, cap, and ZeroBounce policies either:
+
+   * through extracted pure policy functions, or
+   * in an isolated test database using `applyPauseMutation()` and the existing explicit integration-test opt-in safeguards.
+
+4. Do not add a production `skipPause` parameter or caller-controlled bypass.
+
+5. Strengthen Cases 28, 30, 31 and portions of 36. Some passed vacuously because the canonical global hold prevented the tested downstream behavior from executing.
+
+No production defect in `sequence-worker.ts` was established by these 13 failures.
+
+## 2. New-Lead Enrollment B23 — one failure
+
+`createTestContact()` does not set `emailStatus`.
+
+The database default is now:
+
+```ts
+email_status = "unvalidated"
+```
+
+When auto-enrollment is disabled, B22 records the candidate before performing contactability. When B23 enables enrollment, it reaches `evaluateContactability()`, which correctly blocks an unvalidated email.
+
+The `__unknown__` sequence mapping itself is working.
+
+### Required fixes
+
+In `scripts/test-new-lead-enrollment-policy.ts`:
+
+1. Add `emailStatus` to the fixture options.
+2. Give positive enrollment fixtures:
+
+```ts
+emailStatus: "valid"
+```
+
+3. Add a separate negative assertion proving `emailStatus="unvalidated"` is not enrolled.
+4. Improve B23 failure output by querying `new_lead_auto_enrollment_check_completed` and the relevant skip reason.
+
+There is also a consistency issue worth correcting in `new-lead-enrollment-job.ts`: disabled-mode candidate detection happens before contactability, while enabled-mode enrollment happens after it. Either move the dry-run contactability check before the `autoEnabled` branch, or label those records as pre-contactability candidates. Otherwise the candidate count can overstate the enrollable audience.
+
+## 3. NBA Engine — 10 failures
+
+`NBAService.computeNBA()` now checks canonical pause authority before lifecycle, DNC, or action selection.
+
+The NBA test performs:
+
+```ts
+await storage.setSystemSetting("outboundGlobalPaused", "false");
+```
+
+The canonical state remains paused. Therefore every fixture receives:
+
+```ts
+actionType: "NO_ACTION"
+reasonCode: "global_pause_active"
+status: "BLOCKED"
+```
+
+That explains all ten failures, including:
+
+* PROSPECT action
+* AT_RISK action and urgency
+* PROPOSAL_READY action
+* DNC reason
+* CLOSED_LOST reason
+* priority-queue presence
+* APPOINTMENT_SCHEDULED reason
+
+Case 6 passed because it expected the globally paused response.
+
+### Required fixes
+
+In `scripts/test-nba.ts`:
+
+1. Stop changing the legacy setting.
+
+2. Export the deterministic lifecycle mapping as a pure function and directly test:
+
+   * PROSPECT
+   * AT_RISK
+   * PROPOSAL_READY
+   * CLOSED_LOST
+   * APPOINTMENT_SCHEDULED
+
+3. Keep an integration test proving that `computeNBA()` returns `global_pause_active` when canonical pause is active.
+
+4. Test unpaused full-service behavior only in an isolated test database using canonical `applyPauseMutation()`.
+
+5. Never unpause the shared Replit database merely to run NBA tests.
+
+No NBA production-rule defect was established by this output.
+
+## 4. Predeploy wrapper must also be repaired
+
+The transcript shows the new server failed with:
+
+```text
+EADDRINUSE: address already in use 0.0.0.0:5000
+```
+
+But the wrapper saw the already-running server’s health endpoint and continued. That means the gate may have tested an older, unowned process.
+
+Update `scripts/run-pre-deploy.sh` to:
+
+* fail before startup if port 5000 is already occupied
+* permit reuse only through an explicit opt-in
+* verify the running server’s reported SHA equals `RELEASE_SHA`
+* verify the newly started PID remains alive after health becomes ready
+* terminate only the process the wrapper started
+
+Also rerun with:
+
+```bash
+GHL_TEST_MODE=true RELEASE_SHA=$(git rev-parse HEAD) bash scripts/run-pre-deploy.sh
+```
+
+## What happens next
+
+Have Replit implement these test/harness corrections, then:
+
+1. Commit them on a new branch.
+2. Run the focused three suites.
+3. Run the complete predeploy gate.
+4. Merge and publish the green SHA.
+5. Rerun the corrected runtime-verification packet against that published SHA.
+
+So: you do not need another Replit audit. You need Replit for the fixes and environment-backed rerun. This predeploy work also does not, by itself, complete the runtime-verification register.
