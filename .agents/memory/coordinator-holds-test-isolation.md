@@ -1,43 +1,30 @@
 ---
 name: Coordinator holds test isolation
-description: applyPauseMutation(false) leaves release_pending coordinator holds that still block canExecute(); tests must clear them explicitly.
+description: Coordinator hold ledger rules for tests — correlation-scoped teardown only; never TRUNCATE/bulk-deactivate; inactive rows must never be deleted.
 ---
 
-# Coordinator Holds — Test Isolation Pattern
+# Coordinator Holds — Test Isolation Principles
 
-## Rule
-After `applyPauseMutation({ outboundGlobalPaused: false, ... })`, the
-`logical_job_control_holds` table still has `active=true` rows with
-`reason_code='release_pending'`. The `canExecute("sequences")` check in the
-sequence worker queries `WHERE active = true` and returns `false` if any rows
-exist, making `isHeld = true` even though canonical pause is off. The worker
-then writes `sequence_step_hold_deferred` instead of reaching downstream gates.
+**Rule 1:** Tests may only deactivate hold-ledger rows tagged with their own
+run-scoped correlation ID, using coordinator protocol (advisory lock, MAX+1
+ledger epoch, released event). Never bulk `UPDATE active=false`, never
+`TRUNCATE`.
+**Why:** The ledger carries real production-safety holds (global pause,
+staged-release approval, incident, maintenance, channel). Broad clears bypass
+the staged-release admin approval and silently release outbound work.
 
-**Why:** Production unpausing uses a staged-release flow. On `applyPauseMutation(false)`,
-`transitionGlobalHoldsToReleasePending()` sets holds to `release_pending`/`active=true`
-rather than deleting them. An admin must call `approveStagedRelease()` to fully
-clear them. Tests can't wait for this; they must clear directly.
+**Rule 2:** Never delete inactive tombstone rows. The coordinator derives its
+monotonic epoch from `MAX(ledger_epoch)` across ALL rows; deleting tombstones
+can lower the max and cause epoch reuse. Compaction requires migrating to a
+separate durable epoch counter first.
 
-**How to apply:**
-In any test case that needs the sequence worker to proceed past the hold gate
-(i.e. canonical pause is OFF and assertions check downstream gates like
-contactability, daily cap, or ZB budget), call `clearCoordinatorHolds()` after
-`applyPauseMutation(false)` and BEFORE `processSequenceEnrollments()`.
+**Rule 3:** Unpausing leaves active staged-release holds that keep the worker
+gate closed; tests that need the gate open must clear their own (tagged) holds
+after unpausing, and an uncorrelated staged-release hold must fail those tests
+safe (deferred), not be cleared.
 
-The helper used in `scripts/test-sequence-compliance.ts`:
-```typescript
-async function clearCoordinatorHolds(): Promise<void> {
-  await pool.query(
-    `UPDATE logical_job_control_holds
-     SET active = false, released_at = NOW()
-     WHERE active = true`,
-  );
-}
-```
-
-Also required: set `process.env.TEST_MODE = "true"` and `process.env.DRY_RUN = "true"`
-before calling `processSequenceEnrollments()`. Without these, all 800+ active
-enrollments try real GHL API calls and hit a 40-second rate-limit stall.
-
-**Affected test cases:** 14, 23, 28, 29, 30, 31, 34B, 36 in
-`scripts/test-sequence-compliance.ts`.
+**How to apply:** The sequence-compliance test suite implements this pattern —
+run-scoped correlation UUID on every pause mutation, correlation-only teardown,
+shape-keyed pre/post snapshot of non-test holds, an uncorrelated-hold survival
+probe, and an untagged final pause restore so restored canonical holds outlive
+teardown. Follow the same pattern in any new test touching pause/hold state.

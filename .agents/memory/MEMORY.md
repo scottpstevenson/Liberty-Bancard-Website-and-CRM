@@ -101,4 +101,4 @@
 - [ZeroBounce validation safety](zerobounce-validation-safety.md) — canonical predicates + retryable-failure guard in contacts routes; no-key preflight claims zero credits; explicit IDs must pass eligibility query.
 - [ZeroBounce campaign engine](zerobounce-campaign-engine.md) — attempts table is claim + source of truth; budget-stop deletes un-credited claim; campaign GET route must precede /api/contacts/:id.
 - [GHL test-contact cleanup](ghl-test-contact-cleanup.md) — sdr_lead_events double-FK order; probe starvation on lowest-id skip contact; ghl_sync_completed never emitted; extra test families (venroll/go-live, 555 phones).
-- [Coordinator holds test isolation](coordinator-holds-test-isolation.md) — applyPauseMutation(false) leaves release_pending holds (active=true); call clearCoordinatorHolds() + set TEST_MODE/DRY_RUN before processSequenceEnrollments().
+- [Coordinator holds test isolation](coordinator-holds-test-isolation.md) — release_pending holds block canExecute after unpause; use correlation-scoped clearTestHolds (never TRUNCATE/bulk UPDATE — MAX(ledger_epoch) spans inactive rows).

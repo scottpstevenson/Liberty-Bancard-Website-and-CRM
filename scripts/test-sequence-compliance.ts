@@ -34,22 +34,232 @@ import { generateUnsubscribeToken, verifyUnsubscribeToken } from "../server/serv
 import { isColdOutreachSequence, getComplianceFooterHtml } from "../server/services/email-signatures";
 import { applyPauseMutation } from "../server/services/outbound-control-service";
 
+// One correlation UUID per test run. Every applyPauseMutation() call in this
+// script tags its holds with it, so teardown can deactivate ONLY test-owned
+// holds and never touch real production-safety holds (global pause, channel,
+// incident, maintenance).
+const TEST_CORRELATION_ID = crypto.randomUUID();
+
+// Advisory lock key must match COORDINATOR_LOCK_KEY = 1_532_1522n in
+// server/services/outbound-queue-coordinator.ts (Number(key % MAX_SAFE_INTEGER)).
+const COORDINATOR_ADVISORY_LOCK_KEY = 15321522;
+
+interface HoldSnapshotRow {
+  hold_id: string;
+  logical_job_key: string;
+  reason_code: string;
+  source_key: string;
+  correlation_id: string | null;
+}
+
 /**
- * Deactivate all active coordinator holds (global-pause, release_pending, etc.)
- * so canExecute("sequences") returns true when the test needs canonical pause OFF.
- *
- * Root cause: applyPauseMutation(false) transitions pause holds to release_pending
- * (active=true), which makes canExecute() return false even after pause is lifted.
- * The production path requires an admin-triggered staged-release approval, but
- * tests need the holds cleared immediately. Call after applyPauseMutation(false)
- * in any test case that needs the sequence worker to run without the hold gate.
+ * Read ALL active holds NOT owned by this test run (correlation-scoped, no
+ * reason-code exclusions). Includes canonical global-pause and staged-release
+ * (release_pending) holds: those are compared by shape (key/reason/source)
+ * rather than hold_id, because the test's legitimate pause cycling + final
+ * restore recreates them with new hold_ids but identical shape.
  */
-async function clearCoordinatorHolds(): Promise<void> {
-  await pool.query(
-    `UPDATE logical_job_control_holds
-     SET active = false, released_at = NOW()
-     WHERE active = true`,
+async function snapshotNonTestHolds(correlationId: string): Promise<HoldSnapshotRow[]> {
+  const { rows } = await pool.query<HoldSnapshotRow>(
+    `SELECT hold_id, logical_job_key, reason_code, source_key, correlation_id
+     FROM logical_job_control_holds
+     WHERE active = true
+       AND correlation_id IS DISTINCT FROM $1
+     ORDER BY logical_job_key, reason_code, source_key`,
+    [correlationId],
   );
+  return rows;
+}
+
+/**
+ * Verify that no non-test active hold disappeared since the snapshot.
+ * Compared by shape (logical_job_key, reason_code, source_key) — see
+ * snapshotNonTestHolds. Throws with a descriptive message on any missing hold.
+ */
+async function assertNonTestHoldsIntact(snapshot: HoldSnapshotRow[], correlationId: string): Promise<void> {
+  const current = await snapshotNonTestHolds(correlationId);
+  const key = (r: HoldSnapshotRow) => `${r.logical_job_key}|${r.reason_code}|${r.source_key}`;
+  const before = new Set(snapshot.map(key));
+  const after = new Set(current.map(key));
+  const missing = [...before].filter(k => !after.has(k));
+  const added = [...after].filter(k => !before.has(k));
+  if (missing.length > 0) {
+    throw new Error(`Non-test coordinator holds MISSING after test teardown: ${missing.join(", ")}`);
+  }
+  if (added.length > 0) {
+    // Added non-test holds can legitimately appear if a live worker/operator
+    // acted mid-run; report as a warning, not a failure, but never remove them.
+    console.warn(`  [holds] Note: ${added.length} non-test hold(s) appeared during the run (left untouched): ${added.join(", ")}`);
+  }
+}
+
+/**
+ * Deactivate ONLY holds tagged with this test run's correlation ID, following
+ * proper coordinator protocol: advisory-lock-serialized transaction, MAX+1
+ * ledger epoch, and a 'released' row in logical_job_hold_events.
+ *
+ * Never TRUNCATEs or bulk-deactivates: the ledger holds real production-safety
+ * holds, and the coordinator's MAX(ledger_epoch) queries span ALL rows
+ * (including inactive), so rows must never be deleted either.
+ *
+ * Root cause this works around: applyPauseMutation(false) transitions pause
+ * holds to release_pending (active=true), which makes canExecute() return
+ * false even after pause is lifted. The production path requires an
+ * admin-triggered staged-release approval, but tests need their own holds
+ * cleared immediately. Call after applyPauseMutation(false) in any test case
+ * that needs the sequence worker to run without the hold gate.
+ */
+async function clearTestHolds(correlationId: string): Promise<number> {
+  // STRICTLY correlation-scoped: only holds this test run created (the
+  // coordinator persists the caller's correlationId onto hold rows written by
+  // writeGlobalOutboundHolds and transitionGlobalHoldsToReleasePending). Any
+  // uncorrelated hold — including a real staged-release (release_pending) hold
+  // awaiting admin approval — is never touched; in that environment gate tests
+  // fail safe (deferred) rather than bypassing the approval.
+  const { rows: testHolds } = await pool.query<{
+    hold_id: string; logical_job_key: string; reason_code: string; source_key: string;
+  }>(
+    `SELECT hold_id, logical_job_key, reason_code, source_key
+     FROM logical_job_control_holds
+     WHERE active = true AND correlation_id = $1`,
+    [correlationId],
+  );
+
+  let released = 0;
+  for (const hold of testHolds) {
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(`SELECT pg_advisory_xact_lock($1)`, [COORDINATOR_ADVISORY_LOCK_KEY]);
+      const epochResult = await client.query<{ max_epoch: string | null }>(
+        `SELECT MAX(ledger_epoch)::text AS max_epoch FROM logical_job_control_holds`,
+      );
+      const newEpoch = (epochResult.rows[0]?.max_epoch ? BigInt(epochResult.rows[0].max_epoch) : 0n) + 1n;
+      const updateResult = await client.query(
+        `UPDATE logical_job_control_holds
+         SET active = false, released_at = NOW(), ledger_epoch = $2, updated_at = NOW()
+         WHERE hold_id = $1 AND active = true`,
+        [hold.hold_id, newEpoch.toString()],
+      );
+      if ((updateResult.rowCount ?? 0) > 0) {
+        await client.query(
+          `INSERT INTO logical_job_hold_events
+             (hold_id, event_type, logical_job_key, reason_code, source_key, ledger_epoch, actor, correlation_id)
+           VALUES ($1, 'released', $2, $3, $4, $5, 'test-sequence-compliance-cleanup', $6)`,
+          [hold.hold_id, hold.logical_job_key, hold.reason_code, hold.source_key, newEpoch.toString(), correlationId],
+        );
+        released++;
+      }
+      await client.query("COMMIT");
+    } catch (err) {
+      try { await client.query("ROLLBACK"); } catch { /* ignore */ }
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  if (released > 0) {
+    console.log(`  [holds] clearTestHolds: released ${released} test-owned hold(s) (correlation ${correlationId})`);
+  }
+  return released;
+}
+
+/**
+ * Release a single hold by id following coordinator protocol (advisory lock,
+ * MAX+1 epoch, 'released' event). Used only by the isolation probe below.
+ */
+async function releaseHoldById(holdId: string, actor: string): Promise<void> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(`SELECT pg_advisory_xact_lock($1)`, [COORDINATOR_ADVISORY_LOCK_KEY]);
+    const epochResult = await client.query<{ max_epoch: string | null }>(
+      `SELECT MAX(ledger_epoch)::text AS max_epoch FROM logical_job_control_holds`,
+    );
+    const newEpoch = (epochResult.rows[0]?.max_epoch ? BigInt(epochResult.rows[0].max_epoch) : 0n) + 1n;
+    const upd = await client.query<{ logical_job_key: string; reason_code: string; source_key: string }>(
+      `UPDATE logical_job_control_holds
+       SET active = false, released_at = NOW(), ledger_epoch = $2, updated_at = NOW()
+       WHERE hold_id = $1 AND active = true
+       RETURNING logical_job_key, reason_code, source_key`,
+      [holdId, newEpoch.toString()],
+    );
+    if (upd.rows.length > 0) {
+      const r = upd.rows[0];
+      await client.query(
+        `INSERT INTO logical_job_hold_events
+           (hold_id, event_type, logical_job_key, reason_code, source_key, ledger_epoch, actor)
+         VALUES ($1, 'released', $2, $3, $4, $5, $6)`,
+        [holdId, r.logical_job_key, r.reason_code, r.source_key, newEpoch.toString(), actor],
+      );
+    }
+    await client.query("COMMIT");
+  } catch (err) {
+    try { await client.query("ROLLBACK"); } catch { /* ignore */ }
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Regression probe: an EXISTING uncorrelated release_pending hold (as left by a
+ * real staged-release awaiting admin approval) must SURVIVE clearTestHolds().
+ * Uses a synthetic logical_job_key so no real worker gate is affected, and
+ * releases the probe via proper coordinator protocol afterwards.
+ */
+async function probeUncorrelatedHoldSurvival(): Promise<void> {
+  const probeKey = `test-isolation-probe-${Date.now()}`;
+  const client = await pool.connect();
+  let probeHoldId: string | null = null;
+  try {
+    await client.query("BEGIN");
+    await client.query(`SELECT pg_advisory_xact_lock($1)`, [COORDINATOR_ADVISORY_LOCK_KEY]);
+    const epochResult = await client.query<{ max_epoch: string | null }>(
+      `SELECT MAX(ledger_epoch)::text AS max_epoch FROM logical_job_control_holds`,
+    );
+    const newEpoch = (epochResult.rows[0]?.max_epoch ? BigInt(epochResult.rows[0].max_epoch) : 0n) + 1n;
+    const ins = await client.query<{ hold_id: string }>(
+      `INSERT INTO logical_job_control_holds
+         (logical_job_key, reason_code, source_type, source_key, ledger_epoch, active, activated_at, updated_at)
+       VALUES ($1, 'release_pending', 'system', 'unpause-transition', $2, true, NOW(), NOW())
+       RETURNING hold_id`,
+      [probeKey, newEpoch.toString()],
+    );
+    probeHoldId = ins.rows[0].hold_id;
+    await client.query(
+      `INSERT INTO logical_job_hold_events
+         (hold_id, event_type, logical_job_key, reason_code, source_key, ledger_epoch, actor)
+       VALUES ($1, 'activated', $2, 'release_pending', 'unpause-transition', $3, 'test-isolation-probe')`,
+      [probeHoldId, probeKey, newEpoch.toString()],
+    );
+    await client.query("COMMIT");
+  } catch (err) {
+    try { await client.query("ROLLBACK"); } catch { /* ignore */ }
+    client.release();
+    throw err;
+  }
+  client.release();
+
+  try {
+    await clearTestHolds(TEST_CORRELATION_ID);
+    const { rows } = await pool.query<{ active: boolean }>(
+      `SELECT active FROM logical_job_control_holds WHERE hold_id = $1`,
+      [probeHoldId],
+    );
+    assert(
+      "Isolation probe: uncorrelated release_pending hold survives clearTestHolds()",
+      rows[0]?.active === true,
+      `active=${rows[0]?.active}`,
+    );
+  } finally {
+    if (probeHoldId) {
+      await releaseHoldById(probeHoldId, "test-isolation-probe-cleanup").catch(e =>
+        console.warn(`  [holds] probe cleanup failed: ${e.message}`),
+      );
+    }
+  }
 }
 
 let passed = 0;
@@ -63,6 +273,7 @@ const testSequenceIds: number[] = [];
 // Capture the ORIGINAL pause state before any test mutation so that SIGTERM,
 // SIGINT, uncaughtException, and unhandledRejection all restore it correctly.
 let snapshotPaused: boolean = true;  // safe default; overwritten by runTests()
+let globalNonTestHoldSnapshot: HoldSnapshotRow[] | null = null;  // set by runTests() before tests
 let cleaningUpGlobal = false;
 
 async function emergencyCleanup(signal: string): Promise<void> {
@@ -70,6 +281,8 @@ async function emergencyCleanup(signal: string): Promise<void> {
   cleaningUpGlobal = true;
   console.error(`\n[${signal}] Signal received — running emergency cleanup...`);
   try {
+    // Restore is not tagged with TEST_CORRELATION_ID so cleanup()'s
+    // clearTestHolds cannot sweep the restored canonical pause holds.
     await applyPauseMutation({
       outboundGlobalPaused: snapshotPaused,
       actor: "test-sequence-compliance-emergency",
@@ -166,12 +379,38 @@ async function insertPewcEvidence(contactId: number): Promise<void> {
 }
 
 async function cleanup(): Promise<void> {
-  // Restore canonical pause to pre-test state regardless of what tests left it as
+  // Release remaining test-owned coordinator holds FIRST (strictly
+  // correlation-scoped), before the pause restore below, so teardown can never
+  // sweep the freshly restored canonical pause holds.
+  try {
+    await clearTestHolds(TEST_CORRELATION_ID);
+  } catch (err: any) {
+    failed++;
+    failures.push(`Cleanup: clearTestHolds failed — ${err.message}`);
+  }
+
+  // Restore canonical pause to pre-test state regardless of what tests left it
+  // as. Deliberately NOT tagged with TEST_CORRELATION_ID: these restored holds
+  // are the canonical post-test state and must survive teardown.
   await applyPauseMutation({
     outboundGlobalPaused: snapshotPaused,
     actor: "test-sequence-compliance-cleanup",
     reason: "test cleanup — restoring canonical pause to pre-test state",
   }).catch(() => {});
+
+  // AFTER the restore, verify every non-test hold that existed at run start
+  // still exists (by shape — pause cycling legitimately recreates canonical
+  // holds with new hold_ids). Any missing hold is a hard failure.
+  try {
+    if (globalNonTestHoldSnapshot !== null) {
+      await assertNonTestHoldsIntact(globalNonTestHoldSnapshot, TEST_CORRELATION_ID);
+      console.log("  [holds] Non-test coordinator holds verified intact.");
+    }
+  } catch (err: any) {
+    failed++;
+    failures.push(`Cleanup: coordinator hold integrity check failed — ${err.message}`);
+    console.error(`  [holds] INTEGRITY FAILURE: ${err.message}`);
+  }
 
   // Clean sequence enrollments before sequences (FK)
   if (testSequenceIds.length > 0) {
@@ -445,14 +684,14 @@ async function testCase14(): Promise<void> {
     );
 
     // Disable canonical pause so Gate (a) is reached (cleanup always restores it)
-    await applyPauseMutation({ outboundGlobalPaused: false, actor: "test-case14", reason: "case 14 — disable canonical pause to reach gate (a)" });
+    await applyPauseMutation({ correlationId: TEST_CORRELATION_ID, outboundGlobalPaused: false, actor: "test-case14", reason: "case 14 — disable canonical pause to reach gate (a)" });
     // Clear coordinator holds (release_pending from prior pause activation) so canExecute() returns true
-    await clearCoordinatorHolds();
+    await clearTestHolds(TEST_CORRELATION_ID);
     try {
       const { processSequenceEnrollments } = await import("../server/services/sequence-worker");
       await processSequenceEnrollments();
     } finally {
-      await applyPauseMutation({ outboundGlobalPaused: true, actor: "test-case14", reason: "case 14 — restore canonical pause after test" });
+      await applyPauseMutation({ correlationId: TEST_CORRELATION_ID, outboundGlobalPaused: true, actor: "test-case14", reason: "case 14 — restore canonical pause after test" });
     }
 
     // Brief pause to let any async audit-log writes settle
@@ -932,14 +1171,14 @@ async function testCase23(): Promise<void> {
     );
 
     // Disable canonical pause so the mailing-address gate is reached (cleanup restores it)
-    await applyPauseMutation({ outboundGlobalPaused: false, actor: "test-case23", reason: "case 23 — disable canonical pause to reach mailing-address gate" });
+    await applyPauseMutation({ correlationId: TEST_CORRELATION_ID, outboundGlobalPaused: false, actor: "test-case23", reason: "case 23 — disable canonical pause to reach mailing-address gate" });
     // Clear coordinator holds so canExecute() returns true
-    await clearCoordinatorHolds();
+    await clearTestHolds(TEST_CORRELATION_ID);
     const { processSequenceEnrollments: pse } = await import("../server/services/sequence-worker");
     try {
       await pse();
     } finally {
-      await applyPauseMutation({ outboundGlobalPaused: true, actor: "test-case23", reason: "case 23 — restore canonical pause after test" });
+      await applyPauseMutation({ correlationId: TEST_CORRELATION_ID, outboundGlobalPaused: true, actor: "test-case23", reason: "case 23 — restore canonical pause after test" });
     }
 
     await new Promise(r => setTimeout(r, 300));
@@ -1165,7 +1404,7 @@ async function testCase26(): Promise<void> {
   process.env.SKIP_AI = "true";
 
   try {
-    await applyPauseMutation({
+    await applyPauseMutation({ correlationId: TEST_CORRELATION_ID,
       outboundGlobalPaused: true,
       actor: "test-case26",
       reason: "Test pause case-26",
@@ -1206,7 +1445,7 @@ async function testCase26(): Promise<void> {
       .where(and(eq(auditLogs.entityId, contactId), eq(auditLogs.action, "sequence_step_skipped_global_pause")));
     assert("Case 26: legacy sequence_step_skipped_global_pause NOT written (post-#1532)", legacyLogs.length === 0, `found=${legacyLogs.length}`);
   } finally {
-    await applyPauseMutation({
+    await applyPauseMutation({ correlationId: TEST_CORRELATION_ID,
       outboundGlobalPaused: false,
       actor: "test-case26",
       reason: "case 26 finally — restore canonical pause to off",
@@ -1229,7 +1468,7 @@ async function testCase27(): Promise<void> {
   process.env.SKIP_AI = "true";
 
   try {
-    await applyPauseMutation({
+    await applyPauseMutation({ correlationId: TEST_CORRELATION_ID,
       outboundGlobalPaused: true,
       actor: "test-case27",
       reason: "Dedup test case-27",
@@ -1278,7 +1517,7 @@ async function testCase27(): Promise<void> {
       .where(and(eq(auditLogs.entityId, contactId), eq(auditLogs.action, "sequence_step_hold_deferred")));
     assert("Case 27: second tick does NOT write a second hold-deferred log (dedup)", logsAfterSecond.length === countAfterFirst, `before=${countAfterFirst} after=${logsAfterSecond.length}`);
   } finally {
-    await applyPauseMutation({
+    await applyPauseMutation({ correlationId: TEST_CORRELATION_ID,
       outboundGlobalPaused: false,
       actor: "test-case27",
       reason: "case 27 finally — restore canonical pause to off",
@@ -1302,13 +1541,13 @@ async function testCase28(): Promise<void> {
   process.env.SKIP_AI = "true";
 
   try {
-    await applyPauseMutation({
+    await applyPauseMutation({ correlationId: TEST_CORRELATION_ID,
       outboundGlobalPaused: false,
       actor: "test-case28",
       reason: "case 28 — canonical pause off to verify hold gate does not fire",
     });
     // Clear coordinator holds (release_pending from prior pause cycles) so canExecute() returns true
-    await clearCoordinatorHolds();
+    await clearTestHolds(TEST_CORRELATION_ID);
 
     const { seqId } = await makeKillSwitchSequence();
     const contactId = await makeContact({ emailStatus: "active", consentTier: "warm_no_pewc" });
@@ -1357,9 +1596,9 @@ async function testCase29(): Promise<void> {
 
   const todayStr = new Date().toISOString().slice(0, 10);
   try {
-    await applyPauseMutation({ outboundGlobalPaused: false, actor: "test-case29", reason: "case 29 — disable canonical pause for daily-cap test" });
+    await applyPauseMutation({ correlationId: TEST_CORRELATION_ID, outboundGlobalPaused: false, actor: "test-case29", reason: "case 29 — disable canonical pause for daily-cap test" });
     // Clear coordinator holds so canExecute("sequences") returns true
-    await clearCoordinatorHolds();
+    await clearTestHolds(TEST_CORRELATION_ID);
     await storage.setSystemSetting("outboundDailyEmailCap", 1);
 
     // Seed a send counter at or above cap
@@ -1411,9 +1650,9 @@ async function testCase30(): Promise<void> {
 
   const todayStr = new Date().toISOString().slice(0, 10);
   try {
-    await applyPauseMutation({ outboundGlobalPaused: false, actor: "test-case30", reason: "case 30 — disable canonical pause for daily-cap dedup test" });
+    await applyPauseMutation({ correlationId: TEST_CORRELATION_ID, outboundGlobalPaused: false, actor: "test-case30", reason: "case 30 — disable canonical pause for daily-cap dedup test" });
     // Clear coordinator holds so canExecute("sequences") returns true
-    await clearCoordinatorHolds();
+    await clearTestHolds(TEST_CORRELATION_ID);
     await storage.setSystemSetting("outboundDailyEmailCap", 1);
     await db.execute(
       `INSERT INTO outbound_send_counters (date, channel, scope, count, updated_at)
@@ -1467,9 +1706,9 @@ async function testCase31(): Promise<void> {
 
   const todayStr = new Date().toISOString().slice(0, 10);
   try {
-    await applyPauseMutation({ outboundGlobalPaused: false, actor: "test-case31", reason: "case 31 — disable canonical pause for transactional-bypass test" });
+    await applyPauseMutation({ correlationId: TEST_CORRELATION_ID, outboundGlobalPaused: false, actor: "test-case31", reason: "case 31 — disable canonical pause for transactional-bypass test" });
     // Clear coordinator holds so canExecute("sequences") returns true
-    await clearCoordinatorHolds();
+    await clearTestHolds(TEST_CORRELATION_ID);
     await storage.setSystemSetting("outboundDailyEmailCap", 1);
     await db.execute(
       `INSERT INTO outbound_send_counters (date, channel, scope, count, updated_at)
@@ -1688,9 +1927,9 @@ async function testCase34(): Promise<void> {
   process.env.DRY_RUN = "true";
   process.env.SKIP_AI = "true";
   try {
-    await applyPauseMutation({ outboundGlobalPaused: false, actor: "test-case34b", reason: "case 34B — disable canonical pause for cap-reservation test" });
+    await applyPauseMutation({ correlationId: TEST_CORRELATION_ID, outboundGlobalPaused: false, actor: "test-case34b", reason: "case 34B — disable canonical pause for cap-reservation test" });
     // Clear coordinator holds so canExecute("sequences") returns true
-    await clearCoordinatorHolds();
+    await clearTestHolds(TEST_CORRELATION_ID);
     await storage.setSystemSetting("outboundDailyEmailCap", CAP);
     // Seed: counter already AT cap
     await db.execute(
@@ -1778,9 +2017,9 @@ async function testCase36(): Promise<void> {
   const todayKey = `zerobounce_validation_count_${new Date().toISOString().slice(0, 10)}`;
 
   try {
-    await applyPauseMutation({ outboundGlobalPaused: false, actor: "test-case36", reason: "case 36 — disable canonical pause for ZB-gate test" });
+    await applyPauseMutation({ correlationId: TEST_CORRELATION_ID, outboundGlobalPaused: false, actor: "test-case36", reason: "case 36 — disable canonical pause for ZB-gate test" });
     // Clear coordinator holds so canExecute("sequences") returns true
-    await clearCoordinatorHolds();
+    await clearTestHolds(TEST_CORRELATION_ID);
     // Exhaust ZB budget: set daily limit to 1 and today's count to 1
     await storage.setSystemSetting("zerobounce_validation_daily_limit", 1);
     await storage.setSystemSetting(todayKey, 1);
@@ -1910,6 +2149,37 @@ async function testCase36(): Promise<void> {
 async function runTests(): Promise<void> {
   console.log("=== Wave 12 Sequence Compliance Tests ===\n");
   console.log("Mode: dryRun — no real messages sent, no audit logs written\n");
+  console.log(`Test correlation ID: ${TEST_CORRELATION_ID}\n`);
+
+  // One-time non-mutating EXPLAIN ANALYZE report for the coordinator's
+  // MAX(ledger_epoch) query. Reported only — if a seq scan ever appears on a
+  // >10k-row table, add logical_job_holds_epoch_idx (ledger_epoch DESC) via a
+  // reviewed schema migration, NOT from this script.
+  try {
+    const { rows: planRows } = await pool.query<{ "QUERY PLAN": string }>(
+      `EXPLAIN ANALYZE SELECT MAX(ledger_epoch)::text FROM logical_job_control_holds`,
+    );
+    const plan = planRows.map(r => r["QUERY PLAN"]).join("\n");
+    console.log("MAX(ledger_epoch) query plan:\n" + plan.split("\n").map(l => "  " + l).join("\n") + "\n");
+    const { rows: cntRows } = await pool.query<{ n: string }>(
+      `SELECT COUNT(*)::text AS n FROM logical_job_control_holds`,
+    );
+    if (plan.includes("Seq Scan") && Number(cntRows[0]?.n ?? 0) > 10000) {
+      console.warn(
+        "  ⚠ Seq scan on >10k rows — add logical_job_holds_epoch_idx (ledger_epoch DESC) via a schema migration.",
+      );
+    }
+  } catch (err: any) {
+    console.warn(`  EXPLAIN ANALYZE report skipped: ${err.message}`);
+  }
+
+  // Regression probe: an uncorrelated staged-release hold must survive teardown.
+  await probeUncorrelatedHoldSurvival();
+
+  // Snapshot all non-test active holds before any test mutation so cleanup can
+  // verify production-safety holds are untouched.
+  globalNonTestHoldSnapshot = await snapshotNonTestHolds(TEST_CORRELATION_ID);
+  console.log(`Non-test active coordinator holds at start: ${globalNonTestHoldSnapshot.length}\n`);
 
   // Snapshot the original pause state before any test mutation so that all
   // exit paths (normal, SIGTERM, SIGINT, uncaughtException) restore it correctly.

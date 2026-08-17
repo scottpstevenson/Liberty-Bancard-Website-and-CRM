@@ -398,7 +398,13 @@ class OutboundQueueCoordinator {
         [Number(COORDINATOR_LOCK_KEY % BigInt(Number.MAX_SAFE_INTEGER))],
       );
 
-      // Get current ledger epoch (max of all holds)
+      // MONOTONIC EPOCH INVARIANT: this MAX(ledger_epoch) query (and its five
+      // siblings below) intentionally spans ALL rows — active AND inactive.
+      // Inactive tombstones carry the high-water epoch; deleting or compacting
+      // them can lower MAX(ledger_epoch), causing epoch reuse and breaking the
+      // stale-hold detection that relies on ledger_epoch monotonicity. Do NOT
+      // delete inactive rows (no TRUNCATE, no GC) until a separate durable
+      // epoch counter (dedicated sequence/counter table) replaces this query.
       const epochResult = await client.query<{ max_epoch: string | null }>(
         `SELECT MAX(ledger_epoch)::text AS max_epoch FROM logical_job_control_holds`,
       );
@@ -602,15 +608,15 @@ class OutboundQueueCoordinator {
       const holdResult = await client.query<{ hold_id: string }>(
         `INSERT INTO logical_job_control_holds
            (logical_job_key, reason_code, source_type, source_key, source_epoch,
-            ledger_epoch, active, activated_at, updated_at)
-         VALUES ($1, 'global_outbound', 'system', 'pause-authority', $2, $3, true, NOW(), NOW())
+            ledger_epoch, active, activated_at, correlation_id, updated_at)
+         VALUES ($1, 'global_outbound', 'system', 'pause-authority', $2, $3, true, NOW(), $4, NOW())
          ON CONFLICT (logical_job_key, reason_code, source_key) WHERE active = true
          DO UPDATE SET
            source_epoch = EXCLUDED.source_epoch,
            ledger_epoch = EXCLUDED.ledger_epoch,
            updated_at   = NOW()
          RETURNING hold_id`,
-        [key, sourceEpoch.toString(), ledgerEpoch.toString()],
+        [key, sourceEpoch.toString(), ledgerEpoch.toString(), correlationId ?? null],
       );
 
       const holdId = holdResult.rows[0]?.hold_id ?? "unknown";
@@ -677,12 +683,12 @@ class OutboundQueueCoordinator {
       const pendingResult = await client.query<{ hold_id: string }>(
         `INSERT INTO logical_job_control_holds
            (logical_job_key, reason_code, source_type, source_key,
-            ledger_epoch, active, activated_at, updated_at)
-         VALUES ($1, 'release_pending', 'system', 'unpause-transition', $2, true, NOW(), NOW())
+            ledger_epoch, active, activated_at, correlation_id, updated_at)
+         VALUES ($1, 'release_pending', 'system', 'unpause-transition', $2, true, NOW(), $3, NOW())
          ON CONFLICT (logical_job_key, reason_code, source_key) WHERE active = true
          DO UPDATE SET ledger_epoch = EXCLUDED.ledger_epoch, updated_at = NOW()
          RETURNING hold_id`,
-        [key, ledgerEpoch.toString()],
+        [key, ledgerEpoch.toString(), correlationId ?? null],
       );
 
       if (pendingResult.rows.length > 0) {
