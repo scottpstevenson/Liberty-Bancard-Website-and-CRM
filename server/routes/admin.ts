@@ -5178,4 +5178,64 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // === SERPER GATEWAY CONTROL (#1600) ===
+  app.get("/api/admin/serper/control", isDashboardUser, requireRole('admin'), async (_req, res) => {
+    try {
+      const { serperGateway } = await import("../services/serper-gateway");
+      const control = await serperGateway.getControl();
+      if (!control) return res.status(404).json({ message: "serper_control row missing — run migrations" });
+      res.json({ control, policyVersion: control.policy_version });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  app.post("/api/admin/serper/recovery", isDashboardUser, requireRole('admin'), async (req, res) => {
+    try {
+      const reason = typeof req.body?.reason === "string" ? req.body.reason.trim() : "";
+      if (!reason) return res.status(400).json({ message: "reason is required" });
+
+      const actorId = (req.user as any)?.id ?? null;
+      const correlationId = `serper-recovery-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      const { serperGateway } = await import("../services/serper-gateway");
+
+      const before = await serperGateway.getControl();
+      if (!before) return res.status(404).json({ message: "serper_control row missing — run migrations" });
+
+      // Audit first — the recovery attempt itself must be traceable.
+      await auditChange({
+        actorType: "user",
+        userId: actorId,
+        action: "serper_manual_recovery",
+        entityType: "serper_control",
+        entityKey: "1",
+        before: { state: before.state, reasonCode: before.reason_code },
+        details: { reason, correlationId },
+      });
+
+      // Atomically transition to half_open + clear the probe claim.
+      await serperGateway.transitionToHalfOpenForRecovery();
+
+      // Fire one bounded diagnostic probe. On failure the gateway's half-open
+      // handling reopens the circuit automatically.
+      const probe = await serperGateway.executeSearch("/search", { q: "test" }, "admin_recovery_probe");
+
+      const committed = await serperGateway.getControl();
+      res.json({
+        control: committed,
+        policyVersion: committed?.policy_version ?? null,
+        probe: {
+          ok: probe.ok,
+          blocked: probe.blocked,
+          blockReason: probe.blockReason ?? null,
+          status: probe.status ?? null,
+          error: probe.error ?? null,
+        },
+        correlationId,
+      });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
 }

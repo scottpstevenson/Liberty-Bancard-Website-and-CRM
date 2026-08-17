@@ -2,6 +2,7 @@ import { db } from "../../db";
 import { sdrMerchants, sdrLeadState, sdrLeadEvents } from "@shared/schema";
 import { eq, sql, and, isNull } from "drizzle-orm";
 import { isSerperConfigured } from "../serper";
+import { serperGateway } from "../serper-gateway";
 
 interface SerperEnrichmentResult {
   website?: string;
@@ -24,29 +25,14 @@ async function searchSerperForBusiness(
   const query = location ? `${businessName} ${location}` : businessName;
 
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
+    const gatewayResult = await serperGateway.executeSearch(
+      "/places",
+      { q: query, location: location || "Florida, US", gl: "us", hl: "en" },
+      "sdr_serper_enrichment_places",
+    );
+    if (!gatewayResult.ok) return null;
 
-    const response = await fetch("https://google.serper.dev/places", {
-      method: "POST",
-      headers: {
-        "X-API-KEY": process.env.SERPER_API_KEY!,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        q: query,
-        location: location || "Florida, US",
-        gl: "us",
-        hl: "en",
-      }),
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeout);
-
-    if (!response.ok) return null;
-
-    const data = (await response.json()) as any;
+    const data = gatewayResult.data as any;
     const places = data.places || [];
 
     if (places.length === 0) return null;
@@ -88,29 +74,14 @@ async function searchSerperForEmail(
   if (!isSerperConfigured() || !domain) return null;
 
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
+    const gatewayResult = await serperGateway.executeSearch(
+      "/search",
+      { q: `"${domain}" email contact`, gl: "us", hl: "en", num: 5 },
+      "sdr_serper_enrichment_email",
+    );
+    if (!gatewayResult.ok) return null;
 
-    const response = await fetch("https://google.serper.dev/search", {
-      method: "POST",
-      headers: {
-        "X-API-KEY": process.env.SERPER_API_KEY!,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        q: `"${domain}" email contact`,
-        gl: "us",
-        hl: "en",
-        num: 5,
-      }),
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeout);
-
-    if (!response.ok) return null;
-
-    const data = (await response.json()) as any;
+    const data = gatewayResult.data as any;
     const snippets = (data.organic || [])
       .map((r: any) => `${r.snippet || ""} ${r.title || ""}`)
       .join(" ");

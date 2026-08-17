@@ -1,6 +1,14 @@
-import { storage } from "../storage";
+/**
+ * Serper public API — thin wrappers over the canonical SerperGateway (#1600).
+ *
+ * All network access flows through `serperGateway.executeSearch(...)`; this
+ * module keeps its historical exports (searchBusiness, searchBusinessEmail,
+ * searchBusinessContacts, isSerperConfigured, getSerperUsage, resetSerperUsage)
+ * so existing callsites in enrichment.ts, sunbiz-enrichment.ts, and routes
+ * are undisturbed. Usage stats now read from the durable serper_control row.
+ */
 
-const SERPER_API_URL = "https://google.serper.dev";
+import { serperGateway } from "./serper-gateway";
 
 interface SerperOrganicResult {
   title: string;
@@ -38,33 +46,6 @@ interface SerperUsageStats {
   remainingCalls: number;
 }
 
-const rateLimitState = {
-  tokens: 10,
-  maxTokens: 10,
-  refillRate: 10,
-  lastRefill: Date.now(),
-};
-
-function acquireToken(): Promise<void> {
-  return new Promise((resolve) => {
-    const tryAcquire = () => {
-      const now = Date.now();
-      const elapsed = now - rateLimitState.lastRefill;
-      if (elapsed >= 1000) {
-        rateLimitState.tokens = rateLimitState.maxTokens;
-        rateLimitState.lastRefill = now;
-      }
-      if (rateLimitState.tokens > 0) {
-        rateLimitState.tokens--;
-        resolve();
-      } else {
-        setTimeout(tryAcquire, 100);
-      }
-    };
-    tryAcquire();
-  });
-}
-
 export function isSerperConfigured(): boolean {
   return !!process.env.SERPER_API_KEY;
 }
@@ -86,74 +67,50 @@ function defaultUsageStats(): SerperUsageStats {
   };
 }
 
-async function trackSerperCall(success: boolean, results?: { website?: boolean; email?: boolean; phone?: boolean }) {
-  try {
-    const existing = await storage.getSystemSetting("serper_usage") as SerperUsageStats | null;
-    const stats: SerperUsageStats = existing || defaultUsageStats();
-    stats.totalCalls++;
-    stats.remainingCalls = Math.max(0, (stats.monthlyQuota || SERPER_MONTHLY_QUOTA) - stats.totalCalls);
-    if (success) {
-      stats.successfulCalls++;
-      if (results?.website) stats.websitesFound++;
-      if (results?.email) stats.emailsFound++;
-      if (results?.phone) stats.phonesFound++;
-    } else {
-      stats.failedCalls++;
-    }
-    stats.lastCallAt = new Date().toISOString();
-    await storage.setSystemSetting("serper_usage", stats);
-  } catch (err) {
-    console.error("[Serper] Usage tracking error:", err);
-  }
-}
-
 export async function getSerperUsage(): Promise<SerperUsageStats> {
-  const stats = await storage.getSystemSetting("serper_usage") as SerperUsageStats | null;
-  return stats || defaultUsageStats();
+  try {
+    const control = await serperGateway.getControl();
+    if (!control) return defaultUsageStats();
+    const lastSuccess = control.last_success_at ? new Date(control.last_success_at).getTime() : 0;
+    const lastFailure = control.last_failure_at ? new Date(control.last_failure_at).getTime() : 0;
+    const lastCall = Math.max(lastSuccess, lastFailure);
+    return {
+      totalCalls: control.window_calls,
+      successfulCalls: control.window_successes,
+      failedCalls: control.window_failures,
+      websitesFound: Number(control.yield_websites),
+      emailsFound: Number(control.yield_emails),
+      phonesFound: Number(control.yield_phones),
+      lastCallAt: lastCall > 0 ? new Date(lastCall).toISOString() : null,
+      resetAt: new Date(control.window_started_at).toISOString(),
+      monthlyQuota: control.local_budget,
+      remainingCalls: Math.max(0, control.local_budget - control.window_calls),
+    };
+  } catch (err) {
+    console.error("[Serper] Usage read error:", err);
+    return defaultUsageStats();
+  }
 }
 
 export async function resetSerperUsage(): Promise<void> {
-  await storage.setSystemSetting("serper_usage", defaultUsageStats());
+  await serperGateway.resetWindowCounters();
 }
 
-async function serperSearch(query: string, num: number = 10): Promise<SerperSearchResponse | null> {
-  if (!process.env.SERPER_API_KEY) {
+async function serperSearch(query: string, num: number = 10, callSite: string = "serper_search"): Promise<SerperSearchResponse | null> {
+  if (!isSerperConfigured()) {
     console.warn("[Serper] No API key configured. Set SERPER_API_KEY env variable.");
     return null;
   }
-
-  await acquireToken();
-
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
-
-    const response = await fetch(`${SERPER_API_URL}/search`, {
-      method: "POST",
-      headers: {
-        "X-API-KEY": process.env.SERPER_API_KEY,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ q: query, num }),
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeout);
-
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => "Unknown error");
-      console.error(`[Serper] API error ${response.status}: ${errorText}`);
-      await trackSerperCall(false);
-      return null;
+  const result = await serperGateway.executeSearch("/search", { q: query, num }, callSite);
+  if (!result.ok) {
+    if (result.blocked) {
+      console.warn(`[Serper] Blocked by gateway (${result.blockReason}) for ${callSite}`);
+    } else {
+      console.error(`[Serper] Gateway error for ${callSite}: ${result.error ?? result.status}`);
     }
-
-    const data = await response.json() as SerperSearchResponse;
-    return data;
-  } catch (err) {
-    console.error("[Serper] Search error:", err);
-    await trackSerperCall(false);
     return null;
   }
+  return result.data as SerperSearchResponse;
 }
 
 const DIRECTORY_DOMAINS = [
@@ -241,7 +198,7 @@ export async function searchBusiness(
   const location = city ? `${city}, ${state}` : state === "FL" ? "Florida" : state;
   const query = `${cleanName} ${location}`;
 
-  const data = await serperSearch(query);
+  const data = await serperSearch(query, 10, "search_business");
   if (!data) return result;
 
   if (data.knowledgeGraph) {
@@ -291,7 +248,7 @@ export async function searchBusiness(
   result.phones = [...new Set(result.phones)];
   result.sources = [...new Set(result.sources)];
 
-  await trackSerperCall(true, {
+  await serperGateway.recordYield({
     website: !!result.website,
     email: result.emails.length > 0,
     phone: result.phones.length > 0,
@@ -317,7 +274,7 @@ export async function searchBusinessEmail(
       ? `"${cleanName}" "${city}" ${state} email "@"`
       : `"${cleanName}" Florida email "@"`;
 
-  const data = await serperSearch(query, 5);
+  const data = await serperSearch(query, 5, "search_business_email");
   if (!data) return { emails, phones, sources };
 
   for (const item of (data.organic || [])) {
@@ -335,7 +292,7 @@ export async function searchBusinessEmail(
   const uniqueEmails = [...new Set(emails)];
   const uniquePhones = [...new Set(phones)];
 
-  await trackSerperCall(true, {
+  await serperGateway.recordYield({
     email: uniqueEmails.length > 0,
     phone: uniquePhones.length > 0,
   });
@@ -358,7 +315,7 @@ export async function searchBusinessContacts(
   const location = city ? `"${city}" ${state}` : "Florida";
   const query = `"${cleanName}" ${location} phone email`;
 
-  const data = await serperSearch(query);
+  const data = await serperSearch(query, 10, "search_business_contacts");
   if (!data) return { emails, phones, website, sources };
 
   if (data.knowledgeGraph) {
@@ -390,7 +347,7 @@ export async function searchBusinessContacts(
   const uniqueEmails = [...new Set(emails)];
   const uniquePhones = [...new Set(phones)];
 
-  await trackSerperCall(true, {
+  await serperGateway.recordYield({
     website: !!website,
     email: uniqueEmails.length > 0,
     phone: uniquePhones.length > 0,

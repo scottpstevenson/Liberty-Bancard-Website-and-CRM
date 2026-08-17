@@ -102,4 +102,5 @@
 - [ZeroBounce campaign engine](zerobounce-campaign-engine.md) — attempts table is claim + source of truth; budget-stop deletes un-credited claim; campaign GET route must precede /api/contacts/:id.
 - [GHL test-contact cleanup](ghl-test-contact-cleanup.md) — sdr_lead_events double-FK order; probe starvation on lowest-id skip contact; ghl_sync_completed never emitted; extra test families (venroll/go-live, 555 phones).
 - [Coordinator holds test isolation](coordinator-holds-test-isolation.md) — release_pending holds block canExecute after unpause; use correlation-scoped clearTestHolds (never TRUNCATE/bulk UPDATE — MAX(ledger_epoch) spans inactive rows).
+- [Serper canonical gateway](serper-gateway.md) — all Serper calls via SerperGateway + serper_control singleton; fail-closed, ships enabled=false; timestamptz optimistic guards need date_trunc('milliseconds').
 - [Pause-cycle test DB setup](pause-cycle-test-db.md) — throwaway DB + 4 env guards to run test-pause-cycle-unit.ts; wait-step fixtures are DB-only; schema drift breaks seeding.

@@ -5523,6 +5523,38 @@ export const outboundPauseControl = pgTable("outbound_pause_control", {
 
 export type OutboundPauseControl = typeof outboundPauseControl.$inferSelect;
 
+// ─── Serper Canonical Gateway Control (#1600) ────────────────────────────────
+// Singleton row (id=1). All Serper API calls flow through SerperGateway which
+// reads/writes this row atomically (fail-closed when missing or malformed).
+export const serperControl = pgTable("serper_control", {
+  id:                      integer("id").primaryKey(),
+  enabled:                 boolean("enabled").notNull().default(false),
+  state:                   text("state").notNull().default("closed"), // 'closed' | 'open' | 'half_open'
+  consecutiveFailures:     integer("consecutive_failures").notNull().default(0),
+  openedAt:                timestamp("opened_at", { withTimezone: true }),
+  reasonCode:              text("reason_code"),
+  lastFailureAt:           timestamp("last_failure_at", { withTimezone: true }),
+  lastSuccessAt:           timestamp("last_success_at", { withTimezone: true }),
+  halfOpenProbeClaimedAt:  timestamp("half_open_probe_claimed_at", { withTimezone: true }),
+  policyVersion:           integer("policy_version").notNull().default(1),
+  lifetimeCalls:           bigint("lifetime_calls", { mode: "number" }).notNull().default(0),
+  lifetimeSuccesses:       bigint("lifetime_successes", { mode: "number" }).notNull().default(0),
+  lifetimeFailures:        bigint("lifetime_failures", { mode: "number" }).notNull().default(0),
+  windowCalls:             integer("window_calls").notNull().default(0),
+  windowSuccesses:         integer("window_successes").notNull().default(0),
+  windowFailures:          integer("window_failures").notNull().default(0),
+  windowStartedAt:         timestamp("window_started_at", { withTimezone: true }).notNull().defaultNow(),
+  windowEndsAt:            timestamp("window_ends_at", { withTimezone: true }).notNull(),
+  localBudget:             integer("local_budget").notNull().default(50000),
+  providerBalance:         integer("provider_balance"),
+  yieldWebsites:           bigint("yield_websites", { mode: "number" }).notNull().default(0),
+  yieldEmails:             bigint("yield_emails", { mode: "number" }).notNull().default(0),
+  yieldPhones:             bigint("yield_phones", { mode: "number" }).notNull().default(0),
+  updatedAt:               timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type SerperControl = typeof serperControl.$inferSelect;
+
 export const outboundPauseAudit = pgTable("outbound_pause_audit", {
   id:            serial("id").primaryKey(),
   epoch:         bigint("epoch", { mode: "bigint" }).notNull(),

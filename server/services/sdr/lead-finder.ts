@@ -4,6 +4,7 @@ import { searchOutscraperByVerticalMetro, isOutscraperConfigured } from "./outsc
 import { searchApifyByVerticalMetro, isApifyConfigured } from "./apify";
 import { searchApolloForDiscovery, isApolloConfigured } from "./apollo";
 import { isSerperConfigured } from "../serper";
+import { serperGateway } from "../serper-gateway";
 import { isChainBusiness } from "./chain-blocklist";
 
 const DEFAULT_VERTICALS = [
@@ -258,31 +259,20 @@ async function searchSerperForDiscovery(
   const results: NormalizedBusiness[] = [];
 
   try {
-    const SERPER_API_URL = "https://google.serper.dev";
     const queries = [
       `${vertical} ${metro} ${state}`,
       `best ${vertical} near ${metro} ${state}`,
     ];
 
     for (const query of queries) {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 15000);
+      const gatewayResult = await serperGateway.executeSearch(
+        "/places",
+        { q: query, location: `${metro}, ${state}`, gl: "us", hl: "en" },
+        "lead_finder_discovery",
+      );
+      if (!gatewayResult.ok) continue;
 
-      const response = await fetch(`${SERPER_API_URL}/places`, {
-        method: "POST",
-        headers: {
-          "X-API-KEY": process.env.SERPER_API_KEY!,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ q: query, location: `${metro}, ${state}`, gl: "us", hl: "en" }),
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeout);
-
-      if (!response.ok) continue;
-
-      const data = await response.json() as any;
+      const data = gatewayResult.data as any;
       const places = data.places || [];
 
       for (const place of places) {

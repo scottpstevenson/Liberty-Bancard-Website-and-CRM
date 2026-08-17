@@ -77,6 +77,16 @@ const MANDATORY_SUITES: Suite[] = [
     timeoutSecs: 60,
   },
   {
+    name: "Serper Raw-Fetch Scan (canonical gateway compliance)",
+    script: "scripts/scan-serper-raw-fetch.ts",
+    timeoutSecs: 60,
+  },
+  {
+    name: "Serper Gateway (circuit breaker / budget / rollover — fake transports)",
+    script: "scripts/test-serper-gateway.ts",
+    timeoutSecs: 120,
+  },
+  {
     name: "Sequence Compliance (114 cases: consent/DNC/cap/kill-switch/CAN-SPAM)",
     script: "scripts/test-sequence-compliance.ts",
     timeoutSecs: 120,
