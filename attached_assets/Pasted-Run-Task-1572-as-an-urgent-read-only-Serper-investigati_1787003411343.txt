@@ -1,0 +1,45 @@
+Run Task #1572 as an urgent read-only Serper investigation before further enrichment work.
+
+Do not initiate additional Serper calls. Observe only naturally occurring calls.
+
+1. Capture system_settings.serper_usage at T0 and again after 5 minutes:
+   totalCalls, successfulCalls, failedCalls, websitesFound, emailsFound,
+   phonesFound, lastCallAt, monthlyQuota, remainingCalls, resetAt.
+
+2. Calculate exact interval deltas. The prior evidence showed:
+   totalCalls +11,565
+   successfulCalls +0
+   failedCalls +11,565
+   Therefore do not describe Serper as recently successful merely because
+   lastCallAt changed.
+
+3. Inspect the Serper client and determine exactly when failedCalls increments:
+   - HTTP/provider error
+   - authentication error
+   - rate limit/quota error
+   - timeout/network error
+   - malformed response
+   - valid response with zero search results
+   - valid search results that contain no email/phone/website
+
+4. Produce a sanitized failure breakdown by category, HTTP status, query type,
+   and count. Do not expose API keys, search-result PII, or full query strings.
+
+5. Explain resetAt=2026-07-04:
+   - where resetAt is initialized
+   - whether code automatically rolls it monthly
+   - whether remainingCalls reflects Serper’s provider balance or only a local counter
+   - whether the provider console agrees with the local counter
+
+6. Identify whether the worker is repeatedly querying the same entities or retrying
+   permanent no-result cases without a cooldown/deduplication marker.
+
+7. Report the current remaining quota and estimated exhaustion time.
+
+8. If the five-minute delta shows quota decreasing with zero successes, stop and
+   present the exact existing operational control that can pause only Serper-consuming
+   work. Do not change configuration until I approve it.
+
+Deliver a corrected #1572 evidence report with root cause, failure taxonomy,
+quota-reset explanation, duplicate/retry findings, and a recommended campaign gate.
+Do not modify GHL, outbound pause, queues, or contact data.
