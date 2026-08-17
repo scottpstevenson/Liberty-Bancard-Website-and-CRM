@@ -1834,6 +1834,12 @@ let ghlCircuitState: GhlCircuitStateEnum = "closed";
 let consecutiveGhlFailures = 0;
 let halfOpenProbeSuccesses = 0;
 let lastFullSuccessTickAt = Date.now();
+// Deterministic half-open probe cursor: id of the last examined unsynced
+// contact. Ensures one permanently-skipping contact (e.g. an identity
+// conflict at the lowest id) cannot starve recovery. Reset to 0 whenever the
+// circuit closes or is manually reset.
+let halfOpenProbeCursorId = 0;
+const PROBE_PAGE_SIZE = 10;
 
 export type GhlSyncErrorClass = "auth" | "rate-limit" | "skip" | "retryable";
 
@@ -1903,6 +1909,7 @@ function closeCircuitAfterProbes(): void {
   ghlCircuitState = "closed";
   consecutiveGhlFailures = 0;
   halfOpenProbeSuccesses = 0;
+  halfOpenProbeCursorId = 0;
   lastFullSuccessTickAt = Date.now();
   console.log(`[Queue:ghl-sync] GHL_CIRCUIT_CLOSED — circuit recovered after ${probes} successful probes`);
   storage.createAuditLog({ action: "GHL_CIRCUIT_CLOSED", entityType: "system", details: `Circuit closed: ${probes} consecutive successful half-open probes` }).catch(() => {});
@@ -1961,6 +1968,7 @@ function persistGhlCircuit(): void {
     open: ghlCircuitState === "open", // legacy alias for older readers
     consecutiveFailures: consecutiveGhlFailures,
     halfOpenProbeSuccesses,
+    halfOpenProbeCursorId,
     lastFullSuccessTickAt,
     updatedAt: new Date().toISOString(),
   };
@@ -1989,11 +1997,13 @@ async function restoreGhlCircuit(): Promise<void> {
           open?: boolean;
           consecutiveFailures?: number;
           halfOpenProbeSuccesses?: number;
+          halfOpenProbeCursorId?: number;
           lastFullSuccessTickAt?: number;
         };
         ghlCircuitState = saved.state ?? (saved.open ? "open" : "closed");
         consecutiveGhlFailures = saved.consecutiveFailures ?? (saved.open ? GHL_CIRCUIT_THRESHOLD : 0);
         halfOpenProbeSuccesses = saved.halfOpenProbeSuccesses ?? 0;
+        halfOpenProbeCursorId = saved.halfOpenProbeCursorId ?? 0;
         if (typeof saved.lastFullSuccessTickAt === "number") {
           lastFullSuccessTickAt = saved.lastFullSuccessTickAt;
         }
@@ -2108,6 +2118,7 @@ export function resetGhlCircuit(): void {
   ghlCircuitState = "closed";
   consecutiveGhlFailures = 0;
   halfOpenProbeSuccesses = 0;
+  halfOpenProbeCursorId = 0;
   lastFullSuccessTickAt = Date.now();
   persistGhlCircuit(); // persist so the next process restart doesn't re-open from stale DB state
   console.log("[GHL Sync] Circuit breaker manually reset by operator — full state cleared and persisted");
@@ -2118,15 +2129,16 @@ export function resetGhlCircuit(): void {
  * Never call these from production code paths.
  */
 export const __ghlCircuitTestHooks = {
-  setState(partial: Partial<{ state: GhlCircuitStateEnum; consecutiveFailures: number; halfOpenProbeSuccesses: number; lastFullSuccessTickAt: number; restored: boolean }>): void {
+  setState(partial: Partial<{ state: GhlCircuitStateEnum; consecutiveFailures: number; halfOpenProbeSuccesses: number; halfOpenProbeCursorId: number; lastFullSuccessTickAt: number; restored: boolean }>): void {
     if (partial.state !== undefined) ghlCircuitState = partial.state;
     if (partial.consecutiveFailures !== undefined) consecutiveGhlFailures = partial.consecutiveFailures;
     if (partial.halfOpenProbeSuccesses !== undefined) halfOpenProbeSuccesses = partial.halfOpenProbeSuccesses;
+    if (partial.halfOpenProbeCursorId !== undefined) halfOpenProbeCursorId = partial.halfOpenProbeCursorId;
     if (partial.lastFullSuccessTickAt !== undefined) lastFullSuccessTickAt = partial.lastFullSuccessTickAt;
     if (partial.restored !== undefined) circuitStateRestored = partial.restored;
   },
-  getState(): { state: GhlCircuitStateEnum; consecutiveFailures: number; halfOpenProbeSuccesses: number; lastFullSuccessTickAt: number } {
-    return { state: ghlCircuitState, consecutiveFailures: consecutiveGhlFailures, halfOpenProbeSuccesses, lastFullSuccessTickAt };
+  getState(): { state: GhlCircuitStateEnum; consecutiveFailures: number; halfOpenProbeSuccesses: number; halfOpenProbeCursorId: number; lastFullSuccessTickAt: number } {
+    return { state: ghlCircuitState, consecutiveFailures: consecutiveGhlFailures, halfOpenProbeSuccesses, halfOpenProbeCursorId, lastFullSuccessTickAt };
   },
   recordFailure(errorMessage: string | undefined, phase: string): GhlSyncErrorClass {
     const kind = classifyGhlSyncError(errorMessage);
@@ -2145,6 +2157,106 @@ export const __ghlCircuitTestHooks = {
     rollingUnhealthyMs: GHL_ROLLING_UNHEALTHY_MS,
   },
 };
+
+/**
+ * Half-open probe with a deterministic persisted cursor.
+ *
+ * Fetches a bounded page of unsynced candidates AFTER halfOpenProbeCursorId
+ * and iterates them in id-ascending order:
+ *  - skip     → advance within the page; never touches any circuit counter.
+ *  - success  → one successful probe; cursor := candidate id; break.
+ *  - auth     → trip the circuit immediately (401).
+ *  - failure  → re-open the circuit immediately.
+ * All-skipped page → cursor := last candidate id; remain half-open.
+ * Empty page → cursor wraps to 0; remain half-open (NOT an error; the cursor
+ * is simply past the end of the table). A wrap on a genuinely empty system is
+ * followed next tick by an empty page at cursor 0, which counts as a healthy
+ * no-op probe (prevents a permanently half-open circuit on an idle system).
+ *
+ * `deps` exists only for tests to stub the storage fetch and sync call.
+ */
+export async function runHalfOpenProbeTick(deps?: {
+  getCandidates?: (limit: number, afterId: number) => Promise<Array<{ id: number }>>;
+  syncFn?: (contactId: number) => Promise<{ success: boolean; error?: string }>;
+}): Promise<void> {
+  const getCandidates = deps?.getCandidates
+    ?? ((limit: number, afterId: number) => storage.getUnsyncedContactsForGhl(limit, afterId));
+  const syncFn = deps?.syncFn ?? syncContactToGhl;
+
+  const probeCandidates = await getCandidates(PROBE_PAGE_SIZE, halfOpenProbeCursorId);
+
+  if (probeCandidates.length === 0) {
+    if (halfOpenProbeCursorId > 0) {
+      // Cursor is past the end of the table — wrap and retry from the start
+      // next tick. Do NOT treat this as an empty system or reopen the circuit.
+      console.log(`[Queue:ghl-sync] Half-open probe: no candidates after cursor ${halfOpenProbeCursorId} — wrapping cursor to 0`);
+      halfOpenProbeCursorId = 0;
+      persistGhlCircuit();
+      return;
+    }
+    // Nothing to sync at cursor 0 — a healthy no-op probe (prevents a
+    // permanently half-open circuit on an idle system).
+    console.log("[Queue:ghl-sync] Half-open probe: no unsynced contacts — counting as healthy probe");
+    halfOpenProbeSuccesses++;
+    if (halfOpenProbeSuccesses >= GHL_HALF_OPEN_PROBES_REQUIRED) {
+      closeCircuitAfterProbes();
+    } else {
+      persistGhlCircuit();
+    }
+    return;
+  }
+
+  for (const candidate of probeCandidates) {
+    let outcome: "success" | "skip" | "auth" | "failure";
+    try {
+      const result = await syncFn(candidate.id);
+      if (result.success) {
+        outcome = "success";
+      } else {
+        const kind = classifyGhlSyncError(result.error);
+        outcome = kind === "auth" ? "auth" : kind === "skip" ? "skip" : "failure";
+      }
+    } catch (e: any) {
+      outcome = classifyGhlSyncError(e?.message) === "auth" ? "auth" : "failure";
+    }
+
+    if (outcome === "skip") {
+      // Inconclusive candidate — move to the next one. Never increments
+      // halfOpenProbeSuccesses or consecutiveGhlFailures.
+      console.log(`[Queue:ghl-sync] Half-open probe: contact ${candidate.id} skipped — trying next candidate`);
+      continue;
+    }
+    if (outcome === "success") {
+      halfOpenProbeSuccesses++;
+      halfOpenProbeCursorId = candidate.id;
+      console.log(`[Queue:ghl-sync] Half-open probe success ${halfOpenProbeSuccesses}/${GHL_HALF_OPEN_PROBES_REQUIRED} (contact ${candidate.id})`);
+      if (halfOpenProbeSuccesses >= GHL_HALF_OPEN_PROBES_REQUIRED) {
+        closeCircuitAfterProbes();
+      } else {
+        persistGhlCircuit();
+      }
+      return; // one success per tick is enough
+    }
+    if (outcome === "auth") {
+      tripCircuitAuth("half-open probe");
+      return;
+    }
+    // outcome === "failure" → provider failure: re-open immediately.
+    ghlCircuitState = "open";
+    halfOpenProbeSuccesses = 0;
+    console.error("[Queue:ghl-sync] GHL_CIRCUIT_OPEN — half-open probe failed, re-opening circuit");
+    storage.createAuditLog({ action: "GHL_CIRCUIT_OPEN", entityType: "system", details: "Half-open probe failed — circuit re-opened" }).catch(() => {});
+    maybeSendCircuitAlert();
+    persistGhlCircuit();
+    return;
+  }
+
+  // Whole page skipped — advance the cursor past the last examined candidate
+  // and stay half-open; next tick resumes after it.
+  halfOpenProbeCursorId = probeCandidates[probeCandidates.length - 1].id;
+  console.log(`[Queue:ghl-sync] Half-open probe: all ${probeCandidates.length} candidates skipped — cursor advanced to ${halfOpenProbeCursorId}`);
+  persistGhlCircuit();
+}
 
 /**
  * Full GHL sync tick — mirrors the complete body of startAutoSyncLoop's
@@ -2179,47 +2291,11 @@ export async function runGhlFullSyncTick(): Promise<void> {
     persistGhlCircuit();
   }
 
-  // ── Half-open: probe a single contact, then return. Never a full batch. ──
+  // ── Half-open: probe a bounded page with a deterministic cursor, then
+  //    return. Never a full batch. ──
   if (ghlCircuitState === "half-open") {
     try {
-      const probeCandidates = await storage.getUnsyncedContactsForGhl(1);
-      let probeOutcome: "success" | "skip" | "auth" | "failure" = "success";
-      if (probeCandidates.length === 0) {
-        // Nothing to sync — a healthy no-op probe (prevents a permanently
-        // half-open circuit on an idle system).
-        console.log("[Queue:ghl-sync] Half-open probe: no unsynced contacts — counting as healthy probe");
-      } else {
-        try {
-          const result = await syncContactToGhl(probeCandidates[0].id);
-          if (result.success) {
-            probeOutcome = "success";
-          } else {
-            const kind = classifyGhlSyncError(result.error);
-            probeOutcome = kind === "auth" ? "auth" : kind === "skip" ? "skip" : "failure";
-          }
-        } catch (e: any) {
-          probeOutcome = classifyGhlSyncError(e?.message) === "auth" ? "auth" : "failure";
-        }
-      }
-      if (probeOutcome === "success") {
-        halfOpenProbeSuccesses++;
-        console.log(`[Queue:ghl-sync] Half-open probe success ${halfOpenProbeSuccesses}/${GHL_HALF_OPEN_PROBES_REQUIRED}`);
-        if (halfOpenProbeSuccesses >= GHL_HALF_OPEN_PROBES_REQUIRED) {
-          closeCircuitAfterProbes();
-        } else {
-          persistGhlCircuit();
-        }
-      } else if (probeOutcome === "auth") {
-        tripCircuitAuth("half-open probe");
-      } else if (probeOutcome === "failure") {
-        ghlCircuitState = "open";
-        halfOpenProbeSuccesses = 0;
-        console.error("[Queue:ghl-sync] GHL_CIRCUIT_OPEN — half-open probe failed, re-opening circuit");
-        storage.createAuditLog({ action: "GHL_CIRCUIT_OPEN", entityType: "system", details: "Half-open probe failed — circuit re-opened" }).catch(() => {});
-        maybeSendCircuitAlert();
-        persistGhlCircuit();
-      }
-      // "skip" → inconclusive probe; remain half-open, no state change.
+      await runHalfOpenProbeTick();
       await releaseJobLock(JOB_NAMES.GHL_SYNC, true, undefined, lockToken);
     } catch (err: any) {
       await releaseJobLock(JOB_NAMES.GHL_SYNC, false, err.message, lockToken);
