@@ -1,0 +1,94 @@
+Run the final post-publish runtime evidence pass against the currently published deployment.
+
+Use these as the governing baselines:
+
+* `LIBERTY_BANCARD_RUNTIME_VERIFICATION_REGISTER.md`
+* `LIBERTY_BANCARD_RUNTIME_EVIDENCE_PACKET_CORRECTED_2026-08-16.md`
+* the reconciliation ledger, if present
+* the exact acceptance criteria for #1564, #1565, #1570, #1571, #1572, #1584, #1585, and #1586
+
+Create:
+
+`LIBERTY_BANCARD_RUNTIME_EVIDENCE_PACKET_POST_PUBLISH_2026-08-17.md`
+
+Rules:
+
+* Read-only verification only.
+* Do not modify code, database records, Redis, queues, settings, secrets, pause state, coordinator holds, contacts, campaigns, or provider configuration.
+* Do not manually start GHL sync, ZeroBounce, campaigns, enrichment, staged release, or outbound jobs.
+* Do not send any real email, SMS, voice, RVM, workflow enrollment, tag, note, or provider request merely for testing.
+* Natural scheduled activity may be observed.
+* Never expose secret values, recipient data, message bodies, credentials, or provider tokens.
+* Do not declare any ledger finding `CLOSED_RUNTIME`; produce evidence for external adjudication.
+* Do not convert PARTIAL or INCONCLUSIVE to PASS unless every listed pass criterion is independently satisfied.
+
+First, establish deployment identity:
+
+1. Record local workspace HEAD.
+2. Probe the published `/health`, `/api/health`, and `/api/build` endpoints.
+3. Record `sha`, `builtAt`, `env`, and `status`.
+4. Confirm the published SHA is a 40-character commit and exactly matches the intended merged/published commit.
+5. Confirm authenticated live-health reports the same SHA.
+6. If the SHAs differ or status is not `verified`, mark RV-1548-01 FAIL and stop treating subsequent evidence as evidence for the intended release. Continue collecting diagnostic observations, clearly labeled as being from the mismatched deployment.
+
+Then rerun every RV ID in the runtime register. Each row must include:
+
+* RV ID
+* Verdict: PASS, FAIL, PARTIAL, INCONCLUSIVE, or NOT_APPLICABLE
+* Timestamp and timezone
+* Environment
+* Published deployment SHA
+* Method
+* Observed result
+* Every pass criterion listed separately with satisfied/not-satisfied status
+* Residual uncertainty
+* Required next action
+* Supporting sanitized query, endpoint, heartbeat, audit event, or aggregate
+
+Give special attention to the post-repair GHL evidence:
+
+1. Confirm the current GHL circuit state, consecutive-failure count, successful-probe count, rolling-health window, and last state transition.
+2. Confirm half-open probing advances past permanent skip/identity-conflict candidates instead of repeatedly selecting the same lowest-ID contact.
+3. Confirm skip outcomes are recorded separately and do not increment success or provider-failure counters.
+4. Confirm authentication and genuine provider failures still reopen the circuit correctly.
+5. Confirm the cursor advances across all-skipped pages and wraps safely.
+6. Confirm the circuit closes only after the configured number of genuine successful probes.
+7. Report whether at least one genuine post-publish `ghl_sync_completed` or canonical success event exists.
+8. Produce a sanitized post-publish error matrix by operation, HTTP status, normalized error class, entity type, retryability, skip/provider distinction, and count.
+9. Confirm stale synthetic IDs no longer dominate the probe or sync workload.
+10. Do not reset the circuit or initiate a sync to manufacture evidence. If insufficient natural scheduled ticks have occurred, mark the criterion PARTIAL or INCONCLUSIVE and state the next observation window.
+
+Also verify:
+
+* canonical outbound pause remains active
+* coordinator holds and staged-release state are internally consistent
+* no stale test-owned holds remain active
+* no real provider calls occurred from the predeploy test window
+* Serper call counters, successful calls, failed calls, discovery yield, quota, and last-call timestamp using the correct stored property names
+* enrichment worker ownership, heartbeat, last start/success/failure/completion, and correctly measured queue depth
+* ZeroBounce campaign worker ownership and key-presence boolean only
+* readiness and lead-score coverage using the correct columns and meaningful nonzero/model-freshness measures
+* provenance, phone-duplicate, and residual reconciliation checks from the corrected register
+* stale-worker heartbeat findings using configured cadence before calling anything stale
+
+Include:
+
+1. Executive summary with verdict counts.
+2. Exact published SHA.
+3. Delta from the corrected 2026-08-16 packet.
+4. Newly resolved evidence.
+5. Remaining failures.
+6. Remaining runtime-verification requirements.
+7. Explicit confirmation that no writes, provider actions, pause changes, queue changes, or campaigns were initiated.
+8. File line count.
+
+When finished, report only:
+
+* output filename
+* published SHA verified
+* verdict totals
+* FAIL IDs
+* PARTIAL/INCONCLUSIVE IDs
+* immediate blockers
+
+Do not update or overwrite the original audit files or prior evidence packets.
