@@ -344,6 +344,16 @@ let seededContactId: number | null = null;
 let seededActiveEnrollmentId: number | null = null;
 let seededLegacyEnrollmentId: number | null = null;
 
+// Scenario G fixture IDs (dedicated sequence + enrollment; seeded inside Scenario G)
+let seededGSequenceId: number | null = null;
+let seededGEnrollmentId: number | null = null;
+const TEST_CORRELATION_ID_G = `pause-unit-test-g-${TEST_RUN_SUFFIX}`;
+
+// Scenario H fixture IDs (dedicated sequence + enrollment; seeded inside Scenario H)
+let seededHSequenceId: number | null = null;
+let seededHEnrollmentId: number | null = null;
+const TEST_CORRELATION_ID_H = `pause-unit-test-h-${TEST_RUN_SUFFIX}`;
+
 // hold_ids created by this test run — tracked for scoped cleanup and approval
 const testCreatedHoldIds = new Set<string>();
 // logical_job_keys with release_pending holds created by our unpause — for scoped approveRelease
@@ -358,7 +368,7 @@ async function cleanup(): Promise<void> {
   const cleanupErrors: string[] = [];
 
   // 1. Delete seeded sequence_enrollments by exact ID
-  const enrollmentIds = [seededActiveEnrollmentId, seededLegacyEnrollmentId].filter(
+  const enrollmentIds = [seededActiveEnrollmentId, seededLegacyEnrollmentId, seededGEnrollmentId, seededHEnrollmentId].filter(
     (id): id is number => id !== null,
   );
   if (enrollmentIds.length > 0) {
@@ -368,6 +378,20 @@ async function cleanup(): Promise<void> {
     } catch (err: any) {
       cleanupErrors.push(`sequence_enrollments delete: ${err?.message}`);
       console.error(`  ✗ Could not delete test enrollment(s): ${err?.message}`);
+    }
+  }
+
+  // 1b. Delete Scenario G/H fixture sequences + steps by exact sequence ID
+  for (const [label, seqId] of [["G", seededGSequenceId], ["H", seededHSequenceId]] as [string, number | null][]) {
+    if (seqId !== null) {
+      try {
+        await testPool.query(`DELETE FROM sequence_steps WHERE sequence_id = $1`, [seqId]);
+        await testPool.query(`DELETE FROM follow_up_sequences WHERE id = $1`, [seqId]);
+        console.log(`  ✓ Deleted Scenario ${label} test sequence + steps: ${seqId}`);
+      } catch (err: any) {
+        cleanupErrors.push(`Scenario ${label} sequence delete: ${err?.message}`);
+        console.error(`  ✗ Could not delete Scenario ${label} sequence: ${err?.message}`);
+      }
     }
   }
 
@@ -409,10 +433,10 @@ async function cleanup(): Promise<void> {
       `SELECT DISTINCT h.hold_id
        FROM logical_job_hold_events e
        JOIN logical_job_control_holds h ON h.hold_id = e.hold_id
-       WHERE e.correlation_id = $1
+       WHERE e.correlation_id = ANY($1)
          AND e.reason_code IN ('global_outbound', 'release_pending')
          AND h.active = true`,
-      [TEST_CORRELATION_ID],
+      [[TEST_CORRELATION_ID, TEST_CORRELATION_ID_G, TEST_CORRELATION_ID_H]],
     );
     const untrackedIds = untracked.rows
       .map(r => r.hold_id)
@@ -478,6 +502,7 @@ try {
     firstName: "PauseCycleTest",
     lastName: `Unit-${TEST_RUN_SUFFIX}`,
     email: `pause-unit-test-${TEST_RUN_SUFFIX}@test.internal`,
+    phone: `555${String(Date.now() % 10000000).padStart(7, "0")}`,
     createdAt: new Date(),
     updatedAt: new Date(),
   } as any).returning({ id: contactsTable.id });
@@ -876,6 +901,448 @@ try {
     }
   } catch (err: any) {
     fail("Scenario F", err?.message);
+  }
+
+  // ── Scenario G: deferred enrollment resumes after approveRelease ──────────
+  // Full downstream cycle: pause → _holdDeferred marker → unpause (release_pending
+  // still blocks) → approveRelease(["sequences"]) → worker tick picks the
+  // enrollment up, clears the marker, and advances it exactly once.
+  section("Scenario G: deferred enrollment resumes after approveRelease");
+
+  try {
+    if (seededContactId === null) throw new Error("No test contact seeded");
+
+    // 1. Seed a dedicated fixture: real active sequence + 3 'wait' steps +
+    //    one active enrollment at currentStep=1 that is due now.
+    //    'wait' steps are DB-only in the worker — no email/SMS/GHL provider
+    //    calls are possible for this fixture.
+    const seqIns = await testPool.query<{ id: number }>(
+      `INSERT INTO follow_up_sequences (name, trigger_type, trigger_config, total_steps, status, created_by)
+       VALUES ($1, 'manual', $2::jsonb, 3, 'active', $3)
+       RETURNING id`,
+      [
+        `Pause Unit Test G ${TEST_RUN_SUFFIX}`,
+        JSON.stringify({ category: "operations" }), // skips arbitration gate — DB-only path
+        TEST_ACTOR,
+      ],
+    );
+    seededGSequenceId = seqIns.rows[0]?.id ?? null;
+    if (seededGSequenceId === null) throw new Error("Scenario G sequence insert returned no ID");
+
+    for (const stepOrder of [1, 2, 3]) {
+      await testPool.query(
+        `INSERT INTO sequence_steps (sequence_id, step_order, action_type, delay_days, delay_hours, subject, body)
+         VALUES ($1, $2, 'wait', 0, 0, NULL, NULL)`,
+        [seededGSequenceId, stepOrder],
+      );
+    }
+
+    const gEnrollIns = await testDb.insert(seTable).values({
+      contactId: seededContactId,
+      sequenceId: seededGSequenceId,
+      currentStep: 1,
+      status: "active",
+      nextActionAt: new Date(Date.now() - 60_000), // due now
+      metadata: {} as any,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as any).returning({ id: seTable.id });
+    seededGEnrollmentId = gEnrollIns[0]?.id ?? null;
+    if (seededGEnrollmentId === null) throw new Error("Scenario G enrollment insert returned no ID");
+    ok(`Fixture seeded: sequence=${seededGSequenceId}, enrollment=${seededGEnrollmentId} (active, no _holdDeferred fields)`);
+
+    // 2. Pause + write hold-deferral marker for the fixture
+    const gPause = await applyPauseMutation({
+      outboundGlobalPaused: true,
+      reason: "Isolation-test pause — unit test scenario G",
+      actor: TEST_ACTOR,
+      correlationId: TEST_CORRELATION_ID_G,
+    });
+    if (gPause.ok && gPause.control.outboundGlobalPaused === true)
+      ok("applyPauseMutation(pause) committed for Scenario G");
+    else fail("Scenario G pause did not commit");
+
+    // Track holds created by this pause (via events join, G correlation id)
+    const gPauseHolds = await testPool.query<{ hold_id: string; logical_job_key: string }>(
+      `SELECT DISTINCT h.hold_id, h.logical_job_key
+       FROM logical_job_hold_events e
+       JOIN logical_job_control_holds h ON h.hold_id = e.hold_id
+       WHERE e.event_type = 'activated'
+         AND e.reason_code = 'global_outbound'
+         AND e.correlation_id = $1
+         AND h.active = true`,
+      [TEST_CORRELATION_ID_G],
+    );
+    for (const r of gPauseHolds.rows) testCreatedHoldIds.add(r.hold_id);
+    if (gPauseHolds.rows.some(r => r.logical_job_key === "sequences"))
+      ok("active global_outbound hold present for logical job key 'sequences'");
+    else fail("Expected an active global_outbound hold on 'sequences' after Scenario G pause");
+
+    const gMarker = await writeHoldDeferralMarker(
+      seededGEnrollmentId,
+      1,
+      "Coordinator hold active on 'sequences' — unit test scenario G",
+      null,
+      testDb,
+    );
+    if (gMarker.written === true && typeof gMarker._holdDeferredAt === "string" && gMarker._holdDeferredAt.length > 0)
+      ok(`_holdDeferredAt set on fixture enrollment: '${gMarker._holdDeferredAt}'`);
+    else fail("writeHoldDeferralMarker did not set _holdDeferredAt on fixture enrollment");
+
+    // 3. Unpause — holds transition to release_pending; marker must still be set
+    const gUnpause = await applyPauseMutation({
+      outboundGlobalPaused: false,
+      reason: "Isolation-test unpause — unit test scenario G",
+      actor: TEST_ACTOR,
+      correlationId: TEST_CORRELATION_ID_G,
+    });
+    if (gUnpause.ok && gUnpause.control.outboundGlobalPaused === false)
+      ok("applyPauseMutation(unpause) committed for Scenario G");
+    else fail("Scenario G unpause did not commit");
+
+    // Track release_pending holds created by this unpause (G correlation id)
+    const gRpHolds = await testPool.query<{ hold_id: string; logical_job_key: string }>(
+      `SELECT DISTINCT h.hold_id, h.logical_job_key
+       FROM logical_job_hold_events e
+       JOIN logical_job_control_holds h ON h.hold_id = e.hold_id
+       WHERE e.event_type = 'activated'
+         AND e.reason_code = 'release_pending'
+         AND e.correlation_id = $1
+         AND h.active = true`,
+      [TEST_CORRELATION_ID_G],
+    );
+    for (const r of gRpHolds.rows) testCreatedHoldIds.add(r.hold_id);
+    if (gRpHolds.rows.some(r => r.logical_job_key === "sequences"))
+      ok("release_pending hold present on 'sequences' after unpause (still blocking)");
+    else fail("Expected a release_pending hold on 'sequences' after Scenario G unpause");
+
+    const gMetaAfterUnpause = await testDb
+      .select({ metadata: seTable.metadata, status: seTable.status })
+      .from(seTable)
+      .where(eq(seTable.id, seededGEnrollmentId))
+      .limit(1);
+    const gMeta1 = (gMetaAfterUnpause[0]?.metadata as Record<string, unknown>) ?? {};
+    if (typeof gMeta1._holdDeferredAt === "string")
+      ok("_holdDeferred marker still present after unpause (release_pending still blocks)");
+    else fail("_holdDeferred marker should still be set after unpause — it must survive until approveRelease + worker tick");
+    if (gMetaAfterUnpause[0]?.status === "active")
+      ok("fixture enrollment status remains 'active' throughout pause/unpause");
+    else fail(`fixture enrollment status should be 'active', got '${gMetaAfterUnpause[0]?.status}'`);
+
+    // 4. approveRelease scoped to ["sequences"] with a fresh correlation id.
+    //    This is the ONLY unlock mechanism used — no direct SQL hold cleanup.
+    const gApprove = await outboundQueueCoordinator.approveRelease(
+      ["sequences"],
+      TEST_ACTOR,
+      TEST_CORRELATION_ID_G,
+    );
+    if (gApprove.count >= 1) ok(`approveRelease(["sequences"]) cleared ${gApprove.count} hold(s)`);
+    else fail(`approveRelease(["sequences"]) cleared 0 holds — expected >= 1`);
+    if (gApprove.releasedKeys.includes("sequences"))
+      ok("approveRelease releasedKeys contains 'sequences'");
+    else fail(`approveRelease releasedKeys missing 'sequences': ${JSON.stringify(gApprove.releasedKeys)}`);
+
+    const gRpRemain = await testPool.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM logical_job_control_holds
+       WHERE logical_job_key = 'sequences' AND reason_code = 'release_pending' AND active = true`,
+    );
+    if (parseInt(gRpRemain.rows[0]?.count ?? "0", 10) === 0)
+      ok("zero release_pending holds remain for 'sequences' after approveRelease");
+    else fail(`${gRpRemain.rows[0]?.count} release_pending hold(s) still active on 'sequences' after approveRelease`);
+
+    // Scenario A's manual_operator hold must be untouched by the scoped approval
+    const gManualCheck = await testPool.query<{ active: boolean }>(
+      `SELECT active FROM logical_job_control_holds
+       WHERE correlation_id = $1 AND reason_code = 'manual_operator'`,
+      [TEST_CORRELATION_ID],
+    );
+    if (gManualCheck.rows[0]?.active === true)
+      ok("Scenario A manual_operator hold still active after Scenario G approveRelease");
+    else fail("KILL: Scenario A manual_operator hold was cleared by Scenario G approveRelease");
+
+    // 5. Worker tick with fake transports (TEST_MODE) — fixture step is 'wait',
+    //    a DB-only action type; no provider I/O is possible.
+    process.env.TEST_MODE = "true";
+
+    // Pre-tick snapshot of the fixture
+    const gPreTick = await testDb
+      .select({ currentStep: seTable.currentStep, nextActionAt: seTable.nextActionAt, status: seTable.status })
+      .from(seTable)
+      .where(eq(seTable.id, seededGEnrollmentId))
+      .limit(1);
+    const preTickStep = gPreTick[0]?.currentStep ?? -1;
+    const preTickNextActionAt = gPreTick[0]?.nextActionAt;
+
+    const scenarioGStartTime = new Date();
+    const { processSequenceEnrollments } = await import("../server/services/sequence-worker");
+    const gTick = await processSequenceEnrollments();
+
+    if (gTick.processed >= 1) ok(`worker tick processed ${gTick.processed} enrollment(s)`);
+    else fail(`worker tick processed 0 enrollments — fixture was not picked up (lock contention or gate regression)`);
+    if (gTick.errors === 0) ok("worker tick reported 0 errors");
+    else fail(`worker tick reported ${gTick.errors} error(s)`);
+
+    // 6. Fixture: marker cleared + advanced exactly one step, not duplicated
+    const gPostTick = await testDb
+      .select({
+        currentStep: seTable.currentStep,
+        nextActionAt: seTable.nextActionAt,
+        status: seTable.status,
+        metadata: seTable.metadata,
+      })
+      .from(seTable)
+      .where(eq(seTable.id, seededGEnrollmentId))
+      .limit(1);
+    const gMeta2 = (gPostTick[0]?.metadata as Record<string, unknown>) ?? {};
+
+    if (gMeta2._holdDeferredAt == null && gMeta2._holdDeferredStep == null && gMeta2._holdDeferredReason == null)
+      ok("_holdDeferredAt/_holdDeferredStep/_holdDeferredReason cleared by worker tick");
+    else fail(
+      `_holdDeferred marker not fully cleared: ` +
+      `at=${gMeta2._holdDeferredAt}, step=${gMeta2._holdDeferredStep}, reason=${gMeta2._holdDeferredReason}`,
+    );
+
+    const postTickStep = gPostTick[0]?.currentStep ?? -1;
+    if (postTickStep === preTickStep + 1)
+      ok(`fixture advanced exactly one step: ${preTickStep} → ${postTickStep}`);
+    else fail(`fixture should advance exactly one step (${preTickStep} → ${preTickStep + 1}), got ${postTickStep}`);
+
+    const postNextActionAt = gPostTick[0]?.nextActionAt;
+    if (
+      postNextActionAt instanceof Date &&
+      (!(preTickNextActionAt instanceof Date) || postNextActionAt.getTime() > preTickNextActionAt.getTime())
+    )
+      ok("fixture nextActionAt moved forward after the executed step");
+    else fail(`fixture nextActionAt did not move forward (before=${preTickNextActionAt}, after=${postNextActionAt})`);
+
+    if (gPostTick[0]?.status === "active")
+      ok("fixture enrollment still 'active' after advancing (not completed/paused)");
+    else fail(`fixture enrollment status after tick should be 'active', got '${gPostTick[0]?.status}'`);
+
+    // Not re-enrolled or duplicated: exactly one enrollment row for this
+    // contact+sequence pair.
+    const gDupCheck = await testPool.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM sequence_enrollments
+       WHERE contact_id = $1 AND sequence_id = $2`,
+      [seededContactId, seededGSequenceId],
+    );
+    if (parseInt(gDupCheck.rows[0]?.count ?? "0", 10) === 1)
+      ok("fixture not re-enrolled or duplicated (exactly 1 enrollment row for contact+sequence)");
+    else fail(`expected exactly 1 enrollment row for the fixture pair, got ${gDupCheck.rows[0]?.count}`);
+
+    // 7. No enrollment outside the fixture was mutated by the tick
+    const gOtherMutations = await testPool.query<{ id: number }>(
+      `SELECT id FROM sequence_enrollments
+       WHERE id != $1 AND updated_at > $2`,
+      [seededGEnrollmentId, scenarioGStartTime],
+    );
+    if (gOtherMutations.rows.length === 0)
+      ok("zero non-fixture enrollments mutated during the worker tick");
+    else fail(
+      `${gOtherMutations.rows.length} non-fixture enrollment(s) mutated during the tick: ` +
+      gOtherMutations.rows.slice(0, 5).map(r => r.id).join(", "),
+    );
+
+  } catch (err: any) {
+    fail("Scenario G", err?.message);
+  }
+
+  // ── Scenario H: worker tick between unpause and approveRelease keeps the
+  //    enrollment blocked — the release_pending hold must NOT be bypassed.
+  //    After approveRelease a second tick then advances the enrollment.
+  section("Scenario H: release_pending hold blocks worker tick; second tick (post-approve) advances");
+
+  try {
+    if (seededContactId === null) throw new Error("No test contact seeded");
+
+    // 1. Seed a dedicated fixture sequence (active, operations category, wait steps)
+    const hSeqIns = await testPool.query<{ id: number }>(
+      `INSERT INTO follow_up_sequences (name, trigger_type, trigger_config, total_steps, status, created_by)
+       VALUES ($1, 'manual', $2::jsonb, 3, 'active', $3)
+       RETURNING id`,
+      [
+        `Pause Unit Test H ${TEST_RUN_SUFFIX}`,
+        JSON.stringify({ category: "operations" }),
+        TEST_ACTOR,
+      ],
+    );
+    seededHSequenceId = hSeqIns.rows[0]?.id ?? null;
+    if (seededHSequenceId === null) throw new Error("Scenario H sequence insert returned no ID");
+
+    for (const stepOrder of [1, 2, 3]) {
+      await testPool.query(
+        `INSERT INTO sequence_steps (sequence_id, step_order, action_type, delay_days, delay_hours, subject, body)
+         VALUES ($1, $2, 'wait', 0, 0, NULL, NULL)`,
+        [seededHSequenceId, stepOrder],
+      );
+    }
+
+    const hEnrollIns = await testDb.insert(seTable).values({
+      contactId: seededContactId,
+      sequenceId: seededHSequenceId,
+      currentStep: 1,
+      status: "active",
+      nextActionAt: new Date(Date.now() - 60_000), // due now
+      metadata: {} as any,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as any).returning({ id: seTable.id });
+    seededHEnrollmentId = hEnrollIns[0]?.id ?? null;
+    if (seededHEnrollmentId === null) throw new Error("Scenario H enrollment insert returned no ID");
+    ok(`Fixture seeded: sequence=${seededHSequenceId}, enrollment=${seededHEnrollmentId}`);
+
+    // 2. Pause + write _holdDeferred marker
+    const hPause = await applyPauseMutation({
+      outboundGlobalPaused: true,
+      reason: "Isolation-test pause — unit test scenario H",
+      actor: TEST_ACTOR,
+      correlationId: TEST_CORRELATION_ID_H,
+    });
+    if (hPause.ok && hPause.control.outboundGlobalPaused === true)
+      ok("applyPauseMutation(pause) committed for Scenario H");
+    else fail("Scenario H pause did not commit");
+
+    const hPauseHolds = await testPool.query<{ hold_id: string; logical_job_key: string }>(
+      `SELECT DISTINCT h.hold_id, h.logical_job_key
+       FROM logical_job_hold_events e
+       JOIN logical_job_control_holds h ON h.hold_id = e.hold_id
+       WHERE e.event_type = 'activated'
+         AND e.reason_code = 'global_outbound'
+         AND e.correlation_id = $1
+         AND h.active = true`,
+      [TEST_CORRELATION_ID_H],
+    );
+    for (const r of hPauseHolds.rows) testCreatedHoldIds.add(r.hold_id);
+
+    await writeHoldDeferralMarker(
+      seededHEnrollmentId,
+      1,
+      "Coordinator hold active on 'sequences' — unit test scenario H",
+      null,
+      testDb,
+    );
+    const hMetaPaused = await testDb
+      .select({ metadata: seTable.metadata })
+      .from(seTable)
+      .where(eq(seTable.id, seededHEnrollmentId))
+      .limit(1);
+    const hMeta0 = (hMetaPaused[0]?.metadata as Record<string, unknown>) ?? {};
+    if (typeof hMeta0._holdDeferredAt === "string")
+      ok("_holdDeferredAt set on Scenario H fixture after pause");
+    else fail("writeHoldDeferralMarker did not set _holdDeferredAt on Scenario H fixture");
+
+    // 3. Unpause — holds transition to release_pending
+    const hUnpause = await applyPauseMutation({
+      outboundGlobalPaused: false,
+      reason: "Isolation-test unpause — unit test scenario H",
+      actor: TEST_ACTOR,
+      correlationId: TEST_CORRELATION_ID_H,
+    });
+    if (hUnpause.ok && hUnpause.control.outboundGlobalPaused === false)
+      ok("applyPauseMutation(unpause) committed for Scenario H");
+    else fail("Scenario H unpause did not commit");
+
+    const hRpHolds = await testPool.query<{ hold_id: string; logical_job_key: string }>(
+      `SELECT DISTINCT h.hold_id, h.logical_job_key
+       FROM logical_job_hold_events e
+       JOIN logical_job_control_holds h ON h.hold_id = e.hold_id
+       WHERE e.event_type = 'activated'
+         AND e.reason_code = 'release_pending'
+         AND e.correlation_id = $1
+         AND h.active = true`,
+      [TEST_CORRELATION_ID_H],
+    );
+    for (const r of hRpHolds.rows) testCreatedHoldIds.add(r.hold_id);
+    if (hRpHolds.rows.some(r => r.logical_job_key === "sequences"))
+      ok("release_pending hold present on 'sequences' before early tick");
+    else fail("Expected a release_pending hold on 'sequences' after Scenario H unpause");
+
+    // 4. Worker tick BEFORE approveRelease — enrollment must NOT advance
+    const hPreTickSnap = await testDb
+      .select({ currentStep: seTable.currentStep, metadata: seTable.metadata, status: seTable.status })
+      .from(seTable)
+      .where(eq(seTable.id, seededHEnrollmentId))
+      .limit(1);
+    const hPreStep = hPreTickSnap[0]?.currentStep ?? -1;
+
+    process.env.TEST_MODE = "true";
+    const { processSequenceEnrollments: processSeqH } = await import("../server/services/sequence-worker");
+    const hEarlyTick = await processSeqH();
+
+    const hAfterEarlyTick = await testDb
+      .select({ currentStep: seTable.currentStep, metadata: seTable.metadata, status: seTable.status })
+      .from(seTable)
+      .where(eq(seTable.id, seededHEnrollmentId))
+      .limit(1);
+    const hMetaEarly = (hAfterEarlyTick[0]?.metadata as Record<string, unknown>) ?? {};
+
+    if (hAfterEarlyTick[0]?.currentStep === hPreStep)
+      ok(`enrollment NOT advanced by early tick (still at step ${hPreStep})`);
+    else fail(`enrollment advanced during early tick: step was ${hPreStep}, now ${hAfterEarlyTick[0]?.currentStep} — release_pending hold was bypassed`);
+
+    if (typeof hMetaEarly._holdDeferredAt === "string")
+      ok("_holdDeferred marker still present after early tick (hold still blocking)");
+    else fail("_holdDeferred marker was cleared by the early tick — release_pending hold did not block the worker");
+
+    if (hAfterEarlyTick[0]?.status === "active")
+      ok("fixture enrollment status still 'active' after early tick");
+    else fail(`fixture enrollment status should be 'active' after early tick, got '${hAfterEarlyTick[0]?.status}'`);
+
+    // 5. approveRelease — clears the release_pending hold
+    const hApprove = await outboundQueueCoordinator.approveRelease(
+      ["sequences"],
+      TEST_ACTOR,
+      TEST_CORRELATION_ID_H,
+    );
+    if (hApprove.count >= 1) ok(`approveRelease cleared ${hApprove.count} hold(s) for Scenario H`);
+    else fail("approveRelease cleared 0 holds for Scenario H — expected >= 1");
+
+    // 6. Second worker tick — now the hold is cleared; enrollment must advance
+    const hSecondTickSnap = await testDb
+      .select({ currentStep: seTable.currentStep, nextActionAt: seTable.nextActionAt })
+      .from(seTable)
+      .where(eq(seTable.id, seededHEnrollmentId))
+      .limit(1);
+    const hPreSecondStep = hSecondTickSnap[0]?.currentStep ?? -1;
+
+    // Push nextActionAt into the past so the worker's due-work query picks it up
+    await testPool.query(
+      `UPDATE sequence_enrollments SET next_action_at = NOW() - INTERVAL '1 minute' WHERE id = $1`,
+      [seededHEnrollmentId],
+    );
+
+    const hSecondTick = await processSeqH();
+
+    if (hSecondTick.processed >= 1)
+      ok(`second tick processed ${hSecondTick.processed} enrollment(s) after approveRelease`);
+    else fail("second tick processed 0 enrollments — fixture not picked up even after approveRelease");
+    if (hSecondTick.errors === 0) ok("second tick reported 0 errors");
+    else fail(`second tick reported ${hSecondTick.errors} error(s)`);
+
+    const hFinal = await testDb
+      .select({ currentStep: seTable.currentStep, metadata: seTable.metadata, status: seTable.status })
+      .from(seTable)
+      .where(eq(seTable.id, seededHEnrollmentId))
+      .limit(1);
+    const hMetaFinal = (hFinal[0]?.metadata as Record<string, unknown>) ?? {};
+
+    if (hMetaFinal._holdDeferredAt == null && hMetaFinal._holdDeferredStep == null && hMetaFinal._holdDeferredReason == null)
+      ok("_holdDeferred marker fully cleared by second tick");
+    else fail(
+      `_holdDeferred marker not cleared after second tick: ` +
+      `at=${hMetaFinal._holdDeferredAt}, step=${hMetaFinal._holdDeferredStep}, reason=${hMetaFinal._holdDeferredReason}`,
+    );
+
+    if (hFinal[0]?.currentStep === hPreSecondStep + 1)
+      ok(`fixture advanced exactly one step on second tick: ${hPreSecondStep} → ${hFinal[0]?.currentStep}`);
+    else fail(`expected step ${hPreSecondStep} → ${hPreSecondStep + 1}, got ${hFinal[0]?.currentStep}`);
+
+    if (hFinal[0]?.status === "active")
+      ok("fixture enrollment still 'active' after second tick");
+    else fail(`fixture enrollment status should be 'active' after second tick, got '${hFinal[0]?.status}'`);
+
+  } catch (err: any) {
+    fail("Scenario H", err?.message);
   }
 
 } finally {
