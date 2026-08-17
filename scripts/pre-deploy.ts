@@ -564,21 +564,22 @@ async function main() {
     // ── Reply / unsubscribe handlers ─────────────────────────────────────────
     "server/services/email-reply-handler.ts",
     "server/services/sms-reply-handler.ts",
-    // ── Upgraded to OutboundPauseAuthority + coordinator (#1531/#1532) ────────
-    // These files use OutboundPauseAuthority.authorize() instead of the raw
-    // outboundGlobalPaused DB setting. The authority class reads the DB setting
-    // internally, so the pause gate is enforced — just not via the literal string
-    // "outboundGlobalPaused". Static scan cannot detect the newer pattern.
-    "server/services/ghl-workflows.ts",             // Uses OutboundPauseAuthority (#1532)
-    "server/services/sequence-worker.ts",           // Upgraded to OutboundPauseAuthority (#1532)
-    "server/services/underwriting-checklist-service.ts", // Uses OutboundPauseAuthority (#1532)
-    "server/services/winback-outreach-engine.ts",   // Uses OutboundPauseAuthority (#1532)
-    "server/services/post-enrichment-worker.ts",    // Gated via OutboundPauseAuthority + coordinator (#1532)
-    "server/services/logical-job-manifest.ts",      // sendSmtpEmail transport always calls authorize() (#1531)
-    "server/services/sdr/orchestrator.ts",          // SDR has own globalPaused flag; coordinator gates sends (#1531)
   ]);
 
-  const NORMALIZED_PAUSE_PATTERN = /=== true|=== "true"|=== 'true'/;
+  // Matches the legacy normalized comparison OR a canonical authorize()/canExecute() call.
+  // The authority/coordinator pattern: `await authorize(` or `await canExecute(` in non-comment
+  // source is sufficient evidence that the pause gate is applied correctly.
+  const NORMALIZED_PAUSE_PATTERN =
+    /=== true|=== "true"|=== 'true'|await authorize\s*\(|await canExecute\s*\(/;
+
+  // Strip single-line (//) and block (/* */) TypeScript/JS comments so that
+  // commented-out code, log messages, and import-path strings inside comments
+  // cannot satisfy the gate detectors.
+  function stripComments(src: string): string {
+    return src
+      .replace(/\/\*[\s\S]*?\*\//g, " ")  // block comments
+      .replace(/\/\/[^\n]*/g, "");         // line comments
+  }
 
   // Discover all .ts files under server/services/ and server/routes/
   function walkDir(dir: string, files: string[] = []): string[] {
@@ -610,7 +611,8 @@ async function main() {
     } catch {
       continue;
     }
-    const hasSend = OUTBOUND_SEND_TOKENS.some(t => src.includes(t));
+    const stripped = stripComments(src);
+    const hasSend = OUTBOUND_SEND_TOKENS.some(t => stripped.includes(t));
     if (hasSend) outboundFiles.push(filePath);
   }
 
@@ -622,8 +624,15 @@ async function main() {
 
   for (const filePath of outboundFiles) {
     const src = readFileSync(filePath, "utf8");
-    const hasKey = src.includes("outboundGlobalPaused");
-    const hasNorm = NORMALIZED_PAUSE_PATTERN.test(src);
+    const stripped = stripComments(src);
+    // hasKey: legacy outboundGlobalPaused key, or canonical authority import, or coordinator call.
+    // All three are checked on comment-stripped source so that commented-out code and
+    // log messages cannot satisfy the detector.
+    const hasKey =
+      stripped.includes("outboundGlobalPaused") ||
+      stripped.includes("outbound-pause-authority") ||
+      /\bcanExecute\s*\(/.test(stripped);
+    const hasNorm = NORMALIZED_PAUSE_PATTERN.test(stripped);
     const label = filePath.replace("server/", "");
 
     if (!hasKey) {
@@ -638,15 +647,17 @@ async function main() {
   }
 
   for (const f of pausedFiles) {
-    console.log(`  ✓ ${f} — outboundGlobalPaused gate with normalized comparison`);
+    console.log(`  ✓ ${f} — pause gate confirmed (outboundGlobalPaused or OutboundPauseAuthority/coordinator)`);
   }
   for (const f of missingPause) {
-    console.error(`  ✗ KILL: ${f} — outboundGlobalPaused token MISSING`);
-    console.error(`    Add: const paused = await storage.getSystemSetting("outboundGlobalPaused"); if (paused === true || paused === "true") return;`);
+    console.error(`  ✗ KILL: ${f} — no pause gate found (neither outboundGlobalPaused nor OutboundPauseAuthority.authorize / coordinator.canExecute)`);
+    console.error(`    Legacy:    const paused = await storage.getSystemSetting("outboundGlobalPaused"); if (paused === true || paused === "true") return;`);
+    console.error(`    Canonical: const { authorize } = await import("./outbound-pause-authority"); const decision = await authorize({}); if (!decision.allowed) return;`);
   }
   for (const f of missingNorm) {
     console.error(`  ✗ KILL: ${f} — outboundGlobalPaused found but normalized comparison (=== true | === "true") MISSING`);
     console.error(`    Use: raw === true || raw === "true"  (not bare if (raw) which treats "false" as paused).`);
+    console.error(`    Or upgrade to canonical: const { authorize } = await import("./outbound-pause-authority"); const decision = await authorize({}); if (!decision.allowed) return;`);
   }
 
   if (staticScanFailed) {
@@ -658,7 +669,7 @@ async function main() {
     process.exit(1);
   }
   console.log(
-    `  ✓ All ${pausedFiles.length} discovered outbound file(s) have the normalised outboundGlobalPaused gate` +
+    `  ✓ All ${pausedFiles.length} discovered outbound file(s) have a recognised pause gate` +
     ` (${PAUSE_CHECK_EXEMPTIONS.size} files explicitly exempted)`
   );
 
