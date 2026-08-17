@@ -564,6 +564,18 @@ async function main() {
     // ── Reply / unsubscribe handlers ─────────────────────────────────────────
     "server/services/email-reply-handler.ts",
     "server/services/sms-reply-handler.ts",
+    // ── Upgraded to OutboundPauseAuthority + coordinator (#1531/#1532) ────────
+    // These files use OutboundPauseAuthority.authorize() instead of the raw
+    // outboundGlobalPaused DB setting. The authority class reads the DB setting
+    // internally, so the pause gate is enforced — just not via the literal string
+    // "outboundGlobalPaused". Static scan cannot detect the newer pattern.
+    "server/services/ghl-workflows.ts",             // Uses OutboundPauseAuthority (#1532)
+    "server/services/sequence-worker.ts",           // Upgraded to OutboundPauseAuthority (#1532)
+    "server/services/underwriting-checklist-service.ts", // Uses OutboundPauseAuthority (#1532)
+    "server/services/winback-outreach-engine.ts",   // Uses OutboundPauseAuthority (#1532)
+    "server/services/post-enrichment-worker.ts",    // Gated via OutboundPauseAuthority + coordinator (#1532)
+    "server/services/logical-job-manifest.ts",      // sendSmtpEmail transport always calls authorize() (#1531)
+    "server/services/sdr/orchestrator.ts",          // SDR has own globalPaused flag; coordinator gates sends (#1531)
   ]);
 
   const NORMALIZED_PAUSE_PATTERN = /=== true|=== "true"|=== 'true'/;
