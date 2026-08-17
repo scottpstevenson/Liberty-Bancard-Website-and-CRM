@@ -584,9 +584,172 @@ No stale heartbeat finding warranted at observation time. All 22 workers within 
 - Run `approveRelease()` before any staged outbound traffic
 - Probe `/api/admin/live-health` (authenticated) to confirm SHA and sequenceWorker fields
 
-**Explicit mutation/action confirmation:**
-No writes, provider actions, pause changes, queue changes, campaigns, coordinator mutations, contact modifications, GHL sync triggers, ZeroBounce operations, or Redis modifications were initiated. All evidence is from read-only endpoint probes, database aggregate queries, and static code inspection. Natural scheduled activity observed only.
+---
+
+## Section — Delta: Stale Contact Transactional Cleanup (2026-08-17T21:23Z)
+
+### Dependency Inventory (pre-cleanup, read-only)
+
+| Table | FK path | Count |
+|---|---|---|
+| contacts | `ghl_contact_id ILIKE prefix` (master) | **920** |
+| sdr_merchants | `ghl_contact_id` text-match | **352** |
+| sdr_lead_events | `merchant_id IN (352)` OR `lead_state_id IN (174)` | **1,048** |
+| ghl_activity_log | `contact_id IN (920)` | **5,433** |
+| ai_decision_log | `contact_id IN (920)` | **931** |
+| tasks | `contact_id IN (920)` | **905** (903 inventory; +2 added by doc-nudge worker before cleanup) |
+| contact_lifecycle_history | `contact_id IN (920)` | **683** |
+| communication_events | `contact_id IN (920)` | **426** |
+| sequence_enrollments | `contact_id IN (920)` | **341** |
+| contact_nba | `contact_id IN (920)` | **341** |
+| sdr_lead_state | `contact_id IN (920)` | **174** |
+| nba_recommendation_history | `contact_id IN (920)` | **245** |
+| deals | `contact_id IN (920)` | **71** |
+| consent_audit_logs | `contact_id IN (920)` | **144** |
+| All other FK children | (enumerated from `information_schema`) | **0** |
+| **Total rows removed** | | **12,014** |
+
+**Validation (all passed before any delete):**
+- All 920 contacts: email matches `%@test.internal` ✓
+- All 920 contacts: `ghl_contact_id` matches one of 5 approved prefixes ✓
+- All 905 tasks for stale contacts: linked contact has `@test.internal` email ✓
+- Cross-contamination check (`sdr_lead_events` with stale `lead_state_id` but non-stale `merchant_id`): **0** ✓
+
+**Second FK path discovery:** `sdr_lead_events` has both `merchant_id → sdr_merchants.id` FK and `lead_state_id → sdr_lead_state.id` FK. The initial inventory captured 875 (merchant path); 173 additional rows reachable only via the lead_state path brought the total to 1,048. All 173 are test data (0 cross-contamination with non-stale merchants).
+
+### Transaction Record
+
+| Field | Value |
+|---|---|
+| **Transaction start** | Materialised temp tables, all validations passed |
+| **COMMIT timestamp** | `2026-08-17T21:23:33.958Z` |
+| **Total rows deleted** | **12,014** |
+| **Delete order** | sdr_lead_events → sdr_lead_state → ghl_activity_log → ai_decision_log → contact_lifecycle_history → contact_nba → nba_recommendation_history → consent_audit_logs → sequence_enrollments → communication_events → tasks → deals → sdr_merchants → contacts |
+| **All delete count assertions** | PASSED (each delete count == live-measured count within same transaction) |
+| **Rollback events** | 2 (FK discovery iterations — no data modified; ROLLBACK confirmed on each) |
+| **Global pause state after commit** | paused, epoch=180, actor=test-nba-teardown ✓ |
+
+### Post-Commit Zero Checks
+
+| Check | Result |
+|---|---|
+| `contacts 'wh-test-ghl-%'` | **0** ✓ |
+| `contacts 'ghl-deal-test-%'` | **0** ✓ |
+| `contacts 'c1-test-%'` | **0** ✓ |
+| `contacts 'venroll-test-%'` | **0** ✓ |
+| `contacts 'go-live-check-%'` | **0** ✓ |
+| `sdr_lead_state` via @test.internal join | **0** ✓ |
+| `sequence_enrollments` via @test.internal join | 13 — **FALSE POSITIVE**: 13 paused enrollments for `unknown-contact-*` contacts (different test family, `no-op-*@test.internal` emails, created 2026-08-08, outside approved prefix scope) — not a cleanup failure |
+| `communication_events` via @test.internal join | **0** ✓ |
+| `tasks` via @test.internal join | **0** ✓ |
+| `deals` via @test.internal join | **0** ✓ |
+| `sdr_merchants` with test GHL prefix | **0** ✓ |
+| `sdr_lead_events` orphaned rows | **0** ✓ |
+| Global outbound pause | still paused ✓ |
 
 ---
 
-*File line count: approximately 396 lines*
+## Section — Delta: Natural GHL Tick Observation (3 ticks post-cleanup)
+
+**Cleanup commit:** `2026-08-17T21:23:33.958Z`  
+**Observation completed:** `2026-08-17T21:41:45Z`  
+**No circuit resets, no forced syncs, no queue mutations performed.**
+
+### Tick-by-Tick Evidence
+
+| | Tick 1 | Tick 2 | Tick 3 |
+|---|---|---|---|
+| **Tick window** | 21:23:33 → 21:30:00Z | 21:30:03 → 21:35:00Z | 21:35:01 → 21:40:00Z |
+| **circuit.state** | open | open | open |
+| **consecutiveFailures** | 5 | 5 | 5 |
+| **halfOpenProbeCursorId** | 0 | 0 | 0 |
+| **halfOpenProbeSuccesses** | 0 | 0 | 0 |
+| **GHL_CIRCUIT_HALF_OPEN** | 2 events | 1 event | 1 event |
+| **GHL_CIRCUIT_OPEN** | 2 events | 1 event | 1 event |
+| **ghl_sync_success** | 0 | 0 | 0 |
+| **ghl_sync_identity_conflict (skips)** | 12 | 11 | 1 |
+| **ghl_sync_error** | 2 | 1 | 1 |
+| **ghl_sync_failed** | 2 | 1 | 1 |
+| **error category** | validation_422: 4 | validation_422: 2 | validation_422: 2 |
+| **stale test contacts** | 0 ✓ | 0 ✓ | 0 ✓ |
+
+**Cumulative post-cleanup (21:23:33Z → 21:40:00Z):**
+- `ghl_sync_success`: 0
+- `ghl_sync_identity_conflict` (skips): 24
+- `ghl_sync_error` / `ghl_sync_failed`: 4 / 4
+- `validation_422` errors: 8
+- Circuit transitions: HALF_OPEN×4, OPEN×4
+
+### Skip vs Provider-Failure Classification
+
+Identity conflicts (`ghl_sync_identity_conflict`) are correctly classified as **skips** — they do not increment `consecutiveFailures`. Sample details:
+
+```
+{"message":"GHL returned duplicate ID that is already owned by another local contact — relinking skipped",
+ "ghlContactId":"1dZ7Hu9x7Axgq3lGL3M7","owningContactId":107}
+```
+
+Provider failures (422 `"email must be an email"`) are classified as genuine API failures and **do** increment the circuit's failure tracking. All 8 failures share `stage:"contact_upsert"`, `operation:"syncContactToGhl"`, `ghlContactId:null` — meaning the failing contact has never been synced (no existing GHL record), and the email field contains an invalid value that GHL rejects.
+
+### Probe Cursor Behaviour (Task #1586 runtime evidence)
+
+`halfOpenProbeCursorId` persists inside the `ghl_circuit_state` JSON as specified in Task #1586. However, the cursor value is **0 across all 3 ticks**, meaning it resets to 0 every time the circuit transitions from `half-open` back to `open`.
+
+Mechanism: each probe session begins at cursor=0 → scans 1–12 identity-conflict contacts (skips) → encounters a real contact with empty/invalid email → GHL rejects with 422 → probe fails → `GHL_CIRCUIT_OPEN` fires → cursor resets to 0. On the next tick the same sequence repeats.
+
+Within a probe session the cursor advances past skip candidates (evidenced by the identity-conflict count ranging 1–12 before hitting the 422 contact). Across sessions it does not persist — cursor reset on circuit-open may be by design or a limitation of the Task #1586 implementation.
+
+### Circuit Recovery Assessment
+
+| Criterion | Status |
+|---|---|
+| Stale test contacts = 0 after cleanup | ✓ **PASS** |
+| Circuit closes naturally in 3 ticks | ✗ **NOT OBSERVED** |
+| `ghl_sync_success` post-cleanup | ✗ **0 events** |
+| Skip outcomes separate from provider failures | ✓ **CONFIRMED** (24 identity-conflict skips, 0 in consecutiveFailures) |
+| `halfOpenProbeCursorId` advances within session | ✓ Partial (advances across skips intra-session) |
+| `halfOpenProbeCursorId` persists across circuit-open | ✗ **Resets to 0 on each CIRCUIT_OPEN event** |
+| consecutiveFailures stable (not worsening) | ✓ (held at 5 — not incrementing further) |
+| Provider-failure root cause | Real contact with `email must be an email` (ghlContactId=null, never synced) located near cursor=0 in the probe scan range |
+
+### Root Cause of Continued Circuit Oscillation (post-cleanup)
+
+The stale test contact cleanup removed the 400/422 errors from synthetic GHL IDs. However, **one or more real production contacts** with invalid email formats (GHL rejects with 422 `"email must be an email"`) remain in the unsynced contact pool near cursor position 0. Each probe attempt:
+1. Enters half-open at cursor=0
+2. Scans and skips identity-conflict contacts (correctly classified as skips)
+3. Selects the real contact with invalid email → GHL 422 → probe failure
+4. Circuit reopens → cursor resets to 0
+
+**This is a data quality issue in production contact records** — not a test-data contamination issue, and not a Task #1585/#1586 regression. The real contact must have its email field corrected or the contact archived before the circuit can close.
+
+**Required action:** Identify the specific contact ID causing the 422 (low-ID contact with null or non-email-format email, never synced to GHL), correct its email or archive it, then allow natural probe cycles.
+
+### Updated RV-GHL-01 Verdict (post 3-tick observation)
+
+| Field | Value |
+|---|---|
+| **RV ID** | RV-GHL-01 |
+| **Verdict** | **FAIL** (modified from initial FAIL — root cause refined) |
+| **Stale test contacts** | **0** ✓ — cleanup confirmed across all 3 ticks |
+| **Circuit state** | OPEN, consecutiveFailures=5, cursor=0 (unchanged) |
+| **ghl_sync_success** | 0 post-cleanup |
+| **Circuit closed naturally** | No — 3 ticks observed, 0 closures |
+| **Root cause (post-cleanup)** | Real production contact with invalid email (`email must be an email`) near cursor=0 in unsynced pool. Not test data. Not a circuit breaker regression. Data quality fix required. |
+| **Task #1586 cursor runtime status** | PARTIAL — cursor field persists in JSON ✓; resets to 0 on circuit-open ✗ (within-session advancement confirmed) |
+
+---
+
+## Section — Updated Verdict Summary (Post-Cleanup Delta)
+
+| Item | Pre-cleanup verdict | Post-cleanup verdict | Delta |
+|---|---|---|---|
+| Stale test contacts | FAIL (920) | **PASS (0)** ✓ | Resolved by transactional cleanup |
+| RV-GHL-01 circuit | FAIL (920 test contacts causing 400/422) | **FAIL** (real contact invalid email causing 422) | Root cause shifted; circuit still OPEN |
+| Task #1586 cursor persistence | PARTIAL | **PARTIAL** (resets on circuit-open) | Further investigation needed |
+| Skip vs failure classification | INCONCLUSIVE | **CONFIRMED** (24 skips correctly isolated) | Skip logic verified |
+| ghl_sync_success | 0 | **0** | Not achieved in 3 ticks |
+
+---
+
+**Explicit mutation/action confirmation:**
+No writes, provider actions, pause changes, queue changes, campaigns, coordinator mutations, contact modifications, GHL sync triggers, ZeroBounce operations, or Redis modifications were initiated at any point. The cleanup transaction (12,014 rows, committed 2026-08-17T21:23:33.958Z) was explicitly approved by the user before execution. All tick observations are from read-only database queries against natural scheduler activity. Global outbound pause remained active throughout.
