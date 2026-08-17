@@ -22,6 +22,7 @@ import { contacts, contactNba, nbaRecommendationHistory } from "@shared/schema";
 import { eq, inArray } from "drizzle-orm";
 import { NBAService } from "../server/services/nba-service";
 import { storage } from "../server/storage";
+import { applyPauseMutation } from "../server/services/outbound-control-service";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -98,12 +99,13 @@ async function main() {
   console.log("\n=== NBA Engine Tests ===\n");
   console.log(`  Run ID: ${RUN_ID}`);
 
-  // ── Save global pause before touching anything ────────────────────────────
-  const prevPause = await storage.getSystemSetting("outboundGlobalPaused");
-
   try {
-    // Ensure global pause is OFF for all cases except Case 6.
-    await storage.setSystemSetting("outboundGlobalPaused", "false");
+    // Ensure canonical pause is OFF for all cases except Case 6.
+    await applyPauseMutation({
+      outboundGlobalPaused: false,
+      actor: "test-nba-setup",
+      reason: "NBA test suite — disable canonical pause for integration tests",
+    });
 
     // ── Seed all fixture contacts up-front ───────────────────────────────────
     console.log("\n[setup] Seeding fixture contacts…");
@@ -168,14 +170,22 @@ async function main() {
     // ── Case 6: Global pause → BLOCKED ───────────────────────────────────────
     console.log("\nCase 6: Global pause → NO_ACTION BLOCKED");
     {
-      await storage.setSystemSetting("outboundGlobalPaused", "true");
+      await applyPauseMutation({
+        outboundGlobalPaused: true,
+        actor: "test-nba-case6",
+        reason: "NBA Case 6 — testing global_pause_active response",
+      });
       try {
         const rec = await NBAService.computeNBA(pauseTestId);
         ok("status is BLOCKED when globally paused", rec.status === "BLOCKED");
         ok("reasonCode is global_pause_active", rec.reasonCode === "global_pause_active");
       } finally {
         // Immediately restore pause=false so subsequent cases are unaffected
-        await storage.setSystemSetting("outboundGlobalPaused", "false");
+        await applyPauseMutation({
+          outboundGlobalPaused: false,
+          actor: "test-nba-case6-restore",
+          reason: "NBA Case 6 — restore to unpaused after pause test",
+        });
       }
     }
 
@@ -253,11 +263,15 @@ async function main() {
     }
 
   } finally {
-    // ── Always restore global pause (even on crash) ────────────────────────
+    // ── Always restore canonical pause to safe state (even on crash) ──────────
     try {
-      await storage.setSystemSetting("outboundGlobalPaused", prevPause ?? "false");
+      await applyPauseMutation({
+        outboundGlobalPaused: true,
+        actor: "test-nba-teardown",
+        reason: "NBA test suite — restore canonical pause to safe state",
+      });
     } catch (err: any) {
-      console.warn("[NBA test] Could not restore outboundGlobalPaused:", err?.message);
+      console.warn("[NBA test] Could not restore canonical pause:", err?.message);
     }
 
     // ── Always clean up fixture contacts ──────────────────────────────────

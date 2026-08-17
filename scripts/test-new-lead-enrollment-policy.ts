@@ -138,6 +138,7 @@ async function createTestContact(overrides: {
   doNotContact?: boolean;
   consentTier?: string;
   vertical?: string;
+  emailStatus?: string;
 } = {}): Promise<number> {
   const [row] = await db.insert(contacts).values({
     firstName: "TestNLE",
@@ -148,6 +149,7 @@ async function createTestContact(overrides: {
     doNotContact: overrides.doNotContact ?? false,
     consentTier: overrides.consentTier ?? "cold_no_consent",
     vertical: overrides.vertical ?? null,
+    ...(overrides.emailStatus !== undefined && { emailStatus: overrides.emailStatus }),
     lifecycleStage: "lead",
     status: "active",
   } as any).returning({ id: contacts.id });
@@ -832,7 +834,7 @@ async function runPartB(): Promise<void> {
     await setVerticalSequenceMap({ __unknown__: unknownSeqId });
     await setDefaultSequenceId(activeSeqId);
     await setAutoEnrollEnabled(true);
-    const cB23 = await createTestContact({ vertical: null });
+    const cB23 = await createTestContact({ vertical: null, emailStatus: "valid" });
     await createTestDeal(cB23);
     await runNewLeadAutoEnrollCheck();
     await setAutoEnrollEnabled(false); // restore kill-line immediately

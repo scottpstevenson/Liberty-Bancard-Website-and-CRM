@@ -32,6 +32,25 @@ import { canEnrollContactInSequence } from "../server/services/sequence-eligibil
 import { autoEnrollFromTrigger, processSequenceEnrollments } from "../server/services/sequence-worker";
 import { generateUnsubscribeToken, verifyUnsubscribeToken } from "../server/services/unsubscribe-token";
 import { isColdOutreachSequence, getComplianceFooterHtml } from "../server/services/email-signatures";
+import { applyPauseMutation } from "../server/services/outbound-control-service";
+
+/**
+ * Deactivate all active coordinator holds (global-pause, release_pending, etc.)
+ * so canExecute("sequences") returns true when the test needs canonical pause OFF.
+ *
+ * Root cause: applyPauseMutation(false) transitions pause holds to release_pending
+ * (active=true), which makes canExecute() return false even after pause is lifted.
+ * The production path requires an admin-triggered staged-release approval, but
+ * tests need the holds cleared immediately. Call after applyPauseMutation(false)
+ * in any test case that needs the sequence worker to run without the hold gate.
+ */
+async function clearCoordinatorHolds(): Promise<void> {
+  await pool.query(
+    `UPDATE logical_job_control_holds
+     SET active = false, released_at = NOW()
+     WHERE active = true`,
+  );
+}
 
 let passed = 0;
 let failed = 0;
@@ -44,7 +63,6 @@ const testSequenceIds: number[] = [];
 // Capture the ORIGINAL pause state before any test mutation so that SIGTERM,
 // SIGINT, uncaughtException, and unhandledRejection all restore it correctly.
 let snapshotPaused: boolean = true;  // safe default; overwritten by runTests()
-let snapshotPausedReason: string | null = null;
 let cleaningUpGlobal = false;
 
 async function emergencyCleanup(signal: string): Promise<void> {
@@ -52,8 +70,11 @@ async function emergencyCleanup(signal: string): Promise<void> {
   cleaningUpGlobal = true;
   console.error(`\n[${signal}] Signal received — running emergency cleanup...`);
   try {
-    await storage.setSystemSetting("outboundGlobalPaused", snapshotPaused).catch(() => {});
-    await storage.setSystemSetting("outboundGlobalPausedReason", snapshotPausedReason).catch(() => {});
+    await applyPauseMutation({
+      outboundGlobalPaused: snapshotPaused,
+      actor: "test-sequence-compliance-emergency",
+      reason: "emergency cleanup — restoring canonical pause state",
+    }).catch(() => {});
     await cleanup();
   } catch (_) {}
   try { await pool.end(); } catch (_) {}
@@ -145,9 +166,12 @@ async function insertPewcEvidence(contactId: number): Promise<void> {
 }
 
 async function cleanup(): Promise<void> {
-  // Restore global pause to safe/enabled state regardless of what tests left it as
-  await storage.setSystemSetting("outboundGlobalPaused", true).catch(() => {});
-  await storage.setSystemSetting("outboundGlobalPausedReason", null).catch(() => {});
+  // Restore canonical pause to pre-test state regardless of what tests left it as
+  await applyPauseMutation({
+    outboundGlobalPaused: snapshotPaused,
+    actor: "test-sequence-compliance-cleanup",
+    reason: "test cleanup — restoring canonical pause to pre-test state",
+  }).catch(() => {});
 
   // Clean sequence enrollments before sequences (FK)
   if (testSequenceIds.length > 0) {
@@ -386,70 +410,87 @@ async function testCase13(): Promise<void> {
 async function testCase14(): Promise<void> {
   console.log("\nCase 14 (Execution-Time Gate preserved): processSequenceEnrollments pauses enrollment before send");
 
-  const contactId = await makeContact({ doNotAutoContact: true });
-  const seqId = await makeAutoTriggerSequence({
-    triggerType: "test_gate14_exec",
-    stepActionTypes: ["email"],
-  });
+  const savedMode14 = process.env.TEST_MODE;
+  const savedDry14  = process.env.DRY_RUN;
+  const savedAi14   = process.env.SKIP_AI;
+  // TEST_MODE + DRY_RUN prevent real sends / GHL API calls for the 800+ other
+  // enrollments that run alongside our test contact when coordinator holds are cleared.
+  process.env.TEST_MODE = "true";
+  process.env.DRY_RUN   = "true";
+  process.env.SKIP_AI   = "true";
 
-  // Insert enrollment directly — bypasses the pre-enrollment gate (simulates legacy row)
-  const pastTime = new Date(Date.now() - 5000); // due 5s ago
-  const [enrollment] = await db
-    .insert(sequenceEnrollments)
-    .values({
-      sequenceId: seqId,
-      contactId,
-      status: "active",
-      currentStep: 0,
-      nextActionAt: pastTime,
-    })
-    .returning({ id: sequenceEnrollments.id });
-
-  // Reset any stale job lock so the worker can run
-  await pool.query(
-    `UPDATE background_jobs SET status = 'idle' WHERE job_name = 'sequence-worker' AND status = 'running'`
-  );
-
-  // Disable global pause so Gate (a) is reached (cleanup always restores it to true)
-  await storage.setSystemSetting("outboundGlobalPaused", false);
   try {
-    const { processSequenceEnrollments } = await import("../server/services/sequence-worker");
-    await processSequenceEnrollments();
-  } finally {
-    await storage.setSystemSetting("outboundGlobalPaused", true);
-  }
+    const contactId = await makeContact({ doNotAutoContact: true });
+    const seqId = await makeAutoTriggerSequence({
+      triggerType: "test_gate14_exec",
+      stepActionTypes: ["email"],
+    });
 
-  // Brief pause to let any async audit-log writes settle
-  await new Promise(r => setTimeout(r, 300));
+    // Insert enrollment directly — bypasses the pre-enrollment gate (simulates legacy row)
+    const pastTime = new Date(Date.now() - 5000); // due 5s ago
+    const [enrollment] = await db
+      .insert(sequenceEnrollments)
+      .values({
+        sequenceId: seqId,
+        contactId,
+        status: "active",
+        currentStep: 0,
+        nextActionAt: pastTime,
+      })
+      .returning({ id: sequenceEnrollments.id });
 
-  // Enrollment should now be paused by Gate (a)
-  const [updated] = await db
-    .select({ status: sequenceEnrollments.status })
-    .from(sequenceEnrollments)
-    .where(eq(sequenceEnrollments.id, enrollment.id));
-
-  assert(
-    "Gate (a): processSequenceEnrollments paused enrollment for doNotAutoContact contact",
-    updated?.status === "paused",
-    `status=${updated?.status ?? "not found"}`
-  );
-
-  // Audit log must have been written by Gate (a)
-  const auditRows = await db
-    .select({ action: auditLogs.action })
-    .from(auditLogs)
-    .where(
-      and(
-        eq(auditLogs.entityId, contactId),
-        eq(auditLogs.action, "sequence_enrollment_blocked_contactability")
-      )
+    // Reset any stale job lock so the worker can run
+    await pool.query(
+      `UPDATE background_jobs SET status = 'idle' WHERE job_name = 'sequence-worker' AND status = 'running'`
     );
 
-  assert(
-    "Gate (a): sequence_enrollment_blocked_contactability audit log written",
-    auditRows.length > 0,
-    `found ${auditRows.length} matching audit log rows`
-  );
+    // Disable canonical pause so Gate (a) is reached (cleanup always restores it)
+    await applyPauseMutation({ outboundGlobalPaused: false, actor: "test-case14", reason: "case 14 — disable canonical pause to reach gate (a)" });
+    // Clear coordinator holds (release_pending from prior pause activation) so canExecute() returns true
+    await clearCoordinatorHolds();
+    try {
+      const { processSequenceEnrollments } = await import("../server/services/sequence-worker");
+      await processSequenceEnrollments();
+    } finally {
+      await applyPauseMutation({ outboundGlobalPaused: true, actor: "test-case14", reason: "case 14 — restore canonical pause after test" });
+    }
+
+    // Brief pause to let any async audit-log writes settle
+    await new Promise(r => setTimeout(r, 300));
+
+    // Enrollment should now be paused by Gate (a)
+    const [updated] = await db
+      .select({ status: sequenceEnrollments.status })
+      .from(sequenceEnrollments)
+      .where(eq(sequenceEnrollments.id, enrollment.id));
+
+    assert(
+      "Gate (a): processSequenceEnrollments paused enrollment for doNotAutoContact contact",
+      updated?.status === "paused",
+      `status=${updated?.status ?? "not found"}`
+    );
+
+    // Audit log must have been written by Gate (a)
+    const auditRows = await db
+      .select({ action: auditLogs.action })
+      .from(auditLogs)
+      .where(
+        and(
+          eq(auditLogs.entityId, contactId),
+          eq(auditLogs.action, "sequence_enrollment_blocked_contactability")
+        )
+      );
+
+    assert(
+      "Gate (a): sequence_enrollment_blocked_contactability audit log written",
+      auditRows.length > 0,
+      `found ${auditRows.length} matching audit log rows`
+    );
+  } finally {
+    if (savedMode14 === undefined) delete process.env.TEST_MODE; else process.env.TEST_MODE = savedMode14;
+    if (savedDry14  === undefined) delete process.env.DRY_RUN;   else process.env.DRY_RUN   = savedDry14;
+    if (savedAi14   === undefined) delete process.env.SKIP_AI;   else process.env.SKIP_AI   = savedAi14;
+  }
 }
 
 // Minimal sequence object helper
@@ -823,10 +864,18 @@ async function testCase22(): Promise<void> {
 async function testCase23(): Promise<void> {
   console.log("\nCase 23 (CAN-SPAM): Worker pauses cold-email enrollment when mailing address is missing");
 
-  const savedAddr = process.env.COMPLIANCE_MAILING_ADDRESS_TEST_OVERRIDE;
-  const savedAppUrl = process.env.APP_URL;
+  const savedAddr    = process.env.COMPLIANCE_MAILING_ADDRESS_TEST_OVERRIDE;
+  const savedAppUrl  = process.env.APP_URL;
+  const savedMode23  = process.env.TEST_MODE;
+  const savedDry23   = process.env.DRY_RUN;
+  const savedAi23    = process.env.SKIP_AI;
 
-  process.env.APP_URL = "https://test.libertybancard.com";
+  // TEST_MODE + DRY_RUN prevent real sends / GHL API calls for the 800+ other
+  // enrollments that run when coordinator holds are cleared.
+  process.env.APP_URL   = "https://test.libertybancard.com";
+  process.env.TEST_MODE = "true";
+  process.env.DRY_RUN   = "true";
+  process.env.SKIP_AI   = "true";
 
   try {
     const tag = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -882,13 +931,15 @@ async function testCase23(): Promise<void> {
       `UPDATE background_jobs SET status = 'idle' WHERE job_name = 'sequence-worker' AND status = 'running'`
     );
 
-    // Disable global pause so the mailing-address gate is reached (cleanup restores it to true)
-    await storage.setSystemSetting("outboundGlobalPaused", false);
+    // Disable canonical pause so the mailing-address gate is reached (cleanup restores it)
+    await applyPauseMutation({ outboundGlobalPaused: false, actor: "test-case23", reason: "case 23 — disable canonical pause to reach mailing-address gate" });
+    // Clear coordinator holds so canExecute() returns true
+    await clearCoordinatorHolds();
     const { processSequenceEnrollments: pse } = await import("../server/services/sequence-worker");
     try {
       await pse();
     } finally {
-      await storage.setSystemSetting("outboundGlobalPaused", true);
+      await applyPauseMutation({ outboundGlobalPaused: true, actor: "test-case23", reason: "case 23 — restore canonical pause after test" });
     }
 
     await new Promise(r => setTimeout(r, 300));
@@ -921,10 +972,11 @@ async function testCase23(): Promise<void> {
 
     (workerStorage as any).getSystemSetting = origGetSystemSetting;
   } finally {
-    if (savedAddr === undefined) delete process.env.COMPLIANCE_MAILING_ADDRESS_TEST_OVERRIDE;
-    else process.env.COMPLIANCE_MAILING_ADDRESS_TEST_OVERRIDE = savedAddr;
-    if (savedAppUrl === undefined) delete process.env.APP_URL;
-    else process.env.APP_URL = savedAppUrl;
+    if (savedAddr   === undefined) delete process.env.COMPLIANCE_MAILING_ADDRESS_TEST_OVERRIDE; else process.env.COMPLIANCE_MAILING_ADDRESS_TEST_OVERRIDE = savedAddr;
+    if (savedAppUrl === undefined) delete process.env.APP_URL;   else process.env.APP_URL   = savedAppUrl;
+    if (savedMode23 === undefined) delete process.env.TEST_MODE; else process.env.TEST_MODE = savedMode23;
+    if (savedDry23  === undefined) delete process.env.DRY_RUN;   else process.env.DRY_RUN   = savedDry23;
+    if (savedAi23   === undefined) delete process.env.SKIP_AI;   else process.env.SKIP_AI   = savedAi23;
   }
 }
 
@@ -1101,9 +1153,10 @@ async function makeEnrollment(contactId: number, sequenceId: number): Promise<nu
   return enr.id;
 }
 
-// Case 26: Global pause ON → email step skipped, enrollment paused, audit log written
+// Case 26: Global pause ON → enrollment stays ACTIVE with _holdDeferred* metadata + hold-deferred audit log
+// Post-#1532 contract: enrollment is NOT paused; the hold is logical (metadata + audit log only).
 async function testCase26(): Promise<void> {
-  console.log("\nCase 26 (Kill Switch): Global pause ON → enrollment paused + audit log written");
+  console.log("\nCase 26 (Kill Switch): Global pause ON → enrollment stays active + hold-deferred audit log written");
   const savedMode = process.env.TEST_MODE;
   const savedDry = process.env.DRY_RUN;
   const savedSkipAi = process.env.SKIP_AI;
@@ -1112,8 +1165,11 @@ async function testCase26(): Promise<void> {
   process.env.SKIP_AI = "true";
 
   try {
-    await storage.setSystemSetting("outboundGlobalPaused", true);
-    await storage.setSystemSetting("outboundGlobalPausedReason", "Test pause case-26");
+    await applyPauseMutation({
+      outboundGlobalPaused: true,
+      actor: "test-case26",
+      reason: "Test pause case-26",
+    });
 
     const { seqId } = await makeKillSwitchSequence();
     const contactId = await makeContact({ emailStatus: "active", consentTier: "warm_no_pewc" });
@@ -1123,28 +1179,48 @@ async function testCase26(): Promise<void> {
     await processSequenceEnrollments();
     await new Promise(r => setTimeout(r, 300));
 
-    // Enrollment should be paused
-    const [enr] = await db.select({ status: sequenceEnrollments.status }).from(sequenceEnrollments).where(eq(sequenceEnrollments.id, enrollId));
-    assert("Case 26: enrollment.status = paused after global kill", enr?.status === "paused", `status=${enr?.status}`);
+    // Post-#1532 contract: enrollment stays ACTIVE (hold is logical, not physical pause)
+    const [enr] = await db
+      .select({ status: sequenceEnrollments.status, metadata: sequenceEnrollments.metadata })
+      .from(sequenceEnrollments)
+      .where(eq(sequenceEnrollments.id, enrollId));
+    assert("Case 26: enrollment.status stays active after canonical pause (hold is logical)", enr?.status === "active", `status=${enr?.status}`);
 
-    // Audit log must be written
-    const logs = await db
+    // _holdDeferred* metadata must be written by the worker
+    const meta = (enr?.metadata ?? {}) as Record<string, unknown>;
+    assert("Case 26: _holdDeferredStep set in enrollment metadata", meta._holdDeferredStep !== undefined, `meta=${JSON.stringify(meta)}`);
+    assert("Case 26: _holdDeferredReason set in enrollment metadata", typeof meta._holdDeferredReason === "string", `reason=${meta._holdDeferredReason}`);
+    assert("Case 26: _holdDeferredAt set in enrollment metadata", typeof meta._holdDeferredAt === "string", `at=${meta._holdDeferredAt}`);
+
+    // Canonical hold-deferred audit log must be written (replaces legacy sequence_step_skipped_global_pause)
+    const holdLogs = await db
+      .select({ action: auditLogs.action })
+      .from(auditLogs)
+      .where(and(eq(auditLogs.entityId, contactId), eq(auditLogs.action, "sequence_step_hold_deferred")));
+    assert("Case 26: sequence_step_hold_deferred audit log written", holdLogs.length > 0, `found=${holdLogs.length}`);
+
+    // Old audit action must NOT appear (post-#1532 code never writes it)
+    const legacyLogs = await db
       .select({ action: auditLogs.action })
       .from(auditLogs)
       .where(and(eq(auditLogs.entityId, contactId), eq(auditLogs.action, "sequence_step_skipped_global_pause")));
-    assert("Case 26: audit log sequence_step_skipped_global_pause written", logs.length > 0, `found=${logs.length}`);
+    assert("Case 26: legacy sequence_step_skipped_global_pause NOT written (post-#1532)", legacyLogs.length === 0, `found=${legacyLogs.length}`);
   } finally {
-    await storage.setSystemSetting("outboundGlobalPaused", false);
-    await storage.setSystemSetting("outboundGlobalPausedReason", null);
+    await applyPauseMutation({
+      outboundGlobalPaused: false,
+      actor: "test-case26",
+      reason: "case 26 finally — restore canonical pause to off",
+    });
     if (savedMode === undefined) delete process.env.TEST_MODE; else process.env.TEST_MODE = savedMode;
     if (savedDry === undefined) delete process.env.DRY_RUN; else process.env.DRY_RUN = savedDry;
     if (savedSkipAi === undefined) delete process.env.SKIP_AI; else process.env.SKIP_AI = savedSkipAi;
   }
 }
 
-// Case 27: Global pause dedup — second tick does NOT write a second audit log for same enrollment+step
+// Case 27: Global pause dedup — second tick does NOT write a second hold-deferred log for same enrollment+step
+// Post-#1532 contract: dedup key is _holdDeferredStep in enrollment metadata (enrollment stays active both ticks).
 async function testCase27(): Promise<void> {
-  console.log("\nCase 27 (Kill Switch): Global pause dedup — second tick skips duplicate audit log");
+  console.log("\nCase 27 (Kill Switch): Global pause dedup — second tick skips duplicate hold-deferred log");
   const savedMode = process.env.TEST_MODE;
   const savedDry = process.env.DRY_RUN;
   const savedSkipAi = process.env.SKIP_AI;
@@ -1153,8 +1229,11 @@ async function testCase27(): Promise<void> {
   process.env.SKIP_AI = "true";
 
   try {
-    await storage.setSystemSetting("outboundGlobalPaused", true);
-    await storage.setSystemSetting("outboundGlobalPausedReason", "Dedup test case-27");
+    await applyPauseMutation({
+      outboundGlobalPaused: true,
+      actor: "test-case27",
+      reason: "Dedup test case-27",
+    });
 
     const { seqId } = await makeKillSwitchSequence();
     const contactId = await makeContact({ emailStatus: "active", consentTier: "warm_no_pewc" });
@@ -1167,17 +1246,27 @@ async function testCase27(): Promise<void> {
     await processSequenceEnrollments();
     await new Promise(r => setTimeout(r, 300));
 
+    // After first tick: enrollment stays active, _holdDeferred* metadata written, one hold-deferred log
+    const [enr1] = await db
+      .select({ status: sequenceEnrollments.status, metadata: sequenceEnrollments.metadata })
+      .from(sequenceEnrollments)
+      .where(eq(sequenceEnrollments.id, enrollId));
+    assert("Case 27: enrollment stays active after first pause tick", enr1?.status === "active", `status=${enr1?.status}`);
+
     const logsAfterFirst = await db
       .select({ action: auditLogs.action })
       .from(auditLogs)
-      .where(and(eq(auditLogs.entityId, contactId), eq(auditLogs.action, "sequence_step_skipped_global_pause")));
+      .where(and(eq(auditLogs.entityId, contactId), eq(auditLogs.action, "sequence_step_hold_deferred")));
     const countAfterFirst = logsAfterFirst.length;
-    assert("Case 27: first tick writes exactly one audit log", countAfterFirst >= 1, `count=${countAfterFirst}`);
+    assert("Case 27: first tick writes at least one sequence_step_hold_deferred log", countAfterFirst >= 1, `count=${countAfterFirst}`);
 
-    // Re-activate enrollment so worker sees it again
-    await db.update(sequenceEnrollments).set({ status: "active" as any, nextActionAt: new Date(Date.now() - 1000) }).where(eq(sequenceEnrollments.id, enrollId));
+    // Re-activate enrollment (status → active, nextActionAt → past).
+    // Metadata is NOT cleared — _holdDeferredStep is preserved to trigger dedup on second tick.
+    await db.update(sequenceEnrollments)
+      .set({ status: "active" as any, nextActionAt: new Date(Date.now() - 1000) })
+      .where(eq(sequenceEnrollments.id, enrollId));
 
-    // Second tick — metadata check should prevent another audit log write.
+    // Second tick — _holdDeferredStep still in metadata → worker detects dedup, skips re-logging.
     // Reset lock again to ensure determinism.
     await pool.query("UPDATE background_jobs SET status = 'idle' WHERE job_name = $1", ["sequence-worker"]);
     await processSequenceEnrollments();
@@ -1186,20 +1275,25 @@ async function testCase27(): Promise<void> {
     const logsAfterSecond = await db
       .select({ action: auditLogs.action })
       .from(auditLogs)
-      .where(and(eq(auditLogs.entityId, contactId), eq(auditLogs.action, "sequence_step_skipped_global_pause")));
-    assert("Case 27: second tick does NOT write a second audit log (dedup)", logsAfterSecond.length === countAfterFirst, `before=${countAfterFirst} after=${logsAfterSecond.length}`);
+      .where(and(eq(auditLogs.entityId, contactId), eq(auditLogs.action, "sequence_step_hold_deferred")));
+    assert("Case 27: second tick does NOT write a second hold-deferred log (dedup)", logsAfterSecond.length === countAfterFirst, `before=${countAfterFirst} after=${logsAfterSecond.length}`);
   } finally {
-    await storage.setSystemSetting("outboundGlobalPaused", false);
-    await storage.setSystemSetting("outboundGlobalPausedReason", null);
+    await applyPauseMutation({
+      outboundGlobalPaused: false,
+      actor: "test-case27",
+      reason: "case 27 finally — restore canonical pause to off",
+    });
     if (savedMode === undefined) delete process.env.TEST_MODE; else process.env.TEST_MODE = savedMode;
     if (savedDry === undefined) delete process.env.DRY_RUN; else process.env.DRY_RUN = savedDry;
     if (savedSkipAi === undefined) delete process.env.SKIP_AI; else process.env.SKIP_AI = savedSkipAi;
   }
 }
 
-// Case 28: Global pause OFF → worker proceeds past the kill-switch gate (no pause audit log)
+// Case 28: Global pause OFF → worker proceeds past the canonical hold gate (no hold-deferred log)
+// Post-#1532: the gate writes sequence_step_hold_deferred, NOT sequence_step_skipped_global_pause.
+// Both must be absent when canonical pause is off, and enrollment metadata must not carry _holdDeferredReason.
 async function testCase28(): Promise<void> {
-  console.log("\nCase 28 (Kill Switch): Global pause OFF → kill-switch gate does not fire");
+  console.log("\nCase 28 (Kill Switch): Global pause OFF → canonical hold-deferred gate does not fire");
   const savedMode = process.env.TEST_MODE;
   const savedDry = process.env.DRY_RUN;
   const savedSkipAi = process.env.SKIP_AI;
@@ -1208,7 +1302,13 @@ async function testCase28(): Promise<void> {
   process.env.SKIP_AI = "true";
 
   try {
-    await storage.setSystemSetting("outboundGlobalPaused", false);
+    await applyPauseMutation({
+      outboundGlobalPaused: false,
+      actor: "test-case28",
+      reason: "case 28 — canonical pause off to verify hold gate does not fire",
+    });
+    // Clear coordinator holds (release_pending from prior pause cycles) so canExecute() returns true
+    await clearCoordinatorHolds();
 
     const { seqId } = await makeKillSwitchSequence();
     const contactId = await makeContact({ emailStatus: "active", consentTier: "warm_no_pewc" });
@@ -1217,15 +1317,27 @@ async function testCase28(): Promise<void> {
     await processSequenceEnrollments();
     await new Promise(r => setTimeout(r, 300));
 
-    const pauseLogs = await db
+    // Canonical hold-deferred gate must NOT have fired
+    const holdLogs = await db
+      .select({ action: auditLogs.action })
+      .from(auditLogs)
+      .where(and(eq(auditLogs.entityId, contactId), eq(auditLogs.action, "sequence_step_hold_deferred")));
+    assert("Case 28: no sequence_step_hold_deferred log when canonical pause is OFF", holdLogs.length === 0, `found=${holdLogs.length}`);
+
+    // Legacy audit action must also be absent (post-#1532 code never writes it)
+    const legacyLogs = await db
       .select({ action: auditLogs.action })
       .from(auditLogs)
       .where(and(eq(auditLogs.entityId, contactId), eq(auditLogs.action, "sequence_step_skipped_global_pause")));
-    assert("Case 28: no global-pause audit log when kill switch is OFF", pauseLogs.length === 0, `found=${pauseLogs.length}`);
+    assert("Case 28: no legacy sequence_step_skipped_global_pause log (post-#1532 code never writes it)", legacyLogs.length === 0, `found=${legacyLogs.length}`);
 
-    // Enrollment should NOT be paused by kill-switch (may be in any other state)
-    const [enr] = await db.select({ status: sequenceEnrollments.status }).from(sequenceEnrollments).where(eq(sequenceEnrollments.id, enrollId));
-    assert("Case 28: enrollment not killed by kill-switch gate when paused=false", enr?.status !== "paused" || pauseLogs.length === 0, `status=${enr?.status}`);
+    // Enrollment must not carry _holdDeferredReason in metadata (gate did not fire)
+    const [enr] = await db
+      .select({ status: sequenceEnrollments.status, metadata: sequenceEnrollments.metadata })
+      .from(sequenceEnrollments)
+      .where(eq(sequenceEnrollments.id, enrollId));
+    const meta = (enr?.metadata ?? {}) as Record<string, unknown>;
+    assert("Case 28: enrollment has no _holdDeferredReason (canonical pause gate did not fire)", meta._holdDeferredReason === undefined, `_holdDeferredReason=${meta._holdDeferredReason}`);
   } finally {
     if (savedMode === undefined) delete process.env.TEST_MODE; else process.env.TEST_MODE = savedMode;
     if (savedDry === undefined) delete process.env.DRY_RUN; else process.env.DRY_RUN = savedDry;
@@ -1245,7 +1357,9 @@ async function testCase29(): Promise<void> {
 
   const todayStr = new Date().toISOString().slice(0, 10);
   try {
-    await storage.setSystemSetting("outboundGlobalPaused", false);
+    await applyPauseMutation({ outboundGlobalPaused: false, actor: "test-case29", reason: "case 29 — disable canonical pause for daily-cap test" });
+    // Clear coordinator holds so canExecute("sequences") returns true
+    await clearCoordinatorHolds();
     await storage.setSystemSetting("outboundDailyEmailCap", 1);
 
     // Seed a send counter at or above cap
@@ -1297,7 +1411,9 @@ async function testCase30(): Promise<void> {
 
   const todayStr = new Date().toISOString().slice(0, 10);
   try {
-    await storage.setSystemSetting("outboundGlobalPaused", false);
+    await applyPauseMutation({ outboundGlobalPaused: false, actor: "test-case30", reason: "case 30 — disable canonical pause for daily-cap dedup test" });
+    // Clear coordinator holds so canExecute("sequences") returns true
+    await clearCoordinatorHolds();
     await storage.setSystemSetting("outboundDailyEmailCap", 1);
     await db.execute(
       `INSERT INTO outbound_send_counters (date, channel, scope, count, updated_at)
@@ -1351,7 +1467,9 @@ async function testCase31(): Promise<void> {
 
   const todayStr = new Date().toISOString().slice(0, 10);
   try {
-    await storage.setSystemSetting("outboundGlobalPaused", false);
+    await applyPauseMutation({ outboundGlobalPaused: false, actor: "test-case31", reason: "case 31 — disable canonical pause for transactional-bypass test" });
+    // Clear coordinator holds so canExecute("sequences") returns true
+    await clearCoordinatorHolds();
     await storage.setSystemSetting("outboundDailyEmailCap", 1);
     await db.execute(
       `INSERT INTO outbound_send_counters (date, channel, scope, count, updated_at)
@@ -1570,7 +1688,9 @@ async function testCase34(): Promise<void> {
   process.env.DRY_RUN = "true";
   process.env.SKIP_AI = "true";
   try {
-    await storage.setSystemSetting("outboundGlobalPaused", false);
+    await applyPauseMutation({ outboundGlobalPaused: false, actor: "test-case34b", reason: "case 34B — disable canonical pause for cap-reservation test" });
+    // Clear coordinator holds so canExecute("sequences") returns true
+    await clearCoordinatorHolds();
     await storage.setSystemSetting("outboundDailyEmailCap", CAP);
     // Seed: counter already AT cap
     await db.execute(
@@ -1658,7 +1778,9 @@ async function testCase36(): Promise<void> {
   const todayKey = `zerobounce_validation_count_${new Date().toISOString().slice(0, 10)}`;
 
   try {
-    await storage.setSystemSetting("outboundGlobalPaused", false);
+    await applyPauseMutation({ outboundGlobalPaused: false, actor: "test-case36", reason: "case 36 — disable canonical pause for ZB-gate test" });
+    // Clear coordinator holds so canExecute("sequences") returns true
+    await clearCoordinatorHolds();
     // Exhaust ZB budget: set daily limit to 1 and today's count to 1
     await storage.setSystemSetting("zerobounce_validation_daily_limit", 1);
     await storage.setSystemSetting(todayKey, 1);
@@ -1792,13 +1914,14 @@ async function runTests(): Promise<void> {
   // Snapshot the original pause state before any test mutation so that all
   // exit paths (normal, SIGTERM, SIGINT, uncaughtException) restore it correctly.
   try {
-    const rawPaused = await storage.getSystemSetting("outboundGlobalPaused");
-    snapshotPaused = rawPaused === true || rawPaused === "true" || String(rawPaused) === "true";
-    const rawReason = await storage.getSystemSetting("outboundGlobalPausedReason");
-    snapshotPausedReason = rawReason != null ? String(rawReason) : null;
+    // Read canonical pause state from outbound_pause_control (post-#1532 source of truth)
+    const { rows: pauseCtrlRows } = await pool.query<{ state: string }>(
+      `SELECT state FROM outbound_pause_control ORDER BY id LIMIT 1`
+    );
+    const canonicalState = pauseCtrlRows[0]?.state;
+    snapshotPaused = canonicalState !== "unpaused"; // "paused", "half-open", or missing → treat as paused
   } catch (_) {
-    snapshotPaused = true;
-    snapshotPausedReason = null;
+    snapshotPaused = true; // fail-safe: assume paused
   }
 
   try {

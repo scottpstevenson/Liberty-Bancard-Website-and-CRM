@@ -46,17 +46,35 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-# ── 1. Start the dev server in the background ─────────────────────────────────
+# ── 1. Pre-flight: ensure port 5000 is free ───────────────────────────────────
 echo "══════════════════════════════════════════════════════════════"
 echo " Liberty Bancard — Pre-Deploy Wrapper"
 echo "══════════════════════════════════════════════════════════════"
 echo ""
+echo "▶  Checking port 5000 availability…"
+_PORT_BUSY=0
+if command -v lsof >/dev/null 2>&1; then
+  lsof -Pi :5000 -sTCP:LISTEN -t >/dev/null 2>&1 && _PORT_BUSY=1 || true
+elif command -v ss >/dev/null 2>&1; then
+  ss -tlnH 'sport = :5000' 2>/dev/null | grep -q ':5000' && _PORT_BUSY=1 || true
+fi
+if [ "$_PORT_BUSY" -eq 1 ]; then
+  echo ""
+  echo "✗  Port 5000 is already in use. The pre-deploy gate starts its own server"
+  echo "   and cannot share the port. Stop any existing server and try again."
+  echo "   (Run: lsof -i :5000   to see what is using the port)"
+  exit 1
+fi
+echo "   ✓ Port 5000 is free"
+echo ""
+
+# ── 2. Start the dev server in the background ─────────────────────────────────
 echo "▶  Starting dev server (npm run dev)…"
 npm run dev &
 SERVER_PID=$!
 echo "   Server PID: $SERVER_PID"
 
-# ── 2. Wait for the health endpoint ──────────────────────────────────────────
+# ── 3. Wait for the health endpoint ──────────────────────────────────────────
 echo "▶  Waiting for ${HEALTH_URL} (up to ${MAX_WAIT_SECS}s)…"
 DEADLINE=$(( SECONDS + MAX_WAIT_SECS ))
 READY=0
@@ -81,12 +99,45 @@ if [ $READY -ne 1 ]; then
   exit 1
 fi
 
+# ── 4. Verify the server process we started is still alive ───────────────────
+# If another process was already on port 5000 (stale server), curl would have
+# returned 200 against that process, not ours. Confirming our PID is still live
+# catches the race between the port check and the server start.
+if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+  echo ""
+  echo "✗  Server process (pid $SERVER_PID) exited before or during the health poll."
+  echo "   Another server may have been occupying port 5000 and responded instead."
+  echo "   Ensure port 5000 is free before running this script."
+  exit 1
+fi
+
 # Give Express an extra moment to finish registering all routes/middleware.
 sleep 3
-echo "   ✓ Server ready at ${BASE_URL}"
+echo "   ✓ Server ready at ${BASE_URL} (pid $SERVER_PID)"
 echo ""
 
-# ── 3. Run the pre-deploy gate ────────────────────────────────────────────────
+# ── 5. SHA verification (if RELEASE_SHA is set) ───────────────────────────────
+# Compares the sha field returned by /api/health to RELEASE_SHA to confirm the
+# health endpoint is being served by the process we just started, not a stale one.
+if [ -n "${RELEASE_SHA:-}" ]; then
+  echo "▶  Verifying server SHA (RELEASE_SHA=${RELEASE_SHA:0:12}…)…"
+  _SERVER_SHA=$(curl -sf --max-time 5 "${HEALTH_URL}" 2>/dev/null \
+    | grep -o '"sha":"[^"]*"' | sed 's/"sha":"//;s/"//' || true)
+  if [ -z "$_SERVER_SHA" ]; then
+    echo "   ⚠  /api/health did not return a 'sha' field — skipping SHA comparison."
+  elif [ "$_SERVER_SHA" != "$RELEASE_SHA" ]; then
+    echo ""
+    echo "✗  SHA mismatch: server returned sha=${_SERVER_SHA}"
+    echo "   Expected RELEASE_SHA=${RELEASE_SHA}"
+    echo "   The server may be a stale instance from a prior run."
+    exit 1
+  else
+    echo "   ✓ Server SHA matches RELEASE_SHA (${RELEASE_SHA:0:12}…)"
+  fi
+  echo ""
+fi
+
+# ── 6. Run the pre-deploy gate ────────────────────────────────────────────────
 # IMPORTANT: Do NOT set INTEGRATION_TESTS_OPT_IN here. The isolated pause
 # state-machine test (scripts/test-pause-cycle-unit.ts) requires a separate
 # test database and Redis prefix, and must never run in ordinary CI without
