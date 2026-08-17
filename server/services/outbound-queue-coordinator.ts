@@ -686,7 +686,9 @@ class OutboundQueueCoordinator {
             ledger_epoch, active, activated_at, correlation_id, updated_at)
          VALUES ($1, 'release_pending', 'system', 'unpause-transition', $2, true, NOW(), $3, NOW())
          ON CONFLICT (logical_job_key, reason_code, source_key) WHERE active = true
-         DO UPDATE SET ledger_epoch = EXCLUDED.ledger_epoch, updated_at = NOW()
+         DO UPDATE SET ledger_epoch = EXCLUDED.ledger_epoch,
+                       correlation_id = EXCLUDED.correlation_id,
+                       updated_at = NOW()
          RETURNING hold_id`,
         [key, ledgerEpoch.toString(), correlationId ?? null],
       );

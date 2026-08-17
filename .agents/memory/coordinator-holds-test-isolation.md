@@ -28,3 +28,19 @@ run-scoped correlation UUID on every pause mutation, correlation-only teardown,
 shape-keyed pre/post snapshot of non-test holds, an uncorrelated-hold survival
 probe, and an untagged final pause restore so restored canonical holds outlive
 teardown. Follow the same pattern in any new test touching pause/hold state.
+
+## Production bug: ON CONFLICT must update correlation_id
+
+`transitionGlobalHoldsToReleasePending` upserts a `release_pending` hold via
+`ON CONFLICT (logical_job_key, reason_code, source_key) WHERE active = true`.
+The original DO UPDATE only refreshed `ledger_epoch` and `updated_at`, leaving
+`correlation_id` stale from the prior caller. A leftover hold with
+`correlation_id=null` from a previous pre-deploy run would survive
+`clearTestHolds(TEST_CORRELATION_ID)` (which filters on `correlation_id = $1`),
+keeping `canExecute("sequences") = false` and silently stalling Cases 14 & 23.
+
+**Fix:** Add `correlation_id = EXCLUDED.correlation_id` to the DO UPDATE SET
+clause in `outbound-queue-coordinator.ts → transitionGlobalHoldsToReleasePending`.
+**Why it is safe:** The hold row's identity is (key, reason_code, source_key,
+active=true); correlation_id is metadata, not part of the key — updating it is
+always correct when re-transitioning.
