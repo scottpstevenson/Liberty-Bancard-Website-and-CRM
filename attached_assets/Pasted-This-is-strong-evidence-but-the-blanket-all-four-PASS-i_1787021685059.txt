@@ -1,0 +1,90 @@
+This is strong evidence, but the blanket “all four PASS” is not supportable yet. Several acceptance checks were not actually completed.
+
+## Correct adjudication
+
+| Task group       | Defensible status                                 | Why                                                                                                                                                                   |
+| ---------------- | ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| #1597/#1600      | `CLOSED_STATIC` / `RUNTIME_VERIFICATION_REQUIRED` | Gateway, migration, disabled control, and bypass scan pass. Runtime observation lasted only 2m23s—not ten minutes or one full queue cadence.                          |
+| #1599            | `CLOSED_STATIC` / `PARTIALLY_CLOSED`              | Migration, index, backfill, and eligibility state pass. Actual cooldown/claim behavior awaits the controlled canary.                                                  |
+| #1598/#1604      | `PARTIALLY_CLOSED`                                | Circuit is healthy and 28 successes are excellent evidence, but the invalid-contact runtime path produced zero events and the exact deployed SHA was not established. |
+| #1609            | `CLOSED_STATIC` / `PARTIALLY_CLOSED`              | GET routes and unauthenticated rejection work. Non-admin role rejection and actual UI rendering were not verified.                                                    |
+| Release identity | `RUNTIME_VERIFICATION_REQUIRED`                   | The dev `/health` returning `sha=unset` says nothing about the published process. The public production endpoint was not probed.                                      |
+
+## Specific evidence problems
+
+1. **The “T+10” observation was only 143 seconds.**
+   `01:23:17Z → 01:25:40Z` is 2 minutes 23 seconds. Because the enrichment schedule runs every ten minutes, this could miss an entire scheduled execution.
+
+2. **Production release identity remains unverified.**
+   They tested the development process instead of the published deployment’s `/health`.
+
+3. **#1609 did not test role enforcement completely.**
+   Unauthenticated `401` is good, but the acceptance criteria also require an authenticated non-admin to receive `403`.
+
+4. **The UI itself was not verified.**
+   Endpoint responses do not prove the Operator Dashboard panels render the correct data and controls.
+
+5. **The invalid-contact runtime path was not exercised.**
+   Zero invalid-contact events means the circuit’s healthy state is proven, but the specific production skip behavior is supported by tests rather than runtime observation.
+
+6. **Tests are still contaminating shared control state.**
+   `actor=test-nba-teardown` advanced the production/shared pause epoch from 180 to 230. That contradicts “zero production mutations” and likely contributes to the 34 orphaned coordinator holds.
+
+7. **Serper diagnostic timestamps need attribution.**
+   `last_failure_at` and `last_success_at` with zero lifetime calls are acceptable only if they came from a fake transport. If a real diagnostic probe occurred without budget accounting, that is a gateway-accounting bypass.
+
+## Send Replit this minimal correction
+
+```text
+Correct the delta verification. Do not rerun the full audit and do not implement new features.
+
+1. Probe the actual published production URL:
+   - GET /health
+   - GET /api/health
+   Record the 40-character SHA and confirm #1597/#1598/#1599/#1609 commits are ancestors.
+   Do not use the dev workspace health response for release attribution.
+
+2. Repeat the Serper-disabled observation for at least 12 continuous minutes:
+   - Capture T0 and T+12 timestamps.
+   - This must cross at least one full 10-minute enrichment cadence.
+   - Report /search, /places, window, lifetime, success, failure, and yield deltas.
+   - Do not trigger any jobs or reset counters.
+
+3. Explain the two serper_manual_recovery diagnostic timestamps:
+   - Confirm whether transport was fake or real.
+   - Confirm whether the shared production serper_control row was mutated by tests.
+   - If a real provider request occurred, explain why it did not claim budget.
+   Do not run another recovery probe.
+
+4. Verify #1609 authorization:
+   - Authenticated admin GET succeeds.
+   - Authenticated manager/agent GET returns 403.
+   - Unauthenticated GET returns 401.
+   Do not invoke enable, reset, or recovery mutations.
+
+5. Verify the actual Operator Dashboard:
+   - Serper panel renders disabled/control/circuit/window values correctly.
+   - Invalid-contact panel renders its empty state.
+   - Mutation controls are visible only to authorized admins.
+   No buttons should be clicked.
+
+6. Reconcile test contamination:
+   - Report every production/shared control mutation made by test actors.
+   - Explain why outbound epoch advanced from 180 to 230.
+   - Inventory the 34 active coordinator holds by reason, correlation ID, actor, and creation time.
+   - Do not clear holds or change pause state.
+
+7. For GHL, retain the current healthy evidence:
+   - circuit closed
+   - consecutiveFailures=0
+   - 28 recent successes
+   - contact-not-found responses non-counting
+   Mark the invalid-contact runtime branch as test-verified unless a natural event occurs.
+   Do not force a sync or alter contact data.
+
+Return corrected statuses using:
+CLOSED_STATIC, CLOSED_RUNTIME, PARTIALLY_CLOSED, or RUNTIME_VERIFICATION_REQUIRED.
+Do not label all four CLOSED_RUNTIME unless the exact production SHA and each runtime criterion are evidenced.
+```
+
+Once these narrow corrections are complete, the recent task cluster can be reconciled into the 77-finding ledger. Then the final 39-row packet should be run, and the broader original CRM/master-audit backlog—not just these four tasks—can receive updated authoritative counts.
