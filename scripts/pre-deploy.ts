@@ -67,6 +67,11 @@ interface Suite {
 const MANDATORY_SUITES: Suite[] = [
   // ── Static / pure-function suites (no server required) ───────────────────
   {
+    name: "Tracked-File Exposure Scan (no backups/exports/dumps in git)",
+    script: "scripts/scan-tracked-files.ts",
+    timeoutSecs: 60,
+  },
+  {
     name: "Compliance Scan (send-gate coverage)",
     script: "scripts/compliance-scan.ts",
     timeoutSecs: 120,
