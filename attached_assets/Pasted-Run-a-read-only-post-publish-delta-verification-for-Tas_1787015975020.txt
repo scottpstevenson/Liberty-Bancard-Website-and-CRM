@@ -1,0 +1,115 @@
+Run a read-only post-publish delta verification for Tasks #1597, #1598, #1599, and #1609.
+
+Do not implement additional fixes during this pass. Do not mutate production control state, reset counters, trigger recovery, force GHL sync, run a Serper canary, contact a real provider, or lift global outbound pause.
+
+## 1. Release identity
+
+- Record workspace HEAD, origin/main, and production SHA from /health and /api/health.
+- Confirm the exact shipped task commits are ancestors of the production SHA.
+- Report any unpushed or unmerged commits.
+
+## 2. Task #1597 — Serper authority
+
+Verify:
+
+- Migration/control state exists.
+- Global Serper control is disabled.
+- Missing/malformed control state fails closed by static/test evidence.
+- Every /search and /places path imports the canonical gateway.
+- No raw Serper fetch bypasses remain.
+- Shared circuit and billing-window fields are populated.
+- Lifetime counters were preserved.
+- Window reset did not automatically enable Serper or close the circuit.
+- Atomic half-open claim and counter tests passed.
+
+Observe counters at T0 and T+10 minutes:
+
+- /search calls
+- /places calls
+- successes
+- failures
+- window calls
+- lifetime calls
+- yield counts
+
+PASS requires zero provider-call growth while disabled.
+
+Do not reset the counters.
+
+## 3. Task #1599 — merchant cooldown
+
+Verify:
+
+- Migration columns and eligibility index exist.
+- Existing 251 zero-yield merchants were not made immediately eligible.
+- Report counts by last outcome, attempt count, cooldown bucket, and current eligibility.
+- Confirm no merchant was selected more than once inside its cooldown.
+- Confirm provider/control failures did not increment merchant no-result attempts.
+- Confirm concurrent-claim tests passed.
+
+Do not manually requeue merchants.
+
+## 4. Task #1598 — GHL circuit recovery
+
+Observe 2–3 natural GHL ticks only.
+
+For each tick report:
+
+- circuit state
+- consecutiveFailures
+- halfOpenProbeCursorId
+- identity-conflict skips
+- invalid-contact skips
+- genuine provider failures
+- ghl_sync_success / ghl_sync_completed events
+
+Confirm:
+
+- Invalid-email contact is skipped without provider I/O where local validation catches it.
+- Known contact-level 422 does not increment circuit failures.
+- Cursor advances and persists across terminal skips.
+- A later valid contact succeeds.
+- Circuit closes naturally.
+
+Do not edit/archive the contact or reset the circuit.
+
+## 5. Task #1609 — admin surfaces and alerts
+
+Using an authenticated admin session, perform GET/read-only checks:
+
+- GET /api/admin/serper/control returns the committed control/circuit/window state.
+- OperatorDashboard displays the Serper panel accurately.
+- GET /api/admin/ghl/invalid-contacts returns deduplicated unresolved contacts.
+- Resolved contacts are excluded by default.
+- Non-admin access tests return 403.
+
+Do not use the live enable toggle, reset-window button, or recovery button.
+
+For alerts, rely on isolated fake-SMTP test evidence unless a natural production circuit transition occurs. Confirm:
+
+- Atomic cooldown claim
+- One alert per transition
+- No repeat alert while already open
+- SMTP failure cannot affect the circuit
+- Alerts use the approved outbound authorization path
+
+## 6. Safety verification
+
+Confirm throughout:
+
+- Global outbound pause remains active.
+- Serper remains disabled.
+- Zero real email/SMS/workflow/provider-send events occurred.
+- No production control, contact, queue, or counter mutations were made by this verification.
+
+## Deliverable
+
+Create one delta report containing:
+
+- exact production SHA
+- PASS/FAIL/PARTIAL for #1597, #1598, #1599, and #1609
+- timestamped runtime evidence
+- residual uncertainty
+- exact failed acceptance criterion, if any
+
+Update the reconciliation ledger from this evidence only. Do not modify the eight original audit files and do not declare unrelated findings closed.
