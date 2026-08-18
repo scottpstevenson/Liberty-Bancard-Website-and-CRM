@@ -13,7 +13,7 @@
 import { pool } from "../db";
 import { storage } from "../storage";
 
-const DEFAULT_DAILY_LIMIT = 500;
+const DEFAULT_DAILY_LIMIT = 5_000;
 
 function todayKey(): string {
   return `zerobounce_validation_count_${new Date().toISOString().slice(0, 10)}`;

@@ -3658,21 +3658,8 @@ function renderOperatorView(view: string, onNavigate: (v: string) => void) {
         </div>
       );
     case "data-quality":
-      return (
-        <div className="flex flex-col items-center justify-center h-64 gap-4">
-          <Database className="w-12 h-12 text-muted-foreground" />
-          <p className="text-lg font-medium">Data Quality Scanner</p>
-          <p className="text-sm text-muted-foreground text-center max-w-md">
-            Surface contacts with blank names, unvalidated emails, missing verticals, or no phone number. Validate emails lazily via ZeroBounce.
-          </p>
-          <a
-            href="/dashboard/data-quality"
-            className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-          >
-            Open Data Quality Scanner
-          </a>
-        </div>
-      );
+      return <ZbBacklogPanel />;
+
     case "score-all":
       return <ScoreAllPanel />;
     case "bulk-enroll":
@@ -6802,6 +6789,109 @@ interface ScoringProgress {
   completedAt: string | null;
   error?: string | null;
   jobRunning?: boolean;
+}
+
+// ── ZeroBounce Backlog Panel ──────────────────────────────────────────────────
+
+interface QualitySummary {
+  unvalidated_email: number;
+  zerobounce: { usedToday: number; dailyLimit: number; remainingToday: number };
+}
+
+function ZbBacklogPanel() {
+  const { data, isLoading } = useQuery<QualitySummary>({
+    queryKey: ["/api/contacts/quality-summary"],
+    queryFn: () => fetch("/api/contacts/quality-summary", { credentials: "include" }).then((r) => r.json()),
+    staleTime: 60_000,
+  });
+
+  const backlog = data?.unvalidated_email ?? 0;
+  const dailyLimit = data?.zerobounce.dailyLimit ?? 5000;
+  const usedToday = data?.zerobounce.usedToday ?? 0;
+  const remainingToday = data?.zerobounce.remainingToday ?? dailyLimit;
+
+  // Estimated clearance: remaining contacts / daily limit, rounded up, from today
+  const estDays = backlog > 0 ? Math.ceil(backlog / dailyLimit) : 0;
+  const clearanceDate = estDays > 0
+    ? new Date(Date.now() + estDays * 86_400_000).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
+    : null;
+
+  return (
+    <div className="space-y-4 max-w-2xl">
+      <div>
+        <h2 className="text-lg font-semibold">ZeroBounce Email Validation</h2>
+        <p className="text-sm text-muted-foreground mt-1">
+          Contacts with unvalidated email addresses — cleared via the durable multi-day campaign on the Data Quality page.
+        </p>
+      </div>
+
+      {isLoading ? (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
+          <Loader2 className="h-4 w-4 animate-spin" /> Loading backlog stats…
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <Card>
+            <CardContent className="py-4">
+              <p className="text-xs text-muted-foreground">Backlog</p>
+              <p className="text-2xl font-bold mt-1">{backlog.toLocaleString()}</p>
+              <p className="text-xs text-muted-foreground">unvalidated</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="py-4">
+              <p className="text-xs text-muted-foreground">Daily Limit</p>
+              <p className="text-2xl font-bold mt-1">{dailyLimit.toLocaleString()}</p>
+              <p className="text-xs text-muted-foreground">per day</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="py-4">
+              <p className="text-xs text-muted-foreground">Used Today</p>
+              <p className="text-2xl font-bold mt-1">{usedToday.toLocaleString()}</p>
+              <p className="text-xs text-muted-foreground">{remainingToday.toLocaleString()} remaining</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="py-4">
+              <p className="text-xs text-muted-foreground">Est. Clearance</p>
+              {estDays > 0 ? (
+                <>
+                  <p className="text-2xl font-bold mt-1">{estDays.toLocaleString()}d</p>
+                  <p className="text-xs text-muted-foreground">{clearanceDate}</p>
+                </>
+              ) : (
+                <>
+                  <p className="text-2xl font-bold mt-1 text-green-600">Done</p>
+                  <p className="text-xs text-muted-foreground">backlog clear</p>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {!isLoading && backlog > 0 && (
+        <div className="rounded-md border bg-amber-50 border-amber-200 px-4 py-3 text-sm text-amber-800 flex items-start gap-2">
+          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+          <span>
+            At {dailyLimit.toLocaleString()} validations/day, the backlog of{" "}
+            <span className="font-semibold">{backlog.toLocaleString()}</span> contacts clears in approximately{" "}
+            <span className="font-semibold">{estDays.toLocaleString()} days</span> (~{clearanceDate}).
+            Start or resume the batch campaign below.
+          </span>
+        </div>
+      )}
+
+      <a
+        href="/dashboard/data-quality"
+        className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+      >
+        <Database className="h-4 w-4" />
+        Open Data Quality Scanner &amp; Campaign
+      </a>
+    </div>
+  );
 }
 
 interface ScoringPreview {
