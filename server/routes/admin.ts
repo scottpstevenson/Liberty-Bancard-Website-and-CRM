@@ -5238,6 +5238,75 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // === SERPER GATEWAY ADMIN CONTROLS (#1609 / #1601) ===
+
+  app.patch("/api/admin/serper/enabled", isDashboardUser, requireRole('admin'), async (req, res) => {
+    try {
+      if (typeof req.body?.enabled !== "boolean") {
+        return res.status(400).json({ message: "enabled (boolean) is required" });
+      }
+      const reason = typeof req.body?.reason === "string" ? req.body.reason.trim() : "";
+      if (!reason) return res.status(400).json({ message: "reason is required" });
+
+      const enabled = req.body.enabled as boolean;
+      const actorId = (req.user as any)?.id ?? null;
+      const correlationId = `serper-enabled-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      const { serperGateway } = await import("../services/serper-gateway");
+
+      const control = await serperGateway.setEnabled(enabled, { actorId, reason, correlationId });
+      res.json({ control, correlationId });
+    } catch (err: any) {
+      if (/serper_control row missing/i.test(err?.message ?? "")) {
+        return res.status(404).json({ message: "serper_control row missing — run migrations" });
+      }
+      serverError(res, err);
+    }
+  });
+
+  app.post("/api/admin/serper/reset-window", isDashboardUser, requireRole('admin'), async (req, res) => {
+    try {
+      const reason = typeof req.body?.reason === "string" ? req.body.reason.trim() : "";
+      if (!reason) return res.status(400).json({ message: "reason is required" });
+      const expectedRaw = req.body?.expectedWindowStartedAt;
+      const expected = typeof expectedRaw === "string" ? new Date(expectedRaw) : null;
+      if (!expected || isNaN(expected.getTime())) {
+        return res.status(400).json({ message: "expectedWindowStartedAt (ISO timestamp) is required" });
+      }
+
+      const actorId = (req.user as any)?.id ?? null;
+      const correlationId = `serper-reset-window-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      const { serperGateway } = await import("../services/serper-gateway");
+
+      const control = await serperGateway.resetWindow(expected, { actorId, reason, correlationId });
+      if (!control) {
+        return res.status(409).json({ message: "Window reset rejected — windowStartedAt has changed. Refresh and retry." });
+      }
+      res.json({ control, correlationId });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  // === GHL INVALID-CONTACT SURFACE (#1609 / #1605) ===
+
+  app.get("/api/admin/ghl/invalid-contacts", isDashboardUser, requireRole('admin'), async (req, res) => {
+    try {
+      const limitRaw = parseInt(String(req.query.limit ?? "100"), 10);
+      const offsetRaw = parseInt(String(req.query.offset ?? "0"), 10);
+      const limit = Math.min(Math.max(isNaN(limitRaw) ? 100 : limitRaw, 1), 500);
+      const offset = Math.max(isNaN(offsetRaw) ? 0 : offsetRaw, 0);
+      const status = ["unresolved", "resolved", "all"].includes(String(req.query.status ?? ""))
+        ? String(req.query.status)
+        : "unresolved";
+
+      const { listInvalidGhlContacts } = await import("../services/ghl-invalid-contacts");
+      const result = await listInvalidGhlContacts({ status: status as any, limit, offset });
+      res.json(result);
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
   // === SERPER ZERO-YIELD COOLDOWN: manual requeue (#1599) ===
   app.post("/api/admin/sdr/merchants/:id/requeue-serper", isDashboardUser, requireRole('admin', 'manager'), async (req, res) => {
     try {

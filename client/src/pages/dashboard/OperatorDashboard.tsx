@@ -220,6 +220,375 @@ function SyncConflictsPanel() {
   );
 }
 
+interface SerperControl {
+  id: number;
+  enabled: boolean;
+  state: "closed" | "open" | "half_open";
+  consecutive_failures: number;
+  opened_at: string | null;
+  reason_code: string | null;
+  window_calls: number;
+  window_successes: number;
+  window_failures: number;
+  window_started_at: string;
+  window_ends_at: string;
+  local_budget: number;
+  lifetime_calls: string | number;
+  lifetime_successes: string | number;
+  lifetime_failures: string | number;
+  yield_websites: string | number;
+  yield_emails: string | number;
+  yield_phones: string | number;
+}
+
+function SerperControlPanel() {
+  const { toast } = useToast();
+  const [dialog, setDialog] = useState<null | "toggle" | "recovery" | "reset">(null);
+  const [reason, setReason] = useState("");
+
+  const { data, isLoading, isError, refetch } = useQuery<{ control: SerperControl }>({
+    queryKey: ["/api/admin/serper/control"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/serper/control", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch Serper control state");
+      return res.json();
+    },
+    refetchInterval: 30000,
+  });
+
+  const control = data?.control;
+
+  const onMutationSuccess = (title: string) => (resp: any) => {
+    toast({ title });
+    setDialog(null);
+    setReason("");
+    // Update from committed server response only — no optimistic UI.
+    queryClient.setQueryData(["/api/admin/serper/control"], { control: resp.control });
+    queryClient.invalidateQueries({ queryKey: ["/api/admin/serper/control"] });
+  };
+
+  const toggleMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("PATCH", "/api/admin/serper/enabled", {
+        enabled: !control?.enabled,
+        reason: reason.trim(),
+      });
+      return res.json();
+    },
+    onSuccess: onMutationSuccess("Serper gateway updated"),
+    onError: (err: any) => toast({ title: "Toggle failed", description: err.message, variant: "destructive" }),
+  });
+
+  const recoveryMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/admin/serper/recovery", { reason: reason.trim() });
+      return res.json();
+    },
+    onSuccess: onMutationSuccess("Manual recovery attempted"),
+    onError: (err: any) => toast({ title: "Recovery failed", description: err.message, variant: "destructive" }),
+  });
+
+  const resetMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/admin/serper/reset-window", {
+        reason: reason.trim(),
+        expectedWindowStartedAt: control?.window_started_at,
+      });
+      return res.json();
+    },
+    onSuccess: onMutationSuccess("Window counters reset"),
+    onError: (err: any) => toast({ title: "Window reset failed", description: err.message, variant: "destructive" }),
+  });
+
+  const anyPending = toggleMutation.isPending || recoveryMutation.isPending || resetMutation.isPending;
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (isError || !control) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 gap-3" data-testid="serper-control-error">
+        <AlertTriangle className="w-8 h-8 text-red-500" />
+        <p className="text-sm text-muted-foreground">Failed to load Serper gateway state</p>
+        <Button variant="outline" size="sm" onClick={() => refetch()} data-testid="btn-retry-serper-control">
+          <RefreshCw className="w-4 h-4 mr-1" /> Retry
+        </Button>
+      </div>
+    );
+  }
+
+  const stateBadge =
+    control.state === "closed" ? (
+      <Badge className="bg-green-600 text-white" data-testid="badge-serper-state">closed</Badge>
+    ) : control.state === "open" ? (
+      <Badge variant="destructive" data-testid="badge-serper-state">open</Badge>
+    ) : (
+      <Badge className="bg-yellow-500 text-black" data-testid="badge-serper-state">half_open</Badge>
+    );
+
+  const activeMutation = dialog === "toggle" ? toggleMutation : dialog === "recovery" ? recoveryMutation : resetMutation;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-3">
+          <h3 className="text-lg font-semibold">Serper Gateway Control</h3>
+          <Badge variant={control.enabled ? "default" : "secondary"} data-testid="badge-serper-enabled">
+            {control.enabled ? "Enabled" : "Disabled"}
+          </Badge>
+          {stateBadge}
+        </div>
+        <Button variant="outline" size="sm" onClick={() => refetch()} disabled={anyPending} data-testid="btn-refresh-serper">
+          <RefreshCw className="w-4 h-4" />
+        </Button>
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <Card><CardContent className="p-4">
+          <div className="text-xs text-muted-foreground mb-1">Circuit</div>
+          <div className="text-sm font-medium">{control.state}</div>
+          <div className="text-xs text-muted-foreground mt-1">
+            {control.consecutive_failures} consecutive failures
+            {control.reason_code ? ` · ${control.reason_code}` : ""}
+          </div>
+          {control.opened_at && (
+            <div className="text-xs text-muted-foreground">Opened {new Date(control.opened_at).toLocaleString()}</div>
+          )}
+        </CardContent></Card>
+        <Card><CardContent className="p-4">
+          <div className="text-xs text-muted-foreground mb-1">Window Usage</div>
+          <div className="text-sm font-medium" data-testid="text-serper-window-usage">
+            {control.window_calls} / {control.local_budget}
+          </div>
+          <div className="text-xs text-muted-foreground mt-1">
+            {control.window_successes} ok · {control.window_failures} failed
+          </div>
+          <div className="text-xs text-muted-foreground">Ends {new Date(control.window_ends_at).toLocaleString()}</div>
+        </CardContent></Card>
+        <Card><CardContent className="p-4">
+          <div className="text-xs text-muted-foreground mb-1">Lifetime</div>
+          <div className="text-sm font-medium">{String(control.lifetime_calls)} calls</div>
+          <div className="text-xs text-muted-foreground mt-1">
+            {String(control.lifetime_successes)} ok · {String(control.lifetime_failures)} failed
+          </div>
+        </CardContent></Card>
+        <Card><CardContent className="p-4">
+          <div className="text-xs text-muted-foreground mb-1">Yield</div>
+          <div className="text-xs text-muted-foreground mt-1">
+            {String(control.yield_websites)} websites · {String(control.yield_emails)} emails · {String(control.yield_phones)} phones
+          </div>
+        </CardContent></Card>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        <Button
+          variant={control.enabled ? "destructive" : "default"}
+          size="sm"
+          disabled={anyPending}
+          onClick={() => { setReason(""); setDialog("toggle"); }}
+          data-testid="btn-serper-toggle"
+        >
+          {control.enabled ? "Disable Serper" : "Enable Serper"}
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={anyPending}
+          onClick={() => { setReason(""); setDialog("recovery"); }}
+          data-testid="btn-serper-recovery"
+        >
+          Manual Recovery
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={anyPending}
+          onClick={() => { setReason(""); setDialog("reset"); }}
+          data-testid="btn-serper-reset-window"
+        >
+          Reset Window
+        </Button>
+      </div>
+
+      <Dialog open={dialog !== null} onOpenChange={(open) => { if (!open && !anyPending) { setDialog(null); setReason(""); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {dialog === "toggle"
+                ? control.enabled ? "Disable Serper gateway?" : "Enable Serper gateway?"
+                : dialog === "recovery"
+                ? "Attempt manual recovery?"
+                : "Reset window counters?"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            {dialog === "toggle" && !control.enabled && control.state === "open" && (
+              <p className="text-sm text-amber-600 dark:text-amber-400">
+                The circuit breaker is currently open. Enabling Serper will NOT close it — traffic remains
+                blocked until recovery succeeds.
+              </p>
+            )}
+            {dialog === "recovery" && (
+              <p className="text-sm text-amber-600 dark:text-amber-400">
+                This transitions the circuit to half_open and fires one diagnostic probe. If the probe fails,
+                the circuit re-opens automatically.
+              </p>
+            )}
+            {dialog === "reset" && (
+              <p className="text-sm text-amber-600 dark:text-amber-400">
+                This only resets local window accounting (calls, successes, failures, yields). It does NOT
+                grant additional provider quota, enable Serper, or close an open circuit.
+              </p>
+            )}
+            <Textarea
+              placeholder="Reason (required)"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              disabled={anyPending}
+              data-testid="input-serper-reason"
+            />
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" size="sm" disabled={anyPending} onClick={() => { setDialog(null); setReason(""); }}>
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                disabled={anyPending || !reason.trim()}
+                onClick={() => activeMutation.mutate()}
+                data-testid="btn-serper-confirm"
+              >
+                {anyPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Confirm"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+interface InvalidGhlContactRow {
+  contactId: number;
+  firstName: string | null;
+  lastName: string | null;
+  email: string | null;
+  reasonCode: string | null;
+  stage: string | null;
+  occurrences: number;
+  lastOccurredAt: string;
+  status: "resolved" | "unresolved";
+}
+
+function GhlInvalidContactsPanel() {
+  const [statusFilter, setStatusFilter] = useState<"unresolved" | "all">("unresolved");
+
+  const { data, isLoading, isError, refetch } = useQuery<{ total: number; rows: InvalidGhlContactRow[] }>({
+    queryKey: ["/api/admin/ghl/invalid-contacts", statusFilter],
+    queryFn: async () => {
+      const res = await fetch(`/api/admin/ghl/invalid-contacts?status=${statusFilter}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch invalid contacts");
+      return res.json();
+    },
+    refetchInterval: 60000,
+  });
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 gap-3" data-testid="invalid-contacts-error">
+        <AlertTriangle className="w-8 h-8 text-red-500" />
+        <p className="text-sm text-muted-foreground">Failed to load invalid contacts</p>
+        <Button variant="outline" size="sm" onClick={() => refetch()} data-testid="btn-retry-invalid-contacts">
+          <RefreshCw className="w-4 h-4 mr-1" /> Retry
+        </Button>
+      </div>
+    );
+  }
+
+  const rows = data?.rows ?? [];
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-3">
+          <h3 className="text-lg font-semibold">GHL Invalid Contacts</h3>
+          {data && data.total > 0 && statusFilter === "unresolved" && (
+            <Badge variant="destructive" data-testid="badge-invalid-contacts-count">{data.total}</Badge>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as "unresolved" | "all")}>
+            <SelectTrigger className="w-[140px]" data-testid="select-invalid-contacts-filter">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="unresolved">Unresolved</SelectItem>
+              <SelectItem value="all">All</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button variant="outline" size="sm" onClick={() => refetch()} data-testid="btn-refresh-invalid-contacts">
+            <RefreshCw className="w-4 h-4" />
+          </Button>
+        </div>
+      </div>
+
+      {rows.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-16 gap-2 text-muted-foreground" data-testid="no-invalid-contacts-message">
+          <CheckCircle2 className="w-10 h-10 text-green-500" />
+          <p className="text-sm font-medium">No contacts flagged for invalid identity.</p>
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b text-left text-xs text-muted-foreground">
+                <th className="py-2 pr-3">Contact</th>
+                <th className="py-2 pr-3">Email</th>
+                <th className="py-2 pr-3">Reason</th>
+                <th className="py-2 pr-3">Stage</th>
+                <th className="py-2 pr-3">Occurrences</th>
+                <th className="py-2 pr-3">Last Occurred</th>
+                <th className="py-2">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.contactId} className="border-b" data-testid={`invalid-contact-row-${row.contactId}`}>
+                  <td className="py-2 pr-3">
+                    <a href={`/dashboard/contacts/${row.contactId}`} className="text-blue-600 hover:underline dark:text-blue-400">
+                      {[row.firstName, row.lastName].filter(Boolean).join(" ") || `Contact #${row.contactId}`}
+                    </a>
+                  </td>
+                  <td className="py-2 pr-3 font-mono text-xs">{row.email || <span className="italic text-muted-foreground">(none)</span>}</td>
+                  <td className="py-2 pr-3"><Badge variant="outline" className="font-mono text-xs">{row.reasonCode || "—"}</Badge></td>
+                  <td className="py-2 pr-3 text-xs">{row.stage || "—"}</td>
+                  <td className="py-2 pr-3">{row.occurrences}</td>
+                  <td className="py-2 pr-3 text-xs">{new Date(row.lastOccurredAt).toLocaleString()}</td>
+                  <td className="py-2">
+                    <Badge variant={row.status === "unresolved" ? "destructive" : "secondary"}>{row.status}</Badge>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface OperatorKpis {
   range: string;
   startDate: string;
@@ -3070,6 +3439,8 @@ const OPERATOR_NAV_GROUPS: OperatorNavGroup[] = [
     items: [
       { value: "ghl-connection", label: "GHL Status", icon: Zap },
       { value: "sync-conflicts", label: "Sync Conflicts", icon: GitMerge },
+      { value: "ghl-invalid-contacts", label: "Invalid Contacts", icon: XCircle },
+      { value: "serper-control", label: "Serper Control", icon: Shield },
       { value: "webhook-events", label: "Webhook Events", icon: Hash },
       { value: "registry-import", label: "Registry Import", icon: Database },
       { value: "ghl-deferred-queue", label: "Deferred Enrollments", icon: Clock },
@@ -3175,6 +3546,10 @@ function renderOperatorView(view: string, onNavigate: (v: string) => void) {
       return <GhlConnectionPanel />;
     case "sync-conflicts":
       return <SyncConflictsPanel />;
+    case "ghl-invalid-contacts":
+      return <GhlInvalidContactsPanel />;
+    case "serper-control":
+      return <SerperControlPanel />;
     case "webhook-events":
       return <WebhookEventViewer />;
     case "registry-import":

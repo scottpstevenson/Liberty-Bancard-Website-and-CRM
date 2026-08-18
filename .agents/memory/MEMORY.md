@@ -105,4 +105,5 @@
 - [Serper zero-yield cooldown](serper-zero-yield-cooldown.md) — 3-class outcome recording on sdr_merchants; provider failures never touch backoff; claim via FOR UPDATE SKIP LOCKED with executor threaded into enrich.
 - [Serper canonical gateway](serper-gateway.md) — all Serper calls via SerperGateway + serper_control singleton; fail-closed, ships enabled=false; timestamptz optimistic guards need date_trunc('milliseconds').
 - [GHL invalid-contact skip boundary](ghl-invalid-contact-skip.md) — upsertGhlContact validates identity + sanitizes email-422s into terminal skips; callers must never log ghl_sync_failed for them (feeds retry queue).
+- [Drizzle execute timestamp strings](drizzle-execute-timestamp-strings.md) — tx.execute returns timestamptz as strings vs pg-pool Dates; audit_logs is append-only (no test cleanup possible).
 - [Pause-cycle test DB setup](pause-cycle-test-db.md) — throwaway DB + 4 env guards to run test-pause-cycle-unit.ts; wait-step fixtures are DB-only; schema drift breaks seeding.
