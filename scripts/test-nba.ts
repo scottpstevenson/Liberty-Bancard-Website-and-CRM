@@ -17,12 +17,12 @@
  */
 
 import crypto from "crypto";
-import { db } from "../server/db";
+import { db, pool } from "../server/db";
 import { contacts, contactNba, nbaRecommendationHistory } from "@shared/schema";
 import { eq, inArray } from "drizzle-orm";
 import { NBAService } from "../server/services/nba-service";
 import { storage } from "../server/storage";
-import { applyPauseMutation } from "../server/services/outbound-control-service";
+import { invalidatePauseStateCache } from "../server/services/outbound-pause-authority";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -93,19 +93,42 @@ async function cleanupFixtures() {
   }
 }
 
+/**
+ * Directly update outbound_pause_control.state without going through
+ * applyPauseMutation. This avoids creating coordinator holds and advancing
+ * the epoch — the OutboundPauseAuthority still reads the updated state from
+ * the DB row. The in-process 5-second cache is explicitly invalidated after
+ * the write so the next authorize() call sees the new state immediately.
+ * Use only inside the test script; never in production paths.
+ */
+async function setTestPauseState(paused: boolean): Promise<void> {
+  const state = paused ? "paused" : "unpaused";
+  await pool.query(`UPDATE outbound_pause_control SET state = $1`, [state]);
+  invalidatePauseStateCache();
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
   console.log("\n=== NBA Engine Tests ===\n");
   console.log(`  Run ID: ${RUN_ID}`);
 
+  // ── Pre-test snapshot (isolation baseline) ────────────────────────────────
+  const preState = await pool.query<{ state: string; epoch: string }>(
+    `SELECT state, epoch::text FROM outbound_pause_control ORDER BY id LIMIT 1`,
+  );
+  const preHolds = await pool.query<{ hold_id: string }>(
+    `SELECT hold_id FROM logical_job_control_holds WHERE active = true`,
+  );
+  const preHoldIds = new Set(preHolds.rows.map((r) => r.hold_id));
+  const preEpoch = preState.rows[0]?.epoch ?? "0";
+  const preWasPaused = preState.rows[0]?.state !== "unpaused";
+
   try {
     // Ensure canonical pause is OFF for all cases except Case 6.
-    await applyPauseMutation({
-      outboundGlobalPaused: false,
-      actor: "test-nba-setup",
-      reason: "NBA test suite — disable canonical pause for integration tests",
-    });
+    // Direct DB write — bypasses applyPauseMutation so no coordinator holds
+    // are created and the epoch does not advance.
+    await setTestPauseState(false);
 
     // ── Seed all fixture contacts up-front ───────────────────────────────────
     console.log("\n[setup] Seeding fixture contacts…");
@@ -170,22 +193,15 @@ async function main() {
     // ── Case 6: Global pause → BLOCKED ───────────────────────────────────────
     console.log("\nCase 6: Global pause → NO_ACTION BLOCKED");
     {
-      await applyPauseMutation({
-        outboundGlobalPaused: true,
-        actor: "test-nba-case6",
-        reason: "NBA Case 6 — testing global_pause_active response",
-      });
+      // Direct DB write — no coordinator holds, no epoch change.
+      await setTestPauseState(true);
       try {
         const rec = await NBAService.computeNBA(pauseTestId);
         ok("status is BLOCKED when globally paused", rec.status === "BLOCKED");
         ok("reasonCode is global_pause_active", rec.reasonCode === "global_pause_active");
       } finally {
-        // Immediately restore pause=false so subsequent cases are unaffected
-        await applyPauseMutation({
-          outboundGlobalPaused: false,
-          actor: "test-nba-case6-restore",
-          reason: "NBA Case 6 — restore to unpaused after pause test",
-        });
+        // Immediately restore pause=false so subsequent cases are unaffected.
+        await setTestPauseState(false);
       }
     }
 
@@ -263,15 +279,36 @@ async function main() {
     }
 
   } finally {
-    // ── Always restore canonical pause to safe state (even on crash) ──────────
+    // ── Restore pause state to exactly what it was before the test ───────────
+    // Direct DB write — no coordinator holds, epoch unchanged.
     try {
-      await applyPauseMutation({
-        outboundGlobalPaused: true,
-        actor: "test-nba-teardown",
-        reason: "NBA test suite — restore canonical pause to safe state",
-      });
+      await setTestPauseState(preWasPaused);
     } catch (err: any) {
-      console.warn("[NBA test] Could not restore canonical pause:", err?.message);
+      console.warn("[NBA test] Could not restore pause state:", err?.message);
+    }
+
+    // ── Isolation assertions ─────────────────────────────────────────────────
+    try {
+      const postState = await pool.query<{ state: string; epoch: string }>(
+        `SELECT state, epoch::text FROM outbound_pause_control ORDER BY id LIMIT 1`,
+      );
+      const postHolds = await pool.query<{ hold_id: string }>(
+        `SELECT hold_id FROM logical_job_control_holds WHERE active = true`,
+      );
+      const postHoldIds = postHolds.rows.map((r) => r.hold_id);
+      const newHolds = postHoldIds.filter((id) => !preHoldIds.has(id));
+
+      ok("[isolation] pause state restored to pre-test value",
+        postState.rows[0]?.state === preState.rows[0]?.state,
+        `expected=${preState.rows[0]?.state} got=${postState.rows[0]?.state}`);
+      ok("[isolation] epoch not advanced by test suite",
+        postState.rows[0]?.epoch === preEpoch,
+        `pre=${preEpoch} post=${postState.rows[0]?.epoch}`);
+      ok("[isolation] no new active coordinator holds created",
+        newHolds.length === 0,
+        `${newHolds.length} orphaned hold(s): ${newHolds.slice(0, 3).join(", ")}`);
+    } catch (err: any) {
+      console.warn("[NBA test] Isolation assertion error:", err?.message);
     }
 
     // ── Always clean up fixture contacts ──────────────────────────────────
