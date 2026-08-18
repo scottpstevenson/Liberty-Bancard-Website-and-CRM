@@ -12,3 +12,22 @@ attached_assets/*.zip
 attached_assets/*.csv
 attached_assets/cordata.zip
 attached_assets/100k_leads*
+
+# Database backups & data exports — never commit these to git (BT-01)
+backups/
+*.sql.gz
+*.gz
+*.tgz
+*.dump
+*.bak
+*.xlsx
+*.xls
+*.zip
+*.csv
+!.agents/**/*.csv
+!.local/**/*.csv
+!fixtures/**/*.csv
+!exports/ghl-workflow-checklist.csv
+*.sql
+!migrations/**/*.sql
+!server/add-indexes.sql
