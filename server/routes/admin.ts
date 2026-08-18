@@ -1678,6 +1678,39 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // #1619 — ZeroBounce daily cap (readable/writable without a redeploy)
+  // GET /api/admin/settings/zerobounce-daily-cap
+  app.get("/api/admin/settings/zerobounce-daily-cap", requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const { getZeroBounceDailyLimit, getZeroBounceUsageToday } = await import("../services/zerobounce-daily-limiter");
+      const [limit, usedToday] = await Promise.all([getZeroBounceDailyLimit(), getZeroBounceUsageToday()]);
+      res.json({ dailyCap: limit, usedToday });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  // PUT /api/admin/settings/zerobounce-daily-cap
+  // Body: { dailyCap: number } — must be a positive integer ≤ 100 000
+  app.put("/api/admin/settings/zerobounce-daily-cap", requireRole("admin"), async (req, res) => {
+    try {
+      const { dailyCap } = req.body as { dailyCap?: unknown };
+      if (typeof dailyCap !== "number" || !Number.isInteger(dailyCap) || dailyCap < 1 || dailyCap > 100_000) {
+        return res.status(400).json({ message: "dailyCap must be a positive integer ≤ 100 000" });
+      }
+      await storage.setSystemSetting("zerobounce_validation_daily_limit", dailyCap);
+      await storage.createAuditLog({
+        action: "zerobounce_daily_cap_updated",
+        entityType: "system",
+        userId: (req.user as any)?.id ?? null,
+        details: { dailyCap },
+      });
+      res.json({ dailyCap });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
   // === WORKER INTERVAL CONTROLS (Step 1 — #1444) ===
 
   // GET /api/admin/settings/worker-intervals

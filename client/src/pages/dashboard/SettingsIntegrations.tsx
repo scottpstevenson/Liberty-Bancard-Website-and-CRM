@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useToast } from "@/hooks/use-toast";
-import { CheckCircle2, XCircle, Plus, Trash2, Settings, Workflow, Mail, Edit2, Save, X, Loader2, ShieldCheck, Linkedin, Info, Cpu, RefreshCw, AlertTriangle, Activity, ChevronDown, ChevronRight, ExternalLink, Copy, Tag, Clock, MessageSquare, Lock, Server, ArrowRight } from "lucide-react";
+import { CheckCircle2, XCircle, Plus, Trash2, Settings, Workflow, Mail, Edit2, Save, X, Loader2, ShieldCheck, Linkedin, Info, Cpu, RefreshCw, AlertTriangle, Activity, ChevronDown, ChevronRight, ExternalLink, Copy, Tag, Clock, MessageSquare, Lock, Server, ArrowRight, ShieldX } from "lucide-react";
 
 interface WorkflowEnvEntry {
   id: string;
@@ -957,6 +957,126 @@ function ProxycurlTab() {
   );
 }
 
+function ZeroBounceDailyCapTab() {
+  const { toast } = useToast();
+  const [capInput, setCapInput] = useState<string>("");
+  const [dirty, setDirty] = useState(false);
+
+  const { data, isLoading, refetch } = useQuery<{ dailyCap: number; usedToday: number }>({
+    queryKey: ["/api/admin/settings/zerobounce-daily-cap"],
+  });
+
+  // Sync server → local once loaded (only if not dirty)
+  useState(() => {
+    if (data && !dirty) setCapInput(String(data.dailyCap));
+  });
+
+  // Keep input in sync when data loads initially
+  if (data && capInput === "" && !dirty) {
+    setCapInput(String(data.dailyCap));
+  }
+
+  const saveMutation = useMutation({
+    mutationFn: (dailyCap: number) =>
+      apiRequest("PUT", "/api/admin/settings/zerobounce-daily-cap", { dailyCap }),
+    onSuccess: (_res, dailyCap) => {
+      toast({ title: "ZeroBounce daily cap saved", description: `New cap: ${dailyCap.toLocaleString()} validations/day` });
+      setDirty(false);
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/settings/zerobounce-daily-cap"] });
+    },
+    onError: (err: any) => toast({ title: "Save failed", description: err.message, variant: "destructive" }),
+  });
+
+  function handleSave() {
+    const n = parseInt(capInput, 10);
+    if (!Number.isFinite(n) || n < 1 || n > 100_000) {
+      toast({ title: "Invalid value", description: "Enter a whole number between 1 and 100 000", variant: "destructive" });
+      return;
+    }
+    saveMutation.mutate(n);
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center gap-2 text-muted-foreground py-4">
+        <Loader2 className="h-4 w-4 animate-spin" /> Loading ZeroBounce settings…
+      </div>
+    );
+  }
+
+  const used = data?.usedToday ?? 0;
+  const cap  = data?.dailyCap  ?? 5000;
+  const pct  = cap > 0 ? Math.min(100, Math.round((used / cap) * 100)) : 0;
+
+  return (
+    <div className="space-y-6">
+      {/* Usage banner */}
+      <div className="rounded-md border p-4 bg-muted/40 space-y-2">
+        <div className="flex items-center justify-between text-sm">
+          <span className="font-medium">Today's usage</span>
+          <span className={pct >= 90 ? "text-red-600 font-semibold" : pct >= 70 ? "text-amber-600 font-semibold" : "text-muted-foreground"}>
+            {used.toLocaleString()} / {cap.toLocaleString()} ({pct}%)
+          </span>
+        </div>
+        <div className="h-2 rounded-full bg-muted overflow-hidden">
+          <div
+            className={`h-full rounded-full transition-all ${pct >= 90 ? "bg-red-500" : pct >= 70 ? "bg-amber-500" : "bg-emerald-500"}`}
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+        <p className="text-xs text-muted-foreground">Counter resets at midnight UTC. Refresh to see the latest count.</p>
+      </div>
+
+      {/* Cap editor */}
+      <div className="space-y-2 max-w-xs">
+        <Label htmlFor="zb-daily-cap" className="text-sm font-medium">
+          Daily cap (validations per day)
+        </Label>
+        <p className="text-xs text-muted-foreground">
+          Maximum ZeroBounce API calls the system will make in a single calendar day (UTC). The change takes effect on the next validation attempt — no restart required.
+        </p>
+        <div className="flex gap-2">
+          <Input
+            id="zb-daily-cap"
+            type="number"
+            min={1}
+            max={100000}
+            step={100}
+            value={capInput}
+            onChange={(e) => { setCapInput(e.target.value); setDirty(true); }}
+            className="w-36"
+            data-testid="input-zb-daily-cap"
+          />
+          <Button
+            size="sm"
+            onClick={handleSave}
+            disabled={saveMutation.isPending || !dirty}
+            data-testid="btn-save-zb-daily-cap"
+          >
+            {saveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+            <span className="ml-1.5">Save</span>
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => refetch()}
+            title="Refresh usage count"
+          >
+            <RefreshCw className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+
+      <div className="rounded-md border p-4 bg-card text-sm space-y-1 text-muted-foreground">
+        <p className="font-medium text-foreground text-xs uppercase tracking-wide mb-2">How it works</p>
+        <p>• Each email validation costs one ZeroBounce API credit and one daily cap credit.</p>
+        <p>• When the cap is reached, new validations are queued until midnight UTC when the counter resets.</p>
+        <p>• The default cap is <strong>5 000</strong> validations/day. Raise it only if your ZeroBounce plan supports a higher volume.</p>
+      </div>
+    </div>
+  );
+}
+
 export default function SettingsIntegrations() {
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto" data-testid="page-settings-integrations">
@@ -983,6 +1103,9 @@ export default function SettingsIntegrations() {
           </TabsTrigger>
           <TabsTrigger value="linkedin" data-testid="tab-linkedin-enrichment">
             <Linkedin className="w-4 h-4 mr-1.5" />LinkedIn Enrichment
+          </TabsTrigger>
+          <TabsTrigger value="zerobounce" data-testid="tab-zerobounce">
+            <ShieldX className="w-4 h-4 mr-1.5" />ZeroBounce
           </TabsTrigger>
         </TabsList>
 
@@ -1050,6 +1173,23 @@ export default function SettingsIntegrations() {
             </CardHeader>
             <CardContent>
               <ProxycurlTab />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="zerobounce" className="pt-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <ShieldX className="w-4 h-4 text-violet-600" />
+                ZeroBounce Daily Cap
+              </CardTitle>
+              <CardDescription>
+                Control how many email addresses ZeroBounce validates per day. The cap is read on every validation attempt — changes apply immediately without a restart.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ZeroBounceDailyCapTab />
             </CardContent>
           </Card>
         </TabsContent>
