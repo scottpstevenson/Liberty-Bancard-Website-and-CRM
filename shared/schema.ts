@@ -3032,10 +3032,19 @@ export const sdrMerchants = pgTable("sdr_merchants", {
   subverticalSource: text("subvertical_source"),
   subverticalConfidence: integer("subvertical_confidence"),
   manualVerticalOverride: boolean("manual_vertical_override"),
+  // ── Serper zero-yield cooldown state (#1599, migration 0141) ─────────────
+  // Written ONLY by serper-enrichment outcome recording + admin manual requeue.
+  // Provider/control failures never touch attempts or next_eligible_at.
+  lastSerperCheckedAt: timestamp("last_serper_checked_at", { withTimezone: true }),
+  serperNoResultAttempts: integer("serper_no_result_attempts").notNull().default(0),
+  serperNextEligibleAt: timestamp("serper_next_eligible_at", { withTimezone: true }),
+  serperLastOutcome: text("serper_last_outcome"),
+  serperLastReasonCode: text("serper_last_reason_code"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
   index("sdr_merchants_ghl_contact_id_idx").on(table.ghlContactId),
+  index("sdr_merchants_serper_eligibility_idx").on(table.serperNextEligibleAt, table.doNotContactFlag),
   check("sdr_merchants_vertical_confidence_range", sql`vertical_confidence IS NULL OR (vertical_confidence BETWEEN 0 AND 100)`),
   check("sdr_merchants_subvertical_confidence_range", sql`subvertical_confidence IS NULL OR (subvertical_confidence BETWEEN 0 AND 100)`),
 ]);

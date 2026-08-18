@@ -1009,6 +1009,13 @@
       "when": 1792300000000,
       "tag": "0140_serper_control",
       "breakpoints": true
+    },
+    {
+      "idx": 144,
+      "version": "7",
+      "when": 1792400000000,
+      "tag": "0141_serper_merchant_cooldown",
+      "breakpoints": false
     }
   ]
 }

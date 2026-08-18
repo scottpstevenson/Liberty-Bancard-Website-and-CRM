@@ -5238,4 +5238,45 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // === SERPER ZERO-YIELD COOLDOWN: manual requeue (#1599) ===
+  app.post("/api/admin/sdr/merchants/:id/requeue-serper", isDashboardUser, requireRole('admin', 'manager'), async (req, res) => {
+    try {
+      const merchantId = Number(req.params.id);
+      if (!Number.isInteger(merchantId) || merchantId <= 0) {
+        return res.status(400).json({ message: "Invalid merchant id" });
+      }
+      const reason = typeof req.body?.reason === "string" ? req.body.reason.trim() : "";
+      if (!reason) return res.status(400).json({ message: "reason is required" });
+
+      const actorId = (req.user as any)?.id ?? null;
+      const correlationId = `serper-requeue-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
+      const { requeueSerperForMerchant } = await import("../services/sdr/serper-enrichment");
+      const result = await requeueSerperForMerchant(merchantId);
+      if (!result.ok) {
+        if (result.reason === "merchant_not_found") {
+          return res.status(404).json({ message: "Merchant not found" });
+        }
+        // Global Serper authority gate is disabled/open — refuse to requeue.
+        return res.status(409).json({
+          message: `Serper authority gate blocks requeue (${result.reason}). Enable/recover the gateway first.`,
+          reason: result.reason,
+        });
+      }
+
+      await auditChange({
+        actorType: "user",
+        userId: actorId,
+        action: "serper_manual_requeue",
+        entityType: "sdr_merchant",
+        entityKey: String(merchantId),
+        details: { reason, correlationId, merchantId, timestamp: new Date().toISOString() },
+      });
+
+      res.json({ success: true, merchantId, correlationId });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
 }
