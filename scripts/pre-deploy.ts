@@ -523,6 +523,8 @@ async function main() {
     // ── Digest / reporting — internal sends only ─────────────────────────────
     "server/services/digest-service.ts",
     "server/services/weekly-digest.ts",
+    // ── Serper gateway — has its own enabled/disabled gate that fires before any provider call ──
+    "server/services/serper-gateway.ts",   // enable flag at line 203 is structurally equivalent to the global pause gate
     // ── SDR utilities — called from the SDR orchestrator which owns the gate ─
     "server/services/sdr/chat-handlers.ts",
     "server/services/sdr/ghl-client.ts",
