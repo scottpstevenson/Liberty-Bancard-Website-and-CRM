@@ -221,6 +221,214 @@ export type ZbRunExit =
   | "error"
   | "not_running";       // run was not in state 'running' (already terminal / interrupted)
 
+export type ZbAutoRunOutcome =
+  | { outcome: "skipped"; reason: string }
+  | { outcome: "already_running"; runId: string }
+  | { outcome: "budget_exhausted" }
+  | { outcome: "enqueued"; runId: string; bullJobId: string }
+  | { outcome: "enqueue_failed"; runId: string }
+  | { outcome: "error"; error: string };
+
+/**
+ * Daily automated ZeroBounce validation runner (#1616).
+ *
+ * Called by the "zerobounce-auto-run" BullMQ named schedule (6 AM UTC daily).
+ * Performs all the same safety checks as the manual POST
+ * /api/contacts/validate-emails-batch route, then creates the campaign/run and
+ * enqueues the durable "run" job that actually validates contacts.
+ *
+ * Admin gate: reads zerobounce_auto_run_enabled from system_settings.
+ * Set it to true to enable daily auto-runs; any falsy value disables.
+ *
+ * Writes an audit log entry on every invocation (including no-ops) so admins
+ * can verify the scheduled job is firing and see why it skipped when it did.
+ */
+export async function runZeroBounceAutoRun(): Promise<ZbAutoRunOutcome> {
+  try {
+    // ── 1. Feature gate: admin must explicitly enable auto-runs ──────────────
+    const enabled = await storage.getSystemSetting("zerobounce_auto_run_enabled");
+    if (!enabled) {
+      console.log("[ZB auto-run] Skipped — zerobounce_auto_run_enabled is not set or false");
+      return { outcome: "skipped", reason: "feature_disabled" };
+    }
+
+    // ── 2. Provider key: never attempt a run without the API key configured ──
+    if (!isZeroBounceConfigured()) {
+      await storage.createAuditLog({
+        action: "zerobounce_auto_run_skipped",
+        entityType: "system",
+        entityId: 0,
+        actorType: "system",
+        actorId: "zerobounce-auto-run",
+        details: { reason: "provider_not_configured" },
+      });
+      console.warn("[ZB auto-run] Skipped — ZEROBOUNCE_API_KEY is not configured");
+      return { outcome: "skipped", reason: "provider_not_configured" };
+    }
+
+    // ── 3. Budget check: honour daily cap before creating any DB rows ─────────
+    const { checkZeroBounceBudget } = await import("./zerobounce-daily-limiter");
+    const budget = await checkZeroBounceBudget();
+    if (!budget.allowed) {
+      await storage.createAuditLog({
+        action: "zerobounce_auto_run_skipped",
+        entityType: "system",
+        entityId: 0,
+        actorType: "system",
+        actorId: "zerobounce-auto-run",
+        details: { reason: "budget_exhausted", budgetUsed: budget.used, budgetLimit: budget.limit },
+      });
+      console.log(`[ZB auto-run] Skipped — daily budget exhausted (${budget.used}/${budget.limit})`);
+      return { outcome: "budget_exhausted" };
+    }
+
+    // ── 4. Stale-run cleanup: heal any run orphaned by a prior crash ──────────
+    await markStaleRunsInterrupted();
+
+    // ── 5. Find or create the active campaign ─────────────────────────────────
+    // Default filter matches the manual-trigger defaults: all unvalidated emails,
+    // no minimum lead score. Prioritised by lead score DESC (highest-value first).
+    let campaign = (await pool.query(
+      `SELECT * FROM zerobounce_campaigns WHERE status = 'active' LIMIT 1`,
+    )).rows[0];
+
+    if (!campaign) {
+      const filter: ZbCampaignFilter = { issue: "unvalidated_email", minLeadScore: 0 };
+      const { buildZbEligibilityWhere } = await import("./zerobounce-eligibility");
+      const totalRow = await pool.query(
+        `SELECT COUNT(*)::int AS n FROM contacts WHERE ${buildZbEligibilityWhere(filter)}`,
+      );
+      const initialTotal = totalRow.rows[0]?.n ?? 0;
+      // Partial unique index zb_campaigns_one_active_idx makes concurrent creation race-safe.
+      const ins = await pool.query(
+        `INSERT INTO zerobounce_campaigns (filter_definition, initial_eligible_total, created_by)
+         VALUES ($1::jsonb, $2, $3)
+         ON CONFLICT DO NOTHING
+         RETURNING *`,
+        [JSON.stringify(filter), initialTotal, "system:zerobounce-auto-run"],
+      );
+      campaign = ins.rows[0] ?? (await pool.query(
+        `SELECT * FROM zerobounce_campaigns WHERE status = 'active' LIMIT 1`,
+      )).rows[0];
+      if (!campaign) {
+        const errMsg = "Failed to find or create an active campaign";
+        console.error(`[ZB auto-run] ${errMsg}`);
+        return { outcome: "error", error: errMsg };
+      }
+    }
+
+    // ── 6. Active-run guard: one running run per campaign at a time ───────────
+    const existingRunning = (await pool.query(
+      `SELECT id FROM zerobounce_runs WHERE campaign_id = $1 AND state = 'running' LIMIT 1`,
+      [campaign.id],
+    )).rows[0];
+    if (existingRunning) {
+      await storage.createAuditLog({
+        action: "zerobounce_auto_run_skipped",
+        entityType: "system",
+        entityId: 0,
+        actorType: "system",
+        actorId: "zerobounce-auto-run",
+        details: { reason: "run_already_active", existingRunId: existingRunning.id, campaignId: campaign.id },
+      });
+      console.log(`[ZB auto-run] Skipped — run ${existingRunning.id} is already in progress`);
+      return { outcome: "already_running", runId: existingRunning.id };
+    }
+
+    // ── 7. Insert the run row ─────────────────────────────────────────────────
+    // contact_limit is set high (5000) so the budget cap — not the contact limit
+    // — is the primary throttle. The budget system stops the run as soon as the
+    // daily cap is exhausted regardless of how many contacts remain.
+    let run: any;
+    try {
+      run = (await pool.query(
+        `INSERT INTO zerobounce_runs (campaign_id, contact_limit, state, last_heartbeat_at)
+         VALUES ($1, $2, 'running', NOW())
+         RETURNING *`,
+        [campaign.id, 5000],
+      )).rows[0];
+    } catch (insErr: any) {
+      if (insErr?.code === "23505") {
+        // Concurrent insert won the race (partial unique index on running state)
+        const winner = (await pool.query(
+          `SELECT id FROM zerobounce_runs WHERE campaign_id = $1 AND state = 'running' LIMIT 1`,
+          [campaign.id],
+        )).rows[0];
+        if (winner) {
+          console.log(`[ZB auto-run] Concurrent run ${winner.id} started — skipping`);
+          return { outcome: "already_running", runId: winner.id };
+        }
+      }
+      throw insErr;
+    }
+
+    // ── 8. Enqueue the durable BullMQ "run" job ───────────────────────────────
+    // Dynamic import avoids a static circular dep (queue-manager imports this module).
+    const { enqueueZeroBounceRun } = await import("./queue-manager");
+    const bullJobId = await enqueueZeroBounceRun(run.id);
+    if (!bullJobId) {
+      // Queue unavailable: mark the run interrupted rather than leaving it stuck in 'running'.
+      await pool.query(
+        `UPDATE zerobounce_runs
+            SET state = 'interrupted', stop_reason = 'enqueue_failed', finished_at = NOW()
+          WHERE id = $1`,
+        [run.id],
+      );
+      await storage.createAuditLog({
+        action: "zerobounce_auto_run_enqueue_failed",
+        entityType: "system",
+        entityId: 0,
+        actorType: "system",
+        actorId: "zerobounce-auto-run",
+        details: { runId: run.id, campaignId: campaign.id, reason: "queue_unavailable" },
+      });
+      console.error(`[ZB auto-run] Failed to enqueue run ${run.id} — queue unavailable`);
+      return { outcome: "enqueue_failed", runId: run.id };
+    }
+
+    await pool.query(
+      `UPDATE zerobounce_runs SET bull_job_id = $1 WHERE id = $2`,
+      [bullJobId, run.id],
+    );
+
+    // ── 9. Audit log: record the successful auto-run start ────────────────────
+    await storage.createAuditLog({
+      action: "zerobounce_auto_run_started",
+      entityType: "system",
+      entityId: 0,
+      actorType: "system",
+      actorId: "zerobounce-auto-run",
+      details: {
+        runId: run.id,
+        campaignId: campaign.id,
+        bullJobId,
+        budgetUsed: budget.used,
+        budgetLimit: budget.limit,
+        budgetRemaining: budget.limit - budget.used,
+      },
+    });
+
+    console.log(
+      `[ZB auto-run] Started run ${run.id} for campaign ${campaign.id} ` +
+      `(bull job: ${bullJobId}, budget remaining: ${budget.limit - budget.used})`,
+    );
+    return { outcome: "enqueued", runId: run.id, bullJobId };
+  } catch (err: any) {
+    const errMsg = String(err?.message ?? err).slice(0, 500);
+    console.error("[ZB auto-run] Unexpected error:", errMsg);
+    // Best-effort audit log — may fail if the error is DB-related
+    storage.createAuditLog({
+      action: "zerobounce_auto_run_error",
+      entityType: "system",
+      entityId: 0,
+      actorType: "system",
+      actorId: "zerobounce-auto-run",
+      details: { error: errMsg },
+    }).catch(() => {});
+    return { outcome: "error", error: errMsg };
+  }
+}
+
 /**
  * Process one run to a terminal state. Exported with injectable deps so the
  * automated test never touches the real ZeroBounce API.

@@ -59,8 +59,14 @@ interface NamedQueueSchedule {
   queueName: QueueName;
   /** Job name dispatched by worker on job.name */
   jobName: string;
-  /** Repeat interval in milliseconds */
+  /** Repeat interval in milliseconds (used when cronPattern is absent) */
   repeatEveryMs: number;
+  /**
+   * Optional cron expression (e.g. "0 6 * * *" for 6 AM UTC daily).
+   * When set, BullMQ uses cron scheduling instead of a fixed interval.
+   * repeatEveryMs is kept as documentation/fallback but is not used.
+   */
+  cronPattern?: string;
   /** Stable BullMQ jobId used to identify + deduplicate this schedule */
   jobId: string;
 }
@@ -384,6 +390,18 @@ const NAMED_QUEUE_SCHEDULES: NamedQueueSchedule[] = [
       ? parseInt(process.env.PE_INTENT_RECOVERY_INTERVAL_MS!, 10)
       : (IS_DEV ? 5 * 60 * 1000 : 15 * 60 * 1000), // 15 min prod, 5 min dev
     jobId: "pe-intent-recovery-repeatable",
+  },
+  {
+    // Daily automated ZeroBounce validation run (#1616).
+    // Fires each morning (default 6 AM UTC; override with ZEROBOUNCE_AUTO_RUN_CRON).
+    // The handler checks zerobounce_auto_run_enabled in system_settings before doing
+    // any work, so this schedule is safe to install unconditionally — no run starts
+    // unless an admin explicitly enables it.
+    queueName:    QUEUE_NAMES.ZEROBOUNCE_BATCH,
+    jobName:      "zerobounce-auto-run",
+    repeatEveryMs: 24 * 60 * 60 * 1000, // documentation only when cronPattern is set
+    cronPattern:  process.env.ZEROBOUNCE_AUTO_RUN_CRON ?? "0 6 * * *", // 6 AM UTC daily
+    jobId:        "zb-auto-run-repeatable",
   },
 ];
 
@@ -1385,10 +1403,19 @@ class QueueManager {
           break;
         }
         case QUEUE_NAMES.ZEROBOUNCE_BATCH: {
-          const { processZeroBounceRun } = await import("./zerobounce-campaign-worker");
-          const runId = (_job.data as { runId?: string })?.runId;
-          if (!runId) throw new Error("zerobounce-batch-validate job missing runId");
-          await processZeroBounceRun(runId);
+          if (_job.name === "zerobounce-auto-run") {
+            // Scheduled daily auto-run (#1616): checks system_settings gate before
+            // creating a campaign/run; safe to no-op if disabled or budget exhausted.
+            const { runZeroBounceAutoRun } = await import("./zerobounce-campaign-worker");
+            const result = await runZeroBounceAutoRun();
+            console.log(`[Queue:zerobounce-batch-validate] auto-run outcome: ${result.outcome}`);
+          } else {
+            // Event-driven run enqueued by POST /api/contacts/validate-emails-batch
+            const { processZeroBounceRun } = await import("./zerobounce-campaign-worker");
+            const runId = (_job.data as { runId?: string })?.runId;
+            if (!runId) throw new Error("zerobounce-batch-validate job missing runId");
+            await processZeroBounceRun(runId);
+          }
           break;
         }
         case QUEUE_NAMES.POST_ENRICHMENT: {
@@ -1494,11 +1521,16 @@ class QueueManager {
       }
 
       await queue.add(sched.jobName, {}, {
-        repeat: { every: sched.repeatEveryMs },
+        repeat: sched.cronPattern
+          ? { pattern: sched.cronPattern }
+          : { every: sched.repeatEveryMs },
         jobId: sched.jobId,
       });
 
-      console.log(`[QueueManager] Named schedule installed: ${sched.jobName} on ${sched.queueName} every ${sched.repeatEveryMs}ms (jobId=${sched.jobId})`);
+      const schedDesc = sched.cronPattern
+        ? `cron="${sched.cronPattern}"`
+        : `every ${sched.repeatEveryMs}ms`;
+      console.log(`[QueueManager] Named schedule installed: ${sched.jobName} on ${sched.queueName} ${schedDesc} (jobId=${sched.jobId})`);
     }
   }
 
