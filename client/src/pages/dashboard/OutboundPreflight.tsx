@@ -57,6 +57,11 @@ interface CohortMetrics {
   optouts7d: number;
 }
 
+interface ZeroBounceCap {
+  dailyCap: number;
+  usedToday: number;
+}
+
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 function CheckIcon({ status }: { status: PreflightCheck["status"] }) {
@@ -113,6 +118,11 @@ export default function OutboundPreflight() {
   const { data: metrics } = useQuery<CohortMetrics>({
     queryKey: ["/api/admin/outbound/cohort-metrics"],
     refetchInterval: 5 * 60_000,
+  });
+
+  const { data: zbCap, isLoading: zbCapLoading } = useQuery<ZeroBounceCap>({
+    queryKey: ["/api/admin/settings/zerobounce-daily-cap"],
+    refetchInterval: 60_000,
   });
 
   const launchMutation = useMutation({
@@ -423,6 +433,63 @@ export default function OutboundPreflight() {
               <p className="text-xs text-muted-foreground text-center mt-3">
                 No outbound sends recorded in the past 7 days. Metrics will populate once sends are active.
               </p>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* ── ZeroBounce Budget ── */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <ShieldCheck className="h-4 w-4 text-violet-600" />
+              ZeroBounce Budget
+            </CardTitle>
+            <CardDescription>
+              Today's email validation usage against the daily cap. Resets at midnight UTC.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {zbCapLoading ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+                <Loader2 className="h-4 w-4 animate-spin" /> Loading…
+              </div>
+            ) : zbCap ? (() => {
+              const pct = zbCap.dailyCap > 0
+                ? Math.min(100, Math.round((zbCap.usedToday / zbCap.dailyCap) * 100))
+                : 0;
+              const barColor  = pct >= 90 ? "bg-red-500"   : pct >= 70 ? "bg-amber-500"  : "bg-green-500";
+              const textColor = pct >= 90 ? "text-red-700" : pct >= 70 ? "text-amber-700" : "text-green-700";
+              const bgBorder  = pct >= 90
+                ? "bg-red-50 border-red-200"
+                : pct >= 70
+                  ? "bg-amber-50 border-amber-200"
+                  : "bg-green-50 border-green-200";
+              return (
+                <div className={`rounded-md border px-4 py-3 space-y-2 ${bgBorder}`}>
+                  <div className="flex items-baseline justify-between">
+                    <span className={`text-2xl font-bold font-mono ${textColor}`}>
+                      {zbCap.usedToday.toLocaleString()}
+                    </span>
+                    <span className="text-sm text-muted-foreground">
+                      / {zbCap.dailyCap.toLocaleString()} cap
+                    </span>
+                  </div>
+                  <div className="w-full rounded-full bg-muted h-2 overflow-hidden">
+                    <div
+                      className={`h-2 rounded-full transition-all ${barColor}`}
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span>{pct}% used today</span>
+                    <span className={textColor}>
+                      {Math.max(0, zbCap.dailyCap - zbCap.usedToday).toLocaleString()} remaining
+                    </span>
+                  </div>
+                </div>
+              );
+            })() : (
+              <p className="text-sm text-muted-foreground">Usage data unavailable.</p>
             )}
           </CardContent>
         </Card>
