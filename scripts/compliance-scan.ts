@@ -767,6 +767,15 @@ const CALL_SITE_ALLOWLIST: Array<{
     reason: "Post-enrichment auto-advance — enrolls a newly enriched cold lead into a vertical sequence using email-only channel. Contactability is enforced INSIDE enrollContactInGhlWorkflow() via its own evaluateContactability() call (line 374 of ghl-workflow-enrollment.ts). The outer worker also gates on outboundGlobalPaused. Only fires once per deal (idempotency stamp at post_enrichment_automation_at). Reviewed 2026-08-12.",
     reviewDate: "2026-08-12",
   },
+  // ── 2026-08-18 remediation batch ─────────────────────────────────────────
+  {
+    file: "server/services/serper-gateway.ts",
+    lineContains: "sendSmtpEmail({ to, subject, html, category:",
+    channel: "email",
+    category: "internal_admin",
+    reason: "SerperGateway alert email — sent ONLY to ADMIN_ALERT_EMAIL (operator-owned inbox) when the Serper budget is exhausted or the circuit breaker opens. Recipient is always a static operator address, never a prospect or merchant. Guarded by _claimAlertCooldown to prevent spam. Reviewed 2026-08-18.",
+    reviewDate: "2026-08-18",
+  },
 ];
 
 

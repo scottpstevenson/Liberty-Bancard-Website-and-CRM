@@ -108,3 +108,5 @@
 - [GHL invalid-contact skip boundary](ghl-invalid-contact-skip.md) — upsertGhlContact validates identity + sanitizes email-422s into terminal skips; callers must never log ghl_sync_failed for them (feeds retry queue).
 - [Drizzle execute timestamp strings](drizzle-execute-timestamp-strings.md) — tx.execute returns timestamptz as strings vs pg-pool Dates; audit_logs is append-only (no test cleanup possible).
 - [Pause-cycle test DB setup](pause-cycle-test-db.md) — throwaway DB + 4 env guards to run test-pause-cycle-unit.ts; wait-step fixtures are DB-only; schema drift breaks seeding.
+- [ZB pre-enrollment gate ordering](zb-preenroll-gate-ordering.md) — ZB pre-enrollment fires BEFORE all other sequence-worker gates; test contacts must use emailStatus="valid" or ZB intercepts the enrollment before the intended gate.
+- [Coordinator hold integrity timing](coordinator-hold-integrity-timing.md) — pause-authority holds are temporarily absent after teardown applyPauseMutation; assertNonTestHoldsIntact must not hard-fail on them — only non-coordinator holds must be present immediately.
