@@ -24,6 +24,7 @@ import { enrollInGhlWorkflow, enrollInGhlWorkflowCompliant } from "../services/g
 import { updateCustomFields } from "../services/sdr/ghl-client";
 import { serverError } from "../utils/server-error";
 import { GO_LIVE_GATE_STAGES, checkGoLiveReadiness, GoLiveGateError } from "../services/go-live-gate";
+import { requireGhlRouteMutationAllowed } from "./ghl-mutation-pause";
 
 export function registerDealsRoutes(app: Express) {
   // === DEALS ===
@@ -489,6 +490,7 @@ export function registerDealsRoutes(app: Express) {
         fields["lb_opportunity_score"] = proposal.verticalInsights.opportunityScore?.toString() || "";
       }
 
+      if (!(await requireGhlRouteMutationAllowed(res))) return;
       await updateCustomFields(contact.ghlContactId, fields);
       await enrollInGhlWorkflowCompliant({
         workflowKey: "statement_analyzed",

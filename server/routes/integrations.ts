@@ -14,6 +14,7 @@ import { parseId, parsePagination } from "./helpers";
 import dns from "node:dns/promises";
 import net from "node:net";
 import { serverError, safeMessage } from "../utils/server-error";
+import { requireGhlRouteMutationAllowed } from "./ghl-mutation-pause";
 
 export function registerIntegrationsRoutes(app: Express) {
   // === GHL INTEGRATION ===
@@ -69,6 +70,7 @@ export function registerIntegrationsRoutes(app: Express) {
       if (!contactId) return res.status(400).json({ message: "contactId required" });
       const contact = await storage.getContact(contactId);
       if (!contact) return res.status(404).json({ message: "Contact not found" });
+      if (!(await requireGhlRouteMutationAllowed(res))) return;
       const ghlId = await upsertGhlContact(contact);
       res.json({ success: true, ghlContactId: ghlId });
     } catch (err: any) {

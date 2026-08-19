@@ -77,6 +77,11 @@ const MANDATORY_SUITES: Suite[] = [
     timeoutSecs: 120,
   },
   {
+    name: "GHL Route Pause Gates (#1629: typed denial + per-call-site regression)",
+    script: "scripts/test-ghl-route-pause-gates-1629.ts",
+    timeoutSecs: 60,
+  },
+  {
     name: "Sender Policy (From/Reply-To/prohibited-sender)",
     script: "scripts/test-sender-policy.ts",
     timeoutSecs: 60,

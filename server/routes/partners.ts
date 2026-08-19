@@ -20,6 +20,7 @@ import { sendPartnerWelcomeEmail } from "../services/partner-welcome";
 import { isGhlConfigured, sendGhlEmailForMerchant } from "../services/ghl";
 import { sendSmtpEmail, isSmtpConfigured } from "../services/smtp-email";
 import { serverError } from "../utils/server-error";
+import { authorizeGhlRouteMutation, requireGhlRouteMutationAllowed } from "./ghl-mutation-pause";
 
 const partnerForgotPasswordRateLimit = rateLimit({
   windowMs: 60 * 60 * 1000,
@@ -823,6 +824,7 @@ ${getEmailSignatureHtml("partners")}
   app.post("/api/referrals", isDashboardUser, async (req, res) => {
     try {
       const input = insertReferralSchema.parse(req.body);
+      if (input.referredEmail && isGhlConfigured() && !(await requireGhlRouteMutationAllowed(res))) return;
       const referral = await storage.createReferral(input);
       res.status(201).json(referral);
 
@@ -1137,6 +1139,14 @@ async function autoEnrollPartnerReferral(referral: {
 
   if (contact.doNotContact) {
     console.log(`[Referrals] Contact ${contact.id} is DNC — partner referral enrollment skipped`);
+    return;
+  }
+
+  // The route checks before scheduling this helper; authorize again because
+  // the fire-and-forget task may start after the pause epoch changes.
+  const pauseDecision = await authorizeGhlRouteMutation();
+  if (!pauseDecision.allowed) {
+    console.warn(`[Referrals] GHL auto-enrollment skipped: ${pauseDecision.reasonCode}`);
     return;
   }
 

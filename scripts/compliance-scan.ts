@@ -47,6 +47,10 @@
 
 import fs from "fs";
 import path from "path";
+import {
+  GHL_ROUTE_MUTATION_ALLOWLIST,
+  GHL_ROUTE_MUTATION_FUNCTIONS,
+} from "./ghl-route-mutation-allowlist";
 
 // ── Configuration ────────────────────────────────────────────────────────────
 
@@ -1340,6 +1344,85 @@ function checkArchitecturalBoundaries(): { passed: boolean; violations: string[]
   return { passed: violations.length === 0, violations };
 }
 
+// ── Route-level GHL mutation disposition check (C-04, #1629) ───────────────
+
+function checkGhlRouteMutationGates(): { passed: boolean; violations: string[] } {
+  const violations: string[] = [];
+  const cache = new Map<string, string[]>();
+  const coveredCallLines = new Set<string>();
+
+  for (const entry of GHL_ROUTE_MUTATION_ALLOWLIST) {
+    let lines = cache.get(entry.file);
+    if (!lines) {
+      if (!fs.existsSync(entry.file)) {
+        violations.push(`GHL ROUTE GATE VIOLATION: reviewed file missing: ${entry.file}`);
+        continue;
+      }
+      lines = fs.readFileSync(entry.file, "utf8").split("\n");
+      cache.set(entry.file, lines);
+    }
+
+    const matches = lines
+      .map((line, idx) => line.includes(entry.lineContains) ? idx : -1)
+      .filter(idx => idx >= 0);
+    const occurrence = entry.occurrence ?? 1;
+    const callIdx = matches[occurrence - 1];
+    if (callIdx === undefined) {
+      violations.push(
+        `GHL ROUTE GATE VIOLATION: ${entry.file} — reviewed call site not found ` +
+        `(lineContains="${entry.lineContains}", occurrence=${occurrence})`,
+      );
+      continue;
+    }
+    coveredCallLines.add(`${entry.file}:${callIdx}`);
+
+    const start = Math.max(0, callIdx - entry.maxLinesBetween);
+    const gateIdx = lines
+      .slice(start, callIdx)
+      .map((line, offset) => line.includes(entry.gateContains) ? start + offset : -1)
+      .filter(idx => idx >= 0)
+      .pop();
+    if (gateIdx === undefined) {
+      violations.push(
+        `GHL ROUTE GATE VIOLATION: ${entry.file}:${callIdx + 1} — ${entry.disposition} gate missing ` +
+        `within ${entry.maxLinesBetween} lines (expected "${entry.gateContains}")`,
+      );
+      continue;
+    }
+
+    if (entry.disposition === "skip_auxiliary") {
+      const guardedWindow = lines.slice(gateIdx, callIdx + 1).join("\n");
+      if (!guardedWindow.includes("pauseDecision.allowed")) {
+        violations.push(
+          `GHL ROUTE GATE VIOLATION: ${entry.file}:${callIdx + 1} — auxiliary mutation is not inside an allowed-decision branch`,
+        );
+      }
+    }
+  }
+
+  // Discovery check: adding another targeted helper call to any reviewed route
+  // file without a reviewed entry must fail, rather than silently inheriting a
+  // nearby gate or file-level exemption.
+  const targetFiles = new Set(GHL_ROUTE_MUTATION_ALLOWLIST.map(entry => entry.file));
+  const helperPattern = new RegExp(`\\b(?:${GHL_ROUTE_MUTATION_FUNCTIONS.join("|")})\\s*\\(`);
+  for (const file of targetFiles) {
+    const lines = cache.get(file) ?? fs.readFileSync(file, "utf8").split("\n");
+    lines.forEach((line, idx) => {
+      if (/^\s*\/\//.test(line) || /^\s*\*/.test(line)) return;
+      // Do not treat helper names mentioned in log/error strings as calls.
+      const codeOnly = line.replace(/(["'`])(?:\\.|(?!\1).)*\1/g, "");
+      if (!helperPattern.test(codeOnly)) return;
+      if (!coveredCallLines.has(`${file}:${idx}`)) {
+        violations.push(
+          `GHL ROUTE GATE VIOLATION: ${file}:${idx + 1} — targeted mutation helper call has no reviewed per-call-site entry: ${line.trim().slice(0, 120)}`,
+        );
+      }
+    });
+  }
+
+  return { passed: violations.length === 0, violations };
+}
+
 // ── Main ─────────────────────────────────────────────────────────────────────
 
 function main(): void {
@@ -1356,6 +1439,14 @@ function main(): void {
   if (badEntries.length > 0) {
     console.error("✗ ALLOWLIST INTEGRITY FAILURE: entries below cover a whole file instead of a specific call site (lineContains missing or too broad):");
     for (const e of badEntries) console.error(`   - ${e.file} (lineContains="${e.lineContains}")`);
+    process.exit(1);
+  }
+  const badGhlEntries = GHL_ROUTE_MUTATION_ALLOWLIST.filter(
+    e => !e.lineContains || e.lineContains.trim().length < 8 || !e.gateContains || e.gateContains.trim().length < 8,
+  );
+  if (badGhlEntries.length > 0) {
+    console.error("✗ GHL ROUTE ALLOWLIST INTEGRITY FAILURE: every entry needs a specific call and gate marker:");
+    for (const e of badGhlEntries) console.error(`   - ${e.file} (call="${e.lineContains}", gate="${e.gateContains}")`);
     process.exit(1);
   }
 
@@ -1433,12 +1524,23 @@ function main(): void {
     }
   }
 
-  const totalFailures = failures.length + (boundaryResult.passed ? 0 : boundaryResult.violations.length);
+  console.log("\n── GHL Route Mutation Pause Gates (C-04, #1629) ────────────────\n");
+  const ghlRouteResult = checkGhlRouteMutationGates();
+  if (ghlRouteResult.passed) {
+    console.log(`  ✓ ${GHL_ROUTE_MUTATION_ALLOWLIST.length} reviewed GHL route mutation call sites retain their pause disposition`);
+  } else {
+    for (const v of ghlRouteResult.violations) console.error(`  ✗ ${v}`);
+  }
+
+  const totalFailures = failures.length
+    + (boundaryResult.passed ? 0 : boundaryResult.violations.length)
+    + (ghlRouteResult.passed ? 0 : ghlRouteResult.violations.length);
 
   if (totalFailures > 0) {
     console.error(
       `\n✗ Compliance scan FAILED: ${failures.length} call site(s) require remediation; ` +
-      `${boundaryResult.violations.length} architectural boundary violation(s).`,
+      `${boundaryResult.violations.length} architectural boundary violation(s); ` +
+      `${ghlRouteResult.violations.length} GHL route gate violation(s).`,
     );
     process.exit(1);
   } else {

@@ -7,6 +7,7 @@ import { eq, and, desc, gte, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { getAllBotContexts } from "../services/sdr/conversation-ai";
 import { addTag, updateCustomFields, disableConversationAi, isSdrGhlConfigured } from "../services/sdr/ghl-client";
+import { requireGhlRouteMutationAllowed } from "./ghl-mutation-pause";
 import { serverError } from "../utils/server-error";
 
 const DEFAULT_BOT_SEEDS = [
@@ -369,6 +370,7 @@ export function registerConversationAiConfigRoutes(app: Express) {
       if (!contact) return res.status(404).json({ message: "Contact not found" });
 
       if (contact.ghlContactId && isSdrGhlConfigured()) {
+        if (!(await requireGhlRouteMutationAllowed(res))) return;
         await addTag({ contactId: contact.ghlContactId, tags: ["LB-HUMAN-HANDOFF", "LB-CHAT-HANDOFF"] });
         await updateCustomFields(contact.ghlContactId, { lb_owner_type: "human", lb_last_ai_outcome: "human_takeover_dashboard" });
         await disableConversationAi(contact.ghlContactId);
