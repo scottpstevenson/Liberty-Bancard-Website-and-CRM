@@ -19,6 +19,7 @@ import { handleConversationCreated, handleChatMessage, handleSmsThread, handleEm
 import { parse } from "csv-parse/sync";
 import { createContactGhlFirst } from "../services/contact-writer";
 import { serverError, safeMessage } from "../utils/server-error";
+import { requireGhlRouteMutationAllowed } from "./ghl-mutation-pause";
 
 // ── Build identity — frozen at process start, never derived at request time ──
 // RELEASE_SHA must be a 40-hex string injected by the deployment pipeline via
@@ -2688,6 +2689,13 @@ export function registerSdrRoutes(app: Express) {
       if (!conflict) return res.status(404).json({ message: "Conflict not found" });
 
       const { upsertGhlContact } = await import("../services/ghl");
+
+      // Resolve the route-level pause before either a local conflict write or
+      // its paired GHL mutation. The adapter repeats the canonical epoch gate.
+      if (resolution !== "manual") {
+        const contact = await storage.getContact(conflict.contactId);
+        if (contact?.ghlContactId && !(await requireGhlRouteMutationAllowed(res))) return;
+      }
 
       if (resolution === "kept-ghl") {
         const ghlVal = conflict.ghlValue ?? "";

@@ -17,7 +17,7 @@ import bcrypt from "bcryptjs";
 import { upload } from "./helpers";
 import path from "path";
 import fs from "fs";
-import { addNote, addTag } from "../services/sdr/ghl-client";
+import { addNote, addTag, isSdrGhlConfigured } from "../services/sdr/ghl-client";
 import { enrollInGhlWorkflow, enrollInGhlWorkflowCompliant } from "../services/ghl-workflows";
 import { createContactGhlFirst } from "../services/contact-writer";
 import { scoreContact } from "../services/lead-scoring";
@@ -32,6 +32,7 @@ import {
   generateCoBrandedProposalPdf,
 } from "../services/co-branded-proposal";
 import { serverError, safeMessage } from "../utils/server-error";
+import { authorizeGhlRouteMutation, requireGhlRouteMutationAllowed } from "./ghl-mutation-pause";
 
 function isPartnerOrgAdmin(req: any) {
   return req.session?.partnerOrgUserId && req.session?.partnerOrgId;
@@ -915,11 +916,18 @@ ${getEmailSignatureHtml("partners")}
             if (deal.contactId) {
               const contact = await storage.getContact(deal.contactId);
               if (contact?.ghlContactId) {
-                await Promise.all([
-                  addNote({ contactId: contact!.ghlContactId, body: `Co-branded proposal viewed: ${proposal.merchantName}` }),
-                  addTag({ contactId: contact!.ghlContactId, tags: ["proposal-viewed"] }),
-                  enrollInGhlWorkflowCompliant({ workflowKey: "proposal_viewed", ghlContactId: contact!.ghlContactId, contactId: contact!.id })
-                ]);
+                // Preserve the public proposal read while paused; only its
+                // auxiliary provider mutations are skipped.
+                const pauseDecision = await authorizeGhlRouteMutation();
+                if (pauseDecision.allowed) {
+                  await Promise.all([
+                    addNote({ contactId: contact!.ghlContactId, body: `Co-branded proposal viewed: ${proposal.merchantName}` }),
+                    addTag({ contactId: contact!.ghlContactId, tags: ["proposal-viewed"] }),
+                    enrollInGhlWorkflowCompliant({ workflowKey: "proposal_viewed", ghlContactId: contact!.ghlContactId, contactId: contact!.id })
+                  ]);
+                } else {
+                  console.warn(`[ProposalTracking] GHL view mutations skipped: ${pauseDecision.reasonCode}`);
+                }
               }
               // Owner-scoped in-app notification is now handled inside trackProposalView
               // (resolved to a specific user ID, fail-closed). The legacy system-wide
@@ -961,6 +969,13 @@ ${getEmailSignatureHtml("partners")}
       const proposal = await storage.getCoBrandedProposalByToken(req.params.token);
       if (!proposal) return res.status(404).json({ message: "Proposal not found." });
       if (!proposal.acceptedAt) {
+        // Resolve the route disposition before accepting locally. Otherwise a
+        // 503 after the acceptedAt write would be a misleading partial failure.
+        if (proposal.dealId) {
+          const deal = await storage.getDeal(proposal.dealId);
+          const contact = deal?.contactId ? await storage.getContact(deal.contactId) : null;
+          if (contact?.ghlContactId && isSdrGhlConfigured() && !(await requireGhlRouteMutationAllowed(res))) return;
+        }
         await storage.updateCoBrandedProposal(proposal.id, {
           status: "accepted",
           acceptedAt: new Date(),
@@ -1112,6 +1127,7 @@ ${getEmailSignatureHtml("partners")}
         return res.status(400).json({ message: "Associated contact not found or not synced to GHL." });
       }
 
+      if (isSdrGhlConfigured() && !(await requireGhlRouteMutationAllowed(res))) return;
       const result = await enrollInGhlWorkflowCompliant({
         workflowKey,
         ghlContactId: contact!.ghlContactId,

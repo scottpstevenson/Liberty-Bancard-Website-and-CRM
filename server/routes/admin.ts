@@ -15,6 +15,7 @@ import { getWorkflowRegistryWithStatus } from "../services/ghl-workflows";
 import { summarizeChannelSafety } from "../services/contactability";
 import { classifyEligibility } from "../services/deal-eligibility";
 import { serverError, safeMessage } from "../utils/server-error";
+import { requireGhlRouteMutationAllowed } from "./ghl-mutation-pause";
 
 export function registerAdminRoutes(app: Express) {
   // === ADMIN: SESSION MANAGEMENT ===
@@ -817,6 +818,7 @@ export function registerAdminRoutes(app: Express) {
       const [contact] = await db.select().from(contacts).where(eq(contacts.id, Number(contactId)));
       if (!contact) return res.status(404).json({ message: "Contact not found" });
 
+      if (!(await requireGhlRouteMutationAllowed(res))) return;
       const result = await upsertGhlContact(contact);
       await auditChange({ entityType: "ghl_sync", entityId: contact.id, entityKey: contact.email || String(contact.id), action: "ghl_sync_retry_success", details: { ghlContactId: result } });
       res.json({ success: true, ghlContactId: result });

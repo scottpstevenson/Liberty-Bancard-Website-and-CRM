@@ -31,6 +31,9 @@ jobs:
       - name: Compliance scan (AST — no send site escapes the gate)
         run: npx tsx scripts/compliance-scan.ts
 
+      - name: GHL route pause gate tests (#1629)
+        run: npx tsx scripts/test-ghl-route-pause-gates-1629.ts
+
       - name: API coverage check (frontend calls vs server routes)
         run: npx tsx scripts/check-api-coverage.ts
 

@@ -6,6 +6,7 @@ import { z } from "zod";
 import { pool } from "../db";
 import { isGhlConfigured, createGhlTask } from "../services/ghl";
 import { serverError } from "../utils/server-error";
+import { requireGhlRouteMutationAllowed } from "./ghl-mutation-pause";
 
 export function registerUnderwritingRoutes(app: Express) {
   // ── GET current rules config ─────────────────────────────────────────────
@@ -189,6 +190,16 @@ export function registerUnderwritingRoutes(app: Express) {
           return res.status(404).json({ message: "No underwriting decision found for this deal" });
         }
 
+        let ghlTaskContext: { contactId: string; companyName: string } | null = null;
+        if (isGhlConfigured()) {
+          const deal = await storage.getDeal(dealId).catch(() => null);
+          const contact = deal?.contactId ? await storage.getContact(deal.contactId).catch(() => null) : null;
+          if (contact?.ghlContactId) {
+            if (!(await requireGhlRouteMutationAllowed(res))) return;
+            ghlTaskContext = { contactId: contact.ghlContactId, companyName: deal?.companyName || "Unknown" };
+          }
+        }
+
         const updated = await storage.overrideUnderwritingDecision(
           decision.id,
           "approve",
@@ -199,17 +210,13 @@ export function registerUnderwritingRoutes(app: Express) {
         const { advanceDealStage } = await import("../services/deal-stage-service");
         await advanceDealStage(dealId, "Proposal Sent", "underwriting_manual_approve").catch(() => {});
 
-        if (isGhlConfigured()) {
-          const deal = await storage.getDeal(dealId).catch(() => null);
-          const contact = deal?.contactId ? await storage.getContact(deal.contactId).catch(() => null) : null;
-          if (contact?.ghlContactId) {
-            createGhlTask({
-              contactId: contact.ghlContactId,
-              title: `Underwriting Approved — Deal #${dealId}: ${deal?.companyName || "Unknown"} — advance to Proposal Sent`,
-              dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
-              assignedTo: undefined,
-            }).catch((err: Error) => console.warn("[Underwriting] createGhlTask (approve, non-critical):", err.message));
-          }
+        if (ghlTaskContext) {
+          createGhlTask({
+            contactId: ghlTaskContext.contactId,
+            title: `Underwriting Approved — Deal #${dealId}: ${ghlTaskContext.companyName} — advance to Proposal Sent`,
+            dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
+            assignedTo: undefined,
+          }).catch((err: Error) => console.warn("[Underwriting] createGhlTask (approve, non-critical):", err.message));
         }
 
         await storage.createAuditLog({
@@ -250,6 +257,16 @@ export function registerUnderwritingRoutes(app: Express) {
           return res.status(404).json({ message: "No underwriting decision found for this deal" });
         }
 
+        let ghlTaskContext: { contactId: string; companyName: string } | null = null;
+        if (isGhlConfigured()) {
+          const deal = await storage.getDeal(dealId).catch(() => null);
+          const contact = deal?.contactId ? await storage.getContact(deal.contactId).catch(() => null) : null;
+          if (contact?.ghlContactId) {
+            if (!(await requireGhlRouteMutationAllowed(res))) return;
+            ghlTaskContext = { contactId: contact.ghlContactId, companyName: deal?.companyName || "Unknown" };
+          }
+        }
+
         const updated = await storage.overrideUnderwritingDecision(
           decision.id,
           "reject",
@@ -269,17 +286,13 @@ export function registerUnderwritingRoutes(app: Express) {
           metadata: { dealId, decisionId: decision.id, eventType: "underwriting_rejected" },
         });
 
-        if (isGhlConfigured()) {
-          const deal = await storage.getDeal(dealId).catch(() => null);
-          const contact = deal?.contactId ? await storage.getContact(deal.contactId).catch(() => null) : null;
-          if (contact?.ghlContactId) {
-            createGhlTask({
-              contactId: contact.ghlContactId,
-              title: `Underwriting Rejected — Deal #${dealId}: ${deal?.companyName || "Unknown"} — returned to Review In Progress${note ? ` — Note: ${note}` : ""}`,
-              dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
-              assignedTo: undefined,
-            }).catch((err: Error) => console.warn("[Underwriting] createGhlTask (reject, non-critical):", err.message));
-          }
+        if (ghlTaskContext) {
+          createGhlTask({
+            contactId: ghlTaskContext.contactId,
+            title: `Underwriting Rejected — Deal #${dealId}: ${ghlTaskContext.companyName} — returned to Review In Progress${note ? ` — Note: ${note}` : ""}`,
+            dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
+            assignedTo: undefined,
+          }).catch((err: Error) => console.warn("[Underwriting] createGhlTask (reject, non-critical):", err.message));
         }
 
         await storage.createAuditLog({

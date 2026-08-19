@@ -14,6 +14,7 @@ import fs from "fs";
 import { upload, parseId } from "./helpers";
 import { ZipArchive } from "archiver";
 import { serverError } from "../utils/server-error";
+import { authorizeGhlRouteMutation, requireGhlRouteMutationAllowed } from "./ghl-mutation-pause";
 
 export function registerDocumentsRoutes(app: Express) {
   // === MERCHANT DOCUMENT VAULT ===
@@ -310,6 +311,14 @@ export function registerDocumentsRoutes(app: Express) {
       const doc = await storage.getDocumentById(docStatusId);
       if (!doc) return res.status(404).json({ message: "Document not found" });
 
+      // A rejection may add a GHL note. Resolve an already-active pause before
+      // changing local status so the operator receives an actionable response.
+      if (status === "rejected" && doc.contactId) {
+        const contact = await storage.getContact(doc.contactId);
+        const { isSdrGhlConfigured } = await import("../services/sdr/ghl-client");
+        if (contact?.ghlContactId && isSdrGhlConfigured() && !(await requireGhlRouteMutationAllowed(res))) return;
+      }
+
       const user = req.user as any;
       const updated = await storage.updateDocument(doc.id, { status });
 
@@ -338,8 +347,14 @@ export function registerDocumentsRoutes(app: Express) {
 
             const contact = await storage.getContact(doc.contactId as number);
             if (contact?.ghlContactId) {
-              const { addNote } = await import("../services/sdr/ghl-client");
-              await addNote({ contactId: contact.ghlContactId, body: `Document rejected: "${doc.fileName}". Merchant has been notified to resubmit.` }).catch(() => {});
+              // Re-authorize in the deferred task to close its scheduling gap.
+              const pauseDecision = await authorizeGhlRouteMutation();
+              if (pauseDecision.allowed) {
+                const { addNote } = await import("../services/sdr/ghl-client");
+                await addNote({ contactId: contact.ghlContactId, body: `Document rejected: "${doc.fileName}". Merchant has been notified to resubmit.` }).catch(() => {});
+              } else {
+                console.warn(`[doc-status] GHL note skipped: ${pauseDecision.reasonCode}`);
+              }
             }
 
             // Audit the rejection event for reporting
