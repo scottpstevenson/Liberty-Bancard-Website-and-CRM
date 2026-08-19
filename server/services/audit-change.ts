@@ -1,5 +1,6 @@
 import { db } from "../db";
 import { auditLogs } from "@shared/schema";
+import { sanitizeAuditPayload, sanitizeEntityKey } from "./audit-sanitizer";
 
 export type ActorType = "user" | "ai" | "system";
 
@@ -18,15 +19,17 @@ export interface AuditChangeParams {
 
 export async function auditChange(params: AuditChangeParams, tx?: any): Promise<void> {
   const client: typeof db = tx ?? db;
+  // C-13 (#1626): sanitize caller payloads at the DB-insert boundary.
+  // communication_events (business message content) does NOT go through here.
   await client.insert(auditLogs).values({
     userId: params.userId ?? null,
     action: params.action,
     entityType: params.entityType,
     entityId: params.entityId ?? null,
-    entityKey: params.entityKey ?? null,
-    details: params.details ?? null,
-    beforeState: params.before ?? null,
-    afterState: params.after ?? null,
+    entityKey: sanitizeEntityKey(params.entityKey),
+    details: (sanitizeAuditPayload(params.details) as Record<string, unknown> | null) ?? null,
+    beforeState: (sanitizeAuditPayload(params.before) as Record<string, unknown> | null) ?? null,
+    afterState: (sanitizeAuditPayload(params.after) as Record<string, unknown> | null) ?? null,
     actorType: params.actorType ?? "user",
     actorId: params.actorId ?? null,
   });
@@ -45,10 +48,10 @@ export async function bulkAuditChange(entries: AuditChangeParams[], tx?: any): P
       action: params.action,
       entityType: params.entityType,
       entityId: params.entityId ?? null,
-      entityKey: params.entityKey ?? null,
-      details: params.details ?? null,
-      beforeState: params.before ?? null,
-      afterState: params.after ?? null,
+      entityKey: sanitizeEntityKey(params.entityKey),
+      details: (sanitizeAuditPayload(params.details) as Record<string, unknown> | null) ?? null,
+      beforeState: (sanitizeAuditPayload(params.before) as Record<string, unknown> | null) ?? null,
+      afterState: (sanitizeAuditPayload(params.after) as Record<string, unknown> | null) ?? null,
       actorType: params.actorType ?? "user",
       actorId: params.actorId ?? null,
     }))

@@ -22,6 +22,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # T-05 (#1626): binary type-check gate — must pass before merge
+      - name: TypeScript type check (npm run check)
+        run: npm run check
+
+      # T-05 (#1626): compliance scan is a required binary gate; a non-zero
+      # exit code fails the job (and therefore blocks the merge).
       - name: Compliance scan (AST — no send site escapes the gate)
         run: npx tsx scripts/compliance-scan.ts
 
@@ -58,10 +64,11 @@ jobs:
       NODE_ENV: development
       PORT: 5000
       BASE_URL: http://localhost:5000
-      # GHL kill line — leave GHL_PRIVATE_INTEGRATION_TOKEN unset so the API
-      # layer returns errors safely; set GHL_TEST_MODE so test-forms.ts
-      # explicitly acknowledges isolation even if a token appears in CI secrets
-      GHL_TEST_MODE: "true"
+      # GHL kill line (C-03 #1626) — leave GHL_PRIVATE_INTEGRATION_TOKEN unset
+      # so the API layer returns errors safely; GHL_TRANSPORT_FAILFAST installs
+      # the server-level fail-fast fake GHL transport so any real GHL call
+      # throws TestTransportError (test-forms.ts verifies via /api/health).
+      GHL_TRANSPORT_FAILFAST: "true"
       ADMIN_SEED_EMAIL: ${{ secrets.ADMIN_SEED_EMAIL }}
       ADMIN_SEED_PASSWORD: ${{ secrets.ADMIN_SEED_PASSWORD }}
 
@@ -106,13 +113,20 @@ jobs:
       - name: Contactability engine tests
         run: npx tsx scripts/test-contactability.ts
 
+      # ── Script 2b: Outbound boundary denial tests (#1626) ────────────────
+      # Requires: DB. Covers pause denial on form-sync/delete/SMTP paths,
+      # drain fail-closed on DB error, epoch interleaving, audit sanitizer.
+      - name: Outbound boundary denial tests
+        run: npx tsx scripts/test-outbound-boundary-1626.ts
+
       # ── Script 3: Sequence compliance tests ──────────────────────────────
       # Requires: DB (direct Drizzle) — no live server call
       - name: Sequence compliance tests
         run: npx tsx scripts/test-sequence-compliance.ts
 
       # ── Script 4: Form integration tests ─────────────────────────────────
-      # Requires: live server + DB + GHL_TEST_MODE=true (no real GHL contacts)
+      # Requires: live server + DB; GHL isolation via GHL_TRANSPORT_FAILFAST
+      # server transport (no real GHL contacts — verified via /api/health)
       - name: Form integration tests
         run: npx tsx scripts/test-forms.ts
 

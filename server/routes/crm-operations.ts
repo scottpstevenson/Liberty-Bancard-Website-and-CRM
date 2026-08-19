@@ -157,12 +157,24 @@ export function registerCrmOperationsRoutes(app: Express) {
     try {
       const contactId = Number(req.params.id);
       const auditCtx = { actorType: "user" as const, userId: (req.user as any)?.id ?? null };
+      const existing = await storage.getContact(contactId);
+      if (!existing) return res.status(404).json({ message: "Not found" });
+      // C-02 (#1626): propagate the GHL delete BEFORE archiving locally, and
+      // leave local state unchanged when propagation is pause-blocked or
+      // fails — the operator retries once outbound resumes.
+      const ghlResult = await propagateContactDeleteToGhl(contactId);
+      if (!ghlResult.ok) {
+        const status = ghlResult.reason === "paused" ? 503 : 409;
+        return res.status(status).json({
+          message: `GHL delete did not complete (${ghlResult.reason}). Contact was NOT archived locally — retry archive to re-attempt.`,
+          localArchived: false,
+          ghlPropagated: false,
+          reason: ghlResult.reason,
+        });
+      }
       const result = await storage.archiveContact(contactId, auditCtx);
       if (!result) return res.status(404).json({ message: "Not found" });
       res.json(result);
-      propagateContactDeleteToGhl(contactId).catch((err: Error) => {
-        console.warn(`[GHL Delete] Failed to propagate contact #${contactId} archive to GHL:`, err.message);
-      });
     } catch (err: any) {
       console.error("Archive contact error:", err.message);
       serverError(res, err);
@@ -185,12 +197,23 @@ export function registerCrmOperationsRoutes(app: Express) {
     try {
       const dealId = Number(req.params.id);
       const auditCtx = { actorType: "user" as const, userId: (req.user as any)?.id ?? null };
+      const existingDeal = await storage.getDeal(dealId);
+      if (!existingDeal) return res.status(404).json({ message: "Not found" });
+      // C-02 (#1626): propagate the GHL delete BEFORE archiving locally, and
+      // leave local state unchanged when propagation is pause-blocked or fails.
+      const ghlResult = await propagateDealDeleteToGhl(dealId);
+      if (!ghlResult.ok) {
+        const status = ghlResult.reason === "paused" ? 503 : 409;
+        return res.status(status).json({
+          message: `GHL delete did not complete (${ghlResult.reason}). Deal was NOT archived locally — retry archive to re-attempt.`,
+          localArchived: false,
+          ghlPropagated: false,
+          reason: ghlResult.reason,
+        });
+      }
       const result = await storage.archiveDeal(dealId, auditCtx);
       if (!result) return res.status(404).json({ message: "Not found" });
       res.json(result);
-      propagateDealDeleteToGhl(dealId).catch((err: Error) => {
-        console.warn(`[GHL Delete] Failed to propagate deal #${dealId} archive to GHL:`, err.message);
-      });
     } catch (err: any) {
       console.error("Archive deal error:", err.message);
       serverError(res, err);
@@ -282,11 +305,23 @@ export function registerCrmOperationsRoutes(app: Express) {
         ghlTaskId = task.ghlTaskId;
         ghlContactId = contact?.ghlContactId || null;
       }
+      // C-02 (#1626): propagate to GHL BEFORE the local soft-delete, and only
+      // soft-delete locally once propagation succeeds (or is not needed).
+      // Rationale: soft-deleted tasks are excluded from getTasks(), so a
+      // retry after a local-first delete would lose the GHL task/contact IDs
+      // and silently skip propagation, leaving the external task undeleted.
+      const ghlResult = await propagateTaskDeleteToGhl(taskId, ghlTaskId, ghlContactId);
+      if (!ghlResult.ok) {
+        const status = ghlResult.reason === "paused" ? 503 : 409;
+        return res.status(status).json({
+          message: `GHL delete did not complete (${ghlResult.reason}). Task was NOT deleted locally — retry delete to re-attempt.`,
+          localDeleted: false,
+          ghlPropagated: false,
+          reason: ghlResult.reason,
+        });
+      }
       await storage.softDeleteTask(taskId);
       res.json({ success: true });
-      propagateTaskDeleteToGhl(taskId, ghlTaskId, ghlContactId).catch((err: Error) => {
-        console.warn(`[GHL Delete] Failed to propagate task #${taskId} delete to GHL:`, err.message);
-      });
     } catch (err: any) {
       console.error("Delete task error:", err.message);
       serverError(res, err);

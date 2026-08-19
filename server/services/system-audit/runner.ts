@@ -139,7 +139,7 @@ export async function runSystemAudit(
 
     await db.execute(sql`
       INSERT INTO audit_logs (action, entity_type, entity_id, details)
-      VALUES ('system_audit_completed', 'system', ${runId}, ${JSON.stringify({
+      VALUES ('system_audit_completed', 'system', ${runId}, ${JSON.stringify((await import("../audit-sanitizer")).sanitizeAuditPayload({
         runId,
         triggeredBy,
         durationMs,
@@ -152,7 +152,7 @@ export async function runSystemAudit(
         probeCount: probeResults.length,
         passingCount: probeResults.filter(p => p.status === "ok").length,
         slackStatus,
-      })}::jsonb)
+      }))}::jsonb)
     `);
 
     console.log(

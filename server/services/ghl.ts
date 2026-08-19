@@ -38,9 +38,37 @@ const GHL_REQUEST_TIMEOUT_MS = parseInt(process.env.GHL_REQUEST_TIMEOUT_MS ?? "2
 // Strip `pauseEpoch` before passing to the native fetch() call.
 type GhlFetchOptions = RequestInit & { pauseEpoch?: bigint };
 
+const GHL_MUTATION_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
 async function ghlFetch(path: string, options: GhlFetchOptions = {}, retries = 3): Promise<any> {
   const config = getConfig();
   if (!config) throw new Error("GHL not configured. Set GHL_API_KEY and GHL_LOCATION_ID.");
+
+  // ── Canonical pause boundary (fetch-level enforcement) ────────────────────
+  // Any mutation whose caller did not already run the pause protocol
+  // (signalled by a supplied pauseEpoch) gets the full authorize →
+  // register(epoch) → recheck → I/O → deregister protocol here. Reads are
+  // never gated.
+  const method = (options.method || "GET").toUpperCase();
+  if (GHL_MUTATION_METHODS.has(method) && options.pauseEpoch === undefined) {
+    const { authorize, recheckEpoch } = await import("./outbound-pause-authority");
+    const { registerInflight, deregisterInflight } = await import("./outbound-control-service");
+    const decision = await authorize({});
+    if (!decision.allowed) {
+      throw new Error(`GHL mutation blocked by pause authority: ${decision.reasonCode} (${method} ${path.split("?")[0]})`);
+    }
+    const tokenId = crypto.randomUUID();
+    await registerInflight(tokenId, decision.epoch);
+    try {
+      const epochOk = await recheckEpoch(decision.epoch);
+      if (!epochOk) {
+        throw new Error(`GHL mutation blocked by pause authority: epoch_changed (${method} ${path.split("?")[0]})`);
+      }
+      return await ghlFetch(path, { ...options, pauseEpoch: decision.epoch }, retries);
+    } finally {
+      deregisterInflight(tokenId);
+    }
+  }
 
   // Extract pause epoch before building the fetch-compatible options
   const { pauseEpoch, ...fetchOptions } = options;
@@ -440,6 +468,30 @@ async function doUpsertGhlContact(contact: GhlContactInput): Promise<string> {
   const config = getConfig();
   if (!config) throw new Error("GHL not configured");
 
+  // Canonical pause boundary: contact upsert is a provider mutation and must
+  // run the full authorize → register(epoch) → recheck → I/O → deregister
+  // protocol like every other outbound GHL mutation.
+  const { authorize, recheckEpoch } = await import("./outbound-pause-authority");
+  const { registerInflight, deregisterInflight } = await import("./outbound-control-service");
+  const pauseDecision = await authorize({});
+  if (!pauseDecision.allowed) {
+    throw new Error(`GHL contact upsert blocked by pause authority: ${pauseDecision.reasonCode}`);
+  }
+  const pauseTokenId = crypto.randomUUID();
+  await registerInflight(pauseTokenId, pauseDecision.epoch);
+  try {
+    const epochOk = await recheckEpoch(pauseDecision.epoch);
+    if (!epochOk) {
+      throw new Error("GHL contact upsert blocked by pause authority: epoch_changed");
+    }
+    return await doUpsertGhlContactInner(contact, config);
+  } finally {
+    deregisterInflight(pauseTokenId);
+  }
+}
+
+async function doUpsertGhlContactInner(contact: GhlContactInput, config: NonNullable<ReturnType<typeof getConfig>>): Promise<string> {
+
   const customFields: Array<{ key: string; field_value: string }> = [];
   const addCF = (key: string, value: string) => customFields.push({ key, field_value: value });
 
@@ -751,7 +803,7 @@ export async function sendGhlEmail(params: {
     }
     // Register in-flight token so pause barrier can drain us
     const token = crypto.randomUUID();
-    await registerInflight(token);
+    await registerInflight(token, decision.epoch);
     try {
       // Final epoch recheck immediately before network I/O
       const epochOk = await recheckEpoch(decision.epoch);
@@ -884,7 +936,7 @@ export async function sendGhlEmailForMerchant(params: {
       return { success: false, error: `Outbound paused: ${decision.reasonCode}` };
     }
     const token = crypto.randomUUID();
-    await registerInflight(token);
+    await registerInflight(token, decision.epoch);
     try {
       const epochOk = await recheckEpoch(decision.epoch);
       if (!epochOk) {
@@ -964,7 +1016,7 @@ export async function sendGhlSms(params: {
       return { success: false, error: `Outbound paused: ${decision.reasonCode}` };
     }
     const token = crypto.randomUUID();
-    await registerInflight(token);
+    await registerInflight(token, decision.epoch);
     try {
       const epochOk = await recheckEpoch(decision.epoch);
       if (!epochOk) {
@@ -1789,7 +1841,7 @@ export async function sendDocumentForEsign(opts: {
       return { success: false, error: `Outbound paused: ${decision.reasonCode}` };
     }
     const token = crypto.randomUUID();
-    await registerInflight(token);
+    await registerInflight(token, decision.epoch);
     try {
       const epochOk = await recheckEpoch(decision.epoch);
       if (!epochOk) {

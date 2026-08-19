@@ -45,7 +45,7 @@ Rules: Professional business prose, no markdown headers, flowing paragraphs for 
       await db.execute(sql`
         INSERT INTO audit_logs (action, entity_type, entity_id, metadata, created_at)
         VALUES ('executive_gpt_briefing', 'executive_snapshot', 0,
-          ${JSON.stringify({ weekStart: snap.weekStart, tokens: response.usage?.total_tokens })}::jsonb,
+          ${JSON.stringify((await import("./audit-sanitizer")).sanitizeAuditPayload({ weekStart: snap.weekStart, tokens: response.usage?.total_tokens }))}::jsonb,
           NOW())
       `);
     } catch { /* non-critical */ }
@@ -131,7 +131,7 @@ Rules: Empathetic and encouraging tone, never harsh. Cite specific numbers. Focu
       await db.execute(sql`
         INSERT INTO audit_logs (action, entity_type, entity_id, metadata, created_at)
         VALUES ('executive_claude_coaching', 'executive_snapshot', 0,
-          ${JSON.stringify({ weekStart: snap.weekStart, repCount: result.length, tokens: response.usage?.total_tokens })}::jsonb,
+          ${JSON.stringify((await import("./audit-sanitizer")).sanitizeAuditPayload({ weekStart: snap.weekStart, repCount: result.length, tokens: response.usage?.total_tokens }))}::jsonb,
           NOW())
       `);
     } catch { /* non-critical */ }

@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import { storage } from "../storage";
 import { auditChange } from "./audit-change";
 import { isGhlConfigured } from "./ghl";
@@ -11,25 +12,61 @@ function getConfig() {
   return { apiKey, locationId };
 }
 
-async function ghlDeleteFetch(path: string): Promise<void> {
-  const config = getConfig();
-  if (!config) throw new Error("GHL not configured");
-  const response = await fetch(`${GHL_API_BASE}${path}`, {
-    method: "DELETE",
-    headers: {
-      "Authorization": `Bearer ${config.apiKey}`,
-      "Content-Type": "application/json",
-      "Version": "2021-07-28",
-    },
-  });
-  if (!response.ok && response.status !== 404) {
-    const body = await response.text().catch(() => "");
-    throw new Error(`GHL DELETE ${path} failed ${response.status}: ${body}`);
+/** Typed result for delete propagation (C-02, #1626). */
+export interface GhlDeletePropagationResult {
+  ok: boolean;
+  /** True when there was legitimately nothing to do (no GHL link, GHL not configured). */
+  skipped?: boolean;
+  reason?: string;
+}
+
+/**
+ * Typed error thrown when the outbound pause authority denies a GHL mutation.
+ */
+export class GhlDeletePausedError extends Error {
+  constructor(reasonCode: string) {
+    super(`GHL delete blocked by pause authority: ${reasonCode}`);
+    this.name = "GhlDeletePausedError";
   }
 }
 
-export async function propagateContactDeleteToGhl(contactId: number): Promise<void> {
-  if (!isGhlConfigured()) return;
+async function ghlDeleteFetch(path: string): Promise<void> {
+  const config = getConfig();
+  if (!config) throw new Error("GHL not configured");
+
+  // ── C-02 (#1626): unavoidable pause authority gate before any GHL DELETE ──
+  // Ordering: authorize → registerInflight → recheckEpoch → I/O → deregister.
+  const { authorize, recheckEpoch } = await import("./outbound-pause-authority");
+  const { registerInflight, deregisterInflight } = await import("./outbound-control-service");
+  const decision = await authorize({});
+  if (!decision.allowed) {
+    throw new GhlDeletePausedError(decision.reasonCode);
+  }
+  const tokenId = crypto.randomUUID();
+  await registerInflight(tokenId, decision.epoch);
+  try {
+    const epochOk = await recheckEpoch(decision.epoch);
+    if (!epochOk) {
+      throw new GhlDeletePausedError("epoch_changed_before_delete");
+    }
+    const response = await fetch(`${GHL_API_BASE}${path}`, {
+      method: "DELETE",
+      headers: {
+        "Authorization": `Bearer ${config.apiKey}`,
+        "Content-Type": "application/json",
+        "Version": "2021-07-28",
+      },
+    });
+    if (!response.ok && response.status !== 404) {
+      throw new Error(`GHL DELETE failed with HTTP ${response.status}`);
+    }
+  } finally {
+    deregisterInflight(tokenId);
+  }
+}
+
+export async function propagateContactDeleteToGhl(contactId: number): Promise<GhlDeletePropagationResult> {
+  if (!isGhlConfigured()) return { ok: true, skipped: true, reason: "ghl_not_configured" };
   try {
     const contact = await storage.getContact(contactId);
     if (!contact?.ghlContactId) {
@@ -41,20 +78,21 @@ export async function propagateContactDeleteToGhl(contactId: number): Promise<vo
         actorType: "system",
         details: { reason: "no_ghl_contact_id", direction: "replit_to_ghl" },
       }).catch(() => {});
-      return;
+      return { ok: true, skipped: true, reason: "no_ghl_contact_id" };
     }
     await ghlDeleteFetch(`/contacts/${contact.ghlContactId}`);
     console.log(`[GHL Delete] Contact #${contactId} (GHL ${contact.ghlContactId}) deleted from GHL`);
     await auditChange({
       entityType: "contact",
       entityId: contactId,
-      entityKey: [contact.firstName, contact.lastName].filter(Boolean).join(" ") || contact.email || String(contactId),
+      entityKey: [contact.firstName, contact.lastName].filter(Boolean).join(" ") || String(contactId),
       action: "ghl_delete_propagated",
       actorType: "system",
       details: { ghlContactId: contact.ghlContactId, direction: "replit_to_ghl" },
     }).catch(() => {});
+    return { ok: true };
   } catch (err: any) {
-    console.error(`[GHL Delete] Failed to delete contact ${contactId} from GHL:`, err.message);
+    console.error(`[GHL Delete] Failed to delete contact #${contactId} from GHL:`, err.message);
     await auditChange({
       entityType: "contact",
       entityId: contactId,
@@ -62,11 +100,12 @@ export async function propagateContactDeleteToGhl(contactId: number): Promise<vo
       actorType: "system",
       details: { error: err.message, direction: "replit_to_ghl" },
     }).catch(() => {});
+    return { ok: false, reason: err instanceof GhlDeletePausedError ? "paused" : err.message };
   }
 }
 
-export async function propagateDealDeleteToGhl(dealId: number): Promise<void> {
-  if (!isGhlConfigured()) return;
+export async function propagateDealDeleteToGhl(dealId: number): Promise<GhlDeletePropagationResult> {
+  if (!isGhlConfigured()) return { ok: true, skipped: true, reason: "ghl_not_configured" };
   try {
     const deal = await storage.getDeal(dealId);
     if (!deal?.ghlOpportunityId) {
@@ -78,7 +117,7 @@ export async function propagateDealDeleteToGhl(dealId: number): Promise<void> {
         actorType: "system",
         details: { reason: "no_ghl_opportunity_id", direction: "replit_to_ghl" },
       }).catch(() => {});
-      return;
+      return { ok: true, skipped: true, reason: "no_ghl_opportunity_id" };
     }
     await ghlDeleteFetch(`/opportunities/${deal.ghlOpportunityId}`);
     console.log(`[GHL Delete] Deal #${dealId} (GHL opportunity ${deal.ghlOpportunityId}) deleted from GHL`);
@@ -89,8 +128,9 @@ export async function propagateDealDeleteToGhl(dealId: number): Promise<void> {
       actorType: "system",
       details: { ghlOpportunityId: deal.ghlOpportunityId, direction: "replit_to_ghl" },
     }).catch(() => {});
+    return { ok: true };
   } catch (err: any) {
-    console.error(`[GHL Delete] Failed to delete deal ${dealId} from GHL:`, err.message);
+    console.error(`[GHL Delete] Failed to delete deal #${dealId} from GHL:`, err.message);
     await auditChange({
       entityType: "deal",
       entityId: dealId,
@@ -98,11 +138,12 @@ export async function propagateDealDeleteToGhl(dealId: number): Promise<void> {
       actorType: "system",
       details: { error: err.message, direction: "replit_to_ghl" },
     }).catch(() => {});
+    return { ok: false, reason: err instanceof GhlDeletePausedError ? "paused" : err.message };
   }
 }
 
-export async function propagateTaskDeleteToGhl(taskId: number, ghlTaskId?: string | null, ghlContactId?: string | null): Promise<void> {
-  if (!isGhlConfigured()) return;
+export async function propagateTaskDeleteToGhl(taskId: number, ghlTaskId?: string | null, ghlContactId?: string | null): Promise<GhlDeletePropagationResult> {
+  if (!isGhlConfigured()) return { ok: true, skipped: true, reason: "ghl_not_configured" };
   if (!ghlTaskId || !ghlContactId) {
     console.log(`[GHL Delete] Task #${taskId} missing ghlTaskId/ghlContactId — skipping GHL delete`);
     await auditChange({
@@ -112,7 +153,7 @@ export async function propagateTaskDeleteToGhl(taskId: number, ghlTaskId?: strin
       actorType: "system",
       details: { reason: !ghlTaskId ? "no_ghl_task_id" : "no_ghl_contact_id", direction: "replit_to_ghl" },
     }).catch(() => {});
-    return;
+    return { ok: true, skipped: true, reason: !ghlTaskId ? "no_ghl_task_id" : "no_ghl_contact_id" };
   }
   try {
     await ghlDeleteFetch(`/contacts/${ghlContactId}/tasks/${ghlTaskId}`);
@@ -124,8 +165,9 @@ export async function propagateTaskDeleteToGhl(taskId: number, ghlTaskId?: strin
       actorType: "system",
       details: { ghlTaskId, ghlContactId, direction: "replit_to_ghl" },
     }).catch(() => {});
+    return { ok: true };
   } catch (err: any) {
-    console.error(`[GHL Delete] Failed to delete task ${taskId} from GHL:`, err.message);
+    console.error(`[GHL Delete] Failed to delete task #${taskId} from GHL:`, err.message);
     await auditChange({
       entityType: "task",
       entityId: taskId,
@@ -133,6 +175,7 @@ export async function propagateTaskDeleteToGhl(taskId: number, ghlTaskId?: strin
       actorType: "system",
       details: { ghlTaskId, error: err.message, direction: "replit_to_ghl" },
     }).catch(() => {});
+    return { ok: false, reason: err instanceof GhlDeletePausedError ? "paused" : err.message };
   }
 }
 
@@ -152,7 +195,7 @@ export async function handleContactDeleteWebhook(payload: any): Promise<void> {
   await auditChange({
     entityType: "contact",
     entityId: contact.id,
-    entityKey: [contact.firstName, contact.lastName].filter(Boolean).join(" ") || contact.email || String(contact.id),
+    entityKey: [contact.firstName, contact.lastName].filter(Boolean).join(" ") || String(contact.id),
     action: "ghl_delete_received",
     actorType: "system",
     details: { ghlContactId, source: "webhook", direction: "ghl_to_replit" },
@@ -259,7 +302,7 @@ export async function runDeleteDetectionTick(): Promise<{ contactsDeleted: numbe
           await auditChange({
             entityType: "contact",
             entityId: contact.id,
-            entityKey: [contact.firstName, contact.lastName].filter(Boolean).join(" ") || contact.email || String(contact.id),
+            entityKey: [contact.firstName, contact.lastName].filter(Boolean).join(" ") || String(contact.id),
             action: "ghl_delete_detected",
             actorType: "system",
             details: { ghlContactId: contact.ghlContactId, source: "sync_tick", direction: "ghl_to_replit" },

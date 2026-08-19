@@ -258,17 +258,18 @@ import { coerceDateFields } from "../utils/date-coerce";
           )
           .limit(1);
         if (existing) {
+          // C-13 (#1626): route direct audit inserts through the canonical sanitizer
           await tx.insert(auditLogs).values({
             action: "sequence_enrollment_duplicate_skipped",
             entityType: "contact",
             entityId: enrollment.contactId,
             actorType: "system",
-            details: {
+            details: (await import("../services/audit-sanitizer")).sanitizeAuditPayload({
               contactId: enrollment.contactId,
               sequenceId: enrollment.sequenceId,
               existingEnrollmentId: existing.id,
               reason: "Active or paused enrollment already exists — duplicate insert skipped.",
-            },
+            }),
           } as any);
           return null;
         }
@@ -285,16 +286,17 @@ import { coerceDateFields } from "../utils/date-coerce";
           (typeof err?.message === "string" && err.message.includes("idx_sequence_enrollments_active_unique"));
         if (isUniqueViolation) {
           if (enrollment.contactId && enrollment.sequenceId) {
+            // C-13 (#1626): route direct audit inserts through the canonical sanitizer
             await tx.insert(auditLogs).values({
               action: "sequence_enrollment_duplicate_skipped",
               entityType: "contact",
               entityId: enrollment.contactId,
               actorType: "system",
-              details: {
+              details: (await import("../services/audit-sanitizer")).sanitizeAuditPayload({
                 contactId: enrollment.contactId,
                 sequenceId: enrollment.sequenceId,
                 reason: "DB unique constraint violation caught — duplicate insert blocked by index.",
-              },
+              }),
             } as any);
           }
           return null;

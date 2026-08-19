@@ -16,7 +16,7 @@ async function assertPauseAllowed(tag: string): Promise<{ tokenId: string; epoch
   }
   // register BEFORE recheckEpoch so the pause drain sees the token
   const tokenId = crypto.randomUUID();
-  await registerInflight(tokenId);
+  await registerInflight(tokenId, decision.epoch);
   const epochOk = await recheckEpoch(decision.epoch);
   if (!epochOk) {
     deregisterInflight(tokenId);
@@ -70,7 +70,26 @@ export interface GhlApiResponse {
 // Options type that carries the authorized pause epoch through retry loops.
 type SdrGhlFetchOptions = RequestInit & { pauseEpoch?: bigint };
 
+const MUTATION_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
 async function sdrGhlFetch(path: string, options: SdrGhlFetchOptions = {}, retries = 3): Promise<GhlApiResponse> {
+  const method = (options.method || "GET").toUpperCase();
+  // ── Canonical pause boundary (fetch-level enforcement) ────────────────────
+  // Any mutation whose caller did NOT already run the pause protocol (signalled
+  // by a supplied pauseEpoch) gets the full authorize → register(epoch) →
+  // recheck → I/O → deregister protocol here. This closes bypasses through
+  // callers that skip their own gate (AI toggles/DND fallback, conversation
+  // create, bootstrap custom-field/tag POSTs, etc.).
+  if (MUTATION_METHODS.has(method) && options.pauseEpoch === undefined) {
+    const { deregisterInflight } = await import("../outbound-control-service");
+    const { tokenId, epoch } = await assertPauseAllowed(`sdrGhlFetch:${method} ${path.split("?")[0]}`);
+    try {
+      return await sdrGhlFetch(path, { ...options, pauseEpoch: epoch }, retries);
+    } finally {
+      deregisterInflight(tokenId);
+    }
+  }
+
   const token = getAuthToken();
   if (!token) throw new Error("GHL not configured. Set GHL_PRIVATE_INTEGRATION_TOKEN or GHL_API_KEY.");
 
@@ -167,30 +186,45 @@ export async function upsertContact(params: UpsertContactParams): Promise<string
     payload.customFields = Object.entries(params.customField).map(([key, value]) => ({ key, field_value: value }));
   }
 
-  if (params.existingGhlId) {
-    await sdrGhlFetch(`/contacts/${params.existingGhlId}`, {
-      method: "PUT",
+  const { deregisterInflight } = await import("../outbound-control-service");
+  const { tokenId, epoch } = await assertPauseAllowed("upsertContact");
+  try {
+    if (params.existingGhlId) {
+      await sdrGhlFetch(`/contacts/${params.existingGhlId}`, {
+        method: "PUT",
+        body: JSON.stringify(payload),
+        pauseEpoch: epoch,
+      });
+      return params.existingGhlId;
+    }
+
+    const result = await sdrGhlFetch("/contacts/", {
+      method: "POST",
       body: JSON.stringify(payload),
+      pauseEpoch: epoch,
     });
-    return params.existingGhlId;
+
+    const contactData = result.contact as Record<string, unknown> | undefined;
+    return (contactData?.id as string) || (result.id as string) || "";
+  } finally {
+    deregisterInflight(tokenId);
   }
-
-  const result = await sdrGhlFetch("/contacts/", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
-
-  const contactData = result.contact as Record<string, unknown> | undefined;
-  return (contactData?.id as string) || (result.id as string) || "";
 }
 
 export async function updateCustomFields(ghlContactId: string, fields: Record<string, string>): Promise<void> {
-  await sdrGhlFetch(`/contacts/${ghlContactId}`, {
-    method: "PUT",
-    body: JSON.stringify({
-      customFields: Object.entries(fields).map(([key, value]) => ({ key, field_value: value })),
-    }),
-  });
+  const { deregisterInflight } = await import("../outbound-control-service");
+  const { tokenId, epoch } = await assertPauseAllowed("updateCustomFields");
+  try {
+    await sdrGhlFetch(`/contacts/${ghlContactId}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        customFields: Object.entries(fields).map(([key, value]) => ({ key, field_value: value })),
+      }),
+      pauseEpoch: epoch,
+    });
+  } finally {
+    deregisterInflight(tokenId);
+  }
 }
 
 export interface ConversationResult {
@@ -242,17 +276,25 @@ export async function manageOpportunity(params: OpportunityParams): Promise<Oppo
     monetaryValue: params.monetaryValue,
   };
 
-  if (params.existingOpportunityId) {
-    return sdrGhlFetch(`/opportunities/${params.existingOpportunityId}`, {
-      method: "PUT",
-      body: JSON.stringify(payload),
-    }) as unknown as OpportunityResult;
-  }
+  const { deregisterInflight } = await import("../outbound-control-service");
+  const { tokenId, epoch } = await assertPauseAllowed("manageOpportunity");
+  try {
+    if (params.existingOpportunityId) {
+      return await sdrGhlFetch(`/opportunities/${params.existingOpportunityId}`, {
+        method: "PUT",
+        body: JSON.stringify(payload),
+        pauseEpoch: epoch,
+      }) as unknown as OpportunityResult;
+    }
 
-  return sdrGhlFetch("/opportunities/", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  }) as unknown as OpportunityResult;
+    return await sdrGhlFetch("/opportunities/", {
+      method: "POST",
+      body: JSON.stringify(payload),
+      pauseEpoch: epoch,
+    }) as unknown as OpportunityResult;
+  } finally {
+    deregisterInflight(tokenId);
+  }
 }
 
 export interface WorkflowTriggerResult {
@@ -300,30 +342,51 @@ export async function addNote(params: {
   contactId: string;
   body: string;
 }): Promise<NoteResult> {
-  return sdrGhlFetch(`/contacts/${params.contactId}/notes`, {
-    method: "POST",
-    body: JSON.stringify({ body: params.body }),
-  }) as unknown as NoteResult;
+  const { deregisterInflight } = await import("../outbound-control-service");
+  const { tokenId, epoch } = await assertPauseAllowed("addNote");
+  try {
+    return await sdrGhlFetch(`/contacts/${params.contactId}/notes`, {
+      method: "POST",
+      body: JSON.stringify({ body: params.body }),
+      pauseEpoch: epoch,
+    }) as unknown as NoteResult;
+  } finally {
+    deregisterInflight(tokenId);
+  }
 }
 
 export async function addTag(params: {
   contactId: string;
   tags: string[];
 }): Promise<void> {
-  await sdrGhlFetch(`/contacts/${params.contactId}/tags`, {
-    method: "POST",
-    body: JSON.stringify({ tags: params.tags }),
-  });
+  const { deregisterInflight } = await import("../outbound-control-service");
+  const { tokenId, epoch } = await assertPauseAllowed("addTag");
+  try {
+    await sdrGhlFetch(`/contacts/${params.contactId}/tags`, {
+      method: "POST",
+      body: JSON.stringify({ tags: params.tags }),
+      pauseEpoch: epoch,
+    });
+  } finally {
+    deregisterInflight(tokenId);
+  }
 }
 
 export async function removeTag(params: {
   contactId: string;
   tags: string[];
 }): Promise<void> {
-  await sdrGhlFetch(`/contacts/${params.contactId}/tags`, {
-    method: "DELETE",
-    body: JSON.stringify({ tags: params.tags }),
-  });
+  const { deregisterInflight } = await import("../outbound-control-service");
+  const { tokenId, epoch } = await assertPauseAllowed("removeTag");
+  try {
+    await sdrGhlFetch(`/contacts/${params.contactId}/tags`, {
+      method: "DELETE",
+      body: JSON.stringify({ tags: params.tags }),
+      pauseEpoch: epoch,
+    });
+  } finally {
+    deregisterInflight(tokenId);
+  }
 }
 
 /**

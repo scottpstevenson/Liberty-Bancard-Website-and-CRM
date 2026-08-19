@@ -88,7 +88,11 @@ export async function assignNextRep(contactId: number, contactName: string): Pro
 
 export function registerToolkitRoutes(app: Express) {
   // === SMS INBOX ===
-  app.get("/api/sms-inbox/threads", isAuthenticated, async (req, res) => {
+  // C-01 (#1626): all SMS inbox routes are admin/manager only. These routes
+  // read GHL conversations (PII) and can send SMS to arbitrary contacts —
+  // requireRole gates them; the reply route also validates that the target
+  // conversation/contact maps to a known local CRM contact before sending.
+  app.get("/api/sms-inbox/threads", requireRole("admin", "manager"), async (req, res) => {
     try {
       const config = getGhlConfig();
       if (!config) {
@@ -117,7 +121,7 @@ export function registerToolkitRoutes(app: Express) {
     }
   });
 
-  app.get("/api/sms-inbox/thread/:conversationId", isAuthenticated, async (req, res) => {
+  app.get("/api/sms-inbox/thread/:conversationId", requireRole("admin", "manager"), async (req, res) => {
     try {
       const config = getGhlConfig();
       if (!config) return res.status(503).json({ message: "GHL not configured" });
@@ -132,7 +136,7 @@ export function registerToolkitRoutes(app: Express) {
     }
   });
 
-  app.post("/api/sms-inbox/reply", isAuthenticated, async (req, res) => {
+  app.post("/api/sms-inbox/reply", requireRole("admin", "manager"), async (req, res) => {
     try {
       const config = getGhlConfig();
       if (!config) return res.status(503).json({ message: "GHL not configured" });
@@ -140,11 +144,71 @@ export function registerToolkitRoutes(app: Express) {
       if (!message || (!conversationId && !contactId)) {
         return res.status(400).json({ message: "message and conversationId or contactId required" });
       }
-      let ghlContactId = conversationId;
-      if (contactId) {
-        const contact = await storage.getContact(Number(contactId));
-        if (contact?.ghlContactId) ghlContactId = contact.ghlContactId;
+
+      // ── C-01 (#1626): ownership/identity validation ────────────────────────
+      // The target must resolve to a known local CRM contact. Arbitrary GHL
+      // contact/conversation IDs that don't map to our CRM are rejected.
+      let ghlContactId: string | undefined;
+      let localContact: Awaited<ReturnType<typeof storage.getContact>> | undefined;
+
+      // Whenever a conversationId is supplied it is the actual send target, so
+      // it must ALWAYS be resolved and verified — even when a contactId is
+      // also supplied. Otherwise a caller could pair a benign contactId with
+      // an unrelated conversation and send into that conversation.
+      let convoGhlContactId: string | undefined;
+      if (conversationId) {
+        try {
+          const convo = await ghlFetch(`/conversations/${conversationId}`);
+          convoGhlContactId = convo?.contactId || convo?.conversation?.contactId;
+          if (!convoGhlContactId) {
+            return res.status(403).json({ message: "Conversation does not resolve to a contact" });
+          }
+        } catch (convoErr: any) {
+          console.error("[SMS Inbox] conversation ownership lookup failed:", convoErr.message);
+          return res.status(403).json({ message: "Conversation could not be verified" });
+        }
       }
+
+      if (contactId) {
+        localContact = await storage.getContact(Number(contactId));
+        if (!localContact) {
+          return res.status(403).json({ message: "Contact is not a known CRM contact" });
+        }
+        if (!localContact.ghlContactId) {
+          return res.status(400).json({ message: "Contact has no linked GHL contact" });
+        }
+        // If both identifiers were supplied, they must refer to the same
+        // contact — reject mismatched pairs.
+        if (convoGhlContactId && convoGhlContactId !== localContact.ghlContactId) {
+          return res.status(403).json({ message: "Conversation does not belong to the specified contact" });
+        }
+        ghlContactId = localContact.ghlContactId;
+      } else {
+        // conversationId-only send: the conversation's contact must map to a
+        // local CRM contact. Contactability is applied to that contact.
+        localContact = await storage.getContactByGhlContactId(convoGhlContactId!);
+        if (!localContact) {
+          return res.status(403).json({ message: "Conversation contact is not a known CRM contact" });
+        }
+        ghlContactId = convoGhlContactId;
+      }
+
+      // ── C-12 (#1626): canonical contactability gate before dispatch ────────
+      const { evaluateContactability } = await import("../services/contactability");
+      const contactability = await evaluateContactability({
+        contactId: localContact.id,
+        channel: "sms",
+        campaignType: "manual_reply",
+        mode: "enforcement",
+      });
+      if (!contactability.allowed) {
+        console.warn(`[SMS Inbox] reply denied by contactability: ${contactability.reason} (contactId=${localContact.id})`);
+        return res.status(409).json({
+          message: "Send blocked by contactability policy",
+          reason: contactability.reason,
+        });
+      }
+
       // ── Pause authority gate (transport boundary) ──────────────────────────
       const { authorize, recheckEpoch } = await import("../services/outbound-pause-authority");
       const { registerInflight, deregisterInflight } = await import("../services/outbound-control-service");
@@ -153,7 +217,7 @@ export function registerToolkitRoutes(app: Express) {
         return res.status(503).json({ message: `Outbound paused: ${pauseDecision.reasonCode}` });
       }
       const inflightToken = crypto.randomUUID();
-      await registerInflight(inflightToken);
+      await registerInflight(inflightToken, pauseDecision.epoch);
       let result: any;
       try {
         const epochOk = await recheckEpoch(pauseDecision.epoch);
@@ -180,7 +244,7 @@ export function registerToolkitRoutes(app: Express) {
     }
   });
 
-  app.get("/api/sms-inbox/unread-count", isAuthenticated, async (req, res) => {
+  app.get("/api/sms-inbox/unread-count", requireRole("admin", "manager"), async (req, res) => {
     try {
       const config = getGhlConfig();
       if (!config) return res.json({ count: 0 });
@@ -204,7 +268,7 @@ export function registerToolkitRoutes(app: Express) {
     }
   });
 
-  app.post("/api/sms-inbox/mark-read/:conversationId", isAuthenticated, async (req, res) => {
+  app.post("/api/sms-inbox/mark-read/:conversationId", requireRole("admin", "manager"), async (req, res) => {
     try {
       const config = getGhlConfig();
       if (!config) return res.status(503).json({ message: "GHL not configured" });

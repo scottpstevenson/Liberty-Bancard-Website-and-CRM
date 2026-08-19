@@ -21,6 +21,7 @@ import { storage } from "../storage";
 import { resolvePolicy, assertNotProhibitedSync } from "./sender-policy";
 import type { MessageCategory } from "./sender-policy";
 import { injectCanSpamFooter } from "./can-spam-footer";
+import { redactToken } from "./audit-sanitizer";
 import {
   encryptCredential,
   decryptCredential,
@@ -408,11 +409,12 @@ export async function sendGmailEmail(params: {
     const { registerInflight, deregisterInflight } = await import("./outbound-control-service");
     const decision = await authorize({});
     if (!decision.allowed) {
-      console.warn(`[Gmail OAuth] Blocked by pause authority: ${decision.reasonCode} (to=${params.to})`);
+      // C-16 (#1626): redact recipient in operational logs
+      console.warn(`[Gmail OAuth] Blocked by pause authority: ${decision.reasonCode} (to=${redactToken(params.to)})`);
       return { success: false, error: `Outbound paused: ${decision.reasonCode}` };
     }
     const tokenId = crypto.randomUUID();
-    await registerInflight(tokenId);
+    await registerInflight(tokenId, decision.epoch);
     _pauseInflightToken = tokenId;
     _pauseEpoch = decision.epoch;
     const epochOk = await recheckEpoch(decision.epoch);
@@ -457,11 +459,11 @@ export async function sendGmailEmail(params: {
 
     const messageId = resp.data.id    || undefined;
     const threadId  = resp.data.threadId || undefined;
-    console.log(`[Gmail OAuth] Email sent to ${params.to} from ${fromAddress} — messageId: ${messageId}`);
+    console.log(`[Gmail OAuth] Email sent to ${redactToken(params.to)} from ${fromAddress} — messageId: ${messageId}`);
     return { success: true, messageId, threadId };
   } catch (err: any) {
     const msg = err?.response?.data?.error?.message || err.message || String(err);
-    console.error(`[Gmail OAuth] Failed to send to ${params.to}:`, msg);
+    console.error(`[Gmail OAuth] Failed to send to ${redactToken(params.to)}:`, msg);
     return { success: false, error: msg };
   } finally {
     if (_pauseInflightToken) {

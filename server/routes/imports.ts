@@ -2516,7 +2516,7 @@ Guidelines:
         INSERT INTO audit_logs (user_id, action, entity_type, entity_key, actor_type, actor_id, details)
         VALUES (
           ${actorId}, 'master_lead_promoted', 'master_lead', ${lead.id}, 'user', ${actorId},
-          ${JSON.stringify({ leadId: lead.id, company: lead.company, email: lead.email, domain: lead.domain, fromStatus: "ready_for_internal_test", toStatus: "ready_for_controlled_cohort", batchId: lead.importBatchId })}::jsonb
+          ${JSON.stringify((await import("../services/audit-sanitizer")).sanitizeAuditPayload({ leadId: lead.id, company: lead.company, email: lead.email, domain: lead.domain, fromStatus: "ready_for_internal_test", toStatus: "ready_for_controlled_cohort", batchId: lead.importBatchId }))}::jsonb
         )
       `);
       res.json({ success: true, leadId: lead.id, status: "ready_for_controlled_cohort" });
@@ -2551,7 +2551,7 @@ Guidelines:
           VALUES (
             ${actorId}, 'master_leads_bulk_promoted', 'master_lead_batch', ${req.params.id},
             'user', ${actorId},
-            ${JSON.stringify({ batchId: req.params.id, promotedCount: count })}::jsonb
+            ${JSON.stringify((await import("../services/audit-sanitizer")).sanitizeAuditPayload({ batchId: req.params.id, promotedCount: count }))}::jsonb
           )
         `);
       }

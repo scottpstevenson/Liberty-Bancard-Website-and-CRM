@@ -157,7 +157,17 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
   }
 
   async createAuditLog(insertLog: InsertAuditLog) {
-    const [log] = await db.insert(auditLogs).values(insertLog).returning();
+    // C-13 (#1626): sanitize caller payloads at the DB-insert boundary.
+    // communication_events (business message content) does NOT go through here.
+    const { sanitizeAuditPayload, sanitizeEntityKey } = await import("../services/audit-sanitizer");
+    const sanitized = {
+      ...insertLog,
+      entityKey: sanitizeEntityKey((insertLog as any).entityKey),
+      details: (sanitizeAuditPayload((insertLog as any).details) as any) ?? null,
+      beforeState: (sanitizeAuditPayload((insertLog as any).beforeState) as any) ?? null,
+      afterState: (sanitizeAuditPayload((insertLog as any).afterState) as any) ?? null,
+    };
+    const [log] = await db.insert(auditLogs).values(sanitized).returning();
     return log;
   }
 

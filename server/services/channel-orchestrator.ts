@@ -228,7 +228,7 @@ export class ChannelOrchestrator {
     // Final epoch recheck immediately before provider I/O
     const decision = compliance.pauseDecision!;
     const token = crypto.randomUUID();
-    await registerInflight(token);
+    await registerInflight(token, decision.epoch);
     try {
       const epochOk = await recheckEpoch(decision.epoch);
       if (!epochOk) {
@@ -267,7 +267,7 @@ export class ChannelOrchestrator {
 
     const decision = compliance.pauseDecision!;
     const token = crypto.randomUUID();
-    await registerInflight(token);
+    await registerInflight(token, decision.epoch);
     try {
       const epochOk = await recheckEpoch(decision.epoch);
       if (!epochOk) {
@@ -306,7 +306,7 @@ export class ChannelOrchestrator {
 
     const decision = compliance.pauseDecision!;
     const token = crypto.randomUUID();
-    await registerInflight(token);
+    await registerInflight(token, decision.epoch);
     try {
       const epochOk = await recheckEpoch(decision.epoch);
       if (!epochOk) {

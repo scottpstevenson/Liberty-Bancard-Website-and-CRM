@@ -5,12 +5,16 @@
  * Tests 5 public form flows and verifies DB state. No real GHL contacts
  * are created — the GHL live-sync kill line is enforced at startup.
  *
- * ── GHL LIVE-SYNC PREVENTION (KILL LINE) ────────────────────────────────────
+ * ── GHL LIVE-SYNC PREVENTION (KILL LINE, C-03 #1626) ────────────────────────
  * At startup: if GHL_PRIVATE_INTEGRATION_TOKEN is set and looks real, this
- * script aborts UNLESS GHL_TEST_MODE=true is also set. Form submissions via
- * the public routes would normally queue a GHL sync job. In test mode:
+ * script aborts UNLESS the target server reports (via /api/health) that the
+ * fail-fast GHL test transport is installed (GHL_TRANSPORT_FAILFAST=true at
+ * server startup). This is ACTUAL transport interception verified against the
+ * running server — not an acknowledgment flag. The old GHL_TEST_MODE flag is
+ * gone: it was consumed by zero server files and prevented nothing.
  *   • GHL_PRIVATE_INTEGRATION_TOKEN is unset  → GHL calls fail at API layer (safe)
- *   • GHL_TEST_MODE=true is set  → operator explicitly acknowledges test isolation
+ *   • Server reports ghlTransportFailFast=true → real GHL calls throw
+ *     TestTransportError at the server fetch boundary (verified isolation)
  * Isolation method used is logged at the top of the report.
  *
  * ── TEST CASES ───────────────────────────────────────────────────────────────
@@ -31,7 +35,7 @@
  *
  * Run:
  *   BASE_URL=http://localhost:5000 npx tsx scripts/test-forms.ts
- *   BASE_URL=http://localhost:5000 GHL_TEST_MODE=true npx tsx scripts/test-forms.ts
+ *   (server must run with GHL_TRANSPORT_FAILFAST=true when a real GHL token is set)
  */
 
 import { db } from "../server/db";
@@ -42,9 +46,8 @@ import { sql as drizzleSql } from "drizzle-orm";
 
 const BASE_URL = process.env.BASE_URL ?? "http://127.0.0.1:5000";
 
-// ── GHL Kill Line ─────────────────────────────────────────────────────────────
+// ── GHL Kill Line (C-03 #1626: verified transport interception) ──────────────
 const GHL_TOKEN = process.env.GHL_PRIVATE_INTEGRATION_TOKEN ?? "";
-const GHL_TEST_MODE = process.env.GHL_TEST_MODE === "true";
 
 const TOKEN_LOOKS_REAL =
   GHL_TOKEN.length > 20 &&
@@ -52,21 +55,29 @@ const TOKEN_LOOKS_REAL =
   !GHL_TOKEN.startsWith("placeholder") &&
   !GHL_TOKEN.startsWith("CHANGE_ME");
 
-if (TOKEN_LOOKS_REAL && !GHL_TEST_MODE) {
-  console.error(
-    "\nKILL LINE: GHL_PRIVATE_INTEGRATION_TOKEN is set. Form tests would create real GHL contacts.\n" +
-    "  Unset the token or set GHL_TEST_MODE=true to confirm test isolation.\n\n" +
-    "  Options:\n" +
-    "    1. Unset GHL_PRIVATE_INTEGRATION_TOKEN before running (safest)\n" +
-    "    2. Set GHL_TEST_MODE=true to acknowledge test isolation with a live token present\n"
-  );
-  process.exit(1);
-}
-
-// Log isolation method
-if (GHL_TEST_MODE && TOKEN_LOOKS_REAL) {
-  console.log("🔒 GHL isolation method: GHL_TEST_MODE=true (operator acknowledged; token present but test mode active)");
-} else if (!GHL_TOKEN || !TOKEN_LOOKS_REAL) {
+if (TOKEN_LOOKS_REAL) {
+  // Verify ACTUAL transport interception against the running server.
+  let failFastInstalled = false;
+  try {
+    const healthResp = await fetch(`${BASE_URL}/api/health`);
+    const health: any = await healthResp.json().catch(() => ({}));
+    failFastInstalled = health?.ghlTransportFailFast === true;
+  } catch {
+    failFastInstalled = false;
+  }
+  if (!failFastInstalled) {
+    console.error(
+      "\nKILL LINE: GHL_PRIVATE_INTEGRATION_TOKEN is set and the target server does NOT\n" +
+      "report the fail-fast GHL test transport (ghlTransportFailFast=true on /api/health).\n" +
+      "Form tests would create real GHL contacts.\n\n" +
+      "  Options:\n" +
+      "    1. Unset GHL_PRIVATE_INTEGRATION_TOKEN before running (safest)\n" +
+      "    2. Restart the server with GHL_TRANSPORT_FAILFAST=true (run-pre-deploy.sh does this)\n"
+    );
+    process.exit(1);
+  }
+  console.log("🔒 GHL isolation method: server-verified fail-fast transport (ghlTransportFailFast=true) — real GHL calls throw TestTransportError at the server fetch boundary");
+} else {
   console.log("🔒 GHL isolation method: GHL_PRIVATE_INTEGRATION_TOKEN is absent or sentinel — GHL API calls will fail at the API layer (safe)");
 }
 

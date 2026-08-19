@@ -98,7 +98,9 @@ export const LOGICAL_JOB_MANIFEST: readonly ManifestEntry[] = [
     handler: "GHL contact & deal sync tick",
     owner: "ghl-sync",
     effect: "external_data_sync",
-    canRunWhileGlobalOutboundPaused: true,
+    // C-05 (#1626): GHL sync issues external provider mutations (contact/deal
+    // upserts). It must NOT run while the global outbound pause is active.
+    canRunWhileGlobalOutboundPaused: false,
     backlogSource: "bullmq",
     releaseController: null,
   },
@@ -578,7 +580,9 @@ export const LOGICAL_JOB_MANIFEST: readonly ManifestEntry[] = [
     handler: "Legacy GHL sync loop (setInterval fallback)",
     owner: "ghl-sync",
     effect: "external_data_sync",
-    canRunWhileGlobalOutboundPaused: true,
+    // C-05 (#1626): same rule as the BullMQ ghl-sync entry — no external
+    // mutations while globally paused.
+    canRunWhileGlobalOutboundPaused: false,
     backlogSource: "none",
     releaseController: null,
   },

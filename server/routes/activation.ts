@@ -1500,14 +1500,27 @@ export function registerActivationRoutes(app: Express) {
             ? "Admin paused outbound communications"
             : "Admin unpaused outbound communications";
 
-        const { applyPauseMutation } = await import("../services/outbound-control-service");
-        pauseControlResult = await applyPauseMutation({
-          outboundGlobalPaused,
-          reason,
-          actor: actorEmail,
-          idempotencyKey: typeof idempotencyKey === "string" ? idempotencyKey : undefined,
-          correlationId: typeof correlationId === "string" ? correlationId : undefined,
-        });
+        const { applyPauseMutation, PauseDrainError } = await import("../services/outbound-control-service");
+        try {
+          pauseControlResult = await applyPauseMutation({
+            outboundGlobalPaused,
+            reason,
+            actor: actorEmail,
+            idempotencyKey: typeof idempotencyKey === "string" ? idempotencyKey : undefined,
+            correlationId: typeof correlationId === "string" ? correlationId : undefined,
+          });
+        } catch (pauseErr: any) {
+          if (pauseErr instanceof PauseDrainError) {
+            // Fail-closed: state remains "activating" (all sends blocked), but
+            // the pause is NOT committed. Surface a 503 with a reason code.
+            return res.status(503).json({
+              message: "Pause activation did not commit — in-flight drain incomplete. Sends remain blocked (activating state); retry the pause.",
+              reasonCode: pauseErr.reasonCode,
+              drainStatus: pauseErr.drainStatus,
+            });
+          }
+          throw pauseErr;
+        }
       } else if (
         (typeof outboundGlobalPausedReason === "string" || outboundGlobalPausedReason === null) &&
         outboundGlobalPausedReason !== undefined

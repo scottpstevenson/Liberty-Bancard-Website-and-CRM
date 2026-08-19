@@ -101,7 +101,7 @@ export function registerSocialRoutes(app: Express) {
           return res.status(503).json({ error: "Outbound paused", detail: decision.reasonCode });
         }
         const tokenId = crypto.randomUUID();
-        await registerInflight(tokenId);
+        await registerInflight(tokenId, decision.epoch);
         _liInflightToken = tokenId;
         _liPauseEpoch = decision.epoch;
         const epochOk = await recheckEpoch(decision.epoch);
@@ -182,22 +182,28 @@ export function registerSocialRoutes(app: Express) {
       }
     }
 
+    // C-15 (#1626): "published" requires a confirmed 2xx provider response
+    // from the LinkedIn ugcPosts API (handled above). Without a token there is
+    // no provider evidence — mark ready_to_publish, not published.
     if (post.platform === "linkedin" && !process.env.LINKEDIN_ACCESS_TOKEN) {
       const updated = await storage.updateSocialPost(id, {
-        status: "published",
-        publishedAt: new Date(),
+        status: "ready_to_publish",
       });
       return res.json({
         post: updated,
-        note: "Marked as published. To auto-publish to LinkedIn, set LINKEDIN_ACCESS_TOKEN (and optionally LINKEDIN_ORG_URN) in your environment secrets.",
+        awaitingProviderConfirmation: true,
+        note: "Marked ready to publish — no LinkedIn token, so no provider-confirmed publish occurred. Set LINKEDIN_ACCESS_TOKEN (and optionally LINKEDIN_ORG_URN) to auto-publish, or publish manually and confirm.",
       });
     }
 
     const updated = await storage.updateSocialPost(id, {
-      status: "published",
-      publishedAt: new Date(),
+      status: "ready_to_publish",
     });
-    res.json({ post: updated, note: "Marked published manually. Use the copy button to share on LinkedIn." });
+    res.json({
+      post: updated,
+      awaitingProviderConfirmation: true,
+      note: "Marked ready to publish. Use the copy button to share manually — status becomes 'published' only after a provider-confirmed publish.",
+    });
   });
 
   app.post("/api/social/generate", isAuthenticated, async (req, res) => {

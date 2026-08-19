@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import { storage } from "../storage";
 import { db } from "../db";
 import type { Contact, Deal, Company, Task, Ticket, Note, UpdateContactRequest } from "@shared/schema";
@@ -171,9 +172,36 @@ function getConfig() {
   return { apiKey, locationId, calendarId: process.env.GHL_CALENDAR_ID || undefined };
 }
 
-async function ghlFetch(path: string, options: RequestInit = {}) {
+const GHL_MUTATION_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+async function ghlFetch(path: string, options: RequestInit & { pauseEpoch?: bigint } = {}) {
   const config = getConfig();
   if (!config) throw new Error("GHL not configured");
+  // ── Canonical pause boundary (fetch-level enforcement) ────────────────────
+  // Any mutation whose caller did not already run the pause protocol
+  // (signalled by pauseEpoch) gets the full authorize → register(epoch) →
+  // recheck → I/O → deregister protocol here. Reads are never gated.
+  const method = (options.method || "GET").toUpperCase();
+  if (GHL_MUTATION_METHODS.has(method) && options.pauseEpoch === undefined) {
+    const { authorize, recheckEpoch } = await import("./outbound-pause-authority");
+    const { registerInflight, deregisterInflight } = await import("./outbound-control-service");
+    const decision = await authorize({});
+    if (!decision.allowed) {
+      throw new Error(`GHL mutation blocked by pause authority: ${decision.reasonCode} (${method} ${path.split("?")[0]})`);
+    }
+    const tokenId = crypto.randomUUID();
+    await registerInflight(tokenId, decision.epoch);
+    try {
+      const epochOk = await recheckEpoch(decision.epoch);
+      if (!epochOk) {
+        throw new Error(`GHL mutation blocked by pause authority: epoch_changed (${method} ${path.split("?")[0]})`);
+      }
+      return await ghlFetch(path, { ...options, pauseEpoch: decision.epoch });
+    } finally {
+      deregisterInflight(tokenId);
+    }
+  }
+  delete (options as any).pauseEpoch;
   const url = `${GHL_API_BASE}${path}`;
   const headers: Record<string, string> = {
     "Authorization": `Bearer ${config.apiKey}`,
@@ -1943,6 +1971,9 @@ export function classifyGhlSyncError(error: string | undefined, httpStatus?: num
   // record, not a provider outage. Unknown 422 bodies stay "retryable".
   if (isGhlEmailValidation422(error)) return "skip";
   if (error === "GHL not configured") return "skip";
+  // Pause-authority blocks are deliberate policy denials, not provider
+  // failures — they must never count toward the circuit-breaker threshold.
+  if (/blocked by pause authority/i.test(error)) return "skip";
   if (/^No GHL contact linked/i.test(error)) return "skip";
   if (/OPPORTUNITY_STAGE_ID_INVALID/.test(error)) return "skip";
   // Local DB misses: "Contact not found", "Deal not found", "Task not found", "Company not found"

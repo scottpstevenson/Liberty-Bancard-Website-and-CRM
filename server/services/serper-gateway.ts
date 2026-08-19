@@ -553,11 +553,12 @@ export class SerperGateway {
         entityKey: "1",
         beforeState: { enabled: beforeEnabled },
         afterState: { enabled },
-        details: {
+        // C-13 (#1626): sanitize free-text reason field before audit insert
+        details: (await import("./audit-sanitizer")).sanitizeAuditPayload({
           reason: audit.reason,
           correlationId: audit.correlationId,
           policy_version: row.policy_version,
-        },
+        }) as Record<string, unknown>,
       });
 
       return row;
@@ -602,11 +603,12 @@ export class SerperGateway {
         entityKey: "1",
         beforeState: { windowStartedAt: expectedWindowStartedAt.toISOString() },
         afterState: { windowStartedAt: row.window_started_at ? new Date(row.window_started_at).toISOString() : null },
-        details: {
+        // C-13 (#1626): sanitize free-text reason field before audit insert
+        details: (await import("./audit-sanitizer")).sanitizeAuditPayload({
           reason: audit.reason,
           correlationId: audit.correlationId,
           policy_version: row.policy_version,
-        },
+        }) as Record<string, unknown>,
       });
 
       return row;

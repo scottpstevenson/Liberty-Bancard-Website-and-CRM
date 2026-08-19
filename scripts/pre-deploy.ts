@@ -198,6 +198,11 @@ const MANDATORY_SUITES: Suite[] = [
     timeoutSecs: 60,
   },
   {
+    name: "Outbound Boundary Denial (#1626: form-sync/delete/SMTP pause denial, drain fail-closed, epoch interleaving, audit sanitizer)",
+    script: "scripts/test-outbound-boundary-1626.ts",
+    timeoutSecs: 60,
+  },
+  {
     name: "Email Signature Coverage (all 6 types, CAN-SPAM footer, sender policy, call-site checks)",
     script: "scripts/test-email-signatures.ts",
     timeoutSecs: 30,
@@ -232,9 +237,12 @@ const MANDATORY_SUITES: Suite[] = [
     skipWhenServerDown: true, // tests live AI provider responses; skipped when server absent
   },
   {
-    name: "Public Forms (GHL isolated)",
+    name: "Public Forms (GHL isolated via fail-fast test transport)",
     script: "scripts/test-forms.ts",
-    env: { GHL_TEST_MODE: "true", BASE_URL },
+    // C-03 (#1626): GHL isolation is enforced by the server-level fail-fast
+    // transport (GHL_TRANSPORT_FAILFAST, installed by run-pre-deploy.sh) and
+    // VERIFIED by test-forms.ts against /api/health — no acknowledgment flag.
+    env: { BASE_URL },
     timeoutSecs: 120,
     requiresServer: true,
     skipWhenServerDown: true, // tests GHL-isolated form submission; skipped when server absent

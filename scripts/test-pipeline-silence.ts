@@ -11,7 +11,9 @@
  *  5. GET /api/admin/pre-deploy-result is admin-only (401 anon, 403 non-admin).
  *
  * Usage:
- *   GHL_TEST_MODE=true npx tsx scripts/test-pipeline-silence.ts
+ *   npx tsx scripts/test-pipeline-silence.ts
+ * (GHL isolation comes from the server-side fail-fast transport
+ *  (GHL_TRANSPORT_FAILFAST=true) — env flags on this process provide none.)
  * Dev server must be running on localhost:5000.
  */
 
@@ -49,7 +51,7 @@ async function httpStatus(method: string, path: string, body?: object): Promise<
 async function main() {
   console.log("=== Pipeline Silence Check — Smoke Test ===\n");
 
-  // ── 1. Dry run (GHL_TEST_MODE=true avoids real SMTP) ──────────────────────
+  // ── 1. Dry run (pause authority + sender policy gate real sends) ──────────
   console.log("▶  Dry-run runPipelineSilenceCheck()");
   try {
     await runPipelineSilenceCheck();

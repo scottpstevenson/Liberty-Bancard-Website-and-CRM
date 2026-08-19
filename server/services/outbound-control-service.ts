@@ -96,14 +96,14 @@ const _drainWaiters: Array<() => void> = [];
  * removed from the local Set and the error is re-thrown so the caller can
  * abort the send. This ensures the drain count is always accurate.
  */
-export async function registerInflight(tokenId: string): Promise<void> {
+export async function registerInflight(tokenId: string, epoch: bigint | number = 0n): Promise<void> {
   _inflightSet.add(tokenId);
   try {
     await pool.query(
       `INSERT INTO outbound_inflight_sends (token_id, process_pid, granted_epoch, expires_at)
-       VALUES ($1, $2, 0, NOW() + INTERVAL '60 seconds')
+       VALUES ($1, $2, $3, NOW() + INTERVAL '60 seconds')
        ON CONFLICT (token_id) DO NOTHING`,
-      [tokenId, process.pid],
+      [tokenId, process.pid, epoch.toString()],
     );
   } catch (err: any) {
     const msg: string = err?.message ?? "";
@@ -139,18 +139,48 @@ export function deregisterInflight(tokenId: string): void {
  * Wait until all in-flight authorizations complete, or the timeout expires.
  * Checks both the process-local Set and the DB table for cross-process coverage.
  */
-async function drainInflight(timeoutMs: number): Promise<"drained" | "timeout"> {
+export type DrainStatus = "drained" | "timeout" | "degraded";
+
+/**
+ * Typed error thrown when a pause activation cannot commit because the
+ * in-flight drain was degraded (DB error) or timed out. The control row is
+ * left in "activating" state, which is fail-closed: all sends remain blocked
+ * until the operator retries the pause or resolves the DB issue.
+ */
+export class PauseDrainError extends Error {
+  readonly drainStatus: DrainStatus;
+  readonly reasonCode: string;
+  constructor(drainStatus: DrainStatus, detail: string) {
+    super(`Pause activation drain ${drainStatus}: ${detail}`);
+    this.name = "PauseDrainError";
+    this.drainStatus = drainStatus;
+    this.reasonCode = drainStatus === "degraded" ? "drain_db_error" : "drain_timeout";
+  }
+}
+
+export async function drainInflight(timeoutMs: number): Promise<{ status: DrainStatus; reason?: string }> {
   const deadline = Date.now() + timeoutMs;
 
-  // Fast path: nothing in-flight in this process and nothing in DB
-  const dbCount = await countDbInflight();
-  if (_inflightSet.size === 0 && dbCount === 0) return "drained";
+  // Fast path: nothing in-flight in this process and nothing in DB.
+  // A DB error here is fail-closed: report degraded, never "assume empty".
+  let dbCount: number;
+  try {
+    dbCount = await countDbInflight();
+  } catch (err: any) {
+    return { status: "degraded", reason: `inflight count query failed: ${err.message}` };
+  }
+  if (_inflightSet.size === 0 && dbCount === 0) return { status: "drained" };
 
   // Poll until both the local Set and DB are empty, or timeout
   while (Date.now() < deadline) {
     if (_inflightSet.size === 0) {
-      const remaining = await countDbInflight();
-      if (remaining === 0) return "drained";
+      let remaining: number;
+      try {
+        remaining = await countDbInflight();
+      } catch (err: any) {
+        return { status: "degraded", reason: `inflight count query failed: ${err.message}` };
+      }
+      if (remaining === 0) return { status: "drained" };
     }
     await new Promise<void>(resolve => {
       const waitMs = Math.min(200, deadline - Date.now());
@@ -162,22 +192,36 @@ async function drainInflight(timeoutMs: number): Promise<"drained" | "timeout"> 
     // Remove stale waiter entries
     const drainedLocally = _inflightSet.size === 0;
     if (drainedLocally) {
-      const remaining = await countDbInflight();
-      if (remaining === 0) return "drained";
+      let remaining: number;
+      try {
+        remaining = await countDbInflight();
+      } catch (err: any) {
+        return { status: "degraded", reason: `inflight count query failed: ${err.message}` };
+      }
+      if (remaining === 0) return { status: "drained" };
     }
   }
-  return "timeout";
+  return { status: "timeout", reason: `in-flight sends did not drain within ${timeoutMs}ms (local remaining: ${_inflightSet.size})` };
 }
 
+/**
+ * Count active in-flight rows. THROWS on any DB error except the
+ * pre-migration missing-table case (graceful degradation → 0).
+ * Callers must treat a throw as fail-closed (drain degraded).
+ */
 async function countDbInflight(): Promise<number> {
   try {
     const result = await pool.query<{ count: string }>(
       `SELECT COUNT(*) AS count FROM outbound_inflight_sends WHERE expires_at > NOW()`,
     );
     return parseInt(result.rows[0]?.count ?? "0", 10);
-  } catch {
-    // Table missing (pre-migration) or DB error — assume empty (drain proceeds)
-    return 0;
+  } catch (err: any) {
+    const msg: string = err?.message ?? "";
+    if (msg.includes("does not exist") || msg.includes("relation") || err?.code === "42P01") {
+      // Table missing (pre-migration) — local Set is authoritative
+      return 0;
+    }
+    throw err;
   }
 }
 
@@ -329,11 +373,39 @@ export async function applyPauseMutation(
       console.log("[OutboundControlService] Pause activation: legacy flag written atomically with activating state");
 
       // 2. Drain in-flight authorizations (outside transaction)
-      const drainResult = await drainInflight(DRAIN_TIMEOUT_MS);
+      const drain = await drainInflight(DRAIN_TIMEOUT_MS);
+      const drainResult = drain.status;
       console.log(
         `[OutboundControlService] Pause activation: drain ${drainResult} ` +
-        `(remaining in-flight: ${_inflightSet.size})`,
+        `(remaining in-flight: ${_inflightSet.size}${drain.reason ? `, reason: ${drain.reason}` : ""})`,
       );
+
+      // Fail-closed: do NOT commit "paused" on a degraded or timed-out drain.
+      // The control row remains in "activating", which blocks ALL sends
+      // (authorize() rejects during activating), so nothing leaks — but the
+      // pause is not falsely reported as committed either.
+      if (drainResult !== "drained") {
+        try {
+          const auditClient = await pool.connect();
+          try {
+            await auditClient.query("BEGIN");
+            await writeAuditRow(auditClient, {
+              epoch: activatingEpoch,
+              changeType: "state-transition",
+              fromState: "activating",
+              toState: "activating",
+              actor: request.actor,
+              correlationId: request.correlationId ?? null,
+              reason: `Pause activation NOT committed — drain ${drainResult}`,
+              details: { drainResult, drainReason: drain.reason ?? null, remainingInflight: _inflightSet.size },
+            });
+            await auditClient.query("COMMIT");
+          } finally {
+            auditClient.release();
+          }
+        } catch { /* audit best-effort */ }
+        throw new PauseDrainError(drainResult, drain.reason ?? "in-flight drain incomplete");
+      }
 
       // 3. Commit final paused state (new transaction)
       await client.query("BEGIN");
@@ -663,12 +735,12 @@ async function writeEnrollmentRestorationAudit(
       `INSERT INTO audit_logs (action, entity_type, entity_id, actor_type, details, created_at)
        VALUES ('global_pause_enrollments_restored', 'system', 0, 'system', $1, NOW())`,
       [
-        JSON.stringify({
+        JSON.stringify((await import("./audit-sanitizer")).sanitizeAuditPayload({
           restoredCount: enrollmentIds.length,
           enrollmentIds: enrollmentIds.slice(0, 100), // truncate for storage
           actor,
           restorationType: "vfc22_global_pause_block_sweep",
-        }),
+        })),
       ],
     );
   } catch (auditErr: any) {

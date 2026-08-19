@@ -3,6 +3,7 @@ import nodemailer from "nodemailer";
 import { resolvePolicy, assertNotProhibitedSync, isProhibitedAddress } from "./sender-policy";
 import type { MessageCategory } from "./sender-policy";
 import { injectCanSpamFooter } from "./can-spam-footer";
+import { redactToken } from "./audit-sanitizer";
 
 let transporter: nodemailer.Transporter | null = null;
 
@@ -130,14 +131,15 @@ export async function sendSmtpEmail(params: {
     const { registerInflight, deregisterInflight } = await import("./outbound-control-service");
     const decision = await authorize({});
     if (!decision.allowed) {
+      // C-16 (#1626): redact recipient and subject in operational logs
       console.warn(
         `[SMTP] Blocked by pause authority: ${decision.reasonCode} ` +
-        `(subject="${params.subject}", to=${params.to})`,
+        `(subject=${redactToken(params.subject)}, to=${redactToken(params.to)})`,
       );
       return { success: false, error: `Outbound paused: ${decision.reasonCode}` };
     }
     const token = crypto.randomUUID();
-    await registerInflight(token);
+    await registerInflight(token, decision.epoch);
     try {
       const epochOk = await recheckEpoch(decision.epoch);
       if (!epochOk) {
@@ -179,7 +181,7 @@ async function _sendSmtpEmailInner(params: {
   } else {
     // Legacy path — warn and fall back
     console.warn(
-      `[SMTP] sendSmtpEmail called without 'category' for subject="${params.subject}" to=${params.to}. ` +
+      `[SMTP] sendSmtpEmail called without 'category' for subject=${redactToken(params.subject)} to=${redactToken(params.to)}. ` +
       "Pass a MessageCategory so From/Reply-To are resolved from the sender policy. " +
       "This fallback will be removed in a future release.",
     );
@@ -217,7 +219,7 @@ async function _sendSmtpEmailInner(params: {
     ? `[TEST → ${params.to}] ${params.subject}`
     : params.subject;
   if (overrideTo) {
-    console.log(`[SMTP] EMAIL_OVERRIDE_TO active — redirecting to ${overrideTo} (original: ${params.to})`);
+    console.log(`[SMTP] EMAIL_OVERRIDE_TO active — redirecting to ${redactToken(overrideTo)} (original: ${redactToken(params.to)})`);
   }
 
   try {
@@ -230,10 +232,10 @@ async function _sendSmtpEmailInner(params: {
       ...(Object.keys(headers).length > 0 ? { headers } : {}),
     });
 
-    console.log(`[SMTP] Email sent to ${effectiveTo} from ${fromAddress} — messageId: ${info.messageId}`);
+    console.log(`[SMTP] Email sent to ${redactToken(effectiveTo)} from ${fromAddress} — messageId: ${info.messageId}`);
     return { success: true, messageId: info.messageId };
   } catch (err: any) {
-    console.error(`[SMTP] Failed to send email to ${params.to}:`, err.message);
+    console.error(`[SMTP] Failed to send email to ${redactToken(params.to)}:`, err.message);
     return { success: false, error: err.message };
   }
 }

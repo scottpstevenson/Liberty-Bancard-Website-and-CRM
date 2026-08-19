@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import { isGhlConfigured } from "./ghl";
 import { syncContactToGhl, syncDealToGhl } from "./ghl-sync";
 import { triggerWorkflow, updateCustomFields, addTag, addNote, isSdrGhlConfigured } from "./sdr/ghl-client";
@@ -27,6 +28,54 @@ export interface FormSyncParams {
 
 function isGhlReady(): boolean {
   return isGhlConfigured() || isSdrGhlConfigured();
+}
+
+export type GatedMutationResult<T> =
+  | { ok: true; result: T }
+  | { ok: false; skipped: true; reason: string };
+
+/**
+ * C-10 (#1626): canonical pause-authority protocol for the raw GHL mutation
+ * fetch() call sites in this file (opportunity POST, task POST, affiliate
+ * contact POST, DND PUT). Runs the FULL linearization barrier:
+ *   authorize → registerInflight(token, epoch) → recheckEpoch(epoch)
+ *   → provider I/O → deregisterInflight
+ * so a pause that transitions to "activating" after authorization cannot
+ * still permit the mutation. Fail-closed: any error reading the pause state
+ * denies the mutation.
+ *
+ * `testHooks.afterRegister` is a test-only seam used by the interleaving test
+ * to mutate the pause epoch between registration and the epoch recheck.
+ */
+export async function gatedGhlMutation<T>(
+  tag: string,
+  fn: () => Promise<T>,
+  testHooks?: { afterRegister?: () => Promise<void> },
+): Promise<GatedMutationResult<T>> {
+  try {
+    const { authorize, recheckEpoch } = await import("./outbound-pause-authority");
+    const { registerInflight, deregisterInflight } = await import("./outbound-control-service");
+    const decision = await authorize({});
+    if (!decision.allowed) {
+      return { ok: false, skipped: true, reason: decision.reasonCode ?? "denied" };
+    }
+    const token = crypto.randomUUID();
+    await registerInflight(token, decision.epoch);
+    try {
+      if (testHooks?.afterRegister) await testHooks.afterRegister();
+      const epochOk = await recheckEpoch(decision.epoch);
+      if (!epochOk) {
+        console.warn(`[GHL Form Sync] ${tag} aborted — pause epoch changed before provider I/O`);
+        return { ok: false, skipped: true, reason: "epoch_changed" };
+      }
+      return { ok: true, result: await fn() };
+    } finally {
+      deregisterInflight(token);
+    }
+  } catch (err: any) {
+    console.error(`[GHL Form Sync] Pause authority protocol failed for ${tag} — fail closed:`, err?.message ?? err);
+    return { ok: false, skipped: true, reason: "pause_authority_error" };
+  }
 }
 
 export async function syncFormSubmissionToGhl(params: FormSyncParams): Promise<{
@@ -250,23 +299,32 @@ export async function syncMerchantApplicationToGhl(applicationId: number, contac
         const apiKey = process.env.GHL_PRIVATE_INTEGRATION_TOKEN || process.env.GHL_API_KEY;
         const locationId = process.env.GHL_LOCATION_ID;
         if (apiKey && locationId) {
-          await fetch("https://services.leadconnectorhq.com/opportunities/", {
-            method: "POST",
-            headers: {
-              "Authorization": `Bearer ${apiKey}`,
-              "Content-Type": "application/json",
-              "Version": "2021-07-28",
-            },
-            body: JSON.stringify({
-              pipelineId,
-              pipelineStageId: stageId,
-              locationId,
-              contactId: ghlContactId,
-              name: `${application.legalBusinessName || application.dba || "Merchant"} - Application #${applicationId}`,
-              status: "open",
-              monetaryValue: application.estimatedMonthlyVolume ? parseFloat(String(application.estimatedMonthlyVolume).replace(/[^0-9.]/g, "")) || 0 : 0,
+          // C-10 (#1626): full pause-authority protocol around the raw GHL mutation
+          const gated = await gatedGhlMutation("opportunity_create", () =>
+            fetch("https://services.leadconnectorhq.com/opportunities/", {
+              method: "POST",
+              headers: {
+                "Authorization": `Bearer ${apiKey}`,
+                "Content-Type": "application/json",
+                "Version": "2021-07-28",
+              },
+              body: JSON.stringify({
+                pipelineId,
+                pipelineStageId: stageId,
+                locationId,
+                contactId: ghlContactId,
+                name: `${application.legalBusinessName || application.dba || "Merchant"} - Application #${applicationId}`,
+                status: "open",
+                monetaryValue: application.estimatedMonthlyVolume ? parseFloat(String(application.estimatedMonthlyVolume).replace(/[^0-9.]/g, "")) || 0 : 0,
+              }),
             }),
-          });
+          );
+          if (!gated.ok) {
+            console.warn(`[GHL Form Sync] Opportunity create skipped — pause authority denied (${gated.reason})`);
+          } else if (!gated.result.ok) {
+            // C-10 (#1626): check HTTP status — do not swallow failures
+            console.error(`[GHL Form Sync] Onboarding opportunity POST failed: HTTP ${gated.result.status} (application #${applicationId}, ghlContactId=${ghlContactId})`);
+          }
         }
       } catch (oppErr: any) {
         console.error(`[GHL Form Sync] Failed to create onboarding opportunity:`, oppErr.message);
@@ -355,17 +413,26 @@ export async function syncSupportTicketToGhl(contactId: number, ticketId: number
         };
         if (supportAssignee) taskPayload.assignedTo = supportAssignee;
 
-        await fetch(`https://services.leadconnectorhq.com/contacts/${ghlContactId}/tasks`, {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${apiKey}`,
-            "Content-Type": "application/json",
-            "Version": "2021-07-28",
-          },
-          body: JSON.stringify(taskPayload),
-        });
-      } catch (taskErr) {
-        console.error(`[GHL Form Sync] Support task creation failed:`, taskErr);
+        // C-10 (#1626): full pause-authority protocol around the raw GHL mutation
+        const gated = await gatedGhlMutation("support_task_create", () =>
+          fetch(`https://services.leadconnectorhq.com/contacts/${ghlContactId}/tasks`, {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${apiKey}`,
+              "Content-Type": "application/json",
+              "Version": "2021-07-28",
+            },
+            body: JSON.stringify(taskPayload),
+          }),
+        );
+        if (!gated.ok) {
+          console.warn(`[GHL Form Sync] Support task creation skipped — pause authority denied (${gated.reason})`);
+        } else if (!gated.result.ok) {
+          // C-10 (#1626): check HTTP status — do not swallow failures
+          console.error(`[GHL Form Sync] Support task POST failed: HTTP ${gated.result.status} (ticket #${ticketId}, ghlContactId=${ghlContactId})`);
+        }
+      } catch (taskErr: any) {
+        console.error(`[GHL Form Sync] Support task creation failed:`, taskErr?.message ?? taskErr);
       }
     }
 
@@ -392,12 +459,12 @@ export async function syncAffiliateSignupToGhl(params: {
   phone: string;
   companyName?: string;
   affiliateCode: string;
-}): Promise<void> {
-  if (!isGhlReady()) return;
+}): Promise<{ success: boolean; skipped?: boolean; status?: number; reason?: string }> {
+  if (!isGhlReady()) return { success: false, skipped: true, reason: "ghl_not_configured" };
 
   const apiKey = process.env.GHL_PRIVATE_INTEGRATION_TOKEN || process.env.GHL_API_KEY;
   const locationId = process.env.GHL_LOCATION_ID;
-  if (!apiKey || !locationId) return;
+  if (!apiKey || !locationId) return { success: false, skipped: true, reason: "ghl_not_configured" };
 
   try {
     const payload = {
@@ -414,25 +481,39 @@ export async function syncAffiliateSignupToGhl(params: {
       ],
     };
 
-    const response = await fetch("https://services.leadconnectorhq.com/contacts/", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-        "Version": "2021-07-28",
-      },
-      body: JSON.stringify(payload),
-    });
-
-    if (response.ok) {
-      const result = await response.json();
-      const ghlId = result.contact?.id;
-      if (ghlId) {
-        console.log(`[GHL Form Sync] Affiliate ${params.email} synced to GHL as ${ghlId}`);
-      }
+    // C-10 (#1626): full pause-authority protocol around the raw GHL mutation
+    const gated = await gatedGhlMutation("affiliate_contact_create", () =>
+      fetch("https://services.leadconnectorhq.com/contacts/", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+          "Version": "2021-07-28",
+        },
+        body: JSON.stringify(payload),
+      }),
+    );
+    if (!gated.ok) {
+      console.warn(`[GHL Form Sync] Affiliate sync skipped — pause authority denied (${gated.reason})`);
+      return { success: false, skipped: true, reason: gated.reason };
     }
+    const response = gated.result;
+
+    // C-10 (#1626): check HTTP status — do not swallow failures silently.
+    // Log lines use affiliate code / GHL ID only, never the affiliate email.
+    if (!response.ok) {
+      console.error(`[GHL Form Sync] Affiliate contact POST failed: HTTP ${response.status} (affiliateCode=${params.affiliateCode})`);
+      return { success: false, status: response.status, reason: `http_${response.status}` };
+    }
+    const result = await response.json();
+    const ghlId = result.contact?.id;
+    if (ghlId) {
+      console.log(`[GHL Form Sync] Affiliate (code=${params.affiliateCode}) synced to GHL as ${ghlId}`);
+    }
+    return { success: true };
   } catch (err: any) {
-    console.error(`[GHL Form Sync] Affiliate sync failed for ${params.email}:`, err.message);
+    console.error(`[GHL Form Sync] Affiliate sync failed (affiliateCode=${params.affiliateCode}):`, err.message);
+    return { success: false, reason: err.message };
   }
 }
 
@@ -468,9 +549,9 @@ function getInboundWorkflowId(source: LeadSourceType): string | null {
   return envMap[source] || null;
 }
 
-async function setGhlDnd(ghlContactId: string, channel: "sms" | "email", dndActive: boolean): Promise<void> {
+async function setGhlDnd(ghlContactId: string, channel: "sms" | "email", dndActive: boolean): Promise<{ success: boolean; skipped?: boolean; status?: number; reason?: string }> {
   const apiKey = process.env.GHL_PRIVATE_INTEGRATION_TOKEN || process.env.GHL_API_KEY;
-  if (!apiKey) return;
+  if (!apiKey) return { success: false, skipped: true, reason: "ghl_not_configured" };
 
   const dndPayload: Record<string, unknown> = {
     dnd: dndActive,
@@ -485,20 +566,32 @@ async function setGhlDnd(ghlContactId: string, channel: "sms" | "email", dndActi
   };
 
   try {
-    const response = await fetch(`https://services.leadconnectorhq.com/contacts/${ghlContactId}`, {
-      method: "PUT",
-      headers: {
-        "Authorization": `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-        "Version": "2021-07-28",
-      },
-      body: JSON.stringify(dndPayload),
-    });
-    if (!response.ok) {
-      const errText = await response.text().catch(() => "");
-      console.warn(`[GHL DND] Failed to set ${channel} DND for ${ghlContactId}: ${response.status} ${errText}`);
+    // C-10 (#1626): full pause-authority protocol around the raw GHL mutation
+    const gated = await gatedGhlMutation("dnd_update", () =>
+      fetch(`https://services.leadconnectorhq.com/contacts/${ghlContactId}`, {
+        method: "PUT",
+        headers: {
+          "Authorization": `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+          "Version": "2021-07-28",
+        },
+        body: JSON.stringify(dndPayload),
+      }),
+    );
+    if (!gated.ok) {
+      console.warn(`[GHL DND] DND update skipped — pause authority denied (${gated.reason})`);
+      return { success: false, skipped: true, reason: gated.reason };
     }
-  } catch (err) {
-    console.error(`[GHL DND] Error setting ${channel} DND:`, err);
+    const response = gated.result;
+    // C-10 (#1626): status checked; raw provider response body is NOT logged
+    // (it can echo contact PII) — status code only.
+    if (!response.ok) {
+      console.warn(`[GHL DND] Failed to set ${channel} DND: HTTP ${response.status}`);
+      return { success: false, status: response.status, reason: `http_${response.status}` };
+    }
+    return { success: true };
+  } catch (err: any) {
+    console.error(`[GHL DND] Error setting ${channel} DND:`, err?.message ?? err);
+    return { success: false, reason: err?.message ?? "unknown_error" };
   }
 }

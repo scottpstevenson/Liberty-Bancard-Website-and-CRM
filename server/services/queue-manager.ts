@@ -971,8 +971,11 @@ class QueueManager {
           return;
         }
       } catch (ksErr) {
-        // Kill-switch check failed — fail-open, let the job run normally.
-        console.warn(`[AutomationRegistry] Kill-switch check failed for ${queueName}:`, (ksErr as Error).message);
+        // C-05 (#1626): kill-switch check failed — FAIL CLOSED. If we cannot
+        // read the registry, we cannot prove the queue is enabled; skip the
+        // job rather than proceeding blind.
+        console.warn(`[AutomationRegistry] Kill-switch check failed for ${queueName} — failing closed, skipping job ${_job.id}:`, (ksErr as Error).message);
+        return;
       }
 
       // ── Worker heartbeat ─────────────────────────────────────────────────────

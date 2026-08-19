@@ -92,16 +92,19 @@ export async function runBounceFeedbackWriteback(): Promise<{ updated: number; s
       .set({ emailStatus: "bounced", bouncedAt: now, updatedAt: now })
       .where(eq(contacts.id, c.id));
 
+    // C-13 (#1626): entityKey must not carry the raw contact email — use a
+    // redacted token; entityId already identifies the contact for lookups.
+    const { redactToken, sanitizeAuditPayload } = await import("./audit-sanitizer");
     await db.insert(auditLogs).values({
       actorType: "system",
       action: "contact_email_bounced",
       entityType: "contact",
       entityId: c.id,
-      entityKey: c.email,
-      details: {
+      entityKey: c.email ? redactToken(c.email) : null,
+      details: sanitizeAuditPayload({
         reason: "outbound_message_bounce",
         detectedAt: now.toISOString(),
-      },
+      }) as Record<string, unknown>,
     });
 
     try {

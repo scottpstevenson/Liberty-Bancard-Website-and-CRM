@@ -72,14 +72,15 @@ export async function advanceDealStage(
         const readiness = evaluateReadinessFromRawRows(dealRow, clRows);
 
         if (!readiness.ready) {
-          const auditDetails = JSON.stringify({
+          const { sanitizeAuditPayload } = await import("./audit-sanitizer");
+          const auditDetails = JSON.stringify(sanitizeAuditPayload({
             attemptedStage: newStage,
             missingItems: readiness.missing,
             trigger,
             ...(overrideContext
               ? { overrideReason: overrideContext.reason, overriddenBy: overrideContext.actor }
               : {}),
-          });
+          }));
 
           if (overrideContext) {
             await tx.execute(sql`
@@ -443,7 +444,7 @@ async function claimWelcomeDispatch(salesDealId: number, contactId: number): Pro
           (action, entity_type, entity_id, actor_type, details, created_at)
         VALUES (
           'merchant_welcome_claimed', 'deal', ${salesDealId}, 'system',
-          ${JSON.stringify({ contactId, channel: "pending" })},
+          ${JSON.stringify((await import("./audit-sanitizer")).sanitizeAuditPayload({ contactId, channel: "pending" }))},
           NOW()
         )
       `);

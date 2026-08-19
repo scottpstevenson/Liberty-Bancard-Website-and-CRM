@@ -10,7 +10,11 @@
 # Environment overrides (optional):
 #   BASE_URL          Server base URL (default: http://localhost:5000)
 #   MAX_WAIT_SECS     Seconds to wait for the server to become ready (default: 90)
-#   GHL_TEST_MODE     Set to "true" to isolate GHL calls (passed through to gate)
+#
+# GHL isolation (C-03, #1626): this wrapper starts the test server with
+# GHL_TRANSPORT_FAILFAST=true, which installs a fail-fast fake transport at the
+# server fetch boundary — any real GHL API call throws TestTransportError.
+# This replaces the old GHL_TEST_MODE flag (which no server code consumed).
 #
 # Why a wrapper instead of running pre-deploy.ts directly:
 #   Four mandatory suites (Role Guards, SEO Audit, Sequence Compliance, and
@@ -69,8 +73,9 @@ echo "   ✓ Port 5000 is free"
 echo ""
 
 # ── 2. Start the dev server in the background ─────────────────────────────────
-echo "▶  Starting dev server (npm run dev)…"
-npm run dev &
+# GHL_TRANSPORT_FAILFAST installs the fail-fast fake GHL transport (C-03).
+echo "▶  Starting dev server (npm run dev) with GHL_TRANSPORT_FAILFAST=true…"
+GHL_TRANSPORT_FAILFAST=true npm run dev &
 SERVER_PID=$!
 echo "   Server PID: $SERVER_PID"
 

@@ -488,13 +488,50 @@ const CALL_SITE_ALLOWLIST: Array<{
     reviewDate: "2026-06-26",
   },
   // ── Non-email send sites: transactional services (one-to-one, contact-action-triggered) ──
+  // ── ghl-form-sync.ts per-call-site entries (T-02, #1626) ──
+  // The old single "triggerWorkflow" entry was replaced by per-call-site
+  // entries. Each raw fetch mutation below is gated by
+  // authorizeGhlMutation() (pause authority, fail-closed) and checks
+  // response.ok with typed failures — corrected under C-10 (#1626).
   {
     file: "server/services/ghl-form-sync.ts",
-    lineContains: "triggerWorkflow",
+    lineContains: "await triggerWorkflow({",
     channel: "ringless_vm/workflow",
     category: "transactional_merchant",
-    reason: "GHL workflow enrollment triggered by form-submission sync (statement upload, support ticket, get-started form) — sends only to the contact who just submitted the form. 3 call sites in file; all transactional. Reviewed 2026-06-26.",
-    reviewDate: "2026-06-26",
+    reason: "GHL workflow enrollment triggered by form-submission sync — sends only to the contact who just submitted the form; goes through the gated sdr/ghl-client adapter. Reviewed 2026-08-18.",
+    reviewDate: "2026-08-18",
+  },
+  {
+    file: "server/services/ghl-form-sync.ts",
+    lineContains: "fetch(\"https://services.leadconnectorhq.com/opportunities/\"",
+    channel: "crm_mutation",
+    category: "transactional_merchant",
+    reason: "Onboarding opportunity POST after merchant application submit — gated by authorizeGhlMutation() pause authority (C-10 #1626); response.ok checked; failure logged as typed error. Reviewed 2026-08-18.",
+    reviewDate: "2026-08-18",
+  },
+  {
+    file: "server/services/ghl-form-sync.ts",
+    lineContains: "fetch(`https://services.leadconnectorhq.com/contacts/${ghlContactId}/tasks`",
+    channel: "crm_mutation",
+    category: "transactional_merchant",
+    reason: "Support task POST for the contact who just opened a support ticket — gated by authorizeGhlMutation() pause authority (C-10 #1626); response.ok checked. Reviewed 2026-08-18.",
+    reviewDate: "2026-08-18",
+  },
+  {
+    file: "server/services/ghl-form-sync.ts",
+    lineContains: "fetch(\"https://services.leadconnectorhq.com/contacts/\"",
+    channel: "crm_mutation",
+    category: "transactional_merchant",
+    reason: "Affiliate signup contact POST — creates a CRM contact for the affiliate who just signed up; gated by authorizeGhlMutation() pause authority (C-10 #1626); response.ok checked; affiliate email removed from logs. Reviewed 2026-08-18.",
+    reviewDate: "2026-08-18",
+  },
+  {
+    file: "server/services/ghl-form-sync.ts",
+    lineContains: "fetch(`https://services.leadconnectorhq.com/contacts/${ghlContactId}`",
+    channel: "crm_mutation",
+    category: "transactional_merchant",
+    reason: "DND PUT reflecting the submitting contact's own consent choice — gated by authorizeGhlMutation() pause authority (C-10 #1626); response.ok checked; provider body not logged. Reviewed 2026-08-18.",
+    reviewDate: "2026-08-18",
   },
   {
     file: "server/services/ghl-workflows.ts",
@@ -1159,6 +1196,13 @@ const RAW_SEND_SINKS: Array<{ pattern: RegExp; label: string }> = [
   { pattern: /ghlFetch\s*\(\s*["'`]\/documents\//, label: "ghlFetch(/documents/) — delivers signing email to recipient" },
   // LinkedIn API — public outbound content publish
   { pattern: /fetch\s*\(\s*["'`]https:\/\/api\.linkedin\.com\/v2\/ugcPosts["'`]/, label: "fetch(api.linkedin.com/v2/ugcPosts) — LinkedIn publish" },
+  // ── Raw GHL mutation fetch() sinks (T-02, #1626) ──
+  // Ungated raw fetch() calls to GHL mutation endpoints are provider
+  // mutations and must be flagged unless per-call-site allowlisted.
+  { pattern: /fetch\s*\(\s*["'`]https:\/\/services\.leadconnectorhq\.com\/contacts\/["'`]/, label: "raw fetch(GHL /contacts/ POST) — contact create" },
+  { pattern: /fetch\s*\(\s*`https:\/\/services\.leadconnectorhq\.com\/contacts\/\$\{[^}]+\}`/, label: "raw fetch(GHL /contacts/:id) — contact PUT/DELETE" },
+  { pattern: /fetch\s*\(\s*`https:\/\/services\.leadconnectorhq\.com\/contacts\/\$\{[^}]+\}\/tasks`/, label: "raw fetch(GHL /contacts/:id/tasks POST) — task create" },
+  { pattern: /fetch\s*\(\s*["'`]https:\/\/services\.leadconnectorhq\.com\/opportunities\/["'`]/, label: "raw fetch(GHL /opportunities/ POST) — opportunity create" },
 ];
 
 /** Files that provide ghlFetch as a READ-ONLY internal tool (no message sends). */
@@ -1301,6 +1345,19 @@ function checkArchitecturalBoundaries(): { passed: boolean; violations: string[]
 function main(): void {
   console.log("=== Wave 12 Static Compliance Scanner ===\n");
   console.log("Scanning: " + SCAN_DIRS.join(", ") + "\n");
+
+  // ── Allowlist integrity check (T-02, #1626) ────────────────────────────────
+  // Every allowlist entry must target a SPECIFIC call site via a non-trivial
+  // lineContains substring. Whole-file coverage (empty/blank lineContains) is
+  // forbidden — exit non-zero immediately.
+  const badEntries = CALL_SITE_ALLOWLIST.filter(
+    (e) => !e.lineContains || e.lineContains.trim().length < 5,
+  );
+  if (badEntries.length > 0) {
+    console.error("✗ ALLOWLIST INTEGRITY FAILURE: entries below cover a whole file instead of a specific call site (lineContains missing or too broad):");
+    for (const e of badEntries) console.error(`   - ${e.file} (lineContains="${e.lineContains}")`);
+    process.exit(1);
+  }
 
   const allFindings: Finding[] = [];
   for (const dir of SCAN_DIRS) {

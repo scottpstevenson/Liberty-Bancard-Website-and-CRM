@@ -72,11 +72,15 @@ export function registerSdrRoutes(app: Express) {
     if (!dbOk) {
       return res.status(503).json({ status: "degraded", sha: BUILD_SHA, builtAt: BUILD_AT, env: BUILD_ENV });
     }
+    // C-03 (#1626): report whether the fail-fast GHL test transport is
+    // installed so pre-deploy scripts can VERIFY isolation, not just assume it.
+    const { isGhlFailFastTransportInstalled } = await import("../services/ghl-test-transport");
     res.json({
       status: _RELEASE_SHA_VALID ? "ok" : "release-unverified",
       sha: BUILD_SHA,
       builtAt: BUILD_AT,
       env: BUILD_ENV,
+      ghlTransportFailFast: isGhlFailFastTransportInstalled(),
     });
   });
 

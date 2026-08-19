@@ -177,12 +177,15 @@ export async function processCommunicationEvent(event: CommEvent): Promise<CommE
 
   await db.update(contacts).set(updates).where(eq(contacts.id, event.contactId));
 
+  // C-13 (#1626): event.metadata is arbitrary caller data — sanitize before
+  // it reaches audit_logs so provider bodies / recipient PII never persist.
+  const { sanitizeAuditPayload } = await import("./audit-sanitizer");
   await db.insert(auditLogs).values({
     actorType: "system",
     action: `comm_event_${event.type}`,
     entityType: "contact",
     entityId: event.contactId,
-    details: {
+    details: sanitizeAuditPayload({
       eventType: event.type,
       severity: event.severity,
       engagementDelta: weights.engagement,
@@ -192,7 +195,7 @@ export async function processCommunicationEvent(event: CommEvent): Promise<CommE
       nextAction: result.nextAction,
       allChannelsFailed: result.allChannelsFailed ?? false,
       ...event.metadata,
-    },
+    }) as Record<string, unknown>,
   });
 
   if (result.allChannelsFailed) {

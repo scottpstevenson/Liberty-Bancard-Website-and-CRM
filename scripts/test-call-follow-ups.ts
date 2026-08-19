@@ -11,7 +11,10 @@
  * environment by default, and the "no phone" / "no consent" cases never
  * reach the provider call at all. If GHL happens to be configured
  * (GHL_PRIVATE_INTEGRATION_TOKEN set to a real-looking token), the script
- * aborts unless GHL_TEST_MODE=true, mirroring scripts/test-forms.ts.
+ * aborts unless the target server reports the fail-fast GHL test transport
+ * (ghlTransportFailFast=true on /api/health), mirroring scripts/test-forms.ts.
+ * There is no acknowledgment flag: isolation is server-verified transport
+ * interception (GHL_TRANSPORT_FAILFAST=true at server startup) or nothing.
  *
  * Run with the dev server up:
  *   BASE_URL=http://localhost:5000 npx tsx scripts/test-call-follow-ups.ts
@@ -31,19 +34,39 @@ const TEST_MANAGER_EMAIL = "call-followups-test-manager@libertybancard.test";
 const TEST_MANAGER_PASSWORD = "cf-test-pw-Qz7!k2";
 
 const GHL_TOKEN = process.env.GHL_PRIVATE_INTEGRATION_TOKEN ?? "";
-const GHL_TEST_MODE = process.env.GHL_TEST_MODE === "true";
 const TOKEN_LOOKS_REAL =
   GHL_TOKEN.length > 20 &&
   !GHL_TOKEN.startsWith("test_") &&
   !GHL_TOKEN.startsWith("placeholder") &&
   !GHL_TOKEN.startsWith("CHANGE_ME");
 
-if (TOKEN_LOOKS_REAL && !GHL_TEST_MODE) {
-  console.error(
-    "\nKILL LINE: GHL_PRIVATE_INTEGRATION_TOKEN is set. This test could trigger a real SMS/email send.\n" +
-    "  Unset the token or set GHL_TEST_MODE=true to confirm test isolation.\n"
-  );
-  process.exit(2);
+// ── C-03 (#1626): server-verified fail-fast transport, never an env flag ────
+// When a real-looking GHL token is present, the TARGET SERVER must report the
+// fail-fast GHL test transport on /api/health. An env flag on this child
+// process proves nothing about the server actually handling the send.
+if (TOKEN_LOOKS_REAL) {
+  let failFastInstalled = false;
+  try {
+    const healthResp = await fetch(`${BASE_URL}/api/health`);
+    const health: any = await healthResp.json().catch(() => ({}));
+    failFastInstalled = health?.ghlTransportFailFast === true;
+  } catch {
+    failFastInstalled = false;
+  }
+  if (!failFastInstalled) {
+    console.error(
+      "\nKILL LINE: GHL_PRIVATE_INTEGRATION_TOKEN is set and the target server does NOT\n" +
+      "report the fail-fast GHL test transport (ghlTransportFailFast=true on /api/health).\n" +
+      "This test could trigger a real SMS/email send.\n\n" +
+      "  Options:\n" +
+      "    1. Unset GHL_PRIVATE_INTEGRATION_TOKEN before running (safest)\n" +
+      "    2. Restart the server with GHL_TRANSPORT_FAILFAST=true (run-pre-deploy.sh does this)\n"
+    );
+    process.exit(2);
+  }
+  console.log("🔒 GHL isolation: server-verified fail-fast transport (ghlTransportFailFast=true)");
+} else {
+  console.log("🔒 GHL isolation: GHL_PRIVATE_INTEGRATION_TOKEN absent or sentinel — provider calls fail at the API layer");
 }
 
 let passed = 0;

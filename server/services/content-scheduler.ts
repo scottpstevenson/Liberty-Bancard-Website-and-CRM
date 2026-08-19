@@ -56,7 +56,7 @@ export async function runContentSchedulerTick(): Promise<{ blogsPublished: numbe
                 await storage.updateSocialPost(post.id, { status: "ready_to_publish" });
               } else {
                 const tokenId = (await import("crypto")).randomUUID();
-                await registerInflight(tokenId);
+                await registerInflight(tokenId, decision.epoch);
                 _inflightToken = tokenId;
                 const epochOk = await recheckEpoch(decision.epoch);
                 if (!epochOk) {

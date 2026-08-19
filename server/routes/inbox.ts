@@ -748,7 +748,7 @@ export function registerInboxRoutes(app: Express) {
 
           // Step 2: register in-flight BEFORE epoch recheck
           const inflightToken = crypto.randomUUID();
-          await registerInflight(inflightToken);
+          await registerInflight(inflightToken, pauseDecision.epoch);
           let sendResult: any;
           try {
             // Step 3: epoch recheck after registration (drain sees our token now)
@@ -1097,13 +1097,32 @@ export function registerInboxRoutes(app: Express) {
         }
       }
 
+      // ── C-12 (#1626): canonical contactability gate before dispatch ────────
+      const { evaluateContactability } = await import("../services/contactability");
+      const contactability = await evaluateContactability({
+        contactId,
+        channel: "email",
+        campaignType: "manual_reply",
+        mode: "enforcement",
+      });
+      if (!contactability.allowed) {
+        console.warn(`[Inbox] reply denied by contactability: ${contactability.reason} (contactId=${contactId})`);
+        return res.status(409).json({
+          message: "Send blocked by contactability policy",
+          reason: contactability.reason,
+        });
+      }
+
       const { sendSmtpEmail } = await import("../services/smtp-email");
 
-      let deliveryOutcome: "sent" | "failed" | "not_configured" = "sent";
+      let deliveryOutcome: "sent" | "blocked" | "failed" | "not_configured" = "sent";
       let deliveryError: string | null = null;
 
+      // C-11 (#1626): capture the SMTP result — sendSmtpEmail returns
+      // { success: false } (does not throw) when pause-blocked or unconfigured.
+      let smtpResult: { success: boolean; error?: string };
       try {
-        await sendSmtpEmail({
+        smtpResult = await sendSmtpEmail({
           to: contact.email,
           subject: subject || `Re: Your inquiry`,
           html: replyBody.replace(/\n/g, "<br>"),
@@ -1111,15 +1130,40 @@ export function registerInboxRoutes(app: Express) {
           contactId,
         });
       } catch (smtpErr: any) {
-        deliveryOutcome = "failed";
-        deliveryError = smtpErr.message || "SMTP delivery failed";
-        console.error("[Inbox] SMTP reply failed:", deliveryError);
+        smtpResult = { success: false, error: smtpErr.message || "SMTP delivery failed" };
+      }
+
+      if (!smtpResult.success) {
+        deliveryError = smtpResult.error || "SMTP delivery failed";
+        const lowered = deliveryError.toLowerCase();
+        if (lowered.includes("paused") || lowered.includes("blocked")) {
+          deliveryOutcome = "blocked";
+        } else if (lowered.includes("not configured") || lowered.includes("not_configured") || lowered.includes("missing smtp")) {
+          deliveryOutcome = "not_configured";
+        } else {
+          deliveryOutcome = "failed";
+        }
+        console.error(`[Inbox] SMTP reply not sent (outcome=${deliveryOutcome}, contactId=${contactId})`);
+
+        // Truthful state: record the real outcome, never "sent"
+        const { recordOutboundSend } = await import("../services/communication-events");
+        await recordOutboundSend({
+          contactId,
+          channel: "email",
+          provider: "smtp",
+          subject: subject || null,
+          body: replyBody,
+          // recordOutboundSend status enum has no "not_configured" — map to "skipped"
+          status: deliveryOutcome === "blocked" ? "blocked" : deliveryOutcome === "not_configured" ? "skipped" : "failed",
+          metadata: { repliedBy: userId, inReplyTo: inReplyTo || null, deliveryOutcome, error: deliveryError },
+        }).catch(() => {});
         await storage.createAuditLog({
           action: "inbox_email_reply_failed",
           entityType: "contact", entityId: contactId, actorType: "user", actorId: userId,
-          details: { contactId, to: contact.email, error: deliveryError, timestamp: new Date().toISOString() },
+          details: { contactId, deliveryOutcome, error: deliveryError, timestamp: new Date().toISOString() },
         });
-        return res.status(502).json({ ok: false, message: safeMessage(deliveryError, "Email delivery failed"), deliveryOutcome: "failed" });
+        const statusCode = deliveryOutcome === "blocked" ? 409 : deliveryOutcome === "not_configured" ? 503 : 502;
+        return res.status(statusCode).json({ ok: false, message: safeMessage(deliveryError, "Email delivery failed"), deliveryOutcome });
       }
 
       // Record as outbound communication event
