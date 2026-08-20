@@ -1,0 +1,159 @@
+You’re right. The task explicitly says the original work was already split into three independently deployable tranches:
+
+1. Consent authority/channel state — this task.
+2. Universal outbound enforcement — follow-on.
+3. Workflow/delivery correctness — follow-on.
+
+I missed that and then suggested another split. That was wrong. I am **not recommending a fourth tranche**.
+
+# BT-04 Consent Authority Core Audit
+
+## Verdict: NOT BUILD-READY
+
+The three-tranche decomposition is valid. The problem is narrower: the submitted **consent-authority tranche** still omits existing consent writers and has unresolved authority/cardinality decisions that belong inside this tranche—not the two outbound follow-ons.
+
+The audit covered the full consent-authority surface despite finding P0 defects.
+
+## Repository pin
+
+| Item                     | Verified state                                                                                  |
+| ------------------------ | ----------------------------------------------------------------------------------------------- |
+| Repository               | `scottpstevenson/Liberty-Bancard-Website-and-CRM`                                               |
+| Current branch           | `main`                                                                                          |
+| Current HEAD             | `6c1243fbb3419b5079f4c670c211cf378c91c3fd`                                                      |
+| Task-pinned branch       | `agent/1629-ghl-route-pause-gates`                                                              |
+| Task-pinned SHA          | `8dd99ea3f352c2b9d4409e1c9a7c6f7b969aa6b6`                                                      |
+| Relevant-code comparison | Current main is ahead, but the audited file tree is identical to the pinned tree                |
+| Migration head           | Journal index 144, tag `0141_serper_merchant_cooldown`                                          |
+| Next migration           | Must be determined again immediately before implementation; currently expected to follow `0141` |
+| Package manager          | npm                                                                                             |
+| Canonical gates          | Repository typecheck/build, focused scripts, migration-integrity checks and CI workflow         |
+
+## Evidence classification
+
+| Evidence class               | Audit status                                                                              |
+| ---------------------------- | ----------------------------------------------------------------------------------------- |
+| Verified from current code   | Routes, schemas, consent services, SDR paths, wizard paths, migrations and CI             |
+| Verified at pinned SHA       | Task-listed consent behavior; audited tree matches current main                           |
+| Historical runtime evidence  | Prior audit/runtime documents were treated only as historical evidence                    |
+| Runtime verification pending | Production DB roles, deployed migrations, live data condition and multi-instance behavior |
+| Inference/design reasoning   | Required authority, cardinality, precedence and isolation corrections                     |
+
+## Verified from code
+
+| ID   | Verified from code                                                                         | Repository evidence                                                                               | Impact                                                                     |
+| ---- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| V-01 | Contact consent, status and tier fields coexist as mutable projections                     | `shared/schema.ts`                                                                                | Multiple fields can contradict one another                                 |
+| V-02 | `consent_audit_logs` only identifies a nullable contact                                    | `shared/schema.ts` consent-audit definition                                                       | Cannot represent every messageable subject                                 |
+| V-03 | SDR maintains separate email/SMS/call consent fields                                       | `shared/schema.ts` SDR tables                                                                     | Parallel consent authority exists                                          |
+| V-04 | SDR email consent defaults affirmatively and may be inferred from email presence           | `shared/schema.ts`; `server/services/sdr/orchestrator.ts`; `server/services/sdr/chat-handlers.ts` | Synthetic consent can drive orchestration                                  |
+| V-05 | SDR routes directly mutate consent and opt-out fields                                      | `server/routes/sdr.ts`                                                                            | Bypasses proposed canonical reducer                                        |
+| V-06 | Setup-wizard contact creation writes affirmative consent without evidence                  | `server/routes/wizard.ts`                                                                         | Synthetic consent reaches real contact records                             |
+| V-07 | Wizard test-contact behavior can invoke real provider behavior                             | `server/routes/wizard.ts` and provider integration path                                           | “Test” setup can create externally observable effects                      |
+| V-08 | Email/SMS status columns combine consent with deliverability concepts                      | `shared/schema.ts`; contactability and feedback services                                          | A consent event can incorrectly imply reachability                         |
+| V-09 | Campaign webhook code performs direct compliance-related SQL and asynchronous auditing     | `server/routes/campaigns.ts`                                                                      | Event and projection can diverge                                           |
+| V-10 | Inbox suppression writes global state directly                                             | `server/routes/inbox.ts`                                                                          | Bypasses channel/purpose reducer semantics                                 |
+| V-11 | Bounce and communication-feedback services also mutate related state                       | `server/services/bounce-feedback.ts`; `server/services/communication-feedback.ts`                 | Writer census in the task is incomplete                                    |
+| V-12 | Current PEWC verifier examines recent positive rows and top-level evidence fields          | `server/services/consent-evidence.ts`; `server/services/contactability.ts`                        | Evidence must bind to the current phone and effective state                |
+| V-13 | Application startup and migrations use the same configured database connection authority   | `server/db.ts`; `server/index.ts`; `scripts/migrate.ts`                                           | Proposed runtime append-only isolation is not yet implementable as written |
+| V-14 | Existing CI lacks a BT-04 race suite, runtime-role test and complete migration replay gate | `.github/workflows/wave12-ci.yml`                                                                 | Required acceptance proof is absent                                        |
+| V-15 | Current migration head is `0141_serper_merchant_cooldown`                                  | `migrations/meta/_journal.json`                                                                   | Migration number must not be hardcoded early                               |
+
+## False assumptions
+
+| Task assumption                                                      | Repository reality                                                                                     | Required correction                                    |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------ |
+| The three identified tranches fully separate the affected behavior   | The split is sound, but wizard and SDR contain consent-authority behavior—not merely outbound behavior | Keep their consent writes in this core tranche         |
+| Contact projection columns can express channel-and-purpose state     | One contact-wide field set cannot represent multiple purposes per channel                              | Add a derived `(subject, channel, purpose)` projection |
+| Consent state and delivery status can share one vocabulary           | `active`, `unvalidated`, `bounced`, `invalid`, `undeliverable` represent different concerns            | Separate permission from reachability                  |
+| A contact ID is sufficient consent identity                          | Prospects and SDR entities can participate without a canonical contact                                 | Define canonical subject identity/binding              |
+| PEWC promotion may mark SMS active                                   | Consent does not validate that a phone is deliverable                                                  | Record consent separately from phone validation        |
+| `NOT VALID` checks will only affect future clean rows                | PostgreSQL still checks new writes and updates, including unrelated updates to legacy-invalid rows     | Version-gate or defer constraints until safe           |
+| Append-only behavior can be added using the current role arrangement | Runtime and migration execution presently share connection authority                                   | Establish role separation first                        |
+| Current writer list closes consent authority                         | Campaigns, inbox, feedback, workflow, wizard and SDR add relevant paths                                | Expand and classify the writer census                  |
+
+## Master corrections register
+
+| ID   | Severity  | Correction                                                                                                                                                       | Verified basis                                        | Required disposition         |
+| ---- | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- | ---------------------------- |
+| C-01 | P0        | Remove synthetic consent from setup-wizard contact/application creation and prevent real-provider “test” effects without verified consent or isolated transport  | Wizard routes and provider path                       | Must fix in this tranche     |
+| C-02 | P0        | Eliminate SDR synthetic/default/inferred consent and route SDR consent mutations through the canonical command authority                                         | SDR schema, routes and services                       | Must fix in this tranche     |
+| C-03 | P1        | Separate consent/suppression state from deliverability/reachability; PEWC must not establish phone validity                                                      | Current mixed status vocabulary                       | Schema/service design change |
+| C-04 | P1        | Add a rebuildable purpose-specific projection keyed by subject, channel and purpose                                                                              | Contact columns cannot express required cardinality   | Schema design change         |
+| C-05 | P1        | Define canonical subject identity for contacts, prospects and SDR entities, or explicitly narrow authority and retain the uncovered subjects as release blockers | Nullable contact-only audit identity                  | Authority decision required  |
+| C-06 | P1        | Specify an exact precedence matrix for public evidence, signed provider events, STOP/DNC, operator overrides and re-consent                                      | Event ordering proposal is incomplete                 | Reducer contract change      |
+| C-07 | P1        | Prevent clients from supplying unrestricted `effectiveAt`; use server `receivedAt`, bounded provider timestamps and restrictive equal-time precedence            | Public inputs and stale-event requirements            | Security/ordering correction |
+| C-08 | P1        | Add event `recordKind` and `schemaVersion`; the reducer must ignore legacy decision/blocked-attempt records that are not canonical consent facts                 | Audit table mixes event purposes                      | Event-contract correction    |
+| C-09 | P1        | Use namespaced, partial uniqueness for canonical event keys                                                                                                      | Existing mixed audit rows and event classes           | Migration correction         |
+| C-10 | P1        | Do not apply proposed `NOT VALID` checks until legacy-row update behavior is safe; version-gate or defer them                                                    | PostgreSQL constraint semantics                       | Migration correction         |
+| C-11 | P1        | Bind PEWC to the normalized current phone and immutable disclosure text/hash; invalidate or re-evaluate after phone changes                                      | Current verifier only checks recent positive evidence | PEWC design correction       |
+| C-12 | P1        | Establish distinct migration-owner, restricted runtime, maintenance and isolated-test DB roles before claiming append-only enforcement                           | Shared `DATABASE_URL` authority                       | Infrastructure dependency    |
+| C-13 | P2        | Reclassify missing proof as TEST gaps; reserve P0/P1 for verified defects                                                                                        | Task finding register                                 | Correct task taxonomy        |
+| C-14 | P2        | Expand the owned/relevant file list to include wizard, SDR, campaigns, inbox, feedback and workflow paths                                                        | Repository census                                     | Scope/document correction    |
+| T-01 | TEST      | Add real-PostgreSQL, two-connection reducer tests for races, stale/equal/future events, rollback and duplicate keys                                              | Current tests lack reducer concurrency proof          | Required acceptance proof    |
+| T-02 | TEST      | Test clean and upgraded migrations with legacy-invalid rows and unrelated updates                                                                                | Proposed checks may immobilize rows                   | Required migration proof     |
+| T-03 | TEST      | Test privileges using distinct migration, runtime, maintenance and test roles                                                                                    | Current single-role setup                             | Required authority proof     |
+| T-04 | TEST      | Add a semantic writer-dominance gate across contacts, prospects, SDR and raw SQL, with explicit delivery-only exceptions                                         | Current searches do not close all writers             | Required acceptance proof    |
+| T-05 | TEST      | Test PEWC phone normalization, phone changes, disclosure hashes, revoked/current evidence and no deliverability promotion                                        | Existing verifier contract                            | Required PEWC proof          |
+| T-06 | TEST      | Register and execute the BT-04 suite through Task #1628’s CI/isolation authority                                                                                 | Current CI has no BT-04 suite                         | Required CI proof            |
+| H-01 | HARDENING | Add metrics for stale/conflicting events, phone-evidence invalidation, rejected direct writers and maintenance operations                                        | No correctness dependency                             | Optional after correctness   |
+
+## Findings rollup
+
+| Classification                 |  Count |
+| ------------------------------ | -----: |
+| P0                             |      2 |
+| P1                             |      9 |
+| P2                             |      2 |
+| Test / validation gaps         |      6 |
+| Extra hardening                |      1 |
+| **Total corrections/findings** | **20** |
+
+## Final authority model
+
+| Concern                            | Canonical authority                                                                   |
+| ---------------------------------- | ------------------------------------------------------------------------------------- |
+| Consent evidence                   | Versioned canonical consent events                                                    |
+| Consent mutation                   | One validated consent-command service                                                 |
+| Subject identity                   | Canonical subject/binding authority covering all consent-bearing entities             |
+| Channel/purpose eligibility        | Rebuildable subject × channel × purpose projection                                    |
+| Global suppression                 | Explicit global-DNC event/state                                                       |
+| Deliverability                     | Separate delivery/reachability authority                                              |
+| PEWC                               | Current-phone-bound evidence plus immutable disclosure hash/version                   |
+| Operator changes                   | Narrow role-authorized server-side commands                                           |
+| Event ordering                     | Server-controlled receipt time plus bounded effective time and restrictive precedence |
+| Database mutation                  | Restricted runtime role; migration owner; explicit maintenance authority              |
+| CI/isolation                       | Existing Task #1628 shared authority                                                  |
+| Outbound sink enforcement          | Existing second tranche                                                               |
+| Durable/truthful workflow outcomes | Existing third tranche                                                                |
+
+## Lifecycle and concurrency proof required
+
+| Scenario                                         | Required behavior                                          |
+| ------------------------------------------------ | ---------------------------------------------------------- |
+| Two workers apply conflicting events             | Row lock or fencing permits one ordered projection result  |
+| Duplicate event key                              | One logical event and one projection transition            |
+| Older positive event arrives late                | Persist as history without re-enabling a newer restriction |
+| Equal-time opt-in and opt-out                    | Restrictive event wins deterministically                   |
+| Future-dated public event                        | Rejected or bounded by server policy                       |
+| Event insert succeeds but projection fails       | Entire transaction rolls back                              |
+| Projection write succeeds but event insert fails | Entire transaction rolls back                              |
+| Phone changes after PEWC consent                 | Old phone evidence cannot authorize the new phone          |
+| Runtime attempts audit UPDATE/DELETE             | Database rejects it                                        |
+| Maintenance procedure executes                   | Explicitly authorized, bounded and auditable               |
+| Email opt-out                                    | Does not suppress otherwise eligible SMS                   |
+| SMS STOP                                         | Blocks SMS/automated phone without inventing email opt-out |
+| Global DNC                                       | Blocks every automated channel                             |
+| Deliverability bounce                            | Changes reachability, not historical consent               |
+| Legacy contradictory state                       | Fails closed and enters inventory/manual-review state      |
+
+## Scope closure
+
+The two existing follow-on tranches remain correctly separate:
+
+* Universal provider/sink enforcement, manual-route authorization and contactability dominance.
+* Durable workflow occurrences, retries, reconciliation and truthful provider outcomes.
+
+They are still release-blocking for outbound unpause, but they are **not reasons this core tranche failed**.
+
+This core tranche failed because consent authority itself still excludes wizard/SDR writers and leaves subject cardinality, purpose projections, event precedence, PEWC phone binding, consent-versus-deliverability separation and database-role enforcement unresolved. Those corrections belong in the already-existing first tranche.
