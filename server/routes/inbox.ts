@@ -15,6 +15,7 @@ import { sql } from "drizzle-orm";
 import { classifyIntent, mapIntentToAction } from "../services/sdr/reply-intelligence";
 import { resolvePolicy } from "../services/sender-policy";
 import { serverError, safeMessage } from "../utils/server-error";
+import { applyConsentCommand } from "../services/consent-authority";
 
 const GHL_API_BASE = "https://services.leadconnectorhq.com";
 
@@ -882,9 +883,20 @@ export function registerInboxRoutes(app: Express) {
         let suppressionOutcome: "suppressed" | "failed" = "suppressed";
         let suppressionError: string | null = null;
         try {
-          await (storage as any).updateContact(contactId, {
-            emailStatus: "unsubscribed",
-            doNotContact: true,
+          const withdrawalChannel = channelStr === "sms" || channelStr === "email"
+            ? channelStr
+            : null;
+          await applyConsentCommand({
+            subject: { type: "contact", id: contactId },
+            kind: withdrawalChannel ? "opt_out" : "global_dnc",
+            ...(withdrawalChannel ? { channel: withdrawalChannel } : {}),
+            purpose: "outreach",
+            eventNamespace: "inbox_action",
+            eventKey: `${req.params.id}:mark_unsubscribed:${withdrawalChannel ?? "global"}`,
+            source: "inbox_stop_or_angry",
+            actorId: userId,
+            evidence: { inboxItemId: req.params.id, intent, inboundChannel: channelStr },
+            details: { inboxItemId: req.params.id, intent, channel: channelStr },
           });
         } catch (suppErr: any) {
           suppressionOutcome = "failed";

@@ -13,6 +13,7 @@ import { enrollInAppointmentWorkflow, tagContactForInboxOrganization } from "../
 import { checkAndLogCompliance } from "./compliance-engine";
 import { processCommunicationEvent } from "../communication-feedback";
 import { getCanonicalLeadVertical } from "./vertical-resolver";
+import { applyConsentCommand, recordReachabilityObservation } from "../consent-authority";
 
 const contactUpdatedSchema = z.object({
   contactId: z.string().optional(),
@@ -469,12 +470,9 @@ export async function handleOptOut(rawPayload: unknown): Promise<void> {
 
   // ── 1. SDR merchant lookup (existing pipeline logic) ──────────────────────
   const merchant = ghlContactId ? await findMerchantByGhlId(ghlContactId) : null;
-  if (merchant) {
-    await onOptOut(merchant.id, channel);
-  }
 
   // ── 2. Always store webhook event (regardless of match result) ────────────
-  await db.insert(sdrLeadEvents).values({
+  const [webhookEvent] = await db.insert(sdrLeadEvents).values({
     merchantId: merchant?.id || null,
     eventType: "opt_out",
     channel,
@@ -485,12 +483,42 @@ export async function handleOptOut(rawPayload: unknown): Promise<void> {
       phonePresent: !!normalizedPhone,
     },
     ghlRefId: ghlContactId || null,
-  });
+  }).returning({ id: sdrLeadEvents.id });
+  // Prefer the upstream occurrence ID so retries are idempotent. When none is
+  // supplied, the persisted inbound event row is the server-owned occurrence.
+  const occurrenceKey = String(
+    (payload as any).eventId ?? (payload as any).messageId ?? (payload as any).id ?? webhookEvent.id,
+  );
+  if (merchant) {
+    await onOptOut(merchant.id, channel, occurrenceKey);
+  }
 
   // ── 3. CRM contact suppression — three-tier fallback chain ────────────────
   const { suppressNewLeadAutoEnrollmentForContact } = await import("../new-lead-enrollment-job");
-  const now = new Date();
   let matched = false;
+  const commandKind = channel === "all" ? "global_dnc" as const : "opt_out" as const;
+  const consentChannel = channel === "sms" ? "sms" as const : channel === "call" ? "automated_phone" as const : "email" as const;
+  const applyContactOptOut = async (id: number, matchedBy: string) => {
+    await applyConsentCommand({
+      subject: { type: "contact", id },
+      kind: commandKind,
+      ...(commandKind === "opt_out" ? { channel: consentChannel } : {}),
+      purpose: "outreach",
+      eventNamespace: "sdr_ghl_opt_out",
+      eventKey: `${ghlContactId ?? "none"}:${channel}:${id}:${occurrenceKey}`,
+      source: "sdr_ghl_webhook",
+      evidence: { ghlContactId: ghlContactId ?? null, channel, matchedBy, occurrenceKey },
+      details: { ghlContactId: ghlContactId ?? null, channel, matchedBy },
+    });
+  };
+  const suppressAfterCanonicalOptOut = async (id: number, reason: string) => {
+    try {
+      await suppressNewLeadAutoEnrollmentForContact(id, reason);
+    } catch (err: unknown) {
+      console.error(`[SDR Webhook] opt-out enrollment suppression failed after canonical consent for contact #${id}:`,
+        err instanceof Error ? err.message : String(err));
+    }
+  };
 
   // Path A: exact ghlContactId match in contacts table
   if (ghlContactId) {
@@ -503,10 +531,8 @@ export async function handleOptOut(rawPayload: unknown): Promise<void> {
       if (matchedContacts.length > 0) {
         matched = true;
         for (const contact of matchedContacts) {
-          await suppressNewLeadAutoEnrollmentForContact(contact.id, "ghl_opt_out");
-          await db.update(contacts)
-            .set({ optedOutEmail: true, emailStatus: "opted_out", consentTier: "opted_out", updatedAt: now })
-            .where(eq(contacts.id, contact.id));
+          await applyContactOptOut(contact.id, "ghl_contact_id");
+          await suppressAfterCanonicalOptOut(contact.id, "ghl_opt_out");
         }
         console.log(`[SDR Webhook] opt-out: GHL ID match — suppressed ${matchedContacts.length} contact(s)`);
       }
@@ -528,10 +554,8 @@ export async function handleOptOut(rawPayload: unknown): Promise<void> {
         const emailHash = createHash("sha256").update(normalizedEmail).digest("hex").slice(0, 16);
         const matchedCount = matchedContacts.length;
         for (const contact of matchedContacts) {
-          await suppressNewLeadAutoEnrollmentForContact(contact.id, "ghl_opt_out_email_match");
-          await db.update(contacts)
-            .set({ optedOutEmail: true, emailStatus: "opted_out", consentTier: "opted_out", updatedAt: now })
-            .where(eq(contacts.id, contact.id));
+          await applyContactOptOut(contact.id, "email");
+          await suppressAfterCanonicalOptOut(contact.id, "ghl_opt_out_email_match");
           await storage.createAuditLog({
             action: "ghl_opt_out_email_match",
             entityType: "contact",
@@ -565,10 +589,8 @@ export async function handleOptOut(rawPayload: unknown): Promise<void> {
         matched = true;
         const matchedCount = matchedContacts.length;
         for (const contact of matchedContacts) {
-          await suppressNewLeadAutoEnrollmentForContact(contact.id, "ghl_opt_out_phone_match");
-          await db.update(contacts)
-            .set({ optedOutEmail: true, emailStatus: "opted_out", consentTier: "opted_out", updatedAt: now })
-            .where(eq(contacts.id, contact.id));
+          await applyContactOptOut(contact.id, "phone");
+          await suppressAfterCanonicalOptOut(contact.id, "ghl_opt_out_phone_match");
           await storage.createAuditLog({
             action: "ghl_opt_out_phone_match",
             entityType: "contact",
@@ -664,10 +686,19 @@ export async function handleEmailBounce(rawPayload: unknown): Promise<void> {
     return;
   }
 
-  // Mark contact as bounced — contactability gate will suppress all future sends
-  await db.update(contacts)
-    .set({ emailStatus: "bounced", bouncedAt: now, updatedAt: now })
-    .where(eq(contacts.id, crmContact.id));
+  // Canonical reachability fact owns the derived legacy email status. A bounce
+  // is not a consent mutation and must retain an immutable provider event.
+  const fallbackFingerprint = createHash("sha256").update(JSON.stringify(payload)).digest("hex").slice(0, 24);
+  await recordReachabilityObservation({
+    subject: { type: "contact", id: crmContact.id },
+    channel: "email",
+    state: "bounced",
+    eventNamespace: "sdr_ghl_webhook",
+    eventKey: `email_bounce:${ghlMessageId ?? ghlContactId ?? fallbackFingerprint}`,
+    source: "sdr_ghl_webhook",
+    observedAt: now,
+    details: { ghlContactId: ghlContactId ?? null, ghlMessageId, email: email ?? null },
+  });
 
   // Mark the specific outbound_messages row if we have the GHL message ID
   if (ghlMessageId) {

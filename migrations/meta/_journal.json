@@ -1030,6 +1030,27 @@
       "when": 1792600000000,
       "tag": "0143_merchant_application_ein_unique",
       "breakpoints": false
+    },
+    {
+      "idx": 147,
+      "version": "7",
+      "when": 1792700000000,
+      "tag": "0144_consent_authority_channel_state",
+      "breakpoints": false
+    },
+    {
+      "idx": 148,
+      "version": "7",
+      "when": 1792800000000,
+      "tag": "0145_consent_subject_upsert_race_fix",
+      "breakpoints": false
+    },
+    {
+      "idx": 149,
+      "version": "7",
+      "when": 1792900000000,
+      "tag": "0146_consent_audit_append_only_guard",
+      "breakpoints": false
     }
   ]
 }

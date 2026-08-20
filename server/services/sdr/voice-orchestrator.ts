@@ -3,6 +3,7 @@ import { sdrLeadState, sdrLeadEvents, sdrChannelAttempts, sdrMerchants, sdrCompl
 import { eq } from "drizzle-orm";
 import { triggerWorkflow, isSdrGhlConfigured } from "./ghl-client";
 import { onStageChange } from "./ghl-sync-rules";
+import { applyConsentCommand } from "../consent-authority";
 
 export const VOICE_BOT_MODES = [
   "intro_qualification",
@@ -487,6 +488,17 @@ export async function handleCallDisposition(
   const [state] = await db.select().from(sdrLeadState).where(eq(sdrLeadState.merchantId, merchantId));
 
   if (action.suppressContact) {
+    if (!state) throw new Error(`Cannot apply call disposition consent without an SDR lead state for merchant ${merchantId}`);
+    await applyConsentCommand({
+      subject: { type: "sdr_lead_state", id: state.id },
+      kind: disposition === "do_not_call" ? "global_dnc" : "opt_out",
+      ...(disposition === "do_not_call" ? {} : { channel: "automated_phone" }),
+      purpose: "outreach",
+      eventNamespace: "sdr_call_disposition",
+      eventKey: `${merchantId}:${String(callMetadata?.callId ?? callMetadata?.id ?? `${disposition}:${Date.now()}`)}`,
+      source: "sdr_call_disposition",
+      evidence: { merchantId, disposition, callMetadata: callMetadata ?? {} },
+    });
     const [existing] = await db.select().from(sdrComplianceState).where(eq(sdrComplianceState.merchantId, merchantId));
     if (existing) {
       await db.update(sdrComplianceState).set({

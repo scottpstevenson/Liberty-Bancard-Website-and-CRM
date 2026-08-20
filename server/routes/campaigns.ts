@@ -11,8 +11,9 @@ import { validateGhlWebhookSignature } from "../services/ghl";
 import { parse } from "csv-parse/sync";
 import { checkAbTestWinners } from "../services/ab-test-worker";
 import { pool, db } from "../db";
-import { eq, and, count, sql as sqlRaw } from "drizzle-orm";
+import { eq, and, count } from "drizzle-orm";
 import { serverError } from "../utils/server-error";
+import { applyConsentCommand } from "../services/consent-authority";
 
 interface AbTestResultRow {
   sequenceId: number;
@@ -319,7 +320,16 @@ export function registerCampaignsRoutes(app: Express) {
       if (event === "unsubscribed") {
         updates.status = "unsubscribed";
         if (msg.prospectId) {
-          await storage.updateProspect(msg.prospectId, { doNotContact: true, status: "do_not_contact" });
+          await applyConsentCommand({
+            subject: { type: "prospect", id: msg.prospectId },
+            kind: "global_dnc",
+            purpose: "outreach",
+            eventNamespace: "campaign_webhook",
+            eventKey: `${msg.id}:prospect:${msg.prospectId}:unsubscribe`,
+            source: "campaign_unsubscribe",
+            evidence: { messageId: msg.id, campaignId: msg.campaignId },
+            details: { messageId: msg.id, campaignId: msg.campaignId },
+          });
         }
         // CAN-SPAM: contact-mode campaigns target the contacts table directly.
         // Apply the same suppression to the linked contacts record so the
@@ -327,23 +337,17 @@ export function registerCampaignsRoutes(app: Express) {
         // Raw SQL: bypass Drizzle set() cast which can silently drop boolean/enum cols.
         if (msg.contactId) {
           const contactId = msg.contactId;
-          await db.execute(sqlRaw`
-            UPDATE contacts
-            SET consent_email       = false,
-                email_status        = 'opted_out',
-                do_not_auto_contact = true,
-                updated_at          = now()
-            WHERE id = ${contactId}
-          `);
-          storage.createConsentAuditLog({
-            contactId,
+          await applyConsentCommand({
+            subject: { type: "contact", id: contactId },
+            kind: "opt_out",
             channel: "email",
-            action: "campaign_unsubscribe",
-            consented: false,
-            consentType: "general_optin",
+            purpose: "outreach",
+            eventNamespace: "campaign_webhook",
+            eventKey: `${msg.id}:contact:${contactId}:unsubscribe`,
             source: "campaign_unsubscribe",
+            evidence: { messageId: msg.id, campaignId: msg.campaignId },
             details: { messageId: msg.id, campaignId: msg.campaignId },
-          }).catch((err: Error) => console.error("[Campaign webhook] Consent record failed:", err.message));
+          });
         }
       }
 

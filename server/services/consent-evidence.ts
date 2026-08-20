@@ -10,12 +10,21 @@
  * but skip the contact-tier update.
  */
 
-import { storage } from "../storage";
+import crypto from "crypto";
 import { db } from "../db";
 import { contacts } from "@shared/schema";
 import { eq } from "drizzle-orm";
-import { PEWC_DISCLOSURE_VERSION, PEWC_CHANNELS_COVERED } from "@shared/consent-disclosures";
+import {
+  PEWC_DISCLOSURE_TEXT,
+  PEWC_DISCLOSURE_VERSION,
+  PEWC_CHANNELS_COVERED,
+} from "@shared/consent-disclosures";
 import { recordAnalyticsEvent } from "./analytics-events";
+import {
+  applyConsentCommand,
+  disclosureHash,
+  normalizeConsentPhone,
+} from "./consent-authority";
 
 export async function recordPewcDecision(opts: {
   contactId: number;
@@ -24,58 +33,50 @@ export async function recordPewcDecision(opts: {
   ipAddress: string;
   userAgent: string;
   disclosureVersion?: string;
+  eventKey?: string;
   details?: Record<string, unknown>;
 }): Promise<void> {
   const { contactId, checked, source, ipAddress, userAgent, details = {} } = opts;
   const disclosureVersion = opts.disclosureVersion ?? PEWC_DISCLOSURE_VERSION;
 
-  const [row] = await db
-    .select({ consentTier: contacts.consentTier })
-    .from(contacts)
-    .where(eq(contacts.id, contactId));
-
-  const currentTier = row?.consentTier ?? "cold_no_consent";
-  const alreadyFull = currentTier === "pewc_full_automation";
-
   if (checked) {
-    await storage.createConsentAuditLog({
-      contactId,
-      channel: "sms",
-      action: "pewc_opt_in",
-      consented: true,
-      consentType: "express_written",
+    const [contact] = await db
+      .select({ phone: contacts.phone })
+      .from(contacts)
+      .where(eq(contacts.id, contactId))
+      .limit(1);
+    const consentedPhone = typeof details.consentedPhone === "string"
+      ? details.consentedPhone
+      : contact?.phone;
+    if (!normalizeConsentPhone(consentedPhone)) {
+      throw new Error("PEWC capture requires the current phone number");
+    }
+    const baseCommand = {
+      subject: { type: "contact", id: contactId },
+      kind: "pewc_opt_in",
+      purpose: "outreach",
+      eventNamespace: "pewc",
       source,
       ipAddress,
       userAgent,
+      evidence: {
+        ...details,
+        consentedPhone,
+        normalizedConsentedPhone: normalizeConsentPhone(consentedPhone),
+        disclosureVersion,
+        disclosureHash: disclosureHash(PEWC_DISCLOSURE_TEXT),
+        channelsCovered: PEWC_CHANNELS_COVERED,
+      },
       details: {
         ...details,
         disclosureVersion,
         channelsCovered: PEWC_CHANNELS_COVERED,
       },
-    });
-
-    if (!alreadyFull) {
-      await db
-        .update(contacts)
-        .set({ consentTier: "pewc_full_automation" })
-        .where(eq(contacts.id, contactId));
-    }
-  } else if (alreadyFull) {
-    await storage.createConsentAuditLog({
-      contactId,
-      channel: "sms",
-      action: "pewc_declined",
-      consented: false,
-      consentType: "express_written",
-      source,
-      ipAddress,
-      userAgent,
-      details: {
-        ...details,
-        disclosureVersion,
-        noDowngradeApplied: true,
-      },
-    });
+    } as const;
+    const eventBase = opts.eventKey ?? `${source}:${contactId}:${String(details.submissionId ?? crypto.randomUUID())}`;
+    // The reducer projects both PEWC-covered automated channels in one
+    // transaction so a process crash cannot leave a partially authorized tier.
+    await applyConsentCommand({ ...baseCommand, channel: "sms", eventKey: `${eventBase}:pewc` });
   }
 
   await recordAnalyticsEvent({

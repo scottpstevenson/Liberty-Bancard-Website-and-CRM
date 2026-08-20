@@ -7,6 +7,7 @@ import {
   auditLogs,
 } from "@shared/schema";
 import { eq, and, isNotNull, isNull, inArray, gte } from "drizzle-orm";
+import { recordReachabilityObservation } from "./consent-authority";
 
 let lastRunAt: Date | null = null;
 
@@ -49,8 +50,10 @@ export async function runBounceFeedbackWriteback(): Promise<{ updated: number; s
 
   const bouncedMessages = await db
     .select({
+      id: outboundMessages.id,
       contactId: outboundMessages.contactId,
       toEmail: outboundMessages.toEmail,
+      bouncedAt: outboundMessages.bouncedAt,
     })
     .from(outboundMessages)
     .where(
@@ -81,16 +84,27 @@ export async function runBounceFeedbackWriteback(): Promise<{ updated: number; s
   let updated = 0;
   let skipped = 0;
 
-  for (const c of existingContacts) {
-    if (c.emailStatus === "bounced") {
+  const contactsById = new Map(existingContacts.map(contact => [contact.id, contact]));
+  for (const message of bouncedMessages) {
+    const c = contactsById.get(message.contactId!);
+    if (!c) {
       skipped++;
       continue;
     }
 
-    await db
-      .update(contacts)
-      .set({ emailStatus: "bounced", bouncedAt: now, updatedAt: now })
-      .where(eq(contacts.id, c.id));
+    await recordReachabilityObservation({
+      subject: { type: "contact", id: c.id },
+      channel: "email",
+      state: "bounced",
+      eventNamespace: "bounce_feedback",
+      eventKey: `outbound_message:${message.id}:bounced`,
+      source: "bounce_feedback",
+      observedAt: message.bouncedAt ?? now,
+      details: {
+        detectedAt: (message.bouncedAt ?? now).toISOString(),
+        outboundMessageId: message.id,
+      },
+    });
 
     // C-13 (#1626): entityKey must not carry the raw contact email — use a
     // redacted token; entityId already identifies the contact for lookups.
@@ -103,7 +117,8 @@ export async function runBounceFeedbackWriteback(): Promise<{ updated: number; s
       entityKey: c.email ? redactToken(c.email) : null,
       details: sanitizeAuditPayload({
         reason: "outbound_message_bounce",
-        detectedAt: now.toISOString(),
+        detectedAt: (message.bouncedAt ?? now).toISOString(),
+        outboundMessageId: message.id,
       }) as Record<string, unknown>,
     });
 
@@ -113,7 +128,12 @@ export async function runBounceFeedbackWriteback(): Promise<{ updated: number; s
         type: "email_bounce",
         contactId: c.id,
         severity: "hard",
-        metadata: { reason: "outbound_message_bounce", detectedAt: now.toISOString() },
+        metadata: {
+          reason: "outbound_message_bounce",
+          detectedAt: (message.bouncedAt ?? now).toISOString(),
+          messageId: String(message.id),
+        },
+        eventKey: `outbound_message:${message.id}:bounced`,
       });
     } catch (feedbackErr: unknown) {
       const msg = feedbackErr instanceof Error ? feedbackErr.message : String(feedbackErr);

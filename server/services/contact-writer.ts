@@ -96,6 +96,29 @@ export const PROVENANCE_FIELDS = [
   "manualVerticalOverride",
 ] as const;
 
+// Consent, suppression, tiers, and delivery reachability have a dedicated
+// authority. Creation payloads are untrusted even when the caller is an
+// authenticated dashboard user, so these fields must never reach either the
+// provider pre-write or the contacts insert through this generic writer.
+export const CONTACT_AUTHORITY_OWNED_FIELDS = [
+  "consentEmail", "consentSms", "consentTier",
+  "doNotContact", "doNotAutoContact",
+  "emailStatus", "smsStatus", "phoneStatus",
+  "optOutStatus", "optOutDate", "optOutChannel",
+  "unsubscribeStatus", "unsubscribeAt",
+  "dncReason", "dncDate", "dncSource",
+  "suppressionReason", "suppressionHistory",
+  "bounceStatus", "bouncedAt", "emailOptInAt", "smsOptInAt",
+] as const;
+
+export function stripContactAuthorityFields<T extends Record<string, unknown>>(obj: T): Omit<T, typeof CONTACT_AUTHORITY_OWNED_FIELDS[number]> {
+  const result = { ...obj };
+  for (const field of CONTACT_AUTHORITY_OWNED_FIELDS) {
+    delete (result as Record<string, unknown>)[field];
+  }
+  return result as Omit<T, typeof CONTACT_AUTHORITY_OWNED_FIELDS[number]>;
+}
+
 /**
  * Strip provenance fields from any object (defense-in-depth for PUT/PATCH routes).
  */
@@ -128,7 +151,8 @@ export async function writeContact(args: {
   provenance: ProvenanceInput;
   actor: ActorCtx;
 }): Promise<Contact & { _ghlSyncPending: boolean }> {
-  const { mode, mutation, provenance, actor } = args;
+  const { mode, provenance, actor } = args;
+  const mutation = stripContactAuthorityFields(args.mutation);
 
   assertValidSourceCombo(provenance.sourceCategory, provenance.sourceType);
 
@@ -163,8 +187,8 @@ export async function writeContact(args: {
         utmMedium: (mutation as any).utmMedium ?? undefined,
         utmCampaign: (mutation as any).utmCampaign ?? undefined,
         promoCode: (mutation as any).promoCode ?? undefined,
-        consentSms: (mutation as any).consentSms ?? false,
-        consentEmail: (mutation as any).consentEmail ?? false,
+        consentSms: false,
+        consentEmail: false,
         landingPage: (mutation as any).landingPage ?? undefined,
       });
       if (ghlContactId) {

@@ -188,7 +188,7 @@ export async function handleConversationCreated(rawPayload: unknown): Promise<vo
       email: payload.email || null,
       phone: payload.phone || null,
       vertical: verticalFromBot,
-      consentEmail: !!payload.email,
+      consentEmail: false,
       consentSms: false,
     });
 

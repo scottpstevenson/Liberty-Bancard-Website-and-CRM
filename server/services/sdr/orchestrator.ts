@@ -1836,8 +1836,10 @@ export async function bridgeContactsToSdr(options?: { limit?: number; contactIds
           reachabilityScore: Math.min(100, reachabilityScore * 3),
           priorityScore: totalOldScore,
           priorityBucket,
-          consentEmail: contact.consentEmail ?? true,
-          consentSms: contact.consentSms ?? false,
+          consentEmail: false,
+          // A bridged SDR lead is a distinct consent subject. Legacy contact
+          // fields are compatibility outputs, never evidence for a new subject.
+          consentSms: false,
           consentCall: false,
           optedOutEmail: false,
           optedOutSms: false,

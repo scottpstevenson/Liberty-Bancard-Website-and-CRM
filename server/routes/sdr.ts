@@ -20,6 +20,7 @@ import { parse } from "csv-parse/sync";
 import { createContactGhlFirst } from "../services/contact-writer";
 import { serverError, safeMessage } from "../utils/server-error";
 import { requireGhlRouteMutationAllowed } from "./ghl-mutation-pause";
+import { applyConsentCommand } from "../services/consent-authority";
 
 // ── Build identity — frozen at process start, never derived at request time ──
 // RELEASE_SHA must be a 40-hex string injected by the deployment pipeline via
@@ -1704,13 +1705,55 @@ export function registerSdrRoutes(app: Express) {
   app.put("/api/sdr/leads/:id", isAuthenticated, async (req, res) => {
     if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
     try {
-      const allowedFields = ["stage", "consentEmail", "consentSms", "consentCall", "optedOutEmail", "optedOutSms", "pausedUntil", "vertical", "companyName", "ownerName", "ownerEmail", "ownerPhone", "decisionReason"];
+      const allowedFields = ["stage", "pausedUntil", "vertical", "companyName", "ownerName", "ownerEmail", "ownerPhone", "decisionReason"];
       const sanitized: Record<string, any> = {};
       for (const key of allowedFields) {
         if (req.body[key] !== undefined) sanitized[key] = req.body[key];
       }
-      if (Object.keys(sanitized).length === 0) return res.status(400).json({ message: "No valid fields provided" });
-      const updated = await storage.updateSdrLeadState(Number(req.params.id), sanitized);
+      const leadId = Number(req.params.id);
+      const lead = await storage.getSdrLeadState(leadId);
+      if (!lead) return res.status(404).json({ message: "Lead not found" });
+      const operatorEvidence = typeof req.body.evidenceNote === "string" ? req.body.evidenceNote.trim() : "";
+      for (const [field, channel] of [["consentEmail", "email"], ["consentSms", "sms"], ["consentCall", "automated_phone"]] as const) {
+        if (req.body[field] === undefined) continue;
+        const enabled = req.body[field] === true;
+        if (enabled && !operatorEvidence) {
+          return res.status(400).json({ message: `evidenceNote is required to grant ${field}` });
+        }
+        await applyConsentCommand({
+          subject: { type: "sdr_lead_state", id: leadId },
+          kind: enabled ? "opt_in" : "opt_out",
+          channel,
+          purpose: "outreach",
+          eventNamespace: "sdr_operator_edit",
+          eventKey: `${leadId}:${field}:${String(req.body.requestId ?? Date.now())}`,
+          source: "sdr_operator_edit",
+          actorId: String((req.user as any)?.id ?? ""),
+          evidence: { operatorEvidence: operatorEvidence || "explicit withdrawal", field },
+          details: { field, enabled },
+        });
+      }
+      for (const [field, channel] of [["optedOutEmail", "email"], ["optedOutSms", "sms"]] as const) {
+        if (req.body[field] !== true) continue;
+        await applyConsentCommand({
+          subject: { type: "sdr_lead_state", id: leadId },
+          kind: "opt_out",
+          channel,
+          purpose: "outreach",
+          eventNamespace: "sdr_operator_edit",
+          eventKey: `${leadId}:${field}:${String(req.body.requestId ?? Date.now())}`,
+          source: "sdr_operator_edit",
+          actorId: String((req.user as any)?.id ?? ""),
+          evidence: { field, explicit: true },
+          details: { field },
+        });
+      }
+      if (Object.keys(sanitized).length === 0 && !["consentEmail", "consentSms", "consentCall", "optedOutEmail", "optedOutSms"].some((field) => req.body[field] !== undefined)) {
+        return res.status(400).json({ message: "No valid fields provided" });
+      }
+      const updated = Object.keys(sanitized).length > 0
+        ? await storage.updateSdrLeadState(leadId, sanitized)
+        : await storage.getSdrLeadState(leadId);
       if (!updated) return res.status(404).json({ message: "Lead not found" });
       res.json(updated);
     } catch (err: any) {

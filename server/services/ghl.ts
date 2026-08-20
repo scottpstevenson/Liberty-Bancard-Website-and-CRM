@@ -5,6 +5,7 @@ import OpenAI from "openai";
 import { checkAiGate, recordAiSpend } from "./ai-audit-logger";
 import { injectCanSpamFooter } from "./can-spam-footer";
 import { isValidEmail } from "./contact-readiness";
+import { applyConsentCommand } from "./consent-authority";
 
 function getOpenAI() {
   return new OpenAI({ apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY, baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL });
@@ -1197,6 +1198,7 @@ export async function sendTemplatedMessage(params: {
 
 export async function handleGhlWebhook(payload: any): Promise<void> {
   const { type, contactId, messageId, direction, body, subject, status: deliveryStatus } = payload;
+  const webhookOccurrenceId = String(messageId ?? payload.eventId ?? payload.id ?? crypto.randomUUID());
 
   if (type === "ContactUpdate" || type === "contact-updated" || type === "ContactCreate" || type === "contact-created") {
     await handleContactUpdated(payload);
@@ -1277,7 +1279,7 @@ export async function handleGhlWebhook(payload: any): Promise<void> {
       const { data: deals } = await storage.getDeals({ limit: 500 });
       const contactDeal = deals.find(d => d.contactId === contact.id);
 
-      await storage.createGhlActivityLog({
+      const inboundActivity = await storage.createGhlActivityLog({
         contactId: contact.id,
         dealId: contactDeal?.id || null,
         direction: "inbound",
@@ -1324,12 +1326,20 @@ export async function handleGhlWebhook(payload: any): Promise<void> {
       });
 
       if (messageClassification.intent === "unsubscribe") {
-        await storage.updateContact(contact.id, {
-          doNotContact: true,
-          consentEmail: false,
-          consentSms: false,
-        });
-        await storage.pauseAllActiveEnrollments(contact.id);
+        const inboundOccurrenceId = String(payload.id ?? payload.messageId ?? `activity:${inboundActivity.id}`);
+        const withdrawalChannels = channel === "sms"
+          ? ["sms", "automated_phone"] as const
+          : ["email"] as const;
+        await Promise.all(withdrawalChannels.map((withdrawalChannel) => applyConsentCommand({
+          subject: { type: "contact", id: contact.id },
+          kind: "opt_out",
+          channel: withdrawalChannel,
+          purpose: "outreach",
+          eventNamespace: "ghl_inbound_message",
+          eventKey: `${contact.id}:${channel}:${inboundOccurrenceId}:${withdrawalChannel}`,
+          source: "ghl_inbound_message",
+          evidence: { channel, withdrawalChannel, messageId: payload.id ?? payload.messageId ?? null, inboundOccurrenceId },
+        })));
         await storage.createAuditLog({
           action: "contact_unsubscribed",
           entityType: "contact",
@@ -1337,12 +1347,6 @@ export async function handleGhlWebhook(payload: any): Promise<void> {
           details: { source: "ghl_inbound_message", channel },
         });
 
-        if (contact.ghlContactId) {
-          const { enrollInGhlWorkflow } = await import("./ghl-workflows");
-          enrollInGhlWorkflow({ workflowKey: "unsubscribe", ghlContactId: contact.ghlContactId }).catch(
-            (err: any) => console.warn("[GHL Webhook] GHL unsubscribe enrollment failed (non-blocking):", err?.message)
-          );
-        }
       }
 
       if (messageClassification.intent === "positive_reply" && contactDeal) {
@@ -1539,7 +1543,62 @@ export async function handleGhlWebhook(payload: any): Promise<void> {
       }
 
       if (Object.keys(updatePayload).length > 0) {
-        await storage.updateContact(contact.id, updatePayload);
+        const eventFingerprint = crypto.createHash("sha256").update(JSON.stringify(payload)).digest("hex").slice(0, 24);
+        const commands: Array<Promise<unknown>> = [];
+        // Only an explicit contact-wide DND may create global suppression.
+        // SMSDNDUpdated sets doNotAutoContact for compatibility, not doNotContact.
+        const isExplicitGlobalDnd = updatePayload.doNotContact === true;
+        if (isExplicitGlobalDnd) {
+          commands.push(applyConsentCommand({
+            subject: { type: "contact", id: contact.id },
+            kind: "global_dnc",
+            purpose: "outreach",
+            eventNamespace: "ghl_inbound_dnd",
+            eventKey: `${contact.id}:${type}:${eventFingerprint}:global`,
+            source: "ghl_webhook",
+            evidence: { eventType: type, providerPayload: payload },
+            details: { eventType: type },
+          }));
+        } else {
+          if (updatePayload.emailStatus === "opted_out") {
+            commands.push(applyConsentCommand({
+              subject: { type: "contact", id: contact.id },
+              kind: "opt_out",
+              channel: "email",
+              purpose: "outreach",
+              eventNamespace: "ghl_inbound_dnd",
+              eventKey: `${contact.id}:${type}:${eventFingerprint}:email`,
+              source: "ghl_webhook",
+              evidence: { eventType: type, providerPayload: payload },
+              details: { eventType: type },
+            }));
+          }
+          if (updatePayload.smsStatus === "opted_out") {
+            commands.push(applyConsentCommand({
+              subject: { type: "contact", id: contact.id },
+              kind: "opt_out",
+              channel: "sms",
+              purpose: "outreach",
+              eventNamespace: "ghl_inbound_dnd",
+              eventKey: `${contact.id}:${type}:${eventFingerprint}:sms`,
+              source: "ghl_webhook",
+              evidence: { eventType: type, providerPayload: payload },
+              details: { eventType: type },
+            }));
+            commands.push(applyConsentCommand({
+              subject: { type: "contact", id: contact.id },
+              kind: "opt_out",
+              channel: "automated_phone",
+              purpose: "outreach",
+              eventNamespace: "ghl_inbound_dnd",
+              eventKey: `${contact.id}:${type}:${eventFingerprint}:automated_phone`,
+              source: "ghl_webhook",
+              evidence: { eventType: type, providerPayload: payload, channel: "automated_phone" },
+              details: { eventType: type },
+            }));
+          }
+        }
+        await Promise.all(commands);
         await storage.pauseAllActiveEnrollments(contact.id);
         await storage.createAuditLog({
           action: "contact_dnd_set",
@@ -1547,24 +1606,6 @@ export async function handleGhlWebhook(payload: any): Promise<void> {
           entityId: contact.id,
           details: { source: "ghl_webhook", eventType: type, updatePayload },
         });
-        // Compliance evidence: consent audit log for opt-out from GHL
-        const affectedChannels: string[] = [];
-        if (updatePayload.doNotContact) affectedChannels.push("all");
-        else {
-          if (updatePayload.emailStatus === "opted_out") affectedChannels.push("email");
-          if (updatePayload.smsStatus === "opted_out") affectedChannels.push("sms");
-        }
-        for (const ch of (affectedChannels.length ? affectedChannels : ["all"])) {
-          storage.createConsentAuditLog({
-            contactId: contact.id,
-            channel: ch,
-            action: "ghl_dnd_opt_out",
-            consented: false,
-            consentType: "general_optin",
-            source: "ghl_webhook",
-            details: { eventType: type, updatePayload },
-          }).catch(() => {});
-        }
         console.log(`[GHL Webhook] ${type}: suppression applied to contact ${contact.id} (${contact.email}):`, Object.keys(updatePayload));
       }
     }
@@ -1574,7 +1615,16 @@ export async function handleGhlWebhook(payload: any): Promise<void> {
   if (type === "unsubscribe" && contactId) {
     const contact = await storage.getContactByGhlContactId(contactId);
     if (contact) {
-      await storage.updateContact(contact.id, { doNotContact: true, consentEmail: false, consentSms: false });
+      await applyConsentCommand({
+        subject: { type: "contact", id: contact.id },
+        kind: "global_dnc",
+        purpose: "outreach",
+        eventNamespace: "ghl_inbound_unsubscribe",
+        eventKey: `${contact.id}:unsubscribe:${webhookOccurrenceId}`,
+        source: "ghl_webhook",
+        evidence: { eventType: type, ghlContactId: contactId, webhookOccurrenceId },
+        details: { eventType: type, ghlContactId: contactId, webhookOccurrenceId },
+      });
       await storage.pauseAllActiveEnrollments(contact.id);
       await storage.createAuditLog({
         action: "contact_unsubscribed",
@@ -1582,16 +1632,6 @@ export async function handleGhlWebhook(payload: any): Promise<void> {
         entityId: contact.id,
         details: { source: "ghl_webhook", eventType: type },
       });
-      // Compliance evidence: consent audit log for GHL-native unsubscribe
-      storage.createConsentAuditLog({
-        contactId: contact.id,
-        channel: "email",
-        action: "ghl_email_unsubscribe",
-        consented: false,
-        consentType: "general_optin",
-        source: "ghl_webhook",
-        details: { eventType: type },
-      }).catch(() => {});
     }
   }
 }
@@ -2117,7 +2157,8 @@ async function handleTagAdded(payload: any): Promise<void> {
 
     // DNC: when LB-DNC is added from GHL side, mark contact do-not-contact
     if (tags.some((t: string) => t === "LB-DNC")) {
-      autoDncContact(ghlContactId).catch(err =>
+      const tagOccurrenceId = String(payload.eventId ?? payload.id ?? payload.messageId ?? crypto.randomUUID());
+      autoDncContact(ghlContactId, tagOccurrenceId).catch(err =>
         console.error("[GHL Webhook] DNC auto-flag error:", err.message)
       );
     }
@@ -2156,12 +2197,19 @@ async function autoEnrollNoShowRecovery(ghlContactId: string): Promise<void> {
   console.log(`[GHL Webhook] No-show auto-enrolled contact ${contact.id} — method: ${result.method}, enrolled: ${result.enrolled}`);
 }
 
-async function autoDncContact(ghlContactId: string): Promise<void> {
+async function autoDncContact(ghlContactId: string, occurrenceId: string): Promise<void> {
   const { storage } = await import("../storage");
-  const { data: contacts } = await storage.getContacts({ limit: 1000 });
-  const contact = contacts.find((c: { ghlContactId?: string | null }) => c.ghlContactId === ghlContactId);
+  const contact = await storage.getContactByGhlContactId(ghlContactId);
   if (!contact) return;
-  await storage.updateContact(contact.id, { doNotContact: true });
+  await applyConsentCommand({
+    subject: { type: "contact", id: contact.id },
+    kind: "global_dnc",
+    purpose: "outreach",
+    eventNamespace: "ghl_dnc_tag",
+    eventKey: `${contact.id}:${ghlContactId}:dnc:${occurrenceId}`,
+    source: "ghl_webhook",
+    evidence: { ghlContactId, occurrenceId, source: "dnc_tag" },
+  });
   console.log(`[GHL Webhook] DNC auto-flagged contact ${contact.id} (${contact.email}) from GHL tag`);
 }
 

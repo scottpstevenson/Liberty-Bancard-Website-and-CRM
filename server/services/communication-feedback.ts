@@ -10,6 +10,7 @@ import { db } from "../db";
 import { contacts, auditLogs } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import { storage } from "../storage";
+import { recordReachabilityObservation } from "./consent-authority";
 
 export type CommEventType =
   | "email_bounce"
@@ -30,6 +31,8 @@ export interface CommEvent {
   channel?: string;
   transcript?: string;
   metadata?: Record<string, unknown>;
+  /** Stable upstream delivery-event identity when available. */
+  eventKey?: string;
 }
 
 export interface CommEventResult {
@@ -85,9 +88,6 @@ export async function processCommunicationEvent(event: CommEvent): Promise<CommE
   switch (event.type) {
     case "email_bounce": {
       if (event.severity === "hard" || !event.severity) {
-        updates.emailStatus = "bounced";
-        updates.bouncedAt = now;
-        updates.consentEmail = false;
         ghlTags.push("Email Bounced");
         result.channelFailed = "email";
         result.nextAction = contact.phone && contact.smsStatus !== "undeliverable"
@@ -99,7 +99,6 @@ export async function processCommunicationEvent(event: CommEvent): Promise<CommE
     }
 
     case "sms_undeliverable": {
-      updates.smsStatus = "undeliverable";
       ghlTags.push("SMS Invalid", "Phone Needs Verification");
       result.channelFailed = "sms";
       result.nextAction = contact.emailStatus === "bounced" ? "human_review" : "email_escalation";
@@ -162,12 +161,11 @@ export async function processCommunicationEvent(event: CommEvent): Promise<CommE
     ghlCustomFields["lb_preferred_channel"] = updates.preferredChannel;
   }
 
-  const emailFailed = (updates.emailStatus === "bounced") || contact.emailStatus === "bounced";
-  const smsFailed = (updates.smsStatus === "undeliverable") || contact.smsStatus === "undeliverable";
+  const emailFailed = event.type === "email_bounce" || contact.emailStatus === "bounced";
+  const smsFailed = event.type === "sms_undeliverable" || contact.smsStatus === "undeliverable";
   const callFailed = (updates.callAttempts ?? contact.callAttempts ?? 0) >= 5;
 
   if (emailFailed && smsFailed && callFailed) {
-    updates.doNotAutoContact = true;
     updates.status = "Unreachable";
     result.allChannelsFailed = true;
     result.nextAction = "human_review";
@@ -175,6 +173,17 @@ export async function processCommunicationEvent(event: CommEvent): Promise<CommE
     ghlCustomFields["lb_contact_status"] = "Unreachable";
   }
 
+  if (event.type === "email_bounce" || event.type === "sms_undeliverable") {
+    await recordReachabilityObservation({
+      subject: { type: "contact", id: event.contactId },
+      channel: event.type === "email_bounce" ? "email" : "sms",
+      state: event.type === "email_bounce" ? "bounced" : "undeliverable",
+      eventNamespace: "communication_feedback",
+      eventKey: event.eventKey ?? `${event.type}:${event.contactId}:${event.metadata?.messageId ?? event.metadata?.eventId ?? now.getTime()}`,
+      source: "communication_feedback",
+      details: { severity: event.severity ?? null, metadata: event.metadata ?? {} },
+    });
+  }
   await db.update(contacts).set(updates).where(eq(contacts.id, event.contactId));
 
   // C-13 (#1626): event.metadata is arbitrary caller data — sanitize before

@@ -807,8 +807,6 @@ Guidelines:
           monthlyVolume: monthlyVolume || undefined,
           currentProvider: currentProcessor || undefined,
           primaryOfferPath: recommendedProgram,
-          consentSms: consentSms === true,
-          consentEmail: consentEmail === true,
           utmSource: utmSource || undefined,
           utmMedium: utmMedium || undefined,
           utmCampaign: utmCampaign || undefined,
@@ -832,15 +830,32 @@ Guidelines:
       }
 
       const pewcConsent = pewcConsentRaw === true;
+      for (const [channel, value] of [["email", consentEmail], ["sms", consentSms]] as const) {
+        if (value !== true) continue;
+        const { applyConsentCommand } = await import("../services/consent-authority");
+        await applyConsentCommand({
+          subject: { type: "contact", id: contact.id },
+          kind: "opt_in",
+          channel,
+          purpose: "outreach",
+          eventNamespace: "public_form",
+          eventKey: `free_analysis:${submissionId}:${channel}`,
+          source: "free_analysis_quiz",
+          ipAddress: req.ip || req.socket.remoteAddress || "unknown",
+          userAgent: req.headers["user-agent"] || "unknown",
+          evidence: { submissionId, formType: "free_analysis" },
+        });
+      }
       if (pewcConsent) {
-        recordPewcDecision({
+        await recordPewcDecision({
           contactId: contact.id,
           checked: true,
           source: "free_analysis_quiz",
           ipAddress: req.ip || req.socket.remoteAddress || "unknown",
           userAgent: req.headers["user-agent"] || "unknown",
-          details: { formType: "free_analysis" },
-        }).catch(err => console.error("[FreeAnalysis] PEWC record error:", err));
+          eventKey: `free_analysis:${submissionId}`,
+          details: { formType: "free_analysis", submissionId },
+        });
       }
 
       const quizNotes = [
@@ -1678,7 +1693,7 @@ Guidelines:
       const batchSize = 100;
       const contactInserts: any[] = [];
 
-      for (const record of records) {
+      for (const [rowIndex, record] of records.entries()) {
         const mapped: Record<string, string> = {};
         for (const [csvCol, value] of Object.entries(record)) {
           const normCol = csvCol.toLowerCase().trim().replace(/\s+/g, "_");
@@ -1737,21 +1752,24 @@ Guidelines:
               // contactable contact.  Write only the restrictive consent fields.
               optOutApplied++;
               updated++;
-              const consentUpdates: Record<string, unknown> = {};
               const csvEmailStatus = (mapped.emailStatus || "").toLowerCase();
               const csvConsentTier = (mapped.consentTier || "").toLowerCase();
               const csvOptedOutEmail = (mapped.optedOutEmail || "").toLowerCase();
               const csvDoNotContact = (mapped.doNotContact || "").toLowerCase();
-              if (RESTRICTIVE_EMAIL_STATUSES.has(csvEmailStatus)) consentUpdates.email_status = csvEmailStatus;
-              if (RESTRICTIVE_CONSENT_TIERS.has(csvConsentTier)) consentUpdates.consent_tier = csvConsentTier;
-              if (csvOptedOutEmail === "true" || csvOptedOutEmail === "1" || csvOptedOutEmail === "yes") consentUpdates.opted_out_email = true;
-              if (csvDoNotContact === "true" || csvDoNotContact === "1" || csvDoNotContact === "yes") consentUpdates.do_not_contact = true;
-              if (Object.keys(consentUpdates).length > 0) {
-                await pool.query(
-                  `UPDATE contacts SET ${Object.keys(consentUpdates).map((k, i) => `${k} = $${i + 2}`).join(", ")} WHERE id = $1`,
-                  [emailMatchedContact.id, ...Object.values(consentUpdates)]
-                ).catch(() => {});
-              }
+              const { applyConsentCommand } = await import("../services/consent-authority");
+              const global = csvDoNotContact === "true" || csvDoNotContact === "1" || csvDoNotContact === "yes" || RESTRICTIVE_CONSENT_TIERS.has(csvConsentTier);
+              await applyConsentCommand({
+                subject: { type: "contact", id: emailMatchedContact.id },
+                kind: global ? "global_dnc" : "opt_out",
+                ...(global ? {} : { channel: "email" as const }),
+                purpose: "outreach",
+                eventNamespace: "csv_import",
+                // Import execution plus row is one immutable occurrence. The
+                // same source values in a later import are a new withdrawal.
+                eventKey: `execution:${importExecution.id}:row:${rowIndex}:restrict`,
+                source: "csv_import",
+                evidence: { csvEmailStatus, csvConsentTier, csvOptedOutEmail, csvDoNotContact },
+              });
               const { suppressNewLeadAutoEnrollmentForContact } = await import("../services/new-lead-enrollment-job");
               suppressNewLeadAutoEnrollmentForContact(emailMatchedContact.id, "csv_import_opt_out").catch(() => {});
             } else {

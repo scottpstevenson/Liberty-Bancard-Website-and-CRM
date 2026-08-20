@@ -8,9 +8,10 @@
  */
 
 import { db } from "../db";
-import { contacts, consentAuditLogs } from "@shared/schema";
+import { contacts, consentAuditLogs, consentSubjects, consentSubjectChannelStates } from "@shared/schema";
 import { eq, and, desc, count, gte, sql, not, isNull, inArray } from "drizzle-orm";
 import { featureFlags } from "./feature-flags";
+import { normalizeConsentPhone } from "./consent-authority";
 import {
   isWithinBusinessHours,
   getTimezoneFromState,
@@ -148,18 +149,23 @@ function getNextBestCompliantAction(
   return null;
 }
 
-async function hasPewcEvidence(contactId: number): Promise<boolean> {
+async function hasPewcEvidence(contactId: number, currentPhone: string | null): Promise<boolean> {
   const logs = await db
     .select({
       consentType: consentAuditLogs.consentType,
+       action: consentAuditLogs.action,
+       eventNamespace: consentAuditLogs.eventNamespace,
       consentedPhone: consentAuditLogs.consentedPhone,
       disclosureVersion: consentAuditLogs.disclosureVersion,
+       recordKind: consentAuditLogs.recordKind,
+       evidence: consentAuditLogs.evidence,
     })
     .from(consentAuditLogs)
     .where(
       and(
         eq(consentAuditLogs.contactId, contactId),
-        eq(consentAuditLogs.consented, true)
+         eq(consentAuditLogs.consented, true),
+         eq(consentAuditLogs.recordKind, "canonical_fact")
       )
     )
     .orderBy(desc(consentAuditLogs.createdAt))
@@ -168,8 +174,11 @@ async function hasPewcEvidence(contactId: number): Promise<boolean> {
   return logs.some(
     (l) =>
       l.consentType === "express_written" &&
-      l.consentedPhone != null &&
-      l.disclosureVersion != null
+       l.action === "pewc_opt_in" &&
+       l.eventNamespace === "pewc" &&
+       normalizeConsentPhone(l.consentedPhone) === normalizeConsentPhone(currentPhone) &&
+       l.disclosureVersion != null &&
+       typeof (l.evidence as any)?.disclosureHash === "string"
   );
 }
 
@@ -210,7 +219,9 @@ export function deriveConsentTier(
   if (pewcEvidenceVerified === true) return "pewc_full_automation";
 
   const existingTier = contact.consentTier as ConsentTierValue | undefined;
-  if (existingTier === "pewc_full_automation") return "pewc_full_automation";
+  if (existingTier === "pewc_full_automation" && pewcEvidenceVerified !== false) {
+    return "pewc_full_automation";
+  }
 
   const src = (contact.sourceCategory || "").toLowerCase();
   const lead = (contact.leadSource || "").toLowerCase();
@@ -476,18 +487,42 @@ export async function evaluateContactability(
     return blocked("Contact not found");
   }
 
+  // BT-04A canonical channel projections are authoritative when present.
+  // Legacy SMS fields are a compatibility output shared by SMS and automated
+  // phone, so they cannot safely decide voice eligibility after independent
+  // re-consent has occurred on only one of those channels.
+  const canonicalChannel = channel === "voice_ai" || channel === "ringless_vm"
+    ? "automated_phone"
+    : channel === "sms" || channel === "email"
+      ? channel
+      : null;
+  if (canonicalChannel) {
+    const [canonicalState] = await db
+      .select({ permissionState: consentSubjectChannelStates.permissionState })
+      .from(consentSubjectChannelStates)
+      .innerJoin(consentSubjects, eq(consentSubjects.id, consentSubjectChannelStates.subjectId))
+      .where(and(
+        eq(consentSubjects.subjectType, "contact"),
+        eq(consentSubjects.subjectRecordId, contactId),
+        eq(consentSubjectChannelStates.channel, canonicalChannel),
+        eq(consentSubjectChannelStates.purpose, "outreach"),
+      ))
+      .limit(1);
+    if (canonicalState && ["withdrawn", "suppressed"].includes(canonicalState.permissionState)) {
+      return blocked(`Canonical ${canonicalChannel} permission is withdrawn or suppressed`, {
+        allowedChannels: canonicalChannel === "automated_phone" ? ["email", "sms", "manual_call"] : ["manual_call"],
+      });
+    }
+  }
+
   // Pre-fetch PEWC evidence once — used for tier derivation AND step 12 verification.
   // Checked here so deriveConsentTier can receive the pre-computed result (avoids
   // a second DB round-trip at step 12 and ensures tier and evidence stay in sync).
-  const pewcVerified = await hasPewcEvidence(contactId);
+  const pewcVerified = await hasPewcEvidence(contactId, contact.phone);
 
-  const consentTier =
-    pewcVerified && !contact.doNotContact &&
-    contact.smsStatus !== "opted_out" && contact.emailStatus !== "opted_out"
-      ? "pewc_full_automation"
-      : contact.consentTier && contact.consentTier !== "cold_no_consent"
-        ? contact.consentTier
-        : deriveConsentTier(contact, pewcVerified);
+  // A legacy PEWC tier is compatibility data only. Automated eligibility must
+  // derive from canonical evidence bound to the contact's current phone.
+  const consentTier = deriveConsentTier(contact, pewcVerified);
 
   const lifecycleStage = contact.lifecycleStage ?? "prospect";
   const leadSource = contact.leadSource ?? null;

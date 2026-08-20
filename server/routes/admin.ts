@@ -569,15 +569,8 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  app.post("/api/consent-audit", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
-    try {
-      const input = insertConsentAuditLogSchema.parse(req.body);
-      const log = await storage.createConsentAuditLog(input);
-      res.status(201).json(log);
-    } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      serverError(res, err);
-    }
+  app.post("/api/consent-audit", isDashboardUser, requireRole("admin", "manager"), (_req, res) => {
+    res.status(405).json({ message: "Consent evidence is append-only and may only be created by a typed authority command." });
   });
 
 

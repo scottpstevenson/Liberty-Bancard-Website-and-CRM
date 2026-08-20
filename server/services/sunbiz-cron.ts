@@ -198,7 +198,6 @@ async function autoPromoteProspects(): Promise<number> {
         status: "New",
         tags: ["sunbiz-auto", ...(prospect.tags || [])],
         notes: prospect.aiSummary || prospect.notes || undefined,
-        consentEmail: true,
         leadScore: prospect.score === "hot" ? 80 : prospect.score === "warm" ? 60 : 40,
       });
 

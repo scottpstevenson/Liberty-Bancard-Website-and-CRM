@@ -3,6 +3,8 @@ import { sendGhlEmail, sendGhlSms, sendTemplatedMessage, isGhlConfigured } from 
 import { advanceDealStage } from "./deal-stage-service";
 import { updateContactGhlFirst } from "./contact-writer";
 import { resolvePacketVertical, GENERAL_FALLBACK_VERTICAL } from "../../shared/collateral-packet-verticals";
+import { applyConsentCommand } from "./consent-authority";
+import crypto from "crypto";
 
 interface WorkflowContext {
   entityType?: string;
@@ -10,6 +12,7 @@ interface WorkflowContext {
   contactId?: number;
   dealId?: number;
   data?: Record<string, any>;
+  occurrenceId?: string;
 }
 
 async function resolveContext(ctx: WorkflowContext): Promise<{ contactId?: number; dealId?: number }> {
@@ -462,11 +465,44 @@ export async function triggerWorkflowsByEvent(
       const contactId = ctx.entityType === "contact" ? ctx.entityId : undefined;
       if (contactId) {
         try {
-          await storage.updateContact(contactId, { consentEmail: false, consentSms: false });
-          await storage.pauseAllActiveEnrollments(contactId);
+          const occurrenceId = String(
+            ctx.occurrenceId ?? ctx.data?.messageId ?? ctx.data?.eventId ?? triggerConfig?.messageId ??
+            triggerConfig?.eventId ?? crypto.randomUUID(),
+          );
+          const inboundChannel = ctx.data?.channel;
+          const withdrawalChannels = inboundChannel === "sms"
+            ? ["sms", "automated_phone"] as const
+            : inboundChannel === "email"
+              ? ["email"] as const
+              : [] as const;
+          if (withdrawalChannels.length > 0) {
+            await Promise.all(withdrawalChannels.map((channel) => applyConsentCommand({
+              subject: { type: "contact", id: contactId },
+              kind: "opt_out",
+              channel,
+              purpose: "outreach",
+              eventNamespace: "workflow_unsubscribe",
+              eventKey: `${ctx.entityId}:${event}:unsubscribe:${occurrenceId}:${channel}`,
+              source: "workflow_executor",
+              evidence: { event, classification: eventClassification, channel, occurrenceId },
+              details: { event, classification: eventClassification, channel, occurrenceId },
+            })));
+          } else {
+            await applyConsentCommand({
+              subject: { type: "contact", id: contactId },
+              kind: "global_dnc",
+              purpose: "outreach",
+              eventNamespace: "workflow_unsubscribe",
+              eventKey: `${ctx.entityId}:${event}:unsubscribe:${occurrenceId}:global`,
+              source: "workflow_executor",
+              evidence: { event, classification: eventClassification, occurrenceId },
+              details: { event, classification: eventClassification, occurrenceId },
+            });
+            await storage.pauseAllActiveEnrollments(contactId);
+          }
 
           const contact = await storage.getContact(contactId);
-          if (contact?.ghlContactId) {
+          if (!inboundChannel && contact?.ghlContactId) {
             const { enrollInGhlWorkflow } = await import("./ghl-workflows");
             enrollInGhlWorkflow({ workflowKey: "unsubscribe", ghlContactId: contact.ghlContactId }).catch(
               (err: any) => console.warn("[Workflow] GHL unsubscribe enrollment failed (non-blocking):", err?.message)

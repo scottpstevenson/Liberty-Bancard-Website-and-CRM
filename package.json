@@ -17,6 +17,8 @@
     "merchant:migrate:execute": "MERCHANT_DATA_BACKFILL_AUTHORIZED=true npx tsx scripts/migrate-merchant-protected-data.ts --execute",
     "merchant:migrate:verify": "npx tsx scripts/migrate-merchant-protected-data.ts --verify",
     "test:merchant-migration-safety": "npx tsx scripts/test-merchant-migration-safety.ts"
+    ,"test:consent-authority": "npx tsx scripts/test-consent-authority.ts"
+    ,"test:consent-writer-dominance": "npx tsx scripts/test-consent-writer-dominance.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.115.0",

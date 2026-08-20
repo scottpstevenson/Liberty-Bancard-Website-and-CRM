@@ -61,6 +61,27 @@ const QUEUE_EXPECTED_INTERVALS: Record<string, number> = {
   "mid-ingestion": 24 * 60 * 60_000,
 };
 
+function isWizardTestContact(contact: { tags: string[] | null }): boolean {
+  return Array.isArray(contact.tags) && contact.tags.includes("wizard_test_contact");
+}
+
+function hasIsolatedWizardProviderTransport(): boolean {
+  // Live wizard test contacts are user-entered identities. Provider effects are
+  // only permissible under the explicit fail-fast transport used by controlled
+  // tests; production connectivity is checked by non-sending health probes.
+  return process.env.GHL_TRANSPORT_FAILFAST === "true";
+}
+
+function wizardProviderTestBlocked(res: import("express").Response): boolean {
+  if (hasIsolatedWizardProviderTransport()) return false;
+  res.status(409).json({
+    ok: false,
+    blocked: true,
+    reason: "Provider test sends are disabled unless the isolated fail-fast transport is active.",
+  });
+  return true;
+}
+
 export function registerWizardRoutes(app: Express): void {
   // Hydrate the flag cache immediately so getCachedWizardFlagOverrideSync()
   // returns real DB values on the very first featureFlags.* access.
@@ -250,9 +271,6 @@ export function registerWizardRoutes(app: Express): void {
         email,
         phone: phone || "",
         tags: ["wizard_test_contact"],
-        consentEmail: true,
-        consentSms: true,
-        consentTier: "pewc_full_automation",
       },
       provenance: {
         sourceCategory: "manual_crm",
@@ -303,8 +321,13 @@ export function registerWizardRoutes(app: Express): void {
   app.post("/api/wizard/test-send/email", requireRole("admin", "manager"), wizardTestRateLimit, async (req, res) => {
     const { contactId } = req.body as { contactId: number };
     if (!contactId) return res.status(400).json({ ok: false, detail: "contactId is required" });
+    if (wizardProviderTestBlocked(res)) return;
 
     try {
+      const contact = await storage.getContact(contactId);
+      if (!contact || !isWizardTestContact(contact)) {
+        return res.status(403).json({ ok: false, detail: "Wizard tests may only target a wizard_test_contact" });
+      }
       const result = await sendGhlEmail({
         contactId,
         subject: "Liberty Bancard — System Test Email",
@@ -324,12 +347,17 @@ export function registerWizardRoutes(app: Express): void {
   app.post("/api/wizard/test-send/sms", requireRole("admin", "manager"), wizardTestRateLimit, async (req, res) => {
     const { contactId } = req.body as { contactId: number };
     if (!contactId) return res.status(400).json({ ok: false, detail: "contactId is required" });
+    if (wizardProviderTestBlocked(res)) return;
 
     if (!featureFlags.SMS_ENABLED) {
       return res.json({ ok: false, blocked: true, reason: "SMS_ENABLED is off — enable in Phase 6" });
     }
 
     try {
+      const contact = await storage.getContact(contactId);
+      if (!contact || !isWizardTestContact(contact)) {
+        return res.status(403).json({ ok: false, detail: "Wizard tests may only target a wizard_test_contact" });
+      }
       const { sendGhlSms } = await import("../services/ghl");
       await sendGhlSms({ contactId, body: "Liberty Bancard setup wizard test SMS — please ignore." });
       return res.json({ ok: true, detail: "SMS sent successfully" });
@@ -341,6 +369,7 @@ export function registerWizardRoutes(app: Express): void {
   app.post("/api/wizard/test-send/voice", requireRole("admin", "manager"), wizardTestRateLimit, async (req, res) => {
     const { contactId } = req.body as { contactId: number };
     if (!contactId) return res.status(400).json({ ok: false, detail: "contactId is required" });
+    if (wizardProviderTestBlocked(res)) return;
 
     if (!featureFlags.VOICE_AI_ENABLED) {
       return res.json({ ok: false, blocked: true, reason: "VOICE_AI_ENABLED is off — enable in Phase 6" });
@@ -349,6 +378,7 @@ export function registerWizardRoutes(app: Express): void {
     try {
       const [contact] = await db.select().from(contacts).where(eq(contacts.id, contactId)).limit(1);
       if (!contact) return res.json({ ok: false, detail: "Test contact not found" });
+      if (!isWizardTestContact(contact)) return res.status(403).json({ ok: false, detail: "Wizard tests may only target a wizard_test_contact" });
       if (!contact.phone) {
         return res.json({ ok: false, detail: "Test contact has no phone number — add one in Phase 2 to test voice" });
       }
@@ -377,6 +407,7 @@ export function registerWizardRoutes(app: Express): void {
   app.post("/api/wizard/test-send/voicemail", requireRole("admin", "manager"), wizardTestRateLimit, async (req, res) => {
     const { contactId } = req.body as { contactId: number };
     if (!contactId) return res.status(400).json({ ok: false, detail: "contactId is required" });
+    if (wizardProviderTestBlocked(res)) return;
 
     if (!featureFlags.RINGLESS_VM_ENABLED) {
       return res.json({ ok: false, blocked: true, reason: "RINGLESS_VM_ENABLED is off — enable in Phase 6" });
@@ -385,6 +416,7 @@ export function registerWizardRoutes(app: Express): void {
     try {
       const [contact] = await db.select().from(contacts).where(eq(contacts.id, contactId)).limit(1);
       if (!contact) return res.json({ ok: false, detail: "Test contact not found" });
+      if (!isWizardTestContact(contact)) return res.status(403).json({ ok: false, detail: "Wizard tests may only target a wizard_test_contact" });
       if (!contact.phone) {
         return res.json({ ok: false, detail: "Test contact has no phone number — add one in Phase 2 to test ringless VM" });
       }
@@ -567,7 +599,6 @@ export function registerWizardRoutes(app: Express): void {
         email,
         companyName: "WizardTest LLC",
         tags: ["wizard_application_test"],
-        consentEmail: true,
       } as any,
       provenance: {
         sourceCategory: "public_form",

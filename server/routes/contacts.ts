@@ -29,6 +29,7 @@ import { extractRelationshipsForContact, extractRelationshipsForContactsBatch, p
 import { serverError, safeMessage } from "../utils/server-error";
 import { LifecycleService, adminOverrideTransition, LIFECYCLE_STATES } from "../services/lifecycle-service";
 import type { LifecycleState } from "../services/lifecycle-service";
+import { applyConsentCommand } from "../services/consent-authority";
 
 // ── Canonical email-validation predicates (task #1540A) ─────────────────────
 // Moved to server/services/zerobounce-eligibility.ts in #1541 so the durable
@@ -864,6 +865,13 @@ export function registerContactsRoutes(app: Express) {
       // (storage.updateContact is defense-in-depth layer 2.)
       delete (strippedBody as any).lifecycleState;
       delete (strippedBody as any).lifecycleStateUpdatedAt;
+      // Consent, suppression, reachability, tiers, and opt-out timestamps are
+      // authority-owned. Generic CRM edits must never change their projections.
+      for (const field of [
+        "consentEmail", "consentSms", "consentTier", "doNotContact", "doNotAutoContact",
+        "optedOutEmail", "emailStatus", "smsStatus", "smsOptInAt", "emailOptInAt",
+        "bouncedAt",
+      ]) delete (strippedBody as any)[field];
       // Normalize ghlContactId from passthrough body before it reaches any write path.
       if ((strippedBody as any).ghlContactId !== undefined) {
         (strippedBody as any).ghlContactId = normalizeGhlId((strippedBody as any).ghlContactId);
@@ -2109,26 +2117,19 @@ export function registerContactsRoutes(app: Express) {
       if (!contact) return res.status(404).json({ message: "Contact not found" });
 
       const now = new Date();
-      const suppressionEvent = { reason, source, date: now.toISOString() };
-      const existingHistory: unknown[] = Array.isArray((contact as any).suppressionHistory) ? (contact as any).suppressionHistory : [];
-      const newHistory = [...existingHistory, suppressionEvent];
-
-      const { db: dncDb } = await import("../db");
-      const { sql: dncSql } = await import("drizzle-orm");
-      await dncDb.execute(dncSql`
-        UPDATE contacts SET
-          do_not_contact       = true,
-          dnc_reason           = ${reason},
-          dnc_date             = ${now},
-          dnc_source           = ${source},
-          suppression_reason   = ${"do_not_contact:" + reason},
-          suppression_history  = ${JSON.stringify(newHistory)}::jsonb,
-          opt_out_status       = 'opted_out',
-          opt_out_date         = ${now},
-          opt_out_channel      = ${source},
-          updated_at           = ${now}
-        WHERE id = ${contactId}
-      `);
+      const eventKey = `${contactId}:mark-dnc:${typeof req.body.requestId === "string" ? req.body.requestId : crypto.randomUUID()}`;
+      await applyConsentCommand({
+        subject: { type: "contact", id: contactId },
+        kind: "global_dnc",
+        purpose: "outreach",
+        eventNamespace: "contacts_mark_dnc",
+        eventKey,
+        source,
+        actorId: String((req.user as any)?.id ?? "unknown"),
+        evidence: { reason, source, operator: true },
+        details: { reason, source, route: "contacts_mark_dnc" },
+      });
+      const suppressionEvent = { reason, source, date: now.toISOString(), eventKey };
 
       await storage.createAuditLog({
         action: "contact_marked_dnc",

@@ -2561,8 +2561,65 @@ export const ONBOARDING_STEP_NAMES = [
   "Go-Live Complete",
 ] as const;
 
+export const consentSubjects = pgTable("consent_subjects", {
+  id: serial("id").primaryKey(),
+  subjectType: text("subject_type").notNull(),
+  subjectRecordId: integer("subject_record_id").notNull(),
+  canonicalKey: text("canonical_key").notNull(),
+  normalizedEmail: text("normalized_email"),
+  normalizedPhone: text("normalized_phone"),
+  status: text("status").notNull().default("active"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("consent_subjects_type_record_uidx").on(table.subjectType, table.subjectRecordId),
+  index("consent_subjects_email_idx").on(table.normalizedEmail),
+  index("consent_subjects_phone_idx").on(table.normalizedPhone),
+]);
+
+export const consentSubjectChannelStates = pgTable("consent_subject_channel_states", {
+  id: serial("id").primaryKey(),
+  subjectId: integer("subject_id").notNull().references(() => consentSubjects.id, { onDelete: "cascade" }),
+  channel: text("channel").notNull(),
+  purpose: text("purpose").notNull(),
+  permissionState: text("permission_state").notNull().default("unknown"),
+  restrictionReason: text("restriction_reason"),
+  sourceEventId: integer("source_event_id"),
+  effectiveAt: timestamp("effective_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  evidence: jsonb("evidence"),
+}, (table) => [
+  uniqueIndex("consent_subject_channel_purpose_uidx").on(table.subjectId, table.channel, table.purpose),
+  index("consent_subject_channel_state_subject_idx").on(table.subjectId),
+]);
+
+export const consentSubjectGlobalSuppressions = pgTable("consent_subject_global_suppressions", {
+  subjectId: integer("subject_id").primaryKey().references(() => consentSubjects.id, { onDelete: "cascade" }),
+  isSuppressed: boolean("is_suppressed").notNull().default(false),
+  restrictionReason: text("restriction_reason"),
+  sourceEventId: integer("source_event_id"),
+  effectiveAt: timestamp("effective_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const consentSubjectReachability = pgTable("consent_subject_reachability", {
+  id: serial("id").primaryKey(),
+  subjectId: integer("subject_id").notNull().references(() => consentSubjects.id, { onDelete: "cascade" }),
+  channel: text("channel").notNull(),
+  reachabilityState: text("reachability_state").notNull(),
+  sourceEventId: integer("source_event_id"),
+  observedAt: timestamp("observed_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  details: jsonb("details"),
+}, (table) => [
+  uniqueIndex("consent_subject_reachability_uidx").on(table.subjectId, table.channel),
+]);
+
 export const consentAuditLogs = pgTable("consent_audit_logs", {
   id: serial("id").primaryKey(),
+  // Legacy rows may not resolve to a canonical subject. Only canonical_fact
+  // rows are consumed by the reducer; legacy_trace rows remain historical.
+  subjectId: integer("subject_id").references(() => consentSubjects.id),
   contactId: integer("contact_id").references(() => contacts.id),
   userId: text("user_id"),
   channel: text("channel").notNull(),
@@ -2577,8 +2634,24 @@ export const consentAuditLogs = pgTable("consent_audit_logs", {
   disclosureText: text("disclosure_text"),
   formId: text("form_id"),
   consentedPhone: text("consented_phone"),
+  recordKind: text("record_kind").notNull().default("legacy_trace"),
+  schemaVersion: integer("schema_version").notNull().default(1),
+  eventNamespace: text("event_namespace"),
+  eventKey: text("event_key"),
+  purpose: text("purpose"),
+  receiptAt: timestamp("receipt_at"),
+  effectiveAt: timestamp("effective_at"),
+  evidence: jsonb("evidence"),
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table) => [
+  uniqueIndex("consent_audit_canonical_event_uidx")
+    .on(table.eventNamespace, table.eventKey)
+    .where(sql`record_kind = 'canonical_fact' AND event_namespace IS NOT NULL AND event_key IS NOT NULL`),
+  uniqueIndex("consent_audit_reachability_event_uidx")
+    .on(table.eventNamespace, table.eventKey)
+    .where(sql`record_kind = 'reachability_fact' AND event_namespace IS NOT NULL AND event_key IS NOT NULL`),
+  index("consent_audit_subject_idx").on(table.subjectId, table.createdAt),
+]);
 
 export const insertConsentAuditLogSchema = createInsertSchema(consentAuditLogs).omit({
   id: true,
@@ -3280,7 +3353,8 @@ export const sdrLeadState = pgTable("sdr_lead_state", {
   lastCallAt: timestamp("last_call_at"),
   lastReplyAt: timestamp("last_reply_at"),
   lastTouchAt: timestamp("last_touch_at"),
-  consentEmail: boolean("consent_email").default(true),
+  // Unknown is fail-closed. An address or import source is never affirmative evidence.
+  consentEmail: boolean("consent_email").default(false),
   consentSms: boolean("consent_sms").default(false),
   consentCall: boolean("consent_call").default(false),
   optedOutEmail: boolean("opted_out_email").default(false),

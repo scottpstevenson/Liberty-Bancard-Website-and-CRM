@@ -1,8 +1,7 @@
 import type { Express } from "express";
 import { storage } from "../storage";
 import { z } from "zod";
-import { and, sql as sqlTag } from "drizzle-orm";
-import { db as publicDb } from "../db";
+import { and } from "drizzle-orm";
 import { verifyUnsubscribeToken } from "../services/unsubscribe-token";
 import { sendGhlEmail, sendGhlSms } from "../services/ghl";
 import { enqueuePromotionalEnrollment } from "../services/promotional-enrollment-eligibility";
@@ -25,6 +24,7 @@ import fs from "fs";
 import { upload, trackReferral, sendConfirmationSms } from "./helpers";
 import { publicLeadRateLimit } from "../middleware/public-rate-limit";
 import { recordPewcDecision } from "../services/consent-evidence";
+import { applyConsentCommand } from "../services/consent-authority";
 import { evaluateContactability } from "../services/contactability";
 // StatementChainTracker removed — not exported from statement-upload-chain
 import { resolveReferralAttribution } from "../services/attribution";
@@ -217,6 +217,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       if (utmSource) tags.push(`utm_src_${utmSource}`);
 
       let contact: Contact;
+      let statementConsentHandledByMerge = false;
       if (existingContactId) {
         contact = (await storage.getContact(existingContactId))!;
       } else {
@@ -242,6 +243,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
               userAgent: req.headers["user-agent"] || "unknown",
             },
           });
+          statementConsentHandledByMerge = true;
         } else {
           contact = await writeContact({
             mode: "ghl_upsert_first",
@@ -250,7 +252,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
               companyName: businessName, vertical, currentProvider,
               interestedIn0Percent: parseBool(interestedIn0Percent),
               needTerminal: parseBool(needTerminal),
-              notes, consentSms: parseBool(consentSms),
+              notes,
               utmSource: utmSource || undefined,
               utmMedium: utmMedium || undefined,
               utmCampaign: utmCampaign || undefined,
@@ -276,15 +278,30 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       if (!contact) throw new Error("Could not resolve contact record");
 
       const pewcConsent = parseBool(req.body.pewcConsent);
-      if (pewcConsent) {
-        recordPewcDecision({
+        if (!statementConsentHandledByMerge && parseBool(consentSms)) {
+          await applyConsentCommand({
+            subject: { type: "contact", id: contact.id },
+            kind: "opt_in",
+            channel: "sms",
+            purpose: "outreach",
+            eventNamespace: "public_form",
+            eventKey: `statement_upload:${submissionId}:sms`,
+            source: "statement_upload",
+            ipAddress: req.ip || req.socket.remoteAddress || "unknown",
+            userAgent: req.headers["user-agent"] || "unknown",
+            evidence: { submissionId, formType: "statement_upload" },
+          });
+        }
+        if (pewcConsent) {
+          await recordPewcDecision({
           contactId: contact.id,
           checked: true,
           source: "statement_upload",
           ipAddress: req.ip || req.socket.remoteAddress || "unknown",
           userAgent: req.headers["user-agent"] || "unknown",
-          details: { formType: "statement_upload" },
-        }).catch(err => console.error("[StatementUpload] PEWC record error:", err));
+            eventKey: `statement_upload:${submissionId}`,
+            details: { formType: "statement_upload", submissionId },
+          });
       }
 
       const statementFileBuffer = req.file?.buffer;
@@ -447,14 +464,15 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       }
 
       if (estimatePewcRaw === true) {
-        recordPewcDecision({
+        await recordPewcDecision({
           contactId: contact.id,
           checked: true,
           source: "estimate",
           ipAddress: req.ip || req.socket.remoteAddress || "unknown",
           userAgent: req.headers["user-agent"] || "unknown",
-          details: { formType: "estimate" },
-        }).catch(err => console.error("[Estimate] PEWC record error:", err));
+          eventKey: `estimate:${submissionId}`,
+          details: { formType: "estimate", submissionId },
+        });
       }
 
       const deal = await storage.createDeal({
@@ -563,7 +581,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
           mode: "ghl_upsert_first",
           mutation: {
             firstName, lastName, email, phone: mobile || "",
-            companyName: businessName, consentSms: consentSms === true,
+            companyName: businessName,
             status: "Active",
             tags: ["src_website", "support_request", `support_${(issueType || "other").toLowerCase().replace(/[^a-z]/g, "_")}`],
           },
@@ -579,16 +597,18 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         // Existing contacts: processExistingPublicFormSubmission() writes opt_in (or
         // consent_reenable_blocked) audit rows inside its transaction — never both.
         if (consentSms) {
-          await storage.createConsentAuditLog({
-            contactId: contact.id,
+          await applyConsentCommand({
+            subject: { type: "contact", id: contact.id },
+            kind: "opt_in",
             channel: "sms",
-            action: "opt_in",
-            consented: true,
-            consentType: "general_optin",
+            purpose: "outreach",
+            eventNamespace: "public_form",
+            eventKey: `support_form:${submissionId}:sms`,
             source: "website_form",
             ipAddress: req.ip || req.socket.remoteAddress || "unknown",
             userAgent: req.headers["user-agent"] || "unknown",
-            details: { formType: "support" },
+            evidence: { formType: "support", submissionId },
+            details: { formType: "support", submissionId },
           });
         }
       }
@@ -667,7 +687,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
             landingPage: landingPage || "/get-started",
             gclid: gclid || undefined,
           }),
-          incomingConsent: { consentSms: pewcConsent === true },
+          incomingConsent: {},
           submissionId,
           formType: "get_started_form",
           requestEvidence: {
@@ -683,7 +703,6 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
             vertical, monthlyVolume, primaryOfferPath: offerPath,
             interestedIn0Percent: interestedIn0Percent === true,
             needTerminal: needTerminal === true,
-            consentSms: pewcConsent === true,
             utmSource: utmSource || undefined,
             utmMedium: utmMedium || undefined,
             utmCampaign: utmCampaign || undefined,
@@ -705,14 +724,15 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       }
 
       if (pewcConsent === true) {
-        recordPewcDecision({
+        await recordPewcDecision({
           contactId: contact.id,
           checked: true,
           source: "get_started",
           ipAddress: req.ip || req.socket.remoteAddress || "unknown",
           userAgent: req.headers["user-agent"] || "unknown",
-          details: { formType: "get_started" },
-        }).catch(err => console.error("[GetStarted] PEWC record error:", err));
+          eventKey: `get_started:${submissionId}`,
+          details: { formType: "get_started", submissionId },
+        });
       }
 
       const deal = await storage.createDeal({
@@ -980,14 +1000,15 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       });
 
       if (pewcConsent) {
-        recordPewcDecision({
+        await recordPewcDecision({
           contactId: contact.id,
           checked: true,
           source: "callback",
           ipAddress: req.ip || req.socket.remoteAddress || "unknown",
           userAgent: req.headers["user-agent"] || "unknown",
-          details: { formType: "callback" },
-        }).catch(err => console.error("[Callback] PEWC record error:", err));
+          eventKey: `callback:${submissionId}`,
+          details: { formType: "callback", submissionId },
+        });
       }
       recordAnalyticsEvent({
         eventName: FORM_SUBMITTED,
@@ -1407,7 +1428,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       );
     }
 
-    const { contactId } = result;
+      const { contactId, occurrenceId } = result;
 
     try {
       const UNSUB_PAGE =
@@ -1422,22 +1443,20 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         return res.send(UNSUB_PAGE);
       }
 
-      const alreadyOptedOut = contact.optedOutEmail === true ||
-        contact.emailStatus === "opted_out" || contact.consentTier === "opted_out";
+      {
+        const outcome = await applyConsentCommand({
+          subject: { type: "contact", id: contactId },
+          kind: "opt_out",
+          channel: "email",
+          purpose: "outreach",
+          eventNamespace: "public_unsubscribe",
+          eventKey: `contact:${contactId}:occurrence:${occurrenceId}`,
+          source: "campaign_unsubscribe",
+          evidence: { tokenVerified: true, source: "email_footer" },
+          details: { source: "email_footer", email: contact.email },
+        });
 
-      if (!alreadyOptedOut) {
-        // Raw SQL: bypass Drizzle set() cast which can silently drop boolean/enum cols
-        await publicDb.execute(sqlTag`
-          UPDATE contacts
-          SET opted_out_email      = true,
-              email_status         = 'opted_out',
-              consent_tier         = 'opted_out',
-              consent_email        = false,
-              do_not_auto_contact  = true,
-              updated_at           = now()
-          WHERE id = ${contactId}
-        `);
-
+        if (outcome.applied) {
         await storage.createAuditLog({
           action: "contact_email_unsubscribed_via_link",
           entityType: "contact",
@@ -1450,23 +1469,12 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
           },
         });
 
-        // CAN-SPAM compliance: write consent audit log so the contactability
-        // gate has a durable record of this opt-out.
-        storage.createConsentAuditLog({
-          contactId,
-          channel: "email",
-          action: "campaign_unsubscribe",
-          consented: false,
-          consentType: "general_optin",
-          source: "campaign_unsubscribe",
-          details: { source: "email_footer", email: contact.email },
-        }).catch(() => {});
-
         // Suppress New Lead auto-enrollment so the next hourly sweep won't re-enroll
         const { suppressNewLeadAutoEnrollmentForContact } = await import("../services/new-lead-enrollment-job");
         suppressNewLeadAutoEnrollmentForContact(contactId, "email_unsubscribe_link").catch((err: any) =>
           console.error("[unsubscribe] suppression error:", err?.message)
         );
+        }
       }
 
       return res.send(UNSUB_PAGE);

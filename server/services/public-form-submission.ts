@@ -1,10 +1,10 @@
 import { db } from "../db";
 import { storage } from "../storage";
-import { contacts, consentAuditLogs, type Contact } from "@shared/schema";
+import { contacts, type Contact } from "@shared/schema";
 import { eq } from "drizzle-orm";
-import { mergePersistedConsentState } from "./consent-merge";
 import { updateContactGhlFirst, upsertContactSourceEvent } from "./contact-writer";
 import type { PublicFormType, PublicContactProfilePayload } from "./public-form-payload";
+import { applyConsentCommand } from "./consent-authority";
 
 export interface ProcessExistingSubmissionArgs {
   existingContact: Contact;
@@ -57,8 +57,8 @@ export async function processExistingPublicFormSubmission(
 
   let finalUpdate: Record<string, unknown> = {};
 
-  // A: Atomic transaction — re-read for fresh state, evaluate consent merge, update contact,
-  //    insert blocked and permitted audit rows.
+  // A: Atomic profile-only transaction. Consent is intentionally excluded: the
+  // reducer below is the sole authority for consent and suppression state.
   await db.transaction(async (tx) => {
     // Re-read inside transaction (read committed: sees latest committed state,
     // closing the race window between route-level lookup and this write).
@@ -71,17 +71,7 @@ export async function processExistingPublicFormSubmission(
       throw new Error(`Contact #${existingContact.id} disappeared before update`);
     }
 
-    // Evaluate consent merge against the freshest DB state
-    const { updates: consentUpdates, blockedAttempts } = mergePersistedConsentState({
-      existingContact: freshContact as Contact,
-      incomingConsent,
-    });
-
-    // Build final update — protected fields can never enter here
-    finalUpdate = {
-      ...permittedProfileUpdates,
-      ...consentUpdates,
-    };
+    finalUpdate = { ...permittedProfileUpdates };
 
     if (Object.keys(finalUpdate).length > 0) {
       await tx
@@ -90,68 +80,36 @@ export async function processExistingPublicFormSubmission(
         .where(eq(contacts.id, existingContact.id));
     }
 
-    // Write blocked audit rows (idempotent — unique index prevents duplicates)
-    for (const attempt of blockedAttempts) {
-      await tx
-        .insert(consentAuditLogs)
-        .values({
-          contactId: existingContact.id,
-          channel: attempt.channel,
-          action: "consent_reenable_blocked",
-          consented: false,
-          consentType: "general_optin",
-          source: "website_form",
-          formId: submissionId,
-          ipAddress: requestEvidence.ipAddress,
-          userAgent: requestEvidence.userAgent,
-          disclosureVersion: requestEvidence.disclosureVersion ?? null,
-          details: {
-            reasonCode: attempt.reasonCode,
-            attemptedValue: attempt.attemptedValue,
-            persistedValue: attempt.persistedValue,
-            submissionId,
-            formType,
-          },
-        })
-        .onConflictDoNothing();
-    }
-
-    // Write opt_in audit rows for channels that were actually permitted and set to true.
-    // This ensures audit evidence is truthful — callers must NOT write their own opt_in
-    // rows for the existing-contact branch.
-    if (consentUpdates.consentSms === true) {
-      await tx.insert(consentAuditLogs).values({
-        contactId: existingContact.id,
-        channel: "sms",
-        action: "opt_in",
-        consented: true,
-        consentType: "general_optin",
-        source: "website_form",
-        formId: submissionId,
-        ipAddress: requestEvidence.ipAddress,
-        userAgent: requestEvidence.userAgent,
-        disclosureVersion: requestEvidence.disclosureVersion ?? null,
-        details: { submissionId, formType },
-      });
-    }
-    if (consentUpdates.consentEmail === true) {
-      await tx.insert(consentAuditLogs).values({
-        contactId: existingContact.id,
-        channel: "email",
-        action: "opt_in",
-        consented: true,
-        consentType: "general_optin",
-        source: "website_form",
-        formId: submissionId,
-        ipAddress: requestEvidence.ipAddress,
-        userAgent: requestEvidence.userAgent,
-        disclosureVersion: requestEvidence.disclosureVersion ?? null,
-        details: { submissionId, formType },
-      });
-    }
   });
 
-  // B: Post-commit GHL sync — GHL failure must not roll back local update
+  // B: Consent facts and their compatibility projections are atomically
+  // reduced by the authority service. Public input never supplies ordering or
+  // canonical identity; the server supplies both.
+  for (const [channel, value] of [
+    ["email", incomingConsent.consentEmail],
+    ["sms", incomingConsent.consentSms],
+  ] as const) {
+    if (value === undefined) continue;
+    await applyConsentCommand({
+      subject: { type: "contact", id: existingContact.id },
+      kind: value ? "opt_in" : "opt_out",
+      channel,
+      purpose: "outreach",
+      eventNamespace: "public_form",
+      eventKey: `${formType}:${submissionId}:${channel}`,
+      source: "website_form",
+      ipAddress: requestEvidence.ipAddress,
+      userAgent: requestEvidence.userAgent,
+      evidence: {
+        submissionId,
+        formType,
+        disclosureVersion: requestEvidence.disclosureVersion ?? null,
+      },
+      details: { submissionId, formType },
+    });
+  }
+
+  // C: Post-commit GHL sync — GHL failure must not roll back local update
   if (Object.keys(finalUpdate).length > 0) {
     try {
       await updateContactGhlFirst(
@@ -177,7 +135,7 @@ export async function processExistingPublicFormSubmission(
     }
   }
 
-  // C: Record resubmission provenance (idempotent on same eventKey)
+  // D: Record resubmission provenance (idempotent on same eventKey)
   upsertContactSourceEvent({
     contactId: existingContact.id,
     provenance: {
@@ -191,7 +149,7 @@ export async function processExistingPublicFormSubmission(
     console.warn(`[PublicFormSubmission] Source event upsert failed for contact #${existingContact.id}: ${msg}`);
   });
 
-  // D: Re-fetch and return updated contact
+  // E: Re-fetch and return updated contact
   const updated = await storage.getContact(existingContact.id);
   if (!updated) {
     throw new Error(`Contact #${existingContact.id} not found after update`);

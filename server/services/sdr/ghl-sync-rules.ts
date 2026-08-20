@@ -3,6 +3,15 @@ import { sdrLeadState, sdrComplianceState, sdrLeadEvents, sdrMerchants } from "@
 import type { SdrMerchant } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import { updateCustomFields, addTag, isSdrGhlConfigured, ensureGhlBootstrapped } from "./ghl-client";
+import { applyConsentCommand } from "../consent-authority";
+import { randomUUID } from "crypto";
+
+async function getSdrLeadStateId(merchantId: number): Promise<number> {
+  const [existing] = await db.select({ id: sdrLeadState.id }).from(sdrLeadState).where(eq(sdrLeadState.merchantId, merchantId));
+  if (existing) return existing.id;
+  const [created] = await db.insert(sdrLeadState).values({ merchantId }).returning({ id: sdrLeadState.id });
+  return created.id;
+}
 
 export async function onStageChange(merchantId: number, newStage: string, oldStage?: string): Promise<void> {
   if (!isSdrGhlConfigured()) return;
@@ -91,7 +100,22 @@ export async function onHumanHandoff(merchantId: number): Promise<void> {
   }
 }
 
-export async function onOptOut(merchantId: number, channel: "sms" | "email" | "call" | "all"): Promise<void> {
+export async function onOptOut(
+  merchantId: number,
+  channel: "sms" | "email" | "call" | "all",
+  occurrenceKey: string = randomUUID(),
+): Promise<void> {
+  const leadStateId = await getSdrLeadStateId(merchantId);
+  await applyConsentCommand({
+    subject: { type: "sdr_lead_state", id: leadStateId },
+    kind: channel === "all" ? "global_dnc" : "opt_out",
+    ...(channel === "all" ? {} : { channel: channel === "call" ? "automated_phone" : channel }),
+    purpose: "outreach",
+    eventNamespace: "sdr_merchant_opt_out",
+    eventKey: `${merchantId}:${channel}:${occurrenceKey}`,
+    source: "sdr_ghl_webhook",
+    evidence: { merchantId, channel, occurrenceKey, reason: "merchant opt-out" },
+  });
   const updates: Partial<{
     smsAllowed: boolean;
     emailAllowed: boolean;
