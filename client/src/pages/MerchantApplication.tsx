@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
-import { apiRequest } from "@/lib/queryClient";
 import { getStoredUTMParams } from "@/lib/utm";
 import { trackMerchantApplication } from "@/lib/tracking";
 import { trackConversion, trackPhoneCallClick } from "@/lib/analytics";
@@ -158,6 +157,29 @@ export default function MerchantApplication() {
       try {
         const parsed = JSON.parse(saved);
         if (parsed && parsed.formData) {
+          // MIGRATION/SECURITY: older drafts may have persisted merchant-protected
+          // fields (EIN, DOB, SSN, bank name/type/routing/account, nested owner
+          // data). Strip any such legacy values immediately so they cannot linger
+          // in localStorage or be restored into the form.
+          const SENSITIVE_DRAFT_KEYS = [
+            "ein", "taxId", "federalTaxId",
+            "ownerDob", "dob", "dateOfBirth", "ownerSsn", "ssn",
+            "bankName", "bankAccountType", "bankRoutingNumber", "bankAccountNumber",
+            "owner", "owners", "bankInfo", "bankAccount",
+            // additionalOwners contains nested SSNs/DOBs — always strip, regardless
+            // of camelCase or snake_case variant that a legacy draft may have stored.
+            "additionalOwners", "additional_owners",
+          ];
+          let mutated = false;
+          for (const k of SENSITIVE_DRAFT_KEYS) {
+            if (k in parsed.formData) {
+              delete parsed.formData[k];
+              mutated = true;
+            }
+          }
+          if (mutated) {
+            localStorage.setItem(DRAFT_KEY, JSON.stringify(parsed));
+          }
           setHasDraft(true);
           setDraftTime(parsed.lastSaved || null);
         }
@@ -170,6 +192,9 @@ export default function MerchantApplication() {
   const [serverDraftId, setServerDraftId] = useState<number | null>(null);
   const [serverDraftToken, setServerDraftToken] = useState<string | null>(null);
   const serverDraftCreating = useRef(false);
+  // Stable idempotency key for finalize; generated once, kept in memory only,
+  // so a retry of the same submission is deduplicated server-side.
+  const finalizeIdempotencyKey = useRef<string | null>(null);
 
   // Restore server draft ids from localStorage on mount, then fetch server state to rehydrate form
   useEffect(() => {
@@ -181,7 +206,9 @@ export default function MerchantApplication() {
         setServerDraftId(prev => prev ?? id);
         setServerDraftToken(prev => prev ?? savedToken);
         // Fetch non-sensitive draft fields from server to rehydrate form state
-        fetch(`/api/merchant-applications/${id}/autosave?token=${encodeURIComponent(savedToken)}`)
+        fetch(`/api/merchant-applications/${id}/autosave`, {
+          headers: { "X-Draft-Token": savedToken },
+        })
           .then(r => r.ok ? r.json() : null)
           .then((data: Record<string, any> | null) => {
             if (!data) return;
@@ -338,16 +365,22 @@ export default function MerchantApplication() {
 
   useEffect(() => {
     if (submitted) return;
+    // SECURITY: The localStorage draft must NEVER persist merchant-protected
+    // fields. EIN/tax id, SSN, date of birth, bank name/routing/account, and any
+    // nested owner-identity/banking values are deliberately excluded here.
+    // Only non-sensitive progress data plus "entered?" booleans (which carry no
+    // PII, just a completion flag) are stored so the resume banner still works.
     const formData = {
-      legalBusinessName, dba, businessType, ein, businessStartDate,
+      legalBusinessName, dba, businessType, businessStartDate,
       businessAddress, businessCity, businessState, businessZip,
       businessPhone, businessEmail, website, vertical,
       ownerFirstName, ownerLastName, ownerEmail, ownerPhone,
-      ownerDob, ownerAddress, ownerCity, ownerState, ownerZip,
+      ownerAddress, ownerCity, ownerState, ownerZip,
       ownershipPercent,
+      // Completion flags only — no raw EIN/SSN/DOB/bank values persisted.
+      einEntered: ein.replace(/\D/g, "").length >= 9,
+      dobEntered: ownerDob.trim() !== "",
       ssnEntered: ownerSsn.replace(/\D/g, "").length === 9,
-      bankName,
-      bankAccountType,
       bankAccountEntered: bankRoutingNumber.trim() !== "" && bankAccountNumber.trim() !== "",
       estimatedMonthlyVolume, estimatedAvgTicket, highestTicket,
       currentProcessor, currentRate, acceptedCardTypes,
@@ -391,7 +424,7 @@ export default function MerchantApplication() {
       if (data.legalBusinessName) setLegalBusinessName(data.legalBusinessName);
       if (data.dba) setDba(data.dba);
       if (data.businessType) setBusinessType(data.businessType);
-      if (data.ein) setEin(data.ein);
+      // SECURITY: EIN is never restored from localStorage — the user re-enters it.
       if (data.businessStartDate) setBusinessStartDate(data.businessStartDate);
       if (data.businessAddress) setBusinessAddress(data.businessAddress);
       if (data.businessCity) setBusinessCity(data.businessCity);
@@ -405,14 +438,14 @@ export default function MerchantApplication() {
       if (data.ownerLastName) setOwnerLastName(data.ownerLastName);
       if (data.ownerEmail) setOwnerEmail(data.ownerEmail);
       if (data.ownerPhone) setOwnerPhone(data.ownerPhone);
-      if (data.ownerDob) setOwnerDob(data.ownerDob);
+      // SECURITY: DOB and SSN are never restored from localStorage — re-entered.
       if (data.ownerAddress) setOwnerAddress(data.ownerAddress);
       if (data.ownerCity) setOwnerCity(data.ownerCity);
       if (data.ownerState) setOwnerState(data.ownerState);
       if (data.ownerZip) setOwnerZip(data.ownerZip);
       if (data.ownershipPercent) setOwnershipPercent(data.ownershipPercent);
-      if (data.bankName) setBankName(data.bankName);
-      if (data.bankAccountType) setBankAccountType(data.bankAccountType);
+      // SECURITY: Bank name/type/routing/account are never restored from
+      // localStorage — the user re-enters banking details each session.
       if (data.estimatedMonthlyVolume) setEstimatedMonthlyVolume(data.estimatedMonthlyVolume);
       if (data.estimatedAvgTicket) setEstimatedAvgTicket(data.estimatedAvgTicket);
       if (data.highestTicket) setHighestTicket(data.highestTicket);
@@ -624,13 +657,23 @@ export default function MerchantApplication() {
         // Network / endpoint error — proceed optimistically
       }
 
-      let data: { id: number };
+      let data: { id: number; esignCapability?: string };
+
+      // Stable idempotency key for finalize — generated once per submission,
+      // reused on retry so the server dedupes identical resubmissions.
+      if (!finalizeIdempotencyKey.current) {
+        finalizeIdempotencyKey.current = crypto.randomUUID();
+      }
 
       if (serverDraftId && serverDraftToken) {
         // Finalize the existing server-side draft in place
         const res = await fetch(`/api/merchant-applications/${serverDraftId}/finalize`, {
           method: "PATCH",
-          headers: { "Content-Type": "application/json", "X-Draft-Token": serverDraftToken },
+          headers: {
+            "Content-Type": "application/json",
+            "X-Draft-Token": serverDraftToken,
+            "Idempotency-Key": finalizeIdempotencyKey.current,
+          },
           credentials: "include",
           body: JSON.stringify({ ...buildFullPayload(), ...(shareToken ? { _shareToken: shareToken } : {}) }),
         });
@@ -640,12 +683,41 @@ export default function MerchantApplication() {
         }
         data = await res.json();
       } else {
-        // No server draft — use legacy POST (creates and submits in one step)
-        const res = await apiRequest("POST", "/api/merchant-applications", {
-          ...buildFullPayload(),
-          ...(shareToken ? { _shareToken: shareToken } : {}),
+        // No server draft available — create a draft first, then finalize.
+        // The operator POST route is admin-only; public applicants always use
+        // the draft+finalize path.
+        const draftRes = await fetch("/api/merchant-applications/draft", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            legalBusinessName: legalBusinessName || undefined,
+            businessEmail: businessEmail || undefined,
+            ownerEmail: ownerEmail || undefined,
+          }),
         });
-        data = await res.json();
+        if (!draftRes.ok) {
+          throw new Error("Could not create application draft. Please try again.");
+        }
+        const draftData = await draftRes.json();
+        const fallbackDraftId: number = draftData.id;
+        const fallbackDraftToken: string = draftData.draftToken;
+
+        const finalRes = await fetch(`/api/merchant-applications/${fallbackDraftId}/finalize`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Draft-Token": fallbackDraftToken,
+            "Idempotency-Key": finalizeIdempotencyKey.current,
+          },
+          credentials: "include",
+          body: JSON.stringify({ ...buildFullPayload(), ...(shareToken ? { _shareToken: shareToken } : {}) }),
+        });
+        if (!finalRes.ok) {
+          const err = await finalRes.json().catch(() => ({ message: "Submission failed" }));
+          throw new Error(err.message || "Submission failed");
+        }
+        data = await finalRes.json();
       }
       trackMerchantApplication();
       trackConversion("merchant_application", {
@@ -657,16 +729,27 @@ export default function MerchantApplication() {
 
       setEsignSending(true);
       let resolvedEsignStatus = "email_pending";
+      const esignCapability = data.esignCapability;
       try {
-        const esignRes = await apiRequest("POST", "/api/merchant-applications/request-esign", {
-          applicationId: data.id,
-          email: ownerEmail || businessEmail,
-        });
-        const esignData = await esignRes.json();
-        resolvedEsignStatus = esignData.status || "sent";
+        if (esignCapability) {
+          // Capability-authorized request — no email authorization sent.
+          const esignRes = await fetch("/api/merchant-applications/request-esign", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-ESign-Capability": esignCapability,
+            },
+            credentials: "include",
+            body: JSON.stringify({ applicationId: data.id }),
+          });
+          if (esignRes.ok) {
+            const esignData = await esignRes.json().catch(() => ({}));
+            resolvedEsignStatus = esignData.status || "pending";
+          }
+        }
         setEsignStatus(resolvedEsignStatus);
-      } catch (esignErr: any) {
-        console.log("[E-Sign] GHL e-sign dispatch note:", esignErr.message);
+      } catch {
+        // Generic — never surface raw e-sign errors to the console/UI.
         setEsignStatus("email_pending");
       } finally {
         setEsignSending(false);
@@ -682,6 +765,9 @@ export default function MerchantApplication() {
           email: ownerEmail || businessEmail,
           businessName: legalBusinessName,
           ownerName: `${ownerFirstName} ${ownerLastName}`.trim(),
+          // Capability persisted in sessionStorage only (never localStorage),
+          // for immediate e-sign follow-up on the confirmation page.
+          ...(esignCapability ? { esignCapability } : {}),
         }));
       } catch {}
       setLocation("/thanks/application");

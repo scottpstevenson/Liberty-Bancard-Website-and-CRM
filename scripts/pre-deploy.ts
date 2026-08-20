@@ -72,6 +72,11 @@ const MANDATORY_SUITES: Suite[] = [
     timeoutSecs: 60,
   },
   {
+    name: "Merchant Migration Safety (dual-auth, no-value-logging, envelope inventory, restart-safe)",
+    script: "scripts/test-merchant-migration-safety.ts",
+    timeoutSecs: 60,
+  },
+  {
     name: "Compliance Scan (send-gate coverage)",
     script: "scripts/compliance-scan.ts",
     timeoutSecs: 120,
@@ -418,6 +423,36 @@ async function main() {
     process.exit(1);
   }
   console.log(`\n  ✓ RELEASE_SHA confirmed: ${releaseSha}`);
+
+  // ── MERCHANT_DATA_ENCRYPTION_KEY assertion (production release gate) ──────
+  // Required for production release: the merchant key must be present and valid.
+  // Dev builds do NOT require this key — only the pre-deploy gate enforces it.
+  // The key value is NEVER printed.
+  const merchantKey = process.env.MERCHANT_DATA_ENCRYPTION_KEY ?? "";
+  const isMerchantKeyValid =
+    /^[0-9a-fA-F]{64}$/.test(merchantKey.trim()) ||
+    Buffer.from(merchantKey.trim(), "base64").length === 32;
+  if (!merchantKey || !isMerchantKeyValid) {
+    console.error("╔══════════════════════════════════════════════════════════════╗");
+    console.error("║  KILL: MERCHANT_DATA_ENCRYPTION_KEY assertion failed         ║");
+    console.error("╚══════════════════════════════════════════════════════════════╝");
+    console.error("");
+    console.error("  MERCHANT_DATA_ENCRYPTION_KEY must be a valid 32-byte key:");
+    console.error("    • 64-character hex string, OR");
+    console.error("    • 44-character base64 string");
+    console.error("");
+    console.error("  This key is required to encrypt/decrypt merchant protected data");
+    console.error("  (EIN, SSN, DOB, bank routing/account numbers).");
+    console.error("");
+    console.error("  Add it to Secrets and restart before running the pre-deploy gate.");
+    console.error("  See docs/merchant-data-key-rotation.md for key generation and");
+    console.error("  rotation procedures.");
+    console.error("");
+    console.error(`  Current status: ${merchantKey ? "SET but invalid format" : "NOT SET"}`);
+    // Note: key value is never printed.
+    process.exit(1);
+  }
+  console.log("  ✓ MERCHANT_DATA_ENCRYPTION_KEY present and valid (value not printed)");
 
   printBanner("Liberty Bancard — Pre-Deploy Launch Gate");
   console.log(`  Date: ${new Date().toISOString()}`);

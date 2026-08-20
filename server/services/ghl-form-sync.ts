@@ -1,9 +1,12 @@
 import crypto from "crypto";
+import { eq } from "drizzle-orm";
+import { db } from "../db";
+import { merchantApplications } from "@shared/schema";
 import { isGhlConfigured } from "./ghl";
 import { syncContactToGhl, syncDealToGhl } from "./ghl-sync";
 import { triggerWorkflow, updateCustomFields, addTag, addNote, isSdrGhlConfigured } from "./sdr/ghl-client";
 import { storage } from "../storage";
-import type { Contact, MerchantApplication } from "@shared/schema";
+import { getSafeApplicationMasks } from "./merchant-protected-data";
 
 export type LeadSourceType =
   | "free_analysis"
@@ -241,7 +244,35 @@ export async function syncMerchantApplicationToGhl(applicationId: number, contac
   try {
     if (!isGhlReady()) return { success: false, error: "GHL not configured" };
 
-    const application = await storage.getMerchantApplication(applicationId);
+    // Explicit least-privilege projection: only non-sensitive columns plus the
+    // persisted display-safe mask columns needed by getSafeApplicationMasks.
+    // NEVER select protected ciphertext (ein/ownerSsn/ownerDob/bank*), raw
+    // fingerprints, tokens, or capability columns.
+    const [application] = await db
+      .select({
+        businessType: merchantApplications.businessType,
+        vertical: merchantApplications.vertical,
+        estimatedMonthlyVolume: merchantApplications.estimatedMonthlyVolume,
+        estimatedAvgTicket: merchantApplications.estimatedAvgTicket,
+        currentProcessor: merchantApplications.currentProcessor,
+        currentRate: merchantApplications.currentRate,
+        preferredProgram: merchantApplications.preferredProgram,
+        terminalNeeded: merchantApplications.terminalNeeded,
+        terminalType: merchantApplications.terminalType,
+        terminalQuantity: merchantApplications.terminalQuantity,
+        ecommerceNeeded: merchantApplications.ecommerceNeeded,
+        legalBusinessName: merchantApplications.legalBusinessName,
+        dba: merchantApplications.dba,
+        bankName: merchantApplications.bankName,
+        // Persisted display-safe masks only (never ciphertext/fingerprints).
+        einMask: merchantApplications.einMask,
+        ssnMask: merchantApplications.ssnMask,
+        bankAccountMask: merchantApplications.bankAccountMask,
+        bankRoutingMask: merchantApplications.bankRoutingMask,
+      })
+      .from(merchantApplications)
+      .where(eq(merchantApplications.id, applicationId))
+      .limit(1);
     if (!application) return { success: false, error: "Application not found" };
 
     const contact = await storage.getContact(contactId);
@@ -267,15 +298,18 @@ export async function syncMerchantApplicationToGhl(applicationId: number, contac
     if (application.ecommerceNeeded !== undefined && application.ecommerceNeeded !== null) {
       appFields["lb_ecommerce_needed"] = application.ecommerceNeeded ? "yes" : "no";
     }
-    if (application.ein) appFields["lb_ein_last4"] = application.ein.slice(-4);
+
+    // Protected fields (EIN, bank account) never leave this service raw — only
+    // safe masks / last-4 metadata are synced to GHL. getSafeApplicationMasks
+    // reads ONLY the persisted mask columns projected above.
+    const masks = getSafeApplicationMasks({ id: applicationId, ...application });
+    if (masks.einLast4) appFields["lb_ein_last4"] = masks.einLast4;
 
     await updateCustomFields(ghlContactId, appFields);
 
     await addTag({ contactId: ghlContactId, tags: ["LB-MERCHANT-APP"] });
 
-    const maskedBank = application.bankAccountNumber
-      ? "****" + application.bankAccountNumber.slice(-4)
-      : "N/A";
+    const maskedBank = masks.bankAccountMasked ?? "N/A";
     const noteBody = [
       `Merchant Application #${applicationId}`,
       `Legal Name: ${application.legalBusinessName || "N/A"}`,
@@ -322,20 +356,22 @@ export async function syncMerchantApplicationToGhl(applicationId: number, contac
           if (!gated.ok) {
             console.warn(`[GHL Form Sync] Opportunity create skipped — pause authority denied (${gated.reason})`);
           } else if (!gated.result.ok) {
-            // C-10 (#1626): check HTTP status — do not swallow failures
-            console.error(`[GHL Form Sync] Onboarding opportunity POST failed: HTTP ${gated.result.status} (application #${applicationId}, ghlContactId=${ghlContactId})`);
+            // C-10 (#1626): check HTTP status — status code only, no ids/bodies.
+            console.error(`[GHL Form Sync] Onboarding opportunity POST failed: HTTP ${gated.result.status}`);
           }
         }
-      } catch (oppErr: any) {
-        console.error(`[GHL Form Sync] Failed to create onboarding opportunity:`, oppErr.message);
+      } catch {
+        // Safe generic log — never echo provider message/body.
+        console.error(`[GHL Form Sync] Failed to create onboarding opportunity`);
       }
     }
 
-    console.log(`[GHL Form Sync] Merchant application ${applicationId} synced to GHL contact ${ghlContactId}`);
+    console.log(`[GHL Form Sync] Merchant application ${applicationId} synced to GHL`);
     return { success: true };
-  } catch (err: any) {
-    console.error(`[GHL Form Sync] Merchant app sync error:`, err.message);
-    return { success: false, error: err.message };
+  } catch {
+    // Return/log safe generic errors only — no provider message/body/ids.
+    console.error(`[GHL Form Sync] Merchant app sync error`);
+    return { success: false, error: "merchant_app_sync_failed" };
   }
 }
 

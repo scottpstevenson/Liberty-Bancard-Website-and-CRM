@@ -2,7 +2,6 @@ import { sendEmailReply } from "./sdr/ghl-client";
 import { getEmailSignatureHtml } from "./email-signatures";
 import { createContactGhlFirst } from "./contact-writer";
 import { storage } from "../storage";
-import type { MerchantApplication } from "@shared/schema";
 
 const ONBOARDING_SIG = {
   name: "Scott Stevenson",
@@ -10,6 +9,39 @@ const ONBOARDING_SIG = {
   phone: "954-266-8214",
   email: "scott@libertybancard.com",
 };
+
+/**
+ * Least-privilege email DTO. Callers must pass ONLY the explicit non-sensitive
+ * fields required to build and route a status email. A full MerchantApplication
+ * row (which carries protected ciphertext, fingerprints, tokens, etc.) must
+ * NEVER be passed to these helpers.
+ */
+export interface ApplicationStatusEmailInput {
+  applicationId: number;
+  /** DB contact id, if the application is already linked to a contact. */
+  contactId?: number | null;
+  ownerEmail?: string | null;
+  businessEmail?: string | null;
+  ownerFirstName?: string | null;
+  ownerLastName?: string | null;
+  legalBusinessName?: string | null;
+  dba?: string | null;
+  businessPhone?: string | null;
+  ownerPhone?: string | null;
+  vertical?: string | null;
+  /** Decline emails only — free-text reason from underwriting. */
+  declineReason?: string | null;
+}
+
+/**
+ * Truthful discriminated result. The helper NEVER swallows transient
+ * contact/GHL/send failures — those propagate to the caller so the work stays
+ * retryable. A returned value describes ONLY the deterministic, non-transient
+ * outcomes: the email was sent, or was skipped for a stated (data) reason.
+ */
+export type ApplicationEmailResult =
+  | { status: "sent" }
+  | { status: "skipped"; reason: "no_recipient" | "no_ghl_contact" };
 
 function escapeHtml(str: string): string {
   return str
@@ -73,107 +105,89 @@ function buildDeclineEmail(firstName: string, businessName: string, reason: stri
 `;
 }
 
-async function resolveGhlContactId(application: MerchantApplication): Promise<string | null> {
-  if (application.contactId) {
-    try {
-      const contact = await storage.getContact(application.contactId);
-      if (contact?.ghlContactId) return contact.ghlContactId;
-    } catch (err) {
-      console.error("[Application Status Email] Failed to load contact:", err);
-    }
+/**
+ * Resolve (or create) the GHL contact id for this application.
+ * Transient failures propagate (never swallowed); returns null ONLY when there
+ * is genuinely no recipient email to build a contact from.
+ * Never logs recipient email, contact ids, or arbitrary error objects.
+ */
+async function resolveGhlContactId(input: ApplicationStatusEmailInput): Promise<string | null> {
+  if (input.contactId) {
+    // Transient load failures must propagate — do not swallow.
+    const contact = await storage.getContact(input.contactId);
+    if (contact?.ghlContactId) return contact.ghlContactId;
   }
 
-  const email = application.ownerEmail || application.businessEmail;
+  const email = input.ownerEmail || input.businessEmail;
   if (!email) return null;
 
-  try {
-    const contact = await createContactGhlFirst({
-      firstName: application.ownerFirstName || "",
-      lastName: application.ownerLastName || "",
-      email,
-      phone: application.businessPhone || application.ownerPhone || "",
-      companyName: application.legalBusinessName || application.dba || "",
-      vertical: application.vertical || undefined,
-      status: "Active",
-      tags: ["merchant_application"],
-    });
-    return contact?.ghlContactId || null;
-  } catch (err) {
-    console.error("[Application Status Email] Failed to create GHL contact:", err);
-    return null;
-  }
+  // Transient GHL/contact-create failures propagate to the caller.
+  const contact = await createContactGhlFirst({
+    firstName: input.ownerFirstName || "",
+    lastName: input.ownerLastName || "",
+    email,
+    phone: input.businessPhone || input.ownerPhone || "",
+    companyName: input.legalBusinessName || input.dba || "",
+    vertical: input.vertical || undefined,
+    status: "Active",
+    tags: ["merchant_application"],
+  });
+  return contact?.ghlContactId || null;
 }
 
-export async function sendApplicationApprovedEmail(application: MerchantApplication): Promise<void> {
-  const recipient = application.ownerEmail || application.businessEmail;
-  if (!recipient) {
-    console.warn(`[Application Approval Email] Skipped — application #${application.id} has no email`);
-    return;
-  }
+/**
+ * Send the "application approved" email.
+ * - Accepts only a least-privilege DTO (never a full MerchantApplication row).
+ * - Returns a truthful discriminated result: sent, or skipped with a stated
+ *   non-transient (data) reason.
+ * - Propagates transient contact/GHL/send failures (does NOT swallow).
+ * - Performs NO audit writes and logs NO recipient/provider ids or error bodies.
+ */
+export async function sendApplicationApprovedEmail(
+  input: ApplicationStatusEmailInput,
+): Promise<ApplicationEmailResult> {
+  const recipient = input.ownerEmail || input.businessEmail;
+  if (!recipient) return { status: "skipped", reason: "no_recipient" };
 
-  const ghlContactId = await resolveGhlContactId(application);
-  if (!ghlContactId) {
-    console.warn(`[Application Approval Email] Skipped — no GHL contact for application #${application.id}`);
-    return;
-  }
+  const ghlContactId = await resolveGhlContactId(input);
+  if (!ghlContactId) return { status: "skipped", reason: "no_ghl_contact" };
 
-  const firstName = application.ownerFirstName || "";
-  const businessName = application.legalBusinessName || application.dba || "";
+  const firstName = input.ownerFirstName || "";
+  const businessName = input.legalBusinessName || input.dba || "";
   const subject = `Your Liberty Bancard application has been approved`;
 
-  try {
-    await sendEmailReply({
-      contactId: ghlContactId,
-      subject,
-      htmlBody: buildApprovalEmail(firstName, businessName),
-      dbContactId: application.contactId ?? undefined,
-    });
-    console.log(`[Application Approval Email] Sent for application #${application.id} to ${recipient}`);
+  await sendEmailReply({
+    contactId: ghlContactId,
+    subject,
+    htmlBody: buildApprovalEmail(firstName, businessName),
+    dbContactId: input.contactId ?? undefined,
+  });
 
-    await storage.createAuditLog({
-      action: "merchant_application_approved_email_sent",
-      entityType: "merchant_application",
-      entityId: application.id,
-      details: { recipient, ghlContactId },
-    });
-  } catch (err) {
-    console.error(`[Application Approval Email] Failed for application #${application.id}:`, err);
-  }
+  return { status: "sent" };
 }
 
-export async function sendApplicationDeclinedEmail(application: MerchantApplication): Promise<void> {
-  const recipient = application.ownerEmail || application.businessEmail;
-  if (!recipient) {
-    console.warn(`[Application Decline Email] Skipped — application #${application.id} has no email`);
-    return;
-  }
+/**
+ * Send the "application declined" email. Same contract as the approval helper.
+ */
+export async function sendApplicationDeclinedEmail(
+  input: ApplicationStatusEmailInput,
+): Promise<ApplicationEmailResult> {
+  const recipient = input.ownerEmail || input.businessEmail;
+  if (!recipient) return { status: "skipped", reason: "no_recipient" };
 
-  const ghlContactId = await resolveGhlContactId(application);
-  if (!ghlContactId) {
-    console.warn(`[Application Decline Email] Skipped — no GHL contact for application #${application.id}`);
-    return;
-  }
+  const ghlContactId = await resolveGhlContactId(input);
+  if (!ghlContactId) return { status: "skipped", reason: "no_ghl_contact" };
 
-  const firstName = application.ownerFirstName || "";
-  const businessName = application.legalBusinessName || application.dba || "";
+  const firstName = input.ownerFirstName || "";
+  const businessName = input.legalBusinessName || input.dba || "";
   const subject = `Update on your Liberty Bancard application`;
 
-  try {
-    await sendEmailReply({
-      contactId: ghlContactId,
-      subject,
-      htmlBody: buildDeclineEmail(firstName, businessName, application.declineReason ?? null),
-      dbContactId: application.contactId ?? undefined,
-    });
-    console.log(`[Application Decline Email] Sent for application #${application.id} to ${recipient}`);
+  await sendEmailReply({
+    contactId: ghlContactId,
+    subject,
+    htmlBody: buildDeclineEmail(firstName, businessName, input.declineReason ?? null),
+    dbContactId: input.contactId ?? undefined,
+  });
 
-    await storage.createAuditLog({
-      action: "merchant_application_declined_email_sent",
-      entityType: "merchant_application",
-      entityId: application.id,
-      details: { recipient, ghlContactId, hasReason: !!application.declineReason },
-    });
-  } catch (err) {
-    console.error(`[Application Decline Email] Failed for application #${application.id}:`, err);
-  }
+  return { status: "sent" };
 }

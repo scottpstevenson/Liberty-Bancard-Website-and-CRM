@@ -1016,6 +1016,20 @@
       "when": 1792400000000,
       "tag": "0141_serper_merchant_cooldown",
       "breakpoints": false
+    },
+    {
+      "idx": 145,
+      "version": "7",
+      "when": 1792500000000,
+      "tag": "0142_merchant_application_protected_data",
+      "breakpoints": false
+    },
+    {
+      "idx": 146,
+      "version": "7",
+      "when": 1792600000000,
+      "tag": "0143_merchant_application_ein_unique",
+      "breakpoints": false
     }
   ]
 }

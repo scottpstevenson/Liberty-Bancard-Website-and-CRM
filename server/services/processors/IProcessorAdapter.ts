@@ -29,6 +29,10 @@ export interface MerchantProfile {
   estimatedAvgTicket?: string;
   preferredProgram?: string;
   offerPath?: string;
+  /** Stable per-submission idempotency key derived at enqueue time. Adapters
+   *  SHOULD forward this to provider APIs that support request deduplication.
+   *  Never log or include in audit records — treated as opaque bytes. */
+  providerIdempotencyKey?: string;
 }
 
 export interface BoardingResult {

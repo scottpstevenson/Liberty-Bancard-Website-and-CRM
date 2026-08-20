@@ -3,8 +3,12 @@ import { isAuthenticated, isDashboardUser, requireRole } from "../replit_integra
 import { storage } from "../storage";
 import { db } from "../db";
 import { sql, eq, and } from "drizzle-orm";
+import { merchantApplications, dealBoardingOutbox, deals } from "@shared/schema";
 import { getProcessor, getDefaultProcessor, getEnabledAdapterNames, ingestMidDataForActiveMids } from "../services/processors/registry";
 import { serverError, safeMessage } from "../utils/server-error";
+import { startDealBoardingOutboxWorker } from "../services/deal-boarding-outbox-worker";
+import { auditChange } from "../services/audit-change";
+import crypto from "crypto";
 
 const IN_FLIGHT_BOARDING_STATUSES = ["submitted", "under_review", "more_info_needed"];
 
@@ -221,17 +225,21 @@ async function runWithConcurrencyLimit<T, R>(items: T[], limit: number, fn: (ite
 }
 
 export function registerBoardingRoutes(app: Express) {
-  app.post("/api/deals/:id/submit-to-processor", isDashboardUser, async (req, res) => {
+  // Start the durable boarding outbox worker exactly once (unref'd timer inside).
+  startDealBoardingOutboxWorker();
+
+  app.post("/api/deals/:id/submit-to-processor", requireRole("admin", "manager"), async (req, res) => {
     try {
       const dealId = Number(req.params.id);
+
+      // Idempotency-Key required for durable submission (item 8).
+      const idempotencyKey = (req.headers["idempotency-key"] as string) || "";
+      if (!idempotencyKey) {
+        return res.status(400).json({ message: "Idempotency-Key header required" });
+      }
+
       const deal = await storage.getDeal(dealId);
       if (!deal) return res.status(404).json({ message: "Deal not found" });
-
-      if (deal.boardingStatus && deal.boardingStatus !== "not_submitted" && deal.boardingStatus !== "declined") {
-        return res.status(400).json({
-          message: `Deal is already in boarding status: ${deal.boardingStatus}. Cannot resubmit.`,
-        });
-      }
 
       const isUnderwriting =
         deal.pipeline === "onboarding" ||
@@ -243,106 +251,144 @@ export function registerBoardingRoutes(app: Express) {
         });
       }
 
-      const contact = deal.contactId ? await storage.getContact(deal.contactId) : null;
-      let application = null;
-      if (deal.contactId) {
-        const apps = await storage.getMerchantApplications();
-        application = apps.find(a => a.contactId === deal.contactId || a.dealId === dealId) || null;
+      // Require an application explicitly linked to THIS deal via deal_id.
+      // Contact-id fallback is intentionally removed: it could silently select
+      // a different application for the same contact (different deal), disclosing
+      // another merchant's protected financial/identity data to the processor.
+      // Pre-check before entering the transaction (no lock yet — definitive
+      // binding happens inside the TX below).
+      const appRows = await db
+        .select({ id: merchantApplications.id })
+        .from(merchantApplications)
+        .where(eq(merchantApplications.dealId, dealId))
+        .limit(1);
+      if (!appRows.length) {
+        return res.status(409).json({ message: "No merchant application linked to this deal. Complete application before boarding." });
       }
+      const applicationId = appRows[0].id;
 
-      const payload = {
-        dealId,
-        legalBusinessName:
-          application?.legalBusinessName ||
-          contact?.companyName ||
-          `${contact?.firstName || ""} ${contact?.lastName || ""}`.trim() ||
-          "Unknown Business",
-        dba: application?.dba || contact?.companyName || undefined,
-        ein: application?.ein || undefined,
-        businessType: application?.businessType || undefined,
-        businessAddress: application?.businessAddress || contact?.address || undefined,
-        businessCity: application?.businessCity || contact?.city || undefined,
-        businessState: application?.businessState || contact?.state || undefined,
-        businessZip: application?.businessZip || undefined,
-        businessPhone: application?.businessPhone || contact?.phone || undefined,
-        businessEmail: application?.businessEmail || contact?.email || undefined,
-        website: application?.website || contact?.website || undefined,
-        vertical: application?.vertical || contact?.vertical || deal.offerPath || undefined,
-        ownerFirstName: application?.ownerFirstName || contact?.firstName || undefined,
-        ownerLastName: application?.ownerLastName || contact?.lastName || undefined,
-        ownerEmail: application?.ownerEmail || contact?.email || undefined,
-        ownerPhone: application?.ownerPhone || contact?.phone || undefined,
-        ownerDob: application?.ownerDob || undefined,
-        ownerSsn: application?.ownerSsn || undefined,
-        ownerAddress: application?.ownerAddress || undefined,
-        ownerCity: application?.ownerCity || undefined,
-        ownerState: application?.ownerState || undefined,
-        ownerZip: application?.ownerZip || undefined,
-        bankRoutingNumber: application?.bankRoutingNumber || undefined,
-        bankAccountNumber: application?.bankAccountNumber || undefined,
-        bankAccountType: application?.bankAccountType || undefined,
-        estimatedMonthlyVolume: application?.estimatedMonthlyVolume || deal.totalVolume || contact?.monthlyVolume || undefined,
-        estimatedAvgTicket: application?.estimatedAvgTicket || deal.avgTicket || contact?.avgTicket || undefined,
-        preferredProgram: application?.preferredProgram || deal.recommendedProgram || deal.offerPath || undefined,
-        offerPath: deal.offerPath || undefined,
-      };
+      // Idempotent replay: same key returns queued/submitted status immediately.
+      const [existing] = await db
+        .select({ id: dealBoardingOutbox.id, status: dealBoardingOutbox.status })
+        .from(dealBoardingOutbox)
+        .where(eq(dealBoardingOutbox.idempotencyKey, idempotencyKey))
+        .limit(1);
+      if (existing) {
+        return res.status(202).json({ status: "queued", message: "Submission already enqueued", outboxId: existing.id });
+      }
 
       const processorName = (req.body.processorName as string | undefined) || undefined;
-      const processor = processorName ? getProcessor(processorName) : getDefaultProcessor();
-      const result = await processor.boardMerchant(payload);
 
-      if (!result.success) {
-        console.error("[Boarding] Processor submit failed:", result.error);
-        return res.status(500).json({ message: safeMessage(result.error, "Failed to submit to processor") });
+      // Stable provider-level idempotency key derived from dealId + request key.
+      // Stored in the outbox payload so the worker passes it to the adapter on
+      // every retry, enabling provider-side deduplication without storing plaintext.
+      const providerIdempotencyKey = crypto
+        .createHash("sha256")
+        .update(`deal:${dealId}:${idempotencyKey}`)
+        .digest("hex")
+        .slice(0, 48);
+
+      // Atomic claim — ordering matters:
+      //  1. Lock the application first (FOR UPDATE). If it is gone/re-linked,
+      //     throw so the whole transaction rolls back cleanly.
+      //  2. Conditionally update the deal to "queued" (eligible states only).
+      //     If another concurrent request already advanced the deal, exit cleanly.
+      //  3. Insert the outbox row with an immutable linkage version derived from
+      //     the locked application's updated_at TEXT (PostgreSQL canonical format,
+      //     not JS ISO-8601) so the worker's SQL comparison uses the same bytes.
+      //  4. Set claimed = true only after the outbox insert succeeds.
+      let claimed = false;
+      await db.transaction(async (tx) => {
+        // Step 1 — Lock the linked application row. Use updated_at::text so the
+        // exact PostgreSQL text representation is captured here; the worker will
+        // compare with the same cast. Throw on missing/re-linked to roll back.
+        const lockedApp = await tx.execute(sql`
+          SELECT id, updated_at::text AS updated_at_text
+          FROM merchant_applications
+          WHERE id = ${applicationId} AND deal_id = ${dealId}
+          LIMIT 1
+          FOR UPDATE
+        `);
+        const lockedRow = (lockedApp.rows ?? lockedApp)[0] as
+          | { updated_at_text?: string | null }
+          | undefined;
+        if (!lockedRow || !lockedRow.updated_at_text) {
+          // Application was re-linked between the pre-check and this TX — roll back.
+          throw new Error("boarding_application_relinked");
+        }
+        // Immutable linkage version in PostgreSQL text format — both sides use
+        // `::text` cast so the string comparison is always byte-for-byte equal.
+        const applicationLinkageVersion = lockedRow.updated_at_text;
+
+        // Step 2 — Conditionally advance the deal to "queued". The WHERE guard
+        // prevents two concurrent requests from both claiming the same deal.
+        const updated = await tx.execute(sql`
+          UPDATE deals
+          SET boarding_status = 'queued',
+              boarding_idempotency_key = ${idempotencyKey},
+              updated_at = NOW()
+          WHERE id = ${dealId}
+            AND (boarding_status IS NULL
+                 OR boarding_status IN ('not_submitted', 'declined', 'dead_letter'))
+          RETURNING id
+        `);
+        if (!updated.rows || updated.rows.length === 0) {
+          // Another concurrent request already claimed this deal — abort silently.
+          return;
+        }
+
+        // Step 3 — Insert outbox row with the immutable linkage version.
+        await tx
+          .insert(dealBoardingOutbox)
+          .values({
+            dealId,
+            applicationId,
+            eventType: "processor_submit",
+            processorName: processorName ?? null,
+            idempotencyKey,
+            // providerIdempotencyKey and applicationLinkageVersion stored in
+            // payload — never exposed in logs/responses.
+            payload: { dealId, applicationId, providerIdempotencyKey, applicationLinkageVersion },
+            status: "pending",
+          })
+          .onConflictDoNothing({ target: dealBoardingOutbox.idempotencyKey });
+
+        // Step 4 — Audit within the same TX (atomically linked to the outbox row).
+        // Never store the raw Idempotency-Key — persist only a short hash prefix.
+        const idempotencyKeyHashPrefix = crypto
+          .createHash("sha256")
+          .update(idempotencyKey)
+          .digest("hex")
+          .slice(0, 12);
+        await auditChange({
+          actorType: "user",
+          action: "deal_boarding_queued",
+          entityType: "deal",
+          entityId: dealId,
+          details: { applicationId, processorName: processorName ?? "default", idempotencyKeyHashPrefix },
+        }, tx);
+
+        // claimed is set last — only after the outbox insert succeeds.
+        claimed = true;
+      });
+
+      if (!claimed) {
+        // Either another concurrent request already advanced the deal, or the
+        // application was re-linked between pre-check and transaction (which
+        // throws "boarding_application_relinked" — caught above and surfaced here).
+        const fresh = await storage.getDeal(dealId);
+        return res.status(409).json({
+          message: `Deal is already in boarding status: ${fresh?.boardingStatus ?? "unknown"}. Use a new idempotency key only if resubmitting after a decline.`,
+        });
       }
 
-      const logEntry = {
-        timestamp: new Date().toISOString(),
-        event: "submitted",
-        processor: processor.name,
-        processorApplicationId: result.processorApplicationId,
-        message: result.message,
-        estimatedDecisionDate: result.estimatedDecisionDate,
-      };
-
-      const existingLog = (deal.boardingLog as any[]) || [];
-      await storage.updateDeal(dealId, {
-        boardingStatus: "submitted",
-        processorApplicationId: result.processorApplicationId,
-        boardingSubmittedAt: new Date(),
-        boardingLog: [...existingLog, logEntry],
-      });
-
-      await storage.createAuditLog({
-        action: "deal_submitted_to_processor",
-        entityType: "deal",
-        entityId: dealId,
-        details: {
-          processorApplicationId: result.processorApplicationId,
-          status: "submitted",
-          message: result.message,
-        },
-      });
-
-      await storage.createTask({
-        dealId,
-        contactId: deal.contactId || undefined,
-        title: `Monitor boarding status for Deal #${dealId} — App ${result.processorApplicationId}`,
-        assignedTo: deal.owner || "Scott Stevenson",
-        priority: "high",
-        dueDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
-        description: `Application ${result.processorApplicationId} submitted to processor. Check status in 24–48 hours.`,
-      });
-
-      res.json({
-        success: true,
-        processorApplicationId: result.processorApplicationId,
-        status: "submitted",
-        message: result.message,
-        estimatedDecisionDate: result.estimatedDecisionDate,
-      });
+      return res.status(202).json({ status: "queued", message: "Processor submission queued for durable processing" });
     } catch (err: any) {
-      console.error("[Boarding] Submit error:", err.message);
+      // A re-linked application detected inside the TX throws "boarding_application_relinked".
+      // Treat it as a 409 conflict, not a 500.
+      if (err?.message === "boarding_application_relinked") {
+        return res.status(409).json({ message: "The merchant application linked to this deal changed during submission. Please retry." });
+      }
       serverError(res, err);
     }
   });

@@ -1102,9 +1102,13 @@ export async function markEsignComplete(params: {
     const docStatus = await getDocumentStatus(documentId);
 
     if (docStatus.status === "completed" || docStatus.status === "signed") {
-      await storage.updateMerchantApplication(applicationId, {
+      // Route through the canonical merchant-application service — replay-safe
+      // conditional local update. Never a raw storage writer for e-sign state.
+      const { applyEsignDocumentState } = await import("./merchant-application-service");
+      await applyEsignDocumentState({
+        applicationId,
         esignStatus: "signed",
-        esignedAt: new Date(),
+        esignedAt: docStatus.signedAt ? new Date(docStatus.signedAt) : new Date(),
       });
 
       await storage.createAuditLog({

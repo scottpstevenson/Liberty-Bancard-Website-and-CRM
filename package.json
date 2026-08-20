@@ -9,7 +9,14 @@
     "start": "NODE_ENV=production node dist/index.cjs",
     "check": "tsc",
     "db:push": "drizzle-kit push",
-    "test:redis-topology": "npx tsx scripts/test-redis-topology.ts"
+    "test:redis-topology": "npx tsx scripts/test-redis-topology.ts",
+    "test:audit-sanitizer": "npx tsx scripts/test-audit-sanitizer-merchant.ts",
+    "test:merchant-app-security": "npx tsx scripts/test-merchant-application-security.ts",
+    "merchant:inventory": "npx tsx scripts/inventory-merchant-protected-data.ts",
+    "merchant:migrate": "npx tsx scripts/migrate-merchant-protected-data.ts",
+    "merchant:migrate:execute": "MERCHANT_DATA_BACKFILL_AUTHORIZED=true npx tsx scripts/migrate-merchant-protected-data.ts --execute",
+    "merchant:migrate:verify": "npx tsx scripts/migrate-merchant-protected-data.ts --verify",
+    "test:merchant-migration-safety": "npx tsx scripts/test-merchant-migration-safety.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.115.0",

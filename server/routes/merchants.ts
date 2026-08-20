@@ -3,25 +3,58 @@ import { isAuthenticated, isDashboardUser, requireRole } from "../replit_integra
 import { storage } from "../storage";
 import { z } from "zod";
 import { DateValidationError } from "../utils/date-coerce";
-import { and, eq, or, sql as drizzleSql } from "drizzle-orm";
-import { insertEquipmentOrderSchema, insertMerchantApplicationSchema, insertMerchantProfileSchema, insertOnboardingStepSchema, contacts, deals, merchantApplications } from "@shared/schema";
+import { and, eq, or } from "drizzle-orm";
+import { insertEquipmentOrderSchema, insertMerchantProfileSchema, insertOnboardingStepSchema, deals, merchantApplications } from "@shared/schema";
 import { db } from "../db";
 import crypto from "crypto";
-import { getDocumentStatus, sendDocumentForEsign } from "../services/ghl";
+import { getDocumentStatus } from "../services/ghl";
 import { computeOrderEconomics } from "../services/terminal-economics";
-import { syncMerchantApplicationToGhl } from "../services/ghl-form-sync";
-import { enrollInGhlWorkflow, enrollInGhlWorkflowCompliant } from "../services/ghl-workflows";
-import { createContactGhlFirst } from "../services/contact-writer";
+import { enrollInGhlWorkflow } from "../services/ghl-workflows";
 import { sendMerchantPortalWelcomeEmail } from "../services/merchant-welcome";
-import { advanceDealStage } from "../services/deal-stage-service";
-import { sendApplicationApprovedEmail, sendApplicationDeclinedEmail } from "../services/merchant-application-status";
-import { scanApplicationRisk } from "../services/relationship-extractor";
-import { recordPewcDecision } from "../services/consent-evidence";
 import { parse } from "csv-parse/sync";
 import path from "path";
 import { publicLeadRateLimit, webhookRateLimit } from "../middleware/public-rate-limit";
 import { serverError, safeMessage } from "../utils/server-error";
 import { LifecycleService } from "../services/lifecycle-service";
+import * as merchantAppService from "../services/merchant-application-service";
+import {
+  NotFoundError,
+  ConflictError,
+  ValidationError,
+  ServiceUnavailableError,
+  ForbiddenError,
+} from "../services/merchant-application-service";
+import { ProtectedDataValidationError } from "../services/merchant-protected-data";
+import { startMerchantApplicationOutboxWorker } from "../services/merchant-application-outbox-worker";
+
+/**
+ * Map service/domain errors to HTTP responses. Generic 404 for capability
+ * failures (NotFoundError) to avoid existence leaks.
+ */
+function respondServiceError(res: any, err: unknown): void {
+  if (err instanceof z.ZodError) {
+    return void res.status(400).json({ message: "Invalid request", field: err.errors[0]?.path?.join(".") });
+  }
+  if (err instanceof ProtectedDataValidationError) {
+    return void res.status(400).json({ message: err.message, field: err.field });
+  }
+  if (err instanceof ValidationError) {
+    return void res.status(400).json({ message: err.message, field: err.field });
+  }
+  if (err instanceof NotFoundError) {
+    return void res.status(404).json({ message: "Not found" });
+  }
+  if (err instanceof ForbiddenError) {
+    return void res.status(403).json({ message: "Forbidden" });
+  }
+  if (err instanceof ConflictError) {
+    return void res.status(409).json({ message: err.message });
+  }
+  if (err instanceof ServiceUnavailableError) {
+    return void res.status(503).json({ message: "Service temporarily unavailable" });
+  }
+  serverError(res, err);
+}
 
 const EMAIL_COOLDOWN_MS = 5 * 60 * 1000;
 
@@ -59,9 +92,6 @@ function createEmailCooldown(cooldownMs: number) {
 }
 
 const welcomeEmailCooldown = createEmailCooldown(EMAIL_COOLDOWN_MS);
-const esignEmailCooldown = createEmailCooldown(EMAIL_COOLDOWN_MS);
-const approvedEmailCooldown = createEmailCooldown(EMAIL_COOLDOWN_MS);
-const declinedEmailCooldown = createEmailCooldown(EMAIL_COOLDOWN_MS);
 
 // In-memory prefill token store (24h TTL)
 interface PrefillTokenData {
@@ -117,267 +147,92 @@ function canAccessApplication(req: any, application: { userId?: string | null })
 }
 
 export function registerMerchantsRoutes(app: Express) {
+  // Start the durable outbox worker exactly once (unref'd timer inside).
+  startMerchantApplicationOutboxWorker();
+
   // === DRAFT PERSISTENCE (server-side, public endpoints) ===
 
   // Create a server-side draft — returns {id, draftToken}
   app.post("/api/merchant-applications/draft", publicLeadRateLimit, async (req, res) => {
     if (req.query.probe === "1") return res.json({ probe: true, endpoint: "/api/merchant-applications/draft" });
     try {
-      const draftToken = crypto.randomBytes(32).toString("hex");
-      const tokenHash = hashToken(draftToken);
-      const { legalBusinessName, businessEmail, ownerEmail, vertical } = req.body;
-      const application = await storage.createMerchantApplication(
-        {
-          status: "in_progress",
-          currentStep: 1,
-          totalSteps: 6,
-          legalBusinessName: legalBusinessName || null,
-          businessEmail: businessEmail || null,
-          ownerEmail: ownerEmail || null,
-          vertical: vertical || null,
-          draftTokenHash: tokenHash,
-        },
-        { actorType: "user", userId: null },
-      );
-      res.json({ id: application.id, draftToken });
+      const result = await merchantAppService.createDraft(req.body);
+      res.json(result);
     } catch (err: any) {
-      serverError(res, err);
+      respondServiceError(res, err);
     }
   });
 
-  // EIN-only duplicate check (public, rate-limited, generic boolean — no enumeration risk)
+  // EIN duplicate check (public, rate-limited, fingerprint-only, fail-closed 503)
   app.post("/api/merchant-applications/check-duplicate", publicLeadRateLimit, async (req, res) => {
     try {
-      const { ein } = req.body;
-      if (!ein || typeof ein !== "string" || ein.replace(/\D/g, "").length < 9) {
+      const { ein } = req.body ?? {};
+      if (!ein || typeof ein !== "string") {
         return res.json({ exists: false });
       }
-      const [dup] = await db
-        .select({ id: merchantApplications.id })
-        .from(merchantApplications)
-        .where(
-          and(
-            eq(merchantApplications.ein, ein.replace(/\D/g, "")),
-            or(
-              eq(merchantApplications.status, "submitted"),
-              eq(merchantApplications.status, "under_review"),
-              eq(merchantApplications.status, "approved"),
-            ),
-          ),
-        )
-        .limit(1);
-      res.json({ exists: !!dup });
+      const exists = await merchantAppService.checkDuplicateEin(ein);
+      res.json({ exists });
     } catch (err: any) {
-      serverError(res, err);
+      respondServiceError(res, err);
     }
   });
 
-  // Autosave non-sensitive draft fields (verified by draftToken)
-  const AUTOSAVE_ALLOWED_FIELDS = new Set([
-    "legalBusinessName", "dba", "businessType", "businessStartDate",
-    "businessAddress", "businessCity", "businessState", "businessZip",
-    "businessPhone", "businessEmail", "website", "vertical",
-    "ownerFirstName", "ownerLastName", "ownerEmail", "ownerPhone",
-    "ownerAddress", "ownerCity", "ownerState", "ownerZip", "ownershipPercent",
-    "estimatedMonthlyVolume", "estimatedAvgTicket", "highestTicket",
-    "currentProcessor", "currentRate", "acceptedCardTypes",
-    "terminalNeeded", "terminalType", "terminalQuantity", "ecommerceNeeded",
-    "preferredProgram", "currentStep",
-  ]);
-
-  app.patch("/api/merchant-applications/:id/autosave", async (req, res) => {
+  // Autosave non-sensitive draft fields — header-only x-draft-token, strict DTO.
+  app.patch("/api/merchant-applications/:id/autosave", publicLeadRateLimit, async (req, res) => {
     try {
       const appId = Number(req.params.id);
-      const draftToken = (req.headers["x-draft-token"] as string) || req.body._draftToken;
-      if (!draftToken) return res.status(401).json({ message: "Draft token required" });
-
-      const [existing] = await db
-        .select({ id: merchantApplications.id, draftTokenHash: merchantApplications.draftTokenHash, status: merchantApplications.status })
-        .from(merchantApplications)
-        .where(eq(merchantApplications.id, appId))
-        .limit(1);
-      if (!existing) return res.status(404).json({ message: "Application not found" });
-      if (!existing.draftTokenHash || hashToken(draftToken) !== existing.draftTokenHash) {
-        return res.status(403).json({ message: "Invalid draft token" });
-      }
-      if (existing.status === "submitted" || existing.status === "under_review" || existing.status === "approved") {
-        return res.status(409).json({ message: "Application already submitted" });
-      }
-
-      const safeUpdate: Record<string, any> = { status: "in_progress", updatedAt: new Date() };
-      for (const [key, val] of Object.entries(req.body)) {
-        if (AUTOSAVE_ALLOWED_FIELDS.has(key)) safeUpdate[key] = val;
-      }
-
-      await db.update(merchantApplications).set(safeUpdate).where(eq(merchantApplications.id, appId));
+      const draftToken = (req.headers["x-draft-token"] as string) || "";
+      if (!draftToken) return res.status(404).json({ message: "Not found" });
+      await merchantAppService.autosaveDraft(appId, draftToken, req.body);
       res.json({ ok: true });
     } catch (err: any) {
-      serverError(res, err);
+      respondServiceError(res, err);
     }
   });
 
-  // Read draft non-sensitive fields — public, verified by draftToken header or ?token= param
+  // Read draft non-sensitive fields — public, header-only x-draft-token.
   app.get("/api/merchant-applications/:id/autosave", publicLeadRateLimit, async (req, res) => {
     try {
       const appId = Number(req.params.id);
-      const draftToken = (req.headers["x-draft-token"] as string) || (req.query.token as string);
-      if (!draftToken) return res.status(401).json({ message: "Draft token required" });
-
-      const [existing] = await db
-        .select({ id: merchantApplications.id, draftTokenHash: merchantApplications.draftTokenHash, status: merchantApplications.status })
-        .from(merchantApplications)
-        .where(eq(merchantApplications.id, appId))
-        .limit(1);
-      if (!existing) return res.status(404).json({ message: "Not found" });
-      if (!existing.draftTokenHash || hashToken(draftToken) !== existing.draftTokenHash) {
-        return res.status(403).json({ message: "Invalid draft token" });
-      }
-
-      const application = await storage.getMerchantApplication(appId);
-      if (!application) return res.status(404).json({ message: "Not found" });
-
-      // Return only autosave-allowed fields (never SSN, EIN, bank account numbers)
-      const safe: Record<string, any> = {};
-      for (const field of AUTOSAVE_ALLOWED_FIELDS) {
-        if (field in application) safe[field] = (application as any)[field];
-      }
+      const draftToken = (req.headers["x-draft-token"] as string) || "";
+      if (!draftToken) return res.status(404).json({ message: "Not found" });
+      const safe = await merchantAppService.getDraftForToken(appId, draftToken);
       res.json(safe);
     } catch (err: any) {
-      serverError(res, err);
+      respondServiceError(res, err);
     }
   });
 
-  // Finalize: full submission with EIN-only duplicate check
+  // Finalize: full submission — header-only draft token, Idempotency-Key required.
   app.patch("/api/merchant-applications/:id/finalize", publicLeadRateLimit, async (req, res) => {
     try {
       const appId = Number(req.params.id);
-      const draftToken = (req.headers["x-draft-token"] as string) || req.body._draftToken;
-      if (!draftToken) return res.status(401).json({ message: "Draft token required" });
-
-      const [existing] = await db
-        .select({ id: merchantApplications.id, draftTokenHash: merchantApplications.draftTokenHash, status: merchantApplications.status })
-        .from(merchantApplications)
-        .where(eq(merchantApplications.id, appId))
-        .limit(1);
-      if (!existing) return res.status(404).json({ message: "Application not found" });
-      if (!existing.draftTokenHash || hashToken(draftToken) !== existing.draftTokenHash) {
-        return res.status(403).json({ message: "Invalid draft token" });
-      }
-      if (existing.status === "submitted") {
-        return res.status(409).json({ message: "Application already submitted" });
+      const draftToken = (req.headers["x-draft-token"] as string) || "";
+      if (!draftToken) return res.status(404).json({ message: "Not found" });
+      const idempotencyKey = (req.headers["idempotency-key"] as string) || "";
+      if (!idempotencyKey) {
+        return res.status(400).json({ message: "Idempotency-Key header required" });
       }
 
-      // EIN-only duplicate check (not email — avoids user enumeration; generic response only)
-      const { ein } = req.body;
-      if (ein) {
-        const [dup] = await db
-          .select({ id: merchantApplications.id, status: merchantApplications.status })
-          .from(merchantApplications)
-          .where(and(eq(merchantApplications.ein, ein), drizzleSql`${merchantApplications.id} != ${appId}`))
-          .limit(1);
-        if (dup && dup.status !== "draft" && dup.status !== "in_progress") {
-          return res.status(409).json({ message: "An application for this business already exists. Please contact us if you need assistance." });
-        }
-      }
-
-      // Strip all meta/token keys — never write unknown keys to the DB
-      const { _draftToken: _dt, _shareToken, ...bodyRaw } = req.body;
-
-      // Resolve dealId from shareToken (mirrors the POST handler logic)
+      // Resolve dealId from shareToken (non-sensitive) before delegating.
+      const { _shareToken } = req.body ?? {};
       let resolvedDealId: number | undefined;
       if (_shareToken && typeof _shareToken === "string") {
         const [matchedDeal] = await db.select({ id: deals.id }).from(deals).where(eq(deals.shareToken, _shareToken)).limit(1);
         if (matchedDeal) resolvedDealId = matchedDeal.id;
       }
 
-      // Whitelist only known merchantApplications column keys — prevents unknown-key DB errors
-      const FINALIZE_ALLOWED_FIELDS = new Set([
-        ...AUTOSAVE_ALLOWED_FIELDS,
-        "ein", "ownerSsn", "bankRoutingNumber", "bankAccountNumber", "bankAccountType",
-        "pewcConsent", "reviewConfirmed",
-      ]);
-      const updatePayload: Record<string, any> = {
-        status: "submitted",
-        submittedAt: new Date(),
-        updatedAt: new Date(),
-      };
-      for (const [key, val] of Object.entries(bodyRaw)) {
-        if (FINALIZE_ALLOWED_FIELDS.has(key)) updatePayload[key] = val;
-      }
-      if (resolvedDealId) updatePayload.dealId = resolvedDealId;
-
-      await db.update(merchantApplications).set(updatePayload).where(eq(merchantApplications.id, appId));
-      const updated = await storage.getMerchantApplication(appId);
-
-      // Run GHL sync and workflows async (same as the existing POST handler)
-      if (updated) {
-        const pewcConsent = req.body.pewcConsent === true;
-        // Capture request metadata now — req may not be accessible inside the IIFE after response is sent
-        const reqIpAddress = req.ip || "unknown";
-        const reqUserAgent = req.get("user-agent") || "unknown";
-
-        // Resolve or create CRM contact — required for GHL sync call signature
-        (async () => {
-          try {
-            const contactEmail = updated.ownerEmail || updated.businessEmail;
-            let resolvedContactId: number | null = null;
-            if (contactEmail) {
-              // Use indexed email lookup — storage.getContacts({limit:1000}) misses contacts
-              // in large DBs (>1000 rows) since it doesn't filter by email.
-              const [existing] = await db
-                .select({ id: contacts.id })
-                .from(contacts)
-                .where(eq(contacts.email, contactEmail.toLowerCase()))
-                .limit(1);
-              if (existing) {
-                resolvedContactId = existing.id;
-              } else {
-                const created = await storage.createContact({
-                  firstName: updated.ownerFirstName || "",
-                  lastName: updated.ownerLastName || "",
-                  email: contactEmail,
-                  phone: updated.businessPhone || updated.ownerPhone || "",
-                  companyName: updated.legalBusinessName || updated.dba || "",
-                  status: "New",
-                  tags: ["src_merchant_app"],
-                }).catch(() => null);
-                if (created) resolvedContactId = created.id;
-              }
-            }
-            if (resolvedContactId) {
-              // Record PEWC consent evidence with the resolved CRM contact ID
-              if (pewcConsent) {
-                await recordPewcDecision({
-                  contactId: resolvedContactId,
-                  checked: true,
-                  source: "merchant_application_finalize",
-                  ipAddress: reqIpAddress,
-                  userAgent: reqUserAgent,
-                  details: { applicationId: updated.id },
-                }).catch(() => {});
-              }
-              await syncMerchantApplicationToGhl(updated.id, resolvedContactId).catch(err =>
-                console.error("[Finalize] GHL sync error:", err)
-              );
-            }
-            const resolvedGhlId = resolvedContactId
-              ? (await storage.getContact(resolvedContactId).catch(() => null))?.ghlContactId ?? null
-              : null;
-            enrollInGhlWorkflowCompliant({
-              workflowKey: "merchant_app",
-              ghlContactId: resolvedGhlId ?? "",
-              contactId: resolvedContactId ?? undefined,
-              metadata: { applicationId: updated.id },
-            }).catch(() => {});
-          } catch (sideEffectErr) {
-            console.error("[Finalize] Side-effect chain error:", sideEffectErr);
-          }
-        })();
-      }
-
-      res.json(updated || { id: appId, status: "submitted" });
+      const result = await merchantAppService.finalizeApplication({
+        appId,
+        draftToken,
+        idempotencyKey,
+        body: req.body,
+        resolvedDealId,
+      });
+      // Return safe ack with a fresh e-sign capability plaintext (once).
+      res.json({ ...result.ack, ...(result.esignCapability ? { esignCapability: result.esignCapability } : {}) });
     } catch (err: any) {
-      serverError(res, err);
+      respondServiceError(res, err);
     }
   });
 
@@ -465,97 +320,28 @@ export function registerMerchantsRoutes(app: Express) {
   });
 
   // === MERCHANT APPLICATIONS ===
-  app.post("/api/merchant-applications", isAuthenticated, async (req, res) => {
+  // POST is an operator-only endpoint (admin/manager) for creating applications
+  // on behalf of a contact. Public applicants use /draft + /finalize instead.
+  app.post("/api/merchant-applications", isAdminOrManager, async (req, res) => {
     try {
-      const { _shareToken, ...bodyWithoutToken } = req.body;
-      const input = insertMerchantApplicationSchema.parse(bodyWithoutToken);
-
+      // Resolve dealId from shareToken (non-sensitive) before delegating.
+      const { _shareToken } = req.body ?? {};
       let resolvedDealId: number | undefined;
-      if (_shareToken && typeof _shareToken === "string" && !input.dealId) {
+      if (_shareToken && typeof _shareToken === "string") {
         const [matchedDeal] = await db.select({ id: deals.id }).from(deals).where(eq(deals.shareToken, _shareToken));
         if (matchedDeal) resolvedDealId = matchedDeal.id;
       }
 
-      const emailToCheck = input.ownerEmail || input.businessEmail;
-      const einToCheck = input.ein;
-      if (emailToCheck || einToCheck) {
-        const conditions = [];
-        if (emailToCheck) {
-          conditions.push(eq(merchantApplications.ownerEmail, emailToCheck));
-          conditions.push(eq(merchantApplications.businessEmail, emailToCheck));
-        }
-        if (einToCheck) conditions.push(eq(merchantApplications.ein, einToCheck));
-        const [existing] = await db
-          .select({ id: merchantApplications.id, status: merchantApplications.status })
-          .from(merchantApplications)
-          .where(or(...conditions))
-          .limit(1);
-        if (existing) {
-          return res.status(409).json({
-            message: "An application for this business already exists.",
-            existingApplicationId: existing.id,
-            existingStatus: existing.status,
-          });
-        }
-      }
-
-      const application = await storage.createMerchantApplication(
-        resolvedDealId ? { ...input, dealId: resolvedDealId } : input,
-        { actorType: "user", userId: (req.user as any)?.id ?? null },
-      );
-
-      const pewcConsent = req.body.pewcConsent === true;
-
-      const contactEmail = application.ownerEmail || application.businessEmail;
-      if (contactEmail) {
-        const contact = await createContactGhlFirst({
-          firstName: application.ownerFirstName || "",
-          lastName: application.ownerLastName || "",
-          email: contactEmail,
-          phone: application.businessPhone || application.ownerPhone || "",
-          companyName: application.legalBusinessName || application.dba || "",
-          vertical: application.vertical || undefined,
-          status: "New",
-          tags: ["src_merchant_app", "merchant_application"],
-        }).catch(() => null);
-
-        if (contact) {
-          if (pewcConsent) {
-            recordPewcDecision({
-              contactId: contact.id,
-              checked: true,
-              source: "merchant_application",
-              ipAddress: req.ip || req.socket.remoteAddress || "unknown",
-              userAgent: req.headers["user-agent"] || "unknown",
-              details: {
-                formType: "merchant_application",
-                applicationId: application.id,
-                channelsCovered: ["sms", "calls_and_prerecorded_artificial_voice"],
-              },
-            }).catch(err => console.error("[MerchantApp] PEWC record error:", err));
-          }
-          syncMerchantApplicationToGhl(application.id, contact.id).catch(err =>
-            console.error("GHL merchant app sync error:", err)
-          );
-          if (contact.ghlContactId) {
-            enrollInGhlWorkflowCompliant({ workflowKey: "merchant_app", ghlContactId: contact.ghlContactId, contactId: contact.id, metadata: { applicationId: application.id } }).catch(err =>
-              console.error("[MerchantApp] GHL workflow enrollment error:", err)
-            );
-          }
-          scanApplicationRisk(contact.id, application.id).then((result) => {
-            if (result.hasRisk) {
-              console.warn(
-                `[Relationships] Application risk detected for contact ${contact.id}: ${result.relationships.length} flagged relationship(s) — persisted to app #${application.id}`,
-              );
-            }
-          }).catch(err => console.warn("[Relationships] Application risk scan failed:", err));
-        }
-      }
-
-      res.status(201).json(application);
+      // Canonical strict create: non-sensitive shell + encrypted protected update
+      // in one transaction; all side effects go through the durable outbox.
+      const { dto } = await merchantAppService.operatorCreate({
+        body: req.body,
+        userId: (req.user as any)?.id ?? null,
+        resolvedDealId,
+      });
+      res.status(201).json(dto);
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
-      res.status(400).json({ message: err.message });
+      respondServiceError(res, err);
     }
   });
 
@@ -582,7 +368,9 @@ export function registerMerchantsRoutes(app: Express) {
       }
 
       const total = applications.length;
-      const paginated = applications.slice(Number(offset), Number(offset) + Number(limit));
+      const paginated = applications
+        .slice(Number(offset), Number(offset) + Number(limit))
+        .map((a) => merchantAppService.toOperatorDto(a as any));
 
       res.json({ applications: paginated, total, limit: Number(limit), offset: Number(offset) });
     } catch (err: any) {
@@ -613,7 +401,8 @@ export function registerMerchantsRoutes(app: Express) {
       }
       const application = await storage.getMerchantApplicationByUser(targetUserId);
       if (!application) return res.status(404).json({ message: "Not found" });
-      res.json(application);
+      const isPrivilegedRole = currentUser?.role === "admin" || currentUser?.role === "manager";
+      res.json(isPrivilegedRole ? merchantAppService.toOperatorDto(application as any) : merchantAppService.toUserDto(application as any));
     } catch (err: any) {
       serverError(res, err);
     }
@@ -626,7 +415,10 @@ export function registerMerchantsRoutes(app: Express) {
       if (!canAccessApplication(req, application)) {
         return res.status(403).json({ message: "Forbidden" });
       }
-      res.json(application);
+      const role = (req.user as any)?.role;
+      res.json(role === "admin" || role === "manager"
+        ? merchantAppService.toOperatorDto(application as any)
+        : merchantAppService.toUserDto(application as any));
     } catch (err: any) {
       serverError(res, err);
     }
@@ -635,243 +427,68 @@ export function registerMerchantsRoutes(app: Express) {
   app.patch("/api/merchant-applications/:id", isAdminOrManager, async (req, res) => {
     try {
       const appId = Number(req.params.id);
-      const existing = await storage.getMerchantApplication(appId);
-      if (!existing) return res.status(404).json({ message: "Not found" });
-
-      const merchantAppDateSchema = z.object({
-        esignedAt: z.coerce.date().optional().nullable(),
-        approvedAt: z.coerce.date().optional().nullable(),
-        declinedAt: z.coerce.date().optional().nullable(),
-        submittedAt: z.coerce.date().optional().nullable(),
-        completedAt: z.coerce.date().optional().nullable(),
-      }).passthrough();
-      const updates = { ...merchantAppDateSchema.parse(req.body) } as Record<string, any>;
-      const incomingNote = typeof updates.underwritingNotes === "string"
-        ? updates.underwritingNotes.trim()
-        : "";
-      if (incomingNote) {
-        const user = (req.user as any) || {};
-        const authorName = [user.firstName, user.lastName].filter(Boolean).join(" ").trim()
-          || user.email
-          || user.id
-          || "Unknown";
-        const prevLog = Array.isArray(existing.underwritingNotesLog)
-          ? existing.underwritingNotesLog
-          : [];
-        updates.underwritingNotesLog = [
-          ...prevLog,
-          {
-            note: incomingNote,
-            author: authorName,
-            authorId: user.id ?? null,
-            createdAt: new Date().toISOString(),
-          },
-        ];
-      } else if ("underwritingNotes" in updates && !incomingNote) {
-        // Don't overwrite existing notes with an empty string
-        delete updates.underwritingNotes;
-      }
-
-      const updated = await storage.updateMerchantApplication(appId, updates, { userId: (req.user as any)?.id ?? null });
-      if (!updated) return res.status(404).json({ message: "Not found" });
-
-      const wasApproved = existing.status !== "approved" && updated.status === "approved";
-      const wasDeclined = existing.status !== "declined" && updated.status === "declined";
-
-      if (wasApproved) {
-        approvedEmailCooldown.hydrateFromAuditLog(appId, "merchant_application_approved_email_sent", "merchant_application").then(() => {
-          const { inCooldown } = approvedEmailCooldown.checkCooldown(appId);
-          if (inCooldown) {
-            console.warn(`[Application Approval] Skipping approval email for application #${appId} — cooldown active`);
-            return;
-          }
-          approvedEmailCooldown.recordSend(appId);
-          sendApplicationApprovedEmail(updated).catch((err) =>
-            console.error("[Application Approval] Approval email error:", err)
-          );
-        }).catch((err) => console.error("[Application Approval] Cooldown hydration error:", err));
-      }
-
-      if (wasDeclined) {
-        declinedEmailCooldown.hydrateFromAuditLog(appId, "merchant_application_declined_email_sent", "merchant_application").then(() => {
-          const { inCooldown } = declinedEmailCooldown.checkCooldown(appId);
-          if (inCooldown) {
-            console.warn(`[Application Decline] Skipping decline email for application #${appId} — cooldown active`);
-            return;
-          }
-          declinedEmailCooldown.recordSend(appId);
-          sendApplicationDeclinedEmail(updated).catch((err) =>
-            console.error("[Application Decline] Decline email error:", err)
-          );
-        }).catch((err) => console.error("[Application Decline] Cooldown hydration error:", err));
-      }
-
-      if (wasApproved && updated.dealId) {
-        // Route the stage transition through the service so the Closed Won onboarding kickoff
-        // (onboarding deal + SLA tasks + GHL merchant welcome) fires automatically.
-        advanceDealStage(updated.dealId, "Closed Won", "merchant_approval").catch((err: Error) =>
-          console.error("[Application Approval] Deal stage advancement error:", err.message)
-        );
-      }
-
-      // ── Lifecycle side-effects (fire-and-forget, never throws) ──────────────
-      // Approved: advance to APPROVED (more specific than APPLICATION_COMPLETE from deal-stage path)
-      if (wasApproved && updated.contactId) {
-        LifecycleService.transition(updated.contactId, "APPROVED", {
-          trigger: "merchant_application_approved",
-          source: "merchants-route",
-          metadata: { applicationId: appId },
-        }).catch((err: Error) =>
-          console.warn(`[Lifecycle] Approval transition failed for contact #${updated.contactId}:`, err.message),
-        );
-      }
-
-      // Declined: any state → CLOSED_LOST (always allowed)
-      if (wasDeclined && updated.contactId) {
-        LifecycleService.transition(updated.contactId, "CLOSED_LOST", {
-          trigger: "merchant_application_declined",
-          source: "merchants-route",
-          reason: updated.declineReason ?? undefined,
-          metadata: { applicationId: appId },
-        }).catch((err: Error) =>
-          console.warn(`[Lifecycle] Decline transition failed for contact #${updated.contactId}:`, err.message),
-        );
-      }
-
-      res.json(updated);
+      // Canonical operator update: strict allowlist DTO, expected-state/version
+      // transition, redacted audit, and status side effects via durable outbox.
+      const dto = await merchantAppService.operatorUpdate({
+        appId,
+        body: req.body,
+        user: (req.user as any) || {},
+      });
+      res.json(dto);
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join(".") });
-      if (err instanceof DateValidationError) return res.status(400).json({ message: err.message, field: err.field });
-      res.status(400).json({ message: err.message });
+      respondServiceError(res, err);
     }
   });
 
+  // Authenticated e-sign send — owner/admin/manager only. Atomic queue via
+  // outbox; the provider send happens worker-side. Returns generic status.
   app.post("/api/merchant-applications/:id/send-esign", isAuthenticated, async (req, res) => {
     try {
       const appId = Number(req.params.id);
       const application = await storage.getMerchantApplication(appId);
       if (!application) return res.status(404).json({ message: "Application not found" });
-
-      await esignEmailCooldown.hydrateFromAuditLog(appId, "merchant_application_esign_sent", "merchant_application");
-      const { inCooldown, retryAfter, lastSentAt } = esignEmailCooldown.checkCooldown(appId);
-      if (inCooldown) {
-        return res.status(429).json({
-          message: `Please wait ${Math.ceil(retryAfter / 60)} minute(s) before resending the e-signature document.`,
-          retryAfter,
-          lastSentAt: lastSentAt!.toISOString(),
-        });
+      if (!canAccessApplication(req, application)) {
+        return res.status(403).json({ message: "Forbidden" });
       }
-
-      const templateId = process.env.GHL_MERCHANT_AGREEMENT_TEMPLATE_ID;
-      if (!templateId) {
-        return res.status(400).json({
-          message: "GHL document template not configured. Set GHL_MERCHANT_AGREEMENT_TEMPLATE_ID.",
-          requiresConfig: true,
-        });
-      }
-
-      const recipientName = `${application.ownerFirstName || ""} ${application.ownerLastName || ""}`.trim() || application.legalBusinessName || "Merchant";
-      const recipientEmail = application.ownerEmail || application.businessEmail || "";
-      if (!recipientEmail) {
-        return res.status(400).json({ message: "No email address found on application" });
-      }
-
-      const result = await sendDocumentForEsign({
-        documentTemplateId: templateId,
-        recipientName,
-        recipientEmail,
-        applicationId: appId,
+      const result = await merchantAppService.requestEsignSend({
+        appId,
+        actor: "authenticated",
+        userId: (req.user as any)?.id ?? null,
       });
-
-      if (!result.success) {
-        console.error("[Merchants] E-signature send failed:", result.error);
-        return res.status(500).json({ message: safeMessage(result.error, "Failed to send document for e-signature") });
-      }
-
-      await storage.updateMerchantApplication(appId, {
-        esignStatus: "sent",
-        esignDocumentId: result.documentId || null,
-        esignSigningUrl: result.signingUrl || null,
-      });
-
-      esignEmailCooldown.recordSend(appId);
-      await storage.createAuditLog({
-        action: "merchant_application_esign_sent",
-        entityType: "merchant_application",
-        entityId: appId,
-        details: { recipientEmail },
-      });
-
-      res.json({
-        success: true,
-        message: "E-signature document sent via GoHighLevel",
-      });
+      res.json(result);
     } catch (err: any) {
-      serverError(res, err);
+      respondServiceError(res, err);
     }
   });
 
+  // Public e-sign request — requires x-esign-capability header + applicationId.
+  // NO email authorization. Constant-time verify; generic response.
   app.post("/api/merchant-applications/request-esign", publicLeadRateLimit, async (req, res) => {
     try {
-      const { applicationId, email } = req.body;
-      if (!applicationId || !email) {
-        return res.status(400).json({ message: "Application ID and email are required" });
+      const { applicationId } = req.body ?? {};
+      const capability = (req.headers["x-esign-capability"] as string) || "";
+      if (!applicationId || !capability) {
+        return res.status(404).json({ message: "Not found" });
       }
       const appId = Number(applicationId);
-      const application = await storage.getMerchantApplication(appId);
-      if (!application) return res.status(404).json({ message: "Application not found" });
-
-      if (application.businessEmail !== email && application.ownerEmail !== email) {
-        return res.status(403).json({ message: "Email does not match application" });
+      const [row] = await db
+        .select({
+          id: merchantApplications.id,
+          esignCapabilityHash: merchantApplications.esignCapabilityHash,
+          esignCapabilityExpiresAt: merchantApplications.esignCapabilityExpiresAt,
+          esignCapabilityRevokedAt: merchantApplications.esignCapabilityRevokedAt,
+        })
+        .from(merchantApplications)
+        .where(eq(merchantApplications.id, appId))
+        .limit(1);
+      if (!row || !merchantAppService.verifyEsignCapability(capability, row as any)) {
+        // Generic 404 — no existence leak.
+        return res.status(404).json({ message: "Not found" });
       }
-
-      if (application.esignStatus === "sent" && application.esignDocumentId) {
-        return res.json({ status: "sent", message: "E-signature document already sent to your email" });
-      }
-
-      await esignEmailCooldown.hydrateFromAuditLog(appId, "merchant_application_esign_sent", "merchant_application");
-      const { inCooldown, retryAfter } = esignEmailCooldown.checkCooldown(appId);
-      if (inCooldown) {
-        return res.status(429).json({
-          message: `Please wait ${Math.ceil(retryAfter / 60)} minute(s) before requesting another e-signature document.`,
-          retryAfter,
-        });
-      }
-
-      const templateId = process.env.GHL_MERCHANT_AGREEMENT_TEMPLATE_ID;
-      if (!templateId) {
-        return res.json({ status: "pending", message: "Your agreement will be sent for signature shortly" });
-      }
-
-      const recipientName = `${application.ownerFirstName || ""} ${application.ownerLastName || ""}`.trim() || application.legalBusinessName || "Merchant";
-      const recipientEmail = application.ownerEmail || application.businessEmail || "";
-
-      const result = await sendDocumentForEsign({
-        documentTemplateId: templateId,
-        recipientName,
-        recipientEmail,
-        applicationId: appId,
-      });
-
-      if (result.success) {
-        await storage.updateMerchantApplication(appId, {
-          esignStatus: "sent",
-          esignDocumentId: result.documentId || null,
-          esignSigningUrl: result.signingUrl || null,
-        });
-        esignEmailCooldown.recordSend(appId);
-        await storage.createAuditLog({
-          action: "merchant_application_esign_sent",
-          entityType: "merchant_application",
-          entityId: appId,
-          details: { recipientEmail },
-        });
-        return res.json({ status: "sent", message: "E-signature document sent to your email" });
-      }
-
-      res.json({ status: "pending", message: "Your agreement will be sent for signature shortly" });
+      const result = await merchantAppService.requestEsignSend({ appId, actor: "public" });
+      res.json(result);
     } catch (err: any) {
-      serverError(res, err);
+      respondServiceError(res, err);
     }
   });
 
@@ -884,36 +501,27 @@ export function registerMerchantsRoutes(app: Express) {
         return res.status(403).json({ message: "Forbidden" });
       }
 
-      await esignEmailCooldown.hydrateFromAuditLog(appId, "merchant_application_esign_sent", "merchant_application");
-      const { retryAfter: cooldownRemaining, lastSentAt } = esignEmailCooldown.checkCooldown(appId);
-
-      if (!application.esignDocumentId) {
-        return res.json({
-          status: application.esignStatus || "pending",
-          cooldownRemaining,
-          lastSentAt: lastSentAt?.toISOString() ?? null,
-        });
+      // Poll external document status and reflect via canonical conditional updater.
+      if (application.esignDocumentId) {
+        const docStatus = await getDocumentStatus(application.esignDocumentId);
+        if (docStatus.status === "completed" || docStatus.status === "signed") {
+          await merchantAppService.applyEsignDocumentState({
+            applicationId: appId,
+            esignStatus: "signed",
+            esignedAt: docStatus.signedAt ? new Date(docStatus.signedAt) : new Date(),
+          });
+          return res.json({ status: "signed" });
+        }
       }
 
-      const docStatus = await getDocumentStatus(application.esignDocumentId);
-
-      if (docStatus.status === "completed" || docStatus.status === "signed") {
-        await storage.updateMerchantApplication(appId, {
-          esignStatus: "signed",
-          esignedAt: new Date(),
-        });
-      }
-
-      res.json({
-        status: docStatus.status === "completed" || docStatus.status === "signed" ? "signed" : application.esignStatus,
-        cooldownRemaining,
-        lastSentAt: lastSentAt?.toISOString() ?? null,
-      });
+      res.json({ status: application.esignStatus || "pending" });
     } catch (err: any) {
       serverError(res, err);
     }
   });
 
+  // GHL document webhook — signature validated constant-time; indexed lookup;
+  // returns non-2xx on internal failure; replay-safe canonical local update.
   app.post("/api/webhooks/ghl-document", webhookRateLimit, async (req, res) => {
     try {
       const webhookSecret = process.env.GHL_WEBHOOK_SECRET;
@@ -922,32 +530,39 @@ export function registerMerchantsRoutes(app: Express) {
         return res.status(503).json({ received: false, error: "Webhook signing not configured" });
       }
       if (webhookSecret) {
-        const signature = req.headers["x-ghl-signature"] || req.headers["x-webhook-signature"];
-        if (!signature || signature !== webhookSecret) {
+        const signature = (req.headers["x-ghl-signature"] || req.headers["x-webhook-signature"]) as string | undefined;
+        const provided = Buffer.from(String(signature ?? ""), "utf8");
+        const expected = Buffer.from(webhookSecret, "utf8");
+        const valid = provided.length === expected.length && crypto.timingSafeEqual(provided, expected);
+        if (!valid) {
           console.warn("[GHL Document Webhook] Invalid signature, rejecting");
           return res.status(401).json({ received: false });
         }
       }
 
-      const { documentId, status, contactId } = req.body;
-      console.log("[GHL Document Webhook] Received:", { documentId, status, contactId });
+      const { documentId, status } = req.body ?? {};
 
       if (documentId && (status === "completed" || status === "signed")) {
-        const applications = await storage.getMerchantApplications();
-        const app = applications.find((a: any) => a.esignDocumentId === documentId);
+        // Indexed lookup by esignDocumentId — no full table scan.
+        const [app] = await db
+          .select({ id: merchantApplications.id })
+          .from(merchantApplications)
+          .where(eq(merchantApplications.esignDocumentId, documentId))
+          .limit(1);
         if (app) {
-          await storage.updateMerchantApplication(app.id, {
+          await merchantAppService.applyEsignDocumentState({
+            documentId,
             esignStatus: "signed",
             esignedAt: new Date(),
           });
-          console.log(`[GHL Document Webhook] Application #${app.id} e-sign completed`);
         }
       }
 
       res.json({ received: true });
     } catch (err: any) {
-      console.error("[GHL Document Webhook] Error:", err.message);
-      res.json({ received: true });
+      // Non-2xx on internal failure so the provider retries (replay-safe).
+      console.error("[GHL Document Webhook] Error:", err?.message);
+      res.status(500).json({ received: false });
     }
   });
 

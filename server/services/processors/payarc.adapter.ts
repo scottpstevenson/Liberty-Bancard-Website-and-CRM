@@ -129,6 +129,7 @@ async function payarcRequest<T = unknown>(
   path: string,
   body?: unknown,
   attempt = 0,
+  extraHeaders?: Record<string, string>,
 ): Promise<{ ok: boolean; status: number; data: T; text: string }> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
@@ -141,6 +142,7 @@ async function payarcRequest<T = unknown>(
         Accept: "application/json",
         Authorization: `Bearer ${apiKey}`,
         "X-Source": "LibertyBancard-CRM",
+        ...extraHeaders,
       },
       body: body !== undefined ? JSON.stringify(body) : undefined,
       signal: controller.signal,
@@ -158,11 +160,12 @@ async function payarcRequest<T = unknown>(
     return { ok: resp.ok, status: resp.status, data, text };
   } catch (err: any) {
     clearTimeout(timer);
-    // Retry once on network error (not on 4xx/5xx)
+    // Retry once on network error (not on 4xx/5xx). Never log the raw error
+    // message — only the retry classification (error name).
     if (attempt === 0 && (err.name === "AbortError" || err.code === "ECONNRESET")) {
-      console.warn(`[PayarcAdapter] ${method} ${path} — retrying after error: ${err.message}`);
+      console.warn(`[PayarcAdapter] ${method} ${path} — retrying after transient network error (${err.name || "unknown"})`);
       await new Promise(r => setTimeout(r, 1_000));
-      return payarcRequest(apiKey, baseUrl, method, path, body, 1);
+      return payarcRequest(apiKey, baseUrl, method, path, body, 1, extraHeaders);
     }
     throw err;
   }
@@ -192,18 +195,26 @@ export class PayarcProcessorAdapter implements IProcessorAdapter {
     if (this.isConfigured()) {
       try {
         const body = buildApplicantPayload(profile);
+        // Forward the stable provider idempotency key as the standard HTTP
+        // Idempotency-Key header so Payarc can deduplicate retries server-side.
+        const idempotencyHeaders: Record<string, string> = profile.providerIdempotencyKey
+          ? { "Idempotency-Key": profile.providerIdempotencyKey }
+          : {};
         const { ok, status, data } = await payarcRequest<any>(
           this.apiKey!,
           this.baseUrl,
           "POST",
           "/applicants",
           body,
+          0,
+          idempotencyHeaders,
         );
 
         if (!ok) {
-          const msg = data?.message || data?.error || `HTTP ${status}`;
-          console.error(`[PayarcAdapter] boardMerchant failed: ${status} — ${msg}`);
-          return { success: false, error: `Payarc API error (${status}): ${msg}` };
+          // Never log provider message/data — status code only. Generic,
+          // status-based boarding error (no provider payload text).
+          console.error(`[PayarcAdapter] boardMerchant failed: HTTP ${status}`);
+          return { success: false, error: `Payarc API error (${status})` };
         }
 
         // Payarc returns { data: { object_id, id, status, ... } } or flat { object_id, ... }
@@ -211,7 +222,8 @@ export class PayarcProcessorAdapter implements IProcessorAdapter {
         const applicationId = applicant?.object_id || applicant?.id || applicant?.applicant_id;
 
         if (!applicationId) {
-          console.error("[PayarcAdapter] boardMerchant: no application ID in response", data);
+          // Never log the raw provider response body.
+          console.error("[PayarcAdapter] boardMerchant: no application ID in response");
           return { success: false, error: "Payarc returned success but no application ID" };
         }
 
@@ -226,9 +238,10 @@ export class PayarcProcessorAdapter implements IProcessorAdapter {
           message: `Application ${applicationId} submitted to Payarc. Estimated decision: ${estimatedDate}.`,
           estimatedDecisionDate: applicant?.estimated_decision_date || estimatedDate,
         };
-      } catch (err: any) {
-        console.error("[PayarcAdapter] boardMerchant exception:", err.message);
-        return { success: false, error: err.message };
+      } catch {
+        // Never log raw exception message — generic status-based error only.
+        console.error("[PayarcAdapter] boardMerchant exception");
+        return { success: false, error: "Payarc boarding request failed" };
       }
     }
 

@@ -383,6 +383,8 @@ export const deals = pgTable("deals", {
   boardingLog: jsonb("boarding_log"),
   boardingSubmittedAt: timestamp("boarding_submitted_at"),
   boardingApprovedAt: timestamp("boarding_approved_at"),
+  // Idempotency for durable processor submission (item 8).
+  boardingIdempotencyKey: text("boarding_idempotency_key"),
   shareToken: varchar("share_token", { length: 64 }).unique(),
   shareData: jsonb("share_data"),
   shareViewCount: integer("share_view_count").default(0),
@@ -1792,9 +1794,121 @@ export const merchantApplications = pgTable("merchant_applications", {
   submittedAt: timestamp("submitted_at"),
   completedAt: timestamp("completed_at"),
   draftTokenHash: text("draft_token_hash"),
+  // ── Protected-data (AES-256-GCM) envelope metadata ──────────────────────
+  // Non-reversible fingerprints (keyed HMAC) for equality/dedup lookups only.
+  einFingerprint: text("ein_fingerprint"),
+  ssnFingerprint: text("ssn_fingerprint"),
+  bankAccountFingerprint: text("bank_account_fingerprint"),
+  // Masked, display-safe representations (never plaintext).
+  einMask: text("ein_mask"),
+  ssnMask: text("ssn_mask"),
+  bankAccountMask: text("bank_account_mask"),
+  bankRoutingMask: text("bank_routing_mask"),
+  // Ciphertext scheme version applied to the protected fields on this row.
+  protectedDataVersion: integer("protected_data_version"),
+  // Per-field/nested protected-data metadata (which fields encrypted, scheme, etc.).
+  protectedDataMetadata: jsonb("protected_data_metadata").$type<Record<string, unknown>>(),
+  // Optional expiry for time-boxed retention of protected data.
+  protectedDataExpiresAt: timestamp("protected_data_expires_at"),
+  // Idempotency key for at-most-once protected-data write/submit operations.
+  // Scoped per-application (combined with id) to avoid global uniqueness conflicts.
+  protectedDataIdempotencyKey: text("protected_data_idempotency_key"),
+  // ── Draft lifecycle ──────────────────────────────────────────────────────
+  draftTokenExpiresAt: timestamp("draft_token_expires_at"),
+  draftTokenRevokedAt: timestamp("draft_token_revoked_at"),
+  // ── Optimistic-concurrency state version ────────────────────────────────
+  stateVersion: integer("state_version").notNull().default(0),
+  // ── Finalize idempotency (processor-side) ───────────────────────────────
+  finalizeIdempotencyKey: text("finalize_idempotency_key"),
+  finalizeAck: jsonb("finalize_ack").$type<Record<string, unknown>>(),
+  // ── eSign capability ────────────────────────────────────────────────────
+  esignCapabilityHash: text("esign_capability_hash"),
+  esignCapabilityExpiresAt: timestamp("esign_capability_expires_at"),
+  esignCapabilityRevokedAt: timestamp("esign_capability_revoked_at"),
+  esignSendState: text("esign_send_state").notNull().default("idle"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => [
+  // UNIQUE partial fingerprint index for eligible finalized applications only.
+  // Guarantees no two finalized applications share the same normalized EIN.
+  // Legacy rows (fingerprint NULL) are excluded; they are never part of the dedup scope.
+  uniqueIndex("merchant_applications_ein_fingerprint_unique_idx")
+    .on(table.einFingerprint)
+    .where(sql`ein_fingerprint IS NOT NULL AND status IN ('submitted', 'under_review', 'approved', 'declined', 'withdrawn')`),
+  // Idempotency unique: scoped per-application (application_id + key).
+  // The global uniqueIndex is removed; per-app uniqueness is enforced here.
+  index("merchant_applications_protected_idempotency_idx")
+    .on(table.id, table.protectedDataIdempotencyKey)
+    .where(sql`protected_data_idempotency_key IS NOT NULL`),
+  // eSign document index for fast lookups by external document ID.
+  index("merchant_applications_esign_document_id_idx")
+    .on(table.esignDocumentId)
+    .where(sql`esign_document_id IS NOT NULL`),
+]);
+
+// ---------------------------------------------------------------------------
+// Merchant Application Protected-Data Outbox
+// Durable, at-least-once change log for protected-data envelope mutations.
+// Consumed by downstream sync/audit; never stores plaintext — only envelope
+// metadata, fingerprints, and masks.
+// ---------------------------------------------------------------------------
+export const merchantApplicationProtectedOutbox = pgTable("merchant_application_protected_outbox", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  applicationId: integer("application_id").notNull().references(() => merchantApplications.id),
+  eventType: text("event_type").notNull(), // encrypted | rotated | expired | purged
+  protectedDataVersion: integer("protected_data_version"),
+  // Envelope-only payload: fingerprints, masks, changed field list — NO plaintext.
+  payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+  // Idempotency guard so re-processing the same logical event is a no-op.
+  idempotencyKey: text("idempotency_key").notNull(),
+  status: text("status").notNull().default("pending"), // pending | processing | delivered | failed
+  attempts: integer("attempts").notNull().default(0),
+  lastError: text("last_error"),
+  availableAt: timestamp("available_at").defaultNow(),
+  lockedAt: timestamp("locked_at"),
+  processedAt: timestamp("processed_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("merchant_app_protected_outbox_idempotency_uidx").on(table.idempotencyKey),
+  index("merchant_app_protected_outbox_dispatch_idx")
+    .on(table.status, table.availableAt)
+    .where(sql`status IN ('pending', 'failed')`),
+  index("merchant_app_protected_outbox_application_idx").on(table.applicationId),
+]);
+
+export type MerchantApplicationProtectedOutbox = typeof merchantApplicationProtectedOutbox.$inferSelect;
+export type InsertMerchantApplicationProtectedOutbox = typeof merchantApplicationProtectedOutbox.$inferInsert;
+
+// ── Deal Boarding Outbox ────────────────────────────────────────────────────
+// Durable outbox for processor_submit effects. Keyed per deal + idempotency
+// key so replays are no-ops. No sensitive values in payload.
+export const dealBoardingOutbox = pgTable("deal_boarding_outbox", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  dealId: integer("deal_id").notNull().references(() => deals.id),
+  applicationId: integer("application_id"),
+  eventType: text("event_type").notNull().default("processor_submit"),
+  payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+  idempotencyKey: text("idempotency_key").notNull(),
+  processorName: text("processor_name"),
+  status: text("status").notNull().default("pending"), // pending | processing | delivered | failed | dead_letter
+  attempts: integer("attempts").notNull().default(0),
+  lastError: text("last_error"),
+  availableAt: timestamp("available_at").defaultNow(),
+  lockedAt: timestamp("locked_at"),
+  processedAt: timestamp("processed_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("deal_boarding_outbox_idempotency_uidx").on(table.idempotencyKey),
+  index("deal_boarding_outbox_dispatch_idx")
+    .on(table.status, table.availableAt)
+    .where(sql`status IN ('pending', 'failed')`),
+  index("deal_boarding_outbox_deal_idx").on(table.dealId),
+]);
+
+export type DealBoardingOutbox = typeof dealBoardingOutbox.$inferSelect;
+export type InsertDealBoardingOutbox = typeof dealBoardingOutbox.$inferInsert;
 
 export const insertMerchantApplicationSchema = createInsertSchema(merchantApplications).omit({
   id: true,

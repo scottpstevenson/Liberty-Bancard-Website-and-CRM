@@ -405,8 +405,6 @@ export interface IStorage {
   getMerchantApplications(): Promise<MerchantApplication[]>;
   getMerchantApplication(id: number): Promise<MerchantApplication | undefined>;
   getMerchantApplicationByUser(userId: string): Promise<MerchantApplication | undefined>;
-  createMerchantApplication(app: InsertMerchantApplication, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }): Promise<MerchantApplication>;
-  updateMerchantApplication(id: number, updates: Partial<InsertMerchantApplication>, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }): Promise<MerchantApplication | undefined>;
 
   getMerchantProfiles(): Promise<MerchantProfile[]>;
   getMerchantProfile(id: number): Promise<MerchantProfile | undefined>;

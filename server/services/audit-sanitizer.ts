@@ -8,6 +8,15 @@
  * object before it is written to the audit-log tables or emitted in
  * operational console output.
  *
+ * Merchant-application protected fields are also covered: tax identifiers
+ * (EIN/tax id), SSNs, dates of birth, and bank/ACH details (routing, account,
+ * bank name/type) are redacted by key. Encrypted/tokenized representations of
+ * those values (ciphertext, fingerprint, hash) are treated as equally
+ * sensitive and never emitted raw. Owner/beneficial-owner/principal and
+ * bank-info subtrees are redacted wholesale and recursively so no descendant
+ * value can leak through a child key that has not been individually
+ * enumerated.
+ *
  * EXPLICIT EXEMPTION: `communication_events` records deliberately store
  * message content (subject/body/preview) as business data. That table's write
  * path (server/services/communication-events.ts) MUST NOT route through this
@@ -44,6 +53,73 @@ const SENSITIVE_KEYS = new Set([
   "token",
   "apikey",
   "authorization",
+  // --- Merchant application protected fields ---
+  // Government/tax identifiers
+  "ein",
+  "taxid",
+  "federaltaxid",
+  "ssn",
+  "socialsecuritynumber",
+  "ssnentered",
+  // Dates of birth
+  "dob",
+  "dateofbirth",
+  "ownerdob",
+  "birthdate",
+  // Bank / ACH details
+  "routingnumber",
+  "routing",
+  "accountnumber",
+  "account",
+  "bankaccountnumber",
+  "bankroutingnumber",
+  "bankname",
+  "bankaccounttype",
+  "bankaccount",
+  "aba",
+  "iban",
+  "swift",
+  // Owner sensitive fields
+  "ownerssn",
+  "ownertaxid",
+  // Encrypted / tokenized representations of sensitive values must never
+  // be emitted raw either — they are as sensitive as (or a handle to) the plaintext.
+  "ciphertext",
+  "cipher",
+  "encrypted",
+  "encrypteddata",
+  // Specific protected-data fingerprint columns — redacted as sensitive handles.
+  "einfingerprint",
+  "ssnfingerprint",
+  "bankaccountfingerprint",
+  // Generic fingerprint/hash keys (not *Mask keys — masks are safe operational metadata).
+  "fingerprint",
+  "hash",
+]);
+
+/**
+ * Keys whose entire nested subtree contains merchant PII (owner identity,
+ * banking, tax) and must be redacted wholesale rather than traversed. This
+ * guarantees that arbitrarily-shaped nested owner/bank payloads cannot leak a
+ * sensitive value through a not-yet-enumerated child key.
+ */
+const SENSITIVE_SUBTREE_KEYS = new Set([
+  "owner",
+  "owners",
+  "beneficialowner",
+  "beneficialowners",
+  "principal",
+  "principals",
+  // additionalOwners and snake_case variant are explicitly protected merchant-app
+  // fields containing nested SSNs, DOBs, and identity data. Treat the entire
+  // subtree as sensitive wholesale — any descendant key may contain PII.
+  "additionalowners",
+  "additional_owners",
+  "bankinfo",
+  "bankinformation",
+  "bankaccount",
+  "bankdetails",
+  "achinfo",
 ]);
 
 /**
@@ -97,6 +173,37 @@ function isSensitiveKey(key: string): boolean {
   return SENSITIVE_KEYS.has(key.toLowerCase().replace(/[_-]/g, ""));
 }
 
+function isSensitiveSubtreeKey(key: string): boolean {
+  return SENSITIVE_SUBTREE_KEYS.has(key.toLowerCase().replace(/[_-]/g, ""));
+}
+
+/**
+ * Fully redact a value (any shape) to a safe, structure-agnostic representation
+ * so no raw sensitive value survives, even inside deeply nested owner/bank
+ * subtrees. Scalars become a token; objects/arrays are traversed with EVERY
+ * child key forced through sensitive-key redaction.
+ */
+function redactSensitiveSubtree(value: unknown, depth = 0): unknown {
+  if (value == null) return value;
+  if (depth > MAX_DEPTH) return "[depth-capped]";
+  if (typeof value === "string") return redactToken(value);
+  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
+    return "[redacted]";
+  }
+  if (value instanceof Date) return "[redacted]";
+  if (Array.isArray(value)) {
+    return value.map((item) => redactSensitiveSubtree(item, depth + 1));
+  }
+  if (typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      out[k] = v == null ? v : redactSensitiveSubtree(v, depth + 1);
+    }
+    return out;
+  }
+  return "[redacted]";
+}
+
 /**
  * Strip/redact known-sensitive keys from an arbitrary payload before it is
  * persisted to audit tables or printed to operational logs.
@@ -120,6 +227,10 @@ export function sanitizeAuditPayload(payload: unknown, depth = 0): unknown {
       const normalizedKey = key.toLowerCase().replace(/[_-]/g, "");
       if (ERROR_KEYS.has(normalizedKey)) {
         out[key] = typeof value === "string" ? scrubErrorString(value) : value == null ? value : "[redacted]";
+      } else if (isSensitiveSubtreeKey(key)) {
+        // Wholesale-redact owner/bank/principal subtrees: every descendant is
+        // treated as sensitive regardless of child key name.
+        out[key] = value == null ? value : redactSensitiveSubtree(value, depth + 1);
       } else if (isSensitiveKey(key)) {
         if (typeof value === "string") {
           out[key] = redactToken(value);

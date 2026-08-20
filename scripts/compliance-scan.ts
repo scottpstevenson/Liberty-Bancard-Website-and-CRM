@@ -1429,6 +1429,31 @@ function main(): void {
   console.log("=== Wave 12 Static Compliance Scanner ===\n");
   console.log("Scanning: " + SCAN_DIRS.join(", ") + "\n");
 
+  // ── Merchant encryption key check (production release gate) ─────────────────
+  // Validates that MERCHANT_DATA_ENCRYPTION_KEY is present and valid when
+  // NODE_ENV=production. Dev builds are not blocked by a missing key.
+  // The key value is NEVER printed.
+  if (process.env.NODE_ENV === "production") {
+    const merchantKey = (process.env.MERCHANT_DATA_ENCRYPTION_KEY ?? "").trim();
+    const isValidHex = /^[0-9a-fA-F]{64}$/.test(merchantKey);
+    const isValidB64 = !isValidHex && Buffer.from(merchantKey, "base64").length === 32 && merchantKey.length === 44;
+    if (!merchantKey || (!isValidHex && !isValidB64)) {
+      console.error("✗ MERCHANT KEY GATE: MERCHANT_DATA_ENCRYPTION_KEY is not set or invalid.");
+      console.error("  Production releases require a valid 32-byte merchant encryption key.");
+      console.error("  Expected: 64-char hex OR 44-char base64. Value is NOT printed.");
+      console.error("  See docs/merchant-data-key-rotation.md for key generation guidance.");
+      process.exit(1);
+    }
+    console.log("  ✓ MERCHANT_DATA_ENCRYPTION_KEY present and valid (value not printed)\n");
+  } else {
+    const merchantKey = (process.env.MERCHANT_DATA_ENCRYPTION_KEY ?? "").trim();
+    if (merchantKey) {
+      console.log("  ✓ MERCHANT_DATA_ENCRYPTION_KEY is set (dev/test mode — format not enforced)\n");
+    } else {
+      console.log("  ○ MERCHANT_DATA_ENCRYPTION_KEY not set (non-production — not required for dev build)\n");
+    }
+  }
+
   // ── Allowlist integrity check (T-02, #1626) ────────────────────────────────
   // Every allowlist entry must target a SPECIFIC call site via a non-trivial
   // lineContains substring. Whole-file coverage (empty/blank lineContains) is

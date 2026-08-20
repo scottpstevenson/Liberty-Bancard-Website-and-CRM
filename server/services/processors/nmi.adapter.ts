@@ -100,19 +100,26 @@ export class NmiProcessorAdapter implements IProcessorAdapter {
   async boardMerchant(profile: MerchantProfile): Promise<BoardingResult> {
     if (this.isFullyConfigured()) {
       try {
+        // Forward the stable provider idempotency key as the standard HTTP
+        // Idempotency-Key header so the NMI boarding endpoint can deduplicate
+        // retries server-side. This is a standard REST idempotency pattern.
+        const idempotencyHeaders: Record<string, string> = profile.providerIdempotencyKey
+          ? { "Idempotency-Key": profile.providerIdempotencyKey }
+          : {};
         const resp = await fetch(`${this.apiBase}/api/boarding/submit`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${this.apiKey}`,
             "X-Source": "LibertyBancard-CRM",
+            ...idempotencyHeaders,
           },
           body: JSON.stringify(profile),
         });
 
         if (!resp.ok) {
-          const errBody = await resp.text();
-          console.error(`[NmiAdapter] boardMerchant failed: ${resp.status} ${errBody}`);
+          // Never log raw provider error body — status code only.
+          console.error(`[NmiAdapter] boardMerchant failed: HTTP ${resp.status}`);
           return { success: false, error: `NMI API error: ${resp.status}` };
         }
 
@@ -124,9 +131,10 @@ export class NmiProcessorAdapter implements IProcessorAdapter {
           message: data.message,
           estimatedDecisionDate: data.estimatedDecisionDate,
         };
-      } catch (err: any) {
-        console.error("[NmiAdapter] boardMerchant exception:", err.message);
-        return { success: false, error: err.message };
+      } catch {
+        // Never log raw exception message — generic status-based error only.
+        console.error("[NmiAdapter] boardMerchant exception");
+        return { success: false, error: "NMI boarding request failed" };
       }
     }
 

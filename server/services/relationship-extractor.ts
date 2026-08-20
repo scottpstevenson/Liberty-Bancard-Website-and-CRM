@@ -10,15 +10,11 @@ import {
   type InsertEntityRelationship,
 } from "@shared/schema";
 import { eq, and, ne, isNull, or, isNotNull, inArray } from "drizzle-orm";
+import { computeApplicationFingerprints } from "./merchant-protected-data";
 
 function normalizePhone(phone: string | null | undefined): string {
   if (!phone) return "";
   return phone.replace(/\D/g, "").slice(-10);
-}
-
-function normalizeRoutingNumber(routing: string | null | undefined): string {
-  if (!routing) return "";
-  return routing.replace(/\D/g, "");
 }
 
 async function upsertRelationship(rel: InsertEntityRelationship): Promise<void> {
@@ -142,9 +138,19 @@ export async function extractRelationshipsForContact(contactId: number): Promise
     }
   }
 
-  // ── 5. Application-level matches (EIN, bank routing, owner name) ─────────
+  // ── 5. Application-level matches (EIN, owner name) ──────────────────────
+  // Explicit least-privilege projection: only the non-sensitive identity
+  // fields plus the persisted (already one-way) einFingerprint are loaded.
+  // Ciphertext, raw EIN/SSN/bank digits, tokens, and masks are NEVER selected.
+  const MERCHANT_APP_MATCH_PROJECTION = {
+    contactId: merchantApplications.contactId,
+    ownerFirstName: merchantApplications.ownerFirstName,
+    ownerLastName: merchantApplications.ownerLastName,
+    einFingerprint: merchantApplications.einFingerprint,
+  };
+
   const apps = await db
-    .select()
+    .select(MERCHANT_APP_MATCH_PROJECTION)
     .from(merchantApplications)
     .where(eq(merchantApplications.contactId, contactId));
 
@@ -152,18 +158,23 @@ export async function extractRelationshipsForContact(contactId: number): Promise
   if (!contactApp) return;
 
   const allApps = await db
-    .select()
+    .select(MERCHANT_APP_MATCH_PROJECTION)
     .from(merchantApplications)
     .where(ne(merchantApplications.contactId, contactId));
+
+  // Compare on one-way fingerprints of protected identifiers — never raw
+  // EIN / routing digits.
+  const contactPrints = computeApplicationFingerprints(contactApp);
 
   for (const otherApp of allApps) {
     if (!otherApp.contactId || otherApp.contactId === contactId) continue;
 
+    const otherPrints = computeApplicationFingerprints(otherApp);
+
     if (
-      contactApp.ein &&
-      otherApp.ein &&
-      contactApp.ein.replace(/\D/g, "") === otherApp.ein.replace(/\D/g, "") &&
-      contactApp.ein.length >= 9
+      contactPrints.einFingerprint &&
+      otherPrints.einFingerprint &&
+      contactPrints.einFingerprint === otherPrints.einFingerprint
     ) {
       await upsertRelationship({
         sourceEntityType: "contact",
@@ -176,19 +187,9 @@ export async function extractRelationshipsForContact(contactId: number): Promise
       });
     }
 
-    const srcRouting = normalizeRoutingNumber(contactApp.bankRoutingNumber);
-    const tgtRouting = normalizeRoutingNumber(otherApp.bankRoutingNumber);
-    if (srcRouting && tgtRouting && srcRouting === tgtRouting && srcRouting.length >= 9) {
-      await upsertRelationship({
-        sourceEntityType: "contact",
-        sourceEntityId: contactId,
-        targetEntityType: "contact",
-        targetEntityId: otherApp.contactId,
-        relationshipType: "same_bank",
-        confidence: 0.9,
-        source: "system",
-      });
-    }
+    // Routing institution match (same_bank) is intentionally NOT generated here:
+    // a shared routing number means the same bank, not the same person or business.
+    // routingFingerprint is always null from computeApplicationFingerprints per spec.
 
     if (
       contactApp.ownerFirstName &&
@@ -244,15 +245,24 @@ export async function extractRelationshipsForContactsBatch(contactIds: number[])
     .from(deals)
     .where(and(inArray(deals.contactId, contactIds), isNotNull(deals.mid)));
 
+  // Explicit least-privilege projection: only non-sensitive identity fields +
+  // the persisted one-way einFingerprint. Never load ciphertext/raw digits.
+  const MERCHANT_APP_MATCH_PROJECTION = {
+    contactId: merchantApplications.contactId,
+    ownerFirstName: merchantApplications.ownerFirstName,
+    ownerLastName: merchantApplications.ownerLastName,
+    einFingerprint: merchantApplications.einFingerprint,
+  };
+
   // 5. Batch-fetch merchant applications for the target contacts — one query
   const targetApps = await db
-    .select()
+    .select(MERCHANT_APP_MATCH_PROJECTION)
     .from(merchantApplications)
     .where(inArray(merchantApplications.contactId, contactIds));
 
-  // 6. Fetch all other merchant applications for EIN/routing/name matching — one query
+  // 6. Fetch all other merchant applications for EIN/name matching — one query
   const allOtherApps = await db
-    .select()
+    .select(MERCHANT_APP_MATCH_PROJECTION)
     .from(merchantApplications)
     .where(
       contactIds.length > 0
@@ -369,14 +379,19 @@ export async function extractRelationshipsForContactsBatch(contactIds: number[])
     const contactApp = appByContact.get(contactId);
     if (!contactApp) continue;
 
+    // Compare on one-way fingerprints of protected identifiers — never raw
+    // EIN / routing digits.
+    const contactPrints = computeApplicationFingerprints(contactApp);
+
     for (const otherApp of allOtherApps) {
       if (!otherApp.contactId || otherApp.contactId === contactId) continue;
 
+      const otherPrints = computeApplicationFingerprints(otherApp);
+
       if (
-        contactApp.ein &&
-        otherApp.ein &&
-        contactApp.ein.replace(/\D/g, "") === otherApp.ein.replace(/\D/g, "") &&
-        contactApp.ein.length >= 9
+        contactPrints.einFingerprint &&
+        otherPrints.einFingerprint &&
+        contactPrints.einFingerprint === otherPrints.einFingerprint
       ) {
         await upsertRelationship({
           sourceEntityType: "contact",
@@ -389,19 +404,9 @@ export async function extractRelationshipsForContactsBatch(contactIds: number[])
         });
       }
 
-      const srcRouting = normalizeRoutingNumber(contactApp.bankRoutingNumber);
-      const tgtRouting = normalizeRoutingNumber(otherApp.bankRoutingNumber);
-      if (srcRouting && tgtRouting && srcRouting === tgtRouting && srcRouting.length >= 9) {
-        await upsertRelationship({
-          sourceEntityType: "contact",
-          sourceEntityId: contactId,
-          targetEntityType: "contact",
-          targetEntityId: otherApp.contactId,
-          relationshipType: "same_bank",
-          confidence: 0.9,
-          source: "system",
-        });
-      }
+      // Routing institution match (same_bank) is intentionally NOT generated here:
+      // a shared routing number means the same bank, not the same person or business.
+      // routingFingerprint is always null from computeApplicationFingerprints per spec.
 
       if (
         contactApp.ownerFirstName &&
@@ -595,38 +600,23 @@ export async function scanApplicationRisk(
     }
   }
 
-  // Persist findings to the merchant application's underwriting notes log
+  // Persist findings via canonical underwriting state writer (item 7).
   if (riskyResults.length > 0 && applicationId) {
-    try {
-      const [app] = await db
-        .select()
-        .from(merchantApplications)
-        .where(eq(merchantApplications.id, applicationId));
-      if (app) {
-        const existingLog: Array<{ note: string; author: string; authorId?: string | null; createdAt: string }> =
-          Array.isArray(app.underwritingNotesLog) ? (app.underwritingNotesLog as any[]) : [];
-        const riskNote = {
-          note:
-            `⚠️ Automated Risk Scan — ${riskyResults.length} flagged relationship(s) detected:\n` +
-            riskyResults
-              .map((r) => `• ${r.relationshipType.replace(/_/g, " ")} → ${r.targetName} (${Math.round(r.confidence * 100)}% confidence)`)
-              .join("\n"),
-          author: "System — Relationship Risk Engine",
-          authorId: null,
-          createdAt: new Date().toISOString(),
-        };
-        await db
-          .update(merchantApplications)
-          .set({
-            underwritingNotesLog: [...existingLog, riskNote] as any,
-            underwritingStatus: "under_review",
-            updatedAt: new Date(),
-          })
-          .where(eq(merchantApplications.id, applicationId));
-      }
-    } catch (err: any) {
-      console.warn("[RelExtractor] Failed to persist risk findings to application:", err.message);
-    }
+    const { applyUnderwritingRiskState } = await import("./merchant-application-service");
+    const riskNoteText =
+      `⚠️ Automated Risk Scan — ${riskyResults.length} flagged relationship(s) detected:\n` +
+      riskyResults
+        .map((r) => `• ${r.relationshipType.replace(/_/g, " ")} → ${r.targetName} (${Math.round(r.confidence * 100)}% confidence)`)
+        .join("\n");
+    await applyUnderwritingRiskState({
+      applicationId,
+      underwritingStatus: "under_review",
+      riskNote: {
+        note: riskNoteText,
+        author: "System — Relationship Risk Engine",
+        authorId: null,
+      },
+    });
   }
 
   return { hasRisk: riskyResults.length > 0, relationships: riskyResults };

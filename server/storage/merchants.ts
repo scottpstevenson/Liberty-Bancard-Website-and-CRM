@@ -119,49 +119,9 @@ import { coerceDateFields } from "../utils/date-coerce";
   }
 
 
-  async createMerchantApplication(app: InsertMerchantApplication, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }) {
-    const { auditChange } = await import("../services/audit-change");
-    return await db.transaction(async (tx) => {
-      const [created] = await tx.insert(merchantApplications).values(app).returning();
-      await auditChange({
-        userId: auditCtx?.userId ?? null,
-        actorType: (auditCtx?.actorType as any) ?? "user",
-        actorId: auditCtx?.actorId ?? null,
-        action: "merchant_application_created",
-        entityType: "merchant_application",
-        entityId: created.id,
-        before: null,
-        after: created as unknown as Record<string, unknown>,
-      }, tx);
-      return created;
-    });
-  }
-
-
-  async updateMerchantApplication(id: number, updates: Partial<InsertMerchantApplication>, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }) {
-    const { auditChange } = await import("../services/audit-change");
-    const coercedUpdates = coerceDateFields(
-      updates as Record<string, unknown>,
-      ["esignedAt", "approvedAt", "declinedAt", "submittedAt", "completedAt"],
-    );
-    const [before] = await db.select().from(merchantApplications).where(eq(merchantApplications.id, id));
-    return await db.transaction(async (tx) => {
-      const [updated] = await tx.update(merchantApplications).set({ ...coercedUpdates, updatedAt: new Date() } as typeof merchantApplications.$inferInsert).where(eq(merchantApplications.id, id)).returning();
-      if (updated) {
-        await auditChange({
-          userId: auditCtx?.userId ?? null,
-          actorType: (auditCtx?.actorType as any) ?? "user",
-          actorId: auditCtx?.actorId ?? null,
-          action: "merchant_application_updated",
-          entityType: "merchant_application",
-          entityId: id,
-          before: before as unknown as Record<string, unknown>,
-          after: updated as unknown as Record<string, unknown>,
-        }, tx);
-      }
-      return updated;
-    });
-  }
+  // NOTE: generic create/updateMerchantApplication were removed — the canonical
+  // server/services/merchant-application-service is the sole write owner for
+  // merchant-application persistence, transitions, and protected data.
 
 
   async getMerchantProfiles() {
