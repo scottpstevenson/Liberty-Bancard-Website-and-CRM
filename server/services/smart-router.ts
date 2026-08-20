@@ -139,14 +139,20 @@ export async function routeContact(contactId: number): Promise<RoutingResult> {
     return { sequenceIds: [], sequenceNames: [], reason: "Contact not found", complianceBlocked: false };
   }
 
-  const compliance = checkCompliance(contact);
-  if (!compliance.allowed) {
+  const { evaluateContactability } = await import("./contactability");
+  const contactability = await evaluateContactability({
+    contactId,
+    channel: "email",
+    campaignType: "smart_router_enrollment",
+    mode: "enforcement",
+  });
+  if (!contactability.allowed) {
     return {
       sequenceIds: [],
       sequenceNames: [],
-      reason: compliance.reason || "Compliance blocked",
+      reason: contactability.reason || "Contactability blocked",
       complianceBlocked: true,
-      complianceReason: compliance.reason,
+      complianceReason: contactability.reason,
     };
   }
 

@@ -1,10 +1,35 @@
 import { storage } from "../storage";
-import { sendGhlEmail, sendGhlSms, sendTemplatedMessage, isGhlConfigured } from "./ghl";
+import { sendTemplatedMessage, isGhlConfigured } from "./ghl";
 import { advanceDealStage } from "./deal-stage-service";
 import { updateContactGhlFirst } from "./contact-writer";
 import { resolvePacketVertical, GENERAL_FALLBACK_VERTICAL } from "../../shared/collateral-packet-verticals";
 import { applyConsentCommand } from "./consent-authority";
 import crypto from "crypto";
+
+async function canSendWorkflowTemplate(templateId: number, contactId: number): Promise<{ allowed: boolean; reason?: string }> {
+  const template = await storage.getMessageTemplate(templateId);
+  if (!template || !template.isActive || !["email", "sms"].includes(template.channel)) {
+    return { allowed: false, reason: "Workflow template is missing, inactive, or has an unsupported channel" };
+  }
+  const { evaluateContactability } = await import("./contactability");
+  const decision = await evaluateContactability({
+    contactId,
+    channel: template.channel as "email" | "sms",
+    campaignType: "workflow_template",
+    mode: "enforcement",
+  });
+  return { allowed: decision.allowed, reason: decision.reason };
+}
+
+export async function sendWorkflowEmail(params: { contactId: number; dealId?: number; subject: string; body: string }) {
+  const { channelOrchestrator } = await import("./transports/index");
+  return channelOrchestrator.sendEmail(params);
+}
+
+export async function sendWorkflowSms(params: { contactId: number; dealId?: number; body: string }) {
+  const { channelOrchestrator } = await import("./transports/index");
+  return channelOrchestrator.sendSms(params);
+}
 
 interface WorkflowContext {
   entityType?: string;
@@ -187,10 +212,13 @@ export async function executeWorkflowActions(
           const subject = await interpolateTemplate(action.subject || "Message from Liberty Bancard", contactId, dealId);
           const body = await interpolateTemplate(action.body || "", contactId, dealId);
           if (action.templateId) {
-            const result = await sendTemplatedMessage({ templateId: action.templateId, contactId, dealId });
+            const permission = await canSendWorkflowTemplate(action.templateId, contactId);
+            const result = permission.allowed
+              ? await sendTemplatedMessage({ templateId: action.templateId, contactId, dealId })
+              : { success: false, error: permission.reason };
             logEntries.push({ step: i + 1, action: "send_ghl_email", templateId: action.templateId, status: result.success ? "completed" : "failed", error: result.error, timestamp: new Date().toISOString() });
           } else {
-            const result = await sendGhlEmail({ contactId, dealId, subject, body });
+            const result = await sendWorkflowEmail({ contactId, dealId, subject, body });
             logEntries.push({ step: i + 1, action: "send_ghl_email", status: result.success ? "completed" : "failed", error: result.error, timestamp: new Date().toISOString() });
           }
         } else {
@@ -209,10 +237,13 @@ export async function executeWorkflowActions(
         if (isGhlConfigured()) {
           const body = await interpolateTemplate(action.body || "", contactId, dealId);
           if (action.templateId) {
-            const result = await sendTemplatedMessage({ templateId: action.templateId, contactId, dealId });
+            const permission = await canSendWorkflowTemplate(action.templateId, contactId);
+            const result = permission.allowed
+              ? await sendTemplatedMessage({ templateId: action.templateId, contactId, dealId })
+              : { success: false, error: permission.reason };
             logEntries.push({ step: i + 1, action: "send_ghl_sms", templateId: action.templateId, status: result.success ? "completed" : "failed", error: result.error, timestamp: new Date().toISOString() });
           } else {
-            const result = await sendGhlSms({ contactId, dealId, body });
+            const result = await sendWorkflowSms({ contactId, dealId, body });
             logEntries.push({ step: i + 1, action: "send_ghl_sms", status: result.success ? "completed" : "failed", error: result.error, timestamp: new Date().toISOString() });
           }
         } else {
@@ -224,7 +255,7 @@ export async function executeWorkflowActions(
         const deal = dealId ? await storage.getDeal(dealId) : undefined;
         const matchedPacket = resolveCollateralPacket(packets, { packetId: action.packetId, deal });
         if (matchedPacket && isGhlConfigured()) {
-          const result = await sendGhlEmail({
+          const result = await sendWorkflowEmail({
             contactId, dealId,
             subject: `Your Custom Pricing Breakdown - ${matchedPacket.name}`,
             body: `<p>Hi {{contact.firstName}},</p><p>Here is your personalized information packet.</p><p>Best,<br/>Liberty Bancard</p><p style="font-size:11px;color:#999;">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>`,
@@ -252,7 +283,7 @@ export async function executeWorkflowActions(
 <p style="font-size:11px;color:#999;">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>`,
             contactId, dealId
           );
-          const result = await sendGhlEmail({
+          const result = await sendWorkflowEmail({
             contactId, dealId,
             subject: `Your Processing Analysis is Ready - ${contact.companyName || contact.firstName}`,
             body: proposalBody,
@@ -328,7 +359,7 @@ export async function executeWorkflowActions(
             `<p>Hi {{contact.firstName}},</p><p>We hope your payment processing has been running smoothly since switching to Liberty Bancard!</p><p>Would you mind leaving us a quick review?</p><p>Thank you!</p><p>Best,<br/>Liberty Bancard Team</p>`,
             contactId, dealId
           );
-          const result = await sendGhlEmail({
+          const result = await sendWorkflowEmail({
             contactId, dealId,
             subject: "How's your experience with Liberty Bancard?",
             body,

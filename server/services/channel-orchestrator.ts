@@ -117,8 +117,6 @@ export interface OrchestratorSendOptions {
    * @see server/services/outbound-pause-authority.ts EXCEPTION_REGISTRY
    */
   pauseExceptionKey?: string;
-  /** Skip the DNC / contactability gate entirely (e.g., legal/compliance notices). Default false. */
-  skipContactabilityCheck?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -147,7 +145,7 @@ export class ChannelOrchestrator {
   async checkCompliance(
     contactId: number,
     channels: ContactabilityChannel[],
-    opts: Pick<OrchestratorSendOptions, "pauseExceptionKey" | "skipContactabilityCheck"> = {},
+    opts: Pick<OrchestratorSendOptions, "pauseExceptionKey"> = {},
   ): Promise<ChannelComplianceResult> {
     // 1. Global pause check — canonical authority with fail-closed semantics
     const pauseDecision = await authorize({ exceptionKey: opts.pauseExceptionKey });
@@ -166,7 +164,7 @@ export class ChannelOrchestrator {
     }
 
     // 2. Communication arbitration — suppress if rep recently touched or auto-send too soon
-    if (!opts.skipContactabilityCheck) {
+    {
       const { shouldSuppress, logArbitrationSuppression } = await import("./communication-arbitration");
       // Map ContactabilityChannel to arbitration channel string (use first channel for arbitration)
       const arbitrationChannel = channels[0] ?? "email";
@@ -182,7 +180,7 @@ export class ChannelOrchestrator {
     }
 
     // 3. Contactability gate — DNC, consent, PEWC, quiet hours, channel eligibility
-    if (!opts.skipContactabilityCheck) {
+    {
       const { evaluateContactability } = await import("./contactability");
       for (const ch of channels) {
         const result = await evaluateContactability({

@@ -758,7 +758,7 @@ async function executeEmailAction(lead: SdrLeadState, strongerCta?: boolean): Pr
     const { channelOrchestrator } = await import("../transports/index");
     const result = await channelOrchestrator.sendEmail(
       { contactId: lead.contactId, subject, body, fromEmail: selectedInbox.emailAddress, fromName: selectedInbox.label },
-      { skipContactabilityCheck: false },
+      {},
     );
 
     await logChannelAttempt({
@@ -947,7 +947,7 @@ async function executeSmsAction(lead: SdrLeadState): Promise<boolean> {
     const { channelOrchestrator: smsOrch } = await import("../transports/index");
     const result = await smsOrch.sendSms(
       { contactId: lead.contactId, body },
-      { skipContactabilityCheck: false },
+      {},
     );
 
     await logChannelAttempt({

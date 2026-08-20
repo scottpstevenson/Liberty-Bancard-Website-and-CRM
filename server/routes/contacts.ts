@@ -2715,11 +2715,16 @@ export function registerContactsRoutes(app: Express) {
 
       const contact = await storage.getContact(contactId);
       if (!contact) return res.status(404).json({ message: "Contact not found" });
+      const role = (req.user as any)?.role;
+      const email = (req.user as any)?.email;
+      if (role === "agent" && contact.assignedTo && contact.assignedTo !== email) {
+        return res.status(403).json({ message: "Forbidden", code: "NOT_YOUR_CONTACT" });
+      }
       if (!contact.email) return res.status(400).json({ message: "Contact has no email address" });
       if (!isGhlConfigured()) return res.status(503).json({ message: "GHL is not configured" });
 
-      const { sendGhlEmail } = await import("../services/ghl");
-      const result = await sendGhlEmail({ contactId, subject, body });
+      const { channelOrchestrator } = await import("../services/transports/index");
+      const result = await channelOrchestrator.sendEmail({ contactId, subject, body });
 
       if (!result.success) {
         console.error("[Contacts] GHL email send failed:", result.error);

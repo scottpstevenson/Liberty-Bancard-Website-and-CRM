@@ -23,6 +23,7 @@
  *   triggerWorkflow     → GHL workflow (low-level)
  *   sendGhlEmail        → email
  *   sendGhlEmailForMerchant → email (merchant-specific)
+ *   sendTemplatedMessage  → email/SMS template delivery
  *   sendSmtpEmail       → email (SMTP fallback)
  *   sendEmailReply      → email (SDR)
  *   unifiedSendEmail    → email (abstraction)
@@ -320,14 +321,6 @@ const CALL_SITE_ALLOWLIST: Array<{
     reason: "Statement receipt confirmation via GHL — triggered by specific contact's statement submission. Reviewed and approved.",
     reviewDate: "2026-06-26",
   },
-  {
-    file: "server/services/workflow-executor.ts",
-    lineContains: "sendGhlEmail",
-    channel: "email",
-    category: "internal_admin",
-    reason: "Workflow-executor email step — executes a pre-configured workflow email action triggered by an authenticated agent/admin action, not automated outbound. Reviewed and approved.",
-    reviewDate: "2026-06-26",
-  },
   // ── Admin-gated routes — reviewed 2026-06-26 ─────────────────────────────
   {
     file: "server/routes/activity.ts",
@@ -559,14 +552,6 @@ const CALL_SITE_ALLOWLIST: Array<{
     channel: "ringless_vm/workflow",
     category: "transactional_merchant",
     reason: "Partner welcome workflow enrollment — triggered by partner-approval event, sends only to the newly approved partner. Reviewed 2026-06-26.",
-    reviewDate: "2026-06-26",
-  },
-  {
-    file: "server/services/workflow-executor.ts",
-    lineContains: "sendGhlSms({ contactId, dealId, body",
-    channel: "sms",
-    category: "transactional_merchant",
-    reason: "Workflow-executor SMS action step — executed per-contact as part of a CRM workflow step, not a broadcast. Reviewed 2026-06-26.",
     reviewDate: "2026-06-26",
   },
   // ── Non-email send sites: pipeline_gated SDR (evaluateContactability at orchestrator top-of-pipeline) ──
@@ -830,6 +815,7 @@ const SEND_FUNCTIONS: Record<string, string> = {
   triggerWorkflow: "workflow",
   sendGhlEmail: "email",
   sendGhlEmailForMerchant: "email",
+  sendTemplatedMessage: "template",
   sendSmtpEmail: "email",
   sendEmailReply: "email",
   unifiedSendEmail: "email",
@@ -905,7 +891,7 @@ function detectEnclosingFunction(lines: string[], callLineIdx: number): string {
 function findNearestGate(lines: string[], callLineIdx: number, SCAN_RADIUS = 120): string {
   const start = Math.max(0, callLineIdx - SCAN_RADIUS);
   for (let i = callLineIdx; i >= start; i--) {
-    if (/evaluateContactability|checkBeforeSend|canEnrollContactInSequence/.test(lines[i])) {
+    if (/evaluateContactability|checkBeforeSend|canEnrollContactInSequence|canSendWorkflowTemplate/.test(lines[i])) {
       return `line ${i + 1}: ${lines[i].trim().slice(0, 80)}`;
     }
   }
@@ -955,7 +941,7 @@ function classifyEmailCategory(
     fn.includes("slack") || fn.includes("webhook") || fn.includes("anomaly") ||
     fn.includes("sla") || fn.includes("reconcil") || fn.includes("residual") ||
     file.includes("anomaly") || file.includes("digest") || file.includes("alert") ||
-    file.includes("sla-worker") || file.includes("workflow-executor") ||
+    file.includes("sla-worker") ||
     file.includes("/routes/activity") || file.includes("/routes/admin") ||
     file.includes("/routes/analytics") || file.includes("/routes/integrations") ||
     file.includes("/routes/notifications") || file.includes("/routes/residuals") ||
@@ -1137,6 +1123,34 @@ function scanFile(absPath: string): Finding[] {
   return findings;
 }
 
+/**
+ * Contactability is never an allowlisted exception. A true bypass weakens both
+ * the orchestrator's arbitration and the canonical evaluator, so reject it
+ * before per-call-site classifications can mask the architectural violation.
+ */
+function scanForbiddenContactabilityBypasses(absPath: string): Finding[] {
+  const rel = relPath(absPath);
+  if (SKIP_PATTERNS.some(p => p.test(rel)) || !rel.endsWith(".ts")) return [];
+  const lines = fs.readFileSync(absPath, "utf8").split("\n");
+  const findings: Finding[] = [];
+  lines.forEach((line, idx) => {
+    if (/^\s*\/\//.test(line) || /^\s*\*/.test(line)) return;
+    if (!/\bskipContactabilityCheck\s*:\s*true\b/.test(line)) return;
+    findings.push({
+      verdict: "FAIL",
+      file: rel,
+      line: idx + 1,
+      enclosingFunction: detectEnclosingFunction(lines, idx),
+      channel: "all",
+      emailCategory: null,
+      nearestGate: "N/A — prohibited bypass",
+      reason: "skipContactabilityCheck: true bypasses canonical contactability and communication arbitration",
+      suggestedFix: "Remove the bypass. Route merchant-directed sends through ChannelOrchestrator with its mandatory contactability fence.",
+    });
+  });
+  return findings;
+}
+
 function walkDir(dir: string): Finding[] {
   const results: Finding[] = [];
   if (!fs.existsSync(dir)) return results;
@@ -1144,7 +1158,9 @@ function walkDir(dir: string): Finding[] {
   for (const entry of entries) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) results.push(...walkDir(full));
-    else if (entry.isFile()) results.push(...scanFile(full));
+    else if (entry.isFile()) {
+      results.push(...scanFile(full), ...scanForbiddenContactabilityBypasses(full));
+    }
   }
   return results;
 }
@@ -1230,7 +1246,6 @@ const APPROVED_UPSTREAM_CALLERS = new Set([
   "server/services/co-branded-proposal.ts",
   "server/services/proposal-engine.ts",
   "server/services/sla-worker.ts",
-  "server/services/workflow-executor.ts",
   "server/routes/activity.ts",
   "server/routes/contacts.ts",
   "server/routes/helpers.ts",

@@ -17,6 +17,26 @@ import { serverError, safeMessage } from "../utils/server-error";
 import { requireGhlRouteMutationAllowed } from "./ghl-mutation-pause";
 
 export function registerIntegrationsRoutes(app: Express) {
+  const getAuthorizedRecipient = async (req: any, res: any, rawContactId: unknown, respond = true) => {
+    const contactId = Number(rawContactId);
+    if (!Number.isInteger(contactId) || contactId <= 0) {
+      if (respond) res.status(400).json({ message: "A valid contactId is required" });
+      return null;
+    }
+    const contact = await storage.getContact(contactId);
+    if (!contact) {
+      if (respond) res.status(404).json({ message: "Contact not found" });
+      return null;
+    }
+    const role = req.user?.role;
+    const email = req.user?.email;
+    if (role === "agent" && contact.assignedTo && contact.assignedTo !== email) {
+      if (respond) res.status(403).json({ message: "Forbidden", code: "NOT_YOUR_CONTACT" });
+      return null;
+    }
+    return { contactId, contact };
+  };
+
   // === GHL INTEGRATION ===
   app.get("/api/ghl/status", isAuthenticated, async (req, res) => {
     res.json(getGhlStatus());
@@ -31,33 +51,55 @@ export function registerIntegrationsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/ghl/send-email", isAuthenticated, async (req, res) => {
+  app.post("/api/ghl/send-email", isDashboardUser, async (req, res) => {
     try {
       const { contactId, dealId, subject, body } = req.body;
       if (!contactId || !subject || !body) return res.status(400).json({ message: "contactId, subject, and body required" });
-      const result = await sendGhlEmail({ contactId, dealId, subject, body });
+    const recipient = await getAuthorizedRecipient(req, res, contactId);
+      if (!recipient) return;
+      const { channelOrchestrator } = await import("../services/transports/index");
+      const result = await channelOrchestrator.sendEmail({ contactId: recipient.contactId, dealId, subject, body });
       res.json(result);
     } catch (err: any) {
       serverError(res, err);
     }
   });
 
-  app.post("/api/ghl/send-sms", isAuthenticated, async (req, res) => {
+  app.post("/api/ghl/send-sms", isDashboardUser, async (req, res) => {
     try {
       const { contactId, dealId, body } = req.body;
       if (!contactId || !body) return res.status(400).json({ message: "contactId and body required" });
-      const result = await sendGhlSms({ contactId, dealId, body });
+      const recipient = await getAuthorizedRecipient(req, res, contactId);
+      if (!recipient) return;
+      const { channelOrchestrator } = await import("../services/transports/index");
+      const result = await channelOrchestrator.sendSms({ contactId: recipient.contactId, dealId, body });
       res.json(result);
     } catch (err: any) {
       serverError(res, err);
     }
   });
 
-  app.post("/api/ghl/send-template", isAuthenticated, async (req, res) => {
+  app.post("/api/ghl/send-template", isDashboardUser, async (req, res) => {
     try {
       const { templateId, contactId, dealId, extraData } = req.body;
       if (!templateId || !contactId) return res.status(400).json({ message: "templateId and contactId required" });
-      const result = await sendTemplatedMessage({ templateId, contactId, dealId, extraData });
+      const recipient = await getAuthorizedRecipient(req, res, contactId);
+      if (!recipient) return;
+      const template = await storage.getMessageTemplate(Number(templateId));
+      if (!template || !template.isActive || !["email", "sms"].includes(template.channel)) {
+        return res.status(400).json({ message: "Active email or SMS template required" });
+      }
+      const { evaluateContactability } = await import("../services/contactability");
+      const decision = await evaluateContactability({
+        contactId: recipient.contactId,
+        channel: template.channel as "email" | "sms",
+        campaignType: "operator_template_send",
+        mode: "enforcement",
+      });
+      if (!decision.allowed) {
+        return res.status(403).json({ message: decision.reason, code: "CONTACTABILITY_BLOCKED" });
+      }
+      const result = await sendTemplatedMessage({ templateId, contactId: recipient.contactId, dealId, extraData });
       res.json(result);
     } catch (err: any) {
       serverError(res, err);
@@ -324,13 +366,16 @@ export function registerIntegrationsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/ghl/test-send-email", isAuthenticated, async (req, res) => {
+  app.post("/api/ghl/test-send-email", isDashboardUser, async (req, res) => {
     if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
     try {
       const { contactId, subject, body } = req.body;
       if (!contactId) return res.status(400).json({ message: "contactId required" });
-      const result = await sendGhlEmail({
-        contactId: Number(contactId),
+      const recipient = await getAuthorizedRecipient(req, res, contactId);
+      if (!recipient) return;
+      const { channelOrchestrator } = await import("../services/transports/index");
+      const result = await channelOrchestrator.sendEmail({
+        contactId: recipient.contactId,
         subject: subject || "Test Email from Liberty Bancard CRM",
         body: body || "<p>This is a test email sent through the GHL integration to verify connectivity.</p>",
       });
@@ -380,7 +425,7 @@ export function registerIntegrationsRoutes(app: Express) {
 
 
   // === BULK MESSAGING ===
-  app.post("/api/bulk-message", isAuthenticated, async (req, res) => {
+  app.post("/api/bulk-message", isDashboardUser, async (req, res) => {
     try {
       const { contactIds, channel, subject, message: msgBody, templateId } = req.body;
 
@@ -396,21 +441,12 @@ export function registerIntegrationsRoutes(app: Express) {
 
       for (const contactId of contactIds) {
         try {
-          const contact = await storage.getContact(contactId);
-          if (!contact) {
-            results.push({ contactId, status: "error", error: "Contact not found" });
+          const recipient = await getAuthorizedRecipient(req, res, contactId, false);
+          if (!recipient) {
+            results.push({ contactId, status: "denied", error: "Recipient is unavailable or unauthorized" });
             continue;
           }
-
-          if (contact.doNotContact) {
-            results.push({ contactId, status: "skipped", error: "Do Not Contact" });
-            continue;
-          }
-
-          if (channel === "sms" && !contact.consentSms) {
-            results.push({ contactId, status: "skipped", error: "No SMS consent" });
-            continue;
-          }
+          const { contact, contactId: authorizedContactId } = recipient;
 
           const personalizedMsg = msgBody
             .replace(/\{\{firstName\}\}/g, contact.firstName || "")
@@ -420,17 +456,27 @@ export function registerIntegrationsRoutes(app: Express) {
 
           if (channel === "email") {
             if (isGhlConfigured() && contact.email) {
-              await sendGhlEmail({ contactId, subject: subject || "Message from Liberty Bancard", body: personalizedMsg });
-              results.push({ contactId, status: "sent" });
+              const { channelOrchestrator } = await import("../services/transports/index");
+              const result = await channelOrchestrator.sendEmail({
+                contactId: authorizedContactId,
+                subject: subject || "Message from Liberty Bancard",
+                body: personalizedMsg,
+              });
+              results.push(result.success
+                ? { contactId, status: "sent" }
+                : { contactId, status: "skipped", error: result.skipReason || result.error || "Contactability blocked" });
             } else {
-              results.push({ contactId, status: "queued", error: "GHL not configured" });
+              results.push({ contactId, status: "not_configured", error: "GHL not configured or contact has no email" });
             }
           } else {
             if (isGhlConfigured() && contact.phone) {
-              await sendGhlSms({ contactId, body: personalizedMsg });
-              results.push({ contactId, status: "sent" });
+              const { channelOrchestrator } = await import("../services/transports/index");
+              const result = await channelOrchestrator.sendSms({ contactId: authorizedContactId, body: personalizedMsg });
+              results.push(result.success
+                ? { contactId, status: "sent" }
+                : { contactId, status: "skipped", error: result.skipReason || result.error || "Contactability blocked" });
             } else {
-              results.push({ contactId, status: "queued", error: "GHL not configured" });
+              results.push({ contactId, status: "not_configured", error: "GHL not configured or contact has no phone" });
             }
           }
 

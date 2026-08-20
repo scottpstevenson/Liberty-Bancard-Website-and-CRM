@@ -5,6 +5,7 @@ import { auditChange } from "./audit-change";
 import { db } from "../db";
 import { contacts } from "@shared/schema";
 import { eq } from "drizzle-orm";
+import type { ContactabilityChannel } from "./contactability";
 
 export interface GhlWorkflowConfig {
   id: string;
@@ -13,6 +14,15 @@ export interface GhlWorkflowConfig {
   triggerType: string;
   envKey: string;
   description: string;
+  /** Why this workflow is allowed to contact a merchant. */
+  purpose?: string;
+  /** Every merchant-facing delivery channel configured in GHL for this workflow. */
+  outboundChannels?: ContactabilityChannel[];
+  /**
+   * Runtime attestation supplied after a live GHL review. Its comma-separated
+   * value must exactly match outboundChannels before the workflow can run.
+   */
+  verificationEnvKey?: string;
 }
 
 export const GHL_WORKFLOW_REGISTRY: GhlWorkflowConfig[] = [
@@ -26,6 +36,8 @@ export const GHL_WORKFLOW_REGISTRY: GhlWorkflowConfig[] = [
   { id: "equipment_order", name: "Equipment Order Confirmation", category: "onboarding", triggerType: "equipment_ordered", envKey: "GHL_WORKFLOW_EQUIPMENT_ORDER", description: "Order confirmation with setup timeline. Triggers 24hr testing period tracking." },
   { id: "booking_confirmation", name: "Appointment Booking Confirmation", category: "scheduling", triggerType: "appointment_booked", envKey: "GHL_WORKFLOW_BOOKING_CONFIRM", description: "Sends booking confirmation email + SMS, 24h reminder, 1h reminder." },
   { id: "booking_reminder_24h", name: "24h Appointment Reminder", category: "scheduling", triggerType: "appointment_reminder", envKey: "GHL_WORKFLOW_REMINDER", description: "24-hour reminder before scheduled appointment." },
+  { id: "booking_link", name: "Booking Link Delivery", category: "scheduling", triggerType: "booking_link_requested", envKey: "GHL_WORKFLOW_BOOKING_LINK", description: "Delivers a booking link for a merchant-selected calendar." },
+  { id: "statement_request_after_meeting", name: "Statement Request After Meeting", category: "nurture", triggerType: "meeting_completed", envKey: "GHL_WORKFLOW_STATEMENT_REQUEST", description: "Requests a statement after a merchant meeting." },
   { id: "no_show_reschedule", name: "No-Show Reschedule", category: "scheduling", triggerType: "appointment_no_show", envKey: "GHL_WORKFLOW_NO_SHOW", description: "Triggered when merchant misses appointment. Sends reschedule link." },
   { id: "post_call_review", name: "Post-Call Follow-Up", category: "nurture", triggerType: "call_completed", envKey: "GHL_WORKFLOW_POST_CALL", description: "Follow-up sequence after sales call. Sends recap, proposal, and next steps." },
   { id: "proposal_followup", name: "Proposal Follow-Up", category: "nurture", triggerType: "proposal_sent", envKey: "GHL_WORKFLOW_PROPOSAL_FOLLOWUP", description: "Follow-up sequence after proposal delivery. Day 1 check, Day 3 nudge, Day 7 urgency." },
@@ -48,8 +60,107 @@ export const GHL_WORKFLOW_REGISTRY: GhlWorkflowConfig[] = [
   { id: "rate_review_confirmation", name: "Rate Review Confirmation", category: "inbound_lead", triggerType: "rate_review_submitted", envKey: "GHL_WORKFLOW_RATE_REVIEW_CONFIRMATION", description: "Triggered when a merchant submits a rate review request via the merchant portal. Sends confirmation email with next steps and analysis timeline." },
   { id: "onboarding_reminder", name: "Onboarding Document Reminder", category: "onboarding", triggerType: "onboarding_reminder", envKey: "GHL_WORKFLOW_ONBOARDING_REMINDER", description: "Triggered when onboarding documents are overdue (>2 days pending). Sends reminder to merchant to complete outstanding checklist items." },
   { id: "voicemail_drop", name: "Voicemail Drop Trigger", category: "sales", triggerType: "voicemail_drop_requested", envKey: "GHL_WORKFLOW_VOICEMAIL_DROP", description: "Triggered when a sequence voicemail_drop step fires. If configured, GHL handles the actual audio delivery natively via a Voicemail Drop action node. Contact is tagged vm-drop-pending and a GHL note with the script preview is added before this workflow is enrolled." },
+  { id: "voice_intro_qualification", name: "Voice AI Intro Qualification", category: "sdr_outbound", triggerType: "voice_ai_requested", envKey: "GHL_WORKFLOW_INTRO_QUAL", description: "Initiates a declared voice-AI qualification workflow." },
+  { id: "voice_follow_up_callback", name: "Voice AI Follow-up Callback", category: "sdr_outbound", triggerType: "voice_ai_requested", envKey: "GHL_WORKFLOW_FOLLOW_UP", description: "Initiates a declared voice-AI callback workflow." },
+  { id: "voice_statement_chase", name: "Voice AI Statement Chase", category: "sdr_outbound", triggerType: "voice_ai_requested", envKey: "GHL_WORKFLOW_STATEMENT", description: "Initiates a declared voice-AI statement-chase workflow." },
+  { id: "voice_proposal_reminder", name: "Voice AI Proposal Reminder", category: "sdr_outbound", triggerType: "voice_ai_requested", envKey: "GHL_WORKFLOW_PROPOSAL", description: "Initiates a declared voice-AI proposal-reminder workflow." },
+  { id: "voice_appointment_reminder", name: "Voice AI Appointment Reminder", category: "sdr_outbound", triggerType: "voice_ai_requested", envKey: "GHL_WORKFLOW_APPT", description: "Initiates a declared voice-AI appointment-reminder workflow." },
+  { id: "voice_callback_request", name: "Voice AI Callback Request", category: "sdr_outbound", triggerType: "voice_ai_requested", envKey: "GHL_WORKFLOW_CALLBACK", description: "Initiates a declared voice-AI callback-request workflow." },
+  { id: "voice_cold_outbound", name: "Voice AI Cold Outbound", category: "sdr_outbound", triggerType: "voice_ai_requested", envKey: "GHL_WORKFLOW_COLD_CALL", description: "Initiates a declared voice-AI cold-outbound workflow." },
   { id: "unsubscribe", name: "Unsubscribe / Opt-Out", category: "inbound_lead", triggerType: "inbound_message", envKey: "GHL_WORKFLOW_UNSUBSCRIBE", description: "Triggered when a contact replies with an unsubscribe/opt-out intent. Removes them from all active GHL workflows and suppression lists." },
 ];
+
+/**
+ * Recipient-channel declarations are intentionally co-located with the native
+ * workflow registry. Source code cannot prove what a GHL workflow delivers, so
+ * enrollment additionally requires the live-review attestation named by
+ * verificationEnvKey. Unknown or unverified workflows are blocked, not guessed.
+ */
+const WORKFLOW_DELIVERY_DECLARATIONS: Record<string, {
+  purpose: string;
+  outboundChannels: ContactabilityChannel[];
+}> = {
+  inbound_confirmation: { purpose: "confirm a merchant's inbound form submission", outboundChannels: ["email"] },
+  inbound_lead: { purpose: "confirm a merchant's inbound lead submission", outboundChannels: ["email", "sms"] },
+  statement_review: { purpose: "confirm a merchant's statement upload", outboundChannels: ["email"] },
+  merchant_app: { purpose: "confirm a merchant application submission", outboundChannels: ["email"] },
+  support_ticket: { purpose: "acknowledge a merchant support request", outboundChannels: ["email"] },
+  affiliate_welcome: { purpose: "welcome an approved affiliate", outboundChannels: ["email"] },
+  callback_request: { purpose: "confirm a requested callback", outboundChannels: ["sms"] },
+  equipment_order: { purpose: "confirm an equipment order", outboundChannels: ["email"] },
+  booking_confirmation: { purpose: "confirm a merchant appointment", outboundChannels: ["email", "sms"] },
+  booking_reminder_24h: { purpose: "remind a merchant about a booked appointment", outboundChannels: ["email", "sms"] },
+  booking_link: { purpose: "deliver a booking link requested for a merchant", outboundChannels: ["email", "sms"] },
+  statement_request_after_meeting: { purpose: "request a statement after a merchant meeting", outboundChannels: ["email"] },
+  no_show_reschedule: { purpose: "offer rescheduling after a missed appointment", outboundChannels: ["email"] },
+  post_call_review: { purpose: "follow up after a sales call", outboundChannels: ["email"] },
+  proposal_followup: { purpose: "follow up on a merchant proposal", outboundChannels: ["email"] },
+  long_term_nurture: { purpose: "continue discretionary lead nurture", outboundChannels: ["email"] },
+  statement_analyzed: { purpose: "confirm a completed statement analysis", outboundChannels: ["email"] },
+  sdr_cold_auto: { purpose: "automated automotive SDR outreach", outboundChannels: ["email", "sms", "voice_ai", "ringless_vm"] },
+  sdr_cold_medspa: { purpose: "automated med-spa SDR outreach", outboundChannels: ["email", "sms", "voice_ai", "ringless_vm"] },
+  sdr_cold_medical: { purpose: "automated medical SDR outreach", outboundChannels: ["email", "sms", "voice_ai", "ringless_vm"] },
+  sdr_cold_restaurant: { purpose: "automated restaurant SDR outreach", outboundChannels: ["email", "sms", "voice_ai", "ringless_vm"] },
+  sdr_cold_retail: { purpose: "automated retail SDR outreach", outboundChannels: ["email", "sms", "voice_ai", "ringless_vm"] },
+  sdr_cold_construction: { purpose: "automated construction SDR outreach", outboundChannels: ["email", "sms", "voice_ai", "ringless_vm"] },
+  sdr_cold_default: { purpose: "automated SDR outreach", outboundChannels: ["email", "sms", "voice_ai", "ringless_vm"] },
+  sdr_statement_audit: { purpose: "automated statement-audit outreach", outboundChannels: ["email", "sms"] },
+  merchant_approved: { purpose: "deliver merchant portal access after approval", outboundChannels: ["email"] },
+  proposal_viewed: { purpose: "follow up on a viewed proposal", outboundChannels: ["email"] },
+  proposal_accepted: { purpose: "confirm a proposal acceptance", outboundChannels: ["email"] },
+  rate_review_confirmation: { purpose: "confirm a merchant rate-review request", outboundChannels: ["email"] },
+  onboarding_reminder: { purpose: "remind an onboarded merchant about required documents", outboundChannels: ["email"] },
+  voicemail_drop: { purpose: "deliver a requested ringless voicemail", outboundChannels: ["ringless_vm"] },
+  voice_intro_qualification: { purpose: "run an automated qualification call", outboundChannels: ["voice_ai"] },
+  voice_follow_up_callback: { purpose: "run an automated callback", outboundChannels: ["voice_ai"] },
+  voice_statement_chase: { purpose: "run an automated statement-chase call", outboundChannels: ["voice_ai"] },
+  voice_proposal_reminder: { purpose: "run an automated proposal reminder call", outboundChannels: ["voice_ai"] },
+  voice_appointment_reminder: { purpose: "run an automated appointment reminder call", outboundChannels: ["voice_ai"] },
+  voice_callback_request: { purpose: "run an automated callback-request call", outboundChannels: ["voice_ai"] },
+  voice_cold_outbound: { purpose: "run an automated cold-outreach call", outboundChannels: ["voice_ai"] },
+  unsubscribe: { purpose: "process an inbound opt-out request", outboundChannels: ["email", "sms", "voice_ai", "ringless_vm"] },
+};
+
+for (const workflow of GHL_WORKFLOW_REGISTRY) {
+  const declaration = WORKFLOW_DELIVERY_DECLARATIONS[workflow.id];
+  if (!declaration) {
+    throw new Error(`GHL workflow registry entry "${workflow.id}" has no recipient-channel declaration`);
+  }
+  workflow.purpose = declaration.purpose;
+  workflow.outboundChannels = declaration.outboundChannels;
+  workflow.verificationEnvKey = `GHL_WORKFLOW_VERIFIED_CHANNELS_${workflow.id.toUpperCase()}`;
+}
+
+function normalizedChannels(channels: readonly string[]): string {
+  return [...new Set(channels.map(channel => channel.trim()).filter(Boolean))].sort().join(",");
+}
+
+function getWorkflowVerificationFailure(workflow: GhlWorkflowConfig): string | null {
+  if (!workflow.purpose || !workflow.outboundChannels?.length || !workflow.verificationEnvKey) {
+    return "Workflow declaration is incomplete";
+  }
+  const declared = normalizedChannels(workflow.outboundChannels);
+  const verified = normalizedChannels((process.env[workflow.verificationEnvKey] ?? "").split(","));
+  if (!verified || verified !== declared) {
+    return `Workflow channels are not live-verified (set ${workflow.verificationEnvKey}=${declared} after reviewing the GHL workflow)`;
+  }
+  return null;
+}
+
+/** Resolve only an unambiguous CRM contact for a GHL contact ID. */
+export async function resolveLocalContactIdForGhlContactId(ghlContactId: string): Promise<number | null> {
+  try {
+    const matches = await db
+      .select({ id: contacts.id })
+      .from(contacts)
+      .where(eq(contacts.ghlContactId, ghlContactId))
+      .limit(2);
+    return matches.length === 1 ? matches[0].id : null;
+  } catch (err: any) {
+    console.warn(`[GHL Compliance] Local contact resolution failed for GHL contact ${ghlContactId}: ${err.message}`);
+    return null;
+  }
+}
 
 export async function getWorkflowId(workflowKey: string): Promise<string | null> {
   const workflow = GHL_WORKFLOW_REGISTRY.find(w => w.id === workflowKey);
@@ -221,7 +332,17 @@ export async function enrollInGhlWorkflowCompliant(params: {
   contactId?: number;
 }): Promise<{ success: boolean; error?: string; skipped?: boolean }> {
   const registryEntry = GHL_WORKFLOW_REGISTRY.find(w => w.id === params.workflowKey);
-  const category = registryEntry?.category ?? "inbound_lead";
+  if (!registryEntry) {
+    return { success: false, error: `Unknown GHL workflow "${params.workflowKey}"`, skipped: true };
+  }
+  const declarationFailure = getWorkflowVerificationFailure(registryEntry);
+  if (declarationFailure) {
+    return { success: false, error: declarationFailure, skipped: true };
+  }
+  if (!params.contactId) {
+    return { success: false, error: "A local contact is required for merchant-directed workflow enrollment", skipped: true };
+  }
+  const category = registryEntry.category;
   const isMarketingCategory =
     category === "sdr_outbound" || category === "nurture" || category === "sales";
 
@@ -250,40 +371,38 @@ export async function enrollInGhlWorkflowCompliant(params: {
     }
   }
 
-  // ── Contact DNC / doNotAutoContact check ─────────────────────────────────
-  if (params.contactId) {
-    try {
-      const [contact] = await db
-        .select({
-          id: contacts.id,
-          doNotContact: contacts.doNotContact,
-          doNotAutoContact: contacts.doNotAutoContact,
-        })
-        .from(contacts)
-        .where(eq(contacts.id, params.contactId))
-        .limit(1);
-
-      if (contact?.doNotContact) {
-        console.log(
-          `[GHL Compliance] Workflow "${params.workflowKey}" blocked for contact ${params.contactId} — doNotContact=true`
-        );
-        return { success: false, error: "Contact is on Do Not Contact list", skipped: true };
-      }
-      if (isMarketingCategory && contact?.doNotAutoContact) {
-        console.log(
-          `[GHL Compliance] Workflow "${params.workflowKey}" blocked for contact ${params.contactId} — doNotAutoContact=true`
-        );
-        return {
-          success: false,
-          error: "Contact has opted out of automated outreach",
-          skipped: true,
-        };
-      }
-    } catch (err: any) {
-      console.warn(
-        `[GHL Compliance] Contact lookup failed for id=${params.contactId} — proceeding with enrollment: ${err.message}`
-      );
+  // The local contact must exist and correspond to the provider contact. A
+  // missing/ambiguous lookup is a denial, never a reason to trust legacy fields.
+  try {
+    const [contact] = await db
+      .select({ id: contacts.id, ghlContactId: contacts.ghlContactId })
+      .from(contacts)
+      .where(eq(contacts.id, params.contactId))
+      .limit(1);
+    if (!contact || !contact.ghlContactId || contact.ghlContactId !== params.ghlContactId) {
+      return { success: false, error: "Local contact does not match the GHL workflow recipient", skipped: true };
     }
+  } catch (err: any) {
+    console.warn(`[GHL Compliance] Contact lookup failed for id=${params.contactId}: ${err.message}`);
+    return { success: false, error: "Could not verify workflow recipient", skipped: true };
+  }
+
+  try {
+    const { evaluateContactability } = await import("./contactability");
+    for (const channel of registryEntry.outboundChannels!) {
+      const decision = await evaluateContactability({
+        contactId: params.contactId,
+        channel,
+        campaignType: `ghl_workflow:${params.workflowKey}`,
+        mode: "enforcement",
+      });
+      if (!decision.allowed) {
+        return { success: false, error: decision.reason, skipped: true };
+      }
+    }
+  } catch (err: any) {
+    console.warn(`[GHL Compliance] Contactability check failed for ${params.workflowKey}: ${err.message}`);
+    return { success: false, error: "Could not verify contactability", skipped: true };
   }
 
   return enrollInGhlWorkflow(params);
@@ -309,8 +428,11 @@ export async function enrollSdrOutreach(params: {
   contactId?: number;
 }): Promise<{ success: boolean; workflowKey: string; error?: string }> {
   const workflowKey = getSdrWorkflowForVertical(params.vertical);
+  if (!params.contactId) {
+    return { success: false, workflowKey, error: "A local contact is required for SDR workflow enrollment" };
+  }
 
-  const result = await enrollInGhlWorkflow({
+  const result = await enrollInGhlWorkflowCompliant({
     workflowKey,
     ghlContactId: params.ghlContactId,
     metadata: {
@@ -319,6 +441,7 @@ export async function enrollSdrOutreach(params: {
       contactId: params.contactId,
       enrolledAt: new Date().toISOString(),
     },
+    contactId: params.contactId,
   });
 
   return { ...result, workflowKey };

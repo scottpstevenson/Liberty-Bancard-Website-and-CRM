@@ -35,8 +35,13 @@ export async function onStageChange(merchantId: number, newStage: string, oldSta
     });
 
     if (newStage === "NURTURE" && oldStage !== "NURTURE") {
-      const { enrollInGhlWorkflowCompliant } = await import("../ghl-workflows");
-      enrollInGhlWorkflowCompliant({ workflowKey: "long_term_nurture", ghlContactId: merchant.ghlContactId, metadata: { merchantId, fromStage: oldStage } }).catch(err =>
+      const { enrollInGhlWorkflowCompliant, resolveLocalContactIdForGhlContactId } = await import("../ghl-workflows");
+      const contactId = await resolveLocalContactIdForGhlContactId(merchant.ghlContactId);
+      if (!contactId) {
+        console.warn(`[SDR Sync] long_term_nurture suppressed for merchant ${merchantId}: no unique local contact`);
+        return;
+      }
+      enrollInGhlWorkflowCompliant({ workflowKey: "long_term_nurture", ghlContactId: merchant.ghlContactId, contactId, metadata: { merchantId, fromStage: oldStage } }).catch(err =>
         console.error(`[SDR Sync] GHL long_term_nurture enrollment error for merchant ${merchantId}:`, err)
       );
     }

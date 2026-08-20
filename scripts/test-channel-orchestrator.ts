@@ -113,20 +113,22 @@ try {
 // compliance fence before any transport call or contact lookup occurs.
 // The finally block always restores the original value.
 
-section("3. Global outbound pause (DB key=outboundGlobalPaused) blocks all channels");
+section("3. Global outbound pause (canonical control row) blocks all channels");
 
-let savedPauseValue: unknown = undefined;
+let savedPauseState: string | undefined;
 let pauseWritten = false;
 
 try {
-  const { storage } = await import("../server/storage");
   const { channelOrchestrator } = await import("../server/services/transports/index");
+  const { pool } = await import("../server/db");
+  const { invalidatePauseStateCache } = await import("../server/services/outbound-pause-authority");
 
-  // Snapshot current state so the finally block can restore it exactly
-  savedPauseValue = await storage.getSystemSetting("outboundGlobalPaused");
-
-  // Activate the kill-switch
-  await storage.setSystemSetting("outboundGlobalPaused", true);
+  // Snapshot and mutate the canonical pause authority directly. The legacy
+  // outboundGlobalPaused system setting is no longer the runtime authority.
+  const prior = await pool.query<{ state: string }>("SELECT state FROM outbound_pause_control ORDER BY id LIMIT 1");
+  savedPauseState = prior.rows[0]?.state;
+  await pool.query("UPDATE outbound_pause_control SET state = 'paused'");
+  invalidatePauseStateCache();
   pauseWritten = true;
 
   // Email — pause check is first in the compliance fence, before any contact lookup
@@ -170,15 +172,15 @@ try {
 } catch (err: any) {
   fail("Global pause behavioral test threw", err.message);
 } finally {
-  // Always restore — never leave the DB with pause=true after a test run
+  // Always restore — never leave the canonical control row paused after a test run
   if (pauseWritten) {
     try {
-      const { storage } = await import("../server/storage");
-      const restoreValue =
-        savedPauseValue === true || savedPauseValue === "true" ? true : false;
-      await storage.setSystemSetting("outboundGlobalPaused", restoreValue);
+      const { pool } = await import("../server/db");
+      const { invalidatePauseStateCache } = await import("../server/services/outbound-pause-authority");
+      await pool.query("UPDATE outbound_pause_control SET state = $1", [savedPauseState ?? "unpaused"]);
+      invalidatePauseStateCache();
     } catch (restoreErr: any) {
-      console.error(`  ⚠ Could not restore outboundGlobalPaused — FIX MANUALLY: ${restoreErr.message}`);
+      console.error(`  ⚠ Could not restore outbound_pause_control — FIX MANUALLY: ${restoreErr.message}`);
     }
   }
 }
@@ -490,11 +492,12 @@ try {
     fail("sequence-worker.ts SMS step does not use channelOrchestrator via transports/index");
   }
 
-  // skipContactabilityCheck must be set (sequence-worker has its own fence already)
-  if (seqSrc.includes("skipContactabilityCheck: true")) {
-    ok("sequence-worker.ts: skipContactabilityCheck=true (own fence already ran)");
+  // The bypass was removed. The sequence worker may retain its own step gate,
+  // but the orchestrator must re-run the mandatory boundary gate before I/O.
+  if (!seqSrc.includes("skipContactabilityCheck")) {
+    ok("sequence-worker.ts has no contactability bypass; orchestrator fence is mandatory");
   } else {
-    fail("sequence-worker.ts missing skipContactabilityCheck=true on orchestrator calls");
+    fail("sequence-worker.ts still references the removed contactability bypass");
   }
 
   // onboarding-reminder: must use orchestrator, not enrollInGhlWorkflow
@@ -569,20 +572,46 @@ try {
     fail("sdr/orchestrator.ts does not use channelOrchestrator");
   }
 
-  // SDR must NOT bypass the contactability fence — skipContactabilityCheck must be false (or absent)
-  // Count how many times skipContactabilityCheck: true appears in sdr/orchestrator.ts
-  const sdrBypassCount = (sdrOrchestratorSrc.match(/skipContactabilityCheck\s*:\s*true/g) || []).length;
-  if (sdrBypassCount === 0) {
-    ok("sdr/orchestrator.ts: skipContactabilityCheck is NOT bypassed — full fence enforced");
+  // The Boolean opt-out no longer exists on the public contract.
+  if (!sdrOrchestratorSrc.includes("skipContactabilityCheck")) {
+    ok("sdr/orchestrator.ts has no contactability bypass — full fence enforced");
   } else {
-    fail(`sdr/orchestrator.ts has ${sdrBypassCount} skipContactabilityCheck:true bypass(es) — compliance regression`);
+    fail("sdr/orchestrator.ts still references the removed contactability bypass");
   }
-  // Confirm false is explicitly set (belt + suspenders documentation)
-  const sdrFalseCount = (sdrOrchestratorSrc.match(/skipContactabilityCheck\s*:\s*false/g) || []).length;
-  if (sdrFalseCount >= 2) {
-    ok(`sdr/orchestrator.ts: skipContactabilityCheck: false set on both email and SMS sends (${sdrFalseCount} occurrences)`);
+
+  const workflowExecutorSrc = await import("fs").then(fs =>
+    fs.readFileSync("server/services/workflow-executor.ts", "utf8"),
+  );
+  if (!/sendGhlEmail\s*\(|sendGhlSms\s*\(/.test(workflowExecutorSrc)) {
+    ok("workflow-executor.ts has no direct GHL email/SMS provider calls");
   } else {
-    fail(`sdr/orchestrator.ts: expected skipContactabilityCheck:false on both sends; found ${sdrFalseCount}`);
+    fail("workflow-executor.ts still has a direct GHL provider call that could bypass contactability");
+  }
+  if (
+    workflowExecutorSrc.includes("channelOrchestrator.sendEmail(params)") &&
+    workflowExecutorSrc.includes("channelOrchestrator.sendSms(params)") &&
+    workflowExecutorSrc.includes("await sendWorkflowEmail(") &&
+    workflowExecutorSrc.includes("await sendWorkflowSms(")
+  ) {
+    ok("workflow email/SMS, packet, proposal, and review paths delegate through the mandatory contactability fence");
+  } else {
+    fail("workflow-executor.ts does not consistently delegate outbound actions through ChannelOrchestrator");
+  }
+
+  const nativeWorkflowCallers = [
+    "server/services/sdr/ghl-sync-rules.ts",
+    "server/services/sdr/proposal-tracking.ts",
+  ];
+  for (const file of nativeWorkflowCallers) {
+    const source = await import("fs").then(fs => fs.readFileSync(file, "utf8"));
+    if (
+      source.includes("resolveLocalContactIdForGhlContactId") &&
+      /enrollInGhlWorkflowCompliant\(\{[^}]*contactId/.test(source.replace(/\n/g, " "))
+    ) {
+      ok(`${file.replace("server/", "")}: native workflow enrollment supplies a uniquely resolved local contact`);
+    } else {
+      fail(`${file.replace("server/", "")}: native workflow enrollment can no longer omit local contactId`);
+    }
   }
 } catch (err: any) {
   fail("Business service integration test threw", err.message);
@@ -595,38 +624,8 @@ section("10b. Compliance fence: DNC and global-pause block SDR-style sends");
 try {
   const { channelOrchestrator } = await import("../server/services/transports/index");
 
-  // Global-pause blocking is already tested in section 3.
-  // Here we test the contactability fence using checkCompliance() directly,
-  // confirming that a non-existent / bare contactId gets blocked by the
-  // contactability check when skipContactabilityCheck is false.
-  // (A real DNC test requires a seeded contact — contactId=0 triggers the "contact
-  // not found" guard that the fence uses when no contactability record exists.)
-  // checkCompliance(contactId, channels[], opts)
-  const badContactResult = await channelOrchestrator.checkCompliance(
-    0,
-    ["email"],
-    { skipContactabilityCheck: false },
-  );
-  // contactId=0 has no DB record → orchestrator must block it (not allow a blind send)
-  if (!badContactResult.allowed) {
-    ok(`Contactability fence blocks unknown contactId=0 for email: "${badContactResult.reason}"`);
-  } else {
-    // If the fence allows unknown contacts it is fail-open — flag it
-    fail("Contactability fence is fail-OPEN for unknown contact — SDR sends could bypass compliance");
-  }
-
-  const badSmsResult = await channelOrchestrator.checkCompliance(
-    0,
-    ["sms"],
-    { skipContactabilityCheck: false },
-  );
-  if (!badSmsResult.allowed) {
-    ok(`Contactability fence blocks unknown contactId=0 for SMS: "${badSmsResult.reason}"`);
-  } else {
-    fail("Contactability fence is fail-OPEN for unknown contact on SMS channel");
-  }
-
-  // Verify the compliance source code checks do_not_contact (DNC) for SMS
+  // Global-pause blocking is already tested in section 3. The real DNC fixture
+  // below proves both channel paths deny before their provider adapters.
   const orchSrc = await import("fs").then(fs =>
     fs.readFileSync("server/services/channel-orchestrator.ts", "utf8"),
   );
@@ -649,6 +648,70 @@ try {
     fail(
       `Fence order incorrect — pause check@${orchPauseIdx} must precede evaluateContactability@${evalContactabilityIdx}`,
     );
+  }
+
+  // Workflow actions must use the same fence. This is a real DNC contact with
+  // provider adapter spies: a regression to a direct GHL send would increment
+  // one of these counters even though the contact is blocked.
+  const { db } = await import("../server/db");
+  const { contacts } = await import("../shared/schema");
+  const { pool } = await import("../server/db");
+  const { invalidatePauseStateCache } = await import("../server/services/outbound-pause-authority");
+  const { GhlEmailTransport } = await import("../server/services/transports/ghl-email-transport");
+  const { GhlSmsTransport } = await import("../server/services/transports/ghl-sms-transport");
+  const { sendWorkflowEmail, sendWorkflowSms } = await import("../server/services/workflow-executor");
+  const priorPause = await pool.query<{ state: string }>("SELECT state FROM outbound_pause_control ORDER BY id LIMIT 1");
+  const [dncContact] = await db.insert(contacts).values({
+    firstName: "Workflow",
+    lastName: "Dnc",
+    email: `workflow-dnc-${Date.now()}@example.test`,
+    phone: `305${String(Date.now()).slice(-7)}`,
+    companyName: "Workflow boundary test",
+    emailStatus: "active",
+    smsStatus: "active",
+    doNotContact: true,
+  }).returning({ id: contacts.id });
+  const originalEmailSend = GhlEmailTransport.prototype.send;
+  const originalSmsSend = GhlSmsTransport.prototype.send;
+  let emailProviderCalls = 0;
+  let smsProviderCalls = 0;
+  GhlEmailTransport.prototype.send = async () => {
+    emailProviderCalls++;
+    return { success: true, provider: "test-spy" };
+  };
+  GhlSmsTransport.prototype.send = async () => {
+    smsProviderCalls++;
+    return { success: true, provider: "test-spy" };
+  };
+  try {
+    await pool.query("UPDATE outbound_pause_control SET state = 'unpaused'");
+    invalidatePauseStateCache();
+    const emailResult = await sendWorkflowEmail({
+      contactId: dncContact.id,
+      subject: "DNC regression test",
+      body: "must not dispatch",
+    });
+    const smsResult = await sendWorkflowSms({
+      contactId: dncContact.id,
+      body: "must not dispatch",
+    });
+    if (!emailResult.success && emailResult.skipped && emailProviderCalls === 0) {
+      ok("DNC workflow email is suppressed before the GHL email provider adapter");
+    } else {
+      fail("DNC workflow email reached a provider adapter", JSON.stringify({ emailResult, emailProviderCalls }));
+    }
+    if (!smsResult.success && smsResult.skipped && smsProviderCalls === 0) {
+      ok("DNC workflow SMS is suppressed before the GHL SMS provider adapter");
+    } else {
+      fail("DNC workflow SMS reached a provider adapter", JSON.stringify({ smsResult, smsProviderCalls }));
+    }
+  } finally {
+    GhlEmailTransport.prototype.send = originalEmailSend;
+    GhlSmsTransport.prototype.send = originalSmsSend;
+    // Contactability evidence is append-only, so this test intentionally
+    // retains its clearly named fixture rather than violating that audit trail.
+    await pool.query("UPDATE outbound_pause_control SET state = $1", [priorPause.rows[0]?.state ?? "paused"]);
+    invalidatePauseStateCache();
   }
 } catch (err: any) {
   fail("DNC/global-pause behavioral test threw", err.message);
@@ -696,7 +759,6 @@ try {
     "server/services/co-branded-proposal.ts":    "Co-branded proposal — calls sendGhlEmail / sendSmtpEmail (gated)",
     "server/services/proposal-engine.ts":        "Proposal delivery — calls sendGhlEmail / sendSmtpEmail (gated)",
     "server/services/sla-worker.ts":             "SLA escalation — calls sendGhlEmail (gated)",
-    "server/services/workflow-executor.ts":      "Workflow-triggered — calls sendGhlEmail / sendGhlSms (gated)",
 
     // Routes — confirmation / inbound-event sends through gated wrappers
     "server/routes/activity.ts":                 "Activity notification — calls sendGhlEmail (gated)",
@@ -737,6 +799,7 @@ try {
     "server/services/sequence-worker.ts",
     "server/services/onboarding-reminder.ts",
     "server/services/sdr/orchestrator.ts",
+    "server/services/workflow-executor.ts",
   ];
   for (const f of migratedFiles) {
     if (!filesWithCalls.includes(f)) {

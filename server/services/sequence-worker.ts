@@ -1542,6 +1542,16 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
                 if (useGmailForThisStep && contact?.email) {
                   // Gmail API: department/staff email via OAuth2 (non-cold sequences)
                   // getCanonicalUrl() always resolves — no undefined risk.
+                  const { evaluateContactability } = await import("./contactability");
+                  const directProviderDecision = await evaluateContactability({
+                    contactId: enrollment.contactId,
+                    channel: "email",
+                    campaignType: "sequence_direct_gmail",
+                    mode: "enforcement",
+                  });
+                  if (!directProviderDecision.allowed) {
+                    throw new Error(`Email blocked by contactability: ${directProviderDecision.reason}`);
+                  }
                   const appUrlForToken = getCanonicalUrl();
                   const token = generateUnsubscribeToken(enrollment.contactId);
                   const unsubscribeUrl = `${appUrlForToken}/unsubscribe?t=${encodeURIComponent(token)}`;
@@ -1566,6 +1576,16 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
                   }
                   // SMTP: cold outreach with List-Unsubscribe header
                   // getCanonicalUrl() always resolves — no undefined risk.
+                  const { evaluateContactability } = await import("./contactability");
+                  const directProviderDecision = await evaluateContactability({
+                    contactId: enrollment.contactId,
+                    channel: "email",
+                    campaignType: "sequence_direct_smtp",
+                    mode: "enforcement",
+                  });
+                  if (!directProviderDecision.allowed) {
+                    throw new Error(`Email blocked by contactability: ${directProviderDecision.reason}`);
+                  }
                   const appUrlForToken = getCanonicalUrl();
                   const token = generateUnsubscribeToken(enrollment.contactId);
                   const unsubscribeUrl = `${appUrlForToken}/unsubscribe?t=${encodeURIComponent(token)}`;
@@ -1591,6 +1611,16 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
                   //   accounts      → accounts@libertybancard.com (monitored alias)
                   const replyTo   = isColdEmail ? "scott@libertybancard.com" : "accounts@libertybancard.com";
                   if (testRedirectTo && isSmtpConfigured()) {
+                    const { evaluateContactability } = await import("./contactability");
+                    const directProviderDecision = await evaluateContactability({
+                      contactId: enrollment.contactId,
+                      channel: "email",
+                      campaignType: "sequence_direct_smtp_redirect",
+                      mode: "enforcement",
+                    });
+                    if (!directProviderDecision.allowed) {
+                      throw new Error(`Email blocked by contactability: ${directProviderDecision.reason}`);
+                    }
                     const result = await sendSmtpEmail({
                       to: testRedirectTo,
                       subject: deliverySubject,
@@ -1602,12 +1632,11 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
                   } else {
                     // Route through ChannelOrchestrator (Wave 1A): Liberty decides →
                     // Orchestrator routes → GhlEmailTransport executes → event returns.
-                    // skipContactabilityCheck=true: the sequence-worker already ran its own
-                    // full compliance fence above; the orchestrator adds global-pause protection.
+                    // The worker's step gate remains the idempotency decision; the
+                    // orchestrator repeats the canonical boundary check before I/O.
                     const { channelOrchestrator } = await import("./transports/index");
                     const orchEmailResult = await channelOrchestrator.sendEmail(
                       { contactId: enrollment.contactId, subject: deliverySubject, body: emailBody, fromEmail, fromName, replyTo },
-                      { skipContactabilityCheck: true },
                     );
                     if (!orchEmailResult.success) {
                       throw new Error(
@@ -1822,12 +1851,11 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
 
             if (isGhlConfigured() && enrollment.contactId) {
               try {
-                // Route through ChannelOrchestrator (Wave 1A).
-                // skipContactabilityCheck=true: sequence-worker already ran its own fence.
+                // The worker preserves its per-step gate/idempotency logic; the
+                // orchestrator repeats the canonical boundary check before I/O.
                 const { channelOrchestrator: smsOrch } = await import("./transports/index");
                 const orchSmsResult = await smsOrch.sendSms(
                   { contactId: enrollment.contactId, body: interpolate(bodyToSend) },
-                  { skipContactabilityCheck: true },
                 );
                 if (!orchSmsResult.success) {
                   throw new Error(

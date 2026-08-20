@@ -1,7 +1,7 @@
 import { db } from "../../db";
 import { sdrLeadState, sdrLeadEvents, sdrChannelAttempts, sdrMerchants, sdrComplianceState, contacts, type SdrLeadState } from "@shared/schema";
 import { eq } from "drizzle-orm";
-import { triggerWorkflow, isSdrGhlConfigured } from "./ghl-client";
+import { isSdrGhlConfigured } from "./ghl-client";
 import { onStageChange } from "./ghl-sync-rules";
 import { applyConsentCommand } from "../consent-authority";
 
@@ -33,13 +33,13 @@ export const CALL_DISPOSITIONS = [
 export type CallDisposition = typeof CALL_DISPOSITIONS[number];
 
 const BOT_MODE_WORKFLOW_MAP: Record<VoiceBotMode, string> = {
-  intro_qualification: process.env.GHL_WORKFLOW_INTRO_QUAL || "voice_intro_qualification",
-  follow_up_callback: process.env.GHL_WORKFLOW_FOLLOW_UP || "voice_follow_up_callback",
-  statement_chase: process.env.GHL_WORKFLOW_STATEMENT || "voice_statement_chase",
-  proposal_reminder: process.env.GHL_WORKFLOW_PROPOSAL || "voice_proposal_reminder",
-  appointment_reminder: process.env.GHL_WORKFLOW_APPT || "voice_appointment_reminder",
-  callback_request: process.env.GHL_WORKFLOW_CALLBACK || "voice_callback_request",
-  cold_outbound: process.env.GHL_WORKFLOW_COLD_OUTBOUND || "voice_cold_outbound",
+  intro_qualification: "voice_intro_qualification",
+  follow_up_callback: "voice_follow_up_callback",
+  statement_chase: "voice_statement_chase",
+  proposal_reminder: "voice_proposal_reminder",
+  appointment_reminder: "voice_appointment_reminder",
+  callback_request: "voice_callback_request",
+  cold_outbound: "voice_cold_outbound",
 };
 
 const BUSINESS_HOURS = { start: 9, end: 17 };
@@ -231,6 +231,7 @@ export async function triggerAiCall(
   merchantId: number,
   botMode: VoiceBotMode
 ): Promise<TriggerCallResult> {
+  let localContactId: number | null = null;
   const { featureFlags } = await import("../feature-flags");
   if (!featureFlags.VOICE_AI_ENABLED) {
     return { success: false, scheduled: false, reason: "VOICE_AI_ENABLED=false — voice AI is disabled" };
@@ -301,6 +302,7 @@ export async function triggerAiCall(
           `Create a contact record and set consentTier to 'pewc_full_automation' before enabling AI calls.`,
       };
     }
+    localContactId = linkedContact.id;
 
     const { evaluateContactability } = await import("../contactability");
     const evalResult = await evaluateContactability({
@@ -380,11 +382,18 @@ export async function triggerAiCall(
   }
 
   try {
-    const workflowId = BOT_MODE_WORKFLOW_MAP[botMode];
-    const result = await triggerWorkflow({
-      workflowId,
-      contactId: merchant.ghlContactId,
+    const workflowKey = BOT_MODE_WORKFLOW_MAP[botMode];
+    if (!localContactId) {
+      return { success: false, scheduled: false, reason: "No local contact available for workflow contactability" };
+    }
+    const { enrollInGhlWorkflowCompliant } = await import("../ghl-workflows");
+    const result = await enrollInGhlWorkflowCompliant({
+      workflowKey,
+      ghlContactId: merchant.ghlContactId,
+      contactId: localContactId,
+      metadata: { botMode },
     });
+    if (!result.success) return { success: false, scheduled: false, reason: result.error || "Voice workflow was suppressed" };
 
     await db.insert(sdrChannelAttempts).values({
       merchantId,
@@ -400,7 +409,7 @@ export async function triggerAiCall(
       eventType: "call_initiated",
       channel: "call",
       actorType: "system",
-      payloadJson: { botMode, workflowId, ghlResult: result },
+      payloadJson: { botMode, workflowKey, ghlResult: result },
       decisionReason: `Voice AI call initiated: mode=${botMode}`,
     });
 

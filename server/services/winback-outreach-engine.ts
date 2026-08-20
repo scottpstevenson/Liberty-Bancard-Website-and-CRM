@@ -152,7 +152,21 @@ export async function runWinbackOutreachEngine(): Promise<{
         continue;
       }
 
-      // 3. Send win-back email via SMTP
+      // 3. Canonical email permission decision immediately before SMTP.
+      const { evaluateContactability } = await import("./contactability");
+      const contactability = await evaluateContactability({
+        contactId: row.contact_id,
+        channel: "email",
+        campaignType: "winback_outreach",
+        mode: "enforcement",
+      });
+      if (!contactability.allowed) {
+        suppressed++;
+        console.log(`[WinbackEngine] Contact #${row.contact_id} blocked: ${contactability.reason}`);
+        continue;
+      }
+
+      // 4. Send win-back email via SMTP
       const { sendSmtpEmail, isSmtpConfigured } = await import("./smtp-email");
       if (!isSmtpConfigured()) {
         console.warn("[WinbackEngine] SMTP not configured — skipping win-back sends");
@@ -183,10 +197,10 @@ export async function runWinbackOutreachEngine(): Promise<{
         continue;
       }
 
-      // 4. Mark NBA as AUTO_EXECUTED
+      // 5. Mark NBA as AUTO_EXECUTED
       await NBAService.executeNBA(row.contact_id, "AUTO_EXECUTED");
 
-      // 5. Audit log
+      // 6. Audit log
       await storage.createAuditLog({
         action: "winback_outreach_sent",
         entityType: "contact",

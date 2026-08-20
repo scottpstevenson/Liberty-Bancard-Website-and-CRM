@@ -112,7 +112,6 @@ export async function runOnboardingReminderTick(): Promise<{ processed: number; 
               },
               {
                 // Full compliance fence — onboarding reminders respect DNC and global pause
-                skipContactabilityCheck: false,
                 // pauseExceptionKey is intentionally absent — standard automated send
               },
             );

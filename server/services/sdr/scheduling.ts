@@ -2,8 +2,20 @@ import { db } from "../../db";
 import { sdrLeadState, sdrLeadEvents, sdrMerchants, sdrChannelAttempts } from "@shared/schema";
 import type { SdrMerchant } from "@shared/schema";
 import { eq } from "drizzle-orm";
-import { fetchCalendars, isSdrGhlConfigured, triggerWorkflow } from "./ghl-client";
+import { fetchCalendars, isSdrGhlConfigured } from "./ghl-client";
 import { onStageChange } from "./ghl-sync-rules";
+
+async function enrollMerchantWorkflow(
+  merchant: Pick<SdrMerchant, "id" | "ghlContactId">,
+  workflowKey: string,
+  metadata?: Record<string, unknown>,
+) {
+  if (!merchant.ghlContactId) return { success: false, error: "No GHL contact ID", skipped: true };
+  const { enrollInGhlWorkflowCompliant, resolveLocalContactIdForGhlContactId } = await import("../ghl-workflows");
+  const contactId = await resolveLocalContactIdForGhlContactId(merchant.ghlContactId);
+  if (!contactId) return { success: false, error: "No unique local contact mapped to this SDR merchant", skipped: true };
+  return enrollInGhlWorkflowCompliant({ workflowKey, ghlContactId: merchant.ghlContactId, contactId, metadata });
+}
 
 const VERTICAL_CALENDAR_KEY_MAP: Record<string, { envVar: string; calendarKey: string }> = {
   "Medical/Dental/Medspa": { envVar: "GHL_CALENDAR_MEDICAL",     calendarKey: "MEDICAL" },
@@ -173,16 +185,10 @@ export async function sendBookingLink(
   }
 
   try {
-    const bookingWorkflowId = process.env.GHL_WORKFLOW_BOOKING_LINK;
-    if (!bookingWorkflowId) {
-      console.warn("[Scheduling] GHL_WORKFLOW_BOOKING_LINK not configured — booking link URL generated but workflow not triggered");
-      return { sent: false, bookingUrl, reason: "GHL_WORKFLOW_BOOKING_LINK not configured" };
-    }
-    await triggerWorkflow({
-      workflowId: bookingWorkflowId,
-      contactId: merchant.ghlContactId!,
-      metadata: { calendarId: calendar.calendarId, bookingUrl, calendarName: calendar.calendarName, channel },
+    const enrollment = await enrollMerchantWorkflow(merchant, "booking_link", {
+      calendarId: calendar.calendarId, bookingUrl, calendarName: calendar.calendarName, channel,
     });
+    if (!enrollment.success) return { sent: false, bookingUrl, reason: enrollment.error || "Booking link workflow was suppressed" };
 
     await db.insert(sdrChannelAttempts).values({
       merchantId,
@@ -294,8 +300,7 @@ export async function handleAppointmentBooked(webhookData: {
   });
 
   if (merchant.ghlContactId) {
-    const { enrollInGhlWorkflow } = await import("../ghl-workflows");
-    enrollInGhlWorkflow({ workflowKey: "booking_confirmation", ghlContactId: merchant.ghlContactId, metadata: { meetingId, startTime: webhookData.startTime } }).catch(err =>
+    enrollMerchantWorkflow(merchant, "booking_confirmation", { meetingId, startTime: webhookData.startTime }).catch(err =>
       console.error(`[Scheduling] GHL booking_confirmation enrollment error for merchant ${merchant.id}:`, err)
     );
   }
@@ -361,12 +366,7 @@ export async function handleAppointmentShowed(webhookData: {
 
   // Enroll in statement-request GHL workflow (fire-and-forget)
   if (merchant.ghlContactId && isSdrGhlConfigured()) {
-    const { enrollInGhlWorkflow } = await import("../ghl-workflows");
-    enrollInGhlWorkflow({
-      workflowKey: "statement_request_after_meeting",
-      ghlContactId: merchant.ghlContactId,
-      metadata: { meetingId, shownAt: webhookData.startTime },
-    }).catch(err =>
+    enrollMerchantWorkflow(merchant, "statement_request_after_meeting", { meetingId, shownAt: webhookData.startTime }).catch(err =>
       console.error(`[Scheduling] statement_request_after_meeting enrollment error for merchant ${merchant.id}:`, err)
     );
   }
@@ -437,8 +437,7 @@ export async function handleAppointmentCanceled(webhookData: {
   });
 
   if (merchant.ghlContactId) {
-    const { enrollInGhlWorkflow } = await import("../ghl-workflows");
-    enrollInGhlWorkflow({ workflowKey: "no_show_reschedule", ghlContactId: merchant.ghlContactId, metadata: { canceledAppointmentId: webhookData.appointmentId || webhookData.id } }).catch(err =>
+    enrollMerchantWorkflow(merchant, "no_show_reschedule", { canceledAppointmentId: webhookData.appointmentId || webhookData.id }).catch(err =>
       console.error(`[Scheduling] GHL no_show_reschedule enrollment error for merchant ${merchant.id}:`, err)
     );
   }
@@ -465,17 +464,10 @@ export async function sendReminders(merchantId: number): Promise<boolean> {
   }
 
   try {
-    const { enrollInGhlWorkflow: enrollReminder } = await import("../ghl-workflows");
-    const reminderResult = await enrollReminder({ workflowKey: "booking_reminder_24h", ghlContactId: merchant.ghlContactId, metadata: { meetingId: state.meetingId } });
+    const reminderResult = await enrollMerchantWorkflow(merchant, "booking_reminder_24h", { meetingId: state.meetingId });
     if (!reminderResult.success) {
-      const reminderWorkflowId = process.env.GHL_WORKFLOW_REMINDER;
-      if (!reminderWorkflowId) {
-        throw new Error("GHL_WORKFLOW_REMINDER / booking_reminder_24h not configured. Cannot trigger appointment reminder workflow.");
-      }
-      await triggerWorkflow({
-        workflowId: reminderWorkflowId,
-        contactId: merchant.ghlContactId,
-      });
+      console.warn(`[Scheduling] Appointment reminder suppressed for merchant ${merchantId}: ${reminderResult.error}`);
+      return false;
     }
 
     await db.insert(sdrLeadEvents).values({

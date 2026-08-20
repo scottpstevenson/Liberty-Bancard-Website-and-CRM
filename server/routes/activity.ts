@@ -503,7 +503,7 @@ Respond in this exact JSON format:
 
       if (sendEmail && emailBody && contact.email) {
         try {
-          // Route through ChannelOrchestrator — consent already verified by rep UI; skip contactability
+          // ChannelOrchestrator performs the authoritative server-side contactability check.
           const { channelOrchestrator } = await import("../services/transports/index");
           const result = await channelOrchestrator.sendEmail({
             contactId: Number(contactId),
@@ -511,22 +511,13 @@ Respond in this exact JSON format:
             subject: emailSubject || "Following up on our call",
             body: emailBody,
             category: "call_followup",
-          }, { skipContactabilityCheck: true });
+          });
           emailSent = result?.success === true;
         } catch (emailErr: any) {
           console.log("[Call Follow-Up] Email send error:", emailErr.message);
         }
-        if (!emailSent) {
-          await storage.createEmailLog({
-            contactId: Number(contactId),
-            dealId: dealId ? Number(dealId) : undefined,
-            direction: "outbound",
-            subject: emailSubject || "Following up on our call",
-            body: emailBody,
-            status: "pending",
-          });
-          emailSent = true;
-        }
+        // A blocked/failed provider result must remain unsent. Do not create a
+        // pending fallback row that the UI could mistake for a delivered follow-up.
       }
 
       if (sendSms) {
@@ -544,13 +535,13 @@ Respond in this exact JSON format:
           smsMessage = "Follow-up SMS was not sent — SMS provider is not configured.";
         } else {
           try {
-            // Route through ChannelOrchestrator — consent already validated above
+            // ChannelOrchestrator performs the authoritative server-side contactability check.
             const { channelOrchestrator: smsOrch } = await import("../services/transports/index");
             const result = await smsOrch.sendSms({
               contactId: Number(contactId),
               dealId: dealId ? Number(dealId) : undefined,
               body: smsBody,
-            }, { skipContactabilityCheck: true });
+            });
             if (result?.success === true) {
               smsSent = true;
               smsResult = "sent";
@@ -612,7 +603,7 @@ Respond in this exact JSON format:
                 subject: `Your Custom Pricing Breakdown - ${matchedPacket.name}`,
                 body: `<p>Hi {{contact.firstName}},</p><p>Here is your personalized information packet.</p><p>Best,<br/>Liberty Bancard</p><p style="font-size:11px;color:#999;">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>`,
                 category: "collateral_packet",
-              }, { skipContactabilityCheck: true });
+              });
               if (result?.success) {
                 packetResult = "sent";
                 packetMessage = `Packet sent: ${matchedPacket.name}.`;
