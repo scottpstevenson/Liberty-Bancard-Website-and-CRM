@@ -486,6 +486,13 @@ async function processRow(row: OutboxRow): Promise<void> {
 
 async function tick(): Promise<void> {
   if (running) return;
+  // Canonical global pause check — mirrors sequence-worker.ts / winback-outreach-engine.ts.
+  // Stops automated GHL workflow enrollment during a global pause; transactional sends
+  // (approval/decline emails, e-sign) are dispatched by merchant-application-status.ts
+  // which is explicitly exempted from the pause gate in pre-deploy.ts.
+  const { authorize } = await import("./outbound-pause-authority");
+  const decision = await authorize({});
+  if (!decision.allowed) return;
   running = true;
   try {
     await reclaimStale();
