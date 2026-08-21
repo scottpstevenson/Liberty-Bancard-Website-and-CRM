@@ -1,0 +1,168 @@
+Task #1577 should not be approved as written. The correct verdict is:
+
+## PREFLIGHT VERDICT: NOT BUILD-READY — REQUIRES ARCHITECTURE REWRITE
+
+I audited current GitHub `main`, the deployed site, all 543 sitemap URLs, representative crawler/browser responses, metadata, OG routes, route ownership, and existing SEO tests. No repository files were modified.
+
+### Baseline
+
+* GitHub `main`: `55343b2d`
+* Production deployment: `34dabc12` — one day behind `main`, according to the [live health endpoint](https://libertybancard.com/api/health).
+* Local checkout: 23 commits behind with a user-owned modified image; I audited a clean archive of `origin/main`.
+* CI: zero status checks. The latest commit [removed `wave12-ci.yml`](https://github.com/scottpstevenson/Liberty-Bancard-Website-and-CRM/commit/55343b2d7a9babd459774c76875fa19f9a2c37f2).
+
+## Corrected VFC results
+
+| Claim                   | Verdict                            | Verified reality                                                                                                                        |
+| ----------------------- | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| 86 pages missing H1     | Incorrect count, real defect       | 69 indexed URLs currently return no server title, H1, or canonical. Additional public routes outside the sitemap have the same problem. |
+| Homepage H1 mismatch    | Fixed on `main`, still broken live | Current source matches. Production is stale.                                                                                            |
+| Why Liberty H1 mismatch | Confirmed                          | Server: “Why Businesses Choose…”; React: “Why Liberty Bancard?”                                                                         |
+| 86 generic descriptions | Incorrect count                    | Exactly 69 live sitemap pages receive the generic SPA description.                                                                      |
+| 86 missing canonicals   | Incorrect count                    | Exactly 69 live sitemap pages lack a raw-response canonical.                                                                            |
+| 85 missing OG images    | Count confirmed, cause false       | 24 competitor alternatives/switch pages plus 61 glossary pages omit `og:image`. The dynamic fallback itself works.                      |
+| 11 sitemap 404s         | Confirmed                          | Six industry URLs and five comparison URLs return hard 404.                                                                             |
+| Copyright hardcoded     | False on current `main`            | Both primary footers already use `getFullYear()`. Production competitor pages still show 2025 because deployment is stale.              |
+| `/partners` has no H1   | False                              | `PublicHero` renders the H1. The real issue is that `/partners` receives the empty SPA shell from the server.                           |
+
+The live [sitemap index](https://libertybancard.com/sitemap.xml) currently exposes 543 URLs:
+
+* 532 return 200.
+* 11 return 404.
+* 69 have no raw-response `<title>`, H1, or canonical.
+* Those same 69 declare the homepage as `og:url` and use the favicon as their social image.
+* 85 additional pages omit OG images entirely.
+* An arbitrary nonexistent URL returns HTTP 200, creating a site-wide soft-404 problem.
+
+Google explicitly recommends meaningful 404 status codes, server/prerendered content, and avoiding SPA soft 404s. [Google JavaScript SEO guidance](https://developers.google.com/search/docs/crawling-indexing/javascript/javascript-seo-basics)
+
+## Major issues Task #1577 missed
+
+1. This is not genuine React SSR.
+
+[`client/src/main.tsx`](https://github.com/scottpstevenson/Liberty-Bancard-Website-and-CRM/blob/55343b2d7a9babd459774c76875fa19f9a2c37f2/client/src/main.tsx) calls `createRoot`, not `hydrateRoot`. Express sends independently handwritten HTML, then React replaces it. Sharing two H1 constants does not fix this architecture.
+
+2. The existing “single SEO source of truth” is not actually consumed.
+
+[`shared/seo-routes.ts`](https://github.com/scottpstevenson/Liberty-Bancard-Website-and-CRM/blob/55343b2d7a9babd459774c76875fa19f9a2c37f2/shared/seo-routes.ts) contains 67 route definitions, but public React pages continue hardcoding their own metadata. Its client re-export is unused.
+
+3. The SEO test deliberately accepts empty SPA responses.
+
+[`scripts/seo-audit.ts`](https://github.com/scottpstevenson/Liberty-Bancard-Website-and-CRM/blob/55343b2d7a9babd459774c76875fa19f9a2c37f2/scripts/seo-audit.ts) detects a bare SPA shell and then validates declared constants instead of the response or rendered DOM. It also treats dynamic 404s as warnings unless `STRICT=1`. This can report success while production has the failures above.
+
+4. Blog coverage is severely split.
+
+* React contains 92 static posts.
+* Server crawler rendering contains only 14.
+* `shared/blog-slugs.ts` contains 72.
+* The live blog sitemap contains only 14 posts plus the hub.
+
+Therefore 78 real React articles are absent from the sitemap and return the generic empty shell to Googlebot.
+
+5. Industry registries disagree.
+
+React supports 14 industries; the server supports eight. The six extra React slugs are nevertheless inserted into the sitemap, producing six of the 11 404s.
+
+6. Competitor registries disagree.
+
+Alternatives/switch pages support 12 competitors; `/compare` supports seven. The sitemap incorrectly generates comparison URLs for all 12.
+
+7. City hubs break after client boot.
+
+Express serves `/locations/:city`, but `App.tsx` has no matching client route. The server city page can be replaced by the React 404 screen after JavaScript loads.
+
+8. Noindex enforcement is incomplete.
+
+Server `X-Robots-Tag` is missing from routes such as:
+
+* `/partner-login`
+* `/statement-upload/:token`
+* `/co-branded-proposal/:token`
+* `/packet/*`
+* `/partner/:slug`
+* `/partner-org/:slug`
+* `/quiz/*`
+* `/sales/*`
+
+Several apply client-side `noindex`, but non-JavaScript crawlers receive no protection.
+
+9. Title construction can duplicate the brand.
+
+`SEO.tsx` always appends `| Liberty Bancard`, while at least 24 callers already include the brand in their title. Hydrated titles can become `… | Liberty Bancard | Liberty Bancard`.
+
+10. Sitemap dates are misleading.
+
+Core, location, and comparison sitemaps set `lastmod` to the current date on every request regardless of content changes. Google advises using `lastmod` only when it accurately represents a significant page update. [Google sitemap guidance](https://developers.google.com/search/docs/crawling-indexing/sitemaps/overview)
+
+## Corrected build plan
+
+### P0 — Restore authority and crawl correctness
+
+1. Restore a required GitHub workflow before implementation. SEO tests must block merges and deployments.
+
+2. Deploy only from the audited SHA; require `/api/health.sha` to match.
+
+3. Upgrade existing `shared/seo-routes.ts` into the canonical public-route manifest. Do not create competing `server/ssr/home-content.ts` files.
+
+4. Generate sitemap membership from that manifest and shared dynamic content registries.
+
+5. Resolve the 11 sitemap errors correctly:
+
+   * Build server rendering for the six valid React industry pages, or temporarily remove them from the sitemap.
+   * Remove the five nonexistent `/compare/*` URLs. Do not redirect Shopify, Fiserv, or Worldpay comparisons to unrelated Square pages.
+
+6. Return true HTTP 404 for unknown public URLs.
+
+7. Generate `X-Robots-Tag` from the canonical route manifest for every private, tokenized, authentication, dashboard, partner-dashboard, and sales-only route.
+
+8. Redirect `/contact` to canonical `/about-contact`.
+
+9. Redirect `/sitemap-index.xml` to `/sitemap.xml` or remove it; it currently acts as a competing stale sitemap index.
+
+10. Use real content modification dates rather than request time.
+
+### P1 — Replace the dual renderer
+
+1. Move pure public content into shared modules:
+
+   * All 92 blog posts
+   * All 14 industries
+   * Comparison/alternative competitor data
+   * Location/city data
+   * Glossary content
+   * Route metadata
+
+2. Render indexable React routes with actual React SSR or SSG.
+
+3. Replace `createRoot` with `hydrateRoot` for server-rendered public routes.
+
+4. Keep CRM/dashboard routes client-rendered and noindexed.
+
+5. Remove crawler-only blog branching. Bots and users should receive semantically identical content; Google now classifies dynamic rendering as a deprecated workaround. [Google Search documentation update](https://developers.google.com/search/updates)
+
+6. Add a real React city-hub route or make those pages server-only without booting the React application.
+
+7. Retire handwritten page generators as each route moves to shared React rendering.
+
+### P1 — Metadata and social previews
+
+1. Make route-manifest titles final strings; stop automatically appending the brand.
+2. Make `canonical`, `og:url`, hreflang, and structured-data URLs derive from one resolved canonical URL.
+3. Migrate competitor and glossary pages through the shared metadata shell.
+4. Keep the existing dynamic `/og/:template/:slug.png` route. It returned valid `image/png` for all three samples tested; replacing it with a static fallback is unnecessary.
+5. Add `/partners`, partner profession pages, `/areas-served`, authors, and all 92 valid blog posts to appropriate sitemaps.
+6. Validate existing structured data instead of excluding it from scope.
+
+## Required kill lines
+
+* No indexable route may return a bare SPA shell.
+* No unknown URL may return HTTP 200.
+* No sitemap URL may redirect or return non-200.
+* All 92 static blog posts must come from one dataset and be SSR/SSG-rendered.
+* Raw HTML and hydrated DOM must agree on title, description, H1, canonical, robots, OG, and structured data.
+* No SEO test may pass by validating declarations instead of the actual HTTP response and rendered DOM.
+* No bot-only content branch may remain.
+* No deployment passes unless its SHA equals the audited commit.
+* Location pages cannot be indexed or refreshed until Task #1579 verifies their claims.
+
+Recommended sequence: restore CI → implement #1576 security → complete #1579 content-truth review → rebuild #1577 rendering/SEO → complete #1578 performance optimization.
