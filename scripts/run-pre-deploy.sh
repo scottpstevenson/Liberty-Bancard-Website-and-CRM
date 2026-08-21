@@ -50,23 +50,45 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-# ── 1. Pre-flight: ensure port 5000 is free ───────────────────────────────────
+# ── 1. Pre-flight: evict any existing process on port 5000 ────────────────────
 echo "══════════════════════════════════════════════════════════════"
 echo " Liberty Bancard — Pre-Deploy Wrapper"
 echo "══════════════════════════════════════════════════════════════"
 echo ""
-echo "▶  Checking port 5000 availability…"
-_PORT_BUSY=0
-if command -v lsof >/dev/null 2>&1; then
-  lsof -Pi :5000 -sTCP:LISTEN -t >/dev/null 2>&1 && _PORT_BUSY=1 || true
-elif command -v ss >/dev/null 2>&1; then
-  ss -tlnH 'sport = :5000' 2>/dev/null | grep -q ':5000' && _PORT_BUSY=1 || true
+echo "▶  Clearing port 5000 before starting the test server…"
+
+_get_port_pids() {
+  if command -v lsof >/dev/null 2>&1; then
+    lsof -Pi :5000 -sTCP:LISTEN -t 2>/dev/null || true
+  elif command -v ss >/dev/null 2>&1; then
+    ss -tlnpH 'sport = :5000' 2>/dev/null \
+      | grep -oP 'pid=\K[0-9]+' || true
+  fi
+}
+
+_OCCUPYING_PIDS=$(_get_port_pids)
+if [ -n "$_OCCUPYING_PIDS" ]; then
+  echo "   Port 5000 occupied by pid(s): $_OCCUPYING_PIDS — sending SIGTERM…"
+  # shellcheck disable=SC2086
+  kill $_OCCUPYING_PIDS 2>/dev/null || true
+  # Wait up to 8 s for the port to clear, then SIGKILL if still held.
+  _waited=0
+  while [ -n "$(_get_port_pids)" ] && [ $_waited -lt 8 ]; do
+    sleep 1
+    ((_waited++)) || true
+  done
+  if [ -n "$(_get_port_pids)" ]; then
+    echo "   Still held after ${_waited}s — sending SIGKILL…"
+    # shellcheck disable=SC2086
+    kill -9 $_OCCUPYING_PIDS 2>/dev/null || true
+    sleep 1
+  fi
 fi
-if [ "$_PORT_BUSY" -eq 1 ]; then
+
+if [ -n "$(_get_port_pids)" ]; then
   echo ""
-  echo "✗  Port 5000 is already in use. The pre-deploy gate starts its own server"
-  echo "   and cannot share the port. Stop any existing server and try again."
-  echo "   (Run: lsof -i :5000   to see what is using the port)"
+  echo "✗  Could not free port 5000. Check what is holding it and try again."
+  echo "   (Run: lsof -i :5000)"
   exit 1
 fi
 echo "   ✓ Port 5000 is free"
