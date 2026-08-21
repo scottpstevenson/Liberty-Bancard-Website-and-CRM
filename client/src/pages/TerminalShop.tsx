@@ -422,7 +422,7 @@ export default function TerminalShop() {
       <div className="print:hidden"><Navbar /></div>
 
       <main className="flex-grow pt-28">
-        <PromoBanner variant="bar" promoId="free-processing" showCountdown />
+        <PromoBanner variant="bar" promoId="free-processing" />
 
         {step === "browse" && !detail && (
           <>

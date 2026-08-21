@@ -654,7 +654,6 @@ export default function IndustryPage() {
           />
         </div>
         <section className="marketing-surface relative overflow-hidden bg-background border-b border-border" data-testid="section-industry-hero">
-          <div className="pointer-events-none absolute inset-0 ledger-texture opacity-[0.5]" aria-hidden="true" />
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 lg:py-28">
             <div className="accent-rule pt-5 max-w-3xl">
               <div className="inline-flex items-center gap-2 border border-border bg-card text-muted-foreground shadow-sm text-sm font-medium px-3 py-1.5 rounded-md mb-6" data-testid="text-industry-badge">
@@ -794,7 +793,6 @@ export default function IndustryPage() {
         </section>
 
         <section className="relative overflow-hidden bg-primary text-primary-foreground py-20" data-testid="section-industry-cta">
-          <div className="pointer-events-none absolute inset-0 ledger-texture opacity-[0.06]" aria-hidden="true" />
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
             <h2 className="text-2xl md:text-3xl font-display font-bold text-white mb-4" data-testid="text-cta-heading">
               See What You're Really Paying

@@ -250,7 +250,6 @@ export default function GetStarted() {
         <Navbar />
         <main className="marketing-surface flex-grow pt-28" ref={resultsRef}>
           <section className="marketing-surface relative overflow-hidden bg-background border-b border-border" data-testid="section-get-started-results-hero">
-            <div className="pointer-events-none absolute inset-0 ledger-texture opacity-[0.5]" aria-hidden="true" />
             <div className="relative max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 py-16 lg:py-20 text-center">
               <div className="accent-rule pt-5">
                 <div className="w-16 h-16 rounded-full bg-emerald-500/10 flex items-center justify-center mx-auto mb-4">

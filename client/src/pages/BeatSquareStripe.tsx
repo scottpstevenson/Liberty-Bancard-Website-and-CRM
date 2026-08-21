@@ -290,7 +290,7 @@ export default function BeatSquareStripe() {
         </section>
 
         {/* Head-to-Head Comparison Table */}
-        <section className="bg-muted bg-dots py-20" data-testid="section-comparison-table">
+        <section className="bg-muted py-20" data-testid="section-comparison-table">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="reveal text-center mb-10">
               <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4" data-testid="text-comparison-heading">
@@ -347,7 +347,7 @@ export default function BeatSquareStripe() {
         </section>
 
         {/* Why Flat-Rate Can Cost More */}
-        <section className="bg-background bg-grid py-20" data-testid="section-cost-more">
+        <section className="bg-background py-20" data-testid="section-cost-more">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="reveal max-w-3xl mx-auto">
               <h2
@@ -434,7 +434,7 @@ export default function BeatSquareStripe() {
         </section>
 
         {/* Terminal Block */}
-        <section className="bg-muted bg-dots py-20" data-testid="section-terminal">
+        <section className="bg-muted py-20" data-testid="section-terminal">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="reveal max-w-5xl mx-auto">
               <Card data-testid="card-terminal-block">

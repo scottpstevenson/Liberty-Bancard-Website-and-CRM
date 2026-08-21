@@ -2,7 +2,6 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import { SEO, getLocalBusinessSchema, getWebSiteSchema } from "@/components/SEO";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
-import { WelcomePopup } from "@/components/WelcomePopup";
 import { useScrollReveal } from "@/hooks/use-scroll-reveal";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
@@ -168,14 +167,11 @@ export default function Home() {
     <div className="min-h-screen flex flex-col font-body overflow-x-hidden">
       <SEO title="Merchant Payment Processing | Liberty Bancard" description="Liberty Bancard — credit card processing and merchant services for South Florida businesses. Transparent rates, free statement review, no hidden fees." path="/" keywords="payment processing, merchant services, credit card processing, statement review, interchange plus pricing, wholesale rates" structuredData={[getLocalBusinessSchema(), getWebSiteSchema()]} />
       <Navbar />
-      <WelcomePopup />
 
       <main className="marketing-surface flex-grow pt-[72px] md:pt-24 dock-clearance-main md:pb-0" ref={containerRef}>
 
         {/* SECTION: Hero — Statement Intelligence editorial split */}
         <section className="marketing-surface relative overflow-hidden bg-background border-b border-border" data-testid="section-hero">
-          {/* faint ledger texture wash */}
-          <div className="hidden lg:block pointer-events-none absolute inset-0 ledger-texture opacity-[0.5]" aria-hidden="true" />
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8 pb-12 lg:py-24">
             <div className="grid grid-cols-1 lg:grid-cols-[1.05fr_0.95fr] gap-10 lg:gap-16 items-center">
               {/* Left column — message + CTAs */}
@@ -216,12 +212,12 @@ export default function Home() {
                   </div>
                 </div>
                 <div className="si-load si-load-4 flex flex-col sm:flex-row gap-3 flex-wrap" data-testid="hero-cta-block">
-                  <Link href="/upload-statement" data-testid="link-hero-upload">
-                    <Button size="lg" className="gap-2 w-full sm:w-auto h-12 sm:h-auto text-base sm:text-sm font-bold" onClick={() => trackStatementUploadCtaClick({ page: "/", ctaLabel: "Upload My Statement — Free", ctaLocation: "hero" })}>
+                  <Button asChild size="lg" className="gap-2 w-full sm:w-auto h-12 sm:h-auto text-base sm:text-sm font-bold" data-testid="link-hero-upload" onClick={() => trackStatementUploadCtaClick({ page: "/", ctaLabel: "Upload My Statement — Free", ctaLocation: "hero" })}>
+                    <Link href="/upload-statement">
                       <Upload className="w-4 h-4 shrink-0" />
                       Upload My Statement — Free
-                    </Button>
-                  </Link>
+                    </Link>
+                  </Button>
                   <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="link-hero-book" onClick={() => trackBookingCtaClick({ page: "/", ctaLabel: "Book a 15-Minute Review", ctaLocation: "hero" })}>
                     <Button size="lg" variant="outline" className="gap-2 w-full sm:w-auto h-12 sm:h-auto border-border">
                       <Calendar className="w-4 h-4 shrink-0" />
@@ -312,7 +308,7 @@ export default function Home() {
         </section>
 
         {/* SECTION: Mobile-only sample review — lg:hidden */}
-        <section className="lg:hidden section-warm py-8" data-testid="section-sample-review-mobile">
+        <div className="lg:hidden section-warm py-8" data-testid="section-sample-review-mobile">
           <div className="max-w-md mx-auto px-4">
             <p className="text-[10px] uppercase tracking-widest font-semibold text-muted-foreground text-center mb-4">Example statement review</p>
             <div className="relative w-full rounded-xl border border-border bg-card shadow-sm overflow-hidden" data-testid="card-statement-audit-mobile">
@@ -357,10 +353,10 @@ export default function Home() {
               Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review.
             </p>
           </div>
-        </section>
+        </div>
 
         {/* SECTION: Trust strip (merged) */}
-        <section className="bg-background border-b border-border py-6" data-testid="section-trust-badges">
+        <div className="bg-background border-b border-border py-6" data-testid="section-trust-badges">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex flex-wrap justify-center items-center gap-x-10 gap-y-4">
               <div className="flex flex-col items-center gap-0.5 text-center" data-testid="trust-badge-years">
@@ -382,7 +378,7 @@ export default function Home() {
               </div>
             </div>
           </div>
-        </section>
+        </div>
 
         {/* SECTION 3: Pain Points */}
         <section className="section-warm py-14" data-testid="section-pain">
@@ -417,7 +413,6 @@ export default function Home() {
 
         {/* SECTION 3.5: By the Numbers — light report ledger */}
         <section className="reveal section-navy relative overflow-hidden py-16 md:py-20" data-testid="section-stats">
-          <div className="pointer-events-none absolute inset-0 ledger-texture opacity-[0.08]" aria-hidden="true" />
           <div className="absolute top-0 left-0 right-0 h-[3px] bg-accent" aria-hidden="true" />
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex items-center justify-center gap-2 mb-2">
@@ -451,68 +446,8 @@ export default function Home() {
           </div>
         </section>
 
-        {/* SECTION 3.7: Services / Processing Identity */}
-        <section className="reveal bg-background border-b border-border py-12 md:py-16" data-testid="section-services">
-          <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="reveal text-center mb-8 md:mb-10">
-              <h2 className="text-2xl md:text-3xl font-display font-bold text-foreground mb-2" data-testid="text-services-heading">
-                What Liberty Bancard Handles
-              </h2>
-              <p className="text-sm text-muted-foreground max-w-xl mx-auto" data-testid="text-services-subheadline">
-                Merchant accounts, card processing, terminal setup, and ongoing support — starting with a free statement review before you switch.
-              </p>
-            </div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
-              {[
-                {
-                  icon: CreditCard,
-                  chip: "In-person · Online · Keyed",
-                  title: "Credit Card Processing",
-                  mobile: "Accept cards in person, online, keyed, mobile, or virtual.",
-                  desktop: "Accept cards the way your business actually takes payments — in person, online, keyed, mobile, or through a virtual terminal.",
-                },
-                {
-                  icon: Building,
-                  chip: "Volume-based setup",
-                  title: "Merchant Accounts",
-                  mobile: "A merchant account setup based on your volume, card mix, and eligibility.",
-                  desktop: "Liberty helps configure a merchant account path based on your business type, volume, card mix, and eligibility.",
-                },
-                {
-                  icon: Store,
-                  chip: "Hardware + virtual",
-                  title: "Terminal & POS Setup",
-                  mobile: "Terminals, mobile readers, virtual options, and POS-ready setups.",
-                  desktop: "Countertop terminals, mobile readers, virtual terminals, and POS-ready options configured after approval.",
-                },
-                {
-                  icon: Headphones,
-                  chip: "After approval",
-                  title: "Human Account Support",
-                  mobile: "Real help with onboarding, funding questions, account changes, and support.",
-                  desktop: "A real Liberty advisor helps with onboarding, funding questions, account changes, and day-to-day support.",
-                },
-              ].map((item, i) => (
-                <Card key={i} className="bg-primary/5 border-primary/15" data-testid={`card-service-${i}`}>
-                  <CardContent className="p-4 md:p-6">
-                    <div className="w-10 h-10 md:w-12 md:h-12 rounded-md bg-primary/10 flex items-center justify-center mb-3 md:mb-4">
-                      <item.icon className="w-5 h-5 md:w-6 md:h-6 text-primary" />
-                    </div>
-                    <span className="report-chip report-chip-neutral mb-2 inline-block">{item.chip}</span>
-                    <h3 className="font-display font-bold text-base md:text-lg text-foreground mb-2">{item.title}</h3>
-                    <p className="text-xs md:text-sm text-muted-foreground leading-relaxed">
-                      <span className="md:hidden">{item.mobile}</span>
-                      <span className="hidden md:block">{item.desktop}</span>
-                    </p>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </div>
-        </section>
-
         {/* SECTION 4: What You Get */}
-        <section className="section-warm py-12 md:py-20" data-testid="section-what-you-get">
+        <div className="section-warm py-12 md:py-20" data-testid="section-what-you-get">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             {/* Mobile: compact summary — replaces the 6-row card + Yours to Keep card */}
             <div className="md:hidden" data-testid="section-review-includes-mobile">
@@ -596,7 +531,7 @@ export default function Home() {
               </div>
             </div>
           </div>
-        </section>
+        </div>
 
         {/* SECTION 5: How The Liberty Analysis Works (+ onboarding timeline) */}
         <section className="bg-background py-12 md:py-20" data-testid="section-how-it-works">
@@ -720,7 +655,7 @@ export default function Home() {
 
         {/* SECTION 6: Enhanced Rate Calculator */}
         {/* Mobile fallback for Rate Calculator — links to /estimate */}
-        <section className="md:hidden section-warm py-10" data-testid="section-calculator-mobile-link">
+        <div className="md:hidden section-warm py-10" data-testid="section-calculator-mobile-link">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
             <p className="text-xs font-semibold uppercase tracking-wider text-accent mb-2">Quick Estimate</p>
             <h2 className="font-display text-2xl font-bold text-foreground mb-3">
@@ -729,16 +664,16 @@ export default function Home() {
             <p className="text-muted-foreground text-sm mb-5 max-w-xs mx-auto">
               Enter your volume and fees to estimate your effective rate before uploading a statement.
             </p>
-            <Link href="/estimate" data-testid="link-calculator-mobile-estimate">
-              <Button variant="outline" className="gap-2">
+            <Button asChild variant="outline" className="gap-2" data-testid="link-calculator-mobile-estimate">
+              <Link href="/estimate">
                 <Calculator className="w-4 h-4" />
                 Open Rate Check
-              </Button>
-            </Link>
+              </Link>
+            </Button>
           </div>
-        </section>
+        </div>
 
-        <section className="hidden md:block section-warm bg-dots py-12 md:py-20" data-testid="section-calculator">
+        <section className="hidden md:block section-warm py-12 md:py-20" data-testid="section-calculator">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-start">
               <div className="reveal">
@@ -894,7 +829,6 @@ export default function Home() {
 
         {/* SECTION 7: Choose Your Path */}
         <section className="bg-background border-y border-border md:border-0 md:bg-primary md:text-primary-foreground md:relative md:overflow-hidden py-12 md:py-16" data-testid="section-choose-path">
-          <div className="hidden md:block pointer-events-none absolute inset-0 ledger-texture opacity-[0.08]" aria-hidden="true" />
           <div className="hidden md:block absolute top-0 left-0 right-0 h-[3px] bg-accent" aria-hidden="true" />
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <h2 className="reveal text-3xl md:text-4xl font-display font-bold text-foreground md:text-white text-center mb-4" data-testid="text-choose-path-heading">
@@ -1124,133 +1058,8 @@ export default function Home() {
           </div>
         </section>
 
-        {/* SECTION 8.25: Terminal Showcase */}
-        <section className="hidden md:block bg-background py-12 md:py-20" data-testid="section-terminal-showcase">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="reveal text-center max-w-2xl mx-auto mb-10">
-              <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4" data-testid="text-terminal-showcase-heading">
-                What Setup Looks Like After Approval
-              </h2>
-              <p className="text-lg text-muted-foreground leading-relaxed">
-                Once you're approved, we configure your hardware to match how you actually take payments — with guided setup and dedicated support from day one.
-              </p>
-            </div>
-            <div className="reveal grid grid-cols-1 lg:grid-cols-5 gap-8 items-start">
-              <div className="lg:col-span-2">
-                <div className="rounded-md border border-border bg-muted/30 p-6">
-                  <img src={imgCloverFlex3} alt="Clover Flex 3 handheld POS terminal" className="w-full h-56 object-contain" loading="lazy" width="400" height="224" data-testid="img-showcase-hero" />
-                </div>
-                <div className="mt-4 grid grid-cols-3 gap-3">
-                  <img src={imgCloverStationDuo} alt="Clover Station Duo full register system" className="w-full h-20 rounded-md border border-border bg-muted/30 object-contain p-1.5" loading="lazy" width="160" height="80" data-testid="img-showcase-stand" />
-                  <img src={imgCloverMini3} alt="Clover Mini 3 countertop POS" className="w-full h-20 rounded-md border border-border bg-muted/30 object-contain p-1.5" loading="lazy" width="160" height="80" data-testid="img-showcase-angle" />
-                  <img src={imgPaxA920} alt="PAX A920 smart payment terminal" className="w-full h-20 rounded-md border border-border bg-muted/30 object-contain p-1.5" loading="lazy" width="160" height="80" data-testid="img-showcase-tap" />
-                </div>
-              </div>
-              <div className="lg:col-span-3">
-                {/* Mobile: stacked cards — four-column table fully absent on mobile */}
-                <div className="md:hidden space-y-3 mb-5">
-                  {[
-                    { option: "Smart Terminal", bestFor: "Counter + curbside", includes: "Tap, dip, swipe, key; tip adjust; batch close", notes: "Free for qualifying merchants*" },
-                    { option: "POS Setup", bestFor: "Full-service & retail", includes: "Register, on-device reporting, inventory-friendly", notes: "Hardware varies by plan" },
-                    { option: "Virtual / Keyed", bestFor: "Phone & invoice sales", includes: "Virtual terminal, secure pay links, keyed entry", notes: "No hardware required" },
-                  ].map((row, i) => (
-                    <div key={i} className="rounded-lg border border-border bg-card p-4" data-testid={`card-terminal-mobile-${i}`}>
-                      <div className="flex items-start justify-between gap-2 mb-2">
-                        <span className="font-display font-semibold text-foreground text-sm">{row.option}</span>
-                        <span className="report-chip report-chip-neutral shrink-0">{row.bestFor}</span>
-                      </div>
-                      <p className="text-xs text-muted-foreground mb-1"><span className="font-medium text-foreground">Includes:</span> {row.includes}</p>
-                      <p className="text-xs text-muted-foreground">{row.notes}</p>
-                    </div>
-                  ))}
-                </div>
-                {/* Desktop: four-column table */}
-                <div className="hidden md:block overflow-x-auto rounded-md border border-border">
-                  <table className="w-full text-left text-sm" data-testid="table-terminal-setup">
-                    <thead>
-                      <tr className="bg-muted/50 text-foreground">
-                        <th className="px-4 py-3 font-display font-semibold">Option</th>
-                        <th className="px-4 py-3 font-display font-semibold">Best For</th>
-                        <th className="px-4 py-3 font-display font-semibold">Includes</th>
-                        <th className="px-4 py-3 font-display font-semibold">Notes</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border">
-                      {[
-                        { option: "Smart Terminal", bestFor: "Counter + curbside", includes: "Tap, dip, swipe, key; tip adjust; batch close", notes: "Free for qualifying merchants*" },
-                        { option: "POS Setup", bestFor: "Full-service & retail", includes: "Register, on-device reporting, inventory-friendly", notes: "Hardware varies by plan" },
-                        { option: "Virtual / Keyed", bestFor: "Phone & invoice sales", includes: "Virtual terminal, secure pay links, keyed entry", notes: "No hardware required" },
-                      ].map((row, i) => (
-                        <tr key={i} className="align-top" data-testid={`row-terminal-${i}`}>
-                          <td className="px-4 py-3 font-semibold text-foreground">{row.option}</td>
-                          <td className="px-4 py-3"><span className="report-chip report-chip-neutral">{row.bestFor}</span></td>
-                          <td className="px-4 py-3 text-muted-foreground">{row.includes}</td>
-                          <td className="px-4 py-3 text-muted-foreground">{row.notes}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <div className="mt-5 flex flex-wrap items-center gap-3">
-                  <Link href="/upload-statement?terminal=yes" data-testid="link-terminal-showcase-cta">
-                    <Button className="gap-2">
-                      Check Terminal Eligibility
-                      <ArrowRight className="w-4 h-4" />
-                    </Button>
-                  </Link>
-                  <Link href="/upload-statement?terminal=yes" className="text-sm text-primary hover:underline" data-testid="link-terminal-showcase-eligibility">See eligibility details →</Link>
-                </div>
-                <p className="text-xs text-muted-foreground mt-3">*Eligibility, underwriting, card brand rules, and applicable laws apply. Free terminal subject to qualification.</p>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* SECTION 8.4: Platform Preview — desktop-only, hidden on mobile */}
-        <section className="hidden md:block bg-background bg-grid py-20 overflow-hidden" data-testid="section-platform-preview">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="reveal grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
-              <div>
-                <div className="inline-flex items-center gap-2 bg-sky-50 dark:bg-sky-950/30 text-sky-600 dark:text-sky-400 text-xs font-semibold px-3 py-1 rounded-md mb-4">
-                  How your account is managed
-                </div>
-                <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4" data-testid="text-platform-heading">
-                  Your account team has full visibility into every step
-                </h2>
-                <p className="text-muted-foreground mb-6 leading-relaxed">
-                  Every Liberty merchant account is backed by a dedicated team that tracks your onboarding, support tickets, and account history in one place — so nothing falls through the cracks and every issue is resolved with full context.
-                </p>
-                <div className="space-y-3 mb-6">
-                  {[
-                    "Your onboarding is tracked step-by-step from day one",
-                    "Support issues are logged, assigned, and resolved with SLAs",
-                    "Your account history is always visible to whoever handles your calls",
-                  ].map((item, i) => (
-                    <div key={i} className="flex items-center gap-2 text-sm text-foreground">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-                      {item}
-                    </div>
-                  ))}
-                </div>
-                <Link href="/get-started" data-testid="link-platform-dashboard">
-                  <Button variant="outline" className="gap-2">
-                    See What Your Account Includes
-                    <ArrowRight className="w-4 h-4" />
-                  </Button>
-                </Link>
-              </div>
-              <div className="relative">
-                <div className="rounded-md overflow-hidden shadow-2xl border border-border">
-                  <img src={dashboardPreview} alt="Liberty Bancard merchant account management dashboard — your team's view of your account" className="w-full h-auto" loading="lazy" width="1408" height="792" data-testid="img-platform-preview" />
-                </div>
-                <div className="absolute -bottom-4 -right-4 -z-10 w-full h-full rounded-md bg-gradient-to-br from-sky-500/20 to-primary/20" />
-              </div>
-            </div>
-          </div>
-        </section>
-
         {/* SECTION 8.5: Why Liberty - Differentiators */}
-        <section className="bg-background border-b border-border py-12 md:py-20" data-testid="section-why-liberty">
+        <div className="bg-background border-b border-border py-12 md:py-20" data-testid="section-why-liberty">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="reveal text-center mb-8">
               <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4" data-testid="text-why-liberty-heading">
@@ -1358,7 +1167,7 @@ export default function Home() {
               *Eligibility, underwriting, card brand rules, and applicable laws apply.
             </p>
           </div>
-        </section>
+        </div>
 
 
         {/* SECTION 9: Social Proof / Reviews */}
@@ -1492,7 +1301,7 @@ export default function Home() {
         </section>
 
         {/* SECTION 10: Trust / Risk Reversal — sharp navy block */}
-        <section className="reveal relative overflow-hidden bg-primary py-12 md:py-20" data-testid="section-risk-reversal">
+        <div className="reveal relative overflow-hidden bg-primary py-12 md:py-20" data-testid="section-risk-reversal">
           <img src={teamCollab} alt="" aria-hidden="true" className="absolute inset-0 w-full h-full object-cover opacity-[0.15] mix-blend-luminosity" loading="lazy" width="1408" height="792" />
           <div className="absolute top-0 left-0 right-0 h-[3px] bg-accent" aria-hidden="true" />
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -1524,11 +1333,11 @@ export default function Home() {
               </div>
             </div>
           </div>
-        </section>
+        </div>
 
 
         {/* SECTION 11: FAQ */}
-        <section className="section-warm py-12 md:py-20" data-testid="section-faq">
+        <div className="section-warm py-12 md:py-20" data-testid="section-faq">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="reveal max-w-3xl mx-auto">
               <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-8" data-testid="text-faq-heading">
@@ -1576,7 +1385,7 @@ export default function Home() {
               </Accordion>
             </div>
           </div>
-        </section>
+        </div>
 
         {/* Compare by Processor — crawlable internal link row */}
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 border-t border-border" data-testid="section-compare-links">
@@ -1591,7 +1400,7 @@ export default function Home() {
         </div>
 
         {/* SECTION 11.5: Quick Callback Form */}
-        <section className="section-warm py-12 md:py-20 pb-safe-mobile" data-testid="section-callback">
+        <div className="section-warm py-12 md:py-20 pb-safe-mobile" data-testid="section-callback">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="reveal grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
               <div>
@@ -1672,12 +1481,11 @@ export default function Home() {
               </div>
             </div>
           </div>
-        </section>
+        </div>
 
 
         {/* SECTION 12: Final CTA — sharp navy block */}
         <section className="reveal relative overflow-hidden bg-primary pt-14 pb-20 md:py-24" data-testid="section-final-cta">
-          <div className="pointer-events-none absolute inset-0 ledger-texture opacity-[0.12]" aria-hidden="true" />
           <div className="absolute top-0 left-0 right-0 h-[3px] bg-accent" aria-hidden="true" />
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-16 items-center">
@@ -1701,19 +1509,19 @@ export default function Home() {
                   <span className="audit-stamp bg-white/10 text-sky-200 border-white/20">Free</span>
                 </div>
                 <div className="flex flex-col gap-3">
-                  <Link href="/upload-statement" data-testid="link-final-upload">
-                    <Button size="lg" className="w-full gap-2 bg-accent hover:bg-accent border-accent text-white" onClick={() => trackStatementUploadCtaClick({ page: "/", ctaLabel: "Get My Free Analysis", ctaLocation: "final-cta" })}>
+                  <Button asChild size="lg" className="w-full gap-2 bg-accent hover:bg-accent border-accent text-white" data-testid="link-final-upload" onClick={() => trackStatementUploadCtaClick({ page: "/", ctaLabel: "Get My Free Analysis", ctaLocation: "final-cta" })}>
+                    <Link href="/upload-statement">
                       <Upload className="w-4 h-4" />
                       Get My Free Analysis
                       <ArrowRight className="w-4 h-4" />
-                    </Button>
-                  </Link>
-                  <Link href="/get-started" data-testid="link-final-quiz">
-                    <Button size="lg" variant="outline" className="w-full gap-2 bg-transparent border-white/30 text-white hover:bg-white/10">
+                    </Link>
+                  </Button>
+                  <Button asChild size="lg" variant="outline" className="w-full gap-2 bg-transparent border-white/30 text-white hover:bg-white/10" data-testid="link-final-quiz">
+                    <Link href="/get-started">
                       Take the 60-Second Quiz
                       <ArrowRight className="w-4 h-4" />
-                    </Button>
-                  </Link>
+                    </Link>
+                  </Button>
                 </div>
                 <p className="text-xs text-white/50 mt-5" data-testid="text-final-cta-microcopy">
                   Eligibility, underwriting, card brand rules, and applicable laws apply.

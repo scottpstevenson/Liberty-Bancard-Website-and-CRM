@@ -146,8 +146,7 @@ export default function SavingsPage() {
               {data.merchantName || "Your Business"}
             </p>
             <div className="relative overflow-hidden bg-card border border-border rounded-lg p-8 space-y-4">
-              <div className="pointer-events-none absolute inset-0 ledger-texture opacity-[0.5]" aria-hidden="true" />
-              <div className="relative space-y-4">
+                  <div className="relative space-y-4">
               <p className="text-muted-foreground text-sm uppercase tracking-widest font-semibold">You've Been Overpaying By</p>
               <div
                 className="num text-6xl sm:text-7xl font-black text-foreground"
@@ -323,8 +322,7 @@ export default function SavingsPage() {
             className="relative overflow-hidden bg-primary rounded-lg p-8 text-center space-y-5"
             data-testid="section-apply-cta"
           >
-            <div className="pointer-events-none absolute inset-0 ledger-texture opacity-[0.06]" aria-hidden="true" />
-            <div className="absolute top-0 left-0 right-0 h-[3px] bg-accent" aria-hidden="true" />
+              <div className="absolute top-0 left-0 right-0 h-[3px] bg-accent" aria-hidden="true" />
             <div className="relative space-y-5">
             <div className="space-y-2">
               <h2 className="text-2xl font-bold text-white">Ready to Start Saving?</h2>

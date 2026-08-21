@@ -158,7 +158,6 @@ export default function FreeAnalysisGuaranteed() {
           className="marketing-surface relative overflow-hidden bg-background border-b border-border py-20 lg:py-28"
           data-testid="section-hero"
         >
-          <div className="pointer-events-none absolute inset-0 ledger-texture opacity-[0.5]" aria-hidden="true" />
 
           <div className="relative max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
             <div className="accent-rule pt-5">
@@ -279,7 +278,6 @@ export default function FreeAnalysisGuaranteed() {
           className="relative overflow-hidden bg-primary text-primary-foreground py-10"
           data-testid="section-social-proof"
         >
-          <div className="pointer-events-none absolute inset-0 ledger-texture opacity-[0.06]" aria-hidden="true" />
           <div className="relative max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-8 text-center">
               <div data-testid="stat-statements-reviewed">
@@ -514,7 +512,6 @@ export default function FreeAnalysisGuaranteed() {
           className="relative overflow-hidden py-16 bg-primary text-primary-foreground"
           data-testid="section-final-cta"
         >
-          <div className="pointer-events-none absolute inset-0 ledger-texture opacity-[0.06]" aria-hidden="true" />
           <div className="absolute top-0 left-0 right-0 h-[3px] bg-accent" aria-hidden="true" />
           <div className="relative max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
             <div className="w-14 h-14 rounded-full bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center mx-auto mb-6">

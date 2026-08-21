@@ -38,7 +38,7 @@ interface PromoBannerProps {
 export function PromoBanner({
   variant = "bar",
   promoId,
-  showCountdown = true,
+  showCountdown = false,
   dismissible = true,
   className = "",
 }: PromoBannerProps) {

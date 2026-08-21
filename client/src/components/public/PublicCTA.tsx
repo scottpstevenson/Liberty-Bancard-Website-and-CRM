@@ -77,22 +77,24 @@ export function PublicCTA({
       data-testid="public-cta-group"
     >
       {showPrimary && (
-        <Link href={uploadHref} data-testid="public-cta-primary">
-          <Button
-            size={size}
-            variant={primaryVariant}
-            className="gap-2 w-full sm:w-auto"
-            onClick={() =>
-              trackStatementUploadCtaClick({
-                ctaLabel: primaryLabel,
-                ctaLocation,
-              })
-            }
-          >
+        <Button
+          asChild
+          size={size}
+          variant={primaryVariant}
+          className="gap-2 w-full sm:w-auto"
+          data-testid="public-cta-primary"
+          onClick={() =>
+            trackStatementUploadCtaClick({
+              ctaLabel: primaryLabel,
+              ctaLocation,
+            })
+          }
+        >
+          <Link href={uploadHref}>
             <Upload className="w-4 h-4 shrink-0" />
             {primaryLabel}
-          </Button>
-        </Link>
+          </Link>
+        </Button>
       )}
 
       {showSecondary && (

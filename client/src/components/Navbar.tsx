@@ -19,7 +19,6 @@ import {
   Mail,
   Upload,
   Calendar,
-  LayoutDashboard,
   ChevronDown,
   Zap,
   Handshake,
@@ -27,7 +26,6 @@ import {
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import logoBlue from "@assets/logo-blue.png";
-import { ThemeToggle } from "@/components/ThemeToggle";
 import { CALENDAR_URL } from "@/lib/constants";
 import { trackCalendarBooking, trackBookingCtaClick } from "@/lib/tracking";
 import { trackPhoneCallClick } from "@/lib/analytics";
@@ -193,32 +191,6 @@ export function Navbar() {
 
   return (
     <nav className="fixed w-full z-50" data-testid="navbar">
-      {/* Desktop-only phone/email bar */}
-      <div className="hidden md:block bg-primary text-primary-foreground">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-end items-center h-8 gap-2 sm:gap-4 text-xs">
-            <a
-              href="tel:9542668214"
-              className="flex items-center gap-1.5 hover:opacity-80 transition-opacity"
-              data-testid="link-phone"
-              onClick={() => trackPhoneCallClick({})}
-            >
-              <Phone className="w-3 h-3" />
-              <span>Call/Text 954-266-8214</span>
-            </a>
-            <span className="opacity-60">|</span>
-            <a
-              href="mailto:support@libertybancard.com"
-              className="flex items-center gap-1.5 hover:opacity-80 transition-opacity"
-              data-testid="link-email"
-            >
-              <Mail className="w-3 h-3" />
-              <span>support@libertybancard.com</span>
-            </a>
-          </div>
-        </div>
-      </div>
-
       <div className="bg-card/95 backdrop-blur-md border-b border-border shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-[72px] md:h-16 gap-4">
@@ -327,22 +299,10 @@ export function Navbar() {
                 Partner Program
               </Link>
 
-              <Link
-                href="/dashboard"
-                className={cn(
-                  "text-sm font-medium transition-colors flex items-center gap-1.5",
-                  location.startsWith("/dashboard") ? "text-primary" : "text-muted-foreground hover:text-foreground"
-                )}
-                data-testid="link-nav-dashboard"
-              >
-                <LayoutDashboard className="w-3.5 h-3.5" />
-                {user ? "Dashboard" : "Staff Login"}
-              </Link>
             </div>
 
             {/* Desktop CTAs */}
             <div className="hidden lg:flex items-center gap-3">
-              <ThemeToggle />
               <a
                 href={buildAttributedBookingUrl(CALENDAR_URL, { ctaLocation: "navbar_desktop" })}
                 target="_blank"
@@ -527,21 +487,6 @@ export function Navbar() {
               >
                 <Handshake className="w-4 h-4" />
                 Partner Program
-              </Link>
-
-              <Link
-                href="/dashboard"
-                className={cn(
-                  "flex items-center gap-2 px-3 py-2.5 rounded-md text-sm font-medium transition-colors",
-                  location.startsWith("/dashboard")
-                    ? "text-primary bg-primary/5"
-                    : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-                )}
-                onClick={() => setMobileOpen(false)}
-                data-testid="link-mobile-nav-dashboard"
-              >
-                <LayoutDashboard className="w-4 h-4" />
-                {user ? "Dashboard" : "Staff Login"}
               </Link>
 
               <div className="h-px bg-border my-2" />

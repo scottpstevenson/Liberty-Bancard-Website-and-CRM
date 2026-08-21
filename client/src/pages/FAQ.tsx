@@ -296,7 +296,6 @@ export default function FAQ() {
           className="relative overflow-hidden bg-background border-b border-border py-16"
           data-testid="section-faq-hero"
         >
-          <div className="pointer-events-none absolute inset-0 ledger-texture opacity-[0.5]" aria-hidden="true" />
           <div className="relative max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center reveal">
             <HelpCircle className="w-12 h-12 mx-auto mb-4 text-accent" />
             <h1
@@ -506,7 +505,6 @@ export default function FAQ() {
           className="relative overflow-hidden bg-primary text-primary-foreground py-12"
           data-testid="section-faq-cta"
         >
-          <div className="pointer-events-none absolute inset-0 ledger-texture opacity-[0.06]" aria-hidden="true" />
           <div className="relative max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center reveal">
             <h2
               className="text-2xl font-bold mb-3"

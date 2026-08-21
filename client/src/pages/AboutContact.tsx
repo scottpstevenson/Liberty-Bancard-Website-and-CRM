@@ -95,7 +95,7 @@ export default function AboutContact() {
           </div>
         </section>
 
-        <section className="bg-muted bg-dots py-20" data-testid="section-how-we-work">
+        <section className="bg-muted py-20" data-testid="section-how-we-work">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="reveal">
               <h2
@@ -130,7 +130,7 @@ export default function AboutContact() {
           </div>
         </section>
 
-        <section className="bg-background bg-grid py-20" data-testid="section-different">
+        <section className="bg-background py-20" data-testid="section-different">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="max-w-3xl mx-auto reveal">
               <h2
@@ -161,7 +161,7 @@ export default function AboutContact() {
           </div>
         </section>
 
-        <section className="bg-muted bg-dots py-20" data-testid="section-contact">
+        <section className="bg-muted py-20" data-testid="section-contact">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="max-w-3xl mx-auto">
               <div className="reveal">

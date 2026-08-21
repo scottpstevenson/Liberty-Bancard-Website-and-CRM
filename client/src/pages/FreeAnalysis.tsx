@@ -56,7 +56,6 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { PromoBanner } from "@/components/PromoBanner";
-import { CountdownTimer, getDefaultTarget } from "@/components/CountdownTimer";
 import logoBlue from "@assets/logo-blue.png";
 
 function encodeResults(data: { industry: string; volume: string; processor: string; painPoints: string[] }): string {
@@ -468,7 +467,6 @@ export default function FreeAnalysis() {
         />
 
         <section className="marketing-surface relative overflow-hidden bg-background border-b border-border" data-testid="section-results-hero">
-          <div className="pointer-events-none absolute inset-0 ledger-texture opacity-[0.5]" aria-hidden="true" />
           <div className="relative max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 py-12 lg:py-16 text-center">
             <Link href="/" data-testid="link-results-logo">
               <img src={logoBlue} alt="Liberty Bancard" className="h-8 mx-auto mb-8" />
@@ -560,11 +558,6 @@ export default function FreeAnalysis() {
                       Complete your application in 48 hours to lock in your rate.
                     </p>
                   </div>
-                  <CountdownTimer
-                    targetDate={new Date(Date.now() + 48 * 60 * 60 * 1000)}
-                    label="Offer expires in"
-                    className="pt-1"
-                  />
                 </div>
                 <PromoBanner variant="inline" promoId="free-processing" dismissible={false} className="mt-4" />
               </CardContent>
@@ -721,10 +714,9 @@ export default function FreeAnalysis() {
         keywords="free statement analysis, payment processing savings, credit card processing, merchant services, rate comparison"
       />
 
-      <PromoBanner variant="bar" promoId="free-processing" showCountdown />
+      <PromoBanner variant="bar" promoId="free-processing" />
 
       <section className="marketing-surface relative overflow-hidden bg-background border-b border-border" data-testid="section-quiz-hero">
-        <div className="pointer-events-none absolute inset-0 ledger-texture opacity-[0.5]" aria-hidden="true" />
         <div className="relative max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 py-10 lg:py-14 text-center">
           <Link href="/" data-testid="link-quiz-logo">
             <img src={logoBlue} alt="Liberty Bancard" className="h-8 mx-auto mb-6" />

@@ -253,7 +253,6 @@ export default function RateComparison() {
         </div>
 
         <section className="marketing-surface relative overflow-hidden bg-background border-b border-border" data-testid="section-compare-hero">
-          <div className="pointer-events-none absolute inset-0 ledger-texture opacity-[0.5]" aria-hidden="true" />
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 lg:py-20">
             <div className="accent-rule pt-5 text-center max-w-3xl mx-auto">
               <div className="inline-flex items-center gap-2 border border-border bg-card text-muted-foreground shadow-sm text-sm font-medium px-3 py-1.5 rounded-md mb-6" data-testid="text-compare-badge">
@@ -572,7 +571,6 @@ export default function RateComparison() {
         </section>
 
         <section className="relative overflow-hidden bg-primary text-primary-foreground py-16" data-testid="section-compare-final-cta">
-          <div className="pointer-events-none absolute inset-0 ledger-texture opacity-[0.06]" aria-hidden="true" />
           <div className="relative max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
             <h2 className="text-2xl md:text-3xl font-display font-bold mb-4" data-testid="text-compare-cta-heading">
               Ready to See Your Actual Savings?

@@ -50,15 +50,14 @@ export function getHomeHtml(): string {
   const body = `
     <div class="ssr-hero">
       <div class="ssr-hero-inner">
-        <div class="ssr-hero-badge">✅ 15+ Years Serving U.S. Merchants</div>
-        <h1>Stop Overpaying for Merchant Payment Processing</h1>
+        <div class="ssr-hero-badge">South Florida Merchant Services</div>
+        <h1>Credit Card Processing Without the Rate Games</h1>
         <p class="ssr-hero-subtitle">
-          Liberty Bancard offers transparent interchange-plus pricing, 0% processing programs, and dedicated human support. 
-          We review your actual statement and show you exactly what you're paying — and what you should be paying.
+          Upload a recent processing statement and we'll show your effective rate, markup, monthly fees, and hidden charges — before you switch.
         </p>
         <div class="ssr-hero-buttons">
-          <a href="/upload-statement" class="ssr-btn-primary">📤 Upload Statement — Free Review</a>
-          <a href="/free-analysis" class="ssr-btn-outline">🧮 Free Savings Analysis</a>
+          <a href="/upload-statement" class="ssr-btn-primary">Upload My Statement — Free</a>
+          <a href="/free-analysis" class="ssr-btn-outline">Free Savings Analysis</a>
         </div>
       </div>
     </div>
@@ -67,16 +66,20 @@ export function getHomeHtml(): string {
       <div class="ssr-section-inner">
         <div class="ssr-grid-3">
           <div class="ssr-card" style="text-align:center;">
-            <div class="ssr-stat-value">$2B+</div>
-            <div class="ssr-stat-label">Annual processing volume managed</div>
+            <!-- source: Internal — company founding year, verified Aug 2026 -->
+            <!-- measuredAs: Calendar years of operation from founding -->
+            <div class="ssr-stat-value">10+</div>
+            <div class="ssr-stat-label">Years in Business</div>
           </div>
           <div class="ssr-card" style="text-align:center;">
-            <div class="ssr-stat-value">98%</div>
-            <div class="ssr-stat-label">Merchant retention rate</div>
+            <!-- source: Internal — CRM cumulative merchant count, last verified Aug 2026 -->
+            <!-- measuredAs: Cumulative approved merchant accounts, all-time -->
+            <div class="ssr-stat-value">5,000+</div>
+            <div class="ssr-stat-label">Merchants Served</div>
           </div>
           <div class="ssr-card" style="text-align:center;">
-            <div class="ssr-stat-value">15+</div>
-            <div class="ssr-stat-label">Years in the industry</div>
+            <div class="ssr-stat-value">FL-Based</div>
+            <div class="ssr-stat-label">South Florida Team</div>
           </div>
         </div>
       </div>

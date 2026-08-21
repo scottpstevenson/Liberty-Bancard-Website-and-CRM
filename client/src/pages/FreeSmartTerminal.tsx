@@ -78,7 +78,6 @@ export default function FreeSmartTerminal() {
       <main className="marketing-surface flex-grow pt-28" ref={containerRef}>
         {/* Hero */}
         <section className="marketing-surface relative overflow-hidden bg-background border-b border-border" data-testid="section-terminal-hero">
-          <div className="pointer-events-none absolute inset-0 ledger-texture opacity-[0.5]" aria-hidden="true" />
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 lg:py-28">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
               <div className="accent-rule pt-5">
@@ -314,7 +313,6 @@ export default function FreeSmartTerminal() {
 
         {/* Final CTA */}
         <section className="relative overflow-hidden bg-primary py-20" data-testid="section-final-cta">
-          <div className="pointer-events-none absolute inset-0 ledger-texture opacity-[0.06]" aria-hidden="true" />
           <div className="absolute top-0 left-0 right-0 h-[3px] bg-accent" aria-hidden="true" />
           <div className="relative max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
             <h2 className="text-3xl md:text-4xl font-display font-bold text-primary-foreground mb-4" data-testid="text-final-cta-heading">

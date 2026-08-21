@@ -313,7 +313,6 @@ export default function LocationIndustryPage() {
 
       <main className="marketing-surface flex-grow pt-28">
         <section className="marketing-surface relative overflow-hidden bg-background border-b border-border" data-testid="section-location-hero">
-          <div className="pointer-events-none absolute inset-0 ledger-texture opacity-[0.5]" aria-hidden="true" />
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 md:py-28">
             <div className="accent-rule pt-5">
               <Breadcrumbs
@@ -421,7 +420,6 @@ export default function LocationIndustryPage() {
         </section>
 
         <section className="relative overflow-hidden bg-primary text-primary-foreground py-20" data-testid="section-location-cta">
-          <div className="pointer-events-none absolute inset-0 ledger-texture opacity-[0.06]" aria-hidden="true" />
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
             <h2 className="text-2xl md:text-3xl font-display font-bold text-white mb-4" data-testid="text-cta-heading">
               {data.cityName} {data.industryName} Owners: See What You're Really Paying

@@ -391,7 +391,7 @@ export default function Estimate() {
           </div>
         </section>
 
-        <section className="bg-background bg-grid py-20" data-testid="section-effective-rate-education">
+        <section className="bg-background py-20" data-testid="section-effective-rate-education">
           <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="reveal">
               <h2

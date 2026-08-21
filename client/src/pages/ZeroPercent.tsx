@@ -200,7 +200,7 @@ export default function ZeroPercent() {
         </div>
 
         {/* SECTION 2: How It Works */}
-        <section className="bg-muted bg-dots py-20" data-testid="section-how-it-works">
+        <section className="bg-muted py-20" data-testid="section-how-it-works">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="reveal text-center mb-12">
               <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4" data-testid="text-how-heading">
@@ -274,7 +274,7 @@ export default function ZeroPercent() {
         </section>
 
         {/* SECTION 3: Who Qualifies */}
-        <section className="bg-background bg-grid py-20" data-testid="section-who-qualifies">
+        <section className="bg-background py-20" data-testid="section-who-qualifies">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="reveal max-w-3xl mx-auto">
               <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4" data-testid="text-qualify-heading">
@@ -457,7 +457,7 @@ export default function ZeroPercent() {
         </section>
 
         {/* SECTION 6: Implementation & Terminal */}
-        <section className="bg-background bg-dots py-20" data-testid="section-terminal-equipment">
+        <section className="bg-background py-20" data-testid="section-terminal-equipment">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="reveal max-w-5xl mx-auto">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-10 items-center">

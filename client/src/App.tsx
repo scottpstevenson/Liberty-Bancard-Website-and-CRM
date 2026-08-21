@@ -9,7 +9,7 @@ import { ThemeProvider } from "@/components/ThemeProvider";
 import { useAuth } from "@/hooks/use-auth";
 import { Loader2 } from "lucide-react";
 import { StickyMobileCTA } from "@/components/StickyMobileCTA";
-import { ExitIntentPopup } from "@/components/ExitIntentPopup";
+import { PublicThemeShell } from "@/components/PublicThemeShell";
 import { CookieConsent } from "@/components/CookieConsent";
 // ChatWidget replaced by GHL chat widget (index.html)
 import { trackPageView } from "@/lib/tracking";
@@ -920,6 +920,38 @@ function usePageTracking() {
   }, [location]);
 }
 
+/**
+ * Routes that must NOT receive the .marketing-theme shell (P0-2).
+ * Tokenised portals, auth, dashboard, mobile CRM, and thanks pages
+ * must use the app's own token context, not the brand-light marketing overrides.
+ */
+const NON_MARKETING_PREFIXES = [
+  "/dashboard",
+  "/mobile",
+  "/proposal/",
+  "/co-branded-proposal/",
+  "/savings/",       // tokenised savings page — not /savings-calculator
+  "/statement-upload/",
+  "/activate-portal",
+  "/partner-portal",
+  "/partner-login",
+  "/merchant-application",
+  "/nps/",
+  "/login",
+  "/forgot-password",
+  "/reset-password",
+  "/verify-email",
+  "/thanks/",
+];
+
+function isMarketingRoute(loc: string): boolean {
+  return !NON_MARKETING_PREFIXES.some((p) =>
+    p.endsWith("/")
+      ? loc.startsWith(p) || loc === p.slice(0, -1)
+      : loc === p || loc.startsWith(p + "/")
+  );
+}
+
 function PublicLayout() {
   const [location] = useLocation();
   useReferralTracking();
@@ -929,18 +961,20 @@ function PublicLayout() {
   const isAuthPage = location === "/login" || location === "/forgot-password" || location === "/reset-password" || location === "/verify-email";
   const isMobile = location.startsWith("/mobile");
   const isUploadStatement = location.startsWith("/upload-statement");
+  const isMarketing = isMarketingRoute(location);
 
-  return (
+  const inner = (
     <>
       <ErrorBoundary key={location}>
         <Router />
       </ErrorBoundary>
       {!isDashboard && !isThanksPage && !isAuthPage && !isMobile && !isUploadStatement && <StickyMobileCTA />}
-      {!isDashboard && !isAuthPage && !isMobile && <ExitIntentPopup />}
-            {!isDashboard && !isAuthPage && !isMobile && <CookieConsent />}
+      {!isDashboard && !isAuthPage && !isMobile && <CookieConsent />}
       {/* GHL chat widget loaded via index.html script tag */}
     </>
   );
+
+  return isMarketing ? <PublicThemeShell>{inner}</PublicThemeShell> : inner;
 }
 
 function App() {

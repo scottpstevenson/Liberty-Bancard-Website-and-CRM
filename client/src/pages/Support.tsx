@@ -176,7 +176,7 @@ export default function Support() {
           </div>
         </section>
 
-        <section className="bg-muted/30 bg-dots py-12 pb-16">
+        <section className="bg-muted/30 py-12 pb-16">
           <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="reveal">
               <Card data-testid="card-support-form">

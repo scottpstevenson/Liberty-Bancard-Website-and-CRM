@@ -1,3 +1,5 @@
+import { ssrNavbar, ssrFooter } from "../ssrShared";
+
 function escHtml(str: string): string {
   return str
     .replace(/&/g, "&amp;")
@@ -625,7 +627,7 @@ export function renderAlternativesHtml(competitorSlug: string): string {
 ${sharedStyles()}
 </head>
 <body>
-<header class="site-header"><a href="/">Liberty Bancard</a></header>
+${ssrNavbar()}
 <nav class="breadcrumb"><a href="/">Home</a><span>›</span>${escHtml(info.name)} Alternatives</nav>
 <header class="page-header">
 <div class="page-header-inner">
@@ -674,7 +676,7 @@ ${sharedStyles()}
 </div>
 </section>
 </main>
-<footer class="site-footer"><p>&copy; 2025 Liberty Bancard. All rights reserved. | <a href="/privacy-policy">Privacy Policy</a> | <a href="/terms">Terms</a></p></footer>
+${ssrFooter()}
 </body>
 </html>`;
 }
@@ -723,7 +725,7 @@ ${sharedStyles()}
 </style>
 </head>
 <body>
-<header class="site-header"><a href="/">Liberty Bancard</a></header>
+${ssrNavbar()}
 <nav class="breadcrumb"><a href="/">Home</a><span>›</span>How to Switch From ${escHtml(info.name)}</nav>
 <header class="page-header">
 <div class="page-header-inner">
@@ -767,7 +769,7 @@ ${howToCancelHtml}
 </section>
 
 </main>
-<footer class="site-footer"><p>&copy; 2025 Liberty Bancard. All rights reserved. | <a href="/privacy-policy">Privacy Policy</a> | <a href="/terms">Terms</a></p></footer>
+${ssrFooter()}
 </body>
 </html>`;
 }

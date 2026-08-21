@@ -71,12 +71,6 @@ export function PublicHero({
       )}
       data-testid={testId}
     >
-      {/* Faint ledger texture */}
-      <div
-        className="hidden lg:block pointer-events-none absolute inset-0 ledger-texture opacity-[0.5]"
-        aria-hidden="true"
-      />
-
       <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8 pb-12 lg:py-24">
         <div
           className={cn(

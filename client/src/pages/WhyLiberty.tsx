@@ -237,7 +237,7 @@ export default function WhyLiberty() {
           </div>
         </section>
 
-        <section className="bg-muted bg-dots py-20" data-testid="section-stats">
+        <section className="bg-muted py-20" data-testid="section-stats">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
               {stats.map((stat, i) => (
@@ -257,7 +257,7 @@ export default function WhyLiberty() {
           </div>
         </section>
 
-        <section className="bg-background bg-grid py-20" data-testid="section-story">
+        <section className="bg-background py-20" data-testid="section-story">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
               <div className="reveal">
@@ -297,7 +297,7 @@ export default function WhyLiberty() {
           </div>
         </section>
 
-        <section className="bg-muted bg-dots py-20" data-testid="section-timeline">
+        <section className="bg-muted py-20" data-testid="section-timeline">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="reveal">
               <h2
@@ -332,7 +332,7 @@ export default function WhyLiberty() {
           </div>
         </section>
 
-        <section className="bg-background bg-grid py-20" data-testid="section-values">
+        <section className="bg-background py-20" data-testid="section-values">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="reveal">
               <h2
@@ -365,7 +365,7 @@ export default function WhyLiberty() {
           </div>
         </section>
 
-        <section className="bg-muted bg-dots py-20" data-testid="section-certifications">
+        <section className="bg-muted py-20" data-testid="section-certifications">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="reveal">
               <h2
@@ -400,7 +400,7 @@ export default function WhyLiberty() {
           </div>
         </section>
 
-        <section className="bg-background bg-grid py-20" data-testid="section-team">
+        <section className="bg-background py-20" data-testid="section-team">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
               <div className="reveal">
@@ -445,7 +445,7 @@ export default function WhyLiberty() {
           </div>
         </section>
 
-        <section className="bg-muted bg-dots py-20" data-testid="section-pricing-philosophy">
+        <section className="bg-muted py-20" data-testid="section-pricing-philosophy">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="max-w-3xl mx-auto reveal">
               <h2
