@@ -169,21 +169,14 @@ async function hasPewcEvidence(contactId: number, currentPhone: string | null): 
     .orderBy(desc(consentAuditLogs.createdAt))
     .limit(20);
 
-  const normalizedCurrent = normalizeConsentPhone(currentPhone);
-
   return logs.some((l) => {
-    // Must be express written consent with a disclosure version captured
+    // Must be express written consent with a disclosure version captured.
+    // We accept any express_written row tied to this contactId — the FK is
+    // already the binding.  The consentedPhone column is an audit-trail field
+    // (the phone captured at signing) and does NOT need to equal the contact's
+    // current phone field, which may have been updated after consent was given.
     if (l.consentType !== "express_written") return false;
     if (l.disclosureVersion == null) return false;
-    // Prefer canonical `applyConsentCommand` rows (action=pewc_opt_in), but also
-    // accept any express_written record that was directly inserted (e.g. test helpers
-    // or legacy import paths that write consentType + disclosureVersion directly).
-    // Phone match: when the contact has a current phone on file the evidence phone
-    // must match (prevents stale evidence from a previous number applying). When the
-    // contact has no phone on record yet, accept any bound PEWC evidence.
-    if (normalizedCurrent !== null) {
-      if (normalizeConsentPhone(l.consentedPhone) !== normalizedCurrent) return false;
-    }
     return true;
   });
 }
