@@ -909,17 +909,23 @@ export const runNewLeadEnroll = startNewLeadEnroll;
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 async function _fetchNewLeadDeals(): Promise<Array<{ deal: any; contact: any }>> {
-  const dealRows = await db
-    .select()
-    .from(deals)
-    .where(
-      and(
-        eq(deals.pipeline, "sales"),
-        eq(deals.stage, "New Lead"),
-        isNull(deals.archivedAt)
+  // Wrap the deal scan in a transaction with SET LOCAL statement_timeout = '0' so
+  // the full-table scan of New Lead deals is not killed by the pool-level 30s default
+  // (this function is called from a background job and can legitimately take longer).
+  const dealRows = await db.transaction(async (tx) => {
+    await tx.execute(sql`SET LOCAL statement_timeout = '0'`);
+    return tx
+      .select()
+      .from(deals)
+      .where(
+        and(
+          eq(deals.pipeline, "sales"),
+          eq(deals.stage, "New Lead"),
+          isNull(deals.archivedAt)
+        )
       )
-    )
-    .orderBy(deals.id);
+      .orderBy(deals.id);
+  });
 
   // Bulk-fetch all contacts in one chunked query instead of per-deal serial fetches
   const uniqueContactIds = [...new Set(
