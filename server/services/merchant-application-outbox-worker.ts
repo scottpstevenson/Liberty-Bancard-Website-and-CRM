@@ -486,13 +486,12 @@ async function processRow(row: OutboxRow): Promise<void> {
 
 async function tick(): Promise<void> {
   if (running) return;
-  // Canonical global pause check — mirrors sequence-worker.ts / winback-outreach-engine.ts.
-  // Stops automated GHL workflow enrollment during a global pause; transactional sends
-  // (approval/decline emails, e-sign) are dispatched by merchant-application-status.ts
-  // which is explicitly exempted from the pause gate in pre-deploy.ts.
-  const { authorize } = await import("./outbound-pause-authority");
-  const decision = await authorize({});
-  if (!decision.allowed) return;
+  // NOTE: No top-level pause check here. Pure data-operations (contact_link,
+  // consent_record, risk_scan, deal_stage, lifecycle_*) must run regardless of
+  // the global outbound pause so that contact creation and PEWC consent recording
+  // are never blocked.  GHL-sending events (ghl_sync, workflow_enroll, esign_send)
+  // fail naturally at the service layer (pause authority blocks GHL calls there)
+  // and are retried with exponential back-off until the pause is lifted.
   running = true;
   try {
     await reclaimStale();
@@ -523,6 +522,17 @@ export function startMerchantApplicationOutboxWorker(): void {
   if (typeof timer.unref === "function") timer.unref();
   const initial = setTimeout(() => void tick(), 3000);
   if (typeof initial.unref === "function") initial.unref();
+}
+
+/**
+ * Schedule an expedited outbox tick ~100 ms from now.
+ * Call after a finalize/status mutation to ensure contact_link and consent_record
+ * rows are processed promptly rather than waiting up to POLL_INTERVAL_MS (15 s).
+ * Safe to call concurrently — the re-entrancy guard in tick() prevents double-work.
+ */
+export function triggerOutboxTick(): void {
+  const t = setTimeout(() => { void tick(); }, 100);
+  if (typeof t.unref === "function") t.unref();
 }
 
 export const __test__ = { backoffMs, MAX_ATTEMPTS, STALE_LOCK_MS, scrubError };

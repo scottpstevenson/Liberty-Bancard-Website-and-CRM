@@ -25,7 +25,7 @@ import {
   ForbiddenError,
 } from "../services/merchant-application-service";
 import { ProtectedDataValidationError } from "../services/merchant-protected-data";
-import { startMerchantApplicationOutboxWorker } from "../services/merchant-application-outbox-worker";
+import { startMerchantApplicationOutboxWorker, triggerOutboxTick } from "../services/merchant-application-outbox-worker";
 
 /**
  * Map service/domain errors to HTTP responses. Generic 404 for capability
@@ -229,6 +229,9 @@ export function registerMerchantsRoutes(app: Express) {
         body: req.body,
         resolvedDealId,
       });
+      // Schedule an immediate outbox tick so contact_link and consent_record rows
+      // are processed promptly (otherwise the poller waits up to 15 s).
+      triggerOutboxTick();
       // Return safe ack with a fresh e-sign capability plaintext (once).
       res.json({ ...result.ack, ...(result.esignCapability ? { esignCapability: result.esignCapability } : {}) });
     } catch (err: any) {

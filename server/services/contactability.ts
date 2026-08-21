@@ -207,10 +207,19 @@ export function deriveConsentTier(
 ): ConsentTierValue {
   if (contact.doNotContact) return "do_not_contact";
 
-  // Email opt-out drives the global opted_out tier (blocks all automated channels).
-  // SMS opt-out is a channel-specific flag handled at Step 3 of evaluateContactability;
-  // it must NOT cascade to the global opted_out tier or it silently blocks email too.
+  // Email opt-out and SMS STOP both drive the opted_out tier.
+  // They are surfaced here so the tier correctly represents the contact's opt-out
+  // state for reporting and downstream consumers.
+  // In evaluateContactability, per-channel gates at Step 3 handle the actual blocking
+  // for each channel independently (email-only block for emailStatus, SMS/voice
+  // block for smsStatus) — so the opted_out tier itself does NOT cascade to a
+  // cross-channel block at Step 5.
+  // These checks come BEFORE pewcEvidenceVerified so that a PEWC upgrade cannot
+  // override an explicit opt-out; PEWC evidence does not undo a STOP command.
   if (contact.emailStatus === "opted_out") {
+    return "opted_out";
+  }
+  if (contact.smsStatus === "opted_out") {
     return "opted_out";
   }
 
@@ -599,11 +608,14 @@ export async function evaluateContactability(
     );
   }
 
-  // ── Step 5: Global opt-out / suppression ─────────────────────────────
-  if (
-    consentTier === "opted_out" ||
-    consentTier === "do_not_contact"
-  ) {
+  // ── Step 5: do_not_contact belt-and-suspenders ───────────────────────
+  // "opted_out" is intentionally excluded here: email and SMS opt-outs are
+  // already caught per-channel at Step 3 above, and cascading the opted_out
+  // tier to ALL channels would incorrectly block email for smsStatus=opted_out
+  // contacts (and vice versa).  Step 2 already gates doNotContact contacts;
+  // this is a safety net for cases where the derived tier is do_not_contact
+  // without the raw doNotContact field being set.
+  if (consentTier === "do_not_contact") {
     return blocked("Contact has globally opted out or is suppressed", {
       ...commonOpts,
       consentTier,
