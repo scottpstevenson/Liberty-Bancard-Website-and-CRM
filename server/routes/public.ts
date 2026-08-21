@@ -1,4 +1,5 @@
 import type { Express } from "express";
+import { createHash } from "crypto";
 import { storage } from "../storage";
 import { z } from "zod";
 import { and } from "drizzle-orm";
@@ -18,6 +19,12 @@ import { processExistingPublicFormSubmission } from "../services/public-form-sub
 import { buildPublicContactPayload } from "../services/public-form-payload";
 import type { Contact } from "@shared/schema";
 import { runStatementUploadChain } from "../services/statement-upload-chain";
+import {
+  claimCommand,
+  computeRequestFingerprint,
+  isValidUUIDv4,
+  markRecoverableFailed,
+} from "../services/statement-upload-idempotency";
 import { parse } from "csv-parse/sync";
 import path from "path";
 import fs from "fs";
@@ -182,7 +189,27 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
 
   // === PUBLIC FORM SUBMISSIONS ===
   app.post("/api/public/statement-upload", publicLeadRateLimit, upload.single("statementFile"), async (req, res) => {
+    // Tracks the idempotency slot we own so route-level errors after the claim
+    // can honestly mark the command recoverable-failed instead of leaving it
+    // stuck in_progress.
+    let ownedCommandId: string | null = null;
     try {
+      // ── Idempotency-Key guard ───────────────────────────────────────────────
+      // A UUIDv4 Idempotency-Key header is REQUIRED before any business mutation.
+      const idempotencyKey = req.headers["idempotency-key"] as string | undefined;
+      if (!idempotencyKey) {
+        return res.status(400).json({
+          error: "MISSING_IDEMPOTENCY_KEY",
+          message: "Idempotency-Key header is required. Supply a UUID v4.",
+        });
+      }
+      if (!isValidUUIDv4(idempotencyKey)) {
+        return res.status(400).json({
+          error: "INVALID_IDEMPOTENCY_KEY",
+          message: "Idempotency-Key must be a valid UUID v4.",
+        });
+      }
+
       // Per-request UUID: each HTTP submission is a distinct event. BullMQ job retries
       // use this same UUID (stored in job data), ensuring intra-retry dedup stability.
       const submissionId = crypto.randomUUID();
@@ -212,6 +239,109 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
           console.warn("[StatementUpload] Could not fetch merchant profile for user", authUserId, profileErr);
         }
       }
+
+      // ── Compute fingerprint + claim idempotency slot ───────────────────────
+      // Fingerprint: normalized target identity + source/workflow metadata + file
+      const normalizedEmailForFp = (email || "").trim().toLowerCase();
+      const fingerprint = computeRequestFingerprint({
+        fields: {
+          // Target identity (normalized)
+          email: normalizedEmailForFp,
+          mobile: (mobile || "").trim(),
+          businessName: (businessName || "").trim().toLowerCase(),
+          // Source/workflow metadata
+          source: "website",
+          utmSource: utmSource || null,
+          utmCampaign: utmCampaign || null,
+          landingPage: landingPage || "/upload-statement",
+          // FK hints
+          existingContactId: existingContactId ?? null,
+          existingDealId: existingDealId ?? null,
+        },
+        fileBuffer: req.file?.buffer ?? Buffer.alloc(0),
+      });
+
+      // Owner scope: authenticated user or session-bound anonymous identity.
+      // For anonymous callers we bind to the express session so that a different
+      // browser/session cannot replay this key even with the same email.
+      // The email hash is included so the scope is stable across session resets
+      // when the same email is used, while still preventing cross-session leaks.
+      const ownerScope = (() => {
+        if (authUserId) return `user:${authUserId}`;
+        // Build a short, stable hash from the normalized email (or IP as fallback).
+        const emailOrIp = normalizedEmailForFp || req.ip || "unknown";
+        const emailHash = createHash("sha256")
+          .update(emailOrIp)
+          .digest("hex")
+          .slice(0, 16);
+        // Bind to the session so a different session cannot claim the same key.
+        const sessionSuffix = req.sessionID ? req.sessionID.slice(0, 16) : emailHash;
+        return `anon:${emailHash}:${sessionSuffix}`;
+      })();
+
+      const claim = await claimCommand({
+        requestId: idempotencyKey,
+        fingerprint,
+        ownerScope,
+        source: "website",
+        context: {
+          email: normalizedEmailForFp,
+          businessName: businessName || null,
+          source: "website",
+          submissionId,
+        },
+      });
+
+      // ── Handle non-claimed outcomes before any business mutation ──────────
+      if (claim.outcome === "conflict") {
+        return res.status(409).json({
+          error: "IDEMPOTENCY_KEY_CONFLICT",
+          message: "This Idempotency-Key was already used with a different request payload.",
+        });
+      }
+      if (claim.outcome === "scope_mismatch") {
+        return res.status(403).json({
+          error: "IDEMPOTENCY_KEY_SCOPE_MISMATCH",
+          message: "This Idempotency-Key belongs to a different caller.",
+        });
+      }
+      if (claim.outcome === "claimed_by_other") {
+        return res.status(202).json({
+          error: "IDEMPOTENCY_IN_PROGRESS",
+          message: "This upload is already being processed. Please poll or retry later.",
+          commandId: claim.commandId,
+        });
+      }
+      if (claim.outcome === "replay") {
+        // Return stored result with idempotency headers (200 = replayed, not newly created)
+        const stored = claim.command.result as Record<string, unknown> | null;
+        res.setHeader("Idempotency-Key", idempotencyKey);
+        res.setHeader("X-Statement-Upload-Request-Id", claim.command.id);
+        return res.status(200).json({
+          success: true,
+          replayed: true,
+          statement_upload_request_id: claim.command.id,
+          ...(stored ?? {}),
+        });
+      }
+      if (claim.outcome === "recoverable_failed_replay") {
+        // The prior attempt for this key ended in recoverable_failed. Return the
+        // honest stored failure — never fall through to a fresh mutation.
+        const stored = claim.command.result as Record<string, unknown> | null;
+        res.setHeader("Idempotency-Key", idempotencyKey);
+        res.setHeader("X-Statement-Upload-Request-Id", claim.command.id);
+        return res.status(422).json({
+          error: "IDEMPOTENCY_KEY_RECOVERABLE_FAILED",
+          message: "A prior attempt with this Idempotency-Key failed. Retry with a new Idempotency-Key.",
+          replayed: true,
+          statement_upload_request_id: claim.command.id,
+          ...(stored ?? {}),
+        });
+      }
+
+      // claim.outcome === "claimed" — we own this slot, proceed with business mutations
+      const commandId = claim.command.id;
+      ownedCommandId = commandId;
 
       const tags = ["src_website", "lead_statement_upload", `vertical_${(vertical || "unknown").toLowerCase().replace(/[^a-z]/g, "_")}`];
       if (utmSource) tags.push(`utm_src_${utmSource}`);
@@ -335,7 +465,9 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         console.error("[Attribution] statement-upload error:", err);
       }
 
-      // Run the full 11-step conversion chain (fire-and-forget — merchant always gets 201)
+      // Run the full 11-step conversion chain (fire-and-forget — merchant always gets 201).
+      // Replay paths return early above, so everything below the claim runs exactly once
+      // per approved Idempotency-Key — no need to serialize side effects behind the chain.
       runStatementUploadChain({
         contactId: contact.id,
         dealId: existingDealId || null,
@@ -345,15 +477,13 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         businessName: businessName || undefined,
         consentEmail: parseBool(consentSms),
         partnerOrgId: resolvedPartnerOrgId,
+        commandId,
+        requestId: idempotencyKey,
       }).catch(err => console.error("[StatementChain] Unhandled chain error:", err.message));
 
-      if (contact.ghlContactId) {
-        enrollInGhlWorkflowCompliant({ workflowKey: "statement_review", ghlContactId: contact.ghlContactId, contactId: contact.id, metadata: { source: "website", contactId: contact.id } }).catch(err =>
-          console.error("[StatementUpload] GHL statement_review enrollment error:", err)
-        );
-      }
-
-      // Non-chain fire-and-forget actions
+      // Fire-and-forget side effects — owner execution only (replays returned early above).
+      // NOTE: statement_review enrollment is owned by enrollInInboundConfirmation inside
+      // runStatementUploadChain (Step 9). Do NOT enroll here a second time.
       recordAnalyticsEvent({
         eventName: FORM_SUBMITTED,
         contactId: contact.id,
@@ -369,9 +499,9 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         landingPage: landingPage || "/upload-statement",
         metadata: { formType: "statement_upload" },
       }).catch(() => {});
-      trackReferral(referralCode, contactName, email, mobile, businessName).catch(err => console.error("Referral tracking error:", err));
-      ingestBusinessFromContact(contact.id, "manual_upload", "website_statement").catch(err => console.warn("[Statement] Business ingest failed:", err));
-      processNewLead(contact.id, { source: "website_statement_upload", trigger: "form_submit" }).catch(err => console.error("Lead pipeline error:", err));
+      trackReferral(referralCode, contactName, email, mobile, businessName).catch((err: Error) => console.error("Referral tracking error:", err));
+      ingestBusinessFromContact(contact.id, "manual_upload", "website_statement").catch((err: Error) => console.warn("[Statement] Business ingest failed:", err));
+      processNewLead(contact.id, { source: "website_statement_upload", trigger: "form_submit" }).catch((err: Error) => console.error("Lead pipeline error:", err));
       // Record in canonical communication_events table (Wave A3 — non-blocking)
       import("../services/communication-events").then(({ recordInboundEvent }) => {
         recordInboundEvent({
@@ -383,8 +513,10 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
           metadata: { formType: "statement_upload", submissionId, vertical: vertical || null },
         });
       }).catch(() => {});
-      triggerWorkflowsByEvent("form_submitted", { entityType: "contact", entityId: contact.id, contactId: contact.id, dealId: existingDealId || undefined }, { formType: "statement_upload" }).catch(err => console.error("Workflow trigger error:", err));
-      enrollInInboundConfirmation({ contactId: contact.id, formType: "statement_upload", dealId: existingDealId || undefined, submissionId }).catch(err => console.error("GHL inbound confirmation error:", err));
+      triggerWorkflowsByEvent("form_submitted", { entityType: "contact", entityId: contact.id, contactId: contact.id, dealId: existingDealId || undefined }, { formType: "statement_upload" }).catch((err: Error) => console.error("Workflow trigger error:", err));
+      // NOTE: enrollInInboundConfirmation is owned by Step 9 of runStatementUploadChain.
+      // Do NOT call it here — that would duplicate the merchant confirmation for every
+      // new upload and break idempotency (replay paths skip the chain entirely).
 
       await storage.createAuditLog({
         action: "statement_uploaded",
@@ -396,8 +528,24 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       // onStatementReceived() is now called inside runStatementUploadChain() (STEP 5b)
       // so it runs for all upload paths uniformly. Do not call it here again.
 
-      res.status(201).json({ success: true, contactId: contact.id, dealId: existingDealId || null });
+      res.setHeader("Idempotency-Key", idempotencyKey);
+      res.setHeader("X-Statement-Upload-Request-Id", commandId);
+      res.status(201).json({
+        success: true,
+        contactId: contact.id,
+        dealId: existingDealId || null,
+        statement_upload_request_id: commandId,
+      });
     } catch (err: any) {
+      // If we owned an idempotency slot and failed before/around handing off to
+      // the chain, honestly mark it recoverable-failed so the key never replays
+      // as a success and can be retried.
+      if (ownedCommandId) {
+        await markRecoverableFailed(ownedCommandId, {
+          error: err?.message ?? "unknown error",
+          code: err?.code ?? null,
+        }).catch(() => { /* best-effort */ });
+      }
       res.status(400).json({ message: err.message || "Invalid submission" });
     }
   });

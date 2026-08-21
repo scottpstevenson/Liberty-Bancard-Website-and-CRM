@@ -454,6 +454,10 @@ export function registerIntegrationsRoutes(app: Express) {
             .replace(/\{\{companyName\}\}/g, contact.companyName || "")
             .replace(/\{\{email\}\}/g, contact.email || "");
 
+          let auditOutcome: "sent" | "failed" | "skipped" | "not_configured";
+          let auditProvider: string | undefined;
+          let auditError: string | undefined;
+
           if (channel === "email") {
             if (isGhlConfigured() && contact.email) {
               const { channelOrchestrator } = await import("../services/transports/index");
@@ -462,32 +466,59 @@ export function registerIntegrationsRoutes(app: Express) {
                 subject: subject || "Message from Liberty Bancard",
                 body: personalizedMsg,
               });
+              auditOutcome = result.success ? "sent" : result.skipped ? "skipped" : "failed";
+              auditProvider = result.provider;
+              auditError = result.skipReason || result.error;
               results.push(result.success
                 ? { contactId, status: "sent" }
                 : { contactId, status: "skipped", error: result.skipReason || result.error || "Contactability blocked" });
             } else {
+              auditOutcome = "not_configured";
+              auditError = "GHL not configured or contact has no email";
               results.push({ contactId, status: "not_configured", error: "GHL not configured or contact has no email" });
             }
           } else {
             if (isGhlConfigured() && contact.phone) {
               const { channelOrchestrator } = await import("../services/transports/index");
               const result = await channelOrchestrator.sendSms({ contactId: authorizedContactId, body: personalizedMsg });
+              auditOutcome = result.success ? "sent" : result.skipped ? "skipped" : "failed";
+              auditProvider = result.provider;
+              auditError = result.skipReason || result.error;
               results.push(result.success
                 ? { contactId, status: "sent" }
                 : { contactId, status: "skipped", error: result.skipReason || result.error || "Contactability blocked" });
             } else {
+              auditOutcome = "not_configured";
+              auditError = "GHL not configured or contact has no phone";
               results.push({ contactId, status: "not_configured", error: "GHL not configured or contact has no phone" });
             }
           }
 
           await storage.createAuditLog({
-            action: `bulk_${channel}_sent`,
+            action: `bulk_${channel}_${auditOutcome}`,
             entityType: "contact",
             entityId: contactId,
-            details: { channel, subject },
+            details: {
+              channel,
+              subject,
+              outcome: auditOutcome,
+              provider: auditProvider ?? null,
+              error: auditError ?? null,
+            },
+          }).catch((auditErr) => {
+            console.error(`[BulkMessage] Failed to audit ${channel} ${auditOutcome} for contact ${contactId}:`, auditErr);
           });
         } catch (err: any) {
-          results.push({ contactId, status: "error", error: safeMessage(err.message, "Send failed") });
+          const error = safeMessage(err.message, "Send failed");
+          results.push({ contactId, status: "error", error });
+          await storage.createAuditLog({
+            action: `bulk_${channel}_failed`,
+            entityType: "contact",
+            entityId: contactId,
+            details: { channel, subject, outcome: "failed", error },
+          }).catch((auditErr) => {
+            console.error(`[BulkMessage] Failed to audit ${channel} failure for contact ${contactId}:`, auditErr);
+          });
         }
       }
 

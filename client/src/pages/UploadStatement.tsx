@@ -203,6 +203,9 @@ export default function UploadStatement() {
     }
   }, [formVerticalValue]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Idempotency key: generated once per logical submission, reused on retries, cleared on success.
+  const [submitIdempotencyKey, setSubmitIdempotencyKey] = useState<string>(() => crypto.randomUUID());
+
   const submitMutation = useMutation({
     mutationFn: (data: UploadFormData) => {
       const refCode = localStorage.getItem("lb_ref_code") || undefined;
@@ -230,6 +233,7 @@ export default function UploadStatement() {
         const xhr = new XMLHttpRequest();
         xhr.withCredentials = true;
         xhr.open("POST", "/api/public/statement-upload");
+        xhr.setRequestHeader("Idempotency-Key", submitIdempotencyKey);
 
         setIsUploading(true);
         setUploadProgress(0);
@@ -284,6 +288,8 @@ export default function UploadStatement() {
       trackFormSubmission("statement_upload");
       trackConversion("statement_upload");
       setUploadSucceeded(true);
+      // Rotate key so a future fresh submission gets a new idempotency key
+      setSubmitIdempotencyKey(crypto.randomUUID());
     },
     onError: (error: Error) => {
       setUploadProgress(0);
@@ -296,10 +302,13 @@ export default function UploadStatement() {
       } else {
         setSubmitError(msg.replace(/^\d{3}:\s*/, "") || "Please try again or call us at 954-266-8214.");
       }
+      // Keep the same idempotency key so a retry of the same logical submission is deduplicated
     },
   });
 
   const onSubmit = (data: UploadFormData) => {
+    // Guard double-click: mutation is already pending
+    if (submitMutation.isPending) return;
     setSubmitError(null);
     trackStatementUploadStarted({ page: "/upload-statement", ctaLocation: "form" });
     submitMutation.mutate(data);

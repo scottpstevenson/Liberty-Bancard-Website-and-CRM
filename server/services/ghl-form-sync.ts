@@ -400,14 +400,9 @@ export async function syncStatementUploadToGhl(contactId: number, fileName: stri
       body: `Processing statement uploaded: ${fileName}. Review pending.`,
     });
 
-    const workflowId = process.env.GHL_WORKFLOW_STATEMENT_REVIEW;
-    if (workflowId) {
-      await triggerWorkflow({
-        workflowId,
-        contactId: ghlContactId,
-        metadata: { fileName, contactId },
-      });
-    }
+    // NOTE: workflow enrollment (GHL_WORKFLOW_STATEMENT_REVIEW / inbound confirmation)
+    // is owned exclusively by enrollInInboundConfirmation in the upload chain Step 9.
+    // Do NOT trigger any workflow here — this function is sync-only.
 
     return { success: true };
   } catch (err: any) {

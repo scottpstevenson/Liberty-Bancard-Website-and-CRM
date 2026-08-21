@@ -4764,7 +4764,7 @@ export const statementProposals = pgTable("statement_proposals", {
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
-  index("statement_proposals_deal_id_idx").on(table.dealId),
+  uniqueIndex("statement_proposals_deal_id_uidx").on(table.dealId).where(sql`deal_id IS NOT NULL`),
   index("statement_proposals_contact_id_idx").on(table.contactId),
 ]);
 
@@ -4776,6 +4776,61 @@ export const insertStatementProposalSchema = createInsertSchema(statementProposa
 
 export type StatementProposal = typeof statementProposals.$inferSelect;
 export type InsertStatementProposal = z.infer<typeof insertStatementProposalSchema>;
+
+// ─── Statement Upload Commands ────────────────────────────────────────────────
+// Durable idempotency table for statement-upload operations.
+// Each row represents one attempt identified by (operation_scope, request_id).
+// The same (operation_scope, request_id) pair is only ever inserted once;
+// subsequent calls with the same pair are treated as replays when the
+// request_fingerprint also matches, or as conflicts when it differs.
+export const statementUploadCommands = pgTable("statement_upload_commands", {
+  id:                 uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  // Idempotency key supplied by the caller (UUIDv4 format required).
+  requestId:          text("request_id").notNull(),
+  // SHA-256 hex of canonical request fields + file buffer.
+  requestFingerprint: text("request_fingerprint").notNull(),
+  // Fixed logical operation namespace ("statement_upload").
+  operationScope:     text("operation_scope").notNull(),
+  // Authorized caller scope – e.g. "user:<userId>" or token-derived scope.
+  ownerScope:          text("owner_scope").notNull(),
+  // Logical source of the upload, e.g. "web", "api", "ghl-webhook".
+  source:             text("source"),
+  // Optional FK hints (nullable – not all uploads are tied to all entities).
+  contactId:          integer("contact_id").references(() => contacts.id),
+  dealId:             integer("deal_id").references(() => deals.id),
+  documentId:         integer("document_id").references(() => documents.id),
+  // Lifecycle state machine.
+  status:             text("status").notNull().default("in_progress"),
+  // ^ allowed: "in_progress" | "succeeded" | "recoverable_failed"
+  // Opaque JSON checkpoint written by the upload chain for crash-recovery.
+  checkpoint:         jsonb("checkpoint"),
+  // Opaque JSON context written at command creation (original request params).
+  context:            jsonb("context"),
+  // Final JSON result written on success.
+  result:             jsonb("result"),
+  createdAt:          timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt:          timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  completedAt:        timestamp("completed_at", { withTimezone: true }),
+}, (table) => [
+  // Primary idempotency constraint: one row per operation/request pair.
+  uniqueIndex("suc_scope_request_id_uidx").on(table.operationScope, table.requestId),
+  // Fast lookup by request_id alone (cross-scope conflict detection).
+  index("suc_request_id_idx").on(table.requestId),
+  // Fast lookup by contact for dashboard queries.
+  index("suc_contact_id_idx").on(table.contactId),
+  // Fast lookup by deal.
+  index("suc_deal_id_idx").on(table.dealId),
+]);
+
+export const insertStatementUploadCommandSchema = createInsertSchema(statementUploadCommands).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  completedAt: true,
+});
+
+export type StatementUploadCommand = typeof statementUploadCommands.$inferSelect;
+export type InsertStatementUploadCommand = z.infer<typeof insertStatementUploadCommandSchema>;
 
 // ─── Underwriting Rules Engine ───────────────────────────────────────────────
 export const underwritingRules = pgTable("underwriting_rules", {

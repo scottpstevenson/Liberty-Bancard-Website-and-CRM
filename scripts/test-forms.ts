@@ -227,10 +227,32 @@ async function testStatementUpload(): Promise<void> {
   const fakeFile = new Blob(["fake-statement"], { type: "application/pdf" });
   form.append("statementFile", fakeFile, "test-statement.pdf");
 
+  // BT-04C: statement uploads require a client-generated UUIDv4 Idempotency-Key
+  // before any business mutation. A missing key must be rejected with 400.
+  let missingKeyRes: Response | undefined;
+  try {
+    const probeForm = new FormData();
+    probeForm.append("contactName", "StmtTest NoKey");
+    probeForm.append("email", uniqueEmail("qa-release-test-stmt-nokey"));
+    probeForm.append("mobile", uniquePhone());
+    probeForm.append("statementFile", new Blob(["x"], { type: "application/pdf" }), "nokey.pdf");
+    missingKeyRes = await fetch(`${BASE_URL}/api/public/statement-upload`, {
+      method: "POST",
+      body: probeForm,
+    });
+  } catch { /* asserted below */ }
+  assert(
+    "Statement upload without Idempotency-Key is rejected with 400",
+    missingKeyRes?.status === 400,
+    `status=${missingKeyRes?.status}`
+  );
+
+  const stmtIdempotencyKey = crypto.randomUUID();
   let res: Response;
   try {
     res = await fetch(`${BASE_URL}/api/public/statement-upload`, {
       method: "POST",
+      headers: { "Idempotency-Key": stmtIdempotencyKey },
       body: form,
     });
   } catch (err) {
@@ -273,13 +295,18 @@ async function testStatementUpload(): Promise<void> {
     `stage="${dealRow?.stage}"`
   );
 
-  // Check document record linked to contact + deal
-  const rawDocResult = await db.execute(drizzleSql`
-    SELECT id, contact_id, deal_id FROM documents
-    WHERE contact_id = ${contact.id} LIMIT 1
-  `) as any;
-  const docRows = Array.isArray(rawDocResult) ? rawDocResult : rawDocResult?.rows ?? [];
-  const docRow = docRows[0];
+  // Check document record linked to contact + deal — chain Step 4 runs shortly
+  // after deal creation (Step 3); poll up to 5s for the document row to land.
+  let docRow: any;
+  for (let i = 0; i < 10; i++) {
+    const rawDocResult = await db.execute(drizzleSql`
+      SELECT id, contact_id, deal_id FROM documents
+      WHERE contact_id = ${contact.id} LIMIT 1
+    `) as any;
+    const docRows = Array.isArray(rawDocResult) ? rawDocResult : rawDocResult?.rows ?? [];
+    if (docRows[0]) { docRow = docRows[0]; break; }
+    await new Promise(r => setTimeout(r, 500));
+  }
   if (docRow) {
     assert("Document record linked to contact", docRow.contact_id === contact.id, `contact_id=${docRow.contact_id}`);
     assert("Document record linked to deal", !!docRow.deal_id, `deal_id=${docRow.deal_id}`);
@@ -494,6 +521,7 @@ async function testMerchantApplication(): Promise<void> {
       headers: {
         "Content-Type": "application/json",
         "x-draft-token": draftToken,
+        "Idempotency-Key": crypto.randomUUID(),
       },
       body: JSON.stringify({
         ownerEmail: email,
@@ -563,6 +591,7 @@ async function testMerchantApplication(): Promise<void> {
         headers: {
           "Content-Type": "application/json",
           "x-draft-token": dup2Token,
+          "Idempotency-Key": crypto.randomUUID(),
         },
         body: JSON.stringify({
           ownerEmail: uniqueEmail("qa-dup-finalize2"),

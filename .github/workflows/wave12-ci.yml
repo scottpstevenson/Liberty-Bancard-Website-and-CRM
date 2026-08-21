@@ -116,6 +116,21 @@ jobs:
       - name: Contactability engine tests
         run: npx tsx scripts/test-contactability.ts
 
+      # BT-04C: durable statement-upload command claims and replay safety.
+      - name: Statement upload idempotency tests
+        run: npx tsx server/tests/statement-upload-idempotency.test.ts
+
+      # BT-04C: proposal-draft concurrency safety (partial unique index +
+      # atomic ON CONFLICT upserts across chain and analyzer writers).
+      - name: Statement proposals concurrency tests
+        run: npx tsx server/tests/statement-proposals-concurrency.test.ts
+
+      # BT-04C: rate-review upload must yield exactly ONE document — the chain
+      # reuses the route-created document via existingDocumentId (no duplicate
+      # physical file or document row, even on chain re-run).
+      - name: Rate review single-document tests
+        run: npx tsx server/tests/rate-review-single-document.test.ts
+
       # ── Script 2b: Outbound boundary denial tests (#1626) ────────────────
       # Requires: DB. Covers pause denial on form-sync/delete/SMTP paths,
       # drain fail-closed on DB error, epoch interleaving, audit sanitizer.

@@ -33,6 +33,15 @@ import {
 } from "../services/co-branded-proposal";
 import { serverError, safeMessage } from "../utils/server-error";
 import { authorizeGhlRouteMutation, requireGhlRouteMutationAllowed } from "./ghl-mutation-pause";
+import {
+  isValidUUIDv4,
+  computeRequestFingerprint,
+  claimCommand,
+  updateContext,
+  updateCommandFKs,
+  markSucceeded,
+  markRecoverableFailed,
+} from "../services/statement-upload-idempotency";
 
 function isPartnerOrgAdmin(req: any) {
   return req.session?.partnerOrgUserId && req.session?.partnerOrgId;
@@ -129,13 +138,124 @@ export function registerPartnerOrgsRoutes(app: Express) {
 
   // ── Public: partner portal statement upload (no auth required) ─────────────
   app.post("/api/statements/upload", publicLeadRateLimit, upload.single("file"), async (req, res) => {
+    // ── Idempotency-Key validation (required before any mutations) ────────────
+    const idempotencyKey = (req.headers["idempotency-key"] as string | undefined)?.trim();
+    if (!idempotencyKey) {
+      return res.status(400).json({
+        message: "Idempotency-Key header is required.",
+        code: "IDEMPOTENCY_KEY_REQUIRED",
+      });
+    }
+    if (!isValidUUIDv4(idempotencyKey)) {
+      return res.status(400).json({
+        message: "Idempotency-Key must be a valid UUID v4.",
+        code: "IDEMPOTENCY_KEY_INVALID",
+      });
+    }
+
+    let commandId: string | undefined;
+
     try {
       const { email, partnerSlug } = req.body;
       if (!email) {
         return res.status(400).json({ message: "Email is required." });
       }
 
-      // Resolve partnerOrgId server-side from slug; ignore client-supplied partnerOrgId
+      const fileBuffer = req.file?.buffer ?? Buffer.alloc(0);
+      const rawName = req.file?.originalname || `statement_${Date.now()}`;
+      const fileName = path.basename(rawName).replace(/[^a-zA-Z0-9._-]/g, "_");
+
+      // ── Compute fingerprint from normalized partner/merchant fields + file bytes
+      const fingerprint = computeRequestFingerprint({
+        fields: {
+          email: email.toLowerCase(),
+          partnerSlug: partnerSlug ?? "",
+          firstName: (req.body.firstName ?? "").toLowerCase(),
+          lastName: (req.body.lastName ?? "").toLowerCase(),
+          phone: req.body.phone ?? "",
+          companyName: req.body.companyName ?? "",
+          fileName,
+        },
+        fileBuffer,
+      });
+
+      // ── Owner scope: non-reversible identity from slug + email (no session on public route)
+      // We use "partner:<slug>:email:<email>" so each (partner, submitter) pair is isolated.
+      const ownerScope = `partner:${partnerSlug ?? "direct"}:email:${email.toLowerCase()}`;
+
+      // ── Claim the idempotency slot ─────────────────────────────────────────
+      const claim = await claimCommand({
+        requestId: idempotencyKey,
+        fingerprint,
+        ownerScope,
+        source: "partner_portal_web",
+        context: {
+          email: email.toLowerCase(),
+          partnerSlug: partnerSlug ?? null,
+          firstName: req.body.firstName ?? null,
+          lastName: req.body.lastName ?? null,
+          phone: req.body.phone ?? null,
+          companyName: req.body.companyName ?? null,
+          fileName,
+          hasFile: !!req.file,
+        },
+      });
+
+      if (claim.outcome === "scope_mismatch") {
+        return res.status(403).json({
+          message: "This Idempotency-Key was issued under a different partner/email scope.",
+          code: "IDEMPOTENCY_KEY_SCOPE_MISMATCH",
+        });
+      }
+
+      if (claim.outcome === "conflict") {
+        return res.status(409).json({
+          message: "This Idempotency-Key was already used with different request data.",
+          code: "IDEMPOTENCY_KEY_CONFLICT",
+        });
+      }
+
+      if (claim.outcome === "claimed_by_other") {
+        res.setHeader("Idempotency-Key", idempotencyKey);
+        res.setHeader("X-Request-Id", claim.commandId);
+        return res.status(202).json({
+          message: "Upload already in progress.",
+          code: "IN_PROGRESS",
+          requestId: claim.commandId,
+        });
+      }
+
+      if (claim.outcome === "replay") {
+        // Return the stored successful result verbatim.
+        const stored = claim.command.result as Record<string, unknown> | null;
+        res.setHeader("Idempotency-Key", idempotencyKey);
+        res.setHeader("X-Request-Id", claim.command.id);
+        res.setHeader("X-Idempotency-Replay", "true");
+        return res.status(200).json(
+          stored ?? { message: "Statement received! We'll prepare your savings analysis within 24 hours." }
+        );
+      }
+
+      if (claim.outcome === "recoverable_failed_replay") {
+        // Prior attempt for this key failed recoverably — return the honest
+        // stored failure; never fall through to a fresh mutation.
+        const stored = claim.command.result as Record<string, unknown> | null;
+        res.setHeader("Idempotency-Key", idempotencyKey);
+        res.setHeader("X-Request-Id", claim.command.id);
+        res.setHeader("X-Idempotency-Replay", "true");
+        return res.status(422).json({
+          message: "A prior upload with this Idempotency-Key failed. Use a new Idempotency-Key to retry.",
+          code: "IDEMPOTENCY_KEY_RECOVERABLE_FAILED",
+          ...(stored ?? {}),
+        });
+      }
+
+      // outcome === "claimed" — we own the slot, proceed with mutations.
+      commandId = claim.command.id;
+      res.setHeader("Idempotency-Key", idempotencyKey);
+      res.setHeader("X-Request-Id", commandId);
+
+      // ── Resolve partnerOrgId server-side from slug; ignore client-supplied partnerOrgId
       let orgId: number | null = null;
       if (partnerSlug) {
         const org = await storage.getPartnerOrgBySlug(partnerSlug);
@@ -162,6 +282,16 @@ export function registerPartnerOrgsRoutes(app: Express) {
         contact = { ...contact, partnerOrgId: orgId };
       }
 
+      // Update command FK and context with resolved contactId
+      await updateCommandFKs(commandId, { contactId: contact!.id });
+      await updateContext(commandId, {
+        email: email.toLowerCase(),
+        partnerSlug: partnerSlug ?? null,
+        contactId: contact!.id,
+        orgId,
+        hasFile: !!req.file,
+      });
+
       const deal = await storage.createDeal({
         contactId: contact!.id,
         pipeline: "sales",
@@ -172,16 +302,16 @@ export function registerPartnerOrgsRoutes(app: Express) {
         partnerOrgId: orgId || undefined,
       });
 
-      const fileBuffer = req.file?.buffer;
-      const rawName = req.file?.originalname || `statement_${Date.now()}`;
-      const fileName = path.basename(rawName).replace(/[^a-zA-Z0-9._-]/g, "_");
+      // Update command FK with dealId
+      await updateCommandFKs(commandId, { contactId: contact!.id, dealId: deal.id });
 
-      if (fileBuffer) {
+      let documentId: number | undefined;
+      if (fileBuffer.length > 0) {
         const uploadsDir = path.join(process.cwd(), "uploads");
         if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
         const diskFileName = `${Date.now()}_${fileName}`;
         fs.writeFileSync(path.join(uploadsDir, diskFileName), fileBuffer);
-        await storage.createDocument({
+        const doc = await storage.createDocument({
           type: "merchant_statement",
           fileName,
           storageKey: `statements/${diskFileName}`,
@@ -189,9 +319,13 @@ export function registerPartnerOrgsRoutes(app: Express) {
           contactId: contact!.id,
           accessScope: "internal",
         });
+        documentId = doc?.id;
+        if (documentId) {
+          await updateCommandFKs(commandId, { contactId: contact!.id, dealId: deal.id, documentId });
+        }
       }
 
-      await storage.updateDeal(deal.id, { statementReceived: true, docReadinessScore: fileBuffer ? 2 : 1 });
+      await storage.updateDeal(deal.id, { statementReceived: true, docReadinessScore: fileBuffer.length > 0 ? 2 : 1 });
       await storage.createTask({
         dealId: deal.id, contactId: contact!.id,
         title: "Review partner statement + send breakdown",
@@ -199,7 +333,7 @@ export function registerPartnerOrgsRoutes(app: Express) {
         dueDate: new Date(Date.now() + 2 * 60 * 60 * 1000),
         priority: "high",
       });
-      await storage.createAuditLog({ action: "statement_uploaded", entityType: "contact", entityId: contact!.id, details: { source: "partner_portal", partnerSlug, hasFile: !!fileBuffer } });
+      await storage.createAuditLog({ action: "statement_uploaded", entityType: "contact", entityId: contact!.id, details: { source: "partner_portal", partnerSlug, hasFile: fileBuffer.length > 0 } });
 
       const { isSmtpConfigured: checkSmtpUpload } = await import("../services/smtp-email");
       // Use actual GHL upsert outcome (ghlContactId set) not just config presence
@@ -214,11 +348,23 @@ export function registerPartnerOrgsRoutes(app: Express) {
         );
       }
 
-      res.status(201).json({
+      const responseBody: Record<string, unknown> = {
         message: "Statement received! We'll prepare your savings analysis within 24 hours.",
         ...(commsAvailable ? {} : { warning: "Statement saved. Confirmation email may be delayed — communications not yet configured." }),
-      });
+      };
+
+      // ── Mark command succeeded and persist result ─────────────────────────
+      await markSucceeded(commandId, responseBody);
+
+      res.status(201).json(responseBody);
     } catch (err: any) {
+      // ── Mark command as recoverable-failed if we own the slot ────────────
+      if (commandId) {
+        await markRecoverableFailed(commandId, {
+          error: err?.message ?? "unknown error",
+          code: err?.code ?? null,
+        }).catch(() => { /* best-effort */ });
+      }
       serverError(res, err);
     }
   });

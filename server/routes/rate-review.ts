@@ -3,10 +3,14 @@ import { isAuthenticated, isDashboardUser, requireRole } from "../replit_integra
 import { storage } from "../storage";
 import { upload } from "./helpers";
 import { autoGenerateProposal } from "../services/proposal-engine";
-import { sendSmtpEmail, isSmtpConfigured } from "../services/smtp-email";
-import { isGhlConfigured } from "../services/ghl";
-import { enrollInGhlWorkflow, enrollInGhlWorkflowCompliant } from "../services/ghl-workflows";
 import { runStatementUploadChain } from "../services/statement-upload-chain";
+import {
+  claimCommand,
+  computeRequestFingerprint,
+  isValidUUIDv4,
+  updateContext,
+  markRecoverableFailed,
+} from "../services/statement-upload-idempotency";
 import path from "path";
 import fs from "fs";
 import { serverError } from "../utils/server-error";
@@ -23,8 +27,26 @@ function isEligibleForRateReview(profile: { accountStatus: string | null; goLive
 export function registerRateReviewRoutes(app: Express) {
   // === MERCHANT PORTAL: submit a rate review request ===
   app.post("/api/merchant-portal/rate-review", isAuthenticated, upload.single("file"), async (req, res) => {
+    // Tracks the idempotency slot we own so post-claim errors/early returns can
+    // honestly mark the command recoverable-failed instead of leaving it in_progress.
+    let ownedCommandId: string | null = null;
     try {
       if (!req.file) return res.status(400).json({ message: "No file uploaded" });
+
+      // ── Idempotency-Key guard (required before any business mutation) ────
+      const idempotencyKey = req.headers["idempotency-key"] as string | undefined;
+      if (!idempotencyKey) {
+        return res.status(400).json({
+          error: "MISSING_IDEMPOTENCY_KEY",
+          message: "Idempotency-Key header is required. Supply a UUID v4.",
+        });
+      }
+      if (!isValidUUIDv4(idempotencyKey)) {
+        return res.status(400).json({
+          error: "INVALID_IDEMPOTENCY_KEY",
+          message: "Idempotency-Key must be a valid UUID v4.",
+        });
+      }
 
       const user = req.user as any;
       const userId = user?.id;
@@ -42,8 +64,94 @@ export function registerRateReviewRoutes(app: Express) {
       const contact = profile.contactId ? await storage.getContact(profile.contactId) : null;
       if (!contact) return res.status(404).json({ message: "Associated contact not found" });
 
+      // ── Compute fingerprint and claim idempotency slot ────────────────────
+      const fingerprint = computeRequestFingerprint({
+        fields: {
+          contactId: contact.id,
+          source: "portal-rate-review",
+          workflow: "rate-review-upload",
+          userId,
+          fileName: req.file.originalname,
+          notes: req.body?.notes || null,
+        },
+        fileBuffer: req.file.buffer,
+      });
+      const ownerScope = `user:${userId}`;
+
+      const claim = await claimCommand({
+        requestId: idempotencyKey,
+        fingerprint,
+        ownerScope,
+        source: "portal-rate-review",
+        contactId: contact.id,
+      });
+
+      if (claim.outcome === "conflict") {
+        return res.status(409).json({
+          error: "IDEMPOTENCY_KEY_CONFLICT",
+          message: "This Idempotency-Key was already used with a different request payload.",
+        });
+      }
+      if (claim.outcome === "scope_mismatch") {
+        return res.status(403).json({
+          error: "IDEMPOTENCY_KEY_SCOPE_MISMATCH",
+          message: "This Idempotency-Key belongs to a different caller.",
+        });
+      }
+      if (claim.outcome === "claimed_by_other") {
+        return res.status(202).json({
+          error: "IDEMPOTENCY_IN_PROGRESS",
+          message: "This rate review upload is already being processed.",
+          commandId: claim.commandId,
+        });
+      }
+      if (claim.outcome === "replay") {
+        const stored = claim.command.result as Record<string, unknown> | null;
+        res.setHeader("Idempotency-Key", idempotencyKey);
+        res.setHeader("X-Statement-Upload-Request-Id", claim.command.id);
+        return res.status(200).json({
+          success: true,
+          replayed: true,
+          statement_upload_request_id: claim.command.id,
+          ...(stored ?? {}),
+        });
+      }
+      if (claim.outcome === "recoverable_failed_replay") {
+        // Prior attempt for this key failed recoverably — surface the stored
+        // failure honestly; never fall through to a fresh mutation.
+        const stored = claim.command.result as Record<string, unknown> | null;
+        res.setHeader("Idempotency-Key", idempotencyKey);
+        res.setHeader("X-Statement-Upload-Request-Id", claim.command.id);
+        return res.status(422).json({
+          error: "IDEMPOTENCY_KEY_RECOVERABLE_FAILED",
+          message: "A prior attempt with this Idempotency-Key failed. Retry with a new Idempotency-Key.",
+          replayed: true,
+          statement_upload_request_id: claim.command.id,
+          ...(stored ?? {}),
+        });
+      }
+
+      const commandId = claim.command.id;
+      ownedCommandId = commandId;
+
+      // Persist context before any business mutations so the slot is recoverable.
+      await updateContext(commandId, {
+        contactId: contact.id,
+        source: "portal-rate-review",
+        workflow: "rate-review-upload",
+        userId,
+        fileName: req.file.originalname,
+        notes: req.body?.notes || null,
+      });
+
       const openReviews = await storage.getOpenRateReviewsByContact(contact.id);
       if (openReviews.length > 0) {
+        // Business early return after claim — mark the slot recoverable-failed so
+        // it never replays as a success and can be retried with a new key.
+        await markRecoverableFailed(commandId, {
+          error: "OPEN_RATE_REVIEW_EXISTS",
+          message: "An open rate review already exists for this contact.",
+        }).catch(() => { /* best-effort */ });
         return res.status(409).json({
           message: "You already have an open rate review request. Please wait for it to be resolved before submitting another.",
           existing: openReviews[0],
@@ -128,61 +236,31 @@ export function registerRateReviewRoutes(app: Express) {
         },
       });
 
-      if (contactDeal?.id) {
-        autoGenerateProposal(contactDeal.id, req.file.buffer).then(async () => {
-          await storage.updateRateReviewRequest(rateReview.id, { status: "analysis_complete" });
-          await storage.createAuditLog({
-            action: "rate_review_analysis_complete",
-            entityType: "rate_review_request",
-            entityId: rateReview.id,
-            actorType: "system",
-            details: { dealId: contactDeal.id },
-          });
-          await storage.createNotification({
-            channel: "internal",
-            title: "Rate Review Analysis Ready",
-            message: `AI analysis complete for ${merchantName}'s rate review. Proposal is ready to review.`,
-            type: "success",
-            recipientId: assignedTo || undefined,
-            metadata: { contactId: contact.id, rateReviewId: rateReview.id, dealId: contactDeal.id },
-          });
-        }).catch(err => {
-          console.error("[RateReview] Auto-proposal error:", err);
-        });
-      }
-
-      const confirmationHtml = `
-        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
-          <h2 style="color:#1a56db;">Rate Review Request Received</h2>
-          <p>Hi ${contact.firstName},</p>
-          <p>We've received your rate review request and your current processing statement has been uploaded to your account.</p>
-          <p><strong>What happens next:</strong></p>
-          <ul>
-            <li>Our team will analyze your statement using our AI pricing engine</li>
-            <li>Your account representative will contact you within <strong>1 business day</strong></li>
-            <li>We'll present you with optimized pricing options tailored to your business</li>
-          </ul>
-          <p>If you have any questions, please contact us at <a href="mailto:support@libertybancard.com">support@libertybancard.com</a> or call 954-266-8214.</p>
-          <p style="color:#6b7280;font-size:12px;">Eligibility, underwriting, card brand rules, and applicable laws apply. No savings are guaranteed without full statement review.</p>
-        </div>
-      `;
-
-      if (contact.ghlContactId) {
-        enrollInGhlWorkflowCompliant({ workflowKey: "rate_review_confirmation", ghlContactId: contact.ghlContactId, contactId: contact.id }).catch(err =>
-          console.error("[RateReview] GHL workflow enrollment error:", err)
-        );
-      } else if (contact.email && isSmtpConfigured()) {
-        sendSmtpEmail({
-          to: contact.email,
-          subject: "We received your rate review request",
-          html: confirmationHtml,
-          category: "accounts",
-        }).catch(err => console.error("[RateReview] Confirmation email error:", err));
-      }
+      // Persist the accepted initial response into context so the slot is
+      // recoverable. The chain is authoritative for the TERMINAL command result
+      // (it calls markSucceeded / markRecoverableFailed internally via commandId);
+      // the route must NOT overwrite that terminal status.
+      await updateContext(commandId, {
+        contactId: contact.id,
+        source: "portal-rate-review",
+        workflow: "rate-review-upload",
+        userId,
+        fileName: req.file.originalname,
+        notes: req.body?.notes || null,
+        acceptedResponse: {
+          rateReview: rateReview as unknown as Record<string, unknown>,
+          document: doc as unknown as Record<string, unknown>,
+          statement_upload_request_id: commandId,
+        },
+      });
 
       // Fire the full 11-step statement upload chain (non-blocking).
       // This handles GHL sync, pipeline advance, rep notification with correct userId,
       // proposal draft entity creation, and sequence enrollment — same as all other upload paths.
+      // commandId ensures the chain marks the idempotency slot terminal on completion.
+      // existingDocumentId makes chain Step 4 reuse the rate_review_statement document
+      // created above instead of writing a duplicate file + document row.
+      // Do NOT markSucceeded here — the chain owns its own terminal result.
       runStatementUploadChain({
         contactId: contact.id,
         dealId: contactDeal?.id ?? null,
@@ -190,10 +268,26 @@ export function registerRateReviewRoutes(app: Express) {
         fileName: req.file.originalname,
         source: "portal-rate-review",
         businessName: merchantName,
+        commandId,
+        existingDocumentId: doc.id,
       }).catch(err => console.error("[RateReview] 11-step chain error:", err.message));
 
-      res.status(201).json({ rateReview, document: doc });
+      res.setHeader("Idempotency-Key", idempotencyKey);
+      res.setHeader("X-Statement-Upload-Request-Id", commandId);
+      res.status(201).json({
+        rateReview,
+        document: doc,
+        statement_upload_request_id: commandId,
+      });
     } catch (err: any) {
+      // Route-level error after claim — honestly mark the owned slot
+      // recoverable-failed so the key never replays as a success.
+      if (ownedCommandId) {
+        await markRecoverableFailed(ownedCommandId, {
+          error: err?.message ?? "unknown error",
+          code: err?.code ?? null,
+        }).catch(() => { /* best-effort */ });
+      }
       console.error("[RateReview] Error:", err);
       serverError(res, err);
     }

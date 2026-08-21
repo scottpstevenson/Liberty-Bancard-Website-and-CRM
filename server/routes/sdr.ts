@@ -1573,19 +1573,118 @@ export function registerSdrRoutes(app: Express) {
       if (multerErr) {
         return res.status(400).json({ message: `File upload error: ${multerErr.message}` });
       }
+      // Tracks the idempotency slot we own so a route-level error can honestly
+      // mark the command recoverable-failed instead of leaving it in_progress.
+      let ownedCommandId: string | null = null;
+      let idemMarkRecoverableFailedRef: ((id: string, result: Record<string, unknown>) => Promise<unknown>) | null = null;
       try {
         const token = req.params.token;
+
+        // ── Idempotency-Key guard (required before any business mutation) ──
+        const idempotencyKey = req.headers["idempotency-key"] as string | undefined;
+        if (!idempotencyKey) {
+          return res.status(400).json({
+            error: "MISSING_IDEMPOTENCY_KEY",
+            message: "Idempotency-Key header is required. Supply a UUID v4.",
+          });
+        }
+        const { claimCommand: claim, computeRequestFingerprint, isValidUUIDv4, updateContext: idemUpdateContext, markRecoverableFailed: idemMarkRecoverableFailed } =
+          await import("../services/statement-upload-idempotency");
+        idemMarkRecoverableFailedRef = idemMarkRecoverableFailed;
+        const { createHash: _sha256 } = await import("node:crypto");
+        if (!isValidUUIDv4(idempotencyKey)) {
+          return res.status(400).json({
+            error: "INVALID_IDEMPOTENCY_KEY",
+            message: "Idempotency-Key must be a valid UUID v4.",
+          });
+        }
+
+        // Derive a non-reversible scope from the token so we never expose the raw token.
+        const tokenScope = (t: string) =>
+          `token-sha256:${_sha256("sha256").update(t).digest("hex")}`;
 
         // Check statement_requests table first
         const statementReq = await storage.getStatementRequestByToken(token);
         if (statementReq) {
+          const fileBuffer = (req as any).file?.buffer as Buffer | undefined;
+          const fingerprint = computeRequestFingerprint({
+            fields: {
+              contactId: statementReq.contactId,
+              dealId: statementReq.dealId ?? null,
+              source: "token-upload",
+              workflow: "statement-request-upload",
+              fileName: (req as any).file?.originalname ?? null,
+            },
+            fileBuffer: fileBuffer ?? Buffer.alloc(0),
+          });
+          const ownerScope = tokenScope(token);
+
+          const claimResult = await claim({
+            requestId: idempotencyKey,
+            fingerprint,
+            ownerScope,
+            source: "token-upload",
+            contactId: statementReq.contactId,
+            dealId: statementReq.dealId ?? undefined,
+          });
+
+          if (claimResult.outcome === "conflict") {
+            return res.status(409).json({ error: "IDEMPOTENCY_KEY_CONFLICT", message: "Idempotency-Key used with different payload." });
+          }
+          if (claimResult.outcome === "scope_mismatch") {
+            return res.status(403).json({ error: "IDEMPOTENCY_KEY_SCOPE_MISMATCH", message: "Idempotency-Key belongs to a different caller." });
+          }
+          if (claimResult.outcome === "claimed_by_other") {
+            return res.status(202).json({ error: "IDEMPOTENCY_IN_PROGRESS", message: "Upload already in progress.", commandId: claimResult.commandId });
+          }
+          if (claimResult.outcome === "replay") {
+            const stored = claimResult.command.result as Record<string, unknown> | null;
+            res.setHeader("Idempotency-Key", idempotencyKey);
+            res.setHeader("X-Statement-Upload-Request-Id", claimResult.command.id);
+            return res.status(200).json({
+              success: true,
+              replayed: true,
+              statement_upload_request_id: claimResult.command.id,
+              ...(stored ?? {}),
+            });
+          }
+          if (claimResult.outcome === "recoverable_failed_replay") {
+            // Prior attempt for this key failed recoverably — return the honest
+            // stored failure; never fall through to a fresh mutation.
+            const stored = claimResult.command.result as Record<string, unknown> | null;
+            res.setHeader("Idempotency-Key", idempotencyKey);
+            res.setHeader("X-Statement-Upload-Request-Id", claimResult.command.id);
+            return res.status(422).json({
+              error: "IDEMPOTENCY_KEY_RECOVERABLE_FAILED",
+              message: "A prior attempt with this Idempotency-Key failed. Retry with a new Idempotency-Key.",
+              replayed: true,
+              statement_upload_request_id: claimResult.command.id,
+              ...(stored ?? {}),
+            });
+          }
+
+          const commandId = claimResult.command.id;
+          ownedCommandId = commandId;
+
+          // Persist context before running the chain.
+          await idemUpdateContext(commandId, {
+            contactId: statementReq.contactId,
+            dealId: statementReq.dealId ?? null,
+            source: "token-upload",
+            workflow: "statement-request-upload",
+            fileName: (req as any).file?.originalname ?? null,
+          });
+
           const { runStatementUploadChain } = await import("../services/statement-upload-chain");
+          // The chain is authoritative for the TERMINAL command result (it calls
+          // markSucceeded / markRecoverableFailed internally via commandId).
           const chainResult = await runStatementUploadChain({
             contactId: statementReq.contactId,
             dealId: statementReq.dealId ?? undefined,
-            fileBuffer: (req as any).file?.buffer,
+            fileBuffer,
             fileName: (req as any).file?.originalname,
-            source: "dashboard",
+            source: "token-upload",
+            commandId,
           });
           await storage.updateStatementRequest(statementReq.id, {
             status: "uploaded",
@@ -1595,13 +1694,96 @@ export function registerSdrRoutes(app: Express) {
           if (statementReq.sdrLeadStateId) {
             await handleStatementReceived(statementReq.sdrLeadStateId).catch(() => {});
           }
-          return res.json({ success: true, chain: chainResult });
+
+          const srAccepted = {
+            success: true,
+            chain: chainResult as unknown as Record<string, unknown>,
+            statement_upload_request_id: commandId,
+          };
+          // Do NOT markSucceeded here — the chain owns its own terminal result.
+
+          res.setHeader("Idempotency-Key", idempotencyKey);
+          res.setHeader("X-Statement-Upload-Request-Id", commandId);
+          return res.json(srAccepted);
         }
 
         // Fallback: check sdrLeadState token
         const { findLeadByUploadToken, handleStatementReceived } = await import("../services/sdr/statement-flow");
         const lead = await findLeadByUploadToken(token);
         if (!lead) return res.status(404).json({ message: "Invalid or expired upload link" });
+
+        const fileBuffer = (req as any).file?.buffer as Buffer | undefined;
+        const fingerprint = computeRequestFingerprint({
+          fields: {
+            leadId: lead.id,
+            contactId: lead.contactId ?? null,
+            source: "token-upload",
+            workflow: "sdr-lead-statement-upload",
+            fileName: (req as any).file?.originalname ?? null,
+          },
+          fileBuffer: fileBuffer ?? Buffer.alloc(0),
+        });
+        const ownerScope = tokenScope(token);
+
+        const claimResult = await claim({
+          requestId: idempotencyKey,
+          fingerprint,
+          ownerScope,
+          source: "token-upload",
+          contactId: lead.contactId ?? undefined,
+          dealId: lead.dealId ?? undefined,
+        });
+
+        if (claimResult.outcome === "conflict") {
+          return res.status(409).json({ error: "IDEMPOTENCY_KEY_CONFLICT", message: "Idempotency-Key used with different payload." });
+        }
+        if (claimResult.outcome === "scope_mismatch") {
+          return res.status(403).json({ error: "IDEMPOTENCY_KEY_SCOPE_MISMATCH", message: "Idempotency-Key belongs to a different caller." });
+        }
+        if (claimResult.outcome === "claimed_by_other") {
+          return res.status(202).json({ error: "IDEMPOTENCY_IN_PROGRESS", message: "Upload already in progress.", commandId: claimResult.commandId });
+        }
+        if (claimResult.outcome === "replay") {
+          const stored = claimResult.command.result as Record<string, unknown> | null;
+          res.setHeader("Idempotency-Key", idempotencyKey);
+          res.setHeader("X-Statement-Upload-Request-Id", claimResult.command.id);
+          return res.status(200).json({
+            success: true,
+            replayed: true,
+            statement_upload_request_id: claimResult.command.id,
+            ...(stored ?? {}),
+          });
+        }
+        if (claimResult.outcome === "recoverable_failed_replay") {
+          // Prior attempt for this key failed recoverably — return the honest
+          // stored failure; never fall through to a fresh mutation.
+          const stored = claimResult.command.result as Record<string, unknown> | null;
+          res.setHeader("Idempotency-Key", idempotencyKey);
+          res.setHeader("X-Statement-Upload-Request-Id", claimResult.command.id);
+          return res.status(422).json({
+            error: "IDEMPOTENCY_KEY_RECOVERABLE_FAILED",
+            message: "A prior attempt with this Idempotency-Key failed. Retry with a new Idempotency-Key.",
+            replayed: true,
+            statement_upload_request_id: claimResult.command.id,
+            ...(stored ?? {}),
+          });
+        }
+
+        const commandId = claimResult.command.id;
+        ownedCommandId = commandId;
+        // Tracks whether the authoritative chain ran (and therefore owns the
+        // terminal command result).
+        let chainRan = false;
+
+        // Persist context before running the chain.
+        await idemUpdateContext(commandId, {
+          leadId: lead.id,
+          contactId: lead.contactId ?? null,
+          dealId: lead.dealId ?? null,
+          source: "token-upload",
+          workflow: "sdr-lead-statement-upload",
+          fileName: (req as any).file?.originalname ?? null,
+        });
 
         const result = await handleStatementReceived(lead.id);
 
@@ -1615,21 +1797,46 @@ export function registerSdrRoutes(app: Express) {
             });
           }
 
-          // Also run the full chain so document + deal analysis are created
-          if ((req as any).file?.buffer) {
+          // Also run the full chain so document + deal analysis are created.
+          // commandId is passed so the chain marks the idempotency slot terminal.
+          // When the chain runs, it is authoritative for the terminal command result.
+          if (fileBuffer) {
             const { runStatementUploadChain } = await import("../services/statement-upload-chain");
             await runStatementUploadChain({
               contactId: lead.contactId,
               dealId: lead.dealId ?? undefined,
-              fileBuffer: (req as any).file?.buffer,
+              fileBuffer,
               fileName: (req as any).file?.originalname,
-              source: "dashboard",
+              source: "token-upload",
+              commandId,
             });
+            chainRan = true;
           }
         }
 
-        return res.json({ success: result });
+        const leadAccepted = {
+          success: result as unknown as Record<string, unknown>,
+          statement_upload_request_id: commandId,
+        };
+        // If the authoritative chain ran, it owns the terminal command result —
+        // do NOT overwrite it here. Only when no chain ran (no file / no contact)
+        // is the route itself the terminal owner and must mark the slot succeeded.
+        if (!chainRan) {
+          const { markSucceeded: idemMarkSucceeded } = await import("../services/statement-upload-idempotency");
+          await idemMarkSucceeded(commandId, leadAccepted).catch(() => {});
+        }
+
+        res.setHeader("Idempotency-Key", idempotencyKey);
+        res.setHeader("X-Statement-Upload-Request-Id", commandId);
+        return res.json(leadAccepted);
       } catch (err: unknown) {
+        // Route-level error after claim — honestly mark the owned slot
+        // recoverable-failed so the key never replays as a success.
+        if (ownedCommandId && idemMarkRecoverableFailedRef) {
+          await idemMarkRecoverableFailedRef(ownedCommandId, {
+            error: err instanceof Error ? err.message : String(err),
+          }).catch(() => { /* best-effort */ });
+        }
         const errMsg = err instanceof Error ? err.message : String(err);
         return res.status(500).json({ message: safeMessage(errMsg) });
       }

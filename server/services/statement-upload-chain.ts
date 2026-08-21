@@ -13,24 +13,47 @@ import { syncContactToGhl, syncDealToGhl } from "./ghl-sync";
 import { syncStatementUploadToGhl } from "./ghl-form-sync";
 import { isGhlConfigured, createGhlTask } from "./ghl";
 import { isSmtpConfigured, sendSmtpEmail } from "./smtp-email";
+import { enrollInInboundConfirmation } from "./ghl-workflow-enrollment";
 import { autoGenerateProposal } from "./proposal-engine";
 import { generateDealBlueprint } from "./deal-blueprint";
 import { enqueuePromotionalEnrollment } from "./promotional-enrollment-eligibility";
 import { ACTIVE_DEAL_STAGES, statementProposals } from "@shared/schema";
 import { db } from "../db";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
+import { updateCheckpoint, updateCommandFKs, markSucceeded, markRecoverableFailed } from "./statement-upload-idempotency";
 
 export interface StatementUploadInput {
   contactId: number;
   dealId?: number | null;
   fileBuffer?: Buffer;
   fileName?: string;
-  source: "website" | "merchant_portal" | "dashboard" | "portal-rate-review";
+  source: "website" | "merchant_portal" | "dashboard" | "portal-rate-review" | "token-upload";
   /** If provided, used to look up existing deal stages and update accordingly */
   businessName?: string;
   consentEmail?: boolean;
   /** Partner org resolved from referral attribution — applied to deal on creation/update */
   partnerOrgId?: number | null;
+  /**
+   * Document already created by the caller for this exact upload (same file).
+   * When provided, Step 4 reuses this document instead of writing a second
+   * physical file + document row — prevents duplicate statement documents
+   * when the route persists its own document before invoking the chain
+   * (e.g. merchant portal rate review).
+   */
+  existingDocumentId?: number;
+  /**
+   * Idempotency command ID from the statement_upload_commands table.
+   * When provided, the chain persists checkpoints and marks the command
+   * succeeded/failed on completion.  Do NOT call claimCommand again inside
+   * the chain — the caller already claimed the slot.
+   */
+  commandId?: string;
+  /**
+   * Original Idempotency-Key (UUID v4) from the HTTP request header.
+   * Stored in command checkpoints so that the canonical result can be
+   * correlated back to the client-supplied key for observability.
+   */
+  requestId?: string;
 }
 
 export interface ChainStepResult {
@@ -114,8 +137,9 @@ export async function runStatementUploadChain(
   const steps: ChainStepResult[] = [];
   let dealId: number = input.dealId ?? 0;
   let documentId: number | undefined;
+  const commandId = input.commandId;
 
-  console.log(`[StatementChain] Starting upload chain for contact #${input.contactId}, source=${input.source}`);
+  console.log(`[StatementChain] Starting upload chain for contact #${input.contactId}, source=${input.source}${commandId ? `, commandId=${commandId}` : ""}`);
 
   // ────────────────────────────────────────────────────────────────────────────
   // STEP 1 — Contact loaded (already created/resolved by caller; verify exists)
@@ -124,9 +148,19 @@ export async function runStatementUploadChain(
     const contact = await storage.getContact(input.contactId);
     if (!contact) throw new Error("Contact not found");
     steps.push(makeStep(1, "Contact verified", true, undefined, { contactId: contact.id }));
+    if (commandId) {
+      await updateCheckpoint(commandId, {
+        step: 1,
+        contactId: contact.id,
+        ...(input.requestId ? { requestId: input.requestId } : {}),
+      }).catch(() => {});
+    }
   } catch (err: any) {
     steps.push(makeStep(1, "Contact verified", false, err.message));
     await logStepFailure(dealId || null, 1, "Contact verified", err.message);
+    if (commandId) {
+      await markRecoverableFailed(commandId, { error: err.message, failedStep: 1 }).catch(() => {});
+    }
     // Contact is critical — cannot proceed
     return {
       contactId: input.contactId,
@@ -247,6 +281,11 @@ export async function runStatementUploadChain(
         }));
       }
     }
+    // Persist deal FK on command row after deal is resolved/created
+    if (commandId && dealId) {
+      await updateCommandFKs(commandId, { contactId: input.contactId, dealId }).catch(() => {});
+      await updateCheckpoint(commandId, { step: 3, dealId }).catch(() => {});
+    }
   } catch (err: any) {
     steps.push(makeStep(3, "Deal created/updated", false, err.message));
     await logStepFailure(dealId || null, 3, "Deal created/updated", err.message);
@@ -256,7 +295,27 @@ export async function runStatementUploadChain(
   // ────────────────────────────────────────────────────────────────────────────
   // STEP 4 — File attached to contact + deal
   // ────────────────────────────────────────────────────────────────────────────
-  if (input.fileBuffer && input.fileName) {
+  if (input.existingDocumentId) {
+    // Caller already persisted the document for this upload — reuse it instead
+    // of writing a duplicate file + document row.
+    try {
+      const existingDoc = await storage.getDocumentById(input.existingDocumentId);
+      if (!existingDoc) throw new Error(`Existing document ${input.existingDocumentId} not found`);
+      documentId = existingDoc.id;
+      // Link the document to the resolved deal if the caller couldn't yet.
+      if (dealId && !existingDoc.dealId) {
+        await storage.updateDocument(existingDoc.id, { dealId }).catch(() => {});
+      }
+      steps.push(makeStep(4, "File attached", true, undefined, { documentId, reused: true }));
+      if (commandId) {
+        await updateCommandFKs(commandId, { documentId }).catch(() => {});
+        await updateCheckpoint(commandId, { step: 4, documentId, reused: true }).catch(() => {});
+      }
+    } catch (err: any) {
+      steps.push(makeStep(4, "File attached", false, err.message));
+      await logStepFailure(dealId, 4, "File attached", err.message);
+    }
+  } else if (input.fileBuffer && input.fileName) {
     try {
       const safeFileName = path.basename(input.fileName).replace(/[^a-zA-Z0-9._-]/g, "_");
       const diskFileName = `${Date.now()}_${safeFileName}`;
@@ -279,6 +338,10 @@ export async function runStatementUploadChain(
       });
       documentId = doc.id;
       steps.push(makeStep(4, "File attached", true, undefined, { documentId, storageKey }));
+      if (commandId) {
+        await updateCommandFKs(commandId, { documentId }).catch(() => {});
+        await updateCheckpoint(commandId, { step: 4, documentId }).catch(() => {});
+      }
     } catch (err: any) {
       steps.push(makeStep(4, "File attached", false, err.message));
       await logStepFailure(dealId, 4, "File attached", err.message);
@@ -636,52 +699,64 @@ export async function runStatementUploadChain(
   }
 
   // ────────────────────────────────────────────────────────────────────────────
-  // STEP 9 — Merchant confirmation sent (GHL workflow → SMTP fallback)
+  // STEP 9 — Merchant inbound confirmation (canonical enrollInInboundConfirmation)
+  //
+  // enrollInInboundConfirmation is the SOLE owner of merchant confirmation delivery.
+  // It handles GHL workflow enrollment → direct email (GHL → SMTP) internally and
+  // writes its own audit log entries for each outcome.  This step records whether
+  // the canonical service was invoked and captures evidence of the outcome.
+  //
+  // The canonical service returns a typed, explicit outcome that is the SOLE
+  // source of truth for delivery. This step consumes that outcome directly and
+  // NEVER infers "sent"/"enrolled" from config/contact state or from the mere
+  // fact that the Promise resolved.
+  //
+  // Outcome → step success mapping:
+  //   "enrolled"        → success  (native GHL workflow trigger succeeded)
+  //   "sent"            → success  (direct provider delivered the email)
+  //   "skipped"         → FAILURE  (prerequisite missing; recoverable)
+  //   "not_configured"  → FAILURE  (no delivery channel usable; recoverable)
+  //   "failed"          → FAILURE  (explicit provider delivery failure)
+  //   "unknown"         → FAILURE  (no definitive outcome; recoverable)
+  //   thrown error      → FAILURE  (unexpected exception)
   // ────────────────────────────────────────────────────────────────────────────
   try {
-    const contact = await storage.getContact(input.contactId);
-    const merchantEmail = contact?.email;
-    const merchantName = input.businessName || contact?.companyName
-      || `${contact?.firstName || ""} ${contact?.lastName || ""}`.trim()
-      || "there";
+    // Invoke the canonical service; it handles workflow→email→SMTP chain internally
+    // and returns an explicit outcome.
+    const submissionId = `${input.contactId}-statement_upload-${dealId ?? "nd"}`;
+    const outcome = await enrollInInboundConfirmation({
+      contactId: input.contactId,
+      formType: "statement_upload",
+      dealId: dealId ?? undefined,
+      submissionId,
+    });
 
-    // The GHL workflow enrollment in syncStatementUploadToGhl (step 7) already handles
-    // the GHL_WORKFLOW_STATEMENT_REVIEW trigger. We add an SMTP fallback here.
-    let confirmed = false;
-    if (isGhlConfigured() && contact?.ghlContactId) {
-      // GHL workflow already triggered in step 7 via syncStatementUploadToGhl
-      confirmed = true;
-      steps.push(makeStep(9, "Merchant confirmation sent", true, undefined, { channel: "ghl_workflow" }));
-    } else if (isSmtpConfigured() && merchantEmail) {
-      const confirmSubject = "We received your processing statement — Liberty Bancard";
-      const confirmBody = `<p>Hi ${contact?.firstName || merchantName},</p>
-<p>We received your processing statement and our team is reviewing it now.</p>
-<p>You can expect to hear from us within <strong>1 business day</strong> with a full line-by-line breakdown and savings estimate.</p>
-<p>If you have any questions in the meantime, call or text us at <strong>954-266-8214</strong>.</p>
-<p>— The Liberty Bancard Team</p>
-<p style="font-size:11px;color:#999;">Disclaimer: Savings estimates are preliminary and depend on full statement review. Eligibility, underwriting, card brand rules, and applicable laws apply.</p>`;
-      const smtpResult = await sendSmtpEmail({
-        to: merchantEmail,
-        subject: confirmSubject,
-        html: confirmBody,
-        category: "accounts",
-      });
-      confirmed = smtpResult.success;
-      steps.push(makeStep(9, "Merchant confirmation sent", smtpResult.success,
-        smtpResult.error, { channel: "smtp", to: merchantEmail }));
-    } else {
-      const reason = !merchantEmail
-        ? "No merchant email address on file"
-        : "No delivery channel: contact has no GHL ID and SMTP is not configured";
-      console.warn(`[StatementChain] Step 9: merchant confirmation NOT sent — ${reason}. Set SMTP_HOST or ensure GHL contact exists.`);
-      await logStepFailure(dealId, 9, "Merchant confirmation sent", reason);
-      steps.push(makeStep(9, "Merchant confirmation sent", false, reason, {
-        note: reason,
+    if (outcome.status === "enrolled" || outcome.status === "sent") {
+      steps.push(makeStep(9, "Merchant inbound confirmation", true, undefined, {
+        outcome: outcome.status,
+        delegatedTo: "enrollInInboundConfirmation",
+        submissionId,
+        details: outcome,
       }));
+    } else {
+      // skipped | not_configured | failed | unknown — not a successful delivery.
+      const reason =
+        outcome.status === "failed" || outcome.status === "skipped" || outcome.status === "not_configured"
+          ? outcome.reason
+          : outcome.status;
+      steps.push(makeStep(9, "Merchant inbound confirmation", false, reason, {
+        outcome: outcome.status,
+        delegatedTo: "enrollInInboundConfirmation",
+        submissionId,
+        details: outcome,
+      }));
+      await logStepFailure(dealId, 9, "Merchant inbound confirmation", reason);
     }
   } catch (err: any) {
-    steps.push(makeStep(9, "Merchant confirmation sent", false, err.message));
-    await logStepFailure(dealId, 9, "Merchant confirmation sent", err.message);
+    steps.push(makeStep(9, "Merchant inbound confirmation", false, err.message, {
+      outcome: "failed",
+    }));
+    await logStepFailure(dealId, 9, "Merchant inbound confirmation", err.message);
   }
 
   // ────────────────────────────────────────────────────────────────────────────
@@ -695,43 +770,31 @@ export async function runStatementUploadChain(
         || `${contact?.firstName || ""} ${contact?.lastName || ""}`.trim()
         || "Merchant";
 
-      // Insert a dedicated proposal row in statement_proposals — idempotent.
-      // The analyzer (which runs in BullMQ before Step 10 in some cases) may have
-      // already inserted a row, so check before inserting to avoid duplicate rows.
-      // (No unique constraint on dealId — must select-before-insert.)
-      const [existingProposal] = await db
-        .select({ id: statementProposals.id, status: statementProposals.status })
-        .from(statementProposals)
-        .where(eq(statementProposals.dealId, dealId))
-        .limit(1);
-
-      let proposalRow: { id: number } | undefined;
-      if (existingProposal) {
-        // Row already created by the analyzer — update metadata only, preserve status/analysis
-        await db.update(statementProposals)
-          .set({
-            merchantName,
-            source: input.source,
-            statementFileName: input.fileName || null,
-            updatedAt: new Date(),
-          })
-          .where(eq(statementProposals.dealId, dealId));
-        proposalRow = { id: existingProposal.id };
-        console.log(`[StatementChain] Step 10: reused existing statement_proposals row #${existingProposal.id} for deal #${dealId}`);
-      } else {
-        // No row yet — insert the initial draft
-        const [inserted] = await db.insert(statementProposals).values({
-          dealId,
-          contactId: input.contactId,
-          status: "draft",
-          merchantName,
-          source: input.source,
-          statementFileName: input.fileName || null,
-          plans: [],
-          notes: "Statement received — awaiting AI analysis to populate pricing plans.",
-        }).returning({ id: statementProposals.id });
-        proposalRow = inserted;
-      }
+      // Upsert a dedicated proposal row in statement_proposals — concurrency-safe.
+      // The unique partial index on deal_id (WHERE deal_id IS NOT NULL) guarantees
+      // exactly one row per deal even when the upload chain and the AI analyzer race.
+      // ON CONFLICT: update only upload-time metadata; preserve analyzer status/results.
+      const upsertResult = await db.execute(sql`
+        INSERT INTO statement_proposals
+          (deal_id, contact_id, status, merchant_name, source, statement_file_name, plans, notes, created_at, updated_at)
+        VALUES
+          (${dealId}, ${input.contactId}, 'draft', ${merchantName}, ${input.source ?? null},
+           ${input.fileName ?? null}, ${'[]'}::jsonb,
+           'Statement received — awaiting AI analysis to populate pricing plans.',
+           NOW(), NOW())
+        ON CONFLICT (deal_id) WHERE deal_id IS NOT NULL
+        DO UPDATE SET
+          merchant_name      = CASE WHEN statement_proposals.status IN ('analyzed','failed')
+                                    THEN statement_proposals.merchant_name
+                                    ELSE EXCLUDED.merchant_name END,
+          source             = COALESCE(statement_proposals.source, EXCLUDED.source),
+          statement_file_name = COALESCE(statement_proposals.statement_file_name, EXCLUDED.statement_file_name),
+          contact_id         = COALESCE(statement_proposals.contact_id, EXCLUDED.contact_id),
+          updated_at         = NOW()
+        RETURNING id
+      `);
+      const proposalRow = upsertResult.rows[0] as { id: number } | undefined;
+      console.log(`[StatementChain] Step 10: upserted statement_proposals row #${proposalRow?.id} for deal #${dealId}`);
 
       // Also flag the deal so pipeline/deal-card UI can show a "Draft Proposal" badge.
       if (deal && (!deal.proposalStatus || deal.proposalStatus === "none")) {
@@ -799,7 +862,7 @@ export async function runStatementUploadChain(
     console.log(`[StatementChain] All 11 steps completed successfully for deal #${dealId}`);
   }
 
-  return {
+  const chainResult: StatementUploadChainResult = {
     contactId: input.contactId,
     dealId,
     documentId,
@@ -807,4 +870,29 @@ export async function runStatementUploadChain(
     failedSteps,
     allSuccess: failedSteps.length === 0,
   };
+
+  // ── Idempotency command lifecycle terminal update ──────────────────────────
+  // Only the owner execution (the one that called claimCommand) marks terminal
+  // state; replay and in-progress paths never run the chain at all.
+  if (commandId) {
+    const resultPayload: Record<string, unknown> = {
+      contactId: input.contactId,
+      dealId,
+      documentId: documentId ?? null,
+      failedSteps,
+      allSuccess: chainResult.allSuccess,
+    };
+    if (chainResult.allSuccess) {
+      await markSucceeded(commandId, resultPayload).catch(err =>
+        console.error("[StatementChain] markSucceeded failed:", err.message),
+      );
+    } else {
+      // Non-fatal failures are still recoverable (chain completed but some steps failed)
+      await markRecoverableFailed(commandId, { ...resultPayload, note: "Chain completed with step failures" }).catch(err =>
+        console.error("[StatementChain] markRecoverableFailed failed:", err.message),
+      );
+    }
+  }
+
+  return chainResult;
 }

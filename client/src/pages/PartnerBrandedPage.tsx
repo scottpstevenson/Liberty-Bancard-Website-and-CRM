@@ -53,6 +53,8 @@ export default function PartnerBrandedPage() {
     companyName: "",
     monthlyVolume: "",
   });
+  // Idempotency key for statement upload: generated once per mount, reused on retry, rotated on success.
+  const [uploadIdempotencyKey, setUploadIdempotencyKey] = useState<string>(() => crypto.randomUUID());
 
   // Calculator state
   const [calcVolume, setCalcVolume] = useState("");
@@ -124,6 +126,7 @@ export default function PartnerBrandedPage() {
       toast({ title: "Please enter your email before uploading", variant: "destructive" });
       return;
     }
+    if (submitting) return;
     const fd = new FormData();
     fd.append("file", file);
     fd.append("email", form.email);
@@ -131,15 +134,23 @@ export default function PartnerBrandedPage() {
     fd.append("partnerSlug", slug || "");
     setSubmitting(true);
     try {
-      const res = await fetch("/api/statements/upload", { method: "POST", body: fd });
+      const res = await fetch("/api/statements/upload", {
+        method: "POST",
+        headers: { "Idempotency-Key": uploadIdempotencyKey },
+        body: fd,
+      });
       if (res.ok) {
         setView("success");
+        // Rotate key after success so next upload is a new logical operation
+        setUploadIdempotencyKey(crypto.randomUUID());
         toast({ title: "Statement uploaded! We'll prepare your savings analysis." });
       } else {
         toast({ title: "Upload failed — please try again", variant: "destructive" });
+        // Keep same key on error so retry is deduplicated
       }
     } catch {
       toast({ title: "Upload failed — please try again", variant: "destructive" });
+      // Keep same key on error so retry is deduplicated
     } finally {
       setSubmitting(false);
     }

@@ -22,6 +22,8 @@ export default function MerchantStatementUpload() {
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  // Idempotency key: generated once per logical submission, reused on retry, rotated on success.
+  const [idempotencyKey] = useState<string>(() => crypto.randomUUID());
 
   useEffect(() => {
     if (!token) return;
@@ -41,7 +43,7 @@ export default function MerchantStatementUpload() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!file) return;
+    if (!file || submitting) return;
 
     setSubmitting(true);
     setSubmitError(null);
@@ -52,16 +54,20 @@ export default function MerchantStatementUpload() {
     try {
       const res = await fetch(`/api/statement-upload/${token}`, {
         method: "POST",
+        headers: { "Idempotency-Key": idempotencyKey },
         body: formData,
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         setSubmitError(data.message || "Upload failed. Please try again.");
+        // Keep same key so retry is deduplicated
         return;
       }
       setSuccess(true);
+      // Key is single-use per mount; success state prevents re-submission
     } catch {
       setSubmitError("An unexpected error occurred. Please try again.");
+      // Keep same key so retry is deduplicated
     } finally {
       setSubmitting(false);
     }

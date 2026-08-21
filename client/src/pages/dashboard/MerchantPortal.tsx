@@ -222,6 +222,8 @@ function RateReviewCard({ profile }: { profile: MerchantProfile }) {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [notes, setNotes] = useState("");
   const [isUploading, setIsUploading] = useState(false);
+  // Idempotency key: generated once per logical submission, reused on retry, rotated on success.
+  const [rateReviewIdempotencyKey, setRateReviewIdempotencyKey] = useState<string>(() => crypto.randomUUID());
 
   const { data, isLoading, refetch } = useQuery<RateReviewStatus>({
     queryKey: ["/api/merchant-portal/rate-review"],
@@ -234,7 +236,7 @@ function RateReviewCard({ profile }: { profile: MerchantProfile }) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedFile) return;
+    if (!selectedFile || isUploading) return;
     setIsUploading(true);
     try {
       const formData = new FormData();
@@ -243,6 +245,7 @@ function RateReviewCard({ profile }: { profile: MerchantProfile }) {
       const rateReviewHeaders: Record<string, string> = {};
       const csrfRateReview = getCsrfToken();
       if (csrfRateReview) rateReviewHeaders["X-CSRF-Token"] = csrfRateReview;
+      rateReviewHeaders["Idempotency-Key"] = rateReviewIdempotencyKey;
       const res = await fetch("/api/merchant-portal/rate-review", {
         method: "POST",
         body: formData,
@@ -256,9 +259,12 @@ function RateReviewCard({ profile }: { profile: MerchantProfile }) {
       toast({ title: "Rate review submitted!", description: "We'll analyze your statement and contact you within 1 business day." });
       setSelectedFile(null);
       setNotes("");
+      // Rotate key after success so next submission is a new logical operation
+      setRateReviewIdempotencyKey(crypto.randomUUID());
       refetch();
     } catch (err: any) {
       toast({ title: "Error", description: err.message, variant: "destructive" });
+      // Keep same key on error so a retry is deduplicated
     } finally {
       setIsUploading(false);
     }
@@ -1191,6 +1197,8 @@ function DocumentsTab({ contactId }: { contactId: number | null | undefined }) {
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [fileError, setFileError] = useState<string | null>(null);
+  // Idempotency key: generated once per logical upload, reused on retry, rotated on success.
+  const [uploadIdempotencyKey, setUploadIdempotencyKey] = useState<string>(() => crypto.randomUUID());
 
   const { data: documents = [], isLoading } = useQuery<DocType[]>({
     queryKey: ["/api/merchant-documents/contact", contactId],
@@ -1225,7 +1233,7 @@ function DocumentsTab({ contactId }: { contactId: number | null | undefined }) {
   };
 
   const handleUpload = async () => {
-    if (!selectedFile) return;
+    if (!selectedFile || uploading) return;
     setUploading(true);
     setUploadProgress(10);
     try {
@@ -1236,6 +1244,7 @@ function DocumentsTab({ contactId }: { contactId: number | null | undefined }) {
       const uploadHeaders: Record<string, string> = {};
       const csrfVal = getCsrfToken();
       if (csrfVal) uploadHeaders["X-CSRF-Token"] = csrfVal;
+      uploadHeaders["Idempotency-Key"] = uploadIdempotencyKey;
       const res = await fetch("/api/merchant-portal/upload-statement", {
         method: "POST",
         credentials: "include",
@@ -1255,10 +1264,13 @@ function DocumentsTab({ contactId }: { contactId: number | null | undefined }) {
       setUploadProgress(0);
       const fileInput = document.querySelector('[data-testid="input-upload-file"]') as HTMLInputElement;
       if (fileInput) fileInput.value = "";
+      // Rotate key after success so next upload is a new logical operation
+      setUploadIdempotencyKey(crypto.randomUUID());
       queryClient.invalidateQueries({ queryKey: ["/api/merchant-documents/contact", contactId] });
     } catch (err: any) {
       setUploadProgress(0);
       toast({ title: "Upload failed", description: err.message || "Something went wrong.", variant: "destructive" });
+      // Keep same key on error so a retry is deduplicated
     } finally {
       setUploading(false);
     }

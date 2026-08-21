@@ -44,6 +44,8 @@ export function ContactDocumentsTab({ contactId, userRole, isPartnerContact }: {
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [deleteDocTarget, setDeleteDocTarget] = useState<Document | null>(null);
+  // Idempotency key: generated once per logical upload, reused on retry, rotated on success.
+  const [docUploadIdempotencyKey, setDocUploadIdempotencyKey] = useState<string>(() => crypto.randomUUID());
 
   const isAdminOrManager = userRole === 'admin' || userRole === 'manager';
   const expectedDocs = isPartnerContact ? PARTNER_EXPECTED_DOCS : MERCHANT_EXPECTED_DOCS;
@@ -88,6 +90,7 @@ export function ContactDocumentsTab({ contactId, userRole, isPartnerContact }: {
   });
 
   const uploadFile = useCallback(async (file: File, categoryOverride?: string) => {
+    if (isUploading) return;
     setIsUploading(true);
     try {
       const formData = new FormData();
@@ -98,6 +101,7 @@ export function ContactDocumentsTab({ contactId, userRole, isPartnerContact }: {
       const uploadHeaders: Record<string, string> = {};
       const csrfUpload = getCsrfToken();
       if (csrfUpload) uploadHeaders["X-CSRF-Token"] = csrfUpload;
+      uploadHeaders["Idempotency-Key"] = docUploadIdempotencyKey;
       const res = await fetch("/api/merchant-documents/upload", {
         method: "POST",
         headers: uploadHeaders,
@@ -113,13 +117,16 @@ export function ContactDocumentsTab({ contactId, userRole, isPartnerContact }: {
       queryClient.invalidateQueries({ queryKey: ["/api/merchant-documents/contact", contactId] });
       queryClient.invalidateQueries({ queryKey: ["/api/merchant-documents"] });
       setPlaceholderCategory(null);
+      // Rotate key after success so next upload is a new logical operation
+      setDocUploadIdempotencyKey(crypto.randomUUID());
       toast({ title: "Document uploaded", description: file.name });
     } catch (err: any) {
       toast({ title: "Upload failed", description: err.message, variant: "destructive" });
+      // Keep same key on error so a retry is deduplicated
     } finally {
       setIsUploading(false);
     }
-  }, [contactId, uploadCategory, queryClient, toast]);
+  }, [contactId, uploadCategory, queryClient, toast, isUploading, docUploadIdempotencyKey]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];

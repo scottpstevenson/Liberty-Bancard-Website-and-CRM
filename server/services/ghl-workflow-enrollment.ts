@@ -108,6 +108,33 @@ type ConfirmationEmailResult =
   | { sent: false; providerAttempts: Array<{ provider: "ghl_direct" | "smtp"; error: string }>; reason: string };
 
 /**
+ * Explicit, typed outcome of `enrollInInboundConfirmation`.
+ *
+ * The `status` field is the single source of truth for how the confirmation
+ * was delivered — callers MUST consume this and MUST NOT infer delivery from
+ * config/contact state or the mere fact that the Promise resolved.
+ *
+ *   "enrolled"        — native GHL workflow trigger succeeded.
+ *   "sent"            — direct provider (GHL direct or SMTP) delivered the email.
+ *   "skipped"         — a prerequisite was missing (e.g. no email); no error.
+ *   "not_configured"  — neither a native workflow nor any direct provider was
+ *                       usable, so nothing was attempted.
+ *   "failed"          — an explicit delivery failure occurred (all providers
+ *                       failed) — no confirmation was delivered.
+ *   "unknown"         — no branch produced a definitive outcome (should not
+ *                       normally happen; treated as a non-success by callers).
+ *
+ * `channel` records which mechanism produced the outcome where relevant.
+ */
+export type InboundConfirmationOutcome =
+  | { status: "enrolled";       channel: "ghl_workflow"; ghlWorkflowId: string; ghlContactId: string }
+  | { status: "sent";           channel: "ghl_direct" | "smtp"; providerMessageId?: string | null }
+  | { status: "skipped";        reason: string }
+  | { status: "not_configured"; reason: string }
+  | { status: "failed";         reason: string; providerAttempts?: Array<{ provider: "ghl_direct" | "smtp"; error: string }> }
+  | { status: "unknown" };
+
+/**
  * Provider-independent confirmation email delivery.
  * Tries GHL direct first (when available + contact ID present), then SMTP.
  * Returns a typed result. NEVER writes to the database — audit logging and
@@ -525,12 +552,12 @@ export async function enrollInInboundConfirmation(params: {
   submissionId?: string;
   /** @internal Test-only injectable overrides. Never pass in production. */
   _testOverrides?: InboundConfirmationTestOverrides;
-}): Promise<void> {
+}): Promise<InboundConfirmationOutcome> {
   const { contactId, formType, dealId, _testOverrides: ov } = params;
 
   // ── Fetch contact (real or injected) ───────────────────────────────────────
   const contact = (ov?.contact !== undefined ? ov.contact : await storage.getContact(contactId)) as (Awaited<ReturnType<typeof storage.getContact>> | null);
-  if (!contact) return;
+  if (!contact) return { status: "skipped", reason: "contact_not_found" };
 
   const submissionId = params.submissionId ?? `${contactId}-${formType}-${dealId ?? "nd"}`;
 
@@ -595,7 +622,8 @@ export async function enrollInInboundConfirmation(params: {
         });
 
         console.log(`[GHL Inbound] Contact ${contactId} enrolled in inbound confirmation workflow`);
-        return; // GHL workflow takes over — no direct email
+        // GHL workflow takes over — no direct email.
+        return { status: "enrolled", channel: "ghl_workflow", ghlWorkflowId: inboundWorkflowId, ghlContactId };
       } catch (err) {
         console.error(`[GHL Inbound] Workflow trigger failed, falling back to direct sends:`, err);
       }
@@ -626,7 +654,24 @@ export async function enrollInInboundConfirmation(params: {
       details: { formType, dealId: dealId ?? null, submissionId, reason: "no_email" },
     });
     console.warn(`[GHL Inbound] Contact ${contactId} has no email — confirmation skipped (no_email)`);
-    return;
+    return { status: "skipped", reason: "no_email" };
+  }
+
+  // ── "not_configured": no native workflow enrolled (Path 1 did not return) and
+  //     no direct provider (GHL direct or SMTP) usable → nothing can be attempted.
+  //     GHL direct requires a GHL contact ID; SMTP requires SMTP configured.
+  const smtpUsable = ov?.sendEmail !== undefined ? true : isSmtpConfigured();
+  const ghlDirectUsable = ghlAvailable && !!fallbackGhlContactId;
+  if (!smtpUsable && !ghlDirectUsable) {
+    const reason = "no_delivery_channel";
+    await writeAuditLog({
+      action: "inbound_confirmation_skipped",
+      entityType: "contact",
+      entityId: contactId,
+      details: { formType, dealId: dealId ?? null, submissionId, reason },
+    });
+    console.warn(`[GHL Inbound] Contact ${contactId} — no delivery channel configured (not_configured)`);
+    return { status: "not_configured", reason };
   }
 
   const sendEmailImpl = ov?.sendEmail ?? sendConfirmationEmail;
@@ -672,8 +717,17 @@ export async function enrollInInboundConfirmation(params: {
       },
     });
     console.error(`[GHL Inbound] All providers failed for contact ${contactId} — no follow-up scheduled`);
-    return; // no follow-up on failed delivery
+    // no follow-up on failed delivery
+    return { status: "failed", reason: emailResult.reason, providerAttempts: emailResult.providerAttempts };
   }
+
+  // Direct provider delivered the email — capture the definitive outcome. SMS and
+  // the durable follow-up below are best-effort side effects that never change it.
+  const deliveredOutcome: InboundConfirmationOutcome = {
+    status: "sent",
+    channel: emailResult.provider,
+    providerMessageId: emailResult.providerMessageId ?? null,
+  };
 
   // ── SMS (optional, non-blocking) ────────────────────────────────────────────
   if (contact.consentSms && contact.phone && fallbackGhlContactId && ghlAvailable) {
@@ -727,6 +781,10 @@ export async function enrollInInboundConfirmation(params: {
       });
     }
   }
+
+  // Definitive delivery outcome (email was sent above). Side effects (SMS,
+  // follow-up scheduling) never downgrade a successful send.
+  return deliveredOutcome;
 }
 
 /**

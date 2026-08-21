@@ -9,7 +9,7 @@ import path from "path";
 import OpenAI from "openai";
 import { checkAiGate, recordAiSpend } from "./ai-audit-logger";
 import { z } from "zod";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, sql } from "drizzle-orm";
 import { db } from "../db";
 import { storage } from "../storage";
 import { documents, statementProposals } from "@shared/schema";
@@ -191,25 +191,19 @@ Return only valid JSON with no markdown, no explanation.`;
 }
 
 async function markFailed(dealId: number, reason: string): Promise<void> {
-  const [existing] = await db
-    .select({ id: statementProposals.id })
-    .from(statementProposals)
-    .where(eq(statementProposals.dealId, dealId))
-    .limit(1);
-
-  if (existing) {
-    await db
-      .update(statementProposals)
-      .set({ status: "failed", notes: reason, updatedAt: new Date() })
-      .where(eq(statementProposals.dealId, dealId));
-  } else {
-    await db.insert(statementProposals).values({
-      dealId,
-      status: "failed",
-      notes: reason,
-      plans: [],
-    });
-  }
+  // Concurrency-safe upsert: unique partial index on deal_id WHERE deal_id IS NOT NULL.
+  // If the upload chain already created a draft row, flip it to failed; otherwise create it.
+  await db.execute(sql`
+    INSERT INTO statement_proposals
+      (deal_id, status, notes, plans, created_at, updated_at)
+    VALUES
+      (${dealId}, 'failed', ${reason}, ${'[]'}::jsonb, NOW(), NOW())
+    ON CONFLICT (deal_id) WHERE deal_id IS NOT NULL
+    DO UPDATE SET
+      status     = 'failed',
+      notes      = EXCLUDED.notes,
+      updated_at = NOW()
+  `);
 
   await storage.createAuditLog({
     action: "statement_analysis_failed",
@@ -423,38 +417,25 @@ export async function analyzeStatement(dealId: number): Promise<void> {
     documentId: selectedDoc.id,
   });
 
-  const [existing] = await db
-    .select({ id: statementProposals.id })
-    .from(statementProposals)
-    .where(eq(statementProposals.dealId, dealId))
-    .limit(1);
-
-  if (existing) {
-    await db
-      .update(statementProposals)
-      .set({
-        effectiveRate: `${(effectiveRate * 100).toFixed(2)}%`,
-        savingsEstimate: savingsNote,
-        notes: analysisPayload,
-        status: "analyzed",
-        updatedAt: new Date(),
-      })
-      .where(eq(statementProposals.dealId, dealId));
-    console.log(`[StatementAnalyzer] Updated statement_proposals row #${existing.id} for deal #${dealId}`);
-  } else {
-    const [inserted] = await db
-      .insert(statementProposals)
-      .values({
-        dealId,
-        status: "analyzed",
-        effectiveRate: `${(effectiveRate * 100).toFixed(2)}%`,
-        savingsEstimate: savingsNote,
-        notes: analysisPayload,
-        plans: [],
-      })
-      .returning({ id: statementProposals.id });
-    console.log(`[StatementAnalyzer] Inserted new statement_proposals row #${inserted?.id} for deal #${dealId}`);
-  }
+  // Concurrency-safe upsert: unique partial index on deal_id WHERE deal_id IS NOT NULL.
+  // If a draft row already exists (from the upload chain), update it with analysis results.
+  const analyzeResult = await db.execute(sql`
+    INSERT INTO statement_proposals
+      (deal_id, status, effective_rate, savings_estimate, notes, plans, created_at, updated_at)
+    VALUES
+      (${dealId}, 'analyzed', ${`${(effectiveRate * 100).toFixed(2)}%`}, ${savingsNote},
+       ${analysisPayload}, ${'[]'}::jsonb, NOW(), NOW())
+    ON CONFLICT (deal_id) WHERE deal_id IS NOT NULL
+    DO UPDATE SET
+      status           = 'analyzed',
+      effective_rate   = EXCLUDED.effective_rate,
+      savings_estimate = EXCLUDED.savings_estimate,
+      notes            = EXCLUDED.notes,
+      updated_at       = NOW()
+    RETURNING id
+  `);
+  const analyzedRow = analyzeResult.rows[0] as { id: number } | undefined;
+  console.log(`[StatementAnalyzer] Upserted statement_proposals row #${analyzedRow?.id} for deal #${dealId}`);
 
   await storage.createAuditLog({
     action: "statement_analysis_complete",

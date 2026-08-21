@@ -1051,6 +1051,27 @@
       "when": 1792900000000,
       "tag": "0146_consent_audit_append_only_guard",
       "breakpoints": false
+    },
+    {
+      "idx": 150,
+      "version": "7",
+      "when": 1793000000000,
+      "tag": "0147_statement_upload_commands",
+      "breakpoints": true
+    },
+    {
+      "idx": 151,
+      "version": "7",
+      "when": 1793100000000,
+      "tag": "0148_statement_upload_command_ownership",
+      "breakpoints": true
+    },
+    {
+      "idx": 152,
+      "version": "7",
+      "when": 1793200000000,
+      "tag": "0149_statement_proposals_deal_id_unique",
+      "breakpoints": true
     }
   ]
 }
