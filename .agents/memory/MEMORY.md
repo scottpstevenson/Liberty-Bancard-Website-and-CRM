@@ -113,3 +113,5 @@
 - [Coordinator hold integrity timing](coordinator-hold-integrity-timing.md) — pause-authority holds are temporarily absent after teardown applyPauseMutation; assertNonTestHoldsIntact must not hard-fail on them — only non-coordinator holds must be present immediately.
 - [Consent Authority & Channel State](consent-authority-channel-state.md) — canonical facts use the reducer; legacy fields are compatibility outputs and must never regain authority.
 - [Statement upload idempotency contract](statement-upload-idempotency.md) — all statement-upload routes + merchant-app finalize require UUIDv4 Idempotency-Key or 400; tests must send crypto.randomUUID() per submission.
+- [New-lead enrollment scan timeout](new-lead-enrollment-timeout.md) — _fetchNewLeadDeals() scans all New Lead deals+contacts; hits pool 30s statement_timeout under load; wrap in db.transaction(tx => { SET LOCAL statement_timeout='0'; ... }).
+- [Outbox worker pause gate scope](outbox-worker-pause-gate.md) — pause gate belongs in handleGhlSync() not tick(); tick() runs contact_link/consent_record (pure DB) that must not be blocked by global pause.
