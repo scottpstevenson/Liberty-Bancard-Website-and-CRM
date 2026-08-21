@@ -1,0 +1,153 @@
+## Verdict: NOT BUILD-READY as written
+
+Task #1575 has the right visual diagnosis, but approving it unchanged would create new theme bugs and leave major public pages in the old design. I audited the attached task against current GitHub `main` at [`b64a0bc`](https://github.com/scottpstevenson/Liberty-Bancard-Website-and-CRM/commit/b64a0bc0351c04524d33497bd6bc5c78d82d2bab), the source architecture, and the live website.
+
+The relevant design files have not changed since the task’s older `10d2101` baseline, so its screenshots and most measurements remain current.
+
+### P0 corrections required before approval
+
+1. **The proposed `PublicThemeShell` will not work.**
+
+   Adding `class="light"` to an inner `<div>` cannot override variables inherited from `.dark` on `<html>`. There is no `.light { … }` variable block; variables are defined under `:root` and `.dark`.
+
+   Exact fix:
+
+   * Create an explicit `.marketing-theme` wrapper.
+   * Define the complete marketing token set in both:
+
+     * `.marketing-theme { … }`
+     * `.dark .marketing-theme { … }`
+   * Set `color-scheme: light`.
+   * Include the router, navbar, footer, cookie banner, chat offset container, and sticky CTA inside that shell.
+   * Do not use a `useEffect` class toggle on a descendant.
+
+2. **“All non-dashboard routes” is an unsafe route definition.**
+
+   It would force the marketing theme onto login, activation, mobile CRM, merchant applications, partner portals, proposals, savings reports, statement-upload tokens, NPS pages, sales tools, and other operational surfaces explicitly declared out of scope.
+
+   Exact fix:
+
+   * Define explicit route families: `marketing`, `legal/content`, `conversion`, `portal`, `auth`, `mobile`, `dashboard`.
+   * Apply the fixed marketing theme only to an allowlist.
+   * Fail closed: unknown routes must not silently become marketing routes.
+   * Add route-classification tests for representative static, dynamic, tokenized, and operational URLs.
+
+3. **SSR and standalone legacy pages are missing from the implementation scope.**
+
+   The task identifies them as a root problem and requires SSR parity, but omits their implementation files. The crawler-visible homepage still has the old headline and statistics—“Stop Overpaying,” `$2B+`, `98%`, and `15+`—while the hydrated React homepage shows different content. [Live crawler-visible homepage](https://libertybancard.com/)
+
+   The standalone [Square alternatives page](https://libertybancard.com/alternatives/square) still uses a separate system font, header, spacing system, and HTML shell.
+
+   Add these files to scope:
+
+   * `server/ssrShared.ts`
+   * `server/ssr/home.ts`
+   * `server/ssr/pages.ts`
+   * `server/ssr/industries.ts`
+   * `server/ssr/compare.ts`
+   * `server/ssr/locations.ts`
+   * `server/ssr/location-html.ts`
+   * `server/ssr/competitor-ssr.ts`
+   * `server/routes/ssr-routes.ts`
+
+   Create shared content constants for navbar links, footer links, primary homepage headline, proof statistics, CTAs, and disclosures. React and SSR must consume the same contract.
+
+4. **The “no countdown anywhere” acceptance condition is currently impossible.**
+
+   Removing `WelcomePopup` does not remove public countdowns:
+
+   * `FreeAnalysis.tsx` renders direct and promotional countdowns.
+   * `TerminalShop.tsx` renders `PromoBanner` with a countdown.
+   * `PromoBanner.tsx` defaults `showCountdown` to `true`.
+
+   Either:
+
+   * Expand #1575 to remove all scarcity countdowns from public pages, which best matches the premium/trust direction; or
+   * Narrow the acceptance condition to “no countdown on the homepage.”
+
+   Do not delete `CountdownTimer.tsx` blindly because multiple components use it.
+
+5. **SSR parity and accessibility ownership contradict the stated scope.**
+
+   #1575 says accessibility is out of scope, but owns contrast, invalid interactive nesting, mobile visibility, and responsive padding. It also delegates SSR parity to SEO Task #1577 while making parity a #1575 completion gate.
+
+   Correct ownership:
+
+   * #1575: theme, public chrome, homepage architecture, touched-surface contrast, CTA semantics, popup/countdown removal, responsive behavior, SSR visual/content parity.
+   * #1579: global zoom, skip links, heading hierarchy, tap targets, reduced motion, and full accessibility regression.
+   * #1577: metadata, canonicals, schema, sitemap, and social previews.
+
+   These should be sequenced or developed on isolated branches—not edited simultaneously in `App.tsx`, `Home.tsx`, `index.css`, and SSR files.
+
+### P1 corrections
+
+* **Step 15 uses the wrong Wouter API.** The correct pattern is:
+
+  ```tsx
+  <Button asChild>
+    <Link href="/upload-statement">Upload Statement</Link>
+  </Button>
+  ```
+
+  Use `href`, not `to`. Preserve analytics handlers on the resulting interactive element. The live homepage currently contains 20 `a button`/`button a` violations.
+
+* **Step 18 is stale.** Current `Home.tsx` has one hero phone row and one mobile trust row—not duplicated versions. Remove or replace this step with a test that ensures one canonical phone CTA and one trust row.
+
+* **Staff Login already exists in `Footer.tsx`.** The work is to remove it from the navbar and verify the existing footer destination, not “move” it.
+
+* **Hero asset provenance is unresolved.** The repository has merchant/terminal photos and product cutouts, but I found no licensing or ownership record. Require an approved asset ID/source before implementation. The safest current option is a clean composition using verified Liberty terminal cutouts.
+
+* **Claims need an evidence register, not a code comment.** Public claims include `$600–$3,200/year`, `5,000+ merchants`, `$2B+`, `98% retention`, and several case-study savings amounts. Each retained claim needs an owner, source, measurement period, definition, and last-verified date. Remove anything without evidence.
+
+* **Opacity replacement is not contrast verification.** Changing `/55` to `/80` is a heuristic. Require computed WCAG results for each navy/surface pairing after theme isolation.
+
+* **The `<5,000px` criterion is brittle.** Page height depends on viewport, loaded fonts, content wrapping, and disclosures. Keep `≤9` actual DOM sections and eliminate duplicate responsive sections. If height remains a target, define one exact measurement environment, such as `1440×900`, fonts loaded, overlays dismissed.
+
+### Corrected execution sequence
+
+1. Rebase on an exact SHA and freeze the route/content inventory.
+2. Define route families and the marketing-theme token contract.
+3. Add route-classification and theme-isolation tests.
+4. Establish shared React/SSR navigation, footer, headline, statistic, CTA, and disclosure data.
+5. Rebuild React navbar and every SSR/legacy header simultaneously.
+6. Remove welcome, exit-intent, and all unapproved public countdown promotions.
+7. Rebuild the homepage into exactly nine responsive sections—no separate hidden mobile section duplicates.
+8. Use an approved hero asset and preserve image dimensions/CLS safeguards.
+9. Remove textures, normalize typography, and apply named section surfaces.
+10. Fix interactive semantics while preserving analytics.
+11. Remove or substantiate every claim.
+12. Update SSR homepage, generated pages, and standalone competitor pages.
+13. Run automated and visual regression gates.
+14. Merge accessibility and SEO follow-ups only after the design-system baseline is stable.
+
+### Required completion gates
+
+* `npm run check`
+* `npm run build`
+* Zero public `ledger-texture`, `bg-grid`, or `bg-dots` usage
+* Zero `a button` or `button a` nesting
+* Zero welcome/exit popup imports or rendered instances
+* Zero unapproved public countdowns
+* Exactly nine homepage `<section>` elements in the DOM
+* Marketing palette identical under light and dark OS preferences
+* Dashboard theme behavior unchanged
+* SSR and hydrated H1, statistics, CTAs, navbar, and footer match
+* Test standalone `/alternatives/*`, `/switch-from/*`, comparison, industry, and location pages
+* Visual QA at 360, 390, 430, 768, 1024, 1440, and 1920px
+* No horizontal overflow, clipped content, or fixed-widget collisions
+* Every retained statistic has evidence
+
+### Kill lines
+
+* Do not apply the marketing theme to every non-dashboard route.
+* Do not rely on an inner `class="light"` to override `<html class="dark">`.
+* Do not ship the React navbar while SSR and standalone pages retain old headers.
+* Do not introduce or invent unsupported marketing claims.
+* Do not use an image without documented usage rights.
+* Do not delete shared countdown or promotional components without a zero-usage check.
+* Do not run #1575, #1577, #1578, and #1579 against the same files concurrently.
+* Do not declare completion without production build and SSR-only verification.
+
+Baseline verification was limited because the dependency proxy returned a 404 for locked `zip-stream@7.0.5`; that is an environment failure, not evidence of a repository build failure. The available GitHub status interface also supplied no green status evidence for current HEAD. Therefore the build state remains **unverified**, not failed.
+
+The attached [Task #1575 draft](sandbox:/workspace/scratch/22d0c65662f7/upload/Pasted%20markdown%2820260820-200149%29.md) should be revised with the P0 changes before approval.
