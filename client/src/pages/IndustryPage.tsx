@@ -717,7 +717,7 @@ export default function IndustryPage() {
 
         <section className="bg-background py-16" data-testid="section-industry-pain-points">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <h2 className="text-2xl md:text-3xl font-display font-bold text-foreground text-center mb-4" data-testid="text-pain-heading">
+            <h2 className="text-4xl md:text-5xl font-display font-bold text-foreground text-center mb-4" data-testid="text-pain-heading">
               Common {industry.name} Processing Challenges
             </h2>
             <p className="text-center text-muted-foreground mb-10 max-w-2xl mx-auto">
@@ -743,7 +743,7 @@ export default function IndustryPage() {
 
         <section className="bg-muted/30 py-16" data-testid="section-industry-solutions">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <h2 className="text-2xl md:text-3xl font-display font-bold text-foreground text-center mb-4" data-testid="text-solutions-heading">
+            <h2 className="text-4xl md:text-5xl font-display font-bold text-foreground text-center mb-4" data-testid="text-solutions-heading">
               How Liberty Bancard Helps {industry.name} Businesses
             </h2>
             <p className="text-center text-muted-foreground mb-10 max-w-2xl mx-auto">
@@ -770,7 +770,7 @@ export default function IndustryPage() {
         <section className="bg-background py-16" data-testid="section-industry-faq">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="max-w-3xl mx-auto">
-              <h2 className="text-2xl md:text-3xl font-display font-bold text-foreground text-center mb-4" data-testid="text-faq-heading">
+              <h2 className="text-4xl md:text-5xl font-display font-bold text-foreground text-center mb-4" data-testid="text-faq-heading">
                 {industry.name} Payment Processing FAQ
               </h2>
               <p className="text-center text-muted-foreground mb-10">
@@ -794,7 +794,7 @@ export default function IndustryPage() {
 
         <section className="relative overflow-hidden bg-primary text-primary-foreground py-20" data-testid="section-industry-cta">
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-            <h2 className="text-2xl md:text-3xl font-display font-bold text-white mb-4" data-testid="text-cta-heading">
+            <h2 className="text-4xl md:text-5xl font-display font-bold text-white mb-4" data-testid="text-cta-heading">
               See What You're Really Paying
             </h2>
             <p className="text-white/70 mb-8 max-w-xl mx-auto" data-testid="text-cta-body">

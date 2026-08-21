@@ -325,7 +325,7 @@ export default function ISOPartnerProgram() {
         <section className="py-16 md:py-20">
           <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="text-center mb-12">
-              <h2 className="text-2xl md:text-3xl font-display font-bold text-foreground mb-4">
+              <h2 className="text-4xl md:text-5xl font-display font-bold text-foreground mb-4">
                 Who This Program Is For
               </h2>
               <p className="text-muted-foreground max-w-2xl mx-auto">
@@ -355,7 +355,7 @@ export default function ISOPartnerProgram() {
         <section className="py-16 md:py-20 bg-muted/30 border-y border-border/30">
           <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="text-center mb-12">
-              <h2 className="text-2xl md:text-3xl font-display font-bold text-foreground mb-4">
+              <h2 className="text-4xl md:text-5xl font-display font-bold text-foreground mb-4">
                 How the Partner Program Works
               </h2>
               <p className="text-muted-foreground max-w-xl mx-auto">
@@ -380,7 +380,7 @@ export default function ISOPartnerProgram() {
         <section className="py-16 md:py-20">
           <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="text-center mb-12">
-              <h2 className="text-2xl md:text-3xl font-display font-bold text-foreground mb-4">
+              <h2 className="text-4xl md:text-5xl font-display font-bold text-foreground mb-4">
                 Commission & Residual Structure
               </h2>
               <p className="text-muted-foreground max-w-2xl mx-auto">
@@ -443,7 +443,7 @@ export default function ISOPartnerProgram() {
         <section className="py-16 md:py-20 bg-muted/30 border-y border-border/30">
           <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="text-center mb-12">
-              <h2 className="text-2xl md:text-3xl font-display font-bold text-foreground mb-4">
+              <h2 className="text-4xl md:text-5xl font-display font-bold text-foreground mb-4">
                 What Partners Receive
               </h2>
               <p className="text-muted-foreground max-w-xl mx-auto">
@@ -474,7 +474,7 @@ export default function ISOPartnerProgram() {
         <section className="py-16 md:py-20 scroll-mt-20" id="calculator">
           <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="text-center mb-10">
-              <h2 className="text-2xl md:text-3xl font-display font-bold text-foreground mb-4">
+              <h2 className="text-4xl md:text-5xl font-display font-bold text-foreground mb-4">
                 Estimate Your Monthly Residual Income
               </h2>
               <p className="text-muted-foreground max-w-xl mx-auto">
@@ -521,7 +521,7 @@ export default function ISOPartnerProgram() {
             ) : (
               <>
                 <div className="text-center mb-8">
-                  <h2 className="text-2xl md:text-3xl font-display font-bold text-foreground mb-3">
+                  <h2 className="text-4xl md:text-5xl font-display font-bold text-foreground mb-3">
                     Become a Partner
                   </h2>
                   <p className="text-muted-foreground">
@@ -666,7 +666,7 @@ export default function ISOPartnerProgram() {
         <section className="py-16 md:py-20 border-t border-border/30">
           <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="text-center mb-10">
-              <h2 className="text-2xl md:text-3xl font-display font-bold text-foreground mb-4">
+              <h2 className="text-4xl md:text-5xl font-display font-bold text-foreground mb-4">
                 Partner by Profession
               </h2>
               <p className="text-muted-foreground max-w-2xl mx-auto">
@@ -726,7 +726,7 @@ export default function ISOPartnerProgram() {
         <section className="py-12 bg-primary text-primary-foreground">
           <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
             <Award className="w-10 h-10 mx-auto mb-4 opacity-80" />
-            <h2 className="text-2xl md:text-3xl font-display font-bold mb-3">
+            <h2 className="text-4xl md:text-5xl font-display font-bold mb-3">
               Ready to Start Earning Residuals?
             </h2>
             <p className="text-primary-foreground/80 mb-6 max-w-xl mx-auto">

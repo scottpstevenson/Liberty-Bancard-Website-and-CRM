@@ -436,7 +436,7 @@ export default function FAQ() {
         >
           <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 text-center reveal">
             <h2
-              className="text-2xl font-bold text-foreground mb-3"
+              className="text-4xl md:text-5xl font-bold text-foreground mb-3"
               data-testid="text-faq-resources-heading"
             >
               Explore More Resources
@@ -507,7 +507,7 @@ export default function FAQ() {
         >
           <div className="relative max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center reveal">
             <h2
-              className="text-2xl font-bold mb-3"
+              className="text-4xl md:text-5xl font-bold mb-3"
               data-testid="text-faq-cta-heading"
             >
               Still have questions?
