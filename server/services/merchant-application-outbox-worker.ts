@@ -240,6 +240,14 @@ async function handleConsentRecord(row: OutboxRow): Promise<void> {
 }
 
 async function handleGhlSync(row: OutboxRow): Promise<void> {
+  // Honour the global outbound pause: GHL CRM sync is an outbound operation.
+  // Using the canonical authority so the static scanner detects this gate.
+  // contact_link / consent_record / risk_scan do NOT call this check — they
+  // are pure DB operations and must run regardless of pause state.
+  const { authorize } = await import("./outbound-pause-authority");
+  const decision = await authorize({});
+  if (!decision.allowed) throw new Error("outbox:ghl_sync deferred — outbound paused");
+
   const appId = row.applicationId;
   const [appRow] = await db
     .select({ contactId: merchantApplications.contactId })
