@@ -83,15 +83,23 @@ async function seedContact(
 /**
  * Delete all fixture contacts created during this run.
  * ON DELETE CASCADE removes contactNba and nbaRecommendationHistory rows too.
+ *
+ * HARD STOP: cleanup failures propagate to teardownErrors so the suite exits
+ * nonzero — leaving fixture contacts behind is a test-isolation violation.
  */
 async function cleanupFixtures() {
   if (fixtureIds.length === 0) return;
   try {
     await db.delete(contacts).where(inArray(contacts.id, fixtureIds));
   } catch (err: any) {
-    console.warn("[NBA test] Fixture cleanup error:", err?.message);
+    const msg = `[NBA test] HARD STOP — fixture cleanup FAILED: ${err?.message}`;
+    console.error(msg);
+    teardownErrors.push(msg);
   }
 }
+
+/** Hard-stop errors accumulated during teardown. Any entry causes exit(1). */
+const teardownErrors: string[] = [];
 
 /**
  * Directly update outbound_pause_control.state without going through
@@ -281,13 +289,19 @@ async function main() {
   } finally {
     // ── Restore pause state to exactly what it was before the test ───────────
     // Direct DB write — no coordinator holds, epoch unchanged.
+    // HARD STOP: pause-state restore failure is a teardown violation — it can
+    // corrupt the pause state for subsequent test runs.
     try {
       await setTestPauseState(preWasPaused);
     } catch (err: any) {
-      console.warn("[NBA test] Could not restore pause state:", err?.message);
+      const msg = `[NBA test] HARD STOP — pause state restore FAILED: ${err?.message}`;
+      console.error(msg);
+      teardownErrors.push(msg);
     }
 
     // ── Isolation assertions ─────────────────────────────────────────────────
+    // HARD STOP: isolation assertion query failure means we cannot confirm the
+    // test left no orphaned holds or state changes — propagate as a hard stop.
     try {
       const postState = await pool.query<{ state: string; epoch: string }>(
         `SELECT state, epoch::text FROM outbound_pause_control ORDER BY id LIMIT 1`,
@@ -308,7 +322,9 @@ async function main() {
         newHolds.length === 0,
         `${newHolds.length} orphaned hold(s): ${newHolds.slice(0, 3).join(", ")}`);
     } catch (err: any) {
-      console.warn("[NBA test] Isolation assertion error:", err?.message);
+      const msg = `[NBA test] HARD STOP — isolation assertion query FAILED: ${err?.message}`;
+      console.error(msg);
+      teardownErrors.push(msg);
     }
 
     // ── Always clean up fixture contacts ──────────────────────────────────
@@ -319,7 +335,11 @@ async function main() {
   // ── Summary ───────────────────────────────────────────────────────────────
   console.log(`\n${"─".repeat(50)}`);
   console.log(`Results: ${passed} passed, ${failed} failed`);
-  if (failed > 0) {
+  if (teardownErrors.length > 0) {
+    console.error(`\n⛔ ${teardownErrors.length} teardown hard-stop error(s) — isolation violation:`);
+    teardownErrors.forEach(e => console.error(`  ${e}`));
+  }
+  if (failed > 0 || teardownErrors.length > 0) {
     console.error("\n❌ NBA tests FAILED");
     process.exit(1);
   } else {

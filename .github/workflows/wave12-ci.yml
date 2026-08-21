@@ -26,10 +26,27 @@ jobs:
       - name: TypeScript type check (npm run check)
         run: npm run check
 
+      # BT-05 (#1628): migration integrity gate — journals must be consistent
+      # before any deploy. Catches unjournaled root SQL files, out-of-order
+      # when values, unaccounted files, and 0109 snapshot policy classification.
+      - name: Migration integrity check
+        run: npx tsx scripts/check-migration-integrity.ts
+
       # T-05 (#1626): compliance scan is a required binary gate; a non-zero
       # exit code fails the job (and therefore blocks the merge).
       - name: Compliance scan (AST — no send site escapes the gate)
         run: npx tsx scripts/compliance-scan.ts
+
+      # BT-05 (#1628): CSRF fetch scanner — flags authenticated raw fetch()
+      # mutations without getCsrfToken() in client/src.
+      - name: CSRF fetch scanner (client-side authenticated mutations)
+        run: npx tsx scripts/scan-csrf-fetch.ts
+
+      # BT-05 (#1628): suite manifest validation — every MANDATORY_SUITE in
+      # pre-deploy.ts must be capability-classified; required suites cannot be
+      # omitted, silently skipped, or substituted without a manifest update.
+      - name: CI suite manifest check (registry vs capability classification)
+        run: npx tsx scripts/ci-suite-manifest.ts --check
 
       - name: GHL route pause gate tests (#1629)
         run: npx tsx scripts/test-ghl-route-pause-gates-1629.ts

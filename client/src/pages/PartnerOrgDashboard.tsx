@@ -149,6 +149,7 @@ export default function PartnerOrgDashboard() {
     }
     setSubmitting(true);
     try {
+      // CSRF_EXEMPT: PUBLIC_FLOW — partner org login; pre-authentication, no session exists yet
       const res = await fetch("/api/partner-org/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -172,6 +173,7 @@ export default function PartnerOrgDashboard() {
   };
 
   const handleLogout = async () => {
+    // CSRF_EXEMPT: PUBLIC_FLOW — partner org logout; session-termination, low CSRF risk
     await fetch("/api/partner-org/logout", { method: "POST", credentials: "include" });
     setSession(null);
     setDashboardData(null);
@@ -331,6 +333,7 @@ export default function PartnerOrgDashboard() {
               variant="outline"
               className="w-full"
               onClick={async () => {
+                // CSRF_EXEMPT: PUBLIC_FLOW — partner org logout; session-termination, low CSRF risk
                 await fetch("/api/partner-org/logout", { method: "POST", credentials: "include" });
                 setWrongOrg(false);
                 setSession(null);

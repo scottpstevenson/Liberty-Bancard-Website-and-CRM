@@ -4723,9 +4723,17 @@ function RegistryImportPanel() {
       if (sourceType === "license") formData.append("subType", subType);
       formData.append("columnMapping", JSON.stringify(columnMapping));
 
+      // Multipart FormData upload — attach CSRF token for authenticated mutation.
+      // Content-Type is intentionally omitted so the browser sets it with the
+      // correct multipart boundary. Public/token-auth flows (MerchantApplication,
+      // MerchantStatementUpload) do not use this path and remain unaffected.
+      const _registryImportCsrf = getCsrfToken();
+      const _registryImportHeaders: Record<string, string> = {};
+      if (_registryImportCsrf) _registryImportHeaders["X-CSRF-Token"] = _registryImportCsrf;
       const res = await fetch("/api/admin/registry-import", {
         method: "POST",
         credentials: "include",
+        headers: _registryImportHeaders,
         body: formData,
       });
 

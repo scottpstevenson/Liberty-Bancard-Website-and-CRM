@@ -558,7 +558,7 @@ Five public form endpoints (all rate-limited by IP):
 
 ## 12. QA / Pre-Deploy Gate (19 Suites)
 
-All gate suites run via `GHL_TEST_MODE=true npx tsx scripts/pre-deploy.ts` before any production deploy. Suites:
+All gate suites run via `bash scripts/run-pre-deploy.sh` before any production deploy. Suites:
 
 1. **Compliance Scan** — 125 static call-site checks; every email/SMS send must have a category
 2. **Sender Policy** — From/Reply-To enforcement, noreply@ prohibition guard

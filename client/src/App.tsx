@@ -902,6 +902,7 @@ function useReferralTracking() {
     const ref = params.get("ref");
     if (ref) {
       localStorage.setItem("lb_ref_code", ref);
+      // CSRF_EXEMPT: PUBLIC_FLOW — affiliate click tracking; no session auth required
       fetch("/api/affiliate/track-click", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

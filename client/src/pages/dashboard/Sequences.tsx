@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, getCsrfToken } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -849,7 +849,16 @@ export default function Sequences() {
                           aria-label="Send test emails"
                           onClick={async () => {
                             try {
-                              const r = await fetch("/api/wizard/test-sequence-emails", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+                              const csrfToken = getCsrfToken();
+                              const r = await fetch("/api/wizard/test-sequence-emails", {
+                                method: "POST",
+                                headers: {
+                                  "Content-Type": "application/json",
+                                  ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {}),
+                                },
+                                credentials: "include",
+                                body: "{}",
+                              });
                               const d = await r.json();
                               toast({ title: "Test emails sent", description: `Route: ${d.route ?? "unknown"}` });
                             } catch {

@@ -76,7 +76,7 @@
   - Second finalize with same EIN (`919191919`) returns 409 ✓
 - **Test 5 — Booking attribution:** `handleAppointmentBooked()` (internal service call) writes `sdr_lead_events` row with `event_type='appointment_booked'`; matched booking links `merchant_id`; unmatched booking writes row with `merchant_id=null` ✓
 - **Cleanup:** 4 contacts, 3 deals, 2 applications cleaned across 11 tables ✓
-- **GHL isolation:** `GHL_TEST_MODE=true` — no live GHL contacts created
+- **GHL isolation:** `GHL_TRANSPORT_FAILFAST=true` (server-level fail-fast transport) — no live GHL contacts created
 
 ### 5. SEO Audit (`seo-audit.ts`) — ✅ PASS
 

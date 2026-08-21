@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { getCsrfToken } from "@/lib/queryClient";
 
 const QUEUE_KEY = "lb_mobile_mutation_queue";
 
@@ -24,16 +25,33 @@ function saveQueue(q: QueueEntry[]) {
   } catch {}
 }
 
+/**
+ * Replay all queued mutations from offline storage.
+ *
+ * CSRF token is acquired at send time (not at enqueue time) so the
+ * token is always fresh when the offline replay actually executes.
+ *
+ * Public flows that do not require authentication (merchant application,
+ * statement upload token flows) are NOT routed through this queue —
+ * they use their own submission paths without session cookies.
+ */
 async function processQueue(onUpdate: (count: number) => void) {
   const q = getQueue();
   if (!q.length) return;
 
+  // Acquire CSRF token once per replay batch — all queued mutations are
+  // authenticated (session-cookie) routes that require the token.
+  const csrfToken = getCsrfToken();
+
   const remaining: QueueEntry[] = [];
   for (const entry of q) {
     try {
+      const headers: Record<string, string> = {};
+      if (entry.body) headers["Content-Type"] = "application/json";
+      if (csrfToken) headers["X-CSRF-Token"] = csrfToken;
       const res = await fetch(entry.url, {
         method: entry.method,
-        headers: entry.body ? { "Content-Type": "application/json" } : {},
+        headers,
         body: entry.body ? JSON.stringify(entry.body) : undefined,
         credentials: "include",
       });
@@ -95,9 +113,15 @@ export function useOfflineQueue() {
       }
 
       try {
+        // Acquire CSRF token at send time for authenticated mutations.
+        const csrfToken = getCsrfToken();
+        const headers: Record<string, string> = {};
+        if (body) headers["Content-Type"] = "application/json";
+        if (csrfToken) headers["X-CSRF-Token"] = csrfToken;
+
         const res = await fetch(url, {
           method,
-          headers: body ? { "Content-Type": "application/json" } : {},
+          headers,
           body: body ? JSON.stringify(body) : undefined,
           credentials: "include",
         });

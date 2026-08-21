@@ -1737,9 +1737,15 @@ export default function ContactDetail() {
                         className="hover:underline"
                         data-testid="link-phone-call"
                         onClick={() => {
+                          // Public analytics endpoint — authenticated session but
+                          // fire-and-forget; CSRF token attached for authenticated mutation safety.
+                          const _csrfToken = getCsrfToken();
                           fetch("/api/analytics/phone-call-click", {
                             method: "POST",
-                            headers: { "Content-Type": "application/json" },
+                            headers: {
+                              "Content-Type": "application/json",
+                              ...(_csrfToken ? { "X-CSRF-Token": _csrfToken } : {}),
+                            },
                             credentials: "include",
                             body: JSON.stringify({ contactId, sourcePage: "contact_detail" }),
                           }).catch(() => {/* fire-and-forget */});

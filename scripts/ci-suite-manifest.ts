@@ -1,0 +1,466 @@
+#!/usr/bin/env npx tsx
+/**
+ * ci-suite-manifest.ts — Capability-classified CI suite manifest
+ *
+ * Classifies every suite registered in pre-deploy.ts MANDATORY_SUITES into
+ * one of four capability tiers. CI jobs must only run suites appropriate for
+ * their tier — required suites cannot be omitted, skipped, or substituted
+ * without a documented capability gate change here.
+ *
+ * Capability tiers:
+ *   deterministic-static      — pure-function / AST scan; no server, no DB,
+ *                               no network. Always deterministic. Runs in the
+ *                               CI `static` job.
+ *   deterministic-integration — requires disposable PostgreSQL and/or Redis;
+ *                               no live provider calls. GHL is blocked via
+ *                               GHL_TRANSPORT_FAILFAST=true. Runs in the CI
+ *                               `integration` job.
+ *   server-required           — needs a running dev server at localhost:5000
+ *                               AND a live database. Hard-fails if server is
+ *                               not reachable. Runs in CI `integration` job
+ *                               after server startup.
+ *   server-optional           — needs a running server but is skipped (not
+ *                               failed) when the server is absent. These suites
+ *                               test live-mode provider integrations (OpenAI,
+ *                               GHL, etc.) that require real credentials. NOT
+ *                               run in automated CI; must be run by an operator
+ *                               with live credentials before each production deploy.
+ *
+ * Provider denial controls (deterministic suites only):
+ *   GHL         — GHL_TRANSPORT_FAILFAST=true installs the server-level fail-fast
+ *                 transport; any real GHL call throws TestTransportError.
+ *                 Verified by test-forms.ts via /api/health.
+ *   Serper      — Covered by SERPER_GATEWAY_ENABLED flag and scan-serper-raw-fetch.ts.
+ *   OpenAI      — Not called in deterministic suites (AI boundaries are server-optional).
+ *   SMTP        — Not called by suites (SMTP sends go through gated compliance paths
+ *                 which are themselves gated by outboundGlobalPaused=true).
+ *   Sunbiz      — Blocked by SUNBIZ_ENRICHMENT_ENABLED=false default in test env.
+ *
+ * Runner guarantees:
+ *   - pre-deploy.ts verifies outboundGlobalPaused=true before and after every suite.
+ *   - All suites are run as child processes (spawnSync) — no shared in-process state.
+ *   - Required suites exit nonzero to fail the parent gate; cannot be silently skipped.
+ *
+ * Usage (self-validation):
+ *   npx tsx scripts/ci-suite-manifest.ts [--check]
+ *   --check: exits nonzero if the manifest is inconsistent.
+ */
+
+import fs from "fs";
+import path from "path";
+
+export type SuiteCapability =
+  | "deterministic-static"
+  | "deterministic-integration"
+  | "server-required"
+  | "server-optional";
+
+export interface SuiteManifestEntry {
+  name: string;
+  script: string;
+  capability: SuiteCapability;
+  /** For server-optional: why real credentials are needed */
+  providerNote?: string;
+  /** For deterministic suites: which providers are denied and how */
+  providerDenial?: string;
+}
+
+export const SUITE_MANIFEST: SuiteManifestEntry[] = [
+  // ── deterministic-static ─────────────────────────────────────────────────
+  {
+    name: "Migration Integrity Check",
+    script: "scripts/check-migration-integrity.ts",
+    capability: "deterministic-static",
+    providerDenial: "none (pure file scan)",
+  },
+  {
+    name: "Tracked-File Exposure Scan",
+    script: "scripts/scan-tracked-files.ts",
+    capability: "deterministic-static",
+    providerDenial: "none (pure file scan)",
+  },
+  {
+    name: "Merchant Migration Safety",
+    script: "scripts/test-merchant-migration-safety.ts",
+    capability: "deterministic-static",
+    providerDenial: "none (pure AST/file check)",
+  },
+  {
+    name: "Compliance Scan",
+    script: "scripts/compliance-scan.ts",
+    capability: "deterministic-static",
+    providerDenial: "none (pure AST/file scan)",
+  },
+  {
+    name: "CSRF Fetch Scanner",
+    script: "scripts/scan-csrf-fetch.ts",
+    capability: "deterministic-static",
+    providerDenial: "none (pure file scan)",
+  },
+  {
+    name: "GHL Route Pause Gates",
+    script: "scripts/test-ghl-route-pause-gates-1629.ts",
+    capability: "deterministic-static",
+    providerDenial: "none (pure code scan — no runtime calls)",
+  },
+  {
+    name: "Sender Policy",
+    script: "scripts/test-sender-policy.ts",
+    capability: "deterministic-static",
+    providerDenial: "none (pure code scan — no runtime calls)",
+  },
+  {
+    name: "Serper Raw-Fetch Scan",
+    script: "scripts/scan-serper-raw-fetch.ts",
+    capability: "deterministic-static",
+    providerDenial: "none (pure AST scan)",
+  },
+  {
+    name: "API Coverage",
+    script: "scripts/check-api-coverage.ts",
+    capability: "deterministic-static",
+    providerDenial: "none (pure file scan)",
+  },
+  {
+    name: "Sunbiz Timeout & Recovery",
+    script: "scripts/test-sunbiz-timeout.ts",
+    capability: "deterministic-static",
+    providerDenial: "Sunbiz: fake transport inside test (no real network)",
+  },
+
+  // ── deterministic-integration (DB + optional Redis, no live providers) ───
+  {
+    name: "Serper Gateway",
+    script: "scripts/test-serper-gateway.ts",
+    capability: "deterministic-integration",
+    providerDenial: "Serper: fake transports injected by test",
+  },
+  {
+    name: "Contactability Engine",
+    script: "scripts/test-contactability.ts",
+    capability: "deterministic-integration",
+    providerDenial: "GHL: GHL_TRANSPORT_FAILFAST=true; SMTP: outboundGlobalPaused=true",
+  },
+  {
+    name: "Intake Provenance",
+    script: "scripts/test-intake-provenance.ts",
+    capability: "deterministic-integration",
+    providerDenial: "GHL: GHL_TRANSPORT_FAILFAST=true",
+  },
+  {
+    name: "Speed-to-Lead Pipeline",
+    script: "scripts/test-speed-to-lead.ts",
+    capability: "deterministic-integration",
+    providerDenial: "GHL: GHL_TRANSPORT_FAILFAST=true; outboundGlobalPaused=true",
+  },
+  {
+    name: "Lifecycle State Machine",
+    script: "scripts/test-lifecycle.ts",
+    capability: "deterministic-integration",
+    providerDenial: "no provider calls (lifecycle state transitions only)",
+  },
+  {
+    name: "Transport Dispatch",
+    script: "scripts/test-transport-dispatch.ts",
+    capability: "deterministic-integration",
+    providerDenial: "GHL: GHL_TRANSPORT_FAILFAST=true; SMTP: outboundGlobalPaused=true",
+  },
+  {
+    name: "GHL Inbound Webhooks",
+    script: "scripts/test-ghl-webhooks.ts",
+    capability: "deterministic-integration",
+    providerDenial: "GHL: no outbound calls (inbound webhook parsing only)",
+  },
+  {
+    name: "GHL CRM Decoupling",
+    script: "scripts/test-ghl-decoupling.ts",
+    capability: "deterministic-integration",
+    providerDenial: "GHL: shadow-mode test; GHL_TRANSPORT_FAILFAST=true",
+  },
+  {
+    name: "Appointment-to-Statement",
+    script: "scripts/test-appointment-statement.ts",
+    capability: "deterministic-integration",
+    providerDenial: "GHL: GHL_TRANSPORT_FAILFAST=true; SMTP: outboundGlobalPaused=true",
+  },
+  {
+    name: "BullMQ Resilience",
+    script: "scripts/test-bullmq-resilience.ts",
+    capability: "deterministic-integration",
+    providerDenial: "Redis: uses test prefix; no provider calls",
+  },
+  {
+    name: "Outbound Pause Fence",
+    script: "scripts/test-pause-fence.ts",
+    capability: "deterministic-integration",
+    providerDenial: "no provider calls (DB pause-control rows only)",
+  },
+  {
+    name: "Outbound Pause Authority",
+    script: "scripts/test-outbound-pause-authority.ts",
+    capability: "deterministic-integration",
+    providerDenial: "no provider calls (pause-authority state machine only)",
+  },
+  {
+    name: "Outbound Boundary Denial",
+    script: "scripts/test-outbound-boundary-1626.ts",
+    capability: "deterministic-integration",
+    providerDenial: "GHL: GHL_TRANSPORT_FAILFAST=true; SMTP: outboundGlobalPaused=true",
+  },
+  {
+    name: "Email Signature Coverage",
+    script: "scripts/test-email-signatures.ts",
+    capability: "deterministic-integration",
+    providerDenial: "SMTP: outboundGlobalPaused=true (no real sends)",
+  },
+  {
+    name: "Communication Arbitration",
+    script: "scripts/test-arbitration.ts",
+    capability: "deterministic-integration",
+    providerDenial: "no provider calls (arbitration decision logic only)",
+  },
+  {
+    name: "Statement Acquisition",
+    script: "scripts/test-statement-acquisition.ts",
+    capability: "deterministic-integration",
+    providerDenial: "GHL: GHL_TRANSPORT_FAILFAST=true; SMTP: outboundGlobalPaused=true",
+  },
+  {
+    name: "Channel Orchestrator",
+    script: "scripts/test-channel-orchestrator.ts",
+    capability: "deterministic-integration",
+    providerDenial: "GHL: GHL_TRANSPORT_FAILFAST=true; transport: fake adapters",
+  },
+  {
+    name: "NBA Engine",
+    script: "scripts/test-nba.ts",
+    capability: "deterministic-integration",
+    providerDenial: "no provider calls (NBA decision engine only)",
+  },
+  {
+    name: "Attrition Monitor Cooldown",
+    script: "scripts/smoke-attrition-cooldown.ts",
+    capability: "deterministic-integration",
+    providerDenial: "no provider calls (DB suppression logic only)",
+  },
+  {
+    name: "Backlog Preview",
+    script: "scripts/test-backlog-preview.ts",
+    capability: "deterministic-integration",
+    providerDenial: "no provider calls (DB read-only preview logic)",
+  },
+
+  // ── server-required (live server + DB; hard-fails if server absent) ──────
+  {
+    name: "Sequence Compliance",
+    script: "scripts/test-sequence-compliance.ts",
+    capability: "server-required",
+    providerDenial: "GHL: GHL_TRANSPORT_FAILFAST=true; SMTP: outboundGlobalPaused=true",
+  },
+  {
+    name: "New-Lead Enrollment Policy",
+    script: "scripts/test-new-lead-enrollment-policy.ts",
+    capability: "server-required",
+    providerDenial: "GHL: GHL_TRANSPORT_FAILFAST=true",
+  },
+  {
+    name: "Role Guards",
+    script: "scripts/smoke-role-guards.ts",
+    capability: "server-required",
+    providerDenial: "none (HTTP role-gate testing only)",
+  },
+  {
+    name: "SEO Audit",
+    script: "scripts/seo-audit.ts",
+    capability: "server-required",
+    providerDenial: "none (HTML crawl only)",
+  },
+
+  // ── server-optional (skipped when server absent; requires live credentials) ─
+  {
+    name: "Live Health Monitor",
+    script: "scripts/test-live-health.ts",
+    capability: "server-optional",
+    providerNote: "Requires OpenAI key (AI probe) and live Redis; skip in CI",
+  },
+  {
+    name: "Chat Business Hours",
+    script: "scripts/test-chat-business-hours.ts",
+    capability: "server-optional",
+    providerNote: "Tests live-mode AI handoff timing; requires real server config",
+  },
+  {
+    name: "AI Assistant Boundaries",
+    script: "scripts/test-ai-assistant-boundaries.ts",
+    capability: "server-optional",
+    providerNote: "Tests live AI provider responses; requires OpenAI key",
+  },
+  {
+    name: "Public Forms",
+    script: "scripts/test-forms.ts",
+    capability: "server-optional",
+    providerNote: "GHL isolated via GHL_TRANSPORT_FAILFAST; requires ADMIN credentials",
+  },
+  {
+    name: "Portfolio Scoping",
+    script: "scripts/smoke-portfolio.ts",
+    capability: "server-optional",
+    providerNote: "Ownership boundary tests; requires ADMIN + agent credentials",
+  },
+  {
+    name: "Go-Live Gate",
+    script: "scripts/smoke-golive-gate.ts",
+    capability: "server-optional",
+    providerNote: "422 gate and admin override tests; requires ADMIN credentials",
+  },
+];
+
+// ── Validation ────────────────────────────────────────────────────────────────
+
+/**
+ * Extract script paths from MANDATORY_SUITES in pre-deploy.ts.
+ * Uses a simple regex over the source text; this avoids importing pre-deploy.ts
+ * (which has side effects) while staying accurate for the `script: "..."` pattern
+ * that every suite entry uses.
+ */
+function extractPreDeployScripts(): string[] {
+  const preDeployPath = path.join(process.cwd(), "scripts", "pre-deploy.ts");
+  if (!fs.existsSync(preDeployPath)) {
+    throw new Error("scripts/pre-deploy.ts not found — cannot compare against MANDATORY_SUITES");
+  }
+  const src = fs.readFileSync(preDeployPath, "utf8");
+  // Extract all `script: "..."` values within the MANDATORY_SUITES array.
+  // Start extraction from MANDATORY_SUITES declaration; stop at the first `];`.
+  const start = src.indexOf("MANDATORY_SUITES");
+  if (start === -1) throw new Error("MANDATORY_SUITES not found in pre-deploy.ts");
+  const end = src.indexOf("];", start);
+  const suiteBlock = end !== -1 ? src.slice(start, end) : src.slice(start);
+  const matches = [...suiteBlock.matchAll(/\bscript\s*:\s*"([^"]+)"/g)];
+  return matches.map(m => m[1]);
+}
+
+function main() {
+  const args = process.argv.slice(2);
+  const checkMode = args.includes("--check");
+
+  const byCapability = new Map<SuiteCapability, SuiteManifestEntry[]>();
+  for (const suite of SUITE_MANIFEST) {
+    const bucket = byCapability.get(suite.capability) ?? [];
+    bucket.push(suite);
+    byCapability.set(suite.capability, bucket);
+  }
+
+  console.log("\n── CI Suite Capability Manifest ────────────────────────────────\n");
+  const tiers: SuiteCapability[] = [
+    "deterministic-static",
+    "deterministic-integration",
+    "server-required",
+    "server-optional",
+  ];
+
+  for (const tier of tiers) {
+    const suites = byCapability.get(tier) ?? [];
+    console.log(`\n  ${tier.toUpperCase()} (${suites.length} suite${suites.length !== 1 ? "s" : ""}):`);
+    for (const s of suites) {
+      console.log(`    ${s.script}`);
+      if (s.providerDenial) console.log(`      providers: ${s.providerDenial}`);
+      if (s.providerNote) console.log(`      note: ${s.providerNote}`);
+    }
+  }
+
+  console.log(`\n  Total: ${SUITE_MANIFEST.length} suites classified`);
+
+  // ── Internal manifest integrity checks ──
+  let errors = 0;
+
+  // No suite should appear twice in the manifest.
+  const manifestScripts = SUITE_MANIFEST.map(s => s.script);
+  const manifestScriptSet = new Set(manifestScripts);
+  if (manifestScriptSet.size !== manifestScripts.length) {
+    console.error("  ✗ MANIFEST ERROR: duplicate script entries in SUITE_MANIFEST");
+    errors++;
+  } else {
+    console.log("  ✓ No duplicate script entries in manifest");
+  }
+
+  // server-optional suites must not also be in server-required.
+  const serverOptionalSet = new Set(
+    SUITE_MANIFEST.filter(s => s.capability === "server-optional").map(s => s.script)
+  );
+  const serverRequiredSet = new Set(
+    SUITE_MANIFEST.filter(s => s.capability === "server-required").map(s => s.script)
+  );
+  const overlap = [...serverOptionalSet].filter(s => serverRequiredSet.has(s));
+  if (overlap.length > 0) {
+    console.error(`  ✗ MANIFEST ERROR: suites in both server-optional and server-required: ${overlap.join(", ")}`);
+    errors++;
+  } else {
+    console.log("  ✓ No server-optional/server-required overlap");
+  }
+
+  // All deterministic suites must have a providerDenial entry.
+  const deterministicMissingDenial = SUITE_MANIFEST.filter(
+    s =>
+      (s.capability === "deterministic-static" ||
+        s.capability === "deterministic-integration") &&
+      !s.providerDenial
+  );
+  if (deterministicMissingDenial.length > 0) {
+    console.error(
+      `  ✗ MANIFEST ERROR: deterministic suites missing providerDenial: ${deterministicMissingDenial.map(s => s.script).join(", ")}`
+    );
+    errors++;
+  } else {
+    console.log("  ✓ All deterministic suites have provider denial documentation");
+  }
+
+  // ── Registry comparison: manifest vs. pre-deploy.ts MANDATORY_SUITES ──
+  // Every script in pre-deploy.ts MANDATORY_SUITES must be classified in the
+  // manifest; any unclassified script is a coverage gap.
+  console.log("\n  Comparing manifest against scripts/pre-deploy.ts MANDATORY_SUITES:");
+  let preDeployScripts: string[];
+  try {
+    preDeployScripts = extractPreDeployScripts();
+  } catch (err: any) {
+    console.error(`  ✗ MANIFEST ERROR: could not read pre-deploy.ts — ${err.message}`);
+    errors++;
+    preDeployScripts = [];
+  }
+
+  if (preDeployScripts.length > 0) {
+    // Suites in pre-deploy but not in manifest (need classification)
+    const unclassified = preDeployScripts.filter(s => !manifestScriptSet.has(s));
+    if (unclassified.length > 0) {
+      for (const s of unclassified) {
+        console.error(`  ✗ MANIFEST GAP: '${s}' is in MANDATORY_SUITES but not classified in SUITE_MANIFEST`);
+      }
+      errors++;
+    } else {
+      console.log(
+        `  ✓ All ${preDeployScripts.length} MANDATORY_SUITES scripts are classified in the manifest`
+      );
+    }
+
+    // Suites in manifest but not in pre-deploy (stale / not registered)
+    const stale = manifestScripts.filter(s => !preDeployScripts.includes(s));
+    if (stale.length > 0) {
+      for (const s of stale) {
+        // Warn only — a manifest can document suites that have been removed from
+        // pre-deploy for deprecation tracking purposes.
+        console.log(`  ⚠ STALE: '${s}' is in SUITE_MANIFEST but not in MANDATORY_SUITES (deprecated or upcoming?)`);
+      }
+    } else {
+      console.log("  ✓ No stale manifest entries (all manifest scripts are in MANDATORY_SUITES)");
+    }
+  }
+
+  if (errors > 0) {
+    console.error(`\n✗ Suite manifest INVALID: ${errors} error(s)`);
+    if (checkMode) process.exit(1);
+    // In non-check mode just report
+  } else {
+    console.log("\n✅ Suite manifest valid\n");
+  }
+}
+
+main();

@@ -297,6 +297,7 @@ export default function FreeAnalysis() {
       localStorage.setItem("lb_ref_code", ref);
       const expires = new Date(Date.now() + 30 * 864e5).toUTCString();
       document.cookie = `lb_ref=${encodeURIComponent(ref)};expires=${expires};path=/;SameSite=Lax`;
+      // CSRF_EXEMPT: PUBLIC_FLOW — affiliate click tracking; no session auth required
       fetch("/api/affiliate/track-click", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

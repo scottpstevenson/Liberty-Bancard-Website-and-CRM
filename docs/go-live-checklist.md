@@ -18,7 +18,7 @@ Every push and pull request to `main` runs them automatically.
 | 1, 2, 3 | `smoke-role-guards.ts` | `integration` | `ADMIN_SEED_EMAIL`, `ADMIN_SEED_PASSWORD` |
 | 6, 7, 8 | `test-contactability.ts` | `integration` | `ADMIN_SEED_EMAIL`, `ADMIN_SEED_PASSWORD` |
 | 9, 10 | `test-sequence-compliance.ts` | `integration` | none |
-| 11–14 | `test-forms.ts` | `integration` | none (`GHL_TEST_MODE=true` prevents live GHL) |
+| 11–14 | `test-forms.ts` | `integration` | none (GHL_TRANSPORT_FAILFAST=true server transport prevents live GHL) |
 | 15–18 | `seo-audit.ts` | `integration` | none |
 | 19, 20 | `mobile-screenshots.ts` | `integration` | none (exit 2 = env limitation, not a block) |
 
@@ -111,15 +111,15 @@ Every push and pull request to `main` runs them automatically.
 ---
 
 ### 11. Form Integration — Statement Upload Deal Stage + Document Linkage
-- [ ] **Command:** `GHL_TEST_MODE=true npx tsx scripts/test-forms.ts`
+- [ ] **Command:** `GHL_TRANSPORT_FAILFAST=true npx tsx scripts/test-forms.ts`
 - **Pass condition:** Exit 0; statement upload creates contact, deal in stage "Statement Received", and document record linked to both contact and deal. `doNotContact` not set by form.
 - **Failure blocks:** Statement upload creating deals in wrong pipeline stage breaks the `Statement Received → Review In Progress` funnel.
-- **Owner/operator:** Engineering lead. Set `GHL_TEST_MODE=true` or unset `GHL_PRIVATE_INTEGRATION_TOKEN` to prevent live GHL contact creation.
+- **Owner/operator:** Engineering lead. Use GHL_TRANSPORT_FAILFAST=true (server-level fail-fast transport) or run via bash scripts/run-pre-deploy.sh (sets this automatically) to prevent live GHL contact creation.
 
 ---
 
 ### 12. Form Integration — Merchant App PEWC Consent Log
-- [ ] **Command:** `GHL_TEST_MODE=true npx tsx scripts/test-forms.ts`
+- [ ] **Command:** `GHL_TRANSPORT_FAILFAST=true npx tsx scripts/test-forms.ts`
 - **Pass condition:** Exit 0; merchant app finalize creates a `consent_audit_logs` row with `consented=true`, `disclosureVersion` set, and `ipAddress` captured. Duplicate EIN returns 409.
 - **Failure blocks:** Outreach to merchant applicants who never gave valid PEWC consent — TCPA violation. Hard NO-GO.
 - **Owner/operator:** Engineering lead + compliance officer.
@@ -127,7 +127,7 @@ Every push and pull request to `main` runs them automatically.
 ---
 
 ### 13. Form Integration — Booking Attribution Written
-- [ ] **Command:** `GHL_TEST_MODE=true npx tsx scripts/test-forms.ts`
+- [ ] **Command:** `GHL_TRANSPORT_FAILFAST=true npx tsx scripts/test-forms.ts`
 - **Pass condition:** Exit 0; `sdr_lead_events` row written with `event_type='appointment_booked'` via internal `handleAppointmentBooked()` service call. No unattributed booking path exists.
 - **Failure blocks:** Untracked booked appointments break pipeline stage progression and commission attribution.
 - **Owner/operator:** Engineering lead.
@@ -135,7 +135,7 @@ Every push and pull request to `main` runs them automatically.
 ---
 
 ### 14. Form Integration — Full Cleanup Verified
-- [ ] **Command:** `GHL_TEST_MODE=true npx tsx scripts/test-forms.ts`
+- [ ] **Command:** `GHL_TRANSPORT_FAILFAST=true npx tsx scripts/test-forms.ts`
 - **Pass condition:** Exit 0; output shows cleanup across all 12 tables: contacts, deals, merchant_documents, documents, merchant_applications, consent_audit_logs, sdr_lead_events, audit_logs, sequence_enrollments, referrals, affiliate_clicks, merchant_referrals. No QA records remain.
 - **Failure blocks:** Orphaned test contacts entering automation pipelines generate false metrics and may trigger real outreach.
 - **Owner/operator:** Engineering lead. Confirm "Cleaned up" line in output matches expected table list.

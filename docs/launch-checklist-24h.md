@@ -12,7 +12,7 @@
 
 ### 1. Run Full Pre-Deploy Suite
 ```bash
-GHL_TEST_MODE=true npx tsx scripts/pre-deploy.ts
+bash scripts/run-pre-deploy.sh
 ```
 - [ ] **All mandatory suites exit 0** — `✅  PRE-DEPLOY GATE PASSED — all suites green.`
 - [ ] If it fails: fix the failing suite and re-run before continuing.

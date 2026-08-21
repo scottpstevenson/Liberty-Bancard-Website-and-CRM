@@ -64,8 +64,22 @@ interface Suite {
   skipWhenServerDown?: boolean;
 }
 
+// Capability classification for all suites is in scripts/ci-suite-manifest.ts.
+// That file classifies each suite as: deterministic-static, deterministic-integration,
+// server-required, or server-optional. CI jobs must run only the deterministic classes.
+// To verify the manifest: npx tsx scripts/ci-suite-manifest.ts --check
 const MANDATORY_SUITES: Suite[] = [
   // ── Static / pure-function suites (no server required) ───────────────────
+  {
+    name: "Migration Integrity Check (journal consistency, unjournaled files, high-water enforcement)",
+    script: "scripts/check-migration-integrity.ts",
+    timeoutSecs: 60,
+  },
+  {
+    name: "CSRF Fetch Scanner (authenticated raw fetch() mutations must attach getCsrfToken())",
+    script: "scripts/scan-csrf-fetch.ts",
+    timeoutSecs: 60,
+  },
   {
     name: "Tracked-File Exposure Scan (no backups/exports/dumps in git)",
     script: "scripts/scan-tracked-files.ts",

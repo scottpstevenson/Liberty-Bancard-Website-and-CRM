@@ -1072,6 +1072,13 @@
       "when": 1793200000000,
       "tag": "0149_statement_proposals_deal_id_unique",
       "breakpoints": true
+    },
+    {
+      "idx": 153,
+      "version": "7",
+      "when": 1793300000000,
+      "tag": "0091_merchant_onboarding_stages",
+      "breakpoints": true
     }
   ]
 }

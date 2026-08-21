@@ -254,7 +254,7 @@ Homepage, /get-started, /upload-statement, /free-analysis, /free-analysis-guaran
 - `ADMIN_SEED_EMAIL` defaults to `scott@libertybancard.com` — real email; acceptable for prod admin.
 
 ### Feature Flags / Demo-Mode Behavior
-- `GHL_TEST_MODE=true` in pre-deploy wrapper — **must be false in production**.
+- `GHL_TRANSPORT_FAILFAST=true` is set by the run-pre-deploy.sh wrapper for isolation; never needed in production (no GHL calls are made by the gate).
 - `SUNBIZ_ENRICHMENT_ENABLED` — defaults to false in prod; must be explicitly enabled.
 - `outboundGlobalPaused` system_setting — **must be set to false before going live**.
 
