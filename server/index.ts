@@ -26,15 +26,6 @@ import { storage } from "./storage";
 // Validate required environment variables before anything else starts.
 validateEnv();
 
-// C-03 (#1626): fail-fast fake GHL transport for test servers. When the
-// pre-deploy wrapper starts the server with GHL_TRANSPORT_FAILFAST=true, any
-// server-side call to the GHL API base URL throws TestTransportError instead
-// of reaching the real provider. Installed before anything else can fetch.
-if (process.env.GHL_TRANSPORT_FAILFAST === "true") {
-  const { installGhlFailFastTransport } = await import("./services/ghl-test-transport");
-  installGhlFailFastTransport();
-}
-
 // Initialize Sentry error monitoring as early as possible so it captures all
 // subsequent errors including those that occur during startup.
 if (process.env.SENTRY_DSN) {
@@ -321,6 +312,16 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // C-03 (#1626): fail-fast fake GHL transport for test servers. When the
+  // pre-deploy wrapper starts the server with GHL_TRANSPORT_FAILFAST=true, any
+  // server-side call to the GHL API base URL throws TestTransportError instead
+  // of reaching the real provider. Installed before registerRoutes so no
+  // request handler can slip through before the intercept is active.
+  if (process.env.GHL_TRANSPORT_FAILFAST === "true") {
+    const { installGhlFailFastTransport } = await import("./services/ghl-test-transport");
+    installGhlFailFastTransport();
+  }
+
   await runDrizzleMigrations();
   const { reconcileEnrichmentState, reconcileScoringState, seedAutomationRegistry } = await import("./services/startup-reconcile");
   await reconcileEnrichmentState();
