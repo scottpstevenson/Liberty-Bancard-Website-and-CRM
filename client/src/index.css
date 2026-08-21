@@ -387,6 +387,25 @@
     display: inline-block;
   }
 
+  /* Interactive elevation system */
+  .hover-elevate {
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+  }
+  .hover-elevate:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-elevated);
+  }
+  .active-elevate-2:active { transform: translateY(1px); }
+  .toggle-elevate { transition: transform 0.1s ease; }
+  .toggle-elevate:active { transform: scale(0.97); }
+  .no-default-hover-elevate:hover  { transform: none; box-shadow: none; }
+  .no-default-active-elevate:active { transform: none; }
+
+  /* Float vertical — gentle card bob animation */
+  .float-vertical {
+    animation: float-vertical 4s ease-in-out infinite;
+  }
+
   /* Remove hover underline on FAQ accordion triggers — shadcn default adds hover:underline */
   [data-testid="accordion-faq"] button:hover {
     text-decoration-line: none;
@@ -403,6 +422,7 @@
   .si-load-3 { animation-delay: 0.25s; }
   .si-load-4 { animation-delay: 0.35s; }
   .si-load-5 { animation-delay: 0.45s; }
+  .si-load-3b { animation-delay: 0.30s; }
   .si-load-6 { animation-delay: 0.55s; }
 
   /* ============================================================
@@ -462,11 +482,42 @@
   }
 }
 
+/* ── Marketing-theme section band overrides ──────────────────────────────────
+   Non-layered rules beat @layer utilities in the cascade, locking marketing
+   section bands to their light values regardless of OS dark-mode. */
+.marketing-theme .section-warm {
+  background-color: hsl(36 38% 95.5%) !important;
+  border-top: 1px solid hsl(var(--border));
+  border-bottom: 1px solid hsl(var(--border));
+}
+.marketing-theme .section-navy {
+  background-color: hsl(var(--primary)) !important;
+}
+.marketing-theme .section-split {
+  background-color: hsl(36 38% 95.5%) !important;
+}
+@media (min-width: 1024px) {
+  .marketing-theme .section-split {
+    background-image: linear-gradient(
+      to right,
+      hsl(36 38% 95.5%) 0%,
+      hsl(36 38% 95.5%) 50%,
+      hsl(var(--card)) 50%,
+      hsl(var(--card)) 100%
+    ) !important;
+  }
+}
+
 @keyframes si-rise {
   to {
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+@keyframes float-vertical {
+  0%, 100% { transform: translateY(0); }
+  50%       { transform: translateY(-8px); }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -480,9 +531,12 @@
   }
   .glow-blob,
   .shimmer,
-  .cta-pulse {
+  .cta-pulse,
+  .float-vertical {
     animation: none;
   }
+  .hover-elevate:hover { transform: none; }
+  .toggle-elevate:active { transform: none; }
 }
 
 @keyframes shimmer {

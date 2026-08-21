@@ -284,9 +284,9 @@ export function Footer() {
             </ul>
 
             <h4 className="font-semibold text-lg mt-8 mb-4" data-testid="text-footer-legal-heading">Legal</h4>
-            <ul className="space-y-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-4 gap-y-3">
               {legalLinks.map((link) => (
-                <li key={link.href}>
+                <div key={link.href}>
                   <Link
                     href={link.href}
                     className="text-primary-foreground/70 text-sm hover:text-primary-foreground transition-colors"
@@ -294,9 +294,9 @@ export function Footer() {
                   >
                     {link.label}
                   </Link>
-                </li>
+                </div>
               ))}
-            </ul>
+            </div>
           </div>
         </div>
 

@@ -12,5 +12,5 @@ import { type ReactNode } from "react";
  * Do NOT apply to: dashboard, portal, auth, tokenised, mobile, or thanks routes.
  */
 export function PublicThemeShell({ children }: { children: ReactNode }) {
-  return <div className="marketing-theme">{children}</div>;
+  return <div className="marketing-theme light">{children}</div>;
 }

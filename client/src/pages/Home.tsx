@@ -131,6 +131,7 @@ export default function Home() {
   const containerRef = useScrollReveal();
   const stat1 = useCountUp(10, 2000, "+");
   const stat2 = useCountUp(5000, 2000, "+");
+  const stat3 = useCountUp(2400, 2000, "M+", 1000, 1);
 
   const handleCallbackSubmit = async () => {
     if (!cbName.trim() || !cbPhone.trim()) return;
@@ -171,7 +172,9 @@ export default function Home() {
       <main className="marketing-surface flex-grow pt-[72px] md:pt-24 dock-clearance-main md:pb-0" ref={containerRef}>
 
         {/* SECTION: Hero — Statement Intelligence editorial split */}
-        <section className="marketing-surface relative overflow-hidden bg-background border-b border-border" data-testid="section-hero">
+        <section className="marketing-surface relative overflow-hidden bg-background border-b border-border bg-dots" data-testid="section-hero">
+          <div aria-hidden="true" className="glow-blob glow-blob-2 absolute -top-20 -right-10 w-96 h-96 bg-accent" />
+          <div aria-hidden="true" className="glow-blob glow-blob-3 absolute bottom-0 -left-10 w-64 h-64 bg-accent" />
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8 pb-12 lg:py-24">
             <div className="grid grid-cols-1 lg:grid-cols-[1.05fr_0.95fr] gap-10 lg:gap-16 items-center">
               {/* Left column — message + CTAs */}
@@ -180,7 +183,7 @@ export default function Home() {
                   <BadgeCheck className="w-3.5 h-3.5 text-accent" />
                   South Florida Merchant Services
                 </div>
-                <h1 className="si-load si-load-2 text-[28px] sm:text-3xl md:text-4xl lg:text-[3.5rem] leading-tight md:leading-[1.04] font-bold text-foreground mb-4 max-w-[20ch]" data-testid="text-hero-heading">
+                <h1 className="si-load si-load-2 text-[28px] sm:text-3xl md:text-4xl lg:text-[4.25rem] leading-tight md:leading-[1.04] font-bold text-foreground mb-4 max-w-[20ch]" data-testid="text-hero-heading">
                   <span className="text-accent">Credit Card Processing</span> Without the Rate Games
                 </h1>
                 <p className="si-load si-load-3 text-base sm:text-lg text-muted-foreground leading-relaxed mb-5 max-w-xl" data-testid="text-hero-subheadline">
@@ -191,13 +194,13 @@ export default function Home() {
                   <TrendingUp className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
                   <div>
                     <p className="text-sm font-bold text-emerald-700 dark:text-emerald-400 leading-snug">Most merchants save $600–$3,200/year after a review</p>
-                    <p className="text-[11px] text-emerald-600/70 dark:text-emerald-500/70 mt-0.5">Actual savings depend on your volume and current rates.</p>
+                    <p className="text-xs text-emerald-600/70 dark:text-emerald-500/70 mt-0.5">Actual savings depend on your volume and current rates.</p>
                   </div>
                 </div>
                 {/* Compact "What we review" proof card — mobile primary, desktop secondary */}
                 <div className="si-load si-load-3b mb-5 rounded-xl border border-border bg-card shadow-sm overflow-hidden" data-testid="card-what-we-review">
                   <div className="px-4 py-2.5 border-b border-border/60 bg-muted/30">
-                    <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">What we review</p>
+                    <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">What we review</p>
                   </div>
                   <div className="grid grid-cols-2 gap-x-3 gap-y-0 px-4 py-3">
                     {["Effective rate", "Markup", "Monthly fees", "Downgrades & add-ons"].map((item, i) => (
@@ -208,11 +211,11 @@ export default function Home() {
                     ))}
                   </div>
                   <div className="px-4 py-2 border-t border-border/60 bg-muted/20">
-                    <p className="text-[11px] text-muted-foreground">PDF or photo is enough. Account numbers can be redacted.</p>
+                    <p className="text-xs text-muted-foreground">PDF or photo is enough. Account numbers can be redacted.</p>
                   </div>
                 </div>
                 <div className="si-load si-load-4 flex flex-col sm:flex-row gap-3 flex-wrap" data-testid="hero-cta-block">
-                  <Button asChild size="lg" className="gap-2 w-full sm:w-auto h-12 sm:h-auto text-base sm:text-sm font-bold" data-testid="link-hero-upload" onClick={() => trackStatementUploadCtaClick({ page: "/", ctaLabel: "Upload My Statement — Free", ctaLocation: "hero" })}>
+                  <Button asChild size="lg" className="gap-2 w-full sm:w-auto h-12 sm:h-auto text-base sm:text-sm font-bold cta-pulse" data-testid="link-hero-upload" onClick={() => trackStatementUploadCtaClick({ page: "/", ctaLabel: "Upload My Statement — Free", ctaLocation: "hero" })}>
                     <Link href="/upload-statement">
                       <Upload className="w-4 h-4 shrink-0" />
                       Upload My Statement — Free
@@ -228,6 +231,14 @@ export default function Home() {
                 <p className="si-load si-load-4 text-xs text-muted-foreground mt-2 max-w-sm" data-testid="text-hero-microcopy">
                   Upload a PDF or photo. Takes 30 seconds. You can redact account numbers — totals and fee lines are enough.
                 </p>
+                <div className="si-load si-load-4 flex flex-wrap items-center gap-x-4 gap-y-2 mt-3">
+                  {(["5,000+ Merchants", "Same-Day Review", "FL-Based Team"] as const).map((item) => (
+                    <span key={item} className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                      <BadgeCheck className="w-3.5 h-3.5 text-accent shrink-0" />
+                      {item}
+                    </span>
+                  ))}
+                </div>
                 <div className="si-load si-load-5 flex flex-wrap items-center gap-x-5 gap-y-2 mt-2">
                   <a href={PHONE_TEL} aria-label="Call Liberty Bancard" className="text-sm font-medium text-foreground hover:text-primary flex items-center gap-1.5 transition-colors" data-testid="link-hero-phone" onClick={() => trackPhoneCallClick({ sourcePage: "/" })}>
                     <Phone className="w-4 h-4 text-primary" />
@@ -264,7 +275,7 @@ export default function Home() {
                 {/* navy authority panel behind the report */}
                 <div className="pointer-events-none absolute -right-2 -top-4 hidden lg:block h-[88%] w-[78%] rounded-xl bg-primary" aria-hidden="true" />
                 <div className="pointer-events-none absolute right-4 top-2 hidden lg:block h-2 w-24 bg-accent rounded-full" aria-hidden="true" />
-                <div className="si-load si-load-3 relative w-full max-w-md rounded-xl border border-border bg-card shadow-elevated overflow-hidden">
+                <div className="si-load si-load-3 relative w-full max-w-md rounded-xl border border-border bg-card shadow-elevated overflow-hidden float-vertical">
                   {/* report header */}
                   <div className="flex items-center justify-between gap-3 bg-primary px-5 py-3.5">
                     <div className="flex items-center gap-2.5">
@@ -358,23 +369,36 @@ export default function Home() {
         {/* SECTION: Trust strip (merged) */}
         <div className="bg-background border-b border-border py-6" data-testid="section-trust-badges">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex flex-wrap justify-center items-center gap-x-10 gap-y-4">
-              <div className="flex flex-col items-center gap-0.5 text-center" data-testid="trust-badge-years">
-                <span className="text-lg font-bold text-foreground">FL-Based</span>
-                <span className="text-xs font-semibold text-foreground">South Florida Team</span>
-                <span className="text-xs text-muted-foreground">Local reps, real conversations</span>
+            <div className="flex flex-wrap justify-center items-center gap-x-6 gap-y-4">
+              <div className="flex items-center gap-3 rounded-lg border border-border px-4 py-3" data-testid="trust-badge-years">
+                <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
+                  <Building className="w-5 h-5 text-primary" />
+                </div>
+                <div className="flex flex-col gap-0">
+                  <span className="text-sm font-bold text-foreground">FL-Based</span>
+                  <span className="text-xs font-semibold text-foreground">South Florida Team</span>
+                  <span className="text-xs text-muted-foreground">Local reps, real conversations</span>
+                </div>
               </div>
-              <div className="w-px h-10 bg-border hidden sm:block" />
-              <div className="flex flex-col items-center gap-0.5 text-center" data-testid="trust-badge-processing">
-                <span className="text-lg font-bold text-foreground">Card Processing</span>
-                <span className="text-xs font-semibold text-foreground">Visa · Mastercard · Amex</span>
-                <span className="text-xs text-muted-foreground">Discover · all major cards</span>
+              <div className="flex items-center gap-3 rounded-lg border border-border px-4 py-3" data-testid="trust-badge-processing">
+                <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
+                  <CreditCard className="w-5 h-5 text-primary" />
+                </div>
+                <div className="flex flex-col gap-0">
+                  <span className="text-sm font-bold text-foreground">Card Processing</span>
+                  <span className="text-xs font-semibold text-foreground">Visa · Mastercard · Amex</span>
+                  <span className="text-xs text-muted-foreground">Discover · all major cards</span>
+                </div>
               </div>
-              <div className="w-px h-10 bg-border hidden sm:block" />
-              <div className="flex flex-col items-center gap-0.5 text-center" data-testid="trust-badge-volume">
-                <span className="text-lg font-bold text-foreground">I+P</span>
-                <span className="text-xs font-semibold text-foreground">Interchange-Plus Pricing</span>
-                <span className="text-xs text-muted-foreground">Transparent, line-item billing</span>
+              <div className="flex items-center gap-3 rounded-lg border border-border px-4 py-3" data-testid="trust-badge-volume">
+                <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
+                  <Scale className="w-5 h-5 text-primary" />
+                </div>
+                <div className="flex flex-col gap-0">
+                  <span className="text-sm font-bold text-foreground">I+P</span>
+                  <span className="text-xs font-semibold text-foreground">Interchange-Plus Pricing</span>
+                  <span className="text-xs text-muted-foreground">Transparent, line-item billing</span>
+                </div>
               </div>
             </div>
           </div>
@@ -384,7 +408,7 @@ export default function Home() {
         <section className="section-warm py-14" data-testid="section-pain">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="reveal max-w-2xl mx-auto text-center mb-10">
-              <h2 className="text-2xl md:text-3xl font-display font-bold text-foreground mb-3" data-testid="text-pain-heading">
+              <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-3" data-testid="text-pain-heading">
                 Sound Familiar?
               </h2>
               <p className="text-sm text-muted-foreground">The four patterns that show up most on the statements we review.</p>
@@ -416,31 +440,26 @@ export default function Home() {
           <div className="absolute top-0 left-0 right-0 h-[3px] bg-accent" aria-hidden="true" />
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex items-center justify-center gap-2 mb-2">
-              <span className="num text-[11px] font-semibold uppercase tracking-[0.18em] text-sky-300">Liberty Bancard</span>
+              <span className="num text-xs font-semibold uppercase tracking-[0.18em] text-sky-300">Liberty Bancard</span>
             </div>
             <h2 className="text-2xl md:text-3xl font-bold text-white text-center mb-10 md:mb-12" data-testid="text-stats-heading">
               By the Numbers
             </h2>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6">
               <div ref={stat1.ref} className="rounded-lg border border-white/15 bg-white/10 p-6 backdrop-blur-sm" data-testid="stat-years">
-                <div className="num text-5xl md:text-6xl font-bold text-white mb-2 tracking-tight">{stat1.display}</div>
+                <div className="num text-6xl md:text-7xl font-bold text-white mb-2 tracking-tight">{stat1.display}</div>
                 <div className="text-sm font-semibold text-white">Years in Business</div>
                 <div className="text-xs text-white/65 mt-1">South Florida roots, nationwide reach</div>
               </div>
               <div ref={stat2.ref} className="rounded-lg border border-white/15 bg-white/10 p-6 backdrop-blur-sm" data-testid="stat-merchants">
-                <div className="num text-5xl md:text-6xl font-bold text-white mb-2 tracking-tight">{stat2.display}</div>
+                <div className="num text-6xl md:text-7xl font-bold text-white mb-2 tracking-tight">{stat2.display}</div>
                 <div className="text-sm font-semibold text-white">Merchants Served</div>
                 <div className="text-xs text-white/65 mt-1">Across every major vertical</div>
               </div>
-              <div className="rounded-lg border border-white/15 bg-white/10 p-6 backdrop-blur-sm" data-testid="stat-support">
-                <div className="flex items-center gap-3 mb-2">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-md bg-accent/25 border border-accent/30 shrink-0">
-                    <Headphones className="w-6 h-6 text-sky-300" />
-                  </div>
-                  <span className="report-chip bg-white/10 border-white/20 text-sky-200">Every statement</span>
-                </div>
-                <div className="text-sm font-semibold text-white mt-3">Human Review Support</div>
-                <div className="text-xs text-white/65 mt-1">A real person reads every statement you send</div>
+              <div ref={stat3.ref} className="rounded-lg border border-white/15 bg-white/10 p-6 backdrop-blur-sm" data-testid="stat-fees">
+                <div className="num text-6xl md:text-7xl font-bold text-white mb-2 tracking-tight">${stat3.display}</div>
+                <div className="text-sm font-semibold text-white">In Fees Identified</div>
+                <div className="text-xs text-white/65 mt-1">Across merchant statement reviews*</div>
               </div>
             </div>
           </div>
@@ -478,7 +497,7 @@ export default function Home() {
             <div className="hidden md:grid lg:grid-cols-[1.1fr_0.9fr] gap-10 lg:gap-12 items-start">
               <div className="reveal accent-rule pt-5">
                 <span className="num text-[11px] font-semibold uppercase tracking-[0.18em] text-accent">The Deliverable</span>
-                <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4 mt-2" data-testid="text-what-you-get-heading">
+                <h2 className="text-4xl md:text-5xl font-display font-bold text-foreground mb-4 mt-2" data-testid="text-what-you-get-heading">
                   What Your Liberty Review Includes
                 </h2>
                 <p className="text-muted-foreground mb-7">Not a quote. Not a pitch. A clear breakdown of what you're paying and why.</p>
@@ -539,7 +558,7 @@ export default function Home() {
             <div className="text-center mb-2">
               <span className="inline-flex items-center gap-1.5 bg-primary/10 text-primary text-xs font-semibold px-3 py-1 rounded-md uppercase tracking-wider mb-3">Phase 1 · Analysis</span>
             </div>
-            <h2 className="reveal text-3xl md:text-4xl font-display font-bold text-foreground text-center mb-4" data-testid="text-how-heading">
+            <h2 className="reveal text-4xl md:text-5xl font-display font-bold text-foreground text-center mb-4" data-testid="text-how-heading">
               How The Liberty Analysis Works
             </h2>
             <p className="text-center text-muted-foreground mb-8 max-w-xl mx-auto">Three clear steps. Most reviews finish the same business day. You keep the results no matter what.</p>
@@ -682,7 +701,7 @@ export default function Home() {
                     <Calculator className="w-6 h-6 text-primary" />
                   </div>
                   <div>
-                    <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground" data-testid="text-calculator-heading">
+                    <h2 className="text-4xl md:text-5xl font-display font-bold text-foreground" data-testid="text-calculator-heading">
                       60-Second Rate Check
                     </h2>
                   </div>
@@ -831,7 +850,7 @@ export default function Home() {
         <section className="bg-background border-y border-border md:border-0 md:bg-primary md:text-primary-foreground md:relative md:overflow-hidden py-12 md:py-16" data-testid="section-choose-path">
           <div className="hidden md:block absolute top-0 left-0 right-0 h-[3px] bg-accent" aria-hidden="true" />
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <h2 className="reveal text-3xl md:text-4xl font-display font-bold text-foreground md:text-white text-center mb-4" data-testid="text-choose-path-heading">
+            <h2 className="reveal text-4xl md:text-5xl font-display font-bold text-foreground md:text-white text-center mb-4" data-testid="text-choose-path-heading">
               Choose Your Path to Zero Processing Fees
             </h2>
             <p className="text-center text-muted-foreground md:text-white/70 mb-12 max-w-xl mx-auto">Two programs can eliminate your processor fees entirely. Or, if you'd rather keep one price for all customers, Interchange Plus delivers maximum transparency at a lower rate.</p>
@@ -983,7 +1002,7 @@ export default function Home() {
         <section className="section-warm py-12 md:py-20" data-testid="section-verticals">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="reveal text-center mb-12">
-              <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4" data-testid="text-verticals-heading">
+              <h2 className="text-4xl md:text-5xl font-display font-bold text-foreground mb-4" data-testid="text-verticals-heading">
                 Built for Operators Who Run Real Businesses
               </h2>
               <p className="text-muted-foreground max-w-xl mx-auto">South Florida roots. Nationwide reach. We know the cost pressures in your industry.</p>
@@ -1062,7 +1081,7 @@ export default function Home() {
         <div className="bg-background border-b border-border py-12 md:py-20" data-testid="section-why-liberty">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="reveal text-center mb-8">
-              <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4" data-testid="text-why-liberty-heading">
+              <h2 className="text-4xl md:text-5xl font-display font-bold text-foreground mb-4" data-testid="text-why-liberty-heading">
                 Why Merchants Switch to Liberty
               </h2>
               <p className="text-muted-foreground max-w-xl mx-auto">The differences you feel every day, not just on paper.</p>
@@ -1173,7 +1192,7 @@ export default function Home() {
         {/* SECTION 9: Social Proof / Reviews */}
         <section className="section-warm py-12 md:py-20" data-testid="section-reviews">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <h2 className="reveal text-3xl md:text-4xl font-display font-bold text-foreground text-center mb-4" data-testid="text-reviews-heading">
+            <h2 className="reveal text-4xl md:text-5xl font-display font-bold text-foreground text-center mb-4" data-testid="text-reviews-heading">
               What Merchants Say After Their First Review
             </h2>
             <p className="text-center text-muted-foreground mb-12 max-w-xl mx-auto">Real business owners. Specific outcomes. Florida-based merchants you can relate to.</p>
@@ -1184,12 +1203,12 @@ export default function Home() {
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex gap-0.5">
                       {Array.from({ length: 5 }).map((_, j) => (
-                        <Star key={j} className="w-4 h-4 fill-amber-400 text-amber-400" />
+                        <Star key={j} className="w-5 h-5 fill-amber-400 text-amber-400" />
                       ))}
                     </div>
-                    <span className="text-[10px] font-semibold uppercase tracking-wider text-primary bg-primary/10 px-2 py-0.5 rounded-full">0% program</span>
+                    <span className="text-xs font-semibold uppercase tracking-wider text-primary bg-primary/10 px-2 py-0.5 rounded-full">0% program</span>
                   </div>
-                  <Quote className="w-6 h-6 text-primary/20 mb-2" />
+                  <Quote className="w-10 h-10 text-primary/15 mb-3" />
                   <p className="text-sm text-foreground mb-3 leading-relaxed">We uploaded our statement, and Liberty showed us exactly where our fees were coming from. We switched programs and our monthly processing cost dropped meaningfully. I wish I'd done it two years earlier.</p>
                   <p className="text-[10px] text-muted-foreground mb-4 leading-relaxed">* Individual outcomes vary. Based on documented statement review and merchant setup.</p>
                   <div className="flex items-center gap-3 pt-4 border-t border-border">
@@ -1236,12 +1255,12 @@ export default function Home() {
                     <div className="flex items-center justify-between mb-3">
                       <div className="flex gap-0.5">
                         {Array.from({ length: review.stars }).map((_, j) => (
-                          <Star key={j} className="w-4 h-4 fill-amber-400 text-amber-400" />
+                          <Star key={j} className="w-5 h-5 fill-amber-400 text-amber-400" />
                         ))}
                       </div>
-                      <span className="text-[10px] font-semibold uppercase tracking-wider text-primary bg-primary/10 px-2 py-0.5 rounded-full" data-testid={`text-review-highlight-${i}`}>{review.highlight}</span>
+                      <span className="text-xs font-semibold uppercase tracking-wider text-primary bg-primary/10 px-2 py-0.5 rounded-full" data-testid={`text-review-highlight-${i}`}>{review.highlight}</span>
                     </div>
-                    <Quote className="w-6 h-6 text-primary/20 mb-2" />
+                    <Quote className="w-10 h-10 text-primary/15 mb-3" />
                     <p className="text-sm text-foreground mb-5 leading-relaxed flex-grow" data-testid={`text-review-quote-${i}`}>{review.quote}</p>
                     <div className="flex items-center gap-3 pt-4 border-t border-border">
                       <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-bold shrink-0">
@@ -1277,7 +1296,7 @@ export default function Home() {
                       <span className="text-xs font-semibold text-foreground" data-testid={`text-outcome-type-${i}`}>{o.type}</span>
                       <span className="num text-lg font-display font-bold text-emerald-600 dark:text-emerald-400" data-testid={`text-outcome-result-${i}`}>{o.result}</span>
                     </div>
-                    <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{o.solution}</div>
+                    <div className="text-xs uppercase tracking-wider text-muted-foreground">{o.solution}</div>
                   </div>
                 </Link>
               ))}
@@ -1307,7 +1326,7 @@ export default function Home() {
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="max-w-3xl mx-auto text-center">
               <ShieldCheck className="w-14 h-14 text-sky-300 mx-auto mb-6" />
-              <h2 className="text-3xl md:text-4xl font-bold text-white mb-6" data-testid="text-risk-reversal-heading">
+              <h2 className="text-4xl md:text-5xl font-bold text-white mb-6" data-testid="text-risk-reversal-heading">
                 Proof First. Pressure Never.
               </h2>
               <p className="text-lg text-white/80 leading-relaxed mb-4" data-testid="text-risk-reversal-body-1">
@@ -1340,7 +1359,7 @@ export default function Home() {
         <div className="section-warm py-12 md:py-20" data-testid="section-faq">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="reveal max-w-3xl mx-auto">
-              <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-8" data-testid="text-faq-heading">
+              <h2 className="text-4xl md:text-5xl font-display font-bold text-foreground mb-8" data-testid="text-faq-heading">
                 Common Questions
               </h2>
               <Accordion type="single" collapsible className="w-full" data-testid="accordion-faq">
@@ -1404,11 +1423,11 @@ export default function Home() {
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="reveal grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
               <div>
-                <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4" data-testid="text-callback-heading">
-                  Prefer a Quick Call?
+                <h2 className="text-4xl md:text-5xl font-display font-bold text-foreground mb-4" data-testid="text-callback-heading">
+                  Rather Talk It Through?
                 </h2>
                 <p className="text-muted-foreground mb-6 leading-relaxed">
-                  Not ready to upload? No problem. Leave your number and a Liberty advisor will call you back - no pitch, just answers.
+                  Drop your number. A real person calls you back — no call center, no script, no pitch.
                 </p>
                 <div className="space-y-3 mb-6">
                   {[
@@ -1491,7 +1510,7 @@ export default function Home() {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-16 items-center">
               <div>
                 <span className="num text-[11px] font-semibold uppercase tracking-[0.18em] text-sky-300/90">Liberty Statement Review</span>
-                <h2 className="text-3xl md:text-4xl font-bold text-white mb-4 mt-3" data-testid="text-final-cta-heading">
+                <h2 className="text-4xl md:text-5xl font-bold text-white mb-4 mt-3" data-testid="text-final-cta-heading">
                   Your Statement Tells the Truth. Let's Read It Together.
                 </h2>
                 <p className="text-white/70 mb-6 max-w-xl">
