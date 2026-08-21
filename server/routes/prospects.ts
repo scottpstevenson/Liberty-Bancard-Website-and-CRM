@@ -91,22 +91,12 @@ export function registerProspectsRoutes(app: Express) {
     }
   });
 
-  // Run demo data cleanup — archives all lists/records matching demo markers
+  // BT-06: heuristic name-based demo cleanup is permanently disabled.
   app.post("/api/prospect-lists/demo-cleanup", isAuthenticated, async (req, res) => {
-    try {
-      const user = req.user as any;
-      if (user?.role !== "admin") return res.status(403).json({ message: "Admin only" });
-      const report = await storage.archiveDemoData();
-      await storage.createAuditLog({
-        action: "demo_data_cleanup",
-        entityType: "prospect_list",
-        entityId: 0,
-        details: { ...report, actorId: user?.id },
-      });
-      res.json(report);
-    } catch (err: any) {
-      serverError(res, err);
-    }
+    return res.status(410).json({
+      error: "Gone",
+      message: "Heuristic demo cleanup is disabled. Use commercial classification reconciliation instead.",
+    });
   });
 
   app.get("/api/prospect-lists/:id", isAuthenticated, async (req, res) => {

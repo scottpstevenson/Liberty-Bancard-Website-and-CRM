@@ -81,11 +81,11 @@ async function unifiedSendEmail(params: {
   fromName?: string;
 }): Promise<void> {
   if (isGhlConfigured()) {
-    await sendGhlEmail({ contactId: params.contactId, subject: params.subject, body: params.body, fromEmail: params.fromEmail, fromName: params.fromName });
+    await sendGhlEmail({ contactId: params.contactId, subject: params.subject, body: params.body, fromEmail: params.fromEmail, fromName: params.fromName, commercialPurpose: "transactional_response" });
     return;
   }
   if (isSdrGhlConfigured()) {
-    await sdrSendEmail({ contactId: params.ghlContactId, subject: params.subject, htmlBody: params.body, fromEmail: params.fromEmail, fromName: params.fromName });
+    await sdrSendEmail({ contactId: params.ghlContactId, dbContactId: params.contactId, commercialPurpose: "transactional_response", subject: params.subject, htmlBody: params.body, fromEmail: params.fromEmail, fromName: params.fromName });
     return;
   }
   throw new Error("No GHL client configured for sending email");
@@ -93,11 +93,11 @@ async function unifiedSendEmail(params: {
 
 async function unifiedSendSms(params: { contactId: number; ghlContactId: string; body: string }): Promise<void> {
   if (isGhlConfigured()) {
-    await sendGhlSms({ contactId: params.contactId, body: params.body });
+    await sendGhlSms({ contactId: params.contactId, body: params.body, commercialPurpose: "transactional_response" });
     return;
   }
   if (isSdrGhlConfigured()) {
-    await sdrSendSms({ contactId: params.ghlContactId, message: params.body });
+    await sdrSendSms({ contactId: params.ghlContactId, dbContactId: params.contactId, commercialPurpose: "transactional_response", message: params.body });
     return;
   }
   throw new Error("No GHL client configured for sending SMS");
@@ -157,6 +157,7 @@ async function sendConfirmationEmail(params: {
           contactId: params.contactId,
           subject: params.subject,
           body: params.body,
+          commercialPurpose: "transactional_response",
           skipActivityLog: true, // deliver-only: caller (enrollInInboundConfirmation) owns all audit writes
         });
         if (result.success) {
@@ -165,7 +166,7 @@ async function sendConfirmationEmail(params: {
         providerAttempts.push({ provider: "ghl_direct", error: result.error || "GHL direct send failed" });
       } else {
         // SDR GHL client (no return value)
-        await sdrSendEmail({ contactId: params.ghlContactId, subject: params.subject, htmlBody: params.body });
+        await sdrSendEmail({ contactId: params.ghlContactId, dbContactId: params.contactId, commercialPurpose: "transactional_response", subject: params.subject, htmlBody: params.body });
         return { sent: true, provider: "ghl_direct" };
       }
     } catch (err: any) {

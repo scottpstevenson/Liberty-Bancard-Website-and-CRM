@@ -116,7 +116,7 @@ export async function sendPartnerWelcomeEmail(partner: Partner): Promise<void> {
       if (ghlContactId) {
         const subject = `Welcome to Liberty Bancard's Partner Program — you're approved!`;
         const htmlBody = buildPartnerWelcomeEmail(partner, referralLink, portalUrl);
-        await sendEmailReply({ contactId: ghlContactId, subject, htmlBody, fromEmail: "partners@libertybancard.com", fromName: "Liberty Bancard Partner Program" });
+        await sendEmailReply({ contactId: ghlContactId, commercialPurpose: "transactional_response", subject, htmlBody, fromEmail: "partners@libertybancard.com", fromName: "Liberty Bancard Partner Program" });
         method = "direct_email";
         console.log(`[Partner Welcome] Email sent to partner #${partner.id} via direct_email`);
       } else {

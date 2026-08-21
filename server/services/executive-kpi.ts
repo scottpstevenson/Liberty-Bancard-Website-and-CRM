@@ -9,6 +9,7 @@
 import { db, pool } from "../db";
 import { sql } from "drizzle-orm";
 import { deals, agents, dailyFunnelMetrics, executiveGoals } from "@shared/schema";
+import { recordAggregateLineage } from "./commercial-classification-authority";
 
 export interface RepBreakdown {
   agentId: number;
@@ -65,6 +66,7 @@ export interface ExecutiveSnapshot {
   goalsVsActuals: GoalVsActual[];
   // Context for AI
   goals: Record<string, number>;
+  lineageMetadata: { policyVersion: number; sourceRowCount: number; productionCount: number; excludedCount: number; unknownCount: number; lineageHwm: Date };
 }
 
 function getMonday(date: Date): Date {
@@ -127,20 +129,26 @@ export async function buildExecutiveSnapshot(
   const [currDealsResult, prevDealsResult, pipelineResult, funnelResult] = await Promise.all([
     pool.query<any>(`
       SELECT d.*, a.first_name, a.last_name, a.email as agent_email
-      FROM deals d
+       FROM deals d
+       LEFT JOIN contacts linked_contact ON linked_contact.id = d.contact_id
       LEFT JOIN agents a ON lower(d.owner) = lower(a.first_name || ' ' || a.last_name)
          OR lower(d.owner) = lower(a.email)
       WHERE d.stage = 'Closed Won'
         AND d.archived_at IS NULL
+        AND d.record_class = 'production'
+         AND (d.contact_id IS NULL OR linked_contact.record_class = 'production')
         AND (d.closed_at >= $1 OR (d.closed_at IS NULL AND d.updated_at >= $1))
         AND (d.closed_at <= $2 OR (d.closed_at IS NULL AND d.updated_at <= $2))
     `, [weekStart, weekEnd]),
 
     pool.query<any>(`
       SELECT d.*
-      FROM deals d
+       FROM deals d
+       LEFT JOIN contacts linked_contact ON linked_contact.id = d.contact_id
       WHERE d.stage = 'Closed Won'
         AND d.archived_at IS NULL
+        AND d.record_class = 'production'
+         AND (d.contact_id IS NULL OR linked_contact.record_class = 'production')
         AND (d.closed_at >= $1 OR (d.closed_at IS NULL AND d.updated_at >= $1))
         AND (d.closed_at <= $2 OR (d.closed_at IS NULL AND d.updated_at <= $2))
     `, [prevWeekStart, prevWeekEnd]),
@@ -150,9 +158,12 @@ export async function buildExecutiveSnapshot(
              COUNT(*) AS deal_count,
              SUM(CASE WHEN est_monthly_revenue ~ '^[0-9.]+$'
                  THEN est_monthly_revenue::numeric ELSE 0 END) AS pipeline_value
-      FROM deals
-      WHERE stage NOT IN ('Closed Won', 'Closed Lost')
-        AND archived_at IS NULL
+       FROM deals d
+       LEFT JOIN contacts linked_contact ON linked_contact.id = d.contact_id
+       WHERE d.stage NOT IN ('Closed Won', 'Closed Lost')
+         AND d.archived_at IS NULL
+         AND d.record_class = 'production'
+         AND (d.contact_id IS NULL OR linked_contact.record_class = 'production')
       GROUP BY stage
       ORDER BY deal_count DESC
     `),
@@ -282,6 +293,20 @@ export async function buildExecutiveSnapshot(
     },
   ];
 
+  const lineageMetadata = {
+    policyVersion: 1,
+    sourceRowCount: currDeals.length,
+    productionCount: currDeals.length,
+    excludedCount: 0,
+    unknownCount: 0,
+    lineageHwm: new Date(),
+  };
+  await recordAggregateLineage({
+    aggregateType: "executive_kpi",
+    aggregateKey: weekStart.toISOString().split("T")[0],
+    ...lineageMetadata,
+  });
+
   return {
     weekStart: weekStart.toISOString().split("T")[0],
     weekEnd: weekEnd.toISOString().split("T")[0],
@@ -306,5 +331,6 @@ export async function buildExecutiveSnapshot(
     perRepBreakdown,
     goalsVsActuals,
     goals: goalsMap,
+    lineageMetadata,
   };
 }

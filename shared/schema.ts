@@ -199,6 +199,11 @@ export const contacts = pgTable("contacts", {
   // The SLA worker checks this every 5 minutes and escalates when past-due
   // with no human touch. NULL = not yet set or already resolved.
   nextSlaDueAt: timestamp("next_sla_due_at"),
+  // ── BT-06: Commercial classification ─────────────────────────────────────
+  // Managed ONLY by CommercialClassificationAuthority; never set directly.
+  // See server/services/commercial-classification-authority.ts.
+  // Vocabulary: production | test | demo | synthetic | unknown (default)
+  recordClass: text("record_class").notNull().default("unknown"),
 }, (table) => [
   uniqueIndex("contacts_email_unique_idx").on(table.email).where(sql`archived_at IS NULL`),
   index("contacts_phone_idx").on(table.phone),
@@ -212,6 +217,8 @@ export const contacts = pgTable("contacts", {
 
 export const insertContactSchema = createInsertSchema(contacts).omit({
   id: true,
+  // BT-06: classification is authority-managed and never client supplied.
+  recordClass: true,
   createdAt: true,
   updatedAt: true,
   archivedAt: true,
@@ -232,6 +239,7 @@ export const insertContactSchema = createInsertSchema(contacts).omit({
 export const serverInsertContactSchema = createInsertSchema(contacts).omit({
   id: true,
   createdAt: true,
+  recordClass: true,
   updatedAt: true,
   archivedAt: true,
 });
@@ -303,11 +311,14 @@ export const companies = pgTable("companies", {
   currentProvider: text("current_provider"),
   notes: text("notes"),
   managementType: text("management_type").notNull().default("unknown"),
+  // BT-06: mutable projection maintained only by CommercialClassificationAuthority.
+  recordClass: text("record_class").notNull().default("unknown"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
 export const insertCompanySchema = createInsertSchema(companies).omit({
   id: true,
+  recordClass: true,
   createdAt: true,
 });
 
@@ -421,6 +432,8 @@ export const deals = pgTable("deals", {
   // Human-readable next action chip shown on the Kanban deal card.
   // Set by the post-enrichment worker (e.g. "Enrolled — restaurant lead, sequence started").
   nextAction: text("next_action"),
+  // BT-06: mutable projection maintained only by CommercialClassificationAuthority.
+  recordClass: text("record_class").notNull().default("unknown"),
 }, (table) => [
   index("deals_contact_id_idx").on(table.contactId),
   index("deals_pipeline_idx").on(table.pipeline),
@@ -432,6 +445,7 @@ export const deals = pgTable("deals", {
 
 export const insertDealSchema = createInsertSchema(deals).omit({
   id: true,
+  recordClass: true,
   createdAt: true,
   updatedAt: true,
   archivedAt: true,
@@ -1038,6 +1052,8 @@ export const prospects = pgTable("prospects", {
   listId: integer("list_id").references(() => prospectLists.id),
   importExecutionId: integer("import_execution_id").references(() => prospectLists.id),
   sourceRowIndex: integer("source_row_index"),
+  // BT-06: mutable projection maintained only by CommercialClassificationAuthority.
+  recordClass: text("record_class").notNull().default("unknown"),
   contactId: integer("contact_id").references(() => contacts.id),
   companyName: text("company_name"),
   dba: text("dba"),
@@ -1098,6 +1114,7 @@ export const prospects = pgTable("prospects", {
 
 export const insertProspectSchema = createInsertSchema(prospects).omit({
   id: true,
+  recordClass: true,
   createdAt: true,
   updatedAt: true,
 });
@@ -4801,6 +4818,8 @@ export const statementUploadCommands = pgTable("statement_upload_commands", {
   documentId:         integer("document_id").references(() => documents.id),
   // Lifecycle state machine.
   status:             text("status").notNull().default("in_progress"),
+  // BT-06: captured exactly once at claim time; immutable for event reporting.
+  recordClassAtEvent: text("record_class_at_event").notNull().default("unknown"),
   // ^ allowed: "in_progress" | "succeeded" | "recoverable_failed"
   // Opaque JSON checkpoint written by the upload chain for crash-recovery.
   checkpoint:         jsonb("checkpoint"),
@@ -4824,6 +4843,7 @@ export const statementUploadCommands = pgTable("statement_upload_commands", {
 
 export const insertStatementUploadCommandSchema = createInsertSchema(statementUploadCommands).omit({
   id: true,
+  recordClassAtEvent: true,
   createdAt: true,
   updatedAt: true,
   completedAt: true,
@@ -6000,3 +6020,93 @@ export const backlogReleaseRuns = pgTable("backlog_release_runs", {
 });
 
 export type BacklogReleaseRun = typeof backlogReleaseRuns.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// BT-06 — Commercial Truth Classification
+// ---------------------------------------------------------------------------
+// Vocabulary: production | test | demo | synthetic | unknown
+// - Root-subject tables (contacts, deals, prospects, companies) carry
+//   `record_class` (the current class; mutable only via the authority).
+// - Immutable events are in commercial_classification_events.
+// - Workflow commands are in commercial_classification_commands.
+// - Aggregate lineage metadata is in commercial_aggregate_lineage.
+// ---------------------------------------------------------------------------
+
+export const COMMERCIAL_CLASS_VALUES = [
+  "production",
+  "test",
+  "demo",
+  "synthetic",
+  "unknown",
+] as const;
+export type CommercialClass = typeof COMMERCIAL_CLASS_VALUES[number];
+
+export const CLASSIFICATION_POLICY_VERSION = 1;
+
+// Append-only immutable classification event log.
+// (event_namespace, event_key) is the idempotency key; replay is safe.
+export const commercialClassificationEvents = pgTable("commercial_classification_events", {
+  id:              serial("id").primaryKey(),
+  subjectType:     text("subject_type").notNull(),        // 'contact' | 'deal' | 'prospect' | 'company'
+  subjectId:       integer("subject_id").notNull(),
+  eventNamespace:  text("event_namespace").notNull(),     // stable namespace, e.g. 'bt06:manual'
+  eventKey:        text("event_key").notNull(),           // unique within namespace
+  policyVersion:   integer("policy_version").notNull().default(CLASSIFICATION_POLICY_VERSION),
+  priorClass:      text("prior_class"),                   // null = first classification
+  newClass:        text("new_class").notNull(),           // CommercialClass
+  evidenceHash:    text("evidence_hash"),                 // SHA-256 of allowlisted evidence
+  // evidence_fields: allowlisted non-PII key/value pairs only.
+  // MUST NOT contain SSN, EIN, bank data, email/document bodies, credentials.
+  evidenceFields:  jsonb("evidence_fields").notNull().default(sql`'{}'::jsonb`),
+  actorId:         text("actor_id"),
+  approverId:      text("approver_id"),
+  createdAt:       timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("cce_namespace_key_uidx").on(table.eventNamespace, table.eventKey),
+  index("cce_subject_idx").on(table.subjectType, table.subjectId),
+]);
+
+export type CommercialClassificationEvent = typeof commercialClassificationEvents.$inferSelect;
+export type InsertCommercialClassificationEvent = typeof commercialClassificationEvents.$inferInsert;
+
+// Idempotent command table for preview/approve/execute workflow.
+export const commercialClassificationCommands = pgTable("commercial_classification_commands", {
+  id:             uuid("id").primaryKey().defaultRandom(),
+  idempotencyKey: uuid("idempotency_key").notNull().unique(),
+  subjectType:    text("subject_type").notNull(),
+  subjectId:      integer("subject_id").notNull(),
+  targetClass:    text("target_class").notNull(),
+  status:         text("status").notNull().default("preview"), // preview | approved | executed | rejected
+  requestedBy:    text("requested_by"),
+  approvedBy:     text("approved_by"),
+  evidenceFields: jsonb("evidence_fields").notNull().default(sql`'{}'::jsonb`),
+  versionLock:    integer("version_lock").notNull().default(0),
+  previewAt:      timestamp("preview_at", { withTimezone: true }).notNull().defaultNow(),
+  approvedAt:     timestamp("approved_at", { withTimezone: true }),
+  executedAt:     timestamp("executed_at", { withTimezone: true }),
+  createdAt:      timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt:      timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("ccc_subject_idx").on(table.subjectType, table.subjectId),
+  index("ccc_status_idx").on(table.status),
+]);
+
+export type CommercialClassificationCommand = typeof commercialClassificationCommands.$inferSelect;
+
+// Aggregate lineage: one row per KPI rebuild storing lineage metadata.
+export const commercialAggregateLineage = pgTable("commercial_aggregate_lineage", {
+  id:              serial("id").primaryKey(),
+  aggregateType:   text("aggregate_type").notNull(),   // 'funnel_metrics' | 'executive_kpi' | 'agent_payouts'
+  aggregateKey:    text("aggregate_key").notNull(),    // e.g. date "2026-08-21" or period "2026-08"
+  policyVersion:   integer("policy_version").notNull().default(CLASSIFICATION_POLICY_VERSION),
+  sourceRowCount:  integer("source_row_count").notNull().default(0),
+  productionCount: integer("production_count").notNull().default(0),
+  excludedCount:   integer("excluded_count").notNull().default(0),
+  unknownCount:    integer("unknown_count").notNull().default(0),
+  lineageHwm:      timestamp("lineage_hwm", { withTimezone: true }),
+  computedAt:      timestamp("computed_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("cal_type_key_idx").on(table.aggregateType, table.aggregateKey),
+]);
+
+export type CommercialAggregateLineage = typeof commercialAggregateLineage.$inferSelect;

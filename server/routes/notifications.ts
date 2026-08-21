@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { isAuthenticated, isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
-import { isGhlConfigured, sendGhlEmailForMerchant } from "../services/ghl";
+import { isGhlConfigured, sendGhlInternalNotification } from "../services/ghl";
 import { buildDailyDigest } from "../services/digest-service";
 import { isSmtpConfigured } from "../services/smtp-email";
 import { getQueueManager, QUEUE_NAMES } from "../services/queue-manager";
@@ -303,7 +303,7 @@ export function registerNotificationsRoutes(app: Express) {
       const adminEmail = process.env.ADMIN_DIGEST_EMAIL;
       if (adminEmail && isGhlConfigured()) {
         try {
-          await sendGhlEmailForMerchant({ email: adminEmail, subject: `Daily Digest — ${summary.date} — Liberty Bancard`, body: html });
+          await sendGhlInternalNotification({ email: adminEmail, subject: `Daily Digest — ${summary.date} — Liberty Bancard`, body: html });
           res.json({ ...summary, emailSent: true, emailRecipient: adminEmail });
           return;
         } catch (emailErr) {

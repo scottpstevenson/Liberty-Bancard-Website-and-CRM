@@ -68,6 +68,7 @@ const DRIZZLE_TABLE = "__drizzle_migrations";
  * The consolidation migration's `when` = BASELINE_WHEN + 1 in the journal.
  */
 const BASELINE_WHEN = 1777739833710;
+const CI_SNAPSHOT_TAG = "0109_fearless_starhawk";
 
 // Synthetic `when` value used to record 0054 in drizzle_migrations when we
 // apply it manually. Must be higher than 0053's `when` (1784600000000).
@@ -232,11 +233,34 @@ export async function runDrizzleMigrations(): Promise<void> {
       )
     `);
 
-    // Check if this is an existing database that predates the drizzle migration system.
-    const { rows: contactsCheck } = await client.query(`
-      SELECT to_regclass('public.contacts') AS exists
+    // Only a complete canonical snapshot may be baselined. A partially upgraded
+    // legacy schema is refused rather than silently skipping required DDL.
+    const { rows: fingerprint } = await client.query(`
+      SELECT
+        to_regclass('public.contacts') IS NOT NULL AS contacts,
+        to_regclass('public.deals') IS NOT NULL AS deals,
+        to_regclass('public.users') IS NOT NULL AS users,
+        to_regclass('public.tasks') IS NOT NULL AS tasks
     `);
-    const isExistingDatabase = !!contactsCheck[0]?.exists;
+    const snapshotTables = ["contacts", "deals", "users", "tasks"] as const;
+    const presentCount = snapshotTables.filter((table) => fingerprint[0]?.[table]).length;
+    if (presentCount > 0 && presentCount < snapshotTables.length) {
+      throw new Error(
+        `[DB Migrate] Refusing partial legacy schema (${presentCount}/${snapshotTables.length} snapshot tables present). ` +
+        "Restore or explicitly upgrade the database before BT-06 migration baselining."
+      );
+    }
+    let isExistingDatabase = presentCount === snapshotTables.length;
+    // A fresh database must start from the canonical snapshot too: both early
+    // historical files and 0109 contain bare CREATE TABLE statements. Applying
+    // the snapshot once, then journaling it by index, avoids replay collisions.
+    if (!isExistingDatabase) {
+      const snapshotPath = path.join(MIGRATIONS_FOLDER, `${CI_SNAPSHOT_TAG}.sql`);
+      if (!fs.existsSync(snapshotPath)) throw new Error(`Snapshot SQL missing: ${snapshotPath}`);
+      await client.query(fs.readFileSync(snapshotPath, "utf8"));
+      isExistingDatabase = true;
+      console.log(`[DB Migrate] Applied canonical ${CI_SNAPSHOT_TAG} snapshot to empty database.`);
+    }
 
     if (isExistingDatabase) {
       // Read the journal and baseline all entries with when <= BASELINE_WHEN.
@@ -247,7 +271,23 @@ export async function runDrizzleMigrations(): Promise<void> {
         entries: Array<{ idx: number; tag: string; when: number }>;
       };
 
-      const entriesToBaseline = journal.entries.filter(e => e.when <= BASELINE_WHEN);
+      // Existing databases already contain the canonical 0109 schema snapshot.
+      // Baseline by journal position (not timestamp: the journal is historical
+      // and non-monotonic) so Drizzle never replays its bare CREATE TABLEs.
+      const ciSnapshotBootstrap = process.env.CI_SNAPSHOT_BOOTSTRAP === "true";
+      if (ciSnapshotBootstrap && process.env.NODE_ENV !== "test") {
+        throw new Error("CI_SNAPSHOT_BOOTSTRAP is permitted only when NODE_ENV=test.");
+      }
+      const snapshotEntry = journal.entries.find((e) => e.tag === CI_SNAPSHOT_TAG);
+      if (ciSnapshotBootstrap && !snapshotEntry) {
+        throw new Error(`Missing required CI snapshot migration '${CI_SNAPSHOT_TAG}'.`);
+      }
+      // The journal was historically written out of timestamp order. A schema
+      // snapshot represents all entries by journal position, not just entries
+      // whose timestamp happens to precede its timestamp.
+      if (!snapshotEntry) throw new Error(`Missing required snapshot migration '${CI_SNAPSHOT_TAG}'.`);
+      const entriesToBaseline = journal.entries.filter((e) => e.idx <= snapshotEntry.idx);
+      const baselineWhen = Math.max(...entriesToBaseline.map((entry) => entry.when));
 
       // Fetch all hashes already recorded so we can skip duplicates.
       const { rows: existing } = await client.query(
@@ -279,15 +319,15 @@ export async function runDrizzleMigrations(): Promise<void> {
       );
       const latestWhen = latestRow[0]?.created_at ? Number(latestRow[0].created_at) : 0;
 
-      if (latestWhen < BASELINE_WHEN) {
+      if (latestWhen < baselineWhen) {
         // This happens when entriesToBaseline doesn't include an entry at BASELINE_WHEN
         // (e.g., the 0005 file is missing). Insert a synthetic sentinel so the migrator
         // does not attempt to apply any pre-consolidation migration.
         await client.query(
           `INSERT INTO "${DRIZZLE_SCHEMA}"."${DRIZZLE_TABLE}" (hash, created_at) VALUES ($1, $2)`,
-          [`baseline-sentinel-${BASELINE_WHEN}`, BASELINE_WHEN]
+          [`baseline-sentinel-${baselineWhen}`, baselineWhen]
         );
-        console.log(`[DB Migrate] Inserted baseline sentinel at ${BASELINE_WHEN}.`);
+        console.log(`[DB Migrate] Inserted baseline sentinel at ${baselineWhen}.`);
       }
     }
   } finally {

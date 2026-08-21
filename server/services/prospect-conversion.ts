@@ -195,6 +195,7 @@ export async function completeConversionTransaction(
     if (existingDeal) {
       dealId = existingDeal.id;
     } else {
+      const { deriveLinkedDealClass } = await import("./commercial-classification-authority");
       const [newDeal] = await tx
         .insert(deals)
         .values({
@@ -203,6 +204,7 @@ export async function completeConversionTransaction(
           stage: "New Lead",
           owner: "Scott Stevenson",
           notes: `Estimated volume: ${estimatedVolume || "N/A"}`,
+          recordClass: await deriveLinkedDealClass(contactId),
         } as InsertDeal)
         .returning({ id: deals.id });
       dealId = newDeal.id;

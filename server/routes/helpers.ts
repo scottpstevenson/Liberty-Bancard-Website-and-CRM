@@ -222,7 +222,7 @@ export async function sendConfirmationSms(contactId: number, firstName: string, 
 
     const body = `Hi ${firstName}! This is Liberty Bancard confirming we received your submission. Thank you for ${contextText}!\n\n${callTimeText}\n\nReply YES for a call, or let us know a time that works best.\n\nReply STOP to opt out. Msg&data rates may apply.`;
 
-    await sendGhlSms({ contactId, dealId, body });
+    await sendGhlSms({ contactId, dealId, body, commercialPurpose: "transactional_response" });
   } catch (err: any) {
     console.error(`[ConfirmSMS] Failed for contact ${contactId}:`, err.message?.slice(0, 100));
   }

@@ -1,13 +1,13 @@
 import { storage } from "../storage";
 import { pool } from "../db";
-import { sendGhlEmailForMerchant, isGhlConfigured } from "./ghl";
+import { sendGhlInternalNotification, isGhlConfigured } from "./ghl";
 import { sendSmtpEmail, isSmtpConfigured } from "./smtp-email";
 import type { InsertNotification } from "@shared/schema";
 
 async function deliverDigestEmail(to: string, subject: string, html: string): Promise<void> {
   if (isGhlConfigured()) {
     try {
-      await sendGhlEmailForMerchant({ email: to, subject, body: html, fromEmail: "accounts@libertybancard.com", fromName: "Liberty Bancard" });
+      await sendGhlInternalNotification({ email: to, subject, body: html, fromEmail: "accounts@libertybancard.com", fromName: "Liberty Bancard" });
       console.log(`[Digest] Delivered via GHL to ${to}`);
       return;
     } catch (err) {
@@ -439,7 +439,7 @@ export async function sendCriticalEmailNotification(params: {
 
   for (const email of recipients) {
     try {
-      await sendGhlEmailForMerchant({
+      await sendGhlInternalNotification({
         email,
         subject: params.subject,
         body: params.body,

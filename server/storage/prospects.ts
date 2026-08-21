@@ -117,23 +117,12 @@ import { coerceDateFields } from "../utils/date-coerce";
   }
 
   async archiveDemoData(): Promise<{ listsArchived: number; archivedListNames: string[] }> {
-    const DEMO_MARKERS = ["%demo%", "%test%", "%sample%", "%fake%", "%internal%"];
-    const conditions = DEMO_MARKERS.map(m => ilike(prospectLists.name, m));
-    const demoLists = await db
-      .select()
-      .from(prospectLists)
-      .where(and(isNull(prospectLists.archivedAt), or(...conditions)));
-
-    const now = new Date();
-    const archivedNames: string[] = [];
-    for (const list of demoLists) {
-      await db
-        .update(prospectLists)
-        .set({ archivedAt: now, archivedReason: "demo_cleanup", updatedAt: now })
-        .where(eq(prospectLists.id, list.id));
-      archivedNames.push(list.name);
-    }
-    return { listsArchived: demoLists.length, archivedListNames: archivedNames };
+    // BT-06: name-pattern cleanup is not commercial evidence. This destructive
+    // operation is intentionally disabled rather than guessing at demo data.
+    throw new Error(
+      "BT-06: archiveDemoData is disabled. Commercial class cannot be inferred " +
+      "from a prospect-list name; use the classification authority and read-only reconciliation."
+    );
   }
 
 

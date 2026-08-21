@@ -66,6 +66,9 @@ export interface ContactabilityInput {
   currentTime?: Date;
   mode: "enforcement" | "dryRun";
   sdrMerchantId?: number;
+  // Only server-owned inbound confirmation handlers may set this. Every other
+  // enforcement call defaults to marketing_outreach and remains fail-closed.
+  commercialPurpose?: "marketing_outreach" | "transactional_response";
 }
 
 export interface ContactabilityResult {
@@ -316,6 +319,7 @@ export async function evaluateContactability(
     campaignType,
     mode,
     sdrMerchantId,
+    commercialPurpose = "marketing_outreach",
   } = input;
   const currentTime = input.currentTime ?? new Date();
 
@@ -495,6 +499,53 @@ export async function evaluateContactability(
 
   if (!contact) {
     return blocked("Contact not found");
+  }
+
+  // ── Step 1b: Commercial classification gate (BT-06) ────────────────────
+  // Block outbound marketing for any contact whose commercial class is not
+  // 'production'. manual_call is excluded because it is not automated outreach.
+  // This gate fires BEFORE consent checks so consent cannot override commercial
+  // class. Fail-closed: unrecognized purposes block by default.
+  if (isAutomatedChannel(channel) && mode === "enforcement") {
+    if (
+      commercialPurpose !== "marketing_outreach" &&
+      (
+        commercialPurpose !== "transactional_response" ||
+        (campaignType !== "confirmation" && !campaignType?.startsWith("ghl_workflow:"))
+      )
+    ) {
+      return blocked("COMMERCIAL_CLASS_UNKNOWN", {
+        ...({ consentTier: "unknown", lifecycleStage: "unknown", leadSource: null, sourceCategory: null }),
+      });
+    }
+    try {
+      const { authorizeUse } = await import("./commercial-classification-authority");
+      const authResult = await authorizeUse({
+        contactId,
+        subjectType: "contact",
+        subjectId: contactId,
+        purpose: commercialPurpose,
+      });
+      if (!authResult.allowed) {
+        return blocked(
+          authResult.reason ??
+            `Commercial class '${authResult.recordClass}' is not eligible for outbound marketing`,
+          {
+            ...({ consentTier: "unknown", lifecycleStage: "unknown", leadSource: null, sourceCategory: null }),
+          }
+        );
+      }
+    } catch (classErr: any) {
+      const msg = classErr?.message ?? String(classErr);
+      // Marketing/outreach must never proceed merely because the classification
+      // authority is temporarily unavailable. Transactional responses use the
+      // authority directly with their own purpose and remain permitted for an
+      // unknown newly-submitted contact.
+      console.error("[Contactability] Commercial classification gate error (fail-closed):", msg);
+      return blocked("COMMERCIAL_CLASS_UNKNOWN", {
+        ...({ consentTier: "unknown", lifecycleStage: "unknown", leadSource: null, sourceCategory: null }),
+      });
+    }
   }
 
   // BT-04A canonical channel projections are authoritative when present.

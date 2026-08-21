@@ -101,9 +101,22 @@ export async function claimCommand(params: {
   contactId?: number;
   dealId?: number;
   documentId?: number;
+  /** BT-06: commercial class at claim time — captured once, immutable on the row. */
+  recordClassAtEvent?: string;
 }): Promise<ClaimResult> {
   const { requestId, fingerprint, ownerScope, context, source, contactId, dealId, documentId } = params;
   const operationScope = "statement_upload";
+
+  // Resolve commercial class at claim time if not provided.
+  let classAtEvent = params.recordClassAtEvent ?? "unknown";
+  if (classAtEvent === "unknown" && contactId) {
+    try {
+      const { getCurrentClass } = await import("./commercial-classification-authority");
+      classAtEvent = await getCurrentClass("contact", contactId);
+    } catch {
+      // Fall back to 'unknown' if classification tables not yet migrated.
+    }
+  }
 
   // ── Validate Idempotency-Key ──────────────────────────────────────────────
   if (!isValidUUIDv4(requestId)) {
@@ -129,6 +142,8 @@ export async function claimCommand(params: {
       documentId: documentId ?? null,
       status: "in_progress",
       context: context ?? null,
+      // BT-06: capture commercial class at claim time; immutable on the row.
+      recordClassAtEvent: classAtEvent as any,
     })
     .onConflictDoNothing()
     .returning();

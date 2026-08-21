@@ -786,7 +786,23 @@ export async function sendGhlEmail(params: {
    * side-effect free — the caller is responsible for all audit/activity logging.
    */
   skipActivityLog?: boolean;
+  /** Defaults fail-closed to marketing. Only trusted server flows may opt into transactional responses. */
+  commercialPurpose?: "marketing_outreach" | "transactional_response";
 }): Promise<{ success: boolean; messageId?: string; error?: string }> {
+  // ── Unavoidable commercial-classification gate (transport boundary) ───────
+  try {
+    const { authorizeUse } = await import("./commercial-classification-authority");
+    const commercial = await authorizeUse({
+      contactId: params.contactId,
+      purpose: params.commercialPurpose ?? "marketing_outreach",
+    });
+    if (!commercial.allowed) {
+      return { success: false, error: commercial.reasonCode };
+    }
+  } catch (error: any) {
+    console.error(`[GHL:sendGhlEmail] Commercial authorization error — fail closed: ${error.message}`);
+    return { success: false, error: "COMMERCIAL_CLASS_UNKNOWN" };
+  }
   // ── Unavoidable pause authority gate (transport boundary) ────────────────
   // Every provider send must clear the canonical pause authority BEFORE any
   // network I/O. This is the final enforcement boundary — caller-level checks
@@ -923,7 +939,23 @@ export async function sendGhlEmailForMerchant(params: {
    * When provided, the injected footer contains a functional `/unsubscribe?t=…` link.
    */
   contactId?: number;
+  commercialPurpose?: "marketing_outreach" | "transactional_response";
+  internalNotification?: boolean;
 }): Promise<{ success: boolean; error?: string }> {
+  if (!params.contactId && !params.internalNotification) {
+    return { success: false, error: "COMMERCIAL_CLASS_UNKNOWN" };
+  }
+  if (!params.internalNotification) try {
+    const { authorizeUse } = await import("./commercial-classification-authority");
+    const commercial = await authorizeUse({
+      contactId: params.contactId,
+      purpose: params.commercialPurpose ?? "marketing_outreach",
+    });
+    if (!commercial.allowed) return { success: false, error: commercial.reasonCode };
+  } catch (error: any) {
+    console.error(`[GHL:sendGhlEmailForMerchant] Commercial authorization error — fail closed: ${error.message}`);
+    return { success: false, error: "COMMERCIAL_CLASS_UNKNOWN" };
+  }
   // ── Unavoidable pause authority gate (transport boundary) ────────────────
   try {
     const { authorize, recheckEpoch } = await import("./outbound-pause-authority");
@@ -951,6 +983,16 @@ export async function sendGhlEmailForMerchant(params: {
     console.error(`[GHL:sendGhlEmailForMerchant] Pause gate error — fail closed: ${gateErr.message}`);
     return { success: false, error: `Pause gate error: ${gateErr.message}` };
   }
+}
+
+/** Server-only operational/security delivery. Never use for recipient marketing. */
+export async function sendGhlInternalNotification(params: Omit<Parameters<typeof sendGhlEmailForMerchant>[0], "contactId" | "commercialPurpose">): Promise<{ success: boolean; error?: string }> {
+  return sendGhlEmailForMerchant({ ...params, internalNotification: true });
+}
+
+/** Server-owned partner account activation/reset delivery; never for outreach. */
+export async function sendGhlPartnerTransactionalEmail(params: Omit<Parameters<typeof sendGhlEmailForMerchant>[0], "contactId" | "commercialPurpose">): Promise<{ success: boolean; error?: string }> {
+  return sendGhlEmailForMerchant({ ...params, internalNotification: true });
 }
 
 async function _sendGhlEmailForMerchantInner(params: {
@@ -1003,7 +1045,23 @@ export async function sendGhlSms(params: {
   dealId?: number;
   body: string;
   templateId?: number;
+  /** Defaults fail-closed to marketing. Only trusted server flows may opt into transactional responses. */
+  commercialPurpose?: "marketing_outreach" | "transactional_response";
 }): Promise<{ success: boolean; messageId?: string; error?: string }> {
+  // ── Unavoidable commercial-classification gate (transport boundary) ───────
+  try {
+    const { authorizeUse } = await import("./commercial-classification-authority");
+    const commercial = await authorizeUse({
+      contactId: params.contactId,
+      purpose: params.commercialPurpose ?? "marketing_outreach",
+    });
+    if (!commercial.allowed) {
+      return { success: false, error: commercial.reasonCode };
+    }
+  } catch (error: any) {
+    console.error(`[GHL:sendGhlSms] Commercial authorization error — fail closed: ${error.message}`);
+    return { success: false, error: "COMMERCIAL_CLASS_UNKNOWN" };
+  }
   // ── Unavoidable pause authority gate (transport boundary) ────────────────
   try {
     const { authorize, recheckEpoch } = await import("./outbound-pause-authority");

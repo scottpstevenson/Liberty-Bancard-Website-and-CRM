@@ -615,8 +615,8 @@ export async function runStatementUploadChain(
         }
       } else if (isGhlConfigured()) {
         try {
-          const { sendGhlEmailForMerchant } = await import("./ghl");
-          await sendGhlEmailForMerchant({ email: repEmail, subject, body, fromEmail: "accounts@libertybancard.com", fromName: "Liberty Bancard" });
+          const { sendGhlInternalNotification } = await import("./ghl");
+          await sendGhlInternalNotification({ email: repEmail, subject, body, fromEmail: "accounts@libertybancard.com", fromName: "Liberty Bancard" });
           emailChannel = "ghl";
         } catch (ghlErr: any) {
           emailWarn = `GHL send failed: ${ghlErr.message}`;

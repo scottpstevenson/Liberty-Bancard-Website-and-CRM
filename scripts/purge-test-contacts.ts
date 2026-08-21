@@ -3,9 +3,56 @@
  * One-shot cleanup: removes all synthetic QA/pre-deploy-gate contacts
  * (*.libertybancard.test and *.test.internal) from the database.
  * Safe: only touches rows whose email matches the two synthetic test domains.
+ *
+ * BT-06 KILL-LINE GUARD: This script will refuse to run unless:
+ *   1. NODE_ENV === 'test'
+ *   2. TEST_DATABASE_URL is set AND points to a different host/database than DATABASE_URL
  */
 import { db } from "../server/db";
 import { sql } from "drizzle-orm";
+
+// ── BT-06: Safety guard — refuse if not in a verified test environment ────────
+function assertTestEnvironment(): void {
+  if (process.env.NODE_ENV !== "test") {
+    console.error(
+      "BT-06 KILL LINE: purge-test-contacts.ts refused to run.\n" +
+      "  NODE_ENV must be 'test' (currently: " + (process.env.NODE_ENV ?? "undefined") + ").\n" +
+      "  Set NODE_ENV=test and TEST_DATABASE_URL to a separate test database."
+    );
+    process.exit(1);
+  }
+
+  const testDb = process.env.TEST_DATABASE_URL;
+  const liveDb = process.env.DATABASE_URL;
+
+  if (!testDb) {
+    console.error(
+      "BT-06 KILL LINE: purge-test-contacts.ts refused to run.\n" +
+      "  TEST_DATABASE_URL must be set to a dedicated test database."
+    );
+    process.exit(1);
+  }
+
+  // The db module connects using DATABASE_URL. Require the declared test URL
+  // to be the actual active URL, not merely a separate URL that is never used.
+  if (!liveDb || liveDb !== testDb) {
+    console.error(
+      "BT-06 KILL LINE: purge-test-contacts.ts refused to run.\n" +
+      "  DATABASE_URL must exactly equal TEST_DATABASE_URL for this process."
+    );
+    process.exit(1);
+  }
+  if (!/(test|ci)/.test(new URL(testDb).pathname.toLowerCase())) {
+    console.error("BT-06 KILL LINE: TEST_DATABASE_URL must target a clearly named test/CI database.");
+    process.exit(1);
+  }
+  if (process.env.PRODUCTION_DATABASE_URL && process.env.PRODUCTION_DATABASE_URL === testDb) {
+    console.error("BT-06 KILL LINE: TEST_DATABASE_URL must differ from PRODUCTION_DATABASE_URL.");
+    process.exit(1);
+  }
+
+  console.log("[purge-test-contacts] BT-06 guard passed: NODE_ENV=test, separate TEST_DATABASE_URL.");
+}
 
 async function run(raw: string): Promise<number> {
   const res = await db.execute(sql.raw(raw));
@@ -19,6 +66,8 @@ async function count(raw: string): Promise<number> {
 }
 
 async function purge() {
+  assertTestEnvironment();
+
   console.log("=== Test Contact Purge ===\n");
 
   const TEST_COND = `email LIKE '%@libertybancard.test' OR email LIKE '%@test.internal'`;

@@ -18,6 +18,8 @@ export interface GhlWorkflowConfig {
   purpose?: string;
   /** Every merchant-facing delivery channel configured in GHL for this workflow. */
   outboundChannels?: ContactabilityChannel[];
+  /** Commercial authorization boundary for the declared recipient delivery. */
+  commercialPurpose?: "marketing_outreach" | "transactional_response";
   /**
    * Runtime attestation supplied after a live GHL review. Its comma-separated
    * value must exactly match outboundChannels before the workflow can run.
@@ -79,24 +81,25 @@ export const GHL_WORKFLOW_REGISTRY: GhlWorkflowConfig[] = [
 const WORKFLOW_DELIVERY_DECLARATIONS: Record<string, {
   purpose: string;
   outboundChannels: ContactabilityChannel[];
+  commercialPurpose?: "marketing_outreach" | "transactional_response";
 }> = {
-  inbound_confirmation: { purpose: "confirm a merchant's inbound form submission", outboundChannels: ["email"] },
-  inbound_lead: { purpose: "confirm a merchant's inbound lead submission", outboundChannels: ["email", "sms"] },
-  statement_review: { purpose: "confirm a merchant's statement upload", outboundChannels: ["email"] },
-  merchant_app: { purpose: "confirm a merchant application submission", outboundChannels: ["email"] },
-  support_ticket: { purpose: "acknowledge a merchant support request", outboundChannels: ["email"] },
+  inbound_confirmation: { purpose: "confirm a merchant's inbound form submission", outboundChannels: ["email"], commercialPurpose: "transactional_response" },
+  inbound_lead: { purpose: "confirm a merchant's inbound lead submission", outboundChannels: ["email", "sms"], commercialPurpose: "transactional_response" },
+  statement_review: { purpose: "confirm a merchant's statement upload", outboundChannels: ["email"], commercialPurpose: "transactional_response" },
+  merchant_app: { purpose: "confirm a merchant application submission", outboundChannels: ["email"], commercialPurpose: "transactional_response" },
+  support_ticket: { purpose: "acknowledge a merchant support request", outboundChannels: ["email"], commercialPurpose: "transactional_response" },
   affiliate_welcome: { purpose: "welcome an approved affiliate", outboundChannels: ["email"] },
-  callback_request: { purpose: "confirm a requested callback", outboundChannels: ["sms"] },
-  equipment_order: { purpose: "confirm an equipment order", outboundChannels: ["email"] },
-  booking_confirmation: { purpose: "confirm a merchant appointment", outboundChannels: ["email", "sms"] },
-  booking_reminder_24h: { purpose: "remind a merchant about a booked appointment", outboundChannels: ["email", "sms"] },
-  booking_link: { purpose: "deliver a booking link requested for a merchant", outboundChannels: ["email", "sms"] },
+  callback_request: { purpose: "confirm a requested callback", outboundChannels: ["sms"], commercialPurpose: "transactional_response" },
+  equipment_order: { purpose: "confirm an equipment order", outboundChannels: ["email"], commercialPurpose: "transactional_response" },
+  booking_confirmation: { purpose: "confirm a merchant appointment", outboundChannels: ["email", "sms"], commercialPurpose: "transactional_response" },
+  booking_reminder_24h: { purpose: "remind a merchant about a booked appointment", outboundChannels: ["email", "sms"], commercialPurpose: "transactional_response" },
+  booking_link: { purpose: "deliver a booking link requested for a merchant", outboundChannels: ["email", "sms"], commercialPurpose: "transactional_response" },
   statement_request_after_meeting: { purpose: "request a statement after a merchant meeting", outboundChannels: ["email"] },
   no_show_reschedule: { purpose: "offer rescheduling after a missed appointment", outboundChannels: ["email"] },
   post_call_review: { purpose: "follow up after a sales call", outboundChannels: ["email"] },
   proposal_followup: { purpose: "follow up on a merchant proposal", outboundChannels: ["email"] },
   long_term_nurture: { purpose: "continue discretionary lead nurture", outboundChannels: ["email"] },
-  statement_analyzed: { purpose: "confirm a completed statement analysis", outboundChannels: ["email"] },
+  statement_analyzed: { purpose: "confirm a completed statement analysis", outboundChannels: ["email"], commercialPurpose: "transactional_response" },
   sdr_cold_auto: { purpose: "automated automotive SDR outreach", outboundChannels: ["email", "sms", "voice_ai", "ringless_vm"] },
   sdr_cold_medspa: { purpose: "automated med-spa SDR outreach", outboundChannels: ["email", "sms", "voice_ai", "ringless_vm"] },
   sdr_cold_medical: { purpose: "automated medical SDR outreach", outboundChannels: ["email", "sms", "voice_ai", "ringless_vm"] },
@@ -105,7 +108,7 @@ const WORKFLOW_DELIVERY_DECLARATIONS: Record<string, {
   sdr_cold_construction: { purpose: "automated construction SDR outreach", outboundChannels: ["email", "sms", "voice_ai", "ringless_vm"] },
   sdr_cold_default: { purpose: "automated SDR outreach", outboundChannels: ["email", "sms", "voice_ai", "ringless_vm"] },
   sdr_statement_audit: { purpose: "automated statement-audit outreach", outboundChannels: ["email", "sms"] },
-  merchant_approved: { purpose: "deliver merchant portal access after approval", outboundChannels: ["email"] },
+  merchant_approved: { purpose: "deliver merchant portal access after approval", outboundChannels: ["email"], commercialPurpose: "transactional_response" },
   proposal_viewed: { purpose: "follow up on a viewed proposal", outboundChannels: ["email"] },
   proposal_accepted: { purpose: "confirm a proposal acceptance", outboundChannels: ["email"] },
   rate_review_confirmation: { purpose: "confirm a merchant rate-review request", outboundChannels: ["email"] },
@@ -128,6 +131,7 @@ for (const workflow of GHL_WORKFLOW_REGISTRY) {
   }
   workflow.purpose = declaration.purpose;
   workflow.outboundChannels = declaration.outboundChannels;
+  workflow.commercialPurpose = declaration.commercialPurpose ?? "marketing_outreach";
   workflow.verificationEnvKey = `GHL_WORKFLOW_VERIFIED_CHANNELS_${workflow.id.toUpperCase()}`;
 }
 
@@ -394,6 +398,7 @@ export async function enrollInGhlWorkflowCompliant(params: {
         contactId: params.contactId,
         channel,
         campaignType: `ghl_workflow:${params.workflowKey}`,
+        commercialPurpose: registryEntry.commercialPurpose ?? "marketing_outreach",
         mode: "enforcement",
       });
       if (!decision.allowed) {

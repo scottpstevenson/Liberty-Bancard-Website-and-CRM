@@ -127,6 +127,18 @@ export const SUITE_MANIFEST: SuiteManifestEntry[] = [
     capability: "deterministic-static",
     providerDenial: "Sunbiz: fake transport inside test (no real network)",
   },
+  {
+    name: "Commercial Classification Static Gates",
+    script: "scripts/test-commercial-classification-static.ts",
+    capability: "deterministic-static",
+    providerDenial: "none (pure authority, route, schema, and migration scan)",
+  },
+  {
+    name: "Commercial Cleanup Guard",
+    script: "scripts/test-cleanup-guard.ts",
+    capability: "deterministic-static",
+    providerDenial: "child processes refuse before any database mutation",
+  },
 
   // ── deterministic-integration (DB + optional Redis, no live providers) ───
   {
@@ -140,6 +152,12 @@ export const SUITE_MANIFEST: SuiteManifestEntry[] = [
     script: "scripts/test-contactability.ts",
     capability: "deterministic-integration",
     providerDenial: "GHL: GHL_TRANSPORT_FAILFAST=true; SMTP: outboundGlobalPaused=true",
+  },
+  {
+    name: "Commercial Classification",
+    script: "scripts/test-commercial-classification.ts",
+    capability: "deterministic-integration",
+    providerDenial: "no provider calls; isolated Postgres only",
   },
   {
     name: "Intake Provenance",

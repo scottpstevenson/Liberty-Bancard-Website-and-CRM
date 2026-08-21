@@ -952,7 +952,7 @@ Guidelines:
       }).catch(err => console.error("Auto-enroll quiz error:", err));
 
       if (pewcConsent && phone) {
-        evaluateContactability({ contactId: contact.id, channel: "sms", campaignType: "confirmation", mode: "enforcement" })
+        evaluateContactability({ contactId: contact.id, channel: "sms", campaignType: "confirmation", commercialPurpose: "transactional_response", mode: "enforcement" })
           .then(r => { if (r.allowed) sendConfirmationSms(contact.id, firstName, "free_analysis_quiz", deal.id).catch(err => console.error("Confirm SMS error:", err)); })
           .catch(err => console.error("[FreeAnalysis] Contactability check error:", err));
       }

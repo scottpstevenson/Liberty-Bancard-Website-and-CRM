@@ -10,7 +10,7 @@ import { TOTP, generateSecret as totpGenerateSecret } from "otplib";
 import QRCode from "qrcode";
 import { authStorage, getSessionLimitForRole, IDLE_TIMEOUT_MS, ABSOLUTE_TTL_MS } from "./storage";
 import { storage } from "../../storage";
-import { isGhlConfigured, sendGhlEmailForMerchant as sendGhlEmail } from "../../services/ghl";
+import { isGhlConfigured, sendGhlInternalNotification as sendGhlEmail } from "../../services/ghl";
 import { getEmailSignatureHtml } from "../../services/email-signatures";
 import { sendSmtpEmail, isSmtpConfigured } from "../../services/smtp-email";
 import { db } from "../../db";

@@ -210,7 +210,9 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
 
   async createDeal(insertDeal: InsertDeal, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }) {
     const { auditChange } = await import("../services/audit-change");
-    let payload = { ...insertDeal };
+    const payload: any = { ...insertDeal };
+    const { deriveLinkedDealClass } = await import("../services/commercial-classification-authority");
+    payload.recordClass = await deriveLinkedDealClass(payload.contactId, payload.companyId);
     if (payload.contactId && !payload.partnerOrgId) {
       const [contact] = await db.select({ partnerOrgId: contacts.partnerOrgId }).from(contacts).where(eq(contacts.id, payload.contactId));
       if (contact?.partnerOrgId) payload.partnerOrgId = contact.partnerOrgId;

@@ -101,6 +101,9 @@ export const PROVENANCE_FIELDS = [
 // authenticated dashboard user, so these fields must never reach either the
 // provider pre-write or the contacts insert through this generic writer.
 export const CONTACT_AUTHORITY_OWNED_FIELDS = [
+  // Commercial class is exclusively assigned by CommercialClassificationAuthority.
+  // New subjects are always quarantined as unknown through this generic writer.
+  "recordClass",
   "consentEmail", "consentSms", "consentTier",
   "doNotContact", "doNotAutoContact",
   "emailStatus", "smsStatus", "phoneStatus",
@@ -227,6 +230,7 @@ export async function writeContact(args: {
       primarySourceCategory: provenance.sourceCategory,
       primarySourceType: provenance.sourceType,
       primarySourceEventId: null, // will be updated after event insert
+      recordClass: "unknown",
       lastMeaningfulContactMutationAt: new Date(),
     };
 

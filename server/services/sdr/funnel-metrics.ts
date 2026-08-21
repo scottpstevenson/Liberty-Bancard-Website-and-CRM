@@ -1,5 +1,5 @@
 import { db } from "../../db";
-import { dailyFunnelMetrics, sdrLeadState, sdrLeadEvents, sdrChannelAttempts, sdrMerchants, deals, businesses, sendingIdentities, identityPerformanceDaily, leadSources } from "@shared/schema";
+import { dailyFunnelMetrics, sdrLeadState, sdrLeadEvents, sdrChannelAttempts, sdrMerchants, deals, businesses, sendingIdentities, identityPerformanceDaily, leadSources, contacts } from "@shared/schema";
 import type { DailyFunnelMetrics } from "@shared/schema";
 import { eq, sql, and, gte, lte } from "drizzle-orm";
 
@@ -24,15 +24,17 @@ export async function aggregateDailyMetrics(dateStr?: string): Promise<void> {
       state: sdrLeadState.state,
       sourceType: sdrLeadState.sourceType,
       count: sql<number>`count(*)`,
-    }).from(sdrLeadState).where(
-      sql`${sdrLeadState.createdAt} >= ${startOfDay} AND ${sdrLeadState.createdAt} <= ${endOfDay}`
+    }).from(sdrLeadState).innerJoin(contacts, eq(contacts.id, sdrLeadState.contactId)).where(
+      sql`${contacts.recordClass} = 'production'
+          AND ${sdrLeadState.createdAt} >= ${startOfDay} AND ${sdrLeadState.createdAt} <= ${endOfDay}`
     ).groupBy(sdrLeadState.vertical, sdrLeadState.state, sdrLeadState.sourceType);
 
     const enrichedLeads = await db.select({
       vertical: sdrLeadState.vertical,
       count: sql<number>`count(*)`,
-    }).from(sdrLeadState).where(
-      sql`${sdrLeadState.createdAt} >= ${startOfDay} AND ${sdrLeadState.createdAt} <= ${endOfDay}
+    }).from(sdrLeadState).innerJoin(contacts, eq(contacts.id, sdrLeadState.contactId)).where(
+      sql`${contacts.recordClass} = 'production'
+          AND ${sdrLeadState.createdAt} >= ${startOfDay} AND ${sdrLeadState.createdAt} <= ${endOfDay}
           AND (${sdrLeadState.email} IS NOT NULL OR ${sdrLeadState.phone} IS NOT NULL)`
     ).groupBy(sdrLeadState.vertical);
 
@@ -44,8 +46,9 @@ export async function aggregateDailyMetrics(dateStr?: string): Promise<void> {
     const hotLeads = await db.select({
       vertical: sdrLeadState.vertical,
       count: sql<number>`count(*)`,
-    }).from(sdrLeadState).where(
-      sql`${sdrLeadState.createdAt} >= ${startOfDay} AND ${sdrLeadState.createdAt} <= ${endOfDay}
+    }).from(sdrLeadState).innerJoin(contacts, eq(contacts.id, sdrLeadState.contactId)).where(
+      sql`${contacts.recordClass} = 'production'
+          AND ${sdrLeadState.createdAt} >= ${startOfDay} AND ${sdrLeadState.createdAt} <= ${endOfDay}
           AND ${sdrLeadState.priorityBucket} = 'A'`
     ).groupBy(sdrLeadState.vertical);
 
@@ -57,8 +60,9 @@ export async function aggregateDailyMetrics(dateStr?: string): Promise<void> {
     const warmLeads = await db.select({
       vertical: sdrLeadState.vertical,
       count: sql<number>`count(*)`,
-    }).from(sdrLeadState).where(
-      sql`${sdrLeadState.createdAt} >= ${startOfDay} AND ${sdrLeadState.createdAt} <= ${endOfDay}
+    }).from(sdrLeadState).innerJoin(contacts, eq(contacts.id, sdrLeadState.contactId)).where(
+      sql`${contacts.recordClass} = 'production'
+          AND ${sdrLeadState.createdAt} >= ${startOfDay} AND ${sdrLeadState.createdAt} <= ${endOfDay}
           AND ${sdrLeadState.priorityBucket} = 'B'`
     ).groupBy(sdrLeadState.vertical);
 
@@ -71,8 +75,12 @@ export async function aggregateDailyMetrics(dateStr?: string): Promise<void> {
       channel: sdrChannelAttempts.channel,
       count: sql<number>`count(*)`,
       replies: sql<number>`count(case when ${sdrChannelAttempts.repliedAt} is not null then 1 end)`,
-    }).from(sdrChannelAttempts).where(
-      sql`${sdrChannelAttempts.sentAt} >= ${startOfDay} AND ${sdrChannelAttempts.sentAt} <= ${endOfDay}`
+    }).from(sdrChannelAttempts)
+      .innerJoin(sdrLeadState, eq(sdrLeadState.id, sdrChannelAttempts.leadStateId))
+      .innerJoin(contacts, eq(contacts.id, sdrLeadState.contactId))
+      .where(
+      sql`${contacts.recordClass} = 'production'
+          AND ${sdrChannelAttempts.sentAt} >= ${startOfDay} AND ${sdrChannelAttempts.sentAt} <= ${endOfDay}`
     ).groupBy(sdrChannelAttempts.channel);
 
     let totalEmails = 0, totalSms = 0, totalCalls = 0, totalReplies = 0;
@@ -84,32 +92,39 @@ export async function aggregateDailyMetrics(dateStr?: string): Promise<void> {
 
     const meetingsBooked = await db.select({
       count: sql<number>`count(*)`,
-    }).from(sdrLeadEvents).where(
-      sql`${sdrLeadEvents.eventType} IN ('meeting_booked', 'booking') AND ${sdrLeadEvents.createdAt} >= ${startOfDay} AND ${sdrLeadEvents.createdAt} <= ${endOfDay}`
+    }).from(sdrLeadEvents)
+      .innerJoin(sdrLeadState, eq(sdrLeadState.id, sdrLeadEvents.leadStateId))
+      .innerJoin(contacts, eq(contacts.id, sdrLeadState.contactId))
+      .where(
+      sql`${contacts.recordClass} = 'production'
+          AND ${sdrLeadEvents.eventType} IN ('meeting_booked', 'booking')
+          AND ${sdrLeadEvents.createdAt} >= ${startOfDay} AND ${sdrLeadEvents.createdAt} <= ${endOfDay}`
     );
 
     const statementsReceived = await db.select({
       count: sql<number>`count(*)`,
-    }).from(sdrLeadState).where(
-      sql`${sdrLeadState.currentStage} = 'STATEMENT_RECEIVED' AND ${sdrLeadState.updatedAt} >= ${startOfDay} AND ${sdrLeadState.updatedAt} <= ${endOfDay}`
+    }).from(sdrLeadState).innerJoin(contacts, eq(contacts.id, sdrLeadState.contactId)).where(
+      sql`${contacts.recordClass} = 'production'
+          AND ${sdrLeadState.currentStage} = 'STATEMENT_RECEIVED' AND ${sdrLeadState.updatedAt} >= ${startOfDay} AND ${sdrLeadState.updatedAt} <= ${endOfDay}`
     );
 
     const proposalsSent = await db.select({
       count: sql<number>`count(*)`,
-    }).from(sdrLeadState).where(
-      sql`${sdrLeadState.currentStage} = 'PROPOSAL_SENT' AND ${sdrLeadState.updatedAt} >= ${startOfDay} AND ${sdrLeadState.updatedAt} <= ${endOfDay}`
+    }).from(sdrLeadState).innerJoin(contacts, eq(contacts.id, sdrLeadState.contactId)).where(
+      sql`${contacts.recordClass} = 'production'
+          AND ${sdrLeadState.currentStage} = 'PROPOSAL_SENT' AND ${sdrLeadState.updatedAt} >= ${startOfDay} AND ${sdrLeadState.updatedAt} <= ${endOfDay}`
     );
 
     const closedWon = await db.select({
       count: sql<number>`count(*)`,
     }).from(deals).where(
-      sql`${deals.stage} = 'Closed Won' AND ${deals.closedAt} >= ${startOfDay} AND ${deals.closedAt} <= ${endOfDay}`
+      sql`${deals.stage} = 'Closed Won' AND ${deals.recordClass} = 'production' AND ${deals.closedAt} >= ${startOfDay} AND ${deals.closedAt} <= ${endOfDay}`
     );
 
     const closedLost = await db.select({
       count: sql<number>`count(*)`,
     }).from(deals).where(
-      sql`${deals.stage} = 'Closed Lost' AND ${deals.closedAt} >= ${startOfDay} AND ${deals.closedAt} <= ${endOfDay}`
+      sql`${deals.stage} = 'Closed Lost' AND ${deals.recordClass} = 'production' AND ${deals.closedAt} >= ${startOfDay} AND ${deals.closedAt} <= ${endOfDay}`
     );
 
     const groups = new Map<string, any>();
@@ -167,6 +182,28 @@ export async function aggregateDailyMetrics(dateStr?: string): Promise<void> {
     for (const row of groups.values()) {
       await db.insert(dailyFunnelMetrics).values(row);
     }
+
+    // Store a read-only classification reconciliation marker with source and
+    // excluded counts. Aggregate detail remains production-only by policy.
+    const classCounts = await db.select({
+      recordClass: contacts.recordClass,
+      count: sql<number>`count(*)`,
+    }).from(contacts).groupBy(contacts.recordClass);
+    const sourceRowCount = classCounts.reduce((sum, row) => sum + Number(row.count), 0);
+    const productionCount = classCounts
+      .filter((row) => row.recordClass === "production")
+      .reduce((sum, row) => sum + Number(row.count), 0);
+    const unknownCount = classCounts
+      .filter((row) => row.recordClass === "unknown")
+      .reduce((sum, row) => sum + Number(row.count), 0);
+    await db.execute(sql`
+      INSERT INTO commercial_aggregate_lineage
+        (aggregate_type, aggregate_key, policy_version, source_row_count,
+         production_count, excluded_count, unknown_count, lineage_hwm, computed_at)
+      VALUES
+        ('funnel_metrics', ${targetDate}, 1, ${sourceRowCount},
+         ${productionCount}, ${sourceRowCount - productionCount}, ${unknownCount}, ${endOfDay}, now())
+    `);
 
     console.log(`[FunnelMetrics] Aggregated ${groups.size + 1} metric rows for ${targetDate}`);
   } catch (err) {

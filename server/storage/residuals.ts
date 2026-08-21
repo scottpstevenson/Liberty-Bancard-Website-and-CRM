@@ -393,11 +393,20 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
       // Batch-resolve partnerOrgId for every unique dealId in one query.
       const allDealIds = [...new Set(residualRows.map(r => r.dealId).filter((id): id is number => id != null))];
       const dealPartnerMap = new Map<number, number | null>();
+      const productionDealIds = new Set<number>();
       if (allDealIds.length > 0) {
-        const dealRows = await tx.select({ id: deals.id, partnerOrgId: deals.partnerOrgId })
+        const dealRows = await tx.select({
+          id: deals.id,
+          partnerOrgId: deals.partnerOrgId,
+          recordClass: deals.recordClass,
+        })
           .from(deals)
           .where(inArray(deals.id, allDealIds));
-        for (const d of dealRows) dealPartnerMap.set(d.id, d.partnerOrgId ?? null);
+        for (const d of dealRows) {
+          if (d.recordClass !== "production") continue;
+          productionDealIds.add(d.id);
+          dealPartnerMap.set(d.id, d.partnerOrgId ?? null);
+        }
       }
 
       // Group by (agentId, partnerOrgId) — one ledger row per unique combination.
@@ -410,6 +419,9 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
       }>();
 
       for (const row of residualRows) {
+        // Financial payouts fail closed: a residual must resolve to a
+        // production-classified deal. Unlinked and unknown rows are excluded.
+        if (row.dealId == null || !productionDealIds.has(row.dealId)) continue;
         if (!row.agentId) continue;
         const partnerOrgId = row.dealId != null ? (dealPartnerMap.get(row.dealId) ?? null) : null;
         const key = `${row.agentId}:${partnerOrgId ?? "null"}`;
@@ -509,6 +521,16 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
           if (existingRow) results.push(existingRow);
         }
       }
+
+      const unknownCount = residualRows.filter((row) => row.dealId == null || !productionDealIds.has(row.dealId)).length;
+      await tx.execute(sql`
+        INSERT INTO commercial_aggregate_lineage
+          (aggregate_type, aggregate_key, policy_version, source_row_count,
+           production_count, excluded_count, unknown_count, lineage_hwm, computed_at)
+        VALUES
+          ('agent_payouts', ${month}, 1, ${residualRows.length},
+           ${residualRows.length - unknownCount}, ${unknownCount}, ${unknownCount}, now(), now())
+      `);
 
       return results;
     });

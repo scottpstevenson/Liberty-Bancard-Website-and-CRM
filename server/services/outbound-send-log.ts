@@ -98,6 +98,10 @@ export async function getSendLogByKey(idempotencyKey: string): Promise<SendLogRe
  * Uses INSERT ... ON CONFLICT DO NOTHING so concurrent workers don't race.
  * Returns the row id (or null if the insert was blocked by a conflict, meaning
  * another worker already claimed this slot).
+ *
+ * recordClassAtEvent is captured at claim time and is immutable on the row —
+ * it reflects the commercial class at the moment the send was authorized,
+ * not at reporting time (BT-06).
  */
 export async function openSendAttempt(params: {
   idempotencyKey: string;
@@ -109,13 +113,26 @@ export async function openSendAttempt(params: {
   fromAddress?: string;
   toAddress: string;
   subject?: string;
+  /** BT-06: commercial class at the moment of claim — captured once, immutable. */
+  recordClassAtEvent?: string;
 }): Promise<number | null> {
+  // Resolve commercial class at claim time if not provided by caller.
+  let classAtEvent = params.recordClassAtEvent ?? "unknown";
+  if (classAtEvent === "unknown" && params.contactId) {
+    try {
+      const { getCurrentClass } = await import("./commercial-classification-authority");
+      classAtEvent = await getCurrentClass("contact", params.contactId);
+    } catch {
+      // Fall back to 'unknown' if classification tables not yet migrated.
+    }
+  }
+
   try {
     const result = await db.execute(sql`
       INSERT INTO outbound_send_log
         (idempotency_key, sequence_id, sequence_enrollment_id, contact_id,
          step_order, channel, from_address, to_address, subject,
-         status, created_at, updated_at)
+         status, record_class_at_event, created_at, updated_at)
       VALUES
         (${params.idempotencyKey},
          ${params.sequenceId ?? null},
@@ -126,13 +143,44 @@ export async function openSendAttempt(params: {
          ${params.fromAddress ?? null},
          ${params.toAddress},
          ${params.subject ?? null},
-         'pending', NOW(), NOW())
+         'pending', ${classAtEvent}, NOW(), NOW())
       ON CONFLICT (idempotency_key) DO NOTHING
       RETURNING id
     `);
     if (result.rows.length === 0) return null;
     return (result.rows[0] as any).id as number;
-  } catch (err) {
+  } catch (err: any) {
+    // If the column doesn't exist yet (pre-migration window), fall back to
+    // the original INSERT without the classification column.
+    const msg = err?.message ?? String(err);
+    if (msg.includes("record_class_at_event") && msg.includes("does not exist")) {
+      try {
+        const result2 = await db.execute(sql`
+          INSERT INTO outbound_send_log
+            (idempotency_key, sequence_id, sequence_enrollment_id, contact_id,
+             step_order, channel, from_address, to_address, subject,
+             status, created_at, updated_at)
+          VALUES
+            (${params.idempotencyKey},
+             ${params.sequenceId ?? null},
+             ${params.sequenceEnrollmentId ?? null},
+             ${params.contactId ?? null},
+             ${params.stepOrder ?? null},
+             ${params.channel},
+             ${params.fromAddress ?? null},
+             ${params.toAddress},
+             ${params.subject ?? null},
+             'pending', NOW(), NOW())
+          ON CONFLICT (idempotency_key) DO NOTHING
+          RETURNING id
+        `);
+        if (result2.rows.length === 0) return null;
+        return (result2.rows[0] as any).id as number;
+      } catch (err2) {
+        console.warn("[SendLog] openSendAttempt fallback error (non-fatal):", err2);
+        return null;
+      }
+    }
     console.warn("[SendLog] openSendAttempt error (non-fatal):", err);
     return null;
   }

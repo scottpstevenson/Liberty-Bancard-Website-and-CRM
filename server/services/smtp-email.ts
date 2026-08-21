@@ -122,7 +122,33 @@ export async function sendSmtpEmail(params: {
    * link. When absent, a reply-to-unsubscribe instruction is used instead.
    */
   contactId?: number;
+  commercialPurpose?: "marketing_outreach" | "transactional_response";
 }): Promise<{ success: boolean; messageId?: string; error?: string }> {
+  // Final commercial classification boundary. No-contact exceptions are limited
+  // to server-owned operational/security sender categories, never marketing.
+  const serverOwnedNoContactCategories = new Set<MessageCategory>([
+    "internal_ops", "security", "onboarding", "support", "partners",
+  ]);
+  if (params.contactId) {
+    try {
+      const { authorizeUse } = await import("./commercial-classification-authority");
+      const trustedTransactionalCategories = new Set<MessageCategory>([
+        "security", "onboarding", "support", "partners",
+      ]);
+      const decision = await authorizeUse({
+        contactId: params.contactId,
+        purpose: params.commercialPurpose ??
+          (params.category && trustedTransactionalCategories.has(params.category)
+            ? "transactional_response"
+            : "marketing_outreach"),
+      });
+      if (!decision.allowed) return { success: false, error: decision.reasonCode };
+    } catch {
+      return { success: false, error: "COMMERCIAL_CLASS_UNKNOWN" };
+    }
+  } else if (!params.category || !serverOwnedNoContactCategories.has(params.category)) {
+    return { success: false, error: "COMMERCIAL_CLASS_UNKNOWN" };
+  }
   // ── Unavoidable pause authority gate (transport boundary) ────────────────
   // Every SMTP send must clear the canonical pause authority BEFORE any
   // network I/O. This is the final enforcement boundary.
@@ -165,6 +191,7 @@ async function _sendSmtpEmailInner(params: {
   unsubscribeMailto?: string;
   unsubscribeUrl?: string;
   contactId?: number;
+  commercialPurpose?: "marketing_outreach" | "transactional_response";
 }): Promise<{ success: boolean; messageId?: string; error?: string }> {
   const transport = getTransporter();
   if (!transport) {

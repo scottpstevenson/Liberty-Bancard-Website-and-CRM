@@ -680,7 +680,7 @@ ${getEmailSignatureHtml("accounts")}
 
   if (!sent) {
     try {
-      const smtpResult = await sendSmtpEmail({ to: merchantEmail!, subject, html, category: "accounts", contactId: proposal.contactId ?? undefined });
+      const smtpResult = await sendSmtpEmail({ to: merchantEmail!, subject, html, category: "accounts", contactId: proposal.contactId ?? undefined, commercialPurpose: "transactional_response" });
       if (smtpResult.success) {
         sent = true;
         sentChannel = "SMTP-Fallback";

@@ -1107,11 +1107,7 @@ All public forms are under `/api/public/*` with no authentication, `publicRateLi
 | `glg-agent-*@libertybancard.test` | ~10 | Portfolio scoping test users |
 | `qa-appt-*` | ~5 | Appointment smoke tests |
 
-**Cleanup scripts available:** `scripts/cleanup-smoke-contacts.ts`, `scripts/purge-test-contacts.ts`, `scripts/cleanup-test-data.ts`
-
-**Proposed cleanup predicate:** `WHERE email LIKE '%@libertybancard.test' OR ghl_contact_id LIKE 'wh-test-%' OR ghl_contact_id LIKE 'ghl-deal-test-%'` — **estimated 553 rows**, all clearly QA.
-
-**⚠️ Do not delete until:** Confirm no production contacts share those patterns (run count first). The pre-deploy suite creates and cleans up its own test data — cleanup scripts should be safe to run on top.
+**Cleanup policy:** Test cleanup utilities are disabled outside `NODE_ENV=test` and require `DATABASE_URL` to be the explicitly configured, separate `TEST_DATABASE_URL`. Production data must never be selected or deleted by name, email, provider-ID, or tag heuristics. Use the commercial-classification reconciliation reports for production investigation.
 
 ---
 

@@ -114,13 +114,7 @@ No fake metrics, placeholder charts, or demo contacts exist in any production-fa
 
 Test artifacts (email patterns `*@libertybancard.test`, `*@test.internal`) are created/cleaned by QA scripts, never visible to reps in the CRM, and automatically suppressed from all outbound by the sender policy.
 
-**Pre-audit state:** 76 contacts with `@libertybancard.test` or `@test.internal` email domains found in the DB — purged via `scripts/purge-test-contacts.ts`. Post-purge: 0 test contacts.
-
-**Safe removal command** (run after all QA scripts complete):
-```bash
-npx tsx scripts/purge-test-contacts.ts --dry-run   # preview first
-npx tsx scripts/purge-test-contacts.ts              # then remove
-```
+**Pre-audit state:** 76 contacts with test-pattern identifiers were identified during the historical audit. Production cleanup by identifier heuristic is no longer permitted; the related utility is test-database-only and production investigation uses read-only commercial-classification reconciliation.
 
 ---
 

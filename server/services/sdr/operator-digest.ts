@@ -2,7 +2,7 @@ import { db } from "../../db";
 import { storage } from "../../storage";
 import { sendingIdentities, dailyFunnelMetrics, identityPerformanceDaily, sdrLeadState } from "@shared/schema";
 import { sql } from "drizzle-orm";
-import { isGhlConfigured, sendGhlEmailForMerchant } from "../ghl";
+import { isGhlConfigured, sendGhlInternalNotification } from "../ghl";
 import { isSmtpConfigured, sendSmtpEmail } from "../smtp-email";
 
 function getEstDateString(date?: Date): string {
@@ -131,7 +131,7 @@ export async function sendSdrDailyDigest(digest: { html: string; summary: Record
   for (const email of recipients) {
     if (isGhlConfigured()) {
       try {
-        await sendGhlEmailForMerchant({
+        await sendGhlInternalNotification({
           email,
           subject: `SDR Pilot Daily Digest — ${digest.summary.date}`,
           body: digest.html,

@@ -4999,11 +4999,133 @@ export function registerAdminRoutes(app: Express) {
 
   /**
    * POST /api/admin/purge-test-contacts
-   * Hard-deletes all contacts whose email or name matches test/QA prefixes inside a single
-   * database transaction. Rolls back completely if any FK constraint or other error occurs.
-   * Admin-only.
+   * BT-06: DISABLED (410 Gone). Heuristic-based destructive cleanup violates
+   * the commercial classification kill lines. Use the classification authority
+   * and reconciliation endpoints instead.
    */
   app.post("/api/admin/purge-test-contacts", requireRole("admin"), async (req, res) => {
+    return res.status(410).json({
+      error: "Gone",
+      message:
+        "POST /api/admin/purge-test-contacts has been permanently disabled (BT-06). " +
+        "Heuristic-based destructive cleanup is a kill-line violation: commercial class " +
+        "cannot be inferred from email prefixes, names, or tags. " +
+        "Use the commercial classification authority to mark test records and the " +
+        "reconciliation endpoints to view and export non-production data.",
+    });
+  });
+
+  // ── BT-06 Commercial classification workflow ────────────────────────────
+  // Managers may preview evidence; only admins may approve or execute a class
+  // transition. These routes intentionally expose no raw evidence to agents or
+  // public callers.
+  const commercialClassSchema = z.enum(["production", "test", "demo", "synthetic", "unknown"]);
+  const commercialSubjectSchema = z.enum(["contact", "deal", "prospect", "company"]);
+  const evidenceSchema = z.record(z.string(), z.unknown()).default({});
+
+  app.get(
+    "/api/admin/commercial-classification/counts",
+    isDashboardUser,
+    requireRole("admin", "manager"),
+    async (_req, res) => {
+      try {
+        const { getContactClassCounts } = await import("../services/commercial-classification-authority");
+        res.json({ counts: await getContactClassCounts() });
+      } catch (err) {
+        serverError(res, err);
+      }
+    },
+  );
+
+  app.get(
+    "/api/admin/commercial-classification/reconciliation/:aggregateType/:aggregateKey",
+    isDashboardUser,
+    requireRole("admin", "manager"),
+    async (req, res) => {
+      try {
+        const { getReconciliationReport } = await import("../services/commercial-classification-authority");
+        const report = await getReconciliationReport(
+          String(req.params.aggregateType),
+          String(req.params.aggregateKey),
+        );
+        if (!report) return res.status(404).json({ message: "No reconciliation lineage found." });
+        res.json(report);
+      } catch (err) {
+        serverError(res, err);
+      }
+    },
+  );
+
+  app.post(
+    "/api/admin/commercial-classification/preview",
+    isDashboardUser,
+    requireRole("admin", "manager"),
+    async (req, res) => {
+      const parsed = z.object({
+        idempotencyKey: z.string().uuid(),
+        subjectType: commercialSubjectSchema,
+        subjectId: z.number().int().positive(),
+        targetClass: commercialClassSchema,
+        evidenceFields: evidenceSchema,
+      }).safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: "Invalid classification preview", issues: parsed.error.flatten() });
+
+      try {
+        const { createPreviewCommand } = await import("../services/commercial-classification-authority");
+        const actorId = String((req.user as any)?.id ?? "");
+        const result = await createPreviewCommand({ ...parsed.data, requestedBy: actorId });
+        res.status(result.status === "created" ? 201 : 200).json(result);
+      } catch (err: any) {
+        res.status(400).json({ message: err.message ?? "Unable to create classification preview." });
+      }
+    },
+  );
+
+  app.post(
+    "/api/admin/commercial-classification/:commandId/approve",
+    isDashboardUser,
+    requireRole("admin"),
+    async (req, res) => {
+      const parsed = z.object({ versionLock: z.number().int().nonnegative() }).safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: "versionLock must be a non-negative integer." });
+
+      try {
+        const { approveCommand } = await import("../services/commercial-classification-authority");
+        const result = await approveCommand({
+          commandId: String(req.params.commandId),
+          approvedBy: String((req.user as any)?.id ?? ""),
+          versionLock: parsed.data.versionLock,
+        });
+        if (result.conflict) return res.status(409).json({ message: "Command is stale or no longer awaiting approval." });
+        res.json(result);
+      } catch (err) {
+        serverError(res, err);
+      }
+    },
+  );
+
+  app.post(
+    "/api/admin/commercial-classification/:commandId/execute",
+    isDashboardUser,
+    requireRole("admin"),
+    async (req, res) => {
+      try {
+        const { executeApprovedCommand } = await import("../services/commercial-classification-authority");
+        const result = await executeApprovedCommand(String(req.params.commandId), String((req.user as any)?.id ?? ""));
+        if (!result.executed) return res.status(409).json(result);
+        res.json(result);
+      } catch (err) {
+        serverError(res, err);
+      }
+    },
+  );
+
+  // BT-06: original purge implementation is intentionally unreachable and will
+  // be removed in the next cleanup pass. The public handler above is the only
+  // registered route and always returns 410.
+  if (false) { void (async () => {
+    const req = undefined as any;
+    const res = undefined as any;
     const client = await pool.connect();
     try {
       // ── Identify targets (before transaction so we can bail early) ────────────
@@ -5198,13 +5320,11 @@ export function registerAdminRoutes(app: Express) {
         after: { deleted },
       }).catch((e: Error) => console.error("[PurgeTest] Audit log failed:", e.message));
 
-      res.json({ deleted, message: `Purged ${deleted} test contact(s) and their associated data.` });
-    } catch (err: any) {
-      await client.query("ROLLBACK").catch(() => {});
+      // Legacy route body intentionally unreachable.
+    } catch {
       client.release();
-      serverError(res, err);
     }
-  });
+  })(); }
 
   // === SERPER GATEWAY CONTROL (#1600) ===
   app.get("/api/admin/serper/control", isDashboardUser, requireRole('admin'), async (_req, res) => {

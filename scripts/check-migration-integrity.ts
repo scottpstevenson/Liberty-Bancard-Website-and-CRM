@@ -41,16 +41,18 @@ const MIGRATIONS_ROOT = path.join(process.cwd(), "migrations");
 const GUARDED_DIR     = path.join(MIGRATIONS_ROOT, "guarded");
 const JOURNAL_PATH    = path.join(MIGRATIONS_ROOT, "meta", "_journal.json");
 
-// Immutable baseline anchor — the last journal entry before BT-05 additions.
-// Confirmed as: idx=152, tag=0149_statement_proposals_deal_id_unique, when=1793200000000.
+// Immutable baseline anchor — the last journal entry before BT-06 additions.
+// Confirmed as: idx=153, tag=0091_merchant_onboarding_stages, when=1793300000000.
 // Any entry with idx > BASELINE_LAST_IDX is "post-baseline" and MUST have
-// `when` strictly above HIGH_WATER_WHEN or Drizzle silently skips it.
-const BASELINE_LAST_IDX = 152;
-const BASELINE_LAST_TAG = "0149_statement_proposals_deal_id_unique";
+// `when` strictly above the dynamic high-water mark or Drizzle silently skips it.
+const BASELINE_LAST_IDX = 153;
+const BASELINE_LAST_TAG = "0091_merchant_onboarding_stages";
 
-// The `when` value of the baseline's last entry. Every post-baseline entry
-// (idx > BASELINE_LAST_IDX) must use a strictly higher value.
-const HIGH_WATER_WHEN = 1793200000000; // baseline `when` of 0149_statement_proposals_deal_id_unique
+// HIGH_WATER_WHEN is computed dynamically in Rule 7 as the maximum `when` value
+// across all entries up to and including BASELINE_LAST_IDX. This constant is kept
+// here as a static floor guard — if the dynamic max falls below it, the journal
+// was rewritten and the check fails.
+const HIGH_WATER_WHEN = 1793300000000; // floor guard: when of 0091_merchant_onboarding_stages
 
 // Tags that are intentionally in migrations/guarded/, NOT in the journal.
 // If you add a new guarded migration, add its tag here.
@@ -234,19 +236,35 @@ if (!baselineEntry) {
   pass(`Baseline anchor confirmed: idx=${BASELINE_LAST_IDX} tag=${BASELINE_LAST_TAG} when=${baselineEntry.when}`);
 }
 
-// 2. All post-baseline entries must have `when` strictly above HIGH_WATER_WHEN.
+// 2. All post-baseline entries must have `when` strictly above the dynamic HWM.
+//    The dynamic HWM is the maximum `when` across all entries up to and
+//    including BASELINE_LAST_IDX. This eliminates the need to update a frozen
+//    constant whenever a new baseline anchor is chosen (the max updates itself).
+const baselineEntries = journal.entries.filter(e => e.idx <= BASELINE_LAST_IDX);
+const dynamicHwm = baselineEntries.length > 0
+  ? Math.max(...baselineEntries.map(e => e.when))
+  : HIGH_WATER_WHEN;
+if (dynamicHwm < HIGH_WATER_WHEN) {
+  fail(
+    `Dynamic HWM (${dynamicHwm}) fell below static floor guard (${HIGH_WATER_WHEN}) — ` +
+    `the journal baseline was rewritten; update BASELINE_LAST_IDX and HIGH_WATER_WHEN`
+  );
+} else {
+  pass(`Dynamic high-water mark: ${dynamicHwm} (static floor: ${HIGH_WATER_WHEN})`);
+}
+
 const postBaselineEntries = journal.entries.filter(e => e.idx > BASELINE_LAST_IDX);
 if (postBaselineEntries.length === 0) {
   pass(`No post-baseline entries (all entries are at or before idx=${BASELINE_LAST_IDX})`);
 } else {
   for (const e of postBaselineEntries) {
-    if (e.when <= HIGH_WATER_WHEN) {
+    if (e.when <= dynamicHwm) {
       fail(
-        `Post-baseline entry idx=${e.idx} tag=${e.tag} has when=${e.when} ≤ high-water=${HIGH_WATER_WHEN} — ` +
-        `Drizzle would silently skip it; use a when strictly above ${HIGH_WATER_WHEN}`
+        `Post-baseline entry idx=${e.idx} tag=${e.tag} has when=${e.when} ≤ dynamic-high-water=${dynamicHwm} — ` +
+        `Drizzle would silently skip it; use a when strictly above ${dynamicHwm}`
       );
     } else {
-      pass(`idx=${e.idx} ${e.tag}: when=${e.when} > high-water — valid`);
+      pass(`idx=${e.idx} ${e.tag}: when=${e.when} > dynamic-high-water (${dynamicHwm}) — valid`);
     }
   }
 }

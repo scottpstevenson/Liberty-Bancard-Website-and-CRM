@@ -543,7 +543,7 @@
 **Priority:** P3 | **Subsystem:** Data Quality
 
 **Action:** 
-- Run `scripts/cleanup-test-data.ts` to remove QA contacts
+- Do not run heuristic cleanup against production. `scripts/cleanup-test-data.ts` is restricted to a separate `NODE_ENV=test` database; use classification reconciliation for production investigation.
 - Archive Python repair scripts (`fix-server-errors-pass*.py`) — no longer needed
 - Remove `scripts/archive/reroute-sequence-ctas.DONE.js`
 - Clean up timestamped `backfill-backup-*.json` files from scripts/

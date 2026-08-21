@@ -17,7 +17,7 @@ import crypto from "crypto";
 import { createContactGhlFirst } from "../services/contact-writer";
 import { syncFormSubmissionToGhl, syncAffiliateSignupToGhl } from "../services/ghl-form-sync";
 import { sendPartnerWelcomeEmail } from "../services/partner-welcome";
-import { isGhlConfigured, sendGhlEmailForMerchant } from "../services/ghl";
+import { isGhlConfigured, sendGhlPartnerTransactionalEmail } from "../services/ghl";
 import { sendSmtpEmail, isSmtpConfigured } from "../services/smtp-email";
 import { serverError } from "../utils/server-error";
 import { authorizeGhlRouteMutation, requireGhlRouteMutationAllowed } from "./ghl-mutation-pause";
@@ -176,7 +176,7 @@ ${getEmailSignatureHtml("partners")}
                 } else {
                   console.warn(`[Partners] SMTP invite failed for partner #${partnerId}: ${smtpResult.error} — falling back to GHL`);
                   if (isGhlConfigured()) {
-                    await sendGhlEmailForMerchant({
+                    await sendGhlPartnerTransactionalEmail({
                       email: updated.email,
                       subject,
                       body: html,
@@ -432,7 +432,7 @@ ${getEmailSignatureHtml("partners")}
 ${getEmailSignatureHtml("partners")}
 </div>`;
           if (isGhlConfigured()) {
-            sendGhlEmailForMerchant({ email: partner.email, subject, body: html, fromEmail: "partners@libertybancard.com", fromName: "Liberty Bancard Partner Program" })
+            sendGhlPartnerTransactionalEmail({ email: partner.email, subject, body: html, fromEmail: "partners@libertybancard.com", fromName: "Liberty Bancard Partner Program" })
               .catch(err => console.error("[Partner Auth] Reset email (GHL) error:", err));
           } else if (isSmtpConfigured()) {
             sendSmtpEmail({ to: partner.email, subject, html, category: "partners" })
@@ -579,7 +579,7 @@ ${getEmailSignatureHtml("partners")}
 ${getEmailSignatureHtml("partners")}
 </div>`;
           if (isGhlConfigured()) {
-            sendGhlEmailForMerchant({ email: partner.email, subject, body: html, fromEmail: "partners@libertybancard.com", fromName: "Liberty Bancard Partner Program" })
+            sendGhlPartnerTransactionalEmail({ email: partner.email, subject, body: html, fromEmail: "partners@libertybancard.com", fromName: "Liberty Bancard Partner Program" })
               .catch(err => console.error("[Partner Auth] Reset email (GHL) error:", err));
           } else if (isSmtpConfigured()) {
             sendSmtpEmail({ to: partner.email, subject, html, category: "partners" })

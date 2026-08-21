@@ -161,6 +161,7 @@ export async function sendApplicationApprovedEmail(
     subject,
     htmlBody: buildApprovalEmail(firstName, businessName),
     dbContactId: input.contactId ?? undefined,
+    commercialPurpose: "transactional_response",
   });
 
   return { status: "sent" };
@@ -187,6 +188,7 @@ export async function sendApplicationDeclinedEmail(
     subject,
     htmlBody: buildDeclineEmail(firstName, businessName, input.declineReason ?? null),
     dbContactId: input.contactId ?? undefined,
+    commercialPurpose: "transactional_response",
   });
 
   return { status: "sent" };

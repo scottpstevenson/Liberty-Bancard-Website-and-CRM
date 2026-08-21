@@ -160,13 +160,14 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       const hasEmailConsent = meta.consentEmail === true;
       if (meta.email && hasEmailConsent && proposalData.subject && proposalData.body) {
         try {
-          await sendGhlEmail({
+          const proposalEmailResult = await sendGhlEmail({
             contactId,
             dealId,
             subject: proposalData.subject,
             body: proposalData.body,
+            commercialPurpose: "transactional_response",
           });
-          await storage.createAuditLog({
+          if (proposalEmailResult.success) await storage.createAuditLog({
             action: "auto_proposal_emailed",
             entityType: "deal",
             entityId: dealId,
@@ -797,7 +798,14 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
 
       triggerWorkflowsByEvent("ticket_created", { entityType: "ticket", entityId: ticket.id }).catch(err => console.error("Workflow trigger error:", err));
       if (contact.ghlContactId) enrollInGhlWorkflowCompliant({ workflowKey: "support_ticket", ghlContactId: contact.ghlContactId, contactId: contact.id, metadata: { ticketId: ticket.id, issueType: issueType || "Other" } }).catch(err => console.error("[Support] GHL support_ticket enrollment error:", err));
-      if (consentSms && mobile) sendConfirmationSms(contact.id, firstName, "support").catch(err => console.error("Confirm SMS error:", err));
+      if (consentSms && mobile) {
+        evaluateContactability({
+          contactId: contact.id, channel: "sms", campaignType: "confirmation",
+          commercialPurpose: "transactional_response", mode: "enforcement",
+        }).then((decision) => {
+          if (decision.allowed) return sendConfirmationSms(contact.id, firstName, "support");
+        }).catch(err => console.error("Confirm SMS error:", err));
+      }
       syncFormSubmissionToGhl({ contactId: contact.id, leadSource: "support", skipWorkflowTrigger: true }).catch(err => console.error("GHL form sync error:", err));
       syncSupportTicketToGhl(contact.id, ticket.id, issueType || "General", msg || "").catch(err => console.error("GHL support sync error:", err));
 
@@ -973,7 +981,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       enrollInInboundConfirmation({ contactId: contact.id, formType: "get_started", dealId: deal.id, submissionId }).catch(err => console.error("GHL inbound confirmation error:", err));
       if (contact.ghlContactId) enrollInGhlWorkflowCompliant({ workflowKey: "inbound_lead", ghlContactId: contact.ghlContactId, contactId: contact.id, metadata: { formType: "get_started", dealId: deal.id } }).catch(err => console.error("[GetStarted] GHL inbound_lead enrollment error:", err));
       if (!isGhlInboundActive() && pewcConsent === true && phone) {
-        evaluateContactability({ contactId: contact.id, channel: "sms", campaignType: "confirmation", mode: "enforcement" })
+        evaluateContactability({ contactId: contact.id, channel: "sms", campaignType: "confirmation", commercialPurpose: "transactional_response", mode: "enforcement" })
           .then(r => { if (r.allowed) sendConfirmationSms(contact.id, firstName, "get_started", deal.id).catch(err => console.error("Confirm SMS error:", err)); })
           .catch(err => console.error("[GetStarted] Contactability check error:", err));
       }
@@ -1183,7 +1191,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       enrollInInboundConfirmation({ contactId: contact.id, formType: "callback", dealId: deal.id, submissionId }).catch(err => console.error("GHL inbound confirmation error:", err));
       if (contact.ghlContactId) enrollInGhlWorkflowCompliant({ workflowKey: "callback_request", ghlContactId: contact.ghlContactId, contactId: contact.id, metadata: { dealId: deal.id, bestTime: bestTime || "anytime" } }).catch(err => console.error("[Callback] GHL callback_request enrollment error:", err));
       if (!isGhlInboundActive() && pewcConsent && phone) {
-        evaluateContactability({ contactId: contact.id, channel: "sms", campaignType: "confirmation", mode: "enforcement" })
+        evaluateContactability({ contactId: contact.id, channel: "sms", campaignType: "confirmation", commercialPurpose: "transactional_response", mode: "enforcement" })
           .then(r => { if (r.allowed) sendConfirmationSms(contact.id, firstName, "callback", deal.id).catch(err => console.error("Confirm SMS error:", err)); })
           .catch(err => console.error("[Callback] Contactability check error:", err));
       }
@@ -1342,7 +1350,14 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       enqueuePromotionalEnrollment({ contactId: contact.id, triggerType: "form_submitted", formType: "equipment_order", sourceEventId: submissionId }).catch(err => console.error("Enqueue error:", err));
       triggerWorkflowsByEvent("form_submitted", { entityType: "contact", entityId: contact.id, contactId: contact.id, dealId: deal.id }, { formType: "equipment_order" }).catch(err => console.error("Workflow trigger error:", err));
       if (contact.ghlContactId) enrollInGhlWorkflowCompliant({ workflowKey: "equipment_order", ghlContactId: contact.ghlContactId, contactId: contact.id, metadata: { dealId: deal.id, items: validatedItems.map((i: any) => i.name) } }).catch(err => console.error("[EquipmentOrder] GHL equipment_order enrollment error:", err));
-      if (phone) sendConfirmationSms(contact.id, firstName, "equipment_order", deal.id).catch(err => console.error("Confirm SMS error:", err));
+      if (phone) {
+        evaluateContactability({
+          contactId: contact.id, channel: "sms", campaignType: "confirmation",
+          commercialPurpose: "transactional_response", mode: "enforcement",
+        }).then((decision) => {
+          if (decision.allowed) return sendConfirmationSms(contact.id, firstName, "equipment_order", deal.id);
+        }).catch(err => console.error("Confirm SMS error:", err));
+      }
       syncFormSubmissionToGhl({ contactId: contact.id, dealId: deal.id, leadSource: "equipment_order" }).catch(err => console.error("GHL form sync error:", err));
       res.status(201).json({ success: true, contactId: contact.id, dealId: deal.id });
     } catch (err: any) {

@@ -226,19 +226,6 @@ export default function LeadOpsCenter() {
     onError: (e: Error) => toast({ title: "Failed", description: e.message, variant: "destructive" }),
   });
 
-  const purgeTestMutation = useMutation({
-    mutationFn: async () => {
-      const r = await apiRequest("POST", "/api/admin/purge-test-contacts", {});
-      return r.json();
-    },
-    onSuccess: (data: any) => {
-      toast({ title: "Test data purged", description: data.message });
-      queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/stats"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/health"] });
-    },
-    onError: (e: Error) => toast({ title: "Purge failed", description: e.message, variant: "destructive" }),
-  });
-
   const resetJobsMutation = useMutation({
     mutationFn: async () => {
       const r = await apiRequest("POST", "/api/lead-ops/reset-stuck-jobs", {});
@@ -470,43 +457,6 @@ export default function LeadOpsCenter() {
             </CardDescription>
           </CardHeader>
           <CardContent className="pt-0 flex flex-wrap gap-3">
-
-            {/* Purge test data */}
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-1.5 border-red-200 text-red-700 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950"
-                  disabled={purgeTestMutation.isPending}
-                >
-                  {purgeTestMutation.isPending
-                    ? <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                    : <Trash2 className="h-3.5 w-3.5" />
-                  }
-                  Purge Test Data
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Purge all test contacts?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    This permanently deletes all contacts and associated deals, tasks, enrollments,
-                    and audit records matching known test/QA patterns (e.g. @test.invalid,
-                    WebhookTest, StmtTest). This cannot be undone.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction
-                    className="bg-red-600 hover:bg-red-700"
-                    onClick={() => purgeTestMutation.mutate()}
-                  >
-                    Purge Test Data
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
 
             {/* Reset stuck queue jobs */}
             <AlertDialog>

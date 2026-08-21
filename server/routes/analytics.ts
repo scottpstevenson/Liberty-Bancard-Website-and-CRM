@@ -3,7 +3,7 @@ import { isAuthenticated, isDashboardUser } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { pool } from "../db";
 import { contacts, toolClickEvents } from "@shared/schema";
-import { isGhlConfigured, sendGhlEmailForMerchant } from "../services/ghl";
+import { isGhlConfigured, sendGhlInternalNotification } from "../services/ghl";
 import { buildWeeklyDigest } from "../services/digest-service";
 import { db } from "../db";
 import { agents, deals, leaderboardSettings, agentMerchants } from "@shared/schema";
@@ -771,7 +771,7 @@ export function registerAnalyticsRoutes(app: Express) {
       const adminEmail = process.env.ADMIN_DIGEST_EMAIL;
       if (adminEmail && isGhlConfigured()) {
         try {
-          await sendGhlEmailForMerchant({ email: adminEmail, subject: `Weekly KPI Digest — ${summary.period} — Liberty Bancard`, body: html });
+          await sendGhlInternalNotification({ email: adminEmail, subject: `Weekly KPI Digest — ${summary.period} — Liberty Bancard`, body: html });
           res.json({ ...summary, emailSent: true, emailRecipient: adminEmail });
           return;
         } catch (emailErr) {

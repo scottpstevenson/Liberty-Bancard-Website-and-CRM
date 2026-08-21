@@ -25,6 +25,19 @@ async function assertPauseAllowed(tag: string): Promise<{ tokenId: string; epoch
   return { tokenId, epoch: decision.epoch };
 }
 
+async function assertCommercialAllowed(
+  dbContactId: number | undefined,
+  purpose: "marketing_outreach" | "transactional_response" = "marketing_outreach",
+): Promise<void> {
+  // Transactional messages are permitted for an explicit, trusted workflow even
+  // while an inbound recipient has not yet been assigned a CRM contact.
+  if (!dbContactId && purpose === "transactional_response") return;
+  if (!dbContactId) throw new Error("COMMERCIAL_CLASS_UNKNOWN");
+  const { authorizeUse } = await import("../commercial-classification-authority");
+  const decision = await authorizeUse({ contactId: dbContactId, purpose });
+  if (!decision.allowed) throw new Error(decision.reasonCode);
+}
+
 const DEFAULT_GHL_BASE_URL = "https://services.leadconnectorhq.com";
 const RATE_LIMIT_MAX = 100;
 const RATE_LIMIT_WINDOW_MS = 60_000;
@@ -629,9 +642,12 @@ export interface SendMessageResult {
 
 export async function sendChatReply(params: {
   contactId: string;
+  dbContactId?: number;
+  commercialPurpose?: "marketing_outreach" | "transactional_response";
   message: string;
   conversationId?: string;
 }): Promise<SendMessageResult> {
+  await assertCommercialAllowed(params.dbContactId, params.commercialPurpose);
   const { deregisterInflight } = await import("../outbound-control-service");
   const { tokenId, epoch } = await assertPauseAllowed("sendChatReply");
   try {
@@ -656,7 +672,10 @@ export async function sendChatReply(params: {
 export async function sendSmsReply(params: {
   contactId: string;
   message: string;
+  dbContactId?: number;
+  commercialPurpose?: "marketing_outreach" | "transactional_response";
 }): Promise<SendMessageResult> {
+  await assertCommercialAllowed(params.dbContactId, params.commercialPurpose);
   const { deregisterInflight } = await import("../outbound-control-service");
   const { tokenId, epoch } = await assertPauseAllowed("sendSmsReply");
   try {
@@ -688,7 +707,9 @@ export async function sendEmailReply(params: {
    * When absent, a reply-to-unsubscribe instruction is used instead.
    */
   dbContactId?: number;
+  commercialPurpose?: "marketing_outreach" | "transactional_response";
 }): Promise<SendMessageResult> {
+  await assertCommercialAllowed(params.dbContactId, params.commercialPurpose);
   const { deregisterInflight } = await import("../outbound-control-service");
   const { tokenId, epoch } = await assertPauseAllowed("sendEmailReply");
   try {
@@ -920,7 +941,7 @@ export async function sendTemplateResponse(
   channel: string
 ): Promise<void> {
   const { db } = await import("../../db");
-  const { sdrMerchants, sdrLeadEvents } = await import("@shared/schema");
+  const { sdrMerchants, sdrLeadEvents, contacts } = await import("@shared/schema");
   const { eq } = await import("drizzle-orm");
 
   const template = RESPONSE_TEMPLATES[templateKey];
@@ -932,6 +953,21 @@ export async function sendTemplateResponse(
   const [merchant] = await db.select().from(sdrMerchants).where(eq(sdrMerchants.id, merchantId));
   if (!merchant?.ghlContactId) {
     console.warn(`[GHL Client] Cannot send template — no GHL contact for merchant ${merchantId}`);
+    return;
+  }
+  const [localContact] = await db
+    .select({ id: contacts.id })
+    .from(contacts)
+    .where(eq(contacts.ghlContactId, merchant.ghlContactId))
+    .limit(1);
+  if (!localContact) {
+    console.warn(`[GHL Client] Template "${templateKey}" blocked — no classified local contact for merchant ${merchantId}`);
+    return;
+  }
+  try {
+    await assertCommercialAllowed(localContact.id, "marketing_outreach");
+  } catch (commercialErr: unknown) {
+    console.warn(`[GHL Client] Template "${templateKey}" blocked by commercial classification for merchant ${merchantId}: ${String(commercialErr)}`);
     return;
   }
 

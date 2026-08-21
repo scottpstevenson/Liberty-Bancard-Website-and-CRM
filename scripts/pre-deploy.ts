@@ -127,6 +127,11 @@ const MANDATORY_SUITES: Suite[] = [
     timeoutSecs: 120,
   },
   {
+    name: "Commercial Classification (unknown quarantine, approval, replay, evidence safety)",
+    script: "scripts/test-commercial-classification.ts",
+    timeoutSecs: 120,
+  },
+  {
     name: "New-Lead Enrollment Policy",
     script: "scripts/test-new-lead-enrollment-policy.ts",
     timeoutSecs: 120,
@@ -175,6 +180,16 @@ const MANDATORY_SUITES: Suite[] = [
   {
     name: "Sunbiz Timeout & Recovery (no real network)",
     script: "scripts/test-sunbiz-timeout.ts",
+    timeoutSecs: 60,
+  },
+  {
+    name: "Commercial Classification Static Gates (authority boundary, cleanup denial, public-schema protection)",
+    script: "scripts/test-commercial-classification-static.ts",
+    timeoutSecs: 60,
+  },
+  {
+    name: "Commercial Cleanup Guard (destructive utility scripts refuse non-test databases)",
+    script: "scripts/test-cleanup-guard.ts",
     timeoutSecs: 60,
   },
   {

@@ -81,13 +81,10 @@ dig TXT _dmarc.libertybancard.com +short | grep DMARC
 
 ## Phase 2 — Data Hygiene (T-24h)
 
-### 11. Clean Up Test Contacts
-```bash
-npx tsx scripts/purge-test-contacts.ts --dry-run   # preview only
-npx tsx scripts/purge-test-contacts.ts              # execute
-```
-- [ ] Dry-run reviewed → purge executed (or documented as retained test artifacts)
-- [ ] Verify: `Remaining test contacts: 0`
+### 11. Reconcile Test-Classified Records
+- [ ] Review the read-only commercial-classification reconciliation report.
+- [ ] Confirm no test, demo, synthetic, or unknown record is included in production metrics or outreach.
+- [ ] Do not run identifier-based cleanup against production; test cleanup tools require a separate `NODE_ENV=test` database.
 
 ### 12. Map Default Enrollment Sequence
 - [ ] Dashboard → Operator Dashboard → New Lead Enrollment tab

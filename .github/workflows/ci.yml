@@ -1,0 +1,140 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  # ── Static job: typecheck + file-scan suites (no DB, no network) ────────────
+  static:
+    name: Static Checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript type-check
+        run: npx tsc --noEmit
+
+      - name: Migration Integrity Check
+        run: npx tsx scripts/check-migration-integrity.ts
+
+      - name: Compliance Scan
+        run: npx tsx scripts/compliance-scan.ts
+
+      - name: CSRF Fetch Scanner
+        run: npx tsx scripts/scan-csrf-fetch.ts
+
+      - name: Tracked-File Exposure Scan
+        run: npx tsx scripts/scan-tracked-files.ts
+
+      - name: Merchant Migration Safety
+        run: npx tsx scripts/test-merchant-migration-safety.ts
+
+      - name: GHL Route Pause Gates
+        run: npx tsx scripts/test-ghl-route-pause-gates-1629.ts
+
+      - name: Sender Policy
+        run: npx tsx scripts/test-sender-policy.ts
+
+      - name: Serper Raw-Fetch Scan
+        run: npx tsx scripts/scan-serper-raw-fetch.ts
+
+      - name: API Coverage
+        run: npx tsx scripts/check-api-coverage.ts
+
+      - name: Sunbiz Timeout & Recovery
+        run: npx tsx scripts/test-sunbiz-timeout.ts
+
+      - name: Classification Static Gates
+        run: npx tsx scripts/test-commercial-classification-static.ts
+
+  # ── Integration job: DB + Redis; GHL and live providers are blocked ─────────
+  integration:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: static
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: testuser
+          POSTGRES_PASSWORD: testpassword
+          POSTGRES_DB: testdb
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://testuser:testpassword@localhost:5432/testdb
+      TEST_DATABASE_URL: postgresql://testuser:testpassword@localhost:5432/testdb
+      REDIS_URL: redis://localhost:6379
+      NODE_ENV: test
+      GHL_TRANSPORT_FAILFAST: "true"
+      SUNBIZ_ENRICHMENT_ENABLED: "false"
+      SERPER_GATEWAY_ENABLED: "false"
+      SESSION_SECRET: ci-test-secret-32chars-minimum-ok
+      CREDENTIAL_ENCRYPTION_KEY: ci-test-encryption-key-32chars-ok
+      MERCHANT_DATA_ENCRYPTION_KEY: ci-test-merchant-key-32chars-min
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Bootstrap disposable schema snapshot
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0109_fearless_starhawk.sql
+
+      - name: Run database migrations
+        env:
+          CI_SNAPSHOT_BOOTSTRAP: "true"
+        run: npx tsx server/db-migrate.ts
+
+      - name: Contactability Engine
+        run: npx tsx scripts/test-contactability.ts
+
+      - name: Intake Provenance
+        run: npx tsx scripts/test-intake-provenance.ts
+
+      - name: Lifecycle State Machine
+        run: npx tsx scripts/test-lifecycle.ts
+
+      - name: Commercial Classification Integration
+        run: npx tsx scripts/test-commercial-classification.ts
+
+      - name: Cleanup Guard Enforcement
+        run: npx tsx scripts/test-cleanup-guard.ts

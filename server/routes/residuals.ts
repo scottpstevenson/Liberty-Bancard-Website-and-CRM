@@ -4,7 +4,7 @@ import { storage } from "../storage";
 import { db } from "../db";
 import { upload } from "./helpers";
 import { parse } from "csv-parse/sync";
-import { sendGhlEmailForMerchant } from "../services/ghl";
+import { sendGhlInternalNotification } from "../services/ghl";
 import { sql, eq, isNotNull } from "drizzle-orm";
 import { serverError } from "../utils/server-error";
 
@@ -554,7 +554,7 @@ export function registerResidualsRoutes(app: Express) {
             read: false,
             metadata: { importId: importRecord.id, month: importRecord.month, flaggedCount: flaggedRows.length },
           }),
-          sendGhlEmailForMerchant({
+          sendGhlInternalNotification({
             email: adminEmail,
             subject: `[Liberty Bancard] Residual Variance Alert — ${importRecord.month} (${flaggedRows.length} flagged)`,
             body: emailBody,

@@ -724,7 +724,7 @@ ${getEmailSignatureHtml("accounts")}
       const { isSmtpConfigured, sendSmtpEmail } = await import("./smtp-email");
       if (isSmtpConfigured()) {
         try {
-          const smtpResult = await sendSmtpEmail({ to: contact.email, subject, html: body, category: "accounts", contactId: contact.id });
+          const smtpResult = await sendSmtpEmail({ to: contact.email, subject, html: body, category: "accounts", contactId: contact.id, commercialPurpose: "transactional_response" });
           if (smtpResult.success) {
             emailSent = true;
             emailChannel = "SMTP-Fallback";
@@ -917,7 +917,7 @@ ${getEmailSignatureHtml("accounts")}
       const { isSmtpConfigured, sendSmtpEmail } = await import("./smtp-email");
       if (isSmtpConfigured()) {
         try {
-          const smtpResult = await sendSmtpEmail({ to: contact.email, subject, html: body, category: "accounts", contactId: contact.id });
+          const smtpResult = await sendSmtpEmail({ to: contact.email, subject, html: body, category: "accounts", contactId: contact.id, commercialPurpose: "transactional_response" });
           if (smtpResult.success) {
             emailSent = true;
             emailChannel = "SMTP-Fallback";

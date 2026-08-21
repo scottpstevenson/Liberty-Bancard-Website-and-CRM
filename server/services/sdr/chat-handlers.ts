@@ -85,6 +85,14 @@ async function findMerchantByGhlId(ghlContactId: string): Promise<SdrMerchant | 
   return merchant || null;
 }
 
+async function findLocalContactIdByGhlId(ghlContactId: string): Promise<number | undefined> {
+  const [contact] = await db.select({ id: contacts.id })
+    .from(contacts)
+    .where(eq(contacts.ghlContactId, ghlContactId))
+    .limit(1);
+  return contact?.id;
+}
+
 async function logInvalidPayload(eventType: string, rawPayload: unknown, validationError: string): Promise<void> {
   try {
     await db.insert(sdrLeadEvents).values({
@@ -336,6 +344,8 @@ export async function handleChatMessage(rawPayload: unknown): Promise<{ reply?: 
     try {
       await sendChatReply({
         contactId: ghlContactId,
+        dbContactId: await findLocalContactIdByGhlId(ghlContactId),
+        commercialPurpose: "transactional_response",
         message: reply,
         conversationId: payload.conversationId,
       });
@@ -416,7 +426,7 @@ export async function handleSmsThread(rawPayload: unknown): Promise<{ reply?: st
   let sent = false;
   if (isSdrGhlConfigured() && reply) {
     try {
-      await sendSmsReply({ contactId: ghlContactId, message: reply });
+      await sendSmsReply({ contactId: ghlContactId, dbContactId: await findLocalContactIdByGhlId(ghlContactId), commercialPurpose: "transactional_response", message: reply });
       sent = true;
 
       await db.insert(sdrLeadEvents).values({
@@ -491,6 +501,8 @@ export async function handleEmailThread(rawPayload: unknown): Promise<{ reply?: 
         : `Re: ${payload.subject || "Your inquiry about payment processing"}`;
       await sendEmailReply({
         contactId: ghlContactId,
+        dbContactId: await findLocalContactIdByGhlId(ghlContactId),
+        commercialPurpose: "transactional_response",
         subject,
         htmlBody: `<p>${reply.replace(/\n/g, "<br/>")}</p><br/><p style="font-size:12px;color:#888;">Liberty Bancard — Payment Processing Solutions</p>`,
       });
