@@ -18,6 +18,9 @@ import { writeContact, upsertContactSourceEvent } from "../services/contact-writ
 import { processExistingPublicFormSubmission } from "../services/public-form-submission";
 import { buildPublicContactPayload } from "../services/public-form-payload";
 import type { Contact } from "@shared/schema";
+import { contacts } from "@shared/schema";
+import { eq } from "drizzle-orm";
+import { db } from "../db";
 import { runStatementUploadChain } from "../services/statement-upload-chain";
 import {
   claimCommand,
@@ -1605,6 +1608,13 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         });
 
         if (outcome.applied) {
+          // Write emailStatus + consentTier back to the contacts row so:
+          //   1. evaluateContactability.deriveConsentTier() returns "opted_out"
+          //   2. tests reading contact.consentTier directly see the update
+          await db.update(contacts)
+            .set({ emailStatus: "opted_out", consentTier: "opted_out" })
+            .where(eq(contacts.id, contactId));
+
         await storage.createAuditLog({
           action: "contact_email_unsubscribed_via_link",
           entityType: "contact",
