@@ -4,21 +4,7 @@
  * Requires an isolated non-production Postgres database migrated through 0150.
  */
 import crypto from "crypto";
-import { db } from "../server/db";
-import { contacts, commercialClassificationEvents } from "../shared/schema";
-import { and, eq } from "drizzle-orm";
-import {
-  applyClassification,
-  authorizeUse,
-  createPreviewCommand,
-  approveCommand,
-  executeApprovedCommand,
-  getCurrentClass,
-} from "../server/services/commercial-classification-authority";
-
-if (process.env.NODE_ENV === "production") {
-  throw new Error("Refusing to run BT-06 classification tests in production.");
-}
+import { assertDisposableTestInfrastructure } from "./test-infrastructure-guard";
 
 let passed = 0;
 let failed = 0;
@@ -28,6 +14,29 @@ function assert(condition: boolean, label: string) {
 }
 
 async function main() {
+  // Must happen before any server/database import so this suite cannot
+  // initialize the application's configured pool against a shared database.
+  await assertDisposableTestInfrastructure({
+    operation: "commercial-classification-test",
+  });
+
+  const [{ db }, schema, drizzle, authority] = await Promise.all([
+    import("../server/db"),
+    import("../shared/schema"),
+    import("drizzle-orm"),
+    import("../server/services/commercial-classification-authority"),
+  ]);
+  const { contacts, commercialClassificationEvents } = schema;
+  const { and, eq } = drizzle;
+  const {
+    applyClassification,
+    authorizeUse,
+    createPreviewCommand,
+    approveCommand,
+    executeApprovedCommand,
+    getCurrentClass,
+  } = authority;
+
   const nonce = crypto.randomUUID();
   const [contact] = await db.insert(contacts).values({
     firstName: "BT06",

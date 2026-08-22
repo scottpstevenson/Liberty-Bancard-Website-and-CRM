@@ -73,6 +73,7 @@ export function registerAnalyticsRoutes(app: Express) {
         .where(
           and(
             eq(contacts.utmSource, "agent"),
+            eq(contacts.recordClass, "production"),
             sql`${contacts.utmContent} IS NOT NULL`
           )
         )
@@ -114,30 +115,32 @@ export function registerAnalyticsRoutes(app: Express) {
       ] = await Promise.all([
         pool.query<{ stage: string; cnt: string }>(`
           SELECT stage, COUNT(*)::text AS cnt FROM deals
-          WHERE archived_at IS NULL AND pipeline = 'sales'
+          WHERE archived_at IS NULL AND pipeline = 'sales' AND record_class = 'production'
           GROUP BY stage
         `),
         pool.query<{ cnt: string }>(`
           SELECT COUNT(*)::text AS cnt FROM deals
           WHERE archived_at IS NULL AND pipeline = 'sales' AND stage = 'Closed Won'
+            AND record_class = 'production'
             AND closed_at >= $1
         `, [thirtyDaysAgo]),
         pool.query<{ cnt: string }>(`
           SELECT COUNT(*)::text AS cnt FROM deals
           WHERE archived_at IS NULL AND pipeline = 'sales' AND stage = 'Closed Lost'
+            AND record_class = 'production'
             AND closed_at >= $1
         `, [thirtyDaysAgo]),
         pool.query<{ cnt: string }>(`
           SELECT COUNT(*)::text AS cnt FROM deals
-          WHERE archived_at IS NULL AND pipeline = 'sales' AND created_at >= $1
+          WHERE archived_at IS NULL AND pipeline = 'sales' AND record_class = 'production' AND created_at >= $1
         `, [thirtyDaysAgo]),
         pool.query<{ cnt: string }>(`
           SELECT COUNT(*)::text AS cnt FROM deals
-          WHERE archived_at IS NULL AND pipeline = 'sales' AND created_at >= $1
+          WHERE archived_at IS NULL AND pipeline = 'sales' AND record_class = 'production' AND created_at >= $1
         `, [sevenDaysAgo]),
         pool.query<{ stage: string; cnt: string }>(`
           SELECT stage, COUNT(*)::text AS cnt FROM deals
-          WHERE archived_at IS NULL AND pipeline = 'onboarding'
+          WHERE archived_at IS NULL AND pipeline = 'onboarding' AND record_class = 'production'
           GROUP BY stage
         `),
         pool.query<{ cnt: string }>(`
@@ -156,24 +159,26 @@ export function registerAnalyticsRoutes(app: Express) {
           SELECT COUNT(*)::text AS cnt FROM tasks WHERE status = 'pending' AND due_date < $1
         `, [now]),
         pool.query<{ cnt: string }>(`
-          SELECT COUNT(*)::text AS cnt FROM contacts WHERE archived_at IS NULL
+          SELECT COUNT(*)::text AS cnt FROM contacts WHERE archived_at IS NULL AND record_class = 'production'
         `),
         pool.query<{ cnt: string }>(`
-          SELECT COUNT(*)::text AS cnt FROM contacts WHERE archived_at IS NULL AND created_at >= $1
+          SELECT COUNT(*)::text AS cnt FROM contacts WHERE archived_at IS NULL AND record_class = 'production' AND created_at >= $1
         `, [thirtyDaysAgo]),
         // #673 — new contacts in last 7 days
         pool.query<{ cnt: string }>(`
-          SELECT COUNT(*)::text AS cnt FROM contacts WHERE archived_at IS NULL AND created_at >= $1
+          SELECT COUNT(*)::text AS cnt FROM contacts WHERE archived_at IS NULL AND record_class = 'production' AND created_at >= $1
         `, [new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()]),
         // #848 — blocked contacts count (do_not_contact or email invalid/bounced/unsafe)
         pool.query<{ cnt: string }>(`
           SELECT COUNT(*)::text AS cnt FROM contacts
-          WHERE archived_at IS NULL AND (do_not_contact = true OR email_status IN ('bounced','invalid','opted_out','unsafe'))
+          WHERE archived_at IS NULL AND record_class = 'production'
+            AND (do_not_contact = true OR email_status IN ('bounced','invalid','opted_out','unsafe'))
         `),
         // #1263 — churn-risk contacts (churn_risk_tier = 'High' or 'Critical') — server-side aggregate across all contacts
         pool.query<{ cnt: string }>(`
           SELECT COUNT(*)::text AS cnt FROM contacts
-          WHERE archived_at IS NULL AND churn_risk_tier IN ('High', 'Critical')
+          WHERE archived_at IS NULL AND record_class = 'production'
+            AND churn_risk_tier IN ('High', 'Critical')
         `),
         pool.query<{ total_volume: string; total_residual: string; total_profit: string; deal_count: string }>(`
           SELECT
@@ -183,9 +188,9 @@ export function registerAnalyticsRoutes(app: Express) {
               THEN CAST(REGEXP_REPLACE(estimated_residual, '[^0-9.]', '', 'g') AS DECIMAL) ELSE 0 END), 0)::text AS total_residual,
             (SELECT COALESCE(SUM(CASE WHEN estimated_gross_profit_monthly IS NOT NULL AND estimated_gross_profit_monthly != ''
               THEN CAST(REGEXP_REPLACE(estimated_gross_profit_monthly, '[^0-9.]', '', 'g') AS DECIMAL) ELSE 0 END), 0)
-             FROM deals WHERE archived_at IS NULL)::text AS total_profit,
-            (SELECT COUNT(*) FROM deals WHERE archived_at IS NULL)::text AS deal_count
-          FROM contacts WHERE archived_at IS NULL
+             FROM deals WHERE archived_at IS NULL AND record_class = 'production')::text AS total_profit,
+             (SELECT COUNT(*) FROM deals WHERE archived_at IS NULL AND record_class = 'production')::text AS deal_count
+           FROM contacts WHERE archived_at IS NULL AND record_class = 'production'
         `),
         pool.query<{ avg_hours: string | null }>(`
           SELECT
@@ -211,6 +216,7 @@ export function registerAnalyticsRoutes(app: Express) {
         pool.query<{ cnt: string }>(`
           SELECT COUNT(*)::text AS cnt FROM contacts
           WHERE archived_at IS NULL
+            AND record_class = 'production'
             AND created_at >= NOW() - INTERVAL '24 hours'
             AND last_contacted_at IS NULL
         `),
@@ -219,6 +225,7 @@ export function registerAnalyticsRoutes(app: Express) {
           SELECT owner, COUNT(*)::text AS cnt
           FROM deals
           WHERE archived_at IS NULL
+            AND record_class = 'production'
             AND owner IS NOT NULL
             AND stage NOT IN ('Closed Won', 'Closed Lost')
           GROUP BY owner
@@ -316,7 +323,7 @@ export function registerAnalyticsRoutes(app: Express) {
             CASE WHEN created_at >= $1 THEN 'current' ELSE 'previous' END AS period,
             COUNT(*)::text AS cnt
           FROM deals
-          WHERE archived_at IS NULL AND created_at >= $2 AND created_at <= $3
+          WHERE archived_at IS NULL AND record_class = 'production' AND created_at >= $2 AND created_at <= $3
           GROUP BY period
         `, [thisMonthStart, lastMonthStart, now]),
         pool.query<{ period: string; cnt: string }>(`
@@ -324,7 +331,7 @@ export function registerAnalyticsRoutes(app: Express) {
             CASE WHEN created_at >= $1 THEN 'current' ELSE 'previous' END AS period,
             COUNT(*)::text AS cnt
           FROM contacts
-          WHERE archived_at IS NULL AND created_at >= $2 AND created_at <= $3
+          WHERE archived_at IS NULL AND record_class = 'production' AND created_at >= $2 AND created_at <= $3
           GROUP BY period
         `, [thisMonthStart, lastMonthStart, now]),
         pool.query<{ period: string; cnt: string }>(`
@@ -332,7 +339,7 @@ export function registerAnalyticsRoutes(app: Express) {
             CASE WHEN updated_at >= $1 THEN 'current' ELSE 'previous' END AS period,
             COUNT(*)::text AS cnt
           FROM deals
-          WHERE archived_at IS NULL AND stage = 'Closed Won'
+          WHERE archived_at IS NULL AND record_class = 'production' AND stage = 'Closed Won'
             AND updated_at >= $2 AND updated_at <= $3
           GROUP BY period
         `, [thisMonthStart, lastMonthStart, now]),
@@ -380,7 +387,7 @@ export function registerAnalyticsRoutes(app: Express) {
   // === ANALYTICS / REPORTING ===
   app.get("/api/analytics/pipeline", isDashboardUser, async (req, res) => {
     try {
-      const { data: allDeals } = await storage.getDeals({ limit: 500 });
+      const { data: allDeals } = await storage.getDeals({ limit: 500, recordClass: "production" });
       const salesDeals = allDeals.filter(d => d.pipeline === "sales");
       const onboardingDeals = allDeals.filter(d => d.pipeline === "onboarding");
 
@@ -487,8 +494,8 @@ export function registerAnalyticsRoutes(app: Express) {
 
   app.get("/api/analytics/lead-sources", isDashboardUser, async (req, res) => {
     try {
-      const { data: allContacts } = await storage.getContacts({ limit: 500 });
-      const { data: allDeals } = await storage.getDeals({ limit: 500 });
+      const { data: allContacts } = await storage.getContacts({ limit: 500, recordClass: "production" });
+      const { data: allDeals } = await storage.getDeals({ limit: 500, recordClass: "production" });
       const now = new Date();
       const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
       const recentContacts = allContacts.filter(c => c.createdAt && new Date(c.createdAt) >= thirtyDaysAgo);
@@ -593,7 +600,7 @@ export function registerAnalyticsRoutes(app: Express) {
             lead_source,
             COUNT(*)::text AS count
           FROM contacts
-          WHERE archived_at IS NULL
+          WHERE archived_at IS NULL AND record_class = 'production'
             AND created_at >= $1
           GROUP BY week_start, utm_source, lead_source
           ORDER BY week_start
@@ -603,7 +610,7 @@ export function registerAnalyticsRoutes(app: Express) {
         pool.query<{ lead_source: string | null; stage: string; count: string }>(`
           SELECT lead_source, stage, COUNT(*)::text AS count
           FROM deals
-          WHERE archived_at IS NULL AND pipeline = 'sales'
+          WHERE archived_at IS NULL AND record_class = 'production' AND pipeline = 'sales'
           GROUP BY lead_source, stage
         `),
 
@@ -611,7 +618,7 @@ export function registerAnalyticsRoutes(app: Express) {
         pool.query<{ utm_source: string | null; lead_source: string | null; count: string }>(`
           SELECT utm_source, lead_source, COUNT(*)::text AS count
           FROM contacts
-          WHERE archived_at IS NULL
+          WHERE archived_at IS NULL AND record_class = 'production'
           GROUP BY utm_source, lead_source
         `),
       ]);
@@ -726,8 +733,8 @@ export function registerAnalyticsRoutes(app: Express) {
 
   app.get("/api/analytics/daily-leads", isDashboardUser, async (req, res) => {
     try {
-      const { data: allContacts } = await storage.getContacts({ limit: 500 });
-      const { data: allDeals } = await storage.getDeals({ limit: 500 });
+      const { data: allContacts } = await storage.getContacts({ limit: 500, recordClass: "production" });
+      const { data: allDeals } = await storage.getDeals({ limit: 500, recordClass: "production" });
       const now = new Date();
       const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
@@ -790,7 +797,7 @@ export function registerAnalyticsRoutes(app: Express) {
   // === FORECASTING ===
   app.get("/api/forecasting/summary", isDashboardUser, async (req, res) => {
     try {
-      const { data: deals } = await storage.getDeals({ limit: 500 });
+      const { data: deals } = await storage.getDeals({ limit: 500, recordClass: "production" });
       const activeDeals = deals.filter(d => d.pipeline === "sales" && d.stage !== "Closed Lost");
 
       const stageWeights: Record<string, number> = {
@@ -848,7 +855,7 @@ export function registerAnalyticsRoutes(app: Express) {
           END as tier,
           COUNT(*) as count
         FROM contacts
-        WHERE archived_at IS NULL
+        WHERE archived_at IS NULL AND record_class = 'production'
         GROUP BY tier
         ORDER BY count DESC
       `);
@@ -856,26 +863,26 @@ export function registerAnalyticsRoutes(app: Express) {
       const stageResult = await pool.query(`
         SELECT stage, COUNT(*) as count
         FROM deals
-        WHERE archived_at IS NULL AND pipeline = 'sales'
+        WHERE archived_at IS NULL AND record_class = 'production' AND pipeline = 'sales'
         GROUP BY stage
         ORDER BY count DESC
       `);
 
       const scoredResult = await pool.query(`
-        SELECT COUNT(*) as count FROM contacts WHERE archived_at IS NULL AND last_scored_at IS NOT NULL
+        SELECT COUNT(*) as count FROM contacts WHERE archived_at IS NULL AND record_class = 'production' AND last_scored_at IS NOT NULL
       `);
 
       const unscoredResult = await pool.query(`
-        SELECT COUNT(*) as count FROM contacts WHERE archived_at IS NULL AND last_scored_at IS NULL
+        SELECT COUNT(*) as count FROM contacts WHERE archived_at IS NULL AND record_class = 'production' AND last_scored_at IS NULL
       `);
 
       const totalDealsResult = await pool.query(`
-        SELECT COUNT(*) as count FROM deals WHERE archived_at IS NULL
+        SELECT COUNT(*) as count FROM deals WHERE archived_at IS NULL AND record_class = 'production'
       `);
 
       const awaitingOutreach = await pool.query(`
         SELECT COUNT(*) as count FROM contacts c
-        WHERE c.archived_at IS NULL AND c.lead_score >= 45
+        WHERE c.archived_at IS NULL AND c.record_class = 'production' AND c.lead_score >= 45
           AND c.last_contacted_at IS NULL
           AND (c.do_not_contact IS NULL OR c.do_not_contact = false)
       `);
@@ -889,7 +896,7 @@ export function registerAnalyticsRoutes(app: Express) {
             ELSE 0 END
           ), 0) as total_value
         FROM deals
-        WHERE archived_at IS NULL AND pipeline = 'sales' AND stage NOT IN ('Closed Won', 'Closed Lost')
+        WHERE archived_at IS NULL AND record_class = 'production' AND pipeline = 'sales' AND stage NOT IN ('Closed Won', 'Closed Lost')
       `);
 
       const contactsByTier: Record<string, number> = {};
@@ -950,7 +957,7 @@ export function registerAnalyticsRoutes(app: Express) {
 
       const [allAgents, dealsResult, callLogsResult, contactCreateResult] = await Promise.all([
         storage.getAgents(),
-        storage.getDeals({ limit: 10000 }),
+        storage.getDeals({ limit: 10000, recordClass: "production" }),
         pool.query(`SELECT assigned_to, created_at FROM call_logs WHERE assigned_to IS NOT NULL`).catch(() => ({ rows: [] as any[] })),
         // #910 — contact_created audit events carry the immutable creator (actor_id = users.id, matched via agent.userId)
         pool.query(`SELECT actor_id, created_at FROM audit_logs WHERE action = 'contact_created' AND actor_type = 'user' AND actor_id IS NOT NULL`).catch(() => ({ rows: [] as any[] })),
@@ -1139,11 +1146,11 @@ export function registerAnalyticsRoutes(app: Express) {
           .where(gte(analyticsEvents.occurredAt, since))
           .groupBy(analyticsEvents.eventName),
         pool.query<{ cnt: string }>(
-          `SELECT COUNT(*)::text AS cnt FROM contacts WHERE archived_at IS NULL AND created_at >= $1`,
+          `SELECT COUNT(*)::text AS cnt FROM contacts WHERE archived_at IS NULL AND record_class = 'production' AND created_at >= $1`,
           [since]
         ),
         pool.query<{ cnt: string }>(
-          `SELECT COUNT(*)::text AS cnt FROM deals WHERE archived_at IS NULL AND pipeline = 'sales' AND created_at >= $1`,
+          `SELECT COUNT(*)::text AS cnt FROM deals WHERE archived_at IS NULL AND record_class = 'production' AND pipeline = 'sales' AND created_at >= $1`,
           [since]
         ),
       ]);
@@ -1449,7 +1456,7 @@ export function registerAnalyticsRoutes(app: Express) {
       const fullResult = await pool.query<{ id: string; stage: string; expected_go_live_date: string | null }>(`
         SELECT id, stage, expected_go_live_date
         FROM deals
-        WHERE archived_at IS NULL
+        WHERE archived_at IS NULL AND record_class = 'production'
           AND stage NOT IN ('Closed Won', 'Closed Lost')
           AND (expected_go_live_date BETWEEN $1 AND $2)
         ORDER BY expected_go_live_date ASC
@@ -1468,7 +1475,7 @@ export function registerAnalyticsRoutes(app: Express) {
       const result = await pool.query<{ lifecycle_state: string | null; cnt: string }>(`
         SELECT lifecycle_state, COUNT(*)::text AS cnt
         FROM contacts
-        WHERE archived_at IS NULL
+        WHERE archived_at IS NULL AND record_class = 'production'
         GROUP BY lifecycle_state
         ORDER BY cnt::int DESC
       `);

@@ -45,6 +45,8 @@ const smtpTransport = read("server/services/smtp-email.ts");
 const authority = read("server/services/commercial-classification-authority.ts");
 const dealStorage = read("server/storage/deals.ts");
 const executiveKpi = read("server/services/executive-kpi.ts");
+const analyticsRoutes = read("server/routes/analytics.ts");
+const weeklyDigest = read("server/services/digest-service.ts");
 const migration = read("migrations/0150_commercial_classification.sql");
 const integrity = read("scripts/check-migration-integrity.ts");
 
@@ -81,6 +83,12 @@ assert(
     /osl_record_class_snapshot_immutable/.test(migration) &&
     /suc_record_class_snapshot_immutable/.test(migration),
   "send and statement class snapshots are database-immutable",
+);
+assert(
+  authority.includes('purpose === "internal_test"') &&
+    authority.includes('process.env.NODE_ENV !== "test"') &&
+    authority.includes("internal_test authorization is available only in NODE_ENV=test"),
+  "internal_test classification authorization cannot bypass controls outside test mode",
 );
 const funnel = read("server/services/sdr/funnel-metrics.ts");
 assert(
@@ -126,7 +134,9 @@ assert(
 );
 assert(
   sdrGhlTransport.includes("assertCommercialAllowed") &&
-    sdrGhlTransport.includes("await assertCommercialAllowed(params.dbContactId, params.commercialPurpose)") &&
+    sdrGhlTransport.includes("resolveLocalContactId") &&
+    sdrGhlTransport.includes("await resolveLocalContactId(params.dbContactId, params.contactId)") &&
+    sdrGhlTransport.includes('if (!dbContactId) throw new Error("COMMERCIAL_CLASS_UNKNOWN")') &&
     sdrGhlTransport.includes('await assertCommercialAllowed(localContact.id, "marketing_outreach")') &&
     sdrGhlTransport.includes("where(eq(contacts.ghlContactId, merchant.ghlContactId))") &&
     workflowEnrollment.includes('dbContactId: params.contactId, commercialPurpose: "transactional_response"'),
@@ -151,6 +161,33 @@ assert(
     executiveKpi.includes("recordAggregateLineage") &&
     executiveKpi.includes("linked_contact.record_class = 'production'"),
   "executive snapshots record lineage and exclude linked-class conflicts",
+);
+assert(
+  [
+    "/api/analytics/tool-upload-attribution",
+    "/api/kpi/summary",
+    "/api/kpi/comparative",
+    "/api/analytics/pipeline",
+    "/api/analytics/lead-sources",
+    "/api/analytics/growth-kpi",
+    "/api/analytics/daily-leads",
+    "/api/forecasting/summary",
+    "/api/kpi/pipeline-stats",
+    "/api/leaderboard",
+    "/api/analytics/conversion-funnel",
+    "/api/analytics/lifecycle-distribution",
+  ].every((path) => {
+    const start = analyticsRoutes.indexOf(`"${path}"`);
+    const next = analyticsRoutes.indexOf('app.', start + 1);
+    const handler = analyticsRoutes.slice(start, next === -1 ? undefined : next);
+    return start >= 0 && (
+      handler.includes("record_class = 'production'") ||
+      handler.includes('recordClass: "production"') ||
+      handler.includes('contacts.recordClass, "production"')
+    );
+  }) &&
+    (weeklyDigest.match(/record_class = 'production'/g) ?? []).length >= 9,
+  "every commercial dashboard, forecast, attribution, and digest aggregate excludes non-production roots",
 );
 assert(
   integrity.includes("const HIGH_WATER_WHEN = 1793300000000") &&

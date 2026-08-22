@@ -29,13 +29,32 @@ async function assertCommercialAllowed(
   dbContactId: number | undefined,
   purpose: "marketing_outreach" | "transactional_response" = "marketing_outreach",
 ): Promise<void> {
-  // Transactional messages are permitted for an explicit, trusted workflow even
-  // while an inbound recipient has not yet been assigned a CRM contact.
-  if (!dbContactId && purpose === "transactional_response") return;
+  // This transport has no server-owned category parameter comparable to SMTP,
+  // so a missing internal contact identity cannot prove a transactional intent.
+  // Fail closed rather than allowing a caller-controlled purpose to bypass the
+  // commercial authorization boundary.
   if (!dbContactId) throw new Error("COMMERCIAL_CLASS_UNKNOWN");
   const { authorizeUse } = await import("../commercial-classification-authority");
   const decision = await authorizeUse({ contactId: dbContactId, purpose });
   if (!decision.allowed) throw new Error(decision.reasonCode);
+}
+
+async function resolveLocalContactId(
+  dbContactId: number | undefined,
+  ghlContactId: string,
+): Promise<number | undefined> {
+  if (dbContactId) return dbContactId;
+  const [{ db }, { contacts }, { eq }] = await Promise.all([
+    import("../../db"),
+    import("@shared/schema"),
+    import("drizzle-orm"),
+  ]);
+  const [contact] = await db
+    .select({ id: contacts.id })
+    .from(contacts)
+    .where(eq(contacts.ghlContactId, ghlContactId))
+    .limit(1);
+  return contact?.id;
 }
 
 const DEFAULT_GHL_BASE_URL = "https://services.leadconnectorhq.com";
@@ -647,7 +666,8 @@ export async function sendChatReply(params: {
   message: string;
   conversationId?: string;
 }): Promise<SendMessageResult> {
-  await assertCommercialAllowed(params.dbContactId, params.commercialPurpose);
+  const dbContactId = await resolveLocalContactId(params.dbContactId, params.contactId);
+  await assertCommercialAllowed(dbContactId, params.commercialPurpose);
   const { deregisterInflight } = await import("../outbound-control-service");
   const { tokenId, epoch } = await assertPauseAllowed("sendChatReply");
   try {
@@ -675,7 +695,8 @@ export async function sendSmsReply(params: {
   dbContactId?: number;
   commercialPurpose?: "marketing_outreach" | "transactional_response";
 }): Promise<SendMessageResult> {
-  await assertCommercialAllowed(params.dbContactId, params.commercialPurpose);
+  const dbContactId = await resolveLocalContactId(params.dbContactId, params.contactId);
+  await assertCommercialAllowed(dbContactId, params.commercialPurpose);
   const { deregisterInflight } = await import("../outbound-control-service");
   const { tokenId, epoch } = await assertPauseAllowed("sendSmsReply");
   try {
@@ -709,7 +730,8 @@ export async function sendEmailReply(params: {
   dbContactId?: number;
   commercialPurpose?: "marketing_outreach" | "transactional_response";
 }): Promise<SendMessageResult> {
-  await assertCommercialAllowed(params.dbContactId, params.commercialPurpose);
+  const dbContactId = await resolveLocalContactId(params.dbContactId, params.contactId);
+  await assertCommercialAllowed(dbContactId, params.commercialPurpose);
   const { deregisterInflight } = await import("../outbound-control-service");
   const { tokenId, epoch } = await assertPauseAllowed("sendEmailReply");
   try {
@@ -717,7 +739,7 @@ export async function sendEmailReply(params: {
       type: "Email",
       contactId: params.contactId,
       subject: params.subject,
-      html: injectCanSpamFooter(params.htmlBody, params.dbContactId),
+      html: injectCanSpamFooter(params.htmlBody, dbContactId),
     };
     if (params.fromEmail) {
       payload.emailFrom = params.fromName

@@ -22,17 +22,37 @@
  *   npx tsx scripts/test-sequence-compliance.ts
  */
 
-import { db } from "../server/db";
-import { contacts, consentAuditLogs, followUpSequences, sequenceSteps, sequenceEnrollments, auditLogs, outboundSendCounters } from "../shared/schema";
-import { pool } from "../server/db";
-import { eq, and, inArray } from "drizzle-orm";
-import { storage } from "../server/storage";
-import { evaluateContactability } from "../server/services/contactability";
-import { canEnrollContactInSequence } from "../server/services/sequence-eligibility";
-import { autoEnrollFromTrigger, processSequenceEnrollments } from "../server/services/sequence-worker";
-import { generateUnsubscribeToken, verifyUnsubscribeToken } from "../server/services/unsubscribe-token";
-import { isColdOutreachSequence, getComplianceFooterHtml } from "../server/services/email-signatures";
-import { applyPauseMutation } from "../server/services/outbound-control-service";
+import { assertDisposableTestInfrastructure } from "./test-infrastructure-guard";
+
+// This test mutates pause state, coordinator holds, Redis-backed queue state,
+// and several DB tables. Verify the disposable target before loading any app
+// module that initializes the normal pool or workers.
+await assertDisposableTestInfrastructure({
+  operation: "sequence-compliance-test",
+  requireRedis: true,
+});
+
+const [{ db, pool }, schema, drizzle, { storage }, contactability, eligibility, worker, unsubscribe, signatures, control] =
+  await Promise.all([
+    import("../server/db"),
+    import("../shared/schema"),
+    import("drizzle-orm"),
+    import("../server/storage"),
+    import("../server/services/contactability"),
+    import("../server/services/sequence-eligibility"),
+    import("../server/services/sequence-worker"),
+    import("../server/services/unsubscribe-token"),
+    import("../server/services/email-signatures"),
+    import("../server/services/outbound-control-service"),
+  ]);
+const { contacts, consentAuditLogs, followUpSequences, sequenceSteps, sequenceEnrollments, auditLogs, outboundSendCounters } = schema;
+const { eq, and, inArray } = drizzle;
+const { evaluateContactability } = contactability;
+const { canEnrollContactInSequence } = eligibility;
+const { autoEnrollFromTrigger, processSequenceEnrollments } = worker;
+const { generateUnsubscribeToken, verifyUnsubscribeToken } = unsubscribe;
+const { isColdOutreachSequence, getComplianceFooterHtml } = signatures;
+const { applyPauseMutation } = control;
 
 // One correlation UUID per test run. Every applyPauseMutation() call in this
 // script tags its holds with it, so teardown can deactivate ONLY test-owned

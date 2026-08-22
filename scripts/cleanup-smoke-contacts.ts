@@ -22,21 +22,12 @@
  * --dry-run  Print counts of what would be deleted without touching the DB.
  */
 
-import { pool } from "../server/db";
+import { assertDisposableTestInfrastructure } from "./test-infrastructure-guard";
+
+await assertDisposableTestInfrastructure({ operation: "cleanup-smoke-contacts" });
+const { pool } = await import("../server/db");
 
 const DRY_RUN = process.argv.includes("--dry-run");
-
-function assertTestEnvironment(): void {
-  const activeDb = process.env.DATABASE_URL;
-  const testDb = process.env.TEST_DATABASE_URL;
-  if (process.env.NODE_ENV !== "test" || !activeDb || !testDb || activeDb !== testDb) {
-    throw new Error("BT-06 KILL LINE: cleanup-smoke-contacts.ts only runs with NODE_ENV=test and DATABASE_URL=TEST_DATABASE_URL.");
-  }
-  const dbName = new URL(testDb).pathname.toLowerCase();
-  if (!/(test|ci)/.test(dbName) || process.env.PRODUCTION_DATABASE_URL === testDb) {
-    throw new Error("BT-06 KILL LINE: cleanup-smoke-contacts.ts requires a separate clearly named test/CI database.");
-  }
-}
 
 // ── Predicates ───────────────────────────────────────────────────────────────
 const GHL_ID_PREFIXES = [
@@ -57,7 +48,6 @@ const DEAL_SUBQ    = `SELECT id FROM deals WHERE contact_id IN (${CONTACT_SUBQ})
 const SDR_SUBQ     = `SELECT id FROM sdr_merchants WHERE ${SDR_COND}`;
 
 async function main() {
-  assertTestEnvironment();
   console.log(`\n=== Cleanup smoke-test orphan records ${DRY_RUN ? "(DRY RUN)" : ""} ===\n`);
 
   const client = await pool.connect();

@@ -493,4 +493,8 @@ function main() {
   }
 }
 
-main();
+// The manifest is also imported by scripts/run-ci-suites.ts. Avoid executing
+// validation/reporting as an import side effect; CI invokes --check explicitly.
+if (process.argv[1]?.endsWith("ci-suite-manifest.ts")) {
+  main();
+}

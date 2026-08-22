@@ -26,6 +26,24 @@ export function isUsingMockRedis(): boolean {
 }
 
 /**
+ * BullMQ's own key prefix is the only supported way to namespace queues. Do
+ * not use IORedis `keyPrefix`: BullMQ scripts expect to construct their own
+ * keys. CI and NODE_ENV=test must provide a disposable prefix.
+ */
+export function getBullMqTestPrefix(): string | undefined {
+  const isTestProcess = process.env.NODE_ENV === "test" || process.env.CI === "true";
+  const prefix = process.env.TEST_REDIS_PREFIX?.trim();
+  if (!isTestProcess) return undefined;
+  if (!prefix) {
+    throw new Error("TEST_REDIS_PREFIX is required when initializing BullMQ in CI or test mode.");
+  }
+  if (!/^(?:test|ci)[a-z0-9_-]*[_:]$/i.test(prefix) || /(prod|production|live|bull)/i.test(prefix)) {
+    throw new Error("TEST_REDIS_PREFIX must be an isolated test/CI namespace ending in '_' or ':'.");
+  }
+  return prefix;
+}
+
+/**
  * Returns the already-initialised singleton IORedis client, or null if BullMQ
  * has not yet been initialised (e.g. REDIS_URL not set / startup not complete).
  *
