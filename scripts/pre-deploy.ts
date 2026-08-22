@@ -86,6 +86,16 @@ const MANDATORY_SUITES: Suite[] = [
     timeoutSecs: 60,
   },
   {
+    name: "CSP, CORS, JSON-LD Security Controls (source-backed CSP, typed CORS denial, safe structured data)",
+    script: "scripts/test-security-controls.ts",
+    timeoutSecs: 60,
+  },
+  {
+    name: "Release Artifact Gate (typecheck, production build, redacting artifact secret scan)",
+    script: "scripts/release-artifact-gate.ts",
+    timeoutSecs: 300,
+  },
+  {
     name: "Merchant Migration Safety (dual-auth, no-value-logging, envelope inventory, restart-safe)",
     script: "scripts/test-merchant-migration-safety.ts",
     timeoutSecs: 60,
@@ -432,9 +442,9 @@ function printSectionHeader(text: string) {
 
 async function main() {
   // ── RELEASE_SHA assertion — must pass before any other gate work ─────────────
-  // RELEASE_SHA must be a 40-character hex git SHA set at deploy time.
-  // This is the canonical build identity var used throughout the codebase.
-  // Without it, the deployment cannot be uniquely identified, so we fail fast.
+  // RELEASE_SHA must identify the exact checked-out revision that these gates
+  // test. A syntactically valid but unrelated SHA would make post-deploy health
+  // verification meaningless, so bind it to `git rev-parse HEAD` first.
   const SHA_PATTERN = /^[0-9a-f]{40}$/i;
   const releaseSha = process.env.RELEASE_SHA ?? "";
   if (!SHA_PATTERN.test(releaseSha)) {
@@ -451,7 +461,17 @@ async function main() {
     console.error(`  Current value: ${releaseSha ? JSON.stringify(releaseSha) : "(not set)"}`);
     process.exit(1);
   }
-  console.log(`\n  ✓ RELEASE_SHA confirmed: ${releaseSha}`);
+  const gitHead = spawnSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" });
+  const checkedOutSha = gitHead.status === 0 ? gitHead.stdout.trim() : "";
+  if (!SHA_PATTERN.test(checkedOutSha) || checkedOutSha.toLowerCase() !== releaseSha.toLowerCase()) {
+    console.error("╔══════════════════════════════════════════════════════════════╗");
+    console.error("║  KILL: RELEASE_SHA does not match the tested checkout        ║");
+    console.error("╚══════════════════════════════════════════════════════════════╝");
+    console.error("  Set RELEASE_SHA to the current checked-out SHA before release validation.");
+    console.error("  Example: RELEASE_SHA=$(git rev-parse HEAD) bash scripts/run-pre-deploy.sh");
+    process.exit(1);
+  }
+  console.log(`\n  ✓ RELEASE_SHA matches checked-out tested commit: ${releaseSha}`);
 
   // ── MERCHANT_DATA_ENCRYPTION_KEY assertion (production release gate) ──────
   // Required for production release: the merchant key must be present and valid.

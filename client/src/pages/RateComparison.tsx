@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { SEO, getReviewSchema } from "@/components/SEO";
 import { Breadcrumbs } from "@/components/Breadcrumbs";
+import { serializeJsonLd } from "../../../shared/json-ld";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { useToast } from "@/hooks/use-toast";
@@ -247,7 +248,7 @@ export default function RateComparison() {
       <Navbar />
 
       <main className="marketing-surface flex-grow pt-28" ref={containerRef}>
-        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }} />
+        <script type="application/ld+json">{serializeJsonLd(structuredData)}</script>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-2 pb-1">
           <Breadcrumbs items={[{ name: "Compare Rates", path: "/compare-rates" }]} />
         </div>

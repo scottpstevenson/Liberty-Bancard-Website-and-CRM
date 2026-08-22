@@ -1,4 +1,5 @@
 import { Helmet } from 'react-helmet-async';
+import { serializeJsonLd } from "../../../shared/json-ld";
 
 export interface StructuredData {
   "@context": string;
@@ -438,7 +439,7 @@ export function SEO({
 
       {allStructuredData.map((data, index) => (
         <script key={index} type="application/ld+json">
-          {JSON.stringify(data)}
+          {serializeJsonLd(data)}
         </script>
       ))}
     </Helmet>

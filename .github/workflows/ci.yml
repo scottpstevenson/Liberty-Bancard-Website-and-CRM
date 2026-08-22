@@ -27,6 +27,15 @@ jobs:
       - name: TypeScript type-check
         run: npx tsc --noEmit
 
+      - name: Production Build
+        run: npm run build
+
+      - name: CSP, CORS, JSON-LD Security Controls
+        run: npx tsx scripts/test-security-controls.ts
+
+      - name: Build Artifact Secret Scan
+        run: npx tsx scripts/scan-build-artifacts.ts
+
       - name: Migration Integrity Check
         run: npx tsx scripts/check-migration-integrity.ts
 

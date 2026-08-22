@@ -1,4 +1,5 @@
 import { ssrNavbar, ssrFooter } from "../ssrShared";
+import { serializeJsonLd } from "../../shared/json-ld";
 
 function escHtml(str: string): string {
   return str
@@ -580,16 +581,16 @@ export function renderAlternativesHtml(competitorSlug: string): string {
   const info = competitorInfo[competitorSlug];
   if (!info) return "";
 
-  const breadcrumbSchema = JSON.stringify({
+  const breadcrumbSchema = {
     "@context": "https://schema.org",
     "@type": "BreadcrumbList",
     "itemListElement": [
       { "@type": "ListItem", "position": 1, "name": "Home", "item": "https://libertybancard.com" },
       { "@type": "ListItem", "position": 2, "name": `${info.name} Alternatives`, "item": `https://libertybancard.com/alternatives/${info.slug}` }
     ]
-  });
+  };
 
-  const faqSchema = JSON.stringify({
+  const faqSchema = {
     "@context": "https://schema.org",
     "@type": "FAQPage",
     "mainEntity": [
@@ -604,7 +605,7 @@ export function renderAlternativesHtml(competitorSlug: string): string {
         "acceptedAnswer": { "@type": "Answer", "text": info.whyMerchantsLeave.join(" ") }
       }
     ]
-  });
+  };
 
   const whyLeaveHtml = info.whyMerchantsLeave.map(r => `<li>${escHtml(r)}</li>`).join("\n");
   const whatLibertySolvesHtml = info.whatLibertySolves.map(r => `<li>${escHtml(r)}</li>`).join("\n");
@@ -622,8 +623,8 @@ export function renderAlternativesHtml(competitorSlug: string): string {
 <meta property="og:description" content="See why merchants choose Liberty Bancard as their ${escHtml(info.name)} alternative. Transparent pricing, dedicated support, and better costs.">
 <meta property="og:url" content="https://libertybancard.com/alternatives/${info.slug}">
 <link rel="canonical" href="https://libertybancard.com/alternatives/${info.slug}">
-<script type="application/ld+json">${breadcrumbSchema}</script>
-<script type="application/ld+json">${faqSchema}</script>
+<script type="application/ld+json">${serializeJsonLd(breadcrumbSchema)}</script>
+<script type="application/ld+json">${serializeJsonLd(faqSchema)}</script>
 ${sharedStyles()}
 </head>
 <body>
@@ -686,14 +687,14 @@ export function renderSwitchFromHtml(competitorSlug: string): string {
   const switchInfo = switchFromInfo[competitorSlug];
   if (!info || !switchInfo) return "";
 
-  const breadcrumbSchema = JSON.stringify({
+  const breadcrumbSchema = {
     "@context": "https://schema.org",
     "@type": "BreadcrumbList",
     "itemListElement": [
       { "@type": "ListItem", "position": 1, "name": "Home", "item": "https://libertybancard.com" },
       { "@type": "ListItem", "position": 2, "name": `Switch From ${info.name}`, "item": `https://libertybancard.com/switch-from/${info.slug}` }
     ]
-  });
+  };
 
   const howToCancelHtml = switchInfo.howToCancel.map((step, i) =>
     `<div class="step-item"><div class="step-number">${i + 1}</div><div class="step-content"><h3>${escHtml(step.title)}</h3><p>${escHtml(step.detail)}</p></div></div>`
@@ -712,7 +713,7 @@ export function renderSwitchFromHtml(competitorSlug: string): string {
 <meta property="og:description" content="Step-by-step guide to canceling ${escHtml(info.name)} and switching to Liberty Bancard. We handle the transition for you.">
 <meta property="og:url" content="https://libertybancard.com/switch-from/${info.slug}">
 <link rel="canonical" href="https://libertybancard.com/switch-from/${info.slug}">
-<script type="application/ld+json">${breadcrumbSchema}</script>
+<script type="application/ld+json">${serializeJsonLd(breadcrumbSchema)}</script>
 ${sharedStyles()}
 <style>
 .step-item { display: flex; gap: 1rem; margin-bottom: 1.5rem; align-items: flex-start; }

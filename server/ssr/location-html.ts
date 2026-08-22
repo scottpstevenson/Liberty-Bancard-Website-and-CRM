@@ -1,4 +1,5 @@
 import { getCityData, getVerticalData, CITIES, VERTICALS } from "./location-data";
+import { serializeJsonLd } from "../../shared/json-ld";
 
 export function isValidLocationCombination(citySlug: string, verticalSlug: string): boolean {
   return !!getCityData(citySlug) && !!getVerticalData(verticalSlug);
@@ -119,9 +120,9 @@ export function getLocationHtml(citySlug: string, verticalSlug: string): string 
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="${escHtml(title)}" />
   <meta name="twitter:description" content="${escHtml(description)}" />
-  <script type="application/ld+json">${JSON.stringify(localBusinessSchema)}</script>
-  <script type="application/ld+json">${JSON.stringify(faqSchema)}</script>
-  <script type="application/ld+json">${JSON.stringify(breadcrumbSchema)}</script>
+  <script type="application/ld+json">${serializeJsonLd(localBusinessSchema)}</script>
+  <script type="application/ld+json">${serializeJsonLd(faqSchema)}</script>
+  <script type="application/ld+json">${serializeJsonLd(breadcrumbSchema)}</script>
   <style>
     *{box-sizing:border-box;margin:0;padding:0}
     body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#1e293b;background:#fff;line-height:1.6}
@@ -349,8 +350,8 @@ export function getCityHubHtml(citySlug: string): string | null {
   <meta property="og:description" content="${escHtml(description)}" />
   <meta property="og:url" content="${escHtml(pageUrl)}" />
   <meta property="og:type" content="website" />
-  <script type="application/ld+json">${JSON.stringify(breadcrumbSchema)}</script>
-  <script type="application/ld+json">${JSON.stringify(localBusinessSchema)}</script>
+  <script type="application/ld+json">${serializeJsonLd(breadcrumbSchema)}</script>
+  <script type="application/ld+json">${serializeJsonLd(localBusinessSchema)}</script>
   <style>
     *{box-sizing:border-box;margin:0;padding:0}
     body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#1e293b;background:#fff;line-height:1.6}

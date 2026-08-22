@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import { serializeJsonLd } from "../shared/json-ld";
 
 const BASE_URL = "https://libertybancard.com";
 
@@ -24,6 +25,9 @@ function resolveClientAssetTags(): string {
     }
     return `<script type="module" src="/assets/index.js"></script>`;
   }
+  // SECURITY: DEVELOPMENT_ONLY_INLINE_SCRIPT — this is the React Refresh
+  // preamble emitted only by the development SSR shell. Production resolves
+  // hashed external assets and never emits this block.
   return `<script type="module" src="/@vite/client"></script>
   <script type="module">
     import RefreshRuntime from "/@react-refresh";
@@ -97,7 +101,7 @@ export function ssrHtmlShell({
   const safeDescription = escapeHtml(description);
 
   const schemaBlocks = (schemaJsons || [])
-    .map((s) => `<script type="application/ld+json">${JSON.stringify(s)}</script>`)
+    .map((s) => `<script type="application/ld+json">${serializeJsonLd(s)}</script>`)
     .join("\n    ");
 
   const gscVerify = process.env.GSC_VERIFICATION || "";

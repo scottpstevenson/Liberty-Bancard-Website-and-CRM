@@ -1,7 +1,5 @@
 import express, { type Request, Response, NextFunction } from "express";
 import cookieParser from "cookie-parser";
-import helmet from "helmet";
-import cors from "cors";
 import * as Sentry from "@sentry/node";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
@@ -41,7 +39,11 @@ if (process.env.SENTRY_DSN) {
 
 // Build CORS origin allowlist from ALLOWED_ORIGINS env var (comma-separated).
 // Falls back to the production domain so the app is safe out of the box.
-import { getCorsOrigins, getCanonicalUrl } from "./lib/canonical-url";
+import { getCorsOrigins } from "./lib/canonical-url";
+import {
+  createSecurityMiddleware,
+  isDeniedCorsOriginError,
+} from "./lib/security";
 const _allowedOrigins: string[] = getCorsOrigins();
 
 function validateCriticalEnvVars() {
@@ -165,115 +167,22 @@ declare module "http" {
   }
 }
 
-// CORS — restrict credentialed API calls to the configured origin allowlist.
-// In development Vite serves on the same origin, so the list is also permissive
-// for localhost. Set ALLOWED_ORIGINS in production to lock this down.
-const _isDev = process.env.NODE_ENV !== "production";
-
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      // Allow requests with no origin (server-to-server, curl, mobile apps).
-      if (!origin) return callback(null, true);
-      // In development only: permit localhost and Replit preview origins so
-      // the dev workflow is not broken. These bypasses are NOT active in prod.
-      if (_isDev) {
-        if (
-          origin.startsWith("http://localhost") ||
-          origin.startsWith("http://127.0.0.1") ||
-          origin.includes(".replit.dev") ||
-          origin.includes(".repl.co")
-        ) {
-          return callback(null, true);
-        }
-      }
-      if (_allowedOrigins.includes(origin)) return callback(null, true);
-      callback(new Error(`CORS: origin '${origin}' is not allowed`));
-    },
-    credentials: true,
-  })
+// Common security headers must run before CORS so denied-origin responses have
+// the same Helmet protections as every other response.
+const { helmet: securityHeaders, cors: corsMiddleware } = createSecurityMiddleware(
+  _allowedOrigins,
+  process.env.NODE_ENV === "production" ? "production" : "development",
 );
-
-app.use(
-  helmet({
-    contentSecurityPolicy: {
-      directives: {
-        defaultSrc: ["'self'"],
-        scriptSrc: [
-          "'self'",
-          // 'unsafe-inline' is required because Vite injects inline scripts during
-          // development (HMR bootstrap) and the React bundle uses inline event
-          // handlers. Removing it without a nonce-based build pipeline would break
-          // the app. Track https://vitejs.dev/guide/features.html#content-security-policy
-          // for nonce support progress.
-          "'unsafe-inline'",
-          // NOTE: 'unsafe-eval' has been intentionally removed. Vite's production
-          // build does NOT require eval(). It was only needed in legacy bundler
-          // configurations. If a runtime error like "unsafe-eval is not allowed"
-          // appears after this change, identify the specific library causing it and
-          // add a targeted allowlist entry rather than re-enabling the directive.
-          "*.leadconnectorhq.com",
-          "*.ghl.io",
-          "*.googletagmanager.com",
-          "*.google-analytics.com",
-          "*.facebook.com",
-          "connect.facebook.net",
-          "fonts.googleapis.com",
-        ],
-        styleSrc: [
-          "'self'",
-          "'unsafe-inline'",
-          "fonts.googleapis.com",
-          "*.leadconnectorhq.com",
-          "*.ghl.io",
-        ],
-        fontSrc: [
-          "'self'",
-          "fonts.gstatic.com",
-          "*.leadconnectorhq.com",
-          "*.ghl.io",
-        ],
-        imgSrc: [
-          "'self'",
-          "data:",
-          "blob:",
-          "*.google-analytics.com",
-          "*.googletagmanager.com",
-          "*.facebook.com",
-          "*.leadconnectorhq.com",
-          "*.ghl.io",
-          "img.youtube.com",
-          "i.ytimg.com",
-        ],
-        connectSrc: [
-          "'self'",
-          "*.leadconnectorhq.com",
-          "*.ghl.io",
-          "*.msgsndr.com",
-          "services.msgsndr.com",
-          "*.googletagmanager.com",
-          "*.google-analytics.com",
-          "*.facebook.com",
-          "connect.facebook.net",
-        ],
-        frameSrc: [
-          "'self'",
-          "*.leadconnectorhq.com",
-          "*.ghl.io",
-          "*.youtube.com",
-          "*.youtube-nocookie.com",
-        ],
-        frameAncestors: ["'self'"],
-      },
-    },
-    // strict-origin-when-cross-origin preserves the referrer for same-origin
-    // requests and sends origin-only for cross-origin HTTPS→HTTPS. This allows
-    // Google Analytics, GA4, and other analytics tools to receive referrer data.
-    // helmet's default 'no-referrer' strips all referrer headers, breaking
-    // attribution tracking.
-    referrerPolicy: { policy: "strict-origin-when-cross-origin" },
-  })
-);
+app.use(securityHeaders);
+app.use(corsMiddleware);
+// CORS failures are intentionally handled immediately after the CORS
+// middleware. The typed error has a fixed public message and never reflects
+// the rejected Origin header.
+app.use((err: unknown, _req: Request, res: Response, next: NextFunction) => {
+  if (!isDeniedCorsOriginError(err)) return next(err);
+  if (res.headersSent) return next(err);
+  return res.status(403).json({ message: "CORS origin denied" });
+});
 
 app.use(
   express.json({

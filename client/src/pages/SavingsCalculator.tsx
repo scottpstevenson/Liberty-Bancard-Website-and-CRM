@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { SEO, getServiceSchema } from "@/components/SEO";
 import { trackSavingsCalculatorCompleted } from "@/lib/tracking";
+import { serializeJsonLd } from "../../../shared/json-ld";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { useScrollReveal } from "@/hooks/use-scroll-reveal";
@@ -210,7 +211,7 @@ export default function SavingsCalculator() {
       <Navbar />
 
       <main className="flex-grow pt-28" ref={containerRef}>
-        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }} />
+        <script type="application/ld+json">{serializeJsonLd(structuredData)}</script>
 
         <section className="relative overflow-hidden" data-testid="section-calc-hero">
           <div className="absolute inset-0 bg-gradient-to-br from-[hsl(222,47%,11%)] via-[hsl(222,47%,15%)] to-[hsl(221,83%,25%)]" />

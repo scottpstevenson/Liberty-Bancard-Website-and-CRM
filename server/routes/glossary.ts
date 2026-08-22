@@ -6,6 +6,7 @@ import {
   getRelatedTerms,
   type GlossaryTerm,
 } from "../data/glossary-terms";
+import { serializeJsonLd } from "../../shared/json-ld";
 
 const BASE_URL = "https://libertybancard.com";
 
@@ -128,10 +129,10 @@ function buildTermPageHtml(term: GlossaryTerm, relatedTerms: GlossaryTerm[]): st
   <meta property="og:url" content="${canonicalUrl}" />
   <meta property="og:type" content="article" />
   <meta name="robots" content="index, follow" />
-  <script type="application/ld+json">${JSON.stringify(definedTermSchema)}</script>
-  <script type="application/ld+json">${JSON.stringify(faqSchema)}</script>
-  <script type="application/ld+json">${JSON.stringify(breadcrumbSchema)}</script>
-  <script type="application/ld+json">${JSON.stringify(webPageSchema)}</script>
+   <script type="application/ld+json">${serializeJsonLd(definedTermSchema)}</script>
+   <script type="application/ld+json">${serializeJsonLd(faqSchema)}</script>
+   <script type="application/ld+json">${serializeJsonLd(breadcrumbSchema)}</script>
+   <script type="application/ld+json">${serializeJsonLd(webPageSchema)}</script>
   <style>
     *, *::before, *::after { box-sizing: border-box; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; background: #fff; color: #1e293b; }
@@ -291,8 +292,8 @@ function buildHubPageHtml(): string {
   <meta property="og:url" content="${canonicalUrl}" />
   <meta property="og:type" content="website" />
   <meta name="robots" content="index, follow" />
-  <script type="application/ld+json">${JSON.stringify(itemListSchema)}</script>
-  <script type="application/ld+json">${JSON.stringify(definedTermSetSchema)}</script>
+   <script type="application/ld+json">${serializeJsonLd(itemListSchema)}</script>
+   <script type="application/ld+json">${serializeJsonLd(definedTermSetSchema)}</script>
   <style>
     *, *::before, *::after { box-sizing: border-box; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; background: #f8fafc; color: #1e293b; }

@@ -80,6 +80,18 @@ export const SUITE_MANIFEST: SuiteManifestEntry[] = [
     providerDenial: "none (pure file scan)",
   },
   {
+    name: "CSP, CORS, JSON-LD Security Controls",
+    script: "scripts/test-security-controls.ts",
+    capability: "deterministic-static",
+    providerDenial: "isolated Express fixture and pure renderer/source checks; no providers",
+  },
+  {
+    name: "Release Artifact Gate",
+    script: "scripts/release-artifact-gate.ts",
+    capability: "deterministic-static",
+    providerDenial: "local typecheck/build/artifact scan only; no provider calls",
+  },
+  {
     name: "Merchant Migration Safety",
     script: "scripts/test-merchant-migration-safety.ts",
     capability: "deterministic-static",
