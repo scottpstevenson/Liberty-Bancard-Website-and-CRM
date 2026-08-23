@@ -68,6 +68,24 @@ export interface SuiteManifestEntry {
 export const SUITE_MANIFEST: SuiteManifestEntry[] = [
   // ── deterministic-static ─────────────────────────────────────────────────
   {
+    name: "Canonical Identity Writer Guard",
+    script: "scripts/check-contact-identity-writers.ts",
+    capability: "deterministic-static",
+    providerDenial: "source-only transactional writer ownership scan",
+  },
+  {
+    name: "Canonical Merge Manifest Guard",
+    script: "scripts/check-contact-merge-manifest.ts",
+    capability: "deterministic-integration",
+    providerDenial: "PostgreSQL catalog inspection only; no providers",
+  },
+  {
+    name: "Canonical Identity Merge Contract",
+    script: "scripts/test-canonical-identity-merge.ts",
+    capability: "deterministic-integration",
+    providerDenial: "GHL_TRANSPORT_FAILFAST=true; no provider calls",
+  },
+  {
     name: "Migration Integrity Check",
     script: "scripts/check-migration-integrity.ts",
     capability: "deterministic-static",

@@ -413,6 +413,25 @@ export async function evaluateContactability(
     return result;
   }
 
+  // A reviewed merge is a temporary dispatch fence. It closes the interval
+  // between local relationship changes and the authority-owned restrictive
+  // consent handoff; no automated send may proceed until the operation reaches
+  // a post-handoff state.
+  const mergeFence = await db.execute(sql`
+    SELECT 1 FROM contact_merge_operations
+    WHERE (${contactId} IN (survivor_contact_id, deprecated_contact_id))
+      AND (
+        status IN ('executing', 'committed')
+        OR (status = 'reconciliation_pending' AND reconciliation_status = 'consent_handoff_retry_required')
+      )
+    LIMIT 1
+  `);
+  if ((mergeFence as any).rows?.[0]) {
+    return blocked("contact_merge_consent_handoff_pending", {
+      nextBestCompliantAction: "Wait for the reviewed contact merge consent handoff to complete",
+    });
+  }
+
   function allowed(
     reason: string,
     opts: {

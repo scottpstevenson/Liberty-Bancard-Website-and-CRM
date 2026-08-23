@@ -367,29 +367,29 @@ export function registerCrmOperationsRoutes(app: Express) {
   });
 
 
-  // === DUPLICATE DETECTION & MERGE ===
-  app.get("/api/contacts/duplicates", isAuthenticated, async (req, res) => {
-    try {
-      const duplicates = await storage.findDuplicateContacts();
-      res.json(duplicates);
-    } catch (err: any) {
-      console.error("Find duplicates error:", err.message);
-      serverError(res, err);
-    }
+  // === LEGACY DUPLICATE DETECTION & MERGE (BT-07 containment) ==============
+  // The unsafe storage.mergeContacts helper is deliberately unavailable to
+  // every role. Reviewed candidates and execution are registered in
+  // routes/contacts.ts under their own authorization boundary.
+  app.get("/api/contacts/duplicates", isDashboardUser, requireRole("admin", "manager"), async (_req, res) => {
+    return res.status(410).json({
+      code: "LEGACY_CONTACT_MERGE_DISABLED",
+      message: "Legacy duplicate discovery is disabled. Use reviewed identity candidates.",
+    });
   });
 
-  app.post("/api/contacts/merge", isAuthenticated, async (req, res) => {
-    try {
-      const { primaryId, duplicateId } = req.body;
-      if (!primaryId || !duplicateId) return res.status(400).json({ message: "primaryId and duplicateId required" });
-      const auditCtx = { actorType: "user" as const, userId: (req.user as any)?.id ?? null };
-      const result = await storage.mergeContacts(Number(primaryId), Number(duplicateId), auditCtx);
-      if (!result) return res.status(404).json({ message: "Contact not found" });
-      res.json(result);
-    } catch (err: any) {
-      console.error("Merge contacts error:", err.message);
-      serverError(res, err);
-    }
+  app.post("/api/contacts/merge", isDashboardUser, requireRole("admin"), async (req, res) => {
+    await storage.createAuditLog({
+      action: "legacy_contact_merge_blocked",
+      entityType: "contact_merge",
+      actorType: "user",
+      actorId: (req.user as any)?.id ?? null,
+      details: { reason: "LEGACY_CONTACT_MERGE_DISABLED" },
+    }).catch(() => {});
+    return res.status(410).json({
+      code: "LEGACY_CONTACT_MERGE_DISABLED",
+      message: "Legacy merge execution is permanently disabled. Use the reviewed merge operation API.",
+    });
   });
 
 }

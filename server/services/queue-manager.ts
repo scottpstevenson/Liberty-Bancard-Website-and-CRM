@@ -1053,7 +1053,9 @@ class QueueManager {
             const { contactLeadScoringJobs } = await import("@shared/schema");
             const { scoreContactBatchSafe } = await import("./lead-scoring");
 
-            const contactId: number = _job.data.contactId;
+            let contactId: number = _job.data.contactId;
+            const { resolveLiveContactId } = await import("./contact-identity");
+            contactId = await resolveLiveContactId(contactId);
             const dbRowId: number | undefined = _job.data.dbRowId;
 
             try {
@@ -1180,7 +1182,9 @@ class QueueManager {
             const { autoEnrollFromTrigger } = await import("./sequence-worker");
 
             const jobRowId: number = _job.data.promotionalEnrollmentJobId;
-            const contactId: number = _job.data.contactId;
+            let contactId: number = _job.data.contactId;
+            const { resolveLiveContactId } = await import("./contact-identity");
+            contactId = await resolveLiveContactId(contactId);
             const triggerType: string = _job.data.triggerType;
             const formType: string | null = _job.data.formType ?? null;
             const isResubmission: boolean = _job.data.isResubmission ?? false;

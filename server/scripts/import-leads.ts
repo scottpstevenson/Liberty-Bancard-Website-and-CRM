@@ -1,6 +1,7 @@
 import pg from "pg";
 import * as fs from "fs";
 import * as path from "path";
+import { recordContactIdentityObservationsForPg } from "../services/contact-identity";
 
 const { Pool } = pg;
 import { createRequire } from "module";
@@ -419,24 +420,38 @@ async function bulkInsert(leads: LeadRow[]): Promise<{ inserted: number; skipped
         linkedin_url, facebook_url, industry, vertical, lead_source,
         employee_count, annual_revenue, tags, notes, status
       ) VALUES ${placeholders.join(", ")}
-      ON CONFLICT DO NOTHING
+      ON CONFLICT DO NOTHING RETURNING id, email, phone
     `;
 
     try {
-      const result = await pool.query(query, values);
-      inserted += result.rowCount || 0;
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const result = await client.query(query, values);
+        for (const contact of result.rows) await recordContactIdentityObservationsForPg(client, contact, "csv_import", "import-leads");
+        await client.query("COMMIT");
+        inserted += result.rowCount || 0;
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      } finally {
+        client.release();
+      }
     } catch (err: any) {
       console.error(`Batch error at index ${i}:`, err.message);
       for (const lead of batch) {
         try {
-          await pool.query(`
+          const client = await pool.connect();
+          try {
+          await client.query("BEGIN");
+          const result = await client.query(`
             INSERT INTO contacts (
               first_name, last_name, email, phone, company_name,
               title, address, city, state, website,
               linkedin_url, facebook_url, industry, vertical, lead_source,
               employee_count, annual_revenue, tags, notes, status
             ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
-            ON CONFLICT DO NOTHING
+            ON CONFLICT DO NOTHING RETURNING id, email, phone
           `, [
             lead.firstName || "Unknown", lead.lastName || "", lead.email || "",
             lead.phone || "", lead.companyName || "", lead.title || null,
@@ -446,7 +461,15 @@ async function bulkInsert(leads: LeadRow[]): Promise<{ inserted: number; skipped
             lead.employeeCount || null, lead.annualRevenue || null,
             lead.tags || null, lead.notes || null, "New",
           ]);
-          inserted++;
+          for (const contact of result.rows) await recordContactIdentityObservationsForPg(client, contact, "csv_import", "import-leads");
+          await client.query("COMMIT");
+          inserted += result.rowCount || 0;
+          } catch (error) {
+            await client.query("ROLLBACK");
+            throw error;
+          } finally {
+            client.release();
+          }
         } catch (e: any) {
           skipped++;
         }

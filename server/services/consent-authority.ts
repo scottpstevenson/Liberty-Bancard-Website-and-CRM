@@ -524,6 +524,64 @@ export async function applyConsentCommand(command: ConsentCommand): Promise<Cons
 }
 
 /**
+ * BT-07 merge handoff. Subjects and their immutable facts remain where they
+ * originated; this appends only restrictive survivor facts keyed by operation.
+ * It is safe to retry and intentionally has no inverse operation.
+ */
+export async function carryRestrictiveConsentForContactMerge(
+  survivorContactId: number,
+  deprecatedContactId: number,
+  operationId: string,
+): Promise<void> {
+  const source = rows(await db.execute(sql`
+    SELECT cs.id,
+      EXISTS(SELECT 1 FROM consent_subject_global_suppressions gs WHERE gs.subject_id = cs.id) AS global_restricted
+    FROM consent_subjects cs
+    WHERE cs.subject_type = 'contact' AND cs.subject_record_id = ${deprecatedContactId}
+    LIMIT 1
+  `))[0];
+  const legacy = rows(await db.execute(sql`
+    SELECT do_not_contact AS global_restricted,
+      (email_status IN ('opted_out', 'unsubscribed') OR opted_out_email IS TRUE) AS email_restricted,
+      sms_status IN ('opted_out', 'unsubscribed', 'blocked') AS sms_restricted
+    FROM contacts WHERE id = ${deprecatedContactId}
+  `))[0];
+  const globalRestricted = source?.global_restricted === true || legacy?.global_restricted === true;
+  if (globalRestricted) {
+    await applyConsentCommand({
+      subject: { type: "contact", id: survivorContactId },
+      kind: "global_dnc",
+      purpose: DEFAULT_CONSENT_PURPOSE,
+      eventNamespace: "contact_merge",
+      eventKey: `${operationId}:global`,
+      source: "contact_merge_restrictive_handoff",
+      evidence: { operationId, sourceContactId: deprecatedContactId, handoff: "restrictive_only" },
+    });
+  }
+  const restrictions = source ? rows(await db.execute(sql`
+    SELECT channel, purpose FROM consent_subject_channel_states
+    WHERE subject_id = ${source.id} AND permission_state IN ('withdrawn', 'suppressed')
+  `)) : [];
+  if (legacy?.email_restricted) restrictions.push({ channel: "email", purpose: DEFAULT_CONSENT_PURPOSE });
+  if (legacy?.sms_restricted) restrictions.push({ channel: "sms", purpose: DEFAULT_CONSENT_PURPOSE });
+  for (const restriction of restrictions) {
+    const channel = restriction.channel as ConsentChannel;
+    // A merge never creates a permission grant. The existing canonical command
+    // vocabulary maps all channel restrictions to an opt-out fact.
+    await applyConsentCommand({
+      subject: { type: "contact", id: survivorContactId },
+      kind: "opt_out",
+      channel,
+      purpose: restriction.purpose ?? DEFAULT_CONSENT_PURPOSE,
+      eventNamespace: "contact_merge",
+      eventKey: `${operationId}:${channel}:${restriction.purpose ?? DEFAULT_CONSENT_PURPOSE}`,
+      source: "contact_merge_restrictive_handoff",
+      evidence: { operationId, sourceContactId: deprecatedContactId, handoff: "restrictive_only" },
+    });
+  }
+}
+
+/**
  * Delivery state is deliberately recorded separately from consent. Bounces and
  * invalid addresses must never erase historical permission evidence.
  */

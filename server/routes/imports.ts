@@ -1213,56 +1213,19 @@ Guidelines:
   });
 
 
-  // === DEDUPLICATE CONTACTS ===
+  // BT-07: automatic and bulk contact merges are permanently disabled.
   app.post("/api/contacts/deduplicate", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
-    try {
-      res.writeHead(200, {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        Connection: "keep-alive",
-      });
-
-      const sendProgress = (data: any) => {
-        res.write(`data: ${JSON.stringify(data)}\n\n`);
-      };
-
-      const duplicates = await storage.findDuplicateContacts();
-      sendProgress({ type: "start", duplicateGroups: duplicates.length });
-
-      let merged = 0;
-      let errors = 0;
-
-      for (const group of duplicates) {
-        try {
-          const sorted = group.contacts.sort((a, b) => {
-            const aCompleteness = [a.email, a.phone, a.companyName, a.vertical, a.monthlyVolume, a.leadScore].filter(Boolean).length;
-            const bCompleteness = [b.email, b.phone, b.companyName, b.vertical, b.monthlyVolume, b.leadScore].filter(Boolean).length;
-            if (bCompleteness !== aCompleteness) return bCompleteness - aCompleteness;
-            return (b.leadScore || 0) - (a.leadScore || 0);
-          });
-
-          const primary = sorted[0];
-          for (let i = 1; i < sorted.length; i++) {
-            await storage.mergeContacts(primary.id, sorted[i].id, { actorType: "system" });
-            merged++;
-          }
-        } catch (err) {
-          console.error("Merge error:", err);
-          errors++;
-        }
-      }
-
-      sendProgress({ type: "complete", duplicateGroups: duplicates.length, merged, errors });
-      res.end();
-    } catch (err: any) {
-      console.error("Deduplication error:", err);
-      if (!res.headersSent) {
-        serverError(res, err);
-      } else {
-        res.write(`data: ${JSON.stringify({ type: "error", message: err.message })}\n\n`);
-        res.end();
-      }
-    }
+    await storage.createAuditLog({
+      action: "legacy_contact_deduplicate_blocked",
+      entityType: "contact_merge",
+      actorType: "user",
+      actorId: (req.user as any)?.id ?? null,
+      details: { reason: "LEGACY_CONTACT_MERGE_DISABLED" },
+    }).catch(() => {});
+    return res.status(410).json({
+      code: "LEGACY_CONTACT_MERGE_DISABLED",
+      message: "Automatic deduplication is disabled. Use an explicitly reviewed admin merge operation.",
+    });
   });
 
 
@@ -1905,7 +1868,12 @@ Guidelines:
       for (let i = 0; i < contactInserts.length; i += batchSize) {
         const batch = contactInserts.slice(i, i + batchSize);
         try {
-          const result = await db.insert(contacts).values(batch).onConflictDoNothing().returning();
+          const result = await db.transaction(async (tx) => {
+            const rows = await tx.insert(contacts).values(batch).onConflictDoNothing().returning();
+            const { recordContactIdentityObservationsForContacts } = await import("../services/contact-identity");
+            await recordContactIdentityObservationsForContacts(tx as any, rows, "csv_import", String(importExecution.id));
+            return rows;
+          });
           inserted += result.length;
           // onConflictDoNothing() can silently skip rows that hit a DB-level
           // conflict without throwing. Those rows are neither inserted,
@@ -1951,7 +1919,14 @@ Guidelines:
           console.warn(`[CSV Import] Batch insert failed for import ${importRecord.id}, falling back to per-row insert:`, batchErr?.message || batchErr);
           for (const single of batch) {
             try {
-              const [result] = await db.insert(contacts).values(single).onConflictDoNothing().returning();
+              const [result] = await db.transaction(async (tx) => {
+                const [row] = await tx.insert(contacts).values(single).onConflictDoNothing().returning();
+                if (row) {
+                  const { recordContactIdentityObservations } = await import("../services/contact-identity");
+                  await recordContactIdentityObservations(tx as any, row, "csv_import", String(importExecution.id));
+                }
+                return [row];
+              });
               if (result) {
                 inserted++;
                 insertedContactIds.push(result.id);

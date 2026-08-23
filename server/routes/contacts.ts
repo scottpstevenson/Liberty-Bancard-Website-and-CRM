@@ -7,6 +7,14 @@ import { pool, db } from "../db";
 import { sdrLeadState, insertCompanySchema, insertContactSchema, contacts as contactsTable } from "@shared/schema";
 import { eq, inArray, isNull, and, gte, count as drizzleCount, asc } from "drizzle-orm";
 import crypto from "crypto";
+import {
+  approveContactMerge,
+  ContactMergeError,
+  executeContactMerge,
+  findIdentityCandidates,
+  previewContactMerge,
+  undoContactMerge,
+} from "../services/contact-merge";
 import { enrollContactInGhlWorkflow } from "../services/ghl-workflow-enrollment";
 import { enrichContactBatch, isContactEnrichRunning } from "../services/enrichment";
 import { enrichContactFromLinkedIn, bulkEnrichFromLinkedIn } from "../services/linkedin-enrichment";
@@ -149,6 +157,98 @@ function isUniqueEmailViolation(err: any): boolean {
 }
 
 export function registerContactsRoutes(app: Express) {
+  // BT-07 reviewed identity merge API. Read/preview is deliberately limited to
+  // managers/admins; every transition that can mutate records is admin-only.
+  app.get("/api/contacts/:id/merge-candidates", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const contactId = Number(req.params.id);
+      if (!Number.isInteger(contactId) || contactId <= 0) return res.status(400).json({ message: "Invalid contact ID" });
+      return res.json({ candidates: await findIdentityCandidates(contactId) });
+    } catch (error: any) {
+      return serverError(res, error);
+    }
+  });
+
+  app.post("/api/contacts/merge-operations/preview", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const body = z.object({
+        survivorContactId: z.number().int().positive(),
+        deprecatedContactId: z.number().int().positive(),
+        idempotencyKey: z.string().uuid(),
+        fieldDecisions: z.record(z.string(), z.string()).refine(value => Object.keys(value).length > 0),
+      }).parse(req.body);
+      const role = (req.user as any)?.role as "admin" | "manager";
+      const preview = await previewContactMerge({
+        ...body,
+        actorId: String((req.user as any)?.id),
+        actorRole: role,
+      });
+      return res.json(preview);
+    } catch (error: any) {
+      if (error instanceof ContactMergeError) return res.status(409).json({ code: error.code, message: error.message });
+      return serverError(res, error);
+    }
+  });
+
+  app.get("/api/contact-merge-operations/:operationId/evidence", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const { db } = await import("../db");
+      const { sql } = await import("drizzle-orm");
+      const result = await db.execute(sql`
+        SELECT id, survivor_contact_id, deprecated_contact_id, status, actor_id, actor_role,
+          manifest_version, normalization_version, preview_hash, contact_versions,
+          field_decisions, conflict_reason, ghl_disposition, reconciliation_status,
+          approved_at, executed_at, undone_at, created_at, updated_at
+        FROM contact_merge_operations WHERE id = ${req.params.operationId}
+      `);
+      const operation = (result as any).rows?.[0];
+      if (!operation) return res.status(404).json({ message: "Merge operation not found" });
+      const actions = await db.execute(sql`
+        SELECT relation_key, source_record_id, action, status, created_at, undone_at
+        FROM contact_merge_relationship_actions WHERE operation_id = ${req.params.operationId} ORDER BY created_at
+      `);
+      return res.json({ operation, actions: (actions as any).rows ?? [] });
+    } catch (error: any) {
+      return serverError(res, error);
+    }
+  });
+
+  app.post("/api/contact-merge-operations/:operationId/approve", isDashboardUser, requireRole("admin"), async (req, res) => {
+    try {
+      return res.json(await approveContactMerge(String(req.params.operationId), String((req.user as any)?.id)));
+    } catch (error: any) {
+      if (error instanceof ContactMergeError) return res.status(409).json({ code: error.code, message: error.message });
+      return serverError(res, error);
+    }
+  });
+
+  app.post("/api/contact-merge-operations/:operationId/execute", isDashboardUser, requireRole("admin"), async (req, res) => {
+    try {
+      return res.json(await executeContactMerge(String(req.params.operationId), String((req.user as any)?.id)));
+    } catch (error: any) {
+      if (error instanceof ContactMergeError) return res.status(409).json({ code: error.code, message: error.message });
+      return serverError(res, error);
+    }
+  });
+  app.post("/api/contact-merge-operations/:operationId/retry-consent-handoff", isDashboardUser, requireRole("admin"), async (req, res) => {
+    try {
+      const { retryContactMergeConsentHandoff } = await import("../services/contact-merge");
+      return res.json(await retryContactMergeConsentHandoff(String(req.params.operationId), String((req.user as any)?.id)));
+    } catch (error: any) {
+      if (error instanceof ContactMergeError) return res.status(409).json({ code: error.code, message: error.message });
+      return serverError(res, error);
+    }
+  });
+
+  app.post("/api/contact-merge-operations/:operationId/undo", isDashboardUser, requireRole("admin"), async (req, res) => {
+    try {
+      return res.json(await undoContactMerge(String(req.params.operationId), String((req.user as any)?.id)));
+    } catch (error: any) {
+      if (error instanceof ContactMergeError) return res.status(409).json({ code: error.code, message: error.message });
+      return serverError(res, error);
+    }
+  });
+
   // === CONTACTS ===
   app.get("/api/contacts", isDashboardUser, async (req, res) => {
     try {

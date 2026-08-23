@@ -209,67 +209,77 @@ function DuplicateFinderDialog({ open, onOpenChange }: { open: boolean; onOpenCh
   const { toast } = useToast();
   const [selectedGroup, setSelectedGroup] = useState<DuplicateGroup | null>(null);
   const [primaryId, setPrimaryId] = useState<string>("");
+  const [sourceContactId, setSourceContactId] = useState<string>("");
+  const [operationId, setOperationId] = useState<string | null>(null);
+  const [operationStatus, setOperationStatus] = useState<string | null>(null);
+  const [previewEvidence, setPreviewEvidence] = useState<any | null>(null);
   const [isMerging, setIsMerging] = useState(false);
 
-  const { data: duplicates, isLoading } = useQuery<DuplicateGroup[]>({
-    queryKey: ["/api/contacts/duplicates"],
-    enabled: open,
-  });
-
-  const mergeMutation = useMutation({
-    mutationFn: async ({ primaryId, duplicateId }: { primaryId: number; duplicateId: number }) => {
-      const res = await apiRequest("POST", "/api/contacts/merge", { primaryId, duplicateId });
-      return res.json();
-    },
-  });
-
   const handleMerge = async () => {
-    if (!selectedGroup || !primaryId || isMerging) return;
-    const primary = Number(primaryId);
-    const duplicates = selectedGroup.contacts.filter((c: any) => c.id !== primary);
+    if (!sourceContactId || !primaryId) return;
     setIsMerging(true);
-
-    const succeeded: { id: number; name: string }[] = [];
-    const failed: { id: number; name: string; reason: string }[] = [];
-
-    for (const dup of duplicates) {
-      const name = `${dup.firstName || ""} ${dup.lastName || ""}`.trim() || `#${dup.id}`;
-      try {
-        await mergeMutation.mutateAsync({ primaryId: primary, duplicateId: dup.id });
-        succeeded.push({ id: dup.id, name });
-      } catch (err: any) {
-        failed.push({ id: dup.id, name, reason: err?.message || "Unknown error" });
-      }
+    try {
+      const response = await apiRequest("POST", "/api/contacts/merge-operations/preview", {
+        survivorContactId: Number(primaryId),
+        deprecatedContactId: Number(sourceContactId),
+        idempotencyKey: crypto.randomUUID(),
+        fieldDecisions: { email: "survivor", phone: "survivor" },
+      });
+      const preview = await response.json();
+      setOperationId(preview.operationId ?? null);
+      setOperationStatus(preview.conflicts?.length ? "blocked" : "previewed");
+      setPreviewEvidence(preview);
+      toast({
+        title: preview.conflicts?.length ? "Reviewed preview blocked" : "Reviewed preview created",
+        description: preview.conflicts?.length
+          ? preview.conflicts.join(", ")
+          : `Operation ${preview.operationId} is ready for admin approval and execution.`,
+      });
+    } catch (error: any) {
+      toast({ title: "Reviewed merge unavailable", description: error.message, variant: "destructive" });
+    } finally {
+      setIsMerging(false);
     }
-
-    setIsMerging(false);
-    queryClient.invalidateQueries({ queryKey: ["/api/contacts/duplicates"] });
-    queryClient.invalidateQueries({ queryKey: ["/api/contacts"] });
-
-    if (failed.length === 0) {
-      toast({
-        title: "Contacts merged",
-        description: `${succeeded.length} duplicate contact${succeeded.length !== 1 ? "s" : ""} merged into the primary record.`,
-      });
-      setSelectedGroup(null);
-      setPrimaryId("");
-    } else if (succeeded.length === 0) {
-      toast({
-        title: "Merge failed",
-        description: `All ${failed.length} merge${failed.length !== 1 ? "s" : ""} failed: ${failed.map(f => `${f.name} (${f.reason})`).join("; ")}`,
-        variant: "destructive",
-      });
-    } else {
-      toast({
-        title: "Merge partially completed",
-        description: `Merged: ${succeeded.length}. Failed: ${failed.map(f => `${f.name} (${f.reason})`).join("; ")}`,
-        variant: "destructive",
-      });
+  };
+  const advanceOperation = async (action: "approve" | "execute" | "undo") => {
+    if (!operationId) return;
+    setIsMerging(true);
+    try {
+      const operationEndpoints = {
+        approve: "/api/contact-merge-operations/:operationId/approve",
+        execute: "/api/contact-merge-operations/:operationId/execute",
+        undo: "/api/contact-merge-operations/:operationId/undo",
+      } as const;
+      const response = await apiRequest("POST", operationEndpoints[action].replace(":operationId", operationId));
+      const operation = await response.json();
+      setOperationStatus(operation.status);
+      toast({ title: `Merge ${action}d`, description: `Operation status: ${operation.status}` });
+    } catch (error: any) {
+      toast({ title: `Unable to ${action} merge`, description: error.message, variant: "destructive" });
+    } finally {
+      setIsMerging(false);
+    }
+  };
+  const loadCandidates = async () => {
+    if (!/^\d+$/.test(sourceContactId)) return;
+    setIsMerging(true);
+    try {
+      const response = await fetch(`/api/contacts/${sourceContactId}/merge-candidates`, { credentials: "include" });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.message ?? "Unable to load reviewed candidates");
+      const candidates = result.candidates ?? [];
+      setSelectedGroup({ email: "", phone: "", contacts: candidates });
+      setPrimaryId(String(candidates[0]?.id ?? ""));
+      if (!candidates.length) toast({ title: "No eligible reviewed candidates", description: "Shared, weak, invalid, or insufficient identity evidence is excluded." });
+    } catch (error: any) {
+      toast({ title: "Reviewed merge unavailable", description: error.message, variant: "destructive" });
+    } finally {
+      setIsMerging(false);
     }
   };
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { onOpenChange(v); if (!v) { setSelectedGroup(null); setPrimaryId(""); } }}>
+    <Dialog open={open} onOpenChange={(v) => { onOpenChange(v); if (!v) { setSelectedGroup(null); setPrimaryId(""); setPreviewEvidence(null); } }}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle data-testid="text-duplicates-title">
@@ -278,61 +288,12 @@ function DuplicateFinderDialog({ open, onOpenChange }: { open: boolean; onOpenCh
         </DialogHeader>
 
         {!selectedGroup ? (
-          <div className="space-y-2">
-            {isLoading ? (
-              <div className="space-y-3 py-4" data-testid="duplicates-loading">
-                {[1, 2, 3].map(i => (
-                  <Skeleton key={i} className="h-16 w-full" />
-                ))}
-              </div>
-            ) : !duplicates || duplicates.length === 0 ? (
-              <div className="py-8 text-center text-sm text-muted-foreground" data-testid="text-no-duplicates">
-                No duplicate contacts found. Your records are clean.
-              </div>
-            ) : (
-              <div className="max-h-[400px] overflow-y-auto">
-                <div className="space-y-2 pr-1">
-                  {duplicates.map((group, idx) => (
-                    <Card
-                      key={idx}
-                      className="hover-elevate cursor-pointer"
-                      onClick={() => { setSelectedGroup(group); setPrimaryId(String(group.contacts[0]?.id || "")); }}
-                      data-testid={`duplicate-group-${idx}`}
-                    >
-                      <CardContent className="p-4">
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <Badge variant="secondary" className="shrink-0" data-testid={`badge-duplicate-count-${idx}`}>
-                                {group.contacts.length} matches
-                              </Badge>
-                              {group.email && (
-                                <span className="text-sm text-muted-foreground truncate" data-testid={`text-dup-email-${idx}`}>
-                                  {group.email}
-                                </span>
-                              )}
-                              {group.phone && (
-                                <span className="text-sm text-muted-foreground truncate" data-testid={`text-dup-phone-${idx}`}>
-                                  {group.phone}
-                                </span>
-                              )}
-                            </div>
-                            <div className="flex gap-2 mt-1 flex-wrap">
-                              {group.contacts.map((c: any) => (
-                                <span key={c.id} className="text-sm font-medium" data-testid={`text-dup-name-${c.id}`}>
-                                  {c.firstName} {c.lastName}
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-                          <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-              </div>
-            )}
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">Enter a contact ID to load token-based reviewed merge evidence. No merge is performed here.</p>
+            <div className="flex gap-2">
+              <Input value={sourceContactId} onChange={(event) => setSourceContactId(event.target.value)} placeholder="Contact ID" inputMode="numeric" />
+              <Button onClick={loadCandidates} disabled={!sourceContactId || isMerging}>Load candidates</Button>
+            </div>
           </div>
         ) : (
           <div className="space-y-4">
@@ -384,10 +345,15 @@ function DuplicateFinderDialog({ open, onOpenChange }: { open: boolean; onOpenCh
 
             <div className="rounded-md border p-3 bg-muted/50" data-testid="merge-preview">
               <p className="text-sm font-medium mb-1">Merge Preview</p>
-              <p className="text-xs text-muted-foreground">
-                All deals, tickets, tasks, and documents from duplicate records will be reassigned to the primary contact.
-                Duplicate records will be archived with a merge note.
-              </p>
+              <p className="text-xs text-muted-foreground">A preview is read-only. No provider call, send, consent rewrite, or classification change occurs. Active enrollment, class, GHL, identity, and uniqueness conflicts block approval.</p>
+              {previewEvidence && (
+                <div className="mt-3 space-y-2 text-xs">
+                  <p><strong>Evidence:</strong> {previewEvidence.evidence?.length ?? 0} eligible tokenized observation(s); shared and weak phones are excluded.</p>
+                  <p><strong>Relationships:</strong> {Object.entries(previewEvidence.relationshipCounts ?? {}).map(([name, count]) => `${name}: ${count}`).join(", ") || "none"}</p>
+                  <p><strong>Safety result:</strong> {previewEvidence.conflicts?.length ? previewEvidence.conflicts.join(", ") : "No preflight conflicts. Execution remains subject to stale and overlap checks."}</p>
+                  <p><strong>Irreversible effects:</strong> pending outbound work is terminalized and makes undo fail closed; historic consent, GHL, classification, and send evidence are retained.</p>
+                </div>
+              )}
             </div>
 
             <div className="flex justify-end gap-2 pt-2">
@@ -400,9 +366,19 @@ function DuplicateFinderDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                 data-testid="button-confirm-merge"
               >
                 <Merge className="h-4 w-4 mr-2" />
-                {isMerging ? "Merging..." : "Confirm Merge"}
+                {isMerging ? "Creating..." : "Create reviewed preview"}
               </Button>
             </div>
+            {operationId && (
+              <div className="rounded-md border p-3 space-y-2" data-testid="reviewed-merge-lifecycle">
+                <p className="text-sm">Reviewed operation: <span className="font-mono">{operationId}</span> ({operationStatus})</p>
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" variant="outline" disabled={isMerging || operationStatus !== "previewed"} onClick={() => advanceOperation("approve")}>Admin approve</Button>
+                  <Button size="sm" disabled={isMerging || operationStatus !== "approved"} onClick={() => advanceOperation("execute")}>Admin execute</Button>
+                  <Button size="sm" variant="outline" disabled={isMerging || !["completed", "reconciliation_pending"].includes(operationStatus ?? "")} onClick={() => advanceOperation("undo")}>Admin undo</Button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </DialogContent>

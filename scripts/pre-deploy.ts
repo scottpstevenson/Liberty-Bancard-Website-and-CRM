@@ -76,6 +76,22 @@ const MANDATORY_SUITES: Suite[] = [
     timeoutSecs: 60,
   },
   {
+    name: "Canonical Identity Writer Guard (all production identity writers observed)",
+    script: "scripts/check-contact-identity-writers.ts",
+    timeoutSecs: 60,
+  },
+  {
+    name: "Canonical Merge Manifest Guard (complete relationship disposition)",
+    script: "scripts/check-contact-merge-manifest.ts",
+    timeoutSecs: 60,
+  },
+  {
+    name: "Canonical Identity Merge Contract",
+    script: "scripts/test-canonical-identity-merge.ts",
+    env: { GHL_TRANSPORT_FAILFAST: "true" },
+    timeoutSecs: 60,
+  },
+  {
     name: "CSRF Fetch Scanner (authenticated raw fetch() mutations must attach getCsrfToken())",
     script: "scripts/scan-csrf-fetch.ts",
     timeoutSecs: 60,

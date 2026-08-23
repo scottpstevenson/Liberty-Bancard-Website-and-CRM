@@ -186,6 +186,8 @@ import { coerceDateFields } from "../utils/date-coerce";
     const { auditChange } = await import("../services/audit-change");
     return await db.transaction(async (tx) => {
       const [contact] = (await tx.insert(contacts).values(insertContact).returning()) as any[];
+      const { recordContactIdentityObservations } = await import("../services/contact-identity");
+      await recordContactIdentityObservations(tx as any, contact, "storage_create");
       await auditChange({
         userId: auditCtx?.userId ?? null,
         actorType: (auditCtx?.actorType as any) ?? "user",
@@ -227,6 +229,10 @@ import { coerceDateFields } from "../utils/date-coerce";
     return await db.transaction(async (tx) => {
       const [updated] = await tx.update(contacts).set({ ...coercedUpdates, updatedAt: new Date() } as typeof contacts.$inferInsert).where(eq(contacts.id, id)).returning();
       if (updated) {
+        if ("email" in coercedUpdates || "phone" in coercedUpdates) {
+          const { recordContactIdentityObservations } = await import("../services/contact-identity");
+          await recordContactIdentityObservations(tx as any, updated, "storage_update");
+        }
         await auditChange({
           userId: auditCtx?.userId ?? null,
           actorType: (auditCtx?.actorType as any) ?? "user",
@@ -246,7 +252,14 @@ import { coerceDateFields } from "../utils/date-coerce";
     // Intentionally does NOT bump updatedAt so that updatedAt stays as the last
     // genuine user-edit timestamp and conflict detection remains accurate.
     const [before] = await db.select().from(contacts).where(eq(contacts.id, id));
-    const [updated] = await db.update(contacts).set(updates).where(eq(contacts.id, id)).returning();
+    const [updated] = await db.transaction(async (tx) => {
+      const [row] = await tx.update(contacts).set(updates).where(eq(contacts.id, id)).returning();
+      if (row && ("email" in updates || "phone" in updates)) {
+        const { recordContactIdentityObservations } = await import("../services/contact-identity");
+        await recordContactIdentityObservations(tx as any, row, "ghl_inbound");
+      }
+      return [row];
+    });
     if (updated) {
       const { auditChange } = await import("../services/audit-change");
       auditChange({ actorType: "system", action: "contact_sync_updated", entityType: "contact", entityId: id,
@@ -399,26 +412,6 @@ import { coerceDateFields } from "../utils/date-coerce";
 
     console.log(`[findDuplicateContacts] ${duplicates.length} groups in ${Date.now() - t0}ms`);
     return duplicates;
-  }
-
-
-  async mergeContacts(primaryId: number, duplicateId: number, auditCtx?: { userId?: string | null; actorType?: string }) {
-    const primary = await this.getContact(primaryId);
-    const duplicate = await this.getContact(duplicateId);
-    if (!primary || !duplicate) return undefined;
-    const { auditChange } = await import("../services/audit-change");
-    await db.transaction(async (tx) => {
-      await tx.update(deals).set({ contactId: primaryId }).where(eq(deals.contactId, duplicateId));
-      await tx.update(tickets).set({ contactId: primaryId }).where(eq(tickets.contactId, duplicateId));
-      await tx.update(tasks).set({ contactId: primaryId }).where(eq(tasks.contactId, duplicateId));
-      await tx.update(documents).set({ contactId: primaryId }).where(eq(documents.contactId, duplicateId));
-      await tx.update(contacts).set({ archivedAt: new Date(), notes: `[Merged into Contact #${primaryId}] ${duplicate.notes || ''}` }).where(eq(contacts.id, duplicateId));
-      await auditChange({ userId: auditCtx?.userId ?? null, actorType: (auditCtx?.actorType as any) ?? "user",
-        action: "contact_merged", entityType: "contact", entityId: duplicateId,
-        before: duplicate as unknown as Record<string, unknown>,
-        after: { mergedIntoContactId: primaryId, archivedAt: new Date() } }, tx);
-    });
-    return primary;
   }
 
 

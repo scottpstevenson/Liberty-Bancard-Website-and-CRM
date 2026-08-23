@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import { updateContactGhlFirst, upsertContactSourceEvent } from "./contact-writer";
 import type { PublicFormType, PublicContactProfilePayload } from "./public-form-payload";
 import { applyConsentCommand } from "./consent-authority";
+import { recordContactIdentityObservations } from "./contact-identity";
 
 export interface ProcessExistingSubmissionArgs {
   existingContact: Contact;
@@ -78,6 +79,12 @@ export async function processExistingPublicFormSubmission(
         .update(contacts)
         .set(finalUpdate as any)
         .where(eq(contacts.id, existingContact.id));
+      await recordContactIdentityObservations(
+        tx as any,
+        { ...freshContact, ...finalUpdate, id: existingContact.id },
+        "public_form",
+        submissionId,
+      );
     }
 
   });

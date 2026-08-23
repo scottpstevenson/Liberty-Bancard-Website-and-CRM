@@ -608,9 +608,6 @@ export interface IStorage {
   bulkAssignTasks(taskIds: number[], assignedTo: string): Promise<void>;
   deleteTask(id: number): Promise<void>;
 
-  findDuplicateContacts(): Promise<{ email: string; phone: string; contacts: typeof contacts.$inferSelect[] }[]>;
-  mergeContacts(primaryId: number, duplicateId: number, auditCtx?: { userId?: string | null; actorType?: string }): Promise<typeof contacts.$inferSelect | undefined>;
-
   getCsvImports(): Promise<CsvImport[]>;
   getCsvImport(id: number): Promise<CsvImport | undefined>;
   createCsvImport(importData: InsertCsvImport): Promise<CsvImport>;

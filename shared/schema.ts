@@ -6110,3 +6110,113 @@ export const commercialAggregateLineage = pgTable("commercial_aggregate_lineage"
 ]);
 
 export type CommercialAggregateLineage = typeof commercialAggregateLineage.$inferSelect;
+
+// ─── Canonical contact identity + reviewed merge operations (BT-07) ─────────
+// Identity observations deliberately retain normalized evidence only. Raw
+// email/phone values stay on the contact compatibility record and must never be
+// copied into merge audit payloads.
+export const contactIdentityObservations = pgTable("contact_identity_observations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  contactId: integer("contact_id").notNull().references(() => contacts.id),
+  identityKind: text("identity_kind").notNull(), // email | phone
+  normalizedValue: text("normalized_value"),
+  lookupToken: text("lookup_token").notNull(),
+  normalizationVersion: integer("normalization_version").notNull(),
+  sourceType: text("source_type").notNull(),
+  sourceId: text("source_id"),
+  countryCode: text("country_code"),
+  phoneEndpointType: text("phone_endpoint_type"),
+  phoneOwnership: text("phone_ownership"),
+  eligibility: text("eligibility").notNull().default("ineligible"),
+  confidence: integer("confidence").notNull().default(0),
+  invalidReason: text("invalid_reason"),
+  supersededAt: timestamp("superseded_at", { withTimezone: true }),
+  observedAt: timestamp("observed_at", { withTimezone: true }).notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("cio_observation_dedupe_uidx").on(table.contactId, table.identityKind, table.lookupToken, table.normalizationVersion, table.sourceType),
+  index("cio_contact_kind_idx").on(table.contactId, table.identityKind, table.observedAt),
+  index("cio_lookup_token_idx").on(table.identityKind, table.lookupToken),
+  index("cio_eligible_idx").on(table.identityKind, table.eligibility).where(sql`eligibility = 'eligible' AND superseded_at IS NULL`),
+]);
+export type ContactIdentityObservation = typeof contactIdentityObservations.$inferSelect;
+
+export const contactMergeOperations = pgTable("contact_merge_operations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  idempotencyKey: uuid("idempotency_key").notNull().unique(),
+  survivorContactId: integer("survivor_contact_id").notNull().references(() => contacts.id),
+  deprecatedContactId: integer("deprecated_contact_id").notNull().references(() => contacts.id),
+  status: text("status").notNull().default("previewed"),
+  actorId: text("actor_id").notNull(),
+  actorRole: text("actor_role").notNull(),
+  manifestVersion: integer("manifest_version").notNull(),
+  normalizationVersion: integer("normalization_version").notNull(),
+  previewHash: text("preview_hash").notNull(),
+  contactVersions: jsonb("contact_versions").notNull().default(sql`'{}'::jsonb`),
+  fieldDecisions: jsonb("field_decisions").notNull().default(sql`'{}'::jsonb`),
+  conflictReason: text("conflict_reason"),
+  ghlDisposition: text("ghl_disposition").notNull().default("none"),
+  reconciliationStatus: text("reconciliation_status").notNull().default("not_required"),
+  approvedAt: timestamp("approved_at", { withTimezone: true }),
+  executedAt: timestamp("executed_at", { withTimezone: true }),
+  undoneAt: timestamp("undone_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("cmo_pair_active_uidx").on(table.survivorContactId, table.deprecatedContactId)
+    .where(sql`status IN ('previewed', 'approved', 'executing', 'committed', 'reconciliation_pending', 'completed')`),
+  index("cmo_survivor_idx").on(table.survivorContactId),
+  index("cmo_deprecated_idx").on(table.deprecatedContactId),
+]);
+export type ContactMergeOperation = typeof contactMergeOperations.$inferSelect;
+
+export const contactMergeRedirects = pgTable("contact_merge_redirects", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  deprecatedContactId: integer("deprecated_contact_id").notNull().references(() => contacts.id),
+  survivorContactId: integer("survivor_contact_id").notNull().references(() => contacts.id),
+  operationId: uuid("operation_id").notNull().references(() => contactMergeOperations.id),
+  active: boolean("active").notNull().default(true),
+  retiredAt: timestamp("retired_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("cmr_active_deprecated_uidx").on(table.deprecatedContactId).where(sql`active`),
+  index("cmr_survivor_idx").on(table.survivorContactId),
+]);
+export type ContactMergeRedirect = typeof contactMergeRedirects.$inferSelect;
+
+export const contactMergeRelationshipActions = pgTable("contact_merge_relationship_actions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  operationId: uuid("operation_id").notNull().references(() => contactMergeOperations.id),
+  manifestVersion: integer("manifest_version").notNull(),
+  relationKey: text("relation_key").notNull(),
+  sourceRecordId: text("source_record_id").notNull(),
+  action: text("action").notNull(),
+  status: text("status").notNull().default("committed"),
+  beforeSnapshot: jsonb("before_snapshot").notNull().default(sql`'{}'::jsonb`),
+  afterSnapshot: jsonb("after_snapshot").notNull().default(sql`'{}'::jsonb`),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  undoneAt: timestamp("undone_at", { withTimezone: true }),
+}, (table) => [
+  uniqueIndex("cmra_operation_relation_record_uidx").on(table.operationId, table.relationKey, table.sourceRecordId),
+  index("cmra_operation_idx").on(table.operationId),
+]);
+
+export const contactMergeUndoRecords = pgTable("contact_merge_undo_records", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  operationId: uuid("operation_id").notNull().unique().references(() => contactMergeOperations.id),
+  requestedBy: text("requested_by").notNull(),
+  status: text("status").notNull().default("requested"),
+  reason: text("reason"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+});
+
+export const contactMergeReconciliations = pgTable("contact_merge_reconciliations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  operationId: uuid("operation_id").notNull().unique().references(() => contactMergeOperations.id),
+  status: text("status").notNull().default("pending"),
+  reason: text("reason").notNull(),
+  attempts: integer("attempts").notNull().default(0),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});

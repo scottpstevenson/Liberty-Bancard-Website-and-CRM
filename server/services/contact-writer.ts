@@ -14,6 +14,7 @@ import { normalizeGhlId } from "../utils/normalize";
 import { syncContactToGhl } from "./ghl-sync";
 import { READINESS_DEPENDENT_FIELDS, enqueueReadinessRecalculation } from "./contact-readiness";
 import { requestContactLeadScoring } from "./contact-lead-scoring-trigger";
+import { recordContactIdentityObservations } from "./contact-identity";
 
 // ---------------------------------------------------------------------------
 // Source category / type validation
@@ -236,6 +237,7 @@ export async function writeContact(args: {
 
     // A: Insert contact
     const [newContact] = await tx.insert(contacts).values(contactPayload).returning();
+    await recordContactIdentityObservations(tx as any, newContact, "contact_writer", provenance.eventKey);
 
     // B: Insert source event
     const [sourceEvent] = await tx.insert(contactSourceEvents).values({

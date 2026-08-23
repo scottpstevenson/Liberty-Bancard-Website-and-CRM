@@ -724,6 +724,16 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
           }
         }
 
+        // Contact redirects are resolved only at a live delivery boundary.
+        // Historical reads intentionally keep their original contact IDs.
+        if (enrollment.contactId) {
+          const { resolveLiveContactId } = await import("./contact-identity");
+          const resolvedContactId = await resolveLiveContactId(enrollment.contactId);
+          if (resolvedContactId !== enrollment.contactId) {
+            await storage.updateSequenceEnrollment(enrollment.id, { contactId: resolvedContactId });
+            enrollment.contactId = resolvedContactId;
+          }
+        }
         let contact: any = null;
         if (enrollment.contactId) {
           contact = await storage.getContact(enrollment.contactId);

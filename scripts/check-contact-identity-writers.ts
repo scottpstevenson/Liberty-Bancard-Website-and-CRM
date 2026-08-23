@@ -1,0 +1,59 @@
+#!/usr/bin/env npx tsx
+/**
+ * BT-07 static ownership gate. Contact identity evidence is transactional; a
+ * future direct writer must be reviewed here rather than silently bypassing it.
+ */
+import fs from "fs";
+import path from "path";
+
+const root = process.cwd();
+const read = (file: string) => fs.readFileSync(path.join(root, file), "utf8");
+const failures: string[] = [];
+function walk(directory: string): string[] {
+  return fs.readdirSync(path.join(root, directory), { withFileTypes: true }).flatMap((entry) => {
+    const relative = path.join(directory, entry.name);
+    if (entry.isDirectory()) return entry.name === "tests" ? [] : walk(relative);
+    return /\.(?:ts|tsx)$/.test(entry.name) ? [relative] : [];
+  });
+}
+
+// These are the only maintained production sinks allowed to create or mutate
+// raw contact email/phone. Every one must call an observation adapter in the
+// same transactional path. Tests are intentionally excluded: they are fixtures,
+// not production identity writers.
+const APPROVED_IDENTITY_SINKS: Record<string, RegExp> = {
+  "server/services/contact-writer.ts": /recordContactIdentityObservations\(/,
+  "server/storage/contacts.ts": /recordContactIdentityObservations\(/,
+  "server/routes/imports.ts": /recordContactIdentityObservations(?:ForContacts)?\(/,
+  "server/services/public-form-submission.ts": /recordContactIdentityObservations\(/,
+  "server/services/ghl-sync.ts": /recordContactIdentityObservations\(/,
+  "server/scripts/import-leads.ts": /recordContactIdentityObservationsForPg\(/,
+  "server/scripts/import-100k-leads.ts": /recordContactIdentityObservationsForPg\(/,
+};
+function hasIdentityWriter(source: string): boolean {
+  if (/\.insert\(contacts\)|\bINSERT\s+INTO\s+contacts\b/i.test(source)) return true;
+  if (/\bUPDATE\s+contacts\s+SET[\s\S]{0,300}?\b(?:email|phone)\s*=/i.test(source)) return true;
+  return /\.update\(contacts\)[\s\S]{0,500}?\.set\(\{[^}]*\b(?:email|phone)\s*:/m.test(source);
+}
+for (const file of walk("server")) {
+  const source = read(file);
+  if (!hasIdentityWriter(source)) continue;
+  const requiredAdapter = APPROVED_IDENTITY_SINKS[file];
+  if (!requiredAdapter) {
+    failures.push(`unapproved production contact identity writer: ${file}`);
+  } else if (!requiredAdapter.test(source)) {
+    failures.push(`approved identity writer lacks canonical observation adapter: ${file}`);
+  }
+}
+
+const sourceFiles = ["server/routes/crm-operations.ts", "server/routes/imports.ts", "server/storage/contacts.ts"];
+for (const file of sourceFiles) {
+  const source = read(file);
+  if (/\bstorage\.mergeContacts\s*\(/.test(source)) failures.push(`${file} still invokes legacy storage.mergeContacts`);
+}
+if (failures.length) {
+  console.error("Contact identity writer gate failed:");
+  failures.forEach((failure) => console.error(`  - ${failure}`));
+  process.exit(1);
+}
+console.log("✓ Contact identity writers are transactionally observed and legacy merge callers are absent");

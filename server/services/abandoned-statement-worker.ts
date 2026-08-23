@@ -19,6 +19,11 @@ export async function runAbandonedStatementCheck(): Promise<{ checked: number; t
       checked++;
       try {
         const marker = `statement_request_id:${req.id}`;
+        // Statement requests retain their original subject for evidence, but
+        // any live enrollment must use the fail-closed redirect resolution.
+        const { resolveLiveContactRedirect } = await import("./contact-identity");
+        const redirect = await resolveLiveContactRedirect(req.contactId);
+        const liveContactId = redirect.effectiveContactId;
 
         const existingTask = await db.select({ id: tasks.id })
           .from(tasks)
@@ -58,7 +63,7 @@ export async function runAbandonedStatementCheck(): Promise<{ checked: number; t
             enrollmentNote = ` (Statement-chase sequence is ${chaseSeq.status} — automated outreach skipped.)`;
           } else {
             // Family-level dedup: skip if already actively enrolled
-            const existingEnrollments = await storage.getContactEnrollments(req.contactId).catch(() => []);
+            const existingEnrollments = await storage.getContactEnrollments(liveContactId).catch(() => []);
             const alreadyEnrolled = existingEnrollments.some(
               (e: any) =>
                 e.sequenceId === chaseSeq.id &&
@@ -68,7 +73,7 @@ export async function runAbandonedStatementCheck(): Promise<{ checked: number; t
             if (alreadyEnrolled) {
               enrollmentNote = " (Contact already enrolled in statement-chase sequence — automated outreach ongoing.)";
             } else {
-              const eligibility = await canEnrollContactInSequence(req.contactId, {
+            const eligibility = await canEnrollContactInSequence(liveContactId, {
                 id: chaseSeq.id,
                 name: chaseSeq.name,
                 status: chaseSeq.status,
@@ -80,7 +85,7 @@ export async function runAbandonedStatementCheck(): Promise<{ checked: number; t
               if (eligibility.allowed) {
                 const enrollment = await storage.createSequenceEnrollment({
                   sequenceId: chaseSeq.id,
-                  contactId: req.contactId,
+                  contactId: liveContactId,
                   status: "active",
                   nextActionAt: new Date(),
                   currentStep: 0,
@@ -96,13 +101,15 @@ export async function runAbandonedStatementCheck(): Promise<{ checked: number; t
                   await storage.createAuditLog({
                     action: "abandoned_statement_sequence_enrolled",
                     entityType: "contact",
-                    entityId: req.contactId,
+                    entityId: liveContactId,
                     actorType: "system",
                     details: {
                       statementRequestId: req.id,
                       sequenceId: chaseSeq.id,
                       sequenceName: chaseSeq.name,
                       enrollmentId: enrollment.id,
+                      requestedContactId: req.contactId,
+                      redirectOperationIds: redirect.operationIds,
                     },
                   });
                 }
