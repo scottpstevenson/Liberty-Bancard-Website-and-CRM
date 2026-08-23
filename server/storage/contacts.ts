@@ -103,11 +103,12 @@ import { coerceDateFields } from "../utils/date-coerce";
   import { type PaginationParams, type PaginatedResult, normalizePagination } from "./_shared";
 
   export class ContactsStorage {
-    async getContacts(params?: PaginationParams & { emailStatus?: string; assignedTo?: string }) {
+    async getContacts(params?: PaginationParams & { emailStatus?: string; assignedTo?: string; recordClass?: "production" }) {
     const { limit, offset } = normalizePagination(params);
     const conditions: ReturnType<typeof eq>[] = [];
     if (params?.emailStatus) conditions.push(eq(contacts.emailStatus, params.emailStatus));
     if (params?.assignedTo) conditions.push(eq(contacts.assignedTo, params.assignedTo));
+    if (params?.recordClass === "production") conditions.push(eq(contacts.recordClass, "production"));
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
     const [totalResult] = await db.select({ count: count() }).from(contacts).where(whereClause);
     const data = await db.select().from(contacts).where(whereClause).orderBy(desc(contacts.createdAt)).limit(limit).offset(offset);

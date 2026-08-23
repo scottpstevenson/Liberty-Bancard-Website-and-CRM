@@ -190,7 +190,8 @@ export async function getCurrentClass(
  *   commercial_reporting  — ONLY production counts in metrics; blocks others
  *   financial_payout      — ONLY production included in payouts
  *   transactional_response — allows unknown (newly-submitted form contacts); blocks non-production
- *   internal_test         — allows any class (test/synthetic explicitly permitted)
+ *   internal_test         — test-only harness work; never permitted in a
+ *                           non-test process
  */
 export async function authorizeUse(params: {
   contactId?: number;
@@ -200,8 +201,20 @@ export async function authorizeUse(params: {
 }): Promise<ClassificationAuthResult> {
   const { purpose } = params;
 
-  // internal_test is always allowed — test runner isolation
+  // `internal_test` must never become a production escape hatch. It exists only
+  // for isolated test harnesses, whose database is separately verified before
+  // application imports. A caller-controlled purpose string is not sufficient
+  // authorization outside NODE_ENV=test.
   if (purpose === "internal_test") {
+    if (process.env.NODE_ENV !== "test") {
+      return {
+        allowed: false,
+        recordClass: "unknown",
+        purpose,
+        reasonCode: "COMMERCIAL_CLASS_CONFLICT",
+        reason: "internal_test authorization is available only in NODE_ENV=test",
+      };
+    }
     return {
       allowed: true,
       recordClass: "unknown",

@@ -1,5 +1,5 @@
 import { Queue, Worker, type ConnectionOptions, type Job } from "bullmq";
-import { getRedisConnection, isUsingMockRedis } from "./queue-connection";
+import { getBullMqTestPrefix, getRedisConnection, isUsingMockRedis } from "./queue-connection";
 import { storage } from "../storage";
 
 const dlqAlertCooldown = new Map<string, number>();
@@ -685,6 +685,7 @@ class QueueManager {
   }
 
   private connection!: ConnectionOptions;
+  private redisKeyPrefix: string | undefined;
 
   private throughputBaseline: Map<string, ThroughputEntry> = new Map();
 
@@ -704,6 +705,7 @@ class QueueManager {
   }
 
   async initialize(): Promise<void> {
+    this.redisKeyPrefix = getBullMqTestPrefix();
     this.connection = await getRedisConnection();
     await this.setupQueues();
     await this.setupWorkers();
@@ -800,6 +802,7 @@ class QueueManager {
     for (const config of this.activeConfigs()) {
       const queue = new Queue(config.name, {
         connection: this.connection,
+        prefix: this.redisKeyPrefix,
         defaultJobOptions: {
           attempts: config.attempts,
           backoff: {
@@ -821,6 +824,7 @@ class QueueManager {
       const processor = this.buildProcessor(config.name, featureFlags);
       const worker = new Worker(config.name, processor, {
         connection: this.connection,
+        prefix: this.redisKeyPrefix,
         concurrency: config.concurrency,
         // Give each job 2 minutes to complete before BullMQ considers the lock
         // expired. The previous default of 30 s was too short for Serper/GHL

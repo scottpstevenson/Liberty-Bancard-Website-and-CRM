@@ -64,7 +64,7 @@ export async function buildDailyDigest(): Promise<{
     resolvedTicketsRow,
   ] = await Promise.all([
     pool.query<{ cnt: string }>(`
-      SELECT COUNT(*)::text AS cnt FROM contacts WHERE archived_at IS NULL AND created_at >= $1
+      SELECT COUNT(*)::text AS cnt FROM contacts WHERE archived_at IS NULL AND record_class = 'production' AND created_at >= $1
     `, [twentyFourHoursAgo]),
     pool.query<{ first_name: string; last_name: string; company_name: string | null; lead_source: string | null }>(`
       SELECT first_name, last_name, company_name, lead_source
@@ -213,22 +213,23 @@ export async function buildWeeklyDigest(): Promise<{
     avgCycleRow,
   ] = await Promise.all([
     pool.query<{ cnt: string }>(`
-      SELECT COUNT(*)::text AS cnt FROM contacts WHERE archived_at IS NULL AND created_at >= $1
+      SELECT COUNT(*)::text AS cnt FROM contacts
+      WHERE archived_at IS NULL AND record_class = 'production' AND created_at >= $1
     `, [sevenDaysAgo]),
     pool.query<{ cnt: string }>(`
-      SELECT COUNT(*)::text AS cnt FROM deals WHERE archived_at IS NULL AND created_at >= $1
+      SELECT COUNT(*)::text AS cnt FROM deals WHERE archived_at IS NULL AND record_class = 'production' AND created_at >= $1
     `, [sevenDaysAgo]),
     pool.query<{ owner: string | null; estimated_gross_profit_monthly: string | null }>(`
       SELECT owner, estimated_gross_profit_monthly FROM deals
-      WHERE archived_at IS NULL AND stage = 'Closed Won' AND closed_at >= $1
+      WHERE archived_at IS NULL AND record_class = 'production' AND stage = 'Closed Won' AND closed_at >= $1
     `, [sevenDaysAgo]),
     pool.query<{ cnt: string }>(`
       SELECT COUNT(*)::text AS cnt FROM deals
-      WHERE archived_at IS NULL AND stage = 'Closed Lost' AND closed_at >= $1
+      WHERE archived_at IS NULL AND record_class = 'production' AND stage = 'Closed Lost' AND closed_at >= $1
     `, [sevenDaysAgo]),
     pool.query<{ cnt: string }>(`
       SELECT COUNT(*)::text AS cnt FROM deals
-      WHERE archived_at IS NULL AND stage = 'Proposal Sent' AND updated_at >= $1
+      WHERE archived_at IS NULL AND record_class = 'production' AND stage = 'Proposal Sent' AND updated_at >= $1
     `, [sevenDaysAgo]),
     pool.query<{ cnt: string }>(`
       SELECT COUNT(*)::text AS cnt FROM tickets WHERE created_at >= $1
@@ -242,22 +243,22 @@ export async function buildWeeklyDigest(): Promise<{
     pool.query<{ total_value: string }>(`
       SELECT COALESCE(SUM(CASE WHEN estimated_gross_profit_monthly IS NOT NULL AND estimated_gross_profit_monthly != ''
         THEN CAST(REGEXP_REPLACE(estimated_gross_profit_monthly, '[^0-9.]', '', 'g') AS DECIMAL) ELSE 0 END), 0)::text AS total_value
-      FROM deals WHERE archived_at IS NULL AND pipeline = 'sales'
+      FROM deals WHERE archived_at IS NULL AND record_class = 'production' AND pipeline = 'sales'
         AND stage NOT IN ('Closed Won', 'Closed Lost')
     `),
     pool.query<{ src: string; cnt: string }>(`
       SELECT COALESCE(NULLIF(utm_source, ''), NULLIF(lead_source, ''), 'direct') AS src, COUNT(*)::text AS cnt
-      FROM contacts WHERE archived_at IS NULL AND created_at >= $1
+      FROM contacts WHERE archived_at IS NULL AND record_class = 'production' AND created_at >= $1
       GROUP BY src ORDER BY cnt::int DESC LIMIT 5
     `, [sevenDaysAgo]),
     pool.query<{ owner: string; wins: string }>(`
       SELECT COALESCE(owner, 'Unassigned') AS owner, COUNT(*)::text AS wins
-      FROM deals WHERE archived_at IS NULL AND stage = 'Closed Won' AND closed_at >= $1
+      FROM deals WHERE archived_at IS NULL AND record_class = 'production' AND stage = 'Closed Won' AND closed_at >= $1
       GROUP BY owner ORDER BY wins::int DESC LIMIT 5
     `, [sevenDaysAgo]),
     pool.query<{ avg_days: string }>(`
       SELECT COALESCE(AVG(EXTRACT(EPOCH FROM (closed_at - created_at)) / 86400), 0)::text AS avg_days
-      FROM deals WHERE archived_at IS NULL AND stage = 'Closed Won'
+      FROM deals WHERE archived_at IS NULL AND record_class = 'production' AND stage = 'Closed Won'
         AND closed_at >= $1 AND created_at IS NOT NULL AND closed_at IS NOT NULL
     `, [sevenDaysAgo]),
   ]);

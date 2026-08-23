@@ -1,0 +1,557 @@
+# POST-MERGE REPAIR — #1628 + #1640 CORRECTIONS
+
+## MODE
+
+PREFLIGHT + BUILD.
+
+Tasks **#1628 and #1640 are already merged**. Do not reopen, revert, or represent them as unmerged. This is a new post-merge repair task based on a live audit of GitHub `main`.
+
+Connect to the live repository, verify the baseline has not drifted, then implement every safe P0, P1 and P2 correction below on a new branch.
+
+Repository:
+
+`https://github.com/scottpstevenson/Liberty-Bancard-Website-and-CRM`
+
+Audited baseline:
+
+* Branch: `main`
+* HEAD: `2fba4914a3f9e2f20911402bcbcf2a33974fdaf1`
+* Repository visibility: public
+* Branch protection: not enabled
+* Current workflow: `.github/workflows/ci.yml`
+* Current migration head: `0150_commercial_classification`
+* Drizzle journal entries: 155
+* Current pre-deploy inventory: 45 suites
+* Latest GitHub Actions run failed during `npx tsc --noEmit`
+
+Do not trust these facts blindly. Fetch `origin/main` and verify them before editing.
+
+Do not push directly to `main`. Create:
+
+`agent/post-merge-1628-1640-repairs`
+
+When complete, commit, push and open a draft PR targeting `main`.
+
+---
+
+# REQUIRED SEQUENCE
+
+Repository baseline → current GitHub Actions evidence → VFC table → targeted searches → verified root causes → source-of-truth checks → blast radius → data/auth/concurrency/external-side-effect checks → corrected plan → implementation → tests → post-build searches → complete diff review → final VFC → draft PR.
+
+Do not stop after finding one P0. Continue until the entire affected scope has been audited.
+
+Preserve unrelated work. Do not rewrite existing migration files, use `db push`, weaken TypeScript, weaken assertions, call live providers, mutate shared production/staging data, delete Git history or change GitHub repository settings without explicit authorization.
+
+---
+
+# PREFLIGHT CORRECTIONS TO OLD TASK CLAIMS
+
+Verify and use the current reality:
+
+1. `.github/workflows/wave12-ci.yml` is no longer the workflow owner. The current owner is `.github/workflows/ci.yml`.
+
+2. `scripts/pre-deploy.ts` now contains 45 suites, not 34.
+
+3. `scripts/ci-suite-manifest.ts` classifies them as:
+
+   * 14 `deterministic-static`
+   * 21 `deterministic-integration`
+   * 4 `server-required`
+   * 6 `server-optional`
+
+4. CI should execute all 39 CI-required suites: static, deterministic integration and server-required. The six server-optional suites requiring credentials or production-like runtime evidence must not be made fake-green.
+
+5. Migration head is `0150_commercial_classification`, not `0141`.
+
+6. `scripts/test-post-enrichment-intent-recovery.ts` no longer falls back to `DATABASE_URL`, but its isolation policy must be reconciled with the canonical test database guard.
+
+7. `scripts/smoke-role-guards.ts` already hard-fails through `process.exit(1)`.
+
+8. `scripts/test-pause-cycle-unit.ts` already contains extensive pre-import database safeguards. Its `applyPauseMutation()` calls exercise production behavior and must not be mechanically replaced.
+
+9. The CSRF scanner currently passes. Do not blindly replace every raw `fetch()` call; distinguish server-exempt public/token routes from authenticated mutations.
+
+---
+
+# P0 — REQUIRED BEFORE DEPLOYMENT
+
+## P0-01 — Repair current TypeScript failure
+
+The latest exact-SHA GitHub Actions run failed during:
+
+`npx tsc --noEmit`
+
+Obtain the actual diagnostics from GitHub Actions or reproduce them locally with a clean dependency install.
+
+Fix every task-relevant TypeScript error. Do not:
+
+* add a blanket `@ts-ignore`;
+* weaken `strict` settings;
+* exclude affected files;
+* change CI to tolerate errors;
+* remove the typecheck step.
+
+If the failure is an unrelated existing backlog that cannot safely be corrected in this task, record the exact diagnostics, file owners and count, but continue all independent repairs. Final status remains blocked until the required exact-SHA CI check is green.
+
+## P0-02 — Make CI execute the canonical suite manifest
+
+Current CI invokes only 17 of the 39 suites classified as CI-required. It omits 22 suites, including safety-critical transport, GHL, BullMQ, pause, sequence, NBA and role-policy gates.
+
+Relevant owners:
+
+* `.github/workflows/ci.yml`
+* `scripts/ci-suite-manifest.ts`
+* `scripts/pre-deploy.ts`
+
+Required implementation:
+
+1. Add `npx tsx scripts/ci-suite-manifest.ts --check` as a required CI step.
+
+2. Add or extend a canonical manifest-driven CI runner. Do not hardcode another independent list that can drift.
+
+3. Execute:
+
+   * all 14 deterministic-static suites;
+   * all 21 deterministic-integration suites against disposable PostgreSQL/Redis;
+   * all 4 server-required suites after starting the application and passing a bounded health check.
+
+4. Do not execute the six `server-optional` credential-dependent suites as fake CI coverage.
+
+5. Use provider-denial controls from the manifest:
+
+   * GHL fail-fast/test transport;
+   * Sunbiz disabled;
+   * Serper disabled or fake gateway;
+   * no live SMTP, OpenAI, ZeroBounce or other provider requests.
+
+6. Give every CI run a unique Redis prefix.
+
+7. Ensure the runner exits non-zero on the first or aggregated suite failure.
+
+8. Ensure the workflow tests the exact checked-out SHA.
+
+9. Preserve separate `Static Checks` and `Integration Tests` check names unless a verified GitHub configuration requires different names.
+
+The following manifest suites were missing during the audit; verify the list against current code:
+
+* `scripts/release-artifact-gate.ts`
+* `scripts/test-serper-gateway.ts`
+* `scripts/test-speed-to-lead.ts`
+* `scripts/test-transport-dispatch.ts`
+* `scripts/test-ghl-webhooks.ts`
+* `scripts/test-ghl-decoupling.ts`
+* `scripts/test-appointment-statement.ts`
+* `scripts/test-bullmq-resilience.ts`
+* `scripts/test-pause-fence.ts`
+* `scripts/test-outbound-pause-authority.ts`
+* `scripts/test-outbound-boundary-1626.ts`
+* `scripts/test-email-signatures.ts`
+* `scripts/test-arbitration.ts`
+* `scripts/test-statement-acquisition.ts`
+* `scripts/test-channel-orchestrator.ts`
+* `scripts/test-nba.ts`
+* `scripts/smoke-attrition-cooldown.ts`
+* `scripts/test-backlog-preview.ts`
+* `scripts/test-sequence-compliance.ts`
+* `scripts/test-new-lead-enrollment-policy.ts`
+* `scripts/smoke-role-guards.ts`
+* `scripts/seo-audit.ts`
+
+## P0-03 — Prevent integration tests from touching shared databases
+
+### `scripts/test-commercial-classification.ts`
+
+Current problems to verify:
+
+* imports `server/db` before validating isolation;
+* only refuses `NODE_ENV=production`;
+* creates contacts, immutable classification events and commands;
+* does not clean immutable events;
+* can therefore contaminate a reusable development or staging database.
+
+Required fix:
+
+1. Create or reuse one dependency-free test-database guard.
+
+2. Run it before importing `server/db`, storage, queues or services.
+
+3. Require:
+
+   * `NODE_ENV=test`;
+   * `TEST_DATABASE_URL`;
+   * explicit disposable-database opt-in such as `CI_DISPOSABLE_DB=true`;
+   * verified `current_database()` identity;
+   * active application DB resolves to the approved test database;
+   * verified inequality from any configured production database;
+   * a unique Redis prefix where Redis is involved.
+
+4. Dynamically import DB-dependent modules only after the guard passes.
+
+5. Run immutable-event tests only in an ephemeral database that is dropped after the job. Do not attempt unsafe table-by-table cleanup of immutable evidence.
+
+### `scripts/test-sequence-compliance.ts`
+
+Current problems to verify:
+
+* imports DB, storage, sequence-worker and outbound-control modules before proving test isolation;
+* changes canonical pause/coordinator state;
+* correlation-scoped hold cleanup exists but does not protect against connecting to the wrong database.
+
+Required fix:
+
+* use the same pre-import disposable-database guard;
+* dynamically import DB/services after validation;
+* preserve correlation-scoped cleanup;
+* preserve assertions that non-test holds remain intact;
+* fail if test-owned holds, settings, counters, enrollments, queue entries or provider-control state survive teardown;
+* never `TRUNCATE` or bulk-clear shared coordinator tables.
+
+### `scripts/test-outbound-pause-authority.ts`
+
+Split pure/static assertions from DB integration if necessary. Put every DB-backed assertion behind the same guard.
+
+### `scripts/test-post-enrichment-intent-recovery.ts`
+
+Use the centralized verified-database guard. Do not rely solely on comparing URL strings. The guard must verify the actual database identity and prove it is disposable. It must never fall back to an undeclared production/shared connection.
+
+## P0-04 — Exclude nonproduction records from default commercial reporting
+
+Audit every default commercial metric and portfolio query, including:
+
+* `server/routes/portfolio.ts`
+* `server/routes/analytics.ts`
+* `server/services/executive-kpi.ts`
+* pipeline totals;
+* deal counts;
+* revenue/profit totals;
+* top-rep metrics;
+* conversion funnels;
+* deals closing;
+* daily funnel metrics;
+* residual/payout and executive aggregates.
+
+Current audit evidence:
+
+* `/api/portfolio` does not consistently filter by `record_class`.
+* Multiple analytics queries count all deals/contacts without classification filtering.
+* `executive-kpi.ts` filters some direct deal queries but reads legacy `daily_funnel_metrics` without classification-aware lineage.
+* Some lineage totals are calculated after filtering and therefore incorrectly report zero excluded/unknown records.
+
+Required implementation:
+
+1. Create one reusable commercial production-eligibility predicate owned by the classification/reporting layer.
+2. Default commercial reporting must include only verified `production`.
+3. When a fact links to another commercial root, require consistent production eligibility across the lineage.
+4. `test`, `demo`, `synthetic` and `unknown` must not affect default production counts, revenue, funnel, conversion, portfolio or executive metrics.
+5. Any manager/admin nonproduction view must be explicit, authorized, visibly labeled and audited. It must never be the default.
+6. Make aggregate rows classification-aware using an immutable class snapshot, verified classified-root lineage or both.
+7. Rebuild affected aggregates from production-eligible sources.
+8. Compute included, excluded and unknown counts from the full source population before filtering.
+9. Add integration fixtures for production, test, demo, synthetic and unknown and prove only production affects every default endpoint.
+
+If schema support is required, add a new additive migration numbered after `0150`. Do not edit `0150`.
+
+## P0-05 — Close transactional and internal-test classification bypasses
+
+Relevant owners:
+
+* `server/services/commercial-classification-authority.ts`
+* `server/services/sdr/ghl-client.ts`
+* `server/services/smtp-email.ts`
+* callers that choose `transactional_response` or `internal_test`
+
+Current behavior to verify:
+
+* `internal_test` is always allowed.
+* `transactional_response` allows `unknown`.
+* a missing subject is returned as `unknown`;
+* GHL transactional sends can bypass classification when `dbContactId` is absent;
+* certain SMTP paths can self-declare transactional behavior without verified inbound context.
+
+Required implementation:
+
+1. Remove the missing-contact transactional bypass.
+
+2. Require an existing classified local subject before an external mutation/send.
+
+3. Replace caller-selected transactional strings with a server-issued authorization context tied to:
+
+   * immutable inbound request/event ID;
+   * intended recipient;
+   * channel;
+   * permitted response purpose;
+   * short expiry;
+   * one-time/idempotent use.
+
+4. Allow an unknown record only for narrowly enumerated immediate acknowledgements backed by that verified context.
+
+5. `internal_test` must require all of:
+
+   * `NODE_ENV=test`;
+   * disposable test database;
+   * explicit test opt-in;
+   * provider fail-fast/fake transport.
+
+6. Production runtime must reject `internal_test`.
+
+7. Add negative tests for:
+
+   * missing subject;
+   * fabricated transactional purpose;
+   * expired context;
+   * recipient mismatch;
+   * replay;
+   * unknown marketing;
+   * production attempt using `internal_test`.
+
+---
+
+# P1 — REQUIRED RELIABILITY AND SAFETY CORRECTIONS
+
+## P1-01 — Migration replay validation
+
+The workflow currently bootstraps `0109_fearless_starhawk.sql` and runs `server/db-migrate.ts`, but does not verify the final applied hash set.
+
+Add a post-migration validator that:
+
+* compares canonical applied migration hashes with `migrations/meta/_journal.json`;
+* handles guarded `0054` separately and explicitly;
+* verifies the `0150` columns, constraints, triggers and indexes;
+* fails on missing, unexpected or mismatched canonical migrations;
+* tests both a clean/snapshot path and a legacy upgraded path.
+
+Do not use a naïve row-count assertion if guarded `0054` adds a ledger row outside the standard journal.
+
+## P1-02 — Correct destructive cleanup guard ordering
+
+Relevant files:
+
+* `scripts/cleanup-demo-data.ts`
+* `scripts/cleanup-test-data.ts`
+* `scripts/purge-test-contacts.ts`
+* `scripts/cleanup-smoke-contacts.ts`
+* `scripts/test-cleanup-guard.ts`
+
+The destructive scripts currently import `server/db` before running their safety guard.
+
+Required fix:
+
+* move the guard to a dependency-free module;
+* validate before any DB module is imported;
+* dynamically import the DB only after validation;
+* require verified disposable database identity;
+* require an explicit destructive-test opt-in;
+* prefer dropping an ephemeral database/schema over broad table deletion.
+
+Expand guard tests to cover:
+
+* missing test URL;
+* `NODE_ENV` mismatch;
+* active/test URL mismatch;
+* production URL collision;
+* malformed URL;
+* deceptive database name;
+* missing disposable sentinel;
+* allowed disposable test path;
+* proof that DB initialization did not occur on a rejected invocation.
+
+## P1-03 — Remove dead heuristic purge implementation
+
+`server/routes/admin.ts` returns `410` for the old destructive purge route, but the previous heuristic purge body remains under unreachable code.
+
+Delete the unreachable destructive implementation entirely. Preserve the `410` response and direct operators toward non-destructive classification/reconciliation tooling.
+
+Add a static regression check that fails if filename, email-prefix or name-pattern bulk-purge SQL is reintroduced.
+
+## P1-04 — Enforce idempotency payload equality
+
+`createPreviewCommand()` currently treats an idempotency-key conflict as a harmless duplicate without proving the payload is the same.
+
+Required fix:
+
+* persist a canonical immutable payload/evidence hash;
+* on conflict, load the existing command and compare subject, target class, evidence and requester;
+* return the original command only for an identical replay;
+* return typed `409 IDEMPOTENCY_KEY_REUSED` for a different payload;
+* add simultaneous/concurrent replay tests.
+
+## P1-05 — Prevent caller-forged classification snapshots
+
+Do not allow callers to supply authoritative `recordClassAtEvent` values.
+
+Required fix:
+
+* resolve the class from the authoritative subject inside the same claim/send transaction;
+* remove or make private any caller override;
+* add database `CHECK` constraints for snapshot enum values in a new additive migration;
+* fail closed if the schema cannot store the snapshot;
+* do not silently retry an old INSERT that omits classification evidence.
+
+## P1-06 — Complete commercial root/fact lineage
+
+Inventory independent commercial facts and roots, including merchant applications, merchant profiles, MIDs, residual imports, residuals, payouts, executive snapshots and daily funnel facts.
+
+For each one, either:
+
+* store an immutable classification snapshot; or
+* enforce a verified foreign-key lineage to a classified root.
+
+New rows default to `unknown`. Do not backfill historical rows to `production` from filename, email, name, source prefix or other heuristics.
+
+---
+
+# P2 — GOVERNANCE AND REGRESSION CORRECTIONS
+
+## P2-01 — Add audit authority document
+
+Create `docs/AUDIT_AUTHORITY.md`.
+
+It must:
+
+* identify the original audits as immutable historical inputs;
+* designate exactly one active master index;
+* designate exactly one active roadmap;
+* designate exactly one runtime verification register;
+* designate exactly one reconciliation ledger;
+* name the owner and update cadence for each category;
+* prohibit creating a second active authority without archiving/superseding the predecessor.
+
+Do not rewrite or summarize the original audit documents.
+
+## P2-02 — Expand commercial-classification test coverage
+
+Extend static and integration tests to cover:
+
+* portfolio exclusions;
+* analytics exclusions;
+* executive KPI exclusions;
+* all five classes;
+* absent subject;
+* missing transactional context;
+* forged snapshot;
+* aggregate lineage;
+* command idempotency mismatch;
+* concurrent classification attempts;
+* pass/failure/timeout teardown;
+* no live provider call.
+
+Do not keep the current assertion that an unknown contact can always receive a transactional response without verified context.
+
+## P2-03 — Narrow CSRF scanner exemptions
+
+The current CSRF scanner passes. Preserve legitimate public/token-based exceptions.
+
+Replace broad whole-file exemptions with per-call-site method/path/reason entries so a future authenticated mutation in the same file cannot inherit an unrelated exemption.
+
+---
+
+# GITHUB AND HISTORY OPERATIONS
+
+Do not delete `.github/workflows/ci.yml` to unblock pushes.
+
+Do not change GitHub repository visibility, branch rules or protected checks automatically.
+
+In the final report, provide the owner action:
+
+1. After CI is green, open GitHub Settings → Rules → Rulesets.
+2. Protect `main`.
+3. Require pull requests.
+4. Require `Static Checks` and `Integration Tests`.
+5. Require the branch to be current.
+6. Block force pushes and deletion.
+7. Limit emergency bypass to a documented owner.
+
+The repository is public. The current tracked-file scanner passing does not prove historical sensitive objects were purged. Do not rewrite history automatically. Report history cleanup and credential rotation as separate owner-authorized operations if prohibited objects remain reachable.
+
+---
+
+# KILL LINES
+
+* If CI can pass while omitting any of the 39 CI-required manifest suites, the repair has failed.
+* If exact-SHA TypeScript checking is red, final status cannot be safe to deploy.
+* If any test can initialize a shared DB connection before validating disposable test identity, the repair has failed.
+* If test/demo/synthetic/unknown records affect default commercial reporting, the repair has failed.
+* If a missing subject or caller-selected transactional purpose can authorize a provider mutation, the repair has failed.
+* If `internal_test` works in production runtime, the repair has failed.
+* If assertions, typechecking, RBAC, CSRF, pause authority or provider-denial controls are weakened, stop.
+* If a live provider is called, stop.
+* If shared production/staging data is mutated, stop.
+* If an applied migration is edited or `db push` is used, stop.
+* If cleanup uses filename/email/name heuristics against production data, stop.
+* If Git history is rewritten without explicit owner authorization, stop.
+
+---
+
+# REQUIRED TESTS AND GATES
+
+Run and report the real command, exit code and result:
+
+```bash
+npx tsx scripts/ci-suite-manifest.ts --check
+npx tsx scripts/check-migration-integrity.ts
+npx tsx scripts/test-commercial-classification-static.ts
+npx tsx scripts/scan-csrf-fetch.ts
+npx tsx scripts/scan-tracked-files.ts
+npx tsx scripts/compliance-scan.ts
+npx tsx scripts/test-cleanup-guard.ts
+npx tsx scripts/test-commercial-classification.ts
+npx tsx scripts/test-outbound-pause-authority.ts
+npx tsx scripts/test-sequence-compliance.ts
+npx tsx scripts/smoke-role-guards.ts
+npx tsc --noEmit
+npm run build
+git diff --check
+```
+
+DB-backed tests must run only against the disposable CI database. Server-required tests must run against a locally started test server with bounded readiness and shutdown.
+
+Also validate the workflow YAML and inspect the GitHub Actions result for the exact branch SHA.
+
+Do not claim a skipped, mocked-away or locally unavailable gate passed.
+
+---
+
+# DIFF REVIEW
+
+Before committing, run:
+
+```bash
+git status --short
+git diff --stat
+git diff
+git diff --check
+```
+
+Confirm:
+
+* only intended files changed;
+* no secrets, PII, credentials, generated output or lockfile drift;
+* no unrelated formatting;
+* no production configuration mutation;
+* no migration rewrite;
+* no live-data cleanup;
+* no provider enablement.
+
+---
+
+# FINAL RESPONSE
+
+Return:
+
+1. **VERDICT:** COMPLETE / PARTIALLY COMPLETE / DO NOT DEPLOY
+2. Starting and ending branch/SHA
+3. Preflight corrections
+4. P0/P1/P2 implementation table with `file:line`
+5. Migration status and any new additive migration
+6. Tests/gates with commands and exit codes
+7. Post-build grep evidence
+8. Kill-line verification
+9. Exact GitHub Actions run URL and result
+10. Runtime/provider/data-side-effect distinction
+11. Remaining external owner actions
+12. Draft PR URL
+13. Final status: **SAFE TO MERGE**, **SAFE TO MERGE — GITHUB SETTINGS PENDING**, or **DO NOT MERGE**
+
+Do not push to `main`. Open a draft PR from:
+
+`agent/post-merge-1628-1640-repairs`

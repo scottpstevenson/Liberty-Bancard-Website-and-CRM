@@ -24,6 +24,14 @@
  */
 
 import process from "process";
+import { assertDisposableTestInfrastructure } from "./test-infrastructure-guard";
+
+// Keep even the early module probes off shared infrastructure. Every dynamic
+// server import below happens only after this disposable DB/Redis verification.
+await assertDisposableTestInfrastructure({
+  operation: "outbound-pause-authority-test",
+  requireRedis: true,
+});
 
 let passed = 0;
 let failed = 0;

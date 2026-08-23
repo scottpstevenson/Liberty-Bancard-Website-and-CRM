@@ -19,7 +19,8 @@
  *
  * Usage:
  *   INTEGRATION_TESTS_OPT_IN=true \
- *   TEST_DATABASE_URL=<url> \
+ *   DATABASE_URL=<disposable-url> \
+ *   TEST_DATABASE_URL=<same-disposable-url> \
  *   TEST_REDIS_PREFIX=pe_test_ \
  *   NODE_ENV=test \
  *   npx tsx scripts/test-post-enrichment-intent-recovery.ts
@@ -27,6 +28,7 @@
 
 import { Pool } from "pg";
 import { randomUUID } from "crypto";
+import { assertDisposableTestInfrastructure } from "./test-infrastructure-guard";
 
 const OPT_IN = process.env.INTEGRATION_TESTS_OPT_IN === "true";
 if (!OPT_IN) {
@@ -34,49 +36,11 @@ if (!OPT_IN) {
   process.exit(0);
 }
 
-// VFC-02 fix: TEST_DATABASE_URL is required; never fall back to DATABASE_URL
-// (which may point to production or a shared database). All application module
-// imports that touch the DB are already dynamic (inside test functions), so
-// this top-level check fires before any server/db modules are loaded.
-const DB_URL = process.env.TEST_DATABASE_URL;
-if (!DB_URL) {
-  console.error("[PE-Recovery-Test] TEST_DATABASE_URL is required but not set.");
-  console.error("  Provide an isolated test database that differs from DATABASE_URL.");
-  console.error("  Example: TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/liberty_bancard_test");
-  process.exit(1);
-}
-if (DB_URL === process.env.DATABASE_URL) {
-  console.error("[PE-Recovery-Test] TEST_DATABASE_URL must differ from DATABASE_URL.");
-  console.error("  Both env vars point to the same database — this test requires an isolated DB.");
-  process.exit(1);
-}
-
-const pool = new Pool({ connectionString: DB_URL });
-
-// Verify current_database() identity before any application module imports.
-// APPROVED_DB_PATTERN matches typical test/dev/CI database names.
-{
-  const _identityClient = await pool.connect();
-  try {
-    const { rows: _dbRows } = await _identityClient.query<{ db: string }>(
-      "SELECT current_database() AS db",
-    );
-    const _currentDb = _dbRows[0]?.db ?? "";
-    const _approvedPattern = /(_test|_dev|_ci)$/;
-    const _approvedName = process.env.INTEGRATION_TEST_DB_NAME;
-    if (!_approvedPattern.test(_currentDb) && _currentDb !== _approvedName) {
-      console.error(
-        `[PE-Recovery-Test] HARD STOP: current_database()='${_currentDb}' does not match ` +
-        `an approved pattern (_test, _dev, _ci). Set INTEGRATION_TEST_DB_NAME=<name> to approve explicitly.`,
-      );
-      await pool.end();
-      process.exit(1);
-    }
-    console.log(`[PE-Recovery-Test] DB identity confirmed: current_database()='${_currentDb}'`);
-  } finally {
-    _identityClient.release();
-  }
-}
+await assertDisposableTestInfrastructure({
+  operation: "post-enrichment-intent-recovery-test",
+  requireRedis: true,
+});
+const pool = new Pool({ connectionString: process.env.TEST_DATABASE_URL });
 
 let passed = 0;
 let failed = 0;

@@ -5,62 +5,17 @@
  *
  * BT-06 KILL-LINE GUARD: This script will refuse to run unless:
  *   1. NODE_ENV === 'test'
- *   2. TEST_DATABASE_URL is set AND points to a different host/database than DATABASE_URL
+ *   2. DATABASE_URL and TEST_DATABASE_URL are the same declared disposable DB
  *
  * This prevents accidental execution against a production database.
  * See: https://github.com/libertybancard/platform/blob/main/docs/classification.md
  */
 
-import { db } from "../server/db.js";
-import { sql } from "drizzle-orm";
+import { assertDisposableTestInfrastructure } from "./test-infrastructure-guard";
 
-// ── BT-06: Safety guard — refuse if not in a verified test environment ────────
-function assertTestEnvironment(): void {
-  if (process.env.NODE_ENV !== "test") {
-    console.error(
-      "BT-06 KILL LINE: cleanup-demo-data.ts refused to run.\n" +
-      "  NODE_ENV must be 'test' (currently: " + (process.env.NODE_ENV ?? "undefined") + ").\n" +
-      "  This script deletes ALL enrollments, ALL tasks, and ALL deals.\n" +
-      "  Set NODE_ENV=test and TEST_DATABASE_URL to a separate test database."
-    );
-    process.exit(1);
-  }
-
-  const testDb = process.env.TEST_DATABASE_URL;
-  const liveDb = process.env.DATABASE_URL;
-
-  if (!testDb) {
-    console.error(
-      "BT-06 KILL LINE: cleanup-demo-data.ts refused to run.\n" +
-      "  TEST_DATABASE_URL must be set to a dedicated test database.\n" +
-      "  Refusing to run without a verified separate test DB."
-    );
-    process.exit(1);
-  }
-
-  // The db module reads DATABASE_URL, so it must be the declared test URL.
-  // A second production URL may be provided in CI/operator tooling and is
-  // explicitly checked for inequality as an additional defense.
-  if (!liveDb || liveDb !== testDb) {
-    console.error(
-      "BT-06 KILL LINE: cleanup-demo-data.ts refused to run.\n" +
-      "  DATABASE_URL must exactly equal TEST_DATABASE_URL for this process.\n" +
-      "  The script must never connect through an undeclared active database."
-    );
-    process.exit(1);
-  }
-  const testName = new URL(testDb).pathname.toLowerCase();
-  if (!/(test|ci)/.test(testName)) {
-    console.error("BT-06 KILL LINE: TEST_DATABASE_URL must target a clearly named test/CI database.");
-    process.exit(1);
-  }
-  if (process.env.PRODUCTION_DATABASE_URL && process.env.PRODUCTION_DATABASE_URL === testDb) {
-    console.error("BT-06 KILL LINE: TEST_DATABASE_URL must differ from PRODUCTION_DATABASE_URL.");
-    process.exit(1);
-  }
-
-  console.log("[cleanup-demo-data] BT-06 guard: NODE_ENV=test, TEST_DATABASE_URL differs from DATABASE_URL — safe to proceed.");
-}
+await assertDisposableTestInfrastructure({ operation: "cleanup-demo-data" });
+const { db } = await import("../server/db");
+const { sql } = await import("drizzle-orm");
 
 async function safe(q: Promise<any>): Promise<number> {
   try { const r = await q; return r.rows?.length ?? 0; }
@@ -68,8 +23,6 @@ async function safe(q: Promise<any>): Promise<number> {
 }
 
 async function main() {
-  assertTestEnvironment();
-
   console.log("🧹 Full Demo Data Cleanup — Pre-Outreach Reset\n");
 
   // ── 1. Wipe enrollments ──────────────────────────────────────────────────

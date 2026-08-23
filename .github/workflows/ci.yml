@@ -24,50 +24,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: TypeScript type-check
-        run: npx tsc --noEmit
+      - name: Validate canonical suite manifest
+        run: npx tsx scripts/ci-suite-manifest.ts --check
 
-      - name: Production Build
-        run: npm run build
-
-      - name: CSP, CORS, JSON-LD Security Controls
-        run: npx tsx scripts/test-security-controls.ts
-
-      - name: Build Artifact Secret Scan
-        run: npx tsx scripts/scan-build-artifacts.ts
-
-      - name: Migration Integrity Check
-        run: npx tsx scripts/check-migration-integrity.ts
-
-      - name: Compliance Scan
-        run: npx tsx scripts/compliance-scan.ts
-
-      - name: CSRF Fetch Scanner
-        run: npx tsx scripts/scan-csrf-fetch.ts
-
-      - name: Tracked-File Exposure Scan
-        run: npx tsx scripts/scan-tracked-files.ts
-
-      - name: Merchant Migration Safety
-        run: npx tsx scripts/test-merchant-migration-safety.ts
-
-      - name: GHL Route Pause Gates
-        run: npx tsx scripts/test-ghl-route-pause-gates-1629.ts
-
-      - name: Sender Policy
-        run: npx tsx scripts/test-sender-policy.ts
-
-      - name: Serper Raw-Fetch Scan
-        run: npx tsx scripts/scan-serper-raw-fetch.ts
-
-      - name: API Coverage
-        run: npx tsx scripts/check-api-coverage.ts
-
-      - name: Sunbiz Timeout & Recovery
-        run: npx tsx scripts/test-sunbiz-timeout.ts
-
-      - name: Classification Static Gates
-        run: npx tsx scripts/test-commercial-classification-static.ts
+      - name: Run all deterministic static suites
+        run: npx tsx scripts/run-ci-suites.ts --capability deterministic-static
 
   # ── Integration job: DB + Redis; GHL and live providers are blocked ─────────
   integration:
@@ -112,6 +73,10 @@ jobs:
       SESSION_SECRET: ci-test-secret-32chars-minimum-ok
       CREDENTIAL_ENCRYPTION_KEY: ci-test-encryption-key-32chars-ok
       MERCHANT_DATA_ENCRYPTION_KEY: ci-test-merchant-key-32chars-min
+      TEST_REDIS_PREFIX: ci_task1664_
+      ADMIN_SEED_EMAIL: ci-admin@libertybancard.test
+      ADMIN_SEED_PASSWORD: ci-admin-password-Aa1!
+      ADMIN_SEED_FORCE_UPDATE: "true"
 
     steps:
       - uses: actions/checkout@v4
@@ -133,17 +98,32 @@ jobs:
           CI_SNAPSHOT_BOOTSTRAP: "true"
         run: npx tsx server/db-migrate.ts
 
-      - name: Contactability Engine
-        run: npx tsx scripts/test-contactability.ts
+      - name: Validate canonical suite manifest
+        run: npx tsx scripts/ci-suite-manifest.ts --check
 
-      - name: Intake Provenance
-        run: npx tsx scripts/test-intake-provenance.ts
+      - name: Run all deterministic integration suites
+        run: npx tsx scripts/run-ci-suites.ts --capability deterministic-integration
 
-      - name: Lifecycle State Machine
-        run: npx tsx scripts/test-lifecycle.ts
+      - name: Start disposable CI application server
+        run: |
+          npm run dev > ci-server.log 2>&1 &
+          echo $! > ci-server.pid
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:5000/api/health >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "CI server did not become healthy"
+          cat ci-server.log
+          exit 1
 
-      - name: Commercial Classification Integration
-        run: npx tsx scripts/test-commercial-classification.ts
+      - name: Run all server-required suites
+        run: npx tsx scripts/run-ci-suites.ts --capability server-required
 
-      - name: Cleanup Guard Enforcement
-        run: npx tsx scripts/test-cleanup-guard.ts
+      - name: Stop disposable CI application server
+        if: always()
+        run: |
+          if [ -f ci-server.pid ]; then
+            kill "$(cat ci-server.pid)" 2>/dev/null || true
+          fi

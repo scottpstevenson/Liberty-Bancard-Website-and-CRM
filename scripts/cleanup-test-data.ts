@@ -7,20 +7,11 @@
  *          + all users with role = 'merchant'
  */
 
-import { db } from "../server/db.js";
-import { sql } from "drizzle-orm";
+import { assertDisposableTestInfrastructure } from "./test-infrastructure-guard";
 
-function assertTestEnvironment(): void {
-  const activeDb = process.env.DATABASE_URL;
-  const testDb = process.env.TEST_DATABASE_URL;
-  if (process.env.NODE_ENV !== "test" || !activeDb || !testDb || activeDb !== testDb) {
-    throw new Error("BT-06 KILL LINE: cleanup-test-data.ts only runs with NODE_ENV=test and DATABASE_URL=TEST_DATABASE_URL.");
-  }
-  const dbName = new URL(testDb).pathname.toLowerCase();
-  if (!/(test|ci)/.test(dbName) || process.env.PRODUCTION_DATABASE_URL === testDb) {
-    throw new Error("BT-06 KILL LINE: cleanup-test-data.ts requires a separate clearly named test/CI database.");
-  }
-}
+await assertDisposableTestInfrastructure({ operation: "cleanup-test-data" });
+const { db } = await import("../server/db");
+const { sql } = await import("drizzle-orm");
 
 async function del(table: string, col: string, idList: string): Promise<number> {
   try {
@@ -38,7 +29,6 @@ async function del(table: string, col: string, idList: string): Promise<number> 
 }
 
 async function main() {
-  assertTestEnvironment();
   console.log("🧹 Liberty Bancard — Test Data Cleanup\n");
 
   // ── Step 1: Collect test contact IDs ─────────────────────────────────────

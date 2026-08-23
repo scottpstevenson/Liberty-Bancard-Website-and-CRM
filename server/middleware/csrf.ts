@@ -5,11 +5,15 @@ const CSRF_COOKIE_NAME = "csrf_token";
 const CSRF_HEADER_NAME = "x-csrf-token";
 const TOKEN_LENGTH = 32;
 
+// Prefix exceptions are deliberately limited to routes authenticated by an
+// external webhook signature or URL token, or explicitly designed as public.
+// Session-cookie dashboard mutations must never be added here; the client
+// scanner requires a token or a documented per-call-site exemption instead.
 const EXEMPT_PATH_PREFIXES = [
-  "/api/public/",
-  "/api/webhooks/",
-  "/api/nps/",
-  "/api/review-requests/",
+  "/api/public/",          // public lead/chat endpoints; no session required
+  "/api/webhooks/",        // provider-signed webhooks, not browser sessions
+  "/api/nps/",             // survey token in the URL, not a session cookie
+  "/api/review-requests/", // review token in the URL, not a session cookie
 ];
 
 const EXEMPT_PATHS_EXACT = new Set([

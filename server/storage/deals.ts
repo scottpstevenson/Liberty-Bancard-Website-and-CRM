@@ -101,9 +101,12 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
   import { type PaginationParams, type PaginatedResult, normalizePagination } from "./_shared";
 
   export class DealsStorage {
-    async getDeals(params?: PaginationParams) {
+    async getDeals(params?: PaginationParams & { recordClass?: "production" }) {
     const { limit, offset } = normalizePagination(params);
-    const [totalResult] = await db.select({ count: count() }).from(deals).where(isNull(deals.archivedAt));
+    const whereClause = params?.recordClass === "production"
+      ? and(isNull(deals.archivedAt), eq(deals.recordClass, "production"))
+      : isNull(deals.archivedAt);
+    const [totalResult] = await db.select({ count: count() }).from(deals).where(whereClause);
     const rows = await db
       .select({
         deal: deals,
@@ -117,7 +120,7 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
       })
       .from(deals)
       .leftJoin(contacts, eq(deals.contactId, contacts.id))
-      .where(isNull(deals.archivedAt))
+      .where(whereClause)
       .orderBy(desc(deals.createdAt))
       .limit(limit)
       .offset(offset);
