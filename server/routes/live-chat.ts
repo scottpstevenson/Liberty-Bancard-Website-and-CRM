@@ -7,7 +7,7 @@ import { z } from "zod";
 import { randomUUID } from "crypto";
 import { contacts } from "@shared/schema";
 import { and, eq, ilike, isNull, or } from "drizzle-orm";
-import { createContactGhlFirst } from "../services/contact-writer";
+import { createContactLocalFirst } from "../services/contact-writer";
 import { sendCriticalEmailNotification } from "../services/digest-service";
 import type { LiveChat } from "../../shared/schema";
 import { serverError } from "../utils/server-error";
@@ -180,7 +180,7 @@ export function registerLiveChatRoutes(app: Express) {
 
       let contactId = chat.contactId;
       try {
-        const contact = await createContactGhlFirst({
+        const contact = await createContactLocalFirst({
           firstName,
           lastName,
           email,
@@ -262,7 +262,7 @@ export function registerLiveChatRoutes(app: Express) {
 
       let contactId: number | undefined;
       try {
-        const contact = await createContactGhlFirst({
+        const contact = await createContactLocalFirst({
           firstName,
           lastName,
           email,

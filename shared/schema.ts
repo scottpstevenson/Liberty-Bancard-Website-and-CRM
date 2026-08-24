@@ -14,6 +14,9 @@ export const importExecutions = pgTable("import_executions", {
   id: uuid("id").primaryKey().defaultRandom(),
   importType: text("import_type").notNull(), // csv_contact | sunbiz_upload | sunbiz_corevt | prospect_csv
   fileHash: text("file_hash"),
+  // Canonical, permanent replay key. Unlike the historical completed-only
+  // uniqueness fence, this prevents two processors from starting the same file.
+  executionKey: text("execution_key"),
   status: text("status").notNull().default("running"), // running | completed | failed
   totalRows: integer("total_rows"),
   insertedRows: integer("inserted_rows"),
@@ -23,6 +26,15 @@ export const importExecutions = pgTable("import_executions", {
   actorType: text("actor_type"),
   actorId: text("actor_id"),
   metadata: jsonb("metadata"),
+  // Immutable, normalized source retained for restart-safe import resumption.
+  // Raw uploads are discarded after parsing; this contains only the normalized
+  // row contract consumed by the canonical intake command.
+  sourcePayload: jsonb("source_payload"),
+  claimToken: uuid("claim_token"),
+  leaseExpiresAt: timestamp("lease_expires_at"),
+  heartbeatAt: timestamp("heartbeat_at"),
+  attemptCount: integer("attempt_count").notNull().default(0),
+  failureReason: text("failure_reason"),
   startedAt: timestamp("started_at").defaultNow(),
   completedAt: timestamp("completed_at"),
 }, (table) => [
@@ -30,6 +42,10 @@ export const importExecutions = pgTable("import_executions", {
   uniqueIndex("import_executions_type_hash_completed_uidx")
     .on(table.importType, table.fileHash)
     .where(sql`file_hash IS NOT NULL AND status = 'completed'`),
+  uniqueIndex("import_executions_execution_key_uidx")
+    .on(table.executionKey)
+    .where(sql`execution_key IS NOT NULL`),
+  index("import_executions_lease_idx").on(table.status, table.leaseExpiresAt),
 ]);
 
 export type ImportExecution = typeof importExecutions.$inferSelect;
@@ -276,6 +292,48 @@ export const contactSourceEvents = pgTable("contact_source_events", {
 
 export type ContactSourceEvent = typeof contactSourceEvents.$inferSelect;
 export type InsertContactSourceEvent = typeof contactSourceEvents.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Canonical intake durability — immutable CSV row accounting and provider work
+// ---------------------------------------------------------------------------
+export const importRowDispositions = pgTable("import_row_dispositions", {
+  id: serial("id").primaryKey(),
+  executionId: uuid("execution_id").notNull().references(() => importExecutions.id, { onDelete: "cascade" }),
+  // One-based logical record number from the parsed CSV, excluding the header.
+  sourceRowNumber: integer("source_row_number").notNull(),
+  rowFingerprint: text("row_fingerprint").notNull(),
+  disposition: text("disposition").notNull(), // created|matched_noop|updated|rejected|deferred|failed
+  reasonCode: text("reason_code").notNull(),
+  contactId: integer("contact_id").references(() => contacts.id, { onDelete: "set null" }),
+  diagnostic: jsonb("diagnostic"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  completedAt: timestamp("completed_at").notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("import_row_dispositions_execution_row_uidx").on(table.executionId, table.sourceRowNumber),
+  index("import_row_dispositions_execution_disposition_idx").on(table.executionId, table.disposition),
+]);
+export type ImportRowDisposition = typeof importRowDispositions.$inferSelect;
+
+export const contactProviderProjections = pgTable("contact_provider_projections", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  contactId: integer("contact_id").notNull().references(() => contacts.id, { onDelete: "cascade" }),
+  provider: text("provider").notNull().default("ghl"),
+  projectionKey: text("projection_key").notNull(),
+  state: text("state").notNull().default("pending"), // pending|processing|succeeded|retry|terminal
+  attemptCount: integer("attempt_count").notNull().default(0),
+  nextAttemptAt: timestamp("next_attempt_at").notNull().defaultNow(),
+  claimToken: uuid("claim_token"),
+  leaseExpiresAt: timestamp("lease_expires_at"),
+  terminalReason: text("terminal_reason"),
+  lastErrorCode: text("last_error_code"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  completedAt: timestamp("completed_at"),
+}, (table) => [
+  uniqueIndex("contact_provider_projections_contact_key_uidx").on(table.contactId, table.provider, table.projectionKey),
+  index("contact_provider_projections_claim_idx").on(table.provider, table.state, table.nextAttemptAt),
+]);
+export type ContactProviderProjection = typeof contactProviderProjections.$inferSelect;
 
 // ---------------------------------------------------------------------------
 // Contact Lifecycle History — one row per lifecycle_state transition
@@ -2911,6 +2969,8 @@ export const CONTACT_COMPANY_ROLES = [
 
 export const csvImports = pgTable("csv_imports", {
   id: serial("id").primaryKey(),
+  /** Durable one-to-one projection of the replay-safe import execution. */
+  executionId: uuid("execution_id").references(() => importExecutions.id, { onDelete: "set null" }).unique(),
   fileName: text("file_name").notNull(),
   sourceFormat: text("source_format").default("custom"),
   totalRows: integer("total_rows").default(0),

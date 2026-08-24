@@ -135,17 +135,14 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
 
 
   async findOrCreateBusinessForMerchant(domain: string | null, canonicalName: string, city: string | null, state: string | null): Promise<Business | null> {
-    if (domain) {
-      const byDomain = await this.getBusinessByDomain(domain);
-      if (byDomain) return byDomain;
-      const normalizedName = canonicalName.toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
-      const created = await this.createBusiness({ canonicalName, normalizedName, websiteDomain: domain, city, state });
-      return created;
-    }
-    const normalizedName = canonicalName.toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
-    const byName = await this.getBusinessByNormalizedNameCity(normalizedName, city, state);
-    if (byName) return byName;
-    return null;
+    const { resolveOrganization } = await import("../services/organization-resolver");
+    const result = await resolveOrganization({
+      canonicalName,
+      websiteDomain: domain,
+      city,
+      state,
+    });
+    return result.kind === "deferred" ? null : result.business;
   }
 
 

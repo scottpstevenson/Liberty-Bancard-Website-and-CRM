@@ -81,6 +81,16 @@ const MANDATORY_SUITES: Suite[] = [
     timeoutSecs: 60,
   },
   {
+    name: "Canonical Intake Authority (local-first contact, durable import, provider projection)",
+    script: "scripts/test-canonical-intake-authority.ts",
+    timeoutSecs: 60,
+  },
+  {
+    name: "CSV Import Reconciliation (durable execution replay and ledger totals)",
+    script: "scripts/test-import-reconciliation.ts",
+    timeoutSecs: 180,
+  },
+  {
     name: "Canonical Merge Manifest Guard (complete relationship disposition)",
     script: "scripts/check-contact-merge-manifest.ts",
     timeoutSecs: 60,

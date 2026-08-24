@@ -1,20 +1,35 @@
+import crypto from "crypto";
 import { db } from "../db";
 import { storage } from "../storage";
 import {
   contacts,
   contactSourceEvents,
+  contactProviderProjections,
+  importRowDispositions,
+  importExecutions,
   type InsertContact,
   type UpdateContactRequest,
   type Contact,
   type ServerInsertContact,
 } from "@shared/schema";
-import { eq, sql } from "drizzle-orm";
-import { isGhlConfigured, upsertGhlContact, GhlIdentityConflictError, GhlInvalidContactError } from "./ghl";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { normalizeGhlId } from "../utils/normalize";
-import { syncContactToGhl } from "./ghl-sync";
 import { READINESS_DEPENDENT_FIELDS, enqueueReadinessRecalculation } from "./contact-readiness";
 import { requestContactLeadScoring } from "./contact-lead-scoring-trigger";
 import { recordContactIdentityObservations } from "./contact-identity";
+import {
+  CONTACT_AUTHORITY_OWNED_FIELDS,
+  ContactProtectedFieldError,
+  assertNoProtectedContactFields,
+  stripContactAuthorityFields,
+} from "./contact-field-authority";
+
+export {
+  CONTACT_AUTHORITY_OWNED_FIELDS,
+  ContactProtectedFieldError,
+  assertNoProtectedContactFields,
+  stripContactAuthorityFields,
+} from "./contact-field-authority";
 
 // ---------------------------------------------------------------------------
 // Source category / type validation
@@ -46,6 +61,9 @@ const VALID_SOURCE_COMBOS: ReadonlySet<string> = new Set([
   "discovery|apify",
   "discovery|serper",
   "partner_referral|partner_form",
+  "partner_referral|partner_portal",
+  "partner_referral|co_branded_proposal",
+  "merchant_application|merchant_application",
   "legacy_unknown|historical_backfill",
 ]);
 
@@ -60,7 +78,7 @@ function assertValidSourceCombo(sourceCategory: string, sourceType: string): voi
 // Types
 // ---------------------------------------------------------------------------
 export type WriteMode =
-  | "ghl_upsert_first"    // GHL first, then local DB (public forms, manual CRM)
+  | "local_first"         // Commit canonical local state before any provider effect
   | "ghl_inbound_no_echo" // Local DB only — skip GHL write to avoid echo loop
   | "local_only";         // Local DB only — no GHL (CSV imports, bulk ops)
 
@@ -72,6 +90,8 @@ export interface ProvenanceInput {
   importExecutionId?: string; // UUID
   sourceRowNumber?: number;
   rowFingerprint?: string;
+  /** Required for import-owned mutations so a reclaimed worker fences stale owners. */
+  importClaimToken?: string;
   actorType: string;
   actorId?: string;
   metadata?: Record<string, unknown>;
@@ -97,32 +117,6 @@ export const PROVENANCE_FIELDS = [
   "manualVerticalOverride",
 ] as const;
 
-// Consent, suppression, tiers, and delivery reachability have a dedicated
-// authority. Creation payloads are untrusted even when the caller is an
-// authenticated dashboard user, so these fields must never reach either the
-// provider pre-write or the contacts insert through this generic writer.
-export const CONTACT_AUTHORITY_OWNED_FIELDS = [
-  // Commercial class is exclusively assigned by CommercialClassificationAuthority.
-  // New subjects are always quarantined as unknown through this generic writer.
-  "recordClass",
-  "consentEmail", "consentSms", "consentTier",
-  "doNotContact", "doNotAutoContact",
-  "emailStatus", "smsStatus", "phoneStatus",
-  "optOutStatus", "optOutDate", "optOutChannel",
-  "unsubscribeStatus", "unsubscribeAt",
-  "dncReason", "dncDate", "dncSource",
-  "suppressionReason", "suppressionHistory",
-  "bounceStatus", "bouncedAt", "emailOptInAt", "smsOptInAt",
-] as const;
-
-export function stripContactAuthorityFields<T extends Record<string, unknown>>(obj: T): Omit<T, typeof CONTACT_AUTHORITY_OWNED_FIELDS[number]> {
-  const result = { ...obj };
-  for (const field of CONTACT_AUTHORITY_OWNED_FIELDS) {
-    delete (result as Record<string, unknown>)[field];
-  }
-  return result as Omit<T, typeof CONTACT_AUTHORITY_OWNED_FIELDS[number]>;
-}
-
 /**
  * Strip provenance fields from any object (defense-in-depth for PUT/PATCH routes).
  */
@@ -140,10 +134,9 @@ export function stripProvenanceFields<T extends Record<string, unknown>>(obj: T)
 /**
  * writeContact — canonical single write path for all new contact creation.
  *
- * Modes:
- *  - ghl_upsert_first: attempt GHL write before local DB (website forms, manual CRM)
- *  - ghl_inbound_no_echo: skip GHL write entirely (GHL sync inbound — avoids echo)
- *  - local_only: skip GHL entirely (CSV bulk imports)
+ * The command is deliberately local-first. Contact, source event, BT-07
+ * identity observation, audit record, and GHL projection intent commit in one
+ * transaction. Provider I/O is performed only by the claimed projection worker.
  *
  * In all modes: contact + source event are written in a single DB transaction.
  * Sets sourceCategory AND primarySourceCategory to the same server-controlled value.
@@ -154,8 +147,10 @@ export async function writeContact(args: {
   mutation: Omit<InsertContact, "sourceCategory" | "primarySourceCategory" | "primarySourceType" | "primarySourceEventId"> & Record<string, unknown>;
   provenance: ProvenanceInput;
   actor: ActorCtx;
-}): Promise<Contact & { _ghlSyncPending: boolean }> {
-  const { mode, provenance, actor } = args;
+  /** CSV receipt written in the same local transaction as the contact. */
+  rowDisposition?: { createdReasonCode: string; matchedReasonCode: string };
+}): Promise<Contact & { _ghlSyncPending: boolean; _intakeOutcome: "created" | "matched_existing" }> {
+  const { mode, provenance, actor, rowDisposition } = args;
   const mutation = stripContactAuthorityFields(args.mutation);
 
   assertValidSourceCombo(provenance.sourceCategory, provenance.sourceType);
@@ -165,68 +160,97 @@ export async function writeContact(args: {
     (mutation as any).ghlContactId = normalizeGhlId((mutation as any).ghlContactId);
   }
 
-  let ghlContactId: string | undefined;
-  let ghlSyncPending = false;
+  const shouldProject = mode === "local_first";
+  const email = String((mutation as any).email ?? "").trim().toLowerCase();
+  const syntheticPlaceholder = /^no-email-[0-9a-f-]+@no-email\.libertybancard\.internal$/i.test(email);
 
-  // Step 1: GHL pre-write (ghl_upsert_first mode only)
-  if (mode === "ghl_upsert_first" && isGhlConfigured()) {
-    try {
-      ghlContactId = await upsertGhlContact({
-        id: 0,
-        firstName: (mutation as any).firstName,
-        lastName: (mutation as any).lastName ?? "",
-        email: (mutation as any).email ?? "",
-        phone: (mutation as any).phone ?? "",
-        ghlContactId: (mutation as any).ghlContactId ?? null,
-        companyName: (mutation as any).companyName ?? undefined,
-        tags: (mutation as any).tags ?? [],
-        vertical: (mutation as any).vertical ?? undefined,
-        monthlyVolume: (mutation as any).monthlyVolume ?? undefined,
-        primaryOfferPath: (mutation as any).primaryOfferPath ?? undefined,
-        currentProvider: (mutation as any).currentProvider ?? undefined,
-        painPoints: (mutation as any).painPoints ?? undefined,
-        interestedIn0Percent: (mutation as any).interestedIn0Percent ?? false,
-        needTerminal: (mutation as any).needTerminal ?? false,
-        utmSource: (mutation as any).utmSource ?? undefined,
-        utmMedium: (mutation as any).utmMedium ?? undefined,
-        utmCampaign: (mutation as any).utmCampaign ?? undefined,
-        promoCode: (mutation as any).promoCode ?? undefined,
-        consentSms: false,
-        consentEmail: false,
-        landingPage: (mutation as any).landingPage ?? undefined,
-      });
-      if (ghlContactId) {
-        console.log(`[ContactWriter] Pre-created contact in GHL: ${ghlContactId}`);
-      }
-    } catch (ghlErr: unknown) {
-      if (ghlErr instanceof GhlIdentityConflictError) {
-        // Another local contact owns the GHL ID this contact would map to — safe skip.
-        // Do not mark ghlSyncPending; retrying will hit the same conflict indefinitely.
-        console.warn(`[ContactWriter] GHL pre-write identity conflict (skip, no retry): GHL ID ${ghlErr.ghlContactId} owned by contact ${ghlErr.owningContactId}`);
-      } else if (ghlErr instanceof GhlInvalidContactError) {
-        // Terminal data-quality skip — sanitized audit already written by the
-        // upsert boundary. Do NOT mark ghlSyncPending: retrying an invalid
-        // contact would fail identically and pollute the failed-retry queue.
-        console.warn(`[ContactWriter] GHL pre-write terminal skip (${ghlErr.code}) — no retry`);
-      } else {
-        const msg = ghlErr instanceof Error ? ghlErr.message : String(ghlErr);
-        console.warn(`[ContactWriter] GHL pre-write failed (will retry): ${msg}`);
-        ghlSyncPending = true;
-      }
-    }
-  }
-
-  // Step 2: Transactional contact + source event creation
+  // Transactional contact + source event + observation + audit + projection.
   // A: insert contact with primarySourceEventId = NULL
   // B: insert contact_source_events row
   // C: UPDATE contact to set primarySourceCategory, primarySourceType, primarySourceEventId, sourceCategory
   // The DEFERRABLE INITIALLY DEFERRED FK on primarySourceEventId allows A before B.
   const { auditChange } = await import("./audit-change");
 
-  const contact = await db.transaction(async (tx) => {
+  const result = await db.transaction(async (tx) => {
+    if (provenance.importExecutionId && provenance.importClaimToken) {
+      const [owner] = await tx.select({ id: importExecutions.id })
+        .from(importExecutions)
+        .where(and(
+          eq(importExecutions.id, provenance.importExecutionId),
+          eq(importExecutions.claimToken, provenance.importClaimToken),
+          eq(importExecutions.status, "running"),
+        ))
+        .limit(1);
+      if (!owner) throw new Error(`IMPORT_EXECUTION_LEASE_LOST:${provenance.importExecutionId}`);
+    }
+    const recordLedger = async (contactId: number, disposition: "created" | "matched_noop", reasonCode: string) => {
+      if (!rowDisposition || !provenance.importExecutionId || !provenance.sourceRowNumber || !provenance.rowFingerprint) return;
+      await tx.insert(importRowDispositions).values({
+        executionId: provenance.importExecutionId,
+        sourceRowNumber: provenance.sourceRowNumber,
+        rowFingerprint: provenance.rowFingerprint,
+        disposition,
+        reasonCode,
+        contactId,
+      }).onConflictDoNothing();
+    };
+    // A real email is the only generic automatic match. Phone and company are
+    // intentionally not used here because BT-07 keeps potential identity
+    // conflicts reviewable rather than merging them silently.
+    let [existing] = email && !syntheticPlaceholder
+      ? await tx.select().from(contacts).where(and(eq(contacts.email, email), isNull(contacts.archivedAt))).limit(1)
+      : [];
+    // Placeholder addresses never participate in identity matching. They can,
+    // however, be resumed safely through the immutable source-event idempotency
+    // key after a crash between a local contact commit and ledger disposition.
+    if (!existing) {
+      const prior = await tx.execute(sql`
+        SELECT c.*
+        FROM contact_source_events e
+        JOIN contacts c ON c.id = e.contact_id
+        WHERE e.event_key = ${provenance.eventKey}
+        LIMIT 1
+      `);
+      existing = ((prior as any).rows ?? [])[0];
+    }
+    if (existing) {
+      await tx.execute(sql`
+        INSERT INTO contact_source_events
+          (contact_id, event_key, source_category, source_type, source_external_id,
+           import_execution_id, source_row_number, row_fingerprint, actor_type, actor_id, metadata)
+        VALUES
+          (${existing.id}, ${provenance.eventKey}, ${provenance.sourceCategory}, ${provenance.sourceType},
+           ${provenance.sourceExternalId ?? null}, ${provenance.importExecutionId ?? null},
+           ${provenance.sourceRowNumber ?? null}, ${provenance.rowFingerprint ?? null},
+           ${provenance.actorType}, ${provenance.actorId ?? null},
+           ${provenance.metadata ? JSON.stringify(provenance.metadata) : null}::jsonb)
+        ON CONFLICT (contact_id, event_key) DO UPDATE SET last_seen_at = now()
+      `);
+      await recordContactIdentityObservations(tx as any, existing, "contact_writer", provenance.eventKey);
+      await auditChange({
+        userId: actor.userId ?? null,
+        actorType: (actor.actorType as any) ?? "system",
+        actorId: actor.actorId ?? null,
+        action: "contact_intake_matched",
+        entityType: "contact",
+        entityId: existing.id,
+        before: null,
+        after: { sourceCategory: provenance.sourceCategory, sourceType: provenance.sourceType },
+      }, tx);
+      await recordLedger(existing.id, "matched_noop", rowDisposition?.matchedReasonCode ?? "EXACT_ELIGIBLE_IDENTITY_MATCH");
+      if (shouldProject && !existing.ghlContactId && !syntheticPlaceholder) {
+        await tx.insert(contactProviderProjections).values({
+          contactId: existing.id,
+          provider: "ghl",
+          projectionKey: `contact:${existing.id}`,
+          state: "pending",
+        }).onConflictDoNothing();
+      }
+      return { contact: existing, outcome: "matched_existing" as const, pending: shouldProject && !existing.ghlContactId && !syntheticPlaceholder };
+    }
+
     const contactPayload: ServerInsertContact = {
       ...(mutation as any),
-      ...(ghlContactId ? { ghlContactId } : {}),
       sourceCategory: provenance.sourceCategory,
       primarySourceCategory: provenance.sourceCategory,
       primarySourceType: provenance.sourceType,
@@ -272,9 +296,19 @@ export async function writeContact(args: {
       before: null,
       after: updatedContact as unknown as Record<string, unknown>,
     }, tx);
-
-    return updatedContact;
+    await recordLedger(updatedContact.id, "created", rowDisposition?.createdReasonCode ?? "LOCAL_CONTACT_CREATED");
+    const pending = shouldProject && !updatedContact.ghlContactId && !syntheticPlaceholder;
+    if (pending) {
+      await tx.insert(contactProviderProjections).values({
+        contactId: updatedContact.id,
+        provider: "ghl",
+        projectionKey: `contact:${updatedContact.id}`,
+        state: "pending",
+      }).onConflictDoNothing();
+    }
+    return { contact: updatedContact, outcome: "created" as const, pending };
   });
+  const contact = result.contact;
 
   // Step 3: Readiness hook
   try {
@@ -291,30 +325,7 @@ export async function writeContact(args: {
     console.warn(`[ContactWriter] Lead scoring trigger failed for contact ${contact.id}: ${(err as Error).message}`);
   }
 
-  // Step 4: GHL retry if pre-write failed
-  if (ghlSyncPending) {
-    await storage.createAuditLog({
-      action: "ghl_sync_pending",
-      entityType: "contact",
-      entityId: contact.id,
-      details: { trigger: "contact_created", reason: "GHL pre-create failed; auto-sync loop will retry" },
-    });
-    syncContactToGhl(contact.id).then(result => {
-      if (!result.success) {
-        console.error(`[ContactWriter] Retry sync failed for contact ${contact.id}: ${result.error}`);
-        storage.createAuditLog({
-          action: "ghl_sync_failed",
-          entityType: "contact",
-          entityId: contact.id,
-          details: { error: result.error, trigger: "contact_created_retry" },
-        }).catch(() => {});
-      }
-    }).catch((err: Error) => {
-      console.error(`[ContactWriter] Retry exception for contact ${contact.id}:`, err.message);
-    });
-  }
-
-  return { ...contact, _ghlSyncPending: ghlSyncPending };
+  return { ...contact, _ghlSyncPending: result.pending, _intakeOutcome: result.outcome };
 }
 
 /**
@@ -345,35 +356,32 @@ export async function upsertContactSourceEvent(args: {
 }
 
 // ---------------------------------------------------------------------------
-// Legacy backward-compat wrappers — delegate to writeContact / storage
+// Explicit local-first adapters for legacy call sites
 // ---------------------------------------------------------------------------
-
-/**
- * GHL-first contact create.
- *
- * Attempts to write to GHL before the local DB. If GHL succeeds, the returned
- * ghlContactId is embedded in the local record. If GHL fails, the contact is
- * saved locally with a ghl_sync_pending audit entry; the 45-second auto-sync
- * loop and audit-log-based retry queue will ensure eventual consistency.
- *
- * Returns the created contact plus a `_ghlSyncPending` flag indicating whether
- * GHL sync succeeded at creation time.
- *
- * @deprecated Use writeContact() with explicit provenance instead.
- *   Kept for backward compatibility with routes that have not yet been
- *   migrated to provenance-aware calls. Provenance defaults to legacy_unknown.
- */
-export async function createContactGhlFirst(
+export async function createContactLocalFirst(
   input: InsertContact,
-  auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }
-): Promise<Contact & { _ghlSyncPending: boolean }> {
+  auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null },
+  source?: Pick<ProvenanceInput, "sourceCategory" | "sourceType" | "eventKey">,
+): Promise<Contact & { _ghlSyncPending: boolean; _intakeOutcome: "created" | "matched_existing" }> {
+  const fingerprint = crypto.createHash("sha256")
+    .update(JSON.stringify({
+      email: (input as any).email ?? "",
+      phone: (input as any).phone ?? "",
+      companyName: (input as any).companyName ?? "",
+      source: source?.sourceCategory ?? "manual_crm",
+    }))
+    .digest("hex")
+    .slice(0, 32);
+  const contract = source ?? {
+    sourceCategory: "manual_crm",
+    sourceType: "dashboard",
+    eventKey: `internal-contact:${fingerprint}`,
+  };
   return writeContact({
-    mode: "ghl_upsert_first",
+    mode: "local_first",
     mutation: input as any,
     provenance: {
-      sourceCategory: (input as any).sourceCategory || "legacy_unknown",
-      sourceType: "historical_backfill",
-      eventKey: `legacy:compat:${Date.now()}:${Math.random().toString(36).slice(2)}`,
+      ...contract,
       actorType: auditCtx?.actorType ?? "system",
       actorId: auditCtx?.actorId ?? undefined,
     },
@@ -386,66 +394,43 @@ export async function createContactGhlFirst(
 }
 
 /**
- * GHL-first contact update.
- *
- * Attempts GHL upsert before local write. If GHL fails, local write still
- * succeeds (availability preserved) and an async retry is immediately fired.
- * The auto-sync loop's audit-log-based retry pass catches any remaining failures.
- *
- * Returns the updated contact plus `_ghlSyncFailed` flag.
+ * Generic profile updates commit locally, audit locally, and create durable
+ * GHL work before any network attempt. Protected fields must go through their
+ * respective authorities instead.
  */
-export async function updateContactGhlFirst(
+export async function updateContactLocalFirst(
   contactId: number,
   updates: UpdateContactRequest,
-  auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }
+  auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null },
 ): Promise<(Contact & { _ghlSyncFailed: boolean }) | null> {
-  let ghlSyncFailed = false;
-
-  // Strip provenance fields — updates must never overwrite intake origin
+  assertNoProtectedContactFields(updates as Record<string, unknown>);
   const safeUpdates = stripProvenanceFields(updates as Record<string, unknown>) as UpdateContactRequest;
-
-  if (isGhlConfigured()) {
-    const existing = await storage.getContact(contactId);
-    if (existing) {
-      const merged: Contact = { ...existing, ...safeUpdates };
-      try {
-        const ghlId = await upsertGhlContact(merged);
-        const normalizedGhlId = normalizeGhlId(ghlId);
-        if (normalizedGhlId && !existing.ghlContactId) {
-          (safeUpdates as any).ghlContactId = normalizedGhlId;
-        }
-        console.log(`[ContactWriter] Synced contact ${contactId} to GHL before local update`);
-      } catch (ghlErr: unknown) {
-        if (ghlErr instanceof GhlIdentityConflictError) {
-          // Another local contact owns the GHL ID — safe skip; do not retry.
-          console.warn(`[ContactWriter] GHL pre-update identity conflict for contact ${contactId} (skip, no retry): GHL ID ${ghlErr.ghlContactId} owned by contact ${ghlErr.owningContactId}`);
-        } else if (ghlErr instanceof GhlInvalidContactError) {
-          // Terminal data-quality skip — sanitized audit already written by the
-          // upsert boundary. No ghl_sync_failed log (it feeds the retry queue),
-          // no ghlSyncFailed flag; the local update still proceeds.
-          console.warn(`[ContactWriter] GHL pre-update terminal skip (${ghlErr.code}) for contact ${contactId} — no retry`);
-        } else {
-          const msg = ghlErr instanceof Error ? ghlErr.message : String(ghlErr);
-          console.warn(`[ContactWriter] GHL pre-update failed for contact ${contactId}: ${msg}`);
-          ghlSyncFailed = true;
-          await storage.createAuditLog({
-            action: "ghl_sync_failed",
-            entityType: "contact",
-            entityId: contactId,
-            details: { error: msg, trigger: "contact_updated" },
-          });
-        }
-      }
-    }
-  }
-
   const changedKeys = Object.keys(safeUpdates) as Array<keyof typeof safeUpdates>;
   const hasReadinessChange = changedKeys.some(k => READINESS_DEPENDENT_FIELDS.includes(k as any));
-
-  const updated = await storage.updateContact(contactId, {
-    ...safeUpdates,
-    ...(hasReadinessChange ? { lastMeaningfulContactMutationAt: new Date() } : {}),
-  }, auditCtx);
+  const fingerprint = crypto.createHash("sha256").update(JSON.stringify(safeUpdates)).digest("hex").slice(0, 32);
+  const updated = await db.transaction(async (tx) => {
+    const [local] = await tx.update(contacts).set({
+      ...safeUpdates,
+      ...(hasReadinessChange ? { lastMeaningfulContactMutationAt: new Date() } : {}),
+    }).where(eq(contacts.id, contactId)).returning();
+    if (!local) return null;
+    const syntheticPlaceholder = /^no-email-[0-9a-f-]+@no-email\.libertybancard\.internal$/i.test(local.email);
+    if (!syntheticPlaceholder) {
+      await tx.insert(contactProviderProjections).values({
+        contactId,
+        provider: "ghl",
+        projectionKey: `profile:${contactId}:${fingerprint}`,
+        state: "pending",
+      }).onConflictDoNothing();
+    }
+    const { auditChange } = await import("./audit-change");
+    await auditChange({
+      userId: auditCtx?.userId ?? null, actorType: (auditCtx?.actorType as any) ?? "system",
+      actorId: auditCtx?.actorId ?? null, action: "contact_updated", entityType: "contact",
+      entityId: contactId, before: null, after: safeUpdates as Record<string, unknown>,
+    }, tx);
+    return local;
+  });
   if (!updated) return null;
 
   if (hasReadinessChange) {
@@ -455,18 +440,5 @@ export async function updateContactGhlFirst(
       console.warn(`[ContactWriter] Readiness enqueue failed for contact ${contactId}: ${(err as Error).message}`);
     }
   }
-
-  if (ghlSyncFailed) {
-    syncContactToGhl(contactId).then(result => {
-      if (!result.success) {
-        console.error(`[ContactWriter] Retry sync failed for contact ${contactId}: ${result.error}`);
-      } else {
-        console.log(`[ContactWriter] Retry sync succeeded for contact ${contactId}`);
-      }
-    }).catch((err: Error) => {
-      console.error(`[ContactWriter] Retry exception for contact ${contactId}:`, err.message);
-    });
-  }
-
-  return { ...updated, _ghlSyncFailed: ghlSyncFailed };
+  return { ...updated, _ghlSyncFailed: false };
 }

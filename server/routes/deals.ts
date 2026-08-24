@@ -15,7 +15,7 @@ import { createPreferenceAwareNotification, sendCriticalEmailNotification } from
 import { sendGhlEmailForMerchant, isGhlConfigured } from "../services/ghl";
 import { advanceDealStage } from "../services/deal-stage-service";
 import { classifyAiError, logAiCredentialError } from "../services/ai-audit-logger";
-import { updateContactGhlFirst } from "../services/contact-writer";
+import { updateContactLocalFirst } from "../services/contact-writer";
 import { parse } from "csv-parse/sync";
 import path from "path";
 import { sendPushToAllReps } from "../services/push-service";
@@ -294,7 +294,7 @@ export function registerDealsRoutes(app: Express) {
             merchantTier: volumeEst.merchantTier,
           });
           if (contact) {
-            await updateContactGhlFirst(contact.id, {
+            await updateContactLocalFirst(contact.id, {
               estimatedProcessingVolume: volumeEst.estimatedProcessingVolume,
               estimatedResidual: volumeEst.estimatedResidual,
               volumeConfidence: volumeEst.volumeConfidence,
@@ -407,7 +407,7 @@ export function registerDealsRoutes(app: Express) {
         merchantTier: estimate.merchantTier,
       });
       if (contact) {
-        await updateContactGhlFirst(contact.id, {
+        await updateContactLocalFirst(contact.id, {
           estimatedProcessingVolume: estimate.estimatedProcessingVolume,
           estimatedResidual: estimate.estimatedResidual,
           volumeConfidence: estimate.volumeConfidence,
@@ -424,7 +424,7 @@ export function registerDealsRoutes(app: Express) {
       const contact = await storage.getContact(Number(req.params.id));
       if (!contact) return res.status(404).json({ message: "Contact not found" });
       const estimate = estimateFromContact(contact);
-      await updateContactGhlFirst(contact.id, {
+      await updateContactLocalFirst(contact.id, {
         estimatedProcessingVolume: estimate.estimatedProcessingVolume,
         estimatedResidual: estimate.estimatedResidual,
         volumeConfidence: estimate.volumeConfidence,

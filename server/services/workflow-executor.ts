@@ -1,7 +1,7 @@
 import { storage } from "../storage";
 import { sendTemplatedMessage, isGhlConfigured } from "./ghl";
 import { advanceDealStage } from "./deal-stage-service";
-import { updateContactGhlFirst } from "./contact-writer";
+import { updateContactLocalFirst } from "./contact-writer";
 import { resolvePacketVertical, GENERAL_FALLBACK_VERTICAL } from "../../shared/collateral-packet-verticals";
 import { applyConsentCommand } from "./consent-authority";
 import crypto from "crypto";
@@ -203,7 +203,7 @@ export async function executeWorkflowActions(
           const addTags = action.addTags || [];
           const removeTags = action.removeTags || [];
           const newTags = Array.from(new Set([...currentTags, ...addTags])).filter((t: string) => !removeTags.includes(t));
-          await updateContactGhlFirst(contactId, { tags: newTags });
+          await updateContactLocalFirst(contactId, { tags: newTags });
         }
         logEntries.push({ step: i + 1, action: "update_contact_tags", status: "completed", timestamp: new Date().toISOString() });
 

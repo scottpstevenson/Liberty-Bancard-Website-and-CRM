@@ -380,7 +380,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
           statementConsentHandledByMerge = true;
         } else {
           contact = await writeContact({
-            mode: "ghl_upsert_first",
+            mode: "local_first",
             mutation: {
               firstName, lastName, email, phone: mobile,
               companyName: businessName, vertical, currentProvider,
@@ -590,7 +590,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         });
       } else {
         contact = await writeContact({
-          mode: "ghl_upsert_first",
+          mode: "local_first",
           mutation: {
             firstName, lastName, email, phone: phone || "",
             monthlyVolume, currentProvider, notes,
@@ -730,7 +730,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         });
       } else {
         contact = await writeContact({
-          mode: "ghl_upsert_first",
+          mode: "local_first",
           mutation: {
             firstName, lastName, email, phone: mobile || "",
             companyName: businessName,
@@ -856,7 +856,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         });
       } else {
         contact = await writeContact({
-          mode: "ghl_upsert_first",
+          mode: "local_first",
           mutation: {
             firstName, lastName, email, phone: phone || "",
             vertical, monthlyVolume, primaryOfferPath: offerPath,
@@ -1061,7 +1061,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         });
       } else {
         contact = await writeContact({
-          mode: "ghl_upsert_first",
+          mode: "local_first",
           mutation: {
             firstName,
             lastName,
@@ -1132,7 +1132,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       const lastName = nameParts.slice(1).join(" ") || "";
 
       let contact: Contact = await writeContact({
-        mode: "ghl_upsert_first",
+        mode: "local_first",
         mutation: {
           firstName, lastName, email: "", phone: phone || "",
           status: "New",
@@ -1259,7 +1259,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         });
       } else {
         contact = await writeContact({
-          mode: "ghl_upsert_first",
+          mode: "local_first",
           mutation: {
             firstName: firstName.slice(0, 100), lastName: safeLastName, email: email.slice(0, 200), phone: phone.slice(0, 30),
             companyName: safeBusiness,
@@ -1430,7 +1430,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         });
       } else {
         contact = await writeContact({
-          mode: "ghl_upsert_first",
+          mode: "local_first",
           mutation: {
             firstName, lastName, email, phone: safePhone,
             status: "New",
@@ -1538,7 +1538,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         }
       } else {
         contact = await writeContact({
-          mode: "ghl_upsert_first",
+          mode: "local_first",
           mutation: {
             firstName,
             lastName: "",

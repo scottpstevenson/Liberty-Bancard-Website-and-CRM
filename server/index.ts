@@ -245,6 +245,17 @@ app.use((req, res, next) => {
     console.warn("[CampaignPreview] Startup interrupt-mark failed (non-fatal):", e?.message);
   }
   await registerRoutes(httpServer, app);
+  // Resume only durable, expired CSV executions after routes are registered.
+  // The recovery processor is request-free and uses the canonical contact
+  // writer; failed recovery is non-fatal to startup and remains retryable.
+  try {
+    const { resumeExpiredCsvImports } = await import("./services/csv-import-recovery");
+    const { processPersistedCsvImport } = await import("./services/csv-import-processor");
+    const resumed = await resumeExpiredCsvImports(processPersistedCsvImport);
+    if (resumed > 0) console.log(`[StartupReconcile] Resumed ${resumed} expired CSV import execution(s)`);
+  } catch (error) {
+    console.error("[StartupReconcile] CSV import recovery failed — continuing startup:", error);
+  }
 
   const { logSmtpStartupWarning } = await import("./services/smtp-email");
   logSmtpStartupWarning();

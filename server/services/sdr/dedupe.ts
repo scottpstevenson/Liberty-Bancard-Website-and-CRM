@@ -279,16 +279,35 @@ export async function ingestBusiness(input: IngestBusinessInput): Promise<Ingest
   const normalizedName = normalizeBusinessName(input.name);
   const domain = normalizeDomain(input.website);
   const phone = normalizePhoneE164(input.phone);
-
-  const match = await findMatchingBusiness(
-    normalizedName,
-    domain,
-    phone,
-    input.googlePlaceId || null,
-    input.city || null,
-    input.state || null,
-    input.address || null
-  );
+  const { resolveOrganization } = await import("../organization-resolver");
+  const resolution = await resolveOrganization({
+    canonicalName: input.name,
+    websiteDomain: domain,
+    googlePlaceId: input.googlePlaceId || null,
+    mainPhone: phone,
+    city: input.city || null,
+    state: input.state || null,
+    create: {
+      mainEmail: input.email || null,
+      streetAddress: input.address || null,
+      postalCode: input.postalCode || null,
+      vertical: input.vertical || null,
+      subVertical: input.subVertical || null,
+      facebookUrl: input.facebookUrl || null,
+      instagramUrl: input.instagramUrl || null,
+      yelpUrl: input.yelpUrl || null,
+      reviewCount: input.reviewCount || null,
+      rating: input.rating || null,
+      industryPrimary: input.industryPrimary || null,
+      industrySecondary: input.industrySecondary || null,
+      status: "new",
+      lastSourceType: input.sourceType,
+    },
+  });
+  if (resolution.kind === "deferred") {
+    throw new Error(`ORGANIZATION_${resolution.reasonCode}`);
+  }
+  const match = { businessId: resolution.business.id, score: 100, matchDetails: {} as Record<string, number> };
 
   if (match) {
     const existing = await db.select().from(businesses).where(eq(businesses.id, match.businessId));
@@ -351,51 +370,13 @@ export async function ingestBusiness(input: IngestBusinessInput): Promise<Ingest
 
     return {
       businessId: match.businessId,
-      isNew: false,
+      isNew: resolution.kind === "created",
       matchScore: match.score,
       matchDetails: match.matchDetails,
     };
   }
 
-  const [newBiz] = await db.insert(businesses).values({
-    canonicalName: input.name,
-    normalizedName,
-    websiteDomain: domain,
-    mainPhone: phone,
-    mainEmail: input.email || null,
-    streetAddress: input.address || null,
-    city: input.city || null,
-    state: input.state || null,
-    postalCode: input.postalCode || null,
-    googlePlaceId: input.googlePlaceId || null,
-    vertical: input.vertical || null,
-    subVertical: input.subVertical || null,
-    facebookUrl: input.facebookUrl || null,
-    instagramUrl: input.instagramUrl || null,
-    yelpUrl: input.yelpUrl || null,
-    reviewCount: input.reviewCount || null,
-    rating: input.rating || null,
-    industryPrimary: input.industryPrimary || null,
-    industrySecondary: input.industrySecondary || null,
-    status: "new",
-    lastSourceType: input.sourceType,
-  }).returning();
-
-  await db.insert(leadSources).values({
-    businessId: newBiz.id,
-    contactId: input.contactId || null,
-    sourceType: input.sourceType,
-    sourceLabel: input.sourceLabel || null,
-    sourceExternalId: input.sourceExternalId || null,
-    campaignTag: input.campaignTag || null,
-    importBatchId: input.importBatchId || null,
-    discoveredAt: new Date(),
-  });
-
-  return {
-    businessId: newBiz.id,
-    isNew: true,
-  };
+  throw new Error("ORGANIZATION_RESOLVER_UNREACHABLE");
 }
 
 export async function bridgeContactsToBusinesses(options?: { limit?: number; contactIds?: number[] }): Promise<{

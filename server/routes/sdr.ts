@@ -17,7 +17,7 @@ import { handleContactUpdated, handleMessageReceived, handleCallOutcome, handleA
 import { handleAppointmentShowed } from "../services/sdr/scheduling";
 import { handleConversationCreated, handleChatMessage, handleSmsThread, handleEmailThread, handleChatBooking } from "../services/sdr/chat-handlers";
 import { parse } from "csv-parse/sync";
-import { createContactGhlFirst } from "../services/contact-writer";
+import { createContactLocalFirst } from "../services/contact-writer";
 import { serverError, safeMessage } from "../utils/server-error";
 import { requireGhlRouteMutationAllowed } from "./ghl-mutation-pause";
 import { applyConsentCommand } from "../services/consent-authority";
@@ -2214,18 +2214,28 @@ export function registerSdrRoutes(app: Express) {
     }
   });
 
-  app.post("/api/businesses", isAuthenticated, async (req, res) => {
+  app.post("/api/businesses", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
       const input = insertBusinessSchema.parse(req.body);
-      const biz = await storage.createBusiness(input);
-      res.status(201).json(biz);
+      const { resolveOrganization } = await import("../services/organization-resolver");
+      const result = await resolveOrganization({
+        canonicalName: input.canonicalName,
+        websiteDomain: input.websiteDomain,
+        googlePlaceId: input.googlePlaceId,
+        mainPhone: input.mainPhone,
+        city: input.city,
+        state: input.state,
+        create: input,
+      });
+      if (result.kind === "deferred") return res.status(409).json(result);
+      res.status(result.kind === "created" ? 201 : 200).json(result.business);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
       serverError(res, err);
     }
   });
 
-  app.post("/api/businesses/ingest", isAuthenticated, async (req, res) => {
+  app.post("/api/businesses/ingest", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
       const result = await ingestBusiness(req.body);
       res.json(result);
@@ -3323,7 +3333,7 @@ export function registerSdrRoutes(app: Express) {
         const email = candidateEmails[0] ?? undefined;
         const phone = lead.phone ?? merchant?.mainPhone ?? undefined;
 
-        const newContact = await createContactGhlFirst({
+        const newContact = await createContactLocalFirst({
           firstName: ownerFirstName,
           lastName: ownerLastName,
           email: String(email ?? "") as unknown as string,

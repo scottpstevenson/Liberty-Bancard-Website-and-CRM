@@ -22,9 +22,16 @@ import { runBulkFastClassification } from "../services/sunbiz-enrichment";
 import { ingestBusiness, ingestBusinessFromContact } from "../services/sdr/dedupe";
 import { syncFormSubmissionToGhl } from "../services/ghl-form-sync";
 import { enrollInInboundConfirmation } from "../services/ghl-workflow-enrollment";
-import { updateContactGhlFirst, createContactGhlFirst } from "../services/contact-writer";
-import { importExecutions, contactSourceEvents } from "@shared/schema";
+import { updateContactLocalFirst, createContactLocalFirst, writeContact } from "../services/contact-writer";
+import { importExecutions, contactSourceEvents, importRowDispositions } from "@shared/schema";
 import { computeFileHash } from "../services/import-normalizer";
+import {
+  claimCsvExecution,
+  completeImportExecution,
+  getImportLedgerSummary,
+  heartbeatImportExecution,
+  recordImportRowDisposition,
+} from "../services/import-execution";
 import { parse } from "csv-parse/sync";
 import bcrypt from "bcryptjs";
 import path from "path";
@@ -37,8 +44,30 @@ import { syncAffiliateSignupToGhl } from "../services/ghl-form-sync";
 import { sanitizeFirstName } from "../services/contact-name-utils";
 import { publicLeadRateLimit } from "../middleware/public-rate-limit";
 import { serverError } from "../utils/server-error";
+import { registerPersistedCsvProcessor, processPersistedCsvImport } from "../services/csv-import-processor";
 
 export function registerImportsRoutes(app: Express) {
+  app.get("/api/import-executions/:executionId/ledger", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
+    const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
+    const offset = Math.max(Number(req.query.offset) || 0, 0);
+    const executionId = String(req.params.executionId);
+    const rows = await db.select({
+      sourceRowNumber: importRowDispositions.sourceRowNumber,
+      disposition: importRowDispositions.disposition,
+      reasonCode: importRowDispositions.reasonCode,
+      contactId: importRowDispositions.contactId,
+      createdAt: importRowDispositions.createdAt,
+    }).from(importRowDispositions)
+      .where(eq(importRowDispositions.executionId, executionId))
+      .limit(limit)
+      .offset(offset);
+    const [total] = await db.select({ count: sql<number>`count(*)` }).from(importRowDispositions)
+      .where(eq(importRowDispositions.executionId, executionId));
+    // Diagnostics are intentionally omitted for managers: only stable reason
+    // codes and non-PII row references leave this boundary.
+    res.json({ rows, limit, offset, total: Number(total?.count ?? 0) });
+  });
+
   // === FULL COREVT IMPORT ===
   app.post("/api/sunbiz/import-corevt-full", isAuthenticated, async (req, res) => {
     if ((req.user as any)?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
@@ -524,7 +553,7 @@ Guidelines:
         role: "affiliate",
         authProvider: "local",
       });
-      const affiliateContact = await createContactGhlFirst({
+      const affiliateContact = await createContactLocalFirst({
         firstName,
         lastName: lastName || "",
         email: email.toLowerCase(),
@@ -795,9 +824,9 @@ Guidelines:
       if (utmMedium) tags.push(`utm_med_${utmMedium}`);
       if (utmCampaign) tags.push(`utm_camp_${utmCampaign}`);
 
-      let contact: Awaited<ReturnType<typeof createContactGhlFirst>> | Awaited<ReturnType<typeof storage.getContactByEmail>> & { _ghlSyncPending?: boolean };
+      let contact: Awaited<ReturnType<typeof createContactLocalFirst>> | Awaited<ReturnType<typeof storage.getContactByEmail>> & { _ghlSyncPending?: boolean };
       try {
-        contact = await createContactGhlFirst({
+        contact = await createContactLocalFirst({
           firstName,
           lastName: lastName || "",
           email,
@@ -920,7 +949,7 @@ Guidelines:
             if (match.aiSummary) {
               enrichUpdates.notes = `${enrichUpdates.notes || contact.notes || ""}\nSunbiz AI: ${match.aiSummary}`.trim();
             }
-            await updateContactGhlFirst(contact.id, enrichUpdates);
+            await updateContactLocalFirst(contact.id, enrichUpdates);
             await storage.updateSunbizEntity(match.id, {
               tags: [...(match.tags || []), "quiz_lead_linked"],
               notes: `${match.notes || ""}\nLinked to quiz contact #${contact.id} (${firstName} ${lastName || ""})`.trim(),
@@ -1091,7 +1120,7 @@ Guidelines:
             const tier = total >= 70 ? "hot" : total >= 45 ? "warm" : total >= 20 ? "cold" : "unqualified";
             tierCounts[tier]++;
 
-            await updateContactGhlFirst(row.id, {
+            await updateContactLocalFirst(row.id, {
               leadScore: total,
               revPotentialScore: revPotential.score,
               switchabilityScore: switchability.score,
@@ -1230,7 +1259,7 @@ Guidelines:
 
 
   // === CSV IMPORT PIPELINE ===
-  app.get("/api/csv-imports", isAuthenticated, async (req, res) => {
+  app.get("/api/csv-imports", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     const imports = await storage.getCsvImports();
 
     // Auto-mark any import that has been stuck in "processing" for longer than
@@ -1291,7 +1320,7 @@ Guidelines:
     }
   });
 
-  app.get("/api/csv-imports/stats", isAuthenticated, async (req, res) => {
+  app.get("/api/csv-imports/stats", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
       const imports = await storage.getCsvImports();
       const totalImports = imports.length;
@@ -1418,13 +1447,13 @@ Guidelines:
 
   // /api/commission-tiers GET/POST/DELETE/PUT are registered in server/routes/partners.ts (canonical, role-guarded).
 
-  app.get("/api/csv-imports/:id", isAuthenticated, async (req, res) => {
+  app.get("/api/csv-imports/:id", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     const record = await storage.getCsvImport(Number(req.params.id));
     if (!record) return res.status(404).json({ message: "Not found" });
     res.json(record);
   });
 
-  app.post("/api/leads/import-csv", isAuthenticated, uploadLarge.single("file"), async (req, res) => {
+  app.post("/api/leads/import-csv", isDashboardUser, requireRole("admin", "manager"), uploadLarge.single("file"), async (req, res) => {
     try {
       if (!req.file) return res.status(400).json({ message: "No file uploaded" });
 
@@ -1472,31 +1501,66 @@ Guidelines:
         sourceFormat = "apollo_lead_list";
       }
 
+      // Permanent execution identity is claimed before a UI projection is
+      // created. A repeated or concurrent request never gets a second worker.
+      const csvHash = computeFileHash(Buffer.from(csvContent, "utf-8"));
+      const principal = req.user as any;
+      const executionClaim = await claimCsvExecution({
+        fileHash: csvHash,
+        totalRows: records.length,
+        actorType: "user",
+        actorId: String(principal?.id ?? ""),
+        // Keep recovery-only presentation metadata alongside the persisted
+        // normalized records.  The execution identity remains the content hash.
+        metadata: { sourceFormat, fileName },
+        sourcePayload: records,
+      });
+      if (!executionClaim.claimed) {
+        if (executionClaim.execution.status === "running") {
+          return res.status(409).json({
+            status: "in_progress",
+            executionId: executionClaim.execution.id,
+            retryable: true,
+          });
+        }
+        const summary = await getImportLedgerSummary(executionClaim.execution.id);
+        return res.status(200).json({
+          replayed: true,
+          execution: executionClaim.execution,
+          import: { totalRows: executionClaim.execution.totalRows ?? records.length, status: executionClaim.execution.status },
+          inserted: summary.counts.created ?? 0,
+          duplicatesSkipped: summary.counts.matched_noop ?? 0,
+          invalidRows: summary.counts.rejected ?? 0,
+          skippedRows: summary.counts.deferred ?? 0,
+          errors: summary.counts.failed ?? 0,
+        });
+      }
       const importRecord = await storage.createCsvImport({
+        executionId: executionClaim.execution.id,
         fileName,
         sourceFormat,
         totalRows: records.length,
-        importSource: (req.body.importSource as string) || sourceFormat,
+        importSource: sourceFormat,
         status: "processing",
-        importedBy: (req.body.importedBy as string) || "system",
+        importedBy: principal?.email || String(principal?.id ?? "system"),
       });
 
+      const processCsvImport = async (args: {
+        records: Array<Record<string, string>>;
+        executionClaim: typeof executionClaim;
+        importRecord: typeof importRecord;
+        sourceFormat: string;
+        actor: { actorType: string; actorId: string; userId?: string };
+        filename: string;
+      }) => {
+      const { records, executionClaim, importRecord, sourceFormat, actor, filename: fileName } = args;
       // Compute file hash for replay-protection. The file has already been read
       // into csvContent (or converted from XLSX) so we hash the canonical CSV
       // string rather than the raw upload bytes — consistent across XLSX→CSV conversions.
-      const csvHash = computeFileHash(Buffer.from(csvContent, "utf-8"));
       const csvSourceType = sourceFormat === "google_maps_outscraper" ? "outscraper"
         : sourceFormat === "apollo_lead_list" ? "apollo"
         : "csv_contact";
-      const [importExecution] = await db.insert(importExecutions).values({
-        importType: "csv_contact",
-        status: "running",
-        totalRows: records.length,
-        fileHash: csvHash,
-        actorType: "user",
-        actorId: String((req as any).user?.id ?? ""),
-        metadata: { csvImportRecordId: importRecord.id, sourceFormat },
-      }).returning();
+      const importExecution = executionClaim.execution;
 
       const existingEmails = await db.select({ email: sql<string>`LOWER(TRIM(email))` }).from(contacts).where(and(ne(contacts.email, ""), sql`email IS NOT NULL`));
       const existingPhones = await db.select({ phone: contacts.phone }).from(contacts).where(and(ne(contacts.phone, ""), sql`phone IS NOT NULL`));
@@ -1657,6 +1721,14 @@ Guidelines:
       const contactInserts: any[] = [];
 
       for (const [rowIndex, record] of records.entries()) {
+        if (rowIndex % batchSize === 0 && !await heartbeatImportExecution(importExecution.id, executionClaim.claimToken!)) {
+          throw new Error(`IMPORT_EXECUTION_LEASE_LOST:${importExecution.id}`);
+        }
+        // Logical CSV rows are one-based and allocated before validation. The
+        // ledger never stores raw input; this fingerprint permits replay-safe
+        // accounting without retaining PII.
+        const sourceRowNumber = rowIndex + 1;
+        const rowFingerprint = computeFileHash(Buffer.from(JSON.stringify(record)));
         const mapped: Record<string, string> = {};
         for (const [csvCol, value] of Object.entries(record)) {
           const normCol = csvCol.toLowerCase().trim().replace(/\s+/g, "_");
@@ -1679,8 +1751,16 @@ Guidelines:
           if (candidateName) firstName = candidateName;
         }
 
-        if (!companyName && !email && !phone) { invalidRows++; continue; }
-        if (!firstName && !companyName) { invalidRows++; continue; }
+        if (!companyName && !email && !phone) {
+          invalidRows++;
+          await recordImportRowDisposition({ executionId: importExecution.id, claimToken: executionClaim.claimToken!, sourceRowNumber, rowFingerprint, disposition: "rejected", reasonCode: "NO_USABLE_IDENTITY" });
+          continue;
+        }
+        if (!firstName && !companyName) {
+          invalidRows++;
+          await recordImportRowDisposition({ executionId: importExecution.id, claimToken: executionClaim.claimToken!, sourceRowNumber, rowFingerprint, disposition: "rejected", reasonCode: "NO_DISPLAY_NAME" });
+          continue;
+        }
 
         let isDuplicate = false;
         let emailMatchedContact: ConsentSnapshot | undefined;
@@ -1710,6 +1790,7 @@ Guidelines:
               updated++;
               const { suppressNewLeadAutoEnrollmentForContact } = await import("../services/new-lead-enrollment-job");
               suppressNewLeadAutoEnrollmentForContact(emailMatchedContact.id, "csv_import_existing_opt_out_preserved").catch(() => {});
+              await recordImportRowDisposition({ executionId: importExecution.id, claimToken: executionClaim.claimToken!, sourceRowNumber, rowFingerprint, disposition: "updated", reasonCode: "EXISTING_RESTRICTIVE_CONSENT", contactId: emailMatchedContact.id });
             } else if (csvRestricts) {
               // Apply: CSV is asserting a new opt-out/DNC for a previously
               // contactable contact.  Write only the restrictive consent fields.
@@ -1735,11 +1816,14 @@ Guidelines:
               });
               const { suppressNewLeadAutoEnrollmentForContact } = await import("../services/new-lead-enrollment-job");
               suppressNewLeadAutoEnrollmentForContact(emailMatchedContact.id, "csv_import_opt_out").catch(() => {});
+              await recordImportRowDisposition({ executionId: importExecution.id, claimToken: executionClaim.claimToken!, sourceRowNumber, rowFingerprint, disposition: "updated", reasonCode: "RESTRICTIVE_CONSENT_APPLIED", contactId: emailMatchedContact.id });
             } else {
               duplicatesSkipped++;
+              await recordImportRowDisposition({ executionId: importExecution.id, claimToken: executionClaim.claimToken!, sourceRowNumber, rowFingerprint, disposition: "matched_noop", reasonCode: "EXACT_ELIGIBLE_IDENTITY_MATCH", contactId: emailMatchedContact.id });
             }
           } else {
             duplicatesSkipped++;
+            await recordImportRowDisposition({ executionId: importExecution.id, claimToken: executionClaim.claimToken!, sourceRowNumber, rowFingerprint, disposition: "matched_noop", reasonCode: "EXACT_ELIGIBLE_IDENTITY_MATCH" });
           }
           continue;
         }
@@ -1801,6 +1885,8 @@ Guidelines:
         }
 
         contactInserts.push({
+          __sourceRowNumber: sourceRowNumber,
+          __rowFingerprint: rowFingerprint,
           firstName: firstName || "",   // already sanitized; blank is better than a URL
           lastName: lastName || "",
           // contacts.email is NOT NULL with a unique index (per non-archived
@@ -1812,7 +1898,10 @@ Guidelines:
           // imported. This placeholder is never added to `emailSet` (that
           // only happens when the CSV-parsed `email` is truthy), so it has
           // no effect on app-level email dedupe.
-          email: email || `no-email-${randomUUID()}@no-email.libertybancard.internal`,
+          // Stable per execution/row so an interrupted retry cannot create a
+          // second no-email contact. It is excluded from identity matching and
+          // provider projection by the canonical command.
+          email: email || `no-email-${importExecution.id}-${sourceRowNumber}@no-email.libertybancard.internal`,
           phone: phone || "",
           companyName: companyName || "",
           title: mapped.title || (sourceFormat === "google_maps_outscraper" ? "Owner" : null),
@@ -1860,6 +1949,9 @@ Guidelines:
             lastProgressAt: new Date(),
             status: "processing",
           });
+          if (!await heartbeatImportExecution(importExecution.id, executionClaim.claimToken!)) {
+            throw new Error("CSV import processor lease lost");
+          }
         } catch (e: any) {
           console.warn(`[CSV Import] Pre-filter progress write failed for import ${importRecord.id}:`, e?.message || e);
         }
@@ -1868,13 +1960,36 @@ Guidelines:
       for (let i = 0; i < contactInserts.length; i += batchSize) {
         const batch = contactInserts.slice(i, i + batchSize);
         try {
-          const result = await db.transaction(async (tx) => {
-            const rows = await tx.insert(contacts).values(batch).onConflictDoNothing().returning();
-            const { recordContactIdentityObservationsForContacts } = await import("../services/contact-identity");
-            await recordContactIdentityObservationsForContacts(tx as any, rows, "csv_import", String(importExecution.id));
-            return rows;
-          });
-          inserted += result.length;
+          const result: any[] = [];
+          for (const source of batch) {
+            const { __sourceRowNumber, __rowFingerprint, ...mutation } = source;
+            const contact = await writeContact({
+              mode: "local_only",
+              mutation,
+              provenance: {
+                sourceCategory: "csv_import",
+                sourceType: csvSourceType,
+                eventKey: `import:${importExecution.id}:row:${__sourceRowNumber}`,
+                importExecutionId: importExecution.id,
+                importClaimToken: executionClaim.claimToken!,
+                sourceRowNumber: __sourceRowNumber,
+                rowFingerprint: __rowFingerprint,
+                actorType: actor.actorType,
+                actorId: actor.actorId,
+              },
+              actor: {
+                actorType: actor.actorType,
+                actorId: actor.actorId,
+                userId: actor.userId ?? actor.actorId,
+              },
+              rowDisposition: {
+                createdReasonCode: "LOCAL_CONTACT_CREATED",
+                matchedReasonCode: "EXACT_ELIGIBLE_IDENTITY_MATCH",
+              },
+            });
+            result.push(contact);
+          }
+          inserted += result.filter((row) => row._intakeOutcome === "created").length;
           // onConflictDoNothing() can silently skip rows that hit a DB-level
           // conflict without throwing. Those rows are neither inserted,
           // duplicates (per our app-level dedupe), nor errors — count them
@@ -1884,12 +1999,11 @@ Guidelines:
             skippedRows += conflictSkipped;
             console.warn(`[CSV Import] ${conflictSkipped} row(s) in batch silently skipped by DB conflict (import ${importRecord.id})`);
           }
-          for (const r of result) {
+          for (const r of result.filter((row) => row._intakeOutcome === "created")) {
             insertedContactIds.push(r.id);
             const { auditChange } = await import("../services/audit-change");
             auditChange({ actorType: "system", action: "contact_created", entityType: "contact", entityId: r.id, before: null, after: r as unknown as Record<string, unknown> }).catch(() => {});
           }
-
           for (const r of result) {
             try {
               const scoreResult = await scoreContact(r.id);
@@ -1916,37 +2030,9 @@ Guidelines:
             }
           }
         } catch (batchErr: any) {
-          console.warn(`[CSV Import] Batch insert failed for import ${importRecord.id}, falling back to per-row insert:`, batchErr?.message || batchErr);
-          for (const single of batch) {
-            try {
-              const [result] = await db.transaction(async (tx) => {
-                const [row] = await tx.insert(contacts).values(single).onConflictDoNothing().returning();
-                if (row) {
-                  const { recordContactIdentityObservations } = await import("../services/contact-identity");
-                  await recordContactIdentityObservations(tx as any, row, "csv_import", String(importExecution.id));
-                }
-                return [row];
-              });
-              if (result) {
-                inserted++;
-                insertedContactIds.push(result.id);
-                const { auditChange } = await import("../services/audit-change");
-                auditChange({ actorType: "system", action: "contact_created", entityType: "contact", entityId: result.id, before: null, after: result as unknown as Record<string, unknown> }).catch(() => {});
-                try {
-                  await scoreContact(result.id);
-                } catch {}
-              } else {
-                // No row returned and no exception thrown: the DB silently
-                // skipped this row via onConflictDoNothing(). Track it so
-                // it isn't an invisible dropped row.
-                skippedRows++;
-                console.warn(`[CSV Import] Row silently skipped by DB conflict during per-row fallback (import ${importRecord.id})`);
-              }
-            } catch (rowErr: any) {
-              errors++;
-              console.error(`[CSV Import] Row insert failed for import ${importRecord.id}:`, rowErr?.message || rowErr);
-            }
-          }
+          // Do not fall back to a raw insert. The execution remains recoverable
+          // because the lease expires and row dispositions are immutable.
+          throw batchErr;
         }
 
         // Persist running totals after every batch so a crash mid-import
@@ -1972,34 +2058,18 @@ Guidelines:
         } catch (progressErr: any) {
           console.warn(`[CSV Import] Per-batch progress write failed for import ${importRecord.id}:`, progressErr?.message || progressErr);
         }
+        if (!await heartbeatImportExecution(importExecution.id, executionClaim.claimToken!)) {
+          throw new Error("CSV import processor lease lost");
+        }
       }
 
-      // Create one contact_source_events row per newly inserted contact.
-      // Uses ON CONFLICT DO UPDATE lastSeenAt for idempotency on retries.
-      // Fire-and-forget — failures are logged but don't fail the import.
-      if (insertedContactIds.length > 0 && importExecution) {
-        const sourceEventsPayload = insertedContactIds.map((cid, idx) => ({
-          contactId: cid,
-          eventKey: `import:${importExecution.id}:row:${idx}`,
-          sourceCategory: "csv_import" as const,
-          sourceType: csvSourceType,
-          importExecutionId: importExecution.id,
-          sourceRowNumber: idx,
-          actorType: "system" as const,
-        }));
-        for (let i = 0; i < sourceEventsPayload.length; i += 100) {
-          const evtBatch = sourceEventsPayload.slice(i, i + 100);
-          db.insert(contactSourceEvents).values(evtBatch)
-            .onConflictDoNothing()
-            .execute()
-            .catch((e: any) => console.warn(`[CSV Import] Source event insert failed:`, e?.message || e));
-        }
-        // Update import_executions to completed
-        db.update(importExecutions)
-          .set({ status: "completed", insertedRows: inserted, completedAt: new Date() })
-          .where(eq(importExecutions.id, importExecution.id))
-          .execute()
-          .catch((e: any) => console.warn(`[CSV Import] import_executions update failed:`, e?.message || e));
+      const ledgerCompletion = await completeImportExecution({
+        executionId: importExecution.id,
+        claimToken: executionClaim.claimToken!,
+        expectedRows: records.length,
+      });
+      if (!ledgerCompletion.completed) {
+        throw new Error(`CSV ledger reconciliation failed: ${ledgerCompletion.total}/${records.length} terminal rows`);
       }
 
       let businessesLinked = 0;
@@ -2069,8 +2139,8 @@ Guidelines:
         action: "csv_import_completed",
         entityType: "csv_import",
         entityId: importRecord.id,
-        actorType: "user",
-        actorId: (req as any).user?.id ?? null,
+        actorType: actor.actorType,
+        actorId: actor.actorId,
         details: {
           filename: importRecord.fileName,
           inserted,
@@ -2082,7 +2152,7 @@ Guidelines:
         },
       } as any).catch((e: any) => console.error("[CSV Import] audit log failed:", e.message));
 
-      res.status(201).json({
+      return {
         import: updatedImport,
         inserted,
         updated,
@@ -2095,7 +2165,22 @@ Guidelines:
         sourceFormat,
         optOutPreserved,
         optOutApplied,
+      };
+      };
+      registerPersistedCsvProcessor(processCsvImport);
+      const response = await processPersistedCsvImport({
+        records,
+        executionClaim,
+        importRecord,
+        sourceFormat,
+        actor: {
+          actorType: "user",
+          actorId: String(principal?.id ?? ""),
+          userId: String(principal?.id ?? ""),
+        },
+        filename: fileName,
       });
+      res.status(201).json(response);
     } catch (err: any) {
       console.error("CSV import error:", err);
       try {

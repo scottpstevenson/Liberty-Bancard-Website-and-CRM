@@ -9,6 +9,7 @@ import { isGhlConfigured, sendGhlEmailForMerchant, upsertGhlContact, sendGhlEmai
 import { sendSmtpEmail } from "./smtp-email";
 import { getEmailSignatureHtml } from "./email-signatures";
 import { addNote } from "./sdr/ghl-client";
+import { createContactLocalFirst } from "./contact-writer";
 
 export interface CoBrandedProposalInput {
   partnerOrgId: number;
@@ -492,7 +493,7 @@ async function findOrCreateMerchantContact(params: {
   const firstName = nameParts[0] || "Merchant";
   const lastName = nameParts.slice(1).join(" ") || "Contact";
 
-  const newContact = await storage.createContact({
+  const newContact = await createContactLocalFirst({
     firstName,
     lastName,
     // Use actual email when available; otherwise a unique synthetic placeholder to
@@ -503,7 +504,11 @@ async function findOrCreateMerchantContact(params: {
     status: "New",
     leadSource: "Partner Proposal",
     notes: `Auto-created from co-branded proposal (created by: ${createdBy || "Partner"})`,
-  } as any);
+  } as any, undefined, {
+    sourceCategory: "partner_referral",
+    sourceType: "co_branded_proposal",
+    eventKey: `proposal-contact:${merchantEmail?.toLowerCase().trim() || merchantName.toLowerCase().trim()}`,
+  });
 
   return newContact.id;
 }

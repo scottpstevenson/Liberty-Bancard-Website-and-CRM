@@ -8,7 +8,7 @@ import { isSerperConfigured, searchBusiness, searchBusinessEmail } from "./serpe
 import { ingestBusinessFromContact } from "./sdr/dedupe";
 import { detectProcessors } from "./sdr/processor-detector";
 import { detectAds } from "./sdr/ad-detector";
-import { updateContactGhlFirst } from "./contact-writer";
+import { updateContactLocalFirst } from "./contact-writer";
 import { enqueueReadinessRecalculation } from "./contact-readiness";
 import { logAiCall } from "./ai-audit-logger";
 import { scoreDecisionMaker } from "./bounce-feedback";
@@ -395,7 +395,7 @@ export async function enrichContactBatch(
           }
 
           if (Object.keys(updates).length > 0) {
-            await updateContactGhlFirst(contactId, updates);
+            await updateContactLocalFirst(contactId, updates);
             enqueueReadinessRecalculation(contactId).catch(() => {});
             // Clear outreach queue skip flag if new contact data was found —
             // this makes the contact re-appear in the Ready-for-Outreach queue.

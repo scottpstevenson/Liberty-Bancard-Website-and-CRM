@@ -74,6 +74,18 @@ export const SUITE_MANIFEST: SuiteManifestEntry[] = [
     providerDenial: "source-only transactional writer ownership scan",
   },
   {
+    name: "Canonical Intake Authority",
+    script: "scripts/test-canonical-intake-authority.ts",
+    capability: "deterministic-static",
+    providerDenial: "source-backed authority boundary checks; no providers",
+  },
+  {
+    name: "CSV Import Reconciliation",
+    script: "scripts/test-import-reconciliation.ts",
+    capability: "server-required",
+    providerDenial: "server-backed import fixtures; outbound providers are fail-closed",
+  },
+  {
     name: "Canonical Merge Manifest Guard",
     script: "scripts/check-contact-merge-manifest.ts",
     capability: "deterministic-integration",

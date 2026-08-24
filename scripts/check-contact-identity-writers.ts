@@ -51,9 +51,20 @@ for (const file of sourceFiles) {
   const source = read(file);
   if (/\bstorage\.mergeContacts\s*\(/.test(source)) failures.push(`${file} still invokes legacy storage.mergeContacts`);
 }
+
+// BT-08: provider-first and compatibility roots must not return. The command
+// itself is the only generic creation boundary; callers must supply a source
+// contract rather than recreate raw contact writes.
+for (const file of walk("server")) {
+  const source = read(file);
+  if (/\bghl_upsert_first\b/.test(source)) failures.push(`provider-first contact mode remains in ${file}`);
+  if (file !== "server/services/contact-writer.ts" && /\b(?:create|update)ContactGhlFirst\s*\(/.test(source)) {
+    failures.push(`legacy GHL-first contact adapter remains in ${file}`);
+  }
+}
 if (failures.length) {
   console.error("Contact identity writer gate failed:");
   failures.forEach((failure) => console.error(`  - ${failure}`));
   process.exit(1);
 }
-console.log("✓ Contact identity writers are transactionally observed and legacy merge callers are absent");
+console.log("✓ Contact writers are observed, local-first, and legacy roots are absent");

@@ -2,7 +2,7 @@ import { db } from "../db";
 import { storage } from "../storage";
 import { contacts, type Contact } from "@shared/schema";
 import { eq } from "drizzle-orm";
-import { updateContactGhlFirst, upsertContactSourceEvent } from "./contact-writer";
+import { updateContactLocalFirst, upsertContactSourceEvent } from "./contact-writer";
 import type { PublicFormType, PublicContactProfilePayload } from "./public-form-payload";
 import { applyConsentCommand } from "./consent-authority";
 import { recordContactIdentityObservations } from "./contact-identity";
@@ -29,7 +29,7 @@ export interface ProcessExistingSubmissionArgs {
  *    route-level lookup and write), re-evaluate mergePersistedConsentState() against
  *    fresh state, update contact, insert blocked audit rows (ON CONFLICT DO NOTHING),
  *    insert permitted opt_in audit rows for channels actually set to true.
- * B) Post-commit: updateContactGhlFirst() with only the permitted merged result
+ * B) Post-commit: apply the local-first generic update with only the permitted merged result
  *    — GHL failure does not roll back local update; retry queue handles it
  * C) upsertContactSourceEvent() to record the resubmission provenance
  * D) Return re-fetched contact
@@ -119,7 +119,7 @@ export async function processExistingPublicFormSubmission(
   // C: Post-commit GHL sync — GHL failure must not roll back local update
   if (Object.keys(finalUpdate).length > 0) {
     try {
-      await updateContactGhlFirst(
+      await updateContactLocalFirst(
         existingContact.id,
         finalUpdate as any,
         { actorType: "public" },

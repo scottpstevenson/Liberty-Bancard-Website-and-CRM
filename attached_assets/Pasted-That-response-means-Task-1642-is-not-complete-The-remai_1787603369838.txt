@@ -1,0 +1,96 @@
+That response means **Task 1642 is not complete**. The remaining CSV recovery guarantee is a core requirement, not optional hardening.
+
+Send this back to the Replit agent:
+
+```text
+Continue Task 1642. Do not close it, create a follow-up task, or stop after another plan.
+
+The remaining recovery work is part of this task’s core completion criteria.
+
+IMPLEMENT NOW
+
+1. Durable source retention
+- Persist the immutable CSV source—or its complete normalized row payload—before processing begins.
+- Couple the execution record, source fingerprint, source payload reference, and intake receipt transactionally.
+- A restart must not require the user to upload the CSV again.
+- Reuse existing durable tables/columns if they can express this safely.
+- If they cannot, stop only long enough to report the exact missing invariant and the smallest additive migration required. Do not use temporary files or process memory as recovery authority.
+
+2. Independently resumable executions
+- A pending/running/interrupted execution must be claimable after restart using the existing serialized execution authority.
+- Resume from the last durably committed batch/row checkpoint.
+- Reprocess safely using existing row idempotency and resolver authority.
+- Do not repeat completed projections, provider effects, source events, receipts, or contact mutations.
+- Heartbeat and checkpoint progress after every committed batch.
+- Token ownership must be checked when renewing, checkpointing, completing, or failing the execution.
+
+3. Concurrent upload behavior
+- When the same source fingerprint is already pending or running, do not report it as a completed replay and do not start a second execution.
+- Return HTTP 409 with a truthful response such as:
+  {
+    "status": "in_progress",
+    "executionId": "...",
+    "retryable": true
+  }
+- A genuinely completed identical upload may return the existing completed receipt.
+- A failed/recoverable execution must resume the existing execution rather than create a competing one.
+
+4. Crash/restart proof
+Add an end-to-end disposable-infrastructure regression that:
+
+- Starts an import containing multiple batches.
+- Forces termination after at least one committed batch.
+- Restarts the worker/service without resubmitting the CSV.
+- Claims and resumes the original execution.
+- Completes all remaining rows exactly once.
+- Proves completed rows, source events, contact receipts, resolver decisions, projection intents, and provider work were not duplicated.
+- Proves a concurrent identical upload receives the explicit in-progress response.
+- Proves a stale owner cannot checkpoint, complete, or release after takeover.
+- Uses isolated DB/Redis state and fail-fast provider transports.
+
+5. Preserve the completed safety work
+Do not regress:
+
+- Local-first intake.
+- Transactional contact receipt creation.
+- Serialized identity resolver.
+- Duplicate source-event suppression.
+- Conflicting organization-evidence handling.
+- Generic-update/projection transaction coupling.
+- Claimed projection worker as the only provider synchronization authority.
+- Batch heartbeat behavior.
+- Authorization and migration safety.
+- CI manifest registration.
+
+6. Completion gates
+Run and report actual exit codes for:
+
+npm run check
+npm run build
+npx tsx scripts/ci-suite-manifest.ts --check
+the focused Task 1642 tests
+the live CSV regression
+the new crash/resume/concurrent-upload suite
+git diff --check
+
+Restart the application after the final code change and rerun the server-dependent regression against that exact code.
+
+FINAL RESPONSE
+
+Return:
+
+- Starting and ending SHA/status.
+- Migration head before and after.
+- Exact files changed.
+- file:line evidence for source persistence, checkpointing, resumption, concurrency response, and stale-owner fencing.
+- Crash/restart test results.
+- Concurrent-upload response evidence.
+- Confirmation that resumption required no CSV resubmission.
+- Confirmation that no direct provider wake-up remains.
+- CI manifest evidence and every gate result.
+- Final verdict: SAFE TO MERGE or DO NOT MERGE.
+
+Do not mark Task 1642 complete until interrupted imports resume independently and the crash/concurrency tests pass.
+```
+
+The agent’s decision not to falsely close the task was correct. The next step is to finish these recovery guarantees inside **1642**, not defer them as optional follow-up work.

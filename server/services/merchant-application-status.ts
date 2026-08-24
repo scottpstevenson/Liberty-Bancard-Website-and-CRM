@@ -1,6 +1,6 @@
 import { sendEmailReply } from "./sdr/ghl-client";
 import { getEmailSignatureHtml } from "./email-signatures";
-import { createContactGhlFirst } from "./contact-writer";
+import { createContactLocalFirst } from "./contact-writer";
 import { storage } from "../storage";
 
 const ONBOARDING_SIG = {
@@ -122,7 +122,7 @@ async function resolveGhlContactId(input: ApplicationStatusEmailInput): Promise<
   if (!email) return null;
 
   // Transient GHL/contact-create failures propagate to the caller.
-  const contact = await createContactGhlFirst({
+  const contact = await createContactLocalFirst({
     firstName: input.ownerFirstName || "",
     lastName: input.ownerLastName || "",
     email,

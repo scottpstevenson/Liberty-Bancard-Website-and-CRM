@@ -100,6 +100,7 @@ import {
 } from "@shared/schema";
 import { eq, desc, and, lt, isNull, ne, sql, asc, gt, gte, lte, inArray, or, ilike, count } from "drizzle-orm";
 import { coerceDateFields } from "../utils/date-coerce";
+import { assertNoProtectedContactFields, stripContactAuthorityFields } from "../services/contact-field-authority";
   import { type PaginationParams, type PaginatedResult, normalizePagination } from "./_shared";
 
   export class ContactsStorage {
@@ -206,6 +207,7 @@ import { coerceDateFields } from "../utils/date-coerce";
 
   async updateContact(id: number, updates: UpdateContactRequest, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }) {
     const { auditChange } = await import("../services/audit-change");
+    assertNoProtectedContactFields(updates as Record<string, unknown>);
     // Defense-in-depth: strip fields that are managed exclusively by dedicated services
     // and must never be overwritten via the generic update path. The PUT route also
     // strips these, but we enforce here as a second layer.
@@ -252,10 +254,13 @@ import { coerceDateFields } from "../utils/date-coerce";
   async syncUpdateContact(id: number, updates: UpdateContactRequest) {
     // Intentionally does NOT bump updatedAt so that updatedAt stays as the last
     // genuine user-edit timestamp and conflict detection remains accurate.
+    // Provider-originated generic profile sync may not mutate consent or
+    // suppression projections. Those fields are handled by ConsentAuthority.
+    const safeUpdates = stripContactAuthorityFields(updates as Record<string, unknown>) as UpdateContactRequest;
     const [before] = await db.select().from(contacts).where(eq(contacts.id, id));
     const [updated] = await db.transaction(async (tx) => {
-      const [row] = await tx.update(contacts).set(updates).where(eq(contacts.id, id)).returning();
-      if (row && ("email" in updates || "phone" in updates)) {
+      const [row] = await tx.update(contacts).set(safeUpdates).where(eq(contacts.id, id)).returning();
+      if (row && ("email" in safeUpdates || "phone" in safeUpdates)) {
         const { recordContactIdentityObservations } = await import("../services/contact-identity");
         await recordContactIdentityObservations(tx as any, row, "ghl_inbound");
       }

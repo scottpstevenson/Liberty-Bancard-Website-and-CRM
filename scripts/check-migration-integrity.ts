@@ -123,8 +123,8 @@ for (const entry of journal.entries) {
   }
 }
 
-// ── Rule 3: journal `when` is monotonically non-decreasing + duplicate report ─
-console.log("\n[Rule 3] Journal `when` timestamps are non-decreasing (duplicates reported):");
+// ── Rule 3: journal `when` ordering ─────────────────────────────────────────
+console.log("\n[Rule 3] Journal `when` timestamps are ordered (new entries strictly advance):");
 let prevWhen = -1;
 let prevTag  = "(start)";
 let orderedOk = true;
@@ -133,10 +133,11 @@ for (const e of journal.entries) {
   const bucket = whenCounts.get(e.when) ?? [];
   bucket.push(e.tag);
   whenCounts.set(e.when, bucket);
-  if (e.when < prevWhen) {
+  const strictlyNew = e.idx >= 159;
+  if (e.when < prevWhen || (strictlyNew && e.when <= prevWhen)) {
     // Out-of-order timestamps are a hard failure: Drizzle's migrate() processes
     // entries in `when` order, so an out-of-order new entry is silently skipped.
-    fail(`Out-of-order: idx=${e.idx} tag=${e.tag} when=${e.when} < prev '${prevTag}' when=${prevWhen}`);
+    fail(`Out-of-order: idx=${e.idx} tag=${e.tag} when=${e.when} ${strictlyNew ? "≤" : "<"} prev '${prevTag}' when=${prevWhen}`);
     orderedOk = false;
   }
   prevWhen = e.when;
@@ -149,7 +150,7 @@ for (const [when, tags] of whenCounts) {
   }
 }
 if (orderedOk) {
-  pass("All journal `when` timestamps are non-decreasing");
+  pass("Historical journal timestamps are non-decreasing and newly added timestamps strictly advance");
 }
 
 // ── Rule 4: required additive migrations exist and contain no destructive SQL ─

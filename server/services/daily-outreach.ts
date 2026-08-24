@@ -8,7 +8,7 @@ import { routeContact } from "./smart-router";
 import { enqueuePromotionalEnrollment } from "./promotional-enrollment-eligibility";
 import { triggerWorkflowsByEvent } from "./workflow-executor";
 import { syncContactToGhl } from "./ghl-sync";
-import { createContactGhlFirst, updateContactGhlFirst } from "./contact-writer";
+import { createContactLocalFirst, updateContactLocalFirst } from "./contact-writer";
 import { getEmailSignatureHtml } from "./email-signatures";
 import { streamCorevtFromZip, downloadCordataFromSunbiz, streamCordataFromZip, type CordataRecord } from "./sunbiz-scraper";
 import { toProperCase } from "./sunbiz-scraper";
@@ -607,7 +607,7 @@ export async function promoteQualifiedToContacts(): Promise<{
       const firstName = sanitizeFirstName(rawFirstName) || entity.entityName.split(" ")[0] || "";
       const lastName = nameParts.slice(1).join(" ") || "";
 
-      const contact = await createContactGhlFirst({
+      const contact = await createContactLocalFirst({
         firstName: firstName ? firstName.charAt(0).toUpperCase() + firstName.slice(1).toLowerCase() : "",
         lastName: lastName ? lastName.charAt(0).toUpperCase() + lastName.slice(1).toLowerCase() : "(Business)",
         email: entity.email || entity.ownerEmail || "",
@@ -678,7 +678,7 @@ export async function processQuizLeadsForSunbizMatch(): Promise<number> {
           if (match.aiSummary) {
             enrichUpdates.notes = `${enrichUpdates.notes}\nSunbiz AI: ${match.aiSummary}`.trim();
           }
-          await updateContactGhlFirst(contact.id, enrichUpdates);
+          await updateContactLocalFirst(contact.id, enrichUpdates);
           await storage.updateSunbizEntity(match.id, {
             tags: [...(match.tags || []), "quiz_lead_linked"],
             notes: `${match.notes || ""}\nLinked to quiz contact #${contact.id} (${contact.firstName} ${contact.lastName})`.trim(),
@@ -686,7 +686,7 @@ export async function processQuizLeadsForSunbizMatch(): Promise<number> {
           matched++;
         } else {
           const existingTags = contact.tags || [];
-          await updateContactGhlFirst(contact.id, { tags: [...existingTags, "sunbiz_no_match"] });
+          await updateContactLocalFirst(contact.id, { tags: [...existingTags, "sunbiz_no_match"] });
         }
       } catch (err) {
         console.error(`[Quiz Lead Match] Error for contact ${contact.id}:`, err);

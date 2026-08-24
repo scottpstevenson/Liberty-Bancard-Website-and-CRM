@@ -19,7 +19,7 @@ import path from "path";
 import fs from "fs";
 import { addNote, addTag, isSdrGhlConfigured } from "../services/sdr/ghl-client";
 import { enrollInGhlWorkflow, enrollInGhlWorkflowCompliant } from "../services/ghl-workflows";
-import { createContactGhlFirst } from "../services/contact-writer";
+import { createContactLocalFirst } from "../services/contact-writer";
 import { scoreContact } from "../services/lead-scoring";
 import { autoEnrollFromTrigger } from "../services/sequence-worker";
 import { triggerWorkflowsByEvent } from "../services/workflow-executor";
@@ -87,7 +87,7 @@ export function registerPartnerOrgsRoutes(app: Express) {
         if (org && org.status === "active") resolvedOrgId = org.id;
       }
 
-      const contact = await createContactGhlFirst({
+      const contact = await createContactLocalFirst({
         firstName: String(firstName).slice(0, 200),
         lastName: lastName ? String(lastName).slice(0, 200) : "",  // eslint-disable-line
         email: String(email).toLowerCase().slice(0, 300),
@@ -264,7 +264,7 @@ export function registerPartnerOrgsRoutes(app: Express) {
 
       let contact = await storage.getContactByEmail(email.toLowerCase());
       if (!contact) {
-        contact = await storage.createContact({
+        contact = await createContactLocalFirst({
           firstName: req.body.firstName || email.split("@")[0],
           lastName: req.body.lastName || "",
           email: email.toLowerCase(),
@@ -276,6 +276,10 @@ export function registerPartnerOrgsRoutes(app: Express) {
           utmCampaign: partnerSlug || null,
           partnerOrgId: orgId,
           tags: ["partner_portal", partnerSlug ? `partner_${partnerSlug}` : "partner"].filter(Boolean),
+        } as any, undefined, {
+          sourceCategory: "partner_referral",
+          sourceType: "partner_portal",
+          eventKey: `partner-portal:${partnerSlug ?? "direct"}:${email.toLowerCase()}`,
         });
       } else if (orgId && !contact!.partnerOrgId) {
         await storage.updateContact(contact!.id, { partnerOrgId: orgId });

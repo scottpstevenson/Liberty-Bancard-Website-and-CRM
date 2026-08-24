@@ -14,7 +14,7 @@ import { insertPartnerSchema, insertReferralSchema } from "@shared/schema";
 import type { InsertPartner } from "@shared/schema";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
-import { createContactGhlFirst } from "../services/contact-writer";
+import { createContactLocalFirst } from "../services/contact-writer";
 import { syncFormSubmissionToGhl, syncAffiliateSignupToGhl } from "../services/ghl-form-sync";
 import { sendPartnerWelcomeEmail } from "../services/partner-welcome";
 import { isGhlConfigured, sendGhlPartnerTransactionalEmail } from "../services/ghl";
@@ -291,7 +291,7 @@ ${getEmailSignatureHtml("partners")}
         });
       }
 
-      createContactGhlFirst({
+      createContactLocalFirst({
         firstName,
         lastName: lastName || "",
         email: email.toLowerCase(),
@@ -1120,8 +1120,8 @@ async function autoEnrollPartnerReferral(referral: {
   let contact = await storage.getContactByEmail(email);
 
   if (!contact) {
-    const { createContactGhlFirst } = await import("../services/contact-writer");
-    const created = await createContactGhlFirst({
+    const { createContactLocalFirst } = await import("../services/contact-writer");
+    const created = await createContactLocalFirst({
       firstName,
       lastName,
       email,

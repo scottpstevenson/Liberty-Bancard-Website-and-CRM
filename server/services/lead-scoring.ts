@@ -1,7 +1,7 @@
 import { storage } from "../storage";
 import type { Contact, Deal, EmailLog, CallLog, SequenceEnrollment } from "@shared/schema";
 import { sendCriticalEmailNotification, createPreferenceAwareNotification } from "./digest-service";
-import { updateContactGhlFirst } from "./contact-writer";
+import { updateContactLocalFirst } from "./contact-writer";
 
 /**
  * Contact fields directly consumed by applyScoringInputs() for revenue potential,
@@ -610,7 +610,7 @@ export async function scoreContact(contactId: number): Promise<ScoreBreakdown | 
 
   const previousScore = contact.leadScore || 0;
 
-  await updateContactGhlFirst(contactId, {
+  await updateContactLocalFirst(contactId, {
     leadScore: total,
     revPotentialScore: revPotential.score,
     switchabilityScore: switchability.score,
@@ -653,7 +653,7 @@ export async function scoreContact(contactId: number): Promise<ScoreBreakdown | 
  *  - inputVersionSnapshot = Date  → re-read contact's lastMeaningfulContactMutationAt;
  *                                    write only if the timestamps match (no intervening mutation)
  *
- * Never calls updateContactGhlFirst(), never fires notifications, never touches deals.
+ * Never calls the generic contact update command, fires no notifications, and never touches deals.
  */
 export async function persistContactScore(
   contactId: number,

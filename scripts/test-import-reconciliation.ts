@@ -120,10 +120,12 @@ function assertReconciled(label: string, body: any) {
     typeof body.invalidRows === "number" && typeof body.skippedRows === "number",
     `${label}: response JSON exposes both invalidRows and skippedRows fields`,
   );
-  assert(
-    typeof body.import?.invalidRows === "number" && typeof body.import?.skippedRows === "number",
-    `${label}: persisted csv_imports record has invalidRows and skippedRows columns populated`,
-  );
+  if (!body.replayed) {
+    assert(
+      typeof body.import?.invalidRows === "number" && typeof body.import?.skippedRows === "number",
+      `${label}: persisted csv_imports record has invalidRows and skippedRows columns populated`,
+    );
+  }
 }
 
 async function main() {
@@ -134,21 +136,32 @@ async function main() {
 
   console.log("Scenario 1: mixed file, first upload (2 new + 1 blank-invalid + 1 missing-contact-invalid + 1 new)");
   const mixedPath = path.join(process.cwd(), "fixtures/csv-import/reconciliation_mixed.csv");
-  const first = await uploadCsv(cookie, csrf, mixedPath);
+  // Whitespace-only trailing lines change the execution fingerprint without
+  // changing parsed logical rows, keeping the live test repeatable.
+  const mixedContent = `${fs.readFileSync(mixedPath, "utf8")}${"\n".repeat((Date.now() % 997) + 2)}`;
+  const first = await uploadCsvContent(cookie, csrf, mixedContent, path.basename(mixedPath));
   assert(first.status === 201, `Scenario 1: HTTP 201 (got ${first.status})`);
   assertReconciled("Scenario 1", first.body);
   assert(first.body.invalidRows >= 1, `Scenario 1: at least 1 invalid row detected (got ${first.body.invalidRows})`);
 
-  console.log("\nScenario 2: same mixed file uploaded again (all rows should resolve as duplicates or invalid, none created)");
-  const second = await uploadCsv(cookie, csrf, mixedPath);
-  assert(second.status === 201, `Scenario 2: HTTP 201 (got ${second.status})`);
+  console.log("\nScenario 2: same mixed file uploaded again (replays the original durable execution)");
+  const second = await uploadCsvContent(cookie, csrf, mixedContent, path.basename(mixedPath));
+  assert(second.status === 200, `Scenario 2: HTTP 200 replay (got ${second.status})`);
+  assert(second.body.replayed === true, "Scenario 2: response marks execution as replayed");
   assertReconciled("Scenario 2", second.body);
-  assert(second.body.inserted === 0, `Scenario 2: zero new inserts on re-upload (got ${second.body.inserted})`);
-  assert(second.body.duplicatesSkipped >= 1, `Scenario 2: duplicates detected on re-upload (got ${second.body.duplicatesSkipped})`);
+  assert(
+    second.body.inserted === first.body.inserted,
+    `Scenario 2: replay returns original created count without writing contacts (got ${second.body.inserted})`,
+  );
+  assert(
+    second.body.execution?.id,
+    "Scenario 2: replay returns the existing durable execution identity",
+  );
 
   console.log("\nScenario 3: all-invalid file (every row invalid, zero created)");
   const invalidPath = path.join(process.cwd(), "fixtures/csv-import/reconciliation_all_invalid.csv");
-  const third = await uploadCsv(cookie, csrf, invalidPath);
+  const invalidContent = `${fs.readFileSync(invalidPath, "utf8")}${"\n".repeat((Date.now() % 991) + 2)}`;
+  const third = await uploadCsvContent(cookie, csrf, invalidContent, path.basename(invalidPath));
   assert(third.status === 201, `Scenario 3: HTTP 201 (got ${third.status})`);
   assertReconciled("Scenario 3", third.body);
   assert(third.body.inserted === 0, `Scenario 3: zero inserts (got ${third.body.inserted})`);
@@ -189,7 +202,7 @@ async function main() {
   // An Outscraper CSV with a `source` column containing a provenance URL.
   // The imported contact must end up with lead_source='google_maps_outscraper',
   // NOT with the CSV source column value.
-  const runId5 = Date.now().toString(36) + "5";
+  const runId5 = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}5`;
   const outscraperWithSourceCsv = [
     "Name,Telephone,Category,Rating,Review_Count,Address,Website,City,State,source",
     `Zzq ${runId5} Source Test,(305) 555-9${runId5.slice(-3)}1,Auto Repair,4.6,42,300 Sunshine Blvd,,Miami,FL,https://www.google.com/maps/place/?q=place_id:ChIJXXX`,

@@ -262,7 +262,7 @@ export function registerProspectsRoutes(app: Express) {
           const email = prospect.email || prospect.ownerEmail || "";
           try {
             const contact = await writeContact({
-              mode: "ghl_upsert_first",
+              mode: "local_first",
               mutation: {
                 firstName: prospect.ownerFirstName || prospect.companyName?.split(" ")[0] || "Unknown",
                 lastName: prospect.ownerLastName || "",
@@ -541,7 +541,7 @@ export function registerProspectsRoutes(app: Express) {
             const email = prospect.email || prospect.ownerEmail || "";
             try {
               const contact = await writeContact({
-                mode: "ghl_upsert_first",
+                mode: "local_first",
                 mutation: {
                   firstName: prospect.ownerFirstName || prospect.companyName?.split(" ")[0] || "Unknown",
                   lastName: prospect.ownerLastName || "",

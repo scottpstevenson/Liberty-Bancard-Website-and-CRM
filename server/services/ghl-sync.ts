@@ -2,7 +2,7 @@ import crypto from "crypto";
 import { storage } from "../storage";
 import { db } from "../db";
 import type { Contact, Deal, Company, Task, Ticket, Note, UpdateContactRequest } from "@shared/schema";
-import { ghlSyncStatus, GHL_PIPELINE_STAGE_MAP, GHL_PIPELINE_STAGE_REVERSE, ACTIVE_DEAL_STAGES, systemSettings } from "@shared/schema";
+import { ghlSyncStatus, GHL_PIPELINE_STAGE_MAP, GHL_PIPELINE_STAGE_REVERSE, ACTIVE_DEAL_STAGES, systemSettings, contactProviderProjections } from "@shared/schema";
 import {
   upsertGhlContact,
   isGhlConfigured,
@@ -23,6 +23,94 @@ import { writeContact, upsertContactSourceEvent, PROVENANCE_FIELDS } from "./con
 import { enqueuePromotionalEnrollment } from "./promotional-enrollment-eligibility";
 import { eq, sql } from "drizzle-orm";
 import { GO_LIVE_GATE_STAGES, checkGoLiveReadiness } from "./go-live-gate";
+
+const CONTACT_PROJECTION_MAX_ATTEMPTS = 8;
+
+/**
+ * Claims committed local contact projection intents. This is deliberately
+ * separate from contact selection: every provider mutation has a durable
+ * source, bounded retry schedule, and terminal reason.
+ */
+export async function processPendingContactProviderProjections(limit = 10): Promise<{ completed: number; retried: number; terminal: number }> {
+  const claimToken = crypto.randomUUID();
+  const leaseUntil = new Date(Date.now() + 2 * 60 * 1000);
+  const claimed = await db.execute(sql`
+    WITH candidates AS (
+      SELECT id
+      FROM contact_provider_projections
+      WHERE provider = 'ghl'
+        AND (state IN ('pending', 'retry') OR (state = 'processing' AND lease_expires_at < now()))
+        AND attempt_count < ${CONTACT_PROJECTION_MAX_ATTEMPTS}
+        AND (next_attempt_at IS NULL OR next_attempt_at <= now())
+        AND (lease_expires_at IS NULL OR lease_expires_at < now())
+      ORDER BY created_at
+      FOR UPDATE SKIP LOCKED
+      LIMIT ${limit}
+    )
+    UPDATE contact_provider_projections p
+    SET state = 'processing',
+        claim_token = ${claimToken},
+        lease_expires_at = ${leaseUntil},
+        attempt_count = p.attempt_count + 1,
+        updated_at = now()
+    FROM candidates
+    WHERE p.id = candidates.id
+    RETURNING p.id, p.contact_id, p.attempt_count
+  `);
+  const rows = ((claimed as any).rows ?? []) as Array<{ id: string; contact_id: number; attempt_count: number }>;
+  let completed = 0;
+  let retried = 0;
+  let terminal = 0;
+  for (const projection of rows) {
+    try {
+      const result = await syncContactToGhl(projection.contact_id);
+      if (result.success) {
+        await db.update(contactProviderProjections).set({
+          state: "succeeded",
+          completedAt: new Date(),
+          claimToken: null,
+          leaseExpiresAt: null,
+          terminalReason: null,
+        }).where(sql`${contactProviderProjections.id} = ${projection.id} AND ${contactProviderProjections.claimToken} = ${claimToken}`);
+        completed++;
+        continue;
+      }
+      const kind = classifyGhlSyncError(result.error);
+      if (kind === "skip" || kind === "auth" || projection.attempt_count >= CONTACT_PROJECTION_MAX_ATTEMPTS) {
+        await db.update(contactProviderProjections).set({
+          state: "terminal",
+          terminalReason: kind === "skip" ? "INVALID_OR_UNUSABLE_IDENTITY" : kind === "auth" ? "PROVIDER_AUTH_FAILURE" : "MAX_ATTEMPTS_EXHAUSTED",
+          lastErrorCode: kind,
+          claimToken: null,
+          leaseExpiresAt: null,
+        }).where(sql`${contactProviderProjections.id} = ${projection.id} AND ${contactProviderProjections.claimToken} = ${claimToken}`);
+        terminal++;
+      } else {
+        const delaySeconds = Math.min(3600, 30 * 2 ** Math.min(projection.attempt_count, 6));
+        await db.update(contactProviderProjections).set({
+          state: "retry",
+          nextAttemptAt: new Date(Date.now() + delaySeconds * 1000),
+          lastErrorCode: "PROVIDER_TRANSIENT_FAILURE",
+          claimToken: null,
+          leaseExpiresAt: null,
+        }).where(sql`${contactProviderProjections.id} = ${projection.id} AND ${contactProviderProjections.claimToken} = ${claimToken}`);
+        retried++;
+      }
+    } catch (error) {
+      const delaySeconds = Math.min(3600, 30 * 2 ** Math.min(projection.attempt_count, 6));
+      await db.update(contactProviderProjections).set({
+        state: projection.attempt_count >= CONTACT_PROJECTION_MAX_ATTEMPTS ? "terminal" : "retry",
+        terminalReason: projection.attempt_count >= CONTACT_PROJECTION_MAX_ATTEMPTS ? "MAX_ATTEMPTS_EXHAUSTED" : null,
+        nextAttemptAt: new Date(Date.now() + delaySeconds * 1000),
+        lastErrorCode: "PROJECTION_EXCEPTION",
+        claimToken: null,
+        leaseExpiresAt: null,
+      }).where(sql`${contactProviderProjections.id} = ${projection.id} AND ${contactProviderProjections.claimToken} = ${claimToken}`);
+      projection.attempt_count >= CONTACT_PROJECTION_MAX_ATTEMPTS ? terminal++ : retried++;
+    }
+  }
+  return { completed, retried, terminal };
+}
 
 const CONFLICT_FIELDS: Array<{ ghlKey: string; contactKey: keyof Contact }> = [
   { ghlKey: "firstName", contactKey: "firstName" },
@@ -2422,10 +2510,27 @@ export async function runGhlFullSyncTick(): Promise<void> {
   }
 
   try {
+    // Durable projections are the recovery authority for local-first intake.
+    // Do not derive retries from mutable audit logs.
+    const projectionSummary = await processPendingContactProviderProjections(10);
+    if (projectionSummary.completed || projectionSummary.retried || projectionSummary.terminal) {
+      console.log(`[Queue:ghl-sync] contact projections completed=${projectionSummary.completed} retried=${projectionSummary.retried} terminal=${projectionSummary.terminal}`);
+    }
     // Indexed DB query — fetches only contacts without a ghlContactId; never limited to 500 rows.
     const unsyncedContacts = await storage.getUnsyncedContactsForGhl(10);
+    // Local-first contacts are owned exclusively by their durable projection
+    // intent. Never let the legacy broad scan bypass a scheduled retry,
+    // terminal disposition, or an in-flight projection lease.
+    const projectionRows = await db.execute(sql`
+      SELECT contact_id
+      FROM contact_provider_projections
+      WHERE provider = 'ghl'
+        AND state IN ('pending', 'processing', 'retry', 'terminal')
+    `);
+    const projectionOwnedIds = new Set<number>(((projectionRows as any).rows ?? []).map((row: any) => Number(row.contact_id)));
+    const legacyUnsyncedContacts = unsyncedContacts.filter((contact) => !projectionOwnedIds.has(contact.id));
     let synced = 0;
-    for (const contact of unsyncedContacts) {
+    for (const contact of legacyUnsyncedContacts) {
       if (consecutiveGhlFailures >= GHL_CIRCUIT_THRESHOLD) {
         tripCircuitThreshold("contacts phase");
         await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN", lockToken);
@@ -2464,53 +2569,6 @@ export async function runGhlFullSyncTick(): Promise<void> {
       tripCircuitThreshold("after contacts phase");
       await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN", lockToken);
       return;
-    }
-
-    try {
-      const auditLogs = await storage.getAuditLogs();
-      const oneHourAgo = Date.now() - 60 * 60 * 1000;
-      const failedContactIds = [...new Set(
-        auditLogs
-          .filter(l => l.action === "ghl_sync_failed" && l.entityType === "contact" && l.createdAt && new Date(l.createdAt).getTime() > oneHourAgo)
-          .map(l => l.entityId)
-          .filter((id): id is number => typeof id === "number")
-      )].slice(0, 5);
-      for (const contactId of failedContactIds) {
-        if (consecutiveGhlFailures >= GHL_CIRCUIT_THRESHOLD) {
-          console.error(`[Queue:ghl-sync] GHL_CIRCUIT_OPEN — ${consecutiveGhlFailures} consecutive failures, aborting retry phase`);
-          break;
-        }
-        try {
-          const result = await syncContactToGhl(contactId);
-          if (result.success) {
-            consecutiveGhlFailures = 0;
-            synced++;
-            console.log(`[Queue:ghl-sync] Retry succeeded for failed contact ${contactId}`);
-          } else {
-            const kind = classifyGhlSyncError(result.error);
-            if (kind === "auth") {
-              tripCircuitAuth("contact retry phase");
-              await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN_AUTH", lockToken);
-              return;
-            } else if (kind === "skip") {
-              console.log(`[Queue:ghl-sync] Retry contact ${contactId} skipped (${result.error}) — not counted as GHL failure`);
-            } else {
-              consecutiveGhlFailures++;
-            }
-          }
-          await new Promise(r => setTimeout(r, 300));
-        } catch (e: any) {
-          if (classifyGhlSyncError(e?.message) === "auth") {
-            tripCircuitAuth("contact retry phase");
-            await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN_AUTH", lockToken);
-            return;
-          }
-          consecutiveGhlFailures++;
-          console.warn(`[Queue:ghl-sync] Retry failed for contact ${contactId}:`, e.message);
-        }
-      }
-    } catch (auditErr: any) {
-      console.warn(`[Queue:ghl-sync] Could not check audit log for retry candidates:`, auditErr.message);
     }
 
     if (consecutiveGhlFailures >= GHL_CIRCUIT_THRESHOLD) {

@@ -19,6 +19,7 @@ import { db } from "../db";
 import { merchantApplications, merchantApplicationProtectedOutbox, contacts, auditLogs } from "@shared/schema";
 import { storage } from "../storage";
 import { applyEsignDocumentState, applyEsignSendState } from "./merchant-application-service";
+import { createContactLocalFirst } from "./contact-writer";
 
 const MAX_ATTEMPTS = 6;
 const POLL_INTERVAL_MS = 15_000;
@@ -180,7 +181,7 @@ async function handleContactLink(row: OutboxRow): Promise<void> {
   if (existing) {
     resolvedContactId = existing.id;
   } else {
-    const created = await storage.createContact({
+    const created = await createContactLocalFirst({
       firstName: String(p.ownerFirstName || ""),
       lastName: String(p.ownerLastName || ""),
       email: contactEmail,
@@ -188,7 +189,11 @@ async function handleContactLink(row: OutboxRow): Promise<void> {
       companyName: String(p.legalBusinessName || p.dba || ""),
       status: "New",
       tags: ["src_merchant_app", "merchant_application"],
-    } as any);
+    } as any, undefined, {
+      sourceCategory: "merchant_application",
+      sourceType: "merchant_application",
+      eventKey: `merchant-application-contact:${appId}:${contactEmail.toLowerCase()}`,
+    });
     resolvedContactId = created.id;
   }
 

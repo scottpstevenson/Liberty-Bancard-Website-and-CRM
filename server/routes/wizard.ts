@@ -592,7 +592,7 @@ export function registerWizardRoutes(app: Express): void {
     if (!email) return res.status(400).json({ error: "email is required" });
 
     const contact = await writeContact({
-      mode: "ghl_upsert_first",
+      mode: "local_first",
       mutation: {
         firstName: "Wizard",
         lastName: "Test",

@@ -28,7 +28,7 @@ import { ingestBusinessFromContact } from "../services/sdr/dedupe";
 import { isGhlConfigured } from "../services/ghl";
 import { normalizeGhlId } from "../utils/normalize";
 import { syncContactToGhl } from "../services/ghl-sync";
-import { writeContact, updateContactGhlFirst, stripProvenanceFields } from "../services/contact-writer";
+import { writeContact, updateContactLocalFirst, stripProvenanceFields } from "../services/contact-writer";
 import { assignNextRep } from "./toolkit";
 import { parse } from "csv-parse/sync";
 import path from "path";
@@ -362,7 +362,7 @@ export function registerContactsRoutes(app: Express) {
       const input = insertContactSchema.parse(req.body);
       const userId = (req.user as any)?.id ?? null;
       const contact = await writeContact({
-        mode: "ghl_upsert_first",
+        mode: "local_first",
         mutation: input as any,
         provenance: {
           sourceCategory: "manual_crm",
@@ -983,7 +983,7 @@ export function registerContactsRoutes(app: Express) {
         (strippedBody as any).ghlContactId = normalizeGhlId((strippedBody as any).ghlContactId);
       }
       const body = strippedBody;
-      const updated = await updateContactGhlFirst(contactId, body, { actorType: "user", userId: (req.user as any)?.id ?? null });
+      const updated = await updateContactLocalFirst(contactId, body, { actorType: "user", userId: (req.user as any)?.id ?? null });
       if (!updated) return res.status(404).json({ message: "Not found" });
 
       // ── Lifecycle side-effect: status change may indicate lifecycle advance ──
@@ -1299,7 +1299,7 @@ export function registerContactsRoutes(app: Express) {
 
       let updated = enriched;
       if (result.shouldUpdateContact) {
-        const persisted = await updateContactGhlFirst(contactId, {
+        const persisted = await updateContactLocalFirst(contactId, {
           primaryOfferPath: result.offerRoute,
           offerConfidence: result.offerConfidence,
           recommendedNextAction: result.recommendedNextAction,
@@ -1335,7 +1335,7 @@ export function registerContactsRoutes(app: Express) {
       const result = await routeOffer(contact, { forceAi: forceAi ?? false });
 
       if (updateContact === true && dryRun !== true && result.shouldUpdateContact) {
-        const updated = await updateContactGhlFirst(contactId, {
+        const updated = await updateContactLocalFirst(contactId, {
           primaryOfferPath: result.offerRoute,
           offerConfidence: result.offerConfidence,
           recommendedNextAction: result.recommendedNextAction,
