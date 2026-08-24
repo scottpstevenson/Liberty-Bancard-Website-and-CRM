@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 import { cn } from "@/lib/utils";
 import { format, formatDistanceToNow } from "date-fns";
 
@@ -227,8 +228,10 @@ function ItemCard({ item, selected, onClick }: { item: InboxItem; selected: bool
 
 function ThreadPanel({ item, onBack }: { item: InboxItem; onBack: () => void }) {
   const { toast } = useToast();
+  const { user } = useAuth();
   const queryClient = useQueryClient();
   const [replyText, setReplyText] = useState("");
+  const [linkSearch, setLinkSearch] = useState("");
   const meta = CHANNEL_META[item.channel] || CHANNEL_META.email;
 
   // Fetch cross-channel thread (only when contactId available)
@@ -259,11 +262,9 @@ function ThreadPanel({ item, onBack }: { item: InboxItem; onBack: () => void }) 
   });
 
   // For live-chat, fetch messages
-  const chatId = item.liveChatSessionId
-    ? null
-    : item.id.startsWith("chat-")
-      ? parseInt(item.id.replace("chat-", ""), 10)
-      : null;
+  const chatId = item.id.startsWith("chat-")
+    ? parseInt(item.id.replace("chat-", ""), 10)
+    : null;
   const { data: liveChatData, isLoading: liveChatLoading } = useQuery<{ messages: any[]; chat: any }>({
     queryKey: ["/api/live-chat/sessions", chatId, "messages"],
     queryFn: async () => {
@@ -322,6 +323,27 @@ function ThreadPanel({ item, onBack }: { item: InboxItem; onBack: () => void }) 
       toast({ title: "Message sent" });
     },
     onError: (e: any) => toast({ title: "Send failed", description: e.message, variant: "destructive" }),
+  });
+  const canLinkAnonymousChat = item.channel === "site" && !item.contactId && !!chatId && (user?.role === "admin" || user?.role === "manager");
+  const contactSearch = useQuery<Array<{ id: number; firstName: string; lastName: string; email: string }>>({
+    queryKey: ["/api/live-chat/contacts/search", linkSearch],
+    queryFn: async () => {
+      const response = await apiRequest("GET", `/api/live-chat/contacts/search?q=${encodeURIComponent(linkSearch)}`);
+      return response.json();
+    },
+    enabled: canLinkAnonymousChat && linkSearch.trim().length >= 2,
+  });
+  const linkContactMutation = useMutation({
+    mutationFn: async (contactId: number) => {
+      const response = await apiRequest("PATCH", `/api/live-chat/sessions/${chatId}`, { contactId });
+      return response.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Chat linked to contact" });
+      queryClient.invalidateQueries({ queryKey: ["/api/inbox/items"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/live-chat/sessions", chatId, "messages"] });
+    },
+    onError: (error: any) => toast({ title: "Could not link chat", description: error.message, variant: "destructive" }),
   });
 
   const handleSend = () => {
@@ -585,6 +607,32 @@ function ThreadPanel({ item, onBack }: { item: InboxItem; onBack: () => void }) 
       {item.channel === "site" && (
         <div className="px-4 pb-3 shrink-0">
           <div className="flex gap-2 flex-wrap">
+            {canLinkAnonymousChat && (
+              <div className="w-full rounded-md border border-amber-200 bg-amber-50 p-3 space-y-2" data-testid="live-chat-link-contact">
+                <p className="text-xs font-medium text-amber-900">Link this anonymous chat before handing it to an agent.</p>
+                <Input
+                  value={linkSearch}
+                  onChange={(event) => setLinkSearch(event.target.value)}
+                  placeholder="Search contact name or email"
+                  className="h-8 bg-background text-xs"
+                  data-testid="live-chat-contact-search"
+                />
+                {contactSearch.data?.map((contact) => (
+                  <Button
+                    key={contact.id}
+                    variant="outline"
+                    size="sm"
+                    className="mr-1 h-7 text-xs"
+                    onClick={() => linkContactMutation.mutate(contact.id)}
+                    disabled={linkContactMutation.isPending}
+                    data-testid={`live-chat-link-contact-${contact.id}`}
+                  >
+                    <Link2 className="mr-1 h-3 w-3" />
+                    {contact.firstName} {contact.lastName} · {contact.email}
+                  </Button>
+                ))}
+              </div>
+            )}
             {item.liveChatStatus === "active" && chatId && (
               <Button
                 variant="outline"
@@ -639,7 +687,11 @@ export default function CommsHub() {
 
   const { data, isLoading, isError, refetch } = useQuery<{
     items: InboxItem[];
-    total: number;
+    knownFilteredTotal: number;
+    resultScope: "fetched_window";
+    complete: boolean;
+    hasMoreKnown: boolean;
+    sourceStatus: Array<{ source: string; status: "ok" | "failed" | "not_configured"; fetched: number; truncated: boolean; errorCode?: string }>;
     nextCursor: string | null;
     ghlConfigured: boolean;
   }>({
@@ -654,6 +706,7 @@ export default function CommsHub() {
   });
 
   const allItems = data?.items || [];
+  const inboxDegraded = !!data && (!data.complete || data.sourceStatus.some((source) => source.status === "failed"));
 
   // Client-side search filter
   const items = allItems.filter((item) => {
@@ -697,6 +750,11 @@ export default function CommsHub() {
           <p className="text-sm text-muted-foreground">
             All channels in one place — email, SMS, voicemail, chat, and site visitors
           </p>
+          {inboxDegraded && (
+            <p className="mt-1 text-xs text-amber-700 dark:text-amber-300" data-testid="inbox-partial-state">
+              Partial inbox window — one or more sources are unavailable or sampled.
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-2">
           {voicemailCount > 0 && (
@@ -789,6 +847,11 @@ export default function CommsHub() {
                 <AlertTriangle className="w-5 h-5 text-yellow-500 mx-auto mb-2" />
                 Failed to load inbox
               </div>
+            ) : inboxDegraded && items.length === 0 ? (
+              <div className="text-center py-12 px-4">
+                <AlertTriangle className="w-8 h-8 mx-auto mb-3 text-amber-500" />
+                <p className="text-sm text-muted-foreground">Inbox sources are unavailable or incomplete; this is not a confirmed empty inbox.</p>
+              </div>
             ) : items.length === 0 ? (
               <div className="text-center py-12 px-4">
                 <Inbox className="w-8 h-8 mx-auto mb-3 text-muted-foreground/40" />
@@ -815,7 +878,7 @@ export default function CommsHub() {
             <div className="px-4 py-2 border-t border-border shrink-0">
               <p className="text-[10px] text-muted-foreground">
                 {items.length} message{items.length !== 1 ? "s" : ""}
-                {data?.total && data.total > items.length ? ` (filtered from ${data.total})` : ""}
+                {data && data.knownFilteredTotal > items.length ? ` (within ${data.resultScope})` : ""}
               </p>
             </div>
           )}

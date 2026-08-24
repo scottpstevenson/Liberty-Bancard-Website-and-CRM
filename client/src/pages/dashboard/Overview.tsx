@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Progress } from "@/components/ui/progress";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Link } from "wouter";
 import {
   Users, Ticket, TrendingUp, CheckCircle, AlertTriangle, Clock,
@@ -30,12 +30,13 @@ interface DailyBriefingData {
   overdueTaskCount: number;
   overdueSlaCount: number;
   unreadCount: number;
-  hotLeadsCount: number;
+  outreachReadyCount: number;
   closedWonYesterday: number;
   aiSummary: string | null;
   role: string;
   generatedAt: string;
   dateKey: string;
+  sectionStatus: Record<string, "ok" | "degraded">;
 }
 
 function DailyBriefing({ userId }: { userId: string }) {
@@ -44,11 +45,18 @@ function DailyBriefing({ userId }: { userId: string }) {
   const [dismissed, setDismissed] = useState(() => localStorage.getItem(localKey) === "1");
 
   // Only fetch if not dismissed for today
-  const { data, isLoading, refetch } = useQuery<DailyBriefingData>({
+  const { data, isLoading, isError } = useQuery<DailyBriefingData>({
     queryKey: ["/api/overview/daily-briefing"],
     enabled: !dismissed,
     staleTime: 3 * 60 * 60 * 1000, // 3 hours — re-fetch only if stale
     retry: 1,
+  });
+  const refreshBriefing = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("POST", "/api/overview/daily-briefing/refresh");
+      return response.json() as Promise<DailyBriefingData>;
+    },
+    onSuccess: (briefing) => queryClient.setQueryData(["/api/overview/daily-briefing"], briefing),
   });
 
   if (dismissed) return null;
@@ -61,7 +69,14 @@ function DailyBriefing({ userId }: { userId: string }) {
       </div>
     );
   }
-  if (!data) return null;
+  if (isError || !data) {
+    return (
+      <Alert variant="destructive" data-testid="card-daily-briefing-error">
+        <AlertTriangle className="h-4 w-4" />
+        <AlertDescription>Daily briefing is unavailable. Refresh to try again.</AlertDescription>
+      </Alert>
+    );
+  }
 
   return (
     <div
@@ -78,16 +93,11 @@ function DailyBriefing({ userId }: { userId: string }) {
             variant="ghost"
             size="sm"
             className="h-6 text-[10px] text-sky-600 dark:text-sky-400 hover:bg-sky-100 dark:hover:bg-sky-900/30 px-2"
-            onClick={async () => {
-              try {
-                // Clear the server-side cache first, then refetch fresh data
-                await apiRequest("POST", "/api/overview/daily-briefing/refresh");
-              } catch { /* ignore — will refetch whatever is cached */ }
-              refetch();
-            }}
+            disabled={refreshBriefing.isPending}
+            onClick={() => refreshBriefing.mutate()}
           >
-            <RefreshCw className="w-2.5 h-2.5 mr-1" />
-            Refresh
+            <RefreshCw className={`w-2.5 h-2.5 mr-1 ${refreshBriefing.isPending ? "animate-spin" : ""}`} />
+            {refreshBriefing.isPending ? "Refreshing…" : refreshBriefing.isError ? "Refresh failed" : "Refresh"}
           </Button>
           <button
             onClick={() => {
@@ -101,6 +111,11 @@ function DailyBriefing({ userId }: { userId: string }) {
           </button>
         </div>
       </div>
+      {Object.values(data.sectionStatus).some((status) => status === "degraded") && (
+        <p className="mb-3 text-xs text-amber-700 dark:text-amber-300" data-testid="daily-briefing-degraded">
+          Some briefing sections are temporarily unavailable; displayed zeroes in those sections are not confirmed counts.
+        </p>
+      )}
 
       {/* Quick-stat chips */}
       <div className="flex flex-wrap gap-2 mb-3">
@@ -138,11 +153,11 @@ function DailyBriefing({ userId }: { userId: string }) {
           </Link>
         )}
 
-        {data.hotLeadsCount > 0 && (
-          <Link href="/dashboard/contacts">
+        {data.outreachReadyCount > 0 && (
+          <Link href="/dashboard/outreach-queue">
             <Badge className="cursor-pointer gap-1 text-xs font-medium bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300 hover:bg-orange-200 transition-colors">
               <Star className="w-3 h-3" />
-              {data.hotLeadsCount} hot lead{data.hotLeadsCount !== 1 ? "s" : ""}
+              {data.outreachReadyCount} ready for outreach
             </Badge>
           </Link>
         )}

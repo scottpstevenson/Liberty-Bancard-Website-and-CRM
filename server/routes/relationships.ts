@@ -9,6 +9,7 @@ import {
   propagateRiskFlagToRelatedEntities,
 } from "../services/relationship-extractor";
 import { serverError } from "../utils/server-error";
+import { authorizeContactAccess, authorizeDealAccess } from "../services/crm-object-access";
 
 export function registerRelationshipsRoutes(app: Express) {
   app.get("/api/contacts/:id/relationships", isDashboardUser, async (req, res) => {
@@ -122,6 +123,8 @@ export function registerRelationshipsRoutes(app: Express) {
     try {
       const { entityType, entityId } = req.params;
       const id = Number(entityId);
+      if (entityType === "contact" && !await authorizeContactAccess(req, res, id)) return;
+      if (entityType === "deal" && !await authorizeDealAccess(req, res, id)) return;
 
       const rels = await storage.getEntityRelationships(entityType as any, id);
 

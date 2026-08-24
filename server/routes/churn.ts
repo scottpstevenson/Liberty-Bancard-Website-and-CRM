@@ -4,6 +4,7 @@ import { storage } from "../storage";
 import { z } from "zod";
 import { computeAndPersistChurnScore } from "../services/churn-score";
 import { serverError } from "../utils/server-error";
+import { authorizeContactAccess } from "../services/crm-object-access";
 
 export function registerChurnRoutes(app: Express) {
   // GET all merchant health scores (with optional filters)
@@ -58,6 +59,7 @@ export function registerChurnRoutes(app: Express) {
   app.get("/api/churn-scores/contact/:contactId", isDashboardUser, async (req, res) => {
     try {
       const contactId = Number(req.params.contactId);
+      if (!await authorizeContactAccess(req, res, contactId)) return;
       const score = await storage.getMerchantHealthScoreByContact(contactId);
       res.json(score || null);
     } catch (err: any) {
@@ -69,8 +71,7 @@ export function registerChurnRoutes(app: Express) {
   app.post("/api/churn-scores/contact/:contactId/compute", isDashboardUser, async (req, res) => {
     try {
       const contactId = Number(req.params.contactId);
-      const contact = await storage.getContact(contactId);
-      if (!contact) return res.status(404).json({ message: "Contact not found" });
+      if (!await authorizeContactAccess(req, res, contactId)) return;
       const score = await computeAndPersistChurnScore(contactId);
       res.json(score);
     } catch (err: any) {

@@ -433,6 +433,11 @@ export interface DlqItem {
   data: any;
 }
 
+export interface DlqReadResult {
+  items: DlqItem[];
+  queueStatus: Array<{ source: string; status: "sampled" | "failed" | "not_initialized"; sampleLimitPerQueue?: number; errorCode?: string }>;
+}
+
 export interface QueueTopologySnapshot {
   manifestConfigCount: number;
   activeConfigCount: number;
@@ -1771,12 +1776,16 @@ class QueueManager {
     return { queues: metrics, usingMock: isUsingMockRedis() };
   }
 
-  async getDeadLetterItems(): Promise<DlqItem[]> {
+  async getDeadLetterItemsWithStatus(): Promise<DlqReadResult> {
     const items: DlqItem[] = [];
+    const queueStatus: DlqReadResult["queueStatus"] = [];
 
     for (const config of QUEUE_CONFIGS) {
       const queue = this.queues.get(config.name);
-      if (!queue) continue;
+      if (!queue) {
+        queueStatus.push({ source: config.name, status: "not_initialized" });
+        continue;
+      }
 
       try {
         const failedJobs = await queue.getFailed(0, 49);
@@ -1798,11 +1807,17 @@ class QueueManager {
             });
           }
         }
+        queueStatus.push({ source: config.name, status: "sampled", sampleLimitPerQueue: 50 });
       } catch {
+        queueStatus.push({ source: config.name, status: "failed", errorCode: "QUEUE_READ_FAILED" });
       }
     }
 
-    return items.sort((a, b) => b.timestamp - a.timestamp);
+    return { items: items.sort((a, b) => b.timestamp - a.timestamp), queueStatus };
+  }
+
+  async getDeadLetterItems(): Promise<DlqItem[]> {
+    return (await this.getDeadLetterItemsWithStatus()).items;
   }
 
   async retryDeadLetterJob(compositeId: string): Promise<void> {

@@ -1,5 +1,5 @@
 import React, { Suspense, lazy, useEffect, useState } from "react";
-import { Switch, Route, Redirect, useLocation } from "wouter";
+import { Switch, Route, Redirect, useLocation, useSearch } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { HelmetProvider } from 'react-helmet-async';
@@ -335,6 +335,12 @@ function ProtectedRoute({ component: Component, allowedRoles }: { component: Rea
       <Component />
     </DashboardLayout>
   );
+}
+
+function LegacyOperatorRedirect() {
+  const search = useSearch();
+  const passthrough = search.replace(/^\?/, "");
+  return <Redirect to={`/dashboard/system-health?tab=monitor${passthrough ? `&${passthrough}` : ""}`} />;
 }
 
 function Router() {
@@ -723,7 +729,7 @@ function Router() {
           <ProtectedRoute component={SetupWizard} allowedRoles={["admin", "manager"]} />
         </Route>
         <Route path="/dashboard/operator">
-          <Redirect to="/dashboard/system-health?tab=monitor" />
+          <LegacyOperatorRedirect />
         </Route>
         <Route path="/dashboard/seo-health">
           <Redirect to="/dashboard/system-health?tab=seo" />

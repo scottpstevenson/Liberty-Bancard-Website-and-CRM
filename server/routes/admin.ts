@@ -16,6 +16,7 @@ import { summarizeChannelSafety } from "../services/contactability";
 import { classifyEligibility } from "../services/deal-eligibility";
 import { serverError, safeMessage } from "../utils/server-error";
 import { requireGhlRouteMutationAllowed } from "./ghl-mutation-pause";
+import { authorizeDealAccess, denyCrmObject } from "../services/crm-object-access";
 
 export function registerAdminRoutes(app: Express) {
   // === ADMIN: SESSION MANAGEMENT ===
@@ -613,7 +614,9 @@ export function registerAdminRoutes(app: Express) {
 
   app.get("/api/review-requests/deal/:dealId", isDashboardUser, async (req, res) => {
     try {
-      const requests = await storage.getReviewRequestsByDeal(Number(req.params.dealId));
+      const dealId = Number(req.params.dealId);
+      if (!await authorizeDealAccess(req, res, dealId)) return;
+      const requests = await storage.getReviewRequestsByDeal(dealId);
       res.json(requests);
     } catch (err: any) {
       serverError(res, err);
@@ -623,6 +626,8 @@ export function registerAdminRoutes(app: Express) {
   app.post("/api/review-requests", isDashboardUser, async (req, res) => {
     try {
       const input = insertReviewRequestSchema.parse(req.body);
+      if (!input.dealId) return denyCrmObject(res);
+      if (!await authorizeDealAccess(req, res, input.dealId)) return;
       const request = await storage.createReviewRequest(input);
       res.status(201).json(request);
     } catch (err: any) {
@@ -2776,12 +2781,17 @@ export function registerAdminRoutes(app: Express) {
   });
 
   // ── Queue Metrics ─────────────────────────────────────────────────────────
-  app.get("/api/admin/queue-metrics", requireRole("admin", "manager"), async (_req, res) => {
+  app.get("/api/admin/queue-metrics", requireRole("admin"), async (_req, res) => {
     try {
-      const { getQueueManager } = await import("../services/queue-manager");
-      const qm = await getQueueManager();
+      const { requireQueueManagerReady } = await import("../services/queue-manager");
+      let qm;
+      try {
+        qm = requireQueueManagerReady();
+      } catch {
+        return res.status(503).json({ status: "not_initialized", queues: [] });
+      }
       const { queues, usingMock } = await qm.getAllQueueMetrics();
-      res.json({ queues, usingMock, timestamp: new Date().toISOString() });
+      res.json({ status: "ok", queues, usingMock, timestamp: new Date().toISOString() });
     } catch (err: any) {
       serverError(res, err);
     }
@@ -2816,7 +2826,7 @@ export function registerAdminRoutes(app: Express) {
       const { getCanonicalUrlInfo } = await import("../lib/canonical-url");
       const { isGhlConfigured } = await import("../services/ghl");
       const { isSmtpConfigured, getSmtpStatus } = await import("../services/smtp-email");
-      const { getQueueManager } = await import("../services/queue-manager");
+      const { requireQueueManagerReady } = await import("../services/queue-manager");
       const { listBackups } = await import("../services/db-backup");
       const { getRecentAlerts } = await import("../services/alert-feed");
       const { pool } = await import("../db");
@@ -2832,11 +2842,13 @@ export function registerAdminRoutes(app: Express) {
       // ── Queue metrics ─────────────────────────────────────────────────────────
       let queueMetrics: any[] = [];
       let queueMock = false;
+      let queueStatus: "ok" | "not_initialized" = "not_initialized";
       try {
-        const qm = await getQueueManager();
+        const qm = requireQueueManagerReady();
         const m = await qm.getAllQueueMetrics();
         queueMetrics = m.queues;
         queueMock = m.usingMock;
+        queueStatus = "ok";
       } catch {}
 
       const dlqCount = queueMetrics.reduce((sum, q) => sum + (q.failed || 0), 0);
@@ -3228,6 +3240,7 @@ export function registerAdminRoutes(app: Express) {
         gates,
         p0Failures,
         queues: queueMetrics,
+        queueStatus,
         backups: backups.slice(0, 5),
         recentAlerts: alerts,
         envChecks,
@@ -3978,17 +3991,27 @@ export function registerAdminRoutes(app: Express) {
 
   // ── System Health: Incidents + DLQ ─────────────────────────────────────────
 
-  app.get("/api/admin/system-health/incidents", requireRole("admin", "manager"), async (_req, res) => {
+  app.get("/api/admin/system-health/incidents", requireRole("admin"), async (_req, res) => {
     try {
       const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
       // BullMQ dead-letter items
       let dlqItems: any[] = [];
       let queueSummary: any[] = [];
+      let dlqStatus: "ok" | "not_initialized" | "degraded" = "not_initialized";
       try {
-        const { getQueueManager } = await import("../services/queue-manager");
-        const qm = await getQueueManager();
-        dlqItems = await qm.getDeadLetterItems();
+        const { requireQueueManagerReady } = await import("../services/queue-manager");
+        const qm = requireQueueManagerReady();
+        const dlqRead = await qm.getDeadLetterItemsWithStatus();
+        const rawDlqItems = dlqRead.items;
+        dlqItems = rawDlqItems.map((item) => ({
+          id: item.id,
+          queueName: item.queueName,
+          jobName: item.jobName,
+          failedReason: item.failedReason,
+          attemptsMade: item.attemptsMade,
+          timestamp: item.finishedOn ?? item.timestamp,
+        }));
         const metrics = await qm.getAllQueueMetrics();
         queueSummary = (metrics.queues ?? []).map((q: any) => ({
           name: q.name,
@@ -3996,9 +4019,8 @@ export function registerAdminRoutes(app: Express) {
           waiting: q.waiting ?? 0,
           active: q.active ?? 0,
         }));
-      } catch (_err) {
-        // Redis unavailable — return empty gracefully
-      }
+        dlqStatus = dlqRead.queueStatus.some((source) => source.status !== "sampled") ? "degraded" : "ok";
+      } catch (_err) { dlqStatus = "not_initialized"; }
 
       // GHL sync failures (audit_logs, last 24h)
       const ghlRows = await db
@@ -4023,6 +4045,9 @@ export function registerAdminRoutes(app: Express) {
       res.json({
         dlqItems,
         dlqCount: dlqItems.length,
+        dlqStatus,
+        dlqResultScope: "sampled_per_queue",
+        dlqComplete: false,
         ghlFailures: ghlRows,
         ghlFailureCount: ghlRows.length,
         queueSummary,
@@ -4034,11 +4059,11 @@ export function registerAdminRoutes(app: Express) {
   });
 
   // Retry a dead-letter job by composite ID (queueName::jobId)
-  app.post("/api/admin/system-health/jobs/:compositeId/retry", requireRole("admin", "manager"), async (req, res) => {
+  app.post("/api/admin/system-health/jobs/:compositeId/retry", requireRole("admin"), async (req, res) => {
     try {
       const compositeId = decodeURIComponent(req.params.compositeId as string);
-      const { getQueueManager } = await import("../services/queue-manager");
-      const qm = await getQueueManager();
+      const { requireQueueManagerReady } = await import("../services/queue-manager");
+      const qm = requireQueueManagerReady();
       await qm.retryDeadLetterJob(compositeId);
 
       auditChange({
@@ -4057,11 +4082,11 @@ export function registerAdminRoutes(app: Express) {
   });
 
   // Discard (permanently delete) a single dead-letter job
-  app.delete("/api/admin/system-health/jobs/:compositeId", requireRole("admin", "manager"), async (req, res) => {
+  app.delete("/api/admin/system-health/jobs/:compositeId", requireRole("admin"), async (req, res) => {
     try {
       const compositeId = decodeURIComponent(req.params.compositeId as string);
-      const { getQueueManager } = await import("../services/queue-manager");
-      const qm = await getQueueManager();
+      const { requireQueueManagerReady } = await import("../services/queue-manager");
+      const qm = requireQueueManagerReady();
       await qm.discardDeadLetterJob(compositeId);
 
       auditChange({
@@ -4084,8 +4109,8 @@ export function registerAdminRoutes(app: Express) {
   app.delete("/api/admin/system-health/jobs/dlq/purge", requireRole("admin"), async (req, res) => {
     try {
       const olderThanDays = Math.max(0, parseInt((req.query.olderThanDays as string) ?? "0", 10) || 0);
-      const { getQueueManager } = await import("../services/queue-manager");
-      const qm = await getQueueManager();
+      const { requireQueueManagerReady } = await import("../services/queue-manager");
+      const qm = requireQueueManagerReady();
       const removed = await qm.purgeDeadLetterItems(olderThanDays);
 
       auditChange({
@@ -4222,8 +4247,8 @@ export function registerAdminRoutes(app: Express) {
       let redisMs = 0;
       let redisDetail = "Not connected";
       try {
-        const { getQueueManager } = await import("../services/queue-manager");
-        const qm = await getQueueManager();
+        const { requireQueueManagerReady } = await import("../services/queue-manager");
+        const qm = requireQueueManagerReady();
         const t0 = Date.now();
         if (qm) {
           const conn = (qm as any)._redisConnection;

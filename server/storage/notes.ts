@@ -132,6 +132,11 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
     return db.select().from(comments).where(and(eq(comments.entityType, entityType), eq(comments.entityId, entityId))).orderBy(asc(comments.createdAt));
   }
 
+  async getComment(id: number): Promise<Comment | undefined> {
+    const [comment] = await db.select().from(comments).where(eq(comments.id, id));
+    return comment;
+  }
+
 
   async createComment(comment: InsertComment): Promise<Comment> {
     const [created] = await db.insert(comments).values(comment).returning();

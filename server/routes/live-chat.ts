@@ -1,17 +1,39 @@
 import type { Express } from "express";
 import { storage } from "../storage";
-import { isAuthenticated } from "../replit_integrations/auth";
+import { db } from "../db";
+import { isAuthenticated, isDashboardUser } from "../replit_integrations/auth";
+import { authorizeContactAccess, denyCrmObject } from "../services/crm-object-access";
 import { z } from "zod";
 import { randomUUID } from "crypto";
+import { contacts } from "@shared/schema";
+import { and, eq, ilike, isNull, or } from "drizzle-orm";
 import { createContactGhlFirst } from "../services/contact-writer";
 import { sendCriticalEmailNotification } from "../services/digest-service";
 import type { LiveChat } from "../../shared/schema";
 import { serverError } from "../utils/server-error";
 
 interface AuthUser {
+  role?: string;
   firstName?: string;
   lastName?: string;
   email?: string;
+}
+
+async function authorizeLiveChatAccess(
+  req: any,
+  res: any,
+  chat: LiveChat | undefined,
+  options: { exactAssignment?: boolean } = {},
+): Promise<LiveChat | false> {
+  if (!chat) return denyCrmObject(res);
+  const role = (req.user as AuthUser | undefined)?.role;
+  // Anonymous chats are actionable only by privileged staff so they can be
+  // triaged and linked. Agents never receive an unowned conversation.
+  if (!chat.contactId) {
+    return role === "admin" || role === "manager" ? chat : denyCrmObject(res);
+  }
+  const contact = await authorizeContactAccess(req, res, chat.contactId, options);
+  return contact ? chat : false;
 }
 
 function isBusinessHours(): boolean {
@@ -299,7 +321,7 @@ export function registerLiveChatRoutes(app: Express) {
   });
 
   // === AGENT: List all chat sessions ===
-  app.get("/api/live-chat/sessions", isAuthenticated, async (req, res) => {
+  app.get("/api/live-chat/sessions", isDashboardUser, async (req, res) => {
     try {
       const status = req.query.status as string | undefined;
       let chats: LiveChat[];
@@ -308,6 +330,15 @@ export function registerLiveChatRoutes(app: Express) {
       } else {
         chats = await storage.getAllLiveChats({ limit: 100 });
       }
+      if ((req.user as AuthUser)?.role === "agent") {
+        const agentEmail = (req.user as AuthUser)?.email;
+        const visible = await Promise.all(chats.map(async (chat) => {
+          if (!chat.contactId) return false;
+          const contact = await storage.getContact(chat.contactId);
+          return !!contact && (!contact.assignedTo || contact.assignedTo === agentEmail);
+        }));
+        chats = chats.filter((_chat, index) => visible[index]);
+      }
       res.json(chats);
     } catch (err: unknown) {
       serverError(res, err);
@@ -315,12 +346,13 @@ export function registerLiveChatRoutes(app: Express) {
   });
 
   // === AGENT: Get messages for a session ===
-  app.get("/api/live-chat/sessions/:id/messages", isAuthenticated, async (req, res) => {
+  app.get("/api/live-chat/sessions/:id/messages", isDashboardUser, async (req, res) => {
     try {
       const chatId = Number(req.params.id);
+      const chat = await storage.getLiveChat(chatId);
+      if (!await authorizeLiveChatAccess(req, res, chat)) return;
       const afterId = req.query.afterId ? Number(req.query.afterId) : undefined;
       const messages = await storage.getLiveChatMessages(chatId, afterId);
-      const chat = await storage.getLiveChat(chatId);
       res.json({ messages, chat });
     } catch (err: unknown) {
       serverError(res, err);
@@ -328,13 +360,13 @@ export function registerLiveChatRoutes(app: Express) {
   });
 
   // === AGENT: Reply to a chat ===
-  app.post("/api/live-chat/sessions/:id/reply", isAuthenticated, async (req, res) => {
+  app.post("/api/live-chat/sessions/:id/reply", isDashboardUser, async (req, res) => {
     try {
       const schema = z.object({ content: z.string().min(1).max(2000) });
       const { content } = schema.parse(req.body);
       const chatId = Number(req.params.id);
       const chat = await storage.getLiveChat(chatId);
-      if (!chat) return res.status(404).json({ message: "Chat not found" });
+      if (!await authorizeLiveChatAccess(req, res, chat, { exactAssignment: true })) return;
 
       const user = req.user as AuthUser;
       const agentName = user?.firstName && user?.lastName
@@ -357,7 +389,7 @@ export function registerLiveChatRoutes(app: Express) {
   });
 
   // === AGENT: Update a chat session (close or link contact) ===
-  app.patch("/api/live-chat/sessions/:id", isAuthenticated, async (req, res) => {
+  app.patch("/api/live-chat/sessions/:id", isDashboardUser, async (req, res) => {
     try {
       const schema = z.object({
         status: z.enum(["active", "closed"]).optional(),
@@ -368,7 +400,11 @@ export function registerLiveChatRoutes(app: Express) {
       const body = schema.parse(req.body);
       const chatId = Number(req.params.id);
       const chat = await storage.getLiveChat(chatId);
-      if (!chat) return res.status(404).json({ message: "Chat not found" });
+      const authorizedChat = await authorizeLiveChatAccess(req, res, chat, { exactAssignment: true });
+      if (!authorizedChat) return;
+      if (body.contactId !== undefined && body.contactId !== null && body.contactId !== authorizedChat.contactId) {
+        if (!await authorizeContactAccess(req, res, body.contactId, { exactAssignment: true })) return;
+      }
 
       const baseUpdate: Parameters<typeof storage.updateLiveChat>[1] = {};
 
@@ -376,7 +412,7 @@ export function registerLiveChatRoutes(app: Express) {
         baseUpdate.status = body.status;
         if (body.status === "closed") {
           baseUpdate.closedAt = new Date();
-          const resolvedContactId = body.contactId !== undefined ? body.contactId : chat.contactId;
+          const resolvedContactId = body.contactId !== undefined ? body.contactId : authorizedChat.contactId;
           if (resolvedContactId) {
             const messages = await storage.getLiveChatMessages(chatId);
             if (messages.length > 0) {
@@ -386,7 +422,7 @@ export function registerLiveChatRoutes(app: Express) {
               await storage.createNote({
                 entityType: "contact",
                 entityId: resolvedContactId,
-                content: `Live chat transcript (${new Date(chat.createdAt).toLocaleString()}):\n\n${transcript}`,
+                content: `Live chat transcript (${new Date(authorizedChat.createdAt).toLocaleString()}):\n\n${transcript}`,
                 authorName: "System",
                 pinned: false,
               });
@@ -408,24 +444,35 @@ export function registerLiveChatRoutes(app: Express) {
   });
 
   // === AGENT: Search contacts for linking ===
-  app.get("/api/live-chat/contacts/search", isAuthenticated, async (req, res) => {
+  app.get("/api/live-chat/contacts/search", isDashboardUser, async (req, res) => {
     try {
       const q = (req.query.q as string || "").toLowerCase().trim();
       if (!q || q.length < 2) return res.json([]);
-      const { data: allContacts } = await storage.getContacts({ limit: 500 });
-      const matches = allContacts
-        .filter(c => {
-          const str = `${c.firstName} ${c.lastName} ${c.email} ${c.companyName || ""} ${c.phone || ""}`.toLowerCase();
-          return str.includes(q);
+      const agentEmail = (req.user as AuthUser)?.role === "agent" ? (req.user as AuthUser)?.email : undefined;
+      const pattern = `%${q}%`;
+      const ownership = agentEmail
+        ? or(eq(contacts.assignedTo, agentEmail), isNull(contacts.assignedTo))
+        : undefined;
+      const matches = await db
+        .select({
+          id: contacts.id,
+          firstName: contacts.firstName,
+          lastName: contacts.lastName,
+          email: contacts.email,
+          companyName: contacts.companyName,
         })
-        .slice(0, 15)
-        .map(c => ({
-          id: c.id,
-          firstName: c.firstName,
-          lastName: c.lastName,
-          email: c.email,
-          companyName: c.companyName,
-        }));
+        .from(contacts)
+        .where(and(
+          ownership,
+          or(
+            ilike(contacts.firstName, pattern),
+            ilike(contacts.lastName, pattern),
+            ilike(contacts.email, pattern),
+            ilike(contacts.companyName, pattern),
+            ilike(contacts.phone, pattern),
+          ),
+        ))
+        .limit(15);
       res.json(matches);
     } catch (err: unknown) {
       serverError(res, err);

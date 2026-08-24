@@ -11,6 +11,7 @@ import { parse } from "csv-parse/sync";
 import { logAiCall } from "../services/ai-audit-logger";
 import { resolveCollateralPacket } from "../services/workflow-executor";
 import { serverError } from "../utils/server-error";
+import { authorizeContactAccess, authorizeDealAccess } from "../services/crm-object-access";
 import { LifecycleService } from "../services/lifecycle-service";
 
 export function registerActivityRoutes(app: Express) {
@@ -45,6 +46,9 @@ export function registerActivityRoutes(app: Express) {
   app.get("/api/activity", isDashboardUser, async (req, res) => {
     try {
       const { entityType, entityId } = req.query;
+      if ((req.user as any)?.role === "agent" && (!entityType || !entityId)) return res.status(404).json({ message: "Not found", code: "CRM_OBJECT_NOT_FOUND" });
+      if (entityType === "contact" && !await authorizeContactAccess(req, res, Number(entityId))) return;
+      if (entityType === "deal" && !await authorizeDealAccess(req, res, Number(entityId))) return;
       const allLogs = await storage.getAuditLogs();
       let filtered = allLogs;
       if (entityType && entityId) {
@@ -85,6 +89,7 @@ export function registerActivityRoutes(app: Express) {
   app.get("/api/contacts/:id/activity", isDashboardUser, async (req, res) => {
     try {
       const contactId = Number(req.params.id);
+      if (!await authorizeContactAccess(req, res, contactId)) return;
       const events: any[] = [];
 
       const auditEntries = await storage.getAuditLogs();
@@ -186,6 +191,7 @@ export function registerActivityRoutes(app: Express) {
     try {
       const { entityType, entityId } = req.query;
       if (!entityType || !entityId) return res.status(400).json({ message: "entityType and entityId required" });
+      if (String(entityType) === "contact" && !await authorizeContactAccess(req, res, Number(entityId))) return;
       const notesList = await storage.getNotes(String(entityType), Number(entityId));
       res.json(notesList);
     } catch (err: any) {
@@ -196,6 +202,7 @@ export function registerActivityRoutes(app: Express) {
   app.post("/api/notes", isDashboardUser, async (req, res) => {
     try {
       const input = insertNoteSchema.parse(req.body);
+      if (input.entityType === "contact" && !await authorizeContactAccess(req, res, input.entityId)) return;
       const note = await storage.createNote(input);
       res.status(201).json(note);
     } catch (err: any) {
@@ -208,6 +215,9 @@ export function registerActivityRoutes(app: Express) {
   app.patch("/api/notes/:id", isDashboardUser, async (req, res) => {
     try {
       const noteId = Number(req.params.id);
+      const note = await storage.getNote(noteId);
+      if (!note) return res.status(404).json({ message: "Not found" });
+      if (note.entityType === "contact" && !await authorizeContactAccess(req, res, note.entityId)) return;
       const { content } = req.body;
       if (!content || typeof content !== "string" || !content.trim()) {
         return res.status(400).json({ message: "content required" });
@@ -221,6 +231,9 @@ export function registerActivityRoutes(app: Express) {
 
   app.delete("/api/notes/:id", isDashboardUser, async (req, res) => {
     try {
+      const note = await storage.getNote(Number(req.params.id));
+      if (!note) return res.status(404).json({ message: "Not found" });
+      if (note.entityType === "contact" && !await authorizeContactAccess(req, res, note.entityId)) return;
       await storage.deleteNote(Number(req.params.id));
       res.json({ success: true });
     } catch (err: any) {
@@ -233,6 +246,8 @@ export function registerActivityRoutes(app: Express) {
   app.get("/api/comments", isDashboardUser, async (req, res) => {
     const { entityType, entityId } = req.query;
     if (!entityType || !entityId) return res.status(400).json({ message: "entityType and entityId required" });
+    if (entityType === "contact" && !await authorizeContactAccess(req, res, Number(entityId))) return;
+    if (entityType === "deal" && !await authorizeDealAccess(req, res, Number(entityId))) return;
     const result = await storage.getComments(String(entityType), Number(entityId));
     res.json(result);
   });
@@ -240,6 +255,8 @@ export function registerActivityRoutes(app: Express) {
   app.post("/api/comments", isDashboardUser, async (req, res) => {
     try {
       const input = insertCommentSchema.parse(req.body);
+      if (input.entityType === "contact" && !await authorizeContactAccess(req, res, input.entityId)) return;
+      if (input.entityType === "deal" && !await authorizeDealAccess(req, res, input.entityId)) return;
       const comment = await storage.createComment({
         ...input,
         authorId: (req.user as any)?.id || null,
@@ -253,11 +270,19 @@ export function registerActivityRoutes(app: Express) {
   });
 
   app.delete("/api/comments/:id", isDashboardUser, async (req, res) => {
+    const comment = await storage.getComment(Number(req.params.id));
+    if (!comment) return res.status(404).json({ message: "Not found" });
+    if (comment.entityType === "contact" && !await authorizeContactAccess(req, res, comment.entityId)) return;
+    if (comment.entityType === "deal" && !await authorizeDealAccess(req, res, comment.entityId)) return;
     await storage.deleteComment(Number(req.params.id));
     res.json({ success: true });
   });
 
   app.put("/api/comments/:id", isDashboardUser, async (req, res) => {
+    const comment = await storage.getComment(Number(req.params.id));
+    if (!comment) return res.status(404).json({ message: "Not found" });
+    if (comment.entityType === "contact" && !await authorizeContactAccess(req, res, comment.entityId)) return;
+    if (comment.entityType === "deal" && !await authorizeDealAccess(req, res, comment.entityId)) return;
     const updated = await storage.updateComment(Number(req.params.id), req.body);
     if (!updated) return res.status(404).json({ message: "Not found" });
     res.json(updated);
@@ -267,18 +292,24 @@ export function registerActivityRoutes(app: Express) {
   // === EMAIL LOGS ===
   app.get("/api/email-logs", isDashboardUser, async (req, res) => {
     const contactId = req.query.contactId ? Number(req.query.contactId) : undefined;
+    if ((req.user as any)?.role === "agent" && !contactId) return res.status(404).json({ message: "Not found", code: "CRM_OBJECT_NOT_FOUND" });
+    if (contactId && !await authorizeContactAccess(req, res, contactId)) return;
     const logs = await storage.getEmailLogs(contactId);
     res.json(logs);
   });
 
   app.get("/api/email-logs/contact/:contactId", isDashboardUser, async (req, res) => {
-    const logs = await storage.getEmailLogs(Number(req.params.contactId));
+    const contactId = Number(req.params.contactId);
+    if (!await authorizeContactAccess(req, res, contactId)) return;
+    const logs = await storage.getEmailLogs(contactId);
     res.json(logs);
   });
 
   app.post("/api/email-logs", isDashboardUser, async (req, res) => {
     try {
       const input = insertEmailLogSchema.parse(req.body);
+      if (input.contactId && !await authorizeContactAccess(req, res, input.contactId)) return;
+      if (input.dealId && !await authorizeDealAccess(req, res, input.dealId)) return;
       const log = await storage.createEmailLog(input);
       await storage.createAuditLog({ action: "email_logged", entityType: "contact", entityId: log.contactId || 0, details: { direction: log.direction, subject: log.subject || "" } });
       res.status(201).json(log);
@@ -292,18 +323,24 @@ export function registerActivityRoutes(app: Express) {
   // === CALL LOGS ===
   app.get("/api/call-logs", isDashboardUser, async (req, res) => {
     const contactId = req.query.contactId ? Number(req.query.contactId) : undefined;
+    if ((req.user as any)?.role === "agent" && !contactId) return res.status(404).json({ message: "Not found", code: "CRM_OBJECT_NOT_FOUND" });
+    if (contactId && !await authorizeContactAccess(req, res, contactId)) return;
     const logs = await storage.getCallLogs(contactId);
     res.json(logs);
   });
 
   app.get("/api/call-logs/contact/:contactId", isDashboardUser, async (req, res) => {
-    const logs = await storage.getCallLogs(Number(req.params.contactId));
+    const contactId = Number(req.params.contactId);
+    if (!await authorizeContactAccess(req, res, contactId)) return;
+    const logs = await storage.getCallLogs(contactId);
     res.json(logs);
   });
 
   app.post("/api/call-logs", isDashboardUser, async (req, res) => {
     try {
       const input = insertCallLogSchema.parse(req.body);
+      if (input.contactId && !await authorizeContactAccess(req, res, input.contactId)) return;
+      if (input.dealId && !await authorizeDealAccess(req, res, input.dealId)) return;
       const log = await storage.createCallLog(input);
       await storage.createAuditLog({ action: "call_logged", entityType: "contact", entityId: log.contactId || 0, details: { direction: log.direction, outcome: log.outcome || "", duration: String(log.duration || 0) } });
       if (log.outcome === "Appointment Set" || log.outcome === "Interested") {
@@ -321,11 +358,14 @@ export function registerActivityRoutes(app: Express) {
       const { contactId, dealId, outcome, callNotes, firefliesRecap, duration } = req.body;
       if (!contactId || !outcome) return res.status(400).json({ message: "contactId and outcome are required" });
 
-      const contact = await storage.getContact(Number(contactId));
-      if (!contact) return res.status(404).json({ message: "Contact not found" });
+      const contact = await authorizeContactAccess(req, res, Number(contactId));
+      if (!contact) return;
 
       let deal = null;
-      if (dealId) deal = await storage.getDeal(Number(dealId));
+      if (dealId) {
+        deal = await authorizeDealAccess(req, res, Number(dealId));
+        if (!deal) return;
+      }
 
       const contactName = `${contact.firstName || ""} ${contact.lastName || ""}`.trim() || "there";
       const companyName = contact.companyName || "";
@@ -451,8 +491,9 @@ Respond in this exact JSON format:
 
       if (!contactId || !outcome) return res.status(400).json({ message: "contactId and outcome are required" });
 
-      const contact = await storage.getContact(Number(contactId));
-      if (!contact) return res.status(404).json({ message: "Contact not found" });
+      const contact = await authorizeContactAccess(req, res, Number(contactId), { exactAssignment: true });
+      if (!contact) return;
+      if (dealId && !await authorizeDealAccess(req, res, Number(dealId), { exactAssignment: true })) return;
 
       const OUTCOME_TO_STAGE: Record<string, string> = {
         "Connected - Send Review Summary": "Review In Progress",

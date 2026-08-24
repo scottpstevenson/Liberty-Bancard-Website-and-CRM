@@ -15,6 +15,7 @@ import dns from "node:dns/promises";
 import net from "node:net";
 import { serverError, safeMessage } from "../utils/server-error";
 import { requireGhlRouteMutationAllowed } from "./ghl-mutation-pause";
+import { authorizeContactAccess } from "../services/crm-object-access";
 
 export function registerIntegrationsRoutes(app: Express) {
   const getAuthorizedRecipient = async (req: any, res: any, rawContactId: unknown, respond = true) => {
@@ -23,17 +24,8 @@ export function registerIntegrationsRoutes(app: Express) {
       if (respond) res.status(400).json({ message: "A valid contactId is required" });
       return null;
     }
-    const contact = await storage.getContact(contactId);
-    if (!contact) {
-      if (respond) res.status(404).json({ message: "Contact not found" });
-      return null;
-    }
-    const role = req.user?.role;
-    const email = req.user?.email;
-    if (role === "agent" && contact.assignedTo && contact.assignedTo !== email) {
-      if (respond) res.status(403).json({ message: "Forbidden", code: "NOT_YOUR_CONTACT" });
-      return null;
-    }
+    const contact = await authorizeContactAccess(req, res, contactId);
+    if (!contact) return null;
     return { contactId, contact };
   };
 
@@ -215,6 +207,7 @@ export function registerIntegrationsRoutes(app: Express) {
       if (contactId === null) return res.status(404).json({ message: "Not found" });
       const contact = await storage.getContact(contactId);
       if (!contact) return res.status(404).json({ message: "Not found" });
+      if (!await authorizeContactAccess(req, res, contactId)) return;
       const logs = await storage.getGhlActivityLogs(contactId);
       const lastOutboundSync = logs.find(l => l.direction === "outbound" && l.channel === "sync");
       const lastSyncedAt = lastOutboundSync?.createdAt || null;
@@ -240,6 +233,7 @@ export function registerIntegrationsRoutes(app: Express) {
     }
     const syncContactId = parseId(req.params.id);
     if (syncContactId === null) return res.status(404).json({ message: "Not found" });
+    if (!await authorizeContactAccess(req, res, syncContactId)) return;
     const result = await syncContactToGhl(syncContactId);
     res.json(result);
   });

@@ -11,6 +11,7 @@
 import type { Express } from "express";
 import { isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { NBAService } from "../services/nba-service";
+import { authorizeContactAccess } from "../services/crm-object-access";
 
 export function registerNbaRoutes(app: Express) {
 
@@ -24,6 +25,7 @@ export function registerNbaRoutes(app: Express) {
   }
 
   try {
+    if (!await authorizeContactAccess(req, res, contactId)) return;
     const nba = await NBAService.getNBA(contactId);
     if (!nba) {
       // Trigger a fresh compute if none exists
@@ -51,6 +53,7 @@ export function registerNbaRoutes(app: Express) {
   }
 
   try {
+    if (!await authorizeContactAccess(req, res, contactId)) return;
     await NBAService.executeNBA(contactId, "HUMAN_EXECUTED");
     // Compute next NBA immediately
     NBAService.computeNBA(contactId).catch(err =>
@@ -78,6 +81,7 @@ export function registerNbaRoutes(app: Express) {
   }
 
   try {
+    if (!await authorizeContactAccess(req, res, contactId)) return;
     await NBAService.dismissNBA(contactId, userId);
     return res.json({ success: true });
   } catch (err: any) {

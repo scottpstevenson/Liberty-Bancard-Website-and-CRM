@@ -225,6 +225,12 @@ const MANDATORY_SUITES: Suite[] = [
     requiresServer: true,
   },
   {
+    name: "CRM Operator Experience",
+    script: "scripts/test-crm-operator-experience.ts",
+    timeoutSecs: 60,
+    requiresServer: true,
+  },
+  {
     name: "API Coverage",
     script: "scripts/check-api-coverage.ts",
     timeoutSecs: 60,

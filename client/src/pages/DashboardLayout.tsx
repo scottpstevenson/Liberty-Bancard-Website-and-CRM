@@ -256,34 +256,6 @@ function filterByRole(items: MenuItem[], role: UserRole): MenuItem[] {
   return items.filter((item) => !item.roles || item.roles.includes(role));
 }
 
-// ─── Route-level role guard ────────────────────────────────────────────────────
-// MUST mirror allowedRoles in App.tsx ProtectedRoute declarations exactly.
-// Only list routes with explicit allowedRoles; omit routes that rely on isAuthenticated alone.
-// Routes not in this map are accessible to ALL authenticated dashboard users.
-// Use exact path matching only — prefix matching causes false positives.
-const RESTRICTED_ROUTES: Partial<Record<string, UserRole[]>> = {
-  // Admin-only (matches allowedRoles={["admin"]} in App.tsx)
-  "/dashboard/partner-orgs":           ["admin"],
-  // Admin + Manager (matches allowedRoles={["admin", "manager"]} in App.tsx)
-  "/dashboard/activation":             ["admin", "manager"],
-  "/dashboard/settings/integrations":  ["admin", "manager"],
-  "/dashboard/acquisition-hub":        ["admin", "manager"],
-  "/dashboard/outbound-center":        ["admin", "manager"],
-  "/dashboard/financial-hub":          ["admin", "manager"],
-  "/dashboard/system-health":          ["admin", "manager"],
-  "/dashboard/reporting":              ["admin", "manager"],
-  "/dashboard/admin-hub":              ["admin", "manager"],
-  "/dashboard/stage-rules":            ["admin", "manager"],
-  "/dashboard/ghl-integration":        ["admin", "manager"],
-  "/dashboard/outreach-hub":           ["admin", "manager"],
-};
-
-function isRouteAllowed(pathname: string, role: UserRole): boolean {
-  const allowed = RESTRICTED_ROUTES[pathname];
-  if (!allowed) return true;
-  return allowed.includes(role);
-}
-
 const TWO_FA_BANNER_KEY = "2fa_banner_dismissed";
 
 function GhlAlertBanner({ role }: { role: UserRole }) {
@@ -426,9 +398,6 @@ function DashboardLayoutInner({ children }: DashboardLayoutProps) {
   const [resourcesOpen, setResourcesOpen] = useState(false);
   const [partnersOpen, setPartnersOpen] = useState(false);
   const role = (user?.role as UserRole) || "merchant";
-
-  // Route-level access guard
-  const routeAllowed = isRouteAllowed(location, role);
 
   // Admin dev-mode toggle — persisted in localStorage; off by default
   const [devMode, setDevMode] = useState(() => {
@@ -876,7 +845,7 @@ function DashboardLayoutInner({ children }: DashboardLayoutProps) {
           <div className="flex flex-1 overflow-hidden min-h-0">
             <main className="flex-1 overflow-y-auto overflow-x-hidden p-3 sm:p-6 max-w-7xl mx-auto w-full" data-testid="dashboard-main">
               <ErrorBoundary key={location}>
-                {routeAllowed ? children : <Forbidden />}
+                {children}
               </ErrorBoundary>
             </main>
             {aiChatOpen && (

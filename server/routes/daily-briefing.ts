@@ -14,9 +14,10 @@
 import type { Express } from "express";
 import { isDashboardUser } from "../replit_integrations/auth";
 import { storage } from "../storage";
-import { db } from "../db";
+import { db, pool } from "../db";
 import { sql } from "drizzle-orm";
 import { serverError } from "../utils/server-error";
+import { readyForOutreachPredicate } from "../services/outreach-queue-membership";
 
 function getTodayStr(): string {
   return new Date().toISOString().split("T")[0]; // YYYY-MM-DD
@@ -43,7 +44,7 @@ async function generateAiBriefing(stats: {
   tasksDueToday: number;
   overdueSlaCount: number;
   unreadCount: number;
-  hotLeadsCount: number;
+  outreachReadyCount: number;
   closedWonYesterday: number;
   role: string;
 }): Promise<string | null> {
@@ -60,7 +61,7 @@ Stats:
 - Tasks due today: ${stats.tasksDueToday}
 - Overdue SLA alerts: ${stats.overdueSlaCount}
 - Unread messages: ${stats.unreadCount}
-- Hot leads ready for outreach (score ≥70): ${stats.hotLeadsCount}
+- Leads ready for outreach: ${stats.outreachReadyCount}
 - Deals closed/won yesterday: ${stats.closedWonYesterday}
 - User role: ${stats.role}
 
@@ -89,20 +90,20 @@ Write only the summary, no headers or labels.`;
   }
 }
 
-export function registerDailyBriefingRoutes(app: Express) {
-  // GET /api/overview/daily-briefing
-  app.get("/api/overview/daily-briefing", isDashboardUser, async (req, res) => {
-    try {
-      const user = req.user as any;
+async function buildDailyBriefing(user: any, bypassCache = false) {
       const userId = String(user?.id || "");
+      const userEmail = String(user?.email || "");
       const role = user?.role || "agent";
       const isAdminOrManager = role === "admin" || role === "manager";
+      const sectionStatus: Record<string, "ok" | "degraded"> = {};
 
       // Check cache: per user per calendar day
-      const cacheKey = `daily_briefing_${userId}_${getTodayStr()}`;
+      // V2 avoids serving the old hot-lead contract after the shared
+      // Ready-for-Outreach membership predicate replaced it.
+      const cacheKey = `daily_briefing_v2_${userId}_${getTodayStr()}`;
       const cached = await storage.getSystemSetting(cacheKey);
-      if (cached && typeof cached === "object" && (cached as any).generatedAt) {
-        return res.json(cached);
+      if (!bypassCache && cached && typeof cached === "object" && (cached as any).generatedAt) {
+        return cached;
       }
 
       const todayRange = getTodayRange();
@@ -116,10 +117,11 @@ export function registerDailyBriefingRoutes(app: Express) {
           WHERE status NOT IN ('completed', 'cancelled')
             AND due_date >= ${todayRange.start.toISOString()}
             AND due_date < ${todayRange.end.toISOString()}
-            ${!isAdminOrManager ? sql`AND (assigned_to = ${userId} OR created_by = ${userId})` : sql``}
+            ${!isAdminOrManager ? sql`AND (assigned_to = ${userEmail} OR created_by = ${userEmail})` : sql``}
         `);
         tasksDueToday = Number((taskRows.rows[0] as any)?.cnt || 0);
-      } catch { /* ignore */ }
+        sectionStatus.tasks = "ok";
+      } catch { sectionStatus.tasks = "degraded"; }
 
       // ── 2. Overdue SLA alerts ───────────────────────────────────────────────
       let overdueSlaCount = 0;
@@ -128,10 +130,11 @@ export function registerDailyBriefingRoutes(app: Express) {
           SELECT COUNT(*) AS cnt FROM inbox_items
           WHERE sla_due_at < NOW()
             AND status NOT IN ('resolved', 'escalated')
-            ${!isAdminOrManager ? sql`AND owner_id = ${userId}` : sql``}
-        `).catch(() => ({ rows: [] }));
+            ${!isAdminOrManager ? sql`AND owner_id = ${userEmail}` : sql``}
+        `);
         overdueSlaCount = Number((slaRows.rows[0] as any)?.cnt || 0);
-      } catch { /* ignore */ }
+        sectionStatus.sla = "ok";
+      } catch { sectionStatus.sla = "degraded"; }
 
       // ── 3. Unread messages (inbox items) ────────────────────────────────────
       // We use a simple proxy from audit_logs for inbound unread
@@ -143,20 +146,17 @@ export function registerDailyBriefingRoutes(app: Express) {
             AND created_at >= ${todayRange.start.toISOString()}
         `);
         unreadCount = Number((unreadRows.rows[0] as any)?.cnt || 0);
-      } catch { /* ignore */ }
+        sectionStatus.inbox = "ok";
+      } catch { sectionStatus.inbox = "degraded"; }
 
       // ── 4. Hot leads ready for outreach ─────────────────────────────────────
-      let hotLeadsCount = 0;
+      let outreachReadyCount = 0;
       try {
-        const hotLeadRows = await db.execute(sql`
-          SELECT COUNT(*) AS cnt FROM contacts
-          WHERE lead_score >= 70
-            AND lifecycle_state NOT IN ('customer', 'churned', 'disqualified', 'suppressed')
-            AND email_status != 'invalid'
-            ${!isAdminOrManager ? sql`AND assigned_to = ${userId}` : sql``}
-        `).catch(() => ({ rows: [] }));
-        hotLeadsCount = Number((hotLeadRows.rows[0] as any)?.cnt || 0);
-      } catch { /* ignore */ }
+        const membership = readyForOutreachPredicate({ ownerEmail: !isAdminOrManager ? userEmail : undefined });
+        const readyRows = await pool.query(`SELECT COUNT(*)::int AS cnt FROM contacts WHERE ${membership.where}`, membership.params);
+        outreachReadyCount = Number((readyRows.rows[0] as any)?.cnt || 0);
+        sectionStatus.outreach = "ok";
+      } catch { sectionStatus.outreach = "degraded"; }
 
       // ── 5. Yesterday's closed/won deals ─────────────────────────────────────
       let closedWonYesterday = 0;
@@ -166,10 +166,11 @@ export function registerDailyBriefingRoutes(app: Express) {
           WHERE stage = 'Closed Won'
             AND updated_at >= ${yesterdayRange.start.toISOString()}
             AND updated_at < ${yesterdayRange.end.toISOString()}
-            ${!isAdminOrManager ? sql`AND owner = ${userId}` : sql``}
+            ${!isAdminOrManager ? sql`AND owner = ${userEmail}` : sql``}
         `);
         closedWonYesterday = Number((wonRows.rows[0] as any)?.cnt || 0);
-      } catch { /* ignore */ }
+        sectionStatus.closedWon = "ok";
+      } catch { sectionStatus.closedWon = "degraded"; }
 
       // ── 6. Overdue tasks count ───────────────────────────────────────────────
       let overdueTaskCount = 0;
@@ -178,17 +179,18 @@ export function registerDailyBriefingRoutes(app: Express) {
           SELECT COUNT(*) AS cnt FROM tasks
           WHERE status NOT IN ('completed', 'cancelled')
             AND due_date < NOW()
-            ${!isAdminOrManager ? sql`AND (assigned_to = ${userId} OR created_by = ${userId})` : sql``}
+            ${!isAdminOrManager ? sql`AND (assigned_to = ${userEmail} OR created_by = ${userEmail})` : sql``}
         `);
         overdueTaskCount = Number((overdueRows.rows[0] as any)?.cnt || 0);
-      } catch { /* ignore */ }
+        sectionStatus.overdueTasks = "ok";
+      } catch { sectionStatus.overdueTasks = "degraded"; }
 
       // ── 7. AI morning summary ────────────────────────────────────────────────
       const aiSummary = await generateAiBriefing({
         tasksDueToday,
         overdueSlaCount,
         unreadCount,
-        hotLeadsCount,
+        outreachReadyCount,
         closedWonYesterday,
         role,
       });
@@ -198,18 +200,26 @@ export function registerDailyBriefingRoutes(app: Express) {
         overdueTaskCount,
         overdueSlaCount,
         unreadCount,
-        hotLeadsCount,
+        outreachReadyCount,
         closedWonYesterday,
         aiSummary,
         role,
         generatedAt: new Date().toISOString(),
         dateKey: getTodayStr(),
+        sectionStatus,
       };
 
       // Cache for the calendar day (expire at next midnight ~28 hours max)
       storage.setSystemSetting(cacheKey, briefing).catch(() => {});
 
-      res.json(briefing);
+      return briefing;
+}
+
+export function registerDailyBriefingRoutes(app: Express) {
+  // GET /api/overview/daily-briefing
+  app.get("/api/overview/daily-briefing", isDashboardUser, async (req, res) => {
+    try {
+      res.json(await buildDailyBriefing(req.user as any));
     } catch (err: any) {
       console.error("[DailyBriefing] error:", err.message);
       serverError(res, err);
@@ -221,9 +231,9 @@ export function registerDailyBriefingRoutes(app: Express) {
     try {
       const user = req.user as any;
       const userId = String(user?.id || "");
-      const cacheKey = `daily_briefing_${userId}_${getTodayStr()}`;
+      const cacheKey = `daily_briefing_v2_${userId}_${getTodayStr()}`;
       await storage.setSystemSetting(cacheKey, null).catch(() => {});
-      res.json({ ok: true, message: "Cache cleared — next GET will regenerate." });
+      res.json(await buildDailyBriefing(user, true));
     } catch (err: any) {
       serverError(res, err);
     }

@@ -2395,20 +2395,31 @@ interface QueueMetric {
 
 interface DlqItem {
   id: string;
-  queueName: string;
-  jobName: string;
-  failedReason: string;
+  queue: string;
+  name: string;
+  failedReason: string | null;
   attemptsMade: number;
-  stacktrace: string[];
-  timestamp: number;
-  processedOn: number | null;
-  finishedOn: number | null;
-  data: any;
+  failedAt: string | number | null;
 }
 
 interface QueueMetricsData {
+  status?: "ok" | "not_initialized" | "degraded";
   queues: QueueMetric[];
   usingMock: boolean;
+}
+
+interface QueueHistoryResponse {
+  status: "ok" | "not_initialized";
+  resultScope: "fixed_24_hour_memory";
+  history: Record<string, Array<{ label: string; completed: number; failed: number }>>;
+}
+
+interface DlqResponse {
+  status: "ok" | "not_initialized" | "degraded";
+  items: DlqItem[];
+  resultScope: "sampled_per_queue";
+  complete: boolean;
+  queueStatus: Array<{ source: string; status: string; sampleLimitPerQueue?: number }>;
 }
 
 function formatRepeatInterval(ms: number): string {
@@ -2427,17 +2438,17 @@ function QueueMetricsPanel() {
   const { toast } = useToast();
   const [selectedQueue, setSelectedQueue] = useState<string | null>(null);
 
-  const { data: metrics, isLoading: metricsLoading, refetch: refetchMetrics } = useQuery<QueueMetricsData>({
+  const { data: metrics, isLoading: metricsLoading, isError: metricsError, refetch: refetchMetrics } = useQuery<QueueMetricsData>({
     queryKey: ["/api/operator/queue-metrics"],
     refetchInterval: 15000,
   });
 
-  const { data: historyData } = useQuery<Record<string, Array<{ label: string; completed: number; failed: number }>>>({
+  const { data: historyData } = useQuery<QueueHistoryResponse>({
     queryKey: ["/api/operator/queue-history"],
     refetchInterval: 60000,
   });
 
-  const { data: dlqItems, isLoading: dlqLoading, refetch: refetchDlq } = useQuery<DlqItem[]>({
+  const { data: dlqData, isLoading: dlqLoading, isError: dlqError, refetch: refetchDlq } = useQuery<DlqResponse>({
     queryKey: ["/api/operator/queue-dlq"],
     refetchInterval: 30000,
   });
@@ -2492,7 +2503,9 @@ function QueueMetricsPanel() {
   });
 
   const queueList = Array.isArray(metrics?.queues) ? metrics.queues : [];
-  const dlqList = Array.isArray(dlqItems) ? dlqItems : [];
+  const dlqList = Array.isArray(dlqData?.items) ? dlqData.items : [];
+  const queueUnavailable = metricsError || metrics?.status === "not_initialized" || metrics?.status === "degraded";
+  const dlqUnavailable = dlqError || dlqData?.status === "not_initialized" || dlqData?.status === "degraded";
   const totalActive = queueList.reduce((s, q) => s + q.active, 0);
   const totalWaiting = queueList.reduce((s, q) => s + q.waiting, 0);
   const totalFailed = queueList.reduce((s, q) => s + q.failed, 0);
@@ -2503,6 +2516,12 @@ function QueueMetricsPanel() {
         <div className="flex items-center gap-2 p-3 bg-yellow-50 dark:bg-yellow-950/30 border border-yellow-200 dark:border-yellow-800 rounded-md text-sm text-yellow-800 dark:text-yellow-300" data-testid="banner-mock-redis">
           <AlertTriangle className="w-4 h-4 shrink-0" />
           <span>Running in dev mode with in-memory queue (no Redis). Set <code className="font-mono bg-yellow-100 dark:bg-yellow-900 px-1 rounded">REDIS_URL</code> for production durability.</span>
+        </div>
+      )}
+      {queueUnavailable && (
+        <div className="flex items-center gap-2 p-3 border border-amber-300 rounded-md text-sm text-amber-800 dark:text-amber-300" data-testid="queue-unavailable-state">
+          <AlertTriangle className="w-4 h-4 shrink-0" />
+          Queue metrics are unavailable because the queue service is not initialized. No worker was started by this read.
         </div>
       )}
 
@@ -2548,6 +2567,8 @@ function QueueMetricsPanel() {
         <CardContent className="p-0">
           {metricsLoading ? (
             <div className="flex justify-center py-8"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
+          ) : queueUnavailable ? (
+            <div className="px-4 py-8 text-sm text-muted-foreground">Queue state is unavailable; no health conclusion can be drawn.</div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -2609,7 +2630,7 @@ function QueueMetricsPanel() {
         </CardContent>
       </Card>
 
-      {selectedQueue && historyData && historyData[selectedQueue] && (
+      {selectedQueue && historyData?.status === "ok" && historyData.history[selectedQueue] && (
         <Card data-testid={`card-queue-history-${selectedQueue}`}>
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
@@ -2621,7 +2642,7 @@ function QueueMetricsPanel() {
           </CardHeader>
           <CardContent className="pb-4">
             <ResponsiveContainer width="100%" height={160}>
-              <BarChart data={historyData[selectedQueue]} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
+              <BarChart data={historyData.history[selectedQueue]} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
                 <XAxis dataKey="label" tick={{ fontSize: 10 }} interval={3} />
                 <YAxis tick={{ fontSize: 10 }} allowDecimals={false} width={28} />
@@ -2652,27 +2673,30 @@ function QueueMetricsPanel() {
         <CardContent>
           {dlqLoading ? (
             <div className="flex justify-center py-8"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
+          ) : dlqUnavailable ? (
+            <div className="flex flex-col items-center justify-center py-10 gap-2 text-muted-foreground" data-testid="dlq-unavailable-state">
+              <AlertTriangle className="w-8 h-8 text-amber-500" />
+              <p className="text-sm">DLQ status is unavailable; this is not a confirmed empty queue.</p>
+            </div>
           ) : dlqList.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-10 gap-2 text-muted-foreground" data-testid="no-dlq-message">
               <CheckCircle2 className="w-8 h-8 text-green-500" />
-              <p className="text-sm">No dead-letter jobs — all queues healthy</p>
+              <p className="text-sm">No failed jobs in the sampled DLQ window</p>
             </div>
           ) : (
             <div className="space-y-3">
+              <p className="text-xs text-muted-foreground">This is a per-queue sample, not a complete global DLQ list.</p>
               {dlqList.map(item => (
                 <Card key={item.id} className="border-red-200 dark:border-red-900" data-testid={`dlq-item-${item.id}`}>
                   <CardContent className="p-4">
                     <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
                       <div className="space-y-1 flex-1">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <Badge variant="outline" className="font-mono text-xs">{item.queueName}</Badge>
+                          <Badge variant="outline" className="font-mono text-xs">{item.queue}</Badge>
                           <Badge variant="destructive" className="text-xs">{item.attemptsMade} attempts</Badge>
-                          <span className="text-xs text-muted-foreground">{new Date(item.timestamp).toLocaleString()}</span>
+                          {item.failedAt && <span className="text-xs text-muted-foreground">{new Date(item.failedAt).toLocaleString()}</span>}
                         </div>
                         <p className="text-sm font-medium text-red-700 dark:text-red-400">{item.failedReason}</p>
-                        {Array.isArray(item.stacktrace) && item.stacktrace[0] && (
-                          <p className="text-xs font-mono text-muted-foreground truncate max-w-lg">{item.stacktrace[0]}</p>
-                        )}
                       </div>
                       <div className="flex gap-2 shrink-0">
                         <Button size="sm" variant="outline" onClick={() => retryMutation.mutate(item.id)} disabled={retryMutation.isPending} data-testid={`btn-retry-dlq-${item.id}`}>
@@ -3897,7 +3921,7 @@ function CommandCenter({ onNavigate }: { onNavigate: (v: string) => void }) {
     retry: false,
   });
 
-  const dlq = useQuery<DlqItem[]>({
+  const dlq = useQuery<DlqResponse>({
     queryKey: ["/api/operator/queue-dlq"],
     refetchInterval: 30000,
     retry: false,
@@ -3938,7 +3962,7 @@ function CommandCenter({ onNavigate }: { onNavigate: (v: string) => void }) {
   });
 
   // Safe, array-guarded query data (never trust query data shape at runtime)
-  const dlqList = Array.isArray(dlq.data) ? dlq.data : [];
+  const dlqList = Array.isArray(dlq.data?.items) ? dlq.data.items : [];
   const queueList = Array.isArray(queue.data?.queues) ? queue.data.queues : [];
   const readinessChecks = Array.isArray(readiness.data?.checks) ? readiness.data.checks : [];
   const senderUtilization = Array.isArray(sdr.data?.senderUtilization) ? sdr.data.senderUtilization : [];
@@ -3948,6 +3972,7 @@ function CommandCenter({ onNavigate }: { onNavigate: (v: string) => void }) {
 
   // Derived metrics
   const dlqCount = dlqList.length;
+  const dlqTruthUnknown = dlq.isError || dlq.data?.status !== "ok" || dlq.data?.complete !== true;
   const totalFailed = queueList.reduce((s, q) => s + (q.failed || 0), 0);
   const anyPaused = queueList.some((q) => q.paused);
   const failedChecks = readinessChecks.filter((c) => !c.ok);
@@ -3979,6 +4004,8 @@ function CommandCenter({ onNavigate }: { onNavigate: (v: string) => void }) {
     ? "loading"
     : queue.isError
       ? "error"
+      : dlqTruthUnknown
+        ? "warn"
       : dlqCount > 0
         ? "error"
         : anyPaused || totalFailed > 0
@@ -4021,6 +4048,8 @@ function CommandCenter({ onNavigate }: { onNavigate: (v: string) => void }) {
     attention.push({ severity: "critical", message: "GHL circuit breaker is OPEN — sync is paused", view: "ghl-connection" });
   if (dlqCount > 0)
     attention.push({ severity: "critical", message: `${dlqCount} job${dlqCount === 1 ? "" : "s"} in the dead-letter queue`, view: "queue-metrics" });
+  if (dlqTruthUnknown)
+    attention.push({ severity: "warn", message: "DLQ state is unavailable or sampled; no healthy-empty conclusion can be drawn", view: "queue-metrics" });
   if (sendersOver.length > 0)
     attention.push({ severity: "warn", message: `${sendersOver.length} sending identit${sendersOver.length === 1 ? "y" : "ies"} over capacity or inactive`, view: "sdr" });
   if (totalBlocked > 50)
@@ -4058,8 +4087,8 @@ function CommandCenter({ onNavigate }: { onNavigate: (v: string) => void }) {
         <StatusTile
           title="Jobs & Queue"
           status={queueStatus}
-          value={queue.isError ? "Error" : dlqCount > 0 ? `${dlqCount} dead` : "Healthy"}
-          detail={queue.isError ? "Failed to load queue metrics" : `${totalFailed} failed · ${queueList.length} queues${queue.data?.usingMock ? " · mock" : ""}`}
+          value={queue.isError ? "Error" : dlqTruthUnknown ? "Unknown" : dlqCount > 0 ? `${dlqCount} sampled` : "Healthy"}
+          detail={queue.isError ? "Failed to load queue metrics" : dlqTruthUnknown ? "DLQ data is unavailable or incomplete" : `${totalFailed} failed · ${queueList.length} queues${queue.data?.usingMock ? " · mock" : ""}`}
           icon={Server}
           onClick={() => onNavigate("queue-metrics")}
           testId="tile-queue"

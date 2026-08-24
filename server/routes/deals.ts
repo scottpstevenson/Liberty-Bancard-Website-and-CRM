@@ -25,6 +25,7 @@ import { updateCustomFields } from "../services/sdr/ghl-client";
 import { serverError } from "../utils/server-error";
 import { GO_LIVE_GATE_STAGES, checkGoLiveReadiness, GoLiveGateError } from "../services/go-live-gate";
 import { requireGhlRouteMutationAllowed } from "./ghl-mutation-pause";
+import { agentOwnershipEmail, authorizeDealAccess, denyCrmObject, invalidPagination, parseStrictPagination } from "../services/crm-object-access";
 
 export function registerDealsRoutes(app: Express) {
   // === DEALS ===
@@ -48,11 +49,13 @@ export function registerDealsRoutes(app: Express) {
   app.get("/api/deals", isDashboardUser, async (req, res) => {
     try {
       const pipeline = req.query.pipeline as string | undefined;
-      const limit = req.query.limit ? Number(req.query.limit) : undefined;
-      const offset = req.query.offset ? Number(req.query.offset) : undefined;
+      const pagination = parseStrictPagination(req.query as Record<string, unknown>, { defaultLimit: 100, maxLimit: 500 });
+      if ("error" in pagination) return invalidPagination(res);
+      const { limit, offset } = pagination;
+      const ownerEmail = agentOwnershipEmail(req.user as any);
       const result = pipeline
-        ? await storage.getDealsByPipeline(pipeline, { limit, offset })
-        : await storage.getDeals({ limit, offset });
+        ? await storage.getDealsByPipeline(pipeline, { limit, offset, ownerEmail } as any)
+        : await storage.getDeals({ limit, offset, ownerEmail });
       res.json(result);
     } catch (err: any) {
       serverError(res, err);
@@ -92,15 +95,8 @@ export function registerDealsRoutes(app: Express) {
 
   app.get("/api/deals/:id", isDashboardUser, async (req, res) => {
     try {
-      const deal = await storage.getDeal(Number(req.params.id));
-      if (!deal || deal.archivedAt) return res.status(404).json({ message: "Not found" });
-      // Agent-scope ownership guard: agents may only view their own deals.
-      // Admin/manager retain full access; unassigned deals are visible to all.
-      const role = (req.user as any)?.role;
-      const userEmail = (req.user as any)?.email;
-      if (role === "agent" && deal.owner && deal.owner !== userEmail) {
-        return res.status(403).json({ message: "Forbidden", code: "NOT_YOUR_DEAL" });
-      }
+      const deal = await authorizeDealAccess(req, res, Number(req.params.id));
+      if (!deal) return;
       res.json(deal);
     } catch (err: any) {
       serverError(res, err);
@@ -111,16 +107,8 @@ export function registerDealsRoutes(app: Express) {
     try {
       const dealId = Number(req.params.id);
       const userId = (req.user as any)?.id ?? null;
-      const old = await storage.getDeal(dealId);
-      if (!old || old.archivedAt) return res.status(404).json({ message: "Not found" });
-
-      // Agent-scope ownership guard on write path (mirrors GET guard).
-      // Agents may only modify deals they own; unassigned deals are open to all.
-      const _role = (req.user as any)?.role;
-      const _email = (req.user as any)?.email;
-      if (_role === "agent" && old.owner && old.owner !== _email) {
-        return res.status(403).json({ message: "Forbidden", code: "NOT_YOUR_DEAL" });
-      }
+      const old = await authorizeDealAccess(req, res, dealId);
+      if (!old) return;
 
       // Split stage from the rest so stage transitions always go through the service layer,
       // which guarantees GHL sync + Closed Won onboarding kickoff for every code path.
@@ -524,7 +512,9 @@ export function registerDealsRoutes(app: Express) {
 
   app.get("/api/deal-competitors/deal/:dealId", isDashboardUser, async (req, res) => {
     try {
-      const competitors = await storage.getDealCompetitorsByDeal(Number(req.params.dealId));
+      const dealId = Number(req.params.dealId);
+      if (!await authorizeDealAccess(req, res, dealId)) return;
+      const competitors = await storage.getDealCompetitorsByDeal(dealId);
       res.json(competitors);
     } catch (err: any) {
       serverError(res, err);
@@ -534,6 +524,8 @@ export function registerDealsRoutes(app: Express) {
   app.post("/api/deal-competitors", isDashboardUser, async (req, res) => {
     try {
       const input = insertDealCompetitorSchema.parse(req.body);
+      if (!input.dealId) return denyCrmObject(res);
+      if (!await authorizeDealAccess(req, res, input.dealId)) return;
       const competitor = await storage.createDealCompetitor(input);
       res.status(201).json(competitor);
     } catch (err: any) {
@@ -544,6 +536,8 @@ export function registerDealsRoutes(app: Express) {
 
   app.patch("/api/deal-competitors/:id", isDashboardUser, async (req, res) => {
     try {
+      const competitor = await storage.getDealCompetitor(Number(req.params.id));
+      if (!competitor?.dealId || !await authorizeDealAccess(req, res, competitor.dealId)) return;
       const updated = await storage.updateDealCompetitor(Number(req.params.id), req.body);
       if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);

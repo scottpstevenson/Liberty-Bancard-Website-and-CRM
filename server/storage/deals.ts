@@ -101,11 +101,12 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
   import { type PaginationParams, type PaginatedResult, normalizePagination } from "./_shared";
 
   export class DealsStorage {
-    async getDeals(params?: PaginationParams & { recordClass?: "production" }) {
+    async getDeals(params?: PaginationParams & { ownerEmail?: string; recordClass?: "production" }) {
     const { limit, offset } = normalizePagination(params);
+    const ownership = params?.ownerEmail ? or(eq(deals.owner, params.ownerEmail), isNull(deals.owner)) : undefined;
     const whereClause = params?.recordClass === "production"
-      ? and(isNull(deals.archivedAt), eq(deals.recordClass, "production"))
-      : isNull(deals.archivedAt);
+      ? and(isNull(deals.archivedAt), eq(deals.recordClass, "production"), ownership)
+      : and(isNull(deals.archivedAt), ownership);
     const [totalResult] = await db.select({ count: count() }).from(deals).where(whereClause);
     const rows = await db
       .select({
@@ -171,9 +172,11 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
   }
 
 
-  async getDealsByPipeline(pipeline: string, params?: PaginationParams) {
+  async getDealsByPipeline(pipeline: string, params?: PaginationParams & { ownerEmail?: string }) {
     const { limit, offset } = normalizePagination(params);
-    const [totalResult] = await db.select({ count: count() }).from(deals).where(and(eq(deals.pipeline, pipeline), isNull(deals.archivedAt)));
+    const ownership = params?.ownerEmail ? or(eq(deals.owner, params.ownerEmail), isNull(deals.owner)) : undefined;
+    const whereClause = and(eq(deals.pipeline, pipeline), isNull(deals.archivedAt), ownership);
+    const [totalResult] = await db.select({ count: count() }).from(deals).where(whereClause);
     const rows = await db
       .select({
         deal: deals,
@@ -187,7 +190,7 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
       })
       .from(deals)
       .leftJoin(contacts, eq(deals.contactId, contacts.id))
-      .where(and(eq(deals.pipeline, pipeline), isNull(deals.archivedAt)))
+      .where(whereClause)
       .orderBy(desc(deals.createdAt))
       .limit(limit)
       .offset(offset);

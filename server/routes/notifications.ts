@@ -7,6 +7,7 @@ import { isSmtpConfigured } from "../services/smtp-email";
 import { getQueueManager, QUEUE_NAMES } from "../services/queue-manager";
 import type { InsertNotificationPreference } from "@shared/schema";
 import { serverError } from "../utils/server-error";
+import { authorizeContactAccess, authorizeDealAccess } from "../services/crm-object-access";
 
 async function computeDigestHealth() {
   const ghlConfigured = isGhlConfigured();
@@ -197,6 +198,8 @@ export function registerNotificationsRoutes(app: Express) {
       }
       const limit = req.query.limit ? Number(req.query.limit) : 50;
       const resolvedId = /^\d+$/.test(entityId) ? Number(entityId) : entityId;
+      if (entityType === "contact" && !await authorizeContactAccess(req, res, Number(resolvedId))) return;
+      if (entityType === "deal" && !await authorizeDealAccess(req, res, Number(resolvedId))) return;
       const logs = await storage.getAuditLogsByEntity(entityType, resolvedId, limit);
       res.json(logs);
     } catch (err: any) {

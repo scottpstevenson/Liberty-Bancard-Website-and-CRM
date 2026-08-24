@@ -36,7 +36,6 @@ interface DlqItem {
   failedReason: string;
   attemptsMade: number;
   timestamp: number;
-  data: Record<string, unknown>;
 }
 
 interface GhlFailure {
@@ -50,6 +49,9 @@ interface GhlFailure {
 interface IncidentsData {
   dlqItems: DlqItem[];
   dlqCount: number;
+  dlqStatus: "ok" | "not_initialized" | "degraded";
+  dlqResultScope: "sampled_per_queue";
+  dlqComplete: false;
   ghlFailures: GhlFailure[];
   ghlFailureCount: number;
   queueSummary: {
@@ -118,7 +120,7 @@ function DlqPanel({ items }: { items: DlqItem[] }) {
   if (items.length === 0) {
     return (
       <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground justify-center">
-        <CheckCircle2 className="w-4 h-4 text-green-500" /> No dead-letter jobs — all queues clean.
+          <CheckCircle2 className="w-4 h-4 text-green-500" /> No dead-letter jobs in the sampled queue window.
       </div>
     );
   }
@@ -254,7 +256,7 @@ function DlqPanel({ items }: { items: DlqItem[] }) {
           </div>
           <CollapsibleContent>
             <div className="mt-1 p-3 bg-muted rounded-lg text-xs font-mono overflow-auto max-h-40">
-              <pre>{JSON.stringify(item.data, null, 2)}</pre>
+              <pre>Failure details are redacted. Retry or discard this sampled job from its queue.</pre>
             </div>
           </CollapsibleContent>
         </Collapsible>
@@ -425,7 +427,16 @@ export default function IncidentsDashboard() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <DlqPanel items={data.dlqItems} />
+          {data.dlqStatus !== "ok" ? (
+            <div className="flex items-center gap-2 py-6 text-sm text-amber-700 dark:text-amber-300" data-testid="incident-dlq-unavailable">
+              <AlertTriangle className="w-4 h-4" /> DLQ state is unavailable; this is not a confirmed empty queue.
+            </div>
+          ) : (
+            <>
+              <p className="mb-3 text-xs text-muted-foreground">Results are sampled per queue and cannot establish a complete global DLQ total.</p>
+              <DlqPanel items={data.dlqItems} />
+            </>
+          )}
         </CardContent>
       </Card>
 

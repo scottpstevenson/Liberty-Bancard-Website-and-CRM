@@ -10,6 +10,7 @@ import { getDefaultProcessor } from "../services/processors/registry";
 import { upload } from "./helpers";
 import path from "path";
 import fs from "fs";
+import { authorizeContactAccess, authorizeDealAccess } from "../services/crm-object-access";
 
 const ALLOWED_EVIDENCE_MIME_TYPES = new Set([
   "application/pdf",
@@ -21,11 +22,19 @@ const ALLOWED_EVIDENCE_MIME_TYPES = new Set([
 ]);
 const MAX_EVIDENCE_FILES = 5;
 
+async function authorizeChargebackTarget(req: any, res: any, chargeback: any) {
+  if (!chargeback) return false;
+  if (chargeback.contactId && !await authorizeContactAccess(req, res, chargeback.contactId)) return false;
+  if (chargeback.dealId && !await authorizeDealAccess(req, res, chargeback.dealId)) return false;
+  return true;
+}
+
 export function registerChargebacksRoutes(app: Express) {
   app.get("/api/chargebacks", isDashboardUser, async (req, res) => {
     try {
       const status = req.query.status as string | undefined;
       const contactId = req.query.contactId ? Number(req.query.contactId) : undefined;
+      if (contactId && !await authorizeContactAccess(req, res, contactId)) return;
       const cardBrand = req.query.cardBrand as string | undefined;
       const overdueOnly = req.query.overdueOnly === "true";
       const chargebackList = await storage.getChargebacks({ status, contactId, cardBrand, overdueOnly: overdueOnly || undefined });
@@ -55,7 +64,9 @@ export function registerChargebacksRoutes(app: Express) {
 
   app.get("/api/chargebacks/contact/:contactId", isDashboardUser, async (req, res) => {
     try {
-      const list = await storage.getChargebacksByContact(Number(req.params.contactId));
+      const contactId = Number(req.params.contactId);
+      if (!await authorizeContactAccess(req, res, contactId)) return;
+      const list = await storage.getChargebacksByContact(contactId);
       res.json(list);
     } catch (err: any) {
       serverError(res, err);
@@ -64,7 +75,9 @@ export function registerChargebacksRoutes(app: Express) {
 
   app.get("/api/chargebacks/deal/:dealId", isDashboardUser, async (req, res) => {
     try {
-      const list = await storage.getChargebacksByDeal(Number(req.params.dealId));
+      const dealId = Number(req.params.dealId);
+      if (!await authorizeDealAccess(req, res, dealId)) return;
+      const list = await storage.getChargebacksByDeal(dealId);
       res.json(list);
     } catch (err: any) {
       serverError(res, err);
@@ -75,6 +88,7 @@ export function registerChargebacksRoutes(app: Express) {
     try {
       const cb = await storage.getChargeback(Number(req.params.id));
       if (!cb) return res.status(404).json({ message: "Not found" });
+      if (!await authorizeChargebackTarget(req, res, cb)) return;
       res.json(cb);
     } catch (err: any) {
       serverError(res, err);
@@ -100,6 +114,8 @@ export function registerChargebacksRoutes(app: Express) {
       }
 
       const input = insertChargebackSchema.parse(body);
+      if (input.contactId && !await authorizeContactAccess(req, res, input.contactId)) return;
+      if (input.dealId && !await authorizeDealAccess(req, res, input.dealId)) return;
       const cb = await storage.createChargeback(input);
 
       await storage.createAuditLog({
@@ -141,6 +157,9 @@ export function registerChargebacksRoutes(app: Express) {
   app.patch("/api/chargebacks/:id", isDashboardUser, async (req, res) => {
     try {
       const id = Number(req.params.id);
+      const existing = await storage.getChargeback(id);
+      if (!existing) return res.status(404).json({ message: "Not found" });
+      if (!await authorizeChargebackTarget(req, res, existing)) return;
       const parsed = patchChargebackSchema.parse(req.body);
       const body: Record<string, unknown> = { ...parsed };
 
@@ -195,6 +214,7 @@ export function registerChargebacksRoutes(app: Express) {
       const id = Number(req.params.id);
       const cb = await storage.getChargeback(id);
       if (!cb) return res.status(404).json({ message: "Not found" });
+      if (!await authorizeChargebackTarget(req, res, cb)) return;
       if (!cb.aiEvidencePacket) {
         return res.status(400).json({ message: "No evidence packet has been generated for this chargeback yet. Build the evidence packet first." });
       }
@@ -233,6 +253,7 @@ export function registerChargebacksRoutes(app: Express) {
       const id = Number(req.params.id);
       const cb = await storage.getChargeback(id);
       if (!cb) return res.status(404).json({ message: "Not found" });
+      if (!await authorizeChargebackTarget(req, res, cb)) return;
 
       const schema = z.object({
         name: z.string().min(1),
@@ -285,6 +306,7 @@ export function registerChargebacksRoutes(app: Express) {
       const id = Number(req.params.id);
       const cb = await storage.getChargeback(id);
       if (!cb) return res.status(404).json({ message: "Not found" });
+      if (!await authorizeChargebackTarget(req, res, cb)) return;
 
       if (!req.file) return res.status(400).json({ message: "No file uploaded" });
 
@@ -349,6 +371,7 @@ export function registerChargebacksRoutes(app: Express) {
 
       const cb = await storage.getChargeback(id);
       if (!cb) return res.status(404).json({ message: "Not found" });
+      if (!await authorizeChargebackTarget(req, res, cb)) return;
 
       // Confirm the requested key is stored on THIS chargeback (prevents cross-chargeback access)
       const evidenceFiles = (cb.evidenceFiles as any[]) || [];
@@ -383,6 +406,7 @@ export function registerChargebacksRoutes(app: Express) {
       const id = Number(req.params.id);
       const cb = await storage.getChargeback(id);
       if (!cb) return res.status(404).json({ message: "Chargeback not found" });
+      if (!await authorizeChargebackTarget(req, res, cb)) return;
 
       const schema = z.object({
         mid:          z.string().min(1, "MID is required"),

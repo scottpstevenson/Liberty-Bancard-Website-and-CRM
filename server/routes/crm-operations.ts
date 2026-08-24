@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { isAuthenticated, isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { z } from "zod";
-import { contacts, insertContactCompanySchema } from "@shared/schema";
+import { contacts, contactCompanies, insertContactCompanySchema } from "@shared/schema";
 import { and } from "drizzle-orm";
 import { parse } from "csv-parse/sync";
 import { isGhlConfigured, upsertGhlContact } from "../services/ghl";
@@ -12,14 +12,18 @@ import { propagateContactDeleteToGhl, propagateDealDeleteToGhl, propagateTaskDel
 import { serverError } from "../utils/server-error";
 import { advanceDealStage } from "../services/deal-stage-service";
 import { GoLiveGateError } from "../services/go-live-gate";
+import { authorizeContactAccess } from "../services/crm-object-access";
+import { db } from "../db";
+import { tickets, tasks } from "@shared/schema";
+import { eq } from "drizzle-orm";
 
 export function registerCrmOperationsRoutes(app: Express) {
   // === CONTACT DETAIL AGGREGATE ===
   app.get("/api/contacts/:id/detail", isDashboardUser, async (req, res) => {
     try {
       const contactId = Number(req.params.id);
-      const contact = await storage.getContact(contactId);
-      if (!contact) return res.status(404).json({ message: "Not found" });
+      const contact = await authorizeContactAccess(req, res, contactId);
+      if (!contact) return;
 
       if (!contact.ghlContactId && isGhlConfigured()) {
         syncContactToGhl(contactId).then(result => {
@@ -31,17 +35,13 @@ export function registerCrmOperationsRoutes(app: Express) {
         });
       }
       
-      const [dealsResult, ticketsResult, allTasks, contactNotes] = await Promise.all([
-        storage.getDeals({ limit: 500 }),
-        storage.getTickets({ limit: 500 }),
-        storage.getTasks(),
+      const [contactDeals, contactTickets, contactTasks, contactNotes] = await Promise.all([
+        storage.getDealsByContact(contactId),
+        db.select().from(tickets).where(eq(tickets.contactId, contactId)),
+        db.select().from(tasks).where(eq(tasks.contactId, contactId)),
         storage.getNotes("contact", contactId),
       ]);
-      
-      const contactDeals = dealsResult.data.filter(d => d.contactId === contactId);
-      const contactTickets = ticketsResult.data.filter(t => t.contactId === contactId);
-      const contactTasks = allTasks.filter((t: any) => t.contactId === contactId);
-      
+
       res.json({ contact, deals: contactDeals, tickets: contactTickets, tasks: contactTasks, notes: contactNotes });
     } catch (err: any) {
       serverError(res, err);
@@ -143,7 +143,10 @@ export function registerCrmOperationsRoutes(app: Express) {
 
   app.delete("/api/contact-companies/:id", isDashboardUser, async (req, res) => {
     try {
-      await storage.removeContactCompany(Number(req.params.id));
+      const associationId = Number(req.params.id);
+      const [association] = await db.select().from(contactCompanies).where(eq(contactCompanies.id, associationId));
+      if (!association?.contactId || !await authorizeContactAccess(req, res, association.contactId)) return;
+      await storage.removeContactCompany(associationId);
       res.json({ success: true });
     } catch (err: any) {
       console.error("Remove contact company error:", err.message);

@@ -14,6 +14,7 @@ import {
 import path from "path";
 import fs from "fs";
 import { serverError } from "../utils/server-error";
+import { authorizeContactAccess, authorizeDealAccess } from "../services/crm-object-access";
 
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -320,6 +321,7 @@ export function registerRateReviewRoutes(app: Express) {
   app.get("/api/rate-reviews/contact/:contactId", isDashboardUser, async (req, res) => {
     try {
       const contactId = Number(req.params.contactId);
+      if (!await authorizeContactAccess(req, res, contactId)) return;
       const reviews = await storage.getRateReviewRequestsByContact(contactId);
 
       const enriched = await Promise.all(
@@ -341,6 +343,7 @@ export function registerRateReviewRoutes(app: Express) {
       const id = Number(req.params.id);
       const review = await storage.getRateReviewRequest(id);
       if (!review) return res.status(404).json({ message: "Rate review not found" });
+      if (!review.contactId || !await authorizeContactAccess(req, res, review.contactId)) return;
 
       if (!review.repViewedAt) {
         const updated = await storage.updateRateReviewRequest(id, {
@@ -370,6 +373,7 @@ export function registerRateReviewRoutes(app: Express) {
       const id = Number(req.params.id);
       const review = await storage.getRateReviewRequest(id);
       if (!review) return res.status(404).json({ message: "Rate review not found" });
+      if (!review.contactId || !await authorizeContactAccess(req, res, review.contactId)) return;
 
       const user = req.user as any;
       const updates: Record<string, any> = {};
@@ -406,13 +410,14 @@ export function registerRateReviewRoutes(app: Express) {
       const id = Number(req.params.id);
       const review = await storage.getRateReviewRequest(id);
       if (!review) return res.status(404).json({ message: "Rate review not found" });
+      if (!review.contactId || !await authorizeContactAccess(req, res, review.contactId)) return;
 
       if (!review.dealId) {
         return res.status(400).json({ message: "No deal associated with this rate review. Create or link a deal first." });
       }
 
-      const deal = await storage.getDeal(review.dealId);
-      if (!deal) return res.status(404).json({ message: "Associated deal not found" });
+      const deal = await authorizeDealAccess(req, res, review.dealId);
+      if (!deal) return;
 
       const contact = review.contactId ? await storage.getContact(review.contactId) : null;
 

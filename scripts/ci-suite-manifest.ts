@@ -297,8 +297,13 @@ export const SUITE_MANIFEST: SuiteManifestEntry[] = [
     capability: "deterministic-integration",
     providerDenial: "no provider calls (DB read-only preview logic)",
   },
-
   // ── server-required (live server + DB; hard-fails if server absent) ──────
+  {
+    name: "CRM Operator Experience",
+    script: "scripts/test-crm-operator-experience.ts",
+    capability: "server-required",
+    providerDenial: "no provider calls (two-agent ownership fixture and response-contract regression scan)",
+  },
   {
     name: "Sequence Compliance",
     script: "scripts/test-sequence-compliance.ts",

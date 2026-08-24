@@ -15,6 +15,8 @@ import { sql } from "drizzle-orm";
 import { classifyIntent, mapIntentToAction } from "../services/sdr/reply-intelligence";
 import { resolvePolicy } from "../services/sender-policy";
 import { serverError, safeMessage } from "../utils/server-error";
+import { authorizeContactAccess, authorizeInboxItemAccess } from "../services/crm-object-access";
+import { rememberInboxItemResolutions } from "../services/inbox-item-resolution";
 import { applyConsentCommand } from "../services/consent-authority";
 
 const GHL_API_BASE = "https://services.leadconnectorhq.com";
@@ -186,11 +188,31 @@ export function registerInboxRoutes(app: Express) {
   // ─── GET /api/inbox/items — unified inbound feed ───────────────────────────
   app.get("/api/inbox/items", isDashboardUser, async (req, res) => {
     try {
-      const limit = Math.min(Number(req.query.limit) || 50, 200);
+      const rawLimit = req.query.limit ?? "50";
+      if (typeof rawLimit !== "string" || !/^\d+$/.test(rawLimit) || Number(rawLimit) < 1 || Number(rawLimit) > 200) {
+        return res.status(400).json({ code: "INVALID_INBOX_QUERY", reason: "limit" });
+      }
+      const limit = Number(rawLimit);
       const channel = (req.query.channel as string) || "all";
       const filter = (req.query.filter as string) || "all"; // "all" | "unread" | "needs_reply"
-      const cursor = req.query.cursor as string | undefined; // ISO date string for pagination
+      if (!["all", "email", "sms", "ghl_chat", "voicemail", "site"].includes(channel)) {
+        return res.status(400).json({ code: "INVALID_INBOX_QUERY", reason: "channel" });
+      }
+      if (!["all", "unread", "needs_reply"].includes(filter)) {
+        return res.status(400).json({ code: "INVALID_INBOX_QUERY", reason: "filter" });
+      }
+      const cursor = req.query.cursor as string | undefined;
+      let cursorTuple: { timestamp: string; id: string } | null = null;
+      if (cursor) {
+        try {
+          cursorTuple = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"));
+          if (!cursorTuple?.timestamp || !cursorTuple.id || Number.isNaN(new Date(cursorTuple.timestamp).getTime())) throw new Error("invalid");
+        } catch {
+          return res.status(400).json({ code: "INVALID_INBOX_QUERY", reason: "cursor" });
+        }
+      }
       const items: InboxItem[] = [];
+      const sources: Array<{ source: string; status: "ok" | "failed" | "not_configured"; fetched: number; truncated: boolean; errorCode?: string }> = [];
 
       // 1. Inbound email events from audit_logs
       if (channel === "all" || channel === "email")
@@ -238,8 +260,10 @@ export function registerInboxRoutes(app: Express) {
             isRead: !!details.isRead,
           });
         }
-      } catch (emailErr: any) {
+         sources.push({ source: "email_audit", status: "ok", fetched: items.filter(i => i.channel === "email").length, truncated: true });
+       } catch (emailErr: any) {
         console.warn("[Inbox] Email audit_logs query failed:", emailErr.message);
+         sources.push({ source: "email_audit", status: "failed", fetched: 0, truncated: true, errorCode: "QUERY_FAILED" });
       }
 
       // 2. Inbound SMS/GHL conversation messages
@@ -292,8 +316,10 @@ export function registerInboxRoutes(app: Express) {
               });
             }
           }
+          sources.push({ source: "ghl_sms", status: "ok", fetched: items.filter(i => i.channel === "sms").length, truncated: true });
         } catch (smsErr: any) {
           console.warn("[Inbox] GHL SMS fetch failed:", smsErr.message);
+          sources.push({ source: "ghl_sms", status: "failed", fetched: 0, truncated: true, errorCode: "PROVIDER_FAILED" });
         }
 
         // 3. GHL chat/email conversation messages
@@ -341,8 +367,10 @@ export function registerInboxRoutes(app: Express) {
                 ghlConversationId: c.id,
               });
             }
+            sources.push({ source: "ghl_chat", status: "ok", fetched: items.filter(i => i.channel === "ghl_chat").length, truncated: true });
           } catch (chatErr: any) {
             console.warn("[Inbox] GHL chat fetch failed:", chatErr.message);
+            sources.push({ source: "ghl_chat", status: "failed", fetched: 0, truncated: true, errorCode: "PROVIDER_FAILED" });
           }
         }
 
@@ -393,8 +421,10 @@ export function registerInboxRoutes(app: Express) {
                 transcript: c.transcriptText || null,
               });
             }
+            sources.push({ source: "ghl_voicemail", status: "ok", fetched: items.filter(i => i.channel === "voicemail").length, truncated: true });
           } catch (vmErr: any) {
             console.warn("[Inbox] GHL voicemail fetch failed:", vmErr.message);
+            sources.push({ source: "ghl_voicemail", status: "failed", fetched: 0, truncated: true, errorCode: "PROVIDER_FAILED" });
           }
         }
       }
@@ -424,17 +454,47 @@ export function registerInboxRoutes(app: Express) {
               liveChatStatus: chat.status,
             });
           }
+          sources.push({ source: "live_chat", status: "ok", fetched: items.filter(i => i.channel === "site").length, truncated: true });
         } catch (lcErr: any) {
           console.warn("[Inbox] Live chat fetch failed:", (lcErr as any).message);
+          sources.push({ source: "live_chat", status: "failed", fetched: 0, truncated: true, errorCode: "QUERY_FAILED" });
         }
+      }
+      if (!config) {
+        sources.push({ source: "ghl_sms", status: "not_configured", fetched: 0, truncated: true });
+        sources.push({ source: "ghl_chat", status: "not_configured", fetched: 0, truncated: true });
+        sources.push({ source: "ghl_voicemail", status: "not_configured", fetched: 0, truncated: true });
+      }
+      rememberInboxItemResolutions(items
+        .filter((item) => item.contactId !== null)
+        .map((item) => ({
+          sourceItemId: item.id,
+          contactId: item.contactId!,
+          channel: item.channel,
+          providerConversationId: item.ghlConversationId || undefined,
+        })));
+
+      // Agents only see records with a locally mapped owned/unassigned contact.
+      // Unmapped provider conversations intentionally remain invisible.
+      if ((req.user as any)?.role === "agent") {
+        const agentEmail = (req.user as any)?.email;
+        const visibility = await Promise.all(items.map(async (item) => {
+          if (!item.contactId) return false;
+          const contact = await storage.getContact(item.contactId);
+          return !!contact && (!contact.assignedTo || contact.assignedTo === agentEmail);
+        }));
+        for (let i = items.length - 1; i >= 0; i--) if (!visibility[i]) items.splice(i, 1);
       }
 
       // Sort by recency, apply cursor pagination
-      items.sort((a, b) => new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime());
+      items.sort((a, b) => new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime() || b.id.localeCompare(a.id));
       let cursorFiltered = items;
-      if (cursor) {
-        const cursorTime = new Date(cursor).getTime();
-        cursorFiltered = items.filter(i => new Date(i.receivedAt).getTime() < cursorTime);
+      if (cursorTuple) {
+        cursorFiltered = items.filter(i => {
+          const at = new Date(i.receivedAt).getTime();
+          const cursorAt = new Date(cursorTuple!.timestamp).getTime();
+          return at < cursorAt || (at === cursorAt && i.id < cursorTuple!.id);
+        });
       }
 
       // Apply smart filters
@@ -447,11 +507,17 @@ export function registerInboxRoutes(app: Express) {
       }
 
       const page = filtered.slice(0, limit);
-      const nextCursor = page.length === limit ? page[page.length - 1].receivedAt : null;
+      const nextCursor = page.length === limit
+        ? Buffer.from(JSON.stringify({ timestamp: page[page.length - 1].receivedAt, id: page[page.length - 1].id })).toString("base64url")
+        : null;
 
       res.json({
         items: page,
-        total: items.length,
+        knownFilteredTotal: filtered.length,
+        resultScope: "fetched_window",
+        complete: sources.every(source => source.status === "ok" && !source.truncated),
+        hasMoreKnown: page.length === limit,
+        sourceStatus: sources,
         nextCursor,
         ghlConfigured: !!config,
       });
@@ -473,13 +539,15 @@ export function registerInboxRoutes(app: Express) {
       if (!messageBody) {
         return res.status(400).json({ message: "body is required" });
       }
+      const resolved = await authorizeInboxItemAccess(req, res, String(req.params.id));
+      if (!resolved) return;
 
       // Build context
       let merchantName: string | undefined;
       let merchantVertical: string | undefined;
-      if (contactId) {
+      if (resolved.contact) {
         try {
-          const contact = await storage.getContact(contactId);
+          const contact = resolved.contact;
           if (contact) {
             merchantName = [contact.firstName, contact.lastName].filter(Boolean).join(" ") || contact.companyName || undefined;
             merchantVertical = contact.vertical || undefined;
@@ -557,14 +625,13 @@ export function registerInboxRoutes(app: Express) {
   // Partner, affiliate, and other authenticated-but-non-CRM roles are excluded.
   app.post("/api/inbox/items/:id/action", requireRole("admin", "manager", "agent"), async (req, res) => {
     try {
-      const {
+      let {
         action,
         contactId,
         channel,
         intent,
         confidence,
         replyText,
-        ghlConversationId,
         senderIdentity,
       } = req.body as {
         action: string;
@@ -573,7 +640,6 @@ export function registerInboxRoutes(app: Express) {
         intent?: string;
         confidence?: number;
         replyText?: string;
-        ghlConversationId?: string;
         senderIdentity?: { from?: string; displayName?: string };
       };
 
@@ -590,6 +656,11 @@ export function registerInboxRoutes(app: Express) {
       if (!ALLOWED_ACTIONS.includes(action)) {
         return res.status(400).json({ message: `Unknown action: ${action}` });
       }
+      const resolved = await authorizeInboxItemAccess(req, res, String(req.params.id), { exactAssignment: true });
+      if (!resolved) return;
+      // Client body identifiers are presentation data, never authorization input.
+      contactId = resolved.contact.id;
+      channel = resolved.channel || channel;
 
       const userId = (req.user as any)?.id?.toString() ?? null;
       const channelRaw = channel || "email";
@@ -716,7 +787,7 @@ export function registerInboxRoutes(app: Express) {
         // Build GHL message payload
         const msgType = channelStr === "sms" ? "SMS" : "Email";
         const ghlPayload: any = { type: msgType, message: replyText };
-        if (ghlConversationId) ghlPayload.conversationId = ghlConversationId;
+        if (resolved.providerConversationId) ghlPayload.conversationId = resolved.providerConversationId;
         if (channelStr === "email" && contactId) {
           const contact = await storage.getContact(contactId);
           if (contact?.email) {
@@ -983,6 +1054,7 @@ export function registerInboxRoutes(app: Express) {
       if (!contactId || isNaN(contactId)) {
         return res.status(400).json({ message: "Invalid contactId" });
       }
+      if (!await authorizeContactAccess(req, res, contactId)) return;
 
       const { getContactCommunicationEvents } = await import("../services/communication-events");
       const events = await getContactCommunicationEvents(contactId, 100);
@@ -1056,10 +1128,8 @@ export function registerInboxRoutes(app: Express) {
         return res.status(400).json({ message: "contactId is required" });
       }
 
-      const contact = await storage.getContact(contactId);
-      if (!contact) {
-        return res.status(404).json({ message: "Contact not found" });
-      }
+      const contact = await authorizeContactAccess(req, res, contactId, { exactAssignment: true });
+      if (!contact) return;
       if (!contact.email) {
         return res.status(400).json({ message: "Contact has no email address" });
       }

@@ -77,6 +77,7 @@ import { registerSaveCaseRoutes } from "./routes/save-cases";
 import { registerAiMemoryRoutes } from "./routes/ai-memory";
 import { registerDailyBriefingRoutes } from "./routes/daily-briefing";
 import { registerOutreachQueueRoutes } from "./routes/outreach-queue";
+import { crmObjectAccessGuard } from "./services/crm-object-access";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -106,6 +107,11 @@ export async function registerRoutes(
     if (allowed) return next();
     return res.status(403).json({ message: "Partner accounts do not have CRM access." });
   });
+
+  // Contact Detail and deal deep-link object policy. This runs after the
+  // session is restored and before any CRM handler, so a new subresource cannot
+  // accidentally become an agent IDOR route by omitting a local check.
+  app.use(crmObjectAccessGuard);
 
   registerPartnerOrgsRoutes(app);
   registerContactsRoutes(app);

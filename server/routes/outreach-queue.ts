@@ -14,6 +14,8 @@ import { eq, and, isNull, or, sql, inArray, desc, not } from "drizzle-orm";
 import { storage } from "../storage";
 import { serverError } from "../utils/server-error";
 import { getVerticalSequenceMap, getDefaultSequenceId } from "../services/new-lead-enrollment-job";
+import { readyForOutreachPredicate } from "../services/outreach-queue-membership";
+import { invalidPagination, parseStrictPagination } from "../services/crm-object-access";
 
 // ─── Score tier helper ────────────────────────────────────────────────────────
 function scoreTier(leadScore: number | null): "hot" | "warm" | "cold" | "unqualified" {
@@ -45,41 +47,25 @@ export function registerOutreachQueueRoutes(app: Express) {
       const role = user?.role as string | undefined;
       const isAdmin = role === "admin" || role === "manager";
 
-      const page  = Math.max(1,   parseInt(String(req.query.page  ?? "1"),  10));
-      const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit ?? "50"), 10)));
-      const offset = (page - 1) * limit;
+      const pagination = parseStrictPagination(req.query as Record<string, unknown>, {
+        defaultLimit: 50,
+        maxLimit: 100,
+        page: true,
+      });
+      if ("error" in pagination) return invalidPagination(res);
+      const { page, limit, offset } = pagination;
 
       const filterScore    = req.query.score    ? String(req.query.score)    : undefined;
       const filterVertical = req.query.vertical ? String(req.query.vertical) : undefined;
       const filterCity     = req.query.city     ? String(req.query.city)     : undefined;
       const filterAssigned = req.query.assignedTo ? String(req.query.assignedTo) : undefined;
 
-      const params: unknown[] = [];
-
-      const conditions: string[] = [
-        `c.archived_at IS NULL`,
-        // Has contactable data
-        `(
-          (c.phone IS NOT NULL AND TRIM(c.phone) <> '')
-          OR (c.email IS NOT NULL AND TRIM(c.email) <> '' AND COALESCE(c.email_status,'unvalidated') NOT IN ('bounced','invalid','opted_out','unsafe','unvalidated'))
-        )`,
-        // Not DNC
-        `(c.do_not_contact IS NULL OR c.do_not_contact = FALSE)`,
-        // Not already skipped
-        `c.outreach_queue_skipped_at IS NULL`,
-        // Not in an active or paused sequence enrollment
-        `NOT EXISTS (
-          SELECT 1 FROM sequence_enrollments se
-          WHERE se.contact_id = c.id
-            AND se.status IN ('active', 'paused')
-        )`,
-      ];
+      const membership = readyForOutreachPredicate({ alias: "c", ownerEmail: !isAdmin ? user?.email ?? "" : undefined });
+      const params: unknown[] = [...membership.params];
+      const conditions: string[] = [membership.where];
 
       // Role-based visibility: agents only see their own contacts
-      if (!isAdmin) {
-        params.push(user?.email ?? "");
-        conditions.push(`c.assigned_to = $${params.length}`);
-      } else if (filterAssigned) {
+      if (isAdmin && filterAssigned) {
         if (filterAssigned === "unassigned") {
           conditions.push(`c.assigned_to IS NULL`);
         } else {
@@ -192,22 +178,9 @@ export function registerOutreachQueueRoutes(app: Express) {
       const role = user?.role as string | undefined;
       const isAdmin = role === "admin" || role === "manager";
 
-      const params: unknown[] = [];
-      const conditions: string[] = [
-        `archived_at IS NULL`,
-        `(
-          (phone IS NOT NULL AND TRIM(phone) <> '')
-          OR (email IS NOT NULL AND TRIM(email) <> '' AND COALESCE(email_status,'unvalidated') NOT IN ('bounced','invalid','opted_out','unsafe','unvalidated'))
-        )`,
-        `(do_not_contact IS NULL OR do_not_contact = FALSE)`,
-        `outreach_queue_skipped_at IS NULL`,
-        `NOT EXISTS (SELECT 1 FROM sequence_enrollments se WHERE se.contact_id = contacts.id AND se.status IN ('active','paused'))`,
-      ];
-
-      if (!isAdmin) {
-        params.push(user?.email ?? "");
-        conditions.push(`assigned_to = $${params.length}`);
-      }
+      const membership = readyForOutreachPredicate({ alias: "contacts", ownerEmail: !isAdmin ? user?.email ?? "" : undefined });
+      const params: unknown[] = [...membership.params];
+      const conditions: string[] = [membership.where];
 
       const result = await pool.query(
         `SELECT COUNT(*)::int AS count FROM contacts WHERE ${conditions.join(" AND ")}`,

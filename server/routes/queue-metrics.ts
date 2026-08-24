@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { isAuthenticated } from "../replit_integrations/auth";
 import { isAdmin } from "../replit_integrations/auth";
-import { getQueueManager } from "../services/queue-manager";
+import { getQueueManager, requireQueueManagerReady } from "../services/queue-manager";
 import { serverError } from "../utils/server-error";
 import { storage } from "../storage";
 import { db } from "../db";
@@ -32,7 +32,12 @@ async function maybeSendDlqThresholdAlert(dlqCount: number): Promise<void> {
 export function registerQueueMetricsRoutes(app: Express) {
   app.get("/api/operator/queue-metrics", isAdmin, async (_req, res) => {
     try {
-      const qm = await getQueueManager();
+      let qm;
+      try {
+        qm = requireQueueManagerReady();
+      } catch {
+        return res.status(503).json({ status: "not_initialized", queues: [], capturedAt: new Date().toISOString() });
+      }
       const metrics = await qm.getAllQueueMetrics();
 
       // Extended sequence + Redis metrics
@@ -98,6 +103,7 @@ export function registerQueueMetricsRoutes(app: Express) {
       }
 
       res.json({
+        status: "ok",
         queues: queueMetrics,
         usingMock,
         sequenceBacklog,
@@ -115,9 +121,14 @@ export function registerQueueMetricsRoutes(app: Express) {
 
   app.get("/api/operator/queue-history", isAdmin, async (_req, res) => {
     try {
-      const qm = await getQueueManager();
+      let qm;
+      try {
+        qm = requireQueueManagerReady();
+      } catch {
+        return res.status(503).json({ status: "not_initialized", history: [], resultScope: "fixed_24_hour_memory" });
+      }
       const history = qm.getJobHistory();
-      res.json(history);
+      res.json({ status: "ok", resultScope: "fixed_24_hour_memory", history });
     } catch (err: any) {
       serverError(res, err);
     }
@@ -125,10 +136,31 @@ export function registerQueueMetricsRoutes(app: Express) {
 
   app.get("/api/operator/queue-dlq", isAdmin, async (_req, res) => {
     try {
-      const qm = await getQueueManager();
-      const dlqItems = await qm.getDeadLetterItems();
-      maybeSendDlqThresholdAlert(dlqItems.length).catch(() => {});
-      res.json(dlqItems);
+      let qm;
+      try {
+        qm = requireQueueManagerReady();
+      } catch {
+        return res.status(503).json({ status: "not_initialized", items: [], resultScope: "sampled_per_queue", complete: false, queueStatus: [] });
+      }
+      const dlqRead = await qm.getDeadLetterItemsWithStatus();
+      const dlqItems = dlqRead.items;
+      // The endpoint reads only a capped sample per queue; do not turn that
+      // window into a global DLQ count or alert threshold.
+      const items = dlqItems.map((item: any) => ({
+        id: item.id,
+        queue: item.queue ?? item.queueName ?? "unknown",
+        name: item.name ?? item.jobName ?? "unknown",
+        failedReason: typeof item.failedReason === "string" ? item.failedReason.slice(0, 500) : null,
+        attemptsMade: Number(item.attemptsMade ?? 0),
+        failedAt: item.failedAt ?? item.finishedOn ?? item.timestamp ?? null,
+      }));
+      res.json({
+        status: dlqRead.queueStatus.some((source) => source.status !== "sampled") ? "degraded" : "ok",
+        items,
+        resultScope: "sampled_per_queue",
+        complete: false,
+        queueStatus: dlqRead.queueStatus,
+      });
     } catch (err: any) {
       serverError(res, err);
     }
@@ -137,7 +169,7 @@ export function registerQueueMetricsRoutes(app: Express) {
   app.post("/api/operator/queue-dlq/:id/retry", isAdmin, async (req, res) => {
     try {
       const id = req.params.id as string;
-      const qm = await getQueueManager();
+      const qm = requireQueueManagerReady();
       await qm.retryDeadLetterJob(id);
       res.json({ success: true, message: "Job requeued for retry" });
     } catch (err: any) {
@@ -148,7 +180,7 @@ export function registerQueueMetricsRoutes(app: Express) {
   app.delete("/api/operator/queue-dlq/:id", isAdmin, async (req, res) => {
     try {
       const id = req.params.id as string;
-      const qm = await getQueueManager();
+      const qm = requireQueueManagerReady();
       await qm.discardDeadLetterJob(id);
       res.json({ success: true, message: "Job discarded" });
     } catch (err: any) {

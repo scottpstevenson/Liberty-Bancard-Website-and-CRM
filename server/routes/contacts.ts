@@ -38,6 +38,7 @@ import { serverError, safeMessage } from "../utils/server-error";
 import { LifecycleService, adminOverrideTransition, LIFECYCLE_STATES } from "../services/lifecycle-service";
 import type { LifecycleState } from "../services/lifecycle-service";
 import { applyConsentCommand } from "../services/consent-authority";
+import { agentOwnershipEmail, invalidPagination, parseStrictPagination } from "../services/crm-object-access";
 
 // ── Canonical email-validation predicates (task #1540A) ─────────────────────
 // Moved to server/services/zerobounce-eligibility.ts in #1541 so the durable
@@ -252,10 +253,12 @@ export function registerContactsRoutes(app: Express) {
   // === CONTACTS ===
   app.get("/api/contacts", isDashboardUser, async (req, res) => {
     try {
-      const limit = req.query.limit ? Number(req.query.limit) : undefined;
-      const offset = req.query.offset ? Number(req.query.offset) : undefined;
+      const pagination = parseStrictPagination(req.query as Record<string, unknown>, { defaultLimit: 100, maxLimit: 500 });
+      if ("error" in pagination) return invalidPagination(res);
+      const { limit, offset } = pagination;
       const emailStatus = req.query.emailStatus ? String(req.query.emailStatus) : undefined;
-      const assignedTo = req.query.assignedTo ? String(req.query.assignedTo) : undefined;
+      const ownerEmail = agentOwnershipEmail(req.user as any);
+      const assignedTo = ownerEmail ? undefined : req.query.assignedTo ? String(req.query.assignedTo) : undefined;
       const churnRisk = req.query.churnRisk ? String(req.query.churnRisk) : undefined;
       const noOutreach = req.query.noOutreach ? String(req.query.noOutreach) : undefined;
       const blockedFilter = req.query.blocked ? String(req.query.blocked) : undefined;
@@ -265,11 +268,14 @@ export function registerContactsRoutes(app: Express) {
       // the normal { data, total, limit, offset } response shape so the Contacts table
       // paginates correctly across the full filtered result set.
       if (churnRisk === "high" || noOutreach === "24h" || blockedFilter === "true") {
-        const pageLimit = (limit != null && Number.isFinite(limit) && limit > 0) ? Math.min(limit, 500) : 100;
-        const pageOffset = (offset != null && Number.isFinite(offset) && offset >= 0) ? offset : 0;
+        const pageLimit = limit;
+        const pageOffset = offset;
 
         const { or, sql: sqlExpr } = await import("drizzle-orm");
         const conditions: any[] = [isNull(contactsTable.archivedAt)];
+        if (ownerEmail) {
+          conditions.push(or(eq(contactsTable.assignedTo, ownerEmail), isNull(contactsTable.assignedTo)));
+        }
         if (churnRisk === "high") {
           conditions.push(inArray((contactsTable as any).churnRiskTier, ["High", "Critical"]));
         }
@@ -302,7 +308,7 @@ export function registerContactsRoutes(app: Express) {
         return res.json({ data, total, limit: pageLimit, offset: pageOffset });
       }
 
-      const result = await storage.getContacts({ limit, offset, emailStatus, assignedTo });
+      const result = await storage.getContacts({ limit, offset, emailStatus, assignedTo, ownerEmail });
       res.json(result);
     } catch (err: any) {
       console.error("Get contacts error:", err.message);
