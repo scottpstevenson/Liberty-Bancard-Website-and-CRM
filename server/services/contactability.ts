@@ -758,6 +758,20 @@ export async function evaluateContactability(
         }
       );
     }
+    // BT-10: legacy `email_status` alone is never marketing authorization.
+    // Transactional responses keep their separate policy path, while marketing
+    // requires fresh provider evidence for this exact email generation.
+    if (commercialPurpose === "marketing_outreach") {
+      const { evaluateMarketingEmailEligibility } = await import("./provider-readiness-control");
+      const validation = await evaluateMarketingEmailEligibility(contactId);
+      if (!validation.allowed) {
+        return blocked(`Marketing email validation blocked — ${validation.reason}`, {
+          ...commonOpts,
+          allowedChannels: ["manual_call"],
+          nextBestCompliantAction: "Wait for current email validation evidence before automated marketing email.",
+        });
+      }
+    }
   }
 
   // ── Step 10: Phone validity / phoneType ──────────────────────────────

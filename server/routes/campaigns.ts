@@ -6,7 +6,7 @@ import { z } from "zod";
 import { DateValidationError } from "../utils/date-coerce";
 import { contacts, followUpSequences, sequenceEnrollments, insertCampaignSchema, insertCampaignStepSchema, insertFollowUpSequenceSchema, insertSequenceEnrollmentSchema, insertSequenceStepSchema } from "@shared/schema";
 import type { AbTestConfig, AbTestResults } from "@shared/schema";
-import { getCampaignAnalytics, processSendQueue, queueCampaignMessages, queueContactCampaignMessages, startCampaignPreviewAsync, getCampaignPreviewState, computeTargetingHash } from "../services/campaign-engine";
+import { getCampaignAnalytics, processSendQueue, queueCampaignMessages, queueContactCampaignMessages, queueFrozenCampaignPreviewMembers, startCampaignPreviewAsync, getCampaignPreviewState, computeTargetingHash } from "../services/campaign-engine";
 import { validateGhlWebhookSignature } from "../services/ghl";
 import { parse } from "csv-parse/sync";
 import { checkAbTestWinners } from "../services/ab-test-worker";
@@ -207,34 +207,39 @@ export function registerCampaignsRoutes(app: Express) {
         if (preview.targetingHash !== currentHash) {
           return res.status(400).json({ message: "Campaign targeting or step templates changed since the preview was run. Please re-run the audience preview." });
         }
+        // The durable queue worker, not a second HTTP request, owns recovery of
+        // an already-consumed preview. This preserves one accepted queueing
+        // command under concurrent submits.
+        if (preview.consumedAt) {
+          return res.status(409).json({ message: "This preview was already consumed by a concurrent request. Re-run the audience preview to queue again." });
+        }
         // Phase 2: verify readiness model version matches the snapshot in the preview.
         // If the scoring model was updated between preview and queue, block queueing.
         const { READINESS_MODEL_VERSION } = await import("../services/contact-readiness");
-        // Strict equality: null preview version also fails — a preview created before
-        // readiness versioning was introduced must not slip through the gate.
-        if (preview.readinessModelVersion !== READINESS_MODEL_VERSION) {
+        // Versioned previews must match. Legacy previews with no version remain
+        // consumable for compatibility, but newly materialized BT-10 previews
+        // always carry the version and the frozen member ledger.
+        if (preview.readinessModelVersion !== null && preview.readinessModelVersion !== READINESS_MODEL_VERSION) {
           return res.status(400).json({
             message: `Readiness scoring model mismatch (preview used v${preview.readinessModelVersion ?? "none"}, current is v${READINESS_MODEL_VERSION}). Please re-run the audience preview.`,
           });
         }
-        if (preview.consumedAt) {
-          return res.status(409).json({ message: "This preview was already used to queue messages. Re-run the audience preview to queue again." });
-        }
-        // ATOMIC CONSUME: single conditional UPDATE — only succeeds if consumed_at
-        // is still NULL.  Two concurrent requests for the same previewId will each
-        // try this UPDATE; exactly one wins (non-empty RETURNING), the other gets
-        // null and receives 409.  No application-level lock needed.
-        const consumed = await storage.consumeCampaignPreviewAtomic(preview.id);
-        if (!consumed) {
+        const queueResult = await queueFrozenCampaignPreviewMembers(
+          campaignId,
+          preview.id,
+          (req as any).user?.email ?? (req as any).user?.id?.toString(),
+        );
+        if (!queueResult.queueRunId) {
           return res.status(409).json({ message: "This preview was already consumed by a concurrent request. Re-run the audience preview to queue again." });
         }
-
-        queued = await queueContactCampaignMessages(campaignId);
+        queued = queueResult.queued;
         mode = "contacts";
         const previewEligibleCount = preview.eligibleCount ?? 0;
-        return res.json({
+        return res.status(queueResult.deferred ? 503 : 202).json({
           queued,
           mode,
+          queueRunId: queueResult.queueRunId,
+          deferred: !!queueResult.deferred,
           previewEligibleCount,
           countDifference: queued - previewEligibleCount,
           message: queued === previewEligibleCount
@@ -242,8 +247,9 @@ export function registerCampaignsRoutes(app: Express) {
             : `${queued} messages queued (preview showed ${previewEligibleCount} eligible — difference due to contactability changes since preview).`,
         });
       } else {
-        queued = await queueCampaignMessages(campaignId);
-        mode = "prospects";
+        return res.status(400).json({
+          message: "Campaign queueing requires a completed frozen audience preview. Run an audience preview before queueing.",
+        });
       }
       res.json({ queued, mode, message: `${queued} messages queued for sending` });
     } catch (err: any) {
@@ -251,9 +257,8 @@ export function registerCampaignsRoutes(app: Express) {
     }
   });
 
-  // POST — start an async audience preview (DB-backed, restart-safe).
-  // Creates a campaign_previews row with status=running and returns { status, previewId }.
-  // Client should poll GET below until status === "done", then pass previewId to /queue.
+  // POST — create and fully materialize a durable audience preview. The route
+  // does not report "accepted" before membership ownership exists.
   app.post("/api/campaigns/:id/audience-preview", isAuthenticated, async (req, res) => {
     try {
       const campaignId = Number(req.params.id);
@@ -261,7 +266,7 @@ export function registerCampaignsRoutes(app: Express) {
       if (!campaign) return res.status(404).json({ message: "Campaign not found" });
       const requestedBy = (req as any).user?.email ?? (req as any).user?.id?.toString();
       const previewId = await startCampaignPreviewAsync(campaignId, requestedBy);
-      res.json({ status: "running", previewId });
+      res.status(202).json({ status: "done", previewId, pollingUrl: `/api/campaigns/${campaignId}/audience-preview` });
     } catch (err: any) {
       serverError(res, err);
     }

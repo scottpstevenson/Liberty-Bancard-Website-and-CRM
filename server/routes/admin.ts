@@ -6,7 +6,7 @@ import { db, pool } from "../db";
 import { auditChange } from "../services/audit-change";
 import { z } from "zod";
 import { insertAgentMerchantSchema, insertAgentQuotaSchema, insertAgentSchema, insertConsentAuditLogSchema, insertDataDeleteRequestSchema, insertHealthAlertSchema, insertResidualReportSchema, insertReviewRequestSchema, insertSendingIdentitySchema, ALLOWED_SENDING_DOMAINS, users, contacts, deals, auditLogs, automationRegistry, merchantMids, insertMerchantMidSchema } from "@shared/schema";
-import { desc, eq, isNull, and, gte, or, like, count, not } from "drizzle-orm";
+import { desc, eq, isNull, and, gte, or, like, count, not, sql } from "drizzle-orm";
 import { parse } from "csv-parse/sync";
 import path from "path";
 import { publicLeadRateLimit } from "../middleware/public-rate-limit";
@@ -701,6 +701,7 @@ export function registerAdminRoutes(app: Express) {
   // === GHL CONTACT ID BACKFILL ===
   app.post("/api/admin/backfill-ghl-contacts", requireRole("admin", "manager"), async (req, res) => {
     try {
+      return res.status(503).json({ code: "RECONCILIATION_COMMAND_REQUIRED", message: "GHL backfill requires a durable bounded reconciliation command." });
       const { isGhlConfigured, lookupGhlContactByEmail } = await import("../services/ghl");
       if (!isGhlConfigured()) {
         return res.status(503).json({ message: "GHL not configured. Set GHL_API_KEY and GHL_LOCATION_ID." });
@@ -721,10 +722,10 @@ export function registerAdminRoutes(app: Express) {
           if (ghlId) {
             await db.update(contacts).set({ ghlContactId: ghlId }).where(eq(contacts.id, contact.id));
             results.matched++;
-            log.push({ id: contact.id, email: contact.email, status: "matched", ghlId });
+            log.push({ id: contact.id, email: contact.email ?? "", status: "matched", ghlId: ghlId ?? undefined });
           } else {
             results.notFound++;
-            log.push({ id: contact.id, email: contact.email, status: "not_found" });
+            log.push({ id: contact.id, email: contact.email ?? "", status: "not_found" });
           }
         } catch (err: any) {
           results.errors++;
@@ -806,6 +807,7 @@ export function registerAdminRoutes(app: Express) {
   // === GHL SYNC RETRY ===
   app.post("/api/admin/ghl-sync/retry", requireRole("admin", "manager"), async (req, res) => {
     try {
+      return res.status(503).json({ code: "RECONCILIATION_COMMAND_REQUIRED", message: "GHL retry requires a durable reconciliation command." });
       const { contactId } = req.body;
       if (!contactId) return res.status(400).json({ message: "contactId is required" });
 
@@ -1398,6 +1400,9 @@ export function registerAdminRoutes(app: Express) {
 
   app.post("/api/admin/contacts/backfill-deals", requireRole("admin", "manager"), async (req, res) => {
     try {
+      if (!(globalThis as { __BT10_DURABLE_LONG_OPERATION_OWNER__?: boolean }).__BT10_DURABLE_LONG_OPERATION_OWNER__) {
+        return res.status(503).json({ code: "DURABLE_COMMAND_REQUIRED", message: "Deal backfill requires a durable command." });
+      }
       // Only accept the known safe fields; any caller-supplied count fields are intentionally ignored
       // to prevent a caller from spoofing a low count and bypassing the confirmation safeguard.
       const { confirmed, confirmationText, minScore = 45, batchSize = 200, source, vertical } = req.body || {};
@@ -1711,6 +1716,39 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // BT-10 provider control. Credentials never enable spend: an administrator
+  // explicitly supplies a bounded local budget and enablement is audited.
+  app.get("/api/admin/provider-controls/zerobounce", requireRole("admin", "manager"), async (_req, res) => {
+    const result = await db.execute(sql`
+      SELECT provider, enabled, circuit_state, local_budget_units, reserved_units,
+             consumed_units, last_completed_at, last_outcome, updated_at
+        FROM provider_controls WHERE provider = 'zerobounce'
+    `);
+    res.json({ control: (result as any).rows?.[0] ?? null });
+  });
+  app.put("/api/admin/provider-controls/zerobounce", requireRole("admin"), async (req, res) => {
+    try {
+      const { enabled, budgetUnits } = req.body as { enabled?: unknown; budgetUnits?: unknown };
+      if (typeof enabled !== "boolean" || !Number.isInteger(budgetUnits) || Number(budgetUnits) < 0 || Number(budgetUnits) > 1_000_000) {
+        return res.status(400).json({ message: "enabled must be boolean and budgetUnits must be an integer from 0 to 1000000" });
+      }
+      const result = await db.execute(sql`
+        INSERT INTO provider_controls (provider, capability, enabled, circuit_state, local_budget_units, reserved_units, consumed_units, version, updated_at)
+        VALUES ('zerobounce', 'email_validation', ${enabled}, 'closed', ${Number(budgetUnits)}, 0, 0, 1, NOW())
+        ON CONFLICT (provider) DO UPDATE
+          SET enabled=EXCLUDED.enabled, local_budget_units=EXCLUDED.local_budget_units,
+              version=provider_controls.version+1, updated_at=NOW()
+        RETURNING provider, enabled, circuit_state, local_budget_units, reserved_units, consumed_units, version
+      `);
+      await storage.createAuditLog({
+        action: "provider_control_updated", entityType: "provider_control",
+        userId: (req.user as any)?.id ?? null,
+        details: { provider: "zerobounce", enabled, budgetUnits: Number(budgetUnits) },
+      });
+      res.json({ control: (result as any).rows?.[0] });
+    } catch (err: any) { serverError(res, err); }
+  });
+
   // === WORKER INTERVAL CONTROLS (Step 1 — #1444) ===
 
   // GET /api/admin/settings/worker-intervals
@@ -1839,6 +1877,10 @@ export function registerAdminRoutes(app: Express) {
   // Start backfill (admin or manager)
   app.post("/api/admin/contacts/score-all", requireRole("admin", "manager"), async (req, res) => {
     try {
+      return res.status(503).json({
+        message: "Mass scoring is disabled pending durable command ownership.",
+        execution: "unavailable",
+      });
       const { startScoringJob } = await import("../services/contact-scoring-job");
       const { confirmed, mode, batchSize } = req.body ?? {};
 
@@ -1924,6 +1966,9 @@ export function registerAdminRoutes(app: Express) {
 
   app.post("/api/admin/contacts/bulk-enroll", requireRole("admin", "manager"), async (req, res) => {
     try {
+      if (!(globalThis as { __BT10_DURABLE_LONG_OPERATION_OWNER__?: boolean }).__BT10_DURABLE_LONG_OPERATION_OWNER__) {
+        return res.status(503).json({ code: "DURABLE_COMMAND_REQUIRED", message: "Bulk enrollment requires a durable command." });
+      }
       const { isBulkEnrollJobRunning, startBulkEnrollJob, previewBulkEnroll } = await import("../services/bulk-enrollment-job");
       const { vertical, minScore, sequenceId, campaignId, confirmed, confirmationText } = req.body ?? {};
 
@@ -2443,6 +2488,9 @@ export function registerAdminRoutes(app: Express) {
 
   app.post("/api/admin/pipeline/new-leads/enroll", requireRole("admin", "manager"), async (req, res) => {
     try {
+      if (!(globalThis as { __BT10_DURABLE_LONG_OPERATION_OWNER__?: boolean }).__BT10_DURABLE_LONG_OPERATION_OWNER__) {
+        return res.status(503).json({ code: "DURABLE_COMMAND_REQUIRED", message: "New-lead enrollment requires a durable command." });
+      }
       const { isNewLeadEnrollJobRunning, startNewLeadEnroll, previewNewLeadEnroll } =
         await import("../services/new-lead-enrollment-job");
       const { confirmed, confirmationText } = req.body ?? {};
@@ -3891,6 +3939,9 @@ export function registerAdminRoutes(app: Express) {
   // Admin-only; uses the same verifyEmail() service as the contacts flow.
   app.post("/api/admin/master-leads/validate-emails", requireRole("admin"), async (req, res) => {
     try {
+      return res.status(503).json({
+        message: "Master-lead email validation is unavailable until records are promoted to canonical contacts with generation-fenced validation intents.",
+      });
       const { db } = await import("../db");
       const { masterLeads } = await import("../../shared/schema");
       const { isNull, eq } = await import("drizzle-orm");
@@ -3906,13 +3957,12 @@ export function registerAdminRoutes(app: Express) {
         return res.json({ validated: 0, valid: 0, invalid: 0, message: "All master leads emails already checked" });
       }
 
-      const { verifyEmail } = await import("../services/sdr/zerobounce");
       let validated = 0; let valid = 0; let invalid = 0;
 
       for (const lead of unchecked) {
         if (!lead.email) continue;
         try {
-          const result = await verifyEmail(lead.email);
+          const result = { status: "unknown" };
           const isValid = result.status === "valid";
           await db.update(masterLeads).set({ emailValid: isValid }).where(eq(masterLeads.id, lead.id));
           validated++; if (isValid) valid++; else invalid++;
@@ -4357,6 +4407,7 @@ export function registerAdminRoutes(app: Express) {
   // Retry GHL sync for a contact identified by entityKey (email or contact id)
   app.post("/api/admin/ghl-failures/retry", requireRole("admin", "manager"), async (req, res) => {
     try {
+      return res.status(503).json({ code: "RECONCILIATION_COMMAND_REQUIRED", message: "GHL retry requires a durable reconciliation command." });
       const { entityKey } = req.body ?? {};
       if (!entityKey) return res.status(400).json({ message: "entityKey is required" });
 
@@ -4373,8 +4424,10 @@ export function registerAdminRoutes(app: Express) {
 
       if (!contact) return res.status(404).json({ message: "Contact not found for entityKey" });
 
-      const { syncContactToGhl } = await import("../services/ghl-sync");
-      const result = await syncContactToGhl(contact.id);
+      const result = {
+        success: false,
+        error: "Direct GHL synchronization is disabled; use a durable contact projection.",
+      };
 
       auditChange({
         actorType: "user",

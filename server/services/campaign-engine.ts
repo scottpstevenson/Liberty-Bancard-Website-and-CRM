@@ -1,5 +1,5 @@
 import { storage } from "../storage";
-import { createHash } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import type { Prospect, Campaign, Contact, CampaignStep } from "@shared/schema";
 import OpenAI from "openai";
 import { sendGhlEmail, isGhlConfigured } from "./ghl";
@@ -9,20 +9,12 @@ import { sendSmtpEmail, isSmtpConfigured } from "./smtp-email";
 import { logAiCall } from "./ai-audit-logger";
 import { evaluateContactability } from "./contactability";
 import { READINESS_MODEL_VERSION } from "./contact-readiness";
-import { verifyEmail } from "./sdr/zerobounce";
-import { claimZeroBounceCredit, checkZeroBounceBudget } from "./zerobounce-daily-limiter";
+import { hashEmailToken } from "./provider-readiness-control";
+import { db } from "../db";
+import { campaignPreviews, campaignPreviewMembers, campaignQueueItems, campaignQueueRuns, outboundMessages, contacts } from "@shared/schema";
+import { and, eq, isNull, sql } from "drizzle-orm";
 
 // ZeroBounce statuses that are undeliverable — contacts with these are skipped without queuing.
-const ZB_INVALID_STATUSES = new Set(["invalid", "unsafe", "bounced", "do_not_mail", "spam_trap", "abuse"]);
-
-/** Injectable dependencies for passesZeroBounceCheck — used in tests to mock ZB calls. */
-export interface ZeroBounceCheckDeps {
-  checkBudget?: () => Promise<{ allowed: boolean; used: number; limit: number }>;
-  claimCredit?: () => Promise<boolean>;
-  runVerifyEmail?: (email: string) => Promise<{ status: string; subStatus?: string | null }>;
-  runAuditLog?: (opts: Parameters<typeof storage.createAuditLog>[0]) => Promise<unknown>;
-}
-
 /**
  * Lazy ZeroBounce validation for a CRM contact before queuing a campaign email.
  * Returns false if the contact should be skipped (and logs the reason).
@@ -32,7 +24,7 @@ export interface ZeroBounceCheckDeps {
  * block decision:
  *  Phase 1  — fast-path checks (already-bad or already-validated status)
  *  Phase 2  — budget / credit-claim gate (fail-closed for unvalidated contacts)
- *  Phase 3  — ZeroBounce API call (fail-open: if ZB is down, continue batch)
+ *  Phase 3  — ZeroBounce API call (fail-closed: provider failure defers batch)
  *  Phase 4  — best-effort DB writeback (failure does not affect block decision)
  *  Phase 5  — capture shouldBlock BEFORE any audit I/O
  *  Phase 6  — best-effort audit writes in their own isolated try/catch
@@ -43,107 +35,18 @@ export interface ZeroBounceCheckDeps {
  */
 export async function passesZeroBounceCheck(
   contact: { id: number; email: string; emailStatus?: string | null },
-  campaignId: number,
-  _deps: ZeroBounceCheckDeps = {},
+  _campaignId: number,
 ): Promise<boolean> {
-  const { emailStatus, email, id: contactId } = contact;
-  const checkBudget = _deps.checkBudget ?? checkZeroBounceBudget;
-  const claimCredit = _deps.claimCredit ?? claimZeroBounceCredit;
-  const runVerifyEmail = _deps.runVerifyEmail ?? verifyEmail;
-  const runAuditLog = _deps.runAuditLog ?? storage.createAuditLog.bind(storage);
-
-  // ── Phase 1: Fast paths ───────────────────────────────────────────────────
-
-  // Already flagged as bad — skip immediately.
-  if (emailStatus && ZB_INVALID_STATUSES.has(emailStatus)) {
-    try {
-      await storage.createAuditLog({
-        actorType: "system",
-        action: "campaign_queue_skipped_zb_invalid",
-        entityType: "contact",
-        entityId: contactId,
-        details: { campaignId, email, emailStatus, reason: "Pre-existing invalid email status" },
-      });
-    } catch (_) { /* audit is best-effort; block decision is already determined */ }
+  // BT-10 authority: outbound paths consume current durable evidence only.
+  // Missing/stale evidence schedules the recoverable validation intent; this
+  // compatibility helper never performs a paid validation itself.
+  const { evaluateMarketingEmailEligibility, enqueueCurrentValidationIntent } = await import("./provider-readiness-control");
+  const durableDecision = await evaluateMarketingEmailEligibility(contact.id);
+  if (!durableDecision.allowed) {
+    await enqueueCurrentValidationIntent(contact.id).catch(() => {});
     return false;
   }
-
-  // Already validated by ZeroBounce (any persisted result that isn't clearly bad).
-  // "valid", "unverified" (catch-all), "unknown" — all non-blocking.
-  // null, "active" (legacy DB default), or "unvalidated" (new default) → fall through to live API call.
-  if (emailStatus && emailStatus !== "active" && emailStatus !== "unvalidated") return true;
-
-  // No email address — the contactability gate handles this case upstream.
-  if (!email) return true;
-
-  // ── Phase 2: Budget / credit-claim gate ───────────────────────────────────
-  // For contacts that have never been validated (null/active/unvalidated), budget
-  // exhaustion or a failed atomic credit claim means we cannot confirm deliverability.
-  // Return false to defer rather than risk sending to an unverified address.
-  // Contacts with a prior ZB result (unverified/unknown) are already checked — let them through.
-  const unvalidatedContact = !emailStatus || emailStatus === "active" || emailStatus === "unvalidated";
-
-  const budgetCheck = await checkBudget();
-  if (!budgetCheck.allowed) {
-    console.warn(`[CampaignEngine] ZeroBounce daily cap reached (${budgetCheck.used}/${budgetCheck.limit}), skipping validation for contact ${contactId}`);
-    return !unvalidatedContact;
-  }
-
-  const credited = await claimCredit();
-  if (!credited) {
-    console.warn(`[CampaignEngine] ZeroBounce credit claim failed (atomicity race) for contact ${contactId}`);
-    return !unvalidatedContact;
-  }
-
-  // ── Phase 3: ZeroBounce API call ─────────────────────────────────────────
-  let zbResult: { status: string; subStatus?: string | null } | null = null;
-  try {
-    zbResult = await runVerifyEmail(email);
-  } catch (zbErr: any) {
-    console.warn(`[CampaignEngine] ZeroBounce API error for contact ${contactId}:`, zbErr.message);
-    // ZB API unavailable — a credit was claimed but verification failed.
-    // Fail open so the batch continues; the credit is lost.
-    return true;
-  }
-
-  // ── Phase 4: Best-effort DB writeback ─────────────────────────────────────
-  try {
-    const { db: zbDb } = await import("../db");
-    const { sql: zbSql } = await import("drizzle-orm");
-    await zbDb.execute(zbSql`UPDATE contacts SET email_status = ${zbResult.status} WHERE id = ${contactId}`);
-  } catch (dbErr: any) {
-    console.warn(`[CampaignEngine] ZeroBounce writeback failed for contact ${contactId}:`, dbErr.message);
-    // Write failure does not affect the block decision in Phase 5.
-  }
-
-  // ── Phase 5: Capture block decision BEFORE any audit I/O ──────────────────
-  // shouldBlock is set here so a thrown audit write cannot change what we return.
-  const shouldBlock = ZB_INVALID_STATUSES.has(zbResult.status);
-
-  // ── Phase 6: Best-effort audit writes — isolated from the block decision ───
-  try {
-    await runAuditLog({
-      actorType: "system",
-      action: "campaign_queue_zerobounce_validated",
-      entityType: "contact",
-      entityId: contactId,
-      details: { campaignId, email, zbStatus: zbResult.status, zbSubStatus: zbResult.subStatus ?? null },
-    });
-    if (shouldBlock) {
-      await runAuditLog({
-        actorType: "system",
-        action: "campaign_queue_skipped_zb_invalid",
-        entityType: "contact",
-        entityId: contactId,
-        details: { campaignId, email, zbStatus: zbResult.status, reason: `ZeroBounce flagged as '${zbResult.status}'` },
-      });
-    }
-  } catch (auditErr: any) {
-    console.warn(`[CampaignEngine] ZeroBounce audit write failed for contact ${contactId}:`, auditErr.message);
-    // Intentionally not re-throwing — the block decision is already captured in shouldBlock.
-  }
-
-  return !shouldBlock;
+  return true;
 }
 
 function getOpenAI() {
@@ -615,6 +518,8 @@ export type CampaignPreviewResult = {
   queueable: number;
   readinessThreshold: number | null;
   readinessModelVersionUsed: number;
+  /** Internal-only frozen members. Never returned by the preview API. */
+  _eligibleMembers?: Array<{ contactId: number; subjectGeneration: number; tokenHash: string; subjectMutationAt: Date | null }>;
 };
 
 export async function getCampaignPreviewState(campaignId: number): Promise<{
@@ -658,14 +563,14 @@ export async function getCampaignPreviewState(campaignId: number): Promise<{
 //   4. queueable: passed all gates
 // Call startCampaignPreviewAsync() to run this in the background; poll
 // getCampaignPreviewState() for completion.
-export async function previewContactCampaignAudience(campaignId: number): Promise<CampaignPreviewResult> {
+export async function previewContactCampaignAudience(campaignId: number, snapshotMaxContactId?: number): Promise<CampaignPreviewResult> {
   const campaign = await storage.getCampaign(campaignId);
   if (!campaign) {
     return {
       eligibleCount: 0, sampleContacts: [], totalInVerticals: 0, blockedCount: 0, blockReasons: {},
       excludedByReadiness: 0, readinessSubReasons: { null_score: 0, stale_score: 0, below_threshold: 0 },
       blockedByContactability: 0, alreadyQueued: 0, queueable: 0,
-      readinessThreshold: null, readinessModelVersionUsed: READINESS_MODEL_VERSION,
+      readinessThreshold: null, readinessModelVersionUsed: READINESS_MODEL_VERSION, _eligibleMembers: [],
     };
   }
 
@@ -710,10 +615,11 @@ export async function previewContactCampaignAudience(campaignId: number): Promis
   let blockedCount = 0;
   const blockReasons: Record<string, number> = {};
   const sampleContacts: Array<{ id: number; name: string; email: string; vertical: string | null }> = [];
-  let sqlOffset = 0;
+  let afterContactId = 0;
   let blockedByContactability = 0;
   let alreadyQueued = 0;
   let queueable = 0;
+  const eligibleMembers: NonNullable<CampaignPreviewResult["_eligibleMembers"]> = [];
 
   // ── Step 4: Paginate through the READINESS-FILTERED pool ─────────────────────
   // SQL excludes null/stale/below-threshold contacts before they reach JS so no
@@ -721,7 +627,8 @@ export async function previewContactCampaignAudience(campaignId: number): Promis
   for (;;) {
     const page = await storage.getContactsForCampaignAudience({
       verticals: campaign.targetVerticals ?? undefined,
-      offset: sqlOffset,
+      afterContactId,
+      maxContactId: snapshotMaxContactId,
       limit: QUEUE_SQL_PAGE,
       // Pass readiness filter into SQL only when a threshold is set.
       ...(applyReadiness ? {
@@ -750,6 +657,15 @@ export async function previewContactCampaignAudience(campaignId: number): Promis
       if (gate.allowed) {
         eligibleCount++;
         queueable++;
+        const tokenHash = hashEmailToken(contact.email);
+        if (tokenHash) {
+          eligibleMembers.push({
+            contactId: contact.id,
+            subjectGeneration: contact.emailMutationGeneration,
+            tokenHash,
+            subjectMutationAt: contact.updatedAt ?? null,
+          });
+        }
         if (sampleContacts.length < 5) {
           sampleContacts.push({
             id: contact.id,
@@ -766,7 +682,7 @@ export async function previewContactCampaignAudience(campaignId: number): Promis
       }
     }
 
-    sqlOffset += QUEUE_SQL_PAGE;
+    afterContactId = page[page.length - 1].id;
     if (page.length < QUEUE_SQL_PAGE) break;
   }
 
@@ -783,6 +699,7 @@ export async function previewContactCampaignAudience(campaignId: number): Promis
     queueable,
     readinessThreshold,
     readinessModelVersionUsed: READINESS_MODEL_VERSION,
+    _eligibleMembers: eligibleMembers,
   };
 }
 
@@ -822,10 +739,32 @@ export async function startCampaignPreviewAsync(
 
   const previewId = preview.id;
 
-  setImmediate(async () => {
-    try {
-      const result = await previewContactCampaignAudience(campaignId);
+  // A preview is only exposed after its durable membership has been committed.
+  // The prior detached setImmediate() reported "running" without recoverable
+  // queue ownership and could strand an accepted preview on process restart.
+  try {
+      const snapshot = await db.select({ maxId: sql<number>`COALESCE(MAX(${contacts.id}), 0)` }).from(contacts);
+      const result = await previewContactCampaignAudience(campaignId, snapshot[0]?.maxId ?? 0);
       const now = new Date();
+      // Persist the exact eligible membership before exposing a completed
+      // preview. Queueing can only reference these rows (composite FK), never a
+      // re-run mutable selector.
+      if (result._eligibleMembers?.length) {
+        await db.transaction(async (tx) => {
+          for (const member of result._eligibleMembers!) {
+            await tx.insert(campaignPreviewMembers).values({
+              previewId,
+              contactId: member.contactId,
+              subjectGeneration: member.subjectGeneration,
+              subjectMutationAt: member.subjectMutationAt,
+              normalizedEmailTokenHash: member.tokenHash,
+              eligibilityDecision: "eligible",
+              reasonCodes: [],
+              readinessModelVersion: READINESS_MODEL_VERSION,
+            }).onConflictDoNothing();
+          }
+        });
+      }
       await storage.updateCampaignPreview(previewId, {
         status: "done",
         eligibleCount: result.eligibleCount,
@@ -850,7 +789,7 @@ export async function startCampaignPreviewAsync(
         completedAt: now,
         expiresAt: new Date(now.getTime() + PREVIEW_TTL_MS),
       });
-    } catch (err: any) {
+  } catch (err: any) {
       // Sanitize before persisting: strip file paths, SQL detail, stack frames.
       // Never persist raw query text, secrets, or hostnames.
       const rawMsg: string = err?.message ?? "Preview computation failed";
@@ -865,10 +804,185 @@ export async function startCampaignPreviewAsync(
         completedAt: new Date(),
         blockReasons: { __error: safe } as any,
       });
-    }
-  });
+  }
 
   return previewId;
+}
+
+/**
+ * Queues only contacts materialized by a completed preview. A send-time check
+ * may exclude a member whose email generation/contactability changed; it can
+ * never discover or add a new contact.
+ */
+export async function queueFrozenCampaignPreviewMembers(
+  campaignId: number,
+  previewId: number,
+  actorId?: string,
+): Promise<{ queued: number; excluded: number; queueRunId: string | null; deferred?: boolean }> {
+  const steps = await storage.getCampaignSteps(campaignId);
+  const step = steps.sort((a, b) => a.stepOrder - b.stepOrder)[0];
+  if (!step) return { queued: 0, excluded: 0, queueRunId: null };
+
+  // The preview is consumed only in the same transaction that creates its
+  // durable owner. A process crash cannot strand a consumed preview with no
+  // queue run; an existing nonterminal run is safely resumed below.
+  const run = await db.transaction(async (tx) => {
+    const [existing] = await tx.select().from(campaignQueueRuns)
+      .where(eq(campaignQueueRuns.previewId, previewId)).limit(1);
+    // HTTP acceptance has a single owner. Existing runs are recovered by the
+    // worker; returning one here would let two concurrent requests both claim
+    // they accepted the same preview.
+    if (existing) return null;
+    const [consumed] = await tx.update(campaignPreviews)
+      .set({ consumedAt: new Date() })
+      .where(and(eq(campaignPreviews.id, previewId), isNull(campaignPreviews.consumedAt)))
+      .returning({ id: campaignPreviews.id });
+    if (!consumed) return null;
+    const [created] = await tx.insert(campaignQueueRuns).values({
+      campaignId, previewId, idempotencyKey: `preview:${previewId}`,
+      actorId: actorId ?? null, state: "pending",
+    }).returning();
+    return created ?? null;
+  });
+  if (!run) return { queued: 0, excluded: 0, queueRunId: null };
+
+  try {
+    const { getQueueManagerProducers, QUEUE_NAMES } = await import("./queue-manager");
+    const queue = getQueueManagerProducers()?.getQueue(QUEUE_NAMES.ENRICHMENT);
+    if (!queue) throw new Error("queue_unavailable");
+    await queue.add("campaign-queue-run", { runId: run.id }, {
+      jobId: `campaign-queue-run-${run.id}`, attempts: 3,
+      backoff: { type: "exponential", delay: 5_000 },
+    });
+    return { queued: 0, excluded: 0, queueRunId: run.id };
+  } catch {
+    await db.update(campaignQueueRuns).set({ state: "deferred", failureCode: "queue_unavailable" })
+      .where(eq(campaignQueueRuns.id, run.id));
+    return { queued: 0, excluded: 0, queueRunId: run.id, deferred: true };
+  }
+}
+
+/** Queue-owned, claim-fenced campaign queue execution. Membership remains the
+ * frozen preview ledger; send-time checks can only exclude rows. */
+export async function processCampaignQueueRun(runId: string): Promise<void> {
+  const token = randomUUID();
+  const claimed = await db.execute(sql`
+    UPDATE campaign_queue_runs
+       SET state = 'running', claim_token = ${token}::uuid,
+           lease_expires_at = NOW() + INTERVAL '5 minutes', failure_code = NULL
+     WHERE id = ${runId}::uuid
+       AND state IN ('pending', 'deferred', 'running')
+       AND (state <> 'running' OR lease_expires_at IS NULL OR lease_expires_at < NOW())
+     RETURNING campaign_id, preview_id
+  `);
+  const run = (claimed as any).rows?.[0];
+  if (!run) return;
+  const steps = await storage.getCampaignSteps(run.campaign_id);
+  const campaign = await storage.getCampaign(run.campaign_id);
+  const step = steps.sort((a, b) => a.stepOrder - b.stepOrder)[0];
+  if (!step) {
+    await db.execute(sql`UPDATE campaign_queue_runs SET state='failed', failure_code='missing_step', completed_at=NOW()
+      WHERE id=${runId}::uuid AND claim_token=${token}::uuid`);
+    return;
+  }
+  const dailyLimit = campaign?.dailySendLimit ?? 200;
+  const alreadySendingToday = await getDailySendCount(run.campaign_id);
+  const alreadyQueued = (await storage.getOutboundMessages(run.campaign_id))
+    .filter((message) => ["queued", "scheduled", "sending"].includes(message.status ?? "")).length;
+  const capacity = Math.max(0, Math.min(DEFAULT_QUEUE_LIMIT, dailyLimit - alreadySendingToday - alreadyQueued));
+  let queuedThisRun = 0;
+  const members = await db.select().from(campaignPreviewMembers)
+    .where(and(eq(campaignPreviewMembers.previewId, run.preview_id), eq(campaignPreviewMembers.eligibilityDecision, "eligible")))
+    .orderBy(campaignPreviewMembers.contactId);
+  for (const member of members) {
+    if (queuedThisRun >= capacity) break;
+    const contact = await storage.getContact(member.contactId);
+    const changed = !contact || contact.emailMutationGeneration !== member.subjectGeneration ||
+      hashEmailToken(contact.email ?? "") !== member.normalizedEmailTokenHash;
+    let disposition: "excluded" | "queued" = "excluded";
+    let reason = changed ? "subject_changed" : "send_time_ineligible";
+    if (!changed && contact) {
+      const { evaluateMarketingEmailEligibility, enqueueCurrentValidationIntent } = await import("./provider-readiness-control");
+      const validation = await evaluateMarketingEmailEligibility(contact.id);
+      if (!validation.allowed) {
+        reason = `validation_${validation.reason}`;
+        await enqueueCurrentValidationIntent(contact.id).catch(() => {});
+      } else {
+        const gate = await evaluateContactability({
+          contactId: contact.id, channel: "email", campaignType: "marketing_campaign", mode: "enforcement",
+        });
+        if (gate.allowed) { disposition = "queued"; reason = ""; }
+      }
+    }
+    await db.transaction(async (tx) => {
+      const [item] = await tx.insert(campaignQueueItems).values({
+        queueRunId: runId, previewId: run.preview_id, contactId: member.contactId, stepId: step.id,
+        disposition: "pending",
+      }).onConflictDoNothing().returning();
+      if (!item) return;
+      if (disposition === "excluded") {
+        await tx.update(campaignQueueItems).set({ disposition: "excluded", reasonCode: reason, completedAt: new Date() })
+          .where(eq(campaignQueueItems.id, item.id));
+        return;
+      }
+      const [existing] = await tx.select({ id: outboundMessages.id }).from(outboundMessages).where(and(
+        eq(outboundMessages.campaignId, run.campaign_id), eq(outboundMessages.contactId, member.contactId),
+        eq(outboundMessages.stepId, step.id),
+      )).limit(1);
+      if (existing) {
+        await tx.update(campaignQueueItems).set({ disposition: "excluded", reasonCode: "outbound_exists", completedAt: new Date() })
+          .where(eq(campaignQueueItems.id, item.id));
+        return;
+      }
+      const [message] = await tx.insert(outboundMessages).values({
+        campaignId: run.campaign_id, contactId: member.contactId, stepId: step.id,
+        channel: step.channel || "email", subject: step.subject || "", body: step.bodyTemplate || "",
+        status: "queued",
+        scheduledFor: new Date(Date.now() + (alreadySendingToday + alreadyQueued + queuedThisRun) * SEND_INTERVAL_MS),
+        metadata: { queueRunId: runId },
+      }).returning({ id: outboundMessages.id });
+      await tx.update(campaignQueueItems).set({
+        disposition: "queued", outboundMessageId: message.id, completedAt: new Date(),
+      }).where(eq(campaignQueueItems.id, item.id));
+      queuedThisRun++;
+    });
+  }
+  const summary = await db.execute(sql`
+    SELECT count(*) FILTER (WHERE disposition='queued')::int AS queued,
+           count(*) FILTER (WHERE disposition='excluded')::int AS excluded,
+           count(*) FILTER (WHERE disposition IN ('pending','failed'))::int AS unresolved
+      FROM campaign_queue_items WHERE queue_run_id=${runId}::uuid
+  `);
+  const totals = (summary as any).rows?.[0];
+  const hasUnmaterializedMembers = Number(totals?.queued ?? 0) + Number(totals?.excluded ?? 0) < members.length;
+  await db.execute(sql`
+    UPDATE campaign_queue_runs
+       SET state = CASE WHEN ${Number(totals?.unresolved ?? 1)} = 0 AND ${!hasUnmaterializedMembers} THEN 'completed' ELSE 'deferred' END,
+           queued_count=${Number(totals?.queued ?? 0)}, excluded_count=${Number(totals?.excluded ?? 0)},
+           completed_at=CASE WHEN ${Number(totals?.unresolved ?? 1)} = 0 AND ${!hasUnmaterializedMembers} THEN NOW() ELSE NULL END,
+           claim_token=NULL, lease_expires_at=NULL
+     WHERE id=${runId}::uuid AND claim_token=${token}::uuid
+  `);
+}
+
+/** Re-enqueue durable runs after Redis/process failure. Claims in
+ * processCampaignQueueRun make duplicate recovery jobs harmless. */
+export async function recoverCampaignQueueRuns(limit = 25): Promise<number> {
+  const rows = await db.execute(sql`
+    SELECT id FROM campaign_queue_runs
+     WHERE state IN ('pending', 'deferred')
+        OR (state = 'running' AND (lease_expires_at IS NULL OR lease_expires_at < NOW()))
+     ORDER BY created_at LIMIT ${limit}
+  `);
+  const { getQueueManagerProducers, QUEUE_NAMES } = await import("./queue-manager");
+  const queue = getQueueManagerProducers()?.getQueue(QUEUE_NAMES.ENRICHMENT);
+  if (!queue) return 0;
+  let scheduled = 0;
+  for (const row of (rows as any).rows ?? []) {
+    await queue.add("campaign-queue-run", { runId: row.id }, { attempts: 3, backoff: { type: "exponential", delay: 5_000 } });
+    scheduled++;
+  }
+  return scheduled;
 }
 
 export async function processSendQueue(maxToSend?: number): Promise<{ sent: number; failed: number }> {
@@ -956,56 +1070,14 @@ export async function processSendQueue(maxToSend?: number): Promise<{ sent: numb
         }
 
         // ── ZeroBounce lazy validation gate ───────────────────────────────────
-        // Mirrors the same gate in sequence-worker. Fire once per contact for
-        // email sends when status is unverified. 'null', 'active' (legacy default),
-        // and 'unvalidated' (new default) all trigger a live ZB check so the contact
-        // can progress to a confirmed-deliverable status rather than being silently skipped.
-        if (contact && prospect.email && (contact.emailStatus == null || contact.emailStatus === "active" || contact.emailStatus === "unvalidated")) {
-          try {
-            const { checkZeroBounceBudget, claimZeroBounceCredit } = await import("./zerobounce-daily-limiter");
-            const { verifyEmail } = await import("./sdr/zerobounce");
-            const budget = await checkZeroBounceBudget();
-            if (!budget.allowed) {
-              console.warn(`[CampaignEngine] ZeroBounce daily cap reached (${budget.used}/${budget.limit}), skipping validation for contact ${contact.id}`);
-            } else {
-              const credited = await claimZeroBounceCredit();
-              if (credited) {
-                const zbResult = await verifyEmail(prospect.email);
-                const { db: zbDb } = await import("../db");
-                const { sql: zbSql } = await import("drizzle-orm");
-                await zbDb.execute(zbSql`UPDATE contacts SET email_status = ${zbResult.status} WHERE id = ${contact.id}`);
-                contact = { ...contact, emailStatus: zbResult.status };
-
-                await storage.createAuditLog({
-                  action: "zerobounce_email_validated",
-                  entityType: "contact",
-                  entityId: contact.id,
-                  actorType: "system",
-                  details: {
-                    messageId: msg.id,
-                    email: prospect.email,
-                    zbStatus: zbResult.status,
-                    zbSubStatus: zbResult.subStatus ?? null,
-                    source: "campaign_engine",
-                  },
-                });
-
-                if (zbResult.status === "unsafe" || zbResult.status === "invalid" || (zbResult.status as string) === "bounced") {
-                  await storage.updateOutboundMessage(msg.id, { status: "skipped", error: `ZeroBounce: ${zbResult.status}` });
-                  await storage.createAuditLog({
-                    action: "campaign_send_blocked_email_invalid",
-                    entityType: "contact",
-                    entityId: contact.id,
-                    actorType: "system",
-                    details: { messageId: msg.id, email: prospect.email, zbStatus: zbResult.status, reason: `ZeroBounce flagged email as '${zbResult.status}'` },
-                  });
-                  continue;
-                }
-              }
-            }
-          } catch (zbErr) {
-            console.warn(`[CampaignEngine] ZeroBounce validation error for contact ${contact.id}:`, (zbErr as Error).message);
-            // Non-fatal: proceed with send if ZeroBounce itself fails
+        // All legacy prospect-linked sends share the same fail-closed decision
+        // as CRM queueing. Provider failure, budget denial, unknown/catch-all,
+        // or writeback failure is a skip, never a send authorization.
+        if (contact && prospect.email) {
+          const allowed = await passesZeroBounceCheck(contact, msg.campaignId ?? 0);
+          if (!allowed) {
+            await storage.updateOutboundMessage(msg.id, { status: "skipped", error: "Email validation did not produce positive current evidence" });
+            continue;
           }
         }
 
@@ -1231,6 +1303,27 @@ async function sendContactCampaignMessage(
       entityType: "contact",
       entityId: contact.id,
       details: { reason: gate.reason, messageId: msg.id },
+    });
+    return "skipped";
+  }
+
+  // Fresh positive evidence for the current normalized email is mandatory for
+  // marketing sends. Contactability is a separate authority and cannot make an
+  // indeterminate provider result eligible.
+  const { evaluateMarketingEmailEligibility, enqueueCurrentValidationIntent } = await import("./provider-readiness-control");
+  const validation = await evaluateMarketingEmailEligibility(contact.id);
+  if (!validation.allowed) {
+    await enqueueCurrentValidationIntent(contact.id).catch(() => {});
+    await storage.updateOutboundMessage(msg.id, {
+      status: "skipped",
+      error: `Email validation blocked: ${validation.reason}`,
+    });
+    await storage.createAuditLog({
+      actorType: "system",
+      action: "campaign_send_blocked_validation",
+      entityType: "contact",
+      entityId: contact.id,
+      details: { reason: validation.reason, messageId: msg.id },
     });
     return "skipped";
   }

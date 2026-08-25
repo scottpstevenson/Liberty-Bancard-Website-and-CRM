@@ -1,4 +1,5 @@
 import { storage } from "../../storage";
+import { assertProviderActivation } from "../provider-manifest";
 
 const APOLLO_API_URL = "https://api.apollo.io/v1";
 
@@ -226,8 +227,16 @@ export async function searchApolloForDiscovery(
   vertical: string,
   metro: string,
   state: string = "FL",
-  limit: number = 100
+  limit: number = 100,
+  authorization?: { explicitPaidApproval: boolean; caller: string },
 ): Promise<ApolloBusiness[]> {
+  // Credentials alone never authorize paid discovery. The durable command
+  // worker must pass its approved caller and explicit reservation approval.
+  assertProviderActivation({
+    sourceId: "apollo",
+    caller: authorization?.caller ?? "unapproved",
+    explicitPaidApproval: authorization?.explicitPaidApproval ?? false,
+  });
   if (!process.env.APOLLO_API_KEY) {
     console.warn("[Apollo] No API key configured. Set APOLLO_API_KEY env variable. Apollo Professional plan or higher required for API access.");
     return [];

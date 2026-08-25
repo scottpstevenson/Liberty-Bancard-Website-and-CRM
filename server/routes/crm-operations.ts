@@ -25,16 +25,6 @@ export function registerCrmOperationsRoutes(app: Express) {
       const contact = await authorizeContactAccess(req, res, contactId);
       if (!contact) return;
 
-      if (!contact.ghlContactId && isGhlConfigured()) {
-        syncContactToGhl(contactId).then(result => {
-          if (result.success) {
-            console.log(`[GHL Read-Touch] Auto-upserted contact ${contactId} to GHL: ${result.ghlContactId}`);
-          }
-        }).catch((err: Error) => {
-          console.warn(`[GHL Read-Touch] Auto-upsert failed for contact ${contactId}:`, err.message);
-        });
-      }
-      
       const [contactDeals, contactTickets, contactTasks, contactNotes] = await Promise.all([
         storage.getDealsByContact(contactId),
         db.select().from(tickets).where(eq(tickets.contactId, contactId)),

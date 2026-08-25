@@ -25,8 +25,9 @@
  * of provider-side billing (e.g. ZeroBounce may not bill failed HTTP calls).
  */
 
-import { pool } from "../db";
+import { db, pool } from "../db";
 import { storage } from "../storage";
+import { createValidationIntent, hashEmailToken, processValidationIntent } from "./provider-readiness-control";
 import {
   buildZbEligibilityWhere,
   isPlaceholderEmail,
@@ -49,8 +50,7 @@ export interface ZbWorkerDeps {
 
 async function defaultDeps(): Promise<ZbWorkerDeps> {
   const { verifyEmail } = await import("./sdr/zerobounce");
-  const { claimZeroBounceCredit } = await import("./zerobounce-daily-limiter");
-  return { verifyEmail, claimCredit: claimZeroBounceCredit, hasProviderKey: isZeroBounceConfigured };
+  return { verifyEmail, claimCredit: async () => false, hasProviderKey: isZeroBounceConfigured };
 }
 
 /**
@@ -252,37 +252,24 @@ export async function runZeroBounceAutoRun(): Promise<ZbAutoRunOutcome> {
       return { outcome: "skipped", reason: "feature_disabled" };
     }
 
-    // ── 2. Provider key: never attempt a run without the API key configured ──
-    if (!isZeroBounceConfigured()) {
+    // ── 2. Control-plane gate: configuration alone never authorizes spend. ──
+    const control = await pool.query(
+      `SELECT enabled, circuit_state FROM provider_controls WHERE provider = 'zerobounce'`,
+    );
+    if (!control.rows[0]?.enabled || control.rows[0]?.circuit_state !== "closed") {
       await storage.createAuditLog({
         action: "zerobounce_auto_run_skipped",
         entityType: "system",
         entityId: 0,
         actorType: "system",
         actorId: "zerobounce-auto-run",
-        details: { reason: "provider_not_configured" },
+        details: { reason: "provider_control_unavailable" },
       });
-      console.warn("[ZB auto-run] Skipped — ZEROBOUNCE_API_KEY is not configured");
-      return { outcome: "skipped", reason: "provider_not_configured" };
+      console.warn("[ZB auto-run] Skipped — provider control is disabled or unavailable");
+      return { outcome: "skipped", reason: "provider_control_unavailable" };
     }
 
-    // ── 3. Budget check: honour daily cap before creating any DB rows ─────────
-    const { checkZeroBounceBudget } = await import("./zerobounce-daily-limiter");
-    const budget = await checkZeroBounceBudget();
-    if (!budget.allowed) {
-      await storage.createAuditLog({
-        action: "zerobounce_auto_run_skipped",
-        entityType: "system",
-        entityId: 0,
-        actorType: "system",
-        actorId: "zerobounce-auto-run",
-        details: { reason: "budget_exhausted", budgetUsed: budget.used, budgetLimit: budget.limit },
-      });
-      console.log(`[ZB auto-run] Skipped — daily budget exhausted (${budget.used}/${budget.limit})`);
-      return { outcome: "budget_exhausted" };
-    }
-
-    // ── 4. Stale-run cleanup: heal any run orphaned by a prior crash ──────────
+    // ── 3. Stale-run cleanup: heal any run orphaned by a prior crash ──────────
     await markStaleRunsInterrupted();
 
     // ── 5. Find or create the active campaign ─────────────────────────────────
@@ -402,15 +389,14 @@ export async function runZeroBounceAutoRun(): Promise<ZbAutoRunOutcome> {
         runId: run.id,
         campaignId: campaign.id,
         bullJobId,
-        budgetUsed: budget.used,
-        budgetLimit: budget.limit,
-        budgetRemaining: budget.limit - budget.used,
+        provider: "zerobounce",
+        reservation: "per_intent",
       },
     });
 
     console.log(
       `[ZB auto-run] Started run ${run.id} for campaign ${campaign.id} ` +
-      `(bull job: ${bullJobId}, budget remaining: ${budget.limit - budget.used})`,
+       `(bull job: ${bullJobId}, reservations occur per validation intent)`,
     );
     return { outcome: "enqueued", runId: run.id, bullJobId };
   } catch (err: any) {
@@ -457,9 +443,12 @@ export async function processZeroBounceRun(runId: string, injectedDeps?: ZbWorke
     return "cancelled";
   }
 
-  // Preflight: a missing provider key must never burn a credit or claim contacts.
-  if (!deps.hasProviderKey()) {
-    await finishRun(runId, "error", "provider_not_configured");
+  // The durable provider control, not secret presence, authorizes spend.
+  const control = await pool.query(
+    `SELECT enabled, circuit_state FROM provider_controls WHERE provider = 'zerobounce'`,
+  );
+  if (!control.rows[0] || !control.rows[0].enabled || control.rows[0].circuit_state !== "closed") {
+    await finishRun(runId, "error", "provider_control_unavailable");
     return "error";
   }
 
@@ -519,47 +508,44 @@ export async function processZeroBounceRun(runId: string, injectedDeps?: ZbWorke
               return "processed";
             }
 
-            // ── Daily budget: claim a local credit BEFORE calling the provider. ──
-            const credited = await deps.claimCredit();
-            if (!credited) {
-              // Cap reached: release the claim so this contact stays eligible for
-              // tomorrow's run, then stop with budget_exhausted.
-              await pool.query(`DELETE FROM zerobounce_attempts WHERE id = $1`, [attemptId]);
-              return "budget_stopped";
-            }
-
-            // Record the credit reservation BEFORE calling the provider: if the
-            // process dies mid-flight, reconcilePendingAttempts() can tell
-            // "provider maybe called" (reserved) apart from "definitely not
-            // called" (none) and resolve the orphaned pending row accordingly.
-            await pool.query(
-              `UPDATE zerobounce_attempts SET credit_state = 'reserved', updated_at = NOW() WHERE id = $1`,
-              [attemptId],
+            const generation = (await pool.query(
+              `UPDATE contacts
+                  SET email_mutation_generation = GREATEST(email_mutation_generation, 1),
+                      email_token_hash = $2
+                WHERE id = $1
+              RETURNING email_mutation_generation`,
+              [contactId, hashEmailToken(email)],
+            )).rows[0].email_mutation_generation;
+            await db.transaction((tx) => createValidationIntent(tx, {
+              contactId, email, generation, purpose: "marketing_outreach",
+            }));
+            const intent = await pool.query(
+              `SELECT id FROM validation_intents WHERE contact_id = $1
+                 AND normalized_email_token_hash = $2 AND subject_generation = $3
+                 AND purpose = 'marketing_outreach'`,
+              [contactId, hashEmailToken(email), generation],
             );
-
-            const zbResult = await deps.verifyEmail(email);
-
-            if (isRetryableZbFailure(zbResult)) {
-              // Transport/config failure: local credit reserved, but do NOT
-              // overwrite email_status. (Local reservation ≠ confirmed provider billing.)
+            const outcome = await processValidationIntent(intent.rows[0].id, { verifyEmail: deps.verifyEmail });
+            if (outcome !== "completed") {
               await pool.query(
-                `UPDATE zerobounce_attempts
-                    SET outcome = 'retryable_failed', retryable = TRUE, credit_state = 'reserved',
-                        error_code = $2, updated_at = NOW()
-                  WHERE id = $1`,
-                [attemptId, zbResult.reason ?? (zbResult.skipped ? "no_key" : "unknown")],
+                `UPDATE zerobounce_attempts SET outcome = 'retryable_failed', retryable = TRUE,
+                    error_code = $2, updated_at = NOW() WHERE id = $1`,
+                [attemptId, outcome],
               );
               return "processed";
             }
-
-            // Completed provider decision → write contact status + attempt outcome.
-            await pool.query(`UPDATE contacts SET email_status = $1 WHERE id = $2`, [zbResult.status, contactId]);
+            const observation = await pool.query(
+              `SELECT outcome FROM provider_observations WHERE subject_id = $1
+                 AND email_token_hash = $2 AND subject_generation = $3
+               ORDER BY observed_at DESC LIMIT 1`,
+              [contactId, hashEmailToken(email), generation],
+            );
             await pool.query(
               `UPDATE zerobounce_attempts
                   SET outcome = 'completed', provider_status = $2, sub_status = $3,
                       credit_state = 'reserved', updated_at = NOW()
                 WHERE id = $1`,
-              [attemptId, zbResult.status, zbResult.subStatus ?? null],
+              [attemptId, observation.rows[0]?.outcome ?? "unknown", null],
             );
             await storage.createAuditLog({
               action: "zerobounce_email_validated",
@@ -567,7 +553,14 @@ export async function processZeroBounceRun(runId: string, injectedDeps?: ZbWorke
               entityId: contactId,
               actorType: "system",
               actorId: `zb-run:${runId}`,
-              details: { email, zbStatus: zbResult.status, zbSubStatus: zbResult.subStatus ?? null, source: "campaign", campaignId, runId },
+              details: {
+                emailTokenHash: hashEmailToken(email),
+                zbStatus: observation.rows[0]?.outcome ?? "unknown",
+                zbSubStatus: null,
+                source: "campaign",
+                campaignId,
+                runId,
+              },
             });
             return "processed";
           } catch (err: any) {

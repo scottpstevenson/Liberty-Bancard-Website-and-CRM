@@ -7,7 +7,6 @@ import { sanitizeFirstName } from "./contact-name-utils";
 import { routeContact } from "./smart-router";
 import { enqueuePromotionalEnrollment } from "./promotional-enrollment-eligibility";
 import { triggerWorkflowsByEvent } from "./workflow-executor";
-import { syncContactToGhl } from "./ghl-sync";
 import { createContactLocalFirst, updateContactLocalFirst } from "./contact-writer";
 import { getEmailSignatureHtml } from "./email-signatures";
 import { streamCorevtFromZip, downloadCordataFromSunbiz, streamCordataFromZip, type CordataRecord } from "./sunbiz-scraper";
@@ -640,7 +639,8 @@ export async function promoteQualifiedToContacts(): Promise<{
         contactId: contact.id,
       }).catch(err => console.error("Workflow trigger error:", err));
 
-      syncContactToGhl(contact.id).catch(err => console.error("GHL sync error:", err));
+      // Canonical contact creation persists the durable GHL projection; never
+      // issue a detached provider mutation from this promotion loop.
 
       await storage.updateProspect(prospectId, { contactId: contact.id, status: "converted" });
 
@@ -751,16 +751,9 @@ async function runDailyOutreachCycle(
   let totalQueued = 0;
   if (discoveryEnrollmentOk && remaining > 0) {
     assertOwned();
-    console.log(`[Daily Outreach] Step 3 (Phase C): Queueing campaign messages (up to ${remaining})...`);
-    const campaigns = await storage.getCampaigns();
-    const activeCampaigns = campaigns.filter(c => c.status === "active");
-    for (const campaign of activeCampaigns) {
-      assertOwned();
-      const budgetLeft = remaining - totalQueued;
-      if (budgetLeft <= 0) break;
-      const queued = await queueCampaignMessages(campaign.id, budgetLeft);
-      totalQueued += queued;
-    }
+    // BT-10: an automated tick cannot reselect a mutable campaign audience.
+    // Only an admin-accepted frozen preview may create a durable queue run.
+    console.log("[Daily Outreach] Step 3 (Phase C) SKIPPED — campaign enqueue requires a frozen preview queue run");
   } else if (!discoveryEnrollmentOk) {
     console.log(`[Daily Outreach] Step 3 (Phase C) SKIPPED — coordinator hold on 'discovery-enrollment' or authority blocked`);
   } else {

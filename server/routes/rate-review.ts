@@ -3,7 +3,7 @@ import { isAuthenticated, isDashboardUser, requireRole } from "../replit_integra
 import { storage } from "../storage";
 import { upload } from "./helpers";
 import { autoGenerateProposal } from "../services/proposal-engine";
-import { runStatementUploadChain } from "../services/statement-upload-chain";
+import { persistAndEnqueueStatementCommand } from "../services/statement-command-worker";
 import {
   claimCommand,
   computeRequestFingerprint,
@@ -262,7 +262,7 @@ export function registerRateReviewRoutes(app: Express) {
       // existingDocumentId makes chain Step 4 reuse the rate_review_statement document
       // created above instead of writing a duplicate file + document row.
       // Do NOT markSucceeded here — the chain owns its own terminal result.
-      runStatementUploadChain({
+      const statementQueued = await persistAndEnqueueStatementCommand({
         contactId: contact.id,
         dealId: contactDeal?.id ?? null,
         fileBuffer: req.file.buffer,
@@ -271,11 +271,14 @@ export function registerRateReviewRoutes(app: Express) {
         businessName: merchantName,
         commandId,
         existingDocumentId: doc.id,
-      }).catch(err => console.error("[RateReview] 11-step chain error:", err.message));
+      });
+      if (!statementQueued) {
+        return res.status(503).json({ error: "STATEMENT_COMMAND_QUEUE_UNAVAILABLE", statement_upload_request_id: commandId });
+      }
 
       res.setHeader("Idempotency-Key", idempotencyKey);
       res.setHeader("X-Statement-Upload-Request-Id", commandId);
-      res.status(201).json({
+      res.status(202).json({
         rateReview,
         document: doc,
         statement_upload_request_id: commandId,

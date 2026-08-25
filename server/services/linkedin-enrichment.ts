@@ -1,4 +1,5 @@
 import { storage } from "../storage";
+import { assertProviderActivation } from "./provider-manifest";
 
 export interface LinkedInProfile {
   firstName?: string;
@@ -27,6 +28,11 @@ function isProxycurlConfigured(): boolean {
 }
 
 async function fetchProxycurlProfile(linkedinUrl: string): Promise<LinkedInProfile> {
+  assertProviderActivation({
+    sourceId: "proxycurl",
+    caller: "unapproved",
+    explicitPaidApproval: false,
+  });
   const apiKey = process.env.PROXYCURL_API_KEY!;
   const url = new URL("https://nubela.co/proxycurl/api/v2/linkedin");
   url.searchParams.set("linkedin_profile_url", linkedinUrl);

@@ -1135,6 +1135,34 @@
       "when": 1794100000000,
       "tag": "0157_csv_import_execution_projection",
       "breakpoints": true
+    },
+    {
+      "idx": 162,
+      "version": "7",
+      "when": 1794200000000,
+      "tag": "0158_provider_health_readiness_controls",
+      "breakpoints": true
+    },
+    {
+      "idx": 163,
+      "version": "7",
+      "when": 1794300000000,
+      "tag": "0159_campaign_queue_outbound_fence",
+      "breakpoints": true
+    },
+    {
+      "idx": 164,
+      "version": "7",
+      "when": 1794400000000,
+      "tag": "0160_seed_zerobounce_provider_control",
+      "breakpoints": true
+    },
+    {
+      "idx": 165,
+      "version": "7",
+      "when": 1794500000000,
+      "tag": "0161_statement_command_recovery",
+      "breakpoints": true
     }
   ]
 }

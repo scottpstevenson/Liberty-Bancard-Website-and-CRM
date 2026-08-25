@@ -98,15 +98,36 @@ export function registerIntegrationsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/ghl/sync-contact", requireRole("admin", "manager"), async (req, res) => {
+  app.post("/api/ghl/sync-contact", requireRole("admin"), async (req, res) => {
     try {
       const { contactId } = req.body;
       if (!contactId) return res.status(400).json({ message: "contactId required" });
       const contact = await storage.getContact(contactId);
       if (!contact) return res.status(404).json({ message: "Contact not found" });
-      if (!(await requireGhlRouteMutationAllowed(res))) return;
-      const ghlId = await upsertGhlContact(contact);
-      res.json({ success: true, ghlContactId: ghlId });
+      // Projection ownership is the only local-to-GHL command lane. The route
+      // persists the requested reconciliation and returns without GHL I/O; the
+      // existing claimed GHL worker applies circuit/pause/identity protections.
+      const { db } = await import("../db");
+      const { contactProviderProjections } = await import("@shared/schema");
+      const [projection] = await db.insert(contactProviderProjections).values({
+        contactId: contact.id,
+        provider: "ghl",
+        projectionKey: `contact:${contact.id}`,
+        state: "pending",
+      }).onConflictDoUpdate({
+        target: [
+          contactProviderProjections.contactId,
+          contactProviderProjections.provider,
+          contactProviderProjections.projectionKey,
+        ],
+        set: { state: "pending", lastErrorCode: null, nextAttemptAt: new Date(), updatedAt: new Date() },
+      }).returning();
+      res.status(202).json({
+        success: true,
+        state: "deferred",
+        projectionId: projection.id,
+        pollingUrl: `/api/ghl/sync-status/contact/${contact.id}`,
+      });
     } catch (err: any) {
       serverError(res, err);
     }
@@ -189,16 +210,21 @@ export function registerIntegrationsRoutes(app: Express) {
     res.json({ ...status, hotLeadSync, hotLeadEnrollment });
   });
 
-  app.post("/api/ghl/sync-all-to-ghl", isAuthenticated, async (req, res) => {
-    if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
-    res.json({ message: "Syncing all contacts to GHL...", started: true });
-    fullSyncToGhl().catch(err => console.error("[GHL Sync API] Error:", err));
+  app.post("/api/ghl/sync-all-to-ghl", requireRole("admin"), async (_req, res) => {
+    // A former detached full-sync lane. Broad reconciliation must be submitted
+    // as a bounded durable command; this legacy endpoint never claims success
+    // or performs provider I/O.
+    res.status(503).json({
+      code: "RECONCILIATION_COMMAND_REQUIRED",
+      message: "Bulk GHL reconciliation requires a bounded durable command and is unavailable from this legacy endpoint.",
+    });
   });
 
-  app.post("/api/ghl/sync-all-from-ghl", isAuthenticated, async (req, res) => {
-    if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
-    res.json({ message: "Syncing contacts from GHL...", started: true });
-    fullSyncFromGhl().catch(err => console.error("[GHL Sync API] Error:", err));
+  app.post("/api/ghl/sync-all-from-ghl", requireRole("admin"), async (_req, res) => {
+    res.status(503).json({
+      code: "RECONCILIATION_COMMAND_REQUIRED",
+      message: "Bulk GHL reconciliation requires a bounded durable command and is unavailable from this legacy endpoint.",
+    });
   });
 
   app.get("/api/ghl/sync-status/contact/:id", isAuthenticated, async (req, res) => {
@@ -227,31 +253,30 @@ export function registerIntegrationsRoutes(app: Express) {
   });
 
   app.post("/api/ghl/sync-contact/:id", isAuthenticated, async (req, res) => {
-    const userRole = (req.user as { role?: string } | undefined)?.role;
-    if (!userRole || !['admin', 'manager', 'agent'].includes(userRole)) {
-      return res.status(403).json({ message: "Insufficient permissions to trigger GHL sync" });
-    }
-    const syncContactId = parseId(req.params.id);
-    if (syncContactId === null) return res.status(404).json({ message: "Not found" });
-    if (!await authorizeContactAccess(req, res, syncContactId)) return;
-    const result = await syncContactToGhl(syncContactId);
-    res.json(result);
+    // Direct route-time GHL I/O is retired. Use the admin-only projection
+    // reconciliation endpoint, whose worker owns circuit and pause fencing.
+    res.status(503).json({
+      code: "RECONCILIATION_COMMAND_REQUIRED",
+      message: "Direct GHL synchronization is unavailable; submit an admin reconciliation command.",
+    });
   });
 
   app.post("/api/ghl/sync-deal/:id", isAuthenticated, async (req, res) => {
+    return res.status(503).json({ code: "RECONCILIATION_COMMAND_REQUIRED", message: "Direct GHL reconciliation requires a durable admin command." });
     if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
     const syncDealId = parseId(req.params.id);
     if (syncDealId === null) return res.status(404).json({ message: "Not found" });
-    const result = await syncDealToGhl(syncDealId);
+    const result = await syncDealToGhl(syncDealId!);
     res.json(result);
   });
 
   app.post("/api/ghl/sync-company/:id", isAuthenticated, async (req, res) => {
+    return res.status(503).json({ code: "RECONCILIATION_COMMAND_REQUIRED", message: "Direct GHL reconciliation requires a durable admin command." });
     if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
     const id = parseId(req.params.id);
     if (id === null) return res.status(400).json({ message: "Invalid company ID" });
     try {
-      const result = await syncCompanyToGhl(id);
+      const result = await syncCompanyToGhl(id!);
       res.json(result);
     } catch (err: any) {
       serverError(res, err);
@@ -259,11 +284,12 @@ export function registerIntegrationsRoutes(app: Express) {
   });
 
   app.post("/api/ghl/sync-task/:id", isAuthenticated, async (req, res) => {
+    return res.status(503).json({ code: "RECONCILIATION_COMMAND_REQUIRED", message: "Direct GHL reconciliation requires a durable admin command." });
     if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
     const id = parseId(req.params.id);
     if (id === null) return res.status(400).json({ message: "Invalid task ID" });
     try {
-      const result = await syncTaskToGhl(id);
+      const result = await syncTaskToGhl(id!);
       res.json(result);
     } catch (err: any) {
       serverError(res, err);
@@ -271,11 +297,12 @@ export function registerIntegrationsRoutes(app: Express) {
   });
 
   app.post("/api/ghl/sync-ticket/:id", isAuthenticated, async (req, res) => {
+    return res.status(503).json({ code: "RECONCILIATION_COMMAND_REQUIRED", message: "Direct GHL reconciliation requires a durable admin command." });
     if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
     const id = parseId(req.params.id);
     if (id === null) return res.status(400).json({ message: "Invalid ticket ID" });
     try {
-      const result = await syncTicketToGhl(id);
+      const result = await syncTicketToGhl(id!);
       res.json(result);
     } catch (err: any) {
       serverError(res, err);
@@ -283,11 +310,12 @@ export function registerIntegrationsRoutes(app: Express) {
   });
 
   app.post("/api/ghl/sync-note/:id", isAuthenticated, async (req, res) => {
+    return res.status(503).json({ code: "RECONCILIATION_COMMAND_REQUIRED", message: "Direct GHL reconciliation requires a durable admin command." });
     if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
     const id = parseId(req.params.id);
     if (id === null) return res.status(400).json({ message: "Invalid note ID" });
     try {
-      const result = await syncNoteToGhl(id);
+      const result = await syncNoteToGhl(id!);
       res.json(result);
     } catch (err: any) {
       serverError(res, err);
@@ -295,11 +323,12 @@ export function registerIntegrationsRoutes(app: Express) {
   });
 
   app.post("/api/ghl/sync-tags/:contactId", isAuthenticated, async (req, res) => {
+    return res.status(503).json({ code: "RECONCILIATION_COMMAND_REQUIRED", message: "Direct GHL reconciliation requires a durable admin command." });
     if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
     const id = parseId(req.params.contactId);
     if (id === null) return res.status(400).json({ message: "Invalid contact ID" });
     try {
-      const result = await syncTagsToGhl(id);
+      const result = await syncTagsToGhl(id!);
       res.json(result);
     } catch (err: any) {
       serverError(res, err);
@@ -316,38 +345,10 @@ export function registerIntegrationsRoutes(app: Express) {
   });
 
   app.post("/api/ghl/sync-hot-leads", isAuthenticated, async (req, res) => {
-    if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
-    const maxContacts = Math.min(Math.max(1, Number(req.body.limit) || 100), 500);
-    res.json({ message: `Syncing up to ${maxContacts} hot lead contacts to GHL...`, started: true });
-
-    (async () => {
-      try {
-        const { data: deals } = await storage.getDeals({ limit: 500 });
-        const newLeadDeals = deals.filter(d => d.stage === "New Lead" && d.contactId);
-        const contactIds = [...new Set(newLeadDeals.map(d => d.contactId!))].slice(0, maxContacts);
-
-        let synced = 0;
-        let failed = 0;
-        for (const contactId of contactIds) {
-          try {
-            const result = await syncContactToGhl(contactId);
-            if (result.success) synced++;
-            else failed++;
-          } catch { failed++; }
-          await new Promise(r => setTimeout(r, 300));
-        }
-
-        await storage.setSystemSetting("ghl_hot_lead_sync", {
-          timestamp: new Date().toISOString(),
-          synced,
-          failed,
-          total: contactIds.length,
-        });
-        console.log(`[GHL Hot Lead Sync] Complete: ${synced} synced, ${failed} failed out of ${contactIds.length}`);
-      } catch (err) {
-        console.error("[GHL Hot Lead Sync] Error:", err);
-      }
-    })();
+    res.status(503).json({
+      code: "RECONCILIATION_COMMAND_REQUIRED",
+      message: "Hot-lead GHL reconciliation requires a bounded durable command.",
+    });
   });
 
   app.post("/api/ghl/test-connection", isAuthenticated, async (req, res) => {

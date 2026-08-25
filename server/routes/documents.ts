@@ -6,7 +6,7 @@ import { insertCollateralPacketSchema, insertDocumentSchema, insertKnowledgeBase
 import { generateDealBlueprint } from "../services/deal-blueprint";
 import { advanceDealStage } from "../services/deal-stage-service";
 import { autoGenerateProposal } from "../services/proposal-engine";
-import { runStatementUploadChain } from "../services/statement-upload-chain";
+import { persistAndEnqueueStatementCommand } from "../services/statement-command-worker";
 import {
   claimCommand,
   computeRequestFingerprint,
@@ -413,41 +413,26 @@ export function registerDocumentsRoutes(app: Express) {
         })().catch(() => {});
       }
 
-      // ── Mark idempotency command as succeeded (statement types only) ──────
+      // Statement commands are terminalized only by the queue-owned worker.
+      // This generic document endpoint may persist the document, but it must not
+      // claim workflow completion or race a leased command executor.
       if (isStatementType && commandId) {
-        const terminalResult: Record<string, unknown> = {
-          id: doc.id,
-          contactId: doc.contactId,
-          dealId: doc.dealId,
-          fileName: doc.fileName,
-          fileSize: doc.fileSize,
-          mimeType: doc.mimeType,
-          category: doc.category,
-          type: doc.type,
-          storageKey: doc.storageKey,
-          uploadedBy: doc.uploadedBy,
-          accessScope: doc.accessScope,
-          status: doc.status,
-          createdAt: (doc as any).createdAt,
-        };
-
-        // Update context with final document ID
-        await updateContext(commandId, {
-          category,
+        const statementQueued = await persistAndEnqueueStatementCommand({
+          contactId: Number(contactId),
+          dealId: dealId ? Number(dealId) : null,
+          fileBuffer: req.file.buffer,
           fileName,
-          contactId: contactId ?? null,
-          dealId: dealId ?? null,
-          uploadedBy,
-          documentId: doc.id,
-          completedAt: new Date().toISOString(),
+          source: "dashboard",
+          commandId,
+          existingDocumentId: doc.id,
         });
-
-        await markSucceeded(commandId, terminalResult);
-
+        if (!statementQueued) {
+          return res.status(503).json({ error: "STATEMENT_COMMAND_QUEUE_UNAVAILABLE", statement_upload_request_id: commandId });
+        }
         const idempotencyKey = req.headers["idempotency-key"] as string;
         res.setHeader("Idempotency-Key", idempotencyKey);
         res.setHeader("X-Idempotency-Replayed", "false");
-        return res.status(201).json(doc);
+        return res.status(202).json({ ...doc, statement_upload_request_id: commandId });
       }
 
       res.status(201).json(doc);
@@ -934,18 +919,21 @@ export function registerDocumentsRoutes(app: Express) {
         });
 
         // Fire-and-forget — do NOT markSucceeded here; the chain owns its result.
-        runStatementUploadChain({
+        const statementQueued = await persistAndEnqueueStatementCommand({
           contactId: resolvedContactId,
           dealId: resolvedDealId,
           fileBuffer: req.file.buffer,
           fileName,
           source: "dashboard",
           commandId,
-        }).catch(err => console.error("[StatementChain] Dashboard upload chain error:", err.message));
+        });
+        if (!statementQueued) {
+          return res.status(503).json({ error: "STATEMENT_COMMAND_QUEUE_UNAVAILABLE", statement_upload_request_id: commandId });
+        }
 
         res.setHeader("Idempotency-Key", idempotencyKey);
         res.setHeader("X-Statement-Upload-Request-Id", commandId);
-        return res.status(201).json(acceptedResponse);
+        return res.status(202).json(acceptedResponse);
       }
 
       // Non-statement document — legacy path
@@ -1349,7 +1337,7 @@ export function registerDocumentsRoutes(app: Express) {
         // Run the full conversion chain (non-blocking — always respond 201).
         // Do NOT markSucceeded here — the chain owns its own terminal result.
         // Post-chain onboarding update runs inside owner execution only (no replay duplicates).
-        runStatementUploadChain({
+        const statementQueued = await persistAndEnqueueStatementCommand({
           contactId: uploaderContactId,
           dealId: targetDealId,
           fileBuffer: req.file.buffer,
@@ -1357,7 +1345,11 @@ export function registerDocumentsRoutes(app: Express) {
           source: "merchant_portal",
           businessName: uploaderContact?.companyName || undefined,
           commandId,
-        }).then(async () => {
+        });
+        if (!statementQueued) {
+          return res.status(503).json({ error: "STATEMENT_COMMAND_QUEUE_UNAVAILABLE", statement_upload_request_id: commandId });
+        }
+        Promise.resolve().then(async () => {
           // Update onboarding deal doc readiness (separate from the sales chain)
           try {
             const { data: allDeals } = await storage.getDeals({ limit: 500 });
@@ -1422,7 +1414,7 @@ export function registerDocumentsRoutes(app: Express) {
 
         res.setHeader("Idempotency-Key", idempotencyKey);
         res.setHeader("X-Statement-Upload-Request-Id", commandId);
-        return res.status(201).json(acceptedResponsePortal);
+        return res.status(202).json(acceptedResponsePortal);
       }
 
       // === Legacy path for non-statement document types ===

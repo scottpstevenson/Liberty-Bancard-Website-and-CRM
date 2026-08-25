@@ -117,3 +117,4 @@
 - [New-lead enrollment scan timeout](new-lead-enrollment-timeout.md) — _fetchNewLeadDeals() scans all New Lead deals+contacts; hits pool 30s statement_timeout under load; wrap in db.transaction(tx => { SET LOCAL statement_timeout='0'; ... }).
 - [Outbox worker pause gate scope](outbox-worker-pause-gate.md) — pause gate belongs in handleGhlSync() not tick(); tick() runs contact_link/consent_record (pure DB) that must not be blocked by global pause.
 - [GitHub workflow push scope](github-workflow-push-scope.md) — workflow-file pushes need GitHub's explicit workflow permission; repository access alone may be insufficient.
+- [Durable command lease cleanup](durable-command-lease-cleanup.md) — every claimed-command exit must release only its own token-fenced lease; early failure paths are easy to miss.

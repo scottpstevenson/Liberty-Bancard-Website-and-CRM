@@ -25,7 +25,7 @@
  */
 
 import { createHash } from "crypto";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { db } from "../db";
 import { statementUploadCommands, type StatementUploadCommand } from "@shared/schema";
 
@@ -275,7 +275,8 @@ export async function findCommandByRequestId(
  */
 export async function updateCheckpoint(
   commandId: string,
-  checkpoint: Record<string, unknown>
+  checkpoint: Record<string, unknown>,
+  leaseToken?: string,
 ): Promise<void> {
   await db
     .update(statementUploadCommands)
@@ -283,12 +284,17 @@ export async function updateCheckpoint(
       checkpoint,
       updatedAt: new Date(),
     })
-    .where(
-      and(
+    .where(leaseToken
+      ? and(
         eq(statementUploadCommands.id, commandId),
-        eq(statementUploadCommands.status, "in_progress")
+        eq(statementUploadCommands.status, "in_progress"),
+        eq(statementUploadCommands.leaseToken, leaseToken),
       )
-    );
+      : and(
+        eq(statementUploadCommands.id, commandId),
+        eq(statementUploadCommands.status, "in_progress"),
+        sql`${statementUploadCommands.leaseToken} IS NULL`,
+      ));
 }
 
 /**
@@ -302,7 +308,11 @@ export async function updateContext(
   await db
     .update(statementUploadCommands)
     .set({ context, updatedAt: new Date() })
-    .where(eq(statementUploadCommands.id, commandId));
+    .where(and(
+      eq(statementUploadCommands.id, commandId),
+      eq(statementUploadCommands.status, "in_progress"),
+      sql`${statementUploadCommands.leaseToken} IS NULL`,
+    ));
 }
 
 /**
@@ -311,7 +321,8 @@ export async function updateContext(
  */
 export async function updateCommandFKs(
   commandId: string,
-  fks: { contactId?: number; dealId?: number; documentId?: number }
+  fks: { contactId?: number; dealId?: number; documentId?: number },
+  leaseToken?: string,
 ): Promise<void> {
   const updateValues: {
     updatedAt: Date;
@@ -325,7 +336,13 @@ export async function updateCommandFKs(
   await db
     .update(statementUploadCommands)
     .set(updateValues)
-    .where(eq(statementUploadCommands.id, commandId));
+    .where(leaseToken
+      ? and(eq(statementUploadCommands.id, commandId), eq(statementUploadCommands.leaseToken, leaseToken))
+      : and(
+        eq(statementUploadCommands.id, commandId),
+        eq(statementUploadCommands.status, "in_progress"),
+        sql`${statementUploadCommands.leaseToken} IS NULL`,
+      ));
 }
 
 /**
@@ -339,7 +356,8 @@ export async function updateCommandFKs(
  */
 export async function markSucceeded(
   commandId: string,
-  result: Record<string, unknown>
+  result: Record<string, unknown>,
+  leaseToken?: string,
 ): Promise<StatementUploadCommand | null> {
   const rows = await db
     .update(statementUploadCommands)
@@ -349,12 +367,17 @@ export async function markSucceeded(
       completedAt: new Date(),
       updatedAt:   new Date(),
     })
-    .where(
-      and(
+    .where(leaseToken
+      ? and(
         eq(statementUploadCommands.id, commandId),
-        eq(statementUploadCommands.status, "in_progress")
+        eq(statementUploadCommands.status, "in_progress"),
+        eq(statementUploadCommands.leaseToken, leaseToken),
       )
-    )
+      : and(
+        eq(statementUploadCommands.id, commandId),
+        eq(statementUploadCommands.status, "in_progress"),
+        sql`${statementUploadCommands.leaseToken} IS NULL`,
+      ))
     .returning();
 
   return rows[0] ?? null;
@@ -370,7 +393,8 @@ export async function markSucceeded(
  */
 export async function markRecoverableFailed(
   commandId: string,
-  result: Record<string, unknown>
+  result: Record<string, unknown>,
+  leaseToken?: string,
 ): Promise<StatementUploadCommand | null> {
   const rows = await db
     .update(statementUploadCommands)
@@ -380,12 +404,17 @@ export async function markRecoverableFailed(
       completedAt: new Date(),
       updatedAt:   new Date(),
     })
-    .where(
-      and(
+    .where(leaseToken
+      ? and(
         eq(statementUploadCommands.id, commandId),
-        eq(statementUploadCommands.status, "in_progress")
+        eq(statementUploadCommands.status, "in_progress"),
+        eq(statementUploadCommands.leaseToken, leaseToken),
       )
-    )
+      : and(
+        eq(statementUploadCommands.id, commandId),
+        eq(statementUploadCommands.status, "in_progress"),
+        sql`${statementUploadCommands.leaseToken} IS NULL`,
+      ))
     .returning();
 
   return rows[0] ?? null;

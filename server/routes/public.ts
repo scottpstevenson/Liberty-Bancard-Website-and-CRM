@@ -21,7 +21,7 @@ import type { Contact } from "@shared/schema";
 import { contacts } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import { db } from "../db";
-import { runStatementUploadChain } from "../services/statement-upload-chain";
+import { persistAndEnqueueStatementCommand } from "../services/statement-command-worker";
 import {
   claimCommand,
   computeRequestFingerprint,
@@ -472,7 +472,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       // Run the full 11-step conversion chain (fire-and-forget — merchant always gets 201).
       // Replay paths return early above, so everything below the claim runs exactly once
       // per approved Idempotency-Key — no need to serialize side effects behind the chain.
-      runStatementUploadChain({
+      const statementQueued = await persistAndEnqueueStatementCommand({
         contactId: contact.id,
         dealId: existingDealId || null,
         fileBuffer: statementFileBuffer,
@@ -483,7 +483,10 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         partnerOrgId: resolvedPartnerOrgId,
         commandId,
         requestId: idempotencyKey,
-      }).catch(err => console.error("[StatementChain] Unhandled chain error:", err.message));
+      });
+      if (!statementQueued) {
+        return res.status(503).json({ error: "STATEMENT_COMMAND_QUEUE_UNAVAILABLE", statement_upload_request_id: commandId });
+      }
 
       // Fire-and-forget side effects — owner execution only (replays returned early above).
       // NOTE: statement_review enrollment is owned by enrollInInboundConfirmation inside
@@ -517,7 +520,6 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
           metadata: { formType: "statement_upload", submissionId, vertical: vertical || null },
         });
       }).catch(() => {});
-      triggerWorkflowsByEvent("form_submitted", { entityType: "contact", entityId: contact.id, contactId: contact.id, dealId: existingDealId || undefined }, { formType: "statement_upload" }).catch((err: Error) => console.error("Workflow trigger error:", err));
       // NOTE: enrollInInboundConfirmation is owned by Step 9 of runStatementUploadChain.
       // Do NOT call it here — that would duplicate the merchant confirmation for every
       // new upload and break idempotency (replay paths skip the chain entirely).
@@ -534,7 +536,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
 
       res.setHeader("Idempotency-Key", idempotencyKey);
       res.setHeader("X-Statement-Upload-Request-Id", commandId);
-      res.status(201).json({
+      res.status(202).json({
         success: true,
         contactId: contact.id,
         dealId: existingDealId || null,

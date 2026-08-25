@@ -8,6 +8,7 @@ import { isGhlConfigured } from "./ghl";
 import { getEmailSignatureHtml, getComplianceFooterHtml, isColdOutreachSequence } from "./email-signatures";
 import type { SignatureType } from "./sender-policy";
 import { sanitizeFirstName } from "./contact-name-utils";
+import { hashEmailToken } from "./provider-readiness-control";
 
 /**
  * Map a sequence's triggerConfig.category to the correct email signature type.
@@ -97,8 +98,6 @@ import type { SendChannel } from "./outbound-send-log";
 import type { VoiceBotMode } from "./sdr/voice-orchestrator";
 import type { AbTestConfig, AbTestResults } from "@shared/schema";
 import { getCanonicalUrl } from "../lib/canonical-url";
-import { verifyEmail } from "./sdr/zerobounce";
-import { claimZeroBounceCredit, checkZeroBounceBudget } from "./zerobounce-daily-limiter";
 
 /**
  * ZeroBounce statuses that are definitively undeliverable.
@@ -396,8 +395,23 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
                 // Retry delay: 1 hour. Keeps enrollment ACTIVE so the worker naturally
                 // re-checks it on the next tick after nextActionAt passes.
                 const ZB_RETRY_DELAY_MS = 60 * 60 * 1000;
+                const { evaluateMarketingEmailEligibility, enqueueCurrentValidationIntent } = await import("./provider-readiness-control");
+                const durableDecision = await evaluateMarketingEmailEligibility(preEnrollContact!.id);
+                if (!durableDecision.allowed) {
+                  await enqueueCurrentValidationIntent(preEnrollContact!.id).catch(() => {});
+                  await storage.updateSequenceEnrollment(enrollment.id, {
+                    nextActionAt: new Date(Date.now() + ZB_RETRY_DELAY_MS),
+                  });
+                  processed++;
+                  continue;
+                }
+                // Current evidence is already authoritative; wait for the
+                // normal contact projection rather than invoking legacy inline
+                // validation/credit code below.
+                processed++;
+                continue;
 
-                const budgetCheck = await checkZeroBounceBudget();
+                const budgetCheck = { allowed: false, used: 0, limit: 0 };
                 if (!budgetCheck.allowed) {
                   // ZB budget exhausted — cannot validate. Keep enrollment ACTIVE and
                   // set nextActionAt to 1 h from now so the worker retries automatically.
@@ -426,7 +440,7 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
                   continue;
                 }
 
-                const credited = await claimZeroBounceCredit();
+                const credited = false;
                 if (!credited) {
                   // Credit claim race (atomicity race against another worker process) —
                   // treat like budget exhaustion: keep ACTIVE, retry in 1 h.
@@ -454,11 +468,20 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
                 }
 
                 try {
-                  const zbResult = await verifyEmail(preEnrollContact!.email!);
-                  // Persist the ZB result so the contactability check (next block) sees it.
+                  const zbResult = { status: "unknown", outcome: "unavailable", reason: "durable_intent_required" };
+                  // Project only terminal provider evidence. A timeout/transport
+                  // result must not become a trusted email status.
                   const { db: zbDb } = await import("../db");
                   const { sql: zbSql } = await import("drizzle-orm");
-                  await zbDb.execute(zbSql`UPDATE contacts SET email_status = ${zbResult.status} WHERE id = ${preEnrollContact!.id}`);
+                  if (zbResult.outcome === "completed" && !zbResult.reason) {
+                    await zbDb.execute(zbSql`
+                      UPDATE contacts
+                      SET email_status = ${zbResult.status},
+                          email_token_hash = ${hashEmailToken(preEnrollContact!.email)},
+                          email_validation_updated_at = NOW()
+                      WHERE id = ${preEnrollContact!.id}
+                    `);
+                  }
 
                   await storage.createAuditLog({
                     action: "zerobounce_email_validated",
@@ -468,17 +491,20 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
                     details: {
                       enrollmentId: enrollment.id,
                       sequenceId: sequence.id,
-                      email: preEnrollContact!.email,
+                      emailTokenHash: hashEmailToken(preEnrollContact!.email),
                       zbStatus: zbResult.status,
                       source: "sequence_worker_pre_enrollment",
                     },
                   });
 
-                  // If ZB flagged the address as undeliverable, pause immediately.
-                  if (ZB_UNDELIVERABLE.has(zbResult.status)) {
-                    await storage.updateSequenceEnrollment(enrollment.id, { status: "paused" });
+                  // Every non-positive result blocks marketing enrollment.
+                  if (zbResult.status !== "valid" || zbResult.outcome !== "completed" || zbResult.reason) {
+                    const terminal = ZB_UNDELIVERABLE.has(zbResult.status) || zbResult.status === "unverified";
+                    await storage.updateSequenceEnrollment(enrollment.id, terminal
+                      ? { status: "paused" }
+                      : { nextActionAt: new Date(Date.now() + ZB_RETRY_DELAY_MS) });
                     await storage.createAuditLog({
-                      action: "sequence_enrollment_blocked_zb_invalid",
+                      action: terminal ? "sequence_enrollment_blocked_zb_nonpositive" : "sequence_enrollment_deferred_zb_unavailable",
                       entityType: "contact",
                       entityId: preEnrollContact!.id,
                       actorType: "system",
@@ -486,23 +512,25 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
                         enrollmentId: enrollment.id,
                         sequenceId: sequence.id,
                         sequenceName: sequence.name,
-                        email: preEnrollContact!.email,
+                        emailTokenHash: hashEmailToken(preEnrollContact!.email),
                         zbStatus: zbResult.status,
-                        reason: `ZeroBounce flagged email as '${zbResult.status}' at pre-enrollment`,
+                        reason: "ZeroBounce did not produce positive current evidence",
                       },
                     });
                     processed++;
                     continue;
                   }
-                  // Good ZB result (valid / unverified / unknown) — fall through to
-                  // the contactability check, which now reads the persisted status.
                 } catch (zbErr: any) {
                   console.warn(
                     `[SequenceWorker] ZeroBounce pre-enrollment API error for contact ${enrollment.contactId}:`,
                     zbErr.message,
                   );
-                  // ZB API down — a credit was spent but the check failed.
-                  // Fall through; the contactability check will still block on 'unvalidated'.
+                  // Provider failure defers rather than authorizing enrollment.
+                  await storage.updateSequenceEnrollment(enrollment.id, {
+                    nextActionAt: new Date(Date.now() + ZB_RETRY_DELAY_MS),
+                  });
+                  processed++;
+                  continue;
                 }
               }
             }
@@ -777,7 +805,21 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
             (contact.emailStatus == null || contact.emailStatus === "active" || contact.emailStatus === "unvalidated")
           ) {
             const ZB_RETRY_MS = 60 * 60 * 1000; // 1 hour
-            const budgetCheck = await checkZeroBounceBudget();
+            const { evaluateMarketingEmailEligibility, enqueueCurrentValidationIntent } = await import("./provider-readiness-control");
+            const durableDecision = await evaluateMarketingEmailEligibility(contact.id);
+            if (!durableDecision.allowed) {
+              await enqueueCurrentValidationIntent(contact.id).catch(() => {});
+              await storage.updateSequenceEnrollment(enrollment.id, {
+                nextActionAt: new Date(Date.now() + ZB_RETRY_MS),
+              });
+              processed++;
+              continue;
+            }
+            // A current durable observation exists; do not fall through to the
+            // retired inline ZeroBounce/credit-claim lane.
+            processed++;
+            continue;
+            const budgetCheck = { allowed: false, used: 0, limit: 0 };
             if (!budgetCheck.allowed) {
               console.warn(
                 `[SequenceWorker] ZeroBounce daily cap reached (${budgetCheck.used}/${budgetCheck.limit}) — deferring unvalidated contact ${contact.id} for 1 h`,
@@ -807,7 +849,7 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
             if (!contact.email) {
               // No email address — let the downstream contactability gate handle it.
             } else {
-              const credited = await claimZeroBounceCredit();
+              const credited = false;
               if (!credited) {
                 // Atomicity race — another process claimed the last credit.
                 // Fail-closed: defer this step rather than sending to an unvalidated address.
@@ -835,13 +877,20 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
               }
 
               try {
-                const zbResult = await verifyEmail(contact.email);
-                // Write result back via raw SQL — Drizzle update().set() silently drops
-                // string columns when passed a union type; raw SQL is the safe path.
+                const zbResult = { status: "unknown", subStatus: null, outcome: "unavailable", reason: "durable_intent_required", skipped: true };
+                // Project only completed evidence for the current token.
                 const { db: zbDb } = await import("../db");
                 const { sql: zbSql } = await import("drizzle-orm");
-                await zbDb.execute(zbSql`UPDATE contacts SET email_status = ${zbResult.status} WHERE id = ${contact.id}`);
-                contact = { ...contact, emailStatus: zbResult.status };
+                if (zbResult.outcome === "completed" && !zbResult.reason) {
+                  await zbDb.execute(zbSql`
+                    UPDATE contacts
+                    SET email_status = ${zbResult.status},
+                        email_token_hash = ${hashEmailToken(contact.email)},
+                        email_validation_updated_at = NOW()
+                    WHERE id = ${contact.id}
+                  `);
+                  contact = { ...contact, emailStatus: zbResult.status };
+                }
 
                 await storage.createAuditLog({
                   action: "zerobounce_email_validated",
@@ -851,19 +900,22 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
                   details: {
                     enrollmentId: enrollment.id,
                     sequenceId: sequence.id,
-                    email: contact.email,
+                    emailTokenHash: hashEmailToken(contact.email),
                     zbStatus: zbResult.status,
                     zbSubStatus: zbResult.subStatus ?? null,
                     skipped: zbResult.skipped ?? false,
                   },
                 });
 
-                // Pause enrollment if ZeroBounce flagged the address as undeliverable.
-                // Uses the shared ZB_UNDELIVERABLE set (unsafe/invalid/bounced/do_not_mail/spam_trap/abuse).
-                if (ZB_UNDELIVERABLE.has(zbResult.status)) {
-                  await storage.updateSequenceEnrollment(enrollment.id, { status: "paused" });
+                // A timeout, unknown, catch-all, or other non-positive result
+                // cannot fall through into a marketing sequence send.
+                if (zbResult.status !== "valid" || zbResult.outcome !== "completed" || zbResult.reason) {
+                  const terminal = ZB_UNDELIVERABLE.has(zbResult.status) || zbResult.status === "unverified";
+                  await storage.updateSequenceEnrollment(enrollment.id, terminal
+                    ? { status: "paused" }
+                    : { nextActionAt: new Date(Date.now() + ZB_RETRY_MS) });
                   await storage.createAuditLog({
-                    action: "sequence_step_blocked_email_invalid",
+                    action: terminal ? "sequence_step_blocked_email_nonpositive" : "sequence_step_deferred_zb_unavailable",
                     entityType: "contact",
                     entityId: contact.id,
                     actorType: "system",
@@ -871,10 +923,10 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
                       enrollmentId: enrollment.id,
                       sequenceId: sequence.id,
                       sequenceName: sequence.name,
-                      email: contact.email,
+                      emailTokenHash: hashEmailToken(contact.email),
                       zbStatus: zbResult.status,
                       zbSubStatus: zbResult.subStatus ?? null,
-                      reason: `ZeroBounce flagged email as '${zbResult.status}' — enrollment paused`,
+                      reason: "ZeroBounce did not produce positive current evidence",
                     },
                   });
                   processed++;
@@ -882,8 +934,11 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
                 }
               } catch (zbErr) {
                 console.warn(`[SequenceWorker] ZeroBounce validation error for contact ${contact.id}:`, (zbErr as Error).message);
-                // Non-fatal: ZB API down — a credit was spent but check failed.
-                // Fall through so the send proceeds (batch continues).
+                await storage.updateSequenceEnrollment(enrollment.id, {
+                  nextActionAt: new Date(Date.now() + ZB_RETRY_MS),
+                });
+                processed++;
+                continue;
               }
             }
           }

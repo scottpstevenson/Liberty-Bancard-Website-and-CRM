@@ -129,6 +129,11 @@ export const contacts = pgTable("contacts", {
   parentContactId: integer("parent_contact_id"),
   locationName: text("location_name"),
   emailStatus: text("email_status").notNull().default("unvalidated"),
+  // BT-10 validation state is generation-fenced. The legacy emailStatus remains
+  // a compatibility projection; provider observations are the evidence source.
+  emailMutationGeneration: integer("email_mutation_generation").notNull().default(0),
+  emailTokenHash: text("email_token_hash"),
+  emailValidationUpdatedAt: timestamp("email_validation_updated_at"),
   bouncedAt: timestamp("bounced_at"),
   isDecisionMaker: boolean("is_decision_maker").notNull().default(false),
   decisionMakerConfidence: integer("decision_maker_confidence").notNull().default(0),
@@ -334,6 +339,132 @@ export const contactProviderProjections = pgTable("contact_provider_projections"
   index("contact_provider_projections_claim_idx").on(table.provider, table.state, table.nextAttemptAt),
 ]);
 export type ContactProviderProjection = typeof contactProviderProjections.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// BT-10 provider health, durable operations, and safe eligibility controls.
+// These rows intentionally keep provider evidence separate from consent,
+// identity, intake provenance, GHL projections, and manual field authority.
+// ---------------------------------------------------------------------------
+export const providerControls = pgTable("provider_controls", {
+  provider: text("provider").primaryKey(),
+  capability: text("capability").notNull(),
+  enabled: boolean("enabled").notNull().default(false),
+  circuitState: text("circuit_state").notNull().default("closed"),
+  localBudgetUnits: integer("local_budget_units"),
+  reservedUnits: integer("reserved_units").notNull().default(0),
+  consumedUnits: integer("consumed_units").notNull().default(0),
+  windowStartedAt: timestamp("window_started_at"),
+  windowEndsAt: timestamp("window_ends_at"),
+  lastCompletedAt: timestamp("last_completed_at"),
+  lastOutcome: text("last_outcome"),
+  lastErrorCode: text("last_error_code"),
+  observedAt: timestamp("observed_at"),
+  version: integer("version").notNull().default(0),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const providerOperations = pgTable("provider_operations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  provider: text("provider").notNull().references(() => providerControls.provider),
+  operationType: text("operation_type").notNull(),
+  purpose: text("purpose").notNull(),
+  idempotencyKey: text("idempotency_key").notNull(),
+  actorType: text("actor_type").notNull(),
+  actorId: text("actor_id"),
+  targetFingerprint: text("target_fingerprint").notNull(),
+  state: text("state").notNull().default("pending"),
+  requestedUnits: integer("requested_units").notNull().default(0),
+  reservedUnits: integer("reserved_units").notNull().default(0),
+  billingState: text("billing_state").notNull().default("none"),
+  attemptCount: integer("attempt_count").notNull().default(0),
+  claimToken: uuid("claim_token"),
+  leaseExpiresAt: timestamp("lease_expires_at"),
+  cancelRequestedAt: timestamp("cancel_requested_at"),
+  failureCode: text("failure_code"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("provider_operations_idempotency_schema_uidx").on(table.provider, table.idempotencyKey),
+  index("provider_operations_claim_schema_idx").on(table.provider, table.state, table.leaseExpiresAt),
+]);
+
+export const providerAttempts = pgTable("provider_attempts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  operationId: uuid("operation_id").notNull().references(() => providerOperations.id, { onDelete: "cascade" }),
+  attemptNumber: integer("attempt_number").notNull(),
+  outcome: text("outcome").notNull().default("pending"),
+  retryable: boolean("retryable").notNull().default(false),
+  safeHttpClass: text("safe_http_class"),
+  requestId: text("request_id"),
+  errorCode: text("error_code"),
+  startedAt: timestamp("started_at").notNull().defaultNow(),
+  completedAt: timestamp("completed_at"),
+}, (table) => [
+  uniqueIndex("provider_attempts_operation_number_schema_uidx").on(table.operationId, table.attemptNumber),
+]);
+
+export const providerObservations = pgTable("provider_observations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  provider: text("provider").notNull().references(() => providerControls.provider),
+  operationId: uuid("operation_id").references(() => providerOperations.id, { onDelete: "set null" }),
+  attemptId: uuid("attempt_id").references(() => providerAttempts.id, { onDelete: "set null" }),
+  subjectType: text("subject_type").notNull(),
+  subjectId: integer("subject_id").notNull(),
+  emailTokenHash: text("email_token_hash"),
+  subjectGeneration: integer("subject_generation"),
+  outcome: text("outcome").notNull(),
+  safeHttpClass: text("safe_http_class"),
+  requestId: text("request_id"),
+  evidenceHash: text("evidence_hash"),
+  retryable: boolean("retryable").notNull().default(false),
+  observedAt: timestamp("observed_at").notNull().defaultNow(),
+  expiresAt: timestamp("expires_at"),
+}, (table) => [
+  index("provider_observations_subject_schema_idx").on(table.subjectType, table.subjectId, table.observedAt),
+  index("provider_observations_email_schema_idx").on(table.subjectId, table.emailTokenHash, table.subjectGeneration, table.observedAt),
+]);
+
+export const validationIntents = pgTable("validation_intents", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  contactId: integer("contact_id").notNull().references(() => contacts.id, { onDelete: "cascade" }),
+  normalizedEmailTokenHash: text("normalized_email_token_hash").notNull(),
+  subjectGeneration: integer("subject_generation").notNull(),
+  policyVersion: integer("policy_version").notNull().default(1),
+  purpose: text("purpose").notNull().default("marketing_outreach"),
+  state: text("state").notNull().default("pending"),
+  enqueueState: text("enqueue_state").notNull().default("deferred"),
+  operationId: uuid("operation_id").references(() => providerOperations.id, { onDelete: "set null" }),
+  claimToken: uuid("claim_token"),
+  leaseExpiresAt: timestamp("lease_expires_at"),
+  attemptCount: integer("attempt_count").notNull().default(0),
+  nextAttemptAt: timestamp("next_attempt_at").notNull().defaultNow(),
+  terminalCode: text("terminal_code"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  completedAt: timestamp("completed_at"),
+}, (table) => [
+  uniqueIndex("validation_intents_current_schema_uidx")
+    .on(table.contactId, table.normalizedEmailTokenHash, table.subjectGeneration, table.purpose),
+  index("validation_intents_claim_schema_idx").on(table.state, table.nextAttemptAt, table.leaseExpiresAt),
+]);
+
+export const eligibilitySnapshots = pgTable("eligibility_snapshots", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  contactId: integer("contact_id").notNull().references(() => contacts.id, { onDelete: "cascade" }),
+  purpose: text("purpose").notNull(),
+  policyVersion: integer("policy_version").notNull(),
+  subjectGeneration: integer("subject_generation").notNull(),
+  decision: text("decision").notNull(),
+  reasonCodes: jsonb("reason_codes").notNull().default([]),
+  evidenceRefs: jsonb("evidence_refs").notNull().default([]),
+  evaluatedAt: timestamp("evaluated_at").notNull().defaultNow(),
+  expiresAt: timestamp("expires_at"),
+}, (table) => [
+  index("eligibility_snapshots_contact_schema_idx").on(table.contactId, table.purpose, table.evaluatedAt),
+]);
+
 
 // ---------------------------------------------------------------------------
 // Contact Lifecycle History — one row per lifecycle_state transition
@@ -1367,6 +1498,64 @@ export const outboundMessages = pgTable("outbound_messages", {
   index("outbound_messages_status_idx").on(table.status),
   index("outbound_messages_campaign_status_idx").on(table.campaignId, table.status),
   index("outbound_messages_scheduled_for_idx").on(table.scheduledFor),
+]);
+
+// Frozen campaign-membership ledger and the durable queue owner. Queue items
+// have a composite FK to this ledger, so a queue cannot add a non-preview
+// contact even after the audience changes.
+export const campaignPreviewMembers = pgTable("campaign_preview_members", {
+  previewId: integer("preview_id").notNull().references(() => campaignPreviews.id, { onDelete: "cascade" }),
+  contactId: integer("contact_id").notNull().references(() => contacts.id, { onDelete: "restrict" }),
+  subjectGeneration: integer("subject_generation").notNull(),
+  subjectMutationAt: timestamp("subject_mutation_at"),
+  normalizedEmailTokenHash: text("normalized_email_token_hash").notNull(),
+  eligibilityDecision: text("eligibility_decision").notNull(),
+  reasonCodes: jsonb("reason_codes").notNull().default([]),
+  taxonomyVersion: text("taxonomy_version"),
+  prerequisiteVersion: integer("prerequisite_version").notNull().default(1),
+  readinessModelVersion: integer("readiness_model_version"),
+  contactabilitySnapshotRef: uuid("contactability_snapshot_ref").references(() => eligibilitySnapshots.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  unique("campaign_preview_members_schema_pk").on(table.previewId, table.contactId),
+  index("campaign_preview_members_eligible_schema_idx").on(table.previewId, table.contactId),
+]);
+
+export const campaignQueueRuns = pgTable("campaign_queue_runs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  campaignId: integer("campaign_id").notNull().references(() => campaigns.id, { onDelete: "cascade" }),
+  previewId: integer("preview_id").notNull().references(() => campaignPreviews.id, { onDelete: "restrict" }),
+  idempotencyKey: text("idempotency_key").notNull(),
+  actorId: text("actor_id"),
+  state: text("state").notNull().default("pending"),
+  claimToken: uuid("claim_token"),
+  leaseExpiresAt: timestamp("lease_expires_at"),
+  cursorContactId: integer("cursor_contact_id"),
+  queuedCount: integer("queued_count").notNull().default(0),
+  excludedCount: integer("excluded_count").notNull().default(0),
+  failedCount: integer("failed_count").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  completedAt: timestamp("completed_at"),
+  failureCode: text("failure_code"),
+}, (table) => [
+  uniqueIndex("campaign_queue_runs_preview_schema_uidx").on(table.previewId),
+  uniqueIndex("campaign_queue_runs_idempotency_schema_uidx").on(table.campaignId, table.idempotencyKey),
+]);
+
+export const campaignQueueItems = pgTable("campaign_queue_items", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  queueRunId: uuid("queue_run_id").notNull().references(() => campaignQueueRuns.id, { onDelete: "cascade" }),
+  previewId: integer("preview_id").notNull(),
+  contactId: integer("contact_id").notNull(),
+  stepId: integer("step_id").references(() => campaignSteps.id, { onDelete: "set null" }),
+  disposition: text("disposition").notNull().default("pending"),
+  reasonCode: text("reason_code"),
+  outboundMessageId: integer("outbound_message_id").references(() => outboundMessages.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  completedAt: timestamp("completed_at"),
+}, (table) => [
+  uniqueIndex("campaign_queue_items_member_schema_uidx").on(table.queueRunId, table.contactId, table.stepId),
+  index("campaign_queue_items_run_schema_idx").on(table.queueRunId, table.disposition, table.contactId),
 ]);
 
 export const insertOutboundMessageSchema = createInsertSchema(outboundMessages).omit({
@@ -4890,6 +5079,11 @@ export const statementUploadCommands = pgTable("statement_upload_commands", {
   createdAt:          timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt:          timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   completedAt:        timestamp("completed_at", { withTimezone: true }),
+  leaseToken:         uuid("lease_token"),
+  leaseExpiresAt:     timestamp("lease_expires_at", { withTimezone: true }),
+  heartbeatAt:        timestamp("heartbeat_at", { withTimezone: true }),
+  attemptCount:       integer("attempt_count").notNull().default(0),
+  terminalCode:       text("terminal_code"),
 }, (table) => [
   // Primary idempotency constraint: one row per operation/request pair.
   uniqueIndex("suc_scope_request_id_uidx").on(table.operationScope, table.requestId),

@@ -44,7 +44,7 @@ function assert(label: string, condition: boolean, detail?: string) {
 async function testQueueConfigsBaseline() {
   console.log("\n1. QUEUE_CONFIGS baseline — roster count and no mutations from this task");
 
-  const BASELINE_COUNT = 24;
+const BASELINE_COUNT = 25;
   const actualCount = QUEUE_CONFIGS.length;
 
   if (actualCount !== BASELINE_COUNT) {

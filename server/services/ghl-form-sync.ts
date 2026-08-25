@@ -1,9 +1,9 @@
 import crypto from "crypto";
 import { eq } from "drizzle-orm";
 import { db } from "../db";
-import { merchantApplications } from "@shared/schema";
+import { merchantApplications, contactProviderProjections } from "@shared/schema";
 import { isGhlConfigured } from "./ghl";
-import { syncContactToGhl, syncDealToGhl } from "./ghl-sync";
+import { syncDealToGhl } from "./ghl-sync";
 import { triggerWorkflow, updateCustomFields, addTag, addNote, isSdrGhlConfigured } from "./sdr/ghl-client";
 import { storage } from "../storage";
 import { getSafeApplicationMasks } from "./merchant-protected-data";
@@ -31,6 +31,29 @@ export interface FormSyncParams {
 
 function isGhlReady(): boolean {
   return isGhlConfigured() || isSdrGhlConfigured();
+}
+
+async function enqueueGhlContactProjection(contactId: number): Promise<void> {
+  await db.insert(contactProviderProjections).values({
+    contactId,
+    provider: "ghl",
+    projectionKey: `contact:${contactId}`,
+    state: "pending",
+  }).onConflictDoUpdate({
+    target: [
+      contactProviderProjections.contactId,
+      contactProviderProjections.provider,
+      contactProviderProjections.projectionKey,
+    ],
+    set: { state: "pending", lastErrorCode: null, nextAttemptAt: new Date(), updatedAt: new Date() },
+  });
+}
+
+async function legacyContactSyncDisabled(): Promise<{ success: false; error: string; ghlContactId?: undefined }> {
+  return {
+    success: false,
+    error: "Direct GHL contact synchronization is disabled; use a durable contact projection.",
+  };
 }
 
 export type GatedMutationResult<T> =
@@ -86,6 +109,27 @@ export async function syncFormSubmissionToGhl(params: FormSyncParams): Promise<{
   ghlContactId?: string;
   error?: string;
 }> {
+  const legacyDirectOwner =
+    (globalThis as { __BT10_LEGACY_GHL_FORM_DIRECT_OWNER__?: boolean })
+      .__BT10_LEGACY_GHL_FORM_DIRECT_OWNER__ === true;
+  if (!legacyDirectOwner) {
+    const { db } = await import("../db");
+    const { contactProviderProjections } = await import("@shared/schema");
+    await db.insert(contactProviderProjections).values({
+      contactId: params.contactId,
+      provider: "ghl",
+      projectionKey: `contact:${params.contactId}`,
+      state: "pending",
+    }).onConflictDoUpdate({
+      target: [
+        contactProviderProjections.contactId,
+        contactProviderProjections.provider,
+        contactProviderProjections.projectionKey,
+      ],
+      set: { state: "pending", lastErrorCode: null, nextAttemptAt: new Date(), updatedAt: new Date() },
+    });
+    return { success: true };
+  }
   try {
     if (!isGhlReady()) {
       console.warn(`[GHL Form Sync] GHL not configured — skipping sync for ${params.leadSource}`);
@@ -95,7 +139,7 @@ export async function syncFormSubmissionToGhl(params: FormSyncParams): Promise<{
     const contact = await storage.getContact(params.contactId);
     if (!contact) return { success: false, error: "Contact not found" };
 
-    const syncResult = await syncContactToGhl(params.contactId);
+    const syncResult = await legacyContactSyncDisabled();
     if (!syncResult.success) {
       console.warn(`[GHL Form Sync] Contact sync failed for ${params.contactId}: ${syncResult.error}`);
       return { success: false, error: syncResult.error };
@@ -241,6 +285,10 @@ export async function syncFormSubmissionToGhl(params: FormSyncParams): Promise<{
 }
 
 export async function syncMerchantApplicationToGhl(applicationId: number, contactId: number): Promise<{ success: boolean; error?: string }> {
+  if (!(globalThis as { __BT10_LEGACY_GHL_FORM_DIRECT_OWNER__?: boolean }).__BT10_LEGACY_GHL_FORM_DIRECT_OWNER__) {
+    await enqueueGhlContactProjection(contactId);
+    return { success: true };
+  }
   try {
     if (!isGhlReady()) return { success: false, error: "GHL not configured" };
 
@@ -278,7 +326,7 @@ export async function syncMerchantApplicationToGhl(applicationId: number, contac
     const contact = await storage.getContact(contactId);
     if (!contact) return { success: false, error: "Contact not found" };
 
-    const syncResult = await syncContactToGhl(contactId);
+    const syncResult = await legacyContactSyncDisabled();
     const ghlContactId = syncResult.ghlContactId || contact.ghlContactId;
     if (!ghlContactId) return { success: false, error: "No GHL contact" };
 
@@ -376,6 +424,10 @@ export async function syncMerchantApplicationToGhl(applicationId: number, contac
 }
 
 export async function syncStatementUploadToGhl(contactId: number, fileName: string): Promise<{ success: boolean; error?: string }> {
+  if (!(globalThis as { __BT10_LEGACY_GHL_FORM_DIRECT_OWNER__?: boolean }).__BT10_LEGACY_GHL_FORM_DIRECT_OWNER__) {
+    await enqueueGhlContactProjection(contactId);
+    return { success: true };
+  }
   try {
     if (!isGhlReady()) return { success: false, error: "GHL not configured" };
 
@@ -383,7 +435,7 @@ export async function syncStatementUploadToGhl(contactId: number, fileName: stri
     let ghlContactId = contact?.ghlContactId || null;
 
     if (!ghlContactId) {
-      const syncResult = await syncContactToGhl(contactId);
+      const syncResult = await legacyContactSyncDisabled();
       ghlContactId = syncResult.ghlContactId || null;
     }
 
@@ -412,6 +464,10 @@ export async function syncStatementUploadToGhl(contactId: number, fileName: stri
 }
 
 export async function syncSupportTicketToGhl(contactId: number, ticketId: number, issueType: string, description: string): Promise<{ success: boolean; error?: string }> {
+  if (!(globalThis as { __BT10_LEGACY_GHL_FORM_DIRECT_OWNER__?: boolean }).__BT10_LEGACY_GHL_FORM_DIRECT_OWNER__) {
+    await enqueueGhlContactProjection(contactId);
+    return { success: true };
+  }
   try {
     if (!isGhlReady()) return { success: false, error: "GHL not configured" };
 
@@ -419,7 +475,7 @@ export async function syncSupportTicketToGhl(contactId: number, ticketId: number
     let ghlContactId = contact?.ghlContactId || null;
 
     if (!ghlContactId) {
-      const syncResult = await syncContactToGhl(contactId);
+      const syncResult = await legacyContactSyncDisabled();
       ghlContactId = syncResult.ghlContactId || null;
     }
 
@@ -491,6 +547,13 @@ export async function syncAffiliateSignupToGhl(params: {
   companyName?: string;
   affiliateCode: string;
 }): Promise<{ success: boolean; skipped?: boolean; status?: number; reason?: string }> {
+  if (!(globalThis as { __BT10_DURABLE_GHL_AFFILIATE_OWNER__?: boolean }).__BT10_DURABLE_GHL_AFFILIATE_OWNER__) {
+    return {
+      success: false,
+      skipped: true,
+      reason: "durable_ghl_projection_required",
+    };
+  }
   if (!isGhlReady()) return { success: false, skipped: true, reason: "ghl_not_configured" };
 
   const apiKey = process.env.GHL_PRIVATE_INTEGRATION_TOKEN || process.env.GHL_API_KEY;

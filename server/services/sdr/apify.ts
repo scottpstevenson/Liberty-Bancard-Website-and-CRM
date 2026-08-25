@@ -1,4 +1,5 @@
 import { storage } from "../../storage";
+import { assertProviderActivation } from "../provider-manifest";
 
 const APIFY_API_URL = "https://api.apify.com/v2";
 
@@ -134,6 +135,11 @@ async function runApifyActor(
   input: Record<string, any>,
   timeoutSecs: number = 120
 ): Promise<Record<string, any>[]> {
+  assertProviderActivation({
+    sourceId: "apify",
+    caller: "unapproved",
+    explicitPaidApproval: false,
+  });
   if (!process.env.APIFY_API_TOKEN) {
     console.warn("[Apify] No API token configured. Set APIFY_API_TOKEN env variable.");
     return [];

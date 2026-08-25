@@ -1378,9 +1378,10 @@ export async function runPilotDiscovery(options: PilotDiscoveryOptions): Promise
 
   const paidSources = (options.sources || []).filter(s => ALLOWED_PAID_SOURCES.includes(s));
   const freeSources = (options.sources || []).filter(s => ALLOWED_FREE_SOURCES.includes(s));
-  // Apollo enrichment runs silently post-discovery whenever APOLLO_API_KEY is configured;
-  // it is not a user-selectable discovery source.
-  const runApolloEnrichment = isApolloConfigured();
+  // A configured Apollo secret is not authorization to spend paid credits.
+  // This pilot lane has no bounded durable operation/reservation owner yet, so
+  // it remains fail-closed until one explicitly activates the manifest adapter.
+  const runApolloEnrichment = false;
 
   const matrix = await getSearchMatrix();
   const verticals = options.verticals?.length ? options.verticals : matrix.verticals.slice(0, 2);
@@ -1481,20 +1482,9 @@ export async function runPilotDiscovery(options: PilotDiscoveryOptions): Promise
               console.error(`[PilotDiscovery] Apollo mergeContact error for merchant ${merchantId}:`, err);
             }
 
-            if (apolloMatch.ownerEmail) {
-              try {
-                const zbResult = await verifyEmail(apolloMatch.ownerEmail);
-                const leadState = await storage.getSdrLeadStateByMerchant(merchantId);
-                if (leadState) {
-                  const existingData = (leadState.enrichmentData as Record<string, any>) || {};
-                  await storage.updateSdrLeadState(leadState.id, {
-                    enrichmentData: { ...existingData, emailVerification: zbResult },
-                  });
-                }
-              } catch (zbErr) {
-                console.error(`[PilotDiscovery] ZeroBounce error for merchant ${merchantId}:`, zbErr);
-              }
-            }
+            // Email validation is intentionally deferred until a canonical
+            // contact exists with a generation-fenced validation intent. A raw
+            // discovery email cannot produce marketing-ready evidence.
           }
         }
       }
@@ -1581,6 +1571,8 @@ function getNextRunTime(): Date {
 }
 
 export function startNightlyDiscovery(): void {
+  console.warn("[LeadFinder] Nightly discovery disabled pending durable command ownership");
+  return;
   const { featureFlags } = require("../../services/feature-flags");
   if (!featureFlags.NIGHTLY_DISCOVERY_ENABLED) {
     console.log("[LeadFinder] NIGHTLY_DISCOVERY_ENABLED=false, nightly discovery not started");

@@ -101,6 +101,7 @@ import {
 import { eq, desc, and, lt, isNull, ne, sql, asc, gt, gte, lte, inArray, or, ilike, count } from "drizzle-orm";
 import { coerceDateFields } from "../utils/date-coerce";
 import { assertNoProtectedContactFields, stripContactAuthorityFields } from "../services/contact-field-authority";
+import { createValidationIntent, hashEmailToken, normalizeEmailToken } from "../services/provider-readiness-control";
   import { type PaginationParams, type PaginatedResult, normalizePagination } from "./_shared";
 
   export class ContactsStorage {
@@ -186,8 +187,24 @@ import { assertNoProtectedContactFields, stripContactAuthorityFields } from "../
 
   async createContact(insertContact: InsertContact, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }) {
     const { auditChange } = await import("../services/audit-change");
-    return await db.transaction(async (tx) => {
-      const [contact] = (await tx.insert(contacts).values(insertContact).returning()) as any[];
+    const tokenHash = hashEmailToken((insertContact as any).email);
+    const created = await db.transaction(async (tx) => {
+      const [contact] = (await tx.insert(contacts).values({
+        ...insertContact,
+        ...(tokenHash ? {
+          emailMutationGeneration: 1,
+          emailTokenHash: tokenHash,
+          emailValidationUpdatedAt: null,
+          emailStatus: "unvalidated",
+        } : {}),
+      }).returning()) as any[];
+      if (tokenHash) {
+        await createValidationIntent(tx, {
+          contactId: contact.id,
+          email: contact.email,
+          generation: contact.emailMutationGeneration,
+        });
+      }
       const { recordContactIdentityObservations } = await import("../services/contact-identity");
       await recordContactIdentityObservations(tx as any, contact, "storage_create");
       await auditChange({
@@ -202,6 +219,11 @@ import { assertNoProtectedContactFields, stripContactAuthorityFields } from "../
       }, tx);
       return contact;
     });
+    if (created?.emailMutationGeneration > 0) {
+      const { enqueueCurrentValidationIntent } = await import("../services/provider-readiness-control");
+      await enqueueCurrentValidationIntent(created.id).catch(() => {});
+    }
+    return created;
   }
 
 
@@ -229,9 +251,29 @@ import { assertNoProtectedContactFields, stripContactAuthorityFields } from "../
        "lastVoicemailAt", "offerRoutedAt"],
     );
     const [before] = await db.select().from(contacts).where(eq(contacts.id, id));
-    return await db.transaction(async (tx) => {
-      const [updated] = await tx.update(contacts).set({ ...coercedUpdates, updatedAt: new Date() } as typeof contacts.$inferInsert).where(eq(contacts.id, id)).returning();
+    const updated = await db.transaction(async (tx) => {
+      const nextEmail = "email" in coercedUpdates ? String((coercedUpdates as any).email ?? "") : before?.email;
+      const materialEmailChange = !!before && normalizeEmailToken(nextEmail) !== normalizeEmailToken(before.email);
+      const nextGeneration = materialEmailChange ? before.emailMutationGeneration + 1 : before?.emailMutationGeneration;
+      const tokenHash = materialEmailChange ? hashEmailToken(nextEmail) : before?.emailTokenHash;
+      const [updated] = await tx.update(contacts).set({
+        ...coercedUpdates,
+        updatedAt: new Date(),
+        ...(materialEmailChange ? {
+          emailMutationGeneration: nextGeneration,
+          emailTokenHash: tokenHash,
+          emailValidationUpdatedAt: null,
+          emailStatus: "unvalidated",
+        } : {}),
+      } as typeof contacts.$inferInsert).where(eq(contacts.id, id)).returning();
       if (updated) {
+        if (materialEmailChange && tokenHash && nextGeneration) {
+          await createValidationIntent(tx, {
+            contactId: id,
+            email: updated.email,
+            generation: nextGeneration,
+          });
+        }
         if ("email" in coercedUpdates || "phone" in coercedUpdates) {
           const { recordContactIdentityObservations } = await import("../services/contact-identity");
           await recordContactIdentityObservations(tx as any, updated, "storage_update");
@@ -249,29 +291,23 @@ import { assertNoProtectedContactFields, stripContactAuthorityFields } from "../
       }
       return updated;
     });
+    if (updated?.emailMutationGeneration > 0 && "email" in coercedUpdates) {
+      const { enqueueCurrentValidationIntent } = await import("../services/provider-readiness-control");
+      await enqueueCurrentValidationIntent(updated.id).catch(() => {});
+    }
+    return updated;
   }
 
   async syncUpdateContact(id: number, updates: UpdateContactRequest) {
-    // Intentionally does NOT bump updatedAt so that updatedAt stays as the last
-    // genuine user-edit timestamp and conflict detection remains accurate.
     // Provider-originated generic profile sync may not mutate consent or
     // suppression projections. Those fields are handled by ConsentAuthority.
     const safeUpdates = stripContactAuthorityFields(updates as Record<string, unknown>) as UpdateContactRequest;
-    const [before] = await db.select().from(contacts).where(eq(contacts.id, id));
-    const [updated] = await db.transaction(async (tx) => {
-      const [row] = await tx.update(contacts).set(safeUpdates).where(eq(contacts.id, id)).returning();
-      if (row && ("email" in safeUpdates || "phone" in safeUpdates)) {
-        const { recordContactIdentityObservations } = await import("../services/contact-identity");
-        await recordContactIdentityObservations(tx as any, row, "ghl_inbound");
-      }
-      return [row];
+    // GHL inbound email changes must share the canonical generation + durable
+    // intent transaction. A sync must never leave current email evidence valid.
+    return this.updateContact(id, safeUpdates, {
+      actorType: "system",
+      actorId: "ghl_inbound",
     });
-    if (updated) {
-      const { auditChange } = await import("../services/audit-change");
-      auditChange({ actorType: "system", action: "contact_sync_updated", entityType: "contact", entityId: id,
-        before: before as unknown as Record<string, unknown>, after: updated as unknown as Record<string, unknown> }).catch(() => {});
-    }
-    return updated;
   }
 
 
@@ -488,6 +524,8 @@ import { assertNoProtectedContactFields, stripContactAuthorityFields } from "../
     minCompletenessScore?: number;
     limit?: number;
     offset?: number;
+    afterContactId?: number;
+    maxContactId?: number;
     readinessThreshold?: number;
     readinessModelVersion?: number;
   }): Promise<Array<{
@@ -503,6 +541,8 @@ import { assertNoProtectedContactFields, stripContactAuthorityFields } from "../
     dataCompletenessScore: number | null;
     emailStatus: string;
     optedOutEmail: boolean | null;
+     emailMutationGeneration: number;
+     updatedAt: Date | null;
   }>> {
     const { normalizeDiscoveryVertical } = await import("../services/sdr/lead-finder");
 
@@ -511,6 +551,7 @@ import { assertNoProtectedContactFields, stripContactAuthorityFields } from "../
     // contactable pool without JS-level offset skew.
     const sqlOffset = opts.offset ?? 0;
     const sqlLimit = opts.limit ?? 1000;
+    const usesKeyset = opts.afterContactId != null || opts.maxContactId != null;
 
     const rows = await db
       .select({
@@ -526,6 +567,8 @@ import { assertNoProtectedContactFields, stripContactAuthorityFields } from "../
         dataCompletenessScore: contacts.dataCompletenessScore,
         emailStatus: contacts.emailStatus,
         optedOutEmail: contacts.optedOutEmail,
+         emailMutationGeneration: contacts.emailMutationGeneration,
+         updatedAt: contacts.updatedAt,
       })
       .from(contacts)
       .where(
@@ -538,6 +581,8 @@ import { assertNoProtectedContactFields, stripContactAuthorityFields } from "../
           ne(contacts.emailStatus, "unsubscribed"),
           ne(contacts.emailStatus, "unvalidated"),
           sql`${contacts.optedOutEmail} IS NOT TRUE`,
+          opts.afterContactId != null ? sql`${contacts.id} > ${opts.afterContactId}` : undefined,
+          opts.maxContactId != null ? sql`${contacts.id} <= ${opts.maxContactId}` : undefined,
           opts.minCompletenessScore != null
             ? gte(contacts.dataCompletenessScore, opts.minCompletenessScore)
             : undefined,
@@ -562,8 +607,11 @@ import { assertNoProtectedContactFields, stripContactAuthorityFields } from "../
             : undefined,
         )
       )
-      .orderBy(desc(contacts.dataCompletenessScore), desc(contacts.leadScore))
-      .offset(sqlOffset)
+      .orderBy(
+        usesKeyset ? asc(contacts.id) : desc(contacts.dataCompletenessScore),
+        usesKeyset ? asc(contacts.id) : desc(contacts.leadScore),
+      )
+      .offset(usesKeyset ? 0 : sqlOffset)
       .limit(sqlLimit);
 
     if (!opts.verticals || opts.verticals.length === 0) {

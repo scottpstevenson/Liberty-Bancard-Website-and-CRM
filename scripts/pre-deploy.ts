@@ -147,6 +147,16 @@ const MANDATORY_SUITES: Suite[] = [
     timeoutSecs: 60,
   },
   {
+    name: "Paid Provider Adapter Scan (manifest-only provider URLs/imports)",
+    script: "scripts/scan-paid-provider-adapters.ts",
+    timeoutSecs: 60,
+  },
+  {
+    name: "Provider Health and Readiness Kill Lines",
+    script: "scripts/test-provider-readiness-controls.ts",
+    timeoutSecs: 60,
+  },
+  {
     name: "Serper Gateway (circuit breaker / budget / rollover — fake transports)",
     script: "scripts/test-serper-gateway.ts",
     timeoutSecs: 120,
@@ -216,6 +226,11 @@ const MANDATORY_SUITES: Suite[] = [
   {
     name: "Queue Lease Fencing (stale takeover and telemetry isolation)",
     script: "scripts/test-stale-job-lock.ts",
+    timeoutSecs: 60,
+  },
+  {
+    name: "Statement Command Durability (missing upload, duplicate delivery, lease takeover)",
+    script: "server/tests/statement-command-worker.test.ts",
     timeoutSecs: 60,
   },
   {

@@ -104,6 +104,18 @@ export const SUITE_MANIFEST: SuiteManifestEntry[] = [
     providerDenial: "none (pure file scan)",
   },
   {
+    name: "Provider Manifest and Readiness Kill Lines",
+    script: "scripts/test-provider-readiness-controls.ts",
+    capability: "deterministic-static",
+    providerDenial: "pure manifest and eligibility decisions; no transport is constructed",
+  },
+  {
+    name: "Paid Provider Adapter Scan",
+    script: "scripts/scan-paid-provider-adapters.ts",
+    capability: "deterministic-static",
+    providerDenial: "source-only URL/import scanner; no providers",
+  },
+  {
     name: "Tracked-File Exposure Scan",
     script: "scripts/scan-tracked-files.ts",
     capability: "deterministic-static",
@@ -254,6 +266,12 @@ export const SUITE_MANIFEST: SuiteManifestEntry[] = [
     script: "scripts/test-stale-job-lock.ts",
     capability: "deterministic-integration",
     providerDenial: "PostgreSQL registry rows use unique test job names; no providers",
+  },
+  {
+    name: "Statement Command Durability",
+    script: "server/tests/statement-command-worker.test.ts",
+    capability: "deterministic-integration",
+    providerDenial: "intentionally missing local files; statement chain and all providers are unreachable",
   },
   {
     name: "Redis Queue Topology",

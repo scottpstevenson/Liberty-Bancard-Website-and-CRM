@@ -31,6 +31,7 @@ export const QUEUE_NAMES = {
   VOICEMAIL_SYNC: "voicemail-sync",
   POST_ENRICHMENT: "post-enrichment",
   ZEROBOUNCE_BATCH: "zerobounce-batch-validate",
+  STATEMENT_UPLOAD: "statement-upload",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -116,6 +117,14 @@ const SLA_CHECKS_REPEAT_EVERY_MS = IS_DEV
     : SLA_CHECKS_REPEAT_DEFAULT_MS;
 
 export const QUEUE_CONFIGS: QueueConfig[] = [
+  {
+    name: QUEUE_NAMES.STATEMENT_UPLOAD,
+    concurrency: 1,
+    attempts: 3,
+    backoffDelay: 10000,
+    repeatEveryMs: 5 * 60 * 1000,
+    jobName: "recover",
+  },
   {
     name: QUEUE_NAMES.GHL_SYNC,
     // concurrency=3: each tick is a GHL API call; 3 lets slow timeouts drain in parallel
@@ -587,6 +596,8 @@ export async function getQueueManager(): Promise<QueueManager> {
     }
     _queueManager = qm;
     _initPromise = null;
+    const { recoverStatementUploadCommands } = await import("./statement-command-worker");
+    await recoverStatementUploadCommands();
 
     // (#1532) Inject coordinator reference so physical reconciliation can call
     // queue.pause()/queue.resume()/queue.isPaused() for Phase 4 pilot queues.
@@ -1039,7 +1050,13 @@ class QueueManager {
           break;
         }
         case QUEUE_NAMES.ENRICHMENT: {
-          if (_job.name === "statement-blueprint" && typeof _job.data?.dealId === "number") {
+          if (_job.name === "validation-intent" && typeof _job.data?.intentId === "string") {
+            const { processValidationIntent } = await import("./provider-readiness-control");
+            await processValidationIntent(_job.data.intentId);
+          } else if (_job.name === "campaign-queue-run" && typeof _job.data?.runId === "string") {
+            const { processCampaignQueueRun } = await import("./campaign-engine");
+            await processCampaignQueueRun(_job.data.runId);
+          } else if (_job.name === "statement-blueprint" && typeof _job.data?.dealId === "number") {
             await runStatementBlueprintJob(_job.data.dealId);
           } else if (_job.name === "free-contact-enrichment" && typeof _job.data?.merchantId === "number") {
             await runFreeContactEnrichmentForMerchant(_job.data.merchantId);
@@ -1270,6 +1287,10 @@ class QueueManager {
             }
           } else {
             await runEnrichmentTick();
+            const { recoverValidationIntents } = await import("./provider-readiness-control");
+            await recoverValidationIntents();
+            const { recoverCampaignQueueRuns } = await import("./campaign-engine");
+            await recoverCampaignQueueRuns();
           }
           break;
         }
@@ -1436,6 +1457,18 @@ class QueueManager {
             if (!runId) throw new Error("zerobounce-batch-validate job missing runId");
             await processZeroBounceRun(runId);
           }
+          break;
+        }
+        case QUEUE_NAMES.STATEMENT_UPLOAD: {
+          const { executeStatementUploadCommand, recoverStatementUploadCommands } = await import("./statement-command-worker");
+          if (_job.name === "recover") {
+            await recoverStatementUploadCommands();
+            break;
+          }
+          const commandId = _job.data?.commandId;
+          if (typeof commandId !== "string") throw new Error("statement command id required");
+          await executeStatementUploadCommand(commandId);
+          await recoverStatementUploadCommands();
           break;
         }
         case QUEUE_NAMES.POST_ENRICHMENT: {

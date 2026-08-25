@@ -404,7 +404,7 @@ async function runRouteTests(loggedIn: boolean) {
   // Case 10b (route): two concurrent queue requests — exactly one wins, other gets 409
   // This proves the atomic consume gate under true concurrency (race between DB reads and UPDATE).
   {
-    const label = "Case 10b (route): two concurrent requests — one wins (200/queued), one loses (409)";
+    const label = "Case 10b (route): two concurrent requests — one gets accepted (202), one loses (409)";
     const campaign = await makeCampaign(["restaurant"], "concurrent");
     await makeStep(campaign.id);
     const preview = await makePreview(campaign.id);
@@ -414,10 +414,11 @@ async function runRouteTests(loggedIn: boolean) {
       queueRequest(campaign.id, { previewId: preview.id }),
     ]);
     const statuses = [r1.status, r2.status].sort();
-    // Acceptable outcomes: one 200 + one 409, OR one 400 + one 409 if no contacts to queue.
+    // Accepted contact queue work is durable and deferred to its worker.
+    // Acceptable outcomes: one 202 + one 409, OR one 400 + one 409 if no contacts to queue.
     // The key invariant is exactly one 409 (preview consumed exactly once).
     const hasOneConflict = statuses.filter((s) => s === 409).length === 1;
-    const firstIsOkOrEmpty = statuses[0] === 200 || statuses[0] === 400;
+    const firstIsOkOrEmpty = statuses[0] === 202 || statuses[0] === 400;
     hasOneConflict && firstIsOkOrEmpty
       ? ok(label, `statuses=[${statuses}]`)
       : fail(label, `statuses=[${statuses}] — expected exactly one 409`);

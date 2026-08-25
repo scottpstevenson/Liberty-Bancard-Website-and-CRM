@@ -1,4 +1,5 @@
 import { storage } from "../../storage";
+import { assertProviderActivation } from "../provider-manifest";
 
 const OUTSCRAPER_API_URL = "https://api.app.outscraper.com";
 
@@ -137,6 +138,11 @@ export async function searchOutscraper(
   limit: number = 200,
   region: string = "US"
 ): Promise<OutscraperBusiness[]> {
+  assertProviderActivation({
+    sourceId: "outscraper",
+    caller: "unapproved",
+    explicitPaidApproval: false,
+  });
   if (!process.env.OUTSCRAPER_API_KEY) {
     console.warn("[Outscraper] No API key configured. Set OUTSCRAPER_API_KEY env variable.");
     return [];

@@ -51,6 +51,7 @@ export type BacklogSource =
   | "deferred_ghl"
   | "promotional_enrollment_jobs"
   | "post_enrichment_enrollment_intents"
+  | "statement_upload_commands"
   | "none";
 
 // ---------------------------------------------------------------------------
@@ -90,6 +91,17 @@ export interface ManifestEntry {
 // ---------------------------------------------------------------------------
 
 export const LOGICAL_JOB_MANIFEST: readonly ManifestEntry[] = [
+  {
+    logicalKey: "statement-upload-command",
+    physicalQueue: QUEUE_NAMES.STATEMENT_UPLOAD,
+    jobNamePattern: "*",
+    handler: "Durable statement-upload command execution and recovery",
+    owner: "statement-command-worker",
+    effect: "transactional_external",
+    canRunWhileGlobalOutboundPaused: true,
+    backlogSource: "statement_upload_commands",
+    releaseController: "statement-command-worker",
+  },
   // ── GHL_SYNC ─────────────────────────────────────────────────────────────
   {
     logicalKey: "ghl-sync",

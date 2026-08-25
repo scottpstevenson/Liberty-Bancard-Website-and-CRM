@@ -453,9 +453,7 @@ export function registerSdrRoutes(app: Express) {
 
       const missingApiKeys: string[] = [];
       if (!process.env.SERPER_API_KEY) missingApiKeys.push("SERPER_API_KEY");
-      if (!process.env.OUTSCRAPER_API_KEY) missingApiKeys.push("OUTSCRAPER_API_KEY");
-      if (!process.env.APIFY_API_TOKEN) missingApiKeys.push("APIFY_API_TOKEN");
-      if (!process.env.APOLLO_API_KEY) missingApiKeys.push("APOLLO_API_KEY");
+      const disabledPaidSources = ["Outscraper", "Apify", "Apollo"];
 
       const smsEnabled = featureFlags.SMS_ENABLED;
       const voiceEnabled = featureFlags.VOICE_AI_ENABLED;
@@ -583,7 +581,7 @@ export function registerSdrRoutes(app: Express) {
             key: "nightly_discovery",
             name: "Nightly Lead Discovery",
             icon: "search",
-            status: !discoveryEnabled ? "off" : missingApiKeys.length === 4 ? "blocked" : missingApiKeys.length > 0 ? "warning" : "safe",
+            status: !discoveryEnabled ? "off" : missingApiKeys.length > 0 ? "blocked" : "warning",
             flagKey: "NIGHTLY_DISCOVERY_ENABLED",
             flagEnabled: discoveryEnabled,
             regulation: "No TCPA restriction",
@@ -591,18 +589,19 @@ export function registerSdrRoutes(app: Express) {
             summary: !discoveryEnabled
               ? "NIGHTLY_DISCOVERY_ENABLED=false — automated lead discovery is off."
               : missingApiKeys.length === 0
-              ? "All 4 discovery API keys are configured. Nightly discovery will run at the scheduled time."
-              : `${4 - missingApiKeys.length}/4 discovery API keys configured. Missing: ${missingApiKeys.join(", ")}.`,
+              ? "Serper is configured; paid discovery sources remain disabled pending durable provider commands."
+              : `Serper is not configured. Paid discovery sources also remain disabled pending durable provider commands.`,
             requirements: [
-              "Set SERPER_API_KEY, OUTSCRAPER_API_KEY, APIFY_API_TOKEN, APOLLO_API_KEY for full coverage",
+              "Configure Serper through its approved control plane",
               "Discovery does not contact leads — it only populates the prospect queue",
               "Contacts discovered here will need consent captured before automated SMS/calls",
             ],
             blockers: [
               ...(!discoveryEnabled ? ["NIGHTLY_DISCOVERY_ENABLED=false — set to true in Replit Secrets when ready"] : []),
               ...missingApiKeys.map((k) => `${k} not set — this discovery source will be skipped`),
+               ...disabledPaidSources.map((source) => `${source} is disabled pending a durable approved provider operation`),
             ],
-            stats: { missingApiKeys, configuredCount: 4 - missingApiKeys.length },
+            stats: { missingApiKeys, disabledPaidSources, configuredCount: missingApiKeys.length === 0 ? 1 : 0 },
           },
         ],
       });
@@ -1042,6 +1041,7 @@ export function registerSdrRoutes(app: Express) {
   app.post("/api/sdr/discovery/run", isAuthenticated, async (req, res) => {
     if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin only" });
     try {
+      return res.status(503).json({ message: "Lead discovery is disabled pending durable command ownership.", execution: "unavailable" });
       const { runLeadDiscovery } = await import("../services/sdr/lead-finder");
       const { acquireJobLock } = await import("../services/job-registry");
       const lease = await acquireJobLock("sdr-lead-discovery");
@@ -1049,7 +1049,7 @@ export function registerSdrRoutes(app: Express) {
       if (lease.status === "unavailable") return res.status(503).json({ message: "Lead discovery registry is unavailable", execution: "unavailable" });
       const { verticals, metros, dataSources } = req.body;
       res.status(202).json({ message: "Lead discovery accepted", started: true, execution: "accepted" });
-      runLeadDiscovery("manual", { verticals, metros, dataSources }, { lockToken: lease.lockToken }).catch(err =>
+      runLeadDiscovery("manual", { verticals, metros, dataSources }, { lockToken: (lease as any).lockToken }).catch(err =>
         console.error("[LeadDiscovery API] Error:", err)
       );
     } catch (err: unknown) {
@@ -1071,6 +1071,7 @@ export function registerSdrRoutes(app: Express) {
   app.post("/api/sdr/discovery/pilot", isAuthenticated, async (req, res) => {
     if ((req as any).user?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
     try {
+      return res.status(503).json({ message: "Pilot discovery is disabled pending durable command ownership.", execution: "unavailable" });
       const safeLimit = Math.min(req.body.limit ?? 25, 50);
       const { sources, verticals, metros } = req.body;
       const job = await storage.createLeadDiscoveryJob({
@@ -1283,9 +1284,9 @@ export function registerSdrRoutes(app: Express) {
 
       res.json({
         serper: { configured: serperConfigured, usage: serperUsage },
-        outscraper: { configured: outscrConfigured, usage: outscrUsage },
-        apify: { configured: apifyConfigured, usage: apifyUsage },
-        apollo: { configured: apolloConfigured, usage: apolloUsage },
+        outscraper: { configured: false, enabled: false, state: "disabled_pending_durable_operation" },
+        apify: { configured: false, enabled: false, state: "disabled_pending_durable_operation" },
+        apollo: { configured: false, enabled: false, state: "disabled_pending_durable_operation" },
         osm: { configured: true, free: true, description: "OpenStreetMap Overpass — no key required" },
         yellowpages: { configured: true, free: true, description: "YP.com scraper — no key required" },
         bbb: { configured: true, free: true, description: "BBB.org accreditation listings — no key required" },
@@ -1300,6 +1301,7 @@ export function registerSdrRoutes(app: Express) {
     if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin only" });
     const { source } = req.body;
     try {
+      return res.status(503).json({ success: false, message: "Provider connection tests are disabled pending durable approved operations." });
       if (source === "apollo") {
         const { testApolloConnection } = await import("../services/sdr/apollo");
         const result = await testApolloConnection();
@@ -1608,6 +1610,12 @@ export function registerSdrRoutes(app: Express) {
         const statementReq = await storage.getStatementRequestByToken(token);
         if (statementReq) {
           const fileBuffer = (req as any).file?.buffer as Buffer | undefined;
+          if (!fileBuffer || !(req as any).file?.originalname) {
+            return res.status(400).json({
+              error: "STATEMENT_FILE_REQUIRED",
+              message: "A statement file is required before this upload can be accepted.",
+            });
+          }
           const fingerprint = computeRequestFingerprint({
             fields: {
               contactId: statementReq.contactId,
@@ -1676,10 +1684,8 @@ export function registerSdrRoutes(app: Express) {
             fileName: (req as any).file?.originalname ?? null,
           });
 
-          const { runStatementUploadChain } = await import("../services/statement-upload-chain");
-          // The chain is authoritative for the TERMINAL command result (it calls
-          // markSucceeded / markRecoverableFailed internally via commandId).
-          const chainResult = await runStatementUploadChain({
+          const { persistAndEnqueueStatementCommand } = await import("../services/statement-command-worker");
+          const statementQueued = await persistAndEnqueueStatementCommand({
             contactId: statementReq.contactId,
             dealId: statementReq.dealId ?? undefined,
             fileBuffer,
@@ -1687,33 +1693,39 @@ export function registerSdrRoutes(app: Express) {
             source: "token-upload",
             commandId,
           });
-          await storage.updateStatementRequest(statementReq.id, {
-            status: "uploaded",
-            uploadedAt: new Date(),
-          });
-          const { handleStatementReceived } = await import("../services/sdr/statement-flow");
-          if (statementReq.sdrLeadStateId) {
-            await handleStatementReceived(statementReq.sdrLeadStateId).catch(() => {});
+          if (!statementQueued) {
+            return res.status(503).json({ error: "STATEMENT_COMMAND_QUEUE_UNAVAILABLE", statement_upload_request_id: commandId });
           }
-
           const srAccepted = {
             success: true,
-            chain: chainResult as unknown as Record<string, unknown>,
+            deferred: true,
             statement_upload_request_id: commandId,
           };
           // Do NOT markSucceeded here — the chain owns its own terminal result.
 
           res.setHeader("Idempotency-Key", idempotencyKey);
           res.setHeader("X-Statement-Upload-Request-Id", commandId);
-          return res.json(srAccepted);
+          return res.status(202).json(srAccepted);
         }
 
         // Fallback: check sdrLeadState token
-        const { findLeadByUploadToken, handleStatementReceived } = await import("../services/sdr/statement-flow");
+        const { findLeadByUploadToken } = await import("../services/sdr/statement-flow");
         const lead = await findLeadByUploadToken(token);
         if (!lead) return res.status(404).json({ message: "Invalid or expired upload link" });
 
         const fileBuffer = (req as any).file?.buffer as Buffer | undefined;
+        if (!fileBuffer || !(req as any).file?.originalname) {
+          return res.status(400).json({
+            error: "STATEMENT_FILE_REQUIRED",
+            message: "A statement file is required before this upload can be accepted.",
+          });
+        }
+        if (!lead.contactId) {
+          return res.status(422).json({
+            error: "STATEMENT_UPLOAD_CONTACT_REQUIRED",
+            message: "This upload link is not linked to a contact and cannot be processed.",
+          });
+        }
         const fingerprint = computeRequestFingerprint({
           fields: {
             leadId: lead.id,
@@ -1772,11 +1784,8 @@ export function registerSdrRoutes(app: Express) {
 
         const commandId = claimResult.command.id;
         ownedCommandId = commandId;
-        // Tracks whether the authoritative chain ran (and therefore owns the
-        // terminal command result).
-        let chainRan = false;
 
-        // Persist context before running the chain.
+        // Persist context before handing off to the queue-owned chain.
         await idemUpdateContext(commandId, {
           leadId: lead.id,
           contactId: lead.contactId ?? null,
@@ -1786,50 +1795,28 @@ export function registerSdrRoutes(app: Express) {
           fileName: (req as any).file?.originalname ?? null,
         });
 
-        const result = await handleStatementReceived(lead.id);
-
-        // If there is a linked statement_requests row via sdrLeadStateId, update it too
-        if (lead.contactId) {
-          const linkedReq = await storage.getStatementRequestByContactId(lead.contactId);
-          if (linkedReq && linkedReq.status === "requested") {
-            await storage.updateStatementRequest(linkedReq.id, {
-              status: "uploaded",
-              uploadedAt: new Date(),
-            });
-          }
-
-          // Also run the full chain so document + deal analysis are created.
-          // commandId is passed so the chain marks the idempotency slot terminal.
-          // When the chain runs, it is authoritative for the terminal command result.
-          if (fileBuffer) {
-            const { runStatementUploadChain } = await import("../services/statement-upload-chain");
-            await runStatementUploadChain({
-              contactId: lead.contactId,
-              dealId: lead.dealId ?? undefined,
-              fileBuffer,
-              fileName: (req as any).file?.originalname,
-              source: "token-upload",
-              commandId,
-            });
-            chainRan = true;
-          }
+        const { persistAndEnqueueStatementCommand } = await import("../services/statement-command-worker");
+        const statementQueued = await persistAndEnqueueStatementCommand({
+          contactId: lead.contactId,
+          dealId: lead.dealId ?? undefined,
+          fileBuffer,
+          fileName: (req as any).file?.originalname,
+          source: "token-upload",
+          commandId,
+        });
+        if (!statementQueued) {
+          return res.status(503).json({ error: "STATEMENT_COMMAND_QUEUE_UNAVAILABLE", statement_upload_request_id: commandId });
         }
 
         const leadAccepted = {
-          success: result as unknown as Record<string, unknown>,
+          success: true,
+          deferred: true,
           statement_upload_request_id: commandId,
         };
-        // If the authoritative chain ran, it owns the terminal command result —
-        // do NOT overwrite it here. Only when no chain ran (no file / no contact)
-        // is the route itself the terminal owner and must mark the slot succeeded.
-        if (!chainRan) {
-          const { markSucceeded: idemMarkSucceeded } = await import("../services/statement-upload-idempotency");
-          await idemMarkSucceeded(commandId, leadAccepted).catch(() => {});
-        }
 
         res.setHeader("Idempotency-Key", idempotencyKey);
         res.setHeader("X-Statement-Upload-Request-Id", commandId);
-        return res.json(leadAccepted);
+        return res.status(202).json(leadAccepted);
       } catch (err: unknown) {
         // Route-level error after claim — honestly mark the owned slot
         // recoverable-failed so the key never replays as a success.
@@ -2399,6 +2386,9 @@ export function registerSdrRoutes(app: Express) {
   });
 
   app.post("/api/sdr/re-enrichment/run", isAuthenticated, async (req, res) => {
+    if (!(globalThis as { __BT10_DURABLE_LONG_OPERATION_OWNER__?: boolean }).__BT10_DURABLE_LONG_OPERATION_OWNER__) {
+      return res.status(503).json({ code: "DURABLE_COMMAND_REQUIRED", message: "Re-enrichment requires a durable command." });
+    }
     if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin only" });
     try {
       const { runReEnrichmentCycle, isReEnrichmentRunning } = await import("../services/sdr/re-enrichment");
@@ -2924,6 +2914,10 @@ export function registerSdrRoutes(app: Express) {
 
   app.patch("/api/operator/sync-conflicts/:id/resolve", isAdmin, async (req, res) => {
     try {
+      return res.status(503).json({
+        code: "RECONCILIATION_COMMAND_REQUIRED",
+        message: "Conflict resolution requires a durable reconciliation command.",
+      });
       const id = parseInt(req.params.id as string, 10);
       const { resolution } = req.body as { resolution: "kept-internal" | "kept-ghl" | "manual" };
       if (!["kept-internal", "kept-ghl", "manual"].includes(resolution)) {
@@ -2931,7 +2925,7 @@ export function registerSdrRoutes(app: Express) {
       }
 
       const conflicts = await storage.getSyncConflicts();
-      const conflict = conflicts.find(c => c.id === id);
+      const conflict = conflicts.find(c => c.id === id) as any;
       if (!conflict) return res.status(404).json({ message: "Conflict not found" });
 
       const { upsertGhlContact } = await import("../services/ghl");
@@ -2960,7 +2954,7 @@ export function registerSdrRoutes(app: Express) {
         if (contact?.ghlContactId) {
           try {
             await upsertGhlContact(contact);
-          } catch (ghlErr: unknown) {
+          } catch (ghlErr: any) {
             const msg = ghlErr instanceof Error ? ghlErr.message : String(ghlErr);
             console.error(`[Sync Conflict] GHL write failed for kept-ghl resolution #${id}: ${msg}`);
             return res.status(502).json({ message: safeMessage(msg, "DB updated but GHL sync failed") });
@@ -2971,7 +2965,7 @@ export function registerSdrRoutes(app: Express) {
         if (contact?.ghlContactId) {
           try {
             await upsertGhlContact(contact);
-          } catch (ghlErr: unknown) {
+          } catch (ghlErr: any) {
             const msg = ghlErr instanceof Error ? ghlErr.message : String(ghlErr);
             console.error(`[Sync Conflict] GHL write failed for kept-internal resolution #${id}: ${msg}`);
             return res.status(502).json({ message: safeMessage(msg, "GHL sync failed — conflict remains pending") });

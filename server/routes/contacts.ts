@@ -110,12 +110,7 @@ export async function runZbValidationBatch(
 ): Promise<ZbBatchCounters> {
   const counters: ZbBatchCounters = { processed: 0, valid: 0, blocked: 0, errors: 0, retryableErrors: 0 };
 
-  // Preflight: a missing API key is definitively not billable — do not burn
-  // a single local credit on a misconfigured batch.
-  if (!deps.hasProviderKey()) {
-    counters.retryableErrors = toProcess.length;
-    return counters;
-  }
+      const { createValidationIntent, processValidationIntent, hashEmailToken } = await import("../services/provider-readiness-control");
 
   for (const contactId of toProcess) {
     try {
@@ -124,28 +119,26 @@ export async function runZbValidationBatch(
       // Never send synthetic placeholder addresses to ZeroBounce, and never
       // let them consume a daily credit (checked BEFORE claiming).
       if (isPlaceholderEmail(contact.email)) continue;
-      const credited = await deps.claimCredit();
-      if (!credited) break;
-
-      const zbResult = await deps.verifyEmail(contact.email);
-      // Transport/config failures (HTTP error, timeout, exception) must NOT
-      // overwrite email_status — leave the contact eligible for the next run.
-      if (isRetryableZbFailure(zbResult)) {
-        counters.retryableErrors++;
-        continue;
-      }
-      await pool.query(`UPDATE contacts SET email_status = $1 WHERE id = $2`, [zbResult.status, contactId]);
-      await storage.createAuditLog({
-        action: "zerobounce_email_validated",
-        entityType: "contact",
-        entityId: contactId,
-        actorType: "admin",
-        actorId,
-        details: { email: contact.email, zbStatus: zbResult.status, zbSubStatus: zbResult.subStatus ?? null, source: "batch" },
-      });
+      const generation = (await pool.query(
+        `UPDATE contacts SET email_mutation_generation = GREATEST(email_mutation_generation, 1),
+             email_token_hash = $2 WHERE id = $1 RETURNING email_mutation_generation`,
+        [contactId, hashEmailToken(contact.email)],
+      )).rows[0].email_mutation_generation;
+      await db.transaction((tx) => createValidationIntent(tx, {
+        contactId, email: contact.email, generation, purpose: "marketing_outreach",
+      }));
+      const intent = await pool.query(
+        `SELECT id FROM validation_intents WHERE contact_id = $1
+           AND subject_generation = $2 AND purpose = 'marketing_outreach'
+         ORDER BY updated_at DESC LIMIT 1`,
+        [contactId, generation],
+      );
+      if (!intent.rows[0]) { counters.errors++; continue; }
+      const outcome = await processValidationIntent(intent.rows[0].id, { verifyEmail: deps.verifyEmail });
       counters.processed++;
-      if (zbResult.status === "valid") counters.valid++;
-      else if (zbResult.status === "unsafe") counters.blocked++;
+      if (outcome === "completed") counters.valid++;
+      else if (outcome === "deferred") counters.retryableErrors++;
+      else counters.blocked++;
     } catch (e) {
       counters.errors++;
     }
@@ -377,7 +370,8 @@ export function registerContactsRoutes(app: Express) {
       sendPushToAllReps({ title: "New Lead Assigned", body: `${contact.firstName} ${contact.lastName}${contact.companyName ? ` — ${contact.companyName}` : ""} added to CRM`, url: "/mobile/contacts" }).catch(() => {});
       triggerWorkflowsByEvent("contact_created", { entityType: "contact", entityId: contact.id, contactId: contact.id }).catch(err => console.error("Workflow trigger error:", err));
       ingestBusinessFromContact(contact.id, "manual_upload", "crm_contact_create").catch(err => console.warn("[CRM] Business ingest failed:", err));
-      scoreContact(contact.id).catch(err => console.error("Lead scoring error:", err));
+      // Scoring follows the canonical contact writer's durable follow-up path;
+      // never publish a score from a route-owned detached promise.
       extractRelationshipsForContact(contact.id).catch(err => console.warn("[Relationships] Extraction failed:", err));
       enqueuePromotionalEnrollment({ contactId: contact.id, triggerType: "contact_created", sourceEventId: crypto.randomUUID() }).catch(err => console.error("Enqueue error:", err));
       routeContact(contact.id).catch(err => console.error("Smart routing error:", err));
@@ -499,7 +493,7 @@ export function registerContactsRoutes(app: Express) {
       });
       const parsed = schema.safeParse(req.body);
       if (!parsed.success) {
-        return res.status(400).json({ message: parsed.error.errors[0].message });
+          return res.status(400).json({ message: parsed.error!.errors[0].message });
       }
       // Deduplicate before querying
       const unique = Array.from(new Set(parsed.data.contactIds));
@@ -916,15 +910,6 @@ export function registerContactsRoutes(app: Express) {
       if (_getRole === "agent" && _assignedTo && _assignedTo !== _getEmail) {
         return res.status(403).json({ message: "Forbidden", code: "NOT_YOUR_CONTACT" });
       }
-      if (!contact.ghlContactId && isGhlConfigured()) {
-        syncContactToGhl(contact.id).then(result => {
-          if (result.success) {
-            console.log(`[GHL Read-Touch] Auto-upserted contact ${contact.id} to GHL: ${result.ghlContactId}`);
-          }
-        }).catch((err: Error) => {
-          console.warn(`[GHL Read-Touch] Auto-upsert failed for contact ${contact.id}:`, err.message);
-        });
-      }
       res.json(contact);
     } catch (err: any) {
       serverError(res, err);
@@ -1245,19 +1230,18 @@ export function registerContactsRoutes(app: Express) {
 
   // === PROXYCURL STATUS ===
   app.get("/api/proxycurl/status", isDashboardUser, async (req, res) => {
-    const configured = !!process.env.PROXYCURL_API_KEY;
-    res.json({ configured });
+    res.json({
+      configured: false,
+      enabled: false,
+      state: "disabled_pending_durable_operation",
+      message: "Proxycurl enrichment requires an approved durable provider operation.",
+    });
   });
 
   // === LINKEDIN ENRICHMENT ===
   app.post("/api/contacts/:id/enrich-linkedin", isDashboardUser, async (req, res) => {
     try {
-      const contactId = Number(req.params.id);
-      const result = await enrichContactFromLinkedIn(contactId);
-      if (!result.success) {
-        return res.status(400).json({ message: result.error, provider: result.provider });
-      }
-      res.json(result);
+      return res.status(503).json({ message: "LinkedIn enrichment is disabled pending a durable approved provider operation." });
     } catch (err: any) {
       serverError(res, err);
     }
@@ -1265,15 +1249,16 @@ export function registerContactsRoutes(app: Express) {
 
   app.post("/api/contacts/bulk-enrich-linkedin", isDashboardUser, async (req, res) => {
     try {
+      return res.status(503).json({ message: "Bulk LinkedIn enrichment is disabled pending a durable approved provider operation." });
       const schema = z.object({
         contactIds: z.array(z.number().int().positive()).min(1).max(100),
       });
       const parsed = schema.safeParse(req.body);
       if (!parsed.success) {
-        return res.status(400).json({ message: parsed.error.errors[0].message });
+          return res.status(400).json({ message: "Invalid bulk enrichment request" });
       }
-      res.json({ message: `LinkedIn enrichment started for ${parsed.data.contactIds.length} contacts`, started: true });
-      bulkEnrichFromLinkedIn(parsed.data.contactIds).catch(err =>
+      res.json({ message: `LinkedIn enrichment started for ${parsed.data!.contactIds.length} contacts`, started: true });
+      bulkEnrichFromLinkedIn(parsed.data!.contactIds).catch(err =>
         console.error("[LinkedIn Bulk Enrich] Error:", err)
       );
     } catch (err: any) {
@@ -2605,48 +2590,27 @@ export function registerContactsRoutes(app: Express) {
         return res.status(400).json({ message: "Contact has a synthetic placeholder email address; nothing to validate" });
       }
 
-      const { checkZeroBounceBudget, claimZeroBounceCredit } = await import("../services/zerobounce-daily-limiter");
-      const { verifyEmail } = await import("../services/sdr/zerobounce");
-
-      // Preflight: missing provider key must never burn a credit or write status.
-      if (!isZeroBounceConfigured()) {
-        return res.status(503).json({
-          success: false,
-          retryable: true,
-          message: "ZeroBounce is not configured (missing ZEROBOUNCE_API_KEY); no credit consumed, contact status unchanged",
-        });
-      }
-
-      const budget = await checkZeroBounceBudget();
-      if (!budget.allowed) {
-        return res.status(429).json({ message: `ZeroBounce daily cap reached (${budget.used}/${budget.limit})` });
-      }
-
-      const credited = await claimZeroBounceCredit();
-      if (!credited) return res.status(429).json({ message: "Could not claim ZeroBounce credit" });
-
-      const zbResult = await verifyEmail(contact.email);
-      // Retryable transport/config failure: do NOT overwrite email_status.
-      if (isRetryableZbFailure(zbResult)) {
-        return res.status(502).json({
-          success: false,
-          retryable: true,
-          message: zbResult.skipped
-            ? "ZeroBounce is not configured (missing API key); contact status unchanged"
-            : `ZeroBounce validation failed (${zbResult.reason}); contact status unchanged`,
-        });
-      }
-      await pool.query(`UPDATE contacts SET email_status = $1 WHERE id = $2`, [zbResult.status, contactId]);
-      await storage.createAuditLog({
-        action: "zerobounce_email_validated",
-        entityType: "contact",
-        entityId: contactId,
-        actorType: "admin",
-        actorId: String((req.user as any)?.id ?? "system"),
-        details: { email: contact.email, zbStatus: zbResult.status, zbSubStatus: zbResult.subStatus ?? null, source: "manual" },
+      const { db } = await import("../db");
+      const { createValidationIntent, enqueueCurrentValidationIntent, hashEmailToken } = await import("../services/provider-readiness-control");
+      const generation = (await pool.query(
+        `UPDATE contacts SET email_mutation_generation = GREATEST(email_mutation_generation, 1),
+             email_token_hash = $2 WHERE id = $1 RETURNING email_mutation_generation`,
+        [contactId, hashEmailToken(contact.email)],
+      )).rows[0].email_mutation_generation;
+      await db.transaction((tx) => createValidationIntent(tx, {
+        contactId,
+        email: contact.email,
+        generation,
+        purpose: "marketing_outreach",
+      }));
+      const enqueued = await enqueueCurrentValidationIntent(contactId);
+      res.status(enqueued ? 202 : 503).json({
+        success: false,
+        deferred: !enqueued,
+        message: enqueued
+          ? "Validation accepted for durable processing."
+          : "Validation intent was saved but queue processing is unavailable; it will recover automatically.",
       });
-
-      res.json({ success: true, email: contact.email, status: zbResult.status, subStatus: zbResult.subStatus ?? null });
     } catch (err: any) {
       serverError(res, err);
     }

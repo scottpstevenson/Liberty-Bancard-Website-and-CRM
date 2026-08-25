@@ -23,6 +23,7 @@ import {
   assertNoProtectedContactFields,
   stripContactAuthorityFields,
 } from "./contact-field-authority";
+import { createValidationIntent, hashEmailToken, normalizeEmailToken } from "./provider-readiness-control";
 
 export {
   CONTACT_AUTHORITY_OWNED_FIELDS,
@@ -163,6 +164,7 @@ export async function writeContact(args: {
   const shouldProject = mode === "local_first";
   const email = String((mutation as any).email ?? "").trim().toLowerCase();
   const syntheticPlaceholder = /^no-email-[0-9a-f-]+@no-email\.libertybancard\.internal$/i.test(email);
+  const initialEmailTokenHash = hashEmailToken(email);
 
   // Transactional contact + source event + observation + audit + projection.
   // A: insert contact with primarySourceEventId = NULL
@@ -257,10 +259,25 @@ export async function writeContact(args: {
       primarySourceEventId: null, // will be updated after event insert
       recordClass: "unknown",
       lastMeaningfulContactMutationAt: new Date(),
+      ...(initialEmailTokenHash ? {
+        emailMutationGeneration: 1,
+        emailTokenHash: initialEmailTokenHash,
+        emailValidationUpdatedAt: null,
+        // DAT-14 is a compatibility projection only; the durable intent below
+        // is the authoritative record that current validation is pending.
+        emailStatus: "unvalidated",
+      } : {}),
     };
 
     // A: Insert contact
     const [newContact] = await tx.insert(contacts).values(contactPayload).returning();
+    if (initialEmailTokenHash) {
+      await createValidationIntent(tx, {
+        contactId: newContact.id,
+        email: newContact.email,
+        generation: newContact.emailMutationGeneration,
+      });
+    }
     await recordContactIdentityObservations(tx as any, newContact, "contact_writer", provenance.eventKey);
 
     // B: Insert source event
@@ -309,6 +326,13 @@ export async function writeContact(args: {
     return { contact: updatedContact, outcome: "created" as const, pending };
   });
   const contact = result.contact;
+
+  if (contact.emailMutationGeneration > 0) {
+    const { enqueueCurrentValidationIntent } = await import("./provider-readiness-control");
+    // Failure is intentionally non-fatal: the committed intent is recovered by
+    // the queue-owned worker rather than being lost with this HTTP request.
+    await enqueueCurrentValidationIntent(contact.id).catch(() => {});
+  }
 
   // Step 3: Readiness hook
   try {
@@ -409,11 +433,30 @@ export async function updateContactLocalFirst(
   const hasReadinessChange = changedKeys.some(k => READINESS_DEPENDENT_FIELDS.includes(k as any));
   const fingerprint = crypto.createHash("sha256").update(JSON.stringify(safeUpdates)).digest("hex").slice(0, 32);
   const updated = await db.transaction(async (tx) => {
+    const [before] = await tx.select().from(contacts).where(eq(contacts.id, contactId)).limit(1);
+    if (!before) return null;
+    const nextEmail = "email" in safeUpdates ? String((safeUpdates as any).email ?? "") : before.email;
+    const materialEmailChange = normalizeEmailToken(nextEmail) !== normalizeEmailToken(before.email);
+    const nextGeneration = materialEmailChange ? before.emailMutationGeneration + 1 : before.emailMutationGeneration;
+    const nextTokenHash = materialEmailChange ? hashEmailToken(nextEmail) : before.emailTokenHash;
     const [local] = await tx.update(contacts).set({
       ...safeUpdates,
       ...(hasReadinessChange ? { lastMeaningfulContactMutationAt: new Date() } : {}),
+      ...(materialEmailChange ? {
+        emailMutationGeneration: nextGeneration,
+        emailTokenHash: nextTokenHash,
+        emailValidationUpdatedAt: null,
+        emailStatus: "unvalidated",
+      } : {}),
     }).where(eq(contacts.id, contactId)).returning();
     if (!local) return null;
+    if (materialEmailChange && nextTokenHash) {
+      await createValidationIntent(tx, {
+        contactId,
+        email: local.email,
+        generation: nextGeneration,
+      });
+    }
     const syntheticPlaceholder = /^no-email-[0-9a-f-]+@no-email\.libertybancard\.internal$/i.test(local.email);
     if (!syntheticPlaceholder) {
       await tx.insert(contactProviderProjections).values({

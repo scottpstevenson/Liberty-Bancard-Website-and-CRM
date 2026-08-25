@@ -56,6 +56,9 @@ export function registerSystemAuditRoutes(app: Express) {
 
   app.post("/api/system-audit/run-now", requireRole("admin", "manager"), async (req, res) => {
     try {
+      if (!(globalThis as { __BT10_DURABLE_LONG_OPERATION_OWNER__?: boolean }).__BT10_DURABLE_LONG_OPERATION_OWNER__) {
+        return res.status(503).json({ code: "DURABLE_COMMAND_REQUIRED", message: "System audit requires a durable command." });
+      }
       const userId = (req.user as any)?.id;
       const { runSystemAudit } = await import("../services/system-audit/runner");
 

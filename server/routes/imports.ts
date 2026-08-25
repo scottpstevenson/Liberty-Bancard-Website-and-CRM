@@ -70,6 +70,9 @@ export function registerImportsRoutes(app: Express) {
 
   // === FULL COREVT IMPORT ===
   app.post("/api/sunbiz/import-corevt-full", isAuthenticated, async (req, res) => {
+    if (!(globalThis as { __BT10_DURABLE_LONG_OPERATION_OWNER__?: boolean }).__BT10_DURABLE_LONG_OPERATION_OWNER__) {
+      return res.status(503).json({ code: "DURABLE_COMMAND_REQUIRED", message: "Corevt import requires a durable command." });
+    }
     if ((req.user as any)?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
     const maxRecords = Number(req.body.maxRecords) || Infinity;
     const onlyActive = req.body.onlyActive !== false;
@@ -85,6 +88,9 @@ export function registerImportsRoutes(app: Express) {
   });
 
   app.post("/api/sunbiz/import-cordata", isAuthenticated, async (req, res) => {
+    if (!(globalThis as { __BT10_DURABLE_LONG_OPERATION_OWNER__?: boolean }).__BT10_DURABLE_LONG_OPERATION_OWNER__) {
+      return res.status(503).json({ code: "DURABLE_COMMAND_REQUIRED", message: "Cordata import requires a durable command." });
+    }
     if ((req.user as any)?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
     const maxRecords = req.body.maxRecords ? parseInt(req.body.maxRecords) : Infinity;
     const download = req.body.download !== false;
@@ -98,6 +104,9 @@ export function registerImportsRoutes(app: Express) {
   });
 
   app.post("/api/sunbiz/fast-classify", isAuthenticated, async (req, res) => {
+    if (!(globalThis as { __BT10_DURABLE_LONG_OPERATION_OWNER__?: boolean }).__BT10_DURABLE_LONG_OPERATION_OWNER__) {
+      return res.status(503).json({ code: "DURABLE_COMMAND_REQUIRED", message: "Bulk classification requires a durable command." });
+    }
     if ((req.user as any)?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
     const { acquireJobLock, releaseJobLock } = await import("../services/job-registry");
     const lease = await acquireJobLock("sunbiz-fast-classification");
@@ -2657,6 +2666,9 @@ Guidelines:
 
   // Trigger backfill: copy existing imported contacts into master_leads
   app.post("/api/master-leads/backfill", isAuthenticated, async (req, res) => {
+    if (!(globalThis as { __BT10_DURABLE_LONG_OPERATION_OWNER__?: boolean }).__BT10_DURABLE_LONG_OPERATION_OWNER__) {
+      return res.status(503).json({ code: "DURABLE_COMMAND_REQUIRED", message: "Master-lead backfill requires a durable command." });
+    }
     if ((req.user as any)?.role !== "admin") return res.status(403).json({ message: "Admin only" });
     res.json({ message: "Backfill started in background", started: true });
     setImmediate(async () => {

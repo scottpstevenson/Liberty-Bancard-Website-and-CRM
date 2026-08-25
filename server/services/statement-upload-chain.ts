@@ -9,7 +9,6 @@
 import path from "path";
 import fs from "fs";
 import { storage } from "../storage";
-import { syncContactToGhl, syncDealToGhl } from "./ghl-sync";
 import { syncStatementUploadToGhl } from "./ghl-form-sync";
 import { isGhlConfigured, createGhlTask } from "./ghl";
 import { isSmtpConfigured, sendSmtpEmail } from "./smtp-email";
@@ -54,6 +53,8 @@ export interface StatementUploadInput {
    * correlated back to the client-supplied key for observability.
    */
   requestId?: string;
+  /** Queue-worker lease fence. HTTP handlers never set this. */
+  commandLeaseToken?: string;
 }
 
 export interface ChainStepResult {
@@ -138,6 +139,7 @@ export async function runStatementUploadChain(
   let dealId: number = input.dealId ?? 0;
   let documentId: number | undefined;
   const commandId = input.commandId;
+  const commandLeaseToken = input.commandLeaseToken;
 
   console.log(`[StatementChain] Starting upload chain for contact #${input.contactId}, source=${input.source}${commandId ? `, commandId=${commandId}` : ""}`);
 
@@ -153,13 +155,13 @@ export async function runStatementUploadChain(
         step: 1,
         contactId: contact.id,
         ...(input.requestId ? { requestId: input.requestId } : {}),
-      }).catch(() => {});
+      }, commandLeaseToken).catch(() => {});
     }
   } catch (err: any) {
     steps.push(makeStep(1, "Contact verified", false, err.message));
     await logStepFailure(dealId || null, 1, "Contact verified", err.message);
     if (commandId) {
-      await markRecoverableFailed(commandId, { error: err.message, failedStep: 1 }).catch(() => {});
+      await markRecoverableFailed(commandId, { error: err.message, failedStep: 1 }, commandLeaseToken).catch(() => {});
     }
     // Contact is critical — cannot proceed
     return {
@@ -283,8 +285,8 @@ export async function runStatementUploadChain(
     }
     // Persist deal FK on command row after deal is resolved/created
     if (commandId && dealId) {
-      await updateCommandFKs(commandId, { contactId: input.contactId, dealId }).catch(() => {});
-      await updateCheckpoint(commandId, { step: 3, dealId }).catch(() => {});
+      await updateCommandFKs(commandId, { contactId: input.contactId, dealId }, commandLeaseToken).catch(() => {});
+      await updateCheckpoint(commandId, { step: 3, dealId }, commandLeaseToken).catch(() => {});
     }
   } catch (err: any) {
     steps.push(makeStep(3, "Deal created/updated", false, err.message));
@@ -308,8 +310,8 @@ export async function runStatementUploadChain(
       }
       steps.push(makeStep(4, "File attached", true, undefined, { documentId, reused: true }));
       if (commandId) {
-        await updateCommandFKs(commandId, { documentId }).catch(() => {});
-        await updateCheckpoint(commandId, { step: 4, documentId, reused: true }).catch(() => {});
+        await updateCommandFKs(commandId, { documentId }, commandLeaseToken).catch(() => {});
+        await updateCheckpoint(commandId, { step: 4, documentId, reused: true }, commandLeaseToken).catch(() => {});
       }
     } catch (err: any) {
       steps.push(makeStep(4, "File attached", false, err.message));
@@ -339,8 +341,8 @@ export async function runStatementUploadChain(
       documentId = doc.id;
       steps.push(makeStep(4, "File attached", true, undefined, { documentId, storageKey }));
       if (commandId) {
-        await updateCommandFKs(commandId, { documentId }).catch(() => {});
-        await updateCheckpoint(commandId, { step: 4, documentId }).catch(() => {});
+        await updateCommandFKs(commandId, { documentId }, commandLeaseToken).catch(() => {});
+        await updateCheckpoint(commandId, { step: 4, documentId }, commandLeaseToken).catch(() => {});
       }
     } catch (err: any) {
       steps.push(makeStep(4, "File attached", false, err.message));
@@ -443,22 +445,6 @@ export async function runStatementUploadChain(
                     type: "alert",
                     metadata: { dealId: capturedDealId, decision: result.decision, score: result.score, link: `/dashboard/underwriting`, eventType: "underwriting_flagged" },
                   });
-                  if (isGhlConfigured() && deal.contactId) {
-                    storage.getContact(deal.contactId).then(uwContact => {
-                      if (uwContact?.ghlContactId) {
-                        createGhlTask({
-                          contactId: uwContact.ghlContactId,
-                          title: result.decision === "hold"
-                            ? `Underwriting HOLD — Deal #${capturedDealId} needs immediate review`
-                            : `Underwriting Review Required — Deal #${capturedDealId}`,
-                          description: result.reasons[0] ?? "Deal flagged for manual review.",
-                          taskType: "FOLLOW_UP",
-                          assignedTo: deal.owner || undefined,
-                          dueDate: new Date(Date.now() + 2 * 60 * 60 * 1000),
-                        }).catch(err => console.warn("[Underwriting] createGhlTask (non-critical):", err.message));
-                      }
-                    }).catch(() => {});
-                  }
                 }
                 console.log(`[Underwriting] Deal #${capturedDealId} decision=${result.decision} score=${result.score}`);
               }
@@ -582,17 +568,6 @@ export async function runStatementUploadChain(
       },
     });
 
-    if (isGhlConfigured() && contact?.ghlContactId) {
-      createGhlTask({
-        contactId: contact.ghlContactId,
-        title: `New Statement Uploaded — ${merchantName}`,
-        description: `${merchantName} uploaded a processing statement and is ready for review.`,
-        taskType: "FOLLOW_UP",
-        assignedTo: deal?.owner || repName || undefined,
-        dueDate: new Date(Date.now() + 2 * 60 * 60 * 1000),
-      }).catch(err => console.warn("[StatementChain] createGhlTask (non-critical):", err.message));
-    }
-
     // Email to rep — awaited so delivery failures are surfaced in step result
     let emailChannel = "in-app-only";
     let emailWarn: string | undefined;
@@ -642,35 +617,24 @@ export async function runStatementUploadChain(
   }
 
   // ────────────────────────────────────────────────────────────────────────────
-  // STEP 7 — GHL contact synced + lb_statement_status = "received"
+  // STEP 7 — GHL projection requested for statement metadata
   // ────────────────────────────────────────────────────────────────────────────
   try {
-    const ghlContactResult = await syncContactToGhl(input.contactId);
-    if (!ghlContactResult.success && !ghlContactResult.ghlContactId) {
-      throw new Error(ghlContactResult.error || "GHL contact sync failed");
-    }
-
-    // Sync the deal opportunity stage in GHL
-    if (dealId) {
-      const dealSyncResult = await syncDealToGhl(dealId);
-      if (!dealSyncResult.success) {
-        console.warn(`[StatementChain] GHL deal sync failed (non-fatal): ${dealSyncResult.error}`);
-      }
-    }
-
-    // Set lb_statement_status = "received" custom field
     const stmtSyncResult = await syncStatementUploadToGhl(
       input.contactId,
       input.fileName || "statement.pdf",
     );
 
-    steps.push(makeStep(7, "GHL contact synced", true, undefined, {
-      ghlContactId: ghlContactResult.ghlContactId,
-      statementStatusSet: stmtSyncResult.success,
+    if (!stmtSyncResult.success) {
+      throw new Error(stmtSyncResult.error || "GHL projection could not be queued");
+    }
+    steps.push(makeStep(7, "GHL projection queued", true, undefined, {
+      state: "deferred",
+      statementStatusProjectionRequested: true,
     }));
   } catch (err: any) {
-    steps.push(makeStep(7, "GHL contact synced", false, err.message));
-    await logStepFailure(dealId, 7, "GHL contact synced", err.message);
+    steps.push(makeStep(7, "GHL projection queued", false, err.message));
+    await logStepFailure(dealId, 7, "GHL projection queued", err.message);
   }
 
   // ────────────────────────────────────────────────────────────────────────────
@@ -883,12 +847,12 @@ export async function runStatementUploadChain(
       allSuccess: chainResult.allSuccess,
     };
     if (chainResult.allSuccess) {
-      await markSucceeded(commandId, resultPayload).catch(err =>
+      await markSucceeded(commandId, resultPayload, commandLeaseToken).catch(err =>
         console.error("[StatementChain] markSucceeded failed:", err.message),
       );
     } else {
       // Non-fatal failures are still recoverable (chain completed but some steps failed)
-      await markRecoverableFailed(commandId, { ...resultPayload, note: "Chain completed with step failures" }).catch(err =>
+      await markRecoverableFailed(commandId, { ...resultPayload, note: "Chain completed with step failures" }, commandLeaseToken).catch(err =>
         console.error("[StatementChain] markRecoverableFailed failed:", err.message),
       );
     }

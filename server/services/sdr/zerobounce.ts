@@ -4,10 +4,17 @@ export interface ZeroBounceResult {
   verifiedAt: string;
   subStatus?: string | null;
   skipped?: boolean;
-  reason?: string;
+  /** Normalized only; never expose URLs, tokens, provider bodies, or raw errors. */
+  reason?: "not_configured" | "http_4xx" | "http_5xx" | "timeout" | "transport" | "parse_error";
+  outcome?: "completed" | "unavailable";
 }
 
-export async function verifyEmail(email: string): Promise<ZeroBounceResult> {
+export type ZeroBounceFetch = (input: string, init?: RequestInit) => Promise<Response>;
+
+export async function verifyEmail(
+  email: string,
+  opts: { fetchImpl?: ZeroBounceFetch; timeoutMs?: number } = {},
+): Promise<ZeroBounceResult> {
   const apiKey = process.env.ZEROBOUNCE_API_KEY;
   if (!apiKey) {
     return {
@@ -15,22 +22,36 @@ export async function verifyEmail(email: string): Promise<ZeroBounceResult> {
       provider: "zerobounce",
       verifiedAt: new Date().toISOString(),
       skipped: true,
-      reason: "no_key",
+      reason: "not_configured",
+      outcome: "unavailable",
     };
   }
 
   try {
     const url = `https://api.zerobounce.net/v2/validate?api_key=${encodeURIComponent(apiKey)}&email=${encodeURIComponent(email)}`;
-    const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+    const fetchImpl = opts.fetchImpl ?? fetch;
+    const res = await fetchImpl(url, { signal: AbortSignal.timeout(opts.timeoutMs ?? 10_000) });
     if (!res.ok) {
       return {
         status: "unknown",
         provider: "zerobounce",
         verifiedAt: new Date().toISOString(),
-        reason: `http_${res.status}`,
+        reason: res.status >= 500 ? "http_5xx" : "http_4xx",
+        outcome: "unavailable",
       };
     }
-    const data = (await res.json()) as { status: string; sub_status?: string };
+    let data: { status: string; sub_status?: string };
+    try {
+      data = (await res.json()) as { status: string; sub_status?: string };
+    } catch {
+      return {
+        status: "unknown",
+        provider: "zerobounce",
+        verifiedAt: new Date().toISOString(),
+        reason: "parse_error",
+        outcome: "unavailable",
+      };
+    }
     const raw = (data.status || "").toLowerCase();
     const subStatus = data.sub_status || null;
 
@@ -50,13 +71,15 @@ export async function verifyEmail(email: string): Promise<ZeroBounceResult> {
       provider: "zerobounce",
       verifiedAt: new Date().toISOString(),
       subStatus,
+      outcome: "completed",
     };
-  } catch (err) {
+  } catch (err: any) {
     return {
       status: "unknown",
       provider: "zerobounce",
       verifiedAt: new Date().toISOString(),
-      reason: String(err),
+      reason: err?.name === "TimeoutError" || err?.name === "AbortError" ? "timeout" : "transport",
+      outcome: "unavailable",
     };
   }
 }
