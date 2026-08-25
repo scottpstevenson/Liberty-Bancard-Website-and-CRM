@@ -1368,6 +1368,8 @@ export async function sweepLeads(): Promise<{ processed: number; errors: number;
 
   if (globalPaused) {
     console.log(`[SDR Orchestrator] Globally paused (${globalPauseReason}), skipping sweep`);
+    heartbeat.stop();
+    await releaseJobLock("sdr-orchestrator", true, undefined, lease.lockToken);
     return { processed: 0, errors: 0 };
   }
 
@@ -1378,11 +1380,15 @@ export async function sweepLeads(): Promise<{ processed: number; errors: number;
     const decision = await authorize({});
     if (!decision.allowed) {
       console.log(`[SDR Orchestrator] Blocked by OutboundPauseAuthority (reason=${decision.reasonCode}) — skipping sweep`);
+      heartbeat.stop();
+      await releaseJobLock("sdr-orchestrator", true, undefined, lease.lockToken);
       return { processed: 0, errors: 0 };
     }
     const coordOk = await canExecute("sdr-orchestrator");
     if (!coordOk) {
       console.log("[SDR Orchestrator] Blocked by coordinator hold on 'sdr-orchestrator' — skipping sweep");
+      heartbeat.stop();
+      await releaseJobLock("sdr-orchestrator", true, undefined, lease.lockToken);
       return { processed: 0, errors: 0 };
     }
   }
@@ -1393,6 +1399,8 @@ export async function sweepLeads(): Promise<{ processed: number; errors: number;
   const { isAutomationEnabled } = await import("../automation-kill-switch");
   if (!(await isAutomationEnabled("sdr-orchestrator"))) {
     console.log("[SDR Orchestrator] Kill switch active for sdr-orchestrator — skipping sweep");
+    heartbeat.stop();
+    await releaseJobLock("sdr-orchestrator", true, undefined, lease.lockToken);
     return { processed: 0, errors: 0 };
   }
 

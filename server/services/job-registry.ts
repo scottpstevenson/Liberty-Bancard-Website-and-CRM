@@ -33,6 +33,11 @@ export type JobLockOutcome =
   | { status: "held"; jobName: string }
   | { status: "unavailable"; jobName: string; errorCode: "REGISTRY_UNAVAILABLE" };
 
+export type JobReleaseOutcome =
+  | { status: "released"; jobName: string }
+  | { status: "stale_owner"; jobName: string }
+  | { status: "unavailable"; jobName: string; errorCode: "REGISTRY_UNAVAILABLE" };
+
 /**
  * How long a job may stay in status='running' before its lock is considered
  * stale and is auto-released on the next acquireJobLock() call.
@@ -187,15 +192,10 @@ export function startJobLockHeartbeat(
 export async function releaseJobLock(
   jobName: string,
   success: boolean,
-  error?: string,
-  lockToken?: string
-): Promise<void> {
+  error: string | undefined,
+  lockToken: string,
+): Promise<JobReleaseOutcome> {
   try {
-    if (!lockToken) {
-      console.warn(`[JobRegistry] releaseJobLock called without lockToken for ${jobName} — refusing unverified release`);
-      return;
-    }
-
     const result = await pool.query<{ id: number }>(
       `UPDATE background_jobs
          SET status               = $2,
@@ -212,7 +212,7 @@ export async function releaseJobLock(
         jobName,
         success ? "succeeded" : "failed",
         success ? null : (error ?? "Unknown error"),
-        lockToken ?? null,
+        lockToken,
       ]
     );
 
@@ -223,9 +223,12 @@ export async function releaseJobLock(
         `[JobRegistry] releaseJobLock for ${jobName} matched 0 rows — ` +
         `token mismatch; likely a stale owner releasing after takeover (safe no-op)`
       );
+      return { status: "stale_owner", jobName };
     }
+    return { status: "released", jobName };
   } catch (err) {
     console.error(`[JobRegistry] releaseJobLock failed for ${jobName}:`, err);
+    return { status: "unavailable", jobName, errorCode: "REGISTRY_UNAVAILABLE" };
   }
 }
 

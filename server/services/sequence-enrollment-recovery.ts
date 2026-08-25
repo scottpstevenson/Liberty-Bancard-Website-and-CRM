@@ -36,13 +36,14 @@ export async function recoverDeferredEnrollments(): Promise<{
   skipped: number;
 }> {
   // ── Re-entrant guard ────────────────────────────────────────────────────────
-  const { acquireJobLock, releaseJobLock } = await import("./job-registry");
+  const { acquireJobLock, releaseJobLock, startJobLockHeartbeat } = await import("./job-registry");
   const lease = await acquireJobLock(JOB_NAME);
   if (lease.status !== "acquired") {
     console.log("[EnrollmentRecovery] Another recovery job is already running — skipping");
     return { recovered: 0, reDeferred: 0, failed: 0, skipped: 0 };
   }
   const lockToken = lease.lockToken;
+  const heartbeat = startJobLockHeartbeat(JOB_NAME, lockToken);
 
   let recovered = 0;
   let reDeferred = 0;
@@ -116,6 +117,7 @@ export async function recoverDeferredEnrollments(): Promise<{
 
     // ── 2. Process each deferred enrollment ──────────────────────────────────
     for (const row of rows.rows) {
+      heartbeat.assertOwned();
       const enrollmentId = row.id as number;
       const contactId = (row.contact_id as number | null) ?? 0;
       const sequenceId = (row.sequence_id as number | null) ?? 0;
@@ -289,5 +291,7 @@ export async function recoverDeferredEnrollments(): Promise<{
     console.error("[EnrollmentRecovery] Fatal error:", (err as Error).message);
     await releaseJobLock(JOB_NAME, false, (err as Error).message, lockToken).catch(() => {});
     throw err;
+  } finally {
+    heartbeat.stop();
   }
 }

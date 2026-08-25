@@ -372,14 +372,16 @@ async function checkDeliverabilityThresholds(): Promise<AnomalyAlert[]> {
 }
 
 export async function runAnomalyDetection(): Promise<AnomalyAlert[]> {
-  const { acquireJobLock, releaseJobLock, JOB_NAMES } = await import("../job-registry");
+  const { acquireJobLock, releaseJobLock, startJobLockHeartbeat, JOB_NAMES } = await import("../job-registry");
   const lease = await acquireJobLock(JOB_NAMES.ANOMALY_DETECTION);
   if (lease.status !== "acquired") return [];
   const lockToken = lease.lockToken;
+  const heartbeat = startJobLockHeartbeat(JOB_NAMES.ANOMALY_DETECTION, lockToken);
 
   const allAlerts: AnomalyAlert[] = [];
 
   try {
+    heartbeat.assertOwned();
     const [volumeAlerts, replyAlerts, bounceAlerts, degradedAlerts, thresholdAlerts] = await Promise.all([
       checkSendVolumeAnomaly(),
       checkReplyRateDrop(),
@@ -397,6 +399,8 @@ export async function runAnomalyDetection(): Promise<AnomalyAlert[]> {
   } catch (err: any) {
     console.error("[AnomalyDetection] Error running detection:", err);
     await releaseJobLock(JOB_NAMES.ANOMALY_DETECTION, false, err?.message ?? String(err), lockToken);
+  } finally {
+    heartbeat.stop();
   }
 
   return allAlerts;

@@ -2474,11 +2474,14 @@ export async function runGhlFullSyncTick(): Promise<void> {
   // Restore persisted circuit state on first tick after a process restart.
   // The restored state is AUTHORITATIVE — it is never unconditionally reset.
   await restoreGhlCircuit();
-  const { acquireJobLock, releaseJobLock, JOB_NAMES } = await import("./job-registry");
+  const { acquireJobLock, releaseJobLock, startJobLockHeartbeat, JOB_NAMES } = await import("./job-registry");
   const lease = await acquireJobLock(JOB_NAMES.GHL_SYNC);
   if (lease.status !== "acquired") return;
   const lockToken = lease.lockToken;
+  const heartbeat = startJobLockHeartbeat(JOB_NAMES.GHL_SYNC, lockToken);
 
+  try {
+  heartbeat.assertOwned();
   // ── Circuit entry transitions (inside the lock) ──────────────────────────
   if (ghlCircuitState === "open") {
     // Open circuit → half-open: attempt a single probe, not a full batch.
@@ -2501,6 +2504,7 @@ export async function runGhlFullSyncTick(): Promise<void> {
   //    return. Never a full batch. ──
   if (ghlCircuitState === "half-open") {
     try {
+      heartbeat.assertOwned();
       await runHalfOpenProbeTick();
       await releaseJobLock(JOB_NAMES.GHL_SYNC, true, undefined, lockToken);
     } catch (err: any) {
@@ -2511,6 +2515,7 @@ export async function runGhlFullSyncTick(): Promise<void> {
   }
 
   try {
+    heartbeat.assertOwned();
     // Durable projections are the recovery authority for local-first intake.
     // Do not derive retries from mutable audit logs.
     const projectionSummary = await processPendingContactProviderProjections(10);
@@ -2746,5 +2751,8 @@ export async function runGhlFullSyncTick(): Promise<void> {
   } catch (err: any) {
     await releaseJobLock(JOB_NAMES.GHL_SYNC, false, err.message, lockToken);
     throw err;
+  }
+  } finally {
+    heartbeat.stop();
   }
 }
