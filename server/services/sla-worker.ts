@@ -729,8 +729,9 @@ export async function runFullSlaLoop(): Promise<void> {
 
 async function runSlaCheck() {
   const { acquireJobLock, releaseJobLock, JOB_NAMES } = await import("./job-registry");
-  const lockToken = await acquireJobLock(JOB_NAMES.SLA_WORKER);
-  if (!lockToken) return;
+  const lease = await acquireJobLock(JOB_NAMES.SLA_WORKER);
+  if (lease.status !== "acquired") return;
+  const lockToken = lease.lockToken;
   try {
     const slaConfigs = await storage.getSlaConfigs();
     const rules = slaConfigs.length > 0
@@ -1231,8 +1232,9 @@ let midIngestionInterval: NodeJS.Timeout | null = null;
 
 async function runMidIngestion() {
   const { acquireJobLock, releaseJobLock, JOB_NAMES } = await import("./job-registry");
-  const lockToken = await acquireJobLock(JOB_NAMES.MID_INGESTION);
-  if (!lockToken) return;
+  const lease = await acquireJobLock(JOB_NAMES.MID_INGESTION);
+  if (lease.status !== "acquired") return;
+  const lockToken = lease.lockToken;
   try {
     const { ingestMidDataForActiveMids } = await import("./processors/registry");
     const result = await ingestMidDataForActiveMids();

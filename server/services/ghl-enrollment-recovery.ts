@@ -282,11 +282,12 @@ export async function retryDeferredEnrollments(): Promise<{
     // deletion / audit log, not the lock state.
     const { acquireJobLock, releaseJobLock } = await import("./job-registry");
     const lockKey = `enrollment-recovery:${dedupKey}`;
-    const recoveryLock = await acquireJobLock(lockKey);
-    if (!recoveryLock) {
+    const recoveryLease = await acquireJobLock(lockKey);
+    if (recoveryLease.status !== "acquired") {
       console.log(`[GHL Recovery] Lock already held for (${entry.ghl_contact_id}, ${entry.workflow_key}) — skipping concurrent duplicate`);
       continue;
     }
+    const recoveryLock = recoveryLease.lockToken;
 
     let enrollmentSucceeded = false;
     try {

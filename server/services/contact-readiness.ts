@@ -258,7 +258,8 @@ export function computeDataReadinessScore(contact: Pick<Contact,
  */
 export async function enqueueReadinessRecalculation(contactId: number): Promise<void> {
   try {
-    const qm = await getQueueManager();
+    const { requireQueueManagerReady } = await import("./queue-manager");
+    const qm = requireQueueManagerReady();
     const queue = qm.getQueue("enrichment");
     if (!queue) return;
     await queue.add(

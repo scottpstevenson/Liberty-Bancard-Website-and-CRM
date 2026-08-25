@@ -1,0 +1,223 @@
+## Verdict
+
+**DO NOT EXECUTE #1643 AS WRITTEN.** It is directionally correct, but its baseline and several safety assumptions are stale. The task is **BUILD-READY WITH THE CORRECTIONS BELOW**.
+
+No repository changes were made during this audit.
+
+### Live repository baseline
+
+* Repository: [Liberty-Bancard-Website-and-CRM](https://github.com/scottpstevenson/Liberty-Bancard-Website-and-CRM)
+* Live `origin/main`: [`83fa7ef7a4d4c5987bab51d19d02de74fb9de44f`](https://github.com/scottpstevenson/Liberty-Bancard-Website-and-CRM/commit/83fa7ef7a4d4c5987bab51d19d02de74fb9de44f)
+* Commit: `Harden CRM operator ownership, truthful queue states, and regression coverage`
+* Worktree: clean
+* Workflow: `.github/workflows/ci.yml`
+* Migration head: `0154_identity_observation_current_validity`
+* Journal entries: 159
+* Migration required: **NO**
+* Queue configurations: **24**, not approximately 23
+* Normal per-process Redis estimate: **25 connections**: 1 shared + 24 workers
+* CI manifest: **49 suites**:
+
+  * 15 deterministic-static
+  * 23 deterministic-integration
+  * 5 server-required
+  * 6 server-optional
+
+The task’s baseline `ea5c4e4`, migration `0150`, 45-suite count, and 23-worker topology have drifted.
+
+## Verified corrections
+
+| Priority | Finding                                                                                                                                                                                       | Exact correction                                                                                                                                                                                                                                                                                                                                                       |
+| -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| P0       | Startup and live interval edits delete every repeatable schedule on the affected queue. `queue-manager.ts:1489-1492`, `1567-1571`                                                             | Identify the managed schedule by exact stable `job.id`; remove only that schedule. Apply this in both `setupRepeatableJobs()` and `updateQueueRepeatInterval()`. Never use substring matching or queue-wide removal.                                                                                                                                                   |
+| P0       | Queue probe failure becomes healthy zero counts. `queue-manager.ts:1758-1773`                                                                                                                 | Change each queue metric into a result envelope: `ok`, `error`, or `not_initialized`. Failed probes must have no numeric value. Aggregate status becomes `degraded` when any source fails.                                                                                                                                                                             |
+| P0       | Several health consumers independently produce false-green results.                                                                                                                           | Update every `getAllQueueMetrics()` consumer. Notably, `activation.ts:1008` reads the response shape incorrectly and therefore calculates zero DLQ jobs; `sdr.ts:106-112` treats an unresolved Promise as a healthy manager; `system-audit/probes/queues.ts:49` converts DLQ failure to `[]`; `launch-readiness-full.ts:616-632` can report zero queues after failure. |
+| P0       | Daily outreach can overlap between BullMQ, the manager route, and the fallback interval. `daily-outreach.ts:702-791`, `807-829`; `imports.ts:84-88`; `queue-manager.ts:2348-2350`             | Put one durable lease around the exported logical command used by all three entry points. Return `202 acquired`, `409 lock_held`, or `503 registry_unavailable` from the manual route.                                                                                                                                                                                 |
+| P0       | Sunbiz re-enrichment, SDR sweep, SDR re-enrichment, and lead discovery rely on process-local booleans.                                                                                        | Add separate durable logical keys for Sunbiz enrichment, SDR orchestration, SDR re-enrichment, and lead discovery. Fence the actual work body, including manual calls and intervals. Leave dormant intervals dormant.                                                                                                                                                  |
+| P0       | Existing lock acquisition returns `null` for both “another owner holds it” and “registry DB failed.” There is no heartbeat. `job-registry.ts:58-115`                                          | Introduce a typed lease result: `acquired`, `held`, or `unavailable`. Renew `updated_at` with the exact token during long runs; use `updated_at` for staleness while retaining `last_started_at` as actual start time.                                                                                                                                                 |
+| P0       | `releaseJobLock()` still permits tokenless release. `job-registry.ts:124-160`                                                                                                                 | Make the fencing token mandatory. Return `released`, `stale_owner`, or `unavailable`. Remove the `$4 IS NULL` compatibility path and update every caller.                                                                                                                                                                                                              |
+| P0       | Routes, probes, and producers can still lazily initialize the worker fleet.                                                                                                                   | After correction, production `getQueueManager()` usage must remain only in startup. Health/read routes use `requireQueueManagerReady()` or ready-only Redis access; producers use `getQueueManagerProducers()` and return/defer truthfully when unavailable.                                                                                                           |
+| P0       | GHL ownership is mutually exclusive only inside one process. `queue-manager.ts:545-559`; `index.ts:379-408`                                                                                   | Use a deterministic deployment execution mode. When Redis/BullMQ mode is selected and initialization fails, fail closed—do not start legacy GHL. Permit legacy mode only through explicit configuration shared by every replica. Continue using the per-tick GHL lease as defense in depth.                                                                            |
+| P0       | The required queue tests can be false-green or are not in CI.                                                                                                                                 | Register the corrected topology, reconnect, heartbeat, stale-lock, PE-recovery, and new ownership-convergence suites in both CI authorities. Remove every “skipped = pass” and unconditional `assert(..., true)` from `test-bullmq-resilience.ts`.                                                                                                                     |
+| P1       | `test-redis-topology.ts` hardcodes 23 queues while live code has 24. `test-redis-topology.ts:14,40-61`                                                                                        | Replace the stale count with 24 or use a reviewed exported topology snapshot. The suite must fail on unreviewed roster drift and be registered in CI.                                                                                                                                                                                                                  |
+| P1       | The same test permits `warning` **or** `safe`. `test-redis-topology.ts:138-143`                                                                                                               | Assert the exact expected status. Do not preserve the weakened assertion.                                                                                                                                                                                                                                                                                              |
+| P1       | The logical manifest does not actually inventory all recurring triggers.                                                                                                                      | Add activation, startup source, execution model, durable fence, and shutdown fields. Validate non-BullMQ triggers as well as `QUEUE_NAMES`.                                                                                                                                                                                                                            |
+| P1       | Missing manifest entries include merchant application outbox, deal boarding outbox, weekly digest, SDR re-enrichment, lead discovery, funnel aggregation, and the route-local blog scheduler. | Add verified entries. Mark the two outboxes as safe multi-consumer fan-out because they use `FOR UPDATE SKIP LOCKED`; do not serialize them globally. Mark unused interval exports dormant.                                                                                                                                                                            |
+| P1       | `linkedin-scheduler` is a ghost manifest entry. `logical-job-manifest.ts:623-631`                                                                                                             | Remove it or map it explicitly to the LinkedIn phase of `startContentScheduler`; do not describe a nonexistent independent scheduler.                                                                                                                                                                                                                                  |
+| P1       | A second active blog scheduler runs inside route registration. `routes/sdr.ts:1846-1859`                                                                                                      | Delete the route-local interval. `content-scheduler.ts` becomes the sole blog/LinkedIn scheduler. Keep separate manifest phase policy: blog publication is local; LinkedIn publication remains outbound-gated.                                                                                                                                                         |
+| P1       | Content scheduler release is not protected by an outer `finally`. `content-scheduler.ts:6-134`                                                                                                | Run it through the shared lease wrapper so token release occurs in `finally`, including unexpected failures.                                                                                                                                                                                                                                                           |
+| P1       | Diagnostics do not yet provide the requested database evidence.                                                                                                                               | Add an admin-only bounded snapshot: DB ping, pool `totalCount`, `idleCount`, `waitingCount`, configured maximum, statistics-extension availability, and redacted numeric aggregates. Do not expose SQL text or run `EXPLAIN ANALYZE` from an HTTP route.                                                                                                               |
+| P1       | DLQ error strings are sliced but not reliably sanitized. `queue-metrics.ts:147-155`; `admin.ts:4007-4014`                                                                                     | Create one `toOperatorDlqDto()` that sanitizes URLs, emails, tokens, credentials, stack data, and payload data. Use it on every operator/admin DLQ response.                                                                                                                                                                                                           |
+| P1       | `getJobStatuses()` converts DB failure into `[]`, while `hasJobAlerts()` converts it into `false`. `job-registry.ts:179-234`                                                                  | Return typed `ok/unavailable` results. An unavailable registry must never appear as “no jobs” or “no alerts.”                                                                                                                                                                                                                                                          |
+| P2       | Queue connection comments still claim 11 queues/12 connections and later claim 23/24. `queue-connection.ts:5-17`, `190-209`                                                                   | Derive documentation and diagnostics from live topology: 24 workers/25 connections normally, 23/24 only when GHL is explicitly excluded.                                                                                                                                                                                                                               |
+| P2       | `startWeeklyDigestWorker()` lacks a repeated-start guard. `weekly-digest.ts:252-285`                                                                                                          | Add `if (digestInterval) return`; keep it dormant unless an existing verified activation owner starts it. Make week-claim release conditional on the exact claimed week.                                                                                                                                                                                               |
+| P2       | Dead imports and unused diagnostic helpers remain.                                                                                                                                            | Remove the unused `getQueueManager` import and either connect `maybeSendDlqThresholdAlert()` to a complete count or delete it. Never alert from the capped DLQ sample.                                                                                                                                                                                                 |
+
+## Corrected ownership matrix
+
+| Trigger                     | Current activation                     | Current safety                        | Required result                                       |
+| --------------------------- | -------------------------------------- | ------------------------------------- | ----------------------------------------------------- |
+| BullMQ fleet                | Startup when pause state is known      | BullMQ fan-out                        | Preserve 24-worker parallel model                     |
+| Legacy SLA                  | Fallback only                          | Tick already fenced                   | Preserve; expose fallback state                       |
+| Legacy GHL                  | Fallback only                          | Tick fenced, mode process-local       | Explicit fleet-wide mode; no automatic mixed fallback |
+| Daily outreach              | BullMQ + manual + optional fallback    | Process-local only                    | One durable daily lease                               |
+| Sunbiz enrichment loop      | Part of legacy outreach                | Process-local only                    | Separate durable enrichment lease                     |
+| Content scheduler           | Active startup                         | Durable lock, incomplete finalization | Sole scheduler; release in `finally`                  |
+| Route-local blog scheduler  | Active during route registration       | Unfenced duplicate                    | Remove                                                |
+| Inbox rotation              | Active startup                         | Durable lock                          | Convert to typed/heartbeat lease                      |
+| Merchant application outbox | Active during route registration       | Per-row `SKIP LOCKED`                 | Preserve safe fan-out; add to manifest                |
+| Deal boarding outbox        | Active during route registration       | Per-row `SKIP LOCKED`                 | Preserve safe fan-out; add to manifest                |
+| SDR orchestrator            | Manual start/manual sweep              | Process-local only                    | Durable sweep lease                                   |
+| Lead discovery              | Manual plus admin-started nightly loop | Process-local only                    | Durable discovery lease                               |
+| SDR re-enrichment           | Manual; interval export dormant        | Process-local only                    | Fence manual command; keep interval dormant           |
+| Weekly digest               | Interval export dormant                | Tick fenced                           | Keep dormant; harden start/claim                      |
+| Funnel aggregation          | Dormant export                         | Process-local                         | Inventory as dormant; do not activate                 |
+
+## Gate evidence
+
+| Check                                        | Result                                                      |
+| -------------------------------------------- | ----------------------------------------------------------- |
+| Live `origin/main` resolution                | PASS — SHA matches local audited checkout                   |
+| Worktree status                              | PASS — clean                                                |
+| Migration journal parse                      | PASS — 159 entries, head 0154                               |
+| Workflow YAML parse                          | PASS                                                        |
+| `git diff --check`                           | PASS                                                        |
+| Required TypeScript/build/runtime gates      | **NOT RUN** — audit checkout has no `node_modules`          |
+| `test-redis-topology.ts`                     | **SOURCE-PROVEN FAIL** — expects 23 while live roster is 24 |
+| Two-process ownership proof                  | NOT AVAILABLE                                               |
+| Redis provider limit/process count           | UNKNOWN                                                     |
+| `pg_stat_statements` and query-plan evidence | UNKNOWN                                                     |
+| Exact final-SHA GitHub Actions result        | NOT VERIFIED from this environment                          |
+
+## Copy/paste correction prompt
+
+```text
+RETURN TO TASK #1643 — PREFLIGHT + BUILD WITH LIVE-REPO CORRECTIONS
+
+Proceed directly with implementation. Do not stop for design approval. Re-verify origin/main before editing and preserve unrelated changes.
+
+LIVE BASELINE VERIFIED 2026-08-24:
+- origin/main: 83fa7ef7a4d4c5987bab51d19d02de74fb9de44f
+- migration head: 0154_identity_observation_current_validity
+- journal entries: 159
+- schema migration required: NO
+- workflow: .github/workflows/ci.yml
+- CI manifest: 49 suites
+- QUEUE_CONFIGS: 24
+- normal Redis topology estimate: 1 shared + 24 workers = 25 connections
+
+The original #1643 task remains authoritative except where corrected below.
+
+BLOCKING P0 CORRECTIONS
+
+1. Target repeatable schedules exactly.
+   - In QueueManager.setupRepeatableJobs() and updateQueueRepeatInterval(), remove only the exact managed job.id.
+   - Never remove every repeatable job from a queue.
+   - Never use substring matching.
+   - Prove unrelated named schedules survive startup and live interval changes.
+
+2. Replace false-zero queue metrics.
+   - getAllQueueMetrics() must return per-queue ok/error/not_initialized envelopes.
+   - Failed reads must not contain zero counts.
+   - Update every consumer, including activation readiness, system-audit probes, launch readiness, wizard health, admin health, backlog preview, and queue routes.
+   - Fix activation.ts, which currently reduces the response wrapper instead of metrics.queues.
+   - Fix sdr.ts admin health, which currently treats the getQueueManager() Promise as a healthy manager.
+
+3. Introduce a typed reusable lease contract over background_jobs.
+   - acquire: acquired | held | unavailable.
+   - token is mandatory for renew/release.
+   - renew updates updated_at only; last_started_at remains the actual start time.
+   - stale detection uses updated_at.
+   - release returns released | stale_owner | unavailable.
+   - provide withJobLease() with heartbeat and finally release.
+   - do not add a table or migration.
+
+4. Fence every callable singleton work body.
+   - daily outreach: BullMQ, manual route, and legacy interval share one logical lease.
+   - Sunbiz re-enrichment gets its own logical lease.
+   - SDR orchestrator sweep gets one logical lease.
+   - SDR re-enrichment manual command gets one logical lease; leave its interval dormant.
+   - lead discovery manual/nightly paths share one logical lease.
+   - preserve all pause/coordinator/contactability/provider gates.
+   - do not globally lock the merchant-application or deal-boarding outbox workers; their FOR UPDATE SKIP LOCKED row claims are intentional safe fan-out.
+
+5. Eliminate lazy QueueManager initialization.
+   - getQueueManager() may be called by server startup only.
+   - routes and health probes use requireQueueManagerReady()/ready-only Redis access.
+   - producers use getQueueManagerProducers() and return/defer truthfully if unavailable.
+   - post-build grep must show no route/probe/producer call capable of creating workers.
+
+6. Make GHL mode deterministic across replicas.
+   - BullMQ-selected deployments fail closed if BullMQ initialization fails; do not automatically start legacy GHL in just one failing replica.
+   - Legacy GHL requires explicit deployment-wide configuration.
+   - retain the per-tick GHL lease as defense in depth.
+   - runtime proof must show one mechanism after startup, partial failure, and restart.
+
+7. Remove false-green tests.
+   - Rewrite test-bullmq-resilience.ts so unavailable Redis/QueueManager is failure, not a passing skip.
+   - Remove unconditional assert(true) configuration checks.
+   - Correct test-redis-topology.ts from 23 to the reviewed live count of 24 and require exact status assertions.
+   - Add test-queue-ownership-convergence.ts.
+   - Register topology, reconnect, heartbeat, stale-lock, post-enrichment recovery, and ownership-convergence coverage in ci-suite-manifest.ts and pre-deploy.ts.
+
+P1 CORRECTIONS
+
+8. Extend logical-job-manifest with activation status, startup source, execution model, durable fence, pause policy, and shutdown behavior. Validate non-BullMQ triggers. Add missing outboxes, weekly digest, SDR re-enrichment, lead discovery, funnel aggregation, and content scheduling. Remove the ghost linkedin-scheduler entry or map it to the real content scheduler phase.
+
+9. Delete the route-local blog setInterval in server/routes/sdr.ts. startContentScheduler is the sole owner. Run the content tick through withJobLease() and release in finally.
+
+10. Return truthful manual-trigger status:
+    - 202 when ownership is acquired,
+    - 409 when held,
+    - 503 when the registry is unavailable.
+    Never reply “started” before ownership is known.
+
+11. Add an admin-only redacted diagnostics snapshot:
+    - per-queue state, backlog age, throughput, failures and available stall signals;
+    - owner fingerprint and lease freshness without exposing lock tokens;
+    - Redis connected_clients plus configured-limit/process-count state;
+    - DB ping and pool total/idle/waiting/max;
+    - pg_stat_statements availability and bounded numeric aggregates only.
+    Do not expose SQL text, URLs, secrets, stack traces, job payloads, contacts, or merchant data.
+
+12. Centralize DLQ DTO sanitization and use it in every queue/admin incident response. getJobStatuses()/hasJobAlerts() must return unavailable instead of []/false on DB failure.
+
+P2 CORRECTIONS
+
+13. Correct all 11/12 and 23/24 topology comments to live 24/25 normal and 23/24 explicit-GHL-excluded mode.
+14. Add the weekly digest repeated-start guard and exact-week claim release.
+15. Remove unused imports and dead sampled-DLQ alert code unless backed by a complete count.
+
+REQUIRED PROOF
+
+- Disposable DB and isolated Redis prefix only.
+- Two independent processes contend for every singleton logical key; exactly one effect executes.
+- Heartbeat prevents stale takeover during a long run.
+- A stale token cannot renew or release a newer owner.
+- Named unrelated repeatables survive startup and interval edits.
+- Forced Redis/DB/queue failures return unavailable/error, never zero/healthy.
+- Provider adapters fail fast and no real sends occur.
+- Runtime staging proof covers two replicas, GHL mode, pause/release convergence, Redis facts, and DB statistics availability.
+
+Run and report:
+npm run check
+npm run build
+npx tsx scripts/ci-suite-manifest.ts --check
+npx tsx scripts/test-infrastructure-guard.ts
+npx tsx scripts/test-queue-ownership-convergence.ts
+npx tsx scripts/test-bullmq-resilience.ts
+npx tsx scripts/test-redis-topology.ts
+npx tsx scripts/test-redis-reconnect.ts
+npx tsx scripts/test-heartbeat-visibility.ts
+npx tsx scripts/test-stale-job-lock.ts
+npx tsx scripts/test-post-enrichment-intent-recovery.ts
+npx tsx scripts/test-backlog-preview.ts
+npx tsx scripts/run-ci-suites.ts --capability deterministic-static
+npx tsx scripts/run-ci-suites.ts --capability deterministic-integration
+npx tsx scripts/run-ci-suites.ts --capability server-required
+git diff --check
+
+Final verdict must be DO NOT MERGE until all static/integration gates pass and the required two-process staging verification is attached. No capacity, concurrency, retry, Redis-tier, cadence, or index tuning belongs in this task.
+```
+
+Current merge verdict: **DO NOT MERGE — IMPLEMENTATION AND RUNTIME VERIFICATION REQUIRED**.

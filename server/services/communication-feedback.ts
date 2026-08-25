@@ -218,8 +218,8 @@ export async function processCommunicationEvent(event: CommEvent): Promise<CommE
 
   if (result.nextAction === "sms_escalation" && contact.phone) {
     try {
-      const { getQueueManager } = await import("./queue-manager");
-      const qm = await getQueueManager();
+      const { requireQueueManagerReady } = await import("./queue-manager");
+      const qm = requireQueueManagerReady();
       const seqQueue = qm.getQueue("sequences");
       if (seqQueue) {
         await (seqQueue as any).add("sms-escalation", {
@@ -236,8 +236,8 @@ export async function processCommunicationEvent(event: CommEvent): Promise<CommE
 
   if (result.nextAction === "re_enrich") {
     try {
-      const { getQueueManager } = await import("./queue-manager");
-      const qm = await getQueueManager();
+      const { requireQueueManagerReady } = await import("./queue-manager");
+      const qm = requireQueueManagerReady();
       const enrichmentQueue = qm.getQueue("enrichment");
       if (enrichmentQueue) {
         await enrichmentQueue.add("free-enrich", {

@@ -196,8 +196,9 @@ export async function writeHoldDeferralMarker(
 
 export async function processSequenceEnrollments(): Promise<{ processed: number; errors: number }> {
   const { acquireJobLock, releaseJobLock, JOB_NAMES } = await import("./job-registry");
-  const lockToken = await acquireJobLock(JOB_NAMES.SEQUENCE_WORKER);
-  if (!lockToken) return { processed: 0, errors: 0 };
+  const lease = await acquireJobLock(JOB_NAMES.SEQUENCE_WORKER);
+  if (lease.status !== "acquired") return { processed: 0, errors: 0 };
+  const lockToken = lease.lockToken;
 
   const _runStartMs = Date.now();
   let processed = 0;

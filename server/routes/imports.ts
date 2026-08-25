@@ -112,8 +112,19 @@ export function registerImportsRoutes(app: Express) {
   // === DAILY OUTREACH AUTOMATION ===
   app.post("/api/outreach/run-daily", isAuthenticated, async (req, res) => {
     if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
-    res.json({ message: "Daily outreach cycle started.", started: true });
-    runDailyOutreach().catch(err => console.error("[Daily Outreach API] Error:", err));
+    try {
+      const result = await runDailyOutreach();
+      if (result.execution === "held") {
+        return res.status(409).json({ message: "Daily outreach is already running.", started: false, execution: "held" });
+      }
+      if (result.execution === "unavailable") {
+        return res.status(503).json({ message: "Daily outreach registry is unavailable.", started: false, execution: "unavailable" });
+      }
+      return res.json({ message: "Daily outreach cycle completed.", started: true, execution: result.execution, result });
+    } catch (err) {
+      console.error("[Daily Outreach API] Error:", err);
+      return res.status(500).json({ message: "Daily outreach cycle failed.", started: false });
+    }
   });
 
   app.post("/api/outreach/start-worker", isAuthenticated, async (req, res) => {

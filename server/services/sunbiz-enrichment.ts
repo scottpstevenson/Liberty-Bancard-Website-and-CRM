@@ -138,8 +138,8 @@ async function firePostEnrichmentJob(
     }
 
     // Lazy-import to avoid circular dependency at module load time
-    const { getQueueManager, QUEUE_NAMES } = await import("./queue-manager");
-    const qm = await getQueueManager();
+    const { requireQueueManagerReady, QUEUE_NAMES } = await import("./queue-manager");
+    const qm = requireQueueManagerReady();
     const queue = qm.getQueue(QUEUE_NAMES.POST_ENRICHMENT);
     if (!queue) {
       console.warn("[Writeback] POST_ENRICHMENT queue not available — skipping job");

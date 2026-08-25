@@ -323,9 +323,9 @@ async function checkRedis(): Promise<CheckResult> {
         const { getSharedRedisClientIfReady } = await import("./queue-connection");
         const client = getSharedRedisClientIfReady();
         if (!client) {
-          // Try to get the queue manager to initialise the connection
-          const { getQueueManager } = await import("./queue-manager");
-          const qm = await getQueueManager();
+          // Health checks must not create workers or repeat schedules.
+          const { requireQueueManagerReady } = await import("./queue-manager");
+          requireQueueManagerReady();
           const { getSharedRedisClientIfReady: get2 } = await import("./queue-connection");
           const c2 = get2();
           if (!c2) throw new Error("Redis client not available");

@@ -765,8 +765,8 @@ export async function enrollInInboundConfirmation(params: {
       if (ov?.scheduleFollowup) {
         await ov.scheduleFollowup(followupJobId, jobData, jobOpts);
       } else {
-        const { getQueueManager, QUEUE_NAMES } = await import("./queue-manager");
-        const qm = await getQueueManager();
+        const { requireQueueManagerReady, QUEUE_NAMES } = await import("./queue-manager");
+        const qm = requireQueueManagerReady();
         const enrichmentQueue = qm.getQueue(QUEUE_NAMES.ENRICHMENT);
         if (!enrichmentQueue) throw new Error("Enrichment queue not available from QueueManager");
         await enrichmentQueue.add("inbound-confirmation-followup", jobData, jobOpts);

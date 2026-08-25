@@ -8,8 +8,9 @@ let digestInterval: ReturnType<typeof setInterval> | null = null;
 
 export async function generateAndSendWeeklyDigest(): Promise<void> {
   const { acquireJobLock, releaseJobLock, JOB_NAMES } = await import("./job-registry");
-  const lockToken = await acquireJobLock(JOB_NAMES.WEEKLY_DIGEST);
-  if (!lockToken) return;
+  const lease = await acquireJobLock(JOB_NAMES.WEEKLY_DIGEST);
+  if (lease.status !== "acquired") return;
+  const lockToken = lease.lockToken;
 
   const adminEmail = process.env.ADMIN_DIGEST_EMAIL;
   if (!adminEmail) {

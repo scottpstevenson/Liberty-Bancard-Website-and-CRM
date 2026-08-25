@@ -408,7 +408,8 @@ export async function enqueuePromotionalEnrollment(
     const promotionalEnrollmentJobId = dbRow.id;
 
     try {
-      const qm = await getQueueManager();
+      const { requireQueueManagerReady } = await import("./queue-manager");
+      const qm = requireQueueManagerReady();
       const queue = qm.getQueue("enrichment");
 
       if (!queue) {

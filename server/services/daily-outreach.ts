@@ -699,13 +699,16 @@ export async function processQuizLeadsForSunbizMatch(): Promise<number> {
   }
 }
 
-export async function runDailyOutreach(): Promise<{
+type DailyOutreachResult = {
   enriched: number;
   promoted: number;
   dealsCreated: number;
   queued: number;
   sent: { sent: number; failed: number };
-}> {
+  execution: "completed" | "held" | "unavailable";
+};
+
+async function runDailyOutreachCycle(): Promise<Omit<DailyOutreachResult, "execution">> {
   console.log(`[Daily Outreach] Starting daily outreach cycle...`);
 
   // ── Phase gating (#1532): 4 independently-gated logical phases ────────────
@@ -788,6 +791,36 @@ export async function runDailyOutreach(): Promise<{
     queued: totalQueued,
     sent: sendResult,
   };
+}
+
+/**
+ * The entire daily command is a deployment-wide singleton. Enrichment remains
+ * inside this boundary because a manual run and the legacy fallback must not
+ * execute the same logical cycle concurrently.
+ */
+export async function runDailyOutreach(): Promise<DailyOutreachResult> {
+  const { acquireJobLock, releaseJobLock } = await import("./job-registry");
+  const lease = await acquireJobLock("daily-outreach");
+  if (lease.status === "held") {
+    return { enriched: 0, promoted: 0, dealsCreated: 0, queued: 0, sent: { sent: 0, failed: 0 }, execution: "held" };
+  }
+  if (lease.status === "unavailable") {
+    return { enriched: 0, promoted: 0, dealsCreated: 0, queued: 0, sent: { sent: 0, failed: 0 }, execution: "unavailable" };
+  }
+
+  try {
+    const result = await runDailyOutreachCycle();
+    await releaseJobLock("daily-outreach", true, undefined, lease.lockToken);
+    return { ...result, execution: "completed" };
+  } catch (error) {
+    await releaseJobLock(
+      "daily-outreach",
+      false,
+      error instanceof Error ? error.message : "Daily outreach failed",
+      lease.lockToken,
+    );
+    throw error;
+  }
 }
 
 async function getDailySendCount(): Promise<number> {

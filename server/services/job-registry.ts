@@ -28,6 +28,11 @@ export const JOB_NAMES = {
 
 export type JobName = (typeof JOB_NAMES)[keyof typeof JOB_NAMES];
 
+export type JobLockOutcome =
+  | { status: "acquired"; jobName: string; lockToken: string; recovered: boolean }
+  | { status: "held"; jobName: string }
+  | { status: "unavailable"; jobName: string; errorCode: "REGISTRY_UNAVAILABLE" };
+
 /**
  * How long a job may stay in status='running' before its lock is considered
  * stale and is auto-released on the next acquireJobLock() call.
@@ -50,17 +55,17 @@ export const STALE_LOCK_TTL_MINUTES: number = (() => {
  *
  * Returns null if the job is already running and the lock is not yet stale.
  *
- * Stale-lock recovery: if status='running' and last_started_at is older than
+ * Stale-lock recovery: if status='running' and its renewable updated_at heartbeat is older than
  * STALE_LOCK_TTL_MINUTES, the lock is atomically reclaimed.  A CTE captures
  * the pre-update row so the staleness test reads the original state, not the
  * post-update one.
  */
-export async function acquireJobLock(jobName: string): Promise<string | null> {
+export async function acquireJobLock(jobName: string): Promise<JobLockOutcome> {
   try {
     const newToken = randomUUID();
 
     // CTE reads the current row BEFORE the INSERT/UPDATE fires, giving us the
-    // original status and last_started_at for an accurate staleness check.
+    // original status and updated_at for an accurate liveness check.
     // The upsert updates only when:
     //   (a) the job is not currently running, OR
     //   (b) the job is running but the lock has gone stale.
@@ -71,7 +76,7 @@ export async function acquireJobLock(jobName: string): Promise<string | null> {
       was_stale: boolean | null;
     }>(
       `WITH pre AS MATERIALIZED (
-         SELECT status, last_started_at
+         SELECT status, updated_at
          FROM background_jobs
          WHERE job_name = $1
        )
@@ -84,18 +89,18 @@ export async function acquireJobLock(jobName: string): Promise<string | null> {
              lock_token      = $3,
              updated_at      = NOW()
          WHERE background_jobs.status <> 'running'
-            OR background_jobs.last_started_at < NOW() - ($2 || ' minutes')::interval
+             OR background_jobs.updated_at < NOW() - ($2 || ' minutes')::interval
        RETURNING
          lock_token,
          (SELECT pre.status = 'running'
-                 AND pre.last_started_at < NOW() - ($2 || ' minutes')::interval
+                  AND pre.updated_at < NOW() - ($2 || ' minutes')::interval
           FROM pre) AS was_stale`,
       [jobName, String(STALE_LOCK_TTL_MINUTES), newToken]
     );
 
     if (result.rowCount === 0) {
       console.log(`[JobRegistry] ${jobName} is already running — skipping tick`);
-      return null;
+      return { status: "held", jobName };
     }
 
     // Log when we auto-released a stale lock so operators can see the recovery.
@@ -105,13 +110,37 @@ export async function acquireJobLock(jobName: string): Promise<string | null> {
       );
     }
 
-    return result.rows[0]?.lock_token ?? newToken;
+    return {
+      status: "acquired",
+      jobName,
+      lockToken: result.rows[0]?.lock_token ?? newToken,
+      recovered: result.rows[0]?.was_stale === true,
+    };
   } catch (err) {
     console.error(`[JobRegistry] acquireJobLock failed for ${jobName}:`, err);
     // Fail closed — if the registry DB is unavailable, refuse the lock so
     // concurrent workers cannot run the same singleton job and cause duplicate
     // sends or conflicting writes.
-    return null;
+    return { status: "unavailable", jobName, errorCode: "REGISTRY_UNAVAILABLE" };
+  }
+}
+
+/** Renew a live lease without changing its original start timestamp. */
+export async function renewJobLock(jobName: string, lockToken: string): Promise<boolean> {
+  if (!lockToken) return false;
+  try {
+    const result = await pool.query(
+      `UPDATE background_jobs
+          SET updated_at = NOW()
+        WHERE job_name = $1
+          AND status = 'running'
+          AND lock_token = $2`,
+      [jobName, lockToken],
+    );
+    return (result.rowCount ?? 0) === 1;
+  } catch (err) {
+    console.error(`[JobRegistry] renewJobLock failed for ${jobName}:`, err);
+    return false;
   }
 }
 
@@ -124,8 +153,8 @@ export async function acquireJobLock(jobName: string): Promise<string | null> {
  * @param lockToken - Token returned by acquireJobLock.  When provided, the
  *                    UPDATE is gated on lock_token matching, so a slow/crashed
  *                    prior owner cannot overwrite the current owner's state.
- *                    Callers that omit it get the old unconditional behaviour
- *                    (with a warning log) for backward compatibility.
+ *                    The token is required. A stale owner can never release a
+ *                    successor's lease or update its health state.
  */
 export async function releaseJobLock(
   jobName: string,
@@ -135,9 +164,8 @@ export async function releaseJobLock(
 ): Promise<void> {
   try {
     if (!lockToken) {
-      console.warn(
-        `[JobRegistry] releaseJobLock called without lockToken for ${jobName} — ownership not verified`
-      );
+      console.warn(`[JobRegistry] releaseJobLock called without lockToken for ${jobName} — refusing unverified release`);
+      return;
     }
 
     const result = await pool.query<{ id: number }>(
@@ -150,7 +178,7 @@ export async function releaseJobLock(
                                          ELSE consecutive_failures + 1 END,
              updated_at           = NOW()
        WHERE job_name = $1
-         AND ($4::text IS NULL OR lock_token = $4)
+          AND lock_token = $4
        RETURNING id`,
       [
         jobName,
@@ -218,7 +246,7 @@ export async function getJobStatuses(): Promise<
     return results;
   } catch (err) {
     console.error("[JobRegistry] getJobStatuses failed:", err);
-    return [];
+    throw new Error("JOB_REGISTRY_UNAVAILABLE");
   }
 }
 
@@ -226,12 +254,8 @@ export async function getJobStatuses(): Promise<
  * Returns true if any job has 3 or more consecutive failures.
  */
 export async function hasJobAlerts(): Promise<boolean> {
-  try {
-    const statuses = await getJobStatuses();
-    return statuses.some((j) => j.consecutiveFailures >= 3);
-  } catch {
-    return false;
-  }
+  const statuses = await getJobStatuses();
+  return statuses.some((j) => j.consecutiveFailures >= 3);
 }
 
 /**
@@ -244,7 +268,8 @@ export async function hasJobAlerts(): Promise<boolean> {
  */
 export async function recordWorkerFailure(
   queueName: string,
-  error: string
+  error: string,
+  lockToken?: string,
 ): Promise<number> {
   try {
     const result = await pool.query<{ consecutive_failures: number }>(
@@ -256,11 +281,13 @@ export async function recordWorkerFailure(
              consecutive_failures = background_jobs.consecutive_failures + 1,
              last_error          = $2,
              last_finished_at    = NOW(),
-             updated_at          = NOW()
+              updated_at          = NOW()
+        WHERE background_jobs.status <> 'running'
+           OR ($3::text IS NOT NULL AND background_jobs.lock_token = $3)
        RETURNING consecutive_failures`,
-      [queueName, error.slice(0, 1000)]
+       [queueName, error.slice(0, 1000), lockToken ?? null]
     );
-    return result.rows[0]?.consecutive_failures ?? 1;
+     return result.rows[0]?.consecutive_failures ?? 0;
   } catch (err) {
     console.error(`[JobRegistry] recordWorkerFailure failed for ${queueName}:`, err);
     return 0;
@@ -270,19 +297,21 @@ export async function recordWorkerFailure(
 /**
  * Record a successful worker job run — resets consecutive_failures to 0.
  */
-export async function recordWorkerSuccess(queueName: string): Promise<void> {
+export async function recordWorkerSuccess(queueName: string, lockToken?: string): Promise<void> {
   try {
     await pool.query(
       `INSERT INTO background_jobs
          (job_name, status, last_finished_at, run_count, consecutive_failures, updated_at)
        VALUES ($1, 'succeeded', NOW(), 1, 0, NOW())
-       ON CONFLICT (job_name) DO UPDATE
+        ON CONFLICT (job_name) DO UPDATE
          SET status              = 'succeeded',
              consecutive_failures = 0,
              run_count           = background_jobs.run_count + 1,
              last_finished_at    = NOW(),
-             updated_at          = NOW()`,
-      [queueName]
+              updated_at          = NOW()
+        WHERE background_jobs.status <> 'running'
+           OR ($2::text IS NOT NULL AND background_jobs.lock_token = $2)`,
+       [queueName, lockToken ?? null]
     );
   } catch (err) {
     console.error(`[JobRegistry] recordWorkerSuccess failed for ${queueName}:`, err);

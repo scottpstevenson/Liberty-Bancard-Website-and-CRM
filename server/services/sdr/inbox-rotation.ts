@@ -624,8 +624,9 @@ export async function runDailyMaintenance(): Promise<{
   health: { updated: number; paused: number };
 }> {
   const { acquireJobLock, releaseJobLock, JOB_NAMES } = await import("../job-registry");
-  const lockToken = await acquireJobLock(JOB_NAMES.INBOX_ROTATION);
-  if (!lockToken) return { countersReset: 0, warmup: { transitioned: 0, updated: 0 }, health: { updated: 0, paused: 0 } };
+  const lease = await acquireJobLock(JOB_NAMES.INBOX_ROTATION);
+  if (lease.status !== "acquired") return { countersReset: 0, warmup: { transitioned: 0, updated: 0 }, health: { updated: 0, paused: 0 } };
+  const lockToken = lease.lockToken;
 
   try {
     const countersReset = await resetDailySendCounts();

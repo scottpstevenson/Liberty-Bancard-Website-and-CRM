@@ -373,8 +373,9 @@ async function checkDeliverabilityThresholds(): Promise<AnomalyAlert[]> {
 
 export async function runAnomalyDetection(): Promise<AnomalyAlert[]> {
   const { acquireJobLock, releaseJobLock, JOB_NAMES } = await import("../job-registry");
-  const lockToken = await acquireJobLock(JOB_NAMES.ANOMALY_DETECTION);
-  if (!lockToken) return [];
+  const lease = await acquireJobLock(JOB_NAMES.ANOMALY_DETECTION);
+  if (lease.status !== "acquired") return [];
+  const lockToken = lease.lockToken;
 
   const allAlerts: AnomalyAlert[] = [];
 

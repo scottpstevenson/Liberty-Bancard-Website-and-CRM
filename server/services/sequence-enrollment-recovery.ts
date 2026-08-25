@@ -37,11 +37,12 @@ export async function recoverDeferredEnrollments(): Promise<{
 }> {
   // ── Re-entrant guard ────────────────────────────────────────────────────────
   const { acquireJobLock, releaseJobLock } = await import("./job-registry");
-  const lockToken = await acquireJobLock(JOB_NAME);
-  if (!lockToken) {
+  const lease = await acquireJobLock(JOB_NAME);
+  if (lease.status !== "acquired") {
     console.log("[EnrollmentRecovery] Another recovery job is already running — skipping");
     return { recovered: 0, reDeferred: 0, failed: 0, skipped: 0 };
   }
+  const lockToken = lease.lockToken;
 
   let recovered = 0;
   let reDeferred = 0;

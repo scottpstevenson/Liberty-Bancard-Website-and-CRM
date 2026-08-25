@@ -2790,8 +2790,8 @@ export function registerAdminRoutes(app: Express) {
       } catch {
         return res.status(503).json({ status: "not_initialized", queues: [] });
       }
-      const { queues, usingMock } = await qm.getAllQueueMetrics();
-      res.json({ status: "ok", queues, usingMock, timestamp: new Date().toISOString() });
+      const { queues, usingMock, status } = await qm.getAllQueueMetrics();
+      res.json({ status, queues, usingMock, timestamp: new Date().toISOString() });
     } catch (err: any) {
       serverError(res, err);
     }
@@ -4008,16 +4008,17 @@ export function registerAdminRoutes(app: Express) {
           id: item.id,
           queueName: item.queueName,
           jobName: item.jobName,
-          failedReason: item.failedReason,
+          failedReason: "Worker failure recorded; inspect server logs for redacted details.",
           attemptsMade: item.attemptsMade,
           timestamp: item.finishedOn ?? item.timestamp,
         }));
         const metrics = await qm.getAllQueueMetrics();
         queueSummary = (metrics.queues ?? []).map((q: any) => ({
           name: q.name,
-          failed: q.failed ?? 0,
-          waiting: q.waiting ?? 0,
-          active: q.active ?? 0,
+          probeStatus: q.probeStatus,
+          failed: q.probeStatus === "ok" ? q.failed : null,
+          waiting: q.probeStatus === "ok" ? q.waiting : null,
+          active: q.probeStatus === "ok" ? q.active : null,
         }));
         dlqStatus = dlqRead.queueStatus.some((source) => source.status !== "sampled") ? "degraded" : "ok";
       } catch (_err) { dlqStatus = "not_initialized"; }

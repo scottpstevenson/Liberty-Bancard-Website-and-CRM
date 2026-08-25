@@ -2475,8 +2475,9 @@ export async function runGhlFullSyncTick(): Promise<void> {
   // The restored state is AUTHORITATIVE — it is never unconditionally reset.
   await restoreGhlCircuit();
   const { acquireJobLock, releaseJobLock, JOB_NAMES } = await import("./job-registry");
-  const lockToken = await acquireJobLock(JOB_NAMES.GHL_SYNC);
-  if (!lockToken) return;
+  const lease = await acquireJobLock(JOB_NAMES.GHL_SYNC);
+  if (lease.status !== "acquired") return;
+  const lockToken = lease.lockToken;
 
   // ── Circuit entry transitions (inside the lock) ──────────────────────────
   if (ghlCircuitState === "open") {

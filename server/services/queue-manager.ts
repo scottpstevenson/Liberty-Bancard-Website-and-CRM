@@ -418,6 +418,9 @@ export interface QueueMetric {
   lastFailedAt: string | null;
   avgDurationMs: number | null;
   throughputPerHour: number | null;
+  /** A failed probe is not an empty queue. */
+  probeStatus: "ok" | "error";
+  errorCode?: "QUEUE_METRICS_READ_FAILED";
 }
 
 export interface DlqItem {
@@ -1309,8 +1312,9 @@ class QueueManager {
         }
         case QUEUE_NAMES.EXECUTIVE_SNAPSHOT: {
           const { acquireJobLock, releaseJobLock } = await import("./job-registry");
-          const lockToken = await acquireJobLock("executive-snapshot");
-          if (!lockToken) break;
+          const lease = await acquireJobLock("executive-snapshot");
+          if (lease.status !== "acquired") break;
+          const lockToken = lease.lockToken;
           try {
             const { buildExecutiveSnapshot } = await import("./executive-kpi");
             const { generateExecutiveAi } = await import("./executive-ai");
@@ -1486,8 +1490,10 @@ class QueueManager {
       const queue = this.queues.get(config.name);
       if (!queue) continue;
 
+      const baseScheduleId = `${config.name}-repeatable`;
       const existing = await queue.getRepeatableJobs();
-      for (const job of existing) {
+      // Do not delete schedules that merely share this physical queue.
+      for (const job of existing.filter((job) => job.id === baseScheduleId)) {
         await queue.removeRepeatableByKey(job.key);
       }
 
@@ -1503,7 +1509,7 @@ class QueueManager {
         repeat: config.cronPattern
           ? { pattern: config.cronPattern }
           : { every: effectiveMs },
-        jobId: `${config.name}-repeatable`,
+        jobId: baseScheduleId,
       });
 
       // No jobId here — letting BullMQ assign a unique ID prevents the stale
@@ -1530,8 +1536,8 @@ class QueueManager {
       // BullMQ encodes the jobId into the repeatable key as part of the key string.
       const existingJobs = await queue.getRepeatableJobs();
       for (const job of existingJobs) {
-        // Match by jobId suffix: BullMQ repeatable key format includes the jobId
-        if (job.id === sched.jobId || job.key.includes(sched.jobId)) {
+        // Exact identity only: substrings can match an unrelated future schedule.
+        if (job.id === sched.jobId) {
           await queue.removeRepeatableByKey(job.key);
         }
       }
@@ -1564,16 +1570,16 @@ class QueueManager {
     if (!config) return { updated: false, effectiveMs: newIntervalMs };
     if (config.cronPattern) return { updated: false, effectiveMs: newIntervalMs };
 
-    // Remove all existing repeatable jobs for this queue
+    const baseScheduleId = `${queueName}-repeatable`;
     const existing = await queue.getRepeatableJobs();
-    for (const job of existing) {
+    for (const job of existing.filter((job) => job.id === baseScheduleId)) {
       await queue.removeRepeatableByKey(job.key);
     }
 
     // Add a new repeatable job with the updated interval
     await queue.add(config.jobName, {}, {
       repeat: { every: newIntervalMs },
-      jobId: `${queueName}-repeatable`,
+      jobId: baseScheduleId,
     });
 
     // Track runtime override
@@ -1692,7 +1698,7 @@ class QueueManager {
     }
   }
 
-  async getAllQueueMetrics(): Promise<{ queues: QueueMetric[]; usingMock: boolean }> {
+  async getAllQueueMetrics(): Promise<{ queues: QueueMetric[]; usingMock: boolean; status: "ok" | "degraded" }> {
     const metrics: QueueMetric[] = [];
 
     for (const config of QUEUE_CONFIGS) {
@@ -1754,6 +1760,7 @@ class QueueManager {
           lastFailedAt,
           avgDurationMs,
           throughputPerHour,
+          probeStatus: "ok",
         });
       } catch (err: any) {
         metrics.push({
@@ -1769,11 +1776,17 @@ class QueueManager {
           lastFailedAt: null,
           avgDurationMs: null,
           throughputPerHour: null,
+          probeStatus: "error",
+          errorCode: "QUEUE_METRICS_READ_FAILED",
         });
       }
     }
 
-    return { queues: metrics, usingMock: isUsingMockRedis() };
+    return {
+      queues: metrics,
+      usingMock: isUsingMockRedis(),
+      status: metrics.some((metric) => metric.probeStatus === "error") ? "degraded" : "ok",
+    };
   }
 
   async getDeadLetterItemsWithStatus(): Promise<DlqReadResult> {
@@ -2083,7 +2096,7 @@ async function runFreeContactEnrichmentTick(): Promise<void> {
 
   if (pending.length === 0) return;
 
-  const qm = await getQueueManager();
+  const qm = requireQueueManagerReady();
   const enrichmentQueue = qm.getQueue(QUEUE_NAMES.ENRICHMENT);
   if (!enrichmentQueue) {
     console.warn("[FreeEnrich] Enrichment queue not found — skipping job enqueue");
@@ -2307,7 +2320,7 @@ async function runStatementBlueprintJob(dealId: number): Promise<void> {
  */
 export async function enqueueStatementAnalysis(dealId: number): Promise<string | null> {
   try {
-    const qm = await getQueueManager();
+    const qm = requireQueueManagerReady();
     const queue = qm.getQueue(QUEUE_NAMES.ENRICHMENT);
     if (!queue) return null;
     const job = await queue.add("statement-blueprint", { dealId }, {
@@ -2330,7 +2343,7 @@ export async function enqueueStatementAnalysis(dealId: number): Promise<string |
  */
 export async function enqueueZeroBounceRun(runId: string): Promise<string | null> {
   try {
-    const qm = await getQueueManager();
+    const qm = requireQueueManagerReady();
     const queue = qm.getQueue(QUEUE_NAMES.ZEROBOUNCE_BATCH);
     if (!queue) return null;
     const job = await queue.add("run", { runId }, {
@@ -2364,8 +2377,9 @@ async function runActivationMonitorTick(): Promise<void> {
   const { acquireJobLock, releaseJobLock, JOB_NAMES } = await import("./job-registry");
   // JOB_NAMES may not have ACTIVATION_MONITOR yet — use string directly as fallback
   const jobKey = (JOB_NAMES as any).ACTIVATION_MONITOR ?? "activation-monitor";
-  const lockToken = await acquireJobLock(jobKey);
-  if (!lockToken) return;
+  const lease = await acquireJobLock(jobKey);
+  if (lease.status !== "acquired") return;
+  const lockToken = lease.lockToken;
 
   try {
     const { runActivationMonitor } = await import("./merchant-activation-monitor");
@@ -2383,8 +2397,9 @@ async function runActivationMonitorTick(): Promise<void> {
 async function runMerchantSuccessTick(): Promise<void> {
   const { acquireJobLock, releaseJobLock } = await import("./job-registry");
   const jobKey = "merchant-success";
-  const lockToken = await acquireJobLock(jobKey);
-  if (!lockToken) return;
+  const lease = await acquireJobLock(jobKey);
+  if (lease.status !== "acquired") return;
+  const lockToken = lease.lockToken;
 
   try {
     const { runMerchantSuccessSequences } = await import("./merchant-success-sequences");
@@ -2402,8 +2417,9 @@ async function runMerchantSuccessTick(): Promise<void> {
 async function runWinbackOutreachTick(): Promise<void> {
   const { acquireJobLock, releaseJobLock } = await import("./job-registry");
   const jobKey = "winback-outreach";
-  const lockToken = await acquireJobLock(jobKey);
-  if (!lockToken) return;
+  const lease = await acquireJobLock(jobKey);
+  if (lease.status !== "acquired") return;
+  const lockToken = lease.lockToken;
 
   try {
     const { runWinbackOutreachEngine } = await import("./winback-outreach-engine");
@@ -2420,8 +2436,9 @@ async function runWinbackOutreachTick(): Promise<void> {
 
 async function runMidIngestionTick(): Promise<void> {
   const { acquireJobLock, releaseJobLock, JOB_NAMES } = await import("./job-registry");
-  const lockToken = await acquireJobLock(JOB_NAMES.MID_INGESTION);
-  if (!lockToken) return;
+  const lease = await acquireJobLock(JOB_NAMES.MID_INGESTION);
+  if (lease.status !== "acquired") return;
+  const lockToken = lease.lockToken;
 
   try {
     const { ingestMidDataForActiveMids } = await import("./processor-api");

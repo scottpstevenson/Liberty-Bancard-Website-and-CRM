@@ -4,7 +4,7 @@ import { storage } from "../storage";
 import { isGhlConfigured, sendGhlInternalNotification } from "../services/ghl";
 import { buildDailyDigest } from "../services/digest-service";
 import { isSmtpConfigured } from "../services/smtp-email";
-import { getQueueManager, QUEUE_NAMES } from "../services/queue-manager";
+import { requireQueueManagerReady, QUEUE_NAMES } from "../services/queue-manager";
 import type { InsertNotificationPreference } from "@shared/schema";
 import { serverError } from "../utils/server-error";
 import { authorizeContactAccess, authorizeDealAccess } from "../services/crm-object-access";
@@ -22,7 +22,7 @@ async function computeDigestHealth() {
   // failure), treat the scheduler as unknown rather than assuming it's active.
   let schedulerActive: boolean | null = null;
   try {
-    const qm = await getQueueManager();
+    const qm = requireQueueManagerReady();
     const digestsQueue = qm.getQueue(QUEUE_NAMES.DIGESTS);
     if (digestsQueue) {
       const paused = await digestsQueue.isPaused();

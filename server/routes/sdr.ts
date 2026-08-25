@@ -103,8 +103,8 @@ export function registerSdrRoutes(app: Express) {
       sessionCount = sessResult.rows[0] ? parseInt(sessResult.rows[0].cnt, 10) : null;
     } catch {}
     try {
-      const { getQueueManager } = await import("../services/queue-manager");
-      const qm = getQueueManager();
+      const { requireQueueManagerReady } = await import("../services/queue-manager");
+      const qm = requireQueueManagerReady();
       if (qm) {
         const conn = (qm as any)._redisConnection;
         if (conn && typeof conn.ping === "function") await conn.ping();
@@ -1842,21 +1842,6 @@ export function registerSdrRoutes(app: Express) {
       }
     });
   });
-
-  setInterval(async () => {
-    try {
-      const scheduled = await storage.getScheduledBlogPosts();
-      const now = new Date();
-      for (const post of scheduled) {
-        if (post.scheduledAt && new Date(post.scheduledAt) <= now) {
-          await storage.publishBlogPost(post.id);
-          console.log(`[Blog Scheduler] Auto-published: ${post.slug}`);
-        }
-      }
-    } catch (err) {
-      console.error("[Blog Scheduler] Error:", err);
-    }
-  }, 60 * 60 * 1000);
 
   app.get("/api/sdr/dashboard", isAuthenticated, async (req, res) => {
     try {

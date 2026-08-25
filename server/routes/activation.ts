@@ -1002,12 +1002,14 @@ export function registerActivationRoutes(app: Express) {
       let queueStatus: "green" | "yellow" | "red" = "yellow";
       let queueValue = "Queue health source unavailable";
       try {
-        const { getQueueManager } = await import("../services/queue-manager");
-        const qm = await getQueueManager();
+        const { requireQueueManagerReady } = await import("../services/queue-manager");
+        const qm = requireQueueManagerReady();
         const metrics = await qm.getAllQueueMetrics();
-        const dlqTotal = Object.values(metrics as Record<string, any>).reduce((sum: number, q: any) => sum + (q?.dead || 0), 0);
-        queueStatus = dlqTotal === 0 ? "green" : "yellow";
-        queueValue = dlqTotal === 0 ? "No dead-letter jobs" : `${dlqTotal} dead-letter job(s)`;
+        const dlqTotal = metrics.queues.reduce((sum, q) => sum + q.failed, 0);
+        queueStatus = metrics.status === "ok" && dlqTotal === 0 ? "green" : "yellow";
+        queueValue = metrics.status === "ok"
+          ? (dlqTotal === 0 ? "No failed queue jobs" : `${dlqTotal} failed queue job(s)`)
+          : "Queue metrics are degraded";
       } catch {
         queueStatus = "yellow";
         queueValue = "Queue health source unavailable";

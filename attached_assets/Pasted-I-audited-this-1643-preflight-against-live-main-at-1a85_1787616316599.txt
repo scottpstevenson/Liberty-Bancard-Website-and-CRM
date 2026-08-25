@@ -1,0 +1,93 @@
+I audited this #1643 preflight against live `main` at `1a853da4…`. It is largely accurate, but it misses one P0 concurrency defect. Do not build it unchanged.
+
+### Missing P0: health writes can destroy a successor’s lease
+
+`background_jobs` currently serves as both:
+
+* The logical execution lease.
+* BullMQ worker-health telemetry.
+
+The QueueManager calls:
+
+* `recordWorkerSuccess(config.name)` after completion.
+* `recordWorkerFailure(config.name, error)` after failure.
+
+Those functions unconditionally update the corresponding `background_jobs` row. That means:
+
+1. Worker A’s lease becomes stale.
+2. Worker B reclaims it with token B.
+3. Worker A eventually finishes.
+4. A’s fenced `releaseJobLock(tokenA)` correctly does nothing.
+5. But A’s later **tokenless `recordWorkerSuccess()` or `recordWorkerFailure()` can overwrite B’s running lease state**.
+
+That defeats the fencing guarantee the task is supposed to establish.
+
+Evidence:
+
+* [QueueManager completion/failure hooks](https://github.com/scottpstevenson/Liberty-Bancard-Website-and-CRM/blob/main/server/services/queue-manager.ts)
+* [Current lease and health writers](https://github.com/scottpstevenson/Liberty-Bancard-Website-and-CRM/blob/main/server/services/job-registry.ts)
+
+Everything else important in the preflight is confirmed: 24 queue configurations, destructive repeat-schedule reconciliation, lazy initialization callers, zero-like metric failures, stale 23-queue test expectations, skipped/tautological resilience tests, raw DLQ failure exposure, and the duplicate content scheduler.
+
+Send this correction:
+
+```text
+Approved to build #1643 after adding this mandatory P0 correction.
+
+The preflight missed a lease/telemetry collision in background_jobs.
+
+Current QueueManager completed/failed event handlers call:
+
+- recordWorkerSuccess(config.name)
+- recordWorkerFailure(config.name, error)
+
+Those functions update the same background_jobs rows used by acquireJobLock/releaseJobLock. A stale BullMQ owner can therefore finish after another owner reclaims the lease and have its tokenless worker-health callback overwrite the successor’s running state. A fenced release alone does not prevent this.
+
+Required correction:
+
+1. Change VFC-11 to FALSE or add a new P0 VFC covering lease/telemetry collision.
+2. Ensure recordWorkerSuccess() and recordWorkerFailure() cannot mutate a row currently owned by a running lease unless the current fencing token matches.
+3. Use the smallest safe integration:
+   - Guard tokenless telemetry updates with `WHERE background_jobs.status <> 'running'`; or
+   - Use a clearly separate worker-health key namespace that cannot collide with logical lease keys.
+4. Do not add a second table or migration.
+5. Typed lease acquisition must return exactly:
+   - acquired
+   - held/contention
+   - unavailable/registry failure
+6. Lease renewal must require the current token, require status='running', preserve last_started_at, and update the existing liveness timestamp.
+7. Stale detection must use the renewable liveness timestamp, with a safe fallback for legacy rows such as COALESCE(updated_at, last_started_at).
+8. Completion must require the exact token. Remove the optional/tokenless release path after migrating every caller.
+9. The lease wrapper must always stop renewal and attempt token-fenced completion in finally.
+10. Do not let a failed renewal continue consequential work.
+
+Add mandatory regression tests proving:
+
+- Owner A acquires token A.
+- Its lease expires.
+- Owner B reclaims with token B.
+- A’s release cannot change B’s row.
+- A’s later recordWorkerSuccess cannot change B’s row.
+- A’s later recordWorkerFailure cannot change B’s row.
+- Only B can renew and complete the lease.
+- A registry failure is reported as unavailable, not contention.
+- Existing non-leased worker-health reporting still works.
+- No BullMQ job or SKIP LOCKED outbox is unnecessarily serialized.
+
+Also preserve every correction already in the preflight:
+
+- Startup-only QueueManager creation.
+- Ready-only route/probe/producer access.
+- Exact repeatable schedule identity.
+- No queue-wide schedule deletion.
+- Typed unavailable/error/sampled diagnostics.
+- Centralized DLQ error redaction.
+- Removal of the duplicate route-local blog scheduler.
+- 24-config topology contract.
+- Removal of passing skips, tautologies, and swallowed failures.
+- No migration, capacity tuning, provider calls, dormant-worker activation, or infrastructure changes.
+
+Do not return SAFE TO MERGE unless the stale-owner telemetry-clobber regression passes.
+```
+
+With that addition, the #1643 build plan is properly scoped and build-ready.

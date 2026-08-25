@@ -5,9 +5,11 @@ let timer: NodeJS.Timeout | null = null;
 
 export async function runContentSchedulerTick(): Promise<{ blogsPublished: number; socialPublished: number }> {
   const { acquireJobLock, releaseJobLock, JOB_NAMES } = await import("./job-registry");
-  const lockToken = await acquireJobLock(JOB_NAMES.CONTENT_SCHEDULER);
-  if (!lockToken) return { blogsPublished: 0, socialPublished: 0 };
+  const lease = await acquireJobLock(JOB_NAMES.CONTENT_SCHEDULER);
+  if (lease.status !== "acquired") return { blogsPublished: 0, socialPublished: 0 };
+  const lockToken = lease.lockToken;
 
+  try {
   const now = new Date();
   let blogsPublished = 0;
   let socialPublished = 0;
@@ -130,8 +132,17 @@ export async function runContentSchedulerTick(): Promise<{ blogsPublished: numbe
     console.error("[ContentScheduler] Social tick error:", err.message);
   }
 
-  await releaseJobLock(JOB_NAMES.CONTENT_SCHEDULER, true, undefined, lockToken);
-  return { blogsPublished, socialPublished };
+    await releaseJobLock(JOB_NAMES.CONTENT_SCHEDULER, true, undefined, lockToken);
+    return { blogsPublished, socialPublished };
+  } catch (error) {
+    await releaseJobLock(
+      JOB_NAMES.CONTENT_SCHEDULER,
+      false,
+      error instanceof Error ? error.message : "Content scheduler tick failed",
+      lockToken,
+    );
+    throw error;
+  }
 }
 
 export function startContentScheduler() {

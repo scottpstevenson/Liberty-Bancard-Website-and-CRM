@@ -18,7 +18,7 @@
 import { db } from "../db";
 import { contacts, contactLeadScoringJobs } from "@shared/schema";
 import { eq, sql } from "drizzle-orm";
-import { getQueueManager } from "./queue-manager";
+import { requireQueueManagerReady } from "./queue-manager";
 
 const BULLMQ_JOB_ATTEMPTS = 3;
 const BULLMQ_BACKOFF_DELAY_MS = 15_000;
@@ -87,7 +87,8 @@ export async function requestContactLeadScoring(
     const dbRowId: number = row.id;
 
     try {
-      const qm = await getQueueManager();
+      const { requireQueueManagerReady } = await import("./queue-manager");
+      const qm = requireQueueManagerReady();
       const queue = qm.getQueue("enrichment");
 
       if (!queue) {
@@ -156,11 +157,11 @@ export async function requestContactLeadScoring(
  * Wire into the ENRICHMENT queue tick (same pattern as runFreeContactEnrichmentTick).
  */
 export async function runLeadScoringDeferredRecovery(): Promise<void> {
-  let qm: Awaited<ReturnType<typeof getQueueManager>> | null = null;
+  let qm: ReturnType<typeof requireQueueManagerReady> | null = null;
   let queue: any | null = null;
 
   try {
-    qm = await getQueueManager();
+    qm = requireQueueManagerReady();
     queue = qm!.getQueue("enrichment");
   } catch {
     console.warn("[LeadScoringRecovery] Queue manager unavailable — skipping recovery tick");

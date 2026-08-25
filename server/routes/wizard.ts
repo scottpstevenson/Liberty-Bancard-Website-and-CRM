@@ -634,8 +634,9 @@ export function registerWizardRoutes(app: Express): void {
   // ── Phase 5: Queue Health ───────────────────────────────────────────────────
   app.get("/api/wizard/queue-health", requireRole("admin", "manager"), async (_req, res) => {
     try {
-      const qm = await getQueueManager();
-      const { queues, usingMock } = await qm.getAllQueueMetrics();
+      const { requireQueueManagerReady } = await import("../services/queue-manager");
+      const qm = requireQueueManagerReady();
+      const { queues, usingMock, status: metricsStatus } = await qm.getAllQueueMetrics();
 
       const now = Date.now();
       const enrichedQueues = queues
@@ -669,7 +670,8 @@ export function registerWizardRoutes(app: Express): void {
             active: q.active ?? 0,
             failed: q.failed ?? 0,
             paused: q.isPaused ?? false,
-            usingMock,
+        usingMock,
+        metricsStatus,
           };
         });
 

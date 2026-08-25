@@ -85,11 +85,12 @@ export async function runOnboardingReminderTick(): Promise<{ processed: number; 
           // prevents intra-tick duplication.
           const { acquireJobLock, releaseJobLock } = await import("./job-registry");
           const lockKey = `onboarding-reminder:${deal.contactId}`;
-          const reminderLock = await acquireJobLock(lockKey);
-          if (!reminderLock) {
+          const reminderLease = await acquireJobLock(lockKey);
+          if (reminderLease.status !== "acquired") {
             console.log(`[OnboardingReminder] Lock already held for contact ${deal.contactId} — skipping duplicate send`);
             continue;
           }
+          const reminderLock = reminderLease.lockToken;
 
           const { channelOrchestrator } = await import("./transports/index");
           const contactName =
