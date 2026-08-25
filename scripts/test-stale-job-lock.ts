@@ -79,6 +79,11 @@ async function run() {
     const tokenB = leaseB.lockToken;
     assert("B2 — new token differs from the stale token", tokenB !== tokenA);
 
+    const { rows: beforeStale } = await pool.query<{ last_started_at: Date }>(
+      `SELECT last_started_at FROM background_jobs WHERE job_name = $1`,
+      [TEST_JOB],
+    );
+    const originalStartedAt = beforeStale[0]?.last_started_at?.getTime();
     const { rows: afterStale } = await pool.query<{ status: string; last_started_at: Date; updated_at: Date }>(
       `SELECT status, last_started_at, updated_at FROM background_jobs WHERE job_name = $1`,
       [TEST_JOB]
@@ -88,8 +93,12 @@ async function run() {
       ? (Date.now() - new Date(afterStale[0].updated_at).getTime()) / 1000
       : Infinity;
     assert("B4 — heartbeat was refreshed (< 5 s ago)", ageSec < 5);
-    assert("B5 — current owner can renew with its token", await renewJobLock(TEST_JOB, tokenB));
-    assert("B6 — stale owner cannot renew successor lease", !(await renewJobLock(TEST_JOB, tokenA)));
+    assert(
+      "B5 — stale recovery preserves the original start timestamp",
+      afterStale[0]?.last_started_at?.getTime() === originalStartedAt,
+    );
+    assert("B6 — current owner can renew with its token", await renewJobLock(TEST_JOB, tokenB));
+    assert("B7 — stale owner cannot renew successor lease", !(await renewJobLock(TEST_JOB, tokenA)));
 
     // ── Scenario C: Fencing — old owner cannot overwrite new owner ─────────────
     console.log("\nScenario C — fencing token blocks stale owner");

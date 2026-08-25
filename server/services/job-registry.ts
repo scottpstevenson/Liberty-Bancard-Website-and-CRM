@@ -85,7 +85,6 @@ export async function acquireJobLock(jobName: string): Promise<JobLockOutcome> {
          VALUES ($1, 'running', NOW(), $3, 0, 0, NOW())
        ON CONFLICT (job_name) DO UPDATE
          SET status          = 'running',
-             last_started_at = NOW(),
              lock_token      = $3,
              updated_at      = NOW()
          WHERE background_jobs.status <> 'running'
