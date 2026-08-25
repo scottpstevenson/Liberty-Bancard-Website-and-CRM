@@ -45,7 +45,6 @@ export const STALE_LOCK_TTL_MINUTES: number = (() => {
   const raw = parseInt(process.env.STALE_JOB_LOCK_TTL_MINUTES ?? "", 10);
   return Number.isFinite(raw) && raw > 0 ? raw : 20;
 })();
-const activeLeaseHeartbeats = new Map<string, ReturnType<typeof setInterval>>();
 
 /**
  * Attempt to acquire a lock for the given job atomically.
@@ -111,9 +110,6 @@ export async function acquireJobLock(jobName: string): Promise<JobLockOutcome> {
     }
 
     const lockToken = result.rows[0]?.lock_token ?? newToken;
-    // Central ownership heartbeat covers every canonical lease holder, including
-    // legacy call sites. Release stops it by fencing token.
-    startJobLockHeartbeat(jobName, lockToken);
     return {
       status: "acquired",
       jobName,
@@ -151,29 +147,28 @@ export async function renewJobLock(jobName: string, lockToken: string): Promise<
 /** Keep a long-running singleton lease alive. Call `assertOwned()` before each
  * consequential phase; a failed renewal fails closed rather than allowing a
  * successor to run concurrently. */
-export function startJobLockHeartbeat(jobName: string, lockToken: string) {
+export function startJobLockHeartbeat(
+  jobName: string,
+  lockToken: string,
+  options: {
+    intervalMs?: number;
+    renew?: (jobName: string, lockToken: string) => Promise<boolean>;
+  } = {},
+) {
   let lost = false;
-  const key = `${jobName}:${lockToken}`;
-  const existing = activeLeaseHeartbeats.get(key);
-  if (existing) {
-    return {
-      assertOwned() { if (lost) throw new Error(`JOB_LEASE_LOST:${jobName}`); },
-      stop() {},
-    };
-  }
-  const intervalMs = Math.max(1_000, Math.floor(STALE_LOCK_TTL_MINUTES * 60_000 / 3));
+  const intervalMs = options.intervalMs ?? Math.max(1_000, Math.floor(STALE_LOCK_TTL_MINUTES * 60_000 / 3));
+  const renew = options.renew ?? renewJobLock;
   const timer = setInterval(() => {
-    renewJobLock(jobName, lockToken).then((renewed) => {
-      if (!renewed) { lost = true; clearInterval(timer); activeLeaseHeartbeats.delete(key); }
-    }).catch(() => { lost = true; clearInterval(timer); activeLeaseHeartbeats.delete(key); });
+    renew(jobName, lockToken).then((renewed) => {
+      if (!renewed) { lost = true; clearInterval(timer); }
+    }).catch(() => { lost = true; clearInterval(timer); });
   }, intervalMs);
   timer.unref?.();
-  activeLeaseHeartbeats.set(key, timer);
   return {
     assertOwned() {
       if (lost) throw new Error(`JOB_LEASE_LOST:${jobName}`);
     },
-    stop() { clearInterval(timer); activeLeaseHeartbeats.delete(key); },
+    stop() { clearInterval(timer); },
   };
 }
 
@@ -228,11 +223,6 @@ export async function releaseJobLock(
         `[JobRegistry] releaseJobLock for ${jobName} matched 0 rows — ` +
         `token mismatch; likely a stale owner releasing after takeover (safe no-op)`
       );
-    }
-    if ((result.rowCount ?? 0) === 1) {
-      const timer = activeLeaseHeartbeats.get(`${jobName}:${lockToken}`);
-      if (timer) clearInterval(timer);
-      activeLeaseHeartbeats.delete(`${jobName}:${lockToken}`);
     }
   } catch (err) {
     console.error(`[JobRegistry] releaseJobLock failed for ${jobName}:`, err);

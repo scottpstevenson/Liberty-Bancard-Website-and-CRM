@@ -250,6 +250,18 @@ export const SUITE_MANIFEST: SuiteManifestEntry[] = [
     providerDenial: "Redis: uses test prefix; no provider calls",
   },
   {
+    name: "Queue Lease Fencing",
+    script: "scripts/test-stale-job-lock.ts",
+    capability: "deterministic-integration",
+    providerDenial: "PostgreSQL registry rows use unique test job names; no providers",
+  },
+  {
+    name: "Redis Queue Topology",
+    script: "scripts/test-redis-topology.ts",
+    capability: "deterministic-integration",
+    providerDenial: "Redis topology is inspected through an isolated test run; no providers",
+  },
+  {
     name: "Outbound Pause Fence",
     script: "scripts/test-pause-fence.ts",
     capability: "deterministic-integration",

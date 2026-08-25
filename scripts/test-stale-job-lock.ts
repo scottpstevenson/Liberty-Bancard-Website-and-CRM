@@ -25,7 +25,7 @@
  */
 
 import { pool } from "../server/db";
-import { acquireJobLock, releaseJobLock, renewJobLock, recordWorkerFailure, recordWorkerSuccess, STALE_LOCK_TTL_MINUTES } from "../server/services/job-registry";
+import { acquireJobLock, releaseJobLock, renewJobLock, recordWorkerFailure, recordWorkerSuccess, startJobLockHeartbeat, STALE_LOCK_TTL_MINUTES } from "../server/services/job-registry";
 
 const TEST_JOB = `__test-stale-lock-${Date.now()}__`;
 
@@ -57,6 +57,10 @@ async function run() {
     assert("A1 — first acquireJobLock returns acquired + a token", leaseA.status === "acquired");
     if (leaseA.status !== "acquired") throw new Error("first lease was not acquired");
     const tokenA = leaseA.lockToken;
+    const { rows: ownerA } = await pool.query<{ last_started_at: Date }>(
+      `SELECT last_started_at FROM background_jobs WHERE job_name = $1`, [TEST_JOB],
+    );
+    const originalStartedAt = new Date(ownerA[0]?.last_started_at).getTime();
 
     const blockedAttempt = await acquireJobLock(TEST_JOB);
     assert("A2 — immediate re-acquire returns held (lock is fresh)", blockedAttempt.status === "held");
@@ -79,11 +83,6 @@ async function run() {
     const tokenB = leaseB.lockToken;
     assert("B2 — new token differs from the stale token", tokenB !== tokenA);
 
-    const { rows: beforeStale } = await pool.query<{ last_started_at: Date }>(
-      `SELECT last_started_at FROM background_jobs WHERE job_name = $1`,
-      [TEST_JOB],
-    );
-    const originalStartedAt = beforeStale[0]?.last_started_at?.getTime();
     const { rows: afterStale } = await pool.query<{ status: string; last_started_at: Date; updated_at: Date }>(
       `SELECT status, last_started_at, updated_at FROM background_jobs WHERE job_name = $1`,
       [TEST_JOB]
@@ -95,7 +94,7 @@ async function run() {
     assert("B4 — heartbeat was refreshed (< 5 s ago)", ageSec < 5);
     assert(
       "B5 — stale recovery preserves the original start timestamp",
-      afterStale[0]?.last_started_at?.getTime() === originalStartedAt,
+      new Date(afterStale[0]?.last_started_at).getTime() === originalStartedAt,
     );
     assert("B6 — current owner can renew with its token", await renewJobLock(TEST_JOB, tokenB));
     assert("B7 — stale owner cannot renew successor lease", !(await renewJobLock(TEST_JOB, tokenA)));
@@ -106,6 +105,20 @@ async function run() {
       `SELECT status, lock_token FROM background_jobs WHERE job_name = $1`, [TEST_JOB],
     );
     assert("B8 — tokenless stale telemetry cannot overwrite successor lease", afterTelemetry[0]?.status === "running" && afterTelemetry[0]?.lock_token === tokenB);
+    const lossHeartbeat = startJobLockHeartbeat(TEST_JOB, tokenB, {
+      intervalMs: 1,
+      renew: async () => false,
+    });
+    await new Promise(resolve => setTimeout(resolve, 20));
+    let ownershipLossStoppedWork = false;
+    try {
+      lossHeartbeat.assertOwned();
+    } catch (error) {
+      ownershipLossStoppedWork = String(error).includes("JOB_LEASE_LOST");
+    } finally {
+      lossHeartbeat.stop();
+    }
+    assert("B9 — renewal loss is observable before consequential work", ownershipLossStoppedWork);
 
     // ── Scenario C: Fencing — old owner cannot overwrite new owner ─────────────
     console.log("\nScenario C — fencing token blocks stale owner");
