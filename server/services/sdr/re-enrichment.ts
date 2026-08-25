@@ -197,6 +197,7 @@ export async function runReEnrichmentCycle(): Promise<ReEnrichmentSummary> {
   isRunning = true;
   console.log("[ReEnrich] Starting re-enrichment cycle...");
 
+  let failed: unknown;
   try {
     const staleBusinesses = await findStaleBusinesses();
     const results: ReEnrichmentResult[] = [];
@@ -227,10 +228,18 @@ export async function runReEnrichmentCycle(): Promise<ReEnrichmentSummary> {
 
     console.log(`[ReEnrich] Cycle complete: checked=${staleBusinesses.length}, updated=${totalUpdated}, requalified=${totalRequalified}`);
     return summary;
+  } catch (error) {
+    failed = error;
+    throw error;
   } finally {
     isRunning = false;
     heartbeat.stop();
-    await releaseJobLock("sdr-re-enrichment", true, undefined, lease.lockToken);
+    await releaseJobLock(
+      "sdr-re-enrichment",
+      !failed,
+      failed instanceof Error ? failed.message : undefined,
+      lease.lockToken,
+    );
   }
 }
 

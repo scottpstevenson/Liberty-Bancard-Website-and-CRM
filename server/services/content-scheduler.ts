@@ -20,14 +20,17 @@ export async function runContentSchedulerTick(): Promise<{ blogsPublished: numbe
     const dueBlogs = await storage.getDueScheduledBlogPosts(now);
     for (const post of dueBlogs) {
       try {
+        heartbeat.assertOwned();
         await storage.publishBlogPost(post.id);
         blogsPublished++;
         console.log(`[ContentScheduler] Published blog post: ${post.slug}`);
       } catch (err: any) {
+        if (String(err?.message ?? err).includes("JOB_LEASE_LOST")) throw err;
         console.error(`[ContentScheduler] Failed to publish blog ${post.id}:`, err.message);
       }
     }
   } catch (err: any) {
+    if (String(err?.message ?? err).includes("JOB_LEASE_LOST")) throw err;
     console.error("[ContentScheduler] Blog tick error:", err.message);
   }
 
@@ -35,6 +38,7 @@ export async function runContentSchedulerTick(): Promise<{ blogsPublished: numbe
     const dueSocial = await storage.getDueScheduledSocialPosts(now);
     for (const post of dueSocial) {
       try {
+        heartbeat.assertOwned();
         // LinkedIn API integration is feature-flagged off by default;
         // when disabled we mark posts as "ready_to_publish" so an operator
         // can copy/paste manually from /dashboard/social.
@@ -68,6 +72,7 @@ export async function runContentSchedulerTick(): Promise<{ blogsPublished: numbe
                   await storage.updateSocialPost(post.id, { status: "ready_to_publish" });
                 } else {
                   try {
+                    heartbeat.assertOwned();
                     const payload = {
                       author: authorUrn,
                       lifecycleState: "PUBLISHED",
@@ -127,10 +132,12 @@ export async function runContentSchedulerTick(): Promise<{ blogsPublished: numbe
         socialPublished++;
         console.log(`[ContentScheduler] Promoted social post #${post.id}`);
       } catch (err: any) {
+        if (String(err?.message ?? err).includes("JOB_LEASE_LOST")) throw err;
         console.error(`[ContentScheduler] Failed to promote social ${post.id}:`, err.message);
       }
     }
   } catch (err: any) {
+    if (String(err?.message ?? err).includes("JOB_LEASE_LOST")) throw err;
     console.error("[ContentScheduler] Social tick error:", err.message);
   }
 

@@ -708,7 +708,9 @@ type DailyOutreachResult = {
   execution: "completed" | "held" | "unavailable";
 };
 
-async function runDailyOutreachCycle(): Promise<Omit<DailyOutreachResult, "execution">> {
+async function runDailyOutreachCycle(
+  assertOwned: () => void = () => {},
+): Promise<Omit<DailyOutreachResult, "execution">> {
   console.log(`[Daily Outreach] Starting daily outreach cycle...`);
 
   // ── Phase gating (#1532): 4 independently-gated logical phases ────────────
@@ -723,6 +725,7 @@ async function runDailyOutreachCycle(): Promise<Omit<DailyOutreachResult, "execu
   const discoverySendOk       = decision.allowed && await canExecute("discovery-send");
 
   // Phase A: Lead enrichment/DB work — runs regardless of outbound pause
+  assertOwned();
   console.log(`[Daily Outreach] Step 1 (Phase A — always runs): Re-enriching unenriched entities (batch of ${ENRICHMENT_BATCH_SIZE})...`);
   const enrichResult = await reEnrichAllSunbizEntities(ENRICHMENT_BATCH_SIZE);
 
@@ -734,6 +737,7 @@ async function runDailyOutreachCycle(): Promise<Omit<DailyOutreachResult, "execu
   let promoteResult = { promoted: 0, dealsCreated: 0 };
   let quizLeadsProcessed = 0;
   if (discoveryPromotionOk) {
+    assertOwned();
     console.log(`[Daily Outreach] Step 2 (Phase B): Promoting qualified leads to contacts...`);
     promoteResult = await promoteQualifiedToContacts();
     console.log(`[Daily Outreach] Step 2b: Processing quiz leads for Sunbiz matching...`);
@@ -746,10 +750,12 @@ async function runDailyOutreachCycle(): Promise<Omit<DailyOutreachResult, "execu
   // Phase C: Enrollment/workflow triggering — gated
   let totalQueued = 0;
   if (discoveryEnrollmentOk && remaining > 0) {
+    assertOwned();
     console.log(`[Daily Outreach] Step 3 (Phase C): Queueing campaign messages (up to ${remaining})...`);
     const campaigns = await storage.getCampaigns();
     const activeCampaigns = campaigns.filter(c => c.status === "active");
     for (const campaign of activeCampaigns) {
+      assertOwned();
       const budgetLeft = remaining - totalQueued;
       if (budgetLeft <= 0) break;
       const queued = await queueCampaignMessages(campaign.id, budgetLeft);
@@ -764,6 +770,7 @@ async function runDailyOutreachCycle(): Promise<Omit<DailyOutreachResult, "execu
   // Phase D: Send queue — gated
   let sendResult = { sent: 0, failed: 0 };
   if (discoverySendOk && remaining > 0) {
+    assertOwned();
     console.log(`[Daily Outreach] Step 4 (Phase D): Processing send queue (budget remaining: ${remaining - totalQueued})...`);
     const sendBudget = Math.max(0, remaining - totalQueued);
     sendResult = await processSendQueue(sendBudget > 0 ? sendBudget : 0);
@@ -816,7 +823,7 @@ async function executeDailyOutreachLease(lease: { status: "acquired"; lockToken:
   const heartbeat = startJobLockHeartbeat("daily-outreach", lease.lockToken);
   try {
     heartbeat.assertOwned();
-    const result = await runDailyOutreachCycle();
+    const result = await runDailyOutreachCycle(() => heartbeat.assertOwned());
     heartbeat.assertOwned();
     await releaseJobLock("daily-outreach", true, undefined, lease.lockToken);
     return { ...result, execution: "completed" };
