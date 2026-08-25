@@ -613,23 +613,27 @@ async function checkQueueHealth(): Promise<SubsystemResult> {
     dbOk = true;
   } catch { /* handled below */ }
 
-  let queueCount = 0;
-  let queueFailed = 0;
+  let queueCount: number | null = null;
+  let queueFailed: number | null = null;
+  let queueState: "ok" | "unavailable" | "degraded" = "unavailable";
   let usingMock = !redisReal;
   try {
-    const { getQueueManager } = await import("./queue-manager");
-    const qm = await getQueueManager();
+    const { requireQueueManagerReady } = await import("./queue-manager");
+    const qm = requireQueueManagerReady();
     const m = await qm.getAllQueueMetrics();
     queueCount = m.queues.length;
-    queueFailed = m.queues.reduce((acc: number, q: any) => acc + (q.failed || 0), 0);
+    queueFailed = m.status === "ok"
+      ? m.queues.reduce((acc, q) => acc + (q.failed ?? 0), 0)
+      : null;
+    queueState = m.status;
     usingMock = m.usingMock;
-  } catch { /* non-fatal */ }
+  } catch { /* retained as explicit unavailable state below */ }
 
-  const status: SubsystemStatus = !dbOk ? "fail" : usingMock ? "warn" : queueFailed > 10 ? "warn" : "pass";
+  const status: SubsystemStatus = !dbOk ? "fail" : queueState === "unavailable" ? "warn" : usingMock ? "warn" : queueState === "degraded" || (queueFailed ?? 0) > 10 ? "warn" : "pass";
   return {
     id: "queue_health", name: "Queue / BullMQ / Redis / DB Health", status,
-    evidence: `DB: ${dbOk ? `${dbMs}ms ✓` : "DOWN ✗"}. Redis: ${usingMock ? "in-memory mock (non-durable — set REDIS_URL for production) ✗" : "live Redis ✓"}. Queues: ${queueCount} registered, ${queueFailed} failed jobs.`,
-    checkedAt: now(), details: { dbOk, dbMs, usingMock, queueCount, queueFailed },
+    evidence: `DB: ${dbOk ? `${dbMs}ms ✓` : "DOWN ✗"}. Redis: ${usingMock ? "in-memory mock (non-durable — set REDIS_URL for production) ✗" : "live Redis ✓"}. Queues: ${queueState === "unavailable" ? "unavailable" : `${queueCount} registered, ${queueFailed} failed jobs`}.`,
+    checkedAt: now(), details: { dbOk, dbMs, usingMock, queueState, queueCount, queueFailed },
   };
 }
 

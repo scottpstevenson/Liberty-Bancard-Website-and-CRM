@@ -2474,10 +2474,14 @@ export async function runGhlFullSyncTick(): Promise<void> {
   // Restore persisted circuit state on first tick after a process restart.
   // The restored state is AUTHORITATIVE — it is never unconditionally reset.
   await restoreGhlCircuit();
-  const { acquireJobLock, releaseJobLock, JOB_NAMES } = await import("./job-registry");
-  const lockToken = await acquireJobLock(JOB_NAMES.GHL_SYNC);
-  if (!lockToken) return;
+  const { acquireJobLock, releaseJobLock, startJobLockHeartbeat, JOB_NAMES } = await import("./job-registry");
+  const lease = await acquireJobLock(JOB_NAMES.GHL_SYNC);
+  if (lease.status !== "acquired") return;
+  const lockToken = lease.lockToken;
+  const heartbeat = startJobLockHeartbeat(JOB_NAMES.GHL_SYNC, lockToken);
 
+  try {
+  heartbeat.assertOwned();
   // ── Circuit entry transitions (inside the lock) ──────────────────────────
   if (ghlCircuitState === "open") {
     // Open circuit → half-open: attempt a single probe, not a full batch.
@@ -2500,6 +2504,7 @@ export async function runGhlFullSyncTick(): Promise<void> {
   //    return. Never a full batch. ──
   if (ghlCircuitState === "half-open") {
     try {
+      heartbeat.assertOwned();
       await runHalfOpenProbeTick();
       await releaseJobLock(JOB_NAMES.GHL_SYNC, true, undefined, lockToken);
     } catch (err: any) {
@@ -2510,6 +2515,7 @@ export async function runGhlFullSyncTick(): Promise<void> {
   }
 
   try {
+    heartbeat.assertOwned();
     // Durable projections are the recovery authority for local-first intake.
     // Do not derive retries from mutable audit logs.
     const projectionSummary = await processPendingContactProviderProjections(10);
@@ -2531,6 +2537,7 @@ export async function runGhlFullSyncTick(): Promise<void> {
     const legacyUnsyncedContacts = unsyncedContacts.filter((contact) => !projectionOwnedIds.has(contact.id));
     let synced = 0;
     for (const contact of legacyUnsyncedContacts) {
+      heartbeat.assertOwned();
       if (consecutiveGhlFailures >= GHL_CIRCUIT_THRESHOLD) {
         tripCircuitThreshold("contacts phase");
         await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN", lockToken);
@@ -2581,6 +2588,7 @@ export async function runGhlFullSyncTick(): Promise<void> {
     const unsyncedDeals = deals.filter(d => !d.ghlOpportunityId && d.contactId);
     let dealsSynced = 0;
     for (const deal of unsyncedDeals.slice(0, 5)) {
+      heartbeat.assertOwned();
       if (consecutiveGhlFailures >= GHL_CIRCUIT_THRESHOLD) {
         tripCircuitThreshold("deals phase");
         await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN", lockToken);
@@ -2632,6 +2640,7 @@ export async function runGhlFullSyncTick(): Promise<void> {
     });
     let tasksSynced = 0;
     for (const task of recentTasks.slice(0, 5)) {
+      heartbeat.assertOwned();
       if (consecutiveGhlFailures >= GHL_CIRCUIT_THRESHOLD) {
         tripCircuitThreshold("tasks phase");
         await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN", lockToken);
@@ -2681,6 +2690,7 @@ export async function runGhlFullSyncTick(): Promise<void> {
     const unsyncedCompanies = companies.filter(c => !syncedCompanyIds.has(c.id));
     let companiesSynced = 0;
     for (const company of unsyncedCompanies.slice(0, 5)) {
+      heartbeat.assertOwned();
       if (consecutiveGhlFailures >= GHL_CIRCUIT_THRESHOLD) {
         tripCircuitThreshold("companies phase");
         await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN", lockToken);
@@ -2725,6 +2735,7 @@ export async function runGhlFullSyncTick(): Promise<void> {
     }
 
     try {
+      heartbeat.assertOwned();
       const { runDeleteDetectionTick } = await import("./ghl-delete-sync");
       const deleteResult = await runDeleteDetectionTick();
       if (deleteResult.contactsDeleted > 0 || deleteResult.dealsDeleted > 0) {
@@ -2745,5 +2756,8 @@ export async function runGhlFullSyncTick(): Promise<void> {
   } catch (err: any) {
     await releaseJobLock(JOB_NAMES.GHL_SYNC, false, err.message, lockToken);
     throw err;
+  }
+  } finally {
+    heartbeat.stop();
   }
 }

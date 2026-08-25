@@ -11,7 +11,7 @@
  * Kill-line assertions:
  *  - Object.keys(metrics).length must NOT be used for Worker capacity
  *  - status === "safe" must NOT be returned when limit is unknown
- *  - QUEUE_CONFIGS.length must equal 23 (baseline snapshot — update comment if roster changes)
+ *  - QUEUE_CONFIGS.length must equal 24 (current verified fleet)
  *  - Any QUEUE_CONFIGS entry changed by this task causes this test to fail
  *
  * Exits 0 if all assertions pass, 1 if any fail.
@@ -37,14 +37,14 @@ function assert(label: string, condition: boolean, detail?: string) {
 }
 
 // ── 1. QUEUE_CONFIGS baseline snapshot ───────────────────────────────────────
-// IMPORTANT: 23 is a baseline snapshot as of the #1523A task, not a hardcoded
+// IMPORTANT: 24 is the current verified fleet, not a capacity conclusion.
 // production truth. If the roster grows or shrinks, update this number AND the
-// comment. The capacity calculation below uses the DERIVED count, not 23.
+// comment. The capacity calculation below uses the DERIVED count, not 24.
 
 async function testQueueConfigsBaseline() {
   console.log("\n1. QUEUE_CONFIGS baseline — roster count and no mutations from this task");
 
-  const BASELINE_COUNT = 23;
+  const BASELINE_COUNT = 24;
   const actualCount = QUEUE_CONFIGS.length;
 
   if (actualCount !== BASELINE_COUNT) {
@@ -206,7 +206,7 @@ async function testFleetEstimateRequiresEnvVar() {
 
   try {
     const result = diagnoseRedisCapacity({
-      physicalWorkerCount: 23,
+      physicalWorkerCount: 24,
       deploymentProcessCount: null,
     });
     assert(
@@ -220,12 +220,12 @@ async function testFleetEstimateRequiresEnvVar() {
 
   // Fleet estimate when process count is supplied
   const result2 = diagnoseRedisCapacity({
-    physicalWorkerCount: 23,
+    physicalWorkerCount: 24,
     deploymentProcessCount: 2,
   });
   assert(
-    "estimatedFleetConnections = (1+23) * 2 = 48 when deploymentProcessCount=2",
-    result2.estimatedFleetConnections === 48,
+    "estimatedFleetConnections = (1+24) * 2 = 50 when deploymentProcessCount=2",
+    result2.estimatedFleetConnections === 50,
     `got ${result2.estimatedFleetConnections}`
   );
 }

@@ -699,13 +699,18 @@ export async function processQuizLeadsForSunbizMatch(): Promise<number> {
   }
 }
 
-export async function runDailyOutreach(): Promise<{
+type DailyOutreachResult = {
   enriched: number;
   promoted: number;
   dealsCreated: number;
   queued: number;
   sent: { sent: number; failed: number };
-}> {
+  execution: "completed" | "held" | "unavailable";
+};
+
+async function runDailyOutreachCycle(
+  assertOwned: () => void = () => {},
+): Promise<Omit<DailyOutreachResult, "execution">> {
   console.log(`[Daily Outreach] Starting daily outreach cycle...`);
 
   // ── Phase gating (#1532): 4 independently-gated logical phases ────────────
@@ -720,6 +725,7 @@ export async function runDailyOutreach(): Promise<{
   const discoverySendOk       = decision.allowed && await canExecute("discovery-send");
 
   // Phase A: Lead enrichment/DB work — runs regardless of outbound pause
+  assertOwned();
   console.log(`[Daily Outreach] Step 1 (Phase A — always runs): Re-enriching unenriched entities (batch of ${ENRICHMENT_BATCH_SIZE})...`);
   const enrichResult = await reEnrichAllSunbizEntities(ENRICHMENT_BATCH_SIZE);
 
@@ -731,6 +737,7 @@ export async function runDailyOutreach(): Promise<{
   let promoteResult = { promoted: 0, dealsCreated: 0 };
   let quizLeadsProcessed = 0;
   if (discoveryPromotionOk) {
+    assertOwned();
     console.log(`[Daily Outreach] Step 2 (Phase B): Promoting qualified leads to contacts...`);
     promoteResult = await promoteQualifiedToContacts();
     console.log(`[Daily Outreach] Step 2b: Processing quiz leads for Sunbiz matching...`);
@@ -743,10 +750,12 @@ export async function runDailyOutreach(): Promise<{
   // Phase C: Enrollment/workflow triggering — gated
   let totalQueued = 0;
   if (discoveryEnrollmentOk && remaining > 0) {
+    assertOwned();
     console.log(`[Daily Outreach] Step 3 (Phase C): Queueing campaign messages (up to ${remaining})...`);
     const campaigns = await storage.getCampaigns();
     const activeCampaigns = campaigns.filter(c => c.status === "active");
     for (const campaign of activeCampaigns) {
+      assertOwned();
       const budgetLeft = remaining - totalQueued;
       if (budgetLeft <= 0) break;
       const queued = await queueCampaignMessages(campaign.id, budgetLeft);
@@ -761,6 +770,7 @@ export async function runDailyOutreach(): Promise<{
   // Phase D: Send queue — gated
   let sendResult = { sent: 0, failed: 0 };
   if (discoverySendOk && remaining > 0) {
+    assertOwned();
     console.log(`[Daily Outreach] Step 4 (Phase D): Processing send queue (budget remaining: ${remaining - totalQueued})...`);
     const sendBudget = Math.max(0, remaining - totalQueued);
     sendResult = await processSendQueue(sendBudget > 0 ? sendBudget : 0);
@@ -788,6 +798,57 @@ export async function runDailyOutreach(): Promise<{
     queued: totalQueued,
     sent: sendResult,
   };
+}
+
+/**
+ * The entire daily command is a deployment-wide singleton. Enrichment remains
+ * inside this boundary because a manual run and the legacy fallback must not
+ * execute the same logical cycle concurrently.
+ */
+export async function runDailyOutreach(): Promise<DailyOutreachResult> {
+  const { acquireJobLock, releaseJobLock, startJobLockHeartbeat } = await import("./job-registry");
+  const lease = await acquireJobLock("daily-outreach");
+  if (lease.status === "held") {
+    return { enriched: 0, promoted: 0, dealsCreated: 0, queued: 0, sent: { sent: 0, failed: 0 }, execution: "held" };
+  }
+  if (lease.status === "unavailable") {
+    return { enriched: 0, promoted: 0, dealsCreated: 0, queued: 0, sent: { sent: 0, failed: 0 }, execution: "unavailable" };
+  }
+
+  return executeDailyOutreachLease(lease);
+}
+
+async function executeDailyOutreachLease(lease: { status: "acquired"; lockToken: string }): Promise<DailyOutreachResult> {
+  const { releaseJobLock, startJobLockHeartbeat } = await import("./job-registry");
+  const heartbeat = startJobLockHeartbeat("daily-outreach", lease.lockToken);
+  try {
+    heartbeat.assertOwned();
+    const result = await runDailyOutreachCycle(() => heartbeat.assertOwned());
+    heartbeat.assertOwned();
+    await releaseJobLock("daily-outreach", true, undefined, lease.lockToken);
+    return { ...result, execution: "completed" };
+  } catch (error) {
+    await releaseJobLock(
+      "daily-outreach",
+      false,
+      error instanceof Error ? error.message : "Daily outreach failed",
+      lease.lockToken,
+    );
+    throw error;
+  } finally {
+    heartbeat.stop();
+  }
+}
+
+/** Claim first so HTTP callers can truthfully respond before the long cycle runs. */
+export async function startDailyOutreachInBackground(): Promise<"accepted" | "held" | "unavailable"> {
+  const { acquireJobLock } = await import("./job-registry");
+  const lease = await acquireJobLock("daily-outreach");
+  if (lease.status !== "acquired") return lease.status;
+  void executeDailyOutreachLease(lease).catch((error) => {
+    console.error("[Daily Outreach] Background cycle failed:", error);
+  });
+  return "accepted";
 }
 
 async function getDailySendCount(): Promise<number> {

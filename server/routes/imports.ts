@@ -16,7 +16,7 @@ import { triggerWorkflowsByEvent } from "../services/workflow-executor";
 import { calculateQuizBonusFn, calculateRevenuePotentialFn, calculateSwitchabilityFn, calculateUnderwritingConfidenceFn, scoreContact } from "../services/lead-scoring";
 import { generateDealBlueprint } from "../services/deal-blueprint";
 import { routeContact } from "../services/smart-router";
-import { importCordataEnrichment, importFullCorevt, isWorkerRunning, runDailyOutreach, startDailyOutreachWorker, stopDailyOutreachWorker } from "../services/daily-outreach";
+import { importCordataEnrichment, importFullCorevt, isWorkerRunning, startDailyOutreachInBackground, startDailyOutreachWorker, stopDailyOutreachWorker } from "../services/daily-outreach";
 import { getGhlSyncStatus } from "../services/ghl-sync";
 import { runBulkFastClassification } from "../services/sunbiz-enrichment";
 import { ingestBusiness, ingestBusinessFromContact } from "../services/sdr/dedupe";
@@ -99,8 +99,13 @@ export function registerImportsRoutes(app: Express) {
 
   app.post("/api/sunbiz/fast-classify", isAuthenticated, async (req, res) => {
     if ((req.user as any)?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
-    res.json({ message: "Bulk fast classification started for all pending entities.", started: true });
-    runBulkFastClassification().catch(err => console.error("[FastClassify API] Error:", err));
+    const { acquireJobLock, releaseJobLock } = await import("../services/job-registry");
+    const lease = await acquireJobLock("sunbiz-fast-classification");
+    if (lease.status === "held") return res.status(409).json({ message: "Bulk classification is already running.", started: false, execution: "held" });
+    if (lease.status === "unavailable") return res.status(503).json({ message: "Classification registry is unavailable.", started: false, execution: "unavailable" });
+    res.status(202).json({ message: "Bulk fast classification accepted.", started: true, execution: "accepted" });
+    runBulkFastClassification({ lockToken: lease.lockToken })
+      .catch(err => console.error("[FastClassify API] Error:", err));
   });
 
   app.get("/api/sunbiz/classify-progress", isAuthenticated, async (req, res) => {
@@ -112,8 +117,19 @@ export function registerImportsRoutes(app: Express) {
   // === DAILY OUTREACH AUTOMATION ===
   app.post("/api/outreach/run-daily", isAuthenticated, async (req, res) => {
     if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
-    res.json({ message: "Daily outreach cycle started.", started: true });
-    runDailyOutreach().catch(err => console.error("[Daily Outreach API] Error:", err));
+    try {
+      const execution = await startDailyOutreachInBackground();
+      if (execution === "held") {
+        return res.status(409).json({ message: "Daily outreach is already running.", started: false, execution: "held" });
+      }
+      if (execution === "unavailable") {
+        return res.status(503).json({ message: "Daily outreach registry is unavailable.", started: false, execution: "unavailable" });
+      }
+      return res.status(202).json({ message: "Daily outreach cycle accepted.", started: true, execution });
+    } catch (err) {
+      console.error("[Daily Outreach API] Error:", err);
+      return res.status(500).json({ message: "Daily outreach cycle failed.", started: false });
+    }
   });
 
   app.post("/api/outreach/start-worker", isAuthenticated, async (req, res) => {

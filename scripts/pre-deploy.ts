@@ -214,6 +214,16 @@ const MANDATORY_SUITES: Suite[] = [
     timeoutSecs: 60,
   },
   {
+    name: "Queue Lease Fencing (stale takeover and telemetry isolation)",
+    script: "scripts/test-stale-job-lock.ts",
+    timeoutSecs: 60,
+  },
+  {
+    name: "Redis Queue Topology (24-config ownership contract)",
+    script: "scripts/test-redis-topology.ts",
+    timeoutSecs: 60,
+  },
+  {
     name: "Sunbiz Timeout & Recovery (no real network)",
     script: "scripts/test-sunbiz-timeout.ts",
     timeoutSecs: 60,

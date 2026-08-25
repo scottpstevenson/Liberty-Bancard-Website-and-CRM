@@ -634,8 +634,9 @@ export function registerWizardRoutes(app: Express): void {
   // ── Phase 5: Queue Health ───────────────────────────────────────────────────
   app.get("/api/wizard/queue-health", requireRole("admin", "manager"), async (_req, res) => {
     try {
-      const qm = await getQueueManager();
-      const { queues, usingMock } = await qm.getAllQueueMetrics();
+      const { requireQueueManagerReady } = await import("../services/queue-manager");
+      const qm = requireQueueManagerReady();
+      const { queues, usingMock, status: metricsStatus } = await qm.getAllQueueMetrics();
 
       const now = Date.now();
       const enrichedQueues = queues
@@ -646,30 +647,34 @@ export function registerWizardRoutes(app: Express): void {
           const matchedKey = Object.keys(QUEUE_EXPECTED_INTERVALS).find((k) => q.name?.includes(k));
           const expectedIntervalMs = matchedKey ? QUEUE_EXPECTED_INTERVALS[matchedKey] : null;
 
+          const probeUnavailable = q.probeStatus !== "ok";
           let isStale = false;
           let staleSince: string | null = null;
 
-          if (expectedIntervalMs && q.lastCompletedAt) {
+          if (!probeUnavailable && expectedIntervalMs && q.lastCompletedAt) {
             const lastMs = new Date(q.lastCompletedAt).getTime();
             if (now - lastMs > 3 * expectedIntervalMs) {
               isStale = true;
               staleSince = new Date(lastMs + 3 * expectedIntervalMs).toISOString();
             }
-          } else if (expectedIntervalMs && !q.lastCompletedAt) {
+          } else if (!probeUnavailable && expectedIntervalMs && !q.lastCompletedAt) {
             isStale = true;
           }
 
           return {
             name: q.name,
+            probeStatus: q.probeStatus,
+            errorCode: q.errorCode,
             expectedIntervalMs,
             lastCompletedAt: q.lastCompletedAt ?? null,
             isStale,
             staleSince,
-            waiting: q.waiting ?? 0,
-            active: q.active ?? 0,
-            failed: q.failed ?? 0,
-            paused: q.isPaused ?? false,
+            waiting: probeUnavailable ? null : q.waiting,
+            active: probeUnavailable ? null : q.active,
+            failed: probeUnavailable ? null : q.failed,
+            paused: probeUnavailable ? null : q.paused,
             usingMock,
+            metricsStatus,
           };
         });
 

@@ -1,0 +1,223 @@
+CONTINUE TASK 1643 / BT-09 IN THE EXISTING WORKTREE.
+
+Do not restart, discard, or overwrite the changes already made. Do not stop at another review or “DO NOT MERGE” report. Complete every safe task-owned correction, run the gates, commit the finished work to a dedicated branch, and provide the exact branch name and commit SHA.
+
+CURRENT LIVE-GITHUB BASELINE
+
+Repository:
+scottpstevenson/Liberty-Bancard-Website-and-CRM
+
+Verified remote main:
+1a853da4c6241b2402fe7d11c5685a3ba880ccaa
+
+No BT-09/1643 branch is currently visible on GitHub. First preserve the existing Replit worktree and identify all uncommitted task changes with:
+
+git status --short
+git diff --stat
+git diff
+git log -5 --oneline
+
+Do not switch branches, reset, clean, stash, or pull until the existing changes are safely accounted for. Preserve unrelated untracked attachments.
+
+OBJECTIVE
+
+Finish BT-09 Queue Ownership and Diagnostics end to end. The previous completion review correctly found that essential singleton fencing and regression coverage remain incomplete. Implement those requirements now.
+
+P0 — COMPLETE DURABLE OWNERSHIP FOR EVERY SINGLETON PATH
+
+1. Inventory every singleton or singleton-like execution path, including all:
+   - acquireJobLock() call sites
+   - process-local isRunning/running/inProgress guards
+   - scheduled singleton jobs
+   - manual/admin trigger paths
+   - recovery and reconciliation loops
+   - queue workers that represent one logical global execution
+   - direct invocation paths that bypass the queue manager
+
+At minimum inspect:
+
+- server/services/job-registry.ts
+- server/services/queue-manager.ts
+- server/services/content-scheduler.ts
+- server/services/sla-worker.ts
+- server/services/weekly-digest.ts
+- server/services/ghl-sync.ts
+- server/services/onboarding-reminder.ts
+- server/services/sequence-worker.ts
+- server/services/ghl-enrollment-recovery.ts
+- server/services/sequence-enrollment-recovery.ts
+- server/services/sdr/inbox-rotation.ts
+- server/services/sdr/anomaly-detection.ts
+- server/services/sdr/re-enrichment.ts
+- server/routes/admin.ts
+
+Grep is inventory only. Inspect every hit and classify it as:
+- ordinary parallel queue work,
+- process-local-only protection that is acceptable,
+- or a cross-replica singleton requiring the durable lease.
+
+2. Route every cross-replica singleton through the canonical job-registry lease implementation. Do not create a second lease system.
+
+3. Lease acquisition must return a typed result that distinguishes:
+   - acquired
+   - held/contention
+   - unavailable/error
+
+A database failure must never be interpreted as ordinary contention or a successful skip.
+
+4. Every potentially long-running singleton owner must:
+   - acquire a fencing token;
+   - renew the lease before expiry using that exact token;
+   - stop consequential work if renewal fails or ownership is lost;
+   - stop the heartbeat in finally;
+   - complete/release using the same token.
+
+5. Preserve last_started_at as the immutable execution-start timestamp. Renewal updates liveness through updated_at or the existing heartbeat field, not last_started_at.
+
+6. Stale detection must use the current liveness timestamp, such as:
+   COALESCE(updated_at, last_started_at)
+
+7. Completion/release must require a token. Remove tokenless compatibility after migrating all production and test callers.
+
+8. Stale owner A must never alter current owner B. This includes more than releaseJobLock():
+
+- QueueManager completed/failed handlers and recordWorkerSuccess()/recordWorkerFailure() currently share background_jobs with lease state.
+- Tokenless success/failure telemetry must not overwrite a row currently owned by a valid running lease.
+- Either fence those writes with the current token or prevent telemetry writes from mutating status/ownership while status = 'running'.
+- Do not add a new table or migration unless existing schema makes a safe implementation genuinely impossible.
+
+P0 — COMPLETE THE MISSING TWO-OWNER TEST MATRIX
+
+Extend the existing canonical job-registry/queue resilience tests rather than adding superficial static assertions.
+
+Tests must prove with two distinct simulated owners:
+
+1. A acquires a lease.
+2. A heartbeat renews liveness without changing last_started_at.
+3. B cannot acquire while A’s lease is live.
+4. A stops renewing or expires.
+5. B successfully reclaims with a different token.
+6. A’s stale renew fails.
+7. A’s stale release/completion fails safely.
+8. A’s stale recordWorkerSuccess() cannot overwrite B’s running state.
+9. A’s stale recordWorkerFailure() cannot overwrite B’s running state.
+10. B retains its token, running status, heartbeat, and ownership.
+11. Database unavailability is reported as unavailable/error, not held.
+12. Failed renewal causes the old owner to stop before additional consequential work.
+13. Finally cleanup stops heartbeat timers on success, failure, and thrown exceptions.
+14. No real Redis, provider, email, GHL, or outbound call occurs.
+
+Tests must hard-fail when required DB/Redis test infrastructure is expected but unavailable. Do not treat skipped initialization or tautological/static assertions as a pass.
+
+P1 — FINISH QUEUE AND DIAGNOSTIC GUARANTEES
+
+Preserve and verify the earlier work:
+
+- Queue initialization remains startup-only and single-flight.
+- Producers and HTTP/readiness routes never lazily initialize the queue fleet.
+- Manual triggers preserve the 202 Accepted lifecycle.
+- Queue metric probe failures remain null/unknown/unavailable, never false zero.
+- Activation/readiness endpoints do not swallow failures into empty arrays.
+- DLQ and incident responses remain redacted and bounded.
+- Repeatable schedule reconciliation removes only exactly owned schedules.
+- No queue-wide repeatable-job deletion.
+- No substring matching of schedule identifiers.
+- Existing 24-queue topology and capacity settings remain unchanged.
+- Existing outbound pause, consent, coordinator, and provider gates remain intact.
+
+CI / MANIFEST REGISTRATION
+
+Register the completed executable regression test in the canonical release authority.
+
+- Inspect scripts/pre-deploy.ts and .github/workflows/ci.yml.
+- If CI already invokes the canonical pre-deploy manifest, register the suite once in that manifest; do not duplicate it as a parallel CI authority.
+- If CI has an independent explicit suite list, update both actual authorities.
+- Confirm test failure propagates as a non-zero exit.
+
+Do not modify migration history, run db push, change provider capacity, enable live providers, or alter unrelated application behavior.
+
+REQUIRED SEARCH PROOF AFTER IMPLEMENTATION
+
+Report all significant file:line results for:
+
+rg -n "acquireJobLock|renewJobLock|releaseJobLock|recordWorkerSuccess|recordWorkerFailure" server scripts
+rg -n "isRunning|inProgress|alreadyRunning|running =" server/services server/routes
+rg -n "getQueueManager\\(" server
+rg -n "removeRepeatable|removeRepeatableByKey|includes\\(.*jobId" server scripts
+rg -n "getAllQueueMetrics|failedReason|dead.?letter|DLQ" server
+rg -n "test-stale-job-lock|job-registry|bullmq-resilience" scripts/pre-deploy.ts .github/workflows package.json
+
+For every getQueueManager() hit outside startup, prove it is intentional or replace it with a ready-only/non-initializing accessor.
+
+REQUIRED GATES
+
+Run and report the actual command and exit code for:
+
+npx tsc --noEmit
+npm run build
+npx tsx scripts/test-stale-job-lock.ts
+npx tsx scripts/test-bullmq-resilience.ts
+npx tsx scripts/test-redis-topology.ts
+npx tsx scripts/test-predeploy-manifest.ts
+npx tsx scripts/pre-deploy.ts
+git diff --check
+
+Also run any new or renamed focused lease/queue test.
+
+Do not classify unrelated pre-existing pre-deploy failures as task-owned failures. For each pre-deploy failure:
+
+- reproduce it on the starting SHA if safely possible;
+- classify it as task-owned, pre-existing, infrastructure unavailable, or runtime verification pending;
+- fix every task-owned failure;
+- report unrelated failures separately without using them as a reason to leave BT-09 implementation incomplete.
+
+RUNTIME VERIFICATION
+
+Keep these claims UNKNOWN unless actually measured in the proper environment:
+
+- deployed Redis topology
+- replica count
+- queue throughput
+- provider capacity
+- production database capacity
+
+Unknown runtime capacity does not excuse incomplete code-level ownership or tests.
+
+FINAL DIFF REVIEW
+
+Run:
+
+git status --short
+git diff --stat
+git diff
+git diff --check
+
+Confirm there are no secrets, PII, generated files, attachment changes, dependency drift, migrations, capacity changes, provider enablement, or unrelated formatting.
+
+DELIVERY
+
+When all task-owned P0/P1 work and focused gates pass:
+
+1. Create or switch to a dedicated branch without losing existing changes:
+   agent/1643-bt09-queue-ownership-diagnostics
+
+2. Commit all intended BT-09 changes.
+
+3. Push the branch to origin.
+
+4. Return:
+   - verdict;
+   - starting and ending SHA;
+   - branch name;
+   - commit SHA;
+   - exact changed files;
+   - singleton inventory and disposition;
+   - implementation file:line evidence;
+   - two-owner fencing test evidence;
+   - gate command/exit-code table;
+   - task-owned versus unrelated pre-deploy failures;
+   - runtime-unknown items;
+   - migration required: NO;
+   - SAFE TO MERGE, SAFE TO MERGE — RUNTIME VERIFICATION PENDING, or DO NOT MERGE.
+
+Do not merge directly into main. Do not ask for design approval again. Continue implementation now.

@@ -728,9 +728,11 @@ export async function runFullSlaLoop(): Promise<void> {
 }
 
 async function runSlaCheck() {
-  const { acquireJobLock, releaseJobLock, JOB_NAMES } = await import("./job-registry");
-  const lockToken = await acquireJobLock(JOB_NAMES.SLA_WORKER);
-  if (!lockToken) return;
+  const { acquireJobLock, releaseJobLock, startJobLockHeartbeat, JOB_NAMES } = await import("./job-registry");
+  const lease = await acquireJobLock(JOB_NAMES.SLA_WORKER);
+  if (lease.status !== "acquired") return;
+  const lockToken = lease.lockToken;
+  const heartbeat = startJobLockHeartbeat(JOB_NAMES.SLA_WORKER, lockToken);
   try {
     const slaConfigs = await storage.getSlaConfigs();
     const rules = slaConfigs.length > 0
@@ -745,6 +747,7 @@ async function runSlaCheck() {
 
     const activeStuckDealIds = new Set<number>();
     for (const rule of rules) {
+      heartbeat.assertOwned();
       if (rule.entityType === "deal") {
         await checkDealSla(rule);
         if (rule.stage) {
@@ -764,6 +767,8 @@ async function runSlaCheck() {
   } catch (err: any) {
     console.error("SLA check error:", err);
     await releaseJobLock(JOB_NAMES.SLA_WORKER, false, err?.message ?? String(err), lockToken);
+  } finally {
+    heartbeat.stop();
   }
 }
 
@@ -1230,10 +1235,13 @@ const MID_INGESTION_INTERVAL_MS = 24 * 60 * 60 * 1000;
 let midIngestionInterval: NodeJS.Timeout | null = null;
 
 async function runMidIngestion() {
-  const { acquireJobLock, releaseJobLock, JOB_NAMES } = await import("./job-registry");
-  const lockToken = await acquireJobLock(JOB_NAMES.MID_INGESTION);
-  if (!lockToken) return;
+  const { acquireJobLock, releaseJobLock, startJobLockHeartbeat, JOB_NAMES } = await import("./job-registry");
+  const lease = await acquireJobLock(JOB_NAMES.MID_INGESTION);
+  if (lease.status !== "acquired") return;
+  const lockToken = lease.lockToken;
+  const heartbeat = startJobLockHeartbeat(JOB_NAMES.MID_INGESTION, lockToken);
   try {
+    heartbeat.assertOwned();
     const { ingestMidDataForActiveMids } = await import("./processors/registry");
     const result = await ingestMidDataForActiveMids();
     if (result.processed > 0 || result.errors > 0) {
@@ -1243,6 +1251,8 @@ async function runMidIngestion() {
   } catch (err: any) {
     console.error("[MID Ingestion] Nightly run error:", err);
     await releaseJobLock(JOB_NAMES.MID_INGESTION, false, err?.message ?? String(err), lockToken);
+  } finally {
+    heartbeat.stop();
   }
 }
 

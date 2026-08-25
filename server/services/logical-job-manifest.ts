@@ -619,17 +619,6 @@ export const LOGICAL_JOB_MANIFEST: readonly ManifestEntry[] = [
     backlogSource: "outbound_messages",
     releaseController: "OutboundQueueCoordinator",
   },
-  {
-    logicalKey: "linkedin-scheduler",
-    physicalQueue: "non_bullmq",
-    jobNamePattern: "linkedin-scheduler",
-    handler: "LinkedIn outreach scheduler",
-    owner: "linkedin",
-    effect: "promotional_send",
-    canRunWhileGlobalOutboundPaused: false,
-    backlogSource: "outbound_messages",
-    releaseController: "OutboundQueueCoordinator",
-  },
 ] as const;
 
 // ---------------------------------------------------------------------------

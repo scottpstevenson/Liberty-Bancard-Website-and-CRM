@@ -4,18 +4,14 @@ import * as Sentry from "@sentry/node";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
-import { startSlaWorker } from "./services/sla-worker";
-import { startAutoSyncLoop } from "./services/ghl-sync";
-import { getQueueManager, shutdownQueueManager, claimLegacyGhlSync } from "./services/queue-manager";
+import { getQueueManager, shutdownQueueManager } from "./services/queue-manager";
 import { seedDefaultData } from "./services/seed-workflows";
 import { seedSequences } from "./services/seed-sequences";
 import { seedVerticalCampaigns } from "./services/seed-vertical-campaigns";
 import { seedStageRules, seedDemoProspects } from "./services/seed-automation";
-import { startDailyOutreachWorker } from "./services/daily-outreach";
 import { startDailyMaintenanceScheduler, seedScottSendingIdentity } from "./services/sdr/inbox-rotation";
 import { startContentScheduler } from "./services/content-scheduler";
 import { seedContentEngine } from "./services/seed-content-engine";
-import { featureFlags } from "./services/feature-flags";
 import { runDrizzleMigrations } from "./db-migrate";
 import { hydrateWorkflowEnvFromDb } from "./services/ghl-workflows";
 import { validateEnv } from "./lib/validate-env";
@@ -383,8 +379,9 @@ app.use((req, res, next) => {
 
       // BullMQ durable job queue — replaces setInterval workers for GHL sync,
       // SLA checks, sequence processing, enrichment, discovery, and digests.
-      // Requires a real Redis connection (REDIS_URL). Without it, falls back
-      // to lightweight setInterval workers so the server still functions.
+      // Requires a real Redis connection (REDIS_URL). A failed initialization
+      // fails closed: a process-local interval fallback would let replicas
+      // disagree on ownership (BullMQ on one, legacy loop on another).
       // NOTE: This block only executes when pause state was successfully initialized.
       if (!pauseInitialized) { /* skip workers — outbound state unknown */ } else
       getQueueManager().then(async qm => {
@@ -399,24 +396,13 @@ app.use((req, res, next) => {
         const { recordWorkerSuccess, JOB_NAMES } = await import("./services/job-registry");
         await recordWorkerSuccess(JOB_NAMES.GHL_SYNC_MODE).catch(() => {});
       }).catch(async err => {
-        console.error("[Queue] Failed to initialize BullMQ — falling back to setInterval workers:", err.message);
-        startSlaWorker();
-        // Claim GHL sync duty for the legacy interval BEFORE starting it, so that
-        // if BullMQ later becomes available (e.g. Redis recovers and something
-        // else lazily calls getQueueManager() to enqueue an enrichment job), it
-        // will permanently exclude GHL_SYNC from the queues/workers it manages —
-        // guaranteeing only one GHL sync mechanism is ever active in this process.
-        claimLegacyGhlSync();
-        startAutoSyncLoop();
-        log("GHL sync mode: legacy_interval_fallback");
+        console.error("[Queue] Failed to initialize BullMQ — workers remain stopped (fail-closed):", err.message);
+        log("GHL sync mode: unavailable");
         const { recordWorkerFailure, JOB_NAMES } = await import("./services/job-registry");
         await recordWorkerFailure(
           JOB_NAMES.GHL_SYNC_MODE,
-          `GHL sync running in legacy interval fallback mode — BullMQ unavailable: ${err.message}`
+          `GHL sync unavailable — BullMQ initialization failed: ${err.message}`
         ).catch(() => {});
-        if (featureFlags.LEGACY_OUTREACH_ENABLED) {
-          startDailyOutreachWorker();
-        }
       });
 
       // Hydrate GHL workflow IDs from DB into process.env so they behave as env vars,

@@ -25,7 +25,7 @@ export interface BacklogPreview {
   partial: boolean;
   nonAdditive: true;
   bullmq: SourceResult<{
-    queues: Record<string, { waiting: number; delayed: number; active: number; failed: number }>;
+    queues: Record<string, { waiting: number | null; delayed: number | null; active: number | null; failed: number | null }>;
     namedJobs?: Array<{ queue: string; jobName: string; state: string; count: number }>;
     scanTruncated: boolean;
   }>;
@@ -159,7 +159,7 @@ export class BacklogPreviewService {
   // ── BullMQ source ─────────────────────────────────────────────────────────────
 
   private async _fetchBullmqSource(): Promise<SourceResult<{
-    queues: Record<string, { waiting: number; delayed: number; active: number; failed: number }>;
+    queues: Record<string, { waiting: number | null; delayed: number | null; active: number | null; failed: number | null }>;
     namedJobs?: Array<{ queue: string; jobName: string; state: string; count: number }>;
     scanTruncated: boolean;
   }>> {
@@ -171,7 +171,7 @@ export class BacklogPreviewService {
     const qm = requireQueueManagerReady();
     const { queues: metrics } = await qm.getAllQueueMetrics();
 
-    const queueMap: Record<string, { waiting: number; delayed: number; active: number; failed: number }> = {};
+    const queueMap: Record<string, { waiting: number | null; delayed: number | null; active: number | null; failed: number | null }> = {};
     for (const m of metrics) {
       queueMap[m.name] = {
         waiting: m.waiting,

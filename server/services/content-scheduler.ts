@@ -4,10 +4,14 @@ const TICK_MS = 5 * 60 * 1000;
 let timer: NodeJS.Timeout | null = null;
 
 export async function runContentSchedulerTick(): Promise<{ blogsPublished: number; socialPublished: number }> {
-  const { acquireJobLock, releaseJobLock, JOB_NAMES } = await import("./job-registry");
-  const lockToken = await acquireJobLock(JOB_NAMES.CONTENT_SCHEDULER);
-  if (!lockToken) return { blogsPublished: 0, socialPublished: 0 };
+  const { acquireJobLock, releaseJobLock, startJobLockHeartbeat, JOB_NAMES } = await import("./job-registry");
+  const lease = await acquireJobLock(JOB_NAMES.CONTENT_SCHEDULER);
+  if (lease.status !== "acquired") return { blogsPublished: 0, socialPublished: 0 };
+  const lockToken = lease.lockToken;
 
+  const heartbeat = startJobLockHeartbeat(JOB_NAMES.CONTENT_SCHEDULER, lockToken);
+  try {
+  heartbeat.assertOwned();
   const now = new Date();
   let blogsPublished = 0;
   let socialPublished = 0;
@@ -16,14 +20,17 @@ export async function runContentSchedulerTick(): Promise<{ blogsPublished: numbe
     const dueBlogs = await storage.getDueScheduledBlogPosts(now);
     for (const post of dueBlogs) {
       try {
+        heartbeat.assertOwned();
         await storage.publishBlogPost(post.id);
         blogsPublished++;
         console.log(`[ContentScheduler] Published blog post: ${post.slug}`);
       } catch (err: any) {
+        if (String(err?.message ?? err).includes("JOB_LEASE_LOST")) throw err;
         console.error(`[ContentScheduler] Failed to publish blog ${post.id}:`, err.message);
       }
     }
   } catch (err: any) {
+    if (String(err?.message ?? err).includes("JOB_LEASE_LOST")) throw err;
     console.error("[ContentScheduler] Blog tick error:", err.message);
   }
 
@@ -31,6 +38,7 @@ export async function runContentSchedulerTick(): Promise<{ blogsPublished: numbe
     const dueSocial = await storage.getDueScheduledSocialPosts(now);
     for (const post of dueSocial) {
       try {
+        heartbeat.assertOwned();
         // LinkedIn API integration is feature-flagged off by default;
         // when disabled we mark posts as "ready_to_publish" so an operator
         // can copy/paste manually from /dashboard/social.
@@ -64,6 +72,7 @@ export async function runContentSchedulerTick(): Promise<{ blogsPublished: numbe
                   await storage.updateSocialPost(post.id, { status: "ready_to_publish" });
                 } else {
                   try {
+                    heartbeat.assertOwned();
                     const payload = {
                       author: authorUrn,
                       lifecycleState: "PUBLISHED",
@@ -123,15 +132,29 @@ export async function runContentSchedulerTick(): Promise<{ blogsPublished: numbe
         socialPublished++;
         console.log(`[ContentScheduler] Promoted social post #${post.id}`);
       } catch (err: any) {
+        if (String(err?.message ?? err).includes("JOB_LEASE_LOST")) throw err;
         console.error(`[ContentScheduler] Failed to promote social ${post.id}:`, err.message);
       }
     }
   } catch (err: any) {
+    if (String(err?.message ?? err).includes("JOB_LEASE_LOST")) throw err;
     console.error("[ContentScheduler] Social tick error:", err.message);
   }
 
-  await releaseJobLock(JOB_NAMES.CONTENT_SCHEDULER, true, undefined, lockToken);
-  return { blogsPublished, socialPublished };
+    heartbeat.assertOwned();
+    await releaseJobLock(JOB_NAMES.CONTENT_SCHEDULER, true, undefined, lockToken);
+    return { blogsPublished, socialPublished };
+  } catch (error) {
+    await releaseJobLock(
+      JOB_NAMES.CONTENT_SCHEDULER,
+      false,
+      error instanceof Error ? error.message : "Content scheduler tick failed",
+      lockToken,
+    );
+    throw error;
+  } finally {
+    heartbeat.stop();
+  }
 }
 
 export function startContentScheduler() {

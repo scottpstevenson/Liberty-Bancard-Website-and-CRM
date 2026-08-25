@@ -195,9 +195,11 @@ export async function writeHoldDeferralMarker(
 }
 
 export async function processSequenceEnrollments(): Promise<{ processed: number; errors: number }> {
-  const { acquireJobLock, releaseJobLock, JOB_NAMES } = await import("./job-registry");
-  const lockToken = await acquireJobLock(JOB_NAMES.SEQUENCE_WORKER);
-  if (!lockToken) return { processed: 0, errors: 0 };
+  const { acquireJobLock, releaseJobLock, startJobLockHeartbeat, JOB_NAMES } = await import("./job-registry");
+  const lease = await acquireJobLock(JOB_NAMES.SEQUENCE_WORKER);
+  if (lease.status !== "acquired") return { processed: 0, errors: 0 };
+  const lockToken = lease.lockToken;
+  const heartbeat = startJobLockHeartbeat(JOB_NAMES.SEQUENCE_WORKER, lockToken);
 
   const _runStartMs = Date.now();
   let processed = 0;
@@ -228,6 +230,7 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
     const dueEnrollments = await storage.getActiveEnrollments();
 
     for (const enrollment of dueEnrollments) {
+      heartbeat.assertOwned();
       try {
         const sequence = await storage.getFollowUpSequence(enrollment.sequenceId!);
         if (!sequence || sequence.status !== "active") {
@@ -2239,6 +2242,8 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
   } catch (err: any) {
     console.error("Sequence worker error:", err);
     await releaseJobLock(JOB_NAMES.SEQUENCE_WORKER, false, err?.message ?? String(err), lockToken);
+  } finally {
+    heartbeat.stop();
   }
 
   // Record runtime metrics to system_settings for health monitor + queue-metrics endpoint

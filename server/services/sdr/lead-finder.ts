@@ -1146,15 +1146,34 @@ export function isDiscoveryRunning(): boolean {
 
 export async function runLeadDiscovery(
   triggerType: "manual" | "nightly" | "scheduled" = "manual",
-  overrides?: { verticals?: string[]; metros?: string[]; dataSources?: string[] }
+  overrides?: { verticals?: string[]; metros?: string[]; dataSources?: string[] },
+  existingLease?: { lockToken: string },
 ): Promise<{ jobId: number; rawFound: number; newInserted: number; duplicatesSkipped: number; enrichmentQueued: number }> {
+  const { acquireJobLock, releaseJobLock, startJobLockHeartbeat } = await import("../job-registry");
+  let lockToken: string;
+  if (existingLease) {
+    lockToken = existingLease.lockToken;
+  } else {
+    const lease = await acquireJobLock("sdr-lead-discovery");
+    if (lease.status !== "acquired") throw new Error(`LEAD_DISCOVERY_${lease.status.toUpperCase()}`);
+    lockToken = lease.lockToken;
+  }
   if (discoveryRunning) {
+    await releaseJobLock("sdr-lead-discovery", true, undefined, lockToken);
     throw new Error("Lead discovery is already running");
   }
 
   discoveryRunning = true;
 
-  const matrix = await getSearchMatrix();
+  const matrix = await getSearchMatrix().catch(async (error) => {
+    await releaseJobLock(
+      "sdr-lead-discovery",
+      false,
+      error instanceof Error ? error.message : "Unable to load discovery configuration",
+      lockToken,
+    );
+    throw error;
+  });
   const verticals = overrides?.verticals || matrix.verticals;
   const metros = overrides?.metros || matrix.metros;
   const dataSources = overrides?.dataSources || matrix.dataSources;
@@ -1168,7 +1187,16 @@ export async function runLeadDiscovery(
     searchMetros: metros,
     dataSources,
     startedAt: new Date(),
+  }).catch(async (error) => {
+    await releaseJobLock(
+      "sdr-lead-discovery",
+      false,
+      error instanceof Error ? error.message : "Unable to create discovery job",
+      lockToken,
+    );
+    throw error;
   });
+  const heartbeat = startJobLockHeartbeat("sdr-lead-discovery", lockToken);
 
   let totalRawFound = 0;
   let totalNewInserted = 0;
@@ -1177,12 +1205,14 @@ export async function runLeadDiscovery(
   let totalErrors = 0;
   const errorMessages: string[] = [];
 
+  let fatalError: unknown;
   try {
     for (const vertical of verticals) {
       for (const metro of metros) {
         const allBusinesses: NormalizedBusiness[] = [];
 
         for (const source of dataSources) {
+          heartbeat.assertOwned();
           if (["osm", "yellowpages", "bbb"].includes(source)) continue;
           try {
             let results: NormalizedBusiness[] = [];
@@ -1289,6 +1319,7 @@ export async function runLeadDiscovery(
 
     console.log(`[LeadFinder] Discovery complete: ${totalRawFound} raw, ${totalNewInserted} new, ${totalDuplicatesSkipped} dupes, ${totalEnrichmentQueued} queued for enrichment`);
   } catch (fatalErr) {
+    fatalError = fatalErr;
     console.error("[LeadFinder] Fatal error:", fatalErr);
     await storage.updateLeadDiscoveryJob(job.id, {
       status: "failed",
@@ -1297,6 +1328,13 @@ export async function runLeadDiscovery(
     });
   } finally {
     discoveryRunning = false;
+    heartbeat.stop();
+    await releaseJobLock(
+      "sdr-lead-discovery",
+      !fatalError,
+      fatalError instanceof Error ? fatalError.message : undefined,
+      lockToken,
+    );
   }
 
   return {

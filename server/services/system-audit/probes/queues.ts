@@ -2,11 +2,11 @@ import { ProbeResult } from "./ghl-sync";
 
 export async function probeQueues(): Promise<ProbeResult> {
   try {
-    const { getQueueManager } = await import("../../queue-manager");
+    const { requireQueueManagerReady } = await import("../../queue-manager");
 
-    let qm: Awaited<ReturnType<typeof getQueueManager>>;
+    let qm: ReturnType<typeof requireQueueManagerReady>;
     try {
-      qm = await getQueueManager();
+      qm = requireQueueManagerReady();
     } catch {
       return {
         subsystem: "queues",
@@ -16,7 +16,7 @@ export async function probeQueues(): Promise<ProbeResult> {
       };
     }
 
-    const { queues, usingMock } = await qm.getAllQueueMetrics();
+    const { queues, usingMock, status: metricsStatus } = await qm.getAllQueueMetrics();
 
     const criticalQueues = ["ghl-sync", "sla-checks", "sequences"];
     const stuckThreshold = 50;
@@ -35,19 +35,20 @@ export async function probeQueues(): Promise<ProbeResult> {
       if (criticalQueues.includes(q.name) && q.paused) {
         problems.push(`${q.name} is PAUSED`);
       }
-      if (q.waiting > stuckThreshold) {
+      if (q.probeStatus === "ok" && (q.waiting ?? 0) > stuckThreshold) {
         problems.push(`${q.name} has ${q.waiting} waiting jobs (possible backlog)`);
       }
-      if (q.failed > 20) {
+      if (q.probeStatus === "ok" && (q.failed ?? 0) > 20) {
         problems.push(`${q.name} has ${q.failed} failed jobs`);
       }
     }
 
-    const totalFailed = queues.reduce((s, q) => s + q.failed, 0);
-    const totalWaiting = queues.reduce((s, q) => s + q.waiting, 0);
+    const measuredQueues = queues.filter((q) => q.probeStatus === "ok");
+    const totalFailed = measuredQueues.reduce((s, q) => s + (q.failed ?? 0), 0);
+    const totalWaiting = measuredQueues.reduce((s, q) => s + (q.waiting ?? 0), 0);
 
-    const dlqItems = await qm.getDeadLetterItems().catch(() => [] as any[]);
-    const dlqCount = dlqItems.length;
+    const dlqRead = await qm.getDeadLetterItemsWithStatus();
+    const dlqCount = dlqRead.items.length;
     if (dlqCount > 20) {
       problems.push(`DLQ has ${dlqCount} items (critical overflow threshold exceeded)`);
     } else if (dlqCount > 5) {
@@ -69,6 +70,10 @@ export async function probeQueues(): Promise<ProbeResult> {
       status = status === "ok" ? "warn" : status;
       summary += " [using in-memory mock Redis]";
     }
+    if (metricsStatus === "degraded" || dlqRead.queueStatus.some((source) => source.status !== "sampled")) {
+      status = status === "ok" ? "warn" : status;
+      summary = `Queue diagnostics are degraded; totals are sampled or incomplete. ${summary}`;
+    }
 
     return {
       subsystem: "queues",
@@ -81,18 +86,20 @@ export async function probeQueues(): Promise<ProbeResult> {
         totalFailed,
         totalWaiting,
         dlqCount,
+        metricsStatus,
+        dlqQueueStatus: dlqRead.queueStatus,
         dlqWarnThreshold: 5,
         dlqErrorThreshold: 20,
         problems,
         queues: queueSummary,
       },
     };
-  } catch (err: any) {
+  } catch (_err: any) {
     return {
       subsystem: "queues",
       status: "error",
-      summary: `Queue probe failed: ${err.message}`,
-      details: { error: err.message },
+      summary: "Queue probe failed; diagnostics are unavailable",
+      details: { status: "unavailable", errorCode: "QUEUE_PROBE_FAILED" },
     };
   }
 }
