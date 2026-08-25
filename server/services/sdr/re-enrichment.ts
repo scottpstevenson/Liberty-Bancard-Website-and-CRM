@@ -180,8 +180,17 @@ async function reEnrichBusiness(business: Business): Promise<ReEnrichmentResult>
 }
 
 export async function runReEnrichmentCycle(): Promise<ReEnrichmentSummary> {
+  const { acquireJobLock, releaseJobLock, startJobLockHeartbeat } = await import("../job-registry");
+  const lease = await acquireJobLock("sdr-re-enrichment");
+  if (lease.status !== "acquired") {
+    console.warn(`[ReEnrich] Lease ${lease.status}; refusing cross-replica run`);
+    return { totalChecked: 0, totalUpdated: 0, totalRequalified: 0, results: [] };
+  }
+  const heartbeat = startJobLockHeartbeat("sdr-re-enrichment", lease.lockToken);
   if (isRunning) {
     console.log("[ReEnrich] Already running, skipping");
+    heartbeat.stop();
+    await releaseJobLock("sdr-re-enrichment", true, undefined, lease.lockToken);
     return { totalChecked: 0, totalUpdated: 0, totalRequalified: 0, results: [] };
   }
 
@@ -195,6 +204,7 @@ export async function runReEnrichmentCycle(): Promise<ReEnrichmentSummary> {
     let totalRequalified = 0;
 
     for (const business of staleBusinesses) {
+      heartbeat.assertOwned();
       const result = await reEnrichBusiness(business);
       results.push(result);
 
@@ -219,6 +229,8 @@ export async function runReEnrichmentCycle(): Promise<ReEnrichmentSummary> {
     return summary;
   } finally {
     isRunning = false;
+    heartbeat.stop();
+    await releaseJobLock("sdr-re-enrichment", true, undefined, lease.lockToken);
   }
 }
 

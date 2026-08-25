@@ -1219,8 +1219,33 @@ export async function fastClassifyBatch(batchSize: number = 500): Promise<{ proc
   return { processed: result.total, classified: result.classified };
 }
 
-export async function runBulkFastClassification(): Promise<{ total: number; classified: number; rounds: number }> {
-  return runSqlClassification();
+export async function runBulkFastClassification(
+  existingLease?: { lockToken: string },
+): Promise<{ total: number; classified: number; rounds: number }> {
+  const { acquireJobLock, releaseJobLock, startJobLockHeartbeat } = await import("./job-registry");
+  let lockToken: string;
+  if (existingLease) {
+    lockToken = existingLease.lockToken;
+  } else {
+    const lease = await acquireJobLock("sunbiz-fast-classification");
+    if (lease.status !== "acquired") {
+      throw new Error(`FAST_CLASSIFICATION_${lease.status.toUpperCase()}`);
+    }
+    lockToken = lease.lockToken;
+  }
+  const heartbeat = startJobLockHeartbeat("sunbiz-fast-classification", lockToken);
+  try {
+    heartbeat.assertOwned();
+    const result = await runSqlClassification();
+    heartbeat.assertOwned();
+    await releaseJobLock("sunbiz-fast-classification", true, undefined, lockToken);
+    return result;
+  } catch (error) {
+    await releaseJobLock("sunbiz-fast-classification", false, error instanceof Error ? error.message : "classification failed", lockToken);
+    throw error;
+  } finally {
+    heartbeat.stop();
+  }
 }
 
 export async function runSqlClassification(batchLimit?: number): Promise<{ total: number; classified: number; rounds: number }> {

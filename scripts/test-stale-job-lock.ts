@@ -25,7 +25,7 @@
  */
 
 import { pool } from "../server/db";
-import { acquireJobLock, releaseJobLock, renewJobLock, STALE_LOCK_TTL_MINUTES } from "../server/services/job-registry";
+import { acquireJobLock, releaseJobLock, renewJobLock, recordWorkerFailure, recordWorkerSuccess, STALE_LOCK_TTL_MINUTES } from "../server/services/job-registry";
 
 const TEST_JOB = `__test-stale-lock-${Date.now()}__`;
 
@@ -99,6 +99,13 @@ async function run() {
     );
     assert("B6 — current owner can renew with its token", await renewJobLock(TEST_JOB, tokenB));
     assert("B7 — stale owner cannot renew successor lease", !(await renewJobLock(TEST_JOB, tokenA)));
+
+    await recordWorkerSuccess(TEST_JOB);
+    await recordWorkerFailure(TEST_JOB, "stale telemetry");
+    const { rows: afterTelemetry } = await pool.query<{ status: string; lock_token: string }>(
+      `SELECT status, lock_token FROM background_jobs WHERE job_name = $1`, [TEST_JOB],
+    );
+    assert("B8 — tokenless stale telemetry cannot overwrite successor lease", afterTelemetry[0]?.status === "running" && afterTelemetry[0]?.lock_token === tokenB);
 
     // ── Scenario C: Fencing — old owner cannot overwrite new owner ─────────────
     console.log("\nScenario C — fencing token blocks stale owner");

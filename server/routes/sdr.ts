@@ -1042,13 +1042,14 @@ export function registerSdrRoutes(app: Express) {
   app.post("/api/sdr/discovery/run", isAuthenticated, async (req, res) => {
     if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin only" });
     try {
-      const { runLeadDiscovery, isDiscoveryRunning } = await import("../services/sdr/lead-finder");
-      if (isDiscoveryRunning()) {
-        return res.status(409).json({ message: "Lead discovery is already running" });
-      }
+      const { runLeadDiscovery } = await import("../services/sdr/lead-finder");
+      const { acquireJobLock } = await import("../services/job-registry");
+      const lease = await acquireJobLock("sdr-lead-discovery");
+      if (lease.status === "held") return res.status(409).json({ message: "Lead discovery is already running", execution: "held" });
+      if (lease.status === "unavailable") return res.status(503).json({ message: "Lead discovery registry is unavailable", execution: "unavailable" });
       const { verticals, metros, dataSources } = req.body;
-      res.json({ message: "Lead discovery started", started: true });
-      runLeadDiscovery("manual", { verticals, metros, dataSources }).catch(err =>
+      res.status(202).json({ message: "Lead discovery accepted", started: true, execution: "accepted" });
+      runLeadDiscovery("manual", { verticals, metros, dataSources }, { lockToken: lease.lockToken }).catch(err =>
         console.error("[LeadDiscovery API] Error:", err)
       );
     } catch (err: unknown) {

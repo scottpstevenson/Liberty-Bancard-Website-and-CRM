@@ -99,8 +99,13 @@ export function registerImportsRoutes(app: Express) {
 
   app.post("/api/sunbiz/fast-classify", isAuthenticated, async (req, res) => {
     if ((req.user as any)?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
-    res.json({ message: "Bulk fast classification started for all pending entities.", started: true });
-    runBulkFastClassification().catch(err => console.error("[FastClassify API] Error:", err));
+    const { acquireJobLock, releaseJobLock } = await import("../services/job-registry");
+    const lease = await acquireJobLock("sunbiz-fast-classification");
+    if (lease.status === "held") return res.status(409).json({ message: "Bulk classification is already running.", started: false, execution: "held" });
+    if (lease.status === "unavailable") return res.status(503).json({ message: "Classification registry is unavailable.", started: false, execution: "unavailable" });
+    res.status(202).json({ message: "Bulk fast classification accepted.", started: true, execution: "accepted" });
+    runBulkFastClassification({ lockToken: lease.lockToken })
+      .catch(err => console.error("[FastClassify API] Error:", err));
   });
 
   app.get("/api/sunbiz/classify-progress", isAuthenticated, async (req, res) => {

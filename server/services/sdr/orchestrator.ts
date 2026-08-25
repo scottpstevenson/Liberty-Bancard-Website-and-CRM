@@ -1352,8 +1352,17 @@ async function processLead(lead: SdrLeadState): Promise<void> {
 }
 
 export async function sweepLeads(): Promise<{ processed: number; errors: number; reviewMode?: boolean; skippedSends?: number }> {
+  const { acquireJobLock, releaseJobLock, startJobLockHeartbeat } = await import("../job-registry");
+  const lease = await acquireJobLock("sdr-orchestrator");
+  if (lease.status !== "acquired") {
+    console.warn(`[SDR Orchestrator] Lease ${lease.status}; refusing duplicate sweep`);
+    return { processed: 0, errors: 0 };
+  }
+  const heartbeat = startJobLockHeartbeat("sdr-orchestrator", lease.lockToken);
   if (isSweeping) {
     console.log("[SDR Orchestrator] Sweep already in progress, skipping");
+    heartbeat.stop();
+    await releaseJobLock("sdr-orchestrator", true, undefined, lease.lockToken);
     return { processed: 0, errors: 0 };
   }
 
@@ -1414,6 +1423,7 @@ export async function sweepLeads(): Promise<{ processed: number; errors: number;
 
     const processedBusinessIds = new Set<number>();
     for (const lead of dueLeads) {
+      heartbeat.assertOwned();
       if (globalPaused) {
         console.log("[SDR Orchestrator] Global pause triggered mid-sweep, stopping");
         break;
@@ -1448,6 +1458,8 @@ export async function sweepLeads(): Promise<{ processed: number; errors: number;
     console.error("[SDR Orchestrator] Sweep failed:", err);
   } finally {
     isSweeping = false;
+    heartbeat.stop();
+    await releaseJobLock("sdr-orchestrator", true, undefined, lease.lockToken);
   }
 
   return { processed, errors, reviewMode, skippedSends };

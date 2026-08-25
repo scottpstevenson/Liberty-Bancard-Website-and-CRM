@@ -1146,9 +1146,22 @@ export function isDiscoveryRunning(): boolean {
 
 export async function runLeadDiscovery(
   triggerType: "manual" | "nightly" | "scheduled" = "manual",
-  overrides?: { verticals?: string[]; metros?: string[]; dataSources?: string[] }
+  overrides?: { verticals?: string[]; metros?: string[]; dataSources?: string[] },
+  existingLease?: { lockToken: string },
 ): Promise<{ jobId: number; rawFound: number; newInserted: number; duplicatesSkipped: number; enrichmentQueued: number }> {
+  const { acquireJobLock, releaseJobLock, startJobLockHeartbeat } = await import("../job-registry");
+  let lockToken: string;
+  if (existingLease) {
+    lockToken = existingLease.lockToken;
+  } else {
+    const lease = await acquireJobLock("sdr-lead-discovery");
+    if (lease.status !== "acquired") throw new Error(`LEAD_DISCOVERY_${lease.status.toUpperCase()}`);
+    lockToken = lease.lockToken;
+  }
+  const heartbeat = startJobLockHeartbeat("sdr-lead-discovery", lockToken);
   if (discoveryRunning) {
+    heartbeat.stop();
+    await releaseJobLock("sdr-lead-discovery", true, undefined, lockToken);
     throw new Error("Lead discovery is already running");
   }
 
@@ -1183,6 +1196,7 @@ export async function runLeadDiscovery(
         const allBusinesses: NormalizedBusiness[] = [];
 
         for (const source of dataSources) {
+          heartbeat.assertOwned();
           if (["osm", "yellowpages", "bbb"].includes(source)) continue;
           try {
             let results: NormalizedBusiness[] = [];
@@ -1297,6 +1311,8 @@ export async function runLeadDiscovery(
     });
   } finally {
     discoveryRunning = false;
+    heartbeat.stop();
+    await releaseJobLock("sdr-lead-discovery", true, undefined, lockToken);
   }
 
   return {
