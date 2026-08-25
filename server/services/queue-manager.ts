@@ -407,12 +407,12 @@ const NAMED_QUEUE_SCHEDULES: NamedQueueSchedule[] = [
 
 export interface QueueMetric {
   name: string;
-  waiting: number;
-  active: number;
-  completed: number;
-  failed: number;
-  delayed: number;
-  paused: boolean;
+  waiting: number | null;
+  active: number | null;
+  completed: number | null;
+  failed: number | null;
+  delayed: number | null;
+  paused: boolean | null;
   repeatEveryMs: number;
   lastCompletedAt: string | null;
   lastFailedAt: string | null;
@@ -1765,12 +1765,12 @@ class QueueManager {
       } catch (err: any) {
         metrics.push({
           name: config.name,
-          waiting: 0,
-          active: 0,
-          completed: 0,
-          failed: 0,
-          delayed: 0,
-          paused: false,
+          waiting: null,
+          active: null,
+          completed: null,
+          failed: null,
+          delayed: null,
+          paused: null,
           repeatEveryMs: config.repeatEveryMs,
           lastCompletedAt: null,
           lastFailedAt: null,

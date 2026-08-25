@@ -1005,7 +1005,7 @@ export function registerActivationRoutes(app: Express) {
         const { requireQueueManagerReady } = await import("../services/queue-manager");
         const qm = requireQueueManagerReady();
         const metrics = await qm.getAllQueueMetrics();
-        const dlqTotal = metrics.queues.reduce((sum, q) => sum + q.failed, 0);
+        const dlqTotal = metrics.queues.reduce((sum, q) => sum + (q.probeStatus === "ok" ? (q.failed ?? 0) : 0), 0);
         queueStatus = metrics.status === "ok" && dlqTotal === 0 ? "green" : "yellow";
         queueValue = metrics.status === "ok"
           ? (dlqTotal === 0 ? "No failed queue jobs" : `${dlqTotal} failed queue job(s)`)

@@ -799,7 +799,7 @@ async function runDailyOutreachCycle(): Promise<Omit<DailyOutreachResult, "execu
  * execute the same logical cycle concurrently.
  */
 export async function runDailyOutreach(): Promise<DailyOutreachResult> {
-  const { acquireJobLock, releaseJobLock } = await import("./job-registry");
+  const { acquireJobLock, releaseJobLock, startJobLockHeartbeat } = await import("./job-registry");
   const lease = await acquireJobLock("daily-outreach");
   if (lease.status === "held") {
     return { enriched: 0, promoted: 0, dealsCreated: 0, queued: 0, sent: { sent: 0, failed: 0 }, execution: "held" };
@@ -808,8 +808,16 @@ export async function runDailyOutreach(): Promise<DailyOutreachResult> {
     return { enriched: 0, promoted: 0, dealsCreated: 0, queued: 0, sent: { sent: 0, failed: 0 }, execution: "unavailable" };
   }
 
+  return executeDailyOutreachLease(lease);
+}
+
+async function executeDailyOutreachLease(lease: { status: "acquired"; lockToken: string }): Promise<DailyOutreachResult> {
+  const { releaseJobLock, startJobLockHeartbeat } = await import("./job-registry");
+  const heartbeat = startJobLockHeartbeat("daily-outreach", lease.lockToken);
   try {
+    heartbeat.assertOwned();
     const result = await runDailyOutreachCycle();
+    heartbeat.assertOwned();
     await releaseJobLock("daily-outreach", true, undefined, lease.lockToken);
     return { ...result, execution: "completed" };
   } catch (error) {
@@ -820,7 +828,20 @@ export async function runDailyOutreach(): Promise<DailyOutreachResult> {
       lease.lockToken,
     );
     throw error;
+  } finally {
+    heartbeat.stop();
   }
+}
+
+/** Claim first so HTTP callers can truthfully respond before the long cycle runs. */
+export async function startDailyOutreachInBackground(): Promise<"accepted" | "held" | "unavailable"> {
+  const { acquireJobLock } = await import("./job-registry");
+  const lease = await acquireJobLock("daily-outreach");
+  if (lease.status !== "acquired") return lease.status;
+  void executeDailyOutreachLease(lease).catch((error) => {
+    console.error("[Daily Outreach] Background cycle failed:", error);
+  });
+  return "accepted";
 }
 
 async function getDailySendCount(): Promise<number> {

@@ -144,6 +144,26 @@ export async function renewJobLock(jobName: string, lockToken: string): Promise<
   }
 }
 
+/** Keep a long-running singleton lease alive. Call `assertOwned()` before each
+ * consequential phase; a failed renewal fails closed rather than allowing a
+ * successor to run concurrently. */
+export function startJobLockHeartbeat(jobName: string, lockToken: string) {
+  let lost = false;
+  const intervalMs = Math.max(1_000, Math.floor(STALE_LOCK_TTL_MINUTES * 60_000 / 3));
+  const timer = setInterval(() => {
+    renewJobLock(jobName, lockToken).then((renewed) => {
+      if (!renewed) lost = true;
+    }).catch(() => { lost = true; });
+  }, intervalMs);
+  timer.unref?.();
+  return {
+    assertOwned() {
+      if (lost) throw new Error(`JOB_LEASE_LOST:${jobName}`);
+    },
+    stop() { clearInterval(timer); },
+  };
+}
+
 /**
  * Release the job lock after execution completes.
  *

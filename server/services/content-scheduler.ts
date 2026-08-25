@@ -4,12 +4,14 @@ const TICK_MS = 5 * 60 * 1000;
 let timer: NodeJS.Timeout | null = null;
 
 export async function runContentSchedulerTick(): Promise<{ blogsPublished: number; socialPublished: number }> {
-  const { acquireJobLock, releaseJobLock, JOB_NAMES } = await import("./job-registry");
+  const { acquireJobLock, releaseJobLock, startJobLockHeartbeat, JOB_NAMES } = await import("./job-registry");
   const lease = await acquireJobLock(JOB_NAMES.CONTENT_SCHEDULER);
   if (lease.status !== "acquired") return { blogsPublished: 0, socialPublished: 0 };
   const lockToken = lease.lockToken;
 
+  const heartbeat = startJobLockHeartbeat(JOB_NAMES.CONTENT_SCHEDULER, lockToken);
   try {
+  heartbeat.assertOwned();
   const now = new Date();
   let blogsPublished = 0;
   let socialPublished = 0;
@@ -132,6 +134,7 @@ export async function runContentSchedulerTick(): Promise<{ blogsPublished: numbe
     console.error("[ContentScheduler] Social tick error:", err.message);
   }
 
+    heartbeat.assertOwned();
     await releaseJobLock(JOB_NAMES.CONTENT_SCHEDULER, true, undefined, lockToken);
     return { blogsPublished, socialPublished };
   } catch (error) {
@@ -142,6 +145,8 @@ export async function runContentSchedulerTick(): Promise<{ blogsPublished: numbe
       lockToken,
     );
     throw error;
+  } finally {
+    heartbeat.stop();
   }
 }
 

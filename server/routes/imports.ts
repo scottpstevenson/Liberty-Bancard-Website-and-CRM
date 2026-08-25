@@ -16,7 +16,7 @@ import { triggerWorkflowsByEvent } from "../services/workflow-executor";
 import { calculateQuizBonusFn, calculateRevenuePotentialFn, calculateSwitchabilityFn, calculateUnderwritingConfidenceFn, scoreContact } from "../services/lead-scoring";
 import { generateDealBlueprint } from "../services/deal-blueprint";
 import { routeContact } from "../services/smart-router";
-import { importCordataEnrichment, importFullCorevt, isWorkerRunning, runDailyOutreach, startDailyOutreachWorker, stopDailyOutreachWorker } from "../services/daily-outreach";
+import { importCordataEnrichment, importFullCorevt, isWorkerRunning, startDailyOutreachInBackground, startDailyOutreachWorker, stopDailyOutreachWorker } from "../services/daily-outreach";
 import { getGhlSyncStatus } from "../services/ghl-sync";
 import { runBulkFastClassification } from "../services/sunbiz-enrichment";
 import { ingestBusiness, ingestBusinessFromContact } from "../services/sdr/dedupe";
@@ -113,14 +113,14 @@ export function registerImportsRoutes(app: Express) {
   app.post("/api/outreach/run-daily", isAuthenticated, async (req, res) => {
     if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
     try {
-      const result = await runDailyOutreach();
-      if (result.execution === "held") {
+      const execution = await startDailyOutreachInBackground();
+      if (execution === "held") {
         return res.status(409).json({ message: "Daily outreach is already running.", started: false, execution: "held" });
       }
-      if (result.execution === "unavailable") {
+      if (execution === "unavailable") {
         return res.status(503).json({ message: "Daily outreach registry is unavailable.", started: false, execution: "unavailable" });
       }
-      return res.json({ message: "Daily outreach cycle completed.", started: true, execution: result.execution, result });
+      return res.status(202).json({ message: "Daily outreach cycle accepted.", started: true, execution });
     } catch (err) {
       console.error("[Daily Outreach API] Error:", err);
       return res.status(500).json({ message: "Daily outreach cycle failed.", started: false });

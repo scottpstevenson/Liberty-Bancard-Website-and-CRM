@@ -35,17 +35,17 @@ export async function probeQueues(): Promise<ProbeResult> {
       if (criticalQueues.includes(q.name) && q.paused) {
         problems.push(`${q.name} is PAUSED`);
       }
-      if (q.waiting > stuckThreshold) {
+      if (q.probeStatus === "ok" && (q.waiting ?? 0) > stuckThreshold) {
         problems.push(`${q.name} has ${q.waiting} waiting jobs (possible backlog)`);
       }
-      if (q.failed > 20) {
+      if (q.probeStatus === "ok" && (q.failed ?? 0) > 20) {
         problems.push(`${q.name} has ${q.failed} failed jobs`);
       }
     }
 
     const measuredQueues = queues.filter((q) => q.probeStatus === "ok");
-    const totalFailed = measuredQueues.reduce((s, q) => s + q.failed, 0);
-    const totalWaiting = measuredQueues.reduce((s, q) => s + q.waiting, 0);
+    const totalFailed = measuredQueues.reduce((s, q) => s + (q.failed ?? 0), 0);
+    const totalWaiting = measuredQueues.reduce((s, q) => s + (q.waiting ?? 0), 0);
 
     const dlqRead = await qm.getDeadLetterItemsWithStatus();
     const dlqCount = dlqRead.items.length;

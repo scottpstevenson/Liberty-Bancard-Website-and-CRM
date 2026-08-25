@@ -622,7 +622,9 @@ async function checkQueueHealth(): Promise<SubsystemResult> {
     const qm = requireQueueManagerReady();
     const m = await qm.getAllQueueMetrics();
     queueCount = m.queues.length;
-    queueFailed = m.queues.filter((q) => q.probeStatus === "ok").reduce((acc, q) => acc + q.failed, 0);
+    queueFailed = m.status === "ok"
+      ? m.queues.reduce((acc, q) => acc + (q.failed ?? 0), 0)
+      : null;
     queueState = m.status;
     usingMock = m.usingMock;
   } catch { /* retained as explicit unavailable state below */ }
