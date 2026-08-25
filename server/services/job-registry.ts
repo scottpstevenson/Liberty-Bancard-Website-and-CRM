@@ -81,7 +81,7 @@ export async function acquireJobLock(jobName: string): Promise<JobLockOutcome> {
       was_stale: boolean | null;
     }>(
       `WITH pre AS MATERIALIZED (
-         SELECT status, updated_at
+         SELECT status, updated_at, last_started_at
          FROM background_jobs
          WHERE job_name = $1
        )
@@ -91,13 +91,16 @@ export async function acquireJobLock(jobName: string): Promise<JobLockOutcome> {
        ON CONFLICT (job_name) DO UPDATE
          SET status          = 'running',
              lock_token      = $3,
+              last_started_at = NOW(),
              updated_at      = NOW()
          WHERE background_jobs.status <> 'running'
-             OR background_jobs.updated_at < NOW() - ($2 || ' minutes')::interval
+              OR COALESCE(background_jobs.updated_at, background_jobs.last_started_at)
+                   < NOW() - ($2 || ' minutes')::interval
        RETURNING
          lock_token,
          (SELECT pre.status = 'running'
-                  AND pre.updated_at < NOW() - ($2 || ' minutes')::interval
+                   AND COALESCE(pre.updated_at, pre.last_started_at)
+                       < NOW() - ($2 || ' minutes')::interval
           FROM pre) AS was_stale`,
       [jobName, String(STALE_LOCK_TTL_MINUTES), newToken]
     );

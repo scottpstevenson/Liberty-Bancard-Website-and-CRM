@@ -93,18 +93,26 @@ async function run() {
       : Infinity;
     assert("B4 — heartbeat was refreshed (< 5 s ago)", ageSec < 5);
     assert(
-      "B5 — stale recovery preserves the original start timestamp",
-      new Date(afterStale[0]?.last_started_at).getTime() === originalStartedAt,
+      "B5 — stale recovery records the successor execution start timestamp",
+      new Date(afterStale[0]?.last_started_at).getTime() > originalStartedAt,
     );
+    const successorStartedAt = new Date(afterStale[0]?.last_started_at).getTime();
     assert("B6 — current owner can renew with its token", await renewJobLock(TEST_JOB, tokenB));
-    assert("B7 — stale owner cannot renew successor lease", !(await renewJobLock(TEST_JOB, tokenA)));
+    const { rows: afterRenewal } = await pool.query<{ last_started_at: Date }>(
+      `SELECT last_started_at FROM background_jobs WHERE job_name = $1`, [TEST_JOB],
+    );
+    assert(
+      "B7 — renewal retains the current execution start timestamp",
+      new Date(afterRenewal[0]?.last_started_at).getTime() === successorStartedAt,
+    );
+    assert("B8 — stale owner cannot renew successor lease", !(await renewJobLock(TEST_JOB, tokenA)));
 
     await recordWorkerSuccess(TEST_JOB);
     await recordWorkerFailure(TEST_JOB, "stale telemetry");
     const { rows: afterTelemetry } = await pool.query<{ status: string; lock_token: string }>(
       `SELECT status, lock_token FROM background_jobs WHERE job_name = $1`, [TEST_JOB],
     );
-    assert("B8 — tokenless stale telemetry cannot overwrite successor lease", afterTelemetry[0]?.status === "running" && afterTelemetry[0]?.lock_token === tokenB);
+    assert("B9 — tokenless stale telemetry cannot overwrite successor lease", afterTelemetry[0]?.status === "running" && afterTelemetry[0]?.lock_token === tokenB);
     const lossHeartbeat = startJobLockHeartbeat(TEST_JOB, tokenB, {
       intervalMs: 1,
       renew: async () => false,
@@ -118,7 +126,7 @@ async function run() {
     } finally {
       lossHeartbeat.stop();
     }
-    assert("B9 — renewal loss is observable before consequential work", ownershipLossStoppedWork);
+    assert("B10 — renewal loss is observable before consequential work", ownershipLossStoppedWork);
 
     // ── Scenario C: Fencing — old owner cannot overwrite new owner ─────────────
     console.log("\nScenario C — fencing token blocks stale owner");

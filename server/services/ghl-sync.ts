@@ -2537,6 +2537,7 @@ export async function runGhlFullSyncTick(): Promise<void> {
     const legacyUnsyncedContacts = unsyncedContacts.filter((contact) => !projectionOwnedIds.has(contact.id));
     let synced = 0;
     for (const contact of legacyUnsyncedContacts) {
+      heartbeat.assertOwned();
       if (consecutiveGhlFailures >= GHL_CIRCUIT_THRESHOLD) {
         tripCircuitThreshold("contacts phase");
         await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN", lockToken);
@@ -2587,6 +2588,7 @@ export async function runGhlFullSyncTick(): Promise<void> {
     const unsyncedDeals = deals.filter(d => !d.ghlOpportunityId && d.contactId);
     let dealsSynced = 0;
     for (const deal of unsyncedDeals.slice(0, 5)) {
+      heartbeat.assertOwned();
       if (consecutiveGhlFailures >= GHL_CIRCUIT_THRESHOLD) {
         tripCircuitThreshold("deals phase");
         await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN", lockToken);
@@ -2638,6 +2640,7 @@ export async function runGhlFullSyncTick(): Promise<void> {
     });
     let tasksSynced = 0;
     for (const task of recentTasks.slice(0, 5)) {
+      heartbeat.assertOwned();
       if (consecutiveGhlFailures >= GHL_CIRCUIT_THRESHOLD) {
         tripCircuitThreshold("tasks phase");
         await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN", lockToken);
@@ -2687,6 +2690,7 @@ export async function runGhlFullSyncTick(): Promise<void> {
     const unsyncedCompanies = companies.filter(c => !syncedCompanyIds.has(c.id));
     let companiesSynced = 0;
     for (const company of unsyncedCompanies.slice(0, 5)) {
+      heartbeat.assertOwned();
       if (consecutiveGhlFailures >= GHL_CIRCUIT_THRESHOLD) {
         tripCircuitThreshold("companies phase");
         await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN", lockToken);
@@ -2731,6 +2735,7 @@ export async function runGhlFullSyncTick(): Promise<void> {
     }
 
     try {
+      heartbeat.assertOwned();
       const { runDeleteDetectionTick } = await import("./ghl-delete-sync");
       const deleteResult = await runDeleteDetectionTick();
       if (deleteResult.contactsDeleted > 0 || deleteResult.dealsDeleted > 0) {
