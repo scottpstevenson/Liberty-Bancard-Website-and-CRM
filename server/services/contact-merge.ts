@@ -285,8 +285,8 @@ export async function previewContactMerge(input: {
       UPDATE contact_merge_operations
       SET status = 'blocked', conflict_reason = 'SUPERSEDED_BY_FRESH_PREVIEW', updated_at = now()
       WHERE status IN ('previewed', 'approved')
-        AND LEAST(survivor_contact_id, deprecated_contact_id) = LEAST(${input.survivorContactId}, ${input.deprecatedContactId})
-        AND GREATEST(survivor_contact_id, deprecated_contact_id) = GREATEST(${input.survivorContactId}, ${input.deprecatedContactId})
+        AND LEAST(survivor_contact_id, deprecated_contact_id) = LEAST(${input.survivorContactId}::integer, ${input.deprecatedContactId}::integer)
+        AND GREATEST(survivor_contact_id, deprecated_contact_id) = GREATEST(${input.survivorContactId}::integer, ${input.deprecatedContactId}::integer)
     `);
     const hash = previewHash({ survivor: input.survivorContactId, deprecated: input.deprecatedContactId, versions: data.contactVersions, relationships: data.relationshipFingerprints, fieldDecisions: input.fieldDecisions, manifest: CONTACT_MERGE_MANIFEST_VERSION });
     const initialStatus = data.conflicts.length ? "blocked" : "previewed";
@@ -463,14 +463,17 @@ export async function executeContactMerge(operationId: string, actorId: string) 
         })}::jsonb
       )
     `);
+    const ghlDisposition = survivor.ghl_contact_id && !deprecated.ghl_contact_id
+      ? "survivor_only"
+      : !survivor.ghl_contact_id && deprecated.ghl_contact_id
+        ? "deprecated_requires_reconciliation"
+        : "none";
+    const reconciliationStatus = ghlDisposition === "deprecated_requires_reconciliation" ? "pending" : "not_required";
     await tx.execute(sql`
       UPDATE contact_merge_operations
       SET status = 'committed', executed_at = now(), updated_at = now(),
-          ghl_disposition = CASE
-            WHEN ${survivor.ghl_contact_id} IS NOT NULL AND ${deprecated.ghl_contact_id} IS NULL THEN 'survivor_only'
-            WHEN ${survivor.ghl_contact_id} IS NULL AND ${deprecated.ghl_contact_id} IS NOT NULL THEN 'deprecated_requires_reconciliation'
-            ELSE 'none' END,
-          reconciliation_status = CASE WHEN ${survivor.ghl_contact_id} IS NULL AND ${deprecated.ghl_contact_id} IS NOT NULL THEN 'pending' ELSE 'not_required' END
+          ghl_disposition = ${ghlDisposition},
+          reconciliation_status = ${reconciliationStatus}
       WHERE id = ${operationId}
       RETURNING *
     `);
