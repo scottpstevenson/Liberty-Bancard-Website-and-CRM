@@ -280,6 +280,9 @@ async function testGmailUnavailableBlock() {
   let contactId: number | null = null;
   let seqId: number | null = null;
   let enrollmentId: number | null = null;
+  let pauseControlId: number | null = null;
+  let priorPauseControl: any = null;
+  let pauseControlTouched = false;
 
   try {
     const contact = await storage.createContact({
@@ -316,20 +319,43 @@ async function testGmailUnavailableBlock() {
       contactId,
       sequenceId: seqId,
       status: "active",
-      currentStep: 1,
+      currentStep: 0,
+      nextActionAt: new Date(Date.now() - 1_000),
       metadata: { _transportTest: true, runId: RUN_ID },
     });
     enrollmentId = enrollment.id;
 
-    // Temporarily lift global pause
-    await storage.setSystemSetting("outboundGlobalPaused", "false");
+    // Temporarily lift the canonical global pause authority. The legacy
+    // outboundGlobalPaused setting is no longer consulted by the worker.
+    const pauseRows = (await db.execute(sql`
+      SELECT id, state, reason, epoch::text, actor, idempotency_key, committed_at
+      FROM outbound_pause_control
+      ORDER BY id
+      LIMIT 1
+    `) as any).rows;
+    priorPauseControl = pauseRows[0] ?? null;
+    if (priorPauseControl) {
+      pauseControlId = Number(priorPauseControl.id);
+      await db.execute(sql`
+        UPDATE outbound_pause_control
+        SET state = 'unpaused', epoch = epoch + 1, actor = 'transport-dispatch-test', committed_at = now()
+        WHERE id = ${pauseControlId}
+      `);
+    } else {
+      const inserted = (await db.execute(sql`
+        INSERT INTO outbound_pause_control (state, epoch, actor)
+        VALUES ('unpaused', 1, 'transport-dispatch-test')
+        RETURNING id
+      `) as any).rows[0];
+      pauseControlId = Number(inserted.id);
+    }
+    pauseControlTouched = true;
+    const { invalidatePauseStateCache } = await import("../server/services/outbound-pause-authority");
+    invalidatePauseStateCache();
 
     // Run the worker
     const { processSequenceEnrollments } = await import("../server/services/sequence-worker");
     await processSequenceEnrollments();
-
-    // Restore pause immediately
-    await storage.setSystemSetting("outboundGlobalPaused", "true");
 
     // Verify enrollment was paused (Gmail-unavailable block)
     const rows = await db.execute(sql`SELECT status FROM sequence_enrollments WHERE id = ${enrollmentId}`);
@@ -354,8 +380,29 @@ async function testGmailUnavailableBlock() {
     );
 
   } finally {
-    // Always restore pause
-    await storage.setSystemSetting("outboundGlobalPaused", "true");
+    // Restore the exact canonical pause state, or remove only the singleton
+    // row inserted by this isolated test.
+    if (pauseControlTouched && pauseControlId) {
+      if (priorPauseControl) {
+        await db.execute(sql`
+          UPDATE outbound_pause_control
+          SET state = ${priorPauseControl.state},
+              reason = ${priorPauseControl.reason},
+              epoch = ${priorPauseControl.epoch}::bigint,
+              actor = ${priorPauseControl.actor},
+              idempotency_key = ${priorPauseControl.idempotency_key},
+              committed_at = ${priorPauseControl.committed_at}
+          WHERE id = ${pauseControlId}
+        `).catch(() => undefined);
+      } else {
+        await db.execute(sql`
+          DELETE FROM outbound_pause_control
+          WHERE id = ${pauseControlId} AND actor = 'transport-dispatch-test'
+        `).catch(() => undefined);
+      }
+      const { invalidatePauseStateCache } = await import("../server/services/outbound-pause-authority");
+      invalidatePauseStateCache();
+    }
 
     // Clean up test fixtures
     if (enrollmentId) {
