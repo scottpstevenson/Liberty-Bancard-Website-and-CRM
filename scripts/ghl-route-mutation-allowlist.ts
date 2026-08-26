@@ -29,15 +29,6 @@ export const GHL_ROUTE_MUTATION_FUNCTIONS = [
  */
 export const GHL_ROUTE_MUTATION_ALLOWLIST: readonly GhlRouteMutationCallSite[] = [
   {
-    file: "server/routes/integrations.ts",
-    lineContains: "const ghlId = await upsertGhlContact(contact)",
-    gateContains: "if (!(await requireGhlRouteMutationAllowed(res))) return;",
-    maxLinesBetween: 3,
-    disposition: "reject_503",
-    reason: "Manual contact sync rejects with OUTBOUND_PAUSED before upsert.",
-    reviewDate: "2026-08-18",
-  },
-  {
     file: "server/routes/sdr.ts",
     lineContains: "await upsertGhlContact(contact)",
     occurrence: 1,

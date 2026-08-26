@@ -17,15 +17,40 @@
  * Exits 0 if all assertions pass, 1 if any fail.
  */
 
-import bcrypt from "bcryptjs";
-import { db } from "../server/db";
-import { contacts, consentAuditLogs } from "../shared/schema";
-import { users } from "../shared/models/auth";
-import { eq, and, sql as drizzleSql } from "drizzle-orm";
-import { evaluateContactability, deriveConsentTier } from "../server/services/contactability";
-import { enrollContactInGhlWorkflow } from "../server/services/ghl-workflow-enrollment";
-import { checkBeforeSend } from "../server/services/sdr/compliance-engine";
-import { pool } from "../server/db";
+import { assertDisposableTestInfrastructure } from "./test-infrastructure-guard";
+
+await assertDisposableTestInfrastructure({
+  operation: "contactability-test",
+});
+
+const [
+  { default: bcrypt },
+  { db, pool },
+  schema,
+  drizzle,
+  contactability,
+  enrollment,
+  compliance,
+  auth,
+  providerReadiness,
+] = await Promise.all([
+  import("bcryptjs"),
+  import("../server/db"),
+  import("../shared/schema"),
+  import("drizzle-orm"),
+  import("../server/services/contactability"),
+  import("../server/services/ghl-workflow-enrollment"),
+  import("../server/services/sdr/compliance-engine"),
+  import("../shared/models/auth"),
+  import("../server/services/provider-readiness-control"),
+]);
+const { contacts, consentAuditLogs, providerObservations } = schema;
+const { users } = auth;
+const { eq, and, sql: drizzleSql } = drizzle;
+const { evaluateContactability, deriveConsentTier } = contactability;
+const { enrollContactInGhlWorkflow } = enrollment;
+const { checkBeforeSend } = compliance;
+const { hashEmailToken } = providerReadiness;
 
 let passed = 0;
 let failed = 0;
@@ -103,7 +128,25 @@ async function createTestContact(overrides: Record<string, unknown>): Promise<nu
     emailOptInAt: null,
     ...overrides,
   };
+  const email = String(data.email);
+  const generation = Number(data.emailMutationGeneration ?? 0);
+  data.emailTokenHash = hashEmailToken(email);
+  data.emailValidationUpdatedAt = new Date();
   const [row] = await db.insert(contacts).values(data as any).returning({ id: contacts.id });
+  await db.insert(providerObservations).values({
+    provider: "zerobounce",
+    subjectType: "contact",
+    subjectId: row.id,
+    emailTokenHash: hashEmailToken(email),
+    subjectGeneration: generation,
+    outcome: data.emailStatus === "active"
+      ? "valid"
+      : data.emailStatus === "bounced"
+        ? "invalid"
+        : String(data.emailStatus),
+    retryable: false,
+    observedAt: new Date(),
+  });
   return row.id;
 }
 
