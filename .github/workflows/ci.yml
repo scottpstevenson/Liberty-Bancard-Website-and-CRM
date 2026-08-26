@@ -34,6 +34,8 @@ jobs:
         run: npx tsx scripts/ci-suite-manifest.ts --check
 
       - name: Run all deterministic static suites
+        env:
+          DATABASE_URL: postgresql://ci-static:ci-static@127.0.0.1:1/ci_static?connect_timeout=1
         run: npx tsx scripts/run-ci-suites.ts --capability deterministic-static
 
   # ── Integration job: DB + Redis; GHL and live providers are blocked ─────────
