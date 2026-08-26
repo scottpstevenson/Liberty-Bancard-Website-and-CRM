@@ -286,6 +286,7 @@ async function testGmailUnavailableBlock() {
       firstName: "TransportTest",
       lastName: `${RUN_ID}`,
       email: `transport-test-${RUN_ID}@test.internal`,
+      phone: `305${String(RUN_ID).slice(-7)}`,
       status: "active",
       consentTier: "pewc",
       optedOutEmail: false,
