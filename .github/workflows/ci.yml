@@ -85,6 +85,8 @@ jobs:
       ADMIN_SEED_EMAIL: ci-admin@libertybancard.test
       ADMIN_SEED_PASSWORD: ci-admin-password-Aa1!
       ADMIN_SEED_FORCE_UPDATE: "true"
+      TEST_USER_EMAIL: ci-admin@libertybancard.test
+      TEST_USER_PASSWORD: ci-admin-password-Aa1!
 
     steps:
       - uses: actions/checkout@v4
