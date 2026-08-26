@@ -12,6 +12,9 @@ jobs:
     name: Static Checks
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      DATABASE_URL: postgresql://static-test:static-test@127.0.0.1:1/static_test
+      NODE_ENV: test
     steps:
       - uses: actions/checkout@v4
 
