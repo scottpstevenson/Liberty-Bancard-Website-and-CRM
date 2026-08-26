@@ -113,6 +113,43 @@ async function main() {
     assert(undone.status === "undone", "admin undo restores reversible local operation state");
     const [restoredDeal] = (await db.execute(sql`SELECT contact_id FROM deals WHERE title = ${`BT07 ${nonce}`}`) as any).rows;
     assert(Number(restoredDeal.contact_id) === deprecated.id, "undo restores transferred relationship ownership");
+
+    // Active provider work belongs to the deprecated identity and must never
+    // run after a merge. It is terminalized atomically, and undo fails closed
+    // because recreating claimed external work would be unsafe.
+    const queueSurvivor = await makeContact("queue-survivor", `bt07-queue-${nonce}@example.test`);
+    const queueDeprecated = await makeContact("queue-deprecated", `BT07-queue-${nonce}@example.test`);
+    await db.execute(sql`
+      INSERT INTO contact_provider_projections (contact_id, provider, projection_key, state)
+      VALUES (${queueDeprecated.id}, 'ghl', ${`bt07:${nonce}`}, 'pending')
+    `);
+    await db.execute(sql`
+      INSERT INTO validation_intents (
+        contact_id, normalized_email_token_hash, subject_generation, purpose, state
+      ) VALUES (${queueDeprecated.id}, ${`bt07-token-${nonce}`}, 1, 'marketing_outreach', 'pending')
+    `);
+    const queuePreview = await merge.previewContactMerge({
+      survivorContactId: queueSurvivor.id, deprecatedContactId: queueDeprecated.id,
+      idempotencyKey: crypto.randomUUID(), actorId: "bt07-admin", actorRole: "admin",
+      fieldDecisions: { email: "survivor", phone: "survivor" },
+    });
+    operationIds.push(queuePreview.operationId);
+    await merge.approveContactMerge(queuePreview.operationId, "bt07-admin");
+    await merge.executeContactMerge(queuePreview.operationId, "bt07-admin");
+    const [terminalized] = (await db.execute(sql`
+      SELECT
+        (SELECT state FROM contact_provider_projections WHERE contact_id = ${queueDeprecated.id}) AS projection_state,
+        (SELECT state FROM validation_intents WHERE contact_id = ${queueDeprecated.id}) AS validation_state
+    `) as any).rows;
+    assert(
+      terminalized.projection_state === "terminal" && terminalized.validation_state === "superseded",
+      "merge terminalizes active provider projection and validation work",
+    );
+    let unsafeUndoRejected = false;
+    try { await merge.undoContactMerge(queuePreview.operationId, "bt07-admin"); } catch (error: any) {
+      unsafeUndoRejected = error?.code === "UNDO_BLOCKED";
+    }
+    assert(unsafeUndoRejected, "undo fails closed after provider work is terminalized");
   } finally {
     // Delete dependents first; immutable authority/history evidence is left
     // attached in disposable CI DB and is removed with the fixture contacts.
