@@ -292,12 +292,6 @@ export const SUITE_MANIFEST: SuiteManifestEntry[] = [
     providerDenial: "Redis topology is inspected through an isolated test run; no providers",
   },
   {
-    name: "Outbound Pause Authority",
-    script: "scripts/test-outbound-pause-authority.ts",
-    capability: "deterministic-integration",
-    providerDenial: "no provider calls (pause-authority state machine only)",
-  },
-  {
     name: "Outbound Boundary Denial",
     script: "scripts/test-outbound-boundary-1626.ts",
     capability: "deterministic-integration",
@@ -375,6 +369,12 @@ export const SUITE_MANIFEST: SuiteManifestEntry[] = [
     script: "scripts/seo-audit.ts",
     capability: "server-required",
     providerDenial: "none (HTML crawl only)",
+  },
+  {
+    name: "Outbound Pause Authority",
+    script: "scripts/test-outbound-pause-authority.ts",
+    capability: "server-required",
+    providerDenial: "no provider calls (startup-seeded pause-authority state machine only)",
   },
   {
     name: "Outbound Pause Fence",
