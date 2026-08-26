@@ -188,12 +188,6 @@ export const SUITE_MANIFEST: SuiteManifestEntry[] = [
     providerDenial: "none (pure file scan)",
   },
   {
-    name: "Sunbiz Timeout & Recovery",
-    script: "scripts/test-sunbiz-timeout.ts",
-    capability: "deterministic-static",
-    providerDenial: "Sunbiz: fake transport inside test (no real network)",
-  },
-  {
     name: "Commercial Classification Static Gates",
     script: "scripts/test-commercial-classification-static.ts",
     capability: "deterministic-static",
@@ -212,6 +206,12 @@ export const SUITE_MANIFEST: SuiteManifestEntry[] = [
     script: "scripts/test-serper-gateway.ts",
     capability: "deterministic-integration",
     providerDenial: "Serper: fake transports injected by test",
+  },
+  {
+    name: "Sunbiz Timeout & Recovery",
+    script: "scripts/test-sunbiz-timeout.ts",
+    capability: "deterministic-integration",
+    providerDenial: "Sunbiz: disposable PostgreSQL only; no real network",
   },
   {
     name: "Contactability Engine",
