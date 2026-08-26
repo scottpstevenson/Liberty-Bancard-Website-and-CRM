@@ -24,9 +24,10 @@
  * Run with the dev server up:
  *   BASE_URL=http://localhost:5000 npx tsx scripts/test-import-reconciliation.ts
  *
- * Requires a logged-in-capable test user. Uses the dedicated Playwright test user
- * seeded for this project (see scripts/create-test-user.ts) so it never touches
- * the real admin account's session/2FA state.
+ * Requires a logged-in-capable test user. Prefers TEST_USER_* (or the dedicated
+ * Playwright test user seeded by scripts/create-test-user.ts). On a fresh
+ * disposable database where that user does not exist yet, it retries with the
+ * ADMIN_SEED_* account that application startup has just created.
  *
  * Exits 0 if all assertions pass, 1 if any fail.
  */
@@ -58,15 +59,33 @@ function extractCookie(setCookieHeaders: string[]): string {
 }
 
 async function login(): Promise<string> {
-  const res = await fetch(`${BASE_URL}/api/auth/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email: TEST_EMAIL, password: TEST_PASSWORD }),
-  });
-  if (!res.ok) {
-    throw new Error(`Login failed: ${res.status} ${await res.text()}`);
+  async function attempt(email: string, password: string) {
+    const res = await fetch(`${BASE_URL}/api/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+    return { res, body: res.ok ? "" : await res.text() };
   }
-  const setCookie = res.headers.getSetCookie?.() ?? [];
+
+  let attemptResult = await attempt(TEST_EMAIL, TEST_PASSWORD);
+  if (
+    !attemptResult.res.ok &&
+    process.env.ADMIN_SEED_EMAIL &&
+    process.env.ADMIN_SEED_PASSWORD
+  ) {
+    attemptResult = await attempt(
+      process.env.ADMIN_SEED_EMAIL,
+      process.env.ADMIN_SEED_PASSWORD,
+    );
+  }
+
+  if (!attemptResult.res.ok) {
+    throw new Error(
+      `Login failed: ${attemptResult.res.status} ${attemptResult.body}`,
+    );
+  }
+  const setCookie = attemptResult.res.headers.getSetCookie?.() ?? [];
   return extractCookie(setCookie);
 }
 
