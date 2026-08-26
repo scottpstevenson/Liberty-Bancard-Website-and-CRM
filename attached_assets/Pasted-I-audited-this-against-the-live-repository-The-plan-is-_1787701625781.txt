@@ -1,0 +1,151 @@
+I audited this against the live repository. The plan is directionally correct and its baseline matches current `main` at [`93192a21`](https://github.com/scottpstevenson/Liberty-Bancard-Website-and-CRM/commit/93192a21ba4f7142c4194550d6f297274357a8e4), but it needs several mandatory corrections before implementation.
+
+Send this back to Task #1674:
+
+```text
+Proceed with BT-12, but incorporate these verified corrections before claiming completion.
+
+LIVE BASELINE
+- Repository: scottpstevenson/Liberty-Bancard-Website-and-CRM
+- main: 93192a21ba4f7142c4194550d6f297274357a8e4
+- BT-09 and #1669 are already merged.
+- Treat every Relevant Files list as seed inventory, not exhaustive scope.
+- Do not stop for another design approval; audit, implement, test, and report.
+
+MANDATORY CORRECTIONS
+
+P0 — DEAL-STAGE AUTHORITY
+
+1. Prevent generic stage writes.
+   - server/storage/deals.ts updateDeal() currently accepts stage and can update it directly.
+   - Remove stage from the generic update contract or reject it at runtime.
+   - Provide a private/canonical stage-transition primitive usable only by deal-stage-service.
+
+2. Eliminate bulk stage bypass.
+   - bulkUpdateDealStage() directly updates deals.stage.
+   - Route each record through canonical transition validation, or implement a canonical transactional batch preserving all locks, gates, audits, and side effects.
+
+3. Add real concurrency control.
+   - Non-gated advanceDealStage() currently falls through to last-write-wins updateDeal().
+   - Enforce a legal transition graph plus row locking or a current-stage conditional update.
+   - Same-stage replay must be idempotent.
+   - A stale competing transition must fail explicitly.
+
+4. Complete the stage-writer manifest using repository search.
+   - Include routes/services beyond the supplied list, including my-day, workflow executor, activity, boarding, proposal engine, public routes, terminal economics, SLA worker, queue manager, GHL sync, and proposal follow-up.
+   - Classify every writer as canonical, prohibited, or legitimately non-stage-changing.
+
+5. Do not treat fire-and-forget side effects as convergence.
+   - advanceDealStage() currently launches lifecycle, GHL, analytics, onboarding, and task effects after commit using catch/log patterns.
+   - Classify effects as material or informational.
+   - Material effects must use existing durable intent/outbox/recovery authorities.
+   - Informational effects may remain best-effort only with truthful auditing.
+   - Do not introduce a parallel outbox system.
+
+6. Fix underwriting failure handling.
+   - Manual underwriting approval currently commits the decision and then calls advanceDealStage(...).catch(() => {}).
+   - Never silently swallow a material stage-transition failure.
+   - Commit a durable pending/recovery fact or transactionally couple the decision and transition.
+
+P0 — A/B EXPERIMENT AUTHORITY
+
+7. Close manual result mutation.
+   - POST /api/sequence-steps/:id/ab-test-results currently permits a generic authenticated user to write computed results and winner fields.
+   - Remove/disable this endpoint if obsolete, or restrict it to a canonical audited recomputation/reset operation.
+   - Clients must not directly set winnerSelected, winnerAt, significance, or result counts.
+
+8. Restrict manual evaluation.
+   - POST /api/sequences/trigger-ab-check must require manager/admin authority.
+   - Execute through the canonical lease/job lifecycle and return truthful accepted/running/failed/completed states.
+
+9. Persist immutable cohort eligibility.
+   - Capture the approved experiment/cohort/identity/validation/production-classification snapshot when a recipient is selected or sent.
+   - Existing log metadata may be used if sufficient; no migration is required solely for this.
+   - Winner aggregation must count only sends carrying that immutable approved snapshot.
+   - Do not determine historical eligibility from mutable current contact state.
+
+10. Propagate evaluation failures.
+    - ab-test-worker.ts currently catches broad failures and can leave callers believing evaluation completed.
+    - Fail the job or record a durable failed/unavailable outcome.
+    - Never return a successful “complete” result after an evaluation error.
+
+P0 — FINANCIAL CORRECTNESS
+
+11. Remove floating-point money arithmetic everywhere in scope.
+    - Fix both server/storage/residuals.ts aggregation and server/routes/residuals.ts commission calculations.
+    - Do not use parseFloat, binary floating-point multiplication, or cumulative number addition for money.
+    - Use existing exact numeric/decimal handling and define rounding boundaries explicitly.
+    - Add fractional-cent, negative adjustment, repeat-run, and large-batch proofs.
+
+12. Prove chargeback submission durability before retaining “Migration required: NO.”
+    - Verify whether an existing durable command/outbox/idempotency record represents card-brand submissions and responses.
+    - If no durable representation exists, either add the smallest additive migration or explicitly split that provider-submission guarantee into a blocking follow-up.
+    - Do not claim replay safety without a persisted idempotency/recovery fact.
+    - All tests must use fake provider adapters.
+
+P1 — MID / BOARDING STATE
+
+13. Create one narrow MID transition authority.
+    - Enforce the legal transition graph.
+    - Use row locking, versioning, or current-state conditional updates.
+    - Enforce merchant/deal object scope, not only route-level roles.
+    - Produce immutable audit evidence for every transition.
+    - Route every MID status writer through it.
+
+P1 — TEMPLATE SAFETY
+
+14. Fail closed on unresolved template variables.
+    - renderTemplate() currently strips unresolved tokens to an empty string.
+    - An unresolved required variable must block the send with an explicit durable reason.
+    - Do not count “raw placeholder removed” as success.
+    - Validate HTML escaping, URLs, CTA/footer/legal content, sender identity, and unsubscribe behavior at the send boundary.
+
+15. Separate static and runtime template claims.
+    - Code can establish active/reachable templates.
+    - “Highest-volume real sends” requires production database/provider evidence and belongs in VG-04.
+    - Do not infer real send volume from static code.
+
+P1 — TEST AND CI PROOF
+
+16. Extend the regression suite to prove:
+    - generic updateDeal cannot write stage;
+    - bulk stage changes cannot bypass canonical policy;
+    - simultaneous stale transitions cannot both succeed;
+    - stage side-effect recovery after failure;
+    - underwriting cannot false-green after stage failure;
+    - an agent cannot fabricate A/B winners;
+    - cohort drift after send cannot alter winner membership;
+    - evaluator errors propagate;
+    - unresolved templates are blocked;
+    - exact decimal payout and negative adjustment behavior;
+    - duplicate chargeback submissions are replay-safe;
+    - illegal and concurrent MID transitions fail.
+
+17. Register the suite in every active CI/pre-deploy authority.
+    - A task-owned test failure is a merge blocker.
+    - Unrelated pre-existing failures must be itemized separately and must not be used to skip task-owned implementation or focused proof.
+
+MIGRATION VERDICT
+
+- Migration is not required for the stage-authority, decimal, template, route-authorization, or most A/B changes.
+- Migration necessity remains UNCONFIRMED for durable chargeback submission recovery.
+- Audit existing schema/outbox capabilities before making a final migration verdict.
+- Never use db push or rewrite applied migration history.
+
+FINAL VERDICT REQUIREMENT
+
+Do not mark BT-12 complete unless:
+- all deal-stage writes are mechanically forced through the canonical authority;
+- material post-stage effects are durable/recoverable;
+- A/B results cannot be manually fabricated;
+- experiment membership is immutable;
+- no binary floating-point money calculations remain in scope;
+- chargeback replay safety has a proven durable representation;
+- MID transitions are serialized and audited;
+- unresolved templates block sends;
+- focused tests, typecheck, build, diff checks, and registered CI gates pass.
+
+Deliver the final branch, commit SHA, exact changed files, commands with exit codes, unresolved runtime facts, and SAFE TO MERGE / DO NOT MERGE.
+```
+
+Overall verdict: **BT-12 is the correct next build tranche, but the original plan is not complete enough to guarantee its own stated kill lines.** It is also not the final permission to start mass outreach. After BT-12 merges, its production claims still need the read-only VG-04 runtime checks; full outreach authorization comes only after the remaining build tranches and final browser/admin/provider verification.
