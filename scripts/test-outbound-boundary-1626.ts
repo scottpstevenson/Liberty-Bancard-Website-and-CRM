@@ -27,6 +27,12 @@
 import { pool } from "../server/db";
 import { invalidatePauseStateCache } from "../server/services/outbound-pause-authority";
 
+// Exercise configured-provider pause gates without real credentials. The fetch
+// spy below rejects every GHL host request, so an ordering regression still
+// fails closed and can never reach the provider.
+process.env.GHL_PRIVATE_INTEGRATION_TOKEN = "ci-test-ghl-token-unused";
+process.env.GHL_LOCATION_ID = "ci-test-ghl-location";
+
 let passed = 0;
 let failed = 0;
 function assert(label: string, ok: boolean, detail?: string): void {

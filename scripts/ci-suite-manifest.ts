@@ -292,12 +292,6 @@ export const SUITE_MANIFEST: SuiteManifestEntry[] = [
     providerDenial: "Redis topology is inspected through an isolated test run; no providers",
   },
   {
-    name: "Outbound Boundary Denial",
-    script: "scripts/test-outbound-boundary-1626.ts",
-    capability: "deterministic-integration",
-    providerDenial: "GHL: GHL_TRANSPORT_FAILFAST=true; SMTP: outboundGlobalPaused=true",
-  },
-  {
     name: "Email Signature Coverage",
     script: "scripts/test-email-signatures.ts",
     capability: "deterministic-integration",
@@ -375,6 +369,12 @@ export const SUITE_MANIFEST: SuiteManifestEntry[] = [
     script: "scripts/test-outbound-pause-authority.ts",
     capability: "server-required",
     providerDenial: "no provider calls (startup-seeded pause-authority state machine only)",
+  },
+  {
+    name: "Outbound Boundary Denial",
+    script: "scripts/test-outbound-boundary-1626.ts",
+    capability: "server-required",
+    providerDenial: "GHL: dummy in-process config + rejecting fetch spy; SMTP: persisted pause",
   },
   {
     name: "Outbound Pause Fence",
