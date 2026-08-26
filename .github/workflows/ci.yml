@@ -22,12 +22,7 @@ jobs:
           cache: "npm"
 
       - name: Install dependencies
-        run: |
-          npm ci --include=dev --no-audit --no-fund
-          if [ ! -x node_modules/.bin/tsx ]; then
-            npm ci --include=dev --no-audit --no-fund
-          fi
-          test -x node_modules/.bin/tsx
+        run: npm ci --include=dev --ignore-scripts --no-audit --no-fund
 
       - name: Validate canonical suite manifest
         run: npx tsx scripts/ci-suite-manifest.ts --check
@@ -93,12 +88,7 @@ jobs:
           cache: "npm"
 
       - name: Install dependencies
-        run: |
-          npm ci --include=dev --no-audit --no-fund
-          if [ ! -x node_modules/.bin/tsx ]; then
-            npm ci --include=dev --no-audit --no-fund
-          fi
-          test -x node_modules/.bin/tsx
+        run: npm ci --include=dev --ignore-scripts --no-audit --no-fund
 
       - name: Bootstrap disposable schema snapshot
         run: |
