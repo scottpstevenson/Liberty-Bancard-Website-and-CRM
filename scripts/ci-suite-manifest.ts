@@ -304,12 +304,6 @@ export const SUITE_MANIFEST: SuiteManifestEntry[] = [
     providerDenial: "no provider calls (arbitration decision logic only)",
   },
   {
-    name: "Statement Acquisition",
-    script: "scripts/test-statement-acquisition.ts",
-    capability: "deterministic-integration",
-    providerDenial: "GHL: GHL_TRANSPORT_FAILFAST=true; SMTP: outboundGlobalPaused=true",
-  },
-  {
     name: "Channel Orchestrator",
     script: "scripts/test-channel-orchestrator.ts",
     capability: "deterministic-integration",
@@ -363,6 +357,12 @@ export const SUITE_MANIFEST: SuiteManifestEntry[] = [
     script: "scripts/seo-audit.ts",
     capability: "server-required",
     providerDenial: "none (HTML crawl only)",
+  },
+  {
+    name: "Statement Acquisition",
+    script: "scripts/test-statement-acquisition.ts",
+    capability: "server-required",
+    providerDenial: "GHL: GHL_TRANSPORT_FAILFAST=true; SMTP: persisted pause",
   },
   {
     name: "Outbound Pause Authority",
