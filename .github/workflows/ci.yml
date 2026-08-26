@@ -123,11 +123,34 @@ jobs:
           echo $! > ci-server.pid
           for attempt in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:5000/api/health >/dev/null; then
-              exit 0
+              break
+            fi
+            if ! kill -0 "$(cat ci-server.pid)" 2>/dev/null; then
+              echo "CI server exited before becoming healthy"
+              cat ci-server.log
+              exit 1
             fi
             sleep 2
           done
-          echo "CI server did not become healthy"
+          if ! curl -fsS http://127.0.0.1:5000/api/health >/dev/null; then
+            echo "CI server did not become healthy"
+            cat ci-server.log
+            exit 1
+          fi
+          for attempt in $(seq 1 30); do
+            if psql "$DATABASE_URL" -tAc \
+              "SELECT 1 FROM users WHERE lower(email) = lower('$ADMIN_SEED_EMAIL') LIMIT 1" \
+              | grep -q 1; then
+              exit 0
+            fi
+            if ! kill -0 "$(cat ci-server.pid)" 2>/dev/null; then
+              echo "CI server exited before admin seeding completed"
+              cat ci-server.log
+              exit 1
+            fi
+            sleep 1
+          done
+          echo "CI admin seeding did not complete"
           cat ci-server.log
           exit 1
 
