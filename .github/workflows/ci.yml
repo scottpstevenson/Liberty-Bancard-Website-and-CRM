@@ -18,6 +18,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install scanner dependency
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -83,6 +86,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install scanner dependency
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
