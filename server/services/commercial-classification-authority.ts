@@ -107,7 +107,7 @@ function assertNoPii(fields: Record<string, unknown>): void {
     throw new Error("BT-06 kill line: classification evidence must include at least one allowlisted non-PII reference.");
   }
   for (const [key, value] of Object.entries(fields)) {
-    const normalizedKey = key.toLowerCase().replace(/([a-z])([A-Z])/g, "$1_$2").replace(/[-\s]/g, "_");
+    const normalizedKey = key.replace(/([a-z])([A-Z])/g, "$1_$2").toLowerCase().replace(/[-\s]/g, "_");
     if (!EVIDENCE_FIELD_ALLOWLIST.has(normalizedKey)) {
       throw new Error(`BT-06 kill line: evidence field '${key}' is not allowlisted.`);
     }

@@ -118,3 +118,4 @@
 - [Outbox worker pause gate scope](outbox-worker-pause-gate.md) — pause gate belongs in handleGhlSync() not tick(); tick() runs contact_link/consent_record (pure DB) that must not be blocked by global pause.
 - [GitHub workflow push scope](github-workflow-push-scope.md) — workflow-file pushes need GitHub's explicit workflow permission; repository access alone may be insufficient.
 - [Durable command lease cleanup](durable-command-lease-cleanup.md) — every claimed-command exit must release only its own token-fenced lease; early failure paths are easy to miss.
+- [Provider-readiness deferral audits](provider-readiness-deferral-audits.md) — when readiness defers before legacy validation-budget gates, persist the actual deferral reason instead of expecting unreachable audit actions.

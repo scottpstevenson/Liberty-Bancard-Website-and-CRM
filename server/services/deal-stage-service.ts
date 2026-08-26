@@ -9,6 +9,7 @@ import { deals, tasks, dealStageEffectIntents } from "@shared/schema";
 import { eq, and, isNull, sql } from "drizzle-orm";
 import { GO_LIVE_GATE_STAGES, evaluateReadinessFromRawRows, GoLiveGateError } from "./go-live-gate";
 import { LifecycleService, dealStageToLifecycleState } from "./lifecycle-service";
+import { sanitizeAuditPayload } from "./audit-sanitizer";
 
 /** Stage names that map to dedicated funnel analytics events */
 const STAGE_EVENT_MAP: Record<string, string> = {
@@ -133,7 +134,11 @@ export async function advanceDealStage(
         await tx.execute(sql`
           INSERT INTO audit_logs (action, entity_type, entity_id, actor_type, details, created_at)
           VALUES ('go_live_gate_blocked', 'deal', ${dealId}, 'system',
-            ${JSON.stringify({ attemptedStage: newStage, missingItems: readiness.missing, trigger })}::jsonb, NOW())
+            ${JSON.stringify(sanitizeAuditPayload({
+              attemptedStage: newStage,
+              missingItems: readiness.missing,
+              trigger,
+            }))}::jsonb, NOW())
         `);
         return;
       }
@@ -157,7 +162,12 @@ export async function advanceDealStage(
     await tx.execute(sql`
       INSERT INTO audit_logs (action, entity_type, entity_id, actor_type, details, created_at)
       VALUES ('deal_stage_transitioned', 'deal', ${dealId}, 'system',
-        ${JSON.stringify({ from: dealRow.stage, to: newStage, trigger, transitionKey })}::jsonb, NOW())
+        ${JSON.stringify(sanitizeAuditPayload({
+          from: dealRow.stage,
+          to: newStage,
+          trigger,
+          transitionKey,
+        }))}::jsonb, NOW())
     `);
   });
 

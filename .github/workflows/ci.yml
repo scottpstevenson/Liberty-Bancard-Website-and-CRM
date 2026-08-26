@@ -12,17 +12,23 @@ jobs:
     name: Static Checks
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      DATABASE_URL: postgresql://static-test:static-test@127.0.0.1:1/static_test
+      NODE_ENV: test
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install scanner dependency
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: "npm"
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install --include=dev --ignore-scripts --no-audit --no-fund --package-lock=false
 
       - name: Validate canonical suite manifest
         run: npx tsx scripts/ci-suite-manifest.ts --check
@@ -73,30 +79,39 @@ jobs:
       SESSION_SECRET: ci-test-secret-32chars-minimum-ok
       CREDENTIAL_ENCRYPTION_KEY: ci-test-encryption-key-32chars-ok
       MERCHANT_DATA_ENCRYPTION_KEY: ci-test-merchant-key-32chars-min
-      TEST_REDIS_PREFIX: ci_task1664_
+      AI_INTEGRATIONS_OPENAI_API_KEY: ci-test-openai-key-unused
+      AI_INTEGRATIONS_OPENAI_BASE_URL: http://127.0.0.1:1/v1
+      TEST_REDIS_PREFIX: ci_1681_${{ github.run_id }}_${{ github.run_attempt }}_
       ADMIN_SEED_EMAIL: ci-admin@libertybancard.test
       ADMIN_SEED_PASSWORD: ci-admin-password-Aa1!
       ADMIN_SEED_FORCE_UPDATE: "true"
+      TEST_USER_EMAIL: ci-admin@libertybancard.test
+      TEST_USER_PASSWORD: ci-admin-password-Aa1!
 
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install scanner dependency
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: "npm"
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install --include=dev --ignore-scripts --no-audit --no-fund --package-lock=false
 
       - name: Bootstrap disposable schema snapshot
-        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0109_fearless_starhawk.sql
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0109_fearless_starhawk.sql
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0076_outbound_launch_foundation.sql
 
       - name: Run database migrations
         env:
           CI_SNAPSHOT_BOOTSTRAP: "true"
-        run: npx tsx server/db-migrate.ts
+        run: npx tsx -e "import('./server/db-migrate.ts').then(({ runDrizzleMigrations }) => runDrizzleMigrations())"
 
       - name: Validate canonical suite manifest
         run: npx tsx scripts/ci-suite-manifest.ts --check
@@ -106,15 +121,38 @@ jobs:
 
       - name: Start disposable CI application server
         run: |
-          npm run dev > ci-server.log 2>&1 &
+          NODE_ENV=test npx tsx server/index.ts > ci-server.log 2>&1 &
           echo $! > ci-server.pid
           for attempt in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:5000/api/health >/dev/null; then
-              exit 0
+              break
+            fi
+            if ! kill -0 "$(cat ci-server.pid)" 2>/dev/null; then
+              echo "CI server exited before becoming healthy"
+              cat ci-server.log
+              exit 1
             fi
             sleep 2
           done
-          echo "CI server did not become healthy"
+          if ! curl -fsS http://127.0.0.1:5000/api/health >/dev/null; then
+            echo "CI server did not become healthy"
+            cat ci-server.log
+            exit 1
+          fi
+          for attempt in $(seq 1 30); do
+            if psql "$DATABASE_URL" -tAc \
+              "SELECT 1 FROM users WHERE lower(email) = lower('$ADMIN_SEED_EMAIL') LIMIT 1" \
+              | grep -q 1; then
+              exit 0
+            fi
+            if ! kill -0 "$(cat ci-server.pid)" 2>/dev/null; then
+              echo "CI server exited before admin seeding completed"
+              cat ci-server.log
+              exit 1
+            fi
+            sleep 1
+          done
+          echo "CI admin seeding did not complete"
           cat ci-server.log
           exit 1
 

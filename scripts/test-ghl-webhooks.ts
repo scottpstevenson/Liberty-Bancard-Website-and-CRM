@@ -35,6 +35,7 @@ let failed = 0;
 const failures: string[] = [];
 const createdContactIds: number[] = [];
 const createdDealIds: number[] = [];
+const createdSequenceIds: number[] = [];
 
 function assert(label: string, condition: boolean, detail?: string) {
   if (condition) {
@@ -67,6 +68,28 @@ async function makeTestContact(overrides: Record<string, any> = {}) {
   });
   createdContactIds.push(contact.id);
   return { contact, ghlId };
+}
+
+async function makeActiveTestEnrollment(contactId: number, suffix: string) {
+  const sequence = await storage.createFollowUpSequence({
+    name: `webhook-test-${suffix}-${RUN_ID}-${contactId}`,
+    sequenceFamily: "support",
+    triggerType: `webhook_test_${suffix}_${RUN_ID}_${contactId}`,
+    status: "active",
+  });
+  createdSequenceIds.push(sequence.id);
+
+  const [enrollment] = await db.insert(sequenceEnrollments).values({
+    contactId,
+    sequenceId: sequence.id,
+    status: "active",
+    currentStep: 0,
+  }).returning({ id: sequenceEnrollments.id });
+
+  if (!enrollment) {
+    throw new Error(`Failed to create ${suffix} webhook test enrollment`);
+  }
+  return enrollment.id;
 }
 
 // ── 1a. Ed25519 signature verification (current X-GHL-Signature standard) ────
@@ -465,27 +488,8 @@ async function testReplyStopPausesEnrollments() {
 
   const { contact, ghlId } = await makeTestContact({ tags: [] });
 
-  // Create a sequence enrollment that should get paused
-  const [seqRow] = await db.select({ id: followUpSequences.id })
-    .from(followUpSequences)
-    .where(eq(followUpSequences.status, "active"))
-    .limit(1);
-  const sequenceId = seqRow?.id ?? null;
-
-  let enrollmentId: number | null = null;
-  if (sequenceId) {
-    try {
-      const [newEnrollment] = await db.insert(sequenceEnrollments).values({
-        contactId: contact.id,
-        sequenceId,
-        status: "active",
-        currentStep: 0,
-      }).returning({ id: sequenceEnrollments.id });
-      enrollmentId = newEnrollment?.id ?? null;
-    } catch {
-      // unique index may prevent duplicate — enrollment check becomes non-blocking
-    }
-  }
+  // Create a dedicated sequence enrollment that must be paused by the reply.
+  const enrollmentId = await makeActiveTestEnrollment(contact.id, "reply-stop");
 
   const msgId = `reply-stop-test-${RUN_ID}`;
   await handleGhlWebhook({
@@ -498,19 +502,14 @@ async function testReplyStopPausesEnrollments() {
   });
 
   // Enrollment should be paused
-  if (enrollmentId) {
-    const [row] = await db.select({ status: sequenceEnrollments.status })
-      .from(sequenceEnrollments)
-      .where(eq(sequenceEnrollments.id, enrollmentId));
-    assert(
-      "Reply-stop: active enrollment paused after inbound reply",
-      row?.status === "paused",
-      `enrollment ${enrollmentId} status=${row?.status}`
-    );
-  } else {
-    console.log("  (skipped enrollment pause check — unique index conflict or no active sequence)");
-    passed++; // non-blocking
-  }
+  const [row] = await db.select({ status: sequenceEnrollments.status })
+    .from(sequenceEnrollments)
+    .where(eq(sequenceEnrollments.id, enrollmentId));
+  assert(
+    "Reply-stop: active enrollment paused after inbound reply",
+    row?.status === "paused",
+    `enrollment ${enrollmentId} status=${row?.status}`
+  );
 
   // Audit log should record the pause action
   const auditLogs = await storage.getAuditLogs({ limit: 50 });
@@ -533,9 +532,7 @@ async function testReplyStopPausesEnrollments() {
   );
 
   // Cleanup enrollment
-  if (enrollmentId) {
-    try { await db.delete(sequenceEnrollments).where(eq(sequenceEnrollments.id, enrollmentId)); } catch {}
-  }
+  try { await db.delete(sequenceEnrollments).where(eq(sequenceEnrollments.id, enrollmentId)); } catch {}
 }
 
 // ── 11. GHL email bounce → contact bounced + enrollments paused ───────────────
@@ -545,27 +542,8 @@ async function testEmailBounceWebhook() {
 
   const { contact, ghlId } = await makeTestContact({ emailStatus: "valid" });
 
-  // Create an active enrollment to verify it gets paused
-  const [seqRow2] = await db.select({ id: followUpSequences.id })
-    .from(followUpSequences)
-    .where(eq(followUpSequences.status, "active"))
-    .limit(1);
-  const sequenceId2 = seqRow2?.id ?? null;
-
-  let enrollmentId: number | null = null;
-  if (sequenceId2) {
-    try {
-      const [newEnrollment] = await db.insert(sequenceEnrollments).values({
-        contactId: contact.id,
-        sequenceId: sequenceId2,
-        status: "active",
-        currentStep: 0,
-      }).returning({ id: sequenceEnrollments.id });
-      enrollmentId = newEnrollment?.id ?? null;
-    } catch {
-      // unique index may prevent duplicate — pause check is non-blocking
-    }
-  }
+  // Create a dedicated active enrollment to verify it gets paused.
+  const enrollmentId = await makeActiveTestEnrollment(contact.id, "email-bounce");
 
   // Import and call the bounce handler directly (simulates the webhook route)
   const { handleEmailBounce } = await import("../server/services/sdr/webhook-handlers");
@@ -590,19 +568,14 @@ async function testEmailBounceWebhook() {
   );
 
   // Active enrollment should be paused
-  if (enrollmentId) {
-    const [row] = await db.select({ status: sequenceEnrollments.status })
-      .from(sequenceEnrollments)
-      .where(eq(sequenceEnrollments.id, enrollmentId));
-    assert(
-      "Email bounce: active enrollment paused",
-      row?.status === "paused",
-      `enrollment ${enrollmentId} status=${row?.status}`
-    );
-  } else {
-    console.log("  (skipped enrollment pause check — unique index conflict or no active sequence)");
-    passed++;
-  }
+  const [row] = await db.select({ status: sequenceEnrollments.status })
+    .from(sequenceEnrollments)
+    .where(eq(sequenceEnrollments.id, enrollmentId));
+  assert(
+    "Email bounce: active enrollment paused",
+    row?.status === "paused",
+    `enrollment ${enrollmentId} status=${row?.status}`
+  );
 
   // Audit log for the bounce should exist
   const auditLogs = await storage.getAuditLogs({ limit: 50 });
@@ -616,9 +589,7 @@ async function testEmailBounceWebhook() {
   );
 
   // Cleanup enrollment
-  if (enrollmentId) {
-    try { await db.delete(sequenceEnrollments).where(eq(sequenceEnrollments.id, enrollmentId)); } catch {}
-  }
+  try { await db.delete(sequenceEnrollments).where(eq(sequenceEnrollments.id, enrollmentId)); } catch {}
 }
 
 // ── Cleanup ───────────────────────────────────────────────────────────────────
@@ -634,6 +605,9 @@ async function cleanup() {
       await db.execute(sql`DELETE FROM audit_logs WHERE entity_id = ${id} AND entity_type = 'contact'`);
       await db.execute(sql`DELETE FROM contacts WHERE id = ${id}`);
     } catch {}
+  }
+  for (const id of createdSequenceIds) {
+    try { await db.delete(followUpSequences).where(eq(followUpSequences.id, id)); } catch {}
   }
 }
 

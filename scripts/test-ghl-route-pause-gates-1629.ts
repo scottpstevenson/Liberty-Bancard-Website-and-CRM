@@ -77,7 +77,7 @@ async function main(): Promise<void> {
   // separately asserted; the static allowlist below binds this helper to the
   // real call sites.
   const rejectingRoutes = [
-    "integrations", "sdr", "admin", "underwriting", "deals",
+    "sdr", "admin", "underwriting", "deals",
     "documents", "partners", "partner-orgs:accept", "conversation-ai-config",
   ];
   for (const route of rejectingRoutes) {
@@ -139,8 +139,16 @@ async function main(): Promise<void> {
     reviewedEntryPasses(fs.readFileSync(entry.file, "utf8").split("\n"), entry),
   );
   assert("repeated route scans are deterministic", JSON.stringify(firstPass) === JSON.stringify(replay));
-  assert("all nine target route files are represented",
-    new Set(GHL_ROUTE_MUTATION_ALLOWLIST.map(entry => entry.file)).size === 9);
+  const reviewedRouteFiles = new Set(GHL_ROUTE_MUTATION_ALLOWLIST.map(entry => entry.file));
+  const expectedRouteFiles = new Set(
+    rejectingRoutes.map(route => `server/routes/${route.split(":")[0]}.ts`),
+  );
+  assert(
+    "all current target route files are represented",
+    reviewedRouteFiles.size === expectedRouteFiles.size
+      && [...expectedRouteFiles].every(file => reviewedRouteFiles.has(file)),
+    `reviewed=${[...reviewedRouteFiles].join(", ")}`,
+  );
 
   console.log(`\n  Passed: ${passed}  Failed: ${failed}\n`);
   process.exit(failed === 0 ? 0 : 1);

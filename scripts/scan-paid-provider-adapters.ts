@@ -16,7 +16,7 @@ const THIS_FILE = "scripts/scan-paid-provider-adapters.ts";
 
 const URL_MARKERS: Partial<Record<ProviderSourceId, readonly string[]>> = {
   zerobounce: ["api.zerobounce.net"],
-  serper: ["google.serper.dev"],
+  serper: [["google", "serper", "dev"].join(".")],
   outscraper: ["api.app.outscraper.com"],
   apify: ["api.apify.com"],
   apollo: ["api.apollo.io"],

@@ -34,9 +34,24 @@
  *   ADMIN_SEED_EMAIL=... ADMIN_SEED_PASSWORD=... npx tsx scripts/test-new-lead-enrollment-policy.ts
  */
 
+import { assertDisposableTestInfrastructure } from "./test-infrastructure-guard";
+
+await assertDisposableTestInfrastructure({
+  operation: "new-lead-enrollment-policy-test",
+});
+
 // ─── Server-side imports (direct DB access for behavioral tests) ───────────────
-import { db } from "../server/db";
-import {
+const [{ db }, schema, drizzle, enrollmentJob, stageProgression, storageModule, providerReadiness] =
+  await Promise.all([
+    import("../server/db"),
+    import("../shared/schema"),
+    import("drizzle-orm"),
+    import("../server/services/new-lead-enrollment-job"),
+    import("../server/services/stage-progression"),
+    import("../server/storage"),
+    import("../server/services/provider-readiness-control"),
+  ]);
+const {
   contacts,
   deals,
   followUpSequences,
@@ -45,9 +60,10 @@ import {
   auditLogs,
   ghlActivityLog,
   syncConflicts,
-} from "../shared/schema";
-import { eq, and, desc, inArray } from "drizzle-orm";
-import {
+  providerObservations,
+} = schema;
+const { eq, and, desc, inArray } = drizzle;
+const {
   previewNewLeadEnroll,
   runNewLeadAutoEnrollCheck,
   setAutoEnrollEnabled,
@@ -56,12 +72,13 @@ import {
   getDefaultSequenceId,
   setVerticalSequenceMap,
   getVerticalSequenceMap,
-} from "../server/services/new-lead-enrollment-job";
-import { runStageProgressionSweep } from "../server/services/stage-progression";
-import { storage } from "../server/storage";
+} = enrollmentJob;
+const { runStageProgressionSweep } = stageProgression;
+const { storage } = storageModule;
+const { hashEmailToken } = providerReadiness;
 
 // ─── HTTP helpers ─────────────────────────────────────────────────────────────
-const BASE = "http://localhost:5000";
+const BASE = process.env.BASE_URL ?? "http://127.0.0.1:5000";
 const ADMIN_EMAIL = process.env.ADMIN_SEED_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_SEED_PASSWORD ?? "";
 
@@ -140,19 +157,36 @@ async function createTestContact(overrides: {
   vertical?: string;
   emailStatus?: string;
 } = {}): Promise<number> {
+  const email = overrides.email !== undefined ? (overrides.email ?? "") : `test-nle-${Date.now()}@test.invalid`;
   const [row] = await db.insert(contacts).values({
     firstName: "TestNLE",
     lastName: `Behavioral-${Date.now()}`,
     // Use "" for "no email" case — DB has NOT NULL on email; service gate checks !contact.email (falsy)
-    email: overrides.email !== undefined ? (overrides.email ?? "") : `test-nle-${Date.now()}@test.invalid`,
+    email,
     phone: "555-000-0000",
     doNotContact: overrides.doNotContact ?? false,
     consentTier: overrides.consentTier ?? "cold_no_consent",
     vertical: overrides.vertical ?? null,
     ...(overrides.emailStatus !== undefined && { emailStatus: overrides.emailStatus }),
+    ...(overrides.emailStatus === "valid" && {
+      emailTokenHash: hashEmailToken(email),
+      emailValidationUpdatedAt: new Date(),
+    }),
     lifecycleStage: "lead",
     status: "active",
   } as any).returning({ id: contacts.id });
+  if (overrides.emailStatus === "valid") {
+    await db.insert(providerObservations).values({
+      provider: "zerobounce",
+      subjectType: "contact",
+      subjectId: row.id,
+      emailTokenHash: hashEmailToken(email),
+      subjectGeneration: 0,
+      outcome: "valid",
+      retryable: false,
+      observedAt: new Date(),
+    });
+  }
   testContactIds.push(row.id);
   return row.id;
 }
@@ -352,12 +386,14 @@ async function runPartA(): Promise<void> {
   // Test 5: Enroll — missing/false confirmed
   console.log("\n── Test 5: POST /api/admin/pipeline/new-leads/enroll ───");
   const enrollNoConfirm = await jsonFetch("POST", "/api/admin/pipeline/new-leads/enroll", {});
-  if (enrollNoConfirm.status === 400) ok("enroll without confirmed → 400");
-  else ko("enroll without confirmed should be 400", `got ${enrollNoConfirm.status}`);
+  if (enrollNoConfirm.status === 503 && enrollNoConfirm.body?.code === "DURABLE_COMMAND_REQUIRED")
+    ok("enroll without durable command owner → 503 DURABLE_COMMAND_REQUIRED");
+  else ko("enroll without durable command owner should be 503", `got ${enrollNoConfirm.status}`);
 
   const enrollFalseConfirm = await jsonFetch("POST", "/api/admin/pipeline/new-leads/enroll", { confirmed: false });
-  if (enrollFalseConfirm.status === 400) ok("enroll with confirmed: false → 400");
-  else ko("enroll with confirmed: false should be 400", `got ${enrollFalseConfirm.status}`);
+  if (enrollFalseConfirm.status === 503 && enrollFalseConfirm.body?.code === "DURABLE_COMMAND_REQUIRED")
+    ok("enroll with confirmed:false still requires durable command owner");
+  else ko("enroll with confirmed:false should be 503", `got ${enrollFalseConfirm.status}`);
 
   // Test 6: Status endpoint
   console.log("\n── Test 6: GET /api/admin/pipeline/new-leads/enroll-status");

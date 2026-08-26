@@ -403,6 +403,19 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
                   await storage.updateSequenceEnrollment(enrollment.id, {
                     nextActionAt: new Date(Date.now() + ZB_RETRY_DELAY_MS),
                   });
+                  await storage.createAuditLog({
+                    action: "sequence_enrollment_deferred_provider_readiness",
+                    entityType: "contact",
+                    entityId: enrollment.contactId,
+                    actorType: "system",
+                    details: {
+                      enrollmentId: enrollment.id,
+                      sequenceId: sequence.id,
+                      sequenceName: sequence.name,
+                      reason: durableDecision.reason,
+                      retryAfter: new Date(Date.now() + ZB_RETRY_DELAY_MS).toISOString(),
+                    },
+                  });
                   processed++;
                   continue;
                 }
