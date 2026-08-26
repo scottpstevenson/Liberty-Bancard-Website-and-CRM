@@ -371,16 +371,15 @@ async function testGmailUnavailableBlock() {
     );
 
     // Verify audit log written
-    const logs = await storage.getAuditLogs({ limit: 20 });
-    const blockLog = logs.find(l =>
-      l.action === "sequence_step_blocked_gmail_unavailable" &&
-      l.entityId === contactId &&
-      (l.details as any)?.enrollmentId === enrollmentId
+    const blockLog = await storage.getLastAuditLogByAction(
+      "sequence_step_blocked_gmail_unavailable",
+      "contact",
+      contactId,
     );
     assert(
       "sequence_step_blocked_gmail_unavailable audit log written",
-      !!blockLog,
-      `found ${logs.filter(l => l.action === "sequence_step_blocked_gmail_unavailable").length} matching logs`
+      !!blockLog && (blockLog.details as any)?.enrollmentId === enrollmentId,
+      `audit enrollmentId=${(blockLog?.details as any)?.enrollmentId ?? "missing"}`
     );
 
   } finally {
