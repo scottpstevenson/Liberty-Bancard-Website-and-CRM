@@ -1,0 +1,188 @@
+Task 1680’s Serper diagnosis is mostly correct, but **do not start it as written**. Its branch/baseline and test-isolation rules are stale.
+
+## Live-repo corrections
+
+### P0 — Wrong parent branch
+
+Task 1680 is based on `agent/1675-bt12-isolated-verification`, while [PR #4](https://github.com/scottpstevenson/Liberty-Bancard-Website-and-CRM/pull/4) is still open, draft, and failing CI.
+
+Live PR state:
+
+* Head: `536207e0819253be5c29988e740f5ad183f70e29`, not task SHA `4941ad...`
+* 8 changed files
+* 7 commits
+* CI failure; integration skipped
+* Still contains an audit attachment and `uploads/statement-command/...test-statement.pdf`
+
+Task 1680 also wants to edit `scripts/ci-suite-manifest.ts`, which PR #4 already edits. Building 1680 there would combine two tasks and make ownership unverifiable.
+
+**Exact fix:** finish and merge PR #4 first. Then create Task 1680’s branch from the latest clean `main` and repeat its preflight.
+
+### P1 — Serper integration tests can mutate the wrong database
+
+Both Serper suites import `server/db` immediately and currently operate on whichever `DATABASE_URL` is configured:
+
+* `scripts/test-serper-gateway.ts`
+* `scripts/test-serper-zero-yield-cooldown.ts`
+
+The gateway test even describes the target as the “dev DB.” Merely telling the agent to use a disposable database is insufficient.
+
+**Exact fix:** before importing `server/db`:
+
+* Require `NODE_ENV=test`.
+* Require `TEST_DATABASE_URL`.
+* Require `DATABASE_URL === TEST_DATABASE_URL`.
+* Reuse `scripts/test-infrastructure-guard.ts`.
+* Verify `current_database()` contains `test` or `ci`.
+* Dynamically import database/application modules only after the guard passes.
+* Force a dummy Serper key rather than preserving a potentially real key.
+* Fail any non-injected HTTP transport.
+
+### P1 — Obsolete CI control remains
+
+The task only identifies stale wording in `scripts/ci-suite-manifest.ts`, but [`.github/workflows/ci.yml`](https://github.com/scottpstevenson/Liberty-Bancard-Website-and-CRM/blob/agent/1675-bt12-isolated-verification/.github/workflows/ci.yml) still sets:
+
+```yaml
+SERPER_GATEWAY_ENABLED: "false"
+```
+
+The runtime gateway does not use this flag; authority is `serper_control.enabled`. Leaving it falsely implies CI provider denial comes from that variable.
+
+**Exact fix:** remove it and document the actual protections: disposable `serper_control` defaults disabled, fake injected transport, dummy credentials, and fail-fast network denial.
+
+### P1 — Scanner coverage is narrower than claimed
+
+[`scan-serper-raw-fetch.ts`](https://github.com/scottpstevenson/Liberty-Bancard-Website-and-CRM/blob/agent/1675-bt12-isolated-verification/scripts/scan-serper-raw-fetch.ts) scans only `*.ts` and `*.js`, while the paid-provider scanner recognizes `tsx`, `mjs`, and `cjs` too.
+
+**Exact fix:** scan all runtime source extensions:
+
+```text
+.ts, .tsx, .js, .mjs, .cjs, .mts, .cts
+```
+
+Add synthetic offenders in at least `.ts` and `.tsx`.
+
+### P1 — Canary cleanup is not guaranteed
+
+`test-serper-gateway.ts` creates `server/tmp-serper-scan-canary.ts`, but deletion is not inside its own `finally`. Interruption can leave a source file that breaks later scans.
+
+**Exact fix:** protect creation/removal with `try/finally`; validate the exact path before deleting it.
+
+### P2 — Documentation inaccuracies
+
+* The manifest calls the raw scanner a “pure AST scan”; it is a ripgrep/source-text scan.
+* `pre-deploy.ts` describes an enable flag rather than persisted database authority.
+* The gateway test says it uses the development database.
+
+Correct all three.
+
+## Corrected prompt to send back
+
+```text
+TASK 1680 — CORRECTED BUILD INSTRUCTIONS
+
+DO NOT IMPLEMENT ON agent/1675-bt12-isolated-verification.
+
+PR #4 remains open, dirty, and failing CI. Task 1680 overlaps files already modified by that PR. First complete and merge PR #4. Then:
+
+1. Create a new branch from the latest clean main.
+2. Record branch, full HEAD SHA, status, workflow inventory, and migration head.
+3. Re-run every Serper search and focused gate because the prior SHA is stale.
+
+Verified root cause:
+- The immediate raw-fetch scan failure is scanner-on-scanner interference.
+- scripts/scan-paid-provider-adapters.ts contains the contiguous google.serper.dev marker.
+- No current production Serper transport bypass was found.
+- Do not rewrite the existing gateway unless an isolated test reproduces a runtime defect.
+
+Required implementation:
+
+A. Scanner repair
+- Construct the paid-provider Serper marker from noncontiguous pieces.
+- Do not add a broad allowlist.
+- Extend scan-serper-raw-fetch.ts coverage to:
+  .ts, .tsx, .js, .mjs, .cjs, .mts, .cts
+- Prove synthetic unauthorized .ts and .tsx callers fail.
+- Prove the clean repository passes.
+- Keep server/services/serper-gateway.ts as the sole approved transport owner.
+
+B. Test database safety
+Update both:
+- scripts/test-serper-gateway.ts
+- scripts/test-serper-zero-yield-cooldown.ts
+
+Before importing server/db or another DB-owning application module:
+
+- Require NODE_ENV=test.
+- Require TEST_DATABASE_URL.
+- Require DATABASE_URL exactly equal TEST_DATABASE_URL.
+- Call assertDisposableTestInfrastructure with requireRedis:false.
+- Verify current_database() contains test or ci.
+- Use dynamic imports after the guard passes.
+- Never fall back to the Replit development database.
+
+Force:
+- SERPER_API_KEY=test-key-fake
+- All Serper HTTP through injected fake transport.
+- Default/uninjected HTTP must throw before network I/O.
+
+C. Canary cleanup
+- Create the raw-fetch scanner canary only after database safety succeeds.
+- Wrap canary creation/execution in try/finally.
+- Validate the exact temporary file path before deletion.
+- Prove no canary remains after both passing and failing cases.
+
+D. Remove obsolete control authority
+- Remove SERPER_GATEWAY_ENABLED from .github/workflows/ci.yml.
+- Correct scripts/ci-suite-manifest.ts.
+- Correct the stale pre-deploy comment.
+- State that provider authority is serper_control.enabled.
+- Describe provider denial truthfully as disposable disabled control state, dummy credential, fake transport, and fail-fast default network denial.
+- Describe the raw scanner as source-text scanning, not AST scanning.
+
+E. Conditional gateway changes
+- Provision a disposable migrated PostgreSQL database.
+- Run the existing gateway and cooldown suites.
+- If they pass, do not modify server/services/serper-gateway.ts.
+- If a test fails, record the exact failure before making the smallest correction.
+- No schema migration and no db push.
+
+Required gates:
+
+- npx tsx scripts/scan-paid-provider-adapters.ts
+- npx tsx scripts/scan-serper-raw-fetch.ts
+- synthetic .ts offender rejected
+- synthetic .tsx offender rejected
+- unsafe/no-TEST_DATABASE_URL invocation rejected before DB import
+- npx tsx scripts/test-serper-gateway.ts on disposable PostgreSQL
+- npx tsx scripts/test-serper-zero-yield-cooldown.ts on disposable PostgreSQL
+- npx tsx scripts/ci-suite-manifest.ts --check
+- npm run check
+- npm run build
+- git diff --check
+- post-build Serper hostname/fetch/executeSearch searches
+- live GitHub CI
+
+Expected files:
+- scripts/scan-paid-provider-adapters.ts
+- scripts/scan-serper-raw-fetch.ts
+- scripts/test-serper-gateway.ts
+- scripts/test-serper-zero-yield-cooldown.ts
+- scripts/ci-suite-manifest.ts
+- scripts/pre-deploy.ts
+- .github/workflows/ci.yml
+
+Runtime gateway files may change only after a reproduced isolated failure.
+
+Final report:
+- Clean main starting SHA and final SHA.
+- Exact changed files.
+- Disposable DB identity and cleanup evidence.
+- Fake-transport/network-denial evidence.
+- Every gate and exit code.
+- Confirmation no shared development/production DB or real Serper provider was contacted.
+- Live GitHub check status.
+- Final MERGE / DO NOT MERGE verdict.
+```
+
+Verdict: **Task 1680 is build-ready only after PR #4 merges and these corrections are inserted.**
