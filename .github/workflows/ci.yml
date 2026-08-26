@@ -79,6 +79,8 @@ jobs:
       SESSION_SECRET: ci-test-secret-32chars-minimum-ok
       CREDENTIAL_ENCRYPTION_KEY: ci-test-encryption-key-32chars-ok
       MERCHANT_DATA_ENCRYPTION_KEY: ci-test-merchant-key-32chars-min
+      AI_INTEGRATIONS_OPENAI_API_KEY: ci-test-openai-key-unused
+      AI_INTEGRATIONS_OPENAI_BASE_URL: http://127.0.0.1:1/v1
       TEST_REDIS_PREFIX: ci_1681_${{ github.run_id }}_${{ github.run_attempt }}_
       ADMIN_SEED_EMAIL: ci-admin@libertybancard.test
       ADMIN_SEED_PASSWORD: ci-admin-password-Aa1!
