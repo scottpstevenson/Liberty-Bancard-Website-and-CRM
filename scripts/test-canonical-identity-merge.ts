@@ -47,7 +47,7 @@ async function main() {
   try {
     const survivor = await makeContact("survivor", `bt07-${nonce}@example.test`);
     const deprecated = await makeContact("deprecated", `BT07-${nonce}@example.test`);
-    const third = await makeContact("graph", `bt07-graph-${nonce}@example.test`);
+    const third = await makeContact("graph", `Bt07-${nonce}@example.test`);
     const candidateIds = (await merge.findIdentityCandidates(survivor.id)).map((row: any) => row.id);
     assert(candidateIds.includes(deprecated.id) && candidateIds.includes(third.id), "eligible evidence forms a connected candidate component");
 
@@ -93,7 +93,7 @@ async function main() {
     // Different classes must be terminally blocked during preview, and a blocked
     // operation cannot be promoted by the approval transition.
     const classA = await makeContact("class-a", `bt07-class-a-${nonce}@example.test`, { recordClass: "merchant" });
-    const classB = await makeContact("class-b", `bt07-class-b-${nonce}@example.test`, { recordClass: "prospect" });
+    const classB = await makeContact("class-b", `BT07-class-a-${nonce}@example.test`, { recordClass: "prospect" });
     const blocked = await merge.previewContactMerge({
       survivorContactId: classA.id, deprecatedContactId: classB.id,
       idempotencyKey: crypto.randomUUID(), actorId: "bt07-admin", actorRole: "admin",
