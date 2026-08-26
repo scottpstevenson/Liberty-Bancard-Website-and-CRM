@@ -11,40 +11,38 @@ import {
   type MigrationQueryClient,
 } from "../server/fresh-snapshot-completion";
 
-type RelationName = "outbound_send_log" | "webhook_event_log";
+const NO_FINGERPRINT_OVERRIDE = Symbol("no-fingerprint-override");
 
 class FakeMigrationClient implements MigrationQueryClient {
-  readonly relations = new Set<RelationName>();
   foundationExecutions = 0;
   readonly userRelations: Array<{ schema_name: string; relation_name: string }>;
+  foundationIssues: string[];
 
   constructor(
-    initialRelations: RelationName[] = [],
+    foundationIssues: string[] = [],
     userRelations: Array<{ schema_name: string; relation_name: string }> = [],
+    readonly fingerprintOverride: unknown = NO_FINGERPRINT_OVERRIDE,
   ) {
-    for (const relation of initialRelations) this.relations.add(relation);
+    this.foundationIssues = [...foundationIssues];
     this.userRelations = userRelations;
   }
 
   async query(queryText: string): Promise<{ rows: Array<Record<string, unknown>> }> {
+    if (queryText.includes("foundation_fingerprint_issues")) {
+      if (this.fingerprintOverride !== NO_FINGERPRINT_OVERRIDE) {
+        return { rows: [{ missing_components: this.fingerprintOverride }] };
+      }
+      return { rows: [{ missing_components: [...this.foundationIssues] }] };
+    }
     if (queryText.includes("FROM pg_class c")) {
       return { rows: this.userRelations };
-    }
-    if (queryText.includes("to_regclass('public.outbound_send_log')")) {
-      return {
-        rows: [{
-          outbound_send_log: this.relations.has("outbound_send_log"),
-          webhook_event_log: this.relations.has("webhook_event_log"),
-        }],
-      };
     }
     if (
       queryText.includes("CREATE TABLE IF NOT EXISTS outbound_send_log") &&
       queryText.includes("CREATE TABLE IF NOT EXISTS webhook_event_log")
     ) {
       this.foundationExecutions++;
-      this.relations.add("outbound_send_log");
-      this.relations.add("webhook_event_log");
+      this.foundationIssues = [];
       return { rows: [] };
     }
     throw new Error(`Unexpected query in fake migration client: ${queryText.slice(0, 80)}`);
@@ -70,37 +68,77 @@ function expect(condition: unknown, message: string): asserts condition {
 }
 
 await check("empty snapshot restores both omitted 0076 foundation tables", async () => {
-  const client = new FakeMigrationClient();
+  const client = new FakeMigrationClient([
+    "table:public.outbound_send_log:missing",
+    "table:public.webhook_event_log:missing",
+  ]);
   const result = await verifyOrCompleteFreshSnapshotFoundation(client, true);
   expect(result.appliedFoundation, "fresh completion did not report an applied foundation");
   expect(client.foundationExecutions === 1, "0076 foundation SQL was not executed exactly once");
-  expect(client.relations.has("outbound_send_log"), "outbound_send_log was not restored");
-  expect(client.relations.has("webhook_event_log"), "webhook_event_log was not restored");
+  expect(client.foundationIssues.length === 0, "fresh completion did not verify the full foundation");
 });
 
 await check("existing complete database is verified without mutation", async () => {
-  const client = new FakeMigrationClient(["outbound_send_log", "webhook_event_log"]);
+  const client = new FakeMigrationClient();
   const result = await verifyOrCompleteFreshSnapshotFoundation(client, false);
   expect(!result.appliedFoundation, "complete existing database was unexpectedly mutated");
   expect(client.foundationExecutions === 0, "0076 replayed on a complete existing database");
 });
 
-await check("existing database with drift fails closed without repair", async () => {
-  const client = new FakeMigrationClient(["outbound_send_log"]);
+await check("existing database missing a table fails closed without repair", async () => {
+  const client = new FakeMigrationClient(["table:public.webhook_event_log:missing"]);
   let error = "";
   try {
     await verifyOrCompleteFreshSnapshotFoundation(client, false);
   } catch (caught: any) {
     error = caught?.message ?? String(caught);
   }
-  expect(error.includes("Existing database schema drift"), "missing relation did not produce the drift error");
-  expect(error.includes("webhook_event_log"), "drift error did not identify the missing relation");
-  expect(client.foundationExecutions === 0, "existing database drift was silently repaired");
-  expect(!client.relations.has("webhook_event_log"), "missing existing relation was recreated");
+  expect(error.includes("foundation mismatch"), "missing table did not produce a foundation mismatch");
+  expect(error.includes("table:public.webhook_event_log:missing"), "error did not identify the missing table");
+  expect(client.foundationExecutions === 0, "existing database was silently repaired");
+  expect(client.foundationIssues.length === 1, "existing database mismatch was mutated");
+});
+
+await check("existing database missing a required index fails closed", async () => {
+  const client = new FakeMigrationClient(["index:idx_osl_status:missing-or-mismatched"]);
+  let error = "";
+  try {
+    await verifyOrCompleteFreshSnapshotFoundation(client, false);
+  } catch (caught: any) {
+    error = caught?.message ?? String(caught);
+  }
+  expect(error.includes("index:idx_osl_status:missing-or-mismatched"), "error omitted the missing index");
+  expect(client.foundationExecutions === 0, "missing index caused 0076 replay");
+  expect(client.foundationIssues.length === 1, "missing index was silently repaired");
+});
+
+await check("existing database missing required uniqueness fails closed", async () => {
+  const client = new FakeMigrationClient(["unique:outbound_send_log.idempotency_key:missing"]);
+  let error = "";
+  try {
+    await verifyOrCompleteFreshSnapshotFoundation(client, false);
+  } catch (caught: any) {
+    error = caught?.message ?? String(caught);
+  }
+  expect(error.includes("unique:outbound_send_log.idempotency_key:missing"), "error omitted missing uniqueness");
+  expect(client.foundationExecutions === 0, "missing uniqueness caused 0076 replay");
+  expect(client.foundationIssues.length === 1, "missing uniqueness was silently repaired");
+});
+
+await check("malformed fingerprint result fails closed", async () => {
+  const client = new FakeMigrationClient([], [], "not-an-array");
+  let error = "";
+  try {
+    await verifyOrCompleteFreshSnapshotFoundation(client, false);
+  } catch (caught: any) {
+    error = caught?.message ?? String(caught);
+  }
+  expect(error.includes("Invalid 0076 foundation fingerprint result"), "malformed result was accepted");
+  expect(client.foundationExecutions === 0, "malformed result caused 0076 replay");
 });
 
 await check("repeated runner behavior is idempotent after fresh completion", async () => {
-  const client = new FakeMigrationClient();
+  const client = new FakeMigrationClient(["table:public.outbound_send_log:missing"]);
   await verifyOrCompleteFreshSnapshotFoundation(client, true);
   await verifyOrCompleteFreshSnapshotFoundation(client, false);
   expect(client.foundationExecutions === 1, "0076 foundation SQL executed more than once");
@@ -120,7 +158,22 @@ await check("non-empty noncanonical database is rejected before snapshot or repa
   expect(error.includes("non-empty noncanonical database"), "non-empty target was not rejected");
   expect(error.includes("public.legacy_contacts"), "error omitted the blocking relation");
   expect(client.foundationExecutions === 0, "0076 executed for a non-empty target");
-  expect(client.relations.size === 0, "snapshot or foundation relations were created");
+});
+
+await check("non-empty drizzle schema is rejected before snapshot or repair", async () => {
+  const client = new FakeMigrationClient([], [{
+    schema_name: "drizzle",
+    relation_name: "legacy_contacts",
+  }]);
+  let error = "";
+  try {
+    await assertSnapshotTargetIsEmpty(client);
+  } catch (caught: any) {
+    error = caught?.message ?? String(caught);
+  }
+  expect(error.includes("non-empty noncanonical database"), "drizzle user relation was not rejected");
+  expect(error.includes("drizzle.legacy_contacts"), "error omitted the drizzle relation");
+  expect(client.foundationExecutions === 0, "0076 executed for a non-empty drizzle schema");
 });
 
 await check("canonical runner completes the snapshot before migration baselining", () => {
@@ -139,6 +192,17 @@ await check("canonical runner completes the snapshot before migration baselining
   expect(snapshotIndex >= 0, "runner does not track fresh snapshot application");
   expect(completionIndex > snapshotIndex, "snapshot completion does not follow snapshot application");
   expect(baselineIndex > completionIndex, "0076 can be baselined before snapshot completion");
+});
+
+await check("GitHub integration starts empty and invokes only the canonical runner twice", () => {
+  const workflow = fs.readFileSync(
+    path.join(process.cwd(), ".github", "workflows", "ci.yml"),
+    "utf8",
+  );
+  expect(!workflow.includes("Bootstrap disposable schema snapshot"), "CI still preloads snapshot 0109");
+  expect(!workflow.includes("CI_SNAPSHOT_BOOTSTRAP"), "CI still uses the snapshot preload bypass");
+  const invocations = workflow.match(/run: npx tsx server\/db-migrate\.ts/g) ?? [];
+  expect(invocations.length === 2, `expected two canonical migration invocations, found ${invocations.length}`);
 });
 
 if (failures.length > 0) {

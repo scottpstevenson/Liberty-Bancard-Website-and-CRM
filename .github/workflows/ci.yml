@@ -103,15 +103,11 @@ jobs:
       - name: Install dependencies
         run: npm install --include=dev --ignore-scripts --no-audit --no-fund --package-lock=false
 
-      - name: Bootstrap disposable schema snapshot
-        run: |
-          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0109_fearless_starhawk.sql
-          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0076_outbound_launch_foundation.sql
+      - name: Run database migrations from empty database
+        run: npx tsx server/db-migrate.ts
 
-      - name: Run database migrations
-        env:
-          CI_SNAPSHOT_BOOTSTRAP: "true"
-        run: npx tsx -e "import('./server/db-migrate.ts').then(({ runDrizzleMigrations }) => runDrizzleMigrations())"
+      - name: Re-run database migrations to prove idempotency
+        run: npx tsx server/db-migrate.ts
 
       - name: Validate canonical suite manifest
         run: npx tsx scripts/ci-suite-manifest.ts --check

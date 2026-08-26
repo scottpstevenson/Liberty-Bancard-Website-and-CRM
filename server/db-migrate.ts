@@ -286,14 +286,7 @@ export async function runDrizzleMigrations(): Promise<void> {
       // Existing databases already contain the canonical 0109 schema snapshot.
       // Baseline by journal position (not timestamp: the journal is historical
       // and non-monotonic) so Drizzle never replays its bare CREATE TABLEs.
-      const ciSnapshotBootstrap = process.env.CI_SNAPSHOT_BOOTSTRAP === "true";
-      if (ciSnapshotBootstrap && process.env.NODE_ENV !== "test") {
-        throw new Error("CI_SNAPSHOT_BOOTSTRAP is permitted only when NODE_ENV=test.");
-      }
       const snapshotEntry = journal.entries.find((e) => e.tag === CI_SNAPSHOT_TAG);
-      if (ciSnapshotBootstrap && !snapshotEntry) {
-        throw new Error(`Missing required CI snapshot migration '${CI_SNAPSHOT_TAG}'.`);
-      }
       // The journal was historically written out of timestamp order. A schema
       // snapshot represents all entries by journal position, not just entries
       // whose timestamp happens to precede its timestamp.
@@ -391,4 +384,17 @@ export async function runDrizzleMigrations(): Promise<void> {
     // Non-fatal — assistant still works with keyword fallback
     console.warn("[DB Migrate] Knowledge base seed skipped:", e.message);
   }
+}
+
+const directEntryPath = process.argv[1] ? path.resolve(process.argv[1]) : "";
+const canonicalEntryPath = path.resolve(process.cwd(), "server", "db-migrate.ts");
+if (directEntryPath === canonicalEntryPath) {
+  runDrizzleMigrations()
+    .catch((error: any) => {
+      console.error("[DB Migrate] Migration failed:", error?.message ?? error);
+      process.exitCode = 1;
+    })
+    .finally(async () => {
+      await pool.end();
+    });
 }
