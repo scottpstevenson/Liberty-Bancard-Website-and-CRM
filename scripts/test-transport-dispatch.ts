@@ -28,8 +28,10 @@ import { resolveSender, APPROVED_SENDER_SET } from "../server/services/sender-po
 import { generateUnsubscribeToken, verifyUnsubscribeToken } from "../server/services/unsubscribe-token";
 import { isSmtpConfigured } from "../server/services/smtp-email";
 import { isGmailOAuthSecretsPresent } from "../server/services/gmail-oauth";
+import { hashEmailToken } from "../server/services/provider-readiness-control";
 import { storage } from "../server/storage";
 import { db } from "../server/db";
+import { providerObservations } from "../shared/schema";
 import { sql } from "drizzle-orm";
 
 let passed = 0;
@@ -281,15 +283,20 @@ async function testGmailUnavailableBlock() {
   let seqId: number | null = null;
   let stepId: number | null = null;
   let enrollmentId: number | null = null;
+  let providerObservationId: string | null = null;
   let pauseControlId: number | null = null;
   let priorPauseControl: any = null;
   let pauseControlTouched = false;
+  let priorEmailChannelPaused: any = null;
+  let emailChannelPauseTouched = false;
 
   try {
+    const contactEmail = `transport-test-${RUN_ID}@example.test`;
+    const emailTokenHash = hashEmailToken(contactEmail);
     const contact = await storage.createContact({
       firstName: "TransportTest",
       lastName: `${RUN_ID}`,
-      email: `transport-test-${RUN_ID}@test.internal`,
+      email: contactEmail,
       phone: `305${String(RUN_ID).slice(-7)}`,
       status: "active",
       consentTier: "pewc",
@@ -297,13 +304,35 @@ async function testGmailUnavailableBlock() {
       doNotContact: false,
       doNotAutoContact: false,
       emailStatus: "valid",
+      recordClass: "production",
+      emailTokenHash,
+      emailValidationUpdatedAt: new Date(),
     });
     contactId = contact.id;
 
+    const [providerObservation] = await db.insert(providerObservations).values({
+      provider: "zerobounce",
+      subjectType: "contact",
+      subjectId: contactId,
+      emailTokenHash,
+      subjectGeneration: contact.emailMutationGeneration ?? 0,
+      outcome: "valid",
+      retryable: false,
+      observedAt: new Date(),
+    }).returning({ id: providerObservations.id });
+    providerObservationId = providerObservation.id;
+    await db.execute(sql`
+      UPDATE contacts
+      SET email_status = 'valid',
+          email_token_hash = ${emailTokenHash},
+          email_validation_updated_at = now()
+      WHERE id = ${contactId}
+    `);
+
     const seq = await storage.createFollowUpSequence({
       name: `transport-test-noncold-${RUN_ID}`,
-      sequenceFamily: "onboarding",
-      triggerType: `transport_test_noncold_${RUN_ID}`,
+      sequenceFamily: "onboarding_step",
+      triggerType: "onboarding_complete",
       status: "active",
     });
     seqId = seq.id;
@@ -356,18 +385,22 @@ async function testGmailUnavailableBlock() {
     pauseControlTouched = true;
     const { invalidatePauseStateCache } = await import("../server/services/outbound-pause-authority");
     invalidatePauseStateCache();
+    priorEmailChannelPaused = await storage.getSystemSetting("emailChannelPaused");
+    await storage.setSystemSetting("emailChannelPaused", false);
+    emailChannelPauseTouched = true;
 
     // Run the worker
     const { processSequenceEnrollments } = await import("../server/services/sequence-worker");
     await processSequenceEnrollments();
 
     // Verify enrollment was paused (Gmail-unavailable block)
-    const rows = await db.execute(sql`SELECT status FROM sequence_enrollments WHERE id = ${enrollmentId}`);
+    const rows = await db.execute(sql`SELECT status, metadata FROM sequence_enrollments WHERE id = ${enrollmentId}`);
     const enrollmentStatus = (rows.rows?.[0] as any)?.status;
+    const enrollmentMetadata = (rows.rows?.[0] as any)?.metadata;
     assert(
       "Non-cold enrollment paused when Gmail unavailable",
       enrollmentStatus === "paused",
-      `status=${enrollmentStatus}`
+      `status=${enrollmentStatus}; holdReason=${enrollmentMetadata?._holdDeferredReason ?? "none"}`
     );
 
     // Verify audit log written
@@ -376,13 +409,30 @@ async function testGmailUnavailableBlock() {
       "contact",
       contactId,
     );
+    const recentContactLogs = blockLog
+      ? []
+      : await storage.getAuditLogs({ entityType: "contact", entityId: contactId, limit: 20 });
     assert(
       "sequence_step_blocked_gmail_unavailable audit log written",
       !!blockLog && (blockLog.details as any)?.enrollmentId === enrollmentId,
-      `audit enrollmentId=${(blockLog?.details as any)?.enrollmentId ?? "missing"}`
+      `audit enrollmentId=${(blockLog?.details as any)?.enrollmentId ?? "missing"}; ` +
+        `recent actions=${recentContactLogs.map((log) =>
+          `${log.action}:${(log.details as any)?.reason ?? "no-reason"}`
+        ).join(",") || "none"}`
     );
 
   } finally {
+    if (emailChannelPauseTouched) {
+      if (priorEmailChannelPaused === null) {
+        await db.execute(sql`
+          DELETE FROM system_settings
+          WHERE key = 'emailChannelPaused'
+        `).catch(() => undefined);
+      } else {
+        await storage.setSystemSetting("emailChannelPaused", priorEmailChannelPaused).catch(() => undefined);
+      }
+    }
+
     // Restore the exact canonical pause state, or remove only the singleton
     // row inserted by this isolated test.
     if (pauseControlTouched && pauseControlId) {
@@ -416,6 +466,9 @@ async function testGmailUnavailableBlock() {
     }
     if (seqId) {
       try { await db.execute(sql`DELETE FROM follow_up_sequences WHERE id = ${seqId}`); } catch {}
+    }
+    if (providerObservationId) {
+      try { await db.execute(sql`DELETE FROM provider_observations WHERE id = ${providerObservationId}::uuid`); } catch {}
     }
     if (contactId) {
       try { await db.execute(sql`DELETE FROM contacts WHERE id = ${contactId}`); } catch {}
