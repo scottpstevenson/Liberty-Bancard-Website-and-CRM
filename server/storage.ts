@@ -604,7 +604,6 @@ export interface IStorage {
 
   markAllNotificationsRead(userId?: string): Promise<void>;
   clearAllNotifications(userId?: string): Promise<void>;
-  bulkUpdateDealStage(dealIds: number[], stage: string, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }): Promise<void>;
   bulkAssignTasks(taskIds: number[], assignedTo: string): Promise<void>;
   deleteTask(id: number): Promise<void>;
 

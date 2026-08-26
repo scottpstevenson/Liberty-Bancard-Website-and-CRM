@@ -121,7 +121,7 @@ export function registerDealsRoutes(app: Express) {
       // For user-initiated stage changes to Go-Live or later on the onboarding
       // pipeline, check prerequisites here (where we have req.user context).
       // advanceDealStage enforces the same gate for all other callers.
-      let goLiveOverrideCtx: { reason: string; actor: string } | undefined;
+      let goLiveOverrideCtx: { reason: string; actor: string; expectedStage?: string } | undefined;
       if (stageChanging && old.pipeline === "onboarding" && (GO_LIVE_GATE_STAGES as readonly string[]).includes(newStage!)) {
         const readiness = await checkGoLiveReadiness(old);
         if (!readiness.ready) {
@@ -143,6 +143,7 @@ export function registerDealsRoutes(app: Express) {
           goLiveOverrideCtx = {
             reason: overrideText,
             actor: (req.user as any)?.email ?? actorRole ?? "unknown",
+            expectedStage: old.stage,
           };
         }
       }
@@ -150,8 +151,8 @@ export function registerDealsRoutes(app: Express) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let updated: any;
       if (!stageChanging) {
-        // No stage change — apply the full body update directly
-        updated = await storage.updateDeal(dealId, req.body, { userId });
+        // No stage change — stage is stripped even for same-stage replays.
+        updated = await storage.updateDeal(dealId, otherFields, { userId });
         if (!updated) return res.status(404).json({ message: "Not found" });
         // Auto-initialize onboarding checklist when pipeline is moved to "onboarding" (#440)
         const newPipeline = (req.body as any).pipeline;

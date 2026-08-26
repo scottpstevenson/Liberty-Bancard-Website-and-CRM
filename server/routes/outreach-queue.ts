@@ -338,10 +338,11 @@ export function registerOutreachQueueRoutes(app: Express) {
       );
       let dealAdvanced = false;
       if (dealRows.rows.length > 0 && dealRows.rows[0].stage === "New Lead") {
-        await storage.updateDeal(dealRows.rows[0].id, { stage: "Enriched" } as any, {
-          userId: user?.id ?? null,
-          actorType: "user",
-          actorId: user?.id ?? null,
+        const { advanceDealStage } = await import("../services/deal-stage-service");
+        await advanceDealStage(dealRows.rows[0].id, "Enriched", "outreach_queue_enriched", {
+          reason: "Outreach queue enrollment",
+          actor: user?.id?.toString() ?? "unknown",
+          expectedStage: dealRows.rows[0].stage,
         });
         dealAdvanced = true;
       }

@@ -1114,50 +1114,13 @@ export function registerCampaignsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/sequence-steps/:id/ab-test-results", isAuthenticated, async (req, res) => {
-    try {
-      const schema = z.object({
-        variantASent: z.number().int().min(0).optional(),
-        variantBSent: z.number().int().min(0).optional(),
-        aOpens: z.number().int().min(0).optional(),
-        bOpens: z.number().int().min(0).optional(),
-        aClicks: z.number().int().min(0).optional(),
-        bClicks: z.number().int().min(0).optional(),
-        aReplies: z.number().int().min(0).optional(),
-        bReplies: z.number().int().min(0).optional(),
-        winnerSelected: z.string().nullable().optional(),
-        winnerAt: z.string().nullable().optional(),
-        statisticallySignificant: z.boolean().optional(),
-      });
-      const parsed = schema.safeParse(req.body);
-      if (!parsed.success) {
-        return res.status(400).json({ message: parsed.error.errors[0].message });
-      }
-      const step = await storage.updateSequenceStepAbTestResults(
-        Number(req.params.id),
-        {
-          variantASent: parsed.data.variantASent ?? 0,
-          variantBSent: parsed.data.variantBSent ?? 0,
-          aOpens: parsed.data.aOpens ?? 0,
-          bOpens: parsed.data.bOpens ?? 0,
-          aClicks: parsed.data.aClicks ?? 0,
-          bClicks: parsed.data.bClicks ?? 0,
-          aReplies: parsed.data.aReplies ?? 0,
-          bReplies: parsed.data.bReplies ?? 0,
-          winnerSelected: parsed.data.winnerSelected ?? null,
-          winnerAt: parsed.data.winnerAt ?? null,
-          startedAt: null,
-          statisticallySignificant: parsed.data.statisticallySignificant,
-        }
-      );
-      if (!step) return res.status(404).json({ message: "Step not found" });
-      res.json(step);
-    } catch (err: any) {
-      serverError(res, err);
-    }
+  // Results are a server-owned projection.  This retired mutation endpoint
+  // remains only to return an explicit, non-successful response to stale UIs.
+  app.post("/api/sequence-steps/:id/ab-test-results", isAuthenticated, (_req, res) => {
+    res.status(410).json({ code: "AB_RESULTS_SERVER_OWNED", message: "A/B results are computed from immutable delivery facts." });
   });
 
-  app.post("/api/sequences/trigger-ab-check", isAuthenticated, async (_req, res) => {
+  app.post("/api/sequences/trigger-ab-check", requireRole("admin", "manager"), async (_req, res) => {
     try {
       const result = await checkAbTestWinners();
       res.json({ message: "A/B test check complete", ...result });

@@ -7,12 +7,24 @@ import { parse } from "csv-parse/sync";
 import { sendGhlInternalNotification } from "../services/ghl";
 import { sql, eq, isNotNull } from "drizzle-orm";
 import { serverError } from "../utils/server-error";
+import { applyPercentToMinor, minorToCurrency, parseCurrencyToMinor } from "../services/money";
 
 function parseNum(v: any): number {
   if (v === null || v === undefined || v === "") return 0;
   const s = String(v).replace(/[$,\s]/g, "");
   const n = parseFloat(s);
   return isNaN(n) ? 0 : n;
+}
+
+function parseMoneyMinor(v: unknown): bigint {
+  if (v === null || v === undefined || String(v).trim() === "") return 0n;
+  return parseCurrencyToMinor(String(v));
+}
+
+// This is a percentage display/rule value, never a currency operation.
+function percentFromMinor(numerator: bigint, denominator: bigint): number {
+  if (denominator === 0n) return 0;
+  return Number((numerator * 10_000n) / denominator) / 100;
 }
 
 function detectColumnMap(headers: string[]): Record<string, string> {
@@ -83,7 +95,8 @@ export function registerResidualsRoutes(app: Express) {
       }
 
       const thresholdPct = parseNum(varianceThresholdPct) || 5;
-      const thresholdAmt = parseNum(varianceThresholdAmt) || 50;
+      const configuredThresholdAmtMinor = parseMoneyMinor(varianceThresholdAmt || "50");
+      const thresholdAmtDecimal = minorToCurrency(configuredThresholdAmtMinor);
 
       const records = await parseFileBuffer(req.file.buffer, req.file.mimetype);
       if (records.length === 0) {
@@ -159,16 +172,17 @@ export function registerResidualsRoutes(app: Express) {
         totalNetResidual: "0",
         totalVariance: "0",
         varianceThresholdPct: thresholdPct,
-        varianceThresholdAmt: thresholdAmt,
+        varianceThresholdAmtDecimal: thresholdAmtDecimal,
       });
 
       const rowsToInsert: import("@shared/schema").InsertResidualImportRow[] = [];
       let matched = 0;
       let unmatched = 0;
       let flagged = 0;
-      let totalGross = 0;
-      let totalNet = 0;
-      let totalVariance = 0;
+      let totalGross = 0n;
+      let totalNet = 0n;
+      let totalVariance = 0n;
+      const thresholdAmtMinor = parseMoneyMinor(thresholdAmtDecimal);
 
       for (const record of records) {
         const mid = colMap.mid ? (record[colMap.mid] || "").trim() : "";
@@ -176,8 +190,17 @@ export function registerResidualsRoutes(app: Express) {
 
         const merchantName = colMap.merchantName ? record[colMap.merchantName] || "" : "";
         const volume = colMap.volume ? parseNum(record[colMap.volume]) : 0;
-        const grossResidual = colMap.grossResidual ? parseNum(record[colMap.grossResidual]) : 0;
-        const netResidual = colMap.netResidual ? parseNum(record[colMap.netResidual]) : grossResidual;
+        let grossResidual = 0n;
+        let netResidual = 0n;
+        try {
+          grossResidual = colMap.grossResidual ? parseMoneyMinor(record[colMap.grossResidual]) : 0n;
+          netResidual = colMap.netResidual ? parseMoneyMinor(record[colMap.netResidual]) : grossResidual;
+        } catch {
+          // Financial cells are strict: malformed and over-scale values do not
+          // become a rounded monetary value.
+          grossResidual = 0n;
+          netResidual = 0n;
+        }
 
         // Parse transactions and processing cost from the file if available.
         // Absent or empty cells produce null.  Any cell that cannot be
@@ -213,8 +236,11 @@ export function registerResidualsRoutes(app: Express) {
           const stripped = normalised.replace(/[$,\s]/g, "");
           // Accept only a complete signed decimal — no trailing text, no exponent form.
           if (!/^-?\d+(\.\d+)?$/.test(stripped)) return null;
-          const n = Number(stripped);
-          return isFinite(n) ? n.toFixed(2) : null;
+          try {
+            return minorToCurrency(parseCurrencyToMinor(stripped));
+          } catch {
+            return null;
+          }
         })();
 
         totalGross += grossResidual;
@@ -233,7 +259,7 @@ export function registerResidualsRoutes(app: Express) {
 
         // Compute expected residual: prefer deal.estimatedNetProfitMonthly from the
         // linked deal record; fall back to most recent residual history; then 0.
-        let expectedResidual = 0;
+        let expectedResidual = 0n;
         const linkedDealId =
           matchedProfile?.dealId ??
           latestResidual?.dealId ??
@@ -243,26 +269,26 @@ export function registerResidualsRoutes(app: Express) {
         if (linkedDealId) {
           const deal = dealMap.get(linkedDealId);
           if (deal?.estimatedNetProfitMonthly) {
-            expectedResidual = parseNum(deal.estimatedNetProfitMonthly);
+            expectedResidual = parseMoneyMinor(deal.estimatedNetProfitMonthly);
           }
         }
-        if (expectedResidual === 0 && latestResidual) {
-          expectedResidual = parseNum(latestResidual.netRevenue);
+        if (expectedResidual === 0n && latestResidual) {
+          expectedResidual = parseMoneyMinor(latestResidual.netRevenue);
         }
 
-        const variance = isMatched ? netResidual - expectedResidual : 0;
-        const variancePct = expectedResidual !== 0 ? (variance / expectedResidual) * 100 : 0;
+        const variance = isMatched ? netResidual - expectedResidual : 0n;
+        const variancePct = percentFromMinor(variance, expectedResidual);
 
         let varianceStatus = "in_range";
         if (isMatched) {
-          const absVariance = Math.abs(variance);
-          const absPct = expectedResidual !== 0 ? Math.abs(variancePct) : 0;
+          const absVariance = variance < 0n ? -variance : variance;
+          const absPct = expectedResidual !== 0n ? Math.abs(variancePct) : 0;
           // Flag if the dollar threshold is exceeded (always), or if the pct threshold
           // is exceeded when we have an expected value to compare against.
-          const exceedsPct = expectedResidual !== 0 && absPct > thresholdPct;
-          const exceedsAmt = absVariance > thresholdAmt;
+          const exceedsPct = expectedResidual !== 0n && absPct > thresholdPct;
+          const exceedsAmt = absVariance > thresholdAmtMinor;
           if (exceedsPct || exceedsAmt) {
-            varianceStatus = variance < 0 ? "under" : "over";
+            varianceStatus = variance < 0n ? "under" : "over";
             flagged++;
           }
         }
@@ -299,11 +325,11 @@ export function registerResidualsRoutes(app: Express) {
           mid,
           merchantName: resolvedMerchantName || mid,
           volume: String(volume),
-          grossResidual: String(grossResidual),
-          netResidual: String(netResidual),
-          expectedResidual: String(expectedResidual),
-          variance: String(variance.toFixed(2)),
-          variancePct: String(variancePct.toFixed(2)),
+          grossResidual: minorToCurrency(grossResidual),
+          netResidual: minorToCurrency(netResidual),
+          expectedResidual: minorToCurrency(expectedResidual),
+          variance: minorToCurrency(variance),
+          variancePct: String(variancePct),
           varianceStatus,
           isMatched,
           matchedDealId: linkedDealId,
@@ -326,9 +352,9 @@ export function registerResidualsRoutes(app: Express) {
         matchedRows: matched,
         unmatchedRows: unmatched,
         flaggedRows: flagged,
-        totalGrossResidual: totalGross.toFixed(2),
-        totalNetResidual: totalNet.toFixed(2),
-        totalVariance: totalVariance.toFixed(2),
+        totalGrossResidual: minorToCurrency(totalGross),
+        totalNetResidual: minorToCurrency(totalNet),
+        totalVariance: minorToCurrency(totalVariance),
       });
 
       res.status(201).json(updated);
@@ -401,10 +427,10 @@ export function registerResidualsRoutes(app: Express) {
             }
             const agentData = agentCache.get(row.agentId);
             if (agentData) {
-              const netResidual = parseFloat(row.netResidual || "0");
-              const splitPct = agentData.commissionSplitPercent;
-              const computed = netResidual * (splitPct / 100);
-              agentCommission = Math.max(0, computed).toFixed(2);
+              const computed = applyPercentToMinor(
+                parseCurrencyToMinor(row.netResidual || "0"), agentData.commissionSplitPercent,
+              );
+              agentCommission = minorToCurrency(computed > 0n ? computed : 0n);
             }
           }
 
@@ -423,9 +449,10 @@ export function registerResidualsRoutes(app: Express) {
             }
             const orgData = partnerOrgCache.get(orgId);
             if (orgData) {
-              const grossResidual = parseFloat(row.grossResidual || "0");
-              const computed = grossResidual * (orgData.commissionRate / 100);
-              partnerCommission = Math.max(0, computed).toFixed(2);
+              const computed = applyPercentToMinor(
+                parseCurrencyToMinor(row.grossResidual || "0"), orgData.commissionRate,
+              );
+              partnerCommission = minorToCurrency(computed > 0n ? computed : 0n);
             }
           }
 
@@ -508,10 +535,10 @@ export function registerResidualsRoutes(app: Express) {
           `<tr>
             <td style="padding:4px 8px;border:1px solid #ddd;">${r.mid}</td>
             <td style="padding:4px 8px;border:1px solid #ddd;">${r.merchantName || "—"}</td>
-            <td style="padding:4px 8px;border:1px solid #ddd;">$${parseFloat(r.expectedResidual || "0").toFixed(2)}</td>
-            <td style="padding:4px 8px;border:1px solid #ddd;">$${parseFloat(r.netResidual || "0").toFixed(2)}</td>
+            <td style="padding:4px 8px;border:1px solid #ddd;">$${minorToCurrency(parseMoneyMinor(r.expectedResidual || "0"))}</td>
+            <td style="padding:4px 8px;border:1px solid #ddd;">$${minorToCurrency(parseMoneyMinor(r.netResidual || "0"))}</td>
             <td style="padding:4px 8px;border:1px solid #ddd;color:${r.varianceStatus === "under" ? "#dc2626" : "#ea580c"};">
-              ${parseFloat(r.variance || "0") >= 0 ? "+" : ""}$${parseFloat(r.variance || "0").toFixed(2)} (${parseFloat(r.variancePct || "0").toFixed(1)}%)
+              ${parseMoneyMinor(r.variance || "0") >= 0n ? "+" : ""}$${minorToCurrency(parseMoneyMinor(r.variance || "0"))} (${r.variancePct || "0"}%)
             </td>
             <td style="padding:4px 8px;border:1px solid #ddd;">${r.varianceStatus === "under" ? "Under" : "Over"}</td>
           </tr>`
@@ -520,7 +547,7 @@ export function registerResidualsRoutes(app: Express) {
         const emailBody = `
           <h2 style="color:#1e3a5f;">Residual Variance Alert — ${importRecord.month}</h2>
           <p>${flaggedRows.length} MID(s) exceeded variance thresholds
-            (>${importRecord.varianceThresholdPct}% or >$${importRecord.varianceThresholdAmt})
+            (>${importRecord.varianceThresholdPct}% or >$${importRecord.varianceThresholdAmtDecimal ?? importRecord.varianceThresholdAmt})
             in the <strong>${importRecord.month}</strong> reconciliation
             (<em>${importRecord.fileName}</em>).</p>
           <table style="border-collapse:collapse;width:100%;font-size:13px;">
@@ -661,22 +688,22 @@ export function registerResidualsRoutes(app: Express) {
         if (company) merchantName = company.dba || company.legalName || merchantName;
       }
 
-      let expectedResidual = 0;
+      let expectedResidual = 0n;
       if (deal.estimatedNetProfitMonthly) {
-        expectedResidual = parseNum(deal.estimatedNetProfitMonthly);
+        expectedResidual = parseMoneyMinor(deal.estimatedNetProfitMonthly);
       }
 
-      const netResidual = parseNum(row.netResidual);
+      const netResidual = parseMoneyMinor(row.netResidual);
       const variance = netResidual - expectedResidual;
-      const variancePct = expectedResidual !== 0 ? (variance / expectedResidual) * 100 : 0;
+      const variancePct = percentFromMinor(variance, expectedResidual);
 
       const thresholdPct = importRecord.varianceThresholdPct ?? 5;
-      const thresholdAmt = importRecord.varianceThresholdAmt ?? 50;
+      const thresholdAmt = parseMoneyMinor(importRecord.varianceThresholdAmtDecimal);
       let varianceStatus = "in_range";
-      const exceedsPct = expectedResidual !== 0 && Math.abs(variancePct) > thresholdPct;
-      const exceedsAmt = Math.abs(variance) > thresholdAmt;
+      const exceedsPct = expectedResidual !== 0n && Math.abs(variancePct) > thresholdPct;
+      const exceedsAmt = (variance < 0n ? -variance : variance) > thresholdAmt;
       if (exceedsPct || exceedsAmt) {
-        varianceStatus = variance < 0 ? "under" : "over";
+        varianceStatus = variance < 0n ? "under" : "over";
       }
 
       let agentId: number | null = null;
@@ -692,9 +719,9 @@ export function registerResidualsRoutes(app: Express) {
         matchedDealId: deal.id,
         matchedProfileId: profile?.id ?? null,
         merchantName: merchantName || row.mid,
-        expectedResidual: String(expectedResidual),
-        variance: variance.toFixed(2),
-        variancePct: variancePct.toFixed(2),
+        expectedResidual: minorToCurrency(expectedResidual),
+        variance: minorToCurrency(variance),
+        variancePct: String(variancePct),
         varianceStatus,
         agentId,
         agentName,
@@ -714,14 +741,14 @@ export function registerResidualsRoutes(app: Express) {
       // Recompute import-level aggregate counts based on previous row state
       const wasFlagged = row.varianceStatus && row.varianceStatus !== "in_range" && row.isMatched;
       const isFlaggedNow = varianceStatus !== "in_range";
-      const prevVariance = parseNum(row.variance);
-      const varianceDelta = variance - (row.isMatched ? prevVariance : 0);
+      const prevVariance = parseMoneyMinor(row.variance);
+      const varianceDelta = variance - (row.isMatched ? prevVariance : 0n);
 
       await storage.updateResidualImport(importId, {
         matchedRows: (importRecord.matchedRows ?? 0) + (row.isMatched ? 0 : 1),
         unmatchedRows: Math.max(0, (importRecord.unmatchedRows ?? 0) - (row.isMatched ? 0 : 1)),
         flaggedRows: (importRecord.flaggedRows ?? 0) + (isFlaggedNow ? 1 : 0) - (wasFlagged ? 1 : 0),
-        totalVariance: (parseNum(importRecord.totalVariance) + varianceDelta).toFixed(2),
+        totalVariance: minorToCurrency(parseMoneyMinor(importRecord.totalVariance) + varianceDelta),
       });
 
       res.json(updatedRow);
@@ -740,7 +767,9 @@ export function registerResidualsRoutes(app: Express) {
       const { varianceThresholdPct, varianceThresholdAmt } = req.body;
       const updated = await storage.updateResidualImport(Number(req.params.id), {
         varianceThresholdPct: varianceThresholdPct !== undefined ? Number(varianceThresholdPct) : undefined,
-        varianceThresholdAmt: varianceThresholdAmt !== undefined ? Number(varianceThresholdAmt) : undefined,
+        ...(varianceThresholdAmt !== undefined
+          ? { varianceThresholdAmtDecimal: minorToCurrency(parseMoneyMinor(varianceThresholdAmt)) }
+          : {}),
       });
       if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);

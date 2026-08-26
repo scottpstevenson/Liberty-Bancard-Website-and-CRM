@@ -242,6 +242,11 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
 
   async updateDeal(id: number, updates: UpdateDealRequest, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }) {
     const { auditChange } = await import("../services/audit-change");
+    // TypeScript callers cannot provide stage, but runtime callers (HTTP JSON,
+    // stale compiled clients, and `as any`) must not regain that authority.
+    if (Object.prototype.hasOwnProperty.call(updates as object, "stage")) {
+      throw new Error("DEAL_STAGE_AUTHORITY_REQUIRED");
+    }
     const [before] = await db.select().from(deals).where(eq(deals.id, id));
     const DEAL_TIMESTAMP_FIELDS: string[] = [
       "nextFollowUp", "expectedGoLiveDate", "goLiveDate", "lastStatementReviewDate",
@@ -317,30 +322,6 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
   }
 
 
-  async bulkUpdateDealStage(dealIds: number[], stage: string, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }): Promise<void> {
-    if (dealIds.length === 0) return;
-    const { bulkAuditChange } = await import("../services/audit-change");
-    // 1 query: fetch before states
-    const beforeRows = await db.select().from(deals).where(inArray(deals.id, dealIds));
-    const beforeMap = new Map(beforeRows.map(d => [d.id, d]));
-    // 1 query: bulk update
-    await db.update(deals).set({ stage, updatedAt: new Date() }).where(inArray(deals.id, dealIds));
-    // 1 query: fetch after states
-    const afterRows = await db.select().from(deals).where(inArray(deals.id, dealIds));
-    // 1 query: single bulk INSERT for all audit entries instead of N individual inserts
-    await bulkAuditChange(
-      afterRows.map(after => ({
-        userId: auditCtx?.userId ?? null,
-        actorType: (auditCtx?.actorType as any) ?? "user",
-        actorId: auditCtx?.actorId ?? null,
-        action: "deal_stage_changed",
-        entityType: "deal",
-        entityId: after.id,
-        before: (beforeMap.get(after.id) ?? null) as unknown as Record<string, unknown>,
-        after: after as unknown as Record<string, unknown>,
-      }))
-    );
-  }
 
 
   async getDealsByIds(ids: number[]) {

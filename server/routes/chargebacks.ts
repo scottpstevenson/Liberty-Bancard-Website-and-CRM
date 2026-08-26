@@ -6,7 +6,7 @@ import { insertChargebackSchema, CHARGEBACK_DEADLINE_DAYS } from "@shared/schema
 import { createPreferenceAwareNotification } from "../services/digest-service";
 import { generateChargebackEvidencePdf } from "../services/chargeback-pdf";
 import { serverError } from "../utils/server-error";
-import { getDefaultProcessor } from "../services/processors/registry";
+import { enqueueChargebackSubmission, isUuidV4 } from "../services/chargeback-submission-service";
 import { upload } from "./helpers";
 import path from "path";
 import fs from "fs";
@@ -398,8 +398,8 @@ export function registerChargebacksRoutes(app: Express) {
 
   /**
    * POST /api/chargebacks/:id/submit-to-card-brand
-   * Submit a chargeback evidence packet to the card brand via the processor adapter.
-   * Marks the chargeback as "Responded" on success and writes an audit log entry.
+   * Enqueue a durable chargeback submission command.  The route never calls a
+   * processor directly; a worker owns provider I/O and conditional final state.
    */
   app.post("/api/chargebacks/:id/submit-to-card-brand", isDashboardUser, async (req, res) => {
     try {
@@ -407,6 +407,10 @@ export function registerChargebacksRoutes(app: Express) {
       const cb = await storage.getChargeback(id);
       if (!cb) return res.status(404).json({ message: "Chargeback not found" });
       if (!await authorizeChargebackTarget(req, res, cb)) return;
+      const idempotencyKey = req.header("Idempotency-Key");
+      if (!isUuidV4(idempotencyKey)) {
+        return res.status(400).json({ code: "IDEMPOTENCY_KEY_REQUIRED", message: "A UUIDv4 Idempotency-Key header is required." });
+      }
 
       const schema = z.object({
         mid:          z.string().min(1, "MID is required"),
@@ -415,55 +419,15 @@ export function registerChargebacksRoutes(app: Express) {
         evidenceNotes: z.string().optional(),
       });
       const { mid, caseNumber, transactionId, evidenceNotes } = schema.parse(req.body);
-
-      const processor = getDefaultProcessor();
-      const result = await processor.submitChargeback({
-        mid,
-        transactionId: transactionId || String(cb.id),
-        amount: cb.amount,
-        reason: cb.reasonDescription || cb.reasonCode,
-        cardBrand: cb.cardBrand,
-        caseNumber,
-        responseDeadline: cb.responseDeadline?.toISOString(),
-        evidenceNotes,
+      const command = await enqueueChargebackSubmission({
+        chargebackId: id, idempotencyKey, mid, caseNumber, transactionId, evidenceNotes,
+        evidenceManifest: Array.isArray(cb.evidenceFiles) ? cb.evidenceFiles : [],
       });
-
-      if (result.success) {
-        const caseNote = result.caseId ? ` · Case ID: ${result.caseId}` : "";
-        const updated = await storage.updateChargeback(id, {
-          status: "Responded",
-          respondedAt: new Date(),
-          notes: [cb.notes, `Evidence submitted to card brand${caseNote}.`]
-            .filter(Boolean)
-            .join("\n\n"),
-        });
-
-        await storage.createAuditLog({
-          action: "chargeback_submitted_to_card_brand",
-          entityType: "chargeback",
-          entityId: id,
-          details: {
-            caseId: result.caseId,
-            status: result.status,
-            message: result.message,
-            mid,
-            cardBrand: cb.cardBrand,
-            amount: cb.amount,
-          },
-        });
-
-        res.json({
-          success: true,
-          caseId: result.caseId,
-          status: result.status,
-          message: result.message || "Evidence packet submitted successfully.",
-          chargeback: updated,
-        });
-      } else {
-        res.status(502).json({
-          message: result.error || "Submission failed — check processor connection and MID.",
-        });
-      }
+      await storage.createAuditLog({
+        action: "chargeback_submission_enqueued", entityType: "chargeback", entityId: id,
+        details: { commandId: command.id, idempotencyKey, evidenceFileCount: Array.isArray(cb.evidenceFiles) ? cb.evidenceFiles.length : 0 },
+      });
+      res.status(202).json({ accepted: true, command });
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
       serverError(res, err);

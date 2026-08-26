@@ -327,6 +327,7 @@ export class NmiProcessorAdapter implements IProcessorAdapter {
           amount: String(submission.amount),
           merchant_id: submission.mid,
         };
+        if (submission.providerIdempotencyKey) params.idempotency_key = submission.providerIdempotencyKey;
         const parsed = await postToNmiBoarding(this.securityKey, "/api/transact.php", params);
         const approved = parsed.response === "1";
         return {
@@ -341,13 +342,7 @@ export class NmiProcessorAdapter implements IProcessorAdapter {
       }
     }
 
-    console.log("[NmiAdapter] submitChargeback in simulation mode");
-    return {
-      success: true,
-      caseId: `CB-SIM-${Date.now()}`,
-      status: "submitted",
-      message: "Chargeback case submitted (simulation).",
-    };
+    return { success: false, status: "not_configured", error: "NMI chargeback submission is not configured" };
   }
 
   async updateMerchant(processorApplicationId: string, updates: Partial<MerchantProfile>): Promise<MerchantUpdateResult> {

@@ -520,6 +520,8 @@ export class PayarcProcessorAdapter implements IProcessorAdapter {
           "POST",
           "/disputes",
           body,
+          0,
+          submission.providerIdempotencyKey ? { "Idempotency-Key": submission.providerIdempotencyKey } : undefined,
         );
 
         if (!ok) {
@@ -539,16 +541,8 @@ export class PayarcProcessorAdapter implements IProcessorAdapter {
       }
     }
 
-    // Simulation
-    await new Promise(r => setTimeout(r, 150));
-    const caseId = `CB-SIM-${Date.now()}`;
-    console.log(`[PayarcAdapter] submitChargeback simulation: MID ${submission.mid} → ${caseId}`);
-    return {
-      success: true,
-      caseId,
-      status: "submitted",
-      message: `[Simulation] Dispute ${caseId} submitted to Payarc.`,
-    };
+    // Never report a simulated card-brand submission in a non-test adapter.
+    return { success: false, status: "not_configured", error: "Payarc chargeback submission is not configured" };
   }
 
   // ── updateMerchant ────────────────────────────────────────────────────────

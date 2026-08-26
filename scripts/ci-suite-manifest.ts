@@ -68,6 +68,18 @@ export interface SuiteManifestEntry {
 export const SUITE_MANIFEST: SuiteManifestEntry[] = [
   // ── deterministic-static ─────────────────────────────────────────────────
   {
+    name: "BT-12 Revenue State Reconciliation Authority Guard",
+    script: "scripts/test-bt12-revenue-state-reconciliation.ts",
+    capability: "deterministic-static",
+    providerDenial: "source-backed authority guard; no providers",
+  },
+  {
+    name: "BT-12 Revenue State Reconciliation Integration",
+    script: "scripts/test-bt12-revenue-state-reconciliation-integration.ts",
+    capability: "deterministic-integration",
+    providerDenial: "requires TEST_DATABASE_URL disposable database; no provider transports are constructed",
+  },
+  {
     name: "Canonical Identity Writer Guard",
     script: "scripts/check-contact-identity-writers.ts",
     capability: "deterministic-static",

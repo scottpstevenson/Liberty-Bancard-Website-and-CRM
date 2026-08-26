@@ -16,6 +16,7 @@ import { merchantMids, equipmentShipments, deals } from "@shared/schema";
 import { eq, and } from "drizzle-orm";
 import { isAuthenticated, requireRole } from "../replit_integrations/auth";
 import { serverError } from "../utils/server-error";
+import { createMerchantMid, MerchantMidTransitionError, updateMerchantMid } from "../services/merchant-mid-service";
 
 export function registerMerchantMidRoutes(app: Express) {
   // ── MID Registry ─────────────────────────────────────────────────────────────
@@ -56,23 +57,17 @@ export function registerMerchantMidRoutes(app: Express) {
 
         if (!mid) return res.status(400).json({ message: "mid is required" });
 
-        const [row] = await db
-          .insert(merchantMids)
-          .values({
-            contactId,
-            dealId: dealId ?? null,
-            mid,
-            tids: Array.isArray(tids) ? tids : [],
-            processorName: processorName ?? "payarc",
-            monthlyVolumeCap: monthlyVolumeCap != null ? String(monthlyVolumeCap) : null,
-            notes: notes ?? null,
-          })
-          .onConflictDoNothing()
-          .returning();
-
-        if (!row) return res.status(409).json({ message: "MID already registered" });
+        const row = await createMerchantMid({
+          contactId, dealId: dealId ?? null, mid, tids: Array.isArray(tids) ? tids : [],
+          processorName, monthlyVolumeCap: monthlyVolumeCap != null ? String(monthlyVolumeCap) : null,
+          notes, actorId: String((req.user as any)?.id ?? ""), actorType: "user",
+        });
         res.status(201).json(row);
-      } catch (err: any) { serverError(res, err); }
+      } catch (err: any) {
+        if (err instanceof MerchantMidTransitionError) return res.status(422).json({ code: err.code, message: err.message });
+        if (err?.code === "23505") return res.status(409).json({ message: "MID already registered" });
+        serverError(res, err);
+      }
     }
   );
 
@@ -86,7 +81,6 @@ export function registerMerchantMidRoutes(app: Express) {
         const id = parseInt(String(req.params.id), 10);
         if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
 
-        const allowedStatuses = ["assigned", "active", "suspended", "closed"];
         const { status, tids, monthlyVolumeCap, notes, suspensionReason } = req.body as {
           status?: string;
           tids?: string[];
@@ -95,31 +89,15 @@ export function registerMerchantMidRoutes(app: Express) {
           suspensionReason?: string | null;
         };
 
-        if (status && !allowedStatuses.includes(status)) {
-          return res.status(400).json({ message: `status must be one of: ${allowedStatuses.join(", ")}` });
-        }
-
-        const updates: Record<string, unknown> = { updatedAt: new Date() };
-        if (status !== undefined) {
-          updates.status = status;
-          if (status === "active")    updates.activatedAt  = new Date();
-          if (status === "suspended") updates.suspendedAt  = new Date();
-          if (status === "closed")    updates.closedAt     = new Date();
-        }
-        if (tids !== undefined) updates.tids = tids;
-        if (monthlyVolumeCap !== undefined) updates.monthlyVolumeCap = monthlyVolumeCap != null ? String(monthlyVolumeCap) : null;
-        if (notes !== undefined) updates.notes = notes;
-        if (suspensionReason !== undefined) updates.suspensionReason = suspensionReason;
-
-        const [updated] = await db
-          .update(merchantMids)
-          .set(updates as any)
-          .where(eq(merchantMids.id, id))
-          .returning();
-
-        if (!updated) return res.status(404).json({ message: "MID record not found" });
+        const updated = await updateMerchantMid({
+          id, status, tids, monthlyVolumeCap: monthlyVolumeCap != null ? String(monthlyVolumeCap) : monthlyVolumeCap,
+          notes, suspensionReason, actorId: String((req.user as any)?.id ?? ""), actorType: "user",
+        });
         res.json(updated);
-      } catch (err: any) { serverError(res, err); }
+      } catch (err: any) {
+        if (err instanceof MerchantMidTransitionError) return res.status(err.code === "MID_NOT_FOUND" ? 404 : 422).json({ code: err.code, message: err.message });
+        serverError(res, err);
+      }
     }
   );
 

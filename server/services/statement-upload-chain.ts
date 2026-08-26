@@ -20,6 +20,7 @@ import { ACTIVE_DEAL_STAGES, statementProposals } from "@shared/schema";
 import { db } from "../db";
 import { eq, sql } from "drizzle-orm";
 import { updateCheckpoint, updateCommandFKs, markSucceeded, markRecoverableFailed } from "./statement-upload-idempotency";
+import { advanceDealStage } from "./deal-stage-service";
 
 export interface StatementUploadInput {
   contactId: number;
@@ -221,7 +222,12 @@ export async function runStatementUploadChain(
           ...(input.partnerOrgId && !existingDeal.partnerOrgId ? { partnerOrgId: input.partnerOrgId } : {}),
         };
         if (STAGES_TO_ADVANCE.includes(existingDeal.stage)) {
-          await storage.updateDeal(dealId, { ...baseUpdates, stage: "Statement Received" });
+          await storage.updateDeal(dealId, baseUpdates);
+          await advanceDealStage(dealId, "Statement Received", "statement_upload_chain", {
+            reason: "Statement upload chain received a statement",
+            actor: "system",
+            expectedStage: existingDeal.stage,
+          });
           steps.push(makeStep(3, "Deal stage advanced", true, undefined, {
             dealId, from: existingDeal.stage, to: "Statement Received",
           }));
@@ -243,12 +249,16 @@ export async function runStatementUploadChain(
       if (openDeal) {
         dealId = openDeal.id;
         const updates: any = { statementReceived: true };
-        if (STAGES_TO_ADVANCE.includes(openDeal.stage)) {
-          updates.stage = "Statement Received";
-        }
         if (companyId) updates.companyId = companyId;
         if (input.partnerOrgId && !openDeal.partnerOrgId) updates.partnerOrgId = input.partnerOrgId;
         await storage.updateDeal(dealId, updates);
+        if (STAGES_TO_ADVANCE.includes(openDeal.stage)) {
+          await advanceDealStage(dealId, "Statement Received", "statement_upload_chain", {
+            reason: "Statement upload chain received a statement",
+            actor: "system",
+            expectedStage: openDeal.stage,
+          });
+        }
         steps.push(makeStep(3, "Existing deal updated", true, undefined, {
           dealId, stage: openDeal.stage, advanced: STAGES_TO_ADVANCE.includes(openDeal.stage),
         }));
@@ -433,9 +443,9 @@ export async function runStatementUploadChain(
                 });
                 const { advanceDealStage } = await import("./deal-stage-service");
                 if (result.decision === "approve") {
-                  await advanceDealStage(capturedDealId, "Proposal Sent", "underwriting_auto_approve").catch(() => {});
+                  await advanceDealStage(capturedDealId, "Proposal Sent", "underwriting_auto_approve");
                 } else {
-                  await advanceDealStage(capturedDealId, "Review In Progress", "underwriting_flag").catch(() => {});
+                  await advanceDealStage(capturedDealId, "Review In Progress", "underwriting_flag");
                   await storage.createNotification({
                     channel: "internal",
                     title: result.decision === "hold"
@@ -644,7 +654,11 @@ export async function runStatementUploadChain(
     if (dealId) {
       const deal = await storage.getDeal(dealId);
       if (deal && STAGES_TO_ADVANCE.includes(deal.stage)) {
-        await storage.updateDeal(dealId, { stage: "Statement Received" });
+        await advanceDealStage(dealId, "Statement Received", "statement_upload_chain_confirm", {
+          reason: "Statement upload chain stage confirmation",
+          actor: "system",
+          expectedStage: deal.stage,
+        });
         steps.push(makeStep(8, "Pipeline stage set", true, undefined, {
           dealId, from: deal.stage, to: "Statement Received",
         }));

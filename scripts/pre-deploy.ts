@@ -76,6 +76,16 @@ const MANDATORY_SUITES: Suite[] = [
     timeoutSecs: 60,
   },
   {
+    name: "BT-12 Revenue State Reconciliation Authority Guard",
+    script: "scripts/test-bt12-revenue-state-reconciliation.ts",
+    timeoutSecs: 60,
+  },
+  {
+    name: "BT-12 Revenue State Reconciliation Integration",
+    script: "scripts/test-bt12-revenue-state-reconciliation-integration.ts",
+    timeoutSecs: 120,
+  },
+  {
     name: "Canonical Identity Writer Guard (all production identity writers observed)",
     script: "scripts/check-contact-identity-writers.ts",
     timeoutSecs: 60,

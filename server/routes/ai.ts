@@ -1018,11 +1018,18 @@ Notes: ${deal.notes || "None"}`
       }
 
       // Advance deal stage from "Proposal Sent" → "Negotiation" on acceptance
-      const nextStage = deal.stage === "Proposal Sent" ? "Negotiation" : deal.stage;
+      const nextStage = deal.stage === "Proposal Sent" ? "Negotiation / Follow-Up" : deal.stage;
       await storage.updateDeal(deal.id, {
         proposalStatus: "accepted",
-        ...(nextStage !== deal.stage ? { stage: nextStage } : {}),
       });
+      if (nextStage !== deal.stage) {
+        const { advanceDealStage } = await import("../services/deal-stage-service");
+        await advanceDealStage(deal.id, nextStage, "public_proposal_accepted", {
+          reason: "Public proposal acceptance",
+          actor: "system",
+          expectedStage: deal.stage,
+        });
+      }
 
       // Write audit log — fire-and-forget, never block the response
       storage.createAuditLog({

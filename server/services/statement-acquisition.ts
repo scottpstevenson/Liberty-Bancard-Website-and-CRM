@@ -32,6 +32,7 @@ import { storage } from "../storage";
 import { db } from "../db";
 import { sequenceEnrollments, followUpSequences, sequenceSteps } from "@shared/schema";
 import { eq, and, inArray } from "drizzle-orm";
+import { advanceDealStage } from "./deal-stage-service";
 
 // ─── Cadence config ───────────────────────────────────────────────────────────
 
@@ -216,7 +217,11 @@ export async function onStatementRequested(contactId: number): Promise<void> {
     if (dealId) {
       const freshDeal = await storage.getDeal(dealId);
       if (freshDeal && PRE_REQUEST_STAGES.has(freshDeal.stage ?? "")) {
-        await storage.updateDeal(dealId, { stage: "Statement Requested" });
+        await advanceDealStage(dealId, "Statement Requested", "statement_acquisition_requested", {
+          reason: "Conditional statement acquisition progression",
+          actor: "system",
+          expectedStage: freshDeal.stage,
+        });
       } else if (freshDeal) {
         console.log(`[StatementAcquisition] Deal ${dealId} is at stage "${freshDeal.stage}" — not overwriting with "Statement Requested"`);
       }
@@ -409,7 +414,11 @@ export async function onStatementReceived(contactId: number, dealId?: number): P
     if (dealId) {
       const deal = await storage.getDeal(dealId).catch(() => null);
       if (deal && deal.stage === "Statement Requested") {
-        await storage.updateDeal(dealId, { stage: "Statement Received" }).catch(err =>
+        await advanceDealStage(dealId, "Statement Received", "statement_acquisition_received", {
+          reason: "Statement upload received",
+          actor: "system",
+          expectedStage: deal.stage,
+        }).catch(err =>
           console.warn(`[StatementAcquisition] Could not advance deal ${dealId} to Statement Received:`, err.message),
         );
       }
@@ -421,7 +430,11 @@ export async function onStatementReceived(contactId: number, dealId?: number): P
           d => d.pipeline === "sales" && d.stage === "Statement Requested",
         );
         if (activeDeal) {
-          await storage.updateDeal(activeDeal.id, { stage: "Statement Received" }).catch(err =>
+          await advanceDealStage(activeDeal.id, "Statement Received", "statement_acquisition_received", {
+            reason: "Statement upload received",
+            actor: "system",
+            expectedStage: activeDeal.stage,
+          }).catch(err =>
             console.warn(`[StatementAcquisition] Could not advance deal ${activeDeal.id} to Statement Received:`, err.message),
           );
         }

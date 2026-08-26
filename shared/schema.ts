@@ -847,7 +847,51 @@ export type InsertMaEvent = z.infer<typeof insertMaEventSchema>;
 
 export type Deal = typeof deals.$inferSelect;
 export type InsertDeal = z.infer<typeof insertDealSchema>;
-export type UpdateDealRequest = Partial<InsertDeal>;
+/**
+ * Stage is deliberately excluded from generic edits.  Every post-creation
+ * stage mutation must pass through DealStageService so it is serialized,
+ * audited, and has durable follow-on effect intents.
+ */
+export type UpdateDealRequest = Partial<Omit<InsertDeal, "stage">>;
+
+// ─── Deal Stage Effect Intents ──────────────────────────────────────────────
+// A narrow, stage-owned recovery ledger.  It is intentionally not a replacement
+// for the merchant-application or boarding outboxes; it captures only material
+// work caused by a successful deal-stage transition.
+export const dealStageEffectIntents = pgTable("deal_stage_effect_intents", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  dealId: integer("deal_id").notNull().references(() => deals.id, { onDelete: "cascade" }),
+  transitionKey: text("transition_key").notNull(),
+  effectType: text("effect_type").notNull(),
+  idempotencyKey: text("idempotency_key").notNull(),
+  state: text("state").notNull().default("pending"),
+  attempts: integer("attempts").notNull().default(0),
+  leaseToken: uuid("lease_token"),
+  leaseExpiresAt: timestamp("lease_expires_at"),
+  lastError: text("last_error"),
+  result: jsonb("result"),
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("deal_stage_effect_intents_unique").on(t.dealId, t.transitionKey, t.effectType),
+  uniqueIndex("deal_stage_effect_intents_idempotency_unique").on(t.idempotencyKey),
+  index("deal_stage_effect_intents_dispatch_idx").on(t.state, t.leaseExpiresAt, t.createdAt),
+]);
+export type DealStageEffectIntent = typeof dealStageEffectIntents.$inferSelect;
+export const dealStageEffectReceipts = pgTable("deal_stage_effect_receipts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  effectIntentId: uuid("effect_intent_id").notNull().references(() => dealStageEffectIntents.id, { onDelete: "cascade" }),
+  targetKey: text("target_key").notNull(),
+  state: text("state").notNull().default("pending"),
+  providerIdempotencyKey: text("provider_idempotency_key").notNull(),
+  providerReference: text("provider_reference"),
+  result: jsonb("result"),
+  error: text("error"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  completedAt: timestamp("completed_at"),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [uniqueIndex("deal_stage_effect_receipts_unique").on(t.effectIntentId, t.targetKey)]);
 
 export type Ticket = typeof tickets.$inferSelect;
 export type InsertTicket = z.infer<typeof insertTicketSchema>;
@@ -2444,6 +2488,7 @@ export const residualImports = pgTable("residual_imports", {
   totalVariance: text("total_variance").default("0"),
   varianceThresholdPct: real("variance_threshold_pct").default(5),
   varianceThresholdAmt: real("variance_threshold_amt").default(50),
+  varianceThresholdAmtDecimal: numeric("variance_threshold_amt_decimal", { precision: 14, scale: 2 }),
   confirmedAt: timestamp("confirmed_at"),
   confirmedBy: text("confirmed_by"),
   createdAt: timestamp("created_at").defaultNow(),

@@ -8,6 +8,7 @@ import { getProcessor, getDefaultProcessor, getEnabledAdapterNames, ingestMidDat
 import { serverError, safeMessage } from "../utils/server-error";
 import { startDealBoardingOutboxWorker } from "../services/deal-boarding-outbox-worker";
 import { auditChange } from "../services/audit-change";
+import { advanceDealStage } from "../services/deal-stage-service";
 import crypto from "crypto";
 
 const IN_FLIGHT_BOARDING_STATUSES = ["submitted", "under_review", "more_info_needed"];
@@ -134,17 +135,20 @@ async function performBoardingStatusRefresh(dealId: number): Promise<BoardingRef
       updates.mid = result.mid;
       updates.boardingApprovedAt = new Date();
 
-      if (deal.pipeline === "onboarding") {
-        updates.stage = "Approved";
-      }
     }
 
     await storage.updateDeal(dealId, updates);
+    if (result.status === "approved" && deal.pipeline === "onboarding") {
+      await advanceDealStage(dealId, "Approved", "boarding_status_refresh", {
+        reason: "Processor boarding status approved",
+        actor: "system",
+        expectedStage: deal.stage,
+      });
+    }
 
     // When the processor approves the deal, fire the merchant portal invitation
-    // so the merchant gets their access link. This mirrors the same hook in
-    // advanceDealStage — boarding.ts sets stage directly to preserve the extra
-    // boarding fields, so the invite must be triggered here explicitly.
+    // so the merchant gets their access link. The canonical stage service owns
+    // the durable intent; this remains a best-effort duplicate-safe nudge.
     if (result.status === "approved" && deal.pipeline === "onboarding") {
       import("../services/merchant-portal-invite").then(({ sendMerchantPortalInvite }) =>
         sendMerchantPortalInvite(dealId).then((inviteResult) => {

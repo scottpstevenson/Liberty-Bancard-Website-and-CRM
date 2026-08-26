@@ -5,7 +5,7 @@ import { syncDealToGhl } from "./ghl-sync";
 import { recordAnalyticsEvent } from "./analytics-events";
 import { CALL_BOOKED, PROPOSAL_SENT, CLOSED_WON, DEAL_STAGE_CHANGED, PROPOSAL_CONVERTED } from "@shared/analytics-events";
 import { db } from "../db";
-import { deals, tasks } from "@shared/schema";
+import { deals, tasks, dealStageEffectIntents } from "@shared/schema";
 import { eq, and, isNull, sql } from "drizzle-orm";
 import { GO_LIVE_GATE_STAGES, evaluateReadinessFromRawRows, GoLiveGateError } from "./go-live-gate";
 import { LifecycleService, dealStageToLifecycleState } from "./lifecycle-service";
@@ -16,6 +16,60 @@ const STAGE_EVENT_MAP: Record<string, string> = {
   "Proposal Sent": PROPOSAL_SENT,
   "Closed Won": CLOSED_WON,
 };
+
+const SALES_STAGE_ORDER = [
+  "New", "New Lead", "Warm Lead", "Discovery", "Appointment Set",
+  "Appointment Completed", "Follow-Up", "Enriched", "Statement Requested",
+  "Statement Received", "Review In Progress", "Call Booked", "Proposal Sent",
+  "Negotiation", "Negotiation / Follow-Up", "Verbal Commit", "Promise to Submit",
+  "Closed Won", "Closed Lost", "Nurture / Not Now",
+] as const;
+const ONBOARDING_STAGE_ORDER = [
+  // Application Submitted is the creation-time onboarding checkpoint used by
+  // Closed Won conversion; it must be a legal source for every later
+  // canonical onboarding move.
+  "Application Submitted", "Contract Sent", "Application Started", "Underwriting Submitted", "Approved",
+  "Terminal Ordered", "Go-Live Scheduled", "Live (First Batch)", "Active (7 Days)",
+  "Active (30 Days)",
+] as const;
+
+export class DealStageConflictError extends Error {
+  readonly code = "DEAL_STAGE_STALE";
+  constructor(readonly dealId: number, readonly expected: string, readonly actual: string) {
+    super(`Deal ${dealId} is at "${actual}", not expected "${expected}"`);
+  }
+}
+export class DealStageIllegalTransitionError extends Error {
+  readonly code = "DEAL_STAGE_ILLEGAL";
+  constructor(readonly dealId: number, readonly from: string, readonly to: string) {
+    super(`Illegal deal-stage transition ${from} → ${to} for deal ${dealId}`);
+  }
+}
+
+function isLegalTransition(pipeline: string, from: string, to: string): boolean {
+  if (from === to) return true;
+  if (to === "Closed Lost" || to === "Nurture / Not Now") return true;
+  // Manual underwriting correction is a deliberate, audited backwards edge.
+  if (from === "Proposal Sent" && to === "Review In Progress") return true;
+  // A newly received statement may legitimately move an early/manual review
+  // record into the canonical statement-received checkpoint.
+  if (from === "Review In Progress" && to === "Statement Received") return true;
+  const order = pipeline === "onboarding" ? ONBOARDING_STAGE_ORDER : SALES_STAGE_ORDER;
+  const fromIndex = order.indexOf(from as never);
+  const toIndex = order.indexOf(to as never);
+  return fromIndex >= 0 && toIndex >= 0 && toIndex > fromIndex;
+}
+
+function materialEffectTypes(stage: string, contactId: number | null): string[] {
+  const effects: string[] = [];
+  if (contactId) effects.push("lifecycle_projection");
+  effects.push("ghl_projection");
+  if (stage === "Closed Won") effects.push("onboarding_kickoff");
+  if (stage === "Approved" || stage === "Go-Live Scheduled") effects.push("portal_invitation");
+  if (stage.toLowerCase().includes("underwriting")) effects.push("underwriting_initialization");
+  if (stage === "Proposal Sent") effects.push("proposal_followup_task");
+  return effects;
+}
 
 /**
  * Central deal stage transition service.
@@ -40,131 +94,85 @@ export async function advanceDealStage(
   dealId: number,
   newStage: string,
   trigger: string,
-  overrideContext?: { reason: string; actor: string },
+  overrideContext?: { reason: string; actor: string; expectedStage?: string },
 ): Promise<Deal | null> {
-  let updated: Deal | null;
+  let stagedDeal: Deal | null = null;
+  let applied = false;
+  let gateBlocked = false;
+  let blockedMissing: string[] = [];
 
-  if ((GO_LIVE_GATE_STAGES as readonly string[]).includes(newStage)) {
-    // ── Atomic Go-Live gate ────────────────────────────────────────────────
-    // Acquire row-level locks on the deal and its checklist items, evaluate
-    // readiness against the locked snapshot, then write the stage update in
-    // the same transaction — preventing a concurrent checklist change from
-    // bypassing the gate between the check and the write.
-    let gateBlocked = false;
-    let blockedMissing: string[] = [];
-
-    await db.transaction(async (tx) => {
-      // Lock the deal row so no concurrent update can change mid/terminalStatus
-      const dealResult = await tx.execute(
-        sql`SELECT id, pipeline, mid, terminal_status FROM deals WHERE id = ${dealId} FOR UPDATE`,
-      );
-      const dealRow = dealResult.rows[0] as { id: number; pipeline: string; mid: string | null; terminal_status: string | null } | undefined;
-
-      if (!dealRow) return; // deal not found — updateDeal path below will surface null
-
-      if (dealRow.pipeline === "onboarding") {
-        // Lock checklist rows so no concurrent approval change slips through
-        const clResult = await tx.execute(
-          sql`SELECT item_key, status FROM onboarding_checklist_items WHERE deal_id = ${dealId} FOR UPDATE`,
-        );
-        const clRows = clResult.rows as Array<{ item_key: string; status: string | null }>;
-
-        const readiness = evaluateReadinessFromRawRows(dealRow, clRows);
-
-        if (!readiness.ready) {
-          const { sanitizeAuditPayload } = await import("./audit-sanitizer");
-          const auditDetails = JSON.stringify(sanitizeAuditPayload({
-            attemptedStage: newStage,
-            missingItems: readiness.missing,
-            trigger,
-            ...(overrideContext
-              ? { overrideReason: overrideContext.reason, overriddenBy: overrideContext.actor }
-              : {}),
-          }));
-
-          if (overrideContext) {
-            await tx.execute(sql`
-              INSERT INTO audit_logs (action, entity_type, entity_id, actor_type, details, created_at)
-              VALUES ('go_live_gate_overridden', 'deal', ${dealId}, 'user', ${auditDetails}::jsonb, NOW())
-            `);
-            // Fall through to the stage update below
-          } else {
-            // Write blocked audit log, then bail out of the update (do NOT throw inside tx
-            // — we want the audit log committed even though no stage change occurred).
-            await tx.execute(sql`
-              INSERT INTO audit_logs (action, entity_type, entity_id, actor_type, details, created_at)
-              VALUES ('go_live_gate_blocked', 'deal', ${dealId}, 'system', ${auditDetails}::jsonb, NOW())
-            `);
-            gateBlocked = true;
-            blockedMissing = readiness.missing;
-            return; // exit transaction callback; audit log commits, stage does NOT update
-          }
-        }
-      }
-
-      // Gate passed (or override, or non-onboarding): update stage inside the same transaction
-      await tx.execute(
-        sql`UPDATE deals SET stage = ${newStage}, updated_at = NOW() WHERE id = ${dealId}`,
-      );
-    });
-
-    if (gateBlocked) {
-      console.warn(
-        `[DealStage] Go-live gate blocked stage "${newStage}" for onboarding deal #${dealId} (trigger: ${trigger}). Missing: ${blockedMissing.join("; ")}`,
-      );
-      throw new GoLiveGateError(dealId, newStage, blockedMissing, trigger);
+  await db.transaction(async (tx) => {
+    const dealResult = await tx.execute(sql`
+      SELECT id, pipeline, stage, contact_id, mid, terminal_status
+      FROM deals WHERE id = ${dealId} FOR UPDATE
+    `);
+    const dealRow = (dealResult.rows ?? dealResult)[0] as {
+      id: number; pipeline: string; stage: string; contact_id: number | null;
+      mid: string | null; terminal_status: string | null;
+    } | undefined;
+    if (!dealRow) return;
+    if (overrideContext?.expectedStage && dealRow.stage !== overrideContext.expectedStage) {
+      throw new DealStageConflictError(dealId, overrideContext.expectedStage, dealRow.stage);
+    }
+    if (dealRow.stage === newStage) {
+      stagedDeal = (await tx.select().from(deals).where(eq(deals.id, dealId)).limit(1))[0] ?? null;
+      return;
+    }
+    if (!isLegalTransition(dealRow.pipeline, dealRow.stage, newStage)) {
+      throw new DealStageIllegalTransitionError(dealId, dealRow.stage, newStage);
     }
 
-    // Fetch the freshly updated deal for side-effect callers
-    updated = (await storage.getDeal(dealId)) ?? null;
-  } else {
-    // Non-gate stage: use the standard storage path
-    updated = await storage.updateDeal(dealId, { stage: newStage });
-  }
+    if ((GO_LIVE_GATE_STAGES as readonly string[]).includes(newStage) && dealRow.pipeline === "onboarding") {
+      const clResult = await tx.execute(sql`
+        SELECT item_key, status FROM onboarding_checklist_items WHERE deal_id = ${dealId} FOR UPDATE
+      `);
+      const readiness = evaluateReadinessFromRawRows(dealRow, (clResult.rows ?? clResult) as Array<{ item_key: string; status: string | null }>);
+      if (!readiness.ready && !overrideContext) {
+        gateBlocked = true;
+        blockedMissing = readiness.missing;
+        await tx.execute(sql`
+          INSERT INTO audit_logs (action, entity_type, entity_id, actor_type, details, created_at)
+          VALUES ('go_live_gate_blocked', 'deal', ${dealId}, 'system',
+            ${JSON.stringify({ attemptedStage: newStage, missingItems: readiness.missing, trigger })}::jsonb, NOW())
+        `);
+        return;
+      }
+    }
 
+    const transitioned = await tx.execute(sql`
+      UPDATE deals SET stage = ${newStage}, updated_at = NOW()
+      WHERE id = ${dealId} AND stage = ${dealRow.stage}
+      RETURNING *
+    `);
+    stagedDeal = ((transitioned.rows ?? transitioned)[0] as Deal | undefined) ?? null;
+    if (!stagedDeal) throw new DealStageConflictError(dealId, dealRow.stage, "changed concurrently");
+    applied = true;
+    const transitionKey = `${dealId}:${dealRow.stage}:${newStage}`;
+    for (const effectType of materialEffectTypes(newStage, dealRow.contact_id)) {
+      await tx.insert(dealStageEffectIntents).values({
+        dealId, transitionKey, effectType,
+        idempotencyKey: `deal-stage:${transitionKey}:${effectType}`,
+      }).onConflictDoNothing();
+    }
+    await tx.execute(sql`
+      INSERT INTO audit_logs (action, entity_type, entity_id, actor_type, details, created_at)
+      VALUES ('deal_stage_transitioned', 'deal', ${dealId}, 'system',
+        ${JSON.stringify({ from: dealRow.stage, to: newStage, trigger, transitionKey })}::jsonb, NOW())
+    `);
+  });
+
+  if (gateBlocked) throw new GoLiveGateError(dealId, newStage, blockedMissing, trigger);
+
+  const updated = stagedDeal as Deal | null;
   if (!updated) return null;
+  // Same-stage retries are a successful no-op.  Critically, do not create
+  // telemetry, tasks, invitations, or provider work a second time.
+  if (!applied) return updated;
 
   console.log(`[DealStage] Deal ${dealId} → "${newStage}" (trigger: ${trigger})`);
 
-  // ── Lifecycle side-effect (fire-and-forget, never throws) ─────────────────
-  if (updated.contactId) {
-    const lcState = dealStageToLifecycleState(newStage, updated.pipeline);
-    if (lcState) {
-      LifecycleService.transition(updated.contactId, lcState, {
-        trigger: `deal_stage_${trigger}`,
-        source: "deal-stage-service",
-        metadata: { dealId, stage: newStage, pipeline: updated.pipeline },
-      }).catch((err: Error) =>
-        console.warn(`[Lifecycle] Side-effect transition failed for contact #${updated.contactId}:`, err.message),
-      );
-    }
-  }
-
-  if (isGhlConfigured()) {
-    syncDealToGhl(dealId).then((ghlResult) => {
-      if (!ghlResult.success) {
-        console.warn(
-          `[DealStage] GHL sync failed for deal ${dealId} after stage change to "${newStage}":`,
-          ghlResult.error,
-        );
-        storage.createAuditLog({
-          action: "ghl_opportunity_sync_failed",
-          entityType: "deal",
-          entityId: dealId,
-          details: { error: ghlResult.error, stage: newStage, trigger },
-        }).catch(() => {});
-      } else {
-        console.log(
-          `[DealStage] Deal ${dealId} stage "${newStage}" pushed to GHL opportunity ${ghlResult.ghlOpportunityId}`,
-        );
-      }
-    }).catch((err: Error) => {
-      console.warn(
-        `[DealStage] GHL sync exception for deal ${dealId} after stage change to "${newStage}":`,
-        err.message,
-      );
-    });
-  }
+  // Material follow-ons are deliberately dispatched only from the durable
+  // intent ledger by deal-stage-effect-worker. Analytics below stays best-effort.
 
   // Record dedicated funnel event for key stages, plus generic stage-changed
   const funnelEvent = STAGE_EVENT_MAP[newStage];
@@ -186,26 +194,9 @@ export async function advanceDealStage(
     metadata: { trigger, newStage },
   }).catch(() => {});
 
-  // #581 — Proposal Sent → auto-create a follow-up task for the assigned rep
-  if (newStage === "Proposal Sent" && updated.owner && updated.contactId) {
-    import("../storage").then(async ({ storage: st }) => {
-      const followUpDate = new Date(Date.now() + 7 * 86_400_000); // 7 days out
-      await st.createTask({
-        contactId: updated.contactId!,
-        dealId,
-        title: `Follow up on proposal — Deal #${dealId}`,
-        description: "Check if the merchant has reviewed the proposal and address any questions.",
-        dueDate: followUpDate,
-        priority: "normal",
-      }).catch(err => console.warn(`[DealStage] Auto task (proposal sent) failed for deal ${dealId}:`, err.message));
-    }).catch(() => {});
-  }
-
-  // Closed Won → fire onboarding kickoff (idempotent, concurrency-safe)
+  // Closed-Won notification/conversion telemetry is informational; onboarding
+  // itself is a durable stage-effect intent.
   if (newStage === "Closed Won") {
-    triggerClosedWonOnboarding(updated).catch((err: Error) =>
-      console.error(`[DealStage] Onboarding kickoff error for deal ${dealId}:`, err.message),
-    );
 
     // #577 — Notify the assigned agent when their deal closes
     if (updated.owner) {
@@ -242,44 +233,6 @@ export async function advanceDealStage(
         },
       }).catch(() => {});
     }
-  }
-
-  // Approved / Go-Live Scheduled → send merchant portal invitation
-  if (newStage === "Approved" || newStage === "Go-Live Scheduled") {
-    import("./merchant-portal-invite").then(({ sendMerchantPortalInvite }) =>
-      sendMerchantPortalInvite(dealId).then((result) => {
-        if (!result.sent) {
-          console.log(
-            `[DealStage] Portal invite skipped for deal ${dealId} (reason: ${result.reason})`,
-          );
-        }
-      })
-    ).catch((err: Error) =>
-      console.error(`[DealStage] Portal invite error for deal ${dealId}:`, err.message),
-    );
-  }
-
-  // Underwriting stage → auto-initialize document checklist + conditions (both idempotent).
-  // Vertical is resolved from the linked contact because the deals table has no
-  // vertical column — the canonical vertical lives on contacts.
-  if (newStage.toLowerCase().includes("underwriting")) {
-    import("./underwriting-checklist-service").then(async ({ initUnderwritingChecklist, initUnderwritingConditions }) => {
-      let vertical: string | null = null;
-      let contactEmail: string | null = null;
-      let contactName: string | null = null;
-      if (updated.contactId) {
-        try {
-          const contact = await storage.getContact(updated.contactId);
-          vertical      = contact?.vertical  ?? null;
-          contactEmail  = contact?.email     ?? null;
-          contactName   = [contact?.firstName, contact?.lastName].filter(Boolean).join(" ") || null;
-        } catch { /* non-fatal — falls back to generic templates */ }
-      }
-      await initUnderwritingChecklist(dealId, vertical);
-      await initUnderwritingConditions(dealId, contactEmail, contactName, updated.contactId ?? null);
-    }).catch((err: Error) =>
-      console.error(`[DealStage] Underwriting init error for deal ${dealId}:`, err.message),
-    );
   }
 
   return updated;
@@ -601,10 +554,8 @@ export async function triggerClosedWonOnboarding(salesDeal: Deal): Promise<void>
       });
       console.log(`[Onboarding] Checklist initialized for onboarding deal #${onboardingDealId}`);
     } catch (checklistErr: any) {
-      console.error(
-        `[Onboarding] Checklist init failed for deal #${onboardingDealId} (non-fatal):`,
-        checklistErr?.message,
-      );
+      console.error(`[Onboarding] Checklist init failed for deal #${onboardingDealId}:`, checklistErr?.message);
+      throw checklistErr;
     }
 
     // ── 3. Ensure SLA tasks (concurrency-safe via unique partial index) ───
@@ -626,9 +577,7 @@ export async function triggerClosedWonOnboarding(salesDeal: Deal): Promise<void>
         const claimed = await claimWelcomeDispatch(salesDeal.id, contact.id);
         if (claimed) {
           const { sendMerchantWelcomeEmail } = await import("./merchant-welcome");
-          sendMerchantWelcomeEmail(contact, salesDeal).catch((err: Error) =>
-            console.error("[Onboarding] Merchant welcome email error:", err.message),
-          );
+          await sendMerchantWelcomeEmail(contact, salesDeal);
         }
       }
     }
@@ -637,6 +586,8 @@ export async function triggerClosedWonOnboarding(salesDeal: Deal): Promise<void>
     // relative to merchantMids.activatedAt — not at Closed Won stage.
   } catch (err) {
     console.error("[Onboarding] triggerClosedWonOnboarding error:", err);
-    // Non-fatal — log and continue; caller's response is already committed
+    // Called only by the durable stage-effect dispatcher. Propagate so the
+    // intent remains recoverable instead of being marked falsely complete.
+    throw err;
   }
 }

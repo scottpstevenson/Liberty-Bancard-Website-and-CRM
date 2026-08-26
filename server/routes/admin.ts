@@ -6,6 +6,7 @@ import { db, pool } from "../db";
 import { auditChange } from "../services/audit-change";
 import { z } from "zod";
 import { insertAgentMerchantSchema, insertAgentQuotaSchema, insertAgentSchema, insertConsentAuditLogSchema, insertDataDeleteRequestSchema, insertHealthAlertSchema, insertResidualReportSchema, insertReviewRequestSchema, insertSendingIdentitySchema, ALLOWED_SENDING_DOMAINS, users, contacts, deals, auditLogs, automationRegistry, merchantMids, insertMerchantMidSchema } from "@shared/schema";
+import { createMerchantMid, updateMerchantMid } from "../services/merchant-mid-service";
 import { desc, eq, isNull, and, gte, or, like, count, not, sql } from "drizzle-orm";
 import { parse } from "csv-parse/sync";
 import path from "path";
@@ -4941,17 +4942,8 @@ export function registerAdminRoutes(app: Express) {
       if (!parsed.success) {
         return res.status(400).json({ message: "Invalid MID data", errors: parsed.error.errors });
       }
-      const [row] = await db
-        .insert(merchantMids)
-        .values({ ...parsed.data, createdAt: new Date(), updatedAt: new Date() })
-        .returning();
-      await storage.createAuditLog({
-        action: "mid_created",
-        entityType: "contact",
-        entityId: row.contactId,
-        actorType: "user",
-        actorId: String((req.user as any)?.id ?? ""),
-        details: { mid: row.mid, processorName: row.processorName },
+      const row = await createMerchantMid({
+        ...parsed.data, actorId: String((req.user as any)?.id ?? ""), actorType: "user",
       });
       res.status(201).json(row);
     } catch (err: any) {
@@ -4971,21 +4963,8 @@ export function registerAdminRoutes(app: Express) {
         return res.status(400).json({ message: "Invalid update data", errors: parsed.error.errors });
       }
 
-      const [row] = await db
-        .update(merchantMids)
-        .set({ ...parsed.data, updatedAt: new Date() })
-        .where(eq(merchantMids.id, id))
-        .returning();
-
-      if (!row) return res.status(404).json({ message: "MID not found" });
-
-      await storage.createAuditLog({
-        action: "mid_updated",
-        entityType: "contact",
-        entityId: row.contactId,
-        actorType: "user",
-        actorId: String((req.user as any)?.id ?? ""),
-        details: { midId: id, changes: parsed.data },
+      const row = await updateMerchantMid({
+        id, ...parsed.data, actorId: String((req.user as any)?.id ?? ""), actorType: "user",
       });
       res.json(row);
     } catch (err: any) {

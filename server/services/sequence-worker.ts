@@ -9,6 +9,7 @@ import { getEmailSignatureHtml, getComplianceFooterHtml, isColdOutreachSequence 
 import type { SignatureType } from "./sender-policy";
 import { sanitizeFirstName } from "./contact-name-utils";
 import { hashEmailToken } from "./provider-readiness-control";
+import { getOrCreateSequenceAbAssignment, recordSequenceAbDelivery } from "./sequence-ab-authority";
 
 /**
  * Map a sequence's triggerConfig.category to the correct email signature type.
@@ -1187,10 +1188,11 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
                 `in enrollment ${enrollment.id} step ${step.stepOrder}`
               );
             }
-            console.warn(
-              `[Sequence Worker] Unresolved template placeholders in outbound message ` +
-              `(enrollment ${enrollment.id}, step ${step.stepOrder}, contact ${enrollment.contactId}): ` +
-              remaining.join(", ")
+            // Unknown placeholders are never a cosmetic concern at the delivery
+            // boundary: sending them makes a broken template look successful.
+            throw new Error(
+              `Outbound blocked: unresolved template placeholder(s) ${remaining.join(", ")} ` +
+              `in enrollment ${enrollment.id} step ${step.stepOrder}`,
             );
           }
           return result;
@@ -1272,8 +1274,11 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
               if (currentWinner) {
                 chosenVariant = currentWinner as "A" | "B";
               } else {
-                const splitRatio = abConfig?.splitRatio ?? 50;
-                chosenVariant = Math.random() * 100 < splitRatio ? "A" : "B";
+                chosenVariant = await getOrCreateSequenceAbAssignment({
+                  enrollmentId: enrollment.id, stepId: step.id, splitRatio: abConfig?.splitRatio ?? 50,
+                  config: { abConfig, subjectA: step.subject, bodyA: step.body, subjectB: step.variantBSubject, bodyB: step.variantBBody },
+                  eligibilitySnapshot: { contactId: enrollment.contactId, sequenceId: sequence.id, stepId: step.id, lifecycleState: contact?.lifecycleState ?? null, consentTier: contact?.consentTier ?? null, recordClass: contact?.recordClass ?? "unknown" },
+                });
               }
               if (chosenVariant === "B") {
                 subjectToSend = step.variantBSubject ?? step.subject;
@@ -1747,7 +1752,7 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
                 }
               }
             }
-            await storage.createEmailLog({
+            const emailLog = await storage.createEmailLog({
               contactId: enrollment.contactId,
               direction: "outbound",
               subject: interpolate(subjectToSend),
@@ -1755,6 +1760,7 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
               status: stepExecuted ? "sent" : "failed",
               metadata: abEnabled ? { stepId: step.id, sequenceId: sequence.id, abVariant: chosenVariant } : undefined,
             });
+            if (abEnabled && emailLog) await recordSequenceAbDelivery({ enrollmentId: enrollment.id, stepId: step.id, deliveryLogId: emailLog.id });
 
             if (abEnabled && stepExecuted && !currentWinner) {
               const stepLogs = await storage.getEmailLogsByStepId(step.id);
@@ -1790,20 +1796,8 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
                 }
               }
 
-              await storage.updateSequenceStepAbTestResults(step.id, {
-                variantASent,
-                variantBSent,
-                aOpens,
-                bOpens,
-                aClicks,
-                bClicks,
-                aReplies,
-                bReplies,
-                winnerSelected,
-                winnerAt,
-                startedAt: existing.startedAt ?? new Date().toISOString(),
-                statisticallySignificant,
-              });
+              // Evaluator execution is scheduler/admin-command owned. Sending
+              // records exposure only and must not fire a competing evaluator.
             }
             break;
           }
@@ -1822,8 +1816,11 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
               if (currentWinner) {
                 chosenVariant = currentWinner as "A" | "B";
               } else {
-                const splitRatio = abConfig?.splitRatio ?? 50;
-                chosenVariant = Math.random() * 100 < splitRatio ? "A" : "B";
+                chosenVariant = await getOrCreateSequenceAbAssignment({
+                  enrollmentId: enrollment.id, stepId: step.id, splitRatio: abConfig?.splitRatio ?? 50,
+                  config: { abConfig, bodyA: step.body, bodyB: step.variantBBody },
+                  eligibilitySnapshot: { contactId: enrollment.contactId, sequenceId: sequence.id, stepId: step.id, lifecycleState: contact?.lifecycleState ?? null, consentTier: contact?.consentTier ?? null, recordClass: contact?.recordClass ?? "unknown" },
+                });
               }
               if (chosenVariant === "B") bodyToSend = step.variantBBody ?? step.body;
             }
@@ -1950,7 +1947,7 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
               }
             }
 
-            await storage.createEmailLog({
+            const smsLog = await storage.createEmailLog({
               contactId: enrollment.contactId,
               direction: "outbound",
               subject: null,
@@ -1958,6 +1955,7 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
               status: stepExecuted ? "sent" : "failed",
               metadata: { type: "sms", stepId: step.id, sequenceId: sequence.id, ...(abEnabled ? { abVariant: chosenVariant } : {}) },
             });
+            if (abEnabled && smsLog) await recordSequenceAbDelivery({ enrollmentId: enrollment.id, stepId: step.id, deliveryLogId: smsLog.id });
 
             if (abEnabled && stepExecuted && !currentWinner) {
               const stepLogs = await storage.getEmailLogsByStepId(step.id);
@@ -1987,20 +1985,7 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
                 }
               }
 
-              await storage.updateSequenceStepAbTestResults(step.id, {
-                variantASent,
-                variantBSent,
-                aOpens: 0,
-                bOpens: 0,
-                aClicks: 0,
-                bClicks: 0,
-                aReplies,
-                bReplies,
-                winnerSelected,
-                winnerAt,
-                startedAt: existing.startedAt ?? new Date().toISOString(),
-                statisticallySignificant,
-              });
+              // Evaluator execution is scheduler/admin-command owned.
             }
             break;
           }

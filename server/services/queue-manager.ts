@@ -32,6 +32,8 @@ export const QUEUE_NAMES = {
   POST_ENRICHMENT: "post-enrichment",
   ZEROBOUNCE_BATCH: "zerobounce-batch-validate",
   STATEMENT_UPLOAD: "statement-upload",
+  DEAL_STAGE_EFFECTS: "deal-stage-effects",
+  CHARGEBACK_COMMANDS: "chargeback-commands",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -117,6 +119,16 @@ const SLA_CHECKS_REPEAT_EVERY_MS = IS_DEV
     : SLA_CHECKS_REPEAT_DEFAULT_MS;
 
 export const QUEUE_CONFIGS: QueueConfig[] = [
+  {
+    name: QUEUE_NAMES.DEAL_STAGE_EFFECTS,
+    concurrency: 1, attempts: 3, backoffDelay: 10_000,
+    repeatEveryMs: 60_000, jobName: "dispatch",
+  },
+  {
+    name: QUEUE_NAMES.CHARGEBACK_COMMANDS,
+    concurrency: 1, attempts: 3, backoffDelay: 10_000,
+    repeatEveryMs: 60_000, jobName: "dispatch",
+  },
   {
     name: QUEUE_NAMES.STATEMENT_UPLOAD,
     concurrency: 1,
@@ -1011,6 +1023,16 @@ class QueueManager {
       }
 
       switch (queueName) {
+        case QUEUE_NAMES.DEAL_STAGE_EFFECTS: {
+          const { dispatchDealStageEffectIntents } = await import("./deal-stage-effect-worker");
+          await dispatchDealStageEffectIntents();
+          break;
+        }
+        case QUEUE_NAMES.CHARGEBACK_COMMANDS: {
+          const { recoverChargebackSubmissionCommands } = await import("./chargeback-submission-service");
+          await recoverChargebackSubmissionCommands();
+          break;
+        }
         case QUEUE_NAMES.GHL_SYNC: {
           await runGhlSyncTick();
           break;
@@ -2312,12 +2334,12 @@ async function runStatementBlueprintJob(dealId: number): Promise<void> {
 
         if (result.decision === "approve") {
           const { advanceDealStage } = await import("./deal-stage-service");
-          await advanceDealStage(dealId, "Proposal Sent", "underwriting_auto_approve").catch(() => {});
+          await advanceDealStage(dealId, "Proposal Sent", "underwriting_auto_approve");
           console.log(`[Underwriting] Deal #${dealId} auto-approved — advanced to Proposal Sent`);
         } else {
           // Hold or review: explicitly lock deal into Review In Progress
           const { advanceDealStage } = await import("./deal-stage-service");
-          await advanceDealStage(dealId, "Review In Progress", "underwriting_flag").catch(() => {});
+          await advanceDealStage(dealId, "Review In Progress", "underwriting_flag");
           const title = result.decision === "hold"
             ? `Underwriting HOLD — Deal #${dealId} requires immediate review`
             : `Underwriting Review Required — Deal #${dealId}`;

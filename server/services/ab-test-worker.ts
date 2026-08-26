@@ -1,5 +1,8 @@
 import { storage } from "../storage";
 import type { AbTestConfig, AbTestResults } from "@shared/schema";
+import { db } from "../db";
+import { sql } from "drizzle-orm";
+import crypto from "crypto";
 
 export interface AbTestCheckResult {
   checked: number;
@@ -28,6 +31,25 @@ function isStatisticallySignificant(
 }
 
 export async function checkAbTestWinners(): Promise<AbTestCheckResult> {
+  // A single persisted lease owns every evaluator pass.  The time-bucketed key
+  // makes duplicate HTTP/scheduler triggers idempotent while allowing later
+  // scheduled evaluations; an expired lease is explicitly recoverable.
+  const runKey = `ab-evaluation:${Math.floor(Date.now() / 300_000)}`;
+  await db.execute(sql`
+    INSERT INTO sequence_ab_evaluation_runs (run_key, state)
+    VALUES (${runKey}, 'accepted')
+    ON CONFLICT (run_key) DO NOTHING
+  `);
+  const claim = await db.execute(sql`
+    UPDATE sequence_ab_evaluation_runs
+    SET state='running', lease_token=gen_random_uuid(), lease_expires_at=now() + interval '5 minutes',
+        started_at=COALESCE(started_at, now()), updated_at=now()
+    WHERE run_key=${runKey}
+      AND (state IN ('accepted','failed') OR (state='running' AND lease_expires_at < now()))
+    RETURNING lease_token
+  `);
+  const lease = ((claim.rows ?? claim)[0] as { lease_token?: string } | undefined)?.lease_token;
+  if (!lease) return { checked: 0, updated: 0, winnersSelected: 0 };
   let checked = 0;
   let updated = 0;
   let winnersSelected = 0;
@@ -44,18 +66,29 @@ export async function checkAbTestWinners(): Promise<AbTestCheckResult> {
         if (!abConfig || !abEnabled) continue;
 
         const existing = (step.abTestResults as Partial<AbTestResults> | null) ?? {};
-        if (existing.winnerSelected) continue;
+        const configHash = crypto.createHash("sha256").update(JSON.stringify({
+          abConfig, subjectA: step.subject, bodyA: step.body, subjectB: step.variantBSubject, bodyB: step.variantBBody,
+        })).digest("hex");
 
         checked++;
 
-        const stepLogs = await storage.getEmailLogsByStepId(step.id);
+        // Only delivery logs immutably linked to a pre-send assignment count.
+        // Mutable metadata and current contact state never establish a cohort.
+        const assignedRows = await db.execute(sql`
+          SELECT l.* FROM sequence_step_ab_assignments a
+          JOIN email_logs l ON l.id=a.delivery_log_id
+          WHERE a.sequence_step_id=${step.id} AND a.config_hash=${configHash}
+            AND a.delivery_log_id IS NOT NULL
+            AND a.eligibility_snapshot->>'recordClass' = 'production'
+        `);
+        const stepLogs = (assignedRows.rows ?? assignedRows) as Array<any>;
 
         const isEmailStep = step.actionType === "email";
         const isSmsStep = step.actionType === "sms";
 
         const abLogs = isSmsStep
-          ? stepLogs.filter(l => logMeta(l)?.type === "sms" && logMeta(l)?.abVariant)
-          : stepLogs.filter(l => logMeta(l)?.abVariant);
+          ? stepLogs.filter(l => logMeta(l)?.type === "sms")
+          : stepLogs.filter(l => logMeta(l)?.type !== "sms");
 
         const variantASent = abLogs.filter(
           l => logMeta(l)?.abVariant === "A" && l.status === "sent"
@@ -126,6 +159,22 @@ export async function checkAbTestWinners(): Promise<AbTestCheckResult> {
             winnerAt = winnerAt ?? new Date().toISOString();
             pickedWinner = true;
             winnersSelected++;
+            const decision = await db.execute(sql`
+              INSERT INTO sequence_ab_winner_decisions
+                (sequence_step_id, config_hash, winner, evaluation_snapshot)
+              VALUES (${step.id}, ${configHash}, ${winnerSelected},
+                ${JSON.stringify({ variantASent, variantBSent, aOpens, bOpens, aClicks, bClicks, aReplies, bReplies, winnerCriteria })}::jsonb)
+              ON CONFLICT (sequence_step_id, config_hash) DO NOTHING
+              RETURNING winner
+            `);
+            if ((decision.rows ?? decision).length === 0) {
+              const stored = await db.execute(sql`
+                SELECT winner FROM sequence_ab_winner_decisions
+                WHERE sequence_step_id=${step.id} AND config_hash=${configHash}
+              `);
+              winnerSelected = ((stored.rows ?? stored)[0] as { winner?: string } | undefined)?.winner ?? null;
+              pickedWinner = false;
+            }
           }
         }
 
@@ -162,7 +211,20 @@ export async function checkAbTestWinners(): Promise<AbTestCheckResult> {
     }
   } catch (err) {
     console.error("[AB Test Worker] Error checking A/B test winners:", err);
+    // Queue/HTTP callers must receive a truthful failure, not a completed
+    // aggregate with hidden errors.
+    await db.execute(sql`
+      UPDATE sequence_ab_evaluation_runs SET state='failed', error=${err instanceof Error ? err.message.slice(0, 1000) : String(err).slice(0, 1000)},
+        lease_token=NULL, lease_expires_at=NULL, updated_at=now()
+      WHERE run_key=${runKey} AND lease_token=${lease}::uuid
+    `);
+    throw err;
   }
-
-  return { checked, updated, winnersSelected };
+  const result = { checked, updated, winnersSelected };
+  await db.execute(sql`
+    UPDATE sequence_ab_evaluation_runs SET state='completed', snapshot=${JSON.stringify(result)}::jsonb,
+      completed_at=now(), lease_token=NULL, lease_expires_at=NULL, updated_at=now()
+    WHERE run_key=${runKey} AND lease_token=${lease}::uuid
+  `);
+  return result;
 }

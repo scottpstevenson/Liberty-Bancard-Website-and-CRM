@@ -102,6 +102,8 @@ export interface ChargebackSubmission {
   caseNumber?: string;
   responseDeadline?: string;
   evidenceNotes?: string;
+  /** Stable command UUID, forwarded to processors that support idempotent requests. */
+  providerIdempotencyKey?: string;
 }
 
 export interface ChargebackResult {

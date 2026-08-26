@@ -208,7 +208,10 @@ export function registerUnderwritingRoutes(app: Express) {
         );
 
         const { advanceDealStage } = await import("../services/deal-stage-service");
-        await advanceDealStage(dealId, "Proposal Sent", "underwriting_manual_approve").catch(() => {});
+        await advanceDealStage(dealId, "Proposal Sent", "underwriting_manual_approve", {
+          reason: "Manual underwriting approval",
+          actor: userId ?? "unknown",
+        });
 
         if (ghlTaskContext) {
           createGhlTask({
@@ -275,7 +278,10 @@ export function registerUnderwritingRoutes(app: Express) {
         );
 
         const { advanceDealStage } = await import("../services/deal-stage-service");
-        await advanceDealStage(dealId, "Review In Progress", "underwriting_manual_reject").catch(() => {});
+        await advanceDealStage(dealId, "Review In Progress", "underwriting_manual_reject", {
+          reason: "Manual underwriting rejection",
+          actor: userId ?? "unknown",
+        });
 
         await storage.createNotification({
           channel: "internal",
