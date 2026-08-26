@@ -279,6 +279,7 @@ async function testGmailUnavailableBlock() {
 
   let contactId: number | null = null;
   let seqId: number | null = null;
+  let stepId: number | null = null;
   let enrollmentId: number | null = null;
   let pauseControlId: number | null = null;
   let priorPauseControl: any = null;
@@ -304,16 +305,19 @@ async function testGmailUnavailableBlock() {
       sequenceFamily: "onboarding",
       triggerType: `transport_test_noncold_${RUN_ID}`,
       status: "active",
-      steps: [{
-        stepOrder: 1,
-        actionType: "email",
-        delayDays: 0,
-        subject: "Test step",
-        body: "Test body",
-        isActive: true,
-      }],
     });
     seqId = seq.id;
+
+    const step = await storage.createSequenceStep({
+      sequenceId: seqId,
+      stepOrder: 1,
+      actionType: "email",
+      delayDays: 0,
+      delayHours: 0,
+      subject: "Test step",
+      body: "Test body",
+    });
+    stepId = step.id;
 
     const enrollment = await storage.createSequenceEnrollment({
       contactId,
@@ -407,6 +411,9 @@ async function testGmailUnavailableBlock() {
     // Clean up test fixtures
     if (enrollmentId) {
       try { await db.execute(sql`DELETE FROM sequence_enrollments WHERE id = ${enrollmentId}`); } catch {}
+    }
+    if (stepId) {
+      try { await db.execute(sql`DELETE FROM sequence_steps WHERE id = ${stepId}`); } catch {}
     }
     if (seqId) {
       try { await db.execute(sql`DELETE FROM follow_up_sequences WHERE id = ${seqId}`); } catch {}
