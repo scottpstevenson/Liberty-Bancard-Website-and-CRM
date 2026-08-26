@@ -2,6 +2,7 @@ import crypto from "crypto";
 import { sql } from "drizzle-orm";
 import { db } from "../db";
 import { IDENTITY_NORMALIZATION_VERSION } from "./contact-identity";
+import { sanitizeAuditPayload } from "./audit-sanitizer";
 
 export const CONTACT_MERGE_MANIFEST_VERSION = 2;
 export type Disposition = "transfer" | "immutable_retain" | "terminalize" | "authority_handoff" | "manual_block";
@@ -322,7 +323,8 @@ export async function approveContactMerge(operationId: string, actorId: string) 
   // Actor attribution on the operation remains the preview creator; immutable
   // audit details attribute approval to the authenticated admin.
   await db.execute(sql`INSERT INTO audit_logs (action, entity_type, entity_key, actor_type, actor_id, details)
-    VALUES ('contact_merge_approved', 'contact_merge', ${operationId}, 'user', ${actorId}, ${JSON.stringify({ operationId })}::jsonb)`);
+    VALUES ('contact_merge_approved', 'contact_merge', ${operationId}, 'user', ${actorId},
+      ${JSON.stringify(sanitizeAuditPayload({ operationId }))}::jsonb)`);
   return result;
 }
 
