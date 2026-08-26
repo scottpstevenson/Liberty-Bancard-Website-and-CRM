@@ -48,6 +48,10 @@ import fs from "fs";
 import path from "path";
 import pg from "pg";
 import { pool } from "./db";
+import {
+  assertSnapshotTargetIsEmpty,
+  verifyOrCompleteFreshSnapshotFoundation,
+} from "./fresh-snapshot-completion";
 
 const { Client: PgClient } = pg;
 
@@ -251,16 +255,24 @@ export async function runDrizzleMigrations(): Promise<void> {
       );
     }
     let isExistingDatabase = presentCount === snapshotTables.length;
+    let appliedFreshSnapshot = false;
     // A fresh database must start from the canonical snapshot too: both early
     // historical files and 0109 contain bare CREATE TABLE statements. Applying
     // the snapshot once, then journaling it by index, avoids replay collisions.
     if (!isExistingDatabase) {
+      await assertSnapshotTargetIsEmpty(client);
       const snapshotPath = path.join(MIGRATIONS_FOLDER, `${CI_SNAPSHOT_TAG}.sql`);
       if (!fs.existsSync(snapshotPath)) throw new Error(`Snapshot SQL missing: ${snapshotPath}`);
       await client.query(fs.readFileSync(snapshotPath, "utf8"));
       isExistingDatabase = true;
+      appliedFreshSnapshot = true;
       console.log(`[DB Migrate] Applied canonical ${CI_SNAPSHOT_TAG} snapshot to empty database.`);
     }
+
+    // 0109 accidentally omitted the idempotent 0076 foundation tables. Complete
+    // only a snapshot applied by this invocation. Existing databases are checked
+    // for drift and fail closed rather than being silently repaired.
+    await verifyOrCompleteFreshSnapshotFoundation(client, appliedFreshSnapshot);
 
     if (isExistingDatabase) {
       // Read the journal and baseline all entries with when <= BASELINE_WHEN.

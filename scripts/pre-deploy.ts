@@ -81,6 +81,11 @@ const MANDATORY_SUITES: Suite[] = [
     timeoutSecs: 60,
   },
   {
+    name: "Fresh Snapshot Completion Guard",
+    script: "scripts/test-fresh-snapshot-completion.ts",
+    timeoutSecs: 60,
+  },
+  {
     name: "BT-12 Revenue State Reconciliation Integration",
     script: "scripts/test-bt12-revenue-state-reconciliation-integration.ts",
     timeoutSecs: 120,
