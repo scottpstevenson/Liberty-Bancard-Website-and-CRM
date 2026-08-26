@@ -74,6 +74,12 @@ export const SUITE_MANIFEST: SuiteManifestEntry[] = [
     providerDenial: "source-backed authority guard; no providers",
   },
   {
+    name: "Fresh Snapshot Completion Guard",
+    script: "scripts/test-fresh-snapshot-completion.ts",
+    capability: "deterministic-static",
+    providerDenial: "pure migration-boundary behavior with a fake SQL client; no providers or database",
+  },
+  {
     name: "BT-12 Revenue State Reconciliation Integration",
     script: "scripts/test-bt12-revenue-state-reconciliation-integration.ts",
     capability: "deterministic-integration",
