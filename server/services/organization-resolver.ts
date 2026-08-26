@@ -51,13 +51,16 @@ export async function resolveOrganization(input: {
     for (const lockKey of lockKeys) {
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}::text, 1642))`);
     }
+    // PostgreSQL cannot infer a parameter's type when a nullable value appears
+    // only in an IS NULL / IS NOT NULL predicate. Cast every evidence parameter
+    // explicitly so partially populated organization inputs remain valid.
     const candidateRows = await tx.execute(sql`
       SELECT *
       FROM businesses
-      WHERE (${placeId} IS NOT NULL AND google_place_id = ${placeId})
-         OR (${domain} IS NOT NULL AND lower(website_domain) = ${domain})
-         OR (${phone} IS NOT NULL AND regexp_replace(coalesce(main_phone, ''), '[^0-9]', '', 'g') = ${phone})
-         OR (${placeId} IS NULL AND ${domain} IS NULL AND ${phone} IS NULL
+      WHERE (${placeId}::text IS NOT NULL AND google_place_id = ${placeId}::text)
+         OR (${domain}::text IS NOT NULL AND lower(website_domain) = ${domain}::text)
+         OR (${phone}::text IS NOT NULL AND regexp_replace(coalesce(main_phone, ''), '[^0-9]', '', 'g') = ${phone}::text)
+         OR (${placeId}::text IS NULL AND ${domain}::text IS NULL AND ${phone}::text IS NULL
              AND normalized_name = ${name} AND lower(coalesce(city, '')) = ${city ?? ""}
              AND lower(coalesce(state, '')) = ${state ?? ""})
       FOR UPDATE
