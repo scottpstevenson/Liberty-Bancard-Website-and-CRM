@@ -310,12 +310,6 @@ export const SUITE_MANIFEST: SuiteManifestEntry[] = [
     providerDenial: "GHL: GHL_TRANSPORT_FAILFAST=true; transport: fake adapters",
   },
   {
-    name: "NBA Engine",
-    script: "scripts/test-nba.ts",
-    capability: "deterministic-integration",
-    providerDenial: "no provider calls (NBA decision engine only)",
-  },
-  {
     name: "Attrition Monitor Cooldown",
     script: "scripts/smoke-attrition-cooldown.ts",
     capability: "deterministic-integration",
@@ -363,6 +357,12 @@ export const SUITE_MANIFEST: SuiteManifestEntry[] = [
     script: "scripts/test-statement-acquisition.ts",
     capability: "server-required",
     providerDenial: "GHL: GHL_TRANSPORT_FAILFAST=true; SMTP: persisted pause",
+  },
+  {
+    name: "NBA Engine",
+    script: "scripts/test-nba.ts",
+    capability: "server-required",
+    providerDenial: "no provider calls (startup-initialized pause state + NBA decision engine only)",
   },
   {
     name: "Outbound Pause Authority",
