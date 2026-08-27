@@ -14,7 +14,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { BarChart2, Send, Mail, Eye, MessageCircle, AlertTriangle, Zap, FlaskConical, Trophy, Clock } from "lucide-react";
+import { BarChart2, Send, Mail, Eye, MessageCircle, AlertTriangle, FlaskConical, Trophy, Clock } from "lucide-react";
 import type { Campaign, OutboundMessage } from "@shared/schema";
 
 function getMessageStatusBadge(status: string | null | undefined) {
@@ -241,20 +241,6 @@ export default function OutreachAnalytics() {
     queryKey: ["/api/sequences/ab-test-results"],
   });
 
-  const processQueueMutation = useMutation({
-    mutationFn: async () => {
-      await apiRequest("POST", "/api/outbound/process-queue");
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/outbound-messages"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
-      toast({ title: "Queue processed", description: "Outbound message queue has been processed." });
-    },
-    onError: (err: Error) => {
-      toast({ title: "Queue processing failed", description: err.message, variant: "destructive" });
-    },
-  });
-
   const refreshAbMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("POST", "/api/sequences/trigger-ab-check");
@@ -324,20 +310,11 @@ export default function OutreachAnalytics() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-4">
+      <div>
         <div>
           <h2 className="text-2xl font-bold" data-testid="text-outreach-analytics-title">Outreach Analytics</h2>
           <p className="text-sm text-muted-foreground">Campaign performance, outbound message tracking, and A/B test results</p>
         </div>
-        <Button
-          onClick={() => processQueueMutation.mutate()}
-          disabled={processQueueMutation.isPending}
-          className="gap-2"
-          data-testid="button-process-queue"
-        >
-          <Zap className="w-4 h-4" />
-          {processQueueMutation.isPending ? "Processing..." : "Process Queue"}
-        </Button>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">

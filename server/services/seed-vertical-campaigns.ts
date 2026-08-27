@@ -1,4 +1,6 @@
 import { storage } from "../storage";
+import { pool } from "../db";
+import type { PoolClient } from "pg";
 
 interface SequenceSeed {
   name: string;
@@ -2744,7 +2746,10 @@ const VERTICAL_SEQUENCES: SequenceSeed[] = [
 ];
 
 export async function seedVerticalCampaigns() {
+  let lockClient: PoolClient | null = null;
   try {
+    lockClient = await pool.connect();
+    await lockClient.query("SELECT pg_advisory_lock($1)", [1_698_002]);
     const existingSequences = await storage.getFollowUpSequences();
     const existingNames = new Set(existingSequences.map((s: any) => s.name));
 
@@ -2763,7 +2768,9 @@ export async function seedVerticalCampaigns() {
         triggerType: seq.triggerType,
         triggerConfig: seq.triggerConfig,
         totalSteps: seq.steps.length,
-        status: "active",
+        // Vertical campaign content is seeded paused; an operator must
+        // explicitly approve activation after reviewing audience and consent.
+        status: "paused",
       });
 
       for (const step of seq.steps) {
@@ -2786,5 +2793,13 @@ export async function seedVerticalCampaigns() {
     console.log(`[Seed] All ${toSeed.length} vertical campaign sequences seeded.`);
   } catch (error) {
     console.error("[Seed] Error seeding vertical campaigns:", error);
+  } finally {
+    if (lockClient) {
+      try {
+        await lockClient.query("SELECT pg_advisory_unlock($1)", [1_698_002]);
+      } finally {
+        lockClient.release();
+      }
+    }
   }
 }

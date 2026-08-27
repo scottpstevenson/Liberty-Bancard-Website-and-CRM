@@ -2,7 +2,7 @@ import crypto from "crypto";
 import nodemailer from "nodemailer";
 import { resolvePolicy, assertNotProhibitedSync, isProhibitedAddress } from "./sender-policy";
 import type { MessageCategory } from "./sender-policy";
-import { injectCanSpamFooter } from "./can-spam-footer";
+import { getCommercialComplianceConfig, renderEmailPartsForPurpose } from "./can-spam-footer";
 import { redactToken } from "./audit-sanitizer";
 
 let transporter: nodemailer.Transporter | null = null;
@@ -96,6 +96,7 @@ export async function sendSmtpEmail(params: {
   to: string;
   subject: string;
   html: string;
+  text?: string;
   /** Preferred: supply message category; From/Reply-To are resolved from the policy registry. */
   category?: MessageCategory;
   /**
@@ -124,6 +125,18 @@ export async function sendSmtpEmail(params: {
   contactId?: number;
   commercialPurpose?: "marketing_outreach" | "transactional_response";
 }): Promise<{ success: boolean; messageId?: string; error?: string }> {
+  const isCommercial = params.category === "cold_outreach" || params.commercialPurpose === "marketing_outreach";
+  let rendered;
+  try {
+    rendered = await renderEmailPartsForPurpose({
+      html: params.html,
+      text: params.text,
+      purpose: isCommercial ? "marketing_outreach" : "transactional_response",
+      contactId: params.contactId,
+    });
+  } catch (error: any) {
+    return { success: false, error: error.message ?? "COMPLIANCE_CONFIGURATION_UNAVAILABLE" };
+  }
   // Final commercial classification boundary. No-contact exceptions are limited
   // to server-owned operational/security sender categories, never marketing.
   const serverOwnedNoContactCategories = new Set<MessageCategory>([
@@ -171,7 +184,7 @@ export async function sendSmtpEmail(params: {
       if (!epochOk) {
         return { success: false, error: "Outbound paused: epoch changed before send" };
       }
-      return await _sendSmtpEmailInner(params);
+      return await _sendSmtpEmailInner({ ...params, html: rendered.html, text: rendered.text }, rendered.complianceConfig);
     } finally {
       deregisterInflight(token);
     }
@@ -185,6 +198,7 @@ async function _sendSmtpEmailInner(params: {
   to: string;
   subject: string;
   html: string;
+  text?: string;
   category?: import("./sender-policy").MessageCategory;
   from?: string;
   replyTo?: string;
@@ -192,7 +206,7 @@ async function _sendSmtpEmailInner(params: {
   unsubscribeUrl?: string;
   contactId?: number;
   commercialPurpose?: "marketing_outreach" | "transactional_response";
-}): Promise<{ success: boolean; messageId?: string; error?: string }> {
+}, complianceConfig?: Awaited<ReturnType<typeof getCommercialComplianceConfig>>): Promise<{ success: boolean; messageId?: string; error?: string }> {
   const transport = getTransporter();
   if (!transport) {
     return { success: false, error: "SMTP not configured (set SMTP_HOST, SMTP_USER, SMTP_PASS)" };
@@ -227,15 +241,20 @@ async function _sendSmtpEmailInner(params: {
     return { success: false, error: prohibitErr.message };
   }
 
+  const isCommercial = params.category === "cold_outreach" || params.commercialPurpose === "marketing_outreach";
   const listUnsubscribeParts: string[] = [];
-  if (params.unsubscribeMailto) listUnsubscribeParts.push(`<mailto:${params.unsubscribeMailto}>`);
-  if (params.unsubscribeUrl) listUnsubscribeParts.push(`<${params.unsubscribeUrl}>`);
+  if (isCommercial && complianceConfig?.ok) {
+    listUnsubscribeParts.push(`<${complianceConfig.unsubscribeUrl}>`);
+  } else {
+    if (params.unsubscribeMailto) listUnsubscribeParts.push(`<mailto:${params.unsubscribeMailto}>`);
+    if (params.unsubscribeUrl) listUnsubscribeParts.push(`<${params.unsubscribeUrl}>`);
+  }
 
   const headers: Record<string, string> = {};
   if (listUnsubscribeParts.length > 0) {
     headers["List-Unsubscribe"] = listUnsubscribeParts.join(", ");
   }
-  if (params.unsubscribeUrl) {
+  if ((isCommercial && complianceConfig?.ok) || params.unsubscribeUrl) {
     headers["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click";
   }
 
@@ -254,7 +273,8 @@ async function _sendSmtpEmailInner(params: {
       from: fromAddress,
       to: effectiveTo,
       subject: effectiveSubject,
-      html: injectCanSpamFooter(params.html, params.contactId),
+      html: params.html,
+      text: params.text,
       ...(replyToAddress ? { replyTo: replyToAddress } : {}),
       ...(Object.keys(headers).length > 0 ? { headers } : {}),
     });

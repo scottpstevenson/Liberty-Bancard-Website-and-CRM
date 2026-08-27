@@ -129,6 +129,11 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
     return await db.select().from(campaignSteps).where(eq(campaignSteps.campaignId, campaignId)).orderBy(asc(campaignSteps.stepOrder));
   }
 
+  async getCampaignStep(id: number) {
+    const [step] = await db.select().from(campaignSteps).where(eq(campaignSteps.id, id));
+    return step;
+  }
+
 
   async createCampaignStep(step: InsertCampaignStep) {
     const [created] = await db.insert(campaignSteps).values(step).returning();
@@ -175,6 +180,18 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
   async updateOutboundMessage(id: number, updates: UpdateOutboundMessageRequest) {
     const [updated] = await db.update(outboundMessages).set(updates).where(eq(outboundMessages.id, id)).returning();
     return updated;
+  }
+
+  async claimOutboundMessageForSending(id: number): Promise<boolean> {
+    const [claimed] = await db.update(outboundMessages)
+      .set({ status: "sending", sendingAt: new Date() })
+      .where(and(
+        eq(outboundMessages.id, id),
+        eq(outboundMessages.status, "queued"),
+        or(isNull(outboundMessages.scheduledFor), lte(outboundMessages.scheduledFor, new Date())),
+      ))
+      .returning({ id: outboundMessages.id });
+    return !!claimed;
   }
 
 

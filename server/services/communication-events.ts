@@ -12,11 +12,67 @@
  *   - Cross-channel suppression and arbitration signals
  */
 
-import { db } from "../db";
+import { db, pool } from "../db";
 import { communicationEvents, type InsertCommunicationEvent } from "@shared/schema";
 import { storage } from "../storage";
+import { and, eq, gt } from "drizzle-orm";
+import { communicationContactLockKey } from "./communication-contact-lock";
 
 export type { InsertCommunicationEvent };
+
+/** The only reply-stop read result consumers may use.  `UNAVAILABLE` is
+ * deliberately distinct from absence: callers must defer rather than send. */
+export type ReplyDecision = "REPLIED" | "CONFIRMED_ABSENT" | "UNAVAILABLE";
+
+export interface ReplyDecisionDependencies {
+  /** Injectable for unit tests and for callers that need a bounded DB adapter. */
+  findInboundSince?: (contactId: number, enrolledAt: Date) => Promise<boolean>;
+  timeoutMs?: number;
+}
+
+/**
+ * Canonical read-side authority for sequence reply-stop decisions.
+ *
+ * communication_events is the source of truth.  In particular, audit_logs are
+ * intentionally not consulted here: they remain historical compatibility
+ * evidence only and an unavailable canonical read must never be interpreted as
+ * "no reply".
+ */
+export async function decideReplySinceEnrollment(
+  contactId: number,
+  enrolledAt: Date,
+  deps: ReplyDecisionDependencies = {},
+): Promise<ReplyDecision> {
+  if (!Number.isFinite(contactId) || Number.isNaN(enrolledAt.getTime())) {
+    return "UNAVAILABLE";
+  }
+  const findInboundSince = deps.findInboundSince ?? (async (id, since) => {
+    const rows = await db
+      .select({ id: communicationEvents.id })
+      .from(communicationEvents)
+      .where(and(
+        eq(communicationEvents.contactId, id),
+        eq(communicationEvents.direction, "inbound"),
+        gt(communicationEvents.createdAt, since),
+      ))
+      .limit(1);
+    return rows.length > 0;
+  });
+  const timeoutMs = deps.timeoutMs ?? 5_000;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const replyRead = findInboundSince(contactId, enrolledAt);
+    const timeoutRead = new Promise<boolean>((_, reject) => {
+      timeout = setTimeout(() => reject(new Error("reply decision timeout")), timeoutMs);
+    });
+    const replied = await Promise.race<boolean>([replyRead, timeoutRead]);
+    return replied ? "REPLIED" : "CONFIRMED_ABSENT";
+  } catch {
+    return "UNAVAILABLE";
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
 
 /**
  * Record a single communication event. This is the ONLY function that should
@@ -119,23 +175,48 @@ export async function recordInboundEvent(opts: {
   ghlMessageId?: string | null;
   externalMessageId?: string | null;
   metadata?: Record<string, unknown>;
-}): Promise<number | null> {
-  return recordCommunicationEvent({
-    contactId: opts.contactId,
-    dealId: opts.dealId ?? null,
-    direction: "inbound",
-    channel: opts.channel,
-    provider: opts.provider ?? "ghl",
-    subject: opts.subject ?? null,
-    body: opts.body ?? null,
-    status: opts.status ?? "received",
-    sentBy: "human",
-    intentClassification: opts.intentClassification ?? null,
-    intentConfidence: opts.intentConfidence != null ? String(opts.intentConfidence) : null,
-    automationStopped: opts.automationStopped ?? false,
-    automationStopReason: opts.automationStopReason ?? null,
-    ghlMessageId: opts.ghlMessageId ?? null,
-    externalMessageId: opts.externalMessageId ?? null,
-    metadata: opts.metadata ?? null,
-  });
+  occurredAt?: Date;
+}): Promise<number> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT pg_advisory_xact_lock($1::bigint)", [
+      communicationContactLockKey(opts.contactId).toString(),
+    ]);
+    const result = await client.query<{ id: number }>(`
+      INSERT INTO communication_events
+        (contact_id, deal_id, direction, channel, provider, subject, body,
+         status, sent_by, intent_classification, intent_confidence,
+         automation_stopped, automation_stop_reason, ghl_message_id,
+         external_message_id, metadata, created_at, updated_at)
+      VALUES
+        ($1, $2, 'inbound', $3, $4, $5, $6, $7, 'human', $8, $9,
+         $10, $11, $12, $13, $14, $15, NOW())
+      RETURNING id
+    `, [
+      opts.contactId,
+      opts.dealId ?? null,
+      opts.channel,
+      opts.provider ?? "ghl",
+      opts.subject ?? null,
+      opts.body ?? null,
+      opts.status ?? "received",
+      opts.intentClassification ?? null,
+      opts.intentConfidence ?? null,
+      opts.automationStopped ?? false,
+      opts.automationStopReason ?? null,
+      opts.ghlMessageId ?? null,
+      opts.externalMessageId ?? null,
+      opts.metadata ?? null,
+      opts.occurredAt ?? new Date(),
+    ]);
+    if (!result.rows[0]) throw new Error("Canonical inbound communication event persistence returned no row");
+    await client.query("COMMIT");
+    return Number(result.rows[0].id);
+  } catch (err) {
+    try { await client.query("ROLLBACK"); } catch { /* connection may be broken */ }
+    throw new Error("Canonical inbound communication event persistence failed", { cause: err });
+  } finally {
+    client.release();
+  }
 }

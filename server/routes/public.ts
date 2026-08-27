@@ -509,17 +509,16 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       trackReferral(referralCode, contactName, email, mobile, businessName).catch((err: Error) => console.error("Referral tracking error:", err));
       ingestBusinessFromContact(contact.id, "manual_upload", "website_statement").catch((err: Error) => console.warn("[Statement] Business ingest failed:", err));
       processNewLead(contact.id, { source: "website_statement_upload", trigger: "form_submit" }).catch((err: Error) => console.error("Lead pipeline error:", err));
-      // Record in canonical communication_events table (Wave A3 — non-blocking)
-      import("../services/communication-events").then(({ recordInboundEvent }) => {
-        recordInboundEvent({
-          contactId: contact.id,
-          channel: "form",
-          provider: "internal",
-          subject: `Statement Upload — ${businessName || email || "unknown"}`,
-          status: "received",
-          metadata: { formType: "statement_upload", submissionId, vertical: vertical || null },
-        });
-      }).catch(() => {});
+      // Acknowledge canonical inbound persistence before accepting the form.
+      const { recordInboundEvent } = await import("../services/communication-events");
+      await recordInboundEvent({
+        contactId: contact.id,
+        channel: "form",
+        provider: "internal",
+        subject: `Statement Upload — ${businessName || email || "unknown"}`,
+        status: "received",
+        metadata: { formType: "statement_upload", submissionId, vertical: vertical || null },
+      });
       // NOTE: enrollInInboundConfirmation is owned by Step 9 of runStatementUploadChain.
       // Do NOT call it here — that would duplicate the merchant confirmation for every
       // new upload and break idempotency (replay paths skip the chain entirely).

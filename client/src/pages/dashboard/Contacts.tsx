@@ -1754,7 +1754,7 @@ export default function Contacts() {
                             Li
                           </Badge>
                         )}
-                        {isArchived && (
+                        {isArchived && isManagerOrAdmin && (
                           <Badge variant="outline" className="text-xs no-default-hover-elevate no-default-active-elevate" data-testid={`badge-archived-contact-${contact.id}`}>
                             <Archive className="w-3 h-3 mr-1" /> Archived
                           </Badge>
@@ -1922,7 +1922,7 @@ export default function Contacts() {
                             }} data-testid={`menu-snooze-contact-${contact.id}`}>
                               <BellOff className="w-4 h-4 mr-2" /> Snooze {(contact as any).nextAllowedContactDate ? "(active)" : ""}
                             </DropdownMenuItem>
-                            {isArchived ? (
+                            {isManagerOrAdmin && (isArchived ? (
                               <DropdownMenuItem onClick={(e: React.MouseEvent) => { e.stopPropagation(); restoreContactMutation.mutate(contact.id); }} data-testid={`menu-restore-contact-${contact.id}`}>
                                 <RotateCcw className="w-4 h-4 mr-2" /> Restore
                               </DropdownMenuItem>
@@ -1930,7 +1930,7 @@ export default function Contacts() {
                               <DropdownMenuItem onClick={(e: React.MouseEvent) => { e.stopPropagation(); archiveContactMutation.mutate(contact.id); }} data-testid={`menu-archive-contact-${contact.id}`}>
                                 <Archive className="w-4 h-4 mr-2" /> Archive
                               </DropdownMenuItem>
-                            )}
+                            ))}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </div>

@@ -341,6 +341,12 @@ export const SUITE_MANIFEST: SuiteManifestEntry[] = [
     providerDenial: "GHL: GHL_TRANSPORT_FAILFAST=true; SMTP: outboundGlobalPaused=true",
   },
   {
+    name: "Sequence Terminalization Advisory-Lock Race",
+    script: "scripts/test-sequence-terminalization-race.ts",
+    capability: "deterministic-integration",
+    providerDenial: "no provider calls (disposable DB race only)",
+  },
+  {
     name: "New-Lead Enrollment Policy",
     script: "scripts/test-new-lead-enrollment-policy.ts",
     capability: "server-required",

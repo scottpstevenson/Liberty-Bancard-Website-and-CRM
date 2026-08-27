@@ -90,9 +90,23 @@ console.log("\n── Section 3: Sales promo copy accuracy ───────
   assertContains("sales: has promo CTA (Get Your Free Savings Analysis)", html, "Get Your Free Savings Analysis");
   assertContains("sales: has booking/calendly link", html, "Schedule a Free Statement Review");
   assertContains("sales: has shop/equipment link", html, "Browse Terminals");
+  assertNotContains("sales: no implicit default promotion", html, "Free Terminal this month");
 
   const plain = getEmailSignaturePlainText("sales");
   assertNotContains("sales plain: no 'no long-term contract' claim", plain, "no long-term contract");
+  assertNotContains("sales plain: no implicit default promotion", plain, "Free Terminal this month");
+
+  const explicitPromo = { headline: "Explicit offer", description: "Chosen by caller." };
+  assertContains(
+    "sales: explicit promotion is rendered",
+    getEmailSignatureHtml("sales", undefined, explicitPromo),
+    "Explicit offer",
+  );
+  assertContains(
+    "sales plain: explicit promotion is rendered",
+    getEmailSignaturePlainText("sales", undefined, explicitPromo),
+    "Explicit offer",
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

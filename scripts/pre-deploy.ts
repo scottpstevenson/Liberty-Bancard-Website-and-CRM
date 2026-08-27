@@ -183,6 +183,11 @@ const MANDATORY_SUITES: Suite[] = [
     requiresServer: true,
   },
   {
+    name: "Sequence Terminalization Advisory-Lock Race",
+    script: "scripts/test-sequence-terminalization-race.ts",
+    timeoutSecs: 60,
+  },
+  {
     name: "Contactability Engine",
     script: "scripts/test-contactability.ts",
     timeoutSecs: 120,

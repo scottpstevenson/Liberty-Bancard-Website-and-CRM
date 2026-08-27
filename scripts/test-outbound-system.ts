@@ -257,8 +257,8 @@ async function testSequenceIdempotency(): Promise<void> {
     toAddress:      "test@internal.test",
     subject:        "Test idempotency",
   });
-  typeof rowId === "number"
-    ? pass(`openSendAttempt created pending row, id=${rowId}`)
+  rowId !== null && typeof rowId.attemptId === "number" && typeof rowId.claimToken === "string"
+    ? pass(`openSendAttempt created pending row, id=${rowId.attemptId}`)
     : fail("openSendAttempt returned null — insert may have failed or conflicted");
 
   // Test: second openSendAttempt with same key returns null (idempotent)

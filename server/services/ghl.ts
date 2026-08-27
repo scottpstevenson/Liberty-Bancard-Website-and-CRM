@@ -3,7 +3,7 @@ import { storage } from "../storage";
 import type { Contact, Deal } from "@shared/schema";
 import OpenAI from "openai";
 import { checkAiGate, recordAiSpend } from "./ai-audit-logger";
-import { injectCanSpamFooter } from "./can-spam-footer";
+import { renderEmailHtmlForPurpose } from "./can-spam-footer";
 import { isValidEmail } from "./contact-readiness";
 import { applyConsentCommand } from "./consent-authority";
 
@@ -803,6 +803,16 @@ export async function sendGhlEmail(params: {
     console.error(`[GHL:sendGhlEmail] Commercial authorization error — fail closed: ${error.message}`);
     return { success: false, error: "COMMERCIAL_CLASS_UNKNOWN" };
   }
+  let renderedBody: string;
+  try {
+    renderedBody = await renderEmailHtmlForPurpose({
+      html: params.body,
+      purpose: params.commercialPurpose ?? "marketing_outreach",
+      contactId: params.contactId,
+    });
+  } catch (error: any) {
+    return { success: false, error: error.message ?? "COMPLIANCE_CONFIGURATION_UNAVAILABLE" };
+  }
   // ── Unavoidable pause authority gate (transport boundary) ────────────────
   // Every provider send must clear the canonical pause authority BEFORE any
   // network I/O. This is the final enforcement boundary — caller-level checks
@@ -827,7 +837,7 @@ export async function sendGhlEmail(params: {
       if (!epochOk) {
         return { success: false, error: "Outbound paused: epoch changed before send (pause activated)" };
       }
-      return await _sendGhlEmailInner(params, decision.epoch);
+      return await _sendGhlEmailInner({ ...params, body: renderedBody }, decision.epoch);
     } finally {
       deregisterInflight(token);
     }
@@ -848,6 +858,7 @@ async function _sendGhlEmailInner(params: {
   fromName?: string;
   replyTo?: string;
   skipActivityLog?: boolean;
+  commercialPurpose?: "marketing_outreach" | "transactional_response";
 }, _pauseEpoch: bigint): Promise<{ success: boolean; messageId?: string; error?: string }> {
   try {
     const contact = await storage.getContact(params.contactId);
@@ -866,7 +877,7 @@ async function _sendGhlEmailInner(params: {
       type: "Email",
       contactId: ghlContactId,
       subject: params.subject,
-      html: injectCanSpamFooter(params.body, params.contactId),
+      html: params.body,
     };
 
     if (params.fromEmail) {
@@ -956,6 +967,18 @@ export async function sendGhlEmailForMerchant(params: {
     console.error(`[GHL:sendGhlEmailForMerchant] Commercial authorization error — fail closed: ${error.message}`);
     return { success: false, error: "COMMERCIAL_CLASS_UNKNOWN" };
   }
+  let renderedBody: string;
+  try {
+    renderedBody = await renderEmailHtmlForPurpose({
+      html: params.body,
+      purpose: params.internalNotification || params.commercialPurpose === "transactional_response"
+        ? "transactional_response"
+        : "marketing_outreach",
+      contactId: params.contactId,
+    });
+  } catch (error: any) {
+    return { success: false, error: error.message ?? "COMPLIANCE_CONFIGURATION_UNAVAILABLE" };
+  }
   // ── Unavoidable pause authority gate (transport boundary) ────────────────
   try {
     const { authorize, recheckEpoch } = await import("./outbound-pause-authority");
@@ -975,7 +998,7 @@ export async function sendGhlEmailForMerchant(params: {
       if (!epochOk) {
         return { success: false, error: "Outbound paused: epoch changed before send" };
       }
-      return await _sendGhlEmailForMerchantInner(params, decision.epoch);
+      return await _sendGhlEmailForMerchantInner({ ...params, body: renderedBody }, decision.epoch);
     } finally {
       deregisterInflight(token);
     }
@@ -1002,6 +1025,8 @@ async function _sendGhlEmailForMerchantInner(params: {
   fromEmail?: string;
   fromName?: string;
   contactId?: number;
+  commercialPurpose?: "marketing_outreach" | "transactional_response";
+  internalNotification?: boolean;
 }, _pauseEpoch: bigint): Promise<{ success: boolean; error?: string }> {
   try {
     const config = getConfig();
@@ -1011,7 +1036,7 @@ async function _sendGhlEmailForMerchantInner(params: {
       type: "Email",
       email: params.email,
       subject: params.subject,
-      html: injectCanSpamFooter(params.body, params.contactId),
+      html: params.body,
     };
 
     if (params.fromEmail) {
@@ -1349,19 +1374,19 @@ export async function handleGhlWebhook(payload: any): Promise<void> {
         ghlMessageId: messageId || null,
       });
 
-      // Record in canonical communication_events table (Wave A3 — non-blocking)
-      import("./communication-events").then(({ recordInboundEvent }) => {
-        recordInboundEvent({
-          contactId: contact.id,
-          dealId: contactDeal?.id ?? null,
-          channel: channel as "email" | "sms",
-          provider: "ghl",
-          subject: subject || null,
-          body: body || null,
-          status: "received",
-          ghlMessageId: messageId || null,
-        });
-      }).catch(() => {});
+      // Inbound canonical persistence is acknowledged: webhook failure must be
+      // retryable rather than later appearing as confirmed reply absence.
+      const { recordInboundEvent } = await import("./communication-events");
+      await recordInboundEvent({
+        contactId: contact.id,
+        dealId: contactDeal?.id ?? null,
+        channel: channel as "email" | "sms",
+        provider: "ghl",
+        subject: subject || null,
+        body: body || null,
+        status: "received",
+        ghlMessageId: messageId || null,
+      });
 
       await storage.updateContact(contact.id, {
         lastContactedAt: new Date(),

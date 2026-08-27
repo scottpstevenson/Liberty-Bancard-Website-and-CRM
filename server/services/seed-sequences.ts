@@ -1,4 +1,6 @@
 import { storage } from "../storage";
+import { pool } from "../db";
+import type { PoolClient } from "pg";
 import sequencesData from "../data/seeds/sequences.json";
 
 interface SequenceSeed {
@@ -28,7 +30,10 @@ interface SequenceSeed {
 const SEQUENCES: SequenceSeed[] = sequencesData as unknown as SequenceSeed[];
 
 export async function seedSequences() {
+  let lockClient: PoolClient | null = null;
   try {
+    lockClient = await pool.connect();
+    await lockClient.query("SELECT pg_advisory_lock($1)", [1_698_001]);
     const existingSequences = await storage.getFollowUpSequences();
     const existingByName = new Map(existingSequences.map((s: any) => [s.name, s]));
 
@@ -41,9 +46,9 @@ export async function seedSequences() {
     }
 
     for (const seq of toSeed) {
-      // Wave 6 entries carry waveStatus: "paused" to prevent accidental live sends.
-      // Legacy entries have no waveStatus and default to "active" (existing behavior).
-      const status = seq.waveStatus === "paused" ? "paused" : "active";
+      // Seed content is promotional configuration, never a launch instruction.
+      // Existing rows are deliberately not changed by this seeder.
+      const status = "paused";
 
       const created = await storage.createFollowUpSequence({
         name: seq.name,
@@ -76,16 +81,23 @@ export async function seedSequences() {
       console.log(`[Seed] Created sequence: "${seq.name}" (${seq.steps.length} steps, status: ${status})`);
     }
 
-    // --- Pass 2: Hydrate existing stub sequences (totalSteps === 0) ---
+    // --- Pass 2: Hydrate only non-launchable stubs (totalSteps === 0) ---
     const stubs = SEQUENCES.filter(seq => {
       const existing = existingByName.get(seq.name);
-      return existing && (existing as any).totalSteps === 0 && seq.steps.length > 0;
+      return existing &&
+        ["paused", "draft"].includes((existing as any).status) &&
+        (existing as any).totalSteps === 0 &&
+        seq.steps.length > 0;
     });
 
     if (stubs.length > 0) {
       console.log(`[Seed] Hydrating ${stubs.length} stub sequences with seed steps...`);
       for (const seq of stubs) {
         const existing = existingByName.get(seq.name) as any;
+        // Re-read immediately before writes. This makes repeated startup calls
+        // idempotent when another process hydrated the stub first.
+        const existingSteps = await storage.getSequenceSteps(existing.id);
+        if (existingSteps.length > 0) continue;
         for (const step of seq.steps) {
           await storage.createSequenceStep({
             sequenceId: existing.id,
@@ -115,5 +127,13 @@ export async function seedSequences() {
     // delete the corresponding DB rows so they are re-seeded fresh.
   } catch (error) {
     console.error("[Seed] Error seeding sequences:", error);
+  } finally {
+    if (lockClient) {
+      try {
+        await lockClient.query("SELECT pg_advisory_unlock($1)", [1_698_001]);
+      } finally {
+        lockClient.release();
+      }
+    }
   }
 }

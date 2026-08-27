@@ -3477,7 +3477,6 @@ const OPERATOR_NAV_GROUPS: OperatorNavGroup[] = [
     icon: Target,
     items: [
       { value: "score-all", label: "Score All Contacts", icon: BarChart3 },
-      { value: "bulk-enroll", label: "Bulk Enroll", icon: Users },
       { value: "new-lead-enroll", label: "New Lead Enrollment", icon: ListChecks },
     ],
   },

@@ -27,11 +27,13 @@ import { pool } from "../server/db";
 import {
   contacts,
   followUpSequences,
+  providerObservations,
   sequenceSteps,
   sequenceEnrollments,
 } from "../shared/schema";
 import { eq, and } from "drizzle-orm";
 import { storage } from "../server/storage";
+import { hashEmailToken } from "../server/services/provider-readiness-control";
 
 // ── Production guard ──────────────────────────────────────────────────────────
 const dbUrl = process.env.DATABASE_URL ?? "";
@@ -83,25 +85,42 @@ async function makeContact(
   }> = {}
 ): Promise<number> {
   const tag = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const email = overrides.email ?? `venroll-test-${tag}@libertybancard.test`;
+  const emailStatus = overrides.emailStatus ?? "active";
   const [row] = await db
     .insert(contacts)
     .values({
       firstName: "VEnroll",
       lastName: "Test",
-      email: overrides.email ?? `venroll-test-${tag}@libertybancard.test`,
+      email,
       phone: overrides.phone ?? "3055550001",
       companyName: `VEnroll Test Co ${tag}`,
-      emailStatus: (overrides.emailStatus ?? "active") as any,
+      emailStatus: emailStatus as any,
+      emailTokenHash: hashEmailToken(email),
+      emailValidationUpdatedAt: new Date(),
       doNotContact: overrides.doNotContact ?? false,
       consentTier: overrides.consentTier ?? "cold_no_consent",
       vertical: overrides.vertical ?? "retail",
       lifecycleStage: "prospect",
       sourceCategory: "outbound",
+      recordClass: "production",
       ...(overrides.optedOutEmail !== undefined
         ? { optedOutEmail: overrides.optedOutEmail }
         : {}),
     } as any)
     .returning({ id: contacts.id });
+  if (emailStatus === "active" || emailStatus === "valid" || emailStatus === "bounced") {
+    await db.insert(providerObservations).values({
+      provider: "zerobounce",
+      subjectType: "contact",
+      subjectId: row.id,
+      emailTokenHash: hashEmailToken(email)!,
+      subjectGeneration: 0,
+      outcome: emailStatus === "bounced" ? "invalid" : "valid",
+      retryable: false,
+      observedAt: new Date(),
+    });
+  }
   testContactIds.push(row.id);
   return row.id;
 }

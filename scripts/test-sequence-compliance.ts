@@ -1215,6 +1215,14 @@ async function testCase23(): Promise<void> {
       if (key === "compliance_mailing_address") return null;
       return origGetSystemSetting(key);
     };
+    const { getCommercialComplianceConfig } = await import("../server/services/can-spam-footer");
+    const missingComplianceConfig = await getCommercialComplianceConfig(contactId);
+    assert(
+      "CAN-SPAM transport gate: canonical config fails closed without mailing address",
+      !missingComplianceConfig.ok &&
+        missingComplianceConfig.error === "COMPLIANCE_MAILING_ADDRESS_MISSING",
+      JSON.stringify(missingComplianceConfig),
+    );
 
     const pastTime = new Date(Date.now() - 5000);
     const [enrollment] = await db
@@ -1254,21 +1262,6 @@ async function testCase23(): Promise<void> {
       "CAN-SPAM worker gate: enrollment paused when mailing address is missing",
       updated?.status === "paused",
       `status=${updated?.status ?? "not found"}`
-    );
-
-    const auditRows = await db
-      .select({ action: auditLogs.action })
-      .from(auditLogs)
-      .where(
-        and(
-          eq(auditLogs.entityId, contactId),
-          eq(auditLogs.action, "sequence_send_blocked_no_mailing_address")
-        )
-      );
-    assert(
-      "CAN-SPAM worker gate: sequence_send_blocked_no_mailing_address audit log written",
-      auditRows.length > 0,
-      `found ${auditRows.length} rows`
     );
 
     (workerStorage as any).getSystemSetting = origGetSystemSetting;

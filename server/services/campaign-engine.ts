@@ -2,9 +2,9 @@ import { storage } from "../storage";
 import { createHash, randomUUID } from "crypto";
 import type { Prospect, Campaign, Contact, CampaignStep } from "@shared/schema";
 import OpenAI from "openai";
-import { sendGhlEmail, isGhlConfigured } from "./ghl";
+import { isGhlConfigured } from "./ghl";
 import { sanitizeFirstName } from "./contact-name-utils";
-import { getEmailSignatureHtml, getComplianceFooterHtml, type EmailSignature } from "./email-signatures";
+import { getEmailSignatureHtml, type EmailSignature } from "./email-signatures";
 import { sendSmtpEmail, isSmtpConfigured } from "./smtp-email";
 import { logAiCall } from "./ai-audit-logger";
 import { evaluateContactability } from "./contactability";
@@ -1125,10 +1125,42 @@ export async function processSendQueue(maxToSend?: number): Promise<{ sent: numb
               continue;
             }
           } catch (arbErr) {
-            // Fail-open: arbitration error does not block campaign send
-            console.warn("[CampaignEngine] Arbitration check error (fail-open):", (arbErr as Error).message);
+            // Fail closed: retain ownership in the queue and do not expose
+            // provider/error detail in the durable message or audit record.
+            const resumeAt = new Date(Date.now() + 60 * 60 * 1000);
+            await storage.updateOutboundMessage(msg.id, {
+              status: "queued",
+              scheduledFor: resumeAt,
+              error: "arbitration_check_deferred",
+            });
+            await storage.createAuditLog({
+              actorType: "system",
+              action: "campaign_send_deferred_arbitration_error",
+              entityType: "contact",
+              entityId: contact.id,
+              details: { reason: "arbitration_check_error", messageId: msg.id, resumeAfter: resumeAt.toISOString() },
+            }).catch(() => {});
+            continue;
           }
         }
+      }
+
+      // Legacy prospect-linked marketing sends use SMTP exclusively so the
+      // canonical transport can render compliance and List-Unsubscribe headers.
+      if (!isSmtpConfigured()) {
+        await storage.updateOutboundMessage(msg.id, {
+          status: "failed",
+          error: "SMTP required for linked-prospect campaigns",
+        });
+        await storage.createAuditLog({
+          actorType: "system",
+          action: "campaign_send_blocked_no_smtp",
+          entityType: "prospect",
+          entityId: prospect.id,
+          details: { messageId: msg.id, reason: "linked_prospect_campaign_requires_smtp" },
+        });
+        failed++;
+        continue;
       }
 
       const campaign = msg.campaignId ? await storage.getCampaign(msg.campaignId) : null;
@@ -1143,7 +1175,8 @@ export async function processSendQueue(maxToSend?: number): Promise<{ sent: numb
         body = personalized.body;
       }
 
-      // ── CAN-SPAM compliance footer + unsubscribe link ─────────────────────
+      // Marketing campaigns require a canonical CRM contact. GHL behavior is
+      // otherwise preserved; SMTP owns compliance rendering and headers.
       if (!prospect.contactId) {
         await storage.updateOutboundMessage(msg.id, { status: "skipped", error: "No linked contact (unsubscribe link unavailable)" });
         await storage.createAuditLog({
@@ -1156,48 +1189,15 @@ export async function processSendQueue(maxToSend?: number): Promise<{ sent: numb
         continue;
       }
 
-      const appUrl = process.env.APP_URL;
-      const mailingAddress = await storage.getSystemSetting("compliance_mailing_address") as string | null | undefined;
-      const testMode = process.env.TEST_MODE === "true";
-      let blockReason: string | null = null;
-      if (!mailingAddress) {
-        blockReason = "campaign_send_blocked_no_mailing_address";
-      } else if (!appUrl) {
-        blockReason = "campaign_send_blocked_no_unsubscribe_base_url";
-      } else {
-        try {
-          const { getUnsubscribeTokenSecret } = await import("./unsubscribe-token");
-          getUnsubscribeTokenSecret();
-        } catch {
-          if (!testMode) blockReason = "campaign_send_blocked_no_unsubscribe_secret";
-        }
-      }
-
-      if (blockReason) {
-        await storage.updateOutboundMessage(msg.id, { status: "failed", error: blockReason });
-        await storage.createAuditLog({
-          actorType: "system",
-          action: blockReason,
-          entityType: "prospect",
-          entityId: prospect.id,
-          details: { messageId: msg.id, reason: blockReason },
-        });
-        failed++;
-        continue;
-      }
-
-      const complianceFooter = getComplianceFooterHtml(prospect.contactId, mailingAddress!, appUrl!);
       const signature = getEmailSignatureHtml("sales", storedSig);
-      const bodyWithSig = body + signature + complianceFooter;
+      const bodyWithSig = body + signature;
 
       // Mark as in-flight BEFORE the network call so a crash between send and
       // status-update leaves the row in `sending` (not `queued`).  A future
       // tick will not re-pick it up; the stale-cleanup in processSendQueue
       // will surface it as `failed` after 5 minutes instead.
-      await storage.updateOutboundMessage(msg.id, {
-        status: "sending",
-        sendingAt: new Date(),
-      });
+      const claimed = await storage.claimOutboundMessageForSending(msg.id);
+      if (!claimed) continue;
 
       // Global pause check — upgraded to OutboundPauseAuthority + coordinator (#1532)
       {
@@ -1213,23 +1213,16 @@ export async function processSendQueue(maxToSend?: number): Promise<{ sent: numb
         }
       }
 
-      if (isSmtpConfigured()) {
-        const { generateUnsubscribeToken } = await import("./unsubscribe-token");
-        const token = generateUnsubscribeToken(prospect.contactId);
-        const unsubscribeUrl = `${appUrl}/unsubscribe?t=${encodeURIComponent(token)}`;
-        const result = await sendSmtpEmail({
-          to: prospect.email!,
-          subject,
-          html: bodyWithSig,
-          category: "cold_outreach",
-          unsubscribeUrl,
-          unsubscribeMailto: "Scott@mail.libertybancard.com",
-        });
-        if (!result.success) {
-          throw new Error(result.error || "SMTP send failed");
-        }
-      } else {
-        await sendGhlEmail({ contactId: prospect.contactId, subject, body: bodyWithSig, fromEmail: "Scott@mail.libertybancard.com", fromName: "Scott Stevenson" });
+      const result = await sendSmtpEmail({
+        to: prospect.email!,
+        subject,
+        html: bodyWithSig,
+        category: "cold_outreach",
+        contactId: prospect.contactId,
+        commercialPurpose: "marketing_outreach",
+      });
+      if (!result.success) {
+        throw new Error(result.error || "SMTP send failed");
       }
 
       await storage.updateOutboundMessage(msg.id, {
@@ -1250,7 +1243,7 @@ export async function processSendQueue(maxToSend?: number): Promise<{ sent: numb
         recordOutboundSend({
           contactId: prospect.contactId,
           channel: "email",
-          provider: isSmtpConfigured() ? "smtp" : "ghl",
+          provider: "smtp",
           subject,
           body: bodyWithSig,
           status: "sent",
@@ -1352,39 +1345,21 @@ async function sendContactCampaignMessage(
       return "skipped";
     }
   } catch (arbErr) {
-    // Fail-open: arbitration error must not block the send
-    console.warn("[CampaignEngine] Arbitration check error (fail-open):", (arbErr as Error).message);
-  }
-
-  // Compliance prerequisites
-  const appUrl = process.env.APP_URL;
-  const mailingAddress = await storage.getSystemSetting("compliance_mailing_address") as string | null | undefined;
-  const testMode = process.env.TEST_MODE === "true";
-  let blockReason: string | null = null;
-
-  if (!mailingAddress) {
-    blockReason = "campaign_send_blocked_no_mailing_address";
-  } else if (!appUrl) {
-    blockReason = "campaign_send_blocked_no_unsubscribe_base_url";
-  } else {
-    try {
-      const { getUnsubscribeTokenSecret } = await import("./unsubscribe-token");
-      getUnsubscribeTokenSecret();
-    } catch {
-      if (!testMode) blockReason = "campaign_send_blocked_no_unsubscribe_secret";
-    }
-  }
-
-  if (blockReason) {
-    await storage.updateOutboundMessage(msg.id, { status: "failed", error: blockReason });
+    // Fail closed: leave the message owned by the queue for a later retry.
+    const resumeAt = new Date(Date.now() + 60 * 60 * 1000);
+    await storage.updateOutboundMessage(msg.id, {
+      status: "queued",
+      scheduledFor: resumeAt,
+      error: "arbitration_check_deferred",
+    });
     await storage.createAuditLog({
       actorType: "system",
-      action: blockReason,
+      action: "campaign_send_deferred_arbitration_error",
       entityType: "contact",
       entityId: contact.id,
-      details: { messageId: msg.id },
-    });
-    return "failed";
+      details: { reason: "arbitration_check_error", messageId: msg.id, resumeAfter: resumeAt.toISOString() },
+    }).catch(() => {});
+    return "skipped";
   }
 
   // Contact-mode campaigns MUST use SMTP for List-Unsubscribe header compliance.
@@ -1413,22 +1388,15 @@ async function sendContactCampaignMessage(
     body = personalized.body;
   }
 
-  const complianceFooter = getComplianceFooterHtml(contact.id, mailingAddress!, appUrl!);
   const signature = getEmailSignatureHtml("sales", storedSig);
-  const bodyWithSig = body + signature + complianceFooter;
-
-  const { generateUnsubscribeToken } = await import("./unsubscribe-token");
-  const token = generateUnsubscribeToken(contact.id);
-  const unsubscribeUrl = `${appUrl}/unsubscribe?t=${encodeURIComponent(token)}`;
+  const bodyWithSig = body + signature;
 
   // Mark as in-flight BEFORE the network call so a crash between send and
   // status-update leaves the row in `sending` (not `queued`).  A future
   // tick will not re-pick it up; the stale-cleanup in processSendQueue
   // will surface it as `failed` after 5 minutes instead.
-  await storage.updateOutboundMessage(msg.id, {
-    status: "sending",
-    sendingAt: new Date(),
-  });
+  const claimed = await storage.claimOutboundMessageForSending(msg.id);
+  if (!claimed) return "skipped";
 
   // Global pause check — upgraded to OutboundPauseAuthority + coordinator (#1532)
   {
@@ -1451,8 +1419,8 @@ async function sendContactCampaignMessage(
     subject,
     html: bodyWithSig,
     category: "cold_outreach",
-    unsubscribeUrl,
-    unsubscribeMailto: "Scott@mail.libertybancard.com",
+    contactId: contact.id,
+    commercialPurpose: "marketing_outreach",
   });
 
   if (!result.success) {

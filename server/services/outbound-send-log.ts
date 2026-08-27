@@ -13,11 +13,13 @@
  * All DB calls use raw SQL (db.execute) to avoid circular import issues with schema.
  */
 
-import { db } from "../db";
+import { db, pool } from "../db";
 import { sql } from "drizzle-orm";
+import { randomUUID } from "node:crypto";
+import { communicationContactLockKey } from "./communication-contact-lock";
 
 export type SendChannel = "email_gmail" | "email_ghl" | "email_smtp" | "sms_ghl";
-export type SendStatus  = "pending" | "sent" | "failed" | "skipped" | "bounced" | "delivered" | "complained";
+export type SendStatus  = "pending" | "dispatching" | "sent" | "failed" | "skipped" | "bounced" | "delivered" | "complained";
 
 export interface SendLogRecord {
   id: number;
@@ -36,6 +38,11 @@ export interface SendLogRecord {
   sentAt: Date | null;
   failedAt: Date | null;
   createdAt: Date;
+}
+
+export interface SendAttemptClaim {
+  attemptId: number;
+  claimToken: string;
 }
 
 /** Format: seq-{enrollmentId}-s{stepOrder} */
@@ -94,10 +101,9 @@ export async function getSendLogByKey(idempotencyKey: string): Promise<SendLogRe
 }
 
 /**
- * Open a pending send attempt row.
- * Uses INSERT ... ON CONFLICT DO NOTHING so concurrent workers don't race.
- * Returns the row id (or null if the insert was blocked by a conflict, meaning
- * another worker already claimed this slot).
+ * Lease-backed send claim. A new row is inserted pending. Only an expired
+ * pending lease may be reclaimed; dispatching/failed/sent are permanently
+ * ineligible because provider outcomes can be ambiguous.
  *
  * recordClassAtEvent is captured at claim time and is immutable on the row —
  * it reflects the commercial class at the moment the send was authorized,
@@ -115,7 +121,7 @@ export async function openSendAttempt(params: {
   subject?: string;
   /** BT-06: commercial class at the moment of claim — captured once, immutable. */
   recordClassAtEvent?: string;
-}): Promise<number | null> {
+}): Promise<SendAttemptClaim | null> {
   // Resolve commercial class at claim time if not provided by caller.
   let classAtEvent = params.recordClassAtEvent ?? "unknown";
   if (classAtEvent === "unknown" && params.contactId) {
@@ -127,12 +133,13 @@ export async function openSendAttempt(params: {
     }
   }
 
+  const claimToken = randomUUID();
   try {
     const result = await db.execute(sql`
       INSERT INTO outbound_send_log
         (idempotency_key, sequence_id, sequence_enrollment_id, contact_id,
          step_order, channel, from_address, to_address, subject,
-         status, record_class_at_event, created_at, updated_at)
+         status, record_class_at_event, claim_token, claim_expires_at, created_at, updated_at)
       VALUES
         (${params.idempotencyKey},
          ${params.sequenceId ?? null},
@@ -143,12 +150,20 @@ export async function openSendAttempt(params: {
          ${params.fromAddress ?? null},
          ${params.toAddress},
          ${params.subject ?? null},
-         'pending', ${classAtEvent}, NOW(), NOW())
-      ON CONFLICT (idempotency_key) DO NOTHING
-      RETURNING id
+         'pending', ${classAtEvent}, ${claimToken}::uuid, NOW() + INTERVAL '5 minutes', NOW(), NOW())
+       ON CONFLICT (idempotency_key) DO UPDATE
+       SET claim_token = EXCLUDED.claim_token,
+           claim_expires_at = EXCLUDED.claim_expires_at,
+           updated_at = NOW()
+       WHERE outbound_send_log.status = 'pending'
+         AND outbound_send_log.claim_expires_at < NOW()
+      RETURNING id, claim_token
     `);
     if (result.rows.length === 0) return null;
-    return (result.rows[0] as any).id as number;
+    return {
+      attemptId: Number((result.rows[0] as any).id),
+      claimToken: String((result.rows[0] as any).claim_token),
+    };
   } catch (err: any) {
     // If the column doesn't exist yet (pre-migration window), fall back to
     // the original INSERT without the classification column.
@@ -159,7 +174,7 @@ export async function openSendAttempt(params: {
           INSERT INTO outbound_send_log
             (idempotency_key, sequence_id, sequence_enrollment_id, contact_id,
              step_order, channel, from_address, to_address, subject,
-             status, created_at, updated_at)
+              status, claim_token, claim_expires_at, created_at, updated_at)
           VALUES
             (${params.idempotencyKey},
              ${params.sequenceId ?? null},
@@ -170,12 +185,20 @@ export async function openSendAttempt(params: {
              ${params.fromAddress ?? null},
              ${params.toAddress},
              ${params.subject ?? null},
-             'pending', NOW(), NOW())
-          ON CONFLICT (idempotency_key) DO NOTHING
-          RETURNING id
+              'pending', ${claimToken}::uuid, NOW() + INTERVAL '5 minutes', NOW(), NOW())
+           ON CONFLICT (idempotency_key) DO UPDATE
+           SET claim_token = EXCLUDED.claim_token,
+               claim_expires_at = EXCLUDED.claim_expires_at,
+               updated_at = NOW()
+           WHERE outbound_send_log.status = 'pending'
+             AND outbound_send_log.claim_expires_at < NOW()
+          RETURNING id, claim_token
         `);
         if (result2.rows.length === 0) return null;
-        return (result2.rows[0] as any).id as number;
+        return {
+          attemptId: Number((result2.rows[0] as any).id),
+          claimToken: String((result2.rows[0] as any).claim_token),
+        };
       } catch (err2) {
         console.warn("[SendLog] openSendAttempt fallback error (non-fatal):", err2);
         return null;
@@ -183,6 +206,80 @@ export async function openSendAttempt(params: {
     }
     console.warn("[SendLog] openSendAttempt error (non-fatal):", err);
     return null;
+  }
+}
+
+export type DispatchAuthorization =
+  | { outcome: "AUTHORIZED"; attemptId: number }
+  | { outcome: "NOT_AUTHORIZED" }
+  | { outcome: "UNAVAILABLE" };
+
+/**
+ * Provider-I/O linearization point for sequence sends. The owned pending row
+ * becomes dispatching only in the same SQL statement/snapshot that confirms the
+ * expected enrollment version is active and no canonical inbound event exists.
+ */
+export async function authorizeSequenceDispatch(params: {
+  attemptId: number;
+  claimToken: string;
+  idempotencyKey: string;
+  enrollmentId: number;
+  expectedCurrentStep: number;
+  contactId: number;
+  enrolledAt: Date;
+}): Promise<DispatchAuthorization> {
+  const client = await pool.connect().catch(() => null);
+  if (!client) return { outcome: "UNAVAILABLE" };
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT pg_advisory_xact_lock($1::bigint)", [
+      communicationContactLockKey(params.contactId).toString(),
+    ]);
+    const result = await client.query<{ id: number }>(`
+      UPDATE outbound_send_log AS send_attempt
+      SET status = 'dispatching',
+          claim_token = NULL,
+          claim_expires_at = NULL,
+          updated_at = NOW()
+      WHERE send_attempt.id = $1
+        AND send_attempt.claim_token = $2::uuid
+        AND send_attempt.idempotency_key = $3
+        AND send_attempt.status = 'pending'
+        AND send_attempt.claim_expires_at > NOW()
+        AND send_attempt.sequence_enrollment_id = $4
+        AND EXISTS (
+          SELECT 1 FROM sequence_enrollments AS enrollment
+          WHERE enrollment.id = $4
+            AND enrollment.status = 'active'
+            AND enrollment.current_step = $5
+            AND enrollment.contact_id = $6
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM communication_events AS inbound
+          WHERE inbound.contact_id = $6
+            AND inbound.direction = 'inbound'
+            AND inbound.created_at > $7
+        )
+      RETURNING send_attempt.id
+    `, [
+      params.attemptId,
+      params.claimToken,
+      params.idempotencyKey,
+      params.enrollmentId,
+      params.expectedCurrentStep,
+      params.contactId,
+      params.enrolledAt,
+    ]);
+    await client.query("COMMIT");
+    return result.rows.length
+      ? { outcome: "AUTHORIZED", attemptId: Number((result.rows[0] as any).id) }
+      : { outcome: "NOT_AUTHORIZED" };
+  } catch (err) {
+    try { await client.query("ROLLBACK"); } catch { /* connection may be broken */ }
+    console.warn("[SendLog] sequence dispatch authorization unavailable (failed closed):", err);
+    return { outcome: "UNAVAILABLE" };
+  } finally {
+    client.release();
   }
 }
 
