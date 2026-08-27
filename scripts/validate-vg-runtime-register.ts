@@ -17,7 +17,7 @@ const SOURCE_PATH =
 const EXPECTED_SOURCE_SHA256 =
   "a97f1772aa6a494ac46c13009c50adade1c7c000b7df3f5eec2e5ab90dc9e897";
 const SHA_PATTERN = /^[0-9a-f]{40}$/i;
-const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/;
+const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
 const ALLOWED_STATUSES = new Set([
   "PASS_CURRENT_RELEASE",
   "FAIL_CURRENT_RELEASE",
@@ -35,6 +35,7 @@ const REQUIRED_COLUMNS = [
   "exact sha",
   "environment",
   "evidence",
+  "evidence artifact",
   "isolation boundary",
   "reviewer operator",
   "remaining gap",
@@ -109,6 +110,22 @@ function assertExactIds(label: string, ids: string[]): void {
   if (extra.length > 0) fail(`${label} contains unexpected IDs: ${extra.join(", ")}`);
 }
 
+function readEvidenceArtifact(value: string, id: string): string {
+  const artifactPath = value.split("#", 1)[0]?.trim() ?? "";
+  if (
+    !artifactPath.startsWith("docs/") ||
+    artifactPath.includes("..") ||
+    !artifactPath.endsWith(".md")
+  ) {
+    fail(`${id} evidence artifact must be a workspace-relative Markdown file under docs/`);
+  }
+  try {
+    return readFileSync(artifactPath, "utf8");
+  } catch {
+    fail(`${id} evidence artifact does not exist: ${artifactPath}`);
+  }
+}
+
 function main(): void {
   const outputPath = process.argv[2];
   if (!outputPath) fail("provide the generated register path as the first argument");
@@ -127,6 +144,8 @@ function main(): void {
   }
   const testedSha = output.match(/\*\*Tested live-main SHA:\*\*\s*`([0-9a-f]{40})`/i)?.[1];
   if (!testedSha) fail("generated register does not declare one full tested live-main SHA");
+  const observedSha = output.match(/\*\*Observed published SHA:\*\*\s*`([0-9a-f]{40})`/i)?.[1];
+  if (!observedSha) fail("generated register does not declare one full observed published SHA");
   const basename = path.basename(outputPath);
   if (!basename.includes(testedSha.slice(0, 8)) || !/\d{4}-\d{2}-\d{2}/.test(basename)) {
     fail("generated register filename must include the tested SHA8 and an ISO date");
@@ -167,24 +186,65 @@ function main(): void {
       }
     }
     const evidenceDate = cells[columnIndex.get("evidence date utc")!]?.trim() ?? "";
-    if (!DATE_PATTERN.test(evidenceDate) || Number.isNaN(Date.parse(evidenceDate))) {
+    const parsedEvidenceDate = new Date(evidenceDate);
+    const roundTrippedDate = Number.isNaN(parsedEvidenceDate.getTime())
+      ? ""
+      : parsedEvidenceDate.toISOString().replace(".000Z", "Z");
+    if (!DATE_PATTERN.test(evidenceDate) || roundTrippedDate !== evidenceDate) {
       fail(`${id} has invalid UTC evidence timestamp "${evidenceDate}"`);
+    }
+    if (!basename.includes(evidenceDate.slice(0, 10))) {
+      fail(`${id} evidence date does not match the generated register filename date`);
     }
     const sha = cells[columnIndex.get("exact sha")!]?.trim() ?? "";
     if (!SHA_PATTERN.test(sha)) fail(`${id} exact SHA must be one full 40-character SHA`);
+    const evidenceArtifact = cells[columnIndex.get("evidence artifact")!]?.trim() ?? "";
+    const evidenceArtifactContent = readEvidenceArtifact(evidenceArtifact, id);
 
     if (status === "PASS_CURRENT_RELEASE") {
-      const evidence = cells[columnIndex.get("evidence")!]?.trim() ?? "";
+      const environment = cells[columnIndex.get("environment")!]?.trim() ?? "";
       const isolation = cells[columnIndex.get("isolation boundary")!]?.trim() ?? "";
       const remainingGap = cells[columnIndex.get("remaining gap")!]?.trim() ?? "";
-      if (sha.toLowerCase() !== testedSha.toLowerCase()) {
-        fail(`${id} PASS_CURRENT_RELEASE SHA does not equal the declared tested live-main SHA`);
+      if (
+        sha.toLowerCase() !== testedSha.toLowerCase() ||
+        testedSha.toLowerCase() !== observedSha.toLowerCase()
+      ) {
+        fail(`${id} PASS_CURRENT_RELEASE requires row, tested, and observed deployed SHAs to match`);
       }
-      if (!/(?:command|query|endpoint|artifact):/i.test(evidence) || !/result:/i.test(evidence)) {
-        fail(`${id} PASS_CURRENT_RELEASE evidence must include a locator and redacted result`);
+      const escapedId = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const block = evidenceArtifactContent.match(
+        new RegExp(`<!-- RV-EVIDENCE ${escapedId}\\\\n([\\\\s\\\\S]*?)\\\\n-->`),
+      )?.[1];
+      if (!block) fail(`${id} PASS_CURRENT_RELEASE has no machine-readable evidence block`);
+      const fields = new Map(
+        block
+          .split(/\r?\n/)
+          .map((line) => line.split(/=(.*)/s))
+          .filter((parts) => parts.length >= 2)
+          .map(([key, value]) => [key.trim(), value.trim()]),
+      );
+      if (
+        fields.get("evidence_date") !== evidenceDate ||
+        fields.get("exact_sha")?.toLowerCase() !== sha.toLowerCase() ||
+        fields.get("environment") !== environment
+      ) {
+        fail(`${id} PASS_CURRENT_RELEASE evidence block does not match row identity`);
       }
-      if (!/(?:disposable|read-only|fake transport|no network)/i.test(isolation)) {
-        fail(`${id} PASS_CURRENT_RELEASE has no explicit isolation proof`);
+      const locator = fields.get("locator") ?? "";
+      const result = fields.get("result") ?? "";
+      const isolationProof = fields.get("isolation") ?? "";
+      if (!/^(?:command|query|endpoint|artifact):\S.{4,}$/i.test(locator)) {
+        fail(`${id} PASS_CURRENT_RELEASE evidence block has no substantive locator`);
+      }
+      if (result.length < 20 || /^(?:pass|ok|success|tbd|todo|x)$/i.test(result)) {
+        fail(`${id} PASS_CURRENT_RELEASE evidence block has no substantive redacted result`);
+      }
+      if (
+        isolationProof.length < 20 ||
+        !/(?:disposable|read-only|fake transport|no network)/i.test(isolationProof) ||
+        isolationProof !== isolation
+      ) {
+        fail(`${id} PASS_CURRENT_RELEASE evidence block has no matching isolation proof`);
       }
       if (!/^none(?:\.)?$/i.test(remainingGap)) {
         fail(`${id} PASS_CURRENT_RELEASE must record remaining gap as none`);

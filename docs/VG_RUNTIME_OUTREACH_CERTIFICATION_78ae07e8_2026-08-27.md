@@ -4,6 +4,7 @@
 **Observed published SHA:** `f2cfa4aade9b24435128c9bd5787ad01f5281563`  
 **Evidence cutoff:** 2026-08-27T02:55:09Z  
 **Authoritative register:** 39 of 39 IDs structurally reconciled with fail-closed status validation
+**Redacted evidence packet:** `docs/VG_RUNTIME_EVIDENCE_PACKET_78ae07e8_2026-08-27.md`
 
 ## Executive verdict
 
