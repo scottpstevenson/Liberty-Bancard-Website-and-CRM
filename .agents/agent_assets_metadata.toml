@@ -281,3 +281,10 @@ id = "r1Scax2fptp_nvSWyHeQS"
 uri = "file://exports/ghl-workflow-checklist.csv"
 type = "table"
 title = "GHL Setup Checklist — Updated (Account Setup + 66 Sequences + Native Workflows)"
+
+[[outputs]]
+id = "WSsQrkUrjxeGT_PchZVjS"
+uri = "file://.agents/outputs/production-test-contact-dry-run-2026-08-27.csv"
+type = "table"
+title = "Production test-contact dry-run inventory"
+description = "Read-only inventory of the 79 production contacts matching the existing synthetic email-domain purge rule. No records were modified."
