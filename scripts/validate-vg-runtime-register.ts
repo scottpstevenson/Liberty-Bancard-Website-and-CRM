@@ -213,7 +213,7 @@ function main(): void {
       }
       const escapedId = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       const block = evidenceArtifactContent.match(
-        new RegExp(`<!-- RV-EVIDENCE ${escapedId}\\\\n([\\\\s\\\\S]*?)\\\\n-->`),
+        new RegExp(`<!-- RV-EVIDENCE ${escapedId}\\n([\\s\\S]*?)\\n-->`),
       )?.[1];
       if (!block) fail(`${id} PASS_CURRENT_RELEASE has no machine-readable evidence block`);
       const fields = new Map(
