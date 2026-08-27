@@ -274,6 +274,16 @@ const MANDATORY_SUITES: Suite[] = [
     timeoutSecs: 60,
   },
   {
+    name: "CRO-01 Revenue Contract Static (canonical stages, cardinality, reconciliation, conversion authority)",
+    script: "scripts/test-cro01-revenue-contract-static.ts",
+    timeoutSecs: 60,
+  },
+  {
+    name: "CRO-01 Revenue Contract Integration (disposable PostgreSQL aggregate semantics)",
+    script: "scripts/test-cro01-revenue-contract-integration.ts",
+    timeoutSecs: 60,
+  },
+  {
     name: "Role Guards",
     script: "scripts/smoke-role-guards.ts",
     timeoutSecs: 120,
@@ -282,6 +292,12 @@ const MANDATORY_SUITES: Suite[] = [
   {
     name: "CRM Operator Experience",
     script: "scripts/test-crm-operator-experience.ts",
+    timeoutSecs: 60,
+    requiresServer: true,
+  },
+  {
+    name: "CRO-01 Provider/Staging Denial (isolated auth; no provider or queue effects)",
+    script: "scripts/test-cro01-provider-denial.ts",
     timeoutSecs: 60,
     requiresServer: true,
   },

@@ -107,14 +107,14 @@ import { createValidationIntent, hashEmailToken, normalizeEmailToken } from "../
   export class ContactsStorage {
     async getContacts(params?: PaginationParams & { emailStatus?: string; assignedTo?: string; ownerEmail?: string; recordClass?: "production" }) {
     const { limit, offset } = normalizePagination(params);
-    const conditions: ReturnType<typeof eq>[] = [];
+    const conditions: any[] = [isNull(contacts.archivedAt)];
     if (params?.emailStatus) conditions.push(eq(contacts.emailStatus, params.emailStatus));
     if (params?.assignedTo) conditions.push(eq(contacts.assignedTo, params.assignedTo));
     if (params?.ownerEmail) conditions.push(or(eq(contacts.assignedTo, params.ownerEmail), isNull(contacts.assignedTo)) as any);
     if (params?.recordClass === "production") conditions.push(eq(contacts.recordClass, "production"));
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
     const [totalResult] = await db.select({ count: count() }).from(contacts).where(whereClause);
-    const data = await db.select().from(contacts).where(whereClause).orderBy(desc(contacts.createdAt)).limit(limit).offset(offset);
+    const data = await db.select().from(contacts).where(whereClause).orderBy(desc(contacts.createdAt), desc(contacts.id)).limit(limit).offset(offset);
     return { data, total: totalResult.count, limit, offset };
   }
 

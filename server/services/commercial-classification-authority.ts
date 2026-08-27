@@ -398,6 +398,45 @@ export async function deriveLinkedDealClass(
     : "unknown";
 }
 
+/**
+ * Transaction-scoped counterpart to deriveLinkedDealClass.
+ *
+ * Creation authorities which already own a transaction must use this version:
+ * using the global reader here would permit a classification decision from a
+ * different snapshot than the subsequent deal insert.
+ */
+export async function deriveLinkedDealClassInTransaction(
+  tx: any,
+  contactId?: number | null,
+  companyId?: number | null,
+): Promise<CommercialClass> {
+  const classes: CommercialClass[] = [];
+
+  if (contactId) {
+    const contact = rows(await tx.execute(sql`
+      SELECT record_class
+      FROM contacts
+      WHERE id = ${contactId}
+      FOR UPDATE
+    `))[0];
+    if (contact) classes.push((contact.record_class as CommercialClass | undefined) ?? "unknown");
+  }
+
+  if (companyId) {
+    const company = rows(await tx.execute(sql`
+      SELECT record_class
+      FROM companies
+      WHERE id = ${companyId}
+      FOR UPDATE
+    `))[0];
+    if (company) classes.push((company.record_class as CommercialClass | undefined) ?? "unknown");
+  }
+
+  return classes.length > 0 && classes.every((value) => value === "production")
+    ? "production"
+    : "unknown";
+}
+
 async function getLinkedClassesInTransaction(
   tx: any,
   subjectType: ClassificationSubjectType,

@@ -2,12 +2,12 @@
 /**
  * Task #1312 — Portfolio scoping smoke test.
  *
- * Verifies that /api/portfolio enforces ownership boundaries:
- *   agent   → sees ONLY contacts where deals.owner = their email
+ * Verifies that /api/portfolio requires activated MID membership and enforces ownership:
+ *   agent   → sees only activated merchants in their SQL ownership scope
  *   manager → can filter to any rep via ?owner= and sees that rep's contacts
  *   admin   → same cross-rep visibility as manager
  *
- * All fixtures (users, deals, contacts) are created inside a try/finally so
+ * All fixtures (users, MIDs, deals, contacts) are created inside a try/finally so
  * they are deleted on both success and failure — including partial setup
  * failures. Teardown order: deals → contacts → users (FK-safe).
  *
@@ -25,7 +25,7 @@
 import bcrypt from "bcryptjs";
 import { db } from "../server/db";
 import { users } from "../shared/models/auth";
-import { contacts, deals } from "../shared/schema";
+import { contacts, deals, merchantMids } from "../shared/schema";
 import { eq, inArray } from "drizzle-orm";
 
 const BASE_URL = process.env.BASE_URL ?? "http://localhost:5000";
@@ -66,6 +66,8 @@ let contactAId: number | null = null;
 let contactBId: number | null = null;
 let dealAId:   number | null = null;
 let dealBId:   number | null = null;
+let midAId:    number | null = null;
+let midBId:    number | null = null;
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -131,6 +133,8 @@ async function fetchPortfolio(cookie: string, ownerEmail?: string): Promise<any[
 
 // ── Teardown (deals → contacts → users, FK-safe order) ─────────────────────
 async function teardown(): Promise<void> {
+  const midIds = [midAId, midBId].filter((id): id is number => id !== null);
+  if (midIds.length > 0) await db.delete(merchantMids).where(inArray(merchantMids.id, midIds)).catch(() => {});
   if (dealAId    !== null) await db.delete(deals).where(eq(deals.id, dealAId)).catch(() => {});
   if (dealBId    !== null) await db.delete(deals).where(eq(deals.id, dealBId)).catch(() => {});
 
@@ -167,6 +171,7 @@ async function run(): Promise<void> {
         email: `sp-ca-${RUN_ID}@libertybancard.test`,
         phone: CONTACT_A_PHONE, status: "active",
         leadSource: "smoke-test", sourceCategory: "smoke-test",
+         recordClass: "production",
       } as any)
       .returning({ id: contacts.id });
     contactAId = cA.id;
@@ -178,21 +183,33 @@ async function run(): Promise<void> {
         email: `sp-cb-${RUN_ID}@libertybancard.test`,
         phone: CONTACT_B_PHONE, status: "active",
         leadSource: "smoke-test", sourceCategory: "smoke-test",
+         recordClass: "production",
       } as any)
       .returning({ id: contacts.id });
     contactBId = cB.id;
 
     const [dA] = await db
       .insert(deals)
-      .values({ contactId: contactAId, pipeline: "sales", stage: "New Lead", owner: AGENT_A_EMAIL } as any)
+      .values({ contactId: contactAId, pipeline: "sales", stage: "New Lead", owner: AGENT_A_EMAIL, recordClass: "production" } as any)
       .returning({ id: deals.id });
     dealAId = dA.id;
 
     const [dB] = await db
       .insert(deals)
-      .values({ contactId: contactBId, pipeline: "sales", stage: "New Lead", owner: AGENT_B_EMAIL } as any)
+      .values({ contactId: contactBId, pipeline: "sales", stage: "New Lead", owner: AGENT_B_EMAIL, recordClass: "production" } as any)
       .returning({ id: deals.id });
     dealBId = dB.id;
+
+    const [midA] = await db.insert(merchantMids).values({
+      contactId: contactAId, dealId: dealAId, mid: `smoke-a-${RUN_ID}`,
+      status: "active", activatedAt: new Date(),
+    }).returning({ id: merchantMids.id });
+    midAId = midA.id;
+    const [midB] = await db.insert(merchantMids).values({
+      contactId: contactBId, dealId: dealBId, mid: `smoke-b-${RUN_ID}`,
+      status: "active", activatedAt: new Date(),
+    }).returning({ id: merchantMids.id });
+    midBId = midB.id;
 
     console.log(
       `  contact A=#${contactAId} deal=#${dealAId} owner=${AGENT_A_EMAIL}\n` +

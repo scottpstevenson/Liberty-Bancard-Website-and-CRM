@@ -4,6 +4,18 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { users } from "./models/auth";
 
+export const OPEN_SALES_LEAD_STAGES = [
+  "New Lead",
+  "Enriched",
+  "Statement Received",
+  "Review In Progress",
+  "Call Booked",
+  "Proposal Sent",
+  "Negotiation / Follow-Up",
+  "Verbal Commit",
+  "Promise to Submit",
+] as const;
+
 export * from "./models/auth";
 export * from "./models/chat";
 

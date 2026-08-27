@@ -187,7 +187,8 @@ assert(
     return start >= 0 && (
       handler.includes("record_class = 'production'") ||
       handler.includes('recordClass: "production"') ||
-      handler.includes('contacts.recordClass, "production"')
+      handler.includes('contacts.recordClass, "production"') ||
+      (path === "/api/analytics/pipeline" && handler.includes("readPipelineAnalytics"))
     );
   }) &&
     (weeklyDigest.match(/record_class = 'production'/g) ?? []).length >= 9,

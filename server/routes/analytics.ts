@@ -10,6 +10,7 @@ import { agents, deals, leaderboardSettings, agentMerchants } from "@shared/sche
 import { eq, and, gte, lte, desc, sql, count, inArray, isNull } from "drizzle-orm";
 import { publicLeadRateLimit } from "../middleware/public-rate-limit";
 import { serverError } from "../utils/server-error";
+import { readPipelineAnalytics } from "../services/revenue-read-authority";
 
 export function registerAnalyticsRoutes(app: Express) {
 
@@ -387,47 +388,8 @@ export function registerAnalyticsRoutes(app: Express) {
   // === ANALYTICS / REPORTING ===
   app.get("/api/analytics/pipeline", isDashboardUser, async (req, res) => {
     try {
-      const { data: allDeals } = await storage.getDeals({ limit: 500, recordClass: "production" });
-      const salesDeals = allDeals.filter(d => d.pipeline === "sales");
-      const onboardingDeals = allDeals.filter(d => d.pipeline === "onboarding");
-
-      const stageDistribution: Record<string, number> = {};
-      salesDeals.forEach(d => { stageDistribution[d.stage] = (stageDistribution[d.stage] || 0) + 1; });
-
-      const closedWon = salesDeals.filter(d => d.stage === "Closed Won");
-      const closedLost = salesDeals.filter(d => d.stage === "Closed Lost");
-      const active = salesDeals.filter(d => d.stage !== "Closed Won" && d.stage !== "Closed Lost");
-      const winRate = (closedWon.length + closedLost.length) > 0
-        ? Math.round((closedWon.length / (closedWon.length + closedLost.length)) * 100)
-        : 0;
-
-      const now = new Date();
-      const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-      const newLast30 = salesDeals.filter(d => d.createdAt && new Date(d.createdAt) > thirtyDaysAgo);
-      const wonLast30 = closedWon.filter(d => d.updatedAt && new Date(d.updatedAt) > thirtyDaysAgo);
-
-      const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-      const stallingDeals = active.filter(d => d.updatedAt && new Date(d.updatedAt) < sevenDaysAgo);
-
-      const ONBOARDING_TERMINAL_STAGES = new Set<string>(["Live (First Batch)", "Active (7 Days)", "Active (30 Days)"]);
-      res.json({
-        sales: {
-          total: salesDeals.length,
-          active: active.length,
-          closedWon: closedWon.length,
-          closedLost: closedLost.length,
-          winRate,
-          stageDistribution,
-          newLast30Days: newLast30.length,
-          wonLast30Days: wonLast30.length,
-          stallingDeals: stallingDeals.length,
-        },
-        onboarding: {
-          total: onboardingDeals.length,
-          active: onboardingDeals.filter(d => !ONBOARDING_TERMINAL_STAGES.has(d.stage) && d.stage !== "Cancelled").length,
-          completed: onboardingDeals.filter(d => ONBOARDING_TERMINAL_STAGES.has(d.stage)).length,
-        },
-      });
+      const { data } = await readPipelineAnalytics(req.user as any);
+      res.json(data);
     } catch (err: any) {
       serverError(res, err);
     }

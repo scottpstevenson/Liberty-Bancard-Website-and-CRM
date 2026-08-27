@@ -15,10 +15,11 @@
  */
 
 import { db } from "../db";
-import { prospects, deals, contacts } from "@shared/schema";
-import type { InsertDeal } from "@shared/schema";
+import { prospects, contacts } from "@shared/schema";
 import { isNull, and, eq, sql } from "drizzle-orm";
 import { randomUUID } from "crypto";
+import { getOrCreateConversionSalesDeal } from "../storage/deals";
+import { writeContact } from "./contact-writer";
 
 // ---------------------------------------------------------------------------
 // ClaimLostError — thrown when a conditional UPDATE affected 0 rows
@@ -48,6 +49,103 @@ export type ClaimDeniedResult = {
 };
 
 export type AcquireClaimResult = ClaimAcquiredResult | ClaimDeniedResult;
+
+export type DurableConversionResult =
+  | { status: "converted"; contactId: number; dealId: number; claimId: string }
+  | { status: "already_converted"; contactId?: number }
+  | { status: "conversion_in_progress"; contactId?: number }
+  | { status: "conflict_incompatible_identity"; claimId: string }
+  | { status: "failed"; claimId: string; reasonCode: "contact_creation_failed" | "conversion_failed" };
+
+/**
+ * Execute the durable, local conversion path for one prospect. This service
+ * deliberately owns every mutation that must be idempotent across retries;
+ * route handlers own authorization, readiness policy, and post-commit work.
+ * writeContact is local-first and only records durable projection work—this
+ * function performs no provider I/O.
+ */
+export async function convertProspectDurably(
+  prospect: {
+    id: number;
+    contactId: number | null;
+    email: string | null;
+    ownerEmail: string | null;
+    ownerFirstName: string | null;
+    ownerLastName: string | null;
+    companyName: string | null;
+    phone: string | null;
+    ownerPhone: string | null;
+    vertical: string | null;
+    estimatedVolume: string | null;
+    estimatedProcessor: string | null;
+  },
+  actorUserId?: string | null,
+): Promise<DurableConversionResult> {
+  if (prospect.contactId) return { status: "already_converted", contactId: prospect.contactId };
+
+  const claimResult = await acquireConversionClaim(prospect.id, randomUUID());
+  if (!claimResult.acquired) {
+    return {
+      status: claimResult.reason === "already_converted" ? "already_converted" : "conversion_in_progress",
+      contactId: claimResult.contactId,
+    };
+  }
+
+  const { claimId, existingContactId } = claimResult;
+  try {
+    let contactId = existingContactId;
+    if (!contactId) {
+      const email = prospect.email || prospect.ownerEmail || "";
+      try {
+        const contact = await writeContact({
+          mode: "local_first",
+          mutation: {
+            firstName: prospect.ownerFirstName || prospect.companyName?.split(" ")[0] || "Unknown",
+            lastName: prospect.ownerLastName || "",
+            email,
+            phone: prospect.phone || prospect.ownerPhone || "",
+            companyName: prospect.companyName || "",
+            vertical: prospect.vertical || "",
+            status: "new",
+            notes: "Source: prospect_conversion",
+            monthlyVolume: prospect.estimatedVolume || "",
+            currentProvider: prospect.estimatedProcessor || "",
+          },
+          provenance: {
+            sourceCategory: "prospect_conversion",
+            sourceType: "csv_prospect",
+            eventKey: `prospect-convert-${prospect.id}-${claimId}`,
+            actorType: "dashboard",
+            actorId: actorUserId ?? undefined,
+          },
+          actor: { actorType: "dashboard", userId: actorUserId ?? null },
+        });
+        contactId = contact.id;
+      } catch (err: any) {
+        if (err?.code === "23505" || err?.message?.includes("23505") || err?.message?.includes("unique")) {
+          const resolution = await resolveConflictingContact(email, prospect.companyName, prospect.phone || prospect.ownerPhone);
+          if (!resolution.resolved) {
+            await releaseClaimWithError(prospect.id, claimId, "conflict_incompatible_identity");
+            return { status: "conflict_incompatible_identity", claimId };
+          }
+          contactId = resolution.contactId;
+        } else {
+          await releaseClaimWithError(prospect.id, claimId, "contact_creation_failed");
+          return { status: "failed", claimId, reasonCode: "contact_creation_failed" };
+        }
+      }
+      await persistConversionContactId(prospect.id, claimId, contactId);
+    }
+
+    const { dealId } = await completeConversionTransaction(
+      prospect.id, claimId, contactId, prospect.estimatedVolume, actorUserId,
+    );
+    return { status: "converted", contactId, dealId, claimId };
+  } catch (err) {
+    await releaseClaimWithError(prospect.id, claimId, err instanceof ClaimLostError ? "claim_lost" : "conversion_failed").catch(() => {});
+    throw err;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // acquireConversionClaim
@@ -172,7 +270,7 @@ export interface CompleteConversionResult {
  * Callers must handle ClaimLostError and return a 409 — NEVER return "converted".
  * The deal that was created is reported in ClaimLostError.dealId for recovery.
  *
- * The transaction is opened AFTER the GHL call completes.
+ * Route-owned effects run only after this durable transaction commits.
  */
 export async function completeConversionTransaction(
   prospectId: number,
@@ -182,33 +280,19 @@ export async function completeConversionTransaction(
   actorUserId?: string | null,
 ): Promise<CompleteConversionResult> {
   return await db.transaction(async (tx) => {
-    // A) Idempotent deal find-or-create
-    const [existingDeal] = await tx
-      .select({ id: deals.id })
-      .from(deals)
-      .where(
-        sql`contact_id = ${contactId} AND pipeline = 'sales' AND stage = 'New Lead' AND archived_at IS NULL`,
-      )
-      .limit(1);
-
-    let dealId: number;
-    if (existingDeal) {
-      dealId = existingDeal.id;
-    } else {
-      const { deriveLinkedDealClass } = await import("./commercial-classification-authority");
-      const [newDeal] = await tx
-        .insert(deals)
-        .values({
-          contactId,
-          pipeline: "sales",
-          stage: "New Lead",
-          owner: "Scott Stevenson",
-          notes: `Estimated volume: ${estimatedVolume || "N/A"}`,
-          recordClass: await deriveLinkedDealClass(contactId),
-        } as InsertDeal)
-        .returning({ id: deals.id });
-      dealId = newDeal.id;
-    }
+     // A) Transaction-only authority locks the canonical contact, then either
+     // reuses a qualifying production sales lead or creates and audits one.
+     // It deliberately performs no provider or queue work.
+     const { deal } = await getOrCreateConversionSalesDeal(tx, {
+       contactId,
+       estimatedVolume,
+       auditCtx: {
+         userId: actorUserId ?? null,
+         actorType: "user",
+         actorId: actorUserId ?? null,
+       },
+     });
+     const dealId = deal.id;
 
     // B) Atomically finalize prospect — conditional on claim ownership, RETURNING id to verify
     const finalizeResult = await tx.execute(sql`
@@ -227,10 +311,10 @@ export async function completeConversionTransaction(
     `);
 
     if (finalizeResult.rows.length === 0) {
-      // Claim was lost between deal creation and finalization.
-      // The deal may now be an orphan — include dealId in error for recovery.
+      // Claim was lost between deal creation and finalization. The transaction
+      // rolls back both a newly-created deal/audit and the failed finalization.
       const err = new ClaimLostError(
-        `[ClaimLost] completeConversionTransaction: claim ${claimId} on prospect ${prospectId} was lost before finalization; dealId=${dealId} may be orphaned`,
+        "Conversion claim was lost before finalization",
       );
       (err as any).dealId = dealId;
       throw err;

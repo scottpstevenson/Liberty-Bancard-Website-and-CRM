@@ -1559,6 +1559,17 @@ export default function Pipeline() {
     },
   });
   const deals = dealsResult?.data;
+  const hasCompleteDealSnapshot = Boolean(deals && dealsResult?.total === deals.length);
+  const { data: pipelineMetrics } = useQuery<{
+    sales: { total: number; stageDistribution: Record<string, number>; wonLast30Days: number };
+  }>({
+    queryKey: ["/api/analytics/pipeline"],
+    queryFn: async () => {
+      const res = await fetch("/api/analytics/pipeline", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch pipeline metrics");
+      return res.json();
+    },
+  });
 
   // Collect unique non-null contactIds from all loaded deals for the batch hook
   const dealContactIds = useMemo(
@@ -2578,19 +2589,19 @@ export default function Pipeline() {
         <div className="flex flex-wrap gap-2 text-xs" data-testid="pipeline-stage-summary">
           {SALES_STAGES.map(stage => {
             const stageDealsArr = getDealsByStage(stage);
-            const count = stageDealsArr.length;
+            const count = pipelineMetrics?.sales.stageDistribution[stage] ?? 0;
             const stageRevenue = stageDealsArr.reduce((s, d) => s + ((d as any).totalVolume || (d as any).estMonthlyRevenue || 0), 0);
             return (
               <span key={stage} className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 bg-muted/50">
                 <span className={`w-2 h-2 rounded-full ${STAGE_COLORS[stage] || "bg-gray-500"}`} />
                 <span className="text-muted-foreground">{stage}:</span>
                 <span className="font-semibold">{count}</span>
-                {stageRevenue > 0 && <span className="text-muted-foreground/70 ml-0.5">~${Math.round(stageRevenue / 1000)}k</span>}
+                {hasCompleteDealSnapshot && stageRevenue > 0 && <span className="text-muted-foreground/70 ml-0.5">~${Math.round(stageRevenue / 1000)}k</span>}
               </span>
             );
           })}
           {/* #951 — Deals due to go live in next 30 days */}
-          {deals && (() => {
+          {hasCompleteDealSnapshot && deals && (() => {
             const now = Date.now();
             const in30days = now + 30 * 24 * 60 * 60 * 1000;
             const soonCount = (deals || []).filter((d: any) => {
@@ -2606,22 +2617,20 @@ export default function Pipeline() {
             );
           })()}
           {/* #645 — Won this month */}
-          {deals && (() => {
-            const monthStart = new Date();
-            monthStart.setDate(1);
-            monthStart.setHours(0, 0, 0, 0);
-            const wonCount = (deals || []).filter((d: any) => d.stage === "Closed Won" && d.updatedAt && new Date(d.updatedAt) >= monthStart).length;
-            const wonVolume = (deals || []).filter((d: any) => d.stage === "Closed Won" && d.updatedAt && new Date(d.updatedAt) >= monthStart)
+          {pipelineMetrics && (() => {
+            const wonCount = pipelineMetrics.sales.wonLast30Days;
+            const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+            const wonVolume = (deals || []).filter((d: any) => d.stage === "Closed Won" && d.updatedAt && new Date(d.updatedAt) >= thirtyDaysAgo)
               .reduce((s: number, d: any) => s + (Number(d.totalVolume) || 0), 0);
             if (wonCount === 0) return null;
             return (
               <span className="inline-flex items-center gap-1 rounded-full border border-green-300 px-2 py-0.5 bg-green-50 text-green-800 dark:bg-green-900/30 dark:text-green-300 font-medium" data-testid="badge-won-this-month">
-                🏆 {wonCount} won this month{wonVolume > 0 ? ` · ~$${Math.round(wonVolume / 1000)}k` : ""}
+                🏆 {wonCount} won in 30d{hasCompleteDealSnapshot && wonVolume > 0 ? ` · ~$${Math.round(wonVolume / 1000)}k` : ""}
               </span>
             );
           })()}
           {/* #530 — Upcoming follow-ups this week */}
-          {deals && (() => {
+          {hasCompleteDealSnapshot && deals && (() => {
             const now = Date.now();
             const weekAhead = now + 7 * 24 * 60 * 60 * 1000;
             const dueCount = deals.filter((d: any) => {
@@ -2636,14 +2645,14 @@ export default function Pipeline() {
             ) : null;
           })()}
           <span className="inline-flex items-center gap-1 rounded-full border border-primary/30 px-2 py-0.5 bg-primary/5 text-primary font-medium ml-auto">
-            Total: {SALES_STAGES.reduce((s, st) => s + getDealsByStage(st).length, 0)}
-            {deals && (() => {
+            Total: {pipelineMetrics?.sales.total ?? dealsResult?.total ?? 0}
+            {hasCompleteDealSnapshot && deals && (() => {
               const totalRev = deals.reduce((s: number, d: any) => s + ((d.totalVolume || d.estMonthlyRevenue || 0) as number), 0);
               return totalRev > 0 ? <span className="ml-1 text-primary/70">~${Math.round(totalRev / 1000)}k</span> : null;
             })()}
           </span>
           {/* #695 — Closed-won volume total */}
-          {deals && (() => {
+          {hasCompleteDealSnapshot && deals && (() => {
             const closedWonDeals = (deals || []).filter((d: any) => d.stage === "Closed Won" && !d.archivedAt);
             const closedVol = closedWonDeals.reduce((s: number, d: any) => s + (Number(d.totalVolume) || 0), 0);
             if (closedVol === 0 || closedWonDeals.length === 0) return null;
@@ -2657,7 +2666,7 @@ export default function Pipeline() {
       )}
 
       {/* #1157 / #1443 — Deals per rep summary bar with 30/60/90-day period toggle */}
-      {deals && (() => {
+      {hasCompleteDealSnapshot && deals && (() => {
         const now = Date.now();
         const cutoff = now - repPeriod * 24 * 60 * 60 * 1000;
         const allFiltered = SALES_STAGES.flatMap(s => getDealsByStage(s));

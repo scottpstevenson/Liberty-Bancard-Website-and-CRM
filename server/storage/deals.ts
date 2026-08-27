@@ -39,6 +39,7 @@ import {
   type InsertDocument,
   type InsertAuditLog,
   type InsertNotification,
+  OPEN_SALES_LEAD_STAGES,
   type InsertWorkflow, type UpdateWorkflowRequest,
   type InsertWorkflowRun,
   type InsertRfi, type UpdateRfiRequest,
@@ -99,6 +100,101 @@ import {
 } from "@shared/schema";
 import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, count } from "drizzle-orm";
   import { type PaginationParams, type PaginatedResult, normalizePagination } from "./_shared";
+import { auditChange } from "../services/audit-change";
+import { deriveLinkedDealClassInTransaction } from "../services/commercial-classification-authority";
+
+export interface ConversionSalesDealAuthorityParams {
+  contactId: number;
+  estimatedVolume?: string | null;
+  auditCtx?: { userId?: string | null; actorType?: "user" | "ai" | "system"; actorId?: string | null };
+}
+
+export interface ConversionSalesDealAuthorityResult {
+  deal: typeof deals.$inferSelect;
+  created: boolean;
+}
+
+const ASSIGNED_OWNER_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/**
+ * Transaction-only conversion deal authority.
+ *
+ * The caller supplies its durable transaction. This function never starts one,
+ * so the contact lock, class derivation, deal/audit insert, and caller's final
+ * claim update have one rollback boundary.
+ */
+export async function getOrCreateConversionSalesDeal(
+  tx: any,
+  params: ConversionSalesDealAuthorityParams,
+): Promise<ConversionSalesDealAuthorityResult> {
+  const openSalesStages = sql.join(
+    OPEN_SALES_LEAD_STAGES.map((stage) => sql`${stage}`),
+    sql`, `,
+  );
+
+  // Lock the canonical contact before inspecting its deal set or assignment.
+  const contact = ((await tx.execute(sql`
+    SELECT id, assigned_to, partner_org_id
+    FROM contacts
+    WHERE id = ${params.contactId}
+    FOR UPDATE
+  `)) as { rows?: Array<{ id: number; assigned_to: string | null; partner_org_id: number | null }> }).rows?.[0];
+
+  if (!contact) {
+    throw new Error(`CONVERSION_CANONICAL_CONTACT_NOT_FOUND:${params.contactId}`);
+  }
+
+  const existing = ((await tx.execute(sql`
+    SELECT *
+    FROM deals
+    WHERE contact_id = ${params.contactId}
+      AND pipeline = 'sales'
+      AND record_class = 'production'
+      AND archived_at IS NULL
+      AND stage IN (${openSalesStages})
+    ORDER BY updated_at DESC NULLS LAST, id DESC
+    LIMIT 1
+    FOR UPDATE
+  `)) as { rows?: typeof deals.$inferSelect[] }).rows?.[0];
+
+  if (existing) return { deal: existing, created: false };
+
+  const assignedTo = contact.assigned_to?.trim() ?? "";
+  let owner: string | null = null;
+  if (ASSIGNED_OWNER_EMAIL.test(assignedTo)) {
+    const assignedUser = ((await tx.execute(sql`
+      SELECT id
+      FROM users
+      WHERE lower(email) = lower(${assignedTo})
+      LIMIT 1
+    `)) as { rows?: Array<{ id: string }> }).rows?.[0];
+    if (assignedUser) owner = assignedTo;
+  }
+
+  const recordClass = await deriveLinkedDealClassInTransaction(tx, params.contactId);
+  const [deal] = await tx.insert(deals).values({
+    contactId: params.contactId,
+    pipeline: "sales",
+    stage: "New Lead",
+    owner,
+    partnerOrgId: contact.partner_org_id ?? null,
+    notes: `Estimated volume: ${params.estimatedVolume || "N/A"}`,
+    recordClass,
+  } as InsertDeal).returning();
+
+  await auditChange({
+    userId: params.auditCtx?.userId ?? null,
+    actorType: params.auditCtx?.actorType ?? "system",
+    actorId: params.auditCtx?.actorId ?? null,
+    action: "deal_created",
+    entityType: "deal",
+    entityId: deal.id,
+    before: null,
+    after: deal as unknown as Record<string, unknown>,
+  }, tx);
+
+  return { deal, created: true };
+}
 
   export class DealsStorage {
     async getDeals(params?: PaginationParams & { ownerEmail?: string; recordClass?: "production" }) {
@@ -122,7 +218,7 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
       .from(deals)
       .leftJoin(contacts, eq(deals.contactId, contacts.id))
       .where(whereClause)
-      .orderBy(desc(deals.createdAt))
+      .orderBy(desc(deals.updatedAt), desc(deals.id))
       .limit(limit)
       .offset(offset);
     const data = rows.map(({ deal, contactFirstName, contactLastName, contactCompanyName, contactEmail, contactPhone, contactEmployeeCount, contactLeadSource }) => ({
@@ -191,7 +287,7 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
       .from(deals)
       .leftJoin(contacts, eq(deals.contactId, contacts.id))
       .where(whereClause)
-      .orderBy(desc(deals.createdAt))
+      .orderBy(desc(deals.updatedAt), desc(deals.id))
       .limit(limit)
       .offset(offset);
     const data = rows.map(({ deal, contactFirstName, contactLastName, contactCompanyName, contactEmail, contactPhone, contactEmployeeCount, contactLeadSource }) => ({

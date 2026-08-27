@@ -124,6 +124,7 @@ const Forbidden = lazy(() => import("@/pages/Forbidden"));
 const Overview = lazy(() => import("@/pages/dashboard/Overview"));
 const CompanyDetail = lazy(() => import("@/pages/dashboard/CompanyDetail"));
 const Contacts = lazy(() => import("@/pages/dashboard/Contacts"));
+const Leads = lazy(() => import("@/pages/dashboard/Leads"));
 const Chat = lazy(() => import("@/pages/dashboard/Chat"));
 const ConversationAI = lazy(() => import("@/pages/dashboard/ConversationAI"));
 const Pipeline = lazy(() => import("@/pages/dashboard/Pipeline"));
@@ -343,6 +344,13 @@ function LegacyOperatorRedirect() {
   return <Redirect to={`/dashboard/system-health?tab=monitor${passthrough ? `&${passthrough}` : ""}`} />;
 }
 
+function LegacyProspectsRedirect() {
+  const search = useSearch();
+  const params = new URLSearchParams(search);
+  params.set("tab", "prospect-staging");
+  return <Redirect to={`/dashboard/contacts-leads?${params.toString()}`} />;
+}
+
 function Router() {
   return (
     <Suspense fallback={<PageSkeleton />}>
@@ -486,6 +494,9 @@ function Router() {
         <Route path="/dashboard/contacts">
           <ProtectedRoute component={Contacts} />
         </Route>
+        <Route path="/dashboard/my-leads">
+          <AgentRoute component={Leads} />
+        </Route>
         <Route path="/dashboard/chat">
           <ProtectedRoute component={Chat} />
         </Route>
@@ -552,13 +563,13 @@ function Router() {
         </Route>
         {/* Legacy routes redirect to unified views with correct tab */}
         <Route path="/dashboard/prospects">
-          <Redirect to="/dashboard/contacts-leads?tab=leads" />
+          <ProtectedRoute component={LegacyProspectsRedirect} allowedRoles={["admin", "manager"]} />
         </Route>
         <Route path="/dashboard/prospects/import">
-          <ProtectedRoute component={ProspectImport} />
+          <ProtectedRoute component={ProspectImport} allowedRoles={["admin", "manager"]} />
         </Route>
         <Route path="/dashboard/lead-imports">
-          <ProtectedRoute component={LeadImports} />
+          <ProtectedRoute component={LeadImports} allowedRoles={["admin", "manager"]} />
         </Route>
         <Route path="/dashboard/master-lead-database">
           <ProtectedRoute component={MasterLeadDatabase} allowedRoles={["admin"]} />

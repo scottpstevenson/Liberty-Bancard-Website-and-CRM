@@ -11,7 +11,6 @@ import { generateDealBlueprint } from "../services/deal-blueprint";
 import { getRoutingRecommendation, routeContact } from "../services/smart-router";
 import { getEntityDetail, parseSunbizCsv, searchSunbiz, streamCorevtFromZip } from "../services/sunbiz-scraper";
 import { isMassEnrichmentRunning, promoteQualifiedToContacts, reEnrichAllSunbizEntities, runMassEnrichment } from "../services/daily-outreach";
-import { writeContact } from "../services/contact-writer";
 import { importExecutions } from "@shared/schema";
 import { db } from "../db";
 import { eq } from "drizzle-orm";
@@ -24,18 +23,13 @@ import { computeFileHash, computeRowFingerprint, isValidEmailFormat, normalizePr
 import { prospectConversionMinReadiness } from "../config";
 import { computeProspectConversionReadiness } from "../services/contact-readiness";
 import {
-  acquireConversionClaim,
-  completeConversionTransaction,
-  persistConversionContactId,
-  releaseClaimWithError,
-  resolveConflictingContact,
+  convertProspectDurably,
 } from "../services/prospect-conversion";
-import { randomUUID } from "crypto";
 import { serverError, safeMessage } from "../utils/server-error";
 
 export function registerProspectsRoutes(app: Express) {
   // === PROSPECT LISTS ===
-  app.get("/api/prospect-lists", isAuthenticated, async (req, res) => {
+  app.get("/api/prospect-lists", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
       const includeArchived = req.query.includeArchived === "true";
       const lists = await storage.getProspectLists({ includeArchived });
@@ -46,7 +40,7 @@ export function registerProspectsRoutes(app: Express) {
   });
 
   // Archive a specific prospect list (soft-delete)
-  app.post("/api/prospect-lists/:id/archive", isAuthenticated, async (req, res) => {
+  app.post("/api/prospect-lists/:id/archive", isDashboardUser, requireRole("admin"), async (req, res) => {
     try {
       const user = req.user as any;
       if (user?.role !== "admin") return res.status(403).json({ message: "Admin only" });
@@ -62,7 +56,7 @@ export function registerProspectsRoutes(app: Express) {
   });
 
   // Advance readiness state for a prospect list (staged pipeline)
-  app.post("/api/prospect-lists/:id/readiness", isAuthenticated, async (req, res) => {
+  app.post("/api/prospect-lists/:id/readiness", isDashboardUser, requireRole("admin"), async (req, res) => {
     try {
       const user = req.user as any;
       if (user?.role !== "admin") return res.status(403).json({ message: "Admin only" });
@@ -92,14 +86,14 @@ export function registerProspectsRoutes(app: Express) {
   });
 
   // BT-06: heuristic name-based demo cleanup is permanently disabled.
-  app.post("/api/prospect-lists/demo-cleanup", isAuthenticated, async (req, res) => {
+  app.post("/api/prospect-lists/demo-cleanup", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     return res.status(410).json({
       error: "Gone",
       message: "Heuristic demo cleanup is disabled. Use commercial classification reconciliation instead.",
     });
   });
 
-  app.get("/api/prospect-lists/:id", isAuthenticated, async (req, res) => {
+  app.get("/api/prospect-lists/:id", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
       const list = await storage.getProspectList(Number(req.params.id));
       if (!list) return res.status(404).json({ message: "List not found" });
@@ -109,7 +103,7 @@ export function registerProspectsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/prospect-lists", isAuthenticated, async (req, res) => {
+  app.post("/api/prospect-lists", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
       const input = insertProspectListSchema.parse(req.body);
       const list = await storage.createProspectList(input);
@@ -122,7 +116,7 @@ export function registerProspectsRoutes(app: Express) {
 
 
   // === PROSPECTS ===
-  app.get("/api/prospects", isAuthenticated, async (req, res) => {
+  app.get("/api/prospects", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
       const listId = req.query.listId ? Number(req.query.listId) : undefined;
       const limit = req.query.limit ? Number(req.query.limit) : undefined;
@@ -135,7 +129,7 @@ export function registerProspectsRoutes(app: Express) {
     }
   });
 
-  app.get("/api/prospects/:id", isAuthenticated, async (req, res) => {
+  app.get("/api/prospects/:id", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
       const prospect = await storage.getProspect(Number(req.params.id));
       if (!prospect) return res.status(404).json({ message: "Prospect not found" });
@@ -145,7 +139,7 @@ export function registerProspectsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/prospects", isAuthenticated, async (req, res) => {
+  app.post("/api/prospects", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
       const input = insertProspectSchema.parse(req.body);
       const prospect = await storage.createProspect(input);
@@ -156,24 +150,33 @@ export function registerProspectsRoutes(app: Express) {
     }
   });
 
-  app.put("/api/prospects/:id", isAuthenticated, async (req, res) => {
+  app.put("/api/prospects/:id", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
-      const prospectDateSchema = z.object({
-        enrichedAt: z.coerce.date().optional().nullable(),
-        lastContactedAt: z.coerce.date().optional().nullable(),
-      }).passthrough();
-      const body = prospectDateSchema.parse(req.body);
+      const nullableString = z.string().nullable().optional();
+      const body = z.object({
+        companyName: nullableString, dba: nullableString, website: nullableString,
+        phone: nullableString, email: nullableString, ownerFirstName: nullableString,
+        ownerLastName: nullableString, ownerEmail: nullableString, ownerPhone: nullableString,
+        address: nullableString, city: nullableString, state: nullableString, zip: nullableString,
+        vertical: nullableString, estimatedVolume: nullableString, estimatedResidual: nullableString,
+        estimatedAvgTicket: nullableString, estimatedProcessor: nullableString,
+        employeeCount: nullableString, yearEstablished: nullableString, googleRating: nullableString,
+        googleReviews: nullableString, estimatedRevenue: nullableString, notes: nullableString,
+        tags: z.array(z.string()).nullable().optional(),
+        doNotContact: z.boolean().nullable().optional(),
+        lastContactedAt: z.coerce.date().nullable().optional(),
+      }).strict().parse(req.body);
       const updated = await storage.updateProspect(Number(req.params.id), body);
       if (!updated) return res.status(404).json({ message: "Prospect not found" });
       res.json(updated);
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join(".") });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: "Invalid prospect update payload", field: err.errors[0].path.join(".") || undefined });
       if (err instanceof DateValidationError) return res.status(400).json({ message: err.message, field: err.field });
       serverError(res, err);
     }
   });
 
-  app.post("/api/prospects/:id/convert", isDashboardUser, async (req, res) => {
+  app.post("/api/prospects/:id/convert", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
       const prospect = await storage.getProspect(Number(req.params.id));
       if (!prospect) return res.status(404).json({ message: "Prospect not found" });
@@ -236,162 +239,47 @@ export function registerProspectsRoutes(app: Express) {
         }).catch(err => console.error("[Convert] Override audit write failed:", err));
       }
 
-      // (E) Acquire atomic claim
-      const requestId = randomUUID();
-      const claimResult = await acquireConversionClaim(prospect.id, requestId);
-
-      if (!claimResult.acquired) {
-        return res.status(409).json({
-          error: claimResult.reason,
-          contactId: claimResult.contactId,
-          message: claimResult.reason === "already_converted"
-            ? "Prospect already converted"
-            : "Another conversion is in progress — retry in a few seconds",
-        });
+      const conversion = await convertProspectDurably(prospect, (req.user as any)?.id?.toString());
+      if (conversion.status === "already_converted") {
+        return res.json({ status: "already_converted", contactId: conversion.contactId, message: "Prospect already converted" });
+      }
+      if (conversion.status === "conversion_in_progress") {
+        return res.status(409).json({ error: "conversion_in_progress", contactId: conversion.contactId, message: "Another conversion is in progress — retry in a few seconds" });
+      }
+      if (conversion.status === "conflict_incompatible_identity") {
+        return res.status(409).json({ error: "conflict_incompatible_identity", message: "An existing contact has a different identity" });
+      }
+      if (conversion.status === "failed") {
+        return res.status(500).json({ error: conversion.reasonCode, message: "Conversion could not be completed" });
       }
 
-      const { claimId, existingContactId } = claimResult;
-      let contactId: number;
-      let emailConflict: { reason: string; existingContactId: number } | null = null;
-
-      try {
-        // (E) Contact creation — reuse existing if crash-recovery
-        if (existingContactId) {
-          contactId = existingContactId;
-        } else {
-          const email = prospect.email || prospect.ownerEmail || "";
-          try {
-            const contact = await writeContact({
-              mode: "local_first",
-              mutation: {
-                firstName: prospect.ownerFirstName || prospect.companyName?.split(" ")[0] || "Unknown",
-                lastName: prospect.ownerLastName || "",
-                email,
-                phone: prospect.phone || prospect.ownerPhone || "",
-                companyName: prospect.companyName || "",
-                vertical: prospect.vertical || "",
-                status: "new",
-                notes: "Source: prospect_conversion",
-                monthlyVolume: prospect.estimatedVolume || "",
-                currentProvider: prospect.estimatedProcessor || "",
-              },
-              provenance: {
-                sourceCategory: "prospect_conversion",
-                sourceType: "csv_prospect",
-                eventKey: `prospect-convert-${prospect.id}-${claimId}`,
-                actorType: "dashboard",
-                actorId: (req.user as any)?.id?.toString() ?? null,
-              },
-              actor: {
-                actorType: "dashboard",
-                userId: (req.user as any)?.id?.toString() ?? null,
-              },
-            });
-            contactId = contact.id;
-          } catch (writeErr: any) {
-            // Duplicate email (23505) — attempt identity reconciliation
-            if (writeErr?.code === "23505" || writeErr?.message?.includes("23505") || writeErr?.message?.includes("unique")) {
-              const resolution = await resolveConflictingContact(
-                email,
-                prospect.companyName,
-                prospect.phone || prospect.ownerPhone,
-              );
-              if (resolution.resolved) {
-                contactId = resolution.contactId;
-              } else {
-                await releaseClaimWithError(prospect.id, claimId, "conflict_incompatible_identity");
-                return res.status(409).json({
-                  error: "conflict_incompatible_identity",
-                  existingContactId: resolution.existingContactId,
-                  existingCompanyName: resolution.existingCompanyName,
-                  message: "An existing contact with this email has a different identity",
-                });
-              }
-            } else {
-              await releaseClaimWithError(prospect.id, claimId, writeErr.message ?? "contact_creation_failed");
-              throw writeErr;
-            }
-          }
-
-          // (F) Persist contactId on claim immediately (crash-recovery guard)
-          await persistConversionContactId(prospect.id, claimId, contactId);
-        }
-
-        // (G) Finalize: deal + prospect update in one transaction (NO GHL calls inside)
-        const { dealId } = await completeConversionTransaction(
-          prospect.id,
-          claimId,
-          contactId,
-          prospect.estimatedVolume,
-          (req.user as any)?.id?.toString(),
-        );
-
-        // (H) Post-commit side effects — none of these roll back conversion
-        scoreContact(contactId).catch(err => console.error("[Convert] Scoring error:", err));
-        routeContact(contactId).catch(err => console.error("[Convert] Routing error:", err));
-        generateDealBlueprint(dealId).catch(err => console.error("[Convert] Blueprint error:", err));
-
-        // Stage rules (fire-and-forget, non-critical)
-        storage.getMatchingStageRules("sales", null, "New Lead").then(async (rules) => {
-          for (const rule of rules) {
-            const ruleActions = (rule.actions as any[]) || [];
-            for (const action of ruleActions) {
-              if (action.type === "create_task") {
-                await storage.createTask({
-                  title: action.title || "Auto: New Lead",
-                  assignedTo: action.assignedTo || "Scott Stevenson",
-                  priority: action.priority || "medium",
-                  dueDate: action.dueHours ? new Date(Date.now() + action.dueHours * 3600000) : undefined,
-                  dealId,
-                  contactId,
-                });
-              } else if (action.type === "send_notification") {
-                await storage.createNotification({
-                  channel: action.channel || "internal",
-                  title: action.title || `Stage Automation: ${rule.name}`,
-                  message: action.message || "New lead entered pipeline",
-                  type: "info",
-                });
-              }
-            }
-          }
-        }).catch(err => console.error("[Convert] Stage rule error:", err));
-
-        // (I) Enrollment — after commit, never throws
-        let enrollmentOutcome: { status: string; jobId?: string } = { status: "not_attempted" };
-        try {
-          enrollmentOutcome = await enqueuePromotionalEnrollment({
-            contactId,
-            triggerType: "contact_created",
-            sourceEventId: `prospect-convert-${prospect.id}`,
+      const { contactId: convertedContactId, dealId } = conversion;
+      scoreContact(convertedContactId).catch(err => console.error("[Convert] Scoring error:", err));
+      routeContact(convertedContactId).catch(err => console.error("[Convert] Routing error:", err));
+      generateDealBlueprint(dealId).catch(err => console.error("[Convert] Blueprint error:", err));
+      storage.getMatchingStageRules("sales", null, "New Lead").then(async (rules) => {
+        for (const rule of rules) for (const action of ((rule.actions as any[]) || [])) {
+          if (action.type === "create_task") await storage.createTask({
+            title: action.title || "Auto: New Lead", assignedTo: action.assignedTo || "Scott Stevenson",
+            priority: action.priority || "medium", dueDate: action.dueHours ? new Date(Date.now() + action.dueHours * 3600000) : undefined, dealId, contactId: convertedContactId,
           });
-        } catch (enrollErr) {
-          console.error("[Convert] Enqueue error on prospect conversion:", enrollErr);
-          enrollmentOutcome = { status: "enrollment_error" };
+          else if (action.type === "send_notification") await storage.createNotification({
+            channel: action.channel || "internal", title: action.title || `Stage Automation: ${rule.name}`,
+            message: action.message || "New lead entered pipeline", type: "info",
+          });
         }
-
-        // (J) Conversion audit log
-        await storage.createAuditLog({
-          action: "prospect_converted",
-          entityType: "contact",
-          entityId: contactId,
-          details: { prospectId: prospect.id, dealId, company: prospect.companyName },
-        });
-
-        return res.json({
-          status: "converted",
-          contactId,
-          dealId,
-          conversionReadinessScore,
-          threshold,
-          enrollmentOutcome,
-        });
-
-      } catch (innerErr: any) {
-        // Ensure claim is released on unexpected errors so the prospect is not stuck
-        await releaseClaimWithError(prospect.id, claimId, innerErr.message ?? "unknown_error").catch(() => {});
-        throw innerErr;
+      }).catch(err => console.error("[Convert] Stage rule error:", err));
+      let enrollmentOutcome: { status: string; jobId?: string } = { status: "not_attempted" };
+      try {
+        enrollmentOutcome = await enqueuePromotionalEnrollment({ contactId: convertedContactId, triggerType: "contact_created", sourceEventId: `prospect-convert-${prospect.id}` });
+      } catch {
+        enrollmentOutcome = { status: "enrollment_error" };
       }
+      await storage.createAuditLog({
+        action: "prospect_converted", entityType: "contact", entityId: convertedContactId,
+        details: { prospectId: prospect.id, dealId, company: prospect.companyName },
+      });
+      return res.json({ status: "converted", contactId: convertedContactId, dealId, conversionReadinessScore, threshold, enrollmentOutcome });
     } catch (err: any) {
       if (err?.name === "ClaimLostError") {
         return res.status(409).json({
@@ -440,7 +328,7 @@ export function registerProspectsRoutes(app: Express) {
    *
    * Cap: rawIds.slice(0, 50) enforces a hard maximum of 50 items per request.
    */
-  app.post("/api/prospects/convert-batch", isDashboardUser, async (req, res) => {
+  app.post("/api/prospects/convert-batch", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
       const { prospectIds: rawIds, override } = req.body as { prospectIds: number[]; override?: { enabled?: boolean; reason?: string } };
       if (!rawIds?.length) return res.status(400).json({ message: "No prospect IDs provided" });
@@ -518,136 +406,42 @@ export function registerProspectsRoutes(app: Express) {
           continue;
         }
 
-        // Acquire claim
-        const requestId = randomUUID();
-        const claimResult = await acquireConversionClaim(prospect.id, requestId);
-        if (!claimResult.acquired) {
-          results.push({
-            prospectId: pid,
-            status: claimResult.reason === "already_converted" ? "already_converted" : "conversion_in_progress",
-            contactId: claimResult.contactId,
-            conversionReadinessScore,
-          });
-          continue;
-        }
-
-        const { claimId, existingContactId } = claimResult;
-        let contactId: number | undefined;
-
         try {
-          if (existingContactId) {
-            contactId = existingContactId;
-          } else {
-            const email = prospect.email || prospect.ownerEmail || "";
+          const conversion = await convertProspectDurably(prospect, (req.user as any)?.id?.toString());
+          if (conversion.status === "converted") {
+            scoreContact(conversion.contactId).catch(() => {});
+            routeContact(conversion.contactId).catch(() => {});
+            generateDealBlueprint(conversion.dealId).catch(() => {});
+            let enrollmentOutcome: { status: string; jobId?: string } = { status: "not_attempted" };
             try {
-              const contact = await writeContact({
-                mode: "local_first",
-                mutation: {
-                  firstName: prospect.ownerFirstName || prospect.companyName?.split(" ")[0] || "Unknown",
-                  lastName: prospect.ownerLastName || "",
-                  email,
-                  phone: prospect.phone || prospect.ownerPhone || "",
-                  companyName: prospect.companyName || "",
-                  vertical: prospect.vertical || "",
-                  status: "new",
-                  notes: "Source: prospect_conversion",
-                  monthlyVolume: prospect.estimatedVolume || "",
-                  currentProvider: prospect.estimatedProcessor || "",
-                },
-                provenance: {
-                  sourceCategory: "prospect_conversion",
-                  sourceType: "csv_prospect",
-                  eventKey: `prospect-convert-${prospect.id}-${claimId}`,
-                  actorType: "dashboard",
-                  actorId: (req.user as any)?.id?.toString() ?? null,
-                },
-                actor: {
-                  actorType: "dashboard",
-                  userId: (req.user as any)?.id?.toString() ?? null,
-                },
+              enrollmentOutcome = await enqueuePromotionalEnrollment({
+                contactId: conversion.contactId,
+                triggerType: "contact_created",
+                sourceEventId: `prospect-convert-${pid}`,
               });
-              contactId = contact.id;
-            } catch (writeErr: any) {
-              if (writeErr?.code === "23505" || writeErr?.message?.includes("23505") || writeErr?.message?.includes("unique")) {
-                const resolution = await resolveConflictingContact(
-                  email,
-                  prospect.companyName,
-                  prospect.phone || prospect.ownerPhone,
-                );
-                if (resolution.resolved) {
-                  contactId = resolution.contactId;
-                } else {
-                  await releaseClaimWithError(prospect.id, claimId, "conflict_incompatible_identity");
-                  results.push({
-                    prospectId: pid,
-                    status: "conflict_incompatible_identity",
-                    reasonCode: "conflict_incompatible_identity",
-                    conversionReadinessScore,
-                    claimId,
-                  });
-                  continue;
-                }
-              } else {
-                await releaseClaimWithError(prospect.id, claimId, writeErr.message ?? "contact_creation_failed");
-                results.push({
-                  prospectId: pid,
-                  status: "failed",
-                  reasonCode: writeErr.message,
-                  conversionReadinessScore,
-                  claimId,
-                });
-                continue;
-              }
+            } catch {
+              enrollmentOutcome = { status: "enrollment_error" };
             }
-
-            await persistConversionContactId(prospect.id, claimId, contactId!);
-          }
-
-          const { dealId } = await completeConversionTransaction(
-            prospect.id,
-            claimId,
-            contactId!,
-            prospect.estimatedVolume,
-            (req.user as any)?.id?.toString(),
-          );
-
-          // Post-commit side effects
-          scoreContact(contactId!).catch(() => {});
-          routeContact(contactId!).catch(() => {});
-          generateDealBlueprint(dealId).catch(() => {});
-
-          // Enrollment
-          let enrollmentOutcome: { status: string; jobId?: string } = { status: "not_attempted" };
-          try {
-            enrollmentOutcome = await enqueuePromotionalEnrollment({
-              contactId: contactId!,
-              triggerType: "contact_created",
-              sourceEventId: `prospect-convert-${pid}`,
+            results.push({
+              prospectId: pid, status: "converted", contactId: conversion.contactId,
+              dealId: conversion.dealId, claimId: conversion.claimId,
+              conversionReadinessScore, threshold, enrollmentOutcome,
             });
-          } catch (enrollErr) {
-            console.error(`[BatchConvert] Enqueue error for contact ${contactId}:`, enrollErr);
-            enrollmentOutcome = { status: "enrollment_error" };
+          } else if (conversion.status === "already_converted") {
+            results.push({ prospectId: pid, status: "already_converted", contactId: conversion.contactId, conversionReadinessScore });
+          } else if (conversion.status === "conversion_in_progress") {
+            results.push({ prospectId: pid, status: "conversion_in_progress", contactId: conversion.contactId, conversionReadinessScore });
+          } else if (conversion.status === "conflict_incompatible_identity") {
+            results.push({ prospectId: pid, status: "conflict_incompatible_identity", claimId: conversion.claimId, conversionReadinessScore, reasonCode: "conflict_incompatible_identity" });
+          } else {
+            results.push({ prospectId: pid, status: "failed", claimId: conversion.claimId, conversionReadinessScore, reasonCode: conversion.reasonCode });
           }
-
-          results.push({
-            prospectId: pid,
-            status: "converted",
-            contactId,
-            dealId,
-            claimId,
-            conversionReadinessScore,
-            threshold,
-            enrollmentOutcome,
-          });
-
-        } catch (innerErr: any) {
-          await releaseClaimWithError(prospect.id, claimId, innerErr.message ?? "unknown_error").catch(() => {});
+        } catch (err: any) {
           results.push({
             prospectId: pid,
             status: "failed",
-            reasonCode: innerErr.message,
             conversionReadinessScore,
-            claimId,
+            reasonCode: err?.name === "ClaimLostError" ? "claim_lost" : "conversion_failed",
           });
         }
       }
@@ -689,7 +483,7 @@ export function registerProspectsRoutes(app: Express) {
   });
 
   // CSV Upload endpoint — idempotent via file-hash replay protection
-  app.post("/api/prospects/import", isAuthenticated, upload.single("file"), async (req, res) => {
+  app.post("/api/prospects/import", isDashboardUser, requireRole("admin", "manager"), upload.single("file"), async (req, res) => {
     let list: Awaited<ReturnType<typeof storage.createProspectList>> | null = null;
     try {
       if (!req.file) return res.status(400).json({ message: "No file uploaded" });

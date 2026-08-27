@@ -6,21 +6,11 @@ import { eq } from "drizzle-orm";
 import { serverError } from "../utils/server-error";
 
 /**
- * Portfolio API — returns each rep's assigned merchants with health signals.
+ * Portfolio API — returns activated merchants with health signals.
  *
- * Ownership contract: a contact appears in an agent's portfolio when either:
- *   (a) the agent owns ANY active deal for that contact, OR
- *   (b) contacts.assigned_to = the agent's email (even with no deal yet).
- *
- * The latest deal's signals (nextFollowUp, stage) are fetched via a LEFT JOIN
- * so that dealless-but-assigned contacts still appear. ownerEmail falls back to
- * contacts.assigned_to when no deal exists.
- *
- * Scoping rules:
- *   agent   → contacts where any deal.owner = email  OR  assigned_to = email
- *   manager → all contacts (deal exists OR assigned_to set), optionally narrowed
- *             by ?owner= which applies the same OR logic
- *   admin   → same as manager
+ * Membership requires a distinct production, non-archived contact with at
+ * least one active MID whose activation timestamp is present. Assignment/deals
+ * scope visibility, but neither one creates merchant membership.
  */
 export function registerPortfolioRoutes(app: Express) {
   app.get("/api/portfolio", isDashboardUser, async (req, res) => {
@@ -35,6 +25,11 @@ export function registerPortfolioRoutes(app: Express) {
       const role: string = validRoles.has(rawRole) ? rawRole : "agent";
 
       const sort = (req.query.sort as string) || "risk";
+      const parsedLimit = Number(req.query.limit ?? 100);
+      const parsedOffset = Number(req.query.offset ?? 0);
+      if (!Number.isSafeInteger(parsedLimit) || !Number.isSafeInteger(parsedOffset) || parsedLimit < 1 || parsedLimit > 500 || parsedOffset < 0) {
+        return res.status(400).json({ code: "INVALID_PAGINATION", message: "limit and offset must be valid whole numbers" });
+      }
       // manager/admin can pass ?owner=<email> to narrow to one rep's portfolio
       const ownerFilter = req.query.owner ? String(req.query.owner) : null;
 
@@ -46,7 +41,16 @@ export function registerPortfolioRoutes(app: Express) {
           : `risk_order ASC, mhs.churn_score DESC NULLS LAST`;
 
       // Build WHERE conditions and parameterised values
-      const conditions: string[] = ["c.archived_at IS NULL"];
+      const conditions: string[] = [
+        "c.archived_at IS NULL",
+        "c.record_class = 'production'",
+        `EXISTS (
+          SELECT 1 FROM merchant_mids eligible_mid
+          WHERE eligible_mid.contact_id = c.id
+            AND eligible_mid.status = 'active'
+            AND eligible_mid.activated_at IS NOT NULL
+        )`,
+      ];
       const params: any[] = [];
       let paramIdx = 1;
 
@@ -60,6 +64,7 @@ export function registerPortfolioRoutes(app: Express) {
               WHERE d.contact_id = c.id
                 AND d.owner = $${paramIdx}
                 AND d.archived_at IS NULL
+                 AND d.record_class = 'production'
             )
           )
         `);
@@ -75,21 +80,26 @@ export function registerPortfolioRoutes(app: Express) {
               WHERE d.contact_id = c.id
                 AND d.owner = $${paramIdx}
                 AND d.archived_at IS NULL
+                 AND d.record_class = 'production'
             )
           )
         `);
         params.push(ownerFilter);
         paramIdx++;
-      } else {
-        // admin/manager with no filter: all contacts that have any deal or any assignment.
-        conditions.push(`(latest_deal.contact_id IS NOT NULL OR c.assigned_to IS NOT NULL)`);
       }
 
       const whereClause = conditions.join(" AND ");
+      const scopeParams = [...params];
 
       // paramIdx already consumed by ownership WHERE conditions above; track next slot
       const userEmailParam = `$${paramIdx}`;
       params.push(email);
+      paramIdx++;
+      const limitParam = `$${paramIdx}`;
+      params.push(parsedLimit);
+      paramIdx++;
+      const offsetParam = `$${paramIdx}`;
+      params.push(parsedOffset);
       paramIdx++;
 
       const sql = `
@@ -112,6 +122,12 @@ export function registerPortfolioRoutes(app: Express) {
           user_deal.id                         AS "userDealId",
           COALESCE(tc.open_count, 0)::int      AS "openTickets",
           COALESCE(tk.open_count, 0)::int      AS "openTasks",
+           mid_counts.active_mid_count::int     AS "activeMidCount",
+           COUNT(*) OVER()::int                 AS portfolio_total,
+           COUNT(*) FILTER (WHERE COALESCE(mhs.risk_tier, 'Unknown') = 'Critical') OVER()::int AS portfolio_critical,
+           COUNT(*) FILTER (WHERE COALESCE(mhs.risk_tier, 'Unknown') = 'High') OVER()::int AS portfolio_high,
+           COALESCE(SUM(COALESCE(tc.open_count, 0)) OVER(), 0)::int AS portfolio_open_tickets,
+           COALESCE(SUM(COALESCE(tk.open_count, 0)) OVER(), 0)::int AS portfolio_open_tasks,
           CASE COALESCE(mhs.risk_tier, 'Unknown')
             WHEN 'Critical' THEN 1
             WHEN 'High'     THEN 2
@@ -125,9 +141,14 @@ export function registerPortfolioRoutes(app: Express) {
           SELECT DISTINCT ON (contact_id)
             id, contact_id, owner, next_follow_up, stage, pipeline
           FROM deals
-          WHERE archived_at IS NULL
-          ORDER BY contact_id, created_at DESC
+           WHERE archived_at IS NULL AND record_class = 'production'
+           ORDER BY contact_id, updated_at DESC NULLS LAST, id DESC
         ) latest_deal ON latest_deal.contact_id = c.id
+         JOIN LATERAL (
+           SELECT COUNT(*) AS active_mid_count
+           FROM merchant_mids mm
+           WHERE mm.contact_id = c.id AND mm.status = 'active' AND mm.activated_at IS NOT NULL
+         ) mid_counts ON true
         -- the logged-in user's most recent deal for this contact (used for editability)
         LEFT JOIN LATERAL (
           SELECT id
@@ -161,27 +182,72 @@ export function registerPortfolioRoutes(app: Express) {
           GROUP BY contact_id
         ) tk ON tk.contact_id = c.id
         WHERE ${whereClause}
-        ORDER BY ${orderClause}
-        LIMIT 500
+         ORDER BY ${orderClause}, c.id ASC
+         LIMIT ${limitParam} OFFSET ${offsetParam}
       `;
 
-      const { rows } = await pool.query(sql, params);
+       const client = await pool.connect();
+       let rows: any[] = [];
+       let aggregate: any = {};
+       let asOf: Date;
+       try {
+         await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
+         const aggregateResult = await client.query(`
+           WITH eligible AS MATERIALIZED (
+             SELECT c.id
+             FROM contacts c
+             WHERE ${whereClause}
+           )
+           SELECT
+             (SELECT COUNT(*)::int FROM eligible) AS total,
+             (SELECT COUNT(*)::int FROM merchant_mids mm JOIN eligible e ON e.id=mm.contact_id
+               WHERE mm.status='active' AND mm.activated_at IS NOT NULL) AS active_mid_count,
+             (SELECT COUNT(*)::int FROM eligible e WHERE COALESCE((
+               SELECT risk_tier FROM merchant_health_scores WHERE contact_id=e.id ORDER BY computed_at DESC LIMIT 1
+             ), 'Unknown')='Critical') AS critical,
+             (SELECT COUNT(*)::int FROM eligible e WHERE COALESCE((
+               SELECT risk_tier FROM merchant_health_scores WHERE contact_id=e.id ORDER BY computed_at DESC LIMIT 1
+             ), 'Unknown')='High') AS high,
+             (SELECT COUNT(*)::int FROM tickets t JOIN eligible e ON e.id=t.contact_id
+               WHERE t.status NOT IN ('Closed','Resolved')) AS open_tickets,
+             (SELECT COUNT(*)::int FROM tasks t JOIN eligible e ON e.id=t.contact_id
+               WHERE t.status IN ('pending','open') AND t.deleted_at IS NULL) AS open_tasks,
+             CURRENT_TIMESTAMP AS as_of
+         `, scopeParams);
+         aggregate = aggregateResult.rows[0] ?? {};
+         asOf = aggregate.as_of;
+         ({ rows } = await client.query(sql, params));
+         await client.query("COMMIT");
+       } catch (error) {
+         await client.query("ROLLBACK").catch(() => {});
+         throw error;
+       } finally {
+         client.release();
+       }
 
       // Compute editableDealId: agents may only PATCH their own deal;
       // admins/managers may PATCH the latest deal (PUT guard allows it).
-      const data = rows.map(({ risk_order, userDealId, ...rest }: any) => ({
+      const data = rows.map(({ risk_order, userDealId, portfolio_total, portfolio_critical, portfolio_high, portfolio_open_tickets, portfolio_open_tasks, ...rest }: any) => ({
         ...rest,
         editableDealId: (role === "agent") ? (userDealId ?? null) : (rest.dealId ?? null),
       }));
 
-      const critical = data.filter((r: any) => r.riskTier === "Critical").length;
-      const high = data.filter((r: any) => r.riskTier === "High").length;
-      const totalOpenTickets = data.reduce((s: number, r: any) => s + (r.openTickets ?? 0), 0);
-      const totalOpenTasks = data.reduce((s: number, r: any) => s + (r.openTasks ?? 0), 0);
-
       res.json({
         data,
-        summary: { total: data.length, critical, high, totalOpenTickets, totalOpenTasks },
+        total: aggregate.total ?? 0,
+        limit: parsedLimit,
+        offset: parsedOffset,
+        filters: { owner: ownerFilter, sort },
+        scope: role === "agent" ? "owned" : ownerFilter ? "owner_filtered" : "all",
+        asOf: new Date(asOf!).toISOString(),
+        summary: {
+          total: aggregate.total ?? 0,
+          activeMidCount: aggregate.active_mid_count ?? 0,
+          critical: aggregate.critical ?? 0,
+          high: aggregate.high ?? 0,
+          totalOpenTickets: aggregate.open_tickets ?? 0,
+          totalOpenTasks: aggregate.open_tasks ?? 0,
+        },
       });
     } catch (err: any) {
       console.error("[portfolio] error:", err.message);

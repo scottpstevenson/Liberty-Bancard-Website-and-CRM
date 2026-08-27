@@ -205,6 +205,12 @@ export const SUITE_MANIFEST: SuiteManifestEntry[] = [
     capability: "deterministic-static",
     providerDenial: "child processes refuse before any database mutation",
   },
+  {
+    name: "CRO-01 Revenue Contract Static",
+    script: "scripts/test-cro01-revenue-contract-static.ts",
+    capability: "deterministic-static",
+    providerDenial: "source-only revenue authority contract; no provider transports",
+  },
 
   // ── deterministic-integration (DB + optional Redis, no live providers) ───
   {
@@ -327,6 +333,12 @@ export const SUITE_MANIFEST: SuiteManifestEntry[] = [
     capability: "deterministic-integration",
     providerDenial: "no provider calls (DB read-only preview logic)",
   },
+  {
+    name: "CRO-01 Revenue Contract Integration",
+    script: "scripts/test-cro01-revenue-contract-integration.ts",
+    capability: "deterministic-integration",
+    providerDenial: "TEST_DATABASE_URL disposable PostgreSQL TEMP tables with rollback; no providers",
+  },
   // ── server-required (live server + DB; hard-fails if server absent) ──────
   {
     name: "CRM Operator Experience",
@@ -393,6 +405,12 @@ export const SUITE_MANIFEST: SuiteManifestEntry[] = [
     script: "scripts/test-pause-fence.ts",
     capability: "server-required",
     providerDenial: "no provider calls (startup-seeded pause-control rows only)",
+  },
+  {
+    name: "CRO-01 Provider/Staging Denial",
+    script: "scripts/test-cro01-provider-denial.ts",
+    capability: "server-required",
+    providerDenial: "localhost isolated-test-auth requests only; denied PUT returns before provider or queue work",
   },
 
   // ── server-optional (skipped when server absent; requires live credentials) ─

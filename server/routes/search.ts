@@ -11,12 +11,13 @@ export function registerSearchRoutes(app: Express) {
       const q = (req.query.q as string || "").toLowerCase().trim();
       if (!q || q.length < 2) return res.json({ results: [] });
 
+      const canSearchProspects = ["admin", "manager"].includes((req.user as any)?.role);
       const [contactsResult, dealsResult, ticketsResult, tasks, prospectsResult] = await Promise.all([
         storage.getContacts({ limit: 500 }),
         storage.getDeals({ limit: 500 }),
         storage.getTickets({ limit: 500 }),
         storage.getTasks(),
-        storage.getProspects(undefined, { limit: 500 }),
+        canSearchProspects ? storage.getProspects(undefined, { limit: 500 }) : Promise.resolve({ data: [] }),
       ]);
       const contacts = contactsResult.data;
       const deals = dealsResult.data;

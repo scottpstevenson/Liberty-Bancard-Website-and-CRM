@@ -144,6 +144,7 @@ const dailyWorkItems: MenuItem[] = [
   { icon: Rocket,          label: "Ready for Outreach",   href: "/dashboard/outreach-queue",     roles: ["agent"], badgeKey: "outreachQueueCount" },
   { icon: Briefcase,       label: "My Portfolio",         href: "/dashboard/portfolio",          roles: ["agent"] },
   { icon: Users,           label: "My Contacts",          href: "/dashboard/contacts",           roles: ["agent"] },
+  { icon: Target,          label: "My Leads",             href: "/dashboard/my-leads",           roles: ["agent"] },
   { icon: TrendingUp,      label: "My Pipeline",          href: "/dashboard/pipeline",           roles: ["agent"] },
   { icon: Inbox,           label: "Messages & Inbox",     href: "/dashboard/comms-hub",          roles: ["agent"], badgeKey: "smsUnread" },
   { icon: ClipboardList,   label: "Tasks & Appointments", href: "/dashboard/tasks-appointments", roles: ["agent"], badgeKey: "overdueTaskCount" },

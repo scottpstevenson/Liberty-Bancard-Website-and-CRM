@@ -39,6 +39,7 @@ import { LifecycleService, adminOverrideTransition, LIFECYCLE_STATES } from "../
 import type { LifecycleState } from "../services/lifecycle-service";
 import { applyConsentCommand } from "../services/consent-authority";
 import { agentOwnershipEmail, invalidPagination, parseStrictPagination } from "../services/crm-object-access";
+import { readPeople } from "../services/revenue-read-authority";
 
 // ── Canonical email-validation predicates (task #1540A) ─────────────────────
 // Moved to server/services/zerobounce-eligibility.ts in #1541 so the durable
@@ -251,57 +252,53 @@ export function registerContactsRoutes(app: Express) {
       const { limit, offset } = pagination;
       const emailStatus = req.query.emailStatus ? String(req.query.emailStatus) : undefined;
       const ownerEmail = agentOwnershipEmail(req.user as any);
-      const assignedTo = ownerEmail ? undefined : req.query.assignedTo ? String(req.query.assignedTo) : undefined;
+      const assignedTo = req.query.assignedToMe === "true"
+        ? ownerEmail
+        : ownerEmail ? undefined : req.query.assignedTo ? String(req.query.assignedTo) : undefined;
       const churnRisk = req.query.churnRisk ? String(req.query.churnRisk) : undefined;
       const noOutreach = req.query.noOutreach ? String(req.query.noOutreach) : undefined;
       const blockedFilter = req.query.blocked ? String(req.query.blocked) : undefined;
-
-      // #1443 — Server-side special filters (churnRisk, noOutreach, blocked): paginated query
-      // using a filtered COUNT(*) for total and deterministic LIMIT/OFFSET for data, matching
-      // the normal { data, total, limit, offset } response shape so the Contacts table
-      // paginates correctly across the full filtered result set.
-      if (churnRisk === "high" || noOutreach === "24h" || blockedFilter === "true") {
-        const pageLimit = limit;
-        const pageOffset = offset;
-
-        const { or, sql: sqlExpr } = await import("drizzle-orm");
-        const conditions: any[] = [isNull(contactsTable.archivedAt)];
-        if (ownerEmail) {
-          conditions.push(or(eq(contactsTable.assignedTo, ownerEmail), isNull(contactsTable.assignedTo)));
-        }
-        if (churnRisk === "high") {
-          conditions.push(inArray((contactsTable as any).churnRiskTier, ["High", "Critical"]));
-        }
-        if (noOutreach === "24h") {
-          const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-          conditions.push(gte((contactsTable as any).createdAt, oneDayAgo));
-          conditions.push(isNull((contactsTable as any).lastContactedAt));
-        }
-        if (blockedFilter === "true") {
-          // Matches the same predicate used by /api/contacts/blocked and the CSV export
-          conditions.push(
-            or(
-              sqlExpr`${(contactsTable as any).doNotContact} = true`,
-              inArray((contactsTable as any).emailStatus, ["bounced", "invalid", "opted_out", "unsafe"]),
-            ),
-          );
-        }
-
-        const where = and(...conditions);
-        const [{ total }] = await db
-          .select({ total: drizzleCount() })
-          .from(contactsTable)
-          .where(where);
-        const data = await db.select().from(contactsTable)
-          .where(where)
-          .orderBy(asc((contactsTable as any).createdAt))
-          .limit(pageLimit)
-          .offset(pageOffset);
-
-        return res.json({ data, total, limit: pageLimit, offset: pageOffset });
+      const archived = req.query.archived === "true";
+      const role = String((req.user as any)?.role ?? "");
+      if (archived && role !== "admin" && role !== "manager") {
+        return res.status(403).json({ code: "ARCHIVED_CONTACTS_FORBIDDEN", message: "Archived contacts require manager access" });
+      }
+      const sort = req.query.sort ? String(req.query.sort) : undefined;
+      const allowedSorts = new Set(["activity_desc", "activity_asc", "score_desc", "alpha", "name", "createdAtAsc", "updatedAt", "leadScore"]);
+      if (sort && !allowedSorts.has(sort)) {
+        return res.status(400).json({ code: "INVALID_PEOPLE_SORT", message: "Unsupported People sort" });
+      }
+      const recordClass = req.query.recordClass ?? req.query.class;
+      const allowedClasses = new Set(["production", "test", "demo", "unknown"]);
+      if (recordClass && !allowedClasses.has(String(recordClass))) {
+        return res.status(400).json({ code: "INVALID_RECORD_CLASS", message: "Unsupported record class" });
       }
 
-      const result = await storage.getContacts({ limit, offset, emailStatus, assignedTo, ownerEmail });
+      const result = await readPeople(req.user as any, {
+        limit, offset,
+        search: req.query.search ? String(req.query.search) : undefined,
+        status: req.query.status ? String(req.query.status) : undefined,
+        emailHealth: req.query.emailHealth ? String(req.query.emailHealth) : emailStatus,
+        assignedTo,
+        archived,
+        recordClass: recordClass ? String(recordClass) : undefined,
+        sort,
+        churnRisk,
+        noOutreach,
+        blocked: blockedFilter === "true",
+        vertical: req.query.vertical ? String(req.query.vertical) : undefined,
+        tag: req.query.tag ? String(req.query.tag) : undefined,
+        contactedToday: req.query.contactedToday === "true",
+        hasAssignee: req.query.hasAssignee === "true",
+        leadSource: req.query.leadSource ? String(req.query.leadSource) : undefined,
+        lifecycle: req.query.lifecycle ? String(req.query.lifecycle) : undefined,
+        stale: req.query.stale === "true",
+        recentlyUpdated: req.query.recentlyUpdated === "true",
+        neverContacted: req.query.neverContacted === "true",
+        notContactedIn30: req.query.notContactedIn30 === "true",
+        noDeal: req.query.noDeal === "true",
+        createdThisWeek: req.query.createdThisWeek === "true",
+      });
       res.json(result);
     } catch (err: any) {
       console.error("Get contacts error:", err.message);

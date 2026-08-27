@@ -18,6 +18,7 @@ import { classifyAiError, logAiCredentialError } from "../services/ai-audit-logg
 import { updateContactLocalFirst } from "../services/contact-writer";
 import { parse } from "csv-parse/sync";
 import path from "path";
+import { randomUUID } from "crypto";
 import { sendPushToAllReps } from "../services/push-service";
 import { computeDealTerminalEconomics } from "../services/terminal-economics";
 import { enrollInGhlWorkflow, enrollInGhlWorkflowCompliant } from "../services/ghl-workflows";
@@ -25,7 +26,8 @@ import { updateCustomFields } from "../services/sdr/ghl-client";
 import { serverError } from "../utils/server-error";
 import { GO_LIVE_GATE_STAGES, checkGoLiveReadiness, GoLiveGateError } from "../services/go-live-gate";
 import { requireGhlRouteMutationAllowed } from "./ghl-mutation-pause";
-import { agentOwnershipEmail, authorizeDealAccess, denyCrmObject, invalidPagination, parseStrictPagination } from "../services/crm-object-access";
+import { agentOwnershipEmail, authorizeDealAccess, denyCrmObject, parseStrictPagination } from "../services/crm-object-access";
+import { readRevenueDeals } from "../services/revenue-read-authority";
 
 export function registerDealsRoutes(app: Express) {
   // === DEALS ===
@@ -47,18 +49,43 @@ export function registerDealsRoutes(app: Express) {
   });
 
   app.get("/api/deals", isDashboardUser, async (req, res) => {
+    // This ID is server-generated: an inbound request identifier is never a
+    // trusted correlation value.
+    const correlationId = randomUUID();
+    res.setHeader("X-Request-Id", correlationId);
     try {
-      const pipeline = req.query.pipeline as string | undefined;
-      const pagination = parseStrictPagination(req.query as Record<string, unknown>, { defaultLimit: 100, maxLimit: 500 });
-      if ("error" in pagination) return invalidPagination(res);
+      const pipelineValue = req.query.pipeline;
+      if (pipelineValue !== undefined && (typeof pipelineValue !== "string" || !pipelineValue.trim())) {
+        return res.status(400).json({
+          message: "pipeline must be a non-empty string",
+          code: "INVALID_PIPELINE",
+          correlationId,
+        });
+      }
+      const pipeline = typeof pipelineValue === "string" ? pipelineValue : undefined;
+      const pagination = parseStrictPagination(req.query as Record<string, unknown>, { defaultLimit: 100, maxLimit: 2000 });
+      if ("error" in pagination) {
+        return res.status(400).json({
+          message: "limit and offset/page must be positive whole-number values within the route limit",
+          code: "INVALID_PAGINATION",
+          correlationId,
+        });
+      }
       const { limit, offset } = pagination;
-      const ownerEmail = agentOwnershipEmail(req.user as any);
-      const result = pipeline
-        ? await storage.getDealsByPipeline(pipeline, { limit, offset, ownerEmail } as any)
-        : await storage.getDeals({ limit, offset, ownerEmail });
+      const result = await readRevenueDeals(req.user as any, { pipeline, limit, offset });
       res.json(result);
-    } catch (err: any) {
-      serverError(res, err);
+    } catch {
+      console.error(JSON.stringify({
+        route: "GET /api/deals",
+        code: "DEALS_LIST_INTERNAL_ERROR",
+        status: 500,
+        correlationId,
+      }));
+      res.status(500).json({
+        message: "Internal server error",
+        code: "DEALS_LIST_INTERNAL_ERROR",
+        correlationId,
+      });
     }
   });
 
@@ -436,7 +463,7 @@ export function registerDealsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/prospects/:id/recalculate-volume", isDashboardUser, async (req, res) => {
+  app.post("/api/prospects/:id/recalculate-volume", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
       const prospect = await storage.getProspect(Number(req.params.id));
       if (!prospect) return res.status(404).json({ message: "Prospect not found" });

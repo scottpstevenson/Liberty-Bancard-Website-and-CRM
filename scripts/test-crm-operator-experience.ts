@@ -101,16 +101,16 @@ async function runtimeOwnershipProof() {
     await upsertDashboardUser(agentBEmail, password);
     await upsertDashboardUser(managerEmail, password, "manager");
     const created = await db.insert(contacts).values([
-      { firstName: "Owner", lastName: "A", email: `crm-contact-a-${runId}@example.test`, phone: "+1202555" + runId.slice(-4), assignedTo: agentAEmail, status: "active", leadSource: "test", sourceCategory: "test" },
-      { firstName: "Owner", lastName: "B", email: `crm-contact-b-${runId}@example.test`, phone: "+1202556" + runId.slice(-4), assignedTo: agentBEmail, status: "active", leadSource: "test", sourceCategory: "test" },
-      { firstName: "Unassigned", lastName: "Contact", email: `crm-contact-u-${runId}@example.test`, phone: "+1202557" + runId.slice(-4), assignedTo: null, status: "active", leadSource: "test", sourceCategory: "test" },
+      { firstName: "Owner", lastName: "A", email: `crm-contact-a-${runId}@example.test`, phone: "+1202555" + runId.slice(-4), assignedTo: agentAEmail, status: "active", leadSource: "test", sourceCategory: "test", recordClass: "production" },
+      { firstName: "Owner", lastName: "B", email: `crm-contact-b-${runId}@example.test`, phone: "+1202556" + runId.slice(-4), assignedTo: agentBEmail, status: "active", leadSource: "test", sourceCategory: "test", recordClass: "production" },
+      { firstName: "Unassigned", lastName: "Contact", email: `crm-contact-u-${runId}@example.test`, phone: "+1202557" + runId.slice(-4), assignedTo: null, status: "active", leadSource: "test", sourceCategory: "test", recordClass: "production" },
     ] as any).returning({ id: contacts.id });
     contactIds.push(...created.map((row) => row.id));
     const [aId, bId, unassignedId] = contactIds;
     const createdDeals = await db.insert(deals).values([
-      { contactId: aId, owner: agentAEmail, name: "CRM fixture A", pipeline: "sales", stage: "New Lead" },
-      { contactId: bId, owner: agentBEmail, name: "CRM fixture B", pipeline: "sales", stage: "New Lead" },
-      { contactId: unassignedId, owner: null, name: "CRM fixture unassigned", pipeline: "sales", stage: "New Lead" },
+      { contactId: aId, owner: agentAEmail, name: "CRM fixture A", pipeline: "sales", stage: "New Lead", recordClass: "production" },
+      { contactId: bId, owner: agentBEmail, name: "CRM fixture B", pipeline: "sales", stage: "New Lead", recordClass: "production" },
+      { contactId: unassignedId, owner: null, name: "CRM fixture unassigned", pipeline: "sales", stage: "New Lead", recordClass: "production" },
     ]).returning({ id: deals.id });
     dealIds.push(...createdDeals.map((row) => row.id));
     const [aDealId, bDealId, unassignedDealId] = dealIds;

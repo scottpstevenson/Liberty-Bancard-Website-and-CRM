@@ -12,7 +12,7 @@ import { ResponsiveTable } from "@/components/ui/responsive-table";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Search, Plus, MoreHorizontal, UserPlus, Mail, MessageSquare, Zap, AlertTriangle, Sparkles, Activity, ArrowRight, Clock, TrendingUp, Ticket, Download, CheckSquare, ExternalLink, Users, Merge, ChevronRight, Archive, RotateCcw, Star, UserCheck, Filter, Calendar, RefreshCw, BellOff, PhoneMissed } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -387,8 +387,39 @@ function DuplicateFinderDialog({ open, onOpenChange }: { open: boolean; onOpenCh
 }
 
 export default function Contacts() {
-  const [page, setPage] = useState(0);
   const pageSize = 100;
+  const [location, setLocation] = useLocation();
+  const search = useSearch();
+  const peopleParams = new URLSearchParams(search);
+  const peoplePath = location === "/dashboard/contacts-leads" ? "/dashboard/contacts-leads" : "/dashboard/contacts";
+  const offsetParam = Number(peopleParams.get("offset") ?? "0");
+  const offset = Number.isFinite(offsetParam) && offsetParam >= 0 ? offsetParam : 0;
+  const page = Math.floor(offset / pageSize);
+  const setPage = (nextPage: number | ((current: number) => number)) => {
+    const resolvedPage = typeof nextPage === "function" ? nextPage(page) : nextPage;
+    const next = new URLSearchParams(search);
+    if (resolvedPage > 0) next.set("offset", String(resolvedPage * pageSize));
+    else next.delete("offset");
+    setLocation(`${peoplePath}${next.toString() ? `?${next.toString()}` : ""}`, { replace: true });
+  };
+  const updatePeopleParam = (key: "search" | "sort" | "archived" | "status" | "recordClass", value: string) => {
+    const next = new URLSearchParams(search);
+    if (value) next.set(key, value);
+    else next.delete(key);
+    next.delete("offset");
+    setLocation(`${peoplePath}${next.toString() ? `?${next.toString()}` : ""}`, { replace: true });
+  };
+  // These list controls are URL state, so a shared link/back navigation always
+  // describes the same People view and every change returns to the first page.
+  const searchTerm = peopleParams.get("search") ?? "";
+  const activitySort = peopleParams.get("sort") ?? "";
+  const showArchived = peopleParams.get("archived") === "true";
+  const statusFilter = peopleParams.get("status") ?? "";
+  const recordClassFilter = peopleParams.get("recordClass") ?? "";
+  const setSearchTerm = (value: string) => updatePeopleParam("search", value);
+  const setActivitySort = (value: string) => updatePeopleParam("sort", value);
+  const setShowArchived = (value: boolean) => updatePeopleParam("archived", value ? "true" : "");
+  const setStatusFilter = (value: string) => updatePeopleParam("status", value);
   // #1443 — Declare server-filter states BEFORE useContacts so they can be passed as
   // reactive query params. Initialized synchronously from URL search params so the very
   // first fetch already carries the filter (no double-fetch / empty-flash from useEffect).
@@ -401,23 +432,7 @@ export default function Contacts() {
   const [blockedOnly, setBlockedOnly] = useState<boolean>(
     () => new URLSearchParams(window.location.search).get("blocked") === "true",
   );
-  // #1443 — Reset to page 0 whenever a server-side filter toggles so the paginated
-  // response starts from the beginning of the new filtered result set.
-  useEffect(() => { setPage(0); }, [churnRiskOnly, noOutreach24hOnly, blockedOnly]);
-
-  const { data: contactsResult, isLoading, isError, refetch } = useContacts({
-    limit: pageSize,
-    offset: page * pageSize,
-    churnRisk: churnRiskOnly ? "high" : undefined,
-    noOutreach: noOutreach24hOnly ? "24h" : undefined,
-    blocked: blockedOnly ? "true" : undefined,
-  });
-  const contacts = contactsResult?.data;
-  const totalContacts = contactsResult?.total ?? 0;
-  const totalPages = Math.ceil(totalContacts / pageSize);
   const [bulkUpdating, setBulkUpdating] = useState(false);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [statusFilter, setStatusFilter] = useState("");
   const [emailHealthFilter, setEmailHealthFilter] = useState("");
   const [assignedToMe, setAssignedToMe] = useState(false);
   const [verticalFilter, setVerticalFilter] = useState(""); // #238
@@ -426,7 +441,6 @@ export default function Contacts() {
   const [neverContactedOnly, setNeverContactedOnly] = useState(false); // #462
   const [createdThisWeekOnly, setCreatedThisWeekOnly] = useState(false); // #482
   const [leadSourceFilter, setLeadSourceFilter] = useState(""); // #514
-  const [activitySort, setActivitySort] = useState(""); // #566
   const [hasAssigneeOnly, setHasAssigneeOnly] = useState(false); // #619
   const [contactedTodayOnly, setContactedTodayOnly] = useState(false); // #383
   const [lifecycleFilter, setLifecycleFilter] = useState(""); // #520
@@ -435,12 +449,48 @@ export default function Contacts() {
   const [noDealOnly, setNoDealOnly] = useState(false); // #835
   const [notContactedIn30Only, setNotContactedIn30Only] = useState(false); // #1245
   // churnRiskOnly / noOutreach24hOnly / blockedOnly declared early (before useContacts) — see above
+  useEffect(() => {
+    setPage(0);
+  }, [
+    churnRiskOnly, noOutreach24hOnly, blockedOnly, emailHealthFilter, assignedToMe,
+    verticalFilter, tagFilter, neverContactedOnly, createdThisWeekOnly, leadSourceFilter,
+    hasAssigneeOnly, contactedTodayOnly, lifecycleFilter, staleContactsOnly, recentlyUpdated,
+    noDealOnly, notContactedIn30Only,
+  ]);
+
+  const { data: contactsResult, isLoading, isError, refetch } = useContacts({
+    limit: pageSize,
+    offset,
+    churnRisk: churnRiskOnly ? "high" : undefined,
+    noOutreach: noOutreach24hOnly ? "24h" : undefined,
+    blocked: blockedOnly ? "true" : undefined,
+    search: searchTerm || undefined,
+    sort: activitySort || undefined,
+    archived: showArchived ? "true" : undefined,
+    recordClass: recordClassFilter || undefined,
+    status: statusFilter || undefined,
+    emailHealth: emailHealthFilter || undefined,
+    assignedToMe,
+    vertical: verticalFilter || undefined,
+    tag: tagFilter || undefined,
+    contactedToday: contactedTodayOnly,
+    hasAssignee: hasAssigneeOnly,
+    leadSource: leadSourceFilter || undefined,
+    lifecycle: lifecycleFilter || undefined,
+    stale: staleContactsOnly,
+    recentlyUpdated,
+    neverContacted: neverContactedOnly,
+    notContactedIn30: notContactedIn30Only,
+    noDeal: noDealOnly,
+    createdThisWeek: createdThisWeekOnly,
+  });
+  const contacts = contactsResult?.data;
+  const totalContacts = contactsResult?.total ?? 0;
+  const totalPages = Math.ceil(totalContacts / pageSize);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [selectedContact, setSelectedContact] = useState<any>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [duplicatesOpen, setDuplicatesOpen] = useState(false);
-  const [location, setLocation] = useLocation();
-  const [showArchived, setShowArchived] = useState(false);
   const createContact = useCreateContact();
   const updateContact = useUpdateContact();
 
@@ -554,106 +604,9 @@ export default function Contacts() {
     { value: "opted_out", label: "Opted Out" },
   ];
 
-  const filteredContacts = contacts?.filter((c: any) => {
-    const matchesSearch = (c.firstName?.toLowerCase() ?? "").includes(searchTerm.toLowerCase()) ||
-      (c.lastName?.toLowerCase() ?? "").includes(searchTerm.toLowerCase()) ||
-      (c.companyName?.toLowerCase() ?? "").includes(searchTerm.toLowerCase());
-    const isArchived = !!c.archivedAt;
-    if (!showArchived && isArchived) return false;
-    // #1443 — Blocked contacts filter
-    if (blockedOnly) {
-      const isBlocked = (c.doNotContact === true) ||
-        ["bounced", "invalid", "opted_out", "unsafe"].includes(c.emailStatus || "");
-      if (!isBlocked) return false;
-    }
-    // #1443 — Churn risk filter (churnRiskTier is High or Critical, matching server KPI predicate)
-    if (churnRiskOnly) {
-      const tier = (c as any).churnRiskTier;
-      if (tier !== "High" && tier !== "Critical") return false;
-    }
-    // #1443 — No-outreach 24h filter (created last 24h with null lastContactedAt)
-    if (noOutreach24hOnly) {
-      const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
-      if (!c.createdAt || new Date(c.createdAt).getTime() < oneDayAgo) return false;
-      if (c.lastContactedAt) return false;
-    }
-    if (statusFilter && c.status !== statusFilter) return false;
-    if (emailHealthFilter) {
-      const contactEmailStatus = (c.emailStatus || "active");
-      if (contactEmailStatus !== emailHealthFilter) return false;
-    }
-    if (assignedToMe && c.assignedTo !== user?.email) return false;
-    // #238 — vertical filter
-    if (verticalFilter && c.vertical !== verticalFilter) return false;
-    // #263 — tag filter
-    if (tagFilter && !((c.tags as string[] | null) ?? []).includes(tagFilter)) return false;
-    // #383 — Contacted today filter
-    if (contactedTodayOnly) {
-      if (!(c as any).lastContactedAt) return false;
-      const todayStr = new Date().toLocaleDateString();
-      if (new Date((c as any).lastContactedAt).toLocaleDateString() !== todayStr) return false;
-    }
-    // #619 — Has assignee filter
-    if (hasAssigneeOnly && !c.assignedTo) return false;
-    // #514 — Lead source filter
-    if (leadSourceFilter && (c as any).leadSource !== leadSourceFilter) return false;
-    // #520 — Lifecycle state filter
-    if (lifecycleFilter && (c as any).lifecycleState !== lifecycleFilter) return false;
-    // #398 — Stale contacts (no activity in 30+ days)
-    if (staleContactsOnly) {
-      const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
-      const lastActive = (c as any).lastActivityAt ? new Date((c as any).lastActivityAt).getTime() : 0;
-      if (lastActive > thirtyDaysAgo) return false;
-    }
-    // #543 — Recently updated (last 7 days)
-    if (recentlyUpdated) {
-      const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-      if (!(c as any).updatedAt || new Date((c as any).updatedAt).getTime() < sevenDaysAgo) return false;
-    }
-    // #462 — Never contacted filter
-    if (neverContactedOnly && c.lastContactedAt) return false;
-    // #1245 — Not contacted in 30 days
-    if (notContactedIn30Only) {
-      const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
-      if (c.lastContactedAt && new Date(c.lastContactedAt).getTime() >= thirtyDaysAgo) return false;
-    }
-    // #835 — No-deal contacts filter
-    if (noDealOnly) {
-      const dealCount = (c as any).activeDealCount ?? (c as any).openDeals ?? (Array.isArray((c as any).deals) ? (c as any).deals.filter((d: any) => !d.archivedAt && d.stage !== "Closed Won" && d.stage !== "Closed Lost").length : null);
-      if (dealCount === null || dealCount === undefined || dealCount > 0) return false;
-    }
-    // #482 — Created this week filter
-    if (createdThisWeekOnly) {
-      const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-      if (!c.createdAt || new Date(c.createdAt) < weekAgo) return false;
-    }
-    return matchesSearch;
-  });
-
-  // #566 — Sort contacts by last activity
-  const sortedContacts = activitySort
-    ? [...(filteredContacts ?? [])].sort((a: any, b: any) => {
-        if (activitySort === "activity_desc") {
-          const ta = a.lastActivityAt ? new Date(a.lastActivityAt).getTime() : 0;
-          const tb = b.lastActivityAt ? new Date(b.lastActivityAt).getTime() : 0;
-          return tb - ta;
-        }
-        if (activitySort === "activity_asc") {
-          const ta = a.lastActivityAt ? new Date(a.lastActivityAt).getTime() : Infinity;
-          const tb = b.lastActivityAt ? new Date(b.lastActivityAt).getTime() : Infinity;
-          return ta - tb;
-        }
-        if (activitySort === "score_desc") return ((b.leadScore ?? 0) as number) - ((a.leadScore ?? 0) as number);
-        if (activitySort === "alpha") return `${a.lastName}${a.firstName}`.localeCompare(`${b.lastName}${b.firstName}`);
-        return 0;
-      })
-    : filteredContacts;
-
-  const emailHealthCounts = EMAIL_HEALTH_OPTIONS.reduce((acc, opt) => {
-    if (!opt.value) return acc;
-    acc[opt.value] = contacts?.filter((c: any) => (c.emailStatus || "active") === opt.value).length ?? 0;
-    return acc;
-  }, {} as Record<string, number>);
+  // Rows, totals and ordering come from the same canonical server predicate.
+  const filteredContacts = contacts;
+  const sortedContacts = contacts;
 
   const { data: emailHealthSummary, isLoading: summaryLoading } = useQuery<{
     total: number; active: number; bounced: number; invalid: number; opted_out: number;
@@ -866,7 +819,7 @@ export default function Contacts() {
           {/* #592 — Filtered count */}
           {sortedContacts && (
             <span className="text-sm text-muted-foreground whitespace-nowrap" data-testid="text-filtered-count">
-              {sortedContacts.length.toLocaleString()} {sortedContacts.length === 1 ? "contact" : "contacts"}
+              {totalContacts.toLocaleString()} {totalContacts === 1 ? "contact" : "contacts"}
             </span>
           )}
         </div>
@@ -888,7 +841,9 @@ export default function Contacts() {
           <div className="flex items-center gap-1 flex-wrap" data-testid="email-health-filter">
             {EMAIL_HEALTH_OPTIONS.map((opt) => {
               const isActive = emailHealthFilter === opt.value;
-              const count = opt.value ? emailHealthCounts[opt.value] : sortedContacts?.length;
+              const count = opt.value
+                ? emailHealthSummary?.[opt.value as "active" | "bounced" | "invalid" | "opted_out"] ?? 0
+                : summaryTotal;
               return (
                 <button
                   key={opt.value || "all"}
@@ -943,10 +898,6 @@ export default function Contacts() {
           >
             <Clock className="h-3 w-3" />
             Never contacted
-            {!neverContactedOnly && contacts && (() => {
-              const n = contacts.filter((c: any) => !c.lastContactedAt).length;
-              return n > 0 ? <span className="ml-0.5 bg-muted-foreground/10 px-1 py-0.5 rounded text-[10px]">{n}</span> : null;
-            })()}
           </button>
           {/* #383 — Contacted today chip */}
           <button
@@ -973,11 +924,6 @@ export default function Contacts() {
           >
             <Calendar className="h-3 w-3" />
             This week
-            {!createdThisWeekOnly && contacts && (() => {
-              const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-              const n = contacts.filter((c: any) => c.createdAt && new Date(c.createdAt) >= weekAgo).length;
-              return n > 0 ? <span className="ml-0.5 bg-muted-foreground/10 px-1 py-0.5 rounded text-[10px]">{n}</span> : null;
-            })()}
           </button>
           {/* #398 — Stale contacts chip (no activity in 30+ days) */}
           <button
@@ -1081,10 +1027,6 @@ export default function Contacts() {
           >
             <UserCheck className="h-3 w-3" />
             Assigned
-            {!hasAssigneeOnly && contacts && (() => {
-              const n = contacts.filter((c: any) => !!c.assignedTo).length;
-              return n > 0 ? <span className="ml-0.5 bg-muted-foreground/10 px-1 py-0.5 rounded text-[10px]">{n}</span> : null;
-            })()}
           </button>
           <div className="flex items-center gap-2" data-testid="toggle-show-archived-contacts">
             <Switch
