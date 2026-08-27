@@ -1,10 +1,10 @@
 # Liberty Bancard Runtime Verification Register — 2026-08-27
 
-**Authoritative source:** attached_assets/LIBERTY_BANCARD_RUNTIME_VERIFICATION_REGISTER_1786901209005.md  
-**Source SHA-256:** `a97f1772aa6a494ac46c13009c50adade1c7c000b7df3f5eec2e5ab90dc9e897`  
-**Tested live-main SHA:** `78ae07e8c5ffb643467a93dc42b95834d65289a8`  
-**Observed published SHA:** `f2cfa4aade9b24435128c9bd5787ad01f5281563`  
-**Evidence cutoff:** 2026-08-27T02:55:09Z  
+**Authoritative source:** attached_assets/LIBERTY_BANCARD_RUNTIME_VERIFICATION_REGISTER_1786901209005.md
+**Source SHA-256:** `a97f1772aa6a494ac46c13009c50adade1c7c000b7df3f5eec2e5ab90dc9e897`
+**Tested live-main SHA:** `78ae07e8c5ffb643467a93dc42b95834d65289a8`
+**Observed published SHA:** `f2cfa4aade9b24435128c9bd5787ad01f5281563`
+**Evidence cutoff:** 2026-08-27T02:55:09Z
 **Reviewer/operator:** Replit Agent
 
 ## Reconciliation

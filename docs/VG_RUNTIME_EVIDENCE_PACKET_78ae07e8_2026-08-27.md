@@ -1,9 +1,9 @@
 # VG-01 through VG-04 Redacted Evidence Packet — 78ae07e8 — 2026-08-27
 
-**Tested live-main SHA:** `78ae07e8c5ffb643467a93dc42b95834d65289a8`  
-**Observed published SHA:** `f2cfa4aade9b24435128c9bd5787ad01f5281563`  
-**Capture window:** 2026-08-26T21:41:39Z through 2026-08-27T02:55:09Z  
-**Operator:** Replit Agent  
+**Tested live-main SHA:** `78ae07e8c5ffb643467a93dc42b95834d65289a8`
+**Observed published SHA:** `f2cfa4aade9b24435128c9bd5787ad01f5281563`
+**Capture window:** 2026-08-26T21:41:39Z through 2026-08-27T02:55:09Z
+**Operator:** Replit Agent
 **Redaction:** counts, status buckets, release identities, route names, and queue names only; no credentials, provider tokens, contact identifiers, email addresses, phone numbers, or row samples.
 
 ## Evidence integrity
@@ -195,7 +195,8 @@ Negative tests:
 
 1. The initial runbook called an import-only guard as a CLI. Independent review caught the issue before task completion. Repair: same-process guarded canonical migration launcher plus an accepted `ci_..._` Redis prefix.
 2. The initial validator checked IDs and shape but not source claims or exact SHAs. Repair: immutable claim binding, exact SHA/timestamp/filename checks, evidence artifacts, and future-PASS deployment/evidence block requirements.
-3. No failed production mutation or provider operation occurred.
+3. Completion review found inherited AI credentials could trigger knowledge indexing. Repair: explicit provider-deny mode scrubs provider credentials and blocks HTTP before canonical migrator import; regression test verifies the inherited AI key is removed.
+4. No failed production mutation or provider operation occurred.
 
 ## Register evidence map
 

@@ -48,6 +48,7 @@ export TEST_REDIS_PREFIX="ci_vg1687_unique_run_"
 export REDIS_PREFIX="$TEST_REDIS_PREFIX"
 export INTEGRATION_TESTS_OPT_IN=1
 export GHL_TRANSPORT_FAILFAST=true
+export VG_PROVIDER_DENY_MODE=1
 
 npx tsx scripts/run-guarded-canonical-migration.ts
 npx tsx scripts/run-guarded-canonical-migration.ts
@@ -55,6 +56,7 @@ npx tsx scripts/run-ci-suites.ts --capability deterministic-integration
 ```
 
 Any skip, unreachable server, timeout, or unavailable fixture is a non-pass. The second migration must be a no-op.
+The guarded launcher verifies disposable DB/Redis first, then scrubs inherited provider credentials, disables Serper/Sunbiz, forces GHL fail-fast, and blocks global HTTP fetch before importing the canonical migrator.
 
 ## 4. Isolated server-required matrix
 
