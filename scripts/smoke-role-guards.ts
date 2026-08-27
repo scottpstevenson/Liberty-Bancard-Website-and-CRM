@@ -16,10 +16,24 @@
  */
 
 import bcrypt from "bcryptjs";
+import { readFileSync } from "node:fs";
 import { db } from "../server/db";
 import { users } from "../shared/models/auth";
-import { contacts, documents } from "../shared/schema";
+import { campaignSteps, campaigns, contacts, documents, followUpSequences, sequenceSteps } from "../shared/schema";
 import { eq, sql as drizzleSql } from "drizzle-orm";
+
+const crmOperationsSource = readFileSync(new URL("../server/routes/crm-operations.ts", import.meta.url), "utf8");
+const contactArchiveStart = crmOperationsSource.indexOf('app.post("/api/contacts/:id/archive"');
+const contactRestoreStart = crmOperationsSource.indexOf('app.post("/api/contacts/:id/restore"');
+if (contactArchiveStart < 0 || contactRestoreStart <= contactArchiveStart) {
+  throw new Error("Contact archive/restore route boundaries were not found");
+}
+const contactArchiveHandlerSource = crmOperationsSource.slice(contactArchiveStart, contactRestoreStart);
+if (!contactArchiveHandlerSource.includes("storage.archiveContact") ||
+    contactArchiveHandlerSource.includes("propagateContactDeleteToGhl") ||
+    /(?:delete|remove)[A-Za-z]*Ghl|Ghl[A-Za-z]*(?:delete|remove)/i.test(contactArchiveHandlerSource)) {
+  throw new Error("Contact archive handler must only archive locally and must not invoke GHL deletion");
+}
 
 interface GuardCase {
   method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
@@ -82,6 +96,8 @@ const CASES: GuardCase[] = [
   { method: "GET",  path: "/api/companies",                  anon: [401], merchant: [403], admin: [200], description: "companies list" },
   { method: "GET",  path: "/api/serper/status",              anon: [401], merchant: [403], admin: [200], description: "serper status" },
   { method: "GET",  path: "/api/proxycurl/status",           anon: [401], merchant: [403], admin: [200], description: "proxycurl status" },
+  { method: "POST", path: "/api/contacts/999999/archive",    anon: [401], merchant: [403], admin: [403], agent: [403], manager: [403], description: "contact archive (admin/manager; CSRF required)" },
+  { method: "POST", path: "/api/contacts/999999/restore",    anon: [401], merchant: [403], admin: [403], agent: [403], manager: [403], description: "contact restore (admin/manager; CSRF required)" },
 
   // tickets-tasks.ts
   { method: "GET",  path: "/api/tickets",                    anon: [401], merchant: [403], admin: [200], description: "tickets list" },
@@ -141,7 +157,7 @@ const CASES: GuardCase[] = [
   { method: "GET",    path: "/api/admin/launch-readiness",           anon: [401], merchant: [403], admin: [200], description: "launch readiness (requireRole admin/manager)" },
   { method: "GET",    path: "/api/admin/outbound-preflight",         anon: [401], merchant: [403], admin: [200], description: "outbound preflight checklist (requireRole admin/manager)" },
   { method: "GET",    path: "/api/admin/data-health",               anon: [401], merchant: [403], admin: [200], description: "data health metrics (requireRole admin/manager)" },
-  { method: "GET",    path: "/api/admin/queue-metrics",              anon: [401], merchant: [403], admin: [200], description: "queue metrics (requireRole admin/manager)" },
+  { method: "GET",    path: "/api/admin/queue-metrics",              anon: [401], merchant: [403], admin: [200, 503], description: "queue metrics (requireRole admin; 503 when queue infrastructure is intentionally unavailable)" },
   { method: "GET",    path: "/api/admin/alerts",                     anon: [401], merchant: [403], admin: [200], description: "alert feed (requireRole admin/manager)" },
   { method: "GET",    path: "/api/admin/ghl/identity-conflicts",     anon: [401], merchant: [403], admin: [200], description: "GHL identity conflict queue (requireRole admin/manager)" },
 
@@ -188,7 +204,7 @@ const CASES: GuardCase[] = [
   { method: "GET",    path: "/api/wizard/connectivity",             anon: [401], merchant: [403], admin: [200],      agent: [403], manager: [200], description: "wizard connectivity check (admin/manager only)" },
   { method: "GET",    path: "/api/wizard/booking-links",            anon: [401], merchant: [403], admin: [200],      agent: [403], manager: [200], description: "wizard booking links (admin/manager only)" },
   { method: "GET",    path: "/api/wizard/feature-flags",            anon: [401], merchant: [403], admin: [200],      agent: [403], manager: [200], description: "wizard feature-flag read (admin/manager only)" },
-  { method: "GET",    path: "/api/wizard/queue-health",             anon: [401], merchant: [403], admin: [200],      agent: [403], manager: [200], description: "wizard queue health (admin/manager only)" },
+  { method: "GET",    path: "/api/wizard/queue-health",             anon: [401], merchant: [403], admin: [200, 503], agent: [403], manager: [200, 503], description: "wizard queue health (admin/manager only; 503 when queue infrastructure is intentionally unavailable)" },
   // Mutating wizard endpoints: admin/manager allowed role-wise, but CSRF fires first on POST/DELETE →
   // all authenticated callers (admin, manager, agent) get 403 in the test harness (no CSRF token).
   { method: "POST",   path: "/api/wizard/test-contact",             anon: [401], merchant: [403], admin: [403],      agent: [403], manager: [403], description: "wizard create test contact (admin/manager; CSRF required)" },
@@ -504,6 +520,207 @@ async function run(): Promise<void> {
   }
   console.log(`\n${CASES.length - failures}/${CASES.length} guarded routes behave correctly across anon/merchant/agent/manager/admin.`);
 
+  // Stateful authenticated BOLA coverage for campaign/sequence authoring.
+  console.log("\n── Campaign/sequence manager ownership guards (stateful) ──");
+  const fixtureName = `smoke-bola-${Date.now()}`;
+  const fixtureIds: { campaigns: number[]; sequences: number[]; contacts: number[] } = { campaigns: [], sequences: [], contacts: [] };
+  try {
+    const csrfAuth = async (cookie: string) => {
+      const response = await fetch(`${BASE_URL}/api/csrf-token`, { headers: { cookie } });
+      const { token } = await response.json() as { token: string };
+      const setCookie = response.headers.get("set-cookie") ?? "";
+      const csrfCookie = setCookie.split(";")[0];
+      return { cookie: csrfCookie ? `${cookie}; ${csrfCookie}` : cookie, token };
+    };
+    const managerAuth = await csrfAuth(managerCookie);
+    const adminAuth = await csrfAuth(adminCookie);
+    const agentAuth = await csrfAuth(agentCookie);
+    const mutate = (auth: { cookie: string; token: string }, method: string, path: string, body?: unknown) =>
+      fetch(`${BASE_URL}${path}`, {
+        method,
+        headers: { cookie: auth.cookie, "x-csrf-token": auth.token, "content-type": "application/json" },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+
+    const [archiveContactFixture] = await db.insert(contacts).values({
+      firstName: "SmokeArchive",
+      lastName: "RoleGuard",
+      email: `${fixtureName}@example.test`,
+      phone: `+1${String(Date.now()).slice(-10)}`,
+      status: "active",
+      leadSource: "test",
+      sourceCategory: "test",
+    } as any).returning();
+    fixtureIds.contacts.push(archiveContactFixture.id);
+    const agentArchive = await mutate(agentAuth, "POST", `/api/contacts/${archiveContactFixture.id}/archive`);
+    const agentRestore = await mutate(agentAuth, "POST", `/api/contacts/${archiveContactFixture.id}/restore`);
+    const [afterAgentAttempts] = await db.select().from(contacts).where(eq(contacts.id, archiveContactFixture.id));
+    const managerArchive = await mutate(managerAuth, "POST", `/api/contacts/${archiveContactFixture.id}/archive`);
+    const [afterManagerArchive] = await db.select().from(contacts).where(eq(contacts.id, archiveContactFixture.id));
+    const managerRestore = await mutate(managerAuth, "POST", `/api/contacts/${archiveContactFixture.id}/restore`);
+    const [afterManagerRestore] = await db.select().from(contacts).where(eq(contacts.id, archiveContactFixture.id));
+    if (agentArchive.status !== 403 || agentRestore.status !== 403 || afterAgentAttempts.archivedAt !== null ||
+        managerArchive.status !== 200 || afterManagerArchive.archivedAt === null ||
+        managerRestore.status !== 200 || afterManagerRestore.archivedAt !== null) {
+      console.log(`✗ contact archive/restore role behavior: agent=${agentArchive.status}/${agentRestore.status}, manager=${managerArchive.status}/${managerRestore.status}`);
+      failures++;
+    } else {
+      console.log("✓ contact archive/restore is manager-authorized, reversible, and agent-denied");
+    }
+
+    const [ownCampaign] = await db.insert(campaigns).values({ name: `${fixtureName}-own-c`, status: "draft", createdBy: MANAGER_EMAIL }).returning();
+    const [otherCampaign] = await db.insert(campaigns).values({ name: `${fixtureName}-other-c`, status: "draft", createdBy: "another-manager@example.test" }).returning();
+    const [activeCampaign] = await db.insert(campaigns).values({ name: `${fixtureName}-active-c`, status: "active", createdBy: MANAGER_EMAIL }).returning();
+    fixtureIds.campaigns.push(ownCampaign.id, otherCampaign.id, activeCampaign.id);
+    await db.insert(campaignSteps).values({ campaignId: ownCampaign.id, stepOrder: 1, stepType: "email", subject: `${fixtureName}-owned-campaign-content` });
+    const [otherCampaignStep] = await db.insert(campaignSteps).values({ campaignId: otherCampaign.id, stepOrder: 1, stepType: "email", subject: "unchanged" }).returning();
+
+    const [ownSequence] = await db.insert(followUpSequences).values({ name: `${fixtureName}-own-s`, status: "paused", createdBy: MANAGER_EMAIL }).returning();
+    const [otherSequence] = await db.insert(followUpSequences).values({ name: `${fixtureName}-other-s`, status: "paused", createdBy: "another-manager@example.test" }).returning();
+    const [activeSequence] = await db.insert(followUpSequences).values({ name: `${fixtureName}-active-s`, status: "active", createdBy: MANAGER_EMAIL }).returning();
+    fixtureIds.sequences.push(ownSequence.id, otherSequence.id, activeSequence.id);
+    await db.insert(sequenceSteps).values({ sequenceId: ownSequence.id, stepOrder: 1, actionType: "email", subject: `${fixtureName}-owned-sequence-content` });
+    const [otherSequenceStep] = await db.insert(sequenceSteps).values({ sequenceId: otherSequence.id, stepOrder: 1, actionType: "email", subject: "unchanged" }).returning();
+
+    const read = (cookie: string, path: string) => fetch(`${BASE_URL}${path}`, { headers: { cookie } });
+    const ownerReads = await Promise.all([
+      read(managerCookie, `/api/campaigns/${ownCampaign.id}`),
+      read(managerCookie, `/api/campaigns/${ownCampaign.id}/steps`),
+      read(managerCookie, `/api/campaigns/${ownCampaign.id}/analytics`),
+      read(managerCookie, `/api/sequences/${ownSequence.id}`),
+      read(managerCookie, `/api/sequences/${ownSequence.id}/steps`),
+    ]);
+    if (ownerReads.some(response => response.status !== 200)) {
+      console.log(`✗ owner manager reads failed: ${ownerReads.map(r => r.status).join(",")}`);
+      failures++;
+    }
+    const foreignReadPaths = [
+      `/api/campaigns/${otherCampaign.id}`,
+      `/api/campaigns/${otherCampaign.id}/steps`,
+      `/api/campaigns/${otherCampaign.id}/analytics`,
+      `/api/campaigns/${otherCampaign.id}/audience-preview`,
+      `/api/outbound-messages?campaignId=${otherCampaign.id}`,
+      `/api/sequences/${otherSequence.id}`,
+      `/api/sequences/${otherSequence.id}/steps`,
+    ];
+    const foreignReads = await Promise.all(foreignReadPaths.map(path => read(managerCookie, path)));
+    if (foreignReads.some(response => response.status !== 403)) {
+      console.log(`✗ foreign manager reads were not denied: ${foreignReads.map(r => r.status).join(",")}`);
+      failures++;
+    }
+    const [campaignListResponse, sequenceListResponse] = await Promise.all([
+      read(managerCookie, "/api/campaigns"),
+      read(managerCookie, "/api/sequences"),
+    ]);
+    const campaignListBody = await campaignListResponse.text();
+    const sequenceListBody = await sequenceListResponse.text();
+    if (campaignListResponse.status !== 200 || sequenceListResponse.status !== 200 ||
+        campaignListBody.includes(`${fixtureName}-other-c`) || sequenceListBody.includes(`${fixtureName}-other-s`) ||
+        !campaignListBody.includes(`${fixtureName}-own-c`) || !sequenceListBody.includes(`${fixtureName}-own-s`)) {
+      console.log("✗ manager list ownership filtering leaked or omitted fixtures");
+      failures++;
+    }
+    const restrictedSequenceReads = await Promise.all([
+      read(agentCookie, `/api/sequences/${ownSequence.id}`),
+      read(merchantCookie, `/api/sequences/${ownSequence.id}`),
+    ]);
+    const adminReads = await Promise.all([
+      read(adminCookie, `/api/campaigns/${otherCampaign.id}`),
+      read(adminCookie, `/api/campaigns/${otherCampaign.id}/steps`),
+      read(adminCookie, `/api/campaigns/${otherCampaign.id}/analytics`),
+      read(adminCookie, `/api/sequences/${otherSequence.id}`),
+      read(adminCookie, `/api/sequences/${otherSequence.id}/steps`),
+    ]);
+    if (restrictedSequenceReads.some(response => response.status !== 403) ||
+        adminReads.some(response => response.status !== 200)) {
+      console.log(`✗ role-scoped reads: restricted=${restrictedSequenceReads.map(r => r.status)}, admin=${adminReads.map(r => r.status)}`);
+      failures++;
+    } else {
+      console.log("✓ campaign/sequence object reads enforce manager ownership and admin global access");
+    }
+
+    const enrollmentCountBefore = Number((await db.execute(drizzleSql`
+      SELECT COUNT(*) AS n FROM sequence_enrollments
+      WHERE sequence_id IN (${ownSequence.id}, ${otherSequence.id}, ${activeSequence.id})
+    `)).rows[0].n);
+    for (const auth of [agentAuth, managerAuth, adminAuth]) {
+      const retiredCalls = await Promise.all([
+        mutate(auth, "POST", "/api/sequence-enrollments", { sequenceId: activeSequence.id, contactId: 999999 }),
+        mutate(auth, "POST", `/api/sequences/${activeSequence.id}/enroll-vertical`, { vertical: fixtureName, confirmed: true }),
+        mutate(auth, "POST", "/api/sequences/steps/test-send", { subject: "blocked", body: "blocked" }),
+      ]);
+      if (retiredCalls.some(response => response.status !== 403)) {
+        console.log(`✗ retired provider-capable routes were not universally denied: ${retiredCalls.map(r => r.status).join(",")}`);
+        failures++;
+      }
+    }
+    const enrollmentCountAfter = Number((await db.execute(drizzleSql`
+      SELECT COUNT(*) AS n FROM sequence_enrollments
+      WHERE sequence_id IN (${ownSequence.id}, ${otherSequence.id}, ${activeSequence.id})
+    `)).rows[0].n);
+    const relevantAuditCount = Number((await db.execute(drizzleSql`
+      SELECT COUNT(*) AS n FROM audit_logs
+      WHERE entity_id IN (${ownSequence.id}, ${otherSequence.id}, ${activeSequence.id})
+        AND action IN ('sequence_enrolled', 'sequence_vertical_bulk_enroll_started')
+    `)).rows[0].n);
+    if (enrollmentCountAfter !== enrollmentCountBefore || relevantAuditCount !== 0) {
+      console.log(`✗ retired routes caused side effects: enrollments ${enrollmentCountBefore}->${enrollmentCountAfter}, audits=${relevantAuditCount}`);
+      failures++;
+    }
+
+    const forbiddenCases: Array<[string, string]> = [
+      ["PUT", `/api/campaigns/${otherCampaign.id}`],
+      ["POST", `/api/campaigns/${otherCampaign.id}/steps`],
+      ["PUT", `/api/campaign-steps/${otherCampaignStep.id}`],
+      ["DELETE", `/api/campaign-steps/${otherCampaignStep.id}`],
+      ["POST", `/api/campaigns/${otherCampaign.id}/audience-preview`],
+      ["PUT", `/api/sequences/${otherSequence.id}/toggle-status`],
+      ["PUT", `/api/sequences/${otherSequence.id}`],
+      ["DELETE", `/api/sequences/${otherSequence.id}`],
+      ["POST", `/api/sequences/${otherSequence.id}/steps`],
+      ["PUT", `/api/sequence-steps/${otherSequenceStep.id}`],
+      ["DELETE", `/api/sequence-steps/${otherSequenceStep.id}`],
+    ];
+    for (const [method, path] of forbiddenCases) {
+      const status = (await mutate(managerAuth, method, path, {})).status;
+      if (status !== 403) { console.log(`✗ ${method} ${path}: expected ownership 403, got ${status}`); failures++; }
+    }
+    const activeEdit = await mutate(managerAuth, "PUT", `/api/sequences/${activeSequence.id}`, { description: "blocked" });
+    const activeDelete = await mutate(managerAuth, "DELETE", `/api/sequences/${activeSequence.id}`);
+    const activeCampaignEdit = await mutate(managerAuth, "PUT", `/api/campaigns/${activeCampaign.id}`, { description: "blocked" });
+    if (activeEdit.status !== 409 || activeDelete.status !== 409 || activeCampaignEdit.status !== 409) {
+      console.log(`✗ active fixture guards: sequence edit=${activeEdit.status}, delete=${activeDelete.status}, campaign edit=${activeCampaignEdit.status}`);
+      failures++;
+    }
+    const ownEdit = await mutate(managerAuth, "PUT", `/api/sequences/${ownSequence.id}`, { description: "manager-owned" });
+    const ownCampaignEdit = await mutate(managerAuth, "PUT", `/api/campaigns/${ownCampaign.id}`, { description: "manager-owned" });
+    const adminCrossEdit = await mutate(adminAuth, "PUT", `/api/campaigns/${otherCampaign.id}`, { description: "admin-cross-owner" });
+    if (ownEdit.status !== 200 || ownCampaignEdit.status !== 200 || adminCrossEdit.status !== 200) {
+      console.log(`✗ allowed ownership paths: manager-sequence=${ownEdit.status}, manager-campaign=${ownCampaignEdit.status}, admin-cross=${adminCrossEdit.status}`);
+      failures++;
+    }
+    const [campaignStepStillThere] = await db.select().from(campaignSteps).where(eq(campaignSteps.id, otherCampaignStep.id));
+    const [sequenceStepStillThere] = await db.select().from(sequenceSteps).where(eq(sequenceSteps.id, otherSequenceStep.id));
+    const [otherSequenceStillThere] = await db.select().from(followUpSequences).where(eq(followUpSequences.id, otherSequence.id));
+    if (!campaignStepStillThere || campaignStepStillThere.subject !== "unchanged" ||
+        !sequenceStepStillThere || sequenceStepStillThere.subject !== "unchanged" ||
+        !otherSequenceStillThere || otherSequenceStillThere.description !== null) {
+      console.log("✗ forbidden mutation changed a protected fixture");
+      failures++;
+    } else {
+      console.log("✓ manager ownership/state guards preserved protected fixtures; own/admin paths allowed");
+    }
+  } catch (err) {
+    console.log(`✗ campaign/sequence ownership smoke threw: ${err instanceof Error ? err.message : String(err)}`);
+    failures++;
+  } finally {
+    if (fixtureIds.contacts.length) await db.delete(contacts).where(drizzleSql`${contacts.id} = ANY(${fixtureIds.contacts})`).catch(() => {});
+    if (fixtureIds.sequences.length) await db.delete(sequenceSteps).where(drizzleSql`${sequenceSteps.sequenceId} = ANY(${fixtureIds.sequences})`).catch(() => {});
+    if (fixtureIds.campaigns.length) await db.delete(campaignSteps).where(drizzleSql`${campaignSteps.campaignId} = ANY(${fixtureIds.campaigns})`).catch(() => {});
+    if (fixtureIds.sequences.length) await db.delete(followUpSequences).where(drizzleSql`${followUpSequences.id} = ANY(${fixtureIds.sequences})`).catch(() => {});
+    if (fixtureIds.campaigns.length) await db.delete(campaigns).where(drizzleSql`${campaigns.id} = ANY(${fixtureIds.campaigns})`).catch(() => {});
+  }
+
   // ── Wave 12: Real ownership test ─────────────────────────────────────────
   // Create an actual document under a test contact, then verify that the
   // unrelated merchant user gets 403 (not 404) on that document's access-token
@@ -763,7 +980,7 @@ async function run(): Promise<void> {
     failures++;
   }
 
-  const totalCases = CASES.length + 4; // +1 ownership (unrelated) +1 merchant positive path +1 reanalyze CSRF +1 CSV content-type
+  const totalCases = CASES.length + 5; // + campaign/sequence BOLA, ownership paths, reanalyze, and CSV checks
   const totalPassed = totalCases - failures;
   console.log(`\n${totalPassed}/${totalCases} guarded routes/tests passed.`);
   process.exit(failures === 0 ? 0 : 1);

@@ -58,7 +58,7 @@ async function main() {
     targetClass: "production",
     eventNamespace: "bt06-test",
     eventKey,
-    evidenceFields: { reviewSource: "isolated_test", verifiedAt: "2026-08-21" },
+    evidenceFields: { review_source: "isolated_test", verified_at: "2026-08-21" },
     actorId: "test-requester",
     approverId: "test-approver",
   });
@@ -72,7 +72,7 @@ async function main() {
     targetClass: "production",
     eventNamespace: "bt06-test",
     eventKey,
-    evidenceFields: { reviewSource: "isolated_test", verifiedAt: "2026-08-21" },
+    evidenceFields: { review_source: "isolated_test", verified_at: "2026-08-21" },
     actorId: "test-requester",
     approverId: "test-approver",
   });
@@ -108,7 +108,7 @@ async function main() {
     await applyClassification({
       subjectType: "contact", subjectId: contact.id, targetClass: "production",
       eventNamespace: "bt06-test", eventKey: `self-approval:${nonce}`,
-      evidenceFields: { reviewSource: "isolated_test" },
+      evidenceFields: { review_source: "isolated_test" },
       actorId: "same-admin", approverId: "same-admin",
     });
   } catch { selfApprovalRejected = true; }
@@ -119,7 +119,7 @@ async function main() {
     await applyClassification({
       subjectType: "contact", subjectId: contact.id, targetClass: "production",
       eventNamespace: "bt06-test", eventKey: `missing-actor:${nonce}`,
-      evidenceFields: { reviewSource: "isolated_test" }, approverId: "admin-only",
+      evidenceFields: { review_source: "isolated_test" }, approverId: "admin-only",
     });
   } catch { missingActorRejected = true; }
   assert(missingActorRejected, "production transition requires a recorded requester and approver");
@@ -128,12 +128,12 @@ async function main() {
     applyClassification({
       subjectType: "contact", subjectId: contact.id, targetClass: "test",
       eventNamespace: "bt06-test", eventKey: `conflict:${nonce}`,
-      evidenceFields: { reviewSource: "isolated_test" }, actorId: "test",
+      evidenceFields: { review_source: "isolated_test" }, actorId: "test",
     }),
     applyClassification({
       subjectType: "contact", subjectId: contact.id, targetClass: "demo",
       eventNamespace: "bt06-test", eventKey: `conflict:${nonce}`,
-      evidenceFields: { reviewSource: "isolated_test" }, actorId: "test",
+      evidenceFields: { review_source: "isolated_test" }, actorId: "test",
     }),
   ]);
   assert(
@@ -152,12 +152,12 @@ async function main() {
     applyClassification({
       subjectType: "contact", subjectId: contact.id, targetClass: "demo",
       eventNamespace: "bt06-test", eventKey: `cross-subject:${nonce}`,
-      evidenceFields: { reviewSource: "isolated_test" }, actorId: "test",
+      evidenceFields: { review_source: "isolated_test" }, actorId: "test",
     }),
     applyClassification({
       subjectType: "contact", subjectId: otherContact.id, targetClass: "synthetic",
       eventNamespace: "bt06-test", eventKey: `cross-subject:${nonce}`,
-      evidenceFields: { reviewSource: "isolated_test" }, actorId: "test",
+      evidenceFields: { review_source: "isolated_test" }, actorId: "test",
     }),
   ]);
   const primaryClass = await getCurrentClass("contact", contact.id);
@@ -176,7 +176,7 @@ async function main() {
     await applyClassification({
       subjectType: "contact", subjectId: 2147483647, targetClass: "test",
       eventNamespace: "bt06-test", eventKey: `missing-subject:${nonce}`,
-      evidenceFields: { reviewSource: "isolated_test" }, actorId: "test",
+      evidenceFields: { review_source: "isolated_test" }, actorId: "test",
     });
   } catch { missingSubjectRejected = true; }
   assert(missingSubjectRejected, "classification cannot create an event for an absent subject");
@@ -186,7 +186,7 @@ async function main() {
     subjectType: "contact",
     subjectId: contact.id,
     targetClass: "test",
-    evidenceFields: { reviewSource: "isolated_test" },
+    evidenceFields: { review_source: "isolated_test" },
     requestedBy: "manager-test",
   });
   assert(preview.status === "created", "manager preview command is created");

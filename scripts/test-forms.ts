@@ -278,9 +278,10 @@ async function testStatementUpload(): Promise<void> {
   if (!contact) return;
   cleanupContactIds.push(contact.id);
 
-  // Poll for deal — chain is async, may take a moment after contact appears
+  // Poll for deal — the durable BullMQ command can wait behind other gate jobs
+  // during the full pre-deploy run, so allow up to 30s before declaring loss.
   let dealRow: any;
-  for (let i = 0; i < 12; i++) {
+  for (let i = 0; i < 60; i++) {
     await new Promise(r => setTimeout(r, 500));
     const rawStmtDeal = await db.execute(drizzleSql`SELECT id, stage FROM deals WHERE contact_id = ${contact!.id} LIMIT 1`) as any;
     const stmtDealRows = Array.isArray(rawStmtDeal) ? rawStmtDeal : rawStmtDeal?.rows ?? [];
@@ -296,9 +297,9 @@ async function testStatementUpload(): Promise<void> {
   );
 
   // Check document record linked to contact + deal — chain Step 4 runs shortly
-  // after deal creation (Step 3); poll up to 5s for the document row to land.
+  // after deal creation (Step 3); poll up to 15s for the document row to land.
   let docRow: any;
-  for (let i = 0; i < 10; i++) {
+  for (let i = 0; i < 30; i++) {
     const rawDocResult = await db.execute(drizzleSql`
       SELECT id, contact_id, deal_id FROM documents
       WHERE contact_id = ${contact.id} LIMIT 1

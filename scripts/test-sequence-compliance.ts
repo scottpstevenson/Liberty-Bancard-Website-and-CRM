@@ -32,7 +32,7 @@ await assertDisposableTestInfrastructure({
   requireRedis: true,
 });
 
-const [{ db, pool }, schema, drizzle, { storage }, contactability, eligibility, worker, unsubscribe, signatures, control] =
+const [{ db, pool }, schema, drizzle, { storage }, contactability, eligibility, worker, unsubscribe, signatures, control, providerReadiness] =
   await Promise.all([
     import("../server/db"),
     import("../shared/schema"),
@@ -44,8 +44,9 @@ const [{ db, pool }, schema, drizzle, { storage }, contactability, eligibility, 
     import("../server/services/unsubscribe-token"),
     import("../server/services/email-signatures"),
     import("../server/services/outbound-control-service"),
+    import("../server/services/provider-readiness-control"),
   ]);
-const { contacts, consentAuditLogs, followUpSequences, sequenceSteps, sequenceEnrollments, auditLogs, outboundSendCounters } = schema;
+const { contacts, consentAuditLogs, followUpSequences, sequenceSteps, sequenceEnrollments, auditLogs, outboundSendCounters, providerObservations } = schema;
 const { eq, and, inArray } = drizzle;
 const { evaluateContactability } = contactability;
 const { canEnrollContactInSequence } = eligibility;
@@ -53,6 +54,7 @@ const { autoEnrollFromTrigger, processSequenceEnrollments } = worker;
 const { generateUnsubscribeToken, verifyUnsubscribeToken } = unsubscribe;
 const { isColdOutreachSequence, getComplianceFooterHtml } = signatures;
 const { applyPauseMutation } = control;
+const { hashEmailToken } = providerReadiness;
 
 // One correlation UUID per test run. Every applyPauseMutation() call in this
 // script tags its holds with it, so teardown can deactivate ONLY test-owned
@@ -371,24 +373,41 @@ type ContactOverrides = Partial<{
 
 async function makeContact(overrides: ContactOverrides = {}): Promise<number> {
   const tag = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const email = overrides.email ?? `qa-release-test-sequence-${tag}@libertybancard.test`;
+  const emailStatus = overrides.emailStatus ?? "active";
   const [row] = await db
     .insert(contacts)
     .values({
       firstName: "SeqTest",
       lastName: "QALead",
-      email: `qa-release-test-sequence-${tag}@libertybancard.test`,
+      email,
       phone: "3055559900",
       companyName: `QA_RELEASE_TEST SeqTest Co ${tag}`,
-      emailStatus: "active",
+      emailStatus,
+      emailTokenHash: hashEmailToken(email),
+      emailValidationUpdatedAt: new Date(),
       smsStatus: "active",
       doNotContact: false,
       doNotAutoContact: false,
       consentTier: "cold_no_consent",
       lifecycleStage: "prospect",
       sourceCategory: "outbound",
+      recordClass: "production",
       ...overrides,
     } as any)
     .returning({ id: contacts.id });
+  if (emailStatus === "active" || emailStatus === "valid" || emailStatus === "bounced") {
+    await db.insert(providerObservations).values({
+      provider: "zerobounce",
+      subjectType: "contact",
+      subjectId: row.id,
+      emailTokenHash: hashEmailToken(email),
+      subjectGeneration: 0,
+      outcome: emailStatus === "bounced" ? "invalid" : "valid",
+      retryable: false,
+      observedAt: new Date(),
+    });
+  }
   testContactIds.push(row.id);
   return row.id;
 }
@@ -1196,6 +1215,14 @@ async function testCase23(): Promise<void> {
       if (key === "compliance_mailing_address") return null;
       return origGetSystemSetting(key);
     };
+    const { getCommercialComplianceConfig } = await import("../server/services/can-spam-footer");
+    const missingComplianceConfig = await getCommercialComplianceConfig(contactId);
+    assert(
+      "CAN-SPAM transport gate: canonical config fails closed without mailing address",
+      !missingComplianceConfig.ok &&
+        missingComplianceConfig.error === "COMPLIANCE_MAILING_ADDRESS_MISSING",
+      JSON.stringify(missingComplianceConfig),
+    );
 
     const pastTime = new Date(Date.now() - 5000);
     const [enrollment] = await db
@@ -1235,21 +1262,6 @@ async function testCase23(): Promise<void> {
       "CAN-SPAM worker gate: enrollment paused when mailing address is missing",
       updated?.status === "paused",
       `status=${updated?.status ?? "not found"}`
-    );
-
-    const auditRows = await db
-      .select({ action: auditLogs.action })
-      .from(auditLogs)
-      .where(
-        and(
-          eq(auditLogs.entityId, contactId),
-          eq(auditLogs.action, "sequence_send_blocked_no_mailing_address")
-        )
-      );
-    assert(
-      "CAN-SPAM worker gate: sequence_send_blocked_no_mailing_address audit log written",
-      auditRows.length > 0,
-      `found ${auditRows.length} rows`
     );
 
     (workerStorage as any).getSystemSetting = origGetSystemSetting;
@@ -2105,16 +2117,19 @@ async function testCase36(): Promise<void> {
     );
 
     const deferLogs = await db
-      .select({ id: auditLogs.id })
+      .select({ id: auditLogs.id, action: auditLogs.action })
       .from(auditLogs)
       .where(and(
-        eq(auditLogs.action, "sequence_enrollment_deferred_zb_budget"),
         eq(auditLogs.entityId, unvalidatedId),
       ));
+    const truthfulDeferral = deferLogs.some((log) =>
+      log.action === "sequence_enrollment_deferred_provider_readiness" ||
+      log.action === "sequence_enrollment_deferred_zb_budget"
+    );
     assert(
-      "Case 36A: sequence_enrollment_deferred_zb_budget audit log written",
-      deferLogs.length > 0,
-      `found=${deferLogs.length}`,
+      "Case 36A: truthful provider-readiness deferral audit log written",
+      truthfulDeferral,
+      `actions=${deferLogs.map((log) => log.action).join(",")}`,
     );
 
     // Second tick: restore budget and rewind nextActionAt so the enrollment is due.

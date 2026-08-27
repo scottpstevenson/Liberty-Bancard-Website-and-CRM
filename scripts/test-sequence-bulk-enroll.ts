@@ -268,17 +268,17 @@ async function runTests() {
     await cleanupTestData(`t8-${TAG}`);
   }
 
-  // --- Test 9: Role guard enforced ---
-  console.log("\nTest 9: Role guard check (verified by endpoint definition in campaigns.ts)");
+  // --- Test 9: Human cohort mutation retired ---
+  console.log("\nTest 9: Human bulk-enroll route is retired");
   {
     const fs = await import("fs");
     const campaignsTs = fs.readFileSync("server/routes/campaigns.ts", "utf-8");
     const previewHasRoleGuard = campaignsTs.includes(`requireRole("admin", "manager")`) &&
       campaignsTs.includes("enroll-vertical/preview");
-    const enrollHasRoleGuard = campaignsTs.includes(`requireRole("admin", "manager")`) &&
-      campaignsTs.includes("enroll-vertical");
+    const enrollIsRetired = campaignsTs.includes("HUMAN_SEQUENCE_DISPATCH_DISABLED") &&
+      campaignsTs.includes("Human sequence cohort enrollment is disabled");
     assert(previewHasRoleGuard, "Preview endpoint uses requireRole('admin', 'manager')");
-    assert(enrollHasRoleGuard, "Bulk enroll endpoint uses requireRole('admin', 'manager')");
+    assert(enrollIsRetired, "Bulk enroll endpoint universally denies authenticated human execution");
 
     const verticalsIsAuthenticated = campaignsTs.includes("isAuthenticated") &&
       campaignsTs.includes("/api/contacts/verticals");

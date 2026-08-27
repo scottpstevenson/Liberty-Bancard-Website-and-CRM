@@ -20,7 +20,7 @@ import { google } from "googleapis";
 import { storage } from "../storage";
 import { resolvePolicy, assertNotProhibitedSync } from "./sender-policy";
 import type { MessageCategory } from "./sender-policy";
-import { injectCanSpamFooter } from "./can-spam-footer";
+import { renderEmailHtmlForPurpose } from "./can-spam-footer";
 import { redactToken } from "./audit-sanitizer";
 import {
   encryptCredential,
@@ -363,7 +363,20 @@ export async function sendGmailEmail(params: {
    * When absent, a reply-to-unsubscribe instruction is used instead.
    */
   contactId?: number;
+  /** Defaults to marketing for legacy Gmail outreach callers. */
+  commercialPurpose?: "marketing_outreach" | "transactional_response";
 }): Promise<{ success: boolean; messageId?: string; threadId?: string; error?: string }> {
+  const purpose = params.commercialPurpose ?? "marketing_outreach";
+  let renderedHtml: string;
+  try {
+    renderedHtml = await renderEmailHtmlForPurpose({
+      html: params.html,
+      purpose,
+      contactId: params.contactId,
+    });
+  } catch (error: any) {
+    return { success: false, error: error.message ?? "COMPLIANCE_CONFIGURATION_UNAVAILABLE" };
+  }
   if (!isGmailOAuthSecretsPresent()) {
     return { success: false, error: "Gmail OAuth not configured (GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET missing)" };
   }
@@ -439,7 +452,7 @@ export async function sendGmailEmail(params: {
       from: fromAddress,
       to:   params.to,
       subject: params.subject,
-      html:    injectCanSpamFooter(params.html, params.contactId),
+      html:    renderedHtml,
       replyTo: replyToAddr,
       unsubscribeUrl:    params.unsubscribeUrl,
       unsubscribeMailto: params.unsubscribeMailto,

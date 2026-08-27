@@ -729,19 +729,17 @@ export async function handleEmailBounce(rawPayload: unknown): Promise<void> {
     },
   });
 
-  // Record in canonical communication_events table (Wave A3 — non-blocking)
-  import("../communication-events").then(({ recordInboundEvent }) => {
-    recordInboundEvent({
-      contactId: crmContact.id,
-      channel: "email",
-      provider: "ghl",
-      status: "bounced",
-      automationStopped: true,
-      automationStopReason: "email_bounced",
-      ghlMessageId: ghlMessageId || null,
-      metadata: { source: "ghl_bounce_webhook", pausedEnrollments: pausedCount },
-    });
-  }).catch(() => {});
+  const { recordInboundEvent } = await import("../communication-events");
+  await recordInboundEvent({
+    contactId: crmContact.id,
+    channel: "email",
+    provider: "ghl",
+    status: "bounced",
+    automationStopped: true,
+    automationStopReason: "email_bounced",
+    ghlMessageId: ghlMessageId || null,
+    metadata: { source: "ghl_bounce_webhook", pausedEnrollments: pausedCount },
+  });
 
   console.log(`[SDR Webhook] email-bounce: contact ${crmContact.id} (${crmContact.email}) marked bounced — ${pausedCount} enrollments paused`);
 }

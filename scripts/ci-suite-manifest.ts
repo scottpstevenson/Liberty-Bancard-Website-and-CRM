@@ -74,6 +74,12 @@ export const SUITE_MANIFEST: SuiteManifestEntry[] = [
     providerDenial: "source-backed authority guard; no providers",
   },
   {
+    name: "Fresh Snapshot Completion Guard",
+    script: "scripts/test-fresh-snapshot-completion.ts",
+    capability: "deterministic-static",
+    providerDenial: "pure migration-boundary behavior with a fake SQL client; no providers or database",
+  },
+  {
     name: "BT-12 Revenue State Reconciliation Integration",
     script: "scripts/test-bt12-revenue-state-reconciliation-integration.ts",
     capability: "deterministic-integration",
@@ -188,12 +194,6 @@ export const SUITE_MANIFEST: SuiteManifestEntry[] = [
     providerDenial: "none (pure file scan)",
   },
   {
-    name: "Sunbiz Timeout & Recovery",
-    script: "scripts/test-sunbiz-timeout.ts",
-    capability: "deterministic-static",
-    providerDenial: "Sunbiz: fake transport inside test (no real network)",
-  },
-  {
     name: "Commercial Classification Static Gates",
     script: "scripts/test-commercial-classification-static.ts",
     capability: "deterministic-static",
@@ -212,6 +212,12 @@ export const SUITE_MANIFEST: SuiteManifestEntry[] = [
     script: "scripts/test-serper-gateway.ts",
     capability: "deterministic-integration",
     providerDenial: "Serper: fake transports injected by test",
+  },
+  {
+    name: "Sunbiz Timeout & Recovery",
+    script: "scripts/test-sunbiz-timeout.ts",
+    capability: "deterministic-integration",
+    providerDenial: "Sunbiz: disposable PostgreSQL only; no real network",
   },
   {
     name: "Contactability Engine",
@@ -292,24 +298,6 @@ export const SUITE_MANIFEST: SuiteManifestEntry[] = [
     providerDenial: "Redis topology is inspected through an isolated test run; no providers",
   },
   {
-    name: "Outbound Pause Fence",
-    script: "scripts/test-pause-fence.ts",
-    capability: "deterministic-integration",
-    providerDenial: "no provider calls (DB pause-control rows only)",
-  },
-  {
-    name: "Outbound Pause Authority",
-    script: "scripts/test-outbound-pause-authority.ts",
-    capability: "deterministic-integration",
-    providerDenial: "no provider calls (pause-authority state machine only)",
-  },
-  {
-    name: "Outbound Boundary Denial",
-    script: "scripts/test-outbound-boundary-1626.ts",
-    capability: "deterministic-integration",
-    providerDenial: "GHL: GHL_TRANSPORT_FAILFAST=true; SMTP: outboundGlobalPaused=true",
-  },
-  {
     name: "Email Signature Coverage",
     script: "scripts/test-email-signatures.ts",
     capability: "deterministic-integration",
@@ -322,22 +310,10 @@ export const SUITE_MANIFEST: SuiteManifestEntry[] = [
     providerDenial: "no provider calls (arbitration decision logic only)",
   },
   {
-    name: "Statement Acquisition",
-    script: "scripts/test-statement-acquisition.ts",
-    capability: "deterministic-integration",
-    providerDenial: "GHL: GHL_TRANSPORT_FAILFAST=true; SMTP: outboundGlobalPaused=true",
-  },
-  {
     name: "Channel Orchestrator",
     script: "scripts/test-channel-orchestrator.ts",
     capability: "deterministic-integration",
     providerDenial: "GHL: GHL_TRANSPORT_FAILFAST=true; transport: fake adapters",
-  },
-  {
-    name: "NBA Engine",
-    script: "scripts/test-nba.ts",
-    capability: "deterministic-integration",
-    providerDenial: "no provider calls (NBA decision engine only)",
   },
   {
     name: "Attrition Monitor Cooldown",
@@ -365,6 +341,12 @@ export const SUITE_MANIFEST: SuiteManifestEntry[] = [
     providerDenial: "GHL: GHL_TRANSPORT_FAILFAST=true; SMTP: outboundGlobalPaused=true",
   },
   {
+    name: "Sequence Terminalization Advisory-Lock Race",
+    script: "scripts/test-sequence-terminalization-race.ts",
+    capability: "deterministic-integration",
+    providerDenial: "no provider calls (disposable DB race only)",
+  },
+  {
     name: "New-Lead Enrollment Policy",
     script: "scripts/test-new-lead-enrollment-policy.ts",
     capability: "server-required",
@@ -381,6 +363,36 @@ export const SUITE_MANIFEST: SuiteManifestEntry[] = [
     script: "scripts/seo-audit.ts",
     capability: "server-required",
     providerDenial: "none (HTML crawl only)",
+  },
+  {
+    name: "Statement Acquisition",
+    script: "scripts/test-statement-acquisition.ts",
+    capability: "server-required",
+    providerDenial: "GHL: GHL_TRANSPORT_FAILFAST=true; SMTP: persisted pause",
+  },
+  {
+    name: "NBA Engine",
+    script: "scripts/test-nba.ts",
+    capability: "server-required",
+    providerDenial: "no provider calls (startup-initialized pause state + NBA decision engine only)",
+  },
+  {
+    name: "Outbound Pause Authority",
+    script: "scripts/test-outbound-pause-authority.ts",
+    capability: "server-required",
+    providerDenial: "no provider calls (startup-seeded pause-authority state machine only)",
+  },
+  {
+    name: "Outbound Boundary Denial",
+    script: "scripts/test-outbound-boundary-1626.ts",
+    capability: "server-required",
+    providerDenial: "GHL: dummy in-process config + rejecting fetch spy; SMTP: persisted pause",
+  },
+  {
+    name: "Outbound Pause Fence",
+    script: "scripts/test-pause-fence.ts",
+    capability: "server-required",
+    providerDenial: "no provider calls (startup-seeded pause-control rows only)",
   },
 
   // ── server-optional (skipped when server absent; requires live credentials) ─

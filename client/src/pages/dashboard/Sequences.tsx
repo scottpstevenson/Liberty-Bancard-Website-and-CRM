@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
-import { apiRequest, getCsrfToken } from "@/lib/queryClient";
+import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -785,14 +785,6 @@ export default function Sequences() {
                     </div>
                     <div className="flex items-center gap-2 flex-wrap">
                       <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => setEnrollDialogSeqId(seq.id)}
-                        data-testid={`button-enroll-${seq.id}`}
-                      >
-                        <Users className="w-3.5 h-3.5 mr-1" /> Enroll
-                      </Button>
-                      <Button
                         size="icon"
                         variant="ghost"
                         aria-label="Edit sequence"
@@ -840,36 +832,6 @@ export default function Sequences() {
                       >
                         <Trash2 className="w-4 h-4" />
                       </Button>
-                      {/* #389 — Send test email to internal recipient */}
-                      {(user?.role === "admin") && (
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          title="Send [TEST] emails to internal recipient for all active email steps"
-                          aria-label="Send test emails"
-                          onClick={async () => {
-                            try {
-                              const csrfToken = getCsrfToken();
-                              const r = await fetch("/api/wizard/test-sequence-emails", {
-                                method: "POST",
-                                headers: {
-                                  "Content-Type": "application/json",
-                                  ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {}),
-                                },
-                                credentials: "include",
-                                body: "{}",
-                              });
-                              const d = await r.json();
-                              toast({ title: "Test emails sent", description: `Route: ${d.route ?? "unknown"}` });
-                            } catch {
-                              toast({ title: "Test send failed", variant: "destructive" });
-                            }
-                          }}
-                          data-testid={`button-test-send-${seq.id}`}
-                        >
-                          <FlaskConical className="w-4 h-4" />
-                        </Button>
-                      )}
                     </div>
                   </div>
 
@@ -1061,27 +1023,6 @@ export default function Sequences() {
                                     data-testid={`tab-preview-${index}`}
                                   >
                                     <Eye className="w-3 h-3" /> Preview
-                                  </button>
-                                  {/* #544 — Send test email to self */}
-                                  <button
-                                    type="button"
-                                    onClick={async () => {
-                                      try {
-                                        const { getCsrfToken } = await import("@/lib/queryClient");
-                                        const token = await getCsrfToken();
-                                        const res = await fetch("/api/sequences/steps/test-send", {
-                                          method: "POST", credentials: "include",
-                                          headers: { "Content-Type": "application/json", "x-csrf-token": token ?? "" },
-                                          body: JSON.stringify({ subject: step.subject || "(no subject)", body: step.body || "" }),
-                                        });
-                                        if (res.ok) alert("Test email sent to your account email!");
-                                        else alert("Could not send test email. Check SMTP configuration.");
-                                      } catch { alert("Failed to send test email."); }
-                                    }}
-                                    className="text-xs px-2 py-0.5 rounded border transition-colors flex items-center gap-1 bg-muted text-muted-foreground border-transparent hover:border-border"
-                                    data-testid={`button-test-send-${index}`}
-                                  >
-                                    <Send className="w-3 h-3" /> Test
                                   </button>
                                 </div>
                                 {(bodyPreviewTab[index] ?? "write") === "write" ? (

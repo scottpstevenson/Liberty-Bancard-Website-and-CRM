@@ -7,7 +7,6 @@
  */
 
 import type { EmailTransport, EmailSendParams, TransportResult, TransportHealthResult } from "../channel-orchestrator";
-import { injectCanSpamFooter } from "../can-spam-footer";
 
 export class GhlEmailTransport implements EmailTransport {
   readonly name = "ghl";
@@ -19,12 +18,14 @@ export class GhlEmailTransport implements EmailTransport {
         contactId: params.contactId,
         dealId: params.dealId,
         subject: params.subject,
-        body: injectCanSpamFooter(params.body, params.contactId),
+        // sendGhlEmail is the sole GHL renderer (including commercial footer).
+        body: params.body,
         templateId: params.templateId,
         fromEmail: params.fromEmail,
         fromName: params.fromName,
         replyTo: params.replyTo,
         skipActivityLog: params.skipActivityLog,
+        commercialPurpose: params.commercialPurpose ?? "marketing_outreach",
       });
       return {
         success: result.success,

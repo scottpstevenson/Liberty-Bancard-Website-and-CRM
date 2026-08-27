@@ -122,7 +122,7 @@ export function getEmailSignatureHtml(
 ): string {
   const base = DEFAULT_SIGNATURES[type] ?? DEFAULT_SIGNATURES.sales;
   const sig = { ...base, ...customSig };
-  const activePromo = promo === null ? null : promo || (type === "sales" ? DEFAULT_PROMO : null);
+  const activePromo = promo ?? null;
   const name = escapeHtml(sig.name);
   const title = escapeHtml(sig.title);
   const phone = escapeHtml(sig.phone);
@@ -187,7 +187,7 @@ export function getEmailSignaturePlainText(
 ): string {
   const base = DEFAULT_SIGNATURES[type] ?? DEFAULT_SIGNATURES.sales;
   const sig = { ...base, ...customSig };
-  const activePromo = promo === null ? null : promo || (type === "sales" ? DEFAULT_PROMO : null);
+  const activePromo = promo ?? null;
   const quizUrl = buildLink(QUIZ_PATH, sig.refCode);
   const shopUrl = buildLink(SHOP_PATH, sig.refCode);
   const website = sig.website ?? BASE_URL;

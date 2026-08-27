@@ -739,7 +739,7 @@ export async function sendEmailReply(params: {
       type: "Email",
       contactId: params.contactId,
       subject: params.subject,
-      html: injectCanSpamFooter(params.htmlBody, dbContactId),
+      html: await injectCanSpamFooter(params.htmlBody, dbContactId),
     };
     if (params.fromEmail) {
       payload.emailFrom = params.fromName

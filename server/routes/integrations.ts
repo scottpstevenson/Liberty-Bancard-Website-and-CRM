@@ -3,7 +3,7 @@ import { isAuthenticated, isAdmin, isDashboardUser, requireRole } from "../repli
 import { storage } from "../storage";
 import { contacts } from "@shared/schema";
 import { and } from "drizzle-orm";
-import { checkGhlHealth, getCalendarBookingUrl, getGhlStatus, handleGhlWebhook, isGhlConfigured, sendGhlEmail, sendGhlSms, sendTemplatedMessage, upsertGhlContact, validateGhlWebhookSignature, validateGhlWebhookSignatureEd25519 } from "../services/ghl";
+import { checkGhlHealth, getCalendarBookingUrl, getGhlStatus, handleGhlWebhook, isGhlConfigured, sendGhlEmail, sendGhlSms, sendTemplatedMessage, validateGhlWebhookSignature, validateGhlWebhookSignatureEd25519 } from "../services/ghl";
 import { routeContact } from "../services/smart-router";
 import { fullSyncFromGhl, fullSyncToGhl, getGhlSyncStatus, getFullSyncDashboard, syncContactToGhl, syncDealToGhl, syncCompanyToGhl, syncTaskToGhl, syncTicketToGhl, syncNoteToGhl, syncTagsToGhl } from "../services/ghl-sync";
 import { getWorkflowStatus, GHL_WORKFLOW_REGISTRY, getPlatformEmailConfig, getWorkflowRegistryWithStatus, setWorkflowEnvValue } from "../services/ghl-workflows";
@@ -14,7 +14,6 @@ import { parseId, parsePagination } from "./helpers";
 import dns from "node:dns/promises";
 import net from "node:net";
 import { serverError, safeMessage } from "../utils/server-error";
-import { requireGhlRouteMutationAllowed } from "./ghl-mutation-pause";
 import { authorizeContactAccess } from "../services/crm-object-access";
 
 export function registerIntegrationsRoutes(app: Express) {

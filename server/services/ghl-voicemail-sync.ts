@@ -10,6 +10,7 @@
 import { db } from "../db";
 import { communicationEvents, contacts as contactsTable } from "@shared/schema";
 import { eq, and, isNotNull } from "drizzle-orm";
+import { recordInboundEvent } from "./communication-events";
 
 const GHL_API_BASE = "https://services.leadconnectorhq.com";
 
@@ -165,13 +166,11 @@ export async function runVoicemailSyncTick(): Promise<void> {
             `${convo.firstName || ""} ${convo.lastName || ""}`.trim() ||
             "Unknown";
 
-          await db.insert(communicationEvents).values({
+          await recordInboundEvent({
             contactId: localContactId,
-            direction: "inbound",
             channel: "voicemail",
             provider: "ghl",
             status: "received",
-            sentBy: "human",
             externalMessageId: ghlMsgId,
             ghlMessageId: ghlMsgId,
             body: transcript?.slice(0, 4000) ?? null,
@@ -184,8 +183,7 @@ export async function runVoicemailSyncTick(): Promise<void> {
               transcript,
               receivedAt: receivedAt.toISOString(),
             },
-            createdAt: receivedAt,
-            updatedAt: new Date(),
+            occurredAt: receivedAt,
           });
 
           imported++;

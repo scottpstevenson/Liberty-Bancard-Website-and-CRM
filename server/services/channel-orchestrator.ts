@@ -49,6 +49,7 @@ export interface EmailSendParams {
   replyTo?: string;
   skipActivityLog?: boolean;
   category?: string; // sender-policy category; defaults to "outbound_sequence"
+  commercialPurpose?: "marketing_outreach" | "transactional_response";
 }
 
 export interface SmsSendParams {

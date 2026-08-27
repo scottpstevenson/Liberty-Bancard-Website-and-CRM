@@ -1,0 +1,250 @@
+No—the diagnosis is mostly right, but Task #1681 is unsafe as written.
+
+Key corrections:
+
+* Start from current `main` at `0acb2073…`, not PR #4’s branch.
+* PR #4 is still open/draft at `17ca4858…`; do not mix #1681 into it.
+* The stale `upsertGhlContact` allowlist entry is confirmed.
+* `test-contactability.ts` and `test-new-lead-enrollment-policy.ts` currently import the application database before proving isolation. Running them as written could touch Replit’s normal database.
+* Sequence and commercial-classification tests already use the disposable-infrastructure guard.
+* The negative gate-removal regression already exists and must remain.
+* Do not hardcode “59 suites”; recalculate against the branch being tested.
+
+Use this prompt:
+
+```text
+TASK #1681 — RESTORE OUTREACH COMPLIANCE GATES
+
+MODE: PREFLIGHT + BUILD
+
+Repository:
+scottpstevenson/Liberty-Bancard-Website-and-CRM
+
+CURRENT VERIFIED BASELINE
+
+- Create a new branch from the latest clean main.
+- At last verification, main was:
+  0acb2073c27658661555b260498af1fed8815b37
+- Re-fetch main before starting and record the actual SHA.
+- Do not work from or modify:
+  agent/1675-bt12-isolated-verification
+- PR #4 is a separate open draft. Do not absorb, rebase, edit, merge, or depend on its changes.
+- Require a clean worktree before implementation.
+- Do not preserve unrelated changes by carrying them into this branch.
+
+OBJECTIVE
+
+Restore truthful outreach compliance gates by:
+
+1. Removing the obsolete reviewed GHL mutation entry for a deleted integrations-route call.
+2. Removing only imports made obsolete by that deleted call.
+3. Making every stateful verification suite fail closed before it can connect to a shared Replit database or Redis namespace.
+4. Running the four current compliance suites against disposable infrastructure with real provider transmission impossible.
+5. Fixing runtime code only when a failure is reproduced safely against current main.
+
+VERIFIED STATIC DEFECT
+
+On current main:
+
+scripts/ghl-route-mutation-allowlist.ts still contains:
+
+  file: "server/routes/integrations.ts"
+  lineContains: "const ghlId = await upsertGhlContact(contact)"
+
+That call no longer exists in server/routes/integrations.ts.
+
+The current integrations file references both of these names only in its import declarations:
+
+- upsertGhlContact
+- requireGhlRouteMutationAllowed
+
+Therefore:
+
+- Remove the obsolete integrations allowlist entry.
+- Remove those two imports if the final repository search confirms they remain unused.
+- Do not replace the entry with a file-wide exemption.
+- Do not weaken the scanner or reviewed-call-site matching.
+
+The focused GHL route-pause test already performs an in-memory negative regression by removing each reviewed gate and proving detection fails. Preserve that behavior.
+
+MANDATORY ISOLATION BOUNDARY
+
+Never run stateful suites using the normal Replit DATABASE_URL or an already-running development server.
+
+Before importing server/db, storage, workers, routes, or services, every stateful suite must call:
+
+  assertDisposableTestInfrastructure(...)
+
+The guard must verify:
+
+- NODE_ENV=test
+- TEST_DATABASE_URL is set
+- DATABASE_URL exactly equals TEST_DATABASE_URL
+- SELECT current_database() matches the URL database
+- Database name clearly contains test or ci
+- Database does not match PRODUCTION_DATABASE_URL
+- Redis-backed suites require REDIS_URL
+- Redis-backed suites require a unique TEST_REDIS_PREFIX
+- Redis must not match PRODUCTION_REDIS_URL
+
+CURRENT TEST-SAFETY FINDINGS
+
+Already guarded correctly:
+
+- scripts/test-sequence-compliance.ts
+- scripts/test-commercial-classification.ts
+
+Not safely guarded on current main:
+
+- scripts/test-contactability.ts
+- scripts/test-new-lead-enrollment-policy.ts
+
+Both currently import application database modules before proving isolation.
+
+Correct those two runners by:
+
+1. Importing only the infrastructure guard and safe standard-library dependencies initially.
+2. Awaiting assertDisposableTestInfrastructure before application imports.
+3. Dynamically importing server/db, storage, schemas, services, and workers afterward.
+4. Requiring Redis only if the suite actually uses Redis or queue state.
+5. Failing closed when isolation variables are absent.
+6. Never falling back to the ordinary DATABASE_URL.
+
+SERVER-REQUIRED TESTS
+
+Start a dedicated test server whose environment uses the same disposable database and isolated Redis namespace.
+
+Do not connect the suites to an existing Replit development server.
+
+The harness must:
+
+- Provision temporary PostgreSQL.
+- Create a database with test or ci in its name.
+- Apply canonical migrations.
+- Provision or select isolated Redis with a unique TEST_REDIS_PREFIX.
+- Seed dedicated test-only authentication users in the disposable database.
+- Start the application with NODE_ENV=test.
+- Wait for a successful health/readiness response.
+- Run server-required suites against that exact process.
+- Stop the server in finally/trap cleanup.
+- Delete only test-owned database records, Redis keys, and temporary infrastructure.
+
+PROVIDER DENIAL
+
+DRY_RUN=true and TEST_MODE=true alone are not sufficient proof.
+
+During all verification:
+
+- GHL_TRANSPORT_FAILFAST=true
+- Outbound global pause must begin enabled.
+- SMTP and real email delivery must be unavailable.
+- Do not provide real provider credentials.
+- Disable enrichment, AI, and unrelated provider jobs.
+- Assert that provider transport spies/counters remain at zero for blocked cases.
+- Do not claim success when a provider call merely failed after being attempted.
+
+REQUIRED SUITES
+
+Run, using the isolated harness:
+
+1. Sequence compliance
+2. Contactability
+3. Commercial classification
+4. New-lead enrollment policy
+
+Required properties include:
+
+- DNC blocks enrollment and dispatch.
+- Opt-out blocks the relevant channel.
+- Invalid or unknown contactability fails closed.
+- Commercially ineligible contacts cannot receive marketing outreach.
+- Florida/PEWC automated-channel rules remain enforced.
+- Email and SMS permissions remain independent.
+- Global/channel pause prevents provider I/O.
+- Repeated enrollment attempts do not duplicate enrollment.
+- Repeated worker execution does not duplicate sends.
+- Enrollment eligibility never replaces enforcement-mode authorization at send time.
+- Provider denial produces truthful durable failure/deferred state, not fake success.
+- Existing route authorization roles remain unchanged.
+
+IMPLEMENTATION RULE
+
+If all four suites pass after safe isolation is established:
+
+- Do not modify sequence, contactability, classification, enrollment, or provider runtime owners.
+- Limit the production diff to the stale allowlist entry and its obsolete imports.
+- Test-runner safety corrections are permitted.
+
+If a suite fails:
+
+- Record the exact failing assertion and durable state.
+- Determine whether it is a stale fixture or a real canonical-owner defect.
+- Fix only the verified cause.
+- Do not create alternate contactability, consent, classification, enrollment, or send authorities.
+
+EXPECTED FILES
+
+Expected:
+
+- scripts/ghl-route-mutation-allowlist.ts
+- server/routes/integrations.ts
+- scripts/test-contactability.ts
+- scripts/test-new-lead-enrollment-policy.ts
+- A narrowly scoped disposable test harness, if required
+
+Do not change unless a separately proven defect requires it:
+
+- Migrations
+- Sequence architecture
+- GHL/SMTP transport boundaries
+- CI suite classifications
+- scripts/pre-deploy.ts
+- scripts/ci-suite-manifest.ts
+- PR #4 files
+
+REQUIRED STATIC GATES
+
+Run:
+
+  npx tsx scripts/compliance-scan.ts
+  npx tsx scripts/test-ghl-route-pause-gates-1629.ts
+  npx tsx scripts/test-sender-policy.ts
+  npx tsx scripts/ci-suite-manifest.ts --check
+  npm run check
+  npm run build
+  git diff --check
+
+Do not hardcode the expected suite count. Report the count produced by the current branch.
+
+POST-BUILD SEARCHES
+
+- Confirm the deleted integrations call string is absent.
+- Confirm its obsolete allowlist entry is absent.
+- Confirm upsertGhlContact and requireGhlRouteMutationAllowed are not unused imports in integrations.ts.
+- Enumerate every remaining reviewed GHL route mutation.
+- Confirm each remaining mutation has the exact shared gate.
+- Confirm the focused test still detects synthetic gate removal.
+- Confirm all four compliance suites remain mandatory.
+- Confirm no direct sequence-enrollment insert or raw provider-send bypass was added.
+
+GITHUB REQUIREMENTS
+
+- Push #1681 as a separate branch and PR based on latest main.
+- Do not expand PR #4.
+- Run live GitHub Static Checks and Integration Tests.
+- Do not merge until both required jobs execute and pass.
+- Do not weaken, skip, or reclassify a required gate.
+- If unrelated gates fail, report them separately with exact logs.
+
+DONE WHEN
+
+- Stale reviewed-call-site metadata is removed.
+- Static compliance and focused route-gate checks pass.
+- Negative gate-removal detection still passes.
+- All four stateful suites pass on disposable infrastructure.
+- No shared Replit database, normal development server, or real provider was touched.
+- Live GitHub Static Checks and Integration Tests pass.
+- Diff contains only task-owned changes.
+```
+
+The correct sequencing is: merge #1681 first, then update PR #4 from `main` and rerun its Static and Integration jobs. Do not fix #1681 inside PR #4.

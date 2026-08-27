@@ -2,10 +2,11 @@ import crypto from "crypto";
 import { sql } from "drizzle-orm";
 import { db } from "../db";
 import { IDENTITY_NORMALIZATION_VERSION } from "./contact-identity";
+import { sanitizeAuditPayload } from "./audit-sanitizer";
 
-export const CONTACT_MERGE_MANIFEST_VERSION = 1;
+export const CONTACT_MERGE_MANIFEST_VERSION = 2;
 export type Disposition = "transfer" | "immutable_retain" | "terminalize" | "authority_handoff" | "manual_block";
-export type ManifestEntry = { key: string; table?: string; column?: string; disposition: Disposition };
+export type ManifestEntry = { key: string; table?: string; column?: string; rowIdColumn?: string; disposition: Disposition };
 
 // This is deliberately source-code owned. It is never assembled from database
 // metadata or an operator supplied table name. The checker compares this list
@@ -36,6 +37,14 @@ export const CONTACT_MERGE_MANIFEST: readonly ManifestEntry[] = [
   { key: "ai_corrections", table: "ai_corrections", column: "contact_id", disposition: "immutable_retain" },
   { key: "nba_recommendation_history", table: "nba_recommendation_history", column: "contact_id", disposition: "immutable_retain" },
   { key: "contact_identity_observations", table: "contact_identity_observations", column: "contact_id", disposition: "immutable_retain" },
+  { key: "import_row_dispositions", table: "import_row_dispositions", column: "contact_id", disposition: "immutable_retain" },
+  { key: "eligibility_snapshots", table: "eligibility_snapshots", column: "contact_id", disposition: "immutable_retain" },
+  { key: "contact_provider_projections", table: "contact_provider_projections", column: "contact_id", disposition: "terminalize" },
+  { key: "validation_intents", table: "validation_intents", column: "contact_id", disposition: "terminalize" },
+  // A frozen campaign preview is immutable queue authority. Reassigning it
+  // would change a reviewed audience, while retaining it could enqueue the
+  // archived identity later, so an operator must resolve it before merging.
+  { key: "campaign_preview_members", table: "campaign_preview_members", column: "contact_id", rowIdColumn: "preview_id", disposition: "manual_block" },
   { key: "contact_merge_operations_survivor", table: "contact_merge_operations", column: "survivor_contact_id", disposition: "immutable_retain" },
   { key: "contact_merge_operations_deprecated", table: "contact_merge_operations", column: "deprecated_contact_id", disposition: "immutable_retain" },
   { key: "contact_merge_redirects_survivor", table: "contact_merge_redirects", column: "survivor_contact_id", disposition: "immutable_retain" },
@@ -59,6 +68,7 @@ function dbIdLiteral(value: unknown): string {
 }
 type ResultRows = { rows?: any[] };
 const rows = (result: unknown) => ((result as ResultRows).rows ?? []) as any[];
+const rowIdColumn = (entry: ManifestEntry) => entry.rowIdColumn ?? "id";
 const nowRevision = (contact: any) => new Date(contact.updated_at ?? contact.updatedAt ?? contact.created_at ?? contact.createdAt ?? 0).toISOString();
 const contactFingerprint = (contact: any) => crypto.createHash("sha256").update(JSON.stringify({
   id: contact.id, revision: nowRevision(contact), recordClass: contact.record_class,
@@ -119,8 +129,9 @@ async function relationshipCounts(executor: any, deprecatedContactId: number) {
 async function relationshipSetFingerprint(executor: any, contactId: number) {
   const parts: string[] = [];
   for (const entry of DEPENDENCY_FINGERPRINT_ENTRIES) {
+    const identityColumn = rowIdColumn(entry);
     const records = rows(await executor.execute(sql.raw(
-      `SELECT id, md5(row_to_json(t)::text) AS record_hash FROM "${entry.table}" t WHERE "${entry.column}" = ${contactId} ORDER BY id`,
+      `SELECT "${identityColumn}" AS id, md5(row_to_json(t)::text) AS record_hash FROM "${entry.table}" t WHERE "${entry.column}" = ${contactId} ORDER BY "${identityColumn}"`,
     )));
     parts.push(`${entry.key}:${records.map((record: any) => `${record.id}:${record.record_hash}`).join(",")}`);
   }
@@ -131,8 +142,9 @@ async function lockRelationshipRows(executor: any, survivorContactId: number, de
   // classified pointer before comparing fingerprints so no new source row can
   // appear between stale detection and transfer.
   for (const entry of DEPENDENCY_FINGERPRINT_ENTRIES) {
+    const identityColumn = rowIdColumn(entry);
     await executor.execute(sql.raw(
-      `SELECT id FROM "${entry.table}" WHERE "${entry.column}" IN (${survivorContactId}, ${deprecatedContactId}) FOR UPDATE`,
+      `SELECT "${identityColumn}" FROM "${entry.table}" WHERE "${entry.column}" IN (${survivorContactId}, ${deprecatedContactId}) FOR UPDATE`,
     ));
   }
 }
@@ -274,8 +286,8 @@ export async function previewContactMerge(input: {
       UPDATE contact_merge_operations
       SET status = 'blocked', conflict_reason = 'SUPERSEDED_BY_FRESH_PREVIEW', updated_at = now()
       WHERE status IN ('previewed', 'approved')
-        AND LEAST(survivor_contact_id, deprecated_contact_id) = LEAST(${input.survivorContactId}, ${input.deprecatedContactId})
-        AND GREATEST(survivor_contact_id, deprecated_contact_id) = GREATEST(${input.survivorContactId}, ${input.deprecatedContactId})
+        AND LEAST(survivor_contact_id, deprecated_contact_id) = LEAST(${input.survivorContactId}::integer, ${input.deprecatedContactId}::integer)
+        AND GREATEST(survivor_contact_id, deprecated_contact_id) = GREATEST(${input.survivorContactId}::integer, ${input.deprecatedContactId}::integer)
     `);
     const hash = previewHash({ survivor: input.survivorContactId, deprecated: input.deprecatedContactId, versions: data.contactVersions, relationships: data.relationshipFingerprints, fieldDecisions: input.fieldDecisions, manifest: CONTACT_MERGE_MANIFEST_VERSION });
     const initialStatus = data.conflicts.length ? "blocked" : "previewed";
@@ -311,7 +323,8 @@ export async function approveContactMerge(operationId: string, actorId: string) 
   // Actor attribution on the operation remains the preview creator; immutable
   // audit details attribute approval to the authenticated admin.
   await db.execute(sql`INSERT INTO audit_logs (action, entity_type, entity_key, actor_type, actor_id, details)
-    VALUES ('contact_merge_approved', 'contact_merge', ${operationId}, 'user', ${actorId}, ${JSON.stringify({ operationId })}::jsonb)`);
+    VALUES ('contact_merge_approved', 'contact_merge', ${operationId}, 'user', ${actorId},
+      ${JSON.stringify(sanitizeAuditPayload({ operationId }))}::jsonb)`);
   return result;
 }
 
@@ -409,6 +422,20 @@ export async function executeContactMerge(operationId: string, actorId: string) 
       SET status = 'skipped', error = 'superseded_by_merge'
       WHERE contact_id = ${deprecatedId} AND status IN ('queued', 'sending')
     `).catch(() => { throw new ContactMergeError("PENDING_SEND_DISPOSITION_FAILED", "Pending campaign messages could not be terminalized"); });
+    await tx.execute(sql`
+      UPDATE contact_provider_projections
+      SET state = 'terminal', terminal_reason = 'superseded_by_merge',
+          last_error_code = 'contact_merged', claim_token = NULL,
+          lease_expires_at = NULL, completed_at = now(), updated_at = now()
+      WHERE contact_id = ${deprecatedId} AND state IN ('pending', 'retry', 'processing')
+    `).catch(() => { throw new ContactMergeError("PENDING_PROVIDER_WORK_DISPOSITION_FAILED", "Pending provider projections could not be terminalized"); });
+    await tx.execute(sql`
+      UPDATE validation_intents
+      SET state = 'superseded', terminal_code = 'superseded_by_merge',
+          claim_token = NULL, lease_expires_at = NULL,
+          completed_at = now(), updated_at = now()
+      WHERE contact_id = ${deprecatedId} AND state IN ('pending', 'processing')
+    `).catch(() => { throw new ContactMergeError("PENDING_PROVIDER_WORK_DISPOSITION_FAILED", "Pending validation intents could not be terminalized"); });
     if (!survivor.ghl_contact_id && deprecated.ghl_contact_id) {
       // This durable intent is part of the same local commit as the redirect.
       // No GHL mutation is attempted here; the operator-facing reconciliation
@@ -438,14 +465,17 @@ export async function executeContactMerge(operationId: string, actorId: string) 
         })}::jsonb
       )
     `);
+    const ghlDisposition = survivor.ghl_contact_id && !deprecated.ghl_contact_id
+      ? "survivor_only"
+      : !survivor.ghl_contact_id && deprecated.ghl_contact_id
+        ? "deprecated_requires_reconciliation"
+        : "none";
+    const reconciliationStatus = ghlDisposition === "deprecated_requires_reconciliation" ? "pending" : "not_required";
     await tx.execute(sql`
       UPDATE contact_merge_operations
       SET status = 'committed', executed_at = now(), updated_at = now(),
-          ghl_disposition = CASE
-            WHEN ${survivor.ghl_contact_id} IS NOT NULL AND ${deprecated.ghl_contact_id} IS NULL THEN 'survivor_only'
-            WHEN ${survivor.ghl_contact_id} IS NULL AND ${deprecated.ghl_contact_id} IS NOT NULL THEN 'deprecated_requires_reconciliation'
-            ELSE 'none' END,
-          reconciliation_status = CASE WHEN ${survivor.ghl_contact_id} IS NULL AND ${deprecated.ghl_contact_id} IS NOT NULL THEN 'pending' ELSE 'not_required' END
+          ghl_disposition = ${ghlDisposition},
+          reconciliation_status = ${reconciliationStatus}
       WHERE id = ${operationId}
       RETURNING *
     `);
@@ -461,6 +491,7 @@ export async function executeContactMerge(operationId: string, actorId: string) 
       "ARCHIVED_CONTACT", "RECORD_CLASS_MISMATCH", "DISTINCT_GHL_IDS",
       "SAME_GHL_ID_MANUAL_REVIEW", "ACTIVE_ENROLLMENT_REQUIRES_REVIEW",
       "STATEMENT_PROPOSAL_DEAL_UNIQUENESS_CONFLICT",
+      "MANUAL_BLOCK_CAMPAIGN_PREVIEW_MEMBERS",
       "MANUAL_BLOCK_CONTACT_MERGE_REDIRECTS_SURVIVOR", "MANUAL_BLOCK_CONTACT_MERGE_REDIRECTS_DEPRECATED",
     ].includes(error.code)) {
       await db.execute(sql`
@@ -538,11 +569,21 @@ export async function undoContactMerge(operationId: string, actorId: string) {
     `))[0];
     if (later) throw new ContactMergeError("UNDO_BLOCKED", "A later merge makes restoration ambiguous");
     const terminalizedPendingWork = rows(await tx.execute(sql`
-      SELECT 1 FROM outbound_messages
-      WHERE contact_id = ${deprecatedId}
-        AND status = 'skipped' AND error = 'superseded_by_merge'
-      LIMIT 1 FOR UPDATE
-    `))[0];
+      SELECT (
+        EXISTS (
+          SELECT 1 FROM outbound_messages
+          WHERE contact_id = ${deprecatedId} AND status = 'skipped' AND error = 'superseded_by_merge'
+        )
+        OR EXISTS (
+          SELECT 1 FROM contact_provider_projections
+          WHERE contact_id = ${deprecatedId} AND state = 'terminal' AND terminal_reason = 'superseded_by_merge'
+        )
+        OR EXISTS (
+          SELECT 1 FROM validation_intents
+          WHERE contact_id = ${deprecatedId} AND state = 'superseded' AND terminal_code = 'superseded_by_merge'
+        )
+      ) AS found
+    `))[0]?.found;
     if (terminalizedPendingWork) {
       throw new ContactMergeError("UNDO_BLOCKED", "Pending campaign work was terminalized by this merge and cannot be safely recreated");
     }

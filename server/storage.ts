@@ -316,6 +316,7 @@ export interface IStorage {
   consumeCampaignPreviewAtomic(id: number): Promise<CampaignPreview | null>;
 
   getCampaignSteps(campaignId: number): Promise<typeof campaignSteps.$inferSelect[]>;
+  getCampaignStep(id: number): Promise<typeof campaignSteps.$inferSelect | undefined>;
   createCampaignStep(step: InsertCampaignStep): Promise<typeof campaignSteps.$inferSelect>;
   updateCampaignStep(id: number, updates: Partial<InsertCampaignStep>): Promise<typeof campaignSteps.$inferSelect | undefined>;
   deleteCampaignStep(id: number): Promise<void>;
@@ -325,6 +326,7 @@ export interface IStorage {
   createOutboundMessage(msg: InsertOutboundMessage): Promise<typeof outboundMessages.$inferSelect>;
   createOutboundMessagesBulk(msgs: InsertOutboundMessage[]): Promise<typeof outboundMessages.$inferSelect[]>;
   updateOutboundMessage(id: number, updates: UpdateOutboundMessageRequest): Promise<typeof outboundMessages.$inferSelect | undefined>;
+  claimOutboundMessageForSending(id: number): Promise<boolean>;
   getQueuedMessages(limit: number): Promise<typeof outboundMessages.$inferSelect[]>;
   markStaleInFlightMessagesFailed(): Promise<number>;
   getOutboundStats(campaignId: number): Promise<{sent: number, opened: number, replied: number, bounced: number}>;

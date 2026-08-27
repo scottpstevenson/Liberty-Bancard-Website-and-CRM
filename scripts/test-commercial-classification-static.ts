@@ -40,6 +40,7 @@ const ghlTransport = read("server/services/ghl.ts");
 const routeHelpers = read("server/routes/helpers.ts");
 const workflowEnrollment = read("server/services/ghl-workflow-enrollment.ts");
 const contactWriter = read("server/services/contact-writer.ts");
+const contactFieldAuthority = read("server/services/contact-field-authority.ts");
 const sdrGhlTransport = read("server/services/sdr/ghl-client.ts");
 const smtpTransport = read("server/services/smtp-email.ts");
 const authority = read("server/services/commercial-classification-authority.ts");
@@ -127,7 +128,10 @@ assert(
   "trusted confirmation helpers preserve transactional purpose at final transport",
 );
 assert(
-  contactWriter.includes('"recordClass"') &&
+  contactFieldAuthority.includes('"recordClass"') &&
+    contactFieldAuthority.includes("export function stripContactAuthorityFields") &&
+    contactFieldAuthority.includes("for (const field of CONTACT_AUTHORITY_OWNED_FIELDS) delete result[field]") &&
+    contactWriter.includes("stripContactAuthorityFields(args.mutation)") &&
     contactWriter.includes('recordClass: "unknown"') &&
     !/serverInsertContactSchema[\s\S]*recordClass: false/.test(read("shared/schema.ts")),
   "generic contact creation strips supplied class and quarantines new roots",

@@ -1,11 +1,11 @@
 import { storage } from "../storage";
 import { db as defaultSequenceWorkerDb } from "../db";
 import { sequenceEnrollments as sequenceEnrollmentsTable } from "../../shared/schema";
-import { eq as drizzleEq } from "drizzle-orm";
+import { and as drizzleAnd, eq as drizzleEq } from "drizzle-orm";
 import { isGhlConfigured } from "./ghl";
 // sendGhlEmail / sendGhlSms are now invoked via ChannelOrchestrator transport adapters (Wave 1A).
 // Do not re-import them here — use channelOrchestrator.sendEmail / sendSms instead.
-import { getEmailSignatureHtml, getComplianceFooterHtml, isColdOutreachSequence } from "./email-signatures";
+import { getEmailSignatureHtml, isColdOutreachSequence } from "./email-signatures";
 import type { SignatureType } from "./sender-policy";
 import { sanitizeFirstName } from "./contact-name-utils";
 import { hashEmailToken } from "./provider-readiness-control";
@@ -93,7 +93,8 @@ import { addNote as ghlAddNote, addTag as ghlAddTag, triggerWorkflow as ghlTrigg
 import { getWorkflowEnvValue } from "./ghl-workflows";
 import { sendSmtpEmail, isSmtpConfigured } from "./smtp-email";
 import { generateUnsubscribeToken } from "./unsubscribe-token";
-import { buildIdempotencyKey, hasSentStep, openSendAttempt, markSendSent, markSendFailed } from "./outbound-send-log";
+import { authorizeSequenceDispatch, buildIdempotencyKey, hasSentStep, openSendAttempt, markSendSent, markSendFailed, type DispatchAuthorization } from "./outbound-send-log";
+import { terminalizeSequenceEnrollment } from "./sequence-terminalization";
 import { sendGmailEmail, isGmailOAuthConnected } from "./gmail-oauth";
 import type { SendChannel } from "./outbound-send-log";
 import type { VoiceBotMode } from "./sdr/voice-orchestrator";
@@ -192,6 +193,138 @@ export async function writeHoldDeferralMarker(
     .where(drizzleEq(sequenceEnrollmentsTable.id, enrollmentId));
 
   return { written: true, _holdDeferredAt: deferredAt };
+}
+
+const REPLY_DECISION_RETRY_MS = 5 * 60 * 1000;
+
+/** Complete only the version of an active enrollment this worker observed. */
+async function completeNoResponseEnrollment(
+  enrollment: any,
+  sequence: any,
+  currentStep: number,
+  reason: "sequence_exhausted_no_response" | "sms_skipped_no_response" = "sequence_exhausted_no_response",
+): Promise<boolean> {
+  if (!enrollment.contactId || !enrollment.createdAt) return false;
+  const terminalized = await terminalizeSequenceEnrollment({
+    enrollmentId: enrollment.id,
+    contactId: enrollment.contactId,
+    enrolledAt: new Date(enrollment.createdAt),
+    expectedCurrentStep: enrollment.currentStep ?? 0,
+    terminalCurrentStep: currentStep,
+    noResponseReason: reason,
+  });
+  if (terminalized.outcome === "STALE" || terminalized.outcome === "UNAVAILABLE") return false;
+  if (terminalized.outcome === "COMPLETED_REPLY") {
+    await storage.createAuditLog({
+      action: "sequence_stopped_contact_replied", entityType: "contact", entityId: enrollment.contactId, actorType: "system",
+      details: { enrollmentId: enrollment.id, sequenceId: sequence.id, sequenceName: sequence.name, stoppedAtStep: currentStep, reason: "contact_replied" },
+    });
+    return true;
+  }
+  await storage.createAuditLog({
+    action: "sequence_completed_no_response",
+    entityType: "contact",
+    entityId: enrollment.contactId || 0,
+    actorType: "system",
+    details: { enrollmentId: enrollment.id, sequenceId: sequence.id, sequenceName: sequence.name, terminal: { category: "no_response", reason } },
+  });
+  await createPreferenceAwareNotification({
+    channel: "internal",
+    title: "Sequence Exhausted — No Response",
+    message: `Sequence "${sequence.name}" exhausted without a response for contact #${enrollment.contactId || 0}.`,
+    type: "info",
+    metadata: { sequenceId: sequence.id, contactId: enrollment.contactId, eventType: "sequence_completed_no_response", terminalReason: reason },
+  }, "sequence_completed_no_response");
+  return true;
+}
+
+async function applyReplyDecision(enrollment: any, sequence: any, currentStep: number): Promise<"continue" | "stopped"> {
+  if (!enrollment.contactId || !enrollment.createdAt) {
+    await defaultSequenceWorkerDb.update(sequenceEnrollmentsTable)
+      .set({
+        nextActionAt: new Date(Date.now() + REPLY_DECISION_RETRY_MS),
+        metadata: {
+          ...((enrollment.metadata as Record<string, unknown> | null) ?? {}),
+          deferral: { reason: "reply_decision_unavailable", currentStep },
+        } as any,
+        updatedAt: new Date(),
+      })
+      .where(drizzleAnd(
+        drizzleEq(sequenceEnrollmentsTable.id, enrollment.id),
+        drizzleEq(sequenceEnrollmentsTable.status, "active"),
+        drizzleEq(sequenceEnrollmentsTable.currentStep, enrollment.currentStep ?? 0),
+      ));
+    return "stopped";
+  }
+  const { decideReplySinceEnrollment } = await import("./communication-events");
+  const decision = await decideReplySinceEnrollment(enrollment.contactId, new Date(enrollment.createdAt));
+  if (decision === "CONFIRMED_ABSENT") {
+    const fenced = await defaultSequenceWorkerDb.update(sequenceEnrollmentsTable)
+      .set({ updatedAt: new Date() })
+      .where(drizzleAnd(
+        drizzleEq(sequenceEnrollmentsTable.id, enrollment.id),
+        drizzleEq(sequenceEnrollmentsTable.status, "active"),
+        drizzleEq(sequenceEnrollmentsTable.currentStep, enrollment.currentStep ?? 0),
+      ))
+      .returning({ id: sequenceEnrollmentsTable.id });
+    return fenced.length ? "continue" : "stopped";
+  }
+  if (decision === "REPLIED") {
+    const changed = await defaultSequenceWorkerDb.update(sequenceEnrollmentsTable)
+      .set({
+        status: "completed", completedAt: new Date(), updatedAt: new Date(),
+        metadata: { ...((enrollment.metadata as Record<string, unknown> | null) ?? {}), terminal: { category: "reply", reason: "contact_replied" } } as any,
+      })
+      .where(drizzleAnd(drizzleEq(sequenceEnrollmentsTable.id, enrollment.id), drizzleEq(sequenceEnrollmentsTable.status, "active"), drizzleEq(sequenceEnrollmentsTable.currentStep, enrollment.currentStep ?? 0)))
+      .returning({ id: sequenceEnrollmentsTable.id });
+    if (changed.length) await storage.createAuditLog({
+      action: "sequence_stopped_contact_replied", entityType: "contact", entityId: enrollment.contactId, actorType: "system",
+      details: { enrollmentId: enrollment.id, sequenceId: sequence.id, sequenceName: sequence.name, stoppedAtStep: currentStep, reason: "contact_replied" },
+    });
+  } else {
+    await defaultSequenceWorkerDb.update(sequenceEnrollmentsTable)
+      .set({
+        nextActionAt: new Date(Date.now() + REPLY_DECISION_RETRY_MS),
+        metadata: {
+          ...((enrollment.metadata as Record<string, unknown> | null) ?? {}),
+          deferral: { reason: "reply_decision_unavailable", currentStep },
+        } as any,
+        updatedAt: new Date(),
+      })
+      .where(drizzleAnd(
+        drizzleEq(sequenceEnrollmentsTable.id, enrollment.id),
+        drizzleEq(sequenceEnrollmentsTable.status, "active"),
+        drizzleEq(sequenceEnrollmentsTable.currentStep, enrollment.currentStep ?? 0),
+      ));
+  }
+  return "stopped";
+}
+
+async function handleDeniedDispatchAuthorization(
+  authorization: DispatchAuthorization,
+  enrollment: any,
+  sequence: any,
+  currentStep: number,
+): Promise<void> {
+  const replyHandling = await applyReplyDecision(enrollment, sequence, currentStep);
+  if (replyHandling === "stopped") return;
+  await defaultSequenceWorkerDb.update(sequenceEnrollmentsTable).set({
+    nextActionAt: new Date(Date.now() + REPLY_DECISION_RETRY_MS),
+    metadata: {
+      ...((enrollment.metadata as Record<string, unknown> | null) ?? {}),
+      deferral: {
+        reason: authorization.outcome === "UNAVAILABLE"
+          ? "dispatch_authorization_unavailable"
+          : "dispatch_not_authorized",
+        currentStep,
+      },
+    } as any,
+    updatedAt: new Date(),
+  }).where(drizzleAnd(
+    drizzleEq(sequenceEnrollmentsTable.id, enrollment.id),
+    drizzleEq(sequenceEnrollmentsTable.status, "active"),
+    drizzleEq(sequenceEnrollmentsTable.currentStep, enrollment.currentStep ?? 0),
+  ));
 }
 
 export async function processSequenceEnrollments(): Promise<{ processed: number; errors: number }> {
@@ -304,69 +437,22 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
           }
         }
 
-        // ── Gate (reply-stop): Stop sequence if contact replied since enrollment ──
-        // Checks audit_logs for any inbound message processed for this contact
-        // after enrollment started. Prevents sending further steps after a reply.
-        if (currentStep > 0 && enrollment.contactId && enrollment.createdAt) {
-          try {
-            const { db: _sqDb } = await import("../db");
-            const { sql: _sqSql } = await import("drizzle-orm");
-            const enrolledAt = enrollment.createdAt instanceof Date ? enrollment.createdAt : new Date(enrollment.createdAt);
-            const replyRows = await _sqDb.execute(_sqSql`
-              SELECT id FROM audit_logs
-              WHERE action = 'inbound_message_processed'
-                AND entity_id = ${enrollment.contactId}
-                AND created_at > ${enrolledAt}
-              LIMIT 1
-            `);
-            if (replyRows.rows.length > 0) {
-              await storage.updateSequenceEnrollment(enrollment.id, {
-                status: "completed",
-                completedAt: new Date(),
-              });
-              await storage.createAuditLog({
-                action: "sequence_stopped_contact_replied",
-                entityType: "contact",
-                entityId: enrollment.contactId,
-                actorType: "system",
-                details: { enrollmentId: enrollment.id, sequenceId: sequence.id, sequenceName: sequence.name, stoppedAtStep: currentStep, reason: "contact_replied" },
-              });
-              processed++;
-              continue;
-            }
-          } catch (_replyCheckErr) {
-            // Non-fatal — continue processing if reply check fails
-          }
+        // Canonical reply-stop gate applies at step zero as well as later steps.
+        // An unavailable communication_events read is a durable deferral, never
+        // an implicit "no reply" authorization.
+        if (await applyReplyDecision(enrollment, sequence, currentStep) === "stopped") {
+          processed++;
+          continue;
         }
 
         if (currentStep >= steps.length) {
-          await storage.updateSequenceEnrollment(enrollment.id, {
-            status: "completed",
-            completedAt: new Date(),
-          });
-          await storage.createAuditLog({
-            action: "sequence_completed",
-            entityType: "contact",
-            entityId: enrollment.contactId || 0,
-            details: { sequenceId: sequence.id, sequenceName: sequence.name },
-          });
-          await createPreferenceAwareNotification({ channel: "internal", title: "Sequence Completed", message: `Sequence "${sequence.name}" completed for contact #${enrollment.contactId || 0}.`, type: "info", metadata: { sequenceId: sequence.id, contactId: enrollment.contactId, eventType: "sequence_completed" } }, "sequence_completed");
-          // Advance lifecycle PROSPECT → ENGAGED when all outreach steps complete (#1391).
-          // Non-blocking fire-and-forget; LifecycleTransitionError (backwards guard) is swallowed.
-          if (enrollment.contactId) {
-            const completedContactId = enrollment.contactId;
-            const completedStepCount = steps.length;
-            import("./lifecycle-service").then(({ LifecycleService }) => {
-              LifecycleService.transition(completedContactId, "ENGAGED", {
-                trigger: "sequence_completed",
-                actorType: "system",
-                source: "sequence_worker",
-                reason: `All ${completedStepCount} outreach steps completed`,
-              }).catch(() => {
-                // Already past ENGAGED or transition guard active — ignore
-              });
-            }).catch(() => {});
+          // Re-read at the no-response completion boundary to avoid completing
+          // a contact whose reply raced this worker.
+          if (await applyReplyDecision(enrollment, sequence, currentStep) === "stopped") {
+            processed++;
+            continue;
           }
+          await completeNoResponseEnrollment(enrollment, sequence, currentStep);
           processed++;
           continue;
         }
@@ -402,6 +488,19 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
                   await enqueueCurrentValidationIntent(preEnrollContact!.id).catch(() => {});
                   await storage.updateSequenceEnrollment(enrollment.id, {
                     nextActionAt: new Date(Date.now() + ZB_RETRY_DELAY_MS),
+                  });
+                  await storage.createAuditLog({
+                    action: "sequence_enrollment_deferred_provider_readiness",
+                    entityType: "contact",
+                    entityId: enrollment.contactId,
+                    actorType: "system",
+                    details: {
+                      enrollmentId: enrollment.id,
+                      sequenceId: sequence.id,
+                      sequenceName: sequence.name,
+                      reason: durableDecision.reason,
+                      retryAfter: new Date(Date.now() + ZB_RETRY_DELAY_MS).toISOString(),
+                    },
                   });
                   processed++;
                   continue;
@@ -671,10 +770,11 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
 
         const step = steps.find(s => s.stepOrder === currentStep + 1) || steps[currentStep];
         if (!step) {
-          await storage.updateSequenceEnrollment(enrollment.id, {
-            status: "completed",
-            completedAt: new Date(),
-          });
+          if (await applyReplyDecision(enrollment, sequence, currentStep) === "stopped") {
+            processed++;
+            continue;
+          }
+          await completeNoResponseEnrollment(enrollment, sequence, currentStep);
           processed++;
           continue;
         }
@@ -992,17 +1092,11 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
               const skipSortedSteps = [...steps].sort((a, b) => a.stepOrder - b.stepOrder);
               const skipNextStep = skipSortedSteps[skipNextIndex];
               if (!skipNextStep) {
-                await storage.updateSequenceEnrollment(enrollment.id, {
-                  currentStep: skipNextIndex,
-                  status: "completed",
-                  completedAt: new Date(),
-                });
-                await storage.createAuditLog({
-                  action: "sequence_completed",
-                  entityType: "contact",
-                  entityId: enrollment.contactId || 0,
-                  details: { sequenceId: sequence.id, sequenceName: sequence.name, via: "sms_skip_final_step" },
-                });
+                if (await applyReplyDecision(enrollment, sequence, currentStep) === "stopped") {
+                  processed++;
+                  continue;
+                }
+                await completeNoResponseEnrollment(enrollment, sequence, skipNextIndex, "sms_skipped_no_response");
               } else {
                 const skipDelayMs = ((skipNextStep.delayDays || 0) * 86400000) + ((skipNextStep.delayHours || 0) * 3600000);
                 const skipNextActionAt = new Date(Date.now() + Math.max(skipDelayMs, 60000));
@@ -1086,8 +1180,24 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
                   continue;
                 }
               } catch (arbErr) {
-                // Arbitration is fail-open — log a warning but do not block the send
-                console.warn(`[SequenceWorker] Arbitration check failed for enrollment ${enrollment.id} (fail-open):`, (arbErr as Error).message);
+                // Never convert an arbitration outage into send authorization.
+                const resumeAt = new Date(Date.now() + 60 * 60 * 1000);
+                await storage.updateSequenceEnrollment(enrollment.id, {
+                  nextActionAt: resumeAt,
+                  metadata: {
+                    ...((enrollment.metadata as Record<string, unknown> | null) ?? {}),
+                    deferral: { reason: "arbitration_unavailable", currentStep },
+                  },
+                });
+                await storage.createAuditLog({
+                  action: "sequence_step_deferred_arbitration_error",
+                  entityType: "contact",
+                  entityId: enrollment.contactId,
+                  actorType: "system",
+                  details: { enrollmentId: enrollment.id, sequenceId: sequence.id, stepOrder: step.stepOrder, reason: (arbErr as Error).message, resumeAfter: resumeAt.toISOString() },
+                });
+                processed++;
+                continue;
               }
             }
           }
@@ -1258,6 +1368,14 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
           }
         }
 
+        // Last possible reply decision before any step dispatch (email, SMS,
+        // voice/RVM workflow, or task). This closes the race with inbound
+        // ingestion after the earlier gate.
+        if (await applyReplyDecision(enrollment, sequence, currentStep) === "stopped") {
+          processed++;
+          continue;
+        }
+
         switch (step.actionType) {
           case "email": {
             const abConfig = (step.abTestConfig as AbTestConfig | null);
@@ -1286,57 +1404,8 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
               }
             }
 
-            let complianceFooter = "";
-            if (isColdOutreachSequence(sequence) && enrollment.contactId) {
-              // getCanonicalUrl() always resolves — APP_URL → REPLIT_DOMAINS →
-              // https://libertybancard.com static fallback — so a missing APP_URL
-              // env var no longer blocks unsubscribe link generation.
-              const appUrl = getCanonicalUrl();
-              const testMode = process.env.TEST_MODE === "true";
-              const mailingAddress = await storage.getSystemSetting("compliance_mailing_address") as string | null | undefined;
-              let blockReason: string | null = null;
-
-              if (!mailingAddress) {
-                blockReason = "sequence_send_blocked_no_mailing_address";
-              } else {
-                try {
-                  const { getUnsubscribeTokenSecret } = await import("./unsubscribe-token");
-                  getUnsubscribeTokenSecret();
-                } catch {
-                  if (!testMode) {
-                    blockReason = "sequence_send_blocked_no_unsubscribe_secret";
-                  }
-                }
-              }
-
-              if (blockReason) {
-                await storage.createAuditLog({
-                  action: blockReason,
-                  entityType: "contact",
-                  entityId: enrollment.contactId,
-                  actorType: "system",
-                  details: {
-                    enrollmentId: enrollment.id,
-                    sequenceId: sequence.id,
-                    sequenceName: sequence.name,
-                    stepOrder: step.stepOrder,
-                    reason: blockReason,
-                  },
-                });
-                await storage.updateSequenceEnrollment(enrollment.id, {
-                  status: "paused",
-                });
-                stepExecuted = false;
-                break;
-              }
-
-              if (!blockReason && mailingAddress) {
-                complianceFooter = getComplianceFooterHtml(enrollment.contactId, mailingAddress, appUrl);
-              }
-            }
-
             const sigType = resolveSignatureType((sequence.triggerConfig as any) || {});
-            const emailBody = interpolate(bodyToSend) + getEmailSignatureHtml(sigType) + complianceFooter;
+            const emailBody = interpolate(bodyToSend) + getEmailSignatureHtml(sigType);
 
             // ── Per-channel pause gate (email) ────────────────────────────────
             // Checked after global pause (already verified above) and contactability.
@@ -1491,6 +1560,22 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
               // Reservation happens here — inside isGhlConfigured() — so counters
               // only tick when an actual GHL send is attempted.
               let coldCapReserved = false;
+              const releaseColdCapReservation = async (): Promise<void> => {
+                if (!coldCapReserved) return;
+                try {
+                  const { db: decDb } = await import("../db");
+                  const { sql: decSql } = await import("drizzle-orm");
+                  const todayDec = new Date().toISOString().slice(0, 10);
+                  await decDb.execute(decSql`
+                    UPDATE outbound_send_counters
+                    SET count = GREATEST(0, count - 1), updated_at = now()
+                    WHERE date = ${todayDec} AND channel = 'email' AND scope = 'cold_outreach'
+                  `);
+                  coldCapReserved = false;
+                } catch (decErr) {
+                  console.error(`[Sequence Worker] Cap reservation release failed:`, decErr);
+                }
+              };
               if (isColdOutreachSequence(sequence)) {
                 try {
                   const { db: rsvDb } = await import("../db");
@@ -1589,16 +1674,15 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
                 }
               }
 
-              // Open a pending row before we attempt the send.
-              // ON CONFLICT DO NOTHING means a concurrent worker that already claimed
-              // this slot returns null here — that's fine, the UPDATE in markSendSent /
-              // markSendFailed will still find the row the first worker inserted.
+              // Atomically claim this step before any provider I/O. A null result
+              // means another worker owns pending/sent state (or the DB claim was
+              // unavailable); this worker must not send or mutate that row.
               const sendLogChannel: import("./outbound-send-log").SendChannel =
                 useGmailForThisStep ? "email_gmail"
                 : useSmtpForThisStep ? "email_smtp"
                 : (testRedirectTo && isSmtpConfigured()) ? "email_smtp"
                 : "email_ghl";
-              await openSendAttempt({
+              const emailSendClaimId = await openSendAttempt({
                 idempotencyKey:       emailIdemKey,
                 sequenceId:           sequence.id,
                 sequenceEnrollmentId: enrollment.id,
@@ -1610,6 +1694,42 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
                 toAddress:            deliveryEmailTo || contact?.email || "",
                 subject:              deliverySubject,
               });
+              if (emailSendClaimId === null) {
+                await releaseColdCapReservation();
+                await defaultSequenceWorkerDb.update(sequenceEnrollmentsTable).set({
+                  nextActionAt: new Date(Date.now() + 5 * 60 * 1000),
+                  metadata: {
+                    ...((enrollment.metadata as Record<string, unknown> | null) ?? {}),
+                    deferral: { reason: "send_claim_unavailable", channel: "email", currentStep },
+                  } as any,
+                  updatedAt: new Date(),
+                }).where(drizzleAnd(
+                  drizzleEq(sequenceEnrollmentsTable.id, enrollment.id),
+                  drizzleEq(sequenceEnrollmentsTable.status, "active"),
+                  drizzleEq(sequenceEnrollmentsTable.currentStep, enrollment.currentStep ?? 0),
+                ));
+                processed++;
+                continue;
+              }
+              let emailDispatchAuthorized = false;
+              const authorizeClaimedEmailDispatch = async (): Promise<boolean> => {
+                const authorization = await authorizeSequenceDispatch({
+                  attemptId: emailSendClaimId.attemptId,
+                  claimToken: emailSendClaimId.claimToken,
+                  idempotencyKey: emailIdemKey,
+                  enrollmentId: enrollment.id,
+                  expectedCurrentStep: enrollment.currentStep ?? 0,
+                  contactId: enrollment.contactId!,
+                  enrolledAt: new Date(enrollment.createdAt!),
+                });
+                if (authorization.outcome === "AUTHORIZED") {
+                  emailDispatchAuthorized = true;
+                  return true;
+                }
+                await handleDeniedDispatchAuthorization(authorization, enrollment, sequence, currentStep);
+                await releaseColdCapReservation();
+                return false;
+              };
 
               try {
                 if (useGmailForThisStep && contact?.email) {
@@ -1628,12 +1748,14 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
                   const appUrlForToken = getCanonicalUrl();
                   const token = generateUnsubscribeToken(enrollment.contactId);
                   const unsubscribeUrl = `${appUrlForToken}/unsubscribe?t=${encodeURIComponent(token)}`;
+                  if (!await authorizeClaimedEmailDispatch()) { processed++; continue; }
                   const result = await sendGmailEmail({
                     to: deliveryEmailTo,
                     subject: deliverySubject,
                     html: emailBody,
                     category: "department_accounts" as any,
                     contactId: enrollment.contactId,
+                    commercialPurpose: "marketing_outreach",
                     unsubscribeUrl,
                   });
                   if (!result.success) throw new Error(result.error || "Gmail send failed");
@@ -1652,6 +1774,7 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
                   const { evaluateContactability } = await import("./contactability");
                   const directProviderDecision = await evaluateContactability({
                     contactId: enrollment.contactId,
+                    commercialPurpose: "marketing_outreach",
                     channel: "email",
                     campaignType: "sequence_direct_smtp",
                     mode: "enforcement",
@@ -1662,6 +1785,7 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
                   const appUrlForToken = getCanonicalUrl();
                   const token = generateUnsubscribeToken(enrollment.contactId);
                   const unsubscribeUrl = `${appUrlForToken}/unsubscribe?t=${encodeURIComponent(token)}`;
+                  if (!await authorizeClaimedEmailDispatch()) { processed++; continue; }
                   const result = await sendSmtpEmail({
                     to: deliveryEmailTo,
                     subject: deliverySubject,
@@ -1694,11 +1818,14 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
                     if (!directProviderDecision.allowed) {
                       throw new Error(`Email blocked by contactability: ${directProviderDecision.reason}`);
                     }
+                    if (!await authorizeClaimedEmailDispatch()) { processed++; continue; }
                     const result = await sendSmtpEmail({
                       to: testRedirectTo,
                       subject: deliverySubject,
                       html: emailBody,
                       category: "cold_outreach",
+                      contactId: enrollment.contactId,
+                      commercialPurpose: "marketing_outreach",
                     });
                     if (!result.success) throw new Error(result.error || "SMTP redirect send failed");
                     await markSendSent({ idempotencyKey: emailIdemKey, providerMessageId: result.messageId, fromAddress: fromEmail });
@@ -1708,8 +1835,9 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
                     // The worker's step gate remains the idempotency decision; the
                     // orchestrator repeats the canonical boundary check before I/O.
                     const { channelOrchestrator } = await import("./transports/index");
+                    if (!await authorizeClaimedEmailDispatch()) { processed++; continue; }
                     const orchEmailResult = await channelOrchestrator.sendEmail(
-                      { contactId: enrollment.contactId, subject: deliverySubject, body: emailBody, fromEmail, fromName, replyTo },
+                      { contactId: enrollment.contactId, subject: deliverySubject, body: emailBody, fromEmail, fromName, replyTo, commercialPurpose: "marketing_outreach" },
                     );
                     if (!orchEmailResult.success) {
                       throw new Error(
@@ -1734,22 +1862,10 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
                 }).catch(() => {});
               } catch (emailErr) {
                 console.error(`Sequence email failed for enrollment ${enrollment.id}:`, emailErr);
-                await markSendFailed({ idempotencyKey: emailIdemKey, failureReason: emailErr instanceof Error ? emailErr.message : String(emailErr) });
-                // Decrement cap reservation if send failed
-                if (coldCapReserved) {
-                  try {
-                    const { db: decDb } = await import("../db");
-                    const { sql: decSql } = await import("drizzle-orm");
-                    const todayDec = new Date().toISOString().slice(0, 10);
-                    await decDb.execute(decSql`
-                      UPDATE outbound_send_counters
-                      SET count = GREATEST(0, count - 1), updated_at = now()
-                      WHERE date = ${todayDec} AND channel = 'email' AND scope = 'cold_outreach'
-                    `);
-                  } catch (decErr) {
-                    console.error(`[Sequence Worker] Cap decrement failed:`, decErr);
-                  }
+                if (emailDispatchAuthorized) {
+                  await markSendFailed({ idempotencyKey: emailIdemKey, failureReason: emailErr instanceof Error ? emailErr.message : String(emailErr) });
                 }
+                await releaseColdCapReservation();
               }
             }
             const emailLog = await storage.createEmailLog({
@@ -1899,12 +2015,8 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
               break;
             }
 
-            // Reserve the send slot before touching the provider.
-            // ON CONFLICT DO NOTHING means only the first worker to reach this
-            // point claims the row; any retry after a crash will still see the
-            // pending/sent row and hasSentStep() will short-circuit above once
-            // markSendSent() has been called.  This mirrors the email send path.
-            await openSendAttempt({
+            // Atomically claim the slot before touching the provider.
+            const smsSendClaimId = await openSendAttempt({
               idempotencyKey:       smsIdemKey,
               sequenceId:           sequence.id,
               sequenceEnrollmentId: enrollment.id,
@@ -1913,12 +2025,47 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
               channel:              "sms_ghl",
               toAddress:            contact?.phone ?? "",
             });
+            if (smsSendClaimId === null) {
+              await defaultSequenceWorkerDb.update(sequenceEnrollmentsTable).set({
+                nextActionAt: new Date(Date.now() + 5 * 60 * 1000),
+                metadata: {
+                  ...((enrollment.metadata as Record<string, unknown> | null) ?? {}),
+                  deferral: { reason: "send_claim_unavailable", channel: "sms", currentStep },
+                } as any,
+                updatedAt: new Date(),
+              }).where(drizzleAnd(
+                drizzleEq(sequenceEnrollmentsTable.id, enrollment.id),
+                drizzleEq(sequenceEnrollmentsTable.status, "active"),
+                drizzleEq(sequenceEnrollmentsTable.currentStep, enrollment.currentStep ?? 0),
+              ));
+              processed++;
+              continue;
+            }
+            let smsDispatchAuthorized = false;
+            const authorizeClaimedSmsDispatch = async (): Promise<boolean> => {
+              const authorization = await authorizeSequenceDispatch({
+                attemptId: smsSendClaimId.attemptId,
+                claimToken: smsSendClaimId.claimToken,
+                idempotencyKey: smsIdemKey,
+                enrollmentId: enrollment.id,
+                expectedCurrentStep: enrollment.currentStep ?? 0,
+                contactId: enrollment.contactId!,
+                enrolledAt: new Date(enrollment.createdAt!),
+              });
+              if (authorization.outcome === "AUTHORIZED") {
+                smsDispatchAuthorized = true;
+                return true;
+              }
+              await handleDeniedDispatchAuthorization(authorization, enrollment, sequence, currentStep);
+              return false;
+            };
 
             if (isGhlConfigured() && enrollment.contactId) {
               try {
                 // The worker preserves its per-step gate/idempotency logic; the
                 // orchestrator repeats the canonical boundary check before I/O.
                 const { channelOrchestrator: smsOrch } = await import("./transports/index");
+                if (!await authorizeClaimedSmsDispatch()) { processed++; continue; }
                 const orchSmsResult = await smsOrch.sendSms(
                   { contactId: enrollment.contactId, body: interpolate(bodyToSend) },
                 );
@@ -1943,7 +2090,9 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
                 }).catch(() => {});
               } catch (smsErr) {
                 console.error(`Sequence SMS failed for enrollment ${enrollment.id}:`, smsErr);
-                await markSendFailed({ idempotencyKey: smsIdemKey, failureReason: smsErr instanceof Error ? smsErr.message : String(smsErr) });
+                if (smsDispatchAuthorized) {
+                  await markSendFailed({ idempotencyKey: smsIdemKey, failureReason: smsErr instanceof Error ? smsErr.message : String(smsErr) });
+                }
               }
             }
 
@@ -2053,6 +2202,7 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
                     .from(sdrMerchants)
                     .where(eq(sdrMerchants.ghlContactId, contact.ghlContactId));
                   if (merchant) {
+                    if (await applyReplyDecision(enrollment, sequence, currentStep) === "stopped") { processed++; continue; }
                     const result = await triggerAiCall(merchant.id, callMode);
                     if (result.success || result.scheduled) {
                       stepExecuted = true;
@@ -2152,6 +2302,7 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
               if (isSdrGhlConfigured() && contact?.ghlContactId) {
                 const scriptPreview = vmScript.length > 120 ? vmScript.slice(0, 117) + "..." : vmScript;
                 try {
+                  if (await applyReplyDecision(enrollment, sequence, currentStep) === "stopped") { processed++; continue; }
                   await ghlAddTag({ contactId: contact.ghlContactId, tags: ["vm-drop-pending"] });
                 } catch (tagErr) {
                   console.warn(`[Sequence Worker] GHL tag 'vm-drop-pending' failed:`, tagErr);
@@ -2231,18 +2382,13 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
           const nextStep = sortedSteps[nextStepIndex];
 
           if (!nextStep) {
-            await storage.updateSequenceEnrollment(enrollment.id, {
-              currentStep: nextStepIndex,
-              status: "completed",
-              completedAt: new Date(),
-            });
-            await storage.createAuditLog({
-              action: "sequence_completed",
-              entityType: "contact",
-              entityId: enrollment.contactId || 0,
-              details: { sequenceId: sequence.id, sequenceName: sequence.name },
-            });
-            await createPreferenceAwareNotification({ channel: "internal", title: "Sequence Completed", message: `Sequence "${sequence.name}" completed for contact #${enrollment.contactId || 0}.`, type: "info", metadata: { sequenceId: sequence.id, contactId: enrollment.contactId, eventType: "sequence_completed" } }, "sequence_completed");
+            // A reply can arrive while a transport reports success. Never label
+            // that contact as no-response without a final canonical read.
+            if (await applyReplyDecision(enrollment, sequence, currentStep) === "stopped") {
+              processed++;
+              continue;
+            }
+            await completeNoResponseEnrollment(enrollment, sequence, nextStepIndex);
           } else {
             const delayMs = ((nextStep.delayDays || 0) * 86400000) + ((nextStep.delayHours || 0) * 3600000);
             const nextActionAt = new Date(Date.now() + Math.max(delayMs, 60000));

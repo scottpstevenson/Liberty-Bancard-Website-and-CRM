@@ -11,7 +11,7 @@
  * Kill-line assertions:
  *  - Object.keys(metrics).length must NOT be used for Worker capacity
  *  - status === "safe" must NOT be returned when limit is unknown
- *  - QUEUE_CONFIGS.length must equal 24 (current verified fleet)
+ *  - QUEUE_CONFIGS.length must equal 27 (current verified fleet)
  *  - Any QUEUE_CONFIGS entry changed by this task causes this test to fail
  *
  * Exits 0 if all assertions pass, 1 if any fail.
@@ -37,14 +37,14 @@ function assert(label: string, condition: boolean, detail?: string) {
 }
 
 // ── 1. QUEUE_CONFIGS baseline snapshot ───────────────────────────────────────
-// IMPORTANT: 24 is the current verified fleet, not a capacity conclusion.
+// IMPORTANT: 27 is the current verified fleet, not a capacity conclusion.
 // production truth. If the roster grows or shrinks, update this number AND the
-// comment. The capacity calculation below uses the DERIVED count, not 24.
+// comment. The capacity calculation below uses the DERIVED count, not 27.
 
 async function testQueueConfigsBaseline() {
   console.log("\n1. QUEUE_CONFIGS baseline — roster count and no mutations from this task");
 
-const BASELINE_COUNT = 25;
+  const BASELINE_COUNT = 27;
   const actualCount = QUEUE_CONFIGS.length;
 
   if (actualCount !== BASELINE_COUNT) {

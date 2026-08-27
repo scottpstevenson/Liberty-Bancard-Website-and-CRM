@@ -1,12 +1,12 @@
-import type { Express } from "express";
+import type { Express, Request, Response } from "express";
 import { isAuthenticated, isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { logAiCall } from "../services/ai-audit-logger";
 import { storage } from "../storage";
 import { z } from "zod";
 import { DateValidationError } from "../utils/date-coerce";
-import { contacts, followUpSequences, sequenceEnrollments, insertCampaignSchema, insertCampaignStepSchema, insertFollowUpSequenceSchema, insertSequenceEnrollmentSchema, insertSequenceStepSchema } from "@shared/schema";
+import { contacts, followUpSequences, sequenceEnrollments, sequenceSteps, insertFollowUpSequenceSchema, insertSequenceEnrollmentSchema, insertSequenceStepSchema } from "@shared/schema";
 import type { AbTestConfig, AbTestResults } from "@shared/schema";
-import { getCampaignAnalytics, processSendQueue, queueCampaignMessages, queueContactCampaignMessages, queueFrozenCampaignPreviewMembers, startCampaignPreviewAsync, getCampaignPreviewState, computeTargetingHash } from "../services/campaign-engine";
+import { getCampaignAnalytics, startCampaignPreviewAsync, getCampaignPreviewState } from "../services/campaign-engine";
 import { validateGhlWebhookSignature } from "../services/ghl";
 import { parse } from "csv-parse/sync";
 import { checkAbTestWinners } from "../services/ab-test-worker";
@@ -27,14 +27,62 @@ interface AbTestResultRow {
   abTestResults: Partial<AbTestResults>;
 }
 
+const HUMAN_SEQUENCE_DISPATCH_DISABLED: boolean = true;
+
+function canMutateOwnedCampaignObject(req: Request, createdBy: string | null | undefined): boolean {
+  const user = req.user as { role?: unknown; email?: unknown; id?: unknown } | undefined;
+  if (user?.role === "admin") return true;
+  if (user?.role !== "manager" || !createdBy) return false;
+  const email = typeof user.email === "string" ? user.email : null;
+  const id = user.id == null ? null : String(user.id);
+  return (email !== null && createdBy === email) || (id !== null && createdBy === id);
+}
+
+function denyManagerOwnership(res: Response) {
+  return res.status(403).json({ message: "You do not own this resource" });
+}
+
 export function registerCampaignsRoutes(app: Express) {
+  const campaignCreateSchema = z.object({
+    name: z.string().trim().min(1).max(500),
+    description: z.string().max(10000).nullable().optional(),
+    targetListId: z.coerce.number().int().positive().nullable().optional(),
+    targetVerticals: z.array(z.string().trim().min(1).max(200)).max(100).optional(),
+    targetScores: z.array(z.string().trim().min(1).max(100)).max(100).optional(),
+    filterCriteria: z.record(z.unknown()).nullable().optional(),
+    aiPersonalization: z.boolean().optional(),
+    dailySendLimit: z.coerce.number().int().min(1).max(10000).optional(),
+    readinessThreshold: z.coerce.number().int().min(0).max(100).nullable().optional(),
+  }).strict();
+  const campaignUpdateSchema = campaignCreateSchema.omit({ name: true }).extend({
+    name: z.string().trim().min(1).max(500).optional(),
+  }).strict();
+  const campaignStepCreateSchema = z.object({
+    stepOrder: z.coerce.number().int().min(1).max(100),
+    stepType: z.string().trim().min(1).max(100),
+    delayDays: z.coerce.number().int().min(0).max(3650).optional(),
+    subject: z.string().trim().max(500).nullable().optional(),
+    bodyTemplate: z.string().max(50000).nullable().optional(),
+    aiPrompt: z.string().max(50000).nullable().optional(),
+    useAiPersonalization: z.boolean().optional(),
+    channel: z.literal("email").optional(),
+  }).strict();
+  const sequenceCreateSchema = insertFollowUpSequenceSchema.omit({
+    status: true,
+    totalSteps: true,
+    createdBy: true,
+  }).strict();
+  const sequenceUpdateSchema = sequenceCreateSchema.partial().strict();
+  const sequenceStepCreateSchema = insertSequenceStepSchema.omit({ sequenceId: true }).strict();
+  const sequenceStepUpdateSchema = sequenceStepCreateSchema.partial().strict();
   // === CAMPAIGNS ===
-  app.get("/api/campaigns", isAuthenticated, async (req, res) => {
+  app.get("/api/campaigns", isAuthenticated, requireRole("admin", "manager"), async (req, res) => {
     try {
       const campaigns = await storage.getCampaigns();
+      const visibleCampaigns = campaigns.filter((campaign) => canMutateOwnedCampaignObject(req, campaign.createdBy));
       // Attach computed send stats from outbound_messages for each campaign
       const campaignsWithStats = await Promise.all(
-        campaigns.map(async (campaign) => {
+        visibleCampaigns.map(async (campaign) => {
           const stats = await storage.getOutboundStats(campaign.id);
           return {
             ...campaign,
@@ -51,20 +99,22 @@ export function registerCampaignsRoutes(app: Express) {
     }
   });
 
-  app.get("/api/campaigns/:id", isAuthenticated, async (req, res) => {
+  app.get("/api/campaigns/:id", isAuthenticated, requireRole("admin", "manager"), async (req, res) => {
     try {
       const campaign = await storage.getCampaign(Number(req.params.id));
       if (!campaign) return res.status(404).json({ message: "Campaign not found" });
+      if (!canMutateOwnedCampaignObject(req, campaign.createdBy)) return denyManagerOwnership(res);
       res.json(campaign);
     } catch (err: any) {
       serverError(res, err);
     }
   });
 
-  app.post("/api/campaigns", isAuthenticated, async (req, res) => {
+  app.post("/api/campaigns", isAuthenticated, requireRole("admin", "manager"), async (req, res) => {
     try {
-      const input = insertCampaignSchema.parse(req.body);
-      const campaign = await storage.createCampaign(input);
+      const input = campaignCreateSchema.parse(req.body);
+      const createdBy = (req as any).user?.email ?? (req as any).user?.id?.toString();
+      const campaign = await storage.createCampaign({ ...input, status: "draft", createdBy });
       res.status(201).json(campaign);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
@@ -72,19 +122,29 @@ export function registerCampaignsRoutes(app: Express) {
     }
   });
 
-  app.put("/api/campaigns/:id", isAuthenticated, async (req, res) => {
+  app.put("/api/campaigns/:id", isAuthenticated, requireRole("admin", "manager"), async (req, res) => {
     try {
-      const updated = await storage.updateCampaign(Number(req.params.id), req.body);
+      const existing = await storage.getCampaign(Number(req.params.id));
+      if (!existing) return res.status(404).json({ message: "Campaign not found" });
+      if (!canMutateOwnedCampaignObject(req, existing.createdBy)) return denyManagerOwnership(res);
+      if (existing.status !== "draft") return res.status(409).json({ message: "Only draft campaigns may be edited" });
+      const updates = campaignUpdateSchema.parse(req.body);
+      const updated = await storage.updateCampaign(Number(req.params.id), updates);
       if (!updated) return res.status(404).json({ message: "Campaign not found" });
       res.json(updated);
     } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
       serverError(res, err);
     }
   });
 
-  app.get("/api/campaigns/:id/analytics", isAuthenticated, async (req, res) => {
+  app.get("/api/campaigns/:id/analytics", isAuthenticated, requireRole("admin", "manager"), async (req, res) => {
     try {
-      const analytics = await getCampaignAnalytics(Number(req.params.id));
+      const campaignId = Number(req.params.id);
+      const campaign = await storage.getCampaign(campaignId);
+      if (!campaign) return res.status(404).json({ message: "Campaign not found" });
+      if (!canMutateOwnedCampaignObject(req, campaign.createdBy)) return denyManagerOwnership(res);
+      const analytics = await getCampaignAnalytics(campaignId);
       res.json(analytics);
     } catch (err: any) {
       serverError(res, err);
@@ -93,19 +153,28 @@ export function registerCampaignsRoutes(app: Express) {
 
 
   // === CAMPAIGN STEPS ===
-  app.get("/api/campaigns/:id/steps", isAuthenticated, async (req, res) => {
+  app.get("/api/campaigns/:id/steps", isAuthenticated, requireRole("admin", "manager"), async (req, res) => {
     try {
-      const steps = await storage.getCampaignSteps(Number(req.params.id));
+      const campaignId = Number(req.params.id);
+      const campaign = await storage.getCampaign(campaignId);
+      if (!campaign) return res.status(404).json({ message: "Campaign not found" });
+      if (!canMutateOwnedCampaignObject(req, campaign.createdBy)) return denyManagerOwnership(res);
+      const steps = await storage.getCampaignSteps(campaignId);
       res.json(steps);
     } catch (err: any) {
       serverError(res, err);
     }
   });
 
-  app.post("/api/campaigns/:id/steps", isAuthenticated, async (req, res) => {
+  app.post("/api/campaigns/:id/steps", isAuthenticated, requireRole("admin", "manager"), async (req, res) => {
     try {
-      const input = insertCampaignStepSchema.parse({ ...req.body, campaignId: Number(req.params.id) });
-      const step = await storage.createCampaignStep(input);
+      const campaignId = Number(req.params.id);
+      const campaign = await storage.getCampaign(campaignId);
+      if (!campaign) return res.status(404).json({ message: "Campaign not found" });
+      if (!canMutateOwnedCampaignObject(req, campaign.createdBy)) return denyManagerOwnership(res);
+      if (campaign.status !== "draft") return res.status(409).json({ message: "Only draft campaigns may be edited" });
+      const input = campaignStepCreateSchema.parse(req.body);
+      const step = await storage.createCampaignStep({ ...input, campaignId });
       res.status(201).json(step);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
@@ -113,14 +182,16 @@ export function registerCampaignsRoutes(app: Express) {
     }
   });
 
-  const updateCampaignStepSchema = z.object({
-    subject: z.string().trim().max(500).optional(),
-    bodyTemplate: z.string().max(50000).optional(),
-    delayDays: z.coerce.number().int().min(0).optional(),
-  });
+  const updateCampaignStepSchema = campaignStepCreateSchema.partial().omit({ stepOrder: true, stepType: true }).strict();
 
-  app.put("/api/campaign-steps/:id", isAuthenticated, async (req, res) => {
+  app.put("/api/campaign-steps/:id", isAuthenticated, requireRole("admin", "manager"), async (req, res) => {
     try {
+      const existing = await storage.getCampaignStep(Number(req.params.id));
+      if (!existing) return res.status(404).json({ message: "Step not found" });
+      const campaign = existing.campaignId ? await storage.getCampaign(existing.campaignId) : null;
+      if (!campaign) return res.status(404).json({ message: "Campaign not found" });
+      if (!canMutateOwnedCampaignObject(req, campaign.createdBy)) return denyManagerOwnership(res);
+      if (campaign.status !== "draft") return res.status(409).json({ message: "Only draft campaigns may be edited" });
       const parsed = updateCampaignStepSchema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ message: parsed.error.errors[0].message });
       const updated = await storage.updateCampaignStep(Number(req.params.id), parsed.data);
@@ -131,9 +202,15 @@ export function registerCampaignsRoutes(app: Express) {
     }
   });
 
-  app.delete("/api/campaign-steps/:id", isAuthenticated, async (req, res) => {
+  app.delete("/api/campaign-steps/:id", isAuthenticated, requireRole("admin", "manager"), async (req, res) => {
     try {
-      await storage.deleteCampaignStep(Number(req.params.id));
+      const existing = await storage.getCampaignStep(Number(req.params.id));
+      if (!existing) return res.status(404).json({ message: "Step not found" });
+      const campaign = existing.campaignId ? await storage.getCampaign(existing.campaignId) : null;
+      if (!campaign) return res.status(404).json({ message: "Campaign not found" });
+      if (!canMutateOwnedCampaignObject(req, campaign.createdBy)) return denyManagerOwnership(res);
+      if (campaign.status !== "draft") return res.status(409).json({ message: "Only draft campaigns may be edited" });
+      await storage.deleteCampaignStep(existing.id);
       res.json({ message: "Step deleted" });
     } catch (err: any) {
       serverError(res, err);
@@ -142,9 +219,15 @@ export function registerCampaignsRoutes(app: Express) {
 
 
   // === OUTBOUND MESSAGES ===
-  app.get("/api/outbound-messages", isAuthenticated, async (req, res) => {
+  app.get("/api/outbound-messages", isAuthenticated, requireRole("admin", "manager"), async (req, res) => {
     try {
       const campaignId = req.query.campaignId ? Number(req.query.campaignId) : undefined;
+      if (!campaignId && (req.user as any)?.role !== "admin") return denyManagerOwnership(res);
+      if (campaignId) {
+        const campaign = await storage.getCampaign(campaignId);
+        if (!campaign) return res.status(404).json({ message: "Campaign not found" });
+        if (!canMutateOwnedCampaignObject(req, campaign.createdBy)) return denyManagerOwnership(res);
+      }
       const messages = await storage.getOutboundMessages(campaignId);
       res.json(messages);
     } catch (err: any) {
@@ -156,7 +239,7 @@ export function registerCampaignsRoutes(app: Express) {
   // Returns messages that have been in `sending` status for more than 60 seconds.
   // Used by the campaign dashboard to warn operators before the 5-minute
   // stale-cleanup fires and marks them `failed`.
-  app.get("/api/outbound-messages/stuck-sending", isAuthenticated, async (_req, res) => {
+  app.get("/api/outbound-messages/stuck-sending", isAuthenticated, requireRole("admin"), async (_req, res) => {
     try {
       const messages = await storage.getStuckSendingMessages();
       res.json({ count: messages.length, messages });
@@ -165,105 +248,17 @@ export function registerCampaignsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/campaigns/:id/queue", isAuthenticated, async (req, res) => {
-    try {
-      const campaignId = Number(req.params.id);
-      const campaign = await storage.getCampaign(campaignId);
-      if (!campaign) return res.status(404).json({ message: "Campaign not found" });
-
-      // Branch: contact-mode campaign (has targetVerticals, no targetListId)
-      // vs. prospect-list campaign (legacy, has targetListId).
-      const isCrmMode = !campaign.targetListId && campaign.targetVerticals && campaign.targetVerticals.length > 0;
-      let queued: number;
-      let mode: string;
-
-      if (isCrmMode) {
-        // ENFORCE: a completed, unexpired, unconsumed, hash-matching preview is required.
-        const { previewId } = req.body;
-        if (!previewId) {
-          return res.status(400).json({ message: "previewId is required for CRM contact campaigns. Run an audience preview first." });
-        }
-        const preview = await storage.getCampaignPreview(Number(previewId));
-        if (!preview) {
-          return res.status(400).json({ message: "Preview not found. Please re-run the audience preview." });
-        }
-        if (preview.campaignId !== campaignId) {
-          return res.status(400).json({ message: "Preview does not belong to this campaign." });
-        }
-        if (preview.status !== "done") {
-          return res.status(400).json({ message: `Preview is not complete (status: ${preview.status}). Please wait or re-run.` });
-        }
-        if (!preview.eligibleCount || preview.eligibleCount === 0) {
-          return res.status(400).json({ message: "No eligible contacts in this audience. Nothing to queue." });
-        }
-        if (preview.expiresAt && new Date() > new Date(preview.expiresAt)) {
-          return res.status(400).json({ message: "Preview has expired (1-hour window). Please re-run the audience preview." });
-        }
-        // Verify targeting/template version has not changed since the preview.
-        // Hash covers: verticals (sorted), targetListId, step content per step,
-        // readinessThreshold, and READINESS_MODEL_VERSION.
-        const steps = await storage.getCampaignSteps(campaignId);
-        const currentHash = computeTargetingHash(campaign, steps);
-        if (preview.targetingHash !== currentHash) {
-          return res.status(400).json({ message: "Campaign targeting or step templates changed since the preview was run. Please re-run the audience preview." });
-        }
-        // The durable queue worker, not a second HTTP request, owns recovery of
-        // an already-consumed preview. This preserves one accepted queueing
-        // command under concurrent submits.
-        if (preview.consumedAt) {
-          return res.status(409).json({ message: "This preview was already consumed by a concurrent request. Re-run the audience preview to queue again." });
-        }
-        // Phase 2: verify readiness model version matches the snapshot in the preview.
-        // If the scoring model was updated between preview and queue, block queueing.
-        const { READINESS_MODEL_VERSION } = await import("../services/contact-readiness");
-        // Versioned previews must match. Legacy previews with no version remain
-        // consumable for compatibility, but newly materialized BT-10 previews
-        // always carry the version and the frozen member ledger.
-        if (preview.readinessModelVersion !== null && preview.readinessModelVersion !== READINESS_MODEL_VERSION) {
-          return res.status(400).json({
-            message: `Readiness scoring model mismatch (preview used v${preview.readinessModelVersion ?? "none"}, current is v${READINESS_MODEL_VERSION}). Please re-run the audience preview.`,
-          });
-        }
-        const queueResult = await queueFrozenCampaignPreviewMembers(
-          campaignId,
-          preview.id,
-          (req as any).user?.email ?? (req as any).user?.id?.toString(),
-        );
-        if (!queueResult.queueRunId) {
-          return res.status(409).json({ message: "This preview was already consumed by a concurrent request. Re-run the audience preview to queue again." });
-        }
-        queued = queueResult.queued;
-        mode = "contacts";
-        const previewEligibleCount = preview.eligibleCount ?? 0;
-        return res.status(queueResult.deferred ? 503 : 202).json({
-          queued,
-          mode,
-          queueRunId: queueResult.queueRunId,
-          deferred: !!queueResult.deferred,
-          previewEligibleCount,
-          countDifference: queued - previewEligibleCount,
-          message: queued === previewEligibleCount
-            ? `${queued} messages queued (matches preview).`
-            : `${queued} messages queued (preview showed ${previewEligibleCount} eligible — difference due to contactability changes since preview).`,
-        });
-      } else {
-        return res.status(400).json({
-          message: "Campaign queueing requires a completed frozen audience preview. Run an audience preview before queueing.",
-        });
-      }
-      res.json({ queued, mode, message: `${queued} messages queued for sending` });
-    } catch (err: any) {
-      serverError(res, err);
-    }
+  app.post("/api/campaigns/:id/queue", isAuthenticated, requireRole("admin", "manager"), async (_req, res) => {
+    return res.status(403).json({ message: "Campaign queueing requires launch approval and is unavailable via human HTTP routes." });
   });
-
   // POST — create and fully materialize a durable audience preview. The route
   // does not report "accepted" before membership ownership exists.
-  app.post("/api/campaigns/:id/audience-preview", isAuthenticated, async (req, res) => {
+  app.post("/api/campaigns/:id/audience-preview", isAuthenticated, requireRole("admin", "manager"), async (req, res) => {
     try {
       const campaignId = Number(req.params.id);
       const campaign = await storage.getCampaign(campaignId);
       if (!campaign) return res.status(404).json({ message: "Campaign not found" });
+      if (!canMutateOwnedCampaignObject(req, campaign.createdBy)) return denyManagerOwnership(res);
       const requestedBy = (req as any).user?.email ?? (req as any).user?.id?.toString();
       const previewId = await startCampaignPreviewAsync(campaignId, requestedBy);
       res.status(202).json({ status: "done", previewId, pollingUrl: `/api/campaigns/${campaignId}/audience-preview` });
@@ -276,24 +271,18 @@ export function registerCampaignsRoutes(app: Express) {
   // Returns { status, previewId?, result?, error? }.
   // status: "idle" | "running" | "done" | "error" | "interrupted"
   // Queue is only unlocked server-side when status === "done" and previewId is valid.
-  app.get("/api/campaigns/:id/audience-preview", isAuthenticated, async (req, res) => {
+  app.get("/api/campaigns/:id/audience-preview", isAuthenticated, requireRole("admin", "manager"), async (req, res) => {
     try {
-      const state = await getCampaignPreviewState(Number(req.params.id));
+      const campaignId = Number(req.params.id);
+      const campaign = await storage.getCampaign(campaignId);
+      if (!campaign) return res.status(404).json({ message: "Campaign not found" });
+      if (!canMutateOwnedCampaignObject(req, campaign.createdBy)) return denyManagerOwnership(res);
+      const state = await getCampaignPreviewState(campaignId);
       res.json(state);
     } catch (err: any) {
       serverError(res, err);
     }
   });
-
-  app.post("/api/outbound/process-queue", isAuthenticated, async (req, res) => {
-    try {
-      const result = await processSendQueue();
-      res.json(result);
-    } catch (err: any) {
-      serverError(res, err);
-    }
-  });
-
 
   // === OUTBOUND WEBHOOK (for GHL tracking) ===
   app.post("/api/outbound/webhook", async (req, res) => {
@@ -368,9 +357,10 @@ export function registerCampaignsRoutes(app: Express) {
 
 
   // === FOLLOW-UP SEQUENCES (DRIP CAMPAIGNS) ===
-  app.get("/api/sequences", isAuthenticated, async (req, res) => {
+  app.get("/api/sequences", isAuthenticated, requireRole("admin", "manager"), async (req, res) => {
     try {
-      const sequences = await storage.getFollowUpSequences();
+      const allSequences = await storage.getFollowUpSequences();
+      const sequences = allSequences.filter(sequence => canMutateOwnedCampaignObject(req, sequence.createdBy));
       // #1443 — Augment each sequence with avgDelayDays computed from its steps
       if (sequences.length === 0) return res.json(sequences);
       const seqIds = sequences.map((s: any) => s.id);
@@ -396,7 +386,7 @@ export function registerCampaignsRoutes(app: Express) {
     }
   });
 
-  app.get("/api/sequences/vertical-coverage", isAuthenticated, async (_req, res) => {
+  app.get("/api/sequences/vertical-coverage", isAuthenticated, requireRole("admin"), async (_req, res) => {
     try {
       const client = await pool.connect();
       try {
@@ -410,6 +400,10 @@ export function registerCampaignsRoutes(app: Express) {
             COUNT(CASE WHEN e.current_step >= 1 THEN 1 END)::int AS step1_complete,
             COUNT(CASE WHEN e.current_step >= 3 THEN 1 END)::int AS step3_complete,
             COUNT(CASE WHEN e.status = 'completed' THEN 1 END)::int AS completed,
+            COUNT(*) FILTER (
+              WHERE e.status = 'completed'
+                AND e.metadata->'terminal'->>'category' = 'no_response'
+            )::int AS no_response_completed,
             MAX(e.created_at) AS last_enrolled_at
           FROM follow_up_sequences s
           LEFT JOIN sequence_enrollments e ON e.sequence_id = s.id
@@ -425,7 +419,9 @@ export function registerCampaignsRoutes(app: Express) {
           const sequenceType = dashIdx !== -1 ? name.substring(dashIdx + 3).trim() : "";
           const enrolled = row.enrolled ?? 0;
           const completed = row.completed ?? 0;
-          const conversionRate = enrolled > 0 ? Math.round((completed / enrolled) * 1000) / 10 : 0;
+          const noResponseCompleted = row.no_response_completed ?? 0;
+          const convertedCompleted = Math.max(0, completed - noResponseCompleted);
+          const conversionRate = enrolled > 0 ? Math.round((convertedCompleted / enrolled) * 1000) / 10 : 0;
           const lastEnrolledAt: string | null = row.last_enrolled_at ? row.last_enrolled_at.toISOString() : null;
           const daysSinceEnrollment = lastEnrolledAt
             ? Math.floor((now.getTime() - new Date(lastEnrolledAt).getTime()) / 86400000)
@@ -441,6 +437,8 @@ export function registerCampaignsRoutes(app: Express) {
             step1Complete: row.step1_complete ?? 0,
             step3Complete: row.step3_complete ?? 0,
             completed,
+            noResponseCompleted,
+            convertedCompleted,
             conversionRate,
             lastEnrolledAt,
             daysSinceEnrollment,
@@ -457,7 +455,7 @@ export function registerCampaignsRoutes(app: Express) {
   });
 
   // === SEQUENCE GROUPING / FILTERING / GHL WIRING STATUS (read-only) ===
-  app.get("/api/sequences/grouping-meta", isDashboardUser, async (_req, res) => {
+  app.get("/api/sequences/grouping-meta", isDashboardUser, requireRole("admin"), async (_req, res) => {
     try {
       const { classifySequenceBucket, getSequenceWiringMap } = await import("../services/sequence-grouping");
       const sequences = await storage.getFollowUpSequences();
@@ -479,19 +477,23 @@ export function registerCampaignsRoutes(app: Express) {
       const id = Number(req.params.id);
       const seq = await storage.getFollowUpSequence(id);
       if (!seq) return res.status(404).json({ message: "Sequence not found" });
-      const newStatus = seq.status === "active" ? "paused" : "active";
-      const updated = await storage.updateFollowUpSequence(id, { status: newStatus });
-      await storage.createAuditLog({ action: `sequence_${newStatus}`, entityType: "sequence", entityId: id, details: { name: seq.name, previousStatus: seq.status } });
+      if (!canMutateOwnedCampaignObject(req, seq.createdBy)) return denyManagerOwnership(res);
+      if (seq.status !== "active") {
+        return res.status(403).json({ message: "Sequence activation is not available via HTTP" });
+      }
+      const updated = await storage.updateFollowUpSequence(id, { status: "paused" });
+      await storage.createAuditLog({ action: "sequence_paused", entityType: "sequence", entityId: id, details: { name: seq.name, previousStatus: seq.status } });
       res.json(updated);
     } catch (err: any) {
       serverError(res, err);
     }
   });
 
-  app.get("/api/sequences/:id", isAuthenticated, async (req, res) => {
+  app.get("/api/sequences/:id", isAuthenticated, requireRole("admin", "manager"), async (req, res) => {
     try {
       const seq = await storage.getFollowUpSequence(Number(req.params.id));
       if (!seq) return res.status(404).json({ message: "Not found" });
+      if (!canMutateOwnedCampaignObject(req, seq.createdBy)) return denyManagerOwnership(res);
       res.json(seq);
     } catch (err: any) {
       serverError(res, err);
@@ -500,8 +502,9 @@ export function registerCampaignsRoutes(app: Express) {
 
   app.post("/api/sequences", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
-      const input = insertFollowUpSequenceSchema.parse(req.body);
-      const seq = await storage.createFollowUpSequence(input);
+      const input = sequenceCreateSchema.parse(req.body);
+      const createdBy = (req as any).user?.email ?? (req as any).user?.id?.toString();
+      const seq = await storage.createFollowUpSequence({ ...input, status: "paused", totalSteps: 0, createdBy });
       await storage.createAuditLog({ action: "sequence_created", entityType: "sequence", entityId: seq.id, details: { name: seq.name } });
       res.status(201).json(seq);
     } catch (err: any) {
@@ -512,17 +515,33 @@ export function registerCampaignsRoutes(app: Express) {
 
   app.put("/api/sequences/:id", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
-      const updated = await storage.updateFollowUpSequence(Number(req.params.id), req.body);
+      const id = Number(req.params.id);
+      const existing = await storage.getFollowUpSequence(id);
+      if (!existing) return res.status(404).json({ message: "Not found" });
+      if (!canMutateOwnedCampaignObject(req, existing.createdBy)) return denyManagerOwnership(res);
+      if (existing.status !== "paused" && existing.status !== "draft") {
+        return res.status(409).json({ message: "Only paused or draft sequences may be edited" });
+      }
+      const input = sequenceUpdateSchema.parse(req.body);
+      const updated = await storage.updateFollowUpSequence(id, input);
       if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
     } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
       serverError(res, err);
     }
   });
 
   app.delete("/api/sequences/:id", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
-      await storage.deleteFollowUpSequence(Number(req.params.id));
+      const id = Number(req.params.id);
+      const existing = await storage.getFollowUpSequence(id);
+      if (!existing) return res.status(404).json({ message: "Not found" });
+      if (!canMutateOwnedCampaignObject(req, existing.createdBy)) return denyManagerOwnership(res);
+      if (existing.status !== "paused" && existing.status !== "draft") {
+        return res.status(409).json({ message: "Only paused or draft sequences may be deleted" });
+      }
+      await storage.deleteFollowUpSequence(id);
       res.json({ success: true });
     } catch (err: any) {
       serverError(res, err);
@@ -566,7 +585,7 @@ export function registerCampaignsRoutes(app: Express) {
   // the integer column, never loads JSONB blobs into Node.
   // Returns: grade distribution, 10-bucket histogram, top-10 missing reason codes
   // (derived from readiness_breakdown JSONB), and the latest backfill run status.
-  app.get("/api/contacts/readiness-stats", isDashboardUser, async (req, res) => {
+  app.get("/api/contacts/readiness-stats", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
       const { sql } = await import("drizzle-orm");
       const { db } = await import("../db");
@@ -688,9 +707,12 @@ export function registerCampaignsRoutes(app: Express) {
   });
 
   // === SEQUENCE STEPS ===
-  app.get("/api/sequences/:sequenceId/steps", isAuthenticated, async (req, res) => {
+  app.get("/api/sequences/:sequenceId/steps", isAuthenticated, requireRole("admin", "manager"), async (req, res) => {
     try {
       const sequenceId = Number(req.params.sequenceId);
+      const sequence = await storage.getFollowUpSequence(sequenceId);
+      if (!sequence) return res.status(404).json({ message: "Sequence not found" });
+      if (!canMutateOwnedCampaignObject(req, sequence.createdBy)) return denyManagerOwnership(res);
       const steps = await storage.getSequenceSteps(sequenceId);
       // #902 — Annotate each step with how many outbound sends it has produced
       const sentCountsResult = await pool.query(
@@ -719,13 +741,17 @@ export function registerCampaignsRoutes(app: Express) {
 
   app.post("/api/sequences/:sequenceId/steps", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
-      const input = insertSequenceStepSchema.parse({ ...req.body, sequenceId: Number(req.params.sequenceId) });
-      const step = await storage.createSequenceStep(input);
-      const seq = await storage.getFollowUpSequence(Number(req.params.sequenceId));
-      if (seq) {
-        const steps = await storage.getSequenceSteps(seq.id);
-        await storage.updateFollowUpSequence(seq.id, { totalSteps: steps.length });
+      const sequenceId = Number(req.params.sequenceId);
+      const seq = await storage.getFollowUpSequence(sequenceId);
+      if (!seq) return res.status(404).json({ message: "Sequence not found" });
+      if (!canMutateOwnedCampaignObject(req, seq.createdBy)) return denyManagerOwnership(res);
+      if (seq.status !== "paused" && seq.status !== "draft") {
+        return res.status(409).json({ message: "Only paused or draft sequences may be edited" });
       }
+      const input = sequenceStepCreateSchema.parse(req.body);
+      const step = await storage.createSequenceStep({ ...input, sequenceId });
+      const steps = await storage.getSequenceSteps(seq.id);
+      await storage.updateFollowUpSequence(seq.id, { totalSteps: steps.length });
       res.status(201).json(step);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
@@ -735,17 +761,39 @@ export function registerCampaignsRoutes(app: Express) {
 
   app.put("/api/sequence-steps/:id", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
-      const updated = await storage.updateSequenceStep(Number(req.params.id), req.body);
+      const id = Number(req.params.id);
+      const [existing] = await db.select().from(sequenceSteps).where(eq(sequenceSteps.id, id)).limit(1);
+      if (!existing) return res.status(404).json({ message: "Not found" });
+      const seq = existing.sequenceId ? await storage.getFollowUpSequence(existing.sequenceId) : null;
+      if (!seq) return res.status(404).json({ message: "Sequence not found" });
+      if (!canMutateOwnedCampaignObject(req, seq.createdBy)) return denyManagerOwnership(res);
+      if (seq.status !== "paused" && seq.status !== "draft") {
+        return res.status(409).json({ message: "Only paused or draft sequences may be edited" });
+      }
+      const input = sequenceStepUpdateSchema.parse(req.body);
+      const updated = await storage.updateSequenceStep(id, input);
       if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
     } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
       serverError(res, err);
     }
   });
 
   app.delete("/api/sequence-steps/:id", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
-      await storage.deleteSequenceStep(Number(req.params.id));
+      const id = Number(req.params.id);
+      const [existing] = await db.select().from(sequenceSteps).where(eq(sequenceSteps.id, id)).limit(1);
+      if (!existing) return res.status(404).json({ message: "Not found" });
+      const seq = existing.sequenceId ? await storage.getFollowUpSequence(existing.sequenceId) : null;
+      if (!seq) return res.status(404).json({ message: "Sequence not found" });
+      if (!canMutateOwnedCampaignObject(req, seq.createdBy)) return denyManagerOwnership(res);
+      if (seq.status !== "paused" && seq.status !== "draft") {
+        return res.status(409).json({ message: "Only paused or draft sequences may be edited" });
+      }
+      await storage.deleteSequenceStep(id);
+      const steps = await storage.getSequenceSteps(seq.id);
+      await storage.updateFollowUpSequence(seq.id, { totalSteps: steps.length });
       res.json({ success: true });
     } catch (err: any) {
       serverError(res, err);
@@ -753,16 +801,17 @@ export function registerCampaignsRoutes(app: Express) {
   });
 
   // === SEQUENCE TIER BREAKDOWN ===
-  app.get("/api/sequences/:id/enrollments/by-tier", isDashboardUser, async (req, res) => {
+  app.get("/api/sequences/:id/enrollments/by-tier", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
       const id = parseInt(req.params.id as string, 10);
       if (isNaN(id) || id <= 0) {
         return res.status(400).json({ message: "Invalid sequence id" });
       }
-      const [seq] = await db.select({ id: followUpSequences.id }).from(followUpSequences).where(eq(followUpSequences.id, id)).limit(1);
+      const [seq] = await db.select().from(followUpSequences).where(eq(followUpSequences.id, id)).limit(1);
       if (!seq) {
         return res.status(404).json({ message: "Sequence not found" });
       }
+      if (!canMutateOwnedCampaignObject(req, seq.createdBy)) return denyManagerOwnership(res);
       const rows = await db
         .select({
           consentTier: contacts.consentTier,
@@ -792,9 +841,15 @@ export function registerCampaignsRoutes(app: Express) {
   });
 
   // === SEQUENCE ENROLLMENTS ===
-  app.get("/api/sequence-enrollments", isDashboardUser, async (req, res) => {
+  app.get("/api/sequence-enrollments", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
       const sequenceId = req.query.sequenceId ? Number(req.query.sequenceId) : undefined;
+      if ((req.user as any)?.role === "manager") {
+        if (!sequenceId) return denyManagerOwnership(res);
+        const sequence = await storage.getFollowUpSequence(sequenceId);
+        if (!sequence) return res.status(404).json({ message: "Sequence not found" });
+        if (!canMutateOwnedCampaignObject(req, sequence.createdBy)) return denyManagerOwnership(res);
+      }
       const enrollments = await storage.getSequenceEnrollments(sequenceId);
       res.json(enrollments);
     } catch (err: any) {
@@ -802,7 +857,8 @@ export function registerCampaignsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/sequence-enrollments", isDashboardUser, async (req, res) => {
+  app.post("/api/sequence-enrollments", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
+    if (HUMAN_SEQUENCE_DISPATCH_DISABLED) return res.status(403).json({ message: "Human sequence enrollment creation is disabled" });
     try {
       // Strict request schema — clients may only supply identity fields.
       // status, currentStep, nextActionAt, and metadata are server-derived.
@@ -916,8 +972,15 @@ export function registerCampaignsRoutes(app: Express) {
     }
   });
 
-  app.put("/api/sequence-enrollments/:id", isDashboardUser, async (req, res) => {
+  app.put("/api/sequence-enrollments/:id", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
+      const enrollmentId = Number(req.params.id);
+      const existing = (await storage.getSequenceEnrollments()).find((row: any) => row.id === enrollmentId);
+      if (!existing) return res.status(404).json({ message: "Not found" });
+      if (!existing.sequenceId) return res.status(409).json({ message: "Enrollment has no parent sequence" });
+      const sequence = await storage.getFollowUpSequence(existing.sequenceId);
+      if (!sequence) return res.status(404).json({ message: "Sequence not found" });
+      if (!canMutateOwnedCampaignObject(req, sequence.createdBy)) return denyManagerOwnership(res);
       // Strict allowlist — clients may only reschedule nextActionAt or record
       // completion/pause timestamps.  status, currentStep, contactId, sequenceId,
       // dealId, and metadata are not writable from the client.
@@ -927,7 +990,7 @@ export function registerCampaignsRoutes(app: Express) {
         pausedAt: z.coerce.date().optional().nullable(),
       });
       const body = enrollmentUpdateSchema.parse(req.body);
-      const updated = await storage.updateSequenceEnrollment(Number(req.params.id), body);
+      const updated = await storage.updateSequenceEnrollment(enrollmentId, body);
       if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
     } catch (err: any) {
@@ -937,10 +1000,17 @@ export function registerCampaignsRoutes(app: Express) {
     }
   });
 
-  app.get("/api/contacts/:contactId/enrollments", isAuthenticated, async (req, res) => {
+  app.get("/api/contacts/:contactId/enrollments", isAuthenticated, requireRole("admin", "manager"), async (req, res) => {
     try {
       const enrollments = await storage.getContactEnrollments(Number(req.params.contactId));
-      res.json(enrollments);
+      if ((req.user as any)?.role === "admin") return res.json(enrollments);
+      const visible = [];
+      for (const enrollment of enrollments) {
+        if (!enrollment.sequenceId) continue;
+        const sequence = await storage.getFollowUpSequence(enrollment.sequenceId);
+        if (sequence && canMutateOwnedCampaignObject(req, sequence.createdBy)) visible.push(enrollment);
+      }
+      res.json(visible);
     } catch (err: any) {
       serverError(res, err);
     }
@@ -948,9 +1018,12 @@ export function registerCampaignsRoutes(app: Express) {
 
   // POST /api/sequences/:id/enrollments/bulk-cancel
   // #553 — Batch-remove multiple contacts from a sequence.
-  app.post("/api/sequences/:id/enrollments/bulk-cancel", isDashboardUser, async (req, res) => {
+  app.post("/api/sequences/:id/enrollments/bulk-cancel", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
       const sequenceId = Number(req.params.id);
+      const sequence = await storage.getFollowUpSequence(sequenceId);
+      if (!sequence) return res.status(404).json({ message: "Sequence not found" });
+      if (!canMutateOwnedCampaignObject(req, sequence.createdBy)) return denyManagerOwnership(res);
       const { contactIds } = req.body;
       if (!Array.isArray(contactIds) || contactIds.length === 0) {
         return res.status(400).json({ message: "contactIds must be a non-empty array." });
@@ -986,13 +1059,16 @@ export function registerCampaignsRoutes(app: Express) {
   // Admins and managers may cancel any enrollment; agents may cancel as well
   // (contacts have no ownedBy field so ownership scoping is not possible at the DB level).
   // Cancelled enrollments are retained in history with status = "cancelled".
-  app.delete("/api/sequences/:id/enrollments/:contactId", isDashboardUser, async (req, res) => {
+  app.delete("/api/sequences/:id/enrollments/:contactId", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
       const sequenceId = Number(req.params.id);
       const contactId = Number(req.params.contactId);
       if (isNaN(sequenceId) || isNaN(contactId)) {
         return res.status(400).json({ message: "Invalid sequenceId or contactId" });
       }
+      const sequence = await storage.getFollowUpSequence(sequenceId);
+      if (!sequence) return res.status(404).json({ message: "Sequence not found" });
+      if (!canMutateOwnedCampaignObject(req, sequence.createdBy)) return denyManagerOwnership(res);
 
       const cancelled = await storage.cancelSequenceEnrollment(sequenceId, contactId);
       if (!cancelled) {
@@ -1021,14 +1097,17 @@ export function registerCampaignsRoutes(app: Express) {
   });
 
   // PATCH /api/sequences/:id/enrollments/:contactId/pause
-  // #541 — Toggle pause/resume on a single contact enrollment (accessible by reps).
-  app.patch("/api/sequences/:id/enrollments/:contactId/pause", isDashboardUser, async (req, res) => {
+  // Safety-reducing operation only: active -> paused. Resume is never available over HTTP.
+  app.patch("/api/sequences/:id/enrollments/:contactId/pause", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
       const sequenceId = Number(req.params.id);
       const contactId = Number(req.params.contactId);
       if (isNaN(sequenceId) || isNaN(contactId)) {
         return res.status(400).json({ message: "Invalid sequenceId or contactId" });
       }
+      const sequence = await storage.getFollowUpSequence(sequenceId);
+      if (!sequence) return res.status(404).json({ message: "Sequence not found" });
+      if (!canMutateOwnedCampaignObject(req, sequence.createdBy)) return denyManagerOwnership(res);
 
       // Look up current enrollment
       const enrollments = await storage.getContactEnrollments(contactId);
@@ -1036,12 +1115,14 @@ export function registerCampaignsRoutes(app: Express) {
       if (!enrollment) {
         return res.status(404).json({ message: "No active or paused enrollment found." });
       }
-
-      const newStatus = enrollment.status === "paused" ? "active" : "paused";
-      await storage.updateSequenceEnrollment(enrollment.id, { status: newStatus });
+      if (enrollment.status === "paused") {
+        return res.status(409).json({ message: "Enrollment is already paused; HTTP resume is disabled" });
+      }
+      const newStatus = "paused";
+      await storage.updateSequenceEnrollment(enrollment.id, { status: newStatus, pausedAt: new Date() });
 
       await storage.createAuditLog({
-        action: newStatus === "paused" ? "sequence_enrollment_paused" : "sequence_enrollment_resumed",
+        action: "sequence_enrollment_paused",
         entityType: "contact",
         entityId: contactId,
         actorId: String((req as any).user?.id ?? ""),
@@ -1055,7 +1136,7 @@ export function registerCampaignsRoutes(app: Express) {
     }
   });
 
-  app.get("/api/contacts/:id/sequence-suggestions", isAuthenticated, async (req, res) => {
+  app.get("/api/contacts/:id/sequence-suggestions", isAuthenticated, requireRole("admin"), async (req, res) => {
     try {
       const { suggestSequenceFamiliesForContact } = await import("../services/sequence-eligibility");
       const contactId = Number(req.params.id);
@@ -1067,9 +1148,10 @@ export function registerCampaignsRoutes(app: Express) {
   });
 
   // === A/B TEST RESULTS ===
-  app.get("/api/sequences/ab-test-results", isAuthenticated, async (_req, res) => {
+  app.get("/api/sequences/ab-test-results", isAuthenticated, requireRole("admin", "manager"), async (req, res) => {
     try {
-      const sequences = await storage.getFollowUpSequences();
+      const sequences = (await storage.getFollowUpSequences())
+        .filter(sequence => canMutateOwnedCampaignObject(req, sequence.createdBy));
       const results: AbTestResultRow[] = [];
       for (const seq of sequences) {
         const steps = await storage.getSequenceSteps(seq.id);
@@ -1131,7 +1213,7 @@ export function registerCampaignsRoutes(app: Express) {
 
   // === VERTICAL BULK ENROLLMENT ===
 
-  app.get("/api/contacts/verticals", isAuthenticated, async (_req, res) => {
+  app.get("/api/contacts/verticals", isAuthenticated, requireRole("admin"), async (_req, res) => {
     try {
       const verticals = await storage.getContactVerticalCounts();
       res.json(verticals);
@@ -1143,11 +1225,12 @@ export function registerCampaignsRoutes(app: Express) {
   app.post("/api/sequences/:id/enroll-vertical/preview", requireRole("admin", "manager"), async (req, res) => {
     try {
       const seqId = Number(req.params.id);
+      const seq = await storage.getFollowUpSequence(seqId);
+      if (!seq) return res.status(404).json({ message: "Sequence not found." });
+      if (!canMutateOwnedCampaignObject(req, seq.createdBy)) return denyManagerOwnership(res);
       const schema = z.object({ vertical: z.string().min(1) });
       const { vertical } = schema.parse(req.body);
 
-      const seq = await storage.getFollowUpSequence(seqId);
-      if (!seq) return res.status(404).json({ message: "Sequence not found." });
       if (seq.status !== "active") return res.status(409).json({ message: `Sequence "${seq.name}" is ${seq.status}. Activate it before enrolling contacts.` });
 
       // Surface global-pause state without blocking preview — admins need to
@@ -1235,6 +1318,7 @@ export function registerCampaignsRoutes(app: Express) {
   });
 
   app.post("/api/sequences/:id/enroll-vertical", requireRole("admin", "manager"), async (req, res) => {
+    if (HUMAN_SEQUENCE_DISPATCH_DISABLED) return res.status(403).json({ message: "Human sequence cohort enrollment is disabled" });
     try {
       const seqId = Number(req.params.id);
       const schema = z.object({
@@ -1445,7 +1529,7 @@ export function registerCampaignsRoutes(app: Express) {
   });
 
   // ─── Sequence Report ─────────────────────────────────────────────────────────
-  app.get("/api/sequence-report", isDashboardUser, async (_req, res) => {
+  app.get("/api/sequence-report", isDashboardUser, requireRole("admin"), async (_req, res) => {
     try {
       const client = await pool.connect();
       try {
@@ -1608,30 +1692,9 @@ Please provide:
   });
 
   // POST /api/sequences/steps/test-send
-  // #544 — Send a test email for a sequence step body to the logged-in user's email.
-  app.post("/api/sequences/steps/test-send", isDashboardUser, async (req, res) => {
-    try {
-      const user = (req as any).user;
-      if (!user?.email) return res.status(400).json({ message: "No email on your account." });
-
-      const { subject, body } = req.body;
-      if (!body) return res.status(400).json({ message: "body is required" });
-
-      const { sendSmtpEmail } = await import("../services/smtp-email");
-      const result = await sendSmtpEmail({
-        to: user.email,
-        subject: `[TEST] ${subject || "Sequence Step Preview"}`,
-        html: body,
-        category: "internal_ops",
-      });
-
-      if (!result.success) {
-        return res.status(500).json({ message: result.error || "SMTP send failed." });
-      }
-      res.json({ success: true });
-    } catch (err: any) {
-      serverError(res, err);
-    }
+  // Provider transport invocation is never available to a human HTTP caller.
+  app.post("/api/sequences/steps/test-send", isDashboardUser, async (_req, res) => {
+    return res.status(403).json({ message: "Human sequence provider test sends are disabled" });
   });
 
 }

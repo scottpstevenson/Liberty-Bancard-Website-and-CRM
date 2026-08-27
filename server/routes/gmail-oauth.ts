@@ -154,6 +154,7 @@ export function registerGmailOAuthRoutes(app: Express): void {
         subject: `[Test] Liberty Bancard Gmail OAuth — ${new Date().toLocaleTimeString()}`,
         html,
         category: category as any,
+        commercialPurpose: "transactional_response",
       });
       res.json(result);
     } catch (err: any) {
