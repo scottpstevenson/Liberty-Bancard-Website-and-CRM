@@ -3,7 +3,7 @@
 **Tested live-main SHA:** `78ae07e8c5ffb643467a93dc42b95834d65289a8`  
 **Observed published SHA:** `f2cfa4aade9b24435128c9bd5787ad01f5281563`  
 **Evidence cutoff:** 2026-08-27T02:55:09Z  
-**Authoritative register:** 39 of 39 IDs validated
+**Authoritative register:** 39 of 39 IDs structurally reconciled with fail-closed status validation
 
 ## Executive verdict
 

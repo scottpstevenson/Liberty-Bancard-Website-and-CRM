@@ -10,13 +10,14 @@
  */
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
+import path from "node:path";
 
 const SOURCE_PATH =
   "attached_assets/LIBERTY_BANCARD_RUNTIME_VERIFICATION_REGISTER_1786901209005.md";
 const EXPECTED_SOURCE_SHA256 =
   "a97f1772aa6a494ac46c13009c50adade1c7c000b7df3f5eec2e5ab90dc9e897";
-const SHA_PATTERN = /[0-9a-f]{40}/i;
-const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z)?$/;
+const SHA_PATTERN = /^[0-9a-f]{40}$/i;
+const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/;
 const ALLOWED_STATUSES = new Set([
   "PASS_CURRENT_RELEASE",
   "FAIL_CURRENT_RELEASE",
@@ -28,6 +29,7 @@ const ALLOWED_STATUSES = new Set([
 ]);
 const REQUIRED_COLUMNS = [
   "rv id",
+  "runtime claim",
   "status",
   "evidence date utc",
   "exact sha",
@@ -84,6 +86,17 @@ function extractIds(markdown: string): string[] {
     .filter((id): id is string => Boolean(id));
 }
 
+function extractSourceClaims(markdown: string): Map<string, string> {
+  const claims = new Map<string, string>();
+  for (const line of markdown.split(/\r?\n/)) {
+    const cells = splitRow(line);
+    if (/^RV-[A-Z0-9-]+$/i.test(cells[0] ?? "") && cells[1]) {
+      claims.set(cells[0], cells[1]);
+    }
+  }
+  return claims;
+}
+
 function assertExactIds(label: string, ids: string[]): void {
   if (ids.length !== EXPECTED_IDS.length) {
     fail(`${label} must contain exactly ${EXPECTED_IDS.length} rows; found ${ids.length}`);
@@ -106,8 +119,18 @@ function main(): void {
     fail(`immutable source checksum changed: expected ${EXPECTED_SOURCE_SHA256}, got ${sourceSha}`);
   }
   assertExactIds("source register", extractIds(source));
+  const sourceClaims = extractSourceClaims(source);
 
   const output = readFileSync(outputPath, "utf8");
+  if (!output.includes(`**Source SHA-256:** \`${EXPECTED_SOURCE_SHA256}\``)) {
+    fail("generated register does not declare the immutable source checksum");
+  }
+  const testedSha = output.match(/\*\*Tested live-main SHA:\*\*\s*`([0-9a-f]{40})`/i)?.[1];
+  if (!testedSha) fail("generated register does not declare one full tested live-main SHA");
+  const basename = path.basename(outputPath);
+  if (!basename.includes(testedSha.slice(0, 8)) || !/\d{4}-\d{2}-\d{2}/.test(basename)) {
+    fail("generated register filename must include the tested SHA8 and an ISO date");
+  }
   const lines = output.split(/\r?\n/);
   const headerIndex = lines.findIndex((line) => {
     const cells = splitRow(line).map(normalize);
@@ -129,6 +152,10 @@ function main(): void {
 
   for (const cells of rows) {
     const id = cells[columnIndex.get("rv id")!]?.trim();
+    const runtimeClaim = cells[columnIndex.get("runtime claim")!]?.trim() ?? "";
+    if (runtimeClaim !== sourceClaims.get(id)) {
+      fail(`${id} runtime claim does not exactly match the immutable source register`);
+    }
     const status = cells[columnIndex.get("status")!]?.trim();
     if (!ALLOWED_STATUSES.has(status)) {
       fail(`${id} has invalid or pending status "${status || "<empty>"}"`);
@@ -140,12 +167,34 @@ function main(): void {
       }
     }
     const evidenceDate = cells[columnIndex.get("evidence date utc")!]?.trim() ?? "";
-    if (!DATE_PATTERN.test(evidenceDate)) fail(`${id} has invalid UTC evidence date "${evidenceDate}"`);
+    if (!DATE_PATTERN.test(evidenceDate) || Number.isNaN(Date.parse(evidenceDate))) {
+      fail(`${id} has invalid UTC evidence timestamp "${evidenceDate}"`);
+    }
     const sha = cells[columnIndex.get("exact sha")!]?.trim() ?? "";
-    if (!SHA_PATTERN.test(sha)) fail(`${id} has no full 40-character release SHA`);
+    if (!SHA_PATTERN.test(sha)) fail(`${id} exact SHA must be one full 40-character SHA`);
+
+    if (status === "PASS_CURRENT_RELEASE") {
+      const evidence = cells[columnIndex.get("evidence")!]?.trim() ?? "";
+      const isolation = cells[columnIndex.get("isolation boundary")!]?.trim() ?? "";
+      const remainingGap = cells[columnIndex.get("remaining gap")!]?.trim() ?? "";
+      if (sha.toLowerCase() !== testedSha.toLowerCase()) {
+        fail(`${id} PASS_CURRENT_RELEASE SHA does not equal the declared tested live-main SHA`);
+      }
+      if (!/(?:command|query|endpoint|artifact):/i.test(evidence) || !/result:/i.test(evidence)) {
+        fail(`${id} PASS_CURRENT_RELEASE evidence must include a locator and redacted result`);
+      }
+      if (!/(?:disposable|read-only|fake transport|no network)/i.test(isolation)) {
+        fail(`${id} PASS_CURRENT_RELEASE has no explicit isolation proof`);
+      }
+      if (!/^none(?:\.)?$/i.test(remainingGap)) {
+        fail(`${id} PASS_CURRENT_RELEASE must record remaining gap as none`);
+      }
+    }
   }
 
-  console.log(`VG register validation passed: ${rows.length}/${EXPECTED_IDS.length} unique rows`);
+  console.log(
+    `VG register structural and fail-closed validation passed: ${rows.length}/${EXPECTED_IDS.length} unique rows`,
+  );
 }
 
 main();

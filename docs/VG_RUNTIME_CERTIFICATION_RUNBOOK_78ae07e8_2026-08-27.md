@@ -44,14 +44,13 @@ Provision PostgreSQL separately from all shared databases and an approved test R
 ```bash
 export NODE_ENV=test
 export DATABASE_URL="$TEST_DATABASE_URL"
-export TEST_REDIS_PREFIX="vg1687-unique-run-"
+export TEST_REDIS_PREFIX="ci_vg1687_unique_run_"
 export REDIS_PREFIX="$TEST_REDIS_PREFIX"
 export INTEGRATION_TESTS_OPT_IN=1
 export GHL_TRANSPORT_FAILFAST=true
 
-npx tsx scripts/test-infrastructure-guard.ts
-npx tsx server/db-migrate.ts
-npx tsx server/db-migrate.ts
+npx tsx scripts/run-guarded-canonical-migration.ts
+npx tsx scripts/run-guarded-canonical-migration.ts
 npx tsx scripts/run-ci-suites.ts --capability deterministic-integration
 ```
 
@@ -106,7 +105,7 @@ Apollo is not configured and must not be live-probed. Configuration is independe
 
 ```bash
 npx tsx scripts/validate-vg-runtime-register.ts \
-  docs/LIBERTY_BANCARD_RUNTIME_VERIFICATION_REGISTER_2026-08-27.md
+  docs/LIBERTY_BANCARD_RUNTIME_VERIFICATION_REGISTER_78ae07e8_2026-08-27.md
 ```
 
 GO requires every launch-critical row to be `PASS_CURRENT_RELEASE` for one deployed SHA/environment and not expired. Email and SMS require separate pilot evidence. Mass scale remains NO-GO until operational, data, provider, queue, UI, and finance gates pass.
