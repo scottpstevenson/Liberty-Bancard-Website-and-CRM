@@ -1,0 +1,84 @@
+Do not merge PR #6 yet. The NO-GO verdict is correct, but the certification tooling has one safety defect that must be fixed first.
+
+## What the run actually established
+
+| Status                 | Rows |
+| ---------------------- | ---: |
+| `PASS_CURRENT_RELEASE` |    0 |
+| `FAIL_CURRENT_RELEASE` |    2 |
+| `DEPLOYMENT_REQUIRED`  |    6 |
+| `ACCESS_REQUIRED`      |   29 |
+| `INCONCLUSIVE`         |    2 |
+| Total                  |   39 |
+
+“39/39 structurally reconciled” means every row was accounted for—not that any runtime gate passed.
+
+Live state remains:
+
+* GitHub `main`: `78ae07e8…`
+* [Production health](https://libertybancard.com/api/health): `f2cfa4aa…`
+* Production is one merge behind current `main`.
+* [PR #6](https://github.com/scottpstevenson/Liberty-Bancard-Website-and-CRM/pull/6) is open and CI-green.
+
+## Correction required before PR #6 merges
+
+The provider-denial boundary is applied only inside `run-guarded-canonical-migration.ts`. It does not protect the later integration runner or isolated application-server process.
+
+Exporting `VG_PROVIDER_DENY_MODE=1` does nothing by itself because no integration/server startup path reads it. Those child processes could inherit real Replit credentials. The denylist also omits existing credential variants such as:
+
+* `GHL_API_KEY`
+* `SDR_GHL_API_KEY`
+* SMS/voice-provider credentials
+* Any future provider secret not explicitly listed
+
+That contradicts the certification’s absolute “fake providers only” requirement.
+
+There are also three reporting corrections:
+
+* Every row is marked “Launch blocker: yes,” contradicting the separate release/email/SMS/mass-scale decisions. Missing A2P evidence must block SMS—not an otherwise qualified email-only pilot.
+* Owners and recurrence are generic instead of row-specific.
+* Current `main` still tracks six synthetic statement PDFs under `uploads/statement-command/` and one previous pasted-instruction text file. The tracked-file scanner ignores those paths, so this repository-hygiene regression was missed.
+
+## Send this to the Replit agent
+
+```text
+Hold PR #6. Do not merge it yet.
+
+Correct PR #6 within its existing certification-tooling scope:
+
+1. Apply the certification provider-denial boundary to every stateful integration runner and isolated server process—not only the migration launcher.
+
+2. Do not rely on a provider-secret denylist alone. Launch certification child processes with an explicit environment allowlist so inherited Replit provider credentials cannot reach them.
+
+3. Prove in regression tests that deliberately inherited GHL_API_KEY, SDR_GHL_API_KEY, SMTP, SMS, ZeroBounce, Serper, Outscraper, Apollo, OCR/AI, and other provider credentials are absent from each spawned migration, integration, and server process.
+
+4. Require fake/local transports or blocked egress and assert zero real-provider requests. A failed provider network attempt is not a pass.
+
+5. Generate a genuinely unique TEST_REDIS_PREFIX for every run; do not preserve the fixed ci_vg1687_unique_run_ value as a reusable namespace.
+
+6. Correct “Launch criticality” per decision axis:
+   - release
+   - email pilot
+   - SMS
+   - mass scale
+
+   RV-OUT-05 must block SMS and applicable mass-scale SMS, but must not independently block an email-only pilot.
+
+7. Replace generic owners and uniform 24-hour expiry text with the actual owner and recurrence appropriate to each row.
+
+8. Add a disclosed repository-hygiene finding:
+   current main tracks six files under uploads/statement-command/ and a prior Pasted instruction file under attached_assets. Do not remove them inside PR #6, but record the separate remediation requirement and explain why scan-tracked-files did not detect them.
+
+9. Rerun PR #6 Static Checks and Integration Tests after corrections. Keep the PR limited to certification documents, validators, launchers, and their tests.
+```
+
+After corrected PR #6 merges, the order is:
+
+1. Security finding triage, branch protection, and repository hygiene.
+2. Deploy the reviewed descendant SHA.
+3. Run disposable DB/Redis/provider-denied stateful and browser certification.
+4. Remediate classification/provenance/readiness for an approved pilot cohort.
+5. Collect provider and authenticated runtime evidence.
+6. Regenerate the 39-row register.
+
+Do not rerun the current register before those steps; it would produce essentially the same zero-pass result.
