@@ -8,7 +8,7 @@ import { parse } from "csv-parse/sync";
 import { isGhlConfigured, upsertGhlContact } from "../services/ghl";
 import { syncContactToGhl, syncDealToGhl } from "../services/ghl-sync";
 import { extractRelationshipsForContact } from "../services/relationship-extractor";
-import { propagateContactDeleteToGhl, propagateDealDeleteToGhl, propagateTaskDeleteToGhl } from "../services/ghl-delete-sync";
+import { propagateDealDeleteToGhl, propagateTaskDeleteToGhl } from "../services/ghl-delete-sync";
 import { serverError } from "../utils/server-error";
 import { advanceDealStage } from "../services/deal-stage-service";
 import { GoLiveGateError } from "../services/go-live-gate";
@@ -146,25 +146,12 @@ export function registerCrmOperationsRoutes(app: Express) {
 
 
   // === ARCHIVE / RESTORE ===
-  app.post("/api/contacts/:id/archive", isDashboardUser, async (req, res) => {
+  app.post("/api/contacts/:id/archive", requireRole("admin", "manager"), async (req, res) => {
     try {
       const contactId = Number(req.params.id);
       const auditCtx = { actorType: "user" as const, userId: (req.user as any)?.id ?? null };
       const existing = await storage.getContact(contactId);
       if (!existing) return res.status(404).json({ message: "Not found" });
-      // C-02 (#1626): propagate the GHL delete BEFORE archiving locally, and
-      // leave local state unchanged when propagation is pause-blocked or
-      // fails — the operator retries once outbound resumes.
-      const ghlResult = await propagateContactDeleteToGhl(contactId);
-      if (!ghlResult.ok) {
-        const status = ghlResult.reason === "paused" ? 503 : 409;
-        return res.status(status).json({
-          message: `GHL delete did not complete (${ghlResult.reason}). Contact was NOT archived locally — retry archive to re-attempt.`,
-          localArchived: false,
-          ghlPropagated: false,
-          reason: ghlResult.reason,
-        });
-      }
       const result = await storage.archiveContact(contactId, auditCtx);
       if (!result) return res.status(404).json({ message: "Not found" });
       res.json(result);
@@ -174,7 +161,7 @@ export function registerCrmOperationsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/contacts/:id/restore", isDashboardUser, async (req, res) => {
+  app.post("/api/contacts/:id/restore", requireRole("admin", "manager"), async (req, res) => {
     try {
       const auditCtx = { actorType: "user" as const, userId: (req.user as any)?.id ?? null };
       const result = await storage.restoreContact(Number(req.params.id), auditCtx);

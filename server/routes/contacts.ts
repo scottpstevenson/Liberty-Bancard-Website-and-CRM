@@ -39,6 +39,11 @@ import { LifecycleService, adminOverrideTransition, LIFECYCLE_STATES } from "../
 import type { LifecycleState } from "../services/lifecycle-service";
 import { applyConsentCommand } from "../services/consent-authority";
 import { agentOwnershipEmail, invalidPagination, parseStrictPagination } from "../services/crm-object-access";
+import {
+  executeReviewedTestContactPurge,
+  preflightReviewedTestContactPurge,
+  REVIEWED_TEST_CONTACT_PURGE_CONFIRMATION,
+} from "../services/reviewed-test-contact-purge";
 
 // ── Canonical email-validation predicates (task #1540A) ─────────────────────
 // Moved to server/services/zerobounce-eligibility.ts in #1541 so the durable
@@ -2891,7 +2896,9 @@ export function registerContactsRoutes(app: Express) {
       if (!Array.isArray(contactIds) || contactIds.length === 0) {
         return res.status(400).json({ message: "contactIds must be a non-empty array" });
       }
-      const ids = contactIds.map((id) => Number(id)).filter((id) => isFinite(id) && id > 0);
+      const ids = Array.from(new Set(
+        contactIds.map((id) => Number(id)).filter((id) => isFinite(id) && id > 0),
+      ));
       if (ids.length === 0) return res.status(400).json({ message: "No valid contact IDs provided" });
       if (ids.length > 500) return res.status(400).json({ message: "Cannot delete more than 500 contacts at once" });
 
@@ -2899,23 +2906,58 @@ export function registerContactsRoutes(app: Express) {
       const errors: number[] = [];
       for (const id of ids) {
         try {
-          await storage.archiveContact(id);
-          deleted++;
+          const archived = await storage.archiveContact(id, {
+            userId: (req.user as any)?.id ?? null,
+            actorType: "user",
+            actorId: (req.user as any)?.id ?? null,
+          });
+          if (archived) deleted++;
+          else errors.push(id);
         } catch (_err) {
           errors.push(id);
         }
       }
       await storage.createAuditLog({
-        action: "contacts_bulk_deleted",
+        action: "contacts_bulk_archived",
         entityType: "contact",
         userId: (req.user as any)?.id ?? null,
-        details: { requested: ids.length, deleted, errors },
+        details: { requested: ids.length, archived: deleted, errors },
       });
-      res.json({ deleted, errors, total: ids.length });
+      res.json({ archived: deleted, deleted, errors, total: ids.length });
     } catch (err: any) {
       serverError(res, err);
     }
   });
+
+  app.get(
+    "/api/admin/contact-purges/synthetic-reviewed-v1",
+    requireRole("admin"),
+    async (_req, res) => {
+      try {
+        res.json(await preflightReviewedTestContactPurge());
+      } catch (err: any) {
+        serverError(res, err);
+      }
+    },
+  );
+
+  app.post(
+    "/api/admin/contact-purges/synthetic-reviewed-v1",
+    requireRole("admin"),
+    async (req, res) => {
+      try {
+        if (req.body?.confirmation !== REVIEWED_TEST_CONTACT_PURGE_CONFIRMATION) {
+          return res.status(400).json({ message: "Invalid purge confirmation" });
+        }
+        const result = await executeReviewedTestContactPurge(
+          (req.user as any)?.id ?? null,
+        );
+        res.json(result);
+      } catch (err: any) {
+        serverError(res, err);
+      }
+    },
+  );
 
 }
 

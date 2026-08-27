@@ -122,3 +122,4 @@
 - [Disposable pre-deploy database setup](local-predeploy-database.md) — supervised workflows may inject PORT/PGUSER; force local socket/role and separate database/app ports.
 - [Cross-database BullMQ test isolation](cross-db-bullmq-test-isolation.md) — shared Redis namespaces let workers on another database consume durable command IDs and silently no-op.
 - [Certification process isolation](certification-process-isolation.md) — spawn application children with replacement envs; in-process scrubbing and fetch-only denial are insufficient.
+- [Sealed contact purge](sealed-contact-purge.md) — bind exact local and provider IDs under row locks; normal UI archive stays reversible and local-only.

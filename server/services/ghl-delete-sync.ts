@@ -104,6 +104,54 @@ export async function propagateContactDeleteToGhl(contactId: number): Promise<Gh
   }
 }
 
+export async function deleteBoundContactFromGhl(
+  contactId: number,
+  ghlContactId: string,
+): Promise<GhlDeletePropagationResult> {
+  if (!isGhlConfigured()) {
+    return { ok: true, skipped: true, reason: "ghl_not_configured" };
+  }
+  try {
+    await ghlDeleteFetch(`/contacts/${encodeURIComponent(ghlContactId)}`);
+    console.log(
+      `[GHL Delete] Contact #${contactId} (manifest-bound GHL ${ghlContactId}) deleted from GHL`,
+    );
+    await auditChange({
+      entityType: "contact",
+      entityId: contactId,
+      action: "ghl_delete_propagated",
+      actorType: "system",
+      details: {
+        ghlContactId,
+        direction: "replit_to_ghl",
+        binding: "sealed_manifest",
+      },
+    }).catch(() => {});
+    return { ok: true };
+  } catch (err: any) {
+    console.error(
+      `[GHL Delete] Failed to delete manifest-bound contact #${contactId} from GHL:`,
+      err.message,
+    );
+    await auditChange({
+      entityType: "contact",
+      entityId: contactId,
+      action: "ghl_delete_failed",
+      actorType: "system",
+      details: {
+        ghlContactId,
+        error: err.message,
+        direction: "replit_to_ghl",
+        binding: "sealed_manifest",
+      },
+    }).catch(() => {});
+    return {
+      ok: false,
+      reason: err instanceof GhlDeletePausedError ? "paused" : err.message,
+    };
+  }
+}
+
 export async function propagateDealDeleteToGhl(dealId: number): Promise<GhlDeletePropagationResult> {
   if (!isGhlConfigured()) return { ok: true, skipped: true, reason: "ghl_not_configured" };
   try {

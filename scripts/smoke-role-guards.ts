@@ -222,6 +222,7 @@ const CASES: GuardCase[] = [
   { method: "POST", path: "/api/tasks/bulk-assign",          anon: [401], merchant: [403], admin: [403], agent: [403], manager: [403], description: "task bulk-assign (requireRole admin/manager; CSRF required — agent blocked by role gate)" },
   { method: "POST", path: "/api/documents/bulk-delete",      anon: [401], merchant: [403], admin: [403], agent: [403], manager: [403], description: "document bulk-delete (requireRole admin/manager; CSRF required — agent blocked by role gate)" },
   { method: "DELETE", path: "/api/contacts/bulk-delete",    anon: [401], merchant: [403], admin: [403], agent: [403], manager: [403], description: "contacts bulk-delete (requireRole admin/manager; CSRF required — agent blocked by role gate)" },
+  { method: "GET", path: "/api/admin/contact-purges/synthetic-reviewed-v1", anon: [401], merchant: [403], admin: [200], agent: [403], manager: [403], description: "reviewed contact purge preflight (admin only; execution is not exposed here)" },
 
   // ── Blocked-contact CSV export — requireRole admin/manager ──────────────────
   // GET route: requireRole("admin","manager") applied; agent and merchant → 403.

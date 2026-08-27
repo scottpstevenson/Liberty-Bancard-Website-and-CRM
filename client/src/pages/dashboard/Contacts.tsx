@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ResponsiveTable } from "@/components/ui/responsive-table";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Search, Plus, MoreHorizontal, UserPlus, Mail, MessageSquare, Zap, AlertTriangle, Sparkles, Activity, ArrowRight, Clock, TrendingUp, Ticket, Download, CheckSquare, ExternalLink, Users, Merge, ChevronRight, Archive, RotateCcw, Star, UserCheck, Filter, Calendar, RefreshCw, BellOff, PhoneMissed } from "lucide-react";
+import { Search, Plus, MoreHorizontal, UserPlus, Mail, MessageSquare, Zap, AlertTriangle, Sparkles, Activity, ArrowRight, Clock, TrendingUp, Ticket, Download, CheckSquare, ExternalLink, Users, Merge, ChevronRight, Archive, RotateCcw, Star, UserCheck, Filter, Calendar, RefreshCw, BellOff, PhoneMissed, Trash2 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { useLocation } from "wouter";
 import { useForm } from "react-hook-form";
@@ -21,6 +21,16 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Label } from "@/components/ui/label";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { exportToCSV } from "@/lib/export-csv";
@@ -438,6 +448,10 @@ export default function Contacts() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [selectedContact, setSelectedContact] = useState<any>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [archiveConfirmation, setArchiveConfirmation] = useState<{
+    ids: number[];
+    label: string;
+  } | null>(null);
   const [duplicatesOpen, setDuplicatesOpen] = useState(false);
   const [location, setLocation] = useLocation();
   const [showArchived, setShowArchived] = useState(false);
@@ -454,17 +468,36 @@ export default function Contacts() {
   const { user } = useAuth();
   const isManagerOrAdmin = user?.role === "admin" || user?.role === "manager"; // #422
 
-  const archiveContactMutation = useMutation({
-    mutationFn: async (id: number) => {
-      const res = await apiRequest("POST", `/api/contacts/${id}/archive`);
-      return res.json();
+  const archiveContactsMutation = useMutation({
+    mutationFn: async (ids: number[]) => {
+      const res = await apiRequest("DELETE", "/api/contacts/bulk-delete", {
+        contactIds: ids,
+      });
+      return res.json() as Promise<{
+        archived: number;
+        errors: number[];
+        total: number;
+      }>;
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["/api/contacts"] });
-      toast({ title: "Contact archived" });
+      setSelectedIds(new Set());
+      setArchiveConfirmation(null);
+      if (result.errors.length > 0) {
+        toast({
+          title: `${result.archived} contact(s) archived`,
+          description: `${result.errors.length} contact(s) could not be archived.`,
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: result.archived === 1 ? "Contact deleted" : "Contacts deleted",
+          description: `${result.archived} contact(s) archived and available under Show Archived.`,
+        });
+      }
     },
     onError: (err: Error) => {
-      toast({ title: "Failed to archive contact", description: err.message, variant: "destructive" });
+      toast({ title: "Delete failed", description: err.message, variant: "destructive" });
     },
   });
 
@@ -1123,29 +1156,20 @@ export default function Contacts() {
                 <DropdownMenuItem onClick={handleBulkLinkedInEnrich} disabled={bulkUpdating} data-testid="bulk-linkedin-enrich">
                   Enrich from LinkedIn
                 </DropdownMenuItem>
-                {/* #507 — Bulk archive selected contacts */}
                 {isManagerOrAdmin && (
                   <DropdownMenuItem
                     disabled={bulkUpdating}
-                    data-testid="bulk-archive"
-                    onClick={async () => {
-                      if (!confirm(`Archive ${selectedIds.size} contact(s)?`)) return;
-                      setBulkUpdating(true);
-                      try {
-                        await Promise.all(Array.from(selectedIds).map(id =>
-                          apiRequest("POST", `/api/contacts/${id}/archive`).then(r => r.json())
-                        ));
-                        queryClient.invalidateQueries({ queryKey: ["/api/contacts"] });
-                        toast({ title: "Contacts archived", description: `${selectedIds.size} contacts archived` });
-                        setSelectedIds(new Set());
-                      } catch (err: any) {
-                        toast({ title: "Archive failed", description: err.message, variant: "destructive" });
-                      } finally {
-                        setBulkUpdating(false);
-                      }
+                    className="text-destructive focus:text-destructive"
+                    data-testid="bulk-delete-contacts"
+                    onClick={() => {
+                      setArchiveConfirmation({
+                        ids: Array.from(selectedIds),
+                        label: `${selectedIds.size} selected contacts`,
+                      });
                     }}
                   >
-                    Archive selected
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Delete selected
                   </DropdownMenuItem>
                 )}
                 {/* #516 — Bulk re-score (admin/manager only) */}
@@ -1926,11 +1950,24 @@ export default function Contacts() {
                               <DropdownMenuItem onClick={(e: React.MouseEvent) => { e.stopPropagation(); restoreContactMutation.mutate(contact.id); }} data-testid={`menu-restore-contact-${contact.id}`}>
                                 <RotateCcw className="w-4 h-4 mr-2" /> Restore
                               </DropdownMenuItem>
-                            ) : (
-                              <DropdownMenuItem onClick={(e: React.MouseEvent) => { e.stopPropagation(); archiveContactMutation.mutate(contact.id); }} data-testid={`menu-archive-contact-${contact.id}`}>
-                                <Archive className="w-4 h-4 mr-2" /> Archive
+                            ) : isManagerOrAdmin ? (
+                              <DropdownMenuItem
+                                className="text-destructive focus:text-destructive"
+                                onClick={(e: React.MouseEvent) => {
+                                  e.stopPropagation();
+                                  setArchiveConfirmation({
+                                    ids: [contact.id],
+                                    label:
+                                      [contact.firstName, contact.lastName].filter(Boolean).join(" ") ||
+                                      contact.email ||
+                                      `contact #${contact.id}`,
+                                  });
+                                }}
+                                data-testid={`menu-delete-contact-${contact.id}`}
+                              >
+                                <Trash2 className="w-4 h-4 mr-2" /> Delete contact
                               </DropdownMenuItem>
-                            )}
+                            ) : null}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </div>
@@ -1972,18 +2009,110 @@ export default function Contacts() {
                       <div className="text-xs text-muted-foreground truncate">{contact.companyName}</div>
                       <div className="text-xs text-muted-foreground truncate">{contact.email}</div>
                     </div>
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium shrink-0
-                      ${contact.status === 'New' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' :
-                        contact.status === 'Won' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' :
-                        contact.status === 'Contacted' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200' :
-                        'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200'}`}>
-                      {contact.status}
-                    </span>
+                    <div className="flex shrink-0 items-center gap-1">
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium
+                        ${contact.status === 'New' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' :
+                          contact.status === 'Won' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' :
+                          contact.status === 'Contacted' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200' :
+                          'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200'}`}>
+                        {contact.status}
+                      </span>
+                      {isManagerOrAdmin && (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8"
+                              aria-label="Contact actions"
+                              onClick={(event) => event.stopPropagation()}
+                              data-testid={`button-actions-mobile-${contact.id}`}
+                            >
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            {isArchived ? (
+                              <DropdownMenuItem
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  restoreContactMutation.mutate(contact.id);
+                                }}
+                                data-testid={`menu-restore-contact-mobile-${contact.id}`}
+                              >
+                                <RotateCcw className="mr-2 h-4 w-4" />
+                                Restore
+                              </DropdownMenuItem>
+                            ) : (
+                              <DropdownMenuItem
+                                className="text-destructive focus:text-destructive"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setArchiveConfirmation({
+                                    ids: [contact.id],
+                                    label:
+                                      [contact.firstName, contact.lastName].filter(Boolean).join(" ") ||
+                                      contact.email ||
+                                      `contact #${contact.id}`,
+                                  });
+                                }}
+                                data-testid={`menu-delete-contact-mobile-${contact.id}`}
+                              >
+                                <Trash2 className="mr-2 h-4 w-4" />
+                                Delete contact
+                              </DropdownMenuItem>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      )}
+                    </div>
                   </div>
                 );
               }}
               testId="contacts-table"
             />
+            <AlertDialog
+              open={Boolean(archiveConfirmation)}
+              onOpenChange={(open) => {
+                if (!open && !archiveContactsMutation.isPending) {
+                  setArchiveConfirmation(null);
+                }
+              }}
+            >
+              <AlertDialogContent data-testid="dialog-delete-contact-confirm">
+                <AlertDialogHeader>
+                  <AlertDialogTitle>
+                    Delete {archiveConfirmation?.label}?
+                  </AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This removes the contact{archiveConfirmation?.ids.length === 1 ? "" : "s"} from
+                    active CRM views by archiving {archiveConfirmation?.ids.length === 1 ? "it" : "them"}.
+                    This is reversible from Show Archived.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel
+                    disabled={archiveContactsMutation.isPending}
+                    data-testid="button-cancel-delete-contact"
+                  >
+                    Cancel
+                  </AlertDialogCancel>
+                  <AlertDialogAction
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    disabled={archiveContactsMutation.isPending || !archiveConfirmation}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      if (archiveConfirmation) {
+                        archiveContactsMutation.mutate(archiveConfirmation.ids);
+                      }
+                    }}
+                    data-testid="button-confirm-delete-contact"
+                  >
+                    {archiveContactsMutation.isPending ? "Deleting…" : "Delete"}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
             </>
           )}
         </CardContent>
