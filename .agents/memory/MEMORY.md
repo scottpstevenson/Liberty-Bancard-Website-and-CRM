@@ -121,3 +121,4 @@
 - [Provider-readiness deferral audits](provider-readiness-deferral-audits.md) — when readiness defers before legacy validation-budget gates, persist the actual deferral reason instead of expecting unreachable audit actions.
 - [Disposable pre-deploy database setup](local-predeploy-database.md) — supervised workflows may inject PORT/PGUSER; force local socket/role and separate database/app ports.
 - [Cross-database BullMQ test isolation](cross-db-bullmq-test-isolation.md) — shared Redis namespaces let workers on another database consume durable command IDs and silently no-op.
+- [Certification process isolation](certification-process-isolation.md) — spawn application children with replacement envs; in-process scrubbing and fetch-only denial are insufficient.

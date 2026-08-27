@@ -5,12 +5,14 @@
  * effects; CI must run only on disposable infrastructure and own no release
  * state.
  */
-import { spawn } from "child_process";
+import type { ChildProcess } from "node:child_process";
 import {
   SUITE_MANIFEST,
   type SuiteCapability,
   type SuiteManifestEntry,
 } from "./ci-suite-manifest";
+import { spawnCertificationTsx } from "./certification-child-process";
+import { assertCertificationServerReady } from "./certification-server-readiness";
 
 const RUNNABLE_CAPABILITIES = new Set<SuiteCapability>([
   "deterministic-static",
@@ -40,28 +42,13 @@ function parseCapabilities(): SuiteCapability[] {
   return selected;
 }
 
-async function assertServerReady(): Promise<void> {
-  const baseUrl = process.env.BASE_URL ?? "http://127.0.0.1:5000";
-  try {
-    const response = await fetch(`${baseUrl}/api/health`, {
-      signal: AbortSignal.timeout(5_000),
-    });
-    if (!response.ok) throw new Error(`health endpoint returned HTTP ${response.status}`);
-  } catch (error) {
-    throw new Error(
-      `Server-required suites cannot run because ${baseUrl}/api/health is unavailable: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
-}
-
-function runSuite(suite: SuiteManifestEntry): Promise<void> {
+function runSuite(suite: SuiteManifestEntry, capability: SuiteCapability): Promise<void> {
   const timeoutMs = Number(process.env.CI_SUITE_TIMEOUT_MS ?? 300_000);
   return new Promise((resolve, reject) => {
-    const child = spawn("npx", ["tsx", suite.script], {
-      cwd: process.cwd(),
-      env: process.env,
-      stdio: "inherit",
-    });
+    const child: ChildProcess = spawnCertificationTsx(
+      "scripts/run-denied-certification-suite.ts",
+      [suite.script, capability],
+    );
     const timer = setTimeout(() => {
       child.kill("SIGTERM");
       reject(new Error(`${suite.name} exceeded the ${timeoutMs}ms CI suite timeout.`));
@@ -91,12 +78,16 @@ async function main(): Promise<void> {
       requireRedis: true,
     });
   }
-  if (capability === "server-required") await assertServerReady();
+  if (capability === "server-required") {
+    await assertCertificationServerReady(
+      process.env.BASE_URL ?? "http://127.0.0.1:5000",
+    );
+  }
 
   console.log(`\n══ CI ${capability}: ${suites.length} required suite(s) ══`);
   for (const [index, suite] of suites.entries()) {
     console.log(`\n[${index + 1}/${suites.length}] ${suite.name} — ${suite.script}`);
-    await runSuite(suite);
+    await runSuite(suite, capability);
   }
   console.log(`\n✓ CI ${capability} completed: ${suites.length}/${suites.length} suites passed.`);
 }

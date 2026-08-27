@@ -83,7 +83,6 @@ jobs:
       MERCHANT_DATA_ENCRYPTION_KEY: ci-test-merchant-key-32chars-min
       AI_INTEGRATIONS_OPENAI_API_KEY: ci-test-openai-key-unused
       AI_INTEGRATIONS_OPENAI_BASE_URL: http://127.0.0.1:1/v1
-      TEST_REDIS_PREFIX: ci_1681_${{ github.run_id }}_${{ github.run_attempt }}_
       ADMIN_SEED_EMAIL: ci-admin@libertybancard.test
       ADMIN_SEED_PASSWORD: ci-admin-password-Aa1!
       ADMIN_SEED_FORCE_UPDATE: "true"
@@ -105,11 +104,21 @@ jobs:
       - name: Install dependencies
         run: npm install --include=dev --ignore-scripts --no-audit --no-fund --package-lock=false
 
+      - name: Generate unique Redis namespace
+        run: echo "TEST_REDIS_PREFIX=$(npx tsx scripts/generate-certification-redis-prefix.ts)" >> "$GITHUB_ENV"
+
+      - name: Verify certification process isolation
+        run: |
+          npx tsx scripts/test-certification-process-env.ts
+          npx tsx scripts/test-certification-provider-deny.ts
+          npx tsx scripts/test-certification-server-readiness.ts
+          npx tsx scripts/test-certification-redis-reservation.ts
+
       - name: Run database migrations from empty database
-        run: npx tsx server/db-migrate.ts
+        run: npx tsx scripts/run-guarded-canonical-migration.ts
 
       - name: Re-run database migrations to prove idempotency
-        run: npx tsx server/db-migrate.ts
+        run: npx tsx scripts/run-guarded-canonical-migration.ts
 
       - name: Validate canonical suite manifest
         run: npx tsx scripts/ci-suite-manifest.ts --check
@@ -119,7 +128,7 @@ jobs:
 
       - name: Start disposable CI application server
         run: |
-          NODE_ENV=test npx tsx server/index.ts > ci-server.log 2>&1 &
+          npx tsx scripts/run-denied-certification-server.ts > ci-server.log 2>&1 &
           echo $! > ci-server.pid
           for attempt in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:5000/api/health >/dev/null; then
@@ -155,7 +164,22 @@ jobs:
           exit 1
 
       - name: Run all server-required suites
-        run: npx tsx scripts/run-ci-suites.ts --capability server-required
+        run: |
+          if ! kill -0 "$(cat ci-server.pid)" 2>/dev/null; then
+            echo "CI server exited after readiness but before server-required suites"
+            cat ci-server.log
+            exit 1
+          fi
+          if ! npx tsx scripts/run-ci-suites.ts --capability server-required; then
+            echo "Server-required suite failure; isolated server log follows"
+            cat ci-server.log
+            exit 1
+          fi
+          if ! kill -0 "$(cat ci-server.pid)" 2>/dev/null; then
+            echo "CI server exited during server-required suites"
+            cat ci-server.log
+            exit 1
+          fi
 
       - name: Stop disposable CI application server
         if: always()

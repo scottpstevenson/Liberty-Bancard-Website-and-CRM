@@ -635,7 +635,12 @@ export function registerWizardRoutes(app: Express): void {
   app.get("/api/wizard/queue-health", requireRole("admin", "manager"), async (_req, res) => {
     try {
       const { requireQueueManagerReady } = await import("../services/queue-manager");
-      const qm = requireQueueManagerReady();
+      let qm;
+      try {
+        qm = requireQueueManagerReady();
+      } catch {
+        return res.status(503).json({ status: "not_initialized", queues: [] });
+      }
       const { queues, usingMock, status: metricsStatus } = await qm.getAllQueueMetrics();
 
       const now = Date.now();

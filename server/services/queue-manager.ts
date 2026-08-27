@@ -781,10 +781,15 @@ class QueueManager {
       );
     }
 
-    // Fire an initial health check on startup (fire-and-forget)
-    import("./health-monitor").then(m => m.runHealthChecks()).catch(e =>
-      console.warn("[HealthMonitor] Startup check failed:", e)
-    );
+    // Certification uses route-level readiness plus local fakes. The operational
+    // sweep intentionally probes providers and must not run in zero-egress mode.
+    if (process.env.VG_PROVIDER_DENY_MODE !== "1") {
+      import("./health-monitor").then(m => m.runHealthChecks()).catch(e =>
+        console.warn("[HealthMonitor] Startup check failed:", e)
+      );
+    } else {
+      console.log("[HealthMonitor] Startup provider sweep skipped in certification deny mode.");
+    }
   }
 
   /**
