@@ -1,0 +1,481 @@
+1699 - Canonical Revenue Count Truth
+
+What & Why
+
+Correct CRO-01’s implementation contract before any code changes. The live repository confirms that People, Prospect Staging, Leads, Deals, and Merchants lack one executable read contract: archived and filtered People counts drift from rows, prospect and Pipeline metrics are capped client snapshots, revenue consumers use different deal populations, Portfolio is not merchant-only, and prospect conversion can race or emit unequal side effects.
+
+Build one focused read authority and harden the existing mutation authorities without copying records, inventing ownership, or creating competing writers. Every defect, edge case, test, gate, and kill line below is a direct build requirement or an explicit scope boundary.
+
+Done looks like
+
+People is the canonical contact set; Prospect Staging is separate; Lead and Merchant are non-synonymous states over contacts and may overlap
+People rows, totals, facets, filters, sorting, and pagination use one server predicate and exclude archived contacts by default
+Lead means one distinct eligible contact with at least one qualifying open sales deal; multiple deals do not inflate Lead counts
+Pipeline and task-owned Reporting consumers share production, archive, pipeline, stage, ownership, and snapshot semantics
+Prospect Staging is consistently admin/manager-only because the current schema has no sales-owner field
+Prospect updates reject unknown and authority-managed fields
+Single and batch prospect conversion reuse one contact and one intended open sales deal through the existing deal authority
+Portfolio includes only distinct eligible contacts with at least one active, activated MID and reports active MID count separately
+List responses expose truthful totals, filters, scope, pagination, and real snapshot time
+Reconciliation is aggregate-only and restricted to admin/manager
+Safe deal failures carry a stable code and correlation ID without PII or SQL details
+Focused tests prove role isolation, cardinality, pagination, concurrency, side-effect denial, and error redaction
+Out of scope
+
+Production reads, classification decisions, deduplication, backfills, cleanup, migrations, deployment, or exact-SHA runtime certification
+GHL/provider mutation, campaign activation, enrollment-policy changes, or outreach
+A new prospect ownership column or agent Prospect Staging policy
+MID lifecycle changes such as clearing historical activation timestamps
+Broad dashboard null-safety, detailed Pipeline retry UX, task remediation, or full client/server diagnostics
+CRO-02 classification/provenance remediation and later CRO tranches
+Baseline and preflight verdict
+
+Authoritative remote main: c5d0baa8c697778caccaed4dba74e456c9a07063
+CRO-00 implementation ancestor: 658fabb95c79c9dc9fd577edc2cf887f67e7deb6
+Migration and journal head: 0165_outbound_send_claim_lease, index 169, when=1794900000000
+Read-only unstaged, staged, untracked, tree, and diff-check scans were clean
+Migration integrity passed 364 checks with two historical warnings
+CI manifest passed with 60 classified suites
+Route guards, TypeScript with incremental output disabled, API coverage, classification checks, contact-writer checks, and intake-authority checks passed
+Verdict: BUILD-READY WITH MATERIAL CORRECTIONS. Recapture current origin/main before implementation and stop for material drift.
+
+Corrected object and cardinality contract
+
+Object	Executable definition	Cardinality
+Discovery Record	Source/import observation outside canonical CRM	Source-specific
+Prospect Staging	prospects row with optional one-way contact link after conversion	Prospect row
+Person / Contact	Canonical non-archived contacts row, with classification stated by the response	Contact row
+Lead	Distinct non-archived production contact with at least one non-archived production sales deal in the named open-sales stage set	One per contact
+Deal	Non-archived production local opportunity in requested pipeline and role scope	Deal row
+Merchant	Distinct non-archived production contact with at least one MID where status is active and activation time is present	One per contact; MID count separate
+Ready for Outreach	Existing contact eligibility/readiness projection	Projection, not entity
+The implementation must freeze the open-sales stage set before editing. Derive it from the sales-stage vocabulary, state terminal and nurture treatment explicitly, and do not reuse the mixed onboarding ACTIVE_DEAL_STAGES constant unchanged. For a multi-deal Lead, choose the primary row deterministically by latest update time then highest ID; count with distinct contact ID.
+
+Corrected VFC summary
+
+ID	Disposition	Verified result
+VFC-01	Confirmed and expanded	Normal People count includes archived rows while the client hides them; most filters/search/sort/facets are page-local
+VFC-02	Confirmed	Current Leads tab and legacy prospect redirect render Prospect Staging
+VFC-03	Confirmed	Prospect totals/facets/search operate on at most 500 loaded rows
+VFC-04	Confirmed	Pipeline requests 2,000 against a 500 maximum and derives metrics from loaded rows
+VFC-05	Confirmed with narrower evidence	Reporting overview uses capped /api/analytics/pipeline; KPI routes already have some production/archive filters; acquisition/operations use other definitions
+VFC-06	Confirmed, not partial	Portfolio explicitly admits assigned contacts without deals and contacts with any unarchived deal
+VFC-07	Task framing corrected	The prior task already called idempotency partial; additional direct-insert, owner, tie-break, single/batch, and orphan risks are confirmed
+VFC-08	Confirmed	Prospects have no sales owner; conversion claim ownership cannot authorize CRM access
+VFC-09	Confirmed with predicate nuance	MID evidence exists; both active status and non-null activation are required because later suspension does not clear history
+VFC-10	Confirmed	serverError returns only a message and no stable code/correlation ID
+VFC-11	Confirmed correction	BT-06 record_class exists and must be consumed, not reimplemented
+VFC-12	Confirmed	Provider denial alone does not stop local scoring, routing, blueprint, task, notification, and enrollment effects
+Build Requirement A01 — Set relationships
+
+Priority / requirement: P0, implement as specified.
+
+Verification: People is contacts; prospect staging is a separate table; deals and MIDs reference contacts. The repository does not support mutually exclusive People/Lead/Merchant sets.
+
+Root cause and correction: “Non-overlapping definitions” confuses identity sets with lifecycle states. Define non-synonymous relationships: People is the contact superset; Lead and Merchant may overlap; Deal is a row; Ready is a projection.
+
+Files: shared/schema.ts:54-250, shared/schema.ts:492-590, shared/schema.ts:1283-1346, shared/schema.ts:5884-5911.
+
+Edges/tests/kill line: Test one contact that is both Lead and Merchant without duplication. Stop if implementation copies records or forces disjoint sets.
+
+Build Requirement A02 — Lead predicate and cardinality
+
+Priority / requirement: P0, implement as specified.
+
+Verification: SALES_STAGES contains sales-specific values, while ACTIVE_DEAL_STAGES mixes onboarding and sales values. Current analytics generally treats anything except Closed Won/Lost as active and counts deal arrays.
+
+Root cause and correction: No named open-sales predicate or contact cardinality exists. Freeze exact included/excluded stages, production/archive rules, distinct-contact count, and deterministic primary-deal tie-break in the read authority.
+
+Files: shared/schema.ts:1035-1048, shared/schema.ts:4251-4274, server/routes/analytics.ts:388-430.
+
+Edges/tests/kill line: Cover New Lead, Enriched, Promise to Submit, Nurture, both terminal stages, unknown stage, equal timestamps, and one contact with multiple deals. Stop if Leads count deal rows or use the mixed stage constant unchanged.
+
+Build Requirement A03 — People count truth
+
+Priority / requirement: P0, confirmed and expanded by live recapture; implement.
+
+Verification/path: People tab → Contacts → useContacts → /api/contacts → normal storage query. Normal count/query lacks archive predicate; the client then hides archived rows. Search, archive, blocked/churn/outreach, status, email health, assignment, vertical, tags, activity, lifecycle, deal filters, and sort are largely applied only to the loaded page. Special-filter and normal branches also use different ordering.
+
+Root cause and correction: Server pagination and client filtering are separate authorities. Build one server predicate and stable order for rows, total, and facets; default to active only; add explicit authorized archive mode; pass every displayed filter/search/sort in the hook key and reset offset on change.
+
+Files: client/src/pages/dashboard/Contacts.tsx:408-417, client/src/pages/dashboard/Contacts.tsx:557-674, client/src/hooks/use-contacts.ts:10-39, server/routes/contacts.ts:247-305, server/storage/contacts.ts:103-140.
+
+Edges/tests/kill line: Use more than one page, archived rows on multiple pages, matches beyond page one, stable tie order, facet parity, and unauthorized archive mode. Stop if hidden archived rows remain in totals or any global label comes from page length.
+
+Build Requirement A04 — Reporting blast radius
+
+Priority / requirement: P0, confirmed with endpoint qualification; implement the scoped corrections.
+
+Verification/path: ReportingHub composes child tabs. Overview calls /api/analytics/pipeline, which fetches at most 500 production deals then aggregates arrays. KPI summary and pipeline-stats already use production/archive SQL for several facts. ROI and Operations use additional direct queries with different semantics.
+
+Root cause and correction: Revenue definitions evolved per endpoint. Inventory each Lead/Deal/Merchant fact used by ReportingHub and Pipeline; migrate only task-owned facts to shared predicates or explicitly document exclusions. Do not claim every Reporting endpoint is currently wrong.
+
+Files: client/src/pages/dashboard/ReportingHub.tsx, client/src/pages/dashboard/Reporting.tsx:89-100, client/src/pages/dashboard/OperationsReport.tsx:463-474, server/routes/analytics.ts:89-145, server/routes/analytics.ts:388-430, server/routes/analytics.ts:846-880, server/routes/acquisition.ts:877-925, server/routes/acquisition.ts:979-1026.
+
+Edges/tests/kill line: Test parity above 500 rows, ownership, archive, class, pipeline, stages, and distinct Lead cardinality. Stop if Pipeline and a task-owned report retain different population predicates.
+
+Build Requirement A05 — Prospect Staging authorization
+
+Priority / requirement: P0, implement the manager/admin policy specified below.
+
+Verification/path: Prospect list/detail/create/update/import use generic authentication; convert paths use dashboard authentication. UI routes are not consistently role-restricted. prospects has no sales-owner field; conversion claim owner is transient infrastructure.
+
+Root cause and correction: The draft proposed agent object scope that cannot be enforced from current data. Make list/detail/create/update/import/convert admin/manager-only in API and direct/deep-link UI routes. Preserve any existing admin-only override as admin-only. A future agent ownership model requires a separate approved schema task.
+
+Files: client/src/App.tsx:295-337, client/src/App.tsx:544-559, server/routes/prospects.ts:125-176, server/routes/prospects.ts:443-692, shared/schema.ts:1283-1346.
+
+Edges/tests/kill line: Anonymous and agents must receive no rows, totals, detail existence, import, or conversion ability; manager/admin paths remain functional. Stop if claim ownership is treated as CRM ownership.
+
+Build Requirement A06 — Strict prospect updates
+
+Priority / requirement: P0, implement as specified.
+
+Verification/path: PUT parses two dates, uses a passthrough schema, and forwards the resulting object to storage, which spreads it into the update.
+
+Root cause and correction: A convenience update path can mass-assign authority fields. Replace it with a strict allowlist of genuinely editable staging fields and reject unknown keys plus record class, claim/link, conversion, provenance, and identity-authority fields.
+
+Files: server/routes/prospects.ts:159-166, server/storage/prospects.ts:222-229, shared/schema.ts:1283-1346.
+
+Edges/tests/kill line: Test unknown keys, null/date coercion, immutable fields, conversion claim/link fields, record class, and valid editable fields. Stop if passthrough or untyped spreading remains reachable.
+
+Build Requirement A07 — Existing deal writer and transaction
+
+Priority / requirement: P0, implement as specified.
+
+Verification/path: Prospect conversion directly inserts into deals inside its transaction. DealsStorage.createDeal separately derives linked class and records canonical audit in its own transaction.
+
+Root cause and correction: Conversion bypasses the established deal writer, but calling the current self-transactional method from another transaction would not make finalization atomic. Extend the storage owner with a transaction-aware create-or-reuse operation that accepts the existing transaction, derives class, inherits linkage, audits, and finalizes the claim atomically.
+
+Files: server/services/prospect-conversion.ts:177-240, server/storage/deals.ts:217-239, server/services/commercial-classification-authority.ts:350-398.
+
+Edges/tests/kill line: Inject failure before/after deal insert and before finalization; assert rollback leaves no orphan and one audit. Stop if a second writer or nested independent transaction is introduced.
+
+Build Requirement A08 — Deal reuse and owner semantics
+
+Priority / requirement: P0, implement as specified.
+
+Verification/path: Conversion selects only New Lead rows without lock or tie-break, then inserts when none is observed and hard-codes Scott Stevenson. Deal owner filtering expects email-like identity or null/unassigned policy.
+
+Root cause and correction: Reuse criteria and owner derivation are ad hoc. Lock the canonical contact or stable advisory key, deterministically reuse one qualifying open sales deal, otherwise create through the transaction-aware authority. Derive owner from authenticated server identity when policy permits or leave canonically unassigned. Use the same path for single and batch.
+
+Files: server/services/prospect-conversion.ts:184-210, server/storage/deals.ts:103-109, server/storage/deals.ts:175-239, shared/schema.ts:210-212.
+
+Edges/tests/kill line: Concurrent single/single and single/batch requests, multiple existing deals, equal timestamps, stale claims, replay, missing owner, and agent-email format. Stop if reuse is New Lead-only, owner is a display name, or paths diverge.
+
+Build Requirement A09 — Merchant-only Portfolio
+
+Priority / requirement: P0, implement as specified.
+
+Verification/path: Portfolio includes assigned contacts without deals and contacts with any unarchived deal, has no MID predicate, chooses latest deal without an ID tie-break, caps at 500, and derives summary from returned rows.
+
+Root cause and correction: Portfolio membership and summary are convenience projections rather than merchant truth. Require eligible contact plus merchant_mids.status='active' and non-null activation, count distinct contacts, expose active MID count separately, apply role scope inside SQL, paginate server-side, and choose latest deal deterministically.
+
+Files: server/routes/portfolio.ts:8-185, shared/schema.ts:5884-5911, server/services/merchant-mid-service.ts:31-76.
+
+Edges/tests/kill line: Assigned-only, deal-only, archived/unknown contact, active-without-activation, suspended-with-historical-activation, multiple MIDs, equal deal timestamps, and more than 500 merchants. Stop if MIDs inflate merchant count or assignment/any-deal fallback remains.
+
+Build Requirement A10 — Conversion side-effect isolation
+
+Priority / requirement: P0, implement as specified.
+
+Verification/path: After durable conversion, single conversion triggers scoring, routing, blueprint, stage-rule tasks/notifications, enrollment, and audit; batch triggers a different subset. Provider denial does not block these local effects.
+
+Root cause and correction: Transactional conversion and post-commit orchestration are coupled in routes. Extract/inject an effect adapter or test the pure transaction boundary; production keeps current policy, while tests install recording no-ops and deny provider, queue, task, notification, enrollment, and GHL effects. Bring single/batch durable and effect semantics into explicit parity.
+
+Files: server/routes/prospects.ts:321-379, server/routes/prospects.ts:606-670, server/services/prospect-conversion.ts.
+
+Edges/tests/kill line: Success, replay, partial failure, batch item failure, stage-rule presence, and enrollment failure. Stop if tests can enqueue or create any real local/external effect.
+
+Build Requirement A11 — One focused read authority
+
+Priority / requirement: P1, implement as the shared read boundary.
+
+Verification: Current predicates live independently in contact storage, deal storage, analytics, acquisition, and Portfolio. No single revenue read authority exists.
+
+Root cause and correction: Shared semantics are copied as SQL/filter fragments. Add one focused read authority containing types, named predicates, role scope, stage sets, cardinality, ordering, and snapshot helpers. It must not become a writer or classifier.
+
+Files: server/storage/contacts.ts, server/storage/deals.ts, server/routes/analytics.ts, server/routes/acquisition.ts, server/routes/portfolio.ts.
+
+Edges/tests/kill line: Static scan must show task-owned consumers import/call the authority and no duplicate canonical predicate remains. Stop if UI components define truth or another writer/classifier appears.
+
+Build Requirement A12 — Explicit list contracts
+
+Priority / requirement: P1, implement as specified.
+
+Verification: Existing contact/deal responses generally provide data, total, limit, and offset but omit applied filters, role scope, facets, and snapshot semantics.
+
+Root cause and correction: Consumers cannot tell whether rows and total represent the same set. Return {data,total,limit,offset,filters,scope,asOf} for corrected lists; return facets/aggregates from the identical base predicate or label them page-only.
+
+Files: client/src/hooks/use-contacts.ts:10-39, server/storage/contacts.ts:103-140, server/storage/deals.ts:103-208, server/routes/portfolio.ts.
+
+Edges/tests/kill line: Empty, filtered, archived, role-scoped, out-of-range offset, and unsupported sort/filter values. Stop if metadata claims filters not applied to both rows and total.
+
+Build Requirement A13 — Real snapshot semantics
+
+Priority / requirement: P1, implement as specified.
+
+Verification: Analytics aggregates a capped storage result; Portfolio summarizes one capped result. No current contract proves rows, total, facets, and summaries share one snapshot.
+
+Root cause and correction: Adding new Date() after independent queries would only label drift. Prefer one statement with window totals/CTEs; where multiple statements are required, use a read-only repeatable-read transaction and source asOf from that snapshot.
+
+Files: server/routes/analytics.ts:388-430, server/routes/portfolio.ts:163-185, server/storage/contacts.ts:103-140, server/storage/deals.ts:103-208.
+
+Edges/tests/kill line: Mutate fixtures between query phases and prove rows/totals/facets remain coherent. Stop if asOf is merely response-generation time.
+
+Build Requirement A14 — Aggregate reconciliation API
+
+Priority / requirement: P1, implement the aggregate-only capability.
+
+Verification: No inspected route provides the required canonical mismatch buckets. Existing readers expose rows or unrelated summaries.
+
+Root cause and correction: Operators need count-truth evidence without record disclosure. Add an admin/manager-only aggregate endpoint using the read authority, with buckets for archived, non-production by class, missing contact, multiple qualifying deals, invalid stage, active MID without eligible contact, and legacy assignment/any-deal Portfolio membership.
+
+Files: server/routes/analytics.ts, server/routes/portfolio.ts, server/services/commercial-classification-authority.ts, shared/schema.ts.
+
+Edges/tests/kill line: Zero/nonzero buckets, one record matching multiple documented buckets, class enumeration, and agent denial without total leakage. Stop if identities or free-form row payloads are returned.
+
+Build Requirement A15 — Reporting UI/API authorization
+
+Priority / requirement: P1, inventory callers first, then implement the narrow policy correction.
+
+Verification/path: /dashboard/reporting is admin/manager-only, while /api/analytics/pipeline, KPI summary, and KPI pipeline stats use dashboard-wide middleware; Operations already requires admin/manager. Some analytics endpoints may also serve non-Reporting pages.
+
+Root cause and correction: UI and endpoint policy evolved separately. Restrict endpoints used exclusively by ReportingHub to admin/manager. For shared endpoints, either apply tested SQL owner scope for agents or split the reporting-specific read; do not globally tighten an endpoint without inventorying callers.
+
+Files: client/src/App.tsx:572-573, client/src/pages/dashboard/ReportingHub.tsx, server/routes/analytics.ts:89-145, server/routes/analytics.ts:388-430, server/routes/analytics.ts:846-880, server/routes/acquisition.ts:979-1026.
+
+Edges/tests/kill line: Direct URL/API access for all roles, shared callers, cross-agent totals, and hidden-link bypass. Stop if client visibility is treated as authorization or agent totals are global.
+
+Build Requirement A16 — Safe deals failure envelope
+
+Priority / requirement: P1, implement only for the traced deal failure paths.
+
+Verification/path: Deals list catches errors through serverError, which sanitizes production message but returns only {message} and has no stable code/correlation ID.
+
+Root cause and correction: Safe errors are not diagnosable across client/server. Extend the safe error utility or a narrow deals adapter to emit {message,code,correlationId}, log the same ID in structured form, and preserve existing HTTP semantics. Inventory all changed deal paths before standardizing.
+
+Files: server/utils/server-error.ts:16-37, server/routes/deals.ts:49-63.
+
+Edges/tests/kill line: 400, anonymous, forbidden/not-found, conflict, unexpected 500, production redaction, and correlation equality. Stop if SQL, constraints, table names, PII, provider payloads, or secrets escape.
+
+Build Requirement A17 — Adjacent-consumer scope
+
+Priority / requirement: P1, enforce this scope boundary during implementation.
+
+Verification: Statements, Applications, Tasks, and GHL have independent workflows and are not all direct count owners. The prior plan’s broad alignment wording could absorb unrelated reliability work.
+
+Root cause and correction: “Align consumers” is too open-ended. Change only compatibility reads or canonical IDs proven necessary by a failing CRO-01 contract test. Keep task UX, GHL runtime, classification remediation, provenance, enrichment, and broad dashboard reliability out.
+
+Files: server/routes/statement-review.ts, server/routes/merchants.ts, server/routes/tickets-tasks.ts, server/services/ghl.ts.
+
+Edges/tests/kill line: Require a traced caller and failing contract test for every adjacent edit. Stop if unrelated mutation/workflow behavior enters the diff.
+
+Build Requirement A18 — No-migration operating rule
+
+Priority / requirement: P1, implement as specified.
+
+Verification: Existing IDs, links, record class, MIDs, and row/advisory locks can support the first implementation. The deal uniqueness issue can be serialized on contact without immediate schema change.
+
+Root cause and correction: “No migration by default” lacked a stop procedure. Use contact-row or transaction advisory locking first. If a database fence is indispensable, stop and report aggregate conflict/backfill consequences before proposing migration 0166; do not add it within this task without approval.
+
+Files: server/services/prospect-conversion.ts, server/storage/deals.ts, migrations/meta/_journal.json.
+
+Edges/tests/kill line: Parallel conversions for same/different contacts and lock rollback. Stop for db push, historical edits, unapproved migration, dedupe, or backfill.
+
+Build Requirement A19 — Non-empty focused suites
+
+Priority / requirement: P1, implement and register the focused suites.
+
+Verification: Existing suites cover adjacent CRM and role behavior but do not prove the new canonical read contract and conversion race together.
+
+Root cause and correction: Broad CI can pass while count semantics remain false. Add focused static/UI, disposable PostgreSQL concurrency/reconciliation, and provider/queue-denied HTTP suites; fail when fixture setup is empty or skipped.
+
+Files: scripts/ci-suite-manifest.ts, scripts/test-crm-operator-experience.ts, scripts/smoke-role-guards.ts, scripts/smoke-portfolio.ts.
+
+Edges/tests/kill line: More-than-page-size sets, all classes/archive modes, multi-deal/MID cardinality, role scope, single/batch parity, failure injection, error redaction, and side-effect denial. Stop if a core assertion skips or has zero fixtures.
+
+Build Requirement A20 — Conditional index tuning
+
+Priority / requirement: P2, conditional gate: run query-plan evidence first and implement tuning only if proven necessary and approved.
+
+Verification: No disposable query plan was supplied, so an index need is unproven.
+
+Root cause and correction: Speculative tuning expands migration scope. Run disposable EXPLAIN only after queries exist; tune only on demonstrated plans and keep no-migration stop rules.
+
+Files: server/storage/contacts.ts, server/storage/deals.ts, server/routes/portfolio.ts.
+
+Edges/tests/kill line: Representative page/filter shapes and lock contention. Stop if an index/migration is added without evidence and approval.
+
+Build Requirement A21 — Legacy adapters and redirects
+
+Priority / requirement: P2, implement redirect/adapter behavior tests and a deprecation note; do not invent a removal date.
+
+Verification: Legacy prospect redirects exist, but the repository evidence does not establish a standard arbitrary removal date/owner field.
+
+Root cause and correction: Compatibility can silently regress, but invented governance metadata is not code truth. Preserve redirects/response adapters with behavior tests and a clearly named deprecation note; do not invent a removal date unless an existing product decision supplies one.
+
+Files: client/src/App.tsx:544-559, client/src/pages/dashboard/ContactsAndLeads.tsx.
+
+Edges/tests/kill line: Direct old URL, query preservation, back/forward, and refresh. Stop if legacy URLs silently select the wrong population.
+
+Build Requirement A22 — Stale conversion comments
+
+Priority / requirement: P2, update comments alongside the refactor.
+
+Verification: The conversion service still states that its transaction is never held during GHL calls, while current route flow is broader post-commit orchestration and the task must isolate local effects too.
+
+Root cause and correction: Comments describe an older boundary and can hide current invariants. Update comments beside the refactored transaction/effect boundary and document canonical set/cardinality rules beside the read authority.
+
+Files: server/services/prospect-conversion.ts:1-15.
+
+Edges/tests/kill line: Comments must match transaction and failure tests. Stop if documentation claims provider-only isolation while local effects remain reachable.
+
+Build Requirement A23 — Mismatch trend ownership
+
+Priority / requirement: P2, explicit deferred boundary: do not implement trend storage in this task.
+
+Verification: CRO-01 needs point-in-time aggregate buckets; no requirement proves durable trend storage is necessary now.
+
+Root cause and correction: Trending belongs after CRO-02 classification/provenance remediation. Keep current reconciliation read-only and assign trend work to the later tranche.
+
+Files: server/services/commercial-classification-authority.ts, server/routes/analytics.ts.
+
+Edges/tests/kill line: Response must remain aggregate-only. Stop if CRO-01 writes production classifications or trend history.
+
+Build Requirement A24 — Broad UI reliability boundary
+
+Priority / requirement: P2, explicit out-of-scope boundary.
+
+Verification: Task #1694 and CRO-05 own broad null-safe formatting, detailed Pipeline retry UX, and wider correlation/remediation work.
+
+Root cause and correction: CRO-01 only needs truthful labels/contracts and the narrow safe deals envelope. Do not expand into global dashboard hardening.
+
+Files: client/src/pages/dashboard/Pipeline.tsx, client/src/components/ErrorBoundary.tsx, server/utils/server-error.ts.
+
+Edges/tests/kill line: Test only changed CRO-01 states and contracts. Stop if unrelated pages or formatting helpers enter the diff.
+
+Authorization matrix
+
+Action	Anonymous	Agent	Manager	Admin
+People/Leads/Deals rows and counts	No	Own plus current unassigned policy, applied in SQL	Current team/global policy	Yes
+Prospect Staging list/detail	No	No	Yes	Yes
+Prospect create/update/import/convert	No	No	Yes without admin override	Yes
+Reconciliation buckets	No	No	Yes	Yes
+Merchant Portfolio	No	Verified merchants in SQL role scope	Current team/global policy	Yes
+MID/revenue mutation	No	Existing explicit policy only	Existing explicit policy	Existing explicit policy
+Indirect denial must not reveal existence, totals, facets, or mismatch reasons.
+
+Concurrency and side-effect contract
+
+Authorize the prospect under admin/manager policy.
+Acquire or reuse the fenced prospect claim.
+Create or reuse the contact through writeContact in local-first mode.
+Persist the recovery contact ID under the claim.
+In one transaction, lock the canonical contact/stable key, reuse or create one intended open sales deal through the transaction-aware deal owner, and finalize only while claim ownership remains valid.
+Commit canonical local audit facts with that transaction.
+After commit, run the existing effect adapter. Tests replace it with recording no-ops and deny every provider, queue, task, notification, and enrollment transport.
+Failure injection is required between every durable step. Claim loss must roll back the deal/finalization unit and replay must return the same IDs.
+
+Steps
+
+Recapture and freeze contracts — Verify current main, migration head, routes, consumers, role policy, sales stages, and exact set/cardinality definitions before editing.
+Build the read authority — Implement pure shared predicates, role scope, ordering, cardinality, response metadata, and snapshot helpers for People, Leads, sales Deals, Merchants, and reconciliation.
+Repair People and Prospect Staging — Move People filtering/counting/facets/sorting server-side, add archive mode, relabel staging, align manager/admin authorization, and enforce strict prospect updates.
+Align Pipeline and Reporting — Replace capped client-derived canonical metrics and route task-owned revenue facts through shared predicates while preserving explicitly excluded consumers.
+Harden conversion — Extend the existing deal authority for transaction-aware serialized create-or-reuse, unify single/batch behavior, derive owner safely, and isolate post-commit effects.
+Make Portfolio merchant-only — Apply active/activated MID evidence, distinct-contact cardinality, deterministic latest-deal selection, role-scoped pagination, full-set summaries, and snapshot metadata.
+Add reconciliation and safe errors — Expose aggregate-only mismatch buckets to manager/admin and add the narrow correlated, privacy-safe deals error envelope.
+Prove acceptance — Add non-empty focused suites, run all static/integration/server gates with provider denial, perform post-build searches and full diff review, and map every P0/P1 and kill line to evidence.
+Required tests
+
+People: >page-size totals, archived default/authorized mode, every displayed filter/search/sort, stable tie-break, facets, offset reset, role scope
+Lead: explicit stage table, multi-deal distinct count, primary-deal tie-break, class/archive/owner rules
+Deal/Reporting: >500 records, Pipeline/overview/KPI/operations parity where task-owned, explicit exclusions elsewhere
+Prospect security: anonymous/agent/manager/admin API and deep-link matrix; strict allowlist and unknown/authority-field rejection
+Conversion: single/single and single/batch concurrency, replay, stale claim, existing contact/deal, missing owner, failure injection, one audit, no orphan, same IDs
+Side effects: scoring, routing, blueprint, task, notification, enrollment, queue, provider, and GHL all intercepted/denied
+Merchant: assigned-only/deal-only exclusion, active+activated predicate, suspended history, archived/non-production contact, multiple MIDs, >500 merchants, role totals
+Snapshot/reconciliation: coherent rows/totals/facets under concurrent fixture mutation, all named buckets, no identities, agent denial
+Errors: stable code/correlation ID and redaction across relevant status classes
+Compatibility: old prospect redirects, refresh/back/forward, response adapter behavior
+Required gates
+
+Focused CRO-01 static/UI suite
+Focused disposable PostgreSQL concurrency and reconciliation suite
+CI capability manifest and deterministic-static capability
+Disposable migration bootstrap/idempotency and deterministic-integration capability
+Provider/queue-denied server-required capability
+Route guards, API coverage, classification, contact-writer, and intake-authority scanners
+npm run check, npm run build, migration integrity, and git diff --check
+Final branch/status/stat/full diff and exact starting/ending SHA
+Report command, exit code, and result. Isolated fixtures are not production verification.
+
+Kill lines
+
+Stop if archived People are hidden but counted, or filters/facets remain page-local while labeled global
+Stop if Lead cardinality is deal rows, open stages are undefined/mixed with onboarding, or primary deal selection is nondeterministic
+Stop if Pipeline and task-owned Reporting retain different class/archive/pipeline/owner predicates
+Stop if Prospect Staging is exposed to agents without an approved server-owned authorization field
+Stop if prospect updates accept unknown or authority-managed fields
+Stop if conversion directly inserts deals, opens an independent nested transaction, reuses only New Lead, hard-codes display-name owner, diverges single/batch, or can orphan a deal
+Stop if conversion tests can create tasks, notifications, queues, enrollments, GHL/provider calls, or outreach
+Stop if canonical revenue counts treat unknown/test/demo/synthetic records as production
+Stop if Portfolio counts MIDs as merchants, admits assignment/any-deal fallback, or summarizes only a page
+Stop if role scope is applied after pagination/counting or reconciliation leaks identities/totals to agents
+Stop if asOf is only response time over drifting queries
+Stop if another contact/deal/stage/MID writer or classifier is introduced
+Stop for db push, migration-history edits, unapproved migration/dedupe/backfill, production mutation, deployment, provider action, campaign activation, or outreach
+Stop if any P0/P1 finding is deferred while the task is marked complete
+Final response requirements
+
+Return starting/ending SHA, migration head, changed files, object/set contract, P0/P1 disposition matrix, aggregate-only before/after reconciliation, test commands and exit codes, post-build search evidence, kill-line mapping, isolated-versus-production evidence, remaining P2/follow-up risks, and final status of SAFE TO MERGE, SAFE TO MERGE — RUNTIME VERIFICATION PENDING, or DO NOT MERGE. Do not merge or deploy without explicit authorization.
+
+Relevant files
+
+client/src/App.tsx:295-337
+client/src/App.tsx:544-573
+client/src/hooks/use-contacts.ts
+client/src/pages/dashboard/ContactsAndLeads.tsx
+client/src/pages/dashboard/Contacts.tsx:408-674
+client/src/pages/dashboard/Prospects.tsx:72-263
+client/src/pages/dashboard/Pipeline.tsx:1544-1558
+client/src/pages/dashboard/Pipeline.tsx:2581-2653
+client/src/pages/dashboard/Reporting.tsx:89-100
+client/src/pages/dashboard/ReportingHub.tsx
+client/src/pages/dashboard/OperationsReport.tsx:463-474
+server/routes/contacts.ts:247-305
+server/routes/prospects.ts:125-176
+server/routes/prospects.ts:321-379
+server/routes/prospects.ts:443-692
+server/routes/deals.ts:49-63
+server/routes/portfolio.ts:8-185
+server/routes/analytics.ts:89-145
+server/routes/analytics.ts:388-430
+server/routes/analytics.ts:846-880
+server/routes/acquisition.ts:877-925
+server/routes/acquisition.ts:979-1026
+server/services/contact-writer.ts
+server/services/prospect-conversion.ts
+server/services/commercial-classification-authority.ts:350-398
+server/services/merchant-mid-service.ts:31-76
+server/services/crm-object-access.ts
+server/storage/contacts.ts:103-140
+server/storage/prospects.ts:141-229
+server/storage/deals.ts:103-239
+server/utils/server-error.ts:16-37
+shared/schema.ts:54-250
+shared/schema.ts:492-590
+shared/schema.ts:1035-1048
+shared/schema.ts:1283-1346
+shared/schema.ts:4251-4274
+shared/schema.ts:5884-5911
+scripts/ci-suite-manifest.ts
+scripts/check-migration-integrity.ts
+scripts/check-route-guards.ts
+scripts/check-api-coverage.ts
+scripts/check-contact-identity-writers.ts
+scripts/test-canonical-intake-authority.ts
+scripts/test-crm-operator-experience.ts
+scripts/smoke-role-guards.ts
+scripts/smoke-portfolio.ts
+migrations/meta/_journal.json
