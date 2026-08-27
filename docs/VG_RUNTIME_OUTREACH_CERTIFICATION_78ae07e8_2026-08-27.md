@@ -46,6 +46,7 @@ These passes do not override runtime, governance, data, provider, or browser fai
 - Dependency audit: 0 critical, 31 high, 39 moderate, 6 low. High packages include drizzle-orm, multer, nodemailer, path-to-regexp, sharp, undici, uuid, vite, ws, and xlsx.
 - SAST high findings: historical password-reset migration content and OG route path handling. Both require human triage.
 - Privacy scan reported 93 mostly logging-oriented findings; this packet preserves counts only and emits no identifiers.
+- Repository hygiene: current `main` tracks six synthetic PDFs under `uploads/statement-command/` and tracked pasted-instruction text under `attached_assets/`. The existing exposure scanner classifies risky extensions/content but does not categorically reject those paths, so it did not flag this regression. Removal belongs in a separate reviewed remediation, not this certification correction.
 
 ## Production read-only aggregate snapshot
 
@@ -60,7 +61,8 @@ These passes do not override runtime, governance, data, provider, or browser fai
 - Stateful runners failed closed because `TEST_DATABASE_URL` is absent; the normal database was not substituted.
 - The existing failed pre-deploy workflow is excluded. This certification did not invoke `scripts/run-pre-deploy.sh`.
 - No production write, migration, reconciliation, hold/pause change, backfill, deployment, real-recipient send, or live GHL/Apollo/ZeroBounce/Serper/SMTP certification call was performed.
-- Uploaded instruction files remain untracked.
+- The current correction-instruction upload remains untracked and unstaged. Older pasted-instruction assets already tracked on `main` are disclosed above and are not modified by this correction.
+- Certification migration, integration-suite, and isolated-server application children launch from an explicit replacement environment; inherited/real provider credentials are absent, the server uses only a fixed dummy AI constructor key pinned to loopback, effective global-fetch and direct Node HTTP(S) targets are denied outside loopback, custom connection hooks are rejected, and any blocked request is immediately fatal. Each stateful wrapper reserves a UUID-qualified Redis namespace, rejects collisions or stale keys, and releases its reservation on exit.
 
 ## Required remediation order
 

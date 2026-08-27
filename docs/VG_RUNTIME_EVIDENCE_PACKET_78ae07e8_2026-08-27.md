@@ -113,6 +113,10 @@ Fresh managed scans:
 
 Representative high dependency packages: drizzle-orm, multer, nodemailer, path-to-regexp, sharp, undici, uuid, vite, ws, xlsx. These are blockers pending triage or remediation.
 
+### Repository-hygiene finding
+
+Current `main` tracks six synthetic statement PDFs under `uploads/statement-command/` and tracked pasted-instruction text under `attached_assets/`. The certification records but does not delete them. `scan-tracked-files.ts` detects selected prohibited extensions and signatures rather than rejecting those directories categorically, so these files were outside its existing rule coverage. A separate reviewed remediation must remove them and extend the scanner.
+
 ## Production read-only aggregate evidence
 
 All queries used the production read-only database tool. They selected only schema names, counts, and status buckets. No identifiers or values were returned.
@@ -193,10 +197,13 @@ Negative tests:
 
 ## Failures and repairs during certification
 
-1. The initial runbook called an import-only guard as a CLI. Independent review caught the issue before task completion. Repair: same-process guarded canonical migration launcher plus an accepted `ci_..._` Redis prefix.
+1. The initial runbook called an import-only guard as a CLI. Independent review caught the issue before task completion. Repair: guarded canonical migration launcher plus a UUID-qualified Redis namespace.
 2. The initial validator checked IDs and shape but not source claims or exact SHAs. Repair: immutable claim binding, exact SHA/timestamp/filename checks, evidence artifacts, and future-PASS deployment/evidence block requirements.
 3. Completion review found inherited AI credentials could trigger knowledge indexing. Repair: explicit provider-deny mode scrubs provider credentials and blocks HTTP before canonical migrator import; regression test verifies the inherited AI key is removed.
-4. No failed production mutation or provider operation occurred.
+4. Post-review found integration and isolated-server child processes could still inherit credentials. Repair: guarded outer launchers now spawn migration, suite, and server application children with one explicit replacement environment; provider denial covers global fetch and direct Node HTTP(S) before application imports, and blocked external requests fail the process. The server alone installs a fixed non-secret dummy AI constructor key with a loopback base URL after denial; migration and suite children retain no AI key. The certification server is route-only: workers, operational provider-health sweeps, GHL live validation, and recurring schedulers are disabled while loopback route readiness remains mandatory.
+5. The register now records release, email-pilot, SMS, and mass-scale criticality independently, plus role-specific owner and recurrence. RV-OUT-05 blocks SMS and applicable mass scale, not an email-only pilot.
+6. No failed production mutation or provider operation occurred.
+7. Final architecture review found URL-plus-options overrides could bypass a first-argument loopback check and Redis prefixes were not collision-reserved. Repair: validate the effective HTTP(S) target, reject custom connection hooks, make blocked attempts immediately fatal, and atomically reserve UUID-qualified per-operation Redis namespaces with stale-key rejection and release-on-exit. Dedicated regressions cover both controls.
 
 ## Register evidence map
 

@@ -141,7 +141,7 @@ const CASES: GuardCase[] = [
   { method: "GET",    path: "/api/admin/launch-readiness",           anon: [401], merchant: [403], admin: [200], description: "launch readiness (requireRole admin/manager)" },
   { method: "GET",    path: "/api/admin/outbound-preflight",         anon: [401], merchant: [403], admin: [200], description: "outbound preflight checklist (requireRole admin/manager)" },
   { method: "GET",    path: "/api/admin/data-health",               anon: [401], merchant: [403], admin: [200], description: "data health metrics (requireRole admin/manager)" },
-  { method: "GET",    path: "/api/admin/queue-metrics",              anon: [401], merchant: [403], admin: [200], description: "queue metrics (requireRole admin/manager)" },
+  { method: "GET",    path: "/api/admin/queue-metrics",              anon: [401], merchant: [403], admin: [200, 503], description: "queue metrics (requireRole admin; 503 when queue infrastructure is intentionally unavailable)" },
   { method: "GET",    path: "/api/admin/alerts",                     anon: [401], merchant: [403], admin: [200], description: "alert feed (requireRole admin/manager)" },
   { method: "GET",    path: "/api/admin/ghl/identity-conflicts",     anon: [401], merchant: [403], admin: [200], description: "GHL identity conflict queue (requireRole admin/manager)" },
 
@@ -188,7 +188,7 @@ const CASES: GuardCase[] = [
   { method: "GET",    path: "/api/wizard/connectivity",             anon: [401], merchant: [403], admin: [200],      agent: [403], manager: [200], description: "wizard connectivity check (admin/manager only)" },
   { method: "GET",    path: "/api/wizard/booking-links",            anon: [401], merchant: [403], admin: [200],      agent: [403], manager: [200], description: "wizard booking links (admin/manager only)" },
   { method: "GET",    path: "/api/wizard/feature-flags",            anon: [401], merchant: [403], admin: [200],      agent: [403], manager: [200], description: "wizard feature-flag read (admin/manager only)" },
-  { method: "GET",    path: "/api/wizard/queue-health",             anon: [401], merchant: [403], admin: [200],      agent: [403], manager: [200], description: "wizard queue health (admin/manager only)" },
+  { method: "GET",    path: "/api/wizard/queue-health",             anon: [401], merchant: [403], admin: [200, 503], agent: [403], manager: [200, 503], description: "wizard queue health (admin/manager only; 503 when queue infrastructure is intentionally unavailable)" },
   // Mutating wizard endpoints: admin/manager allowed role-wise, but CSRF fires first on POST/DELETE →
   // all authenticated callers (admin, manager, agent) get 403 in the test harness (no CSRF token).
   { method: "POST",   path: "/api/wizard/test-contact",             anon: [401], merchant: [403], admin: [403],      agent: [403], manager: [403], description: "wizard create test contact (admin/manager; CSRF required)" },

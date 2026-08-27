@@ -44,7 +44,7 @@ Provision PostgreSQL separately from all shared databases and an approved test R
 ```bash
 export NODE_ENV=test
 export DATABASE_URL="$TEST_DATABASE_URL"
-export TEST_REDIS_PREFIX="ci_vg1687_unique_run_"
+export TEST_REDIS_PREFIX="$(npx tsx scripts/generate-certification-redis-prefix.ts)"
 export REDIS_PREFIX="$TEST_REDIS_PREFIX"
 export INTEGRATION_TESTS_OPT_IN=1
 export GHL_TRANSPORT_FAILFAST=true
@@ -56,27 +56,20 @@ npx tsx scripts/run-ci-suites.ts --capability deterministic-integration
 ```
 
 Any skip, unreachable server, timeout, or unavailable fixture is a non-pass. The second migration must be a no-op.
-The guarded launcher verifies disposable DB/Redis first, then scrubs inherited provider credentials, disables Serper/Sunbiz, forces GHL fail-fast, and blocks global HTTP fetch before importing the canonical migrator.
+The guarded outer launcher verifies disposable DB/Redis, derives a UUID-qualified Redis namespace, atomically reserves it, rejects collisions or pre-existing keys, then spawns the canonical migration child with an explicit replacement environment. The child disables providers and blocks non-loopback global fetch plus direct Node HTTP(S) before importing the canonical migrator. HTTP(S) validation uses the effective URL-plus-options target and rejects custom agents, lookup functions, connection hooks, and socket paths. Integration suites and the isolated server independently repeat the infrastructure check and reservation using separate per-operation namespaces. The server child may set one fixed, non-secret dummy AI key solely for eager SDK construction; its base URL remains pinned to loopback, while migration and suite children keep the AI key absent. The isolated certification server is route-only: BullMQ workers, operational provider-health sweeps, GHL live validation, daily maintenance, and the content scheduler do not start in deny mode; route-level loopback readiness remains mandatory. Any blocked external request is immediately fatal, never a pass, and logs only the redacted target origin plus call stack.
 
 ## 4. Isolated server-required matrix
 
-Start the app on a non-conflicting test port using only the disposable environment, then run:
+Start the app on a non-conflicting test port through the denied certification server launcher:
 
 ```bash
+npx tsx scripts/run-denied-certification-server.ts > certification-server.log 2>&1 &
+export CERTIFICATION_SERVER_PID=$!
 npx tsx scripts/run-ci-suites.ts --capability server-required
-npx tsx scripts/smoke-role-guards.ts
-npx tsx scripts/test-crm-operator-experience.ts
-npx tsx scripts/test-new-lead-enrollment-policy.ts
-npx tsx scripts/test-pause-fence.ts
-npx tsx scripts/test-pause-cycle-unit.ts
-npx tsx scripts/test-contactability.ts
-npx tsx scripts/test-sequence-compliance.ts
-npx tsx scripts/test-provider-readiness-controls.ts
-npx tsx scripts/test-bt12-revenue-state-reconciliation-integration.ts
-npx tsx scripts/test-commercial-classification.ts
+kill "$CERTIFICATION_SERVER_PID"
 ```
 
-Capture exact SHA, exit code, duration, hashed test database identity, Redis prefix, fake-provider request count, and cleanup proof.
+`BASE_URL` must be credential-free HTTP(S) on `127.0.0.1`, `localhost`, or `::1`; the runner rejects any external readiness target before calling fetch. The manifest runner launches every suite through `run-denied-certification-suite.ts`; do not invoke stateful suite scripts directly. Capture exact SHA, exit code, duration, hashed test database identity, UUID-qualified reserved Redis prefix, zero blocked-provider request count, reservation cleanup, and data cleanup proof.
 
 ## 5. Production read-only evidence
 

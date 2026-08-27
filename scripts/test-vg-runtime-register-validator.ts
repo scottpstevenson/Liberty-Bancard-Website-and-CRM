@@ -37,7 +37,10 @@ function replaceRow(markdown: string): string {
         "remaining gap",
         "owner access requirement",
         "expiry recurrence",
-        "launch criticality",
+        "release blocker",
+        "email pilot blocker",
+        "sms blocker",
+        "mass-scale blocker",
       ];
       const index = new Map(headers.map((header, position) => [header, position]));
       cells[index.get("status")!] = "PASS_CURRENT_RELEASE";

@@ -41,8 +41,17 @@ const REQUIRED_COLUMNS = [
   "remaining gap",
   "owner access requirement",
   "expiry recurrence",
-  "launch criticality",
+  "release blocker",
+  "email pilot blocker",
+  "sms blocker",
+  "mass-scale blocker",
 ];
+const DECISION_AXIS_COLUMNS = [
+  "release blocker",
+  "email pilot blocker",
+  "sms blocker",
+  "mass-scale blocker",
+] as const;
 
 const EXPECTED_IDS = [
   "RV-1548-01", "RV-1548-02", "RV-1548-03", "RV-1548-04",
@@ -200,6 +209,20 @@ function main(): void {
     if (!SHA_PATTERN.test(sha)) fail(`${id} exact SHA must be one full 40-character SHA`);
     const evidenceArtifact = cells[columnIndex.get("evidence artifact")!]?.trim() ?? "";
     const evidenceArtifactContent = readEvidenceArtifact(evidenceArtifact, id);
+    for (const axis of DECISION_AXIS_COLUMNS) {
+      const value = cells[columnIndex.get(axis)!]?.trim().toLowerCase();
+      if (!["yes", "no", "not_applicable"].includes(value)) {
+        fail(`${id} has invalid ${axis} value "${value || "<empty>"}"`);
+      }
+    }
+    if (id === "RV-OUT-05") {
+      const axisValues = DECISION_AXIS_COLUMNS.map(
+        (axis) => cells[columnIndex.get(axis)!]?.trim().toLowerCase(),
+      );
+      if (axisValues.join(",") !== "no,no,yes,yes") {
+        fail("RV-OUT-05 must block SMS and mass scale, not release or an email-only pilot");
+      }
+    }
 
     if (status === "PASS_CURRENT_RELEASE") {
       const environment = cells[columnIndex.get("environment")!]?.trim() ?? "";

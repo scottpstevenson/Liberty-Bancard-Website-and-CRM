@@ -303,6 +303,7 @@ app.use((req, res, next) => {
     async () => {
       log(`serving on port ${port}`);
       logEnvVarChecklist();
+      const certificationDenyMode = process.env.VG_PROVIDER_DENY_MODE === "1";
 
       // ── PAUSE AUTHORITY INITIALIZATION (must complete before any worker starts) ──
       // Read and validate the global outbound pause state before starting any
@@ -383,7 +384,9 @@ app.use((req, res, next) => {
       // fails closed: a process-local interval fallback would let replicas
       // disagree on ownership (BullMQ on one, legacy loop on another).
       // NOTE: This block only executes when pause state was successfully initialized.
-      if (!pauseInitialized) { /* skip workers — outbound state unknown */ } else
+      if (certificationDenyMode) {
+        log("[Certification] BullMQ workers disabled in provider deny mode");
+      } else if (!pauseInitialized) { /* skip workers — outbound state unknown */ } else
       getQueueManager().then(async qm => {
         log("[Queue] BullMQ job queues initialized");
         // BullMQ's GHL_SYNC repeatable job is now the sole active GHL sync mechanism.
@@ -407,35 +410,39 @@ app.use((req, res, next) => {
 
       // Hydrate GHL workflow IDs from DB into process.env so they behave as env vars,
       // then run a non-blocking live validation against GHL to surface stale/deleted IDs.
-      hydrateWorkflowEnvFromDb().then(async n => {
-        if (n > 0) log(`[GHL Workflows] Hydrated ${n} workflow IDs from DB into process.env`);
-        // Validate configured workflow IDs against real GHL after hydration so all IDs are visible
-        try {
-          const { validateGhlWorkflowRegistry } = await import("./services/ghl-workflows");
-          const { isSdrGhlConfigured } = await import("./services/sdr/ghl-client");
-          const { isGhlConfigured } = await import("./services/ghl");
-          if (isGhlConfigured() || isSdrGhlConfigured()) {
-            const v = await validateGhlWorkflowRegistry();
-            if (v.checkedCount === 0) {
-              log(`[GHL Workflow Validation] No workflow IDs configured yet — skipping live check`);
-            } else {
-              const broken = v.unresolvedKeys.length + v.inactiveKeys.length;
-              if (broken > 0) {
-                console.warn(
-                  `[GHL Workflow Validation] STARTUP WARNING: ${broken} workflow ID(s) invalid ` +
-                  `(${v.unresolvedKeys.length} not found in GHL, ${v.inactiveKeys.length} inactive). ` +
-                  `Affected env keys: ${[...v.unresolvedKeys, ...v.inactiveKeys].join(", ")}. ` +
-                  `These automations will silently skip until fixed.`
-                );
+      if (certificationDenyMode) {
+        log("[Certification] GHL workflow hydration/live validation disabled in provider deny mode");
+      } else {
+        hydrateWorkflowEnvFromDb().then(async n => {
+          if (n > 0) log(`[GHL Workflows] Hydrated ${n} workflow IDs from DB into process.env`);
+          // Validate configured workflow IDs against real GHL after hydration so all IDs are visible
+          try {
+            const { validateGhlWorkflowRegistry } = await import("./services/ghl-workflows");
+            const { isSdrGhlConfigured } = await import("./services/sdr/ghl-client");
+            const { isGhlConfigured } = await import("./services/ghl");
+            if (isGhlConfigured() || isSdrGhlConfigured()) {
+              const v = await validateGhlWorkflowRegistry();
+              if (v.checkedCount === 0) {
+                log(`[GHL Workflow Validation] No workflow IDs configured yet — skipping live check`);
               } else {
-                log(`[GHL Workflow Validation] ${v.okCount}/${v.checkedCount} configured workflow IDs verified active in GHL`);
+                const broken = v.unresolvedKeys.length + v.inactiveKeys.length;
+                if (broken > 0) {
+                  console.warn(
+                    `[GHL Workflow Validation] STARTUP WARNING: ${broken} workflow ID(s) invalid ` +
+                    `(${v.unresolvedKeys.length} not found in GHL, ${v.inactiveKeys.length} inactive). ` +
+                    `Affected env keys: ${[...v.unresolvedKeys, ...v.inactiveKeys].join(", ")}. ` +
+                    `These automations will silently skip until fixed.`
+                  );
+                } else {
+                  log(`[GHL Workflow Validation] ${v.okCount}/${v.checkedCount} configured workflow IDs verified active in GHL`);
+                }
               }
             }
+          } catch (err: any) {
+            console.warn(`[GHL Workflow Validation] Startup validation failed (non-critical): ${err.message}`);
           }
-        } catch (err: any) {
-          console.warn(`[GHL Workflow Validation] Startup validation failed (non-critical): ${err.message}`);
-        }
-      }).catch(() => {});
+        }).catch(() => {});
+      }
 
       // Seed Scott's sending identity as the primary SDR inbox if not already present
       seedScottSendingIdentity().catch(err => {
@@ -470,13 +477,21 @@ app.use((req, res, next) => {
         }
       })().catch(err => console.warn("[StatementAcquisition] Non-critical seeding error:", err.message));
 
-      startDailyMaintenanceScheduler();
+      if (!certificationDenyMode) {
+        startDailyMaintenanceScheduler();
+      } else {
+        log("[Certification] Daily maintenance scheduler disabled in provider deny mode");
+      }
 
       // Task #179 — Content Engine: scheduled blog publish + LinkedIn drafts
       // Only start when pause state is known — LinkedIn auto-publish is an
       // external outbound action and must not run when workers are blocked.
       if (pauseInitialized) {
-        startContentScheduler();
+        if (!certificationDenyMode) {
+          startContentScheduler();
+        } else {
+          log("[Certification] Content scheduler disabled in provider deny mode");
+        }
       } else {
         console.warn("[ContentScheduler] NOT started — pause state unknown; LinkedIn auto-publish blocked until restart with control table available");
       }

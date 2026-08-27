@@ -194,15 +194,40 @@ await check("canonical runner completes the snapshot before migration baselining
   expect(baselineIndex > completionIndex, "0076 can be baselined before snapshot completion");
 });
 
-await check("GitHub integration starts empty and invokes only the canonical runner twice", () => {
+await check("GitHub integration starts empty and invokes the guarded canonical runner twice", () => {
   const workflow = fs.readFileSync(
     path.join(process.cwd(), ".github", "workflows", "ci.yml"),
     "utf8",
   );
   expect(!workflow.includes("Bootstrap disposable schema snapshot"), "CI still preloads snapshot 0109");
   expect(!workflow.includes("CI_SNAPSHOT_BOOTSTRAP"), "CI still uses the snapshot preload bypass");
-  const invocations = workflow.match(/run: npx tsx server\/db-migrate\.ts/g) ?? [];
-  expect(invocations.length === 2, `expected two canonical migration invocations, found ${invocations.length}`);
+  expect(!workflow.includes("run: npx tsx server/db-migrate.ts"), "CI bypasses the guarded launcher");
+  const invocations =
+    workflow.match(/run: npx tsx scripts\/run-guarded-canonical-migration\.ts/g) ?? [];
+  expect(
+    invocations.length === 2,
+    `expected two guarded canonical migration invocations, found ${invocations.length}`,
+  );
+
+  const guardedLauncher = fs.readFileSync(
+    path.join(process.cwd(), "scripts", "run-guarded-canonical-migration.ts"),
+    "utf8",
+  );
+  expect(
+    guardedLauncher.includes("spawnCertificationTsx(") &&
+      guardedLauncher.includes('"scripts/run-guarded-canonical-migration-child.ts"'),
+    "guarded launcher does not spawn the clean migration child",
+  );
+  const guardedChild = fs.readFileSync(
+    path.join(process.cwd(), "scripts", "run-guarded-canonical-migration-child.ts"),
+    "utf8",
+  );
+  const denyIndex = guardedChild.indexOf("applyCertificationProviderDenyBoundary(");
+  const importIndex = guardedChild.indexOf('await import("../server/db-migrate")');
+  const runIndex = guardedChild.indexOf("await runDrizzleMigrations()");
+  expect(denyIndex >= 0, "migration child does not apply the provider-denial boundary");
+  expect(importIndex > denyIndex, "canonical runner is imported before child provider denial");
+  expect(runIndex > importIndex, "guarded launcher does not call the canonical migration runner");
 });
 
 if (failures.length > 0) {
