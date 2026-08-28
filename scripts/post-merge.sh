@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-npm install --prefer-offline --no-audit --no-fund 2>/dev/null || npm install
+npm ci --include=dev --ignore-scripts --prefer-offline --no-audit --no-fund
 
 # Use the migration runner (non-interactive) instead of drizzle-kit push,
 # which prompts when adding unique constraints to tables with existing data.

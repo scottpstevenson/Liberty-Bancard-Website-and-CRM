@@ -600,9 +600,6 @@ async function checkWebhooks(): Promise<SubsystemResult> {
 
 // ─── 22. Queue / BullMQ / Redis / DB health ──────────────────────────────────
 async function checkQueueHealth(): Promise<SubsystemResult> {
-  const redisUrl = process.env.REDIS_URL;
-  const redisReal = !!(redisUrl && redisUrl !== "");
-
   let dbOk = false;
   let dbMs = 0;
   try {
@@ -616,7 +613,7 @@ async function checkQueueHealth(): Promise<SubsystemResult> {
   let queueCount: number | null = null;
   let queueFailed: number | null = null;
   let queueState: "ok" | "unavailable" | "degraded" = "unavailable";
-  let usingMock = !redisReal;
+  let queueMode: "bullmq_redis" | "legacy_interval_partial" | "unavailable" = "unavailable";
   try {
     const { requireQueueManagerReady } = await import("./queue-manager");
     const qm = requireQueueManagerReady();
@@ -626,14 +623,17 @@ async function checkQueueHealth(): Promise<SubsystemResult> {
       ? m.queues.reduce((acc, q) => acc + (q.failed ?? 0), 0)
       : null;
     queueState = m.status;
-    usingMock = m.usingMock;
-  } catch { /* retained as explicit unavailable state below */ }
+    queueMode = m.queueMode;
+  } catch {
+    const { getQueueMode } = await import("./queue-manager");
+    queueMode = getQueueMode();
+  }
 
-  const status: SubsystemStatus = !dbOk ? "fail" : queueState === "unavailable" ? "warn" : usingMock ? "warn" : queueState === "degraded" || (queueFailed ?? 0) > 10 ? "warn" : "pass";
+  const status: SubsystemStatus = !dbOk ? "fail" : queueMode !== "bullmq_redis" || queueState === "unavailable" ? "warn" : queueState === "degraded" || (queueFailed ?? 0) > 10 ? "warn" : "pass";
   return {
     id: "queue_health", name: "Queue / BullMQ / Redis / DB Health", status,
-    evidence: `DB: ${dbOk ? `${dbMs}ms ✓` : "DOWN ✗"}. Redis: ${usingMock ? "in-memory mock (non-durable — set REDIS_URL for production) ✗" : "live Redis ✓"}. Queues: ${queueState === "unavailable" ? "unavailable" : `${queueCount} registered, ${queueFailed} failed jobs`}.`,
-    checkedAt: now(), details: { dbOk, dbMs, usingMock, queueState, queueCount, queueFailed },
+    evidence: `DB: ${dbOk ? `${dbMs}ms ✓` : "DOWN ✗"}. Queue mode: ${queueMode}. Queues: ${queueState === "unavailable" ? "unavailable" : `${queueCount} registered, ${queueFailed} failed jobs`}.`,
+    checkedAt: now(), details: { dbOk, dbMs, queueMode, queueState, queueCount, queueFailed },
   };
 }
 

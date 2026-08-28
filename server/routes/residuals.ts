@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { isAuthenticated, isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { db } from "../db";
-import { upload } from "./helpers";
+import { uploadCsv } from "./helpers";
 import { parse } from "csv-parse/sync";
 import { sendGhlInternalNotification } from "../services/ghl";
 import { sql, eq, isNotNull } from "drizzle-orm";
@@ -48,28 +48,7 @@ function detectColumnMap(headers: string[]): Record<string, string> {
   };
 }
 
-async function parseFileBuffer(buffer: Buffer, mimetype: string): Promise<Record<string, string>[]> {
-  const xlsxMimes = [
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    "application/vnd.ms-excel",
-  ];
-  const isXlsx = xlsxMimes.includes(mimetype) ||
-    mimetype === "application/octet-stream";
-
-  if (isXlsx) {
-    const XLSX = await import("xlsx");
-    const workbook = XLSX.read(buffer, { type: "buffer" });
-    const sheet = workbook.Sheets[workbook.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json<Record<string, any>>(sheet, { defval: "" });
-    return rows.map(r => {
-      const out: Record<string, string> = {};
-      for (const k of Object.keys(r)) {
-        out[k] = String(r[k] ?? "");
-      }
-      return out;
-    });
-  }
-
+function parseFileBuffer(buffer: Buffer): Record<string, string>[] {
   const records = parse(buffer, {
     columns: true,
     skip_empty_lines: true,
@@ -88,7 +67,7 @@ export function registerResidualsRoutes(app: Express) {
     }));
     next();
   });
-  app.post("/api/residuals/import", requireRole("admin", "manager"), upload.single("file"), async (req, res) => {
+  app.post("/api/residuals/import", requireRole("admin", "manager"), uploadCsv.single("file"), async (req, res) => {
     try {
       const user = req.user as any;
       if (user?.role !== "admin" && user?.role !== "manager") {
@@ -107,7 +86,7 @@ export function registerResidualsRoutes(app: Express) {
       const configuredThresholdAmtMinor = parseMoneyMinor(varianceThresholdAmt || "50");
       const thresholdAmtDecimal = minorToCurrency(configuredThresholdAmtMinor);
 
-      const records = await parseFileBuffer(req.file.buffer, req.file.mimetype);
+      const records = parseFileBuffer(req.file.buffer);
       if (records.length === 0) {
         return res.status(400).json({ message: "File contains no data rows" });
       }

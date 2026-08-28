@@ -38,7 +38,7 @@ The frontend uses React with Vite, TypeScript, Tailwind CSS, and shadcn/ui, with
 - **Anomaly Detection Monitoring**: Automated detection and alerting for deviations in send volume, reply rates, inbox bounce spikes, and inbox health.
 - **Calendar Booking Automation**: Meeting-intent reply classification triggers automatic booking link generation via GHL scheduling integration.
 - **Merchant Lifecycle Suite**: Four integrated features: NPS/CSAT Surveys (`/nps/:token`), Merchant Referral Portal, Retention Campaigns (`/dashboard/retention-campaigns`), and Review Collection.
-- **Automated Residual Reconciliation**: Allows admins to upload monthly processor residual reports (CSV/XLSX). The system parses, matches to merchant records, calculates variance, flags discrepancies, and shows per-agent reconciliation, with one-click confirmation to post residuals and trigger internal alerts.
+- **Automated Residual Reconciliation**: Allows admins to upload monthly processor residual reports (CSV). The system parses, matches to merchant records, calculates variance, flags discrepancies, and shows per-agent reconciliation, with one-click confirmation to post residuals and trigger internal alerts.
 - **Direct Processor Boarding & MID Data Pipeline**: Full NMI-style processor boarding integration for the onboarding pipeline. This includes new schema fields on `deals` for boarding status and logs, and a `mid_daily_stats` table for daily MID performance. An SLA worker runs nightly MID data ingestion.
 
 ### Feature Specifications
@@ -51,7 +51,7 @@ The frontend uses React with Vite, TypeScript, Tailwind CSS, and shadcn/ui, with
 ## Job Queue (BullMQ)
 The platform uses BullMQ for durable, Redis-backed job queues. Seven named queues manage all background work: `ghl-sync` (45s), `sla-checks` (5m), `sequences` (30s), `enrichment` (10m), `discovery` (daily), `digests` (1h), and `mid-ingestion` (nightly). Failed jobs are retried up to 3 times with exponential backoff; after all retries the job is moved to a dead-letter queue and an audit log entry is written. Graceful shutdown drains all workers on SIGTERM/SIGINT.
 
-When `REDIS_URL` is not set (local dev), the system automatically falls back to `ioredis-mock` (in-memory, non-persistent). Set `REDIS_URL` to a real Redis connection string for production durability. The Operator Dashboard → "Job Queue" tab provides real-time queue metrics, pause/resume controls, and dead-letter job management (retry / discard).
+BullMQ requires a real Redis connection via `REDIS_URL`; there is no in-memory fallback. Without it, queue mode is `unavailable` and BullMQ workers do not start. `bullmq_redis` is the durable mode. A `legacy_interval_partial` mode, where explicitly reported, covers only the legacy task that owns that interval and never represents all queues. The Operator Dashboard → "Job Queue" tab provides real-time queue metrics, pause/resume controls, and dead-letter job management (retry / discard).
 
 ## GHL Workflow Environment Variables
 The GHL Workflow ID Manager (`server/services/ghl-workflows.ts`) maintains a registry of all GHL workflow env vars. Each maps a business event to a GHL workflow ID. Key onboarding workflows:

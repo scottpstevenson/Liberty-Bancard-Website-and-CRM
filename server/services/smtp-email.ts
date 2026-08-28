@@ -48,6 +48,8 @@ function getTransporter(): nodemailer.Transporter | null {
     port,
     secure: port === 465,
     auth: { user, pass },
+    disableFileAccess: true,
+    disableUrlAccess: true,
   });
 
   return transporter;

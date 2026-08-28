@@ -5,12 +5,13 @@
  * Isolated tests for BullMQ queue resilience, retry/backoff configuration,
  * idempotency, dead-letter queue (DLQ) promotion, and operator visibility.
  *
- * Uses ioredis-mock (already the project's in-process fallback when REDIS_URL
- * is not set) — no real Redis connection required.
+ * Does not use an in-memory Redis substitute. Runtime queue operations require
+ * an isolated real Redis instance; without REDIS_URL this script verifies the
+ * unavailable state and static contracts only.
  *
  * Covers:
  *  - QUEUE_NAMES registry contains all expected queues
- *  - QueueManager initialises without throwing (in-memory mock mode)
+ *  - QueueManager either initialises against real Redis or reports unavailable
  *  - getDlqItems() returns an array (not null/undefined)
  *  - getQueueMetrics() returns all expected queue names
  *  - Idempotency: duplicate jobId does not double-count in metrics
@@ -22,6 +23,7 @@
  */
 
 import { QUEUE_NAMES, QUEUE_CONFIGS } from "../server/services/queue-manager";
+import { deriveQueueMode } from "../server/services/queue-manager";
 
 let passed = 0;
 let failed = 0;
@@ -60,6 +62,14 @@ async function testQueueNamesRegistry() {
   assert("QUEUE_NAMES has at least 7 entries", names.length >= 7, `count=${names.length}`);
 }
 
+function testQueueModeTruthTable() {
+  console.log("\n1b. Queue mode — mixed topology reports partial legacy ownership");
+  assert("no manager and no legacy owner is unavailable", deriveQueueMode(false, false) === "unavailable");
+  assert("complete BullMQ ownership is durable", deriveQueueMode(true, false) === "bullmq_redis");
+  assert("legacy-only ownership is partial", deriveQueueMode(false, true) === "legacy_interval_partial");
+  assert("mixed BullMQ and legacy ownership is partial", deriveQueueMode(true, true) === "legacy_interval_partial");
+}
+
 // ── 2. Queue configuration — attempts and backoff ────────────────────────────
 
 async function testQueueConfig() {
@@ -72,7 +82,7 @@ async function testQueueConfig() {
     mgr = await getQueueManager();
   } catch (err: any) {
     console.log(`  (getQueueManager() threw: ${err?.message} — checking static config only)`);
-    assert("QueueManager init skipped — checking static config only", true);
+    assert("QueueManager reports unavailable without Redis", !process.env.REDIS_URL && /REDIS_URL|Redis/i.test(err?.message ?? ""), err?.message);
     return;
   }
 
@@ -95,7 +105,7 @@ async function testDlqInterface() {
   try {
     mgr = await getQueueManager();
   } catch {
-    assert("DLQ test skipped — QueueManager unavailable", true);
+    assert("DLQ runtime is unavailable without Redis", !process.env.REDIS_URL);
     return;
   }
 
@@ -129,7 +139,7 @@ async function testPauseResume() {
   try {
     mgr = await getQueueManager();
   } catch {
-    assert("Pause/resume test skipped — QueueManager unavailable", true);
+    assert("Pause/resume runtime is unavailable without Redis", !process.env.REDIS_URL);
     return;
   }
 
@@ -187,7 +197,7 @@ async function testTopologySnapshot() {
   try {
     mgr = await getQueueManager();
   } catch {
-    assert("Topology snapshot test skipped — QueueManager unavailable", true);
+    assert("Topology runtime is unavailable without Redis", !process.env.REDIS_URL);
     return;
   }
 
@@ -199,7 +209,7 @@ async function testTopologySnapshot() {
   assert("snapshot has instantiatedWorkerCount (number)", typeof snap.instantiatedWorkerCount === "number");
   assert("snapshot has logicalJobCount (number)", typeof snap.logicalJobCount === "number");
   assert("snapshot has legacyGhlClaimed (boolean)", typeof snap.legacyGhlClaimed === "boolean");
-  assert("snapshot has usingMockRedis (boolean)", typeof snap.usingMockRedis === "boolean");
+  assert("snapshot has queueMode (bullmq_redis)", snap.queueMode === "bullmq_redis");
   assert("snapshot has processId (number)", typeof snap.processId === "number");
   assert("snapshot has capturedAt (string)", typeof snap.capturedAt === "string");
   assert("snapshot capturedAt is valid ISO8601", !isNaN(new Date(snap.capturedAt).getTime()));
@@ -234,7 +244,7 @@ async function testBackoffConfig() {
   try {
     mgr = await getQueueManager();
   } catch {
-    assert("Backoff config test skipped — QueueManager unavailable", true);
+    assert("Backoff runtime is unavailable without Redis", !process.env.REDIS_URL);
     return;
   }
 
@@ -261,7 +271,7 @@ async function testOperatorVisibility() {
   try {
     mgr = await getQueueManager();
   } catch {
-    assert("Operator visibility test skipped — QueueManager unavailable", true);
+    assert("Operator visibility runtime is unavailable without Redis", !process.env.REDIS_URL);
     return;
   }
 
@@ -287,6 +297,7 @@ async function main() {
 
   try {
     await testQueueNamesRegistry();
+  testQueueModeTruthTable();
     await testQueueConfig();
     await testDlqInterface();
     await testPauseResume();

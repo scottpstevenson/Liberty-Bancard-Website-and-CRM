@@ -146,10 +146,10 @@ async function checkStage1(): Promise<StageResult> {
   let redisStatus = "not configured";
 
   if (!redisUrl) {
-    redisStatus = "not_configured — using ioredis-mock (local dev fallback)";
+    redisStatus = "not_configured — BullMQ unavailable";
     steps.push(step("Redis: REDIS_URL configured", false,
-      "REDIS_URL is not set. System falls back to ioredis-mock (non-persistent). " +
-      "Set REDIS_URL for durable BullMQ job queues in production."));
+      "REDIS_URL is not set. BullMQ queues are unavailable; no in-memory fallback exists. " +
+      "Set REDIS_URL to enable durable BullMQ job queues."));
   } else {
     try {
       const { getRedisConnection } = await import("../server/services/queue-connection");
@@ -784,8 +784,7 @@ async function checkStage7(): Promise<StageResult> {
         : redisConfigured
           ? "No sequence activity logged in last 20 min. BullMQ sequences worker has not run yet. " +
             "Ensure the server is running and wait 60 seconds for the first tick."
-          : "No sequence activity logged in last 20 min. setInterval fallback has not run yet. " +
-            "Ensure the server is running and wait 60 seconds for the first tick."));
+          : "No sequence activity logged in last 20 min. BullMQ cannot run until REDIS_URL is configured."));
   }
 
   // Check Redis / BullMQ queue availability
@@ -804,8 +803,8 @@ async function checkStage7(): Promise<StageResult> {
       steps.push(step("BullMQ queue manager accessible", false, err.message.slice(0, 150)));
     }
   } else {
-    steps.push(step("Queue mode: setInterval fallback (non-persistent)", true,
-      "REDIS_URL not set. Jobs run on 30s setInterval inside the Node process. Set REDIS_URL for durable production queues."));
+    steps.push(step("Queue mode: unavailable", false,
+      "REDIS_URL not set. BullMQ queues are unavailable; no interval fallback runs. Set REDIS_URL to enable durable queues."));
   }
 
   return stage(7, "Sequence worker heartbeat", steps, true);

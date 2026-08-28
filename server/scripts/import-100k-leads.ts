@@ -1,8 +1,7 @@
 import pg from "pg";
-import { createRequire } from "module";
+import fs from "fs";
+import { parse } from "csv-parse/sync";
 import { recordContactIdentityObservationsForPgContacts } from "../services/contact-identity";
-const require = createRequire(import.meta.url);
-const XLSX = require("xlsx");
 
 const { Pool } = pg;
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -71,8 +70,12 @@ async function main() {
 
   console.log("\nParsing 100K lead file...");
   const filePath = "attached_assets/100k_leads_-_Liberty_Bancard_1773280412639.csv";
-  const wb = XLSX.readFile(filePath);
-  const data = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]) as any[];
+  const data = parse(fs.readFileSync(filePath, "utf-8"), {
+    columns: true,
+    skip_empty_lines: true,
+    trim: true,
+    bom: true,
+  }) as Record<string, string>[];
   console.log(`  Rows in file: ${data.length}`);
 
   const s = (v: any) => (v == null ? "" : String(v).trim());

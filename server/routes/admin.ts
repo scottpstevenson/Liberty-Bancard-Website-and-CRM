@@ -999,7 +999,7 @@ export function registerAdminRoutes(app: Express) {
         actions.push(`Add more sending identities — only ${sendingIdentityCount} active (recommend 3+ for inbox rotation)`);
       }
       if (!redisReal) {
-        actions.push("Set REDIS_URL for production BullMQ job queue — currently using in-memory fallback (jobs lost on restart)");
+        actions.push("Set REDIS_URL for the required BullMQ job queue — background queues are unavailable without it");
       }
       if (!envChecks.adminEmail) {
         actions.push("Set ADMIN_DIGEST_EMAIL — daily/weekly digests have no recipient without it");
@@ -1015,7 +1015,7 @@ export function registerAdminRoutes(app: Express) {
         ghl: { status: ghlStatus, configured: ghlConfigured, locationName: ghlLocationName, workflowIdsConfigured, workflowIdsTotal: GHL_WORKFLOW_REGISTRY.length },
         smtp: { ...smtpStatus, configured: smtpConfigured },
         openai: { configured: openaiConfigured },
-        redis: { real: redisReal, url: redisReal ? "configured" : "not set (using in-memory mock)" },
+        redis: { real: redisReal, url: redisReal ? "configured" : "not set (BullMQ unavailable)" },
         sdr: flags,
         sendingIdentities: { activeCount: sendingIdentityCount },
         env: envChecks,
@@ -2837,10 +2837,11 @@ export function registerAdminRoutes(app: Express) {
       try {
         qm = requireQueueManagerReady();
       } catch {
-        return res.status(503).json({ status: "not_initialized", queues: [] });
+        const { getQueueMode } = await import("../services/queue-manager");
+        return res.status(503).json({ status: "not_initialized", queueMode: getQueueMode(), queues: [] });
       }
-      const { queues, usingMock, status } = await qm.getAllQueueMetrics();
-      res.json({ status, queues, usingMock, timestamp: new Date().toISOString() });
+      const { queues, queueMode, status } = await qm.getAllQueueMetrics();
+      res.json({ status, queues, queueMode, timestamp: new Date().toISOString() });
     } catch (err: any) {
       serverError(res, err);
     }
@@ -2890,13 +2891,13 @@ export function registerAdminRoutes(app: Express) {
 
       // ── Queue metrics ─────────────────────────────────────────────────────────
       let queueMetrics: any[] = [];
-      let queueMock = false;
+      let queueMode: "bullmq_redis" | "legacy_interval_partial" | "unavailable" = "unavailable";
       let queueStatus: "ok" | "not_initialized" = "not_initialized";
       try {
         const qm = requireQueueManagerReady();
         const m = await qm.getAllQueueMetrics();
         queueMetrics = m.queues;
-        queueMock = m.usingMock;
+        queueMode = m.queueMode;
         queueStatus = "ok";
       } catch {}
 
@@ -3039,7 +3040,7 @@ export function registerAdminRoutes(app: Express) {
       const gates = [
         { id: "canonical_url", label: "Canonical URL resolved", pass: urlInfo.source !== "static_fallback", detail: `${urlInfo.url} (source: ${urlInfo.source})`, ownerAction: urlInfo.warning },
         { id: "database", label: "PostgreSQL responding", pass: dbOk, detail: dbOk ? `${dbMs}ms` : "Connection failed" },
-        { id: "redis", label: "Redis / BullMQ", pass: !queueMock, detail: queueMock ? "Using in-memory mock (set REDIS_URL for production)" : "Live Redis connected" },
+        { id: "redis", label: "Redis / BullMQ", pass: queueMode === "bullmq_redis", detail: queueMode === "bullmq_redis" ? "Live Redis connected" : `Queue mode: ${queueMode}; configure REDIS_URL` },
         { id: "ghl", label: "GHL integration configured", pass: ghlOk, detail: ghlOk ? "GHL_LOCATION_ID + token present" : "Missing GHL credentials", ownerAction: ghlOk ? undefined : "Set GHL_LOCATION_ID and GHL_PRIVATE_INTEGRATION_TOKEN in Replit Secrets" },
         { id: "ghl_circuit", label: "GHL circuit breaker closed", pass: !ghlCircuit.circuitOpen, detail: ghlCircuit.circuitOpen ? `Circuit open — ${ghlCircuit.consecutiveFailures} consecutive failures` : `Closed (${ghlCircuit.consecutiveFailures}/${ghlCircuit.threshold} failures)` },
         { id: "smtp", label: "SMTP fallback configured", pass: smtpOk, detail: smtpOk ? `host=${smtpStatus.host}` : "SMTP not configured — GHL is primary delivery path", ownerAction: smtpOk ? undefined : "Set SMTP_HOST, SMTP_USER, SMTP_PASS in Replit Secrets (optional but required for transactional email fallback)" },
@@ -3080,13 +3081,13 @@ export function registerAdminRoutes(app: Express) {
         },
         {
           id: "redis_bullmq", label: "Redis / BullMQ Queues", icon: "Cpu",
-          status: queueMock ? "fail" : dlqCount > 0 ? "warn" : "pass",
+          status: queueMode !== "bullmq_redis" ? "fail" : dlqCount > 0 ? "warn" : "pass",
           metrics: [
             { key: "Queues", value: queueMetrics.length },
             { key: "DLQ failures", value: dlqCount },
             { key: "Last failure", value: lastQueueFailure?.lastFailedAt ?? "None" },
           ],
-          detail: queueMock ? "Using in-memory mock — set REDIS_URL for production" : dlqCount > 0 ? `${dlqCount} failed jobs need attention` : "Live Redis · all queues healthy",
+          detail: queueMode !== "bullmq_redis" ? `Queue mode: ${queueMode}; configure REDIS_URL` : dlqCount > 0 ? `${dlqCount} failed jobs need attention` : "Live Redis · all queues healthy",
         },
         {
           id: "ghl_sync", label: "GHL Sync", icon: "RefreshCw",
@@ -3251,7 +3252,7 @@ export function registerAdminRoutes(app: Express) {
       if (!dbOk) blockers.push("CRM database unreachable");
       if (!ghlOk) blockers.push("GHL integration not configured");
       if (ghlCircuit.circuitOpen) blockers.push(`GHL circuit breaker open (${ghlCircuit.consecutiveFailures} consecutive failures)`);
-      if (queueMock) blockers.push("Redis not connected — BullMQ using in-memory mock");
+      if (queueMode !== "bullmq_redis") blockers.push(`BullMQ Redis queue unavailable (mode: ${queueMode})`);
       if (!process.env.AI_INTEGRATIONS_OPENAI_API_KEY) blockers.push("AI/OpenAI API key missing");
       if (dlqCount > 5) blockers.push(`${dlqCount} dead-letter queue failures need attention`);
       if (criticalAlerts.length > 0) blockers.push(`${criticalAlerts.length} unacknowledged critical alerts`);
@@ -4309,8 +4310,8 @@ export function registerAdminRoutes(app: Express) {
           }
           const m = await qm.getAllQueueMetrics();
           redisMs = Date.now() - t0;
-          redisOk = !m.usingMock;
-          redisDetail = m.usingMock ? "in-memory mock (set REDIS_URL for production)" : `${redisMs}ms`;
+          redisOk = m.queueMode === "bullmq_redis";
+          redisDetail = redisOk ? `${redisMs}ms` : `Queue mode: ${m.queueMode}`;
         }
       } catch {}
       checks.push({ name: "redis", status: redisOk ? "ok" : "error", detail: redisDetail, durationMs: redisMs, critical: true });

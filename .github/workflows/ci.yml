@@ -24,11 +24,20 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "22.22.0"
           cache: "npm"
+          cache-dependency-path: package-lock.json
 
       - name: Install dependencies
-        run: npm install --include=dev --ignore-scripts --no-audit --no-fund --package-lock=false
+        run: npm ci --include=dev --ignore-scripts --no-audit --no-fund
+
+      - name: Verify locked dependency policy and toolchain evidence
+        run: |
+          test "$(node --version)" = "v22.22.0"
+          test "$(npm --version)" = "10.9.4"
+          npx tsx scripts/test-dependency-policy-evidence.ts
+          npx tsx scripts/test-inventory-artifact-dependencies.ts
+          npx tsx scripts/dependency-policy-evidence.ts --output dependency-policy-evidence.json
 
       - name: Validate canonical suite manifest
         run: npx tsx scripts/ci-suite-manifest.ts --check
@@ -98,11 +107,20 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "22.22.0"
           cache: "npm"
+          cache-dependency-path: package-lock.json
 
       - name: Install dependencies
-        run: npm install --include=dev --ignore-scripts --no-audit --no-fund --package-lock=false
+        run: npm ci --include=dev --ignore-scripts --no-audit --no-fund
+
+      - name: Verify locked dependency policy and toolchain evidence
+        run: |
+          test "$(node --version)" = "v22.22.0"
+          test "$(npm --version)" = "10.9.4"
+          npx tsx scripts/test-dependency-policy-evidence.ts
+          npx tsx scripts/test-inventory-artifact-dependencies.ts
+          npx tsx scripts/dependency-policy-evidence.ts --output dependency-policy-evidence.json
 
       - name: Generate unique Redis namespace
         run: echo "TEST_REDIS_PREFIX=$(npx tsx scripts/generate-certification-redis-prefix.ts)" >> "$GITHUB_ENV"

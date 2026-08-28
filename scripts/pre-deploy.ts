@@ -76,6 +76,36 @@ const MANDATORY_SUITES: Suite[] = [
     timeoutSecs: 60,
   },
   {
+    name: "Root Dependency Policy (portable HTTPS lock, freshness, integrity)",
+    script: "scripts/check-dependency-policy.ts",
+    timeoutSecs: 60,
+  },
+  {
+    name: "Dependency Policy Negative Fixtures",
+    script: "scripts/test-dependency-policy-evidence.ts",
+    timeoutSecs: 60,
+  },
+  {
+    name: "Dependency Lifecycle and Native Probes",
+    script: "scripts/test-dependency-lifecycle.ts",
+    timeoutSecs: 60,
+  },
+  {
+    name: "Artifact Dependency Inventory Fixtures",
+    script: "scripts/test-inventory-artifact-dependencies.ts",
+    timeoutSecs: 60,
+  },
+  {
+    name: "Dependency Audit Policy (fail closed on critical/high)",
+    script: "scripts/dependency-audit-policy.ts",
+    timeoutSecs: 120,
+  },
+  {
+    name: "Dependency Audit Policy Fixtures",
+    script: "scripts/test-dependency-audit-policy.ts",
+    timeoutSecs: 60,
+  },
+  {
     name: "BT-12 Revenue State Reconciliation Authority Guard",
     script: "scripts/test-bt12-revenue-state-reconciliation.ts",
     timeoutSecs: 60,

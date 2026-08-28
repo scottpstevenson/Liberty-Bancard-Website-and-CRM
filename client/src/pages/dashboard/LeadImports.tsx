@@ -408,8 +408,8 @@ function MasterLeadImportSection() {
 
   const handleCsvFile = (f: File | null) => {
     if (!f) return;
-    if (!/\.(csv|xlsx|xls)$/i.test(f.name)) {
-      toast({ title: "Invalid file", description: "Please upload a CSV or Excel file", variant: "destructive" });
+    if (!/\.csv$/i.test(f.name)) {
+      toast({ title: "Invalid file", description: "Please upload a CSV file", variant: "destructive" });
       return;
     }
     setCsvFile(f);
@@ -532,7 +532,7 @@ function MasterLeadImportSection() {
             onClick={() => csvRef.current?.click()}
             data-testid="dropzone-master-leads-csv"
           >
-            <input ref={csvRef} type="file" accept=".csv,.xlsx,.xls" className="hidden"
+            <input ref={csvRef} type="file" accept=".csv,text/csv" className="hidden"
               onChange={(e) => handleCsvFile(e.target.files?.[0] || null)} />
             {csvFile ? (
               <div className="flex items-center justify-center gap-3">
@@ -853,12 +853,12 @@ export default function LeadImports() {
   const handleFileSelect = (file: File | null) => {
     if (!file) return;
     const isValid =
-      /\.(csv|xlsx|xls)$/i.test(file.name) ||
+      /\.csv$/i.test(file.name) ||
       file.type === "text/csv" ||
-      file.type === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
-      file.type === "application/vnd.ms-excel";
+      file.type === "text/plain" ||
+      file.type === "application/csv";
     if (!isValid) {
-      toast({ title: "Invalid file type", description: "Please upload a CSV or Excel (.xlsx) file.", variant: "destructive" });
+      toast({ title: "Invalid file type", description: "Please upload a CSV file.", variant: "destructive" });
       return;
     }
     setSelectedFile(file);
@@ -901,7 +901,7 @@ export default function LeadImports() {
       <div>
         <h1 className="text-2xl font-bold" data-testid="text-page-title">Lead Imports</h1>
         <p className="text-muted-foreground mt-1" data-testid="text-page-description">
-          Import leads from Outscraper, Apollo, or any CSV/Excel file. Auto-detects format, deduplicates, classifies verticals, scores leads, and creates deals for hot prospects.
+          Import leads from Outscraper, Apollo, or any CSV file. Auto-detects format, deduplicates, classifies verticals, scores leads, and creates deals for hot prospects.
         </p>
       </div>
 
@@ -1002,7 +1002,7 @@ export default function LeadImports() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Upload className="h-5 w-5" />
-            Import CSV / Excel
+            Import CSV
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -1039,7 +1039,7 @@ export default function LeadImports() {
             <input
               ref={fileInputRef}
               type="file"
-              accept=".csv,.xlsx,.xls"
+              accept=".csv,text/csv"
               className="hidden"
               onChange={(e) => handleFileSelect(e.target.files?.[0] || null)}
               data-testid="input-csv-file"
@@ -1059,9 +1059,9 @@ export default function LeadImports() {
                 <>
                   <Upload className="h-12 w-12 text-muted-foreground" />
                   <div>
-                    <p className="font-medium">Drag and drop a CSV or Excel file here, or click to browse</p>
+                    <p className="font-medium">Drag and drop a CSV file here, or click to browse</p>
                     <p className="text-sm text-muted-foreground mt-1">
-                      Supports Outscraper (Google Maps), Apollo, and custom CSV/XLSX formats up to 300MB
+                      Supports Outscraper (Google Maps), Apollo, and custom CSV formats up to 300MB
                     </p>
                   </div>
                 </>
@@ -1102,7 +1102,7 @@ export default function LeadImports() {
           </div>
 
           <div className="text-xs text-muted-foreground space-y-1 border-t pt-3 mt-3">
-            <p className="font-medium">Supported CSV/Excel Formats (auto-detected):</p>
+            <p className="font-medium">Supported CSV Formats (auto-detected):</p>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mt-2">
               <div className="flex items-start gap-2">
                 <ArrowRight className="h-3 w-3 mt-0.5 shrink-0 text-blue-500" />
@@ -1114,7 +1114,7 @@ export default function LeadImports() {
               </div>
               <div className="flex items-start gap-2">
                 <ArrowRight className="h-3 w-3 mt-0.5 shrink-0 text-purple-500" />
-                <span><strong>Custom:</strong> Any CSV or Excel file with company, email, or phone columns</span>
+                <span><strong>Custom:</strong> Any CSV file with company, email, or phone columns</span>
               </div>
             </div>
           </div>
@@ -1312,7 +1312,7 @@ export default function LeadImports() {
               ) : imports.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={13} className="text-center h-24 text-muted-foreground" data-testid="text-no-imports">
-                    No imports yet. Upload a CSV or Excel file above to get started.
+                    No imports yet. Upload a CSV file above to get started.
                   </TableCell>
                 </TableRow>
               ) : (

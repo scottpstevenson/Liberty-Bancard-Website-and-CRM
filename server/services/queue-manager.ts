@@ -1,5 +1,5 @@
 import { Queue, Worker, type ConnectionOptions, type Job } from "bullmq";
-import { getBullMqTestPrefix, getRedisConnection, isUsingMockRedis } from "./queue-connection";
+import { getBullMqTestPrefix, getRedisConnection, type QueueMode } from "./queue-connection";
 import { storage } from "../storage";
 
 const dlqAlertCooldown = new Map<string, number>();
@@ -469,7 +469,8 @@ export interface QueueTopologySnapshot {
   instantiatedWorkerCount: number;
   logicalJobCount: number;        // equals instantiatedWorkerCount until #1523B
   legacyGhlClaimed: boolean;
-  usingMockRedis: boolean;
+  /** BullMQ is only active when backed by a real Redis connection. */
+  queueMode: QueueMode;
   processId: number;
   processIdentity: string | null;
   releaseSha: string | null;
@@ -579,11 +580,24 @@ let _legacyGhlSyncClaimed = false;
  * GHL sync loop, so BullMQ (now or later) permanently excludes GHL_SYNC from
  * the queues/workers/repeatable-jobs it manages for the rest of this process. */
 export function claimLegacyGhlSync(): void {
+  if (_queueManager?.getQueue(QUEUE_NAMES.GHL_SYNC)) {
+    throw new Error("Cannot claim legacy GHL sync after the BullMQ GHL_SYNC worker is initialized.");
+  }
   _legacyGhlSyncClaimed = true;
 }
 
 export function isLegacyGhlSyncClaimed(): boolean {
   return _legacyGhlSyncClaimed;
+}
+
+export function deriveQueueMode(queueManagerReady: boolean, legacyGhlSyncClaimed: boolean): QueueMode {
+  if (legacyGhlSyncClaimed) return "legacy_interval_partial";
+  return queueManagerReady ? "bullmq_redis" : "unavailable";
+}
+
+/** The sole queue-mode authority for API and operator surfaces. */
+export function getQueueMode(): QueueMode {
+  return deriveQueueMode(_queueManager !== null, _legacyGhlSyncClaimed);
 }
 
 export async function getQueueManager(): Promise<QueueManager> {
@@ -764,7 +778,7 @@ class QueueManager {
       estimatedProcessConnections: capacity.estimatedProcessConnections,
       capacityStatus: capacity.status,
       legacyGhlClaimed: snapshot.legacyGhlClaimed,
-      usingMockRedis: snapshot.usingMockRedis,
+      queueMode: snapshot.queueMode,
       processIdentity: snapshot.processIdentity,
       releaseSha: snapshot.releaseSha,
       sequencesRepeatEveryMs: SEQUENCES_REPEAT_EVERY_MS,
@@ -1671,7 +1685,7 @@ class QueueManager {
       instantiatedWorkerCount: this.workers.size,
       logicalJobCount: this.workers.size, // equals instantiatedWorkerCount until #1523B
       legacyGhlClaimed: isLegacyGhlSyncClaimed(),
-      usingMockRedis: isUsingMockRedis(),
+      queueMode: getQueueMode(),
       processId: process.pid,
       processIdentity: process.env.PROCESS_IDENTITY ?? null,
       releaseSha: process.env.RELEASE_SHA ?? null,
@@ -1758,7 +1772,7 @@ class QueueManager {
     }
   }
 
-  async getAllQueueMetrics(): Promise<{ queues: QueueMetric[]; usingMock: boolean; status: "ok" | "degraded" }> {
+  async getAllQueueMetrics(): Promise<{ queues: QueueMetric[]; queueMode: QueueMode; status: "ok" | "degraded" }> {
     const metrics: QueueMetric[] = [];
 
     for (const config of QUEUE_CONFIGS) {
@@ -1844,7 +1858,7 @@ class QueueManager {
 
     return {
       queues: metrics,
-      usingMock: isUsingMockRedis(),
+      queueMode: getQueueMode(),
       status: metrics.some((metric) => metric.probeStatus === "error") ? "degraded" : "ok",
     };
   }

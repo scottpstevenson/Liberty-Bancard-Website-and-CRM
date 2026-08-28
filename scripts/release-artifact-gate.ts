@@ -16,8 +16,9 @@ function run(command: string, args: string[]): void {
 try {
   run("npx", ["tsc", "--noEmit"]);
   run(process.platform === "win32" ? "npm.cmd" : "npm", ["run", "build"]);
+  run("npx", ["tsx", "scripts/inventory-artifact-dependencies.ts", "--output", "dist/dependency-inventory.json"]);
   run("npx", ["tsx", "scripts/scan-build-artifacts.ts"]);
-  console.log("release-artifact-gate: PASS — typecheck, production build, and redacting artifact scan completed");
+  console.log("release-artifact-gate: PASS — typecheck, production build, dependency inventory, and redacting artifact scan completed");
 } catch (error) {
   console.error(
     `release-artifact-gate: FAIL — ${error instanceof Error ? error.message : "release artifact gate failed"}`,

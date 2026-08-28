@@ -2,7 +2,7 @@ import { ProbeResult } from "./ghl-sync";
 
 export async function probeQueues(): Promise<ProbeResult> {
   try {
-    const { requireQueueManagerReady } = await import("../../queue-manager");
+    const { requireQueueManagerReady, getQueueMode } = await import("../../queue-manager");
 
     let qm: ReturnType<typeof requireQueueManagerReady>;
     try {
@@ -11,12 +11,14 @@ export async function probeQueues(): Promise<ProbeResult> {
       return {
         subsystem: "queues",
         status: "warn",
-        summary: "BullMQ unavailable — running in legacy setInterval fallback mode",
-        details: { bullmqAvailable: false },
+        summary: getQueueMode() === "legacy_interval_partial"
+          ? "BullMQ queue diagnostics unavailable; only the explicitly claimed legacy interval task may be active"
+          : "BullMQ queue diagnostics unavailable",
+        details: { queueMode: getQueueMode(), bullmqAvailable: false },
       };
     }
 
-    const { queues, usingMock, status: metricsStatus } = await qm.getAllQueueMetrics();
+    const { queues, queueMode, status: metricsStatus } = await qm.getAllQueueMetrics();
 
     const criticalQueues = ["ghl-sync", "sla-checks", "sequences"];
     const stuckThreshold = 50;
@@ -66,10 +68,6 @@ export async function probeQueues(): Promise<ProbeResult> {
       summary = `Queue issues detected: ${problems.slice(0, 3).join("; ")}`;
     }
 
-    if (usingMock) {
-      status = status === "ok" ? "warn" : status;
-      summary += " [using in-memory mock Redis]";
-    }
     if (metricsStatus === "degraded" || dlqRead.queueStatus.some((source) => source.status !== "sampled")) {
       status = status === "ok" ? "warn" : status;
       summary = `Queue diagnostics are degraded; totals are sampled or incomplete. ${summary}`;
@@ -81,7 +79,7 @@ export async function probeQueues(): Promise<ProbeResult> {
       summary,
       details: {
         bullmqAvailable: true,
-        usingMock,
+        queueMode,
         totalQueues: queues.length,
         totalFailed,
         totalWaiting,

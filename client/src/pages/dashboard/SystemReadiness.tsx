@@ -453,7 +453,7 @@ export default function SystemReadiness() {
                 </div>
                 {!data.redis.real ? (
                   <p className="text-xs text-yellow-600 dark:text-yellow-400">
-                    Using in-memory queue (ioredis-mock). Jobs are not durable — all queued work is lost on server restart. Safe for dev, not for production.
+                    REDIS_URL is not configured. BullMQ queues are unavailable; no in-memory queue is used.
                   </p>
                 ) : (
                   <p className="text-xs text-muted-foreground">

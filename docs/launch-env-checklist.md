@@ -122,7 +122,7 @@ Used when GHL is not configured or a contact has no GHL contact ID. All four fie
 
 | Variable | Status | Description |
 |---|---|---|
-| `REDIS_URL` | **CRITICAL** (production) | Redis connection string. If unset, the system falls back to `ioredis-mock` (in-memory, non-persistent). All background queues — GHL sync, SLA checks, sequences, enrichment, discovery, digests, MID ingestion — lose durability and will not survive a restart. **Always set in production.** |
+| `REDIS_URL` | **CRITICAL** | Redis connection string required for BullMQ. If unset, BullMQ queues are `unavailable`; no in-memory fallback is started. **Always set before enabling background queue processing.** |
 
 ---
 

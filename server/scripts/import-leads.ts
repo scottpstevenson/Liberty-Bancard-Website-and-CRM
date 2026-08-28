@@ -1,14 +1,11 @@
 import pg from "pg";
 import * as fs from "fs";
-import * as path from "path";
+import { parse } from "csv-parse/sync";
 import { recordContactIdentityObservationsForPgContacts } from "../services/contact-identity";
 import { ingestBusiness } from "../services/sdr/dedupe";
 import { recordContactBusinessLinkCandidate } from "../services/commercial-link-authority";
 
 const { Pool } = pg;
-import { createRequire } from "module";
-const require = createRequire(import.meta.url);
-const XLSX = require("xlsx");
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
@@ -81,13 +78,15 @@ function splitName(fullName: string): [string, string] {
   return [parts[0], parts.slice(1).join(" ")];
 }
 
-async function importGoogleMapsCSV(filePath: string, source: string): Promise<LeadRow[]> {
+async function importGoogleMapsCsv(filePath: string, source: string): Promise<LeadRow[]> {
   const content = fs.readFileSync(filePath, "utf-8");
-  const lines = content.split("\n");
   const rows: LeadRow[] = [];
-
-  const wb = XLSX.read(content, { type: "string" });
-  const data = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]) as any[];
+  const data = parse(content, {
+    columns: true,
+    skip_empty_lines: true,
+    trim: true,
+    bom: true,
+  }) as Record<string, string>[];
 
   for (const row of data) {
     const name = (row.Name || "").trim();
@@ -129,9 +128,10 @@ async function importGoogleMapsCSV(filePath: string, source: string): Promise<Le
   return rows;
 }
 
-async function importGoogleMapsXLSX(filePath: string, source: string): Promise<LeadRow[]> {
-  const wb = XLSX.readFile(filePath);
-  const data = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]) as any[];
+async function importGoogleMapsCsvSecondary(filePath: string, source: string): Promise<LeadRow[]> {
+  const data = parse(fs.readFileSync(filePath, "utf-8"), {
+    columns: true, skip_empty_lines: true, trim: true, bom: true,
+  }) as Record<string, string>[];
 
   const rows: LeadRow[] = [];
   for (const row of data) {
@@ -174,8 +174,9 @@ async function importGoogleMapsXLSX(filePath: string, source: string): Promise<L
 }
 
 async function import43kLeads(filePath: string): Promise<LeadRow[]> {
-  const wb = XLSX.readFile(filePath);
-  const data = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]) as any[];
+  const data = parse(fs.readFileSync(filePath, "utf-8"), {
+    columns: true, skip_empty_lines: true, trim: true, bom: true,
+  }) as Record<string, string>[];
 
   const rows: LeadRow[] = [];
   for (const row of data) {
@@ -221,8 +222,9 @@ async function import43kLeads(filePath: string): Promise<LeadRow[]> {
 }
 
 async function importCCLeadsJune(filePath: string): Promise<LeadRow[]> {
-  const wb = XLSX.readFile(filePath);
-  const data = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]) as any[];
+  const data = parse(fs.readFileSync(filePath, "utf-8"), {
+    columns: true, skip_empty_lines: true, trim: true, bom: true,
+  }) as Record<string, string>[];
 
   const rows: LeadRow[] = [];
   for (const row of data) {
@@ -264,8 +266,11 @@ async function importCCLeadsJune(filePath: string): Promise<LeadRow[]> {
 }
 
 async function importAutomotiveLeads(filePath: string): Promise<LeadRow[]> {
-  const wb = XLSX.readFile(filePath);
-  const data = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1 }) as any[][];
+  const data = parse(fs.readFileSync(filePath, "utf-8"), {
+    skip_empty_lines: true,
+    trim: true,
+    bom: true,
+  }) as string[][];
 
   const rows: LeadRow[] = [];
   for (let i = 1; i < data.length; i++) {
@@ -321,8 +326,9 @@ async function importAutomotiveLeads(filePath: string): Promise<LeadRow[]> {
 }
 
 async function import26kBrands(filePath: string): Promise<LeadRow[]> {
-  const wb = XLSX.readFile(filePath);
-  const data = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]) as any[];
+  const data = parse(fs.readFileSync(filePath, "utf-8"), {
+    columns: true, skip_empty_lines: true, trim: true, bom: true,
+  }) as Record<string, string>[];
 
   const rows: LeadRow[] = [];
   for (const row of data) {
@@ -495,20 +501,20 @@ async function main() {
   const allLeads: LeadRow[] = [];
 
   console.log("1. Importing Google Maps CSV (2,479 rows)...");
-  const gmCSV = await importGoogleMapsCSV(
+  const gmCSV = await importGoogleMapsCsv(
     "attached_assets/Google_Maps_Listings_Scraper__by_Keywords__1773178604832.csv",
     "google-maps-csv"
   );
   console.log(`   Parsed ${gmCSV.length} leads`);
   allLeads.push(...gmCSV);
 
-  console.log("2. Importing Google Maps XLSX (1,155 rows)...");
-  const gmXLSX = await importGoogleMapsXLSX(
-    "attached_assets/Google_Maps_Listings_Scraper__by_Keywords__1773178588624.xlsx",
-    "google-maps-xlsx"
+  console.log("2. Importing Google Maps CSV (1,155 rows)...");
+  const gmSecondaryCsv = await importGoogleMapsCsvSecondary(
+    "attached_assets/Google_Maps_Listings_Scraper__by_Keywords__1773178588624.csv",
+    "google-maps-csv"
   );
-  console.log(`   Parsed ${gmXLSX.length} leads`);
-  allLeads.push(...gmXLSX);
+  console.log(`   Parsed ${gmSecondaryCsv.length} leads`);
+  allLeads.push(...gmSecondaryCsv);
 
   console.log("3. Importing 43K Lead File...");
   const leads43k = await import43kLeads(
@@ -519,21 +525,21 @@ async function main() {
 
   console.log("4. Importing CC Leads June 10 (9,327 rows)...");
   const ccJune = await importCCLeadsJune(
-    "attached_assets/CC_Leads_-_june_10_1773178680284.xlsx"
+    "attached_assets/CC_Leads_-_june_10_1773178680284.csv"
   );
   console.log(`   Parsed ${ccJune.length} leads`);
   allLeads.push(...ccJune);
 
   console.log("5. Importing Automotive Leads (385 rows)...");
   const autoLeads = await importAutomotiveLeads(
-    "attached_assets/Credit_Card_Leads_-_Automotive_1773178687431.xlsx"
+    "attached_assets/Credit_Card_Leads_-_Automotive_1773178687431.csv"
   );
   console.log(`   Parsed ${autoLeads.length} leads`);
   allLeads.push(...autoLeads);
 
   console.log("6. Importing 26K Brands (emails only)...");
   const brands = await import26kBrands(
-    "attached_assets/26k_Brands!_(SMG_Social_Leads)__1773178636426.xlsx"
+    "attached_assets/26k_Brands!_(SMG_Social_Leads)__1773178636426.csv"
   );
   console.log(`   Parsed ${brands.length} leads with emails`);
   allLeads.push(...brands);

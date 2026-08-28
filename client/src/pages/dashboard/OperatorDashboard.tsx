@@ -2405,7 +2405,7 @@ interface DlqItem {
 interface QueueMetricsData {
   status?: "ok" | "not_initialized" | "degraded";
   queues: QueueMetric[];
-  usingMock: boolean;
+  queueMode?: "bullmq_redis" | "legacy_interval_partial" | "unavailable";
 }
 
 interface QueueHistoryResponse {
@@ -2512,10 +2512,10 @@ function QueueMetricsPanel() {
 
   return (
     <div className="space-y-6">
-      {metrics?.usingMock && (
+      {metrics?.queueMode && metrics.queueMode !== "bullmq_redis" && (
         <div className="flex items-center gap-2 p-3 bg-yellow-50 dark:bg-yellow-950/30 border border-yellow-200 dark:border-yellow-800 rounded-md text-sm text-yellow-800 dark:text-yellow-300" data-testid="banner-mock-redis">
           <AlertTriangle className="w-4 h-4 shrink-0" />
-          <span>Running in dev mode with in-memory queue (no Redis). Set <code className="font-mono bg-yellow-100 dark:bg-yellow-900 px-1 rounded">REDIS_URL</code> for production durability.</span>
+          <span>BullMQ queue mode is <strong>{metrics.queueMode}</strong>. No in-memory queue is running; configure <code className="font-mono bg-yellow-100 dark:bg-yellow-900 px-1 rounded">REDIS_URL</code> for durable queues.</span>
         </div>
       )}
       {queueUnavailable && (
@@ -4087,7 +4087,7 @@ function CommandCenter({ onNavigate }: { onNavigate: (v: string) => void }) {
           title="Jobs & Queue"
           status={queueStatus}
           value={queue.isError ? "Error" : dlqTruthUnknown ? "Unknown" : dlqCount > 0 ? `${dlqCount} sampled` : "Healthy"}
-          detail={queue.isError ? "Failed to load queue metrics" : dlqTruthUnknown ? "DLQ data is unavailable or incomplete" : `${totalFailed} failed · ${queueList.length} queues${queue.data?.usingMock ? " · mock" : ""}`}
+          detail={queue.isError ? "Failed to load queue metrics" : dlqTruthUnknown ? "DLQ data is unavailable or incomplete" : `${totalFailed} failed · ${queueList.length} queues${queue.data?.queueMode && queue.data.queueMode !== "bullmq_redis" ? ` · ${queue.data.queueMode}` : ""}`}
           icon={Server}
           onClick={() => onNavigate("queue-metrics")}
           testId="tile-queue"

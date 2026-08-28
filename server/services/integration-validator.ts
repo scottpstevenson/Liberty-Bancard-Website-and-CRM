@@ -117,8 +117,8 @@ async function checkRedis(): Promise<CheckResult> {
     return {
       key: "REDIS_URL", category: "CORE", label: "Redis / BullMQ (REDIS_URL)",
       present: false, formatValid: false, liveStatus: "fail",
-      identity: "Using in-memory mock — jobs lost on restart",
-      diagnosisHint: "REDIS_URL not set — BullMQ falls back to ioredis-mock; job state is not durable across restarts",
+      identity: "BullMQ unavailable",
+      diagnosisHint: "REDIS_URL not set — durable BullMQ queues cannot start",
       ownerAction: "Set REDIS_URL to an Upstash or Redis Cloud connection string in Replit Secrets",
       lastTestedAt: ts(), importance: "required_launch",
     };
@@ -658,6 +658,8 @@ async function checkSmtp(): Promise<CheckResult[]> {
       auth: { user: user!, pass: pass! },
       connectionTimeout: 10000,
       greetingTimeout: 8000,
+      disableFileAccess: true,
+      disableUrlAccess: true,
     });
     await transporter.verify();
     liveStatus = "pass";

@@ -1,5 +1,6 @@
 import multer from "multer";
 import os from "os";
+import path from "path";
 import { storage } from "../storage";
 import { sendGhlSms } from "../services/ghl";
 
@@ -71,8 +72,6 @@ const ALLOWED_LARGE_UPLOAD_MIMES = new Set([
   "text/csv",
   "text/plain",                                                               // some OS/browsers send CSV as text/plain
   "application/csv",
-  "application/vnd.ms-excel",                                                // .xls
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",      // .xlsx
   "application/zip",
   "application/x-zip-compressed",
   "application/x-zip",
@@ -80,10 +79,15 @@ const ALLOWED_LARGE_UPLOAD_MIMES = new Set([
 ]);
 
 function largeMimeFilter(_req: any, file: Express.Multer.File, cb: multer.FileFilterCallback) {
-  if (ALLOWED_LARGE_UPLOAD_MIMES.has(file.mimetype)) {
+  const extension = path.extname(file.originalname).toLowerCase();
+  // Some clients identify a .csv as application/vnd.ms-excel; extension still
+  // governs acceptance, so spreadsheet workbooks remain excluded.
+  const isCsv = extension === ".csv" && ["text/csv", "text/plain", "application/csv", "application/vnd.ms-excel"].includes(file.mimetype);
+  const isZip = extension === ".zip" && ALLOWED_LARGE_UPLOAD_MIMES.has(file.mimetype);
+  if (isCsv || isZip) {
     cb(null, true);
   } else {
-    cb(new Error(`File type '${file.mimetype}' is not allowed. Accepted: CSV, Excel, ZIP.`));
+    cb(new Error(`File type '${file.mimetype}' is not allowed. Accepted: CSV or ZIP.`));
   }
 }
 
@@ -91,6 +95,23 @@ export const uploadLarge = multer({
   dest: os.tmpdir(),
   limits: { fileSize: 300 * 1024 * 1024 },
   fileFilter: largeMimeFilter,
+});
+
+/** CSV-only memory upload for import endpoints. Document uploads use `upload`. */
+function csvMimeFilter(_req: any, file: Express.Multer.File, cb: multer.FileFilterCallback) {
+  const isCsv = path.extname(file.originalname).toLowerCase() === ".csv"
+    && ["text/csv", "text/plain", "application/csv", "application/vnd.ms-excel"].includes(file.mimetype);
+  if (isCsv) {
+    cb(null, true);
+  } else {
+    cb(new Error(`File type '${file.mimetype}' is not allowed. Accepted: CSV.`));
+  }
+}
+
+export const uploadCsv = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: csvMimeFilter,
 });
 
 export interface ProposalPlan {

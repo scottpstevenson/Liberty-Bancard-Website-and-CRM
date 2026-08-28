@@ -36,7 +36,8 @@ export function registerQueueMetricsRoutes(app: Express) {
       try {
         qm = requireQueueManagerReady();
       } catch {
-        return res.status(503).json({ status: "not_initialized", queues: [], capturedAt: new Date().toISOString() });
+        const { getQueueMode } = await import("../services/queue-manager");
+        return res.status(503).json({ status: "not_initialized", queueMode: getQueueMode(), queues: [], capturedAt: new Date().toISOString() });
       }
       const metrics = await qm.getAllQueueMetrics();
 
@@ -82,7 +83,7 @@ export function registerQueueMetricsRoutes(app: Express) {
 
       // Redis capacity diagnosis — uses actual instantiated Worker count from the
       // topology snapshot, not the response-shape key count (which was always 2).
-      const { queues: queueMetrics, usingMock } = metrics;
+      const { queues: queueMetrics, queueMode } = metrics;
 
       let topologySnapshot: QueueTopologySnapshot | null = null;
       let redisCapacity = null;
@@ -105,7 +106,7 @@ export function registerQueueMetricsRoutes(app: Express) {
       res.json({
         status: "ok",
         queues: queueMetrics,
-        usingMock,
+        queueMode,
         sequenceBacklog,
         sequenceOldestDueMs,
         sequenceLastRunMs,

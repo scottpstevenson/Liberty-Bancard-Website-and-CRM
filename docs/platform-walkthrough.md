@@ -581,7 +581,7 @@ Beyond the Day 1 NPS:
 
 ### 11a. Import Flow
 
-`POST /api/residuals/import` (admin/manager) — accepts CSV or XLSX.
+`POST /api/residuals/import` (admin/manager) — accepts CSV.
 
 Column detection is automatic (`detectColumnMap()`) — recognizes MID/account, merchant name/DBA, volume, gross residual, net residual regardless of column order or header naming.
 
@@ -867,7 +867,7 @@ ONBOARDING
     ↓
 LIVE MERCHANT
     ↓
-  Monthly residual import (CSV/XLSX) → match → confirm → commissions
+  Monthly residual import (CSV) → match → confirm → commissions
   Agent gets 50% of net residual, partner org gets 10% of gross
   MID stats refresh nightly
   Retention sequences run on engagement signals

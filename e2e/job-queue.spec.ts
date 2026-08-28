@@ -95,7 +95,7 @@ test.describe("Job Queue panel — Operator Dashboard", () => {
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({
-          usingMock: false,
+          queueMode: "bullmq_redis",
           queues: [
             {
               name: "test-queue",

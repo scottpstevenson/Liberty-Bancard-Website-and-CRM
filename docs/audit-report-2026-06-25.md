@@ -266,7 +266,7 @@ Scraped/inbound prospect
 ### Queue Health
 - ✅ 7 BullMQ queues with retry + dead-letter behavior
 - ✅ Graceful shutdown on SIGTERM
-- ✅ ioredis-mock fallback for dev
+- ✅ BullMQ unavailability is reported truthfully when Redis is not configured; no mock fallback is used
 - ⚠️ No `compliance-audit-log` queue — audit log writes are synchronous and could slow request handlers under load
 
 ### Worker Idempotency

@@ -122,6 +122,42 @@ export const SUITE_MANIFEST: SuiteManifestEntry[] = [
     providerDenial: "none (pure file scan)",
   },
   {
+    name: "Root Dependency Policy",
+    script: "scripts/check-dependency-policy.ts",
+    capability: "deterministic-static",
+    providerDenial: "offline root lock/source/integrity scan; no providers",
+  },
+  {
+    name: "Dependency Policy Negative Fixtures",
+    script: "scripts/test-dependency-policy-evidence.ts",
+    capability: "deterministic-static",
+    providerDenial: "synthetic lock fixtures only; no network or providers",
+  },
+  {
+    name: "Dependency Lifecycle and Native Probes",
+    script: "scripts/test-dependency-lifecycle.ts",
+    capability: "deterministic-static",
+    providerDenial: "loads local installed modules only; no network or providers",
+  },
+  {
+    name: "Artifact Dependency Inventory Fixtures",
+    script: "scripts/test-inventory-artifact-dependencies.ts",
+    capability: "deterministic-static",
+    providerDenial: "synthetic bundle source only; no network or providers",
+  },
+  {
+    name: "Dependency Audit Policy",
+    script: "scripts/dependency-audit-policy.ts",
+    capability: "deterministic-integration",
+    providerDenial: "public npm advisory registry only; no application providers",
+  },
+  {
+    name: "Dependency Audit Policy Fixtures",
+    script: "scripts/test-dependency-audit-policy.ts",
+    capability: "deterministic-static",
+    providerDenial: "synthetic audit JSON only; no network or providers",
+  },
+  {
     name: "Provider Manifest and Readiness Kill Lines",
     script: "scripts/test-provider-readiness-controls.ts",
     capability: "deterministic-static",

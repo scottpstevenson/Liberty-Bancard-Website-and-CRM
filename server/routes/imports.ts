@@ -16,7 +16,7 @@ import { triggerWorkflowsByEvent } from "../services/workflow-executor";
 import { calculateQuizBonusFn, calculateRevenuePotentialFn, calculateSwitchabilityFn, calculateUnderwritingConfidenceFn, scoreContact } from "../services/lead-scoring";
 import { generateDealBlueprint } from "../services/deal-blueprint";
 import { routeContact } from "../services/smart-router";
-import { importCordataEnrichment, importFullCorevt, isWorkerRunning, startDailyOutreachInBackground, startDailyOutreachWorker, stopDailyOutreachWorker } from "../services/daily-outreach";
+import { importCordataEnrichment, importFullCorevt, isWorkerRunning, startDailyOutreachInBackground, stopDailyOutreachWorker } from "../services/daily-outreach";
 import { getGhlSyncStatus } from "../services/ghl-sync";
 import { runBulkFastClassification } from "../services/sunbiz-enrichment";
 import { ingestBusiness, ingestBusinessFromContact } from "../services/sdr/dedupe";
@@ -36,7 +36,6 @@ import { parse } from "csv-parse/sync";
 import bcrypt from "bcryptjs";
 import path from "path";
 import fs from "fs";
-import * as XLSX from "xlsx";
 import { uploadLarge, trackReferral, normalizePhoneForImport, classifyVerticalForImport, sendConfirmationSms } from "./helpers";
 import { recordPewcDecision } from "../services/consent-evidence";
 import { evaluateContactability } from "../services/contactability";
@@ -145,13 +144,10 @@ export function registerImportsRoutes(app: Express) {
 
   app.post("/api/outreach/start-worker", isAuthenticated, async (req, res) => {
     if ((req.user as any)?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
-    const { isUsingMockRedis } = await import("../services/queue-connection");
-    if (!isUsingMockRedis() || process.env.REDIS_URL) {
-      return res.status(409).json({ message: "BullMQ queue scheduler is active. Use the Job Queue panel in the Operator Dashboard to manage queues. Legacy setInterval worker disabled to prevent duplicate execution." });
-    }
-    const intervalMinutes = Number(req.body.intervalMinutes) || 60;
-    startDailyOutreachWorker(intervalMinutes);
-    res.json({ message: `Outreach worker started (runs every ${intervalMinutes} minutes)`, started: true });
+    return res.status(503).json({
+      code: "LEGACY_WORKER_DISABLED",
+      message: "The legacy interval worker is disabled. Configure REDIS_URL and use the BullMQ queue manager.",
+    });
   });
 
   app.post("/api/outreach/stop-worker", isAuthenticated, async (req, res) => {
@@ -1531,21 +1527,13 @@ Guidelines:
 
       const filePath = req.file.path;
       const fileName = req.file.originalname || "upload.csv";
-      const isExcel = /\.(xlsx|xls)$/i.test(fileName);
-
+      if (path.extname(fileName).toLowerCase() !== ".csv") {
+        try { fs.unlinkSync(filePath); } catch {}
+        return res.status(400).json({ message: "Only CSV files are supported." });
+      }
       let csvContent: string;
       try {
-        if (isExcel) {
-          const workbook = XLSX.readFile(filePath, { cellDates: true });
-          const firstSheetName = workbook.SheetNames[0];
-          if (!firstSheetName) {
-            return res.status(400).json({ message: "Excel file has no sheets" });
-          }
-          const sheet = workbook.Sheets[firstSheetName];
-          csvContent = XLSX.utils.sheet_to_csv(sheet);
-        } else {
-          csvContent = fs.readFileSync(filePath, "utf-8");
-        }
+        csvContent = fs.readFileSync(filePath, "utf-8");
       } catch (err: any) {
         try { fs.unlinkSync(filePath); } catch {}
         return res.status(400).json({ message: `Could not read uploaded file: ${err.message}` });
@@ -1562,7 +1550,7 @@ Guidelines:
       }) as Record<string, string>[];
 
       if (records.length === 0) {
-        return res.status(400).json({ message: isExcel ? "Excel file is empty or could not be parsed" : "CSV file is empty or could not be parsed" });
+        return res.status(400).json({ message: "CSV file is empty or could not be parsed" });
       }
 
       const headers = Object.keys(records[0]).map(h => h.toLowerCase().trim());
@@ -1624,8 +1612,8 @@ Guidelines:
       }) => {
       const { records, executionClaim, importRecord, sourceFormat, actor, filename: fileName } = args;
       // Compute file hash for replay-protection. The file has already been read
-      // into csvContent (or converted from XLSX) so we hash the canonical CSV
-      // string rather than the raw upload bytes — consistent across XLSX→CSV conversions.
+      // into csvContent, so we hash the canonical CSV string rather than the
+      // raw upload bytes.
       const csvSourceType = sourceFormat === "google_maps_outscraper" ? "outscraper"
         : sourceFormat === "apollo_lead_list" ? "apollo"
         : "csv_contact";
@@ -2304,25 +2292,20 @@ Guidelines:
     }
   });
 
-  // Import from uploaded CSV/Excel (fallback path when Sheets API is unavailable)
+  // Import from uploaded CSV (fallback path when Sheets API is unavailable)
   app.post("/api/master-leads/import-csv", isAuthenticated, uploadLarge.single("file"), async (req, res) => {
     if ((req.user as any)?.role !== "admin") return res.status(403).json({ message: "Admin only" });
     if (!req.file) return res.status(400).json({ message: "No file uploaded" });
 
     const filePath = req.file.path;
     const fileName = req.file.originalname || "upload.csv";
-    const isExcel = /\.(xlsx|xls)$/i.test(fileName);
-
+    if (path.extname(fileName).toLowerCase() !== ".csv") {
+      try { fs.unlinkSync(filePath); } catch {}
+      return res.status(400).json({ message: "Only CSV files are supported." });
+    }
     let csvContent: string;
     try {
-      if (isExcel) {
-        const workbook = XLSX.readFile(filePath, { cellDates: true });
-        const sheet = workbook.Sheets[workbook.SheetNames[0]];
-        if (!sheet) throw new Error("Excel file has no sheets");
-        csvContent = XLSX.utils.sheet_to_csv(sheet);
-      } else {
-        csvContent = fs.readFileSync(filePath, "utf-8");
-      }
+      csvContent = fs.readFileSync(filePath, "utf-8");
     } catch (err: any) {
       try { fs.unlinkSync(filePath); } catch {}
       return res.status(400).json({ message: `Could not read uploaded file: ${err.message}` });

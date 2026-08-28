@@ -1,6 +1,9 @@
 import type { ConnectionOptions } from "bullmq";
 import Redis from "ioredis";
 
+/** Truthful process-level background-work authority. Never represents a mock queue. */
+export type QueueMode = "bullmq_redis" | "legacy_interval_partial" | "unavailable";
+
 /**
  * Singleton IORedis client shared across ALL BullMQ Queue and Worker instances.
  *
@@ -19,11 +22,6 @@ import Redis from "ioredis";
  * ioredis's offline queue where commandTimeout:10_000 fired every 10 s ("Command timed out").
  */
 let _sharedClient: Redis | null = null;
-let _usingMock = false;
-
-export function isUsingMockRedis(): boolean {
-  return _usingMock;
-}
 
 /**
  * BullMQ's own key prefix is the only supported way to namespace queues. Do
@@ -78,7 +76,7 @@ export async function getRedisConnection(): Promise<ConnectionOptions> {
   if (!redisUrl) {
     throw new Error(
       "REDIS_URL is not set. BullMQ requires a real Redis connection. " +
-      "Falling back to setInterval workers. Set REDIS_URL for durable job queues."
+      "BullMQ queues are unavailable until REDIS_URL is configured."
     );
   }
 
@@ -110,7 +108,7 @@ export async function getRedisConnection(): Promise<ConnectionOptions> {
     probe.disconnect();
     throw new Error(
       `Redis connection smoke-test failed (${err.message}). ` +
-      `Falling back to setInterval workers. Check REDIS_URL credentials.`
+      `BullMQ queues are unavailable. Check REDIS_URL credentials.`
     );
   } finally {
     probe.disconnect();
@@ -169,13 +167,11 @@ export async function getRedisConnection(): Promise<ConnectionOptions> {
   } catch (err: any) {
     throw new Error(
       `Failed to connect shared BullMQ Redis client (${err.message}). ` +
-      `Falling back to setInterval workers.`
+      `BullMQ queues are unavailable.`
     );
   }
 
   _sharedClient = client;
-  _usingMock = false;
-
   return _sharedClient as unknown as ConnectionOptions;
 }
 

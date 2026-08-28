@@ -191,9 +191,12 @@ async function servePngResponse(
   const hit = !!buf;
   if (!buf) {
     const svgBuf = Buffer.from(renderSvg(template, slug, customTitle), "utf8");
-    buf = await sharp(svgBuf).png().toBuffer();
-    writeCached(key, "png", buf);
+    const rendered = await sharp(svgBuf).png().toBuffer();
+    if (!rendered) throw new Error("Sharp returned no PNG output");
+    buf = rendered;
+    writeCached(key, "png", rendered);
   }
+  if (!buf) throw new Error("PNG response buffer unavailable");
   res.setHeader("Content-Type", "image/png");
   res.setHeader("Cache-Control", CACHE_HEADERS["Cache-Control"]);
   res.setHeader("X-Og-Cache", hit ? "HIT" : "MISS");

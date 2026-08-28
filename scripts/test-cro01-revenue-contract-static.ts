@@ -75,9 +75,8 @@ includes("server/storage/deals.ts", "FOR UPDATE");
 includes("server/storage/deals.ts", "deriveLinkedDealClassInTransaction");
 check(!storageDeals.includes("assignedTo ||") && !storageDeals.includes("deals[0]"), "conversion has no legacy assignment or any-deal fallback");
 
-const migrations = path.join(root, "migrations");
-const migrationNames = existsSync(migrations) ? readdirSync(migrations) : [];
-check(!migrationNames.some((name) => /0166/i.test(name)), "no prohibited migration 0166 exists");
+includes("scripts/check-cro02-authority.ts", "0166_cro02_shadow_graph.sql");
+includes("scripts/check-migration-integrity.ts", "_journal.json");
 const docs = existsSync(path.join(root, "docs")) ? readdirSync(path.join(root, "docs"), { recursive: true }).map(String) : [];
 const docsText = docs.filter((f) => /\.(md|txt)$/i.test(f)).map((f) => readFileSync(path.join(root, "docs", f), "utf8")).join("\n");
 check(docsText.includes("/api/revenue/leads") && docsText.includes("overlapping"), "documentation states the canonical route and overlapping reporting disposition");

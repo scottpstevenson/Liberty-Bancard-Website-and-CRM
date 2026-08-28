@@ -605,8 +605,8 @@ export function registerActivationRoutes(app: Express) {
       try {
         const redisUrl = process.env.REDIS_URL;
         if (!redisUrl) {
-          redisOk = true;
-          redisDetail = "ioredis-mock (dev mode)";
+          redisOk = false;
+          redisDetail = "REDIS_URL not configured; BullMQ queues are unavailable";
         } else {
           const { default: IORedis } = await import("ioredis");
           const client = new IORedis(redisUrl, { connectTimeout: 2000, maxRetriesPerRequest: 0, enableOfflineQueue: false, lazyConnect: true });

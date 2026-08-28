@@ -157,7 +157,7 @@ interface QueueMetric {
 
 interface QueueMetricsData {
   queues: QueueMetric[];
-  usingMock: boolean;
+  queueMode: "bullmq_redis" | "legacy_interval_partial" | "unavailable";
 }
 
 interface ChannelAttempt {
@@ -1486,9 +1486,9 @@ export default function ActivationPanel() {
                       <Activity className="w-4 h-4" /> Queue Health
                       <span className="text-[10px] font-normal text-muted-foreground">(all 8)</span>
                     </CardTitle>
-                    {queueData?.usingMock && (
+                    {queueData?.queueMode && queueData.queueMode !== "bullmq_redis" && (
                       <Badge variant="outline" className="text-xs text-amber-600 border-amber-300">
-                        in-memory — no REDIS_URL
+                        queue mode: {queueData?.queueMode ?? "unavailable"}
                       </Badge>
                     )}
                     <Button

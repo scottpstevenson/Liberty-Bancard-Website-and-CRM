@@ -846,8 +846,8 @@ async function testRedisRecovery(): Promise<void> {
 
   const redisUrl = process.env.REDIS_URL;
   if (!redisUrl) {
-    warn("REDIS_URL not set — BullMQ using in-memory mock (jobs lost on restart)");
-    warn("Set REDIS_URL for production durability. DB is authoritative for send log; jobs re-read DB on restart.");
+    warn("REDIS_URL not set — BullMQ queues are unavailable");
+    warn("Set REDIS_URL to enable durable queue processing. DB remains authoritative for send logs.");
     return;
   }
 

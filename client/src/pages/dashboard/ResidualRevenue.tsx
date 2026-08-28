@@ -1180,12 +1180,12 @@ export default function ResidualRevenue() {
                     />
                   </div>
                   <div className="space-y-1.5">
-                    <Label htmlFor="upload-file">File (CSV or XLSX)</Label>
+                    <Label htmlFor="upload-file">CSV file</Label>
                     <Input
                       id="upload-file"
                       type="file"
                       ref={fileRef}
-                      accept=".csv,.xlsx,.xls"
+                      accept=".csv,text/csv"
                       data-testid="input-upload-file"
                     />
                     <p className="text-xs text-muted-foreground">Supported columns: MID, DBA/Merchant Name, Volume, Gross Residual, Net Residual</p>

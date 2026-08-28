@@ -109,15 +109,14 @@ export function registerWizardRoutes(app: Express): void {
       // Redis — reuse the shared BullMQ client for ping to avoid consuming an
       // extra Upstash connection slot on every health-check request.
       (async () => {
-        const { isUsingMockRedis, getSharedRedisClient } = await import("../services/queue-connection");
-        const usingMock = isUsingMockRedis();
+        const { getSharedRedisClient } = await import("../services/queue-connection");
         const redisUrl = process.env.REDIS_URL;
 
         if (!redisUrl) {
           return {
-            ok: true,
-            usingMock: true,
-            detail: "In-memory mock — set REDIS_URL for production durability",
+            ok: false,
+            queueMode: "unavailable",
+            detail: "REDIS_URL is not configured; BullMQ queues are unavailable",
           };
         }
 
@@ -133,11 +132,11 @@ export function registerWizardRoutes(app: Express): void {
             ]);
             return {
               ok: result === "PONG",
-              usingMock: false,
+              queueMode: "bullmq_redis",
               detail: result === "PONG" ? "Connected" : "Unexpected PING response",
             };
           } catch (err: any) {
-            return { ok: false, usingMock, detail: safeMessage(err.message, "Ping failed") };
+            return { ok: false, queueMode: "unavailable", detail: safeMessage(err.message, "Ping failed") };
           }
         }
 
@@ -165,11 +164,11 @@ export function registerWizardRoutes(app: Express): void {
           probe.disconnect();
           return {
             ok: result === "PONG",
-            usingMock: false,
+            queueMode: "bullmq_redis",
             detail: result === "PONG" ? "Connected (startup probe)" : "Unexpected PING response",
           };
         } catch (err: any) {
-          return { ok: false, usingMock, detail: safeMessage(err.message, "Ping failed") };
+          return { ok: false, queueMode: "unavailable", detail: safeMessage(err.message, "Ping failed") };
         }
       })(),
 
@@ -228,7 +227,7 @@ export function registerWizardRoutes(app: Express): void {
 
     res.json({
       ghl: extract(ghlResult, { ok: false, latencyMs: 0, detail: "Check failed" }),
-      redis: extract(redisResult, { ok: false, usingMock: true, detail: "Check failed" }),
+      redis: extract(redisResult, { ok: false, queueMode: "unavailable", detail: "Check failed" }),
       openai: extract(openaiResult, { ok: false, detail: "Check failed" }),
       smtp: extract(smtpResult, { ok: false, configured: false, detail: "Check failed" }),
       webhookSecret: extract(webhookResult, { ok: false, detail: "Check failed" }),
@@ -639,9 +638,10 @@ export function registerWizardRoutes(app: Express): void {
       try {
         qm = requireQueueManagerReady();
       } catch {
-        return res.status(503).json({ status: "not_initialized", queues: [] });
+        const { getQueueMode } = await import("../services/queue-manager");
+        return res.status(503).json({ status: "not_initialized", queueMode: getQueueMode(), queues: [] });
       }
-      const { queues, usingMock, status: metricsStatus } = await qm.getAllQueueMetrics();
+      const { queues, queueMode, status: metricsStatus } = await qm.getAllQueueMetrics();
 
       const now = Date.now();
       const enrichedQueues = queues
@@ -678,12 +678,12 @@ export function registerWizardRoutes(app: Express): void {
             active: probeUnavailable ? null : q.active,
             failed: probeUnavailable ? null : q.failed,
             paused: probeUnavailable ? null : q.paused,
-            usingMock,
+            queueMode,
             metricsStatus,
           };
         });
 
-      return res.json({ queues: enrichedQueues, usingMock });
+      return res.json({ queues: enrichedQueues, queueMode });
     } catch (err: any) {
       return serverError(res, err);
     }

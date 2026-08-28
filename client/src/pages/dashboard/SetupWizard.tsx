@@ -104,7 +104,7 @@ function ConnectivityRow({
   data,
 }: {
   label: string;
-  data?: { ok: boolean; detail: string; latencyMs?: number; usingMock?: boolean; configured?: boolean };
+  data?: { ok: boolean; detail: string; latencyMs?: number; queueMode?: "bullmq_redis" | "legacy_interval_partial" | "unavailable"; configured?: boolean };
 }) {
   if (!data) return null;
   return (
@@ -115,8 +115,8 @@ function ConnectivityRow({
       {data.latencyMs !== undefined && data.ok && (
         <span className="text-xs text-muted-foreground shrink-0">{data.latencyMs}ms</span>
       )}
-      {data.usingMock && (
-        <Badge variant="outline" className="text-yellow-600 border-yellow-400 text-xs shrink-0">mock</Badge>
+      {data.queueMode && data.queueMode !== "bullmq_redis" && (
+        <Badge variant="outline" className="text-yellow-600 border-yellow-400 text-xs shrink-0">{data.queueMode}</Badge>
       )}
     </div>
   );
@@ -126,7 +126,7 @@ function ConnectivityRow({
 function Phase1Connectivity() {
   const { data, isLoading, isError, refetch } = useQuery<{
     ghl: { ok: boolean; latencyMs: number; detail: string };
-    redis: { ok: boolean; usingMock: boolean; detail: string };
+    redis: { ok: boolean; queueMode: "bullmq_redis" | "legacy_interval_partial" | "unavailable"; detail: string };
     openai: { ok: boolean; detail: string };
     smtp: { ok: boolean; configured: boolean; detail: string };
     webhookSecret: { ok: boolean; detail: string };
@@ -172,9 +172,9 @@ function Phase1Connectivity() {
           <ConnectivityRow label="Webhook" data={data.webhookSecret} />
         </div>
       )}
-      {data?.redis?.usingMock && (
+      {data?.redis?.queueMode !== "bullmq_redis" && (
         <div className="mt-3 p-3 rounded-md bg-yellow-50 dark:bg-yellow-950 border border-yellow-200 dark:border-yellow-800 text-sm text-yellow-800 dark:text-yellow-200">
-          ⚠ Running on in-memory Redis — set <code className="text-xs bg-yellow-100 dark:bg-yellow-900 px-1 rounded">REDIS_URL</code> for production durability.
+          ⚠ BullMQ queue mode: {data?.redis?.queueMode}. Set <code className="text-xs bg-yellow-100 dark:bg-yellow-900 px-1 rounded">REDIS_URL</code> to enable durable queues.
         </div>
       )}
       <Button
@@ -777,9 +777,9 @@ function Phase5QueueHealth() {
       description="Verify BullMQ workers are running and processing jobs on schedule."
       status={status}
     >
-      {result?.usingMock && (
+      {result?.queueMode && result.queueMode !== "bullmq_redis" && (
         <div className="mb-3 p-3 rounded-md bg-yellow-50 dark:bg-yellow-950 border border-yellow-200 dark:border-yellow-800 text-sm text-yellow-800 dark:text-yellow-200">
-          ⚠ Running on in-memory Redis — set <code className="text-xs bg-yellow-100 dark:bg-yellow-900 px-1 rounded">REDIS_URL</code> for production durability.
+          ⚠ BullMQ queue mode: {result.queueMode}. Queue diagnostics do not indicate durable processing.
         </div>
       )}
       {result?.queues && (

@@ -223,7 +223,7 @@ async function main() {
       FAIL("Redis connection failed", redisErr.message);
     }
   } else {
-    WARN("REDIS_URL not set", "BullMQ using in-memory mock — jobs lost on restart. Set REDIS_URL for production durability.");
+    WARN("REDIS_URL not set", "BullMQ queues are unavailable; no in-memory fallback exists. Set REDIS_URL to enable durable processing.");
   }
 
   // ── 11. Database tables ─────────────────────────────────────────────────────
