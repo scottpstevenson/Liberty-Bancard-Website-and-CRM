@@ -183,7 +183,30 @@ export async function syncStatementChaseSteps(configOverride?: AcquisitionConfig
  * STATEMENT_REQUESTED. Syncs the sequence step delays from config, then enrolls
  * the contact in "Statement Chase (Auto)" if not already enrolled.
  */
-export async function onStatementRequested(contactId: number): Promise<void> {
+type StatementAcquisitionTestOverrides = {
+  /** @internal Certification-only sequence fixture. Never pass from production code. */
+  sequenceId: number;
+  /** @internal Keeps the fixture enrollment non-due for the live sequence worker. */
+  nextActionAt: Date;
+};
+
+export function isProductionStatementSequenceCandidate(sequence: {
+  name: string;
+  status: string | null;
+}): boolean {
+  if (sequence.status !== "active") return false;
+  const normalizedName = sequence.name.toLowerCase();
+  return (
+    sequence.name === "Statement Chase (Auto)" ||
+    normalizedName.includes("statement") ||
+    normalizedName.includes("switch & save")
+  );
+}
+
+export async function onStatementRequested(
+  contactId: number,
+  _testOverrides?: StatementAcquisitionTestOverrides,
+): Promise<void> {
   try {
     // Find the active sales deal for this contact
     const dealsForContact = await storage.getDealsByContact(contactId);
@@ -237,14 +260,18 @@ export async function onStatementRequested(contactId: number): Promise<void> {
     // Prefer the dedicated "Statement Chase (Auto)" sequence; fall back to any
     // active sequence with "statement" or "switch & save" in the name.
     const sequences = await storage.getFollowUpSequences();
-    const statementSequence =
-      sequences.find(s => s.status === "active" && s.name === "Statement Chase (Auto)") ??
-      sequences.find(
-        s => s.status === "active" && (
-          s.name.toLowerCase().includes("statement") ||
-          s.name.toLowerCase().includes("switch & save")
-        ),
-      );
+    const statementSequence = _testOverrides
+      ? sequences.find(
+          s =>
+            s.id === _testOverrides.sequenceId &&
+            s.status === "active" &&
+            s.triggerType === "test_harness" &&
+            s.sequenceFamily === "statement_acquisition_test",
+        )
+      : (
+          sequences.find(s => s.status === "active" && s.name === "Statement Chase (Auto)") ??
+          sequences.find(isProductionStatementSequenceCandidate)
+        );
 
     if (statementSequence) {
       // #1385 — Check autoEnrollmentSuppressedAt before re-enrolling.
@@ -289,7 +316,7 @@ export async function onStatementRequested(contactId: number): Promise<void> {
           dealId: dealId ?? null,
           status: "active",
           currentStep: 0,
-          nextActionAt: new Date(),
+          nextActionAt: _testOverrides?.nextActionAt ?? new Date(),
           metadata: {
             trigger: "lifecycle_statement_requested",
             autoEnrolled: true,
@@ -363,6 +390,8 @@ export async function onStatementReceived(contactId: number, dealId?: number): P
     const statementSeqIds = new Set(
       sequences
         .filter(s =>
+          s.sequenceFamily === "statement_acquisition" ||
+          s.sequenceFamily === "statement_acquisition_test" ||
           s.name === "Statement Chase (Auto)" ||
           s.name.toLowerCase().includes("statement") ||
           s.name.toLowerCase().includes("switch & save"),

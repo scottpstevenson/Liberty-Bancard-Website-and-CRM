@@ -4,12 +4,13 @@
  *
  * Validates the full statement-chase automation loop:
  *
- *  1. "Statement Chase (Auto)" sequence exists in DB and is active
+ *  1. "Statement Chase (Auto)" sequence exists in DB and remains paused by default
+ *  1a. An isolated active test sequence is created for enrollment assertions
  *  2. Sequence has correct consent/eligibility metadata
  *  3. system_settings contains statement_acquisition_config with all 4 numeric keys
  *  4. syncStatementChaseSteps() writes config-derived delays to sequence step DB rows
  *  5. Custom cadence (e.g. sms=12h, rep=24h, edu=36h) produces correct DB step delays
- *  6. Transitioning to STATEMENT_REQUESTED creates an active enrollment within 5s,
+ *  6. Test-scoped STATEMENT_REQUESTED handling creates an active enrollment within 5s,
  *     and the enrollment's sequence uses the synced step delays
  *  7. onStatementReceived() marks the enrollment "completed" and advances lifecycle
  *     to STATEMENT_RECEIVED
@@ -41,9 +42,9 @@ import {
   validateAcquisitionConfig,
   getAcquisitionConfig,
   DEFAULT_CONFIG,
+  isProductionStatementSequenceCandidate,
   type AcquisitionConfig,
 } from "../server/services/statement-acquisition";
-import { LifecycleService } from "../server/services/lifecycle-service";
 
 // ─── Bookkeeping ──────────────────────────────────────────────────────────────
 
@@ -52,6 +53,8 @@ let fail = 0;
 const failures: string[] = [];
 const testContactIds: number[] = [];
 const testDealIds: number[] = [];
+const testSequenceName = `Certification Enrollment Fixture ${process.pid}-${Date.now()}`;
+let testSequenceId: number | null = null;
 
 function ok(label: string) {
   pass++;
@@ -111,6 +114,29 @@ async function getActiveEnrollmentsForContact(contactId: number) {
     ));
 }
 
+/**
+ * Create an active sequence fixture that cannot dispatch provider traffic.
+ * It deliberately has no steps: this certification tests selection,
+ * enrollment, and upload-stop behavior, while the canonical paused sequence
+ * is tested separately for its real step shape and cadence.
+ */
+async function createIsolatedTestSequence(): Promise<number> {
+  const [sequence] = await db.insert(followUpSequences).values({
+    name: testSequenceName,
+    description: "Pre-deploy statement acquisition enrollment fixture",
+    triggerType: "test_harness",
+    totalSteps: 0,
+    status: "active",
+    sequenceFamily: "statement_acquisition_test",
+    eligibleConsentTiers: ["cold_no_consent", "implied", "explicit", "pewc"],
+    channelsAllowed: ["task"],
+    lifecycleStagesAllowed: ["STATEMENT_REQUESTED"],
+  }).returning({ id: followUpSequences.id });
+
+  testSequenceId = sequence.id;
+  return sequence.id;
+}
+
 async function getChaseSequence() {
   const [seq] = await db
     .select()
@@ -129,6 +155,39 @@ async function getChaseSteps(seqId: number) {
   return steps;
 }
 
+let cleanupPromise: Promise<void> | null = null;
+
+function cleanupTestData(): Promise<void> {
+  cleanupPromise ??= (async () => {
+    if (testContactIds.length) {
+      await db.delete(sequenceEnrollments).where(inArray(sequenceEnrollments.contactId, testContactIds)).catch(() => {});
+      await db.delete(contactLifecycleHistory).where(inArray(contactLifecycleHistory.contactId, testContactIds)).catch(() => {});
+      if (testDealIds.length) {
+        await db.delete(deals).where(inArray(deals.id, testDealIds)).catch(() => {});
+      }
+      await db.delete(contacts).where(inArray(contacts.id, testContactIds)).catch(() => {});
+    }
+    if (testSequenceId !== null) {
+      await db.delete(sequenceEnrollments).where(eq(sequenceEnrollments.sequenceId, testSequenceId));
+      await db.delete(sequenceSteps).where(eq(sequenceSteps.sequenceId, testSequenceId));
+      await db.delete(followUpSequences).where(eq(followUpSequences.id, testSequenceId));
+    }
+  })();
+  return cleanupPromise;
+}
+
+async function cleanupOnSignal(signal: NodeJS.Signals): Promise<void> {
+  console.warn(`\n[StatementAcquisitionTest] Received ${signal}; cleaning isolated fixtures`);
+  await cleanupTestData().catch(err =>
+    console.error("[StatementAcquisitionTest] Signal cleanup failed:", err.message),
+  );
+  await pool.end().catch(() => {});
+  process.exit(1);
+}
+
+process.once("SIGINT", () => void cleanupOnSignal("SIGINT"));
+process.once("SIGTERM", () => void cleanupOnSignal("SIGTERM"));
+
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 async function runTests() {
@@ -136,7 +195,8 @@ async function runTests() {
   console.log("  Statement Acquisition Automation — Pre-Deploy Gate");
   console.log("════════════════════════════════════════════════════════\n");
 
-  // ── Test 1: Sequence exists, is active, and has eligibility metadata ────────
+  try {
+  // ── Test 1: Canonical sequence remains safely paused ────────────────────────
   console.log("── 1. Sequence presence + eligibility metadata ──────────");
   let seqId: number | null = null;
   try {
@@ -148,7 +208,11 @@ async function runTests() {
     );
     if (seq) {
       seqId = seq.id;
-      assert('"Statement Chase (Auto)" is active', seq.status === "active", `status="${seq.status}"`);
+      assert(
+        '"Statement Chase (Auto)" remains paused by default',
+        seq.status === "paused",
+        `status="${seq.status}"`,
+      );
 
       const steps = await getChaseSteps(seq.id);
       assert(
@@ -163,6 +227,22 @@ async function runTests() {
     }
   } catch (err: any) {
     ko("Sequence presence check threw", err.message);
+  }
+
+  try {
+    const isolatedSequenceId = await createIsolatedTestSequence();
+    assert(
+      "Created an active, provider-free test-only statement sequence",
+      isolatedSequenceId > 0,
+      `sequenceId=${isolatedSequenceId}`,
+    );
+    assert(
+      "Production sequence selection excludes the isolated fixture",
+      !isProductionStatementSequenceCandidate({ name: testSequenceName, status: "active" }),
+      `fixture name="${testSequenceName}" matched the production selector`,
+    );
+  } catch (err: any) {
+    ko("Could not create isolated statement sequence", err.message);
   }
 
   // ── Test 2: system_settings cadence config ─────────────────────────────────
@@ -346,12 +426,19 @@ async function runTests() {
     testContactId = await createTestContact();
     testDealId = await createTestDeal(testContactId);
 
-    await LifecycleService.transition(testContactId, "STATEMENT_REQUESTED", {
-      trigger: "test_harness",
-      actorType: "system",
+    await db.update(contacts)
+      .set({ lifecycleState: "STATEMENT_REQUESTED" })
+      .where(eq(contacts.id, testContactId));
+    if (testSequenceId === null) {
+      throw new Error("Isolated statement sequence was not created");
+    }
+    await onStatementRequested(testContactId, {
+      sequenceId: testSequenceId,
+      nextActionAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
     });
 
-    // onStatementRequested fires fire-and-forget — wait up to 5 seconds
+    // The explicit test-only selector is synchronous, but retain a short poll
+    // to verify the persisted enrollment as the production trigger does.
     let enrollments: any[] = [];
     const deadline = Date.now() + 5000;
     while (Date.now() < deadline) {
@@ -365,6 +452,13 @@ async function runTests() {
       enrollments.length > 0,
       `0 active enrollments found after waiting 5s for contact ${testContactId}`,
     );
+    if (enrollments.length > 0) {
+      assert(
+        "Enrollment uses the isolated test-only statement sequence",
+        enrollments[0]?.sequenceId === testSequenceId,
+        `sequenceId=${enrollments[0]?.sequenceId}, expected=${testSequenceId}`,
+      );
+    }
 
     if (enrollments.length > 0 && seqId !== null) {
       // Verify enrollment cadenceConfig metadata matches original config
@@ -634,12 +728,18 @@ async function runTests() {
 
     chainContactId = await createTestContact();
     // Enroll the contact in the statement-chase sequence
-    await LifecycleService.transition(chainContactId, "STATEMENT_REQUESTED", {
-      trigger: "test_harness",
-      actorType: "system",
+    await db.update(contacts)
+      .set({ lifecycleState: "STATEMENT_REQUESTED" })
+      .where(eq(contacts.id, chainContactId));
+    if (testSequenceId === null) {
+      throw new Error("Isolated statement sequence was not created");
+    }
+    await onStatementRequested(chainContactId, {
+      sequenceId: testSequenceId,
+      nextActionAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
     });
 
-    // Wait for onStatementRequested to fire (fire-and-forget from LifecycleService)
+    // Verify the explicitly selected fixture enrollment before upload.
     let preChainEnrollments: any[] = [];
     const enrollDeadline = Date.now() + 5000;
     while (Date.now() < enrollDeadline) {
@@ -699,20 +799,21 @@ async function runTests() {
     if (chainContactId !== null) testContactIds.push(chainContactId);
   }
 
-  // ── Cleanup ────────────────────────────────────────────────────────────────
-  console.log("\n── Cleanup ─────────────────────────────────────────────");
-  try {
-    if (testContactIds.length) {
-      await db.delete(sequenceEnrollments).where(inArray(sequenceEnrollments.contactId, testContactIds)).catch(() => {});
-      await db.delete(contactLifecycleHistory).where(inArray(contactLifecycleHistory.contactId, testContactIds)).catch(() => {});
-      if (testDealIds.length) {
-        await db.delete(deals).where(inArray(deals.id, testDealIds)).catch(() => {});
-      }
-      await db.delete(contacts).where(inArray(contacts.id, testContactIds)).catch(() => {});
+  } finally {
+    // ── Cleanup ──────────────────────────────────────────────────────────────
+    console.log("\n── Cleanup ───────────────────────────────────────────");
+    try {
+      await cleanupTestData();
+      const canonicalSequence = await getChaseSequence();
+      assert(
+        '"Statement Chase (Auto)" remained paused throughout certification',
+        canonicalSequence?.status === "paused",
+        `status="${canonicalSequence?.status}"`,
+      );
+      console.log("  ✓ Test data cleaned up");
+    } catch (err: any) {
+      console.warn("  ⚠ Cleanup error (non-fatal):", err.message);
     }
-    console.log("  ✓ Test data cleaned up");
-  } catch (err: any) {
-    console.warn("  ⚠ Cleanup error (non-fatal):", err.message);
   }
 
   // ── Results ────────────────────────────────────────────────────────────────
