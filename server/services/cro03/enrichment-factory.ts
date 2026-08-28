@@ -601,9 +601,9 @@ export async function completeCro03ProviderAccounting(
     `);
     const receiptRow = rows(await tx.execute(sql`
       INSERT INTO cro03_receipts
-        (provider_run_id, provider_operation_id, receipt_key, provider_request_hash,
+        (provider_run_id, provider_operation_id, provider, receipt_key, provider_request_hash,
          billing_disposition, units, receipt_reference, redacted_metadata)
-      VALUES (${runId}::uuid, ${operationId}::uuid, ${`receipt:${runId}:${disposition}`},
+      VALUES (${runId}::uuid, ${operationId}::uuid, ${provider}, ${`receipt:${runId}:${disposition}`},
                ${receipt?.requestHash ?? null}, ${disposition}, ${Number(transitioned.units)},
               ${receipt?.receiptReference ?? null}, '{}'::jsonb)
       ON CONFLICT (receipt_key) DO UPDATE SET receipt_key = EXCLUDED.receipt_key
@@ -684,9 +684,9 @@ export async function recoverExpiredCro03Dispatches(): Promise<number> {
       `);
       await tx.execute(sql`
         INSERT INTO cro03_receipts
-          (provider_run_id, provider_operation_id, receipt_key, billing_disposition,
+          (provider_run_id, provider_operation_id, provider, receipt_key, billing_disposition,
            units, redacted_metadata)
-        VALUES (${candidate.provider_run_id}::uuid, ${candidate.operation_id}::uuid,
+        VALUES (${candidate.provider_run_id}::uuid, ${candidate.operation_id}::uuid, ${candidate.provider},
                  ${`receipt:${candidate.provider_run_id}:${terminalDisposition}`}, ${terminalDisposition},
                 ${Number(ledger.units)}, '{"reason":"dispatch_timeout"}'::jsonb)
         ON CONFLICT (receipt_key) DO NOTHING

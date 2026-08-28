@@ -127,8 +127,16 @@ async function main() {
     assert.match(completionMigration, /cro03_ledger_immutable/);
     assert.match(completionMigration, /CRO03_LEDGER_LINEAGE_MISMATCH/);
     assert.match(completionMigration, /reservation\.provider_run_id = NEW\.provider_run_id/);
+    assert.match(completionMigration, /CRO03_LEDGER_RUN_OPERATION_PROVIDER_MISMATCH/);
+    assert.match(completionMigration, /run\.operation_id = NEW\.provider_operation_id/);
+    assert.match(completionMigration, /operation\.provider = NEW\.provider/);
+    assert.match(completionMigration, /CRO03_RECEIPT_RUN_OPERATION_PROVIDER_MISMATCH/);
+    assert.match(completionMigration, /CRO03_RECEIPT_LEDGER_LINEAGE_MISMATCH/);
+    assert.match(completionMigration, /cro03_receipt_lineage_guard/);
+    assert.match(completionMigration, /FOR UPDATE OF run, operation/);
     assert.match(providerContext, /'reservation', 'outstanding'/);
     assert.match(factory, /'terminal'/);
+    assert.match(factory, /provider_operation_id, provider, receipt_key/);
     assert.doesNotMatch(factory, /UPDATE cro03_provider_ledger/);
   });
   await check("budget reservation atomically links run and reservation evidence", () => {

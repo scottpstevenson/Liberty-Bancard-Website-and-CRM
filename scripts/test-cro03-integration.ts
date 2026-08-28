@@ -379,9 +379,10 @@ try {
    const foreignLineageFixture = await createExecutionFixture(1);
    const foreignRun = await pool.query<{ id: string }>(
      `INSERT INTO cro03_provider_runs
-        (item_id,provider,route_policy_version,purpose,state,billing_disposition,target_fingerprint)
-      VALUES ($1,'apollo',1,'provider_pre_spend','planned','none',$2) RETURNING id`,
-     [foreignLineageFixture.itemIds[0], `${suffix}-foreign-lineage`],
+         (item_id,provider,route_policy_version,purpose,state,billing_disposition,
+          target_fingerprint,operation_id)
+       VALUES ($1,'apollo',1,'provider_pre_spend','planned','none',$2,$3) RETURNING id`,
+      [foreignLineageFixture.itemIds[0], `${suffix}-foreign-lineage`, reservationA!.operationId],
    );
    const reservationEvidence = await pool.query<{ id: string }>(
      `SELECT id FROM cro03_provider_ledger
@@ -453,6 +454,60 @@ try {
      reservedCrashState.rows[0].terminals === 1 &&
      reservedCrashState.rows[0].terminal_disposition === "released",
      "expired undispatched reservation appends exactly one release and terminalizes the run");
+   await pool.query(
+     `UPDATE cro03_provider_runs SET operation_id=$2 WHERE id=$1`,
+     [foreignRun.rows[0].id, reservationA!.operationId],
+   );
+   const mismatchedRunOperation = await pool.query(
+     `INSERT INTO cro03_provider_ledger
+        (provider_run_id,provider_operation_id,provider,entry_key,event_type,disposition,units)
+      VALUES ($1,$2,'apollo',$3,'reservation','outstanding',1)`,
+     [foreignRun.rows[0].id, reservedCrashOperation!.operationId,
+       `invalid-run-operation:${foreignRun.rows[0].id}`],
+   ).then(() => false).catch((error) =>
+     /CRO03_LEDGER_RUN_OPERATION_PROVIDER_MISMATCH/.test(String(error.message)));
+   check(mismatchedRunOperation,
+     "database rejects ledger reservation whose operation differs from its run");
+   const mismatchedRunProvider = await pool.query(
+     `INSERT INTO cro03_provider_ledger
+        (provider_run_id,provider_operation_id,provider,entry_key,event_type,disposition,units)
+      VALUES ($1,$2,'outscraper',$3,'reservation','outstanding',1)`,
+     [foreignRun.rows[0].id, reservationA!.operationId,
+       `invalid-run-provider:${foreignRun.rows[0].id}`],
+   ).then(() => false).catch((error) =>
+     /CRO03_LEDGER_RUN_OPERATION_PROVIDER_MISMATCH/.test(String(error.message)));
+   check(mismatchedRunProvider,
+     "database rejects ledger reservation whose provider differs from its run and operation");
+   const mismatchedReceiptOperation = await pool.query(
+     `INSERT INTO cro03_receipts
+        (provider_run_id,provider_operation_id,provider,receipt_key,billing_disposition,units,amount_micros)
+      VALUES ($1,$2,'apollo',$3,'released',1,0)`,
+     [foreignRun.rows[0].id, reservedCrashOperation!.operationId,
+       `invalid-receipt-operation:${foreignRun.rows[0].id}`],
+   ).then(() => false).catch((error) =>
+     /CRO03_RECEIPT_RUN_OPERATION_PROVIDER_MISMATCH/.test(String(error.message)));
+   check(mismatchedReceiptOperation,
+     "database rejects receipt whose operation differs from its run");
+   const mismatchedReceiptProvider = await pool.query(
+     `INSERT INTO cro03_receipts
+        (provider_run_id,provider_operation_id,provider,receipt_key,billing_disposition,units,amount_micros)
+      VALUES ($1,$2,'outscraper',$3,'released',1,0)`,
+     [foreignRun.rows[0].id, reservationA!.operationId,
+       `invalid-receipt-provider:${foreignRun.rows[0].id}`],
+   ).then(() => false).catch((error) =>
+     /CRO03_RECEIPT_RUN_OPERATION_PROVIDER_MISMATCH/.test(String(error.message)));
+   check(mismatchedReceiptProvider,
+     "database rejects receipt whose provider differs from its run and operation");
+   const mismatchedReceipt = await pool.query(
+     `INSERT INTO cro03_receipts
+        (provider_run_id,provider_operation_id,provider,receipt_key,billing_disposition,units,amount_micros)
+      VALUES ($1,$2,'apollo',$3,'consumed',2,0)`,
+     [providerRun.rows[0].id, reservationA!.operationId,
+       `invalid-receipt:${providerRun.rows[0].id}`],
+   ).then(() => false).catch((error) =>
+     /CRO03_RECEIPT_LEDGER_LINEAGE_MISMATCH/.test(String(error.message)));
+   check(mismatchedReceipt,
+     "database rejects receipt units and amount without matching terminal ledger evidence");
 
   await pool.query(
     `UPDATE provider_controls
