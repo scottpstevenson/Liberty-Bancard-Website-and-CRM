@@ -1,0 +1,33 @@
+Verdict: **PARTIALLY COMPLETE — MERGED, NOT VERIFIED. HOLD DEPLOYMENT AND PROVIDER ACTIVATION.**
+
+Despite the earlier statement that it was not merged, live `origin/main` now contains Task #1709:
+
+* SHA: `89ebb12f163ae09d8166f673db335e746aa7e455`
+* Migration head: `0174_cro03_durable_enrichment_factory.sql`
+* Exact-SHA [GitHub Actions run](https://github.com/scottpstevenson/Liberty-Bancard-Website-and-CRM/actions/runs/33184610014): **FAILED**
+* Deterministic integration job: **skipped**
+* Role-guard certification: **timed out and remains unverified**
+
+This is not 33 new corrections. I consolidated the findings into **one CRO-03 completion task**.
+
+The principal blockers are:
+
+* Batch membership does not freeze the actual subject snapshot and provider recipe.
+* Outscraper’s route conflicts with CRO-02 eligibility, making it effectively unreachable.
+* Outscraper takes the first of up to 25 results without reliable company matching.
+* Apollo searches generically and can attach the first unrelated result to a contact.
+* Provider attempts, observations, outcomes, retries, billing, and receipt lineage are incomplete.
+* Failed and superseded batches can receive inaccurate terminal dispositions.
+* Sunbiz, SDR, AI, and legacy enrichment routes were disabled rather than converged into CRO-03.
+* Existing client pages still call several newly disabled `503` endpoints.
+* ZeroBounce intent creation is treated too much like completed validation.
+* A task-added pasted instruction artifact entered the repository.
+* A clean-clone build also has a separate missing-logo baseline problem.
+
+And yes: **a disposable test database is required before accepting the correction.** Use PostgreSQL and isolated Redis dedicated to testing—never production data. The final gate must cover concurrency, crashes, leases, retries, migrations, provider-denied execution, and role authorization.
+
+Full audit, corrected VFC, tests, gates, and send-ready controlling directive:
+
+[CRO03 Task 1709 Post-Merge Full Audit](sandbox:/workspace/scratch/59dcc156118b/CRO03_TASK_1709_POST_MERGE_FULL_AUDIT_2026-08-28.md)
+
+Recommended next action: one **“CRO-03 Completion — Frozen Recipes, Source Convergence, Provider Matching, and Exact-SHA Certification”** build. Do not activate Apollo, Outscraper, campaigns, or outreach until that correction is green on the exact reviewed SHA.
