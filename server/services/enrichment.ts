@@ -12,6 +12,7 @@ import { updateContactLocalFirst } from "./contact-writer";
 import { enqueueReadinessRecalculation } from "./contact-readiness";
 import { logAiCall } from "./ai-audit-logger";
 import { scoreDecisionMaker } from "./bounce-feedback";
+import { recordDecisionMakerCandidate } from "./commercial-relationship-authority";
 
 function getOpenAI() {
   return new OpenAI({ apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY, baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL });
@@ -142,8 +143,12 @@ export function computeDecisionMakerConfidence(title: string): { isDecisionMaker
 
 export async function applyDecisionMakerDetection(contactId: number, title: string): Promise<void> {
   try {
-    const { isDecisionMaker, confidence } = computeDecisionMakerConfidence(title);
-    await storage.updateContact(contactId, { isDecisionMaker, decisionMakerConfidence: confidence });
+    const contact = await storage.getContact(contactId);
+    if (!contact?.businessId) return;
+    const { confidence } = computeDecisionMakerConfidence(title);
+    await recordDecisionMakerCandidate({
+      contactId, businessId: contact.businessId, source: "title_heuristic", sourceVersion: "v1", confidence,
+    });
   } catch {}
 }
 
@@ -383,15 +388,12 @@ export async function enrichContactBatch(
           }
 
           const currentTitle = contact.title ?? null;
-          const manuallySet = (contact as any).decisionMakerConfidence === 100;
-          if (!manuallySet && currentTitle) {
+          if (currentTitle && contact.businessId) {
             const dm = scoreDecisionMaker(currentTitle);
-            const currentIsDm = (contact as any).isDecisionMaker ?? false;
-            const currentConf = (contact as any).decisionMakerConfidence ?? 0;
-            if (dm.isDecisionMaker !== currentIsDm || dm.confidence !== currentConf) {
-              updates.isDecisionMaker = dm.isDecisionMaker;
-              updates.decisionMakerConfidence = dm.confidence;
-            }
+            await recordDecisionMakerCandidate({
+              contactId, businessId: contact.businessId, source: "title_heuristic",
+              sourceVersion: "bounce-feedback-v1", confidence: dm.confidence,
+            });
           }
 
           if (Object.keys(updates).length > 0) {

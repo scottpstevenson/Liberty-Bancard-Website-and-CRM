@@ -3,6 +3,7 @@ import { businesses, sdrLeadState, sdrMerchants, sdrLeadEvents } from "@shared/s
 import type { Business, SdrLeadState } from "@shared/schema";
 import { eq, sql, lte, and, isNotNull } from "drizzle-orm";
 import { scoreLeadFull } from "./scoring";
+import { updateOrganizationDescriptive, type OrganizationDescriptiveUpdate } from "../organization-service";
 
 const RE_ENRICHMENT_INTERVAL_DAYS = 60;
 const RE_ENRICHMENT_BATCH_SIZE = 50;
@@ -57,7 +58,7 @@ async function reEnrichBusiness(business: Business): Promise<ReEnrichmentResult>
     const merchant = merchants[0];
 
     if (!merchant) {
-      await db.update(businesses).set({ lastEnrichedAt: new Date(), updatedAt: new Date() }).where(eq(businesses.id, business.id));
+      await updateOrganizationDescriptive(business.id, { lastEnrichedAt: new Date() });
       return result;
     }
 
@@ -65,14 +66,14 @@ async function reEnrichBusiness(business: Business): Promise<ReEnrichmentResult>
     const lead = leads[0];
 
     if (!lead) {
-      await db.update(businesses).set({ lastEnrichedAt: new Date(), updatedAt: new Date() }).where(eq(businesses.id, business.id));
+      await updateOrganizationDescriptive(business.id, { lastEnrichedAt: new Date() });
       return result;
     }
 
     result.previousPriority = lead.priorityScore || 0;
 
     const updates: Record<string, any> = {};
-    const businessUpdates: Record<string, any> = {};
+    const businessUpdates: OrganizationDescriptiveUpdate = {};
 
     if (!lead.email && merchant.mainEmail) {
       updates.email = merchant.mainEmail;
@@ -164,11 +165,10 @@ async function reEnrichBusiness(business: Business): Promise<ReEnrichmentResult>
       result.newPriority = result.previousPriority;
     }
 
-    await db.update(businesses).set({
+    await updateOrganizationDescriptive(business.id, {
       lastEnrichedAt: new Date(),
-      updatedAt: new Date(),
       ...businessUpdates,
-    }).where(eq(businesses.id, business.id));
+    });
 
     result.changes = changes;
     return result;

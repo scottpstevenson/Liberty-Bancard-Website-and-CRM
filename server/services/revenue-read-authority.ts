@@ -1,5 +1,6 @@
 import { pool } from "../db";
 import { OPEN_SALES_LEAD_STAGES } from "@shared/schema";
+import { authorizeCommercialUseBatch } from "./commercial-resolution";
 
 export type RevenueUser = { role?: string; email?: string | null };
 export type RevenueFilters = {
@@ -12,6 +13,21 @@ export type RevenueFilters = {
 };
 
 const privileged = (user: RevenueUser) => user.role === "admin" || user.role === "manager";
+const observeRevenueSubjects = async (
+  user: RevenueUser,
+  subjects: Array<{ subjectType: "contact" | "deal"; subjectId: number }>,
+) => {
+  await authorizeCommercialUseBatch({
+    subjects, effect: "commercial_reporting",
+    observationScope: privileged(user) ? "all" : "owned_or_unassigned",
+    maxSubjects: Math.max(1, subjects.length),
+  }).catch((error) => {
+    console.error("[CRO02_REVENUE_OBSERVATION_FAILED]", {
+      count: subjects.length,
+      errorType: error instanceof Error ? error.name : "UnknownError",
+    });
+  });
+};
 
 /** SQL ownership is deliberately expressed at every canonical read boundary. */
 function contactScope(user: RevenueUser, alias = "c", values: unknown[] = []): string {
@@ -105,8 +121,10 @@ export async function readPeople(user: RevenueUser, filters: RevenueFilters) {
       CURRENT_TIMESTAMP AS as_of
   `, values);
   const row = result.rows[0] ?? {};
+  const data = camelize(row.data ?? []);
+  await observeRevenueSubjects(user, data.map((item: any) => ({ subjectType: "contact", subjectId: Number(item.id) })));
   return {
-    data: camelize(row.data ?? []), total: row.total ?? 0, limit: filters.limit, offset: filters.offset,
+    data, total: row.total ?? 0, limit: filters.limit, offset: filters.offset,
     filters: { ...filters, recordClass: filters.recordClass ?? "all" },
     facets: camelize({ byRecordClass: row.by_record_class ?? {}, byEmailHealth: row.by_email_health ?? {} }),
     scope: privileged(user) ? "all" : "owned_or_unassigned",
@@ -149,8 +167,13 @@ export async function readRevenueLeads(user: RevenueUser, filters: RevenueFilter
       CURRENT_TIMESTAMP AS as_of
   `, values);
   const row = result.rows[0] ?? {};
+  const data = camelize(row.data ?? []);
+  await observeRevenueSubjects(user, data.flatMap((item: any) => [
+    { subjectType: "contact" as const, subjectId: Number(item.id) },
+    ...(item.primaryDeal?.id ? [{ subjectType: "deal" as const, subjectId: Number(item.primaryDeal.id) }] : []),
+  ]));
   return {
-    data: camelize(row.data ?? []), total: row.total ?? 0, limit: filters.limit, offset: filters.offset,
+    data, total: row.total ?? 0, limit: filters.limit, offset: filters.offset,
     filters: { ...filters, archived: false, recordClass: "production", pipeline: "sales" },
     scope: privileged(user) ? "all" : "owned_or_unassigned",
     asOf: new Date(row.as_of).toISOString(),
@@ -187,8 +210,10 @@ export async function readRevenueDeals(user: RevenueUser, filters: RevenueFilter
       CURRENT_TIMESTAMP AS as_of
     FROM page`, values);
   const row = result.rows[0] ?? {};
+  const data = camelize(row.data ?? []);
+  await observeRevenueSubjects(user, data.map((item: any) => ({ subjectType: "deal", subjectId: Number(item.id) })));
   return {
-    data: camelize(row.data ?? []),
+    data,
     total: Number(row.total ?? 0),
     limit: filters.limit ?? 100,
     offset: filters.offset ?? 0,
@@ -274,7 +299,8 @@ export async function readPipelineAnalytics(user: RevenueUser): Promise<{
   const result = await pool.query<{
     sales_total: string; sales_active: string; sales_closed_won: string; sales_closed_lost: string;
     sales_stages: Record<string, number> | null; sales_new_last_30: string; sales_won_last_30: string;
-    sales_stalling: string; onboarding_total: string; onboarding_active: string; onboarding_completed: string; as_of: Date;
+    sales_stalling: string; onboarding_total: string; onboarding_active: string; onboarding_completed: string;
+    observed_deal_ids: number[]; as_of: Date;
   }>(`
     WITH scoped_deals AS (
       SELECT d.* FROM deals d
@@ -291,6 +317,7 @@ export async function readPipelineAnalytics(user: RevenueUser): Promise<{
         COUNT(*) FILTER (WHERE pipeline = 'onboarding')::int::text AS onboarding_total,
         COUNT(*) FILTER (WHERE pipeline = 'onboarding' AND stage NOT IN ('Live (First Batch)', 'Active (7 Days)', 'Active (30 Days)', 'Cancelled'))::int::text AS onboarding_active,
         COUNT(*) FILTER (WHERE pipeline = 'onboarding' AND stage IN ('Live (First Batch)', 'Active (7 Days)', 'Active (30 Days)'))::int::text AS onboarding_completed,
+        COALESCE((array_agg(id ORDER BY id) FILTER (WHERE id IS NOT NULL))[1:2000], ARRAY[]::integer[]) AS observed_deal_ids,
         CURRENT_TIMESTAMP AS as_of
       FROM scoped_deals
     ), stages AS (
@@ -304,6 +331,8 @@ export async function readPipelineAnalytics(user: RevenueUser): Promise<{
   const num = (value: string | undefined) => Number.parseInt(value ?? "0", 10);
   const closedWon = num(authoritative.sales_closed_won);
   const closedLost = num(authoritative.sales_closed_lost);
+  await observeRevenueSubjects(user, (authoritative.observed_deal_ids ?? [])
+    .map((id) => ({ subjectType: "deal", subjectId: Number(id) })));
   return {
     data: {
       sales: {

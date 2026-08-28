@@ -1,7 +1,9 @@
 import { db } from "../../db";
 import { businesses, businessAliases, leadSources, sdrMerchants, sdrLeadState } from "@shared/schema";
-import type { Business, InsertBusiness, InsertBusinessAlias, InsertLeadSource } from "@shared/schema";
+import type { Business, InsertBusinessAlias, InsertLeadSource } from "@shared/schema";
 import { eq, and, or, sql, ilike, isNull } from "drizzle-orm";
+import { recordContactBusinessLinkCandidate } from "../commercial-link-authority";
+import { updateOrganizationDescriptive, type OrganizationDescriptiveUpdate } from "../organization-service";
 
 const MATCH_WEIGHTS = {
   domain: 50,
@@ -313,7 +315,7 @@ export async function ingestBusiness(input: IngestBusinessInput): Promise<Ingest
     const existing = await db.select().from(businesses).where(eq(businesses.id, match.businessId));
     if (existing.length > 0) {
       const biz = existing[0];
-      const updates: Partial<InsertBusiness> = {};
+      const updates: Record<string, unknown> = {};
       const incomingStrength = getSourceStrength(input.sourceType);
       const existingStrength = getSourceStrength(biz.lastSourceType || "unknown");
       const freshnessThresholdMs = 7 * 24 * 60 * 60 * 1000;
@@ -321,12 +323,10 @@ export async function ingestBusiness(input: IngestBusinessInput): Promise<Ingest
       const isStale = (Date.now() - lastUpdated) > freshnessThresholdMs;
       const isStrongerOrFresher = incomingStrength > existingStrength || (incomingStrength === existingStrength && isStale);
 
-      if (domain && (!biz.websiteDomain || isStrongerOrFresher)) updates.websiteDomain = domain;
-      if (phone && (!biz.mainPhone || isStrongerOrFresher)) updates.mainPhone = phone;
+      // Strong identity fields are intentionally immutable outside
+      // organization-resolver; conflicting supplied evidence is deferred there.
       if (input.email && (!biz.mainEmail || isStrongerOrFresher)) updates.mainEmail = input.email;
       if (input.address && (!biz.streetAddress || isStrongerOrFresher)) updates.streetAddress = input.address;
-      if (input.city && (!biz.city || isStrongerOrFresher)) updates.city = input.city;
-      if (input.state && (!biz.state || isStrongerOrFresher)) updates.state = input.state;
       if (input.postalCode && (!biz.postalCode || isStrongerOrFresher)) updates.postalCode = input.postalCode;
       if (input.googlePlaceId && (!biz.googlePlaceId || isStrongerOrFresher)) updates.googlePlaceId = input.googlePlaceId;
       if (input.vertical && (!biz.vertical || isStrongerOrFresher)) updates.vertical = input.vertical;
@@ -341,7 +341,7 @@ export async function ingestBusiness(input: IngestBusinessInput): Promise<Ingest
       }
 
       if (Object.keys(updates).length > 0) {
-        await db.update(businesses).set({ ...updates, updatedAt: new Date() }).where(eq(businesses.id, match.businessId));
+        await updateOrganizationDescriptive(match.businessId, updates as OrganizationDescriptiveUpdate);
       }
 
       if (normalizedName !== biz.normalizedName) {
@@ -430,9 +430,11 @@ export async function bridgeContactsToBusinesses(options?: { limit?: number; con
         contactId: contact.id,
       });
 
-      await db.update(contactsTable)
-        .set({ businessId: result.businessId, updatedAt: new Date() })
-        .where(eq(contactsTable.id, contact.id));
+      await recordContactBusinessLinkCandidate({
+        contactId: contact.id, businessId: result.businessId,
+        source: "sdr_dedupe", sourceVersion: "bridge-v1",
+        candidateKey: `sdr-bridge:${contact.id}:${result.businessId}`, confidence: 70,
+      });
 
       if (result.isNew) created++;
       else merged++;
@@ -502,9 +504,12 @@ export async function ingestBusinessFromContact(contactId: number, sourceType: s
     contactId,
   });
 
-  await db.update(contactsTable)
-    .set({ businessId: result.businessId, updatedAt: new Date() })
-    .where(eq(contactsTable.id, contactId));
+  await recordContactBusinessLinkCandidate({
+    contactId, businessId: result.businessId,
+    source: "sdr_dedupe", sourceVersion: sourceType,
+    candidateKey: `sdr-contact:${sourceType}:${sourceLabel || `contact_${contactId}`}:${result.businessId}`,
+    confidence: 70,
+  });
 
   return result;
 }

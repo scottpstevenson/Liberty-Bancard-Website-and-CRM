@@ -174,47 +174,71 @@ export async function writeContact(args: {
   const { auditChange } = await import("./audit-change");
 
   const result = await db.transaction(async (tx) => {
-    if (provenance.importExecutionId && provenance.importClaimToken) {
-      const [owner] = await tx.select({ id: importExecutions.id })
-        .from(importExecutions)
-        .where(and(
-          eq(importExecutions.id, provenance.importExecutionId),
-          eq(importExecutions.claimToken, provenance.importClaimToken),
-          eq(importExecutions.status, "running"),
-        ))
-        .limit(1);
+    const importOwned = Boolean(provenance.importExecutionId || provenance.importClaimToken || rowDisposition);
+    if (importOwned) {
+      if (
+        !provenance.importExecutionId || !provenance.importClaimToken ||
+        !provenance.sourceRowNumber || !provenance.rowFingerprint || !rowDisposition
+      ) {
+        throw new Error("IMPORT_EXECUTION_CLAIM_REQUIRED");
+      }
+      const owner = (await tx.execute(sql`
+        SELECT id FROM import_executions
+        WHERE id = ${provenance.importExecutionId}::uuid
+          AND claim_token = ${provenance.importClaimToken}::uuid
+          AND status = 'running'
+          AND lease_expires_at >= now()
+        FOR UPDATE
+      `) as any).rows?.[0];
       if (!owner) throw new Error(`IMPORT_EXECUTION_LEASE_LOST:${provenance.importExecutionId}`);
     }
     const recordLedger = async (contactId: number, disposition: "created" | "matched_noop", reasonCode: string) => {
-      if (!rowDisposition || !provenance.importExecutionId || !provenance.sourceRowNumber || !provenance.rowFingerprint) return;
-      await tx.insert(importRowDispositions).values({
-        executionId: provenance.importExecutionId,
-        sourceRowNumber: provenance.sourceRowNumber,
-        rowFingerprint: provenance.rowFingerprint,
+      if (!importOwned) return;
+      const inserted = await tx.insert(importRowDispositions).values({
+        executionId: provenance.importExecutionId!,
+        sourceRowNumber: provenance.sourceRowNumber!,
+        rowFingerprint: provenance.rowFingerprint!,
         disposition,
         reasonCode,
         contactId,
-      }).onConflictDoNothing();
+      }).onConflictDoNothing().returning({ id: importRowDispositions.id });
+      if (inserted.length) return;
+      const [existingLedger] = await tx.select({
+        rowFingerprint: importRowDispositions.rowFingerprint,
+        disposition: importRowDispositions.disposition,
+        reasonCode: importRowDispositions.reasonCode,
+        contactId: importRowDispositions.contactId,
+      }).from(importRowDispositions).where(and(
+        eq(importRowDispositions.executionId, provenance.importExecutionId!),
+        eq(importRowDispositions.sourceRowNumber, provenance.sourceRowNumber!),
+      )).limit(1);
+      if (
+        existingLedger?.rowFingerprint === provenance.rowFingerprint &&
+        existingLedger.disposition === disposition &&
+        existingLedger.reasonCode === reasonCode &&
+        existingLedger.contactId === contactId
+      ) return;
+      throw new Error(`IMPORT_LEDGER_DISPOSITION_CONFLICT:${provenance.importExecutionId}:${provenance.sourceRowNumber}`);
     };
     // A real email is the only generic automatic match. Phone and company are
     // intentionally not used here because BT-07 keeps potential identity
     // conflicts reviewable rather than merging them silently.
-    let [existing] = email && !syntheticPlaceholder
-      ? await tx.select().from(contacts).where(and(eq(contacts.email, email), isNull(contacts.archivedAt))).limit(1)
-      : [];
-    // Placeholder addresses never participate in identity matching. They can,
-    // however, be resumed safely through the immutable source-event idempotency
-    // key after a crash between a local contact commit and ledger disposition.
-    if (!existing) {
-      const prior = await tx.execute(sql`
-        SELECT c.*
-        FROM contact_source_events e
-        JOIN contacts c ON c.id = e.contact_id
-        WHERE e.event_key = ${provenance.eventKey}
-        LIMIT 1
-      `);
-      existing = ((prior as any).rows ?? [])[0];
-    }
+    // An existing source-event key is an exact retry of this intake command,
+    // not a newly discovered identity match. Resolve it before email matching
+    // so a recovery worker preserves the original `created` disposition.
+    const prior = await tx.execute(sql`
+      SELECT c.*
+      FROM contact_source_events e
+      JOIN contacts c ON c.id = e.contact_id
+      WHERE e.event_key = ${provenance.eventKey}
+      LIMIT 1
+    `);
+    const replayedSourceContact = ((prior as any).rows ?? [])[0];
+    let [existing] = replayedSourceContact
+      ? [replayedSourceContact]
+      : email && !syntheticPlaceholder
+        ? await tx.select().from(contacts).where(and(eq(contacts.email, email), isNull(contacts.archivedAt))).limit(1)
+        : [];
     if (existing) {
       await tx.execute(sql`
         INSERT INTO contact_source_events
@@ -239,7 +263,13 @@ export async function writeContact(args: {
         before: null,
         after: { sourceCategory: provenance.sourceCategory, sourceType: provenance.sourceType },
       }, tx);
-      await recordLedger(existing.id, "matched_noop", rowDisposition?.matchedReasonCode ?? "EXACT_ELIGIBLE_IDENTITY_MATCH");
+      await recordLedger(
+        existing.id,
+        replayedSourceContact ? "created" : "matched_noop",
+        replayedSourceContact
+          ? rowDisposition?.createdReasonCode ?? "LOCAL_CONTACT_CREATED"
+          : rowDisposition?.matchedReasonCode ?? "EXACT_ELIGIBLE_IDENTITY_MATCH",
+      );
       if (shouldProject && !existing.ghlContactId && !syntheticPlaceholder) {
         await tx.insert(contactProviderProjections).values({
           contactId: existing.id,
@@ -248,7 +278,11 @@ export async function writeContact(args: {
           state: "pending",
         }).onConflictDoNothing();
       }
-      return { contact: existing, outcome: "matched_existing" as const, pending: shouldProject && !existing.ghlContactId && !syntheticPlaceholder };
+      return {
+        contact: existing,
+        outcome: replayedSourceContact ? "created" as const : "matched_existing" as const,
+        pending: shouldProject && !existing.ghlContactId && !syntheticPlaceholder,
+      };
     }
 
     const contactPayload: ServerInsertContact = {

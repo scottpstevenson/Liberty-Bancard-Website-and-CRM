@@ -28,15 +28,27 @@ async function assertPauseAllowed(tag: string): Promise<{ tokenId: string; epoch
 async function assertCommercialAllowed(
   dbContactId: number | undefined,
   purpose: "marketing_outreach" | "transactional_response" = "marketing_outreach",
+  binding?: { inboundRequestId?: string; intendedRecipientContactId?: number },
 ): Promise<void> {
   // This transport has no server-owned category parameter comparable to SMTP,
   // so a missing internal contact identity cannot prove a transactional intent.
   // Fail closed rather than allowing a caller-controlled purpose to bypass the
   // commercial authorization boundary.
   if (!dbContactId) throw new Error("COMMERCIAL_CLASS_UNKNOWN");
-  const { authorizeUse } = await import("../commercial-classification-authority");
-  const decision = await authorizeUse({ contactId: dbContactId, purpose });
-  if (!decision.allowed) throw new Error(decision.reasonCode);
+  const hasInboundBinding = purpose === "transactional_response"
+    && !!binding?.inboundRequestId?.trim()
+    && binding.intendedRecipientContactId === dbContactId;
+  const { authorizeCommercialUse } = await import("../commercial-resolution");
+  const decision = await authorizeCommercialUse({
+    subjectType: "contact",
+    subjectId: dbContactId,
+    effect: purpose === "marketing_outreach"
+      ? "marketing_outreach"
+      : hasInboundBinding ? "inbound_transactional_acknowledgement" : "account_transactional",
+    inboundRequestId: hasInboundBinding ? binding?.inboundRequestId : undefined,
+    intendedRecipientId: hasInboundBinding ? binding?.intendedRecipientContactId : undefined,
+  });
+  if (!decision.effectiveDecision.allowed) throw new Error(decision.effectiveDecision.reasonCode);
 }
 
 async function resolveLocalContactId(
@@ -663,11 +675,13 @@ export async function sendChatReply(params: {
   contactId: string;
   dbContactId?: number;
   commercialPurpose?: "marketing_outreach" | "transactional_response";
+  inboundRequestId?: string;
+  intendedRecipientContactId?: number;
   message: string;
   conversationId?: string;
 }): Promise<SendMessageResult> {
   const dbContactId = await resolveLocalContactId(params.dbContactId, params.contactId);
-  await assertCommercialAllowed(dbContactId, params.commercialPurpose);
+  await assertCommercialAllowed(dbContactId, params.commercialPurpose, params);
   const { deregisterInflight } = await import("../outbound-control-service");
   const { tokenId, epoch } = await assertPauseAllowed("sendChatReply");
   try {
@@ -694,9 +708,11 @@ export async function sendSmsReply(params: {
   message: string;
   dbContactId?: number;
   commercialPurpose?: "marketing_outreach" | "transactional_response";
+  inboundRequestId?: string;
+  intendedRecipientContactId?: number;
 }): Promise<SendMessageResult> {
   const dbContactId = await resolveLocalContactId(params.dbContactId, params.contactId);
-  await assertCommercialAllowed(dbContactId, params.commercialPurpose);
+  await assertCommercialAllowed(dbContactId, params.commercialPurpose, params);
   const { deregisterInflight } = await import("../outbound-control-service");
   const { tokenId, epoch } = await assertPauseAllowed("sendSmsReply");
   try {
@@ -729,9 +745,11 @@ export async function sendEmailReply(params: {
    */
   dbContactId?: number;
   commercialPurpose?: "marketing_outreach" | "transactional_response";
+  inboundRequestId?: string;
+  intendedRecipientContactId?: number;
 }): Promise<SendMessageResult> {
   const dbContactId = await resolveLocalContactId(params.dbContactId, params.contactId);
-  await assertCommercialAllowed(dbContactId, params.commercialPurpose);
+  await assertCommercialAllowed(dbContactId, params.commercialPurpose, params);
   const { deregisterInflight } = await import("../outbound-control-service");
   const { tokenId, epoch } = await assertPauseAllowed("sendEmailReply");
   try {

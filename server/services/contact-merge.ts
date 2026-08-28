@@ -3,6 +3,7 @@ import { sql } from "drizzle-orm";
 import { db } from "../db";
 import { IDENTITY_NORMALIZATION_VERSION } from "./contact-identity";
 import { sanitizeAuditPayload } from "./audit-sanitizer";
+import { lockCommercialGraph } from "./commercial-graph-locks";
 
 export const CONTACT_MERGE_MANIFEST_VERSION = 2;
 export type Disposition = "transfer" | "immutable_retain" | "terminalize" | "authority_handoff" | "manual_block";
@@ -37,6 +38,16 @@ export const CONTACT_MERGE_MANIFEST: readonly ManifestEntry[] = [
   { key: "ai_corrections", table: "ai_corrections", column: "contact_id", disposition: "immutable_retain" },
   { key: "nba_recommendation_history", table: "nba_recommendation_history", column: "contact_id", disposition: "immutable_retain" },
   { key: "contact_identity_observations", table: "contact_identity_observations", column: "contact_id", disposition: "immutable_retain" },
+  // CRO-02 append-only graph evidence is retained against the deprecated
+  // identity; readers resolve it through BT-07 redirects. Candidates are not
+  // promoted by a merge and are retained for audit/review rather than silently
+  // transferred into a new assertion.
+  { key: "contact_business_link_decisions", table: "contact_business_link_decisions", column: "contact_id", disposition: "immutable_retain" },
+  { key: "contact_business_link_decisions_evidence_identity", table: "contact_business_link_decisions", column: "id", disposition: "immutable_retain" },
+  { key: "commercial_relationship_candidates", table: "commercial_relationship_candidates", column: "contact_id", disposition: "immutable_retain" },
+  { key: "commercial_relationship_candidates_evidence_identity", table: "commercial_relationship_candidates", column: "id", disposition: "immutable_retain" },
+  { key: "commercial_relationship_reviews", table: "commercial_relationship_reviews", column: "contact_id", disposition: "immutable_retain" },
+  { key: "commercial_relationship_reviews_evidence_identity", table: "commercial_relationship_reviews", column: "id", disposition: "immutable_retain" },
   { key: "import_row_dispositions", table: "import_row_dispositions", column: "contact_id", disposition: "immutable_retain" },
   { key: "eligibility_snapshots", table: "eligibility_snapshots", column: "contact_id", disposition: "immutable_retain" },
   { key: "contact_provider_projections", table: "contact_provider_projections", column: "contact_id", disposition: "terminalize" },
@@ -60,6 +71,7 @@ export const CONTACT_MERGE_MANIFEST: readonly ManifestEntry[] = [
 const TRANSFER_ENTRIES = CONTACT_MERGE_MANIFEST.filter((entry) => entry.disposition === "transfer" && entry.table && entry.column);
 const DEPENDENCY_FINGERPRINT_ENTRIES = CONTACT_MERGE_MANIFEST.filter((entry) =>
   entry.table && entry.column
+  && !entry.key.endsWith("_evidence_identity")
   && !entry.key.startsWith("contact_merge_operations")
   && !entry.key.startsWith("contact_merge_redirects"),
 );
@@ -117,7 +129,9 @@ async function readContactsForUpdate(tx: any, a: number, b: number) {
 
 async function relationshipCounts(executor: any, deprecatedContactId: number) {
   const result: Record<string, number> = {};
-  for (const entry of CONTACT_MERGE_MANIFEST.filter(e => e.table && e.column)) {
+  for (const entry of CONTACT_MERGE_MANIFEST.filter(
+    e => e.table && e.column && !e.key.endsWith("_evidence_identity"),
+  )) {
     const table = entry.table!;
     const column = entry.column!;
     const countRows = rows(await executor.execute(sql.raw(`SELECT count(*)::int AS count FROM "${table}" WHERE "${column}" = ${Number(deprecatedContactId)}`)));
@@ -332,6 +346,13 @@ export async function executeContactMerge(operationId: string, actorId: string) 
   let operation: any;
   try {
   operation = await db.transaction(async (tx) => {
+    const hint = rows(await tx.execute(sql`SELECT survivor_contact_id,deprecated_contact_id
+      FROM contact_merge_operations WHERE id=${operationId}`))[0];
+    if (!hint) throw new ContactMergeError("OPERATION_NOT_FOUND", "Merge operation was not found");
+    await lockCommercialGraph(tx, [
+      { type: "contact", id: Number(hint.survivor_contact_id) },
+      { type: "contact", id: Number(hint.deprecated_contact_id) },
+    ], ["contact_redirect"]);
     const initial = rows(await tx.execute(sql`SELECT * FROM contact_merge_operations WHERE id = ${operationId} FOR UPDATE`))[0];
     if (!initial) throw new ContactMergeError("OPERATION_NOT_FOUND", "Merge operation was not found");
     if (["committed", "reconciliation_pending", "completed"].includes(initial.status)) return initial;
@@ -554,6 +575,13 @@ export async function retryContactMergeConsentHandoff(operationId: string, actor
 
 export async function undoContactMerge(operationId: string, actorId: string) {
   return db.transaction(async (tx) => {
+    const hint = rows(await tx.execute(sql`SELECT survivor_contact_id,deprecated_contact_id
+      FROM contact_merge_operations WHERE id=${operationId}`))[0];
+    if (!hint) throw new ContactMergeError("UNDO_BLOCKED", "This operation cannot be undone");
+    await lockCommercialGraph(tx, [
+      { type: "contact", id: Number(hint.survivor_contact_id) },
+      { type: "contact", id: Number(hint.deprecated_contact_id) },
+    ], ["contact_redirect"]);
     const op = rows(await tx.execute(sql`SELECT * FROM contact_merge_operations WHERE id = ${operationId} FOR UPDATE`))[0];
     if (op?.status === "undone") return op;
     if (!op || !["completed", "reconciliation_pending"].includes(op.status)) throw new ContactMergeError("UNDO_BLOCKED", "This operation cannot be undone");

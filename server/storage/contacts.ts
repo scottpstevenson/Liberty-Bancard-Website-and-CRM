@@ -252,6 +252,10 @@ import { createValidationIntent, hashEmailToken, normalizeEmailToken } from "../
     );
     const [before] = await db.select().from(contacts).where(eq(contacts.id, id));
     const updated = await db.transaction(async (tx) => {
+      if ("email" in coercedUpdates || "phone" in coercedUpdates) {
+        const { lockCommercialGraph } = await import("../services/commercial-graph-locks");
+        await lockCommercialGraph(tx, [{ type: "contact", id }], ["identity"]);
+      }
       const nextEmail = "email" in coercedUpdates ? String((coercedUpdates as any).email ?? "") : before?.email;
       const materialEmailChange = !!before && normalizeEmailToken(nextEmail) !== normalizeEmailToken(before.email);
       const nextGeneration = materialEmailChange ? before.emailMutationGeneration + 1 : before?.emailMutationGeneration;

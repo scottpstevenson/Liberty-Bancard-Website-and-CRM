@@ -1191,6 +1191,62 @@
       "when": 1794900000000,
       "tag": "0165_outbound_send_claim_lease",
       "breakpoints": true
+    },
+    {
+      "idx": 170,
+      "version": "7",
+      "when": 1795000000000,
+      "tag": "0166_cro02_shadow_graph",
+      "breakpoints": true
+    },
+    {
+      "idx": 171,
+      "version": "7",
+      "when": 1795100000000,
+      "tag": "0167_cro02_shadow_aggregates",
+      "breakpoints": true
+    },
+    {
+      "idx": 172,
+      "version": "7",
+      "when": 1795200000000,
+      "tag": "0168_cro02_evidence_retention_guards",
+      "breakpoints": true
+    },
+    {
+      "idx": 173,
+      "version": "7",
+      "when": 1795300000000,
+      "tag": "0169_cro02_graph_command_guards",
+      "breakpoints": true
+    },
+    {
+      "idx": 174,
+      "version": "7",
+      "when": 1795400000000,
+      "tag": "0170_cro02_versioned_purpose_policies",
+      "breakpoints": true
+    },
+    {
+      "idx": 175,
+      "version": "7",
+      "when": 1795500000000,
+      "tag": "0171_cro02_evidence_snapshot_retention",
+      "breakpoints": true
+    },
+    {
+      "idx": 176,
+      "version": "7",
+      "when": 1795600000000,
+      "tag": "0172_cro02_reviewed_contact_business_links",
+      "breakpoints": true
+    },
+    {
+      "idx": 177,
+      "version": "7",
+      "when": 1795700000000,
+      "tag": "0173_cro02_graph_lock_order",
+      "breakpoints": true
     }
   ]
 }

@@ -34,6 +34,7 @@ export type MarketingValidationDecision = {
   emailTokenHash: string | null;
   subjectGeneration: number | null;
   evidenceAt: Date | null;
+  commercialResolutionSnapshotId?: string;
 };
 
 export type ValidationEvidence = {
@@ -156,6 +157,14 @@ export async function evaluateMarketingEmailEligibility(contactId: number): Prom
     if (!contact) {
       return { allowed: false, decision: "blocked", reason: "missing_email", emailTokenHash: null, subjectGeneration: null, evidenceAt: null };
     }
+    // CRO-02 observes provider-pre-spend inputs through the shared adapter.
+    // BT-10 remains the effective readiness authority in shadow mode.
+    const { authorizeCommercialUse } = await import("./commercial-resolution");
+    const commercial = await authorizeCommercialUse({
+      subjectType: "contact",
+      subjectId: contactId,
+      effect: "provider_pre_spend",
+    });
     const tokenHash = hashEmailToken(contact.email);
     const [observation] = tokenHash
       ? await db.select({
@@ -170,7 +179,8 @@ export async function evaluateMarketingEmailEligibility(contactId: number): Prom
           eq(providerObservations.subjectGeneration, contact.emailMutationGeneration),
         )).orderBy(desc(providerObservations.observedAt)).limit(1)
       : [];
-    return decideMarketingEmailValidation(contact.email, {
+    return {
+      ...decideMarketingEmailValidation(contact.email, {
       emailStatus: contact.emailStatus,
       emailTokenHash: observation?.emailTokenHash ?? null,
       subjectGeneration: contact.emailMutationGeneration,
@@ -180,7 +190,11 @@ export async function evaluateMarketingEmailEligibility(contactId: number): Prom
       evidenceGeneration: observation?.subjectGeneration,
       verifiedAt: observation?.observedAt,
       providerOutcome: observation?.outcome,
-    });
+      }),
+      ...(commercial.shadowDecision.snapshotId
+        ? { commercialResolutionSnapshotId: commercial.shadowDecision.snapshotId }
+        : {}),
+    };
   } catch {
     return {
       allowed: false,
@@ -207,6 +221,7 @@ export async function persistMarketingEligibilitySnapshot(
     decision: decision.decision,
     reasonCodes: [decision.reason],
     evidenceRefs: [],
+    commercialResolutionSnapshotId: decision.commercialResolutionSnapshotId,
     expiresAt: decision.evidenceAt
       ? new Date(decision.evidenceAt.getTime() + EMAIL_VALIDATION_MAX_AGE_MS)
       : null,

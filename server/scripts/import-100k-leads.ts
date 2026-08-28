@@ -1,6 +1,6 @@
 import pg from "pg";
 import { createRequire } from "module";
-import { recordContactIdentityObservationsForPg } from "../services/contact-identity";
+import { recordContactIdentityObservationsForPgContacts } from "../services/contact-identity";
 const require = createRequire(import.meta.url);
 const XLSX = require("xlsx");
 
@@ -176,7 +176,7 @@ async function main() {
         ) VALUES ${placeholders.join(", ")}
         ON CONFLICT DO NOTHING RETURNING id, email, phone
       `, params);
-      for (const contact of result.rows) await recordContactIdentityObservationsForPg(client, contact, "csv_import", "import-100k-leads");
+      await recordContactIdentityObservationsForPgContacts(client, result.rows, "csv_import", "import-100k-leads");
       await client.query("COMMIT");
       inserted += result.rowCount || 0;
       } catch (error) {
@@ -200,7 +200,7 @@ async function main() {
             ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
             ON CONFLICT DO NOTHING RETURNING id, email, phone
           `, row);
-          for (const contact of result.rows) await recordContactIdentityObservationsForPg(client, contact, "csv_import", "import-100k-leads");
+          await recordContactIdentityObservationsForPgContacts(client, result.rows, "csv_import", "import-100k-leads");
           await client.query("COMMIT");
           inserted += result.rowCount || 0;
           } catch (error) {

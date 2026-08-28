@@ -7,6 +7,7 @@ import {
   recordImportRowDisposition,
 } from "./import-execution";
 import { computeFileHash } from "./import-normalizer";
+import { importDispositionCompatibility } from "@shared/import-disposition-summary";
 
 let registeredProcessor: PersistedCsvProcessor | null = null;
 
@@ -36,11 +37,6 @@ async function recoverPersistedCsvImport(args: Parameters<PersistedCsvProcessor>
   const claimToken = executionClaim.claimToken;
   if (!claimToken) throw new Error("CSV_IMPORT_RECOVERY_MISSING_CLAIM");
 
-  let inserted = 0;
-  let duplicatesSkipped = 0;
-  let invalidRows = 0;
-  let errors = 0;
-
   for (const [index, row] of records.entries()) {
     if (!await heartbeatImportExecution(executionId, claimToken)) {
       throw new Error(`IMPORT_EXECUTION_LEASE_LOST:${executionId}`);
@@ -58,12 +54,11 @@ async function recoverPersistedCsvImport(args: Parameters<PersistedCsvProcessor>
         executionId, claimToken, sourceRowNumber, rowFingerprint,
         disposition: "rejected", reasonCode: "NO_USABLE_IDENTITY",
       });
-      invalidRows++;
       continue;
     }
 
     try {
-      const contact = await writeContact({
+      await writeContact({
         mode: "local_only",
         mutation: {
           firstName: firstName || companyName,
@@ -94,15 +89,12 @@ async function recoverPersistedCsvImport(args: Parameters<PersistedCsvProcessor>
           matchedReasonCode: "EXACT_ELIGIBLE_IDENTITY_MATCH",
         },
       });
-      if (contact._intakeOutcome === "created") inserted++;
-      else duplicatesSkipped++;
     } catch (error: any) {
       await recordImportRowDisposition({
         executionId, claimToken, sourceRowNumber, rowFingerprint,
         disposition: "failed", reasonCode: "RECOVERY_CONTACT_WRITE_FAILED",
         diagnostic: { error: String(error?.code ?? "write_failed") },
       });
-      errors++;
     }
   }
 
@@ -114,14 +106,16 @@ async function recoverPersistedCsvImport(args: Parameters<PersistedCsvProcessor>
   if (!completion.completed) {
     throw new Error(`CSV_IMPORT_RECOVERY_LEDGER_MISMATCH:${completion.total}/${records.length}`);
   }
+  const outcomes = importDispositionCompatibility(completion.counts);
 
   await storage.updateCsvImport(importRecord.id, {
-    newRecords: completion.counts.created ?? inserted,
-    duplicatesSkipped: completion.counts.matched_noop ?? duplicatesSkipped,
-    invalidRows: completion.counts.rejected ?? invalidRows,
-    skippedRows: completion.counts.deferred ?? 0,
-    errorsCount: completion.counts.failed ?? errors,
-    processedRows: completion.total,
+    newRecords: outcomes.created,
+    updatedRecords: outcomes.updated,
+    duplicatesSkipped: outcomes.matched_noop,
+    invalidRows: outcomes.rejected,
+    skippedRows: outcomes.deferred,
+    errorsCount: outcomes.failed,
+    processedRows: outcomes.total,
     status: "completed",
     completedAt: new Date(),
     lastProgressAt: new Date(),
@@ -138,12 +132,7 @@ async function recoverPersistedCsvImport(args: Parameters<PersistedCsvProcessor>
 
   return {
     import: await storage.getCsvImport(importRecord.id),
-    inserted: completion.counts.created ?? inserted,
-    updated: completion.counts.updated ?? 0,
-    duplicatesSkipped: completion.counts.matched_noop ?? duplicatesSkipped,
-    invalidRows: completion.counts.rejected ?? invalidRows,
-    skippedRows: completion.counts.deferred ?? 0,
-    errors: completion.counts.failed ?? errors,
+    ...outcomes,
     dealsCreated: 0,
     verticalBreakdown: {},
     sourceFormat,

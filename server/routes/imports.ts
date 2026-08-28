@@ -45,6 +45,8 @@ import { sanitizeFirstName } from "../services/contact-name-utils";
 import { publicLeadRateLimit } from "../middleware/public-rate-limit";
 import { serverError } from "../utils/server-error";
 import { registerPersistedCsvProcessor, processPersistedCsvImport } from "../services/csv-import-processor";
+import { recordContactBusinessLinkCandidate } from "../services/commercial-link-authority";
+import { importDispositionCompatibility } from "@shared/import-disposition-summary";
 
 export function registerImportsRoutes(app: Express) {
   app.get("/api/import-executions/:executionId/ledger", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
@@ -1006,8 +1008,9 @@ Guidelines:
       }).catch(err => console.error("Auto-enroll quiz error:", err));
 
       if (pewcConsent && phone) {
-        evaluateContactability({ contactId: contact.id, channel: "sms", campaignType: "confirmation", commercialPurpose: "transactional_response", mode: "enforcement" })
-          .then(r => { if (r.allowed) sendConfirmationSms(contact.id, firstName, "free_analysis_quiz", deal.id).catch(err => console.error("Confirm SMS error:", err)); })
+        const inboundRequestId = `deal-${deal.id}-form_submitted-free_analysis`;
+        evaluateContactability({ contactId: contact.id, channel: "sms", campaignType: "confirmation", commercialPurpose: "transactional_response", mode: "enforcement", inboundRequestId, intendedRecipientContactId: contact.id })
+          .then(r => { if (r.allowed) sendConfirmationSms(contact.id, firstName, "free_analysis_quiz", deal.id, inboundRequestId).catch(err => console.error("Confirm SMS error:", err)); })
           .catch(err => console.error("[FreeAnalysis] Contactability check error:", err));
       }
 
@@ -1319,7 +1322,26 @@ Guidelines:
       Promise.all(staleUpdates).catch(() => {});
     }
 
-    res.json(imports);
+    // For execution-backed imports, the immutable row ledger is the only
+    // reconciliation authority. Legacy records retain their compatibility
+    // projections because they predate the execution ledger.
+    const withDurableOutcomes = await Promise.all(imports.map(async (imp) => {
+      if (!imp.executionId) return imp;
+      const outcomes = importDispositionCompatibility((await getImportLedgerSummary(imp.executionId)).counts);
+      return {
+        ...imp,
+        ...outcomes,
+        newRecords: outcomes.created,
+        updatedRecords: outcomes.updated,
+        duplicatesSkipped: outcomes.matched_noop,
+        invalidRows: outcomes.rejected,
+        skippedRows: outcomes.deferred,
+        errorsCount: outcomes.failed,
+        processedRows: outcomes.total,
+        dispositionCounts: outcomes.counts,
+      };
+    }));
+    res.json(withDurableOutcomes);
   });
 
   // Admin: manually mark a processing import as interrupted (e.g. if stale
@@ -1348,19 +1370,30 @@ Guidelines:
   app.get("/api/csv-imports/stats", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
       const imports = await storage.getCsvImports();
+      const durableOutcomes = await Promise.all(imports.map(async (imp) => imp.executionId
+        ? importDispositionCompatibility((await getImportLedgerSummary(imp.executionId)).counts)
+        : importDispositionCompatibility({
+          created: imp.newRecords,
+          matched_noop: imp.duplicatesSkipped,
+          updated: imp.updatedRecords,
+          rejected: imp.invalidRows,
+          deferred: imp.skippedRows,
+          failed: imp.errorsCount,
+        })));
       const totalImports = imports.length;
-      const totalRowsProcessed = imports.reduce((sum, i) => sum + (i.totalRows || 0), 0);
-      const totalRecordsImported = imports.reduce((sum, i) => sum + (i.newRecords || 0), 0);
-      const totalDuplicatesSkipped = imports.reduce((sum, i) => sum + (i.duplicatesSkipped || 0), 0);
+      const totalRowsProcessed = durableOutcomes.reduce((sum, i) => sum + i.total, 0);
+      const totalRecordsImported = durableOutcomes.reduce((sum, i) => sum + i.created, 0);
+      const totalDuplicatesSkipped = durableOutcomes.reduce((sum, i) => sum + i.matched_noop, 0);
       // "Already Exists" is a DB-level conflict caught by onConflictDoNothing() —
       // distinct from app-level pre-check duplicates, but both mean "this
       // contact already exists". Surface both separately (for audit) AND
       // combined (for the headline reconciliation story) so no row is ever
       // invisible in the top-level stats.
-      const totalSkippedRows = imports.reduce((sum, i) => sum + (i.skippedRows || 0), 0);
+      const totalSkippedRows = durableOutcomes.reduce((sum, i) => sum + i.deferred, 0);
       const totalAlreadyExists = totalDuplicatesSkipped + totalSkippedRows;
-      const totalInvalidRows = imports.reduce((sum, i) => sum + (i.invalidRows || 0), 0);
-      const totalErrors = imports.reduce((sum, i) => sum + (i.errorsCount || 0), 0);
+      const totalUpdatedRows = durableOutcomes.reduce((sum, i) => sum + i.updated, 0);
+      const totalInvalidRows = durableOutcomes.reduce((sum, i) => sum + i.rejected, 0);
+      const totalErrors = durableOutcomes.reduce((sum, i) => sum + i.failed, 0);
       const totalDealsCreated = imports.reduce((sum, i) => sum + (i.dealsCreated || 0), 0);
       const totalHot = imports.reduce((sum, i) => sum + (i.hotLeads || 0), 0);
       const totalWarm = imports.reduce((sum, i) => sum + (i.warmLeads || 0), 0);
@@ -1382,6 +1415,7 @@ Guidelines:
         totalDuplicatesSkipped,
         totalSkippedRows,
         totalAlreadyExists,
+        totalUpdatedRows,
         totalInvalidRows,
         totalErrors,
         totalDealsCreated,
@@ -1475,7 +1509,20 @@ Guidelines:
   app.get("/api/csv-imports/:id", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     const record = await storage.getCsvImport(Number(req.params.id));
     if (!record) return res.status(404).json({ message: "Not found" });
-    res.json(record);
+    if (!record.executionId) return res.json(record);
+    const outcomes = importDispositionCompatibility((await getImportLedgerSummary(record.executionId)).counts);
+    res.json({
+      ...record,
+      ...outcomes,
+      newRecords: outcomes.created,
+      updatedRecords: outcomes.updated,
+      duplicatesSkipped: outcomes.matched_noop,
+      invalidRows: outcomes.rejected,
+      skippedRows: outcomes.deferred,
+      errorsCount: outcomes.failed,
+      processedRows: outcomes.total,
+      dispositionCounts: outcomes.counts,
+    });
   });
 
   app.post("/api/leads/import-csv", isDashboardUser, requireRole("admin", "manager"), uploadLarge.single("file"), async (req, res) => {
@@ -1549,15 +1596,12 @@ Guidelines:
           });
         }
         const summary = await getImportLedgerSummary(executionClaim.execution.id);
+        const outcomes = importDispositionCompatibility(summary.counts);
         return res.status(200).json({
           replayed: true,
           execution: executionClaim.execution,
           import: { totalRows: executionClaim.execution.totalRows ?? records.length, status: executionClaim.execution.status },
-          inserted: summary.counts.created ?? 0,
-          duplicatesSkipped: summary.counts.matched_noop ?? 0,
-          invalidRows: summary.counts.rejected ?? 0,
-          skippedRows: summary.counts.deferred ?? 0,
-          errors: summary.counts.failed ?? 0,
+          ...outcomes,
         });
       }
       const importRecord = await storage.createCsvImport({
@@ -2015,15 +2059,8 @@ Guidelines:
             result.push(contact);
           }
           inserted += result.filter((row) => row._intakeOutcome === "created").length;
-          // onConflictDoNothing() can silently skip rows that hit a DB-level
-          // conflict without throwing. Those rows are neither inserted,
-          // duplicates (per our app-level dedupe), nor errors — count them
-          // explicitly so no row ever vanishes from the reconciliation total.
-          const conflictSkipped = batch.length - result.length;
-          if (conflictSkipped > 0) {
-            skippedRows += conflictSkipped;
-            console.warn(`[CSV Import] ${conflictSkipped} row(s) in batch silently skipped by DB conflict (import ${importRecord.id})`);
-          }
+          // writeContact either returns a durable disposition or throws; ledger
+          // summaries, not a batch-length subtraction, are reconciliation truth.
           for (const r of result.filter((row) => row._intakeOutcome === "created")) {
             insertedContactIds.push(r.id);
             const { auditChange } = await import("../services/audit-change");
@@ -2096,8 +2133,8 @@ Guidelines:
       if (!ledgerCompletion.completed) {
         throw new Error(`CSV ledger reconciliation failed: ${ledgerCompletion.total}/${records.length} terminal rows`);
       }
+      const durableOutcomes = importDispositionCompatibility(ledgerCompletion.counts);
 
-      let businessesLinked = 0;
       if (insertedContactIds.length > 0) {
         const { inArray } = await import("drizzle-orm");
         const newContacts = await db.select().from(contacts)
@@ -2121,12 +2158,13 @@ Guidelines:
               importBatchId: `csv_${importRecord.id}`,
               contactId: rc.id,
             });
-            await db.update(contacts)
-              .set({ businessId: bizResult.businessId })
-              .where(eq(contacts.id, rc.id));
+            await recordContactBusinessLinkCandidate({
+              contactId: rc.id, businessId: bizResult.businessId,
+              source: "csv_import", sourceVersion: sourceFormat,
+              candidateKey: `csv:${importRecord.id}:${rc.id}:${bizResult.businessId}`, confidence: 70,
+            });
             const { auditChange } = await import("../services/audit-change");
-            auditChange({ actorType: "system", action: "contact_business_linked", entityType: "contact", entityId: rc.id, before: null, after: { businessId: bizResult.businessId } }).catch(() => {});
-            businessesLinked++;
+            auditChange({ actorType: "system", action: "contact_business_link_candidate_recorded", entityType: "contact", entityId: rc.id, before: null, after: { candidateBusinessId: bizResult.businessId } }).catch(() => {});
           } catch (bizErr) {
             console.warn(`[CSV Import] Business ingest failed for ${rc.companyName}:`, bizErr);
           }
@@ -2134,12 +2172,13 @@ Guidelines:
       }
 
       await storage.updateCsvImport(importRecord.id, {
-        newRecords: inserted,
-        duplicatesSkipped: duplicatesSkipped,
-        updatedRecords: updated,
-        invalidRows: invalidRows,
-        skippedRows: skippedRows,
-        errorsCount: errors,
+        newRecords: durableOutcomes.created,
+        duplicatesSkipped: durableOutcomes.matched_noop,
+        updatedRecords: durableOutcomes.updated,
+        invalidRows: durableOutcomes.rejected,
+        skippedRows: durableOutcomes.deferred,
+        errorsCount: durableOutcomes.failed,
+        processedRows: durableOutcomes.total,
         verticalBreakdown: verticalCounts,
         status: "completed",
         completedAt: new Date(),
@@ -2150,12 +2189,6 @@ Guidelines:
         optOutPreserved,
         optOutApplied,
       });
-
-      // Reconciliation: totalRows = created + updated + duplicatesSkipped + invalidRows + skippedRows + errors
-      const reconciledTotal = inserted + updated + duplicatesSkipped + invalidRows + skippedRows + errors;
-      if (reconciledTotal !== records.length) {
-        console.error(`[CSV Import] Reconciliation mismatch for import ${importRecord.id}: total=${records.length} but created(${inserted})+updated(${updated})+duplicates(${duplicatesSkipped})+invalid(${invalidRows})+skipped(${skippedRows})+errors(${errors})=${reconciledTotal}`);
-      }
 
       const updatedImport = await storage.getCsvImport(importRecord.id);
 
@@ -2168,23 +2201,14 @@ Guidelines:
         actorId: actor.actorId,
         details: {
           filename: importRecord.fileName,
-          inserted,
-          updated,
-          duplicatesSkipped,
-          invalidRows,
-          errors,
+          ...durableOutcomes,
           totalRows: records.length,
         },
       } as any).catch((e: any) => console.error("[CSV Import] audit log failed:", e.message));
 
       return {
         import: updatedImport,
-        inserted,
-        updated,
-        duplicatesSkipped,
-        invalidRows,
-        skippedRows,
-        errors,
+        ...durableOutcomes,
         dealsCreated,
         verticalBreakdown: verticalCounts,
         sourceFormat,

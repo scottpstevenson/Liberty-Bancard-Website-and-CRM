@@ -289,6 +289,22 @@ const MANDATORY_SUITES: Suite[] = [
     timeoutSecs: 60,
   },
   {
+    name: "CRO-02 Classification Authority (shadow graph structural ownership)",
+    script: "scripts/check-cro02-authority.ts",
+    timeoutSecs: 60,
+  },
+  {
+    name: "CRO-02 Graph and Import Integration (disposable graph/vector/lease fencing)",
+    script: "scripts/test-cro02-integration.ts",
+    timeoutSecs: 120,
+  },
+  {
+    name: "CRO-02 HTTP Privacy and Provider Denial",
+    script: "scripts/test-cro02-http.ts",
+    timeoutSecs: 60,
+    requiresServer: true,
+  },
+  {
     name: "Role Guards",
     script: "scripts/smoke-role-guards.ts",
     timeoutSecs: 120,

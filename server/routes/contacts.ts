@@ -1638,14 +1638,19 @@ export function registerContactsRoutes(app: Express) {
   app.patch("/api/contacts/:id/decision-maker", isDashboardUser, async (req, res) => {
     try {
       const contactId = Number(req.params.id);
-      const { isDecisionMaker } = z.object({ isDecisionMaker: z.boolean() }).parse(req.body);
+      if (!["admin", "manager"].includes((req.user as any)?.role)) return res.status(404).json({ message: "Not found", code: "CRM_OBJECT_NOT_FOUND" });
+      const { businessId, decision, expectedRevision } = z.object({
+        businessId: z.number().int().positive(),
+        decision: z.enum(["decision_maker", "not_decision_maker", "unknown", "conflicted"]),
+        expectedRevision: z.number().int().nonnegative().optional(),
+      }).parse(req.body);
+      const reviewKey = req.get("Idempotency-Key");
+      if (!reviewKey || reviewKey.length > 200) return res.status(400).json({ code: "IDEMPOTENCY_KEY_REQUIRED" });
       const contact = await storage.getContact(contactId);
-      if (!contact) return res.status(404).json({ message: "Contact not found" });
-      const updated = await storage.updateContact(contactId, {
-        isDecisionMaker,
-        decisionMakerConfidence: isDecisionMaker ? 100 : 0,
-      }, { actorType: "user", userId: (req.user as any)?.id ?? null });
-      res.json(updated);
+      if (!contact) return res.status(404).json({ message: "Not found", code: "CRM_OBJECT_NOT_FOUND" });
+      const { reviewDecisionMaker } = await import("../services/commercial-relationship-authority");
+      const review = await reviewDecisionMaker({ contactId, businessId, decision, reviewKey, expectedRevision, actorId: String((req.user as any)?.id ?? "unknown") });
+      res.json({ id: review.id, decision: review.decision });
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
       serverError(res, err);

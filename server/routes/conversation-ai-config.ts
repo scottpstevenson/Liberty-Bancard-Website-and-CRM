@@ -472,20 +472,9 @@ export function registerConversationAiConfigRoutes(app: Express) {
   });
 
   // ─── Contact Intelligence ──────────────────────────────────────────────────
-  app.patch("/api/contacts/:id/decision-maker", isDashboardUser, async (req, res) => {
-    try {
-      const schema = z.object({ isDecisionMaker: z.boolean() });
-      const { isDecisionMaker } = schema.parse(req.body);
-      const [updated] = await db.update(contacts)
-        .set({ isDecisionMaker, decisionMakerConfidence: isDecisionMaker ? 100 : 0 } as any)
-        .where(eq(contacts.id, Number(req.params.id)))
-        .returning();
-      res.json(updated);
-    } catch (err: any) {
-      if (err.name === "ZodError") return res.status(400).json({ message: "Validation error" });
-      serverError(res, err);
-    }
-  });
+  // Decision-maker review is registered once in contacts.ts and is owned by
+  // commercial-relationship-authority.ts; this module must not mutate its
+  // compatibility projection.
 
   // NOTE: PATCH /api/contacts/:id/management-type is registered in contacts.ts — removed duplicate here.
   // NOTE: PATCH /api/companies/:id/management-type is registered in contacts.ts — removed duplicate here.

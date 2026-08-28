@@ -147,14 +147,26 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
 
 
   async createBusiness(data: InsertBusiness): Promise<Business> {
-    const [biz] = await db.insert(businesses).values(data).returning();
-    return biz;
+    const { resolveOrganizationIdentity } = await import("../services/organization-service");
+    const { canonicalName, normalizedName, websiteDomain, googlePlaceId, mainPhone, ...descriptive } = data;
+    void normalizedName; // Resolver derives this from canonicalName.
+    const resolved = await resolveOrganizationIdentity({
+      canonicalName,
+      websiteDomain,
+      googlePlaceId,
+      mainPhone,
+      city: data.city,
+      state: data.state,
+      create: descriptive,
+    });
+    if (resolved.kind === "deferred") throw new Error(`ORGANIZATION_${resolved.reasonCode}`);
+    return resolved.business;
   }
 
 
   async updateBusiness(id: number, updates: UpdateBusinessRequest): Promise<Business | undefined> {
-    const [biz] = await db.update(businesses).set({ ...updates, updatedAt: new Date() }).where(eq(businesses.id, id)).returning();
-    return biz;
+    const { updateOrganizationDescriptive } = await import("../services/organization-service");
+    return updateOrganizationDescriptive(id, updates);
   }
 
 

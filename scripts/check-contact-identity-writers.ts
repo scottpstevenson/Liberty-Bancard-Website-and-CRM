@@ -27,8 +27,8 @@ const APPROVED_IDENTITY_SINKS: Record<string, RegExp> = {
   "server/routes/imports.ts": /recordContactIdentityObservations(?:ForContacts)?\(/,
   "server/services/public-form-submission.ts": /recordContactIdentityObservations\(/,
   "server/services/ghl-sync.ts": /recordContactIdentityObservations\(/,
-  "server/scripts/import-leads.ts": /recordContactIdentityObservationsForPg\(/,
-  "server/scripts/import-100k-leads.ts": /recordContactIdentityObservationsForPg\(/,
+  "server/scripts/import-leads.ts": /recordContactIdentityObservationsForPgContacts\(/,
+  "server/scripts/import-100k-leads.ts": /recordContactIdentityObservationsForPgContacts\(/,
 };
 function hasIdentityWriter(source: string): boolean {
   if (/\.insert\(contacts\)|\bINSERT\s+INTO\s+contacts\b/i.test(source)) return true;

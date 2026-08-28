@@ -5078,8 +5078,45 @@ export function registerAdminRoutes(app: Express) {
   // transition. These routes intentionally expose no raw evidence to agents or
   // public callers.
   const commercialClassSchema = z.enum(["production", "test", "demo", "synthetic", "unknown"]);
-  const commercialSubjectSchema = z.enum(["contact", "deal", "prospect", "company"]);
+  const commercialSubjectSchema = z.enum(["contact", "deal", "prospect", "company", "business"]);
   const evidenceSchema = z.record(z.string(), z.unknown()).default({});
+  const commercialEvidenceRefSchema = z.object({
+    kind: z.enum(["classification_event", "contact_source_event", "import_row_disposition",
+      "identity_observation", "merge_operation", "merge_redirect", "business_link_decision",
+      "legacy_company_mapping_decision", "relationship_review"]),
+    id: z.union([z.string().uuid(), z.number().int().positive()]),
+  });
+
+  // Automatic matches are candidates; only this reviewed admin workflow writes
+  // graph truth and its compatibility projection.
+  app.post(
+    "/api/admin/commercial-links/decisions",
+    isDashboardUser,
+    requireRole("admin"),
+    async (req, res) => {
+      try {
+        const parsed = z.object({
+          contactId: z.number().int().positive(),
+          businessId: z.number().int().positive().nullable().optional(),
+          decision: z.enum(["verified", "missing", "conflicted", "legacy_unknown", "rejected"]),
+          decisionKey: z.string().min(8).max(200),
+          evidenceSourceEventId: z.number().int().positive().nullable().optional(),
+          expectedRevision: z.number().int().nonnegative().optional(),
+        }).safeParse(req.body);
+        if (!parsed.success) return res.status(400).json({ message: "Invalid link decision", errors: parsed.error.errors });
+        const { decideContactBusinessLink } = await import("../services/commercial-link-authority");
+        const row = await decideContactBusinessLink({
+          ...parsed.data,
+          reviewerId: String((req.user as any)?.id ?? ""),
+        });
+        res.status(201).json(row);
+      } catch (err) {
+        const { CommercialRevisionConflict } = await import("../services/commercial-link-authority");
+        if (err instanceof CommercialRevisionConflict) return res.status(409).json({ message: err.message, code: err.code });
+        serverError(res, err);
+      }
+    },
+  );
 
   app.get(
     "/api/admin/commercial-classification/counts",
@@ -5125,6 +5162,7 @@ export function registerAdminRoutes(app: Express) {
         subjectId: z.number().int().positive(),
         targetClass: commercialClassSchema,
         evidenceFields: evidenceSchema,
+        evidenceRefs: z.array(commercialEvidenceRefSchema).min(1).max(32),
       }).safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ message: "Invalid classification preview", issues: parsed.error.flatten() });
 

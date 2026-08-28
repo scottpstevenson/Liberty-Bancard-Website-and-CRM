@@ -334,6 +334,8 @@ export async function enrollInGhlWorkflowCompliant(params: {
   _isRecoveryAttempt?: boolean;
   /** DB contact id — enables DNC / doNotAutoContact checks */
   contactId?: number;
+  /** Server-owned current inbound event binding; absent means account transactional. */
+  inboundRequestId?: string;
 }): Promise<{ success: boolean; error?: string; skipped?: boolean }> {
   const registryEntry = GHL_WORKFLOW_REGISTRY.find(w => w.id === params.workflowKey);
   if (!registryEntry) {
@@ -399,6 +401,8 @@ export async function enrollInGhlWorkflowCompliant(params: {
         channel,
         campaignType: `ghl_workflow:${params.workflowKey}`,
         commercialPurpose: registryEntry.commercialPurpose ?? "marketing_outreach",
+        inboundRequestId: params.inboundRequestId,
+        intendedRecipientContactId: params.inboundRequestId ? params.contactId : undefined,
         mode: "enforcement",
       });
       if (!decision.allowed) {

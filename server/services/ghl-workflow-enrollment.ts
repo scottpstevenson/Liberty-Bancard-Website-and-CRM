@@ -91,13 +91,16 @@ async function unifiedSendEmail(params: {
   throw new Error("No GHL client configured for sending email");
 }
 
-async function unifiedSendSms(params: { contactId: number; ghlContactId: string; body: string }): Promise<void> {
+async function unifiedSendSms(params: { contactId: number; ghlContactId: string; body: string; inboundRequestId?: string }): Promise<void> {
   if (isGhlConfigured()) {
-    await sendGhlSms({ contactId: params.contactId, body: params.body, commercialPurpose: "transactional_response" });
+    await sendGhlSms({
+      contactId: params.contactId, body: params.body, commercialPurpose: "transactional_response",
+      inboundRequestId: params.inboundRequestId, intendedRecipientContactId: params.contactId,
+    });
     return;
   }
   if (isSdrGhlConfigured()) {
-    await sdrSendSms({ contactId: params.ghlContactId, dbContactId: params.contactId, commercialPurpose: "transactional_response", message: params.body });
+    await sdrSendSms({ contactId: params.ghlContactId, dbContactId: params.contactId, commercialPurpose: "transactional_response", inboundRequestId: params.inboundRequestId, intendedRecipientContactId: params.contactId, message: params.body });
     return;
   }
   throw new Error("No GHL client configured for sending SMS");
@@ -146,6 +149,7 @@ async function sendConfirmationEmail(params: {
   email: string;
   subject: string;
   body: string;
+  inboundRequestId?: string;
 }): Promise<ConfirmationEmailResult> {
   const providerAttempts: Array<{ provider: "ghl_direct" | "smtp"; error: string }> = [];
 
@@ -158,6 +162,8 @@ async function sendConfirmationEmail(params: {
           subject: params.subject,
           body: params.body,
           commercialPurpose: "transactional_response",
+          inboundRequestId: params.inboundRequestId,
+          intendedRecipientContactId: params.contactId,
           skipActivityLog: true, // deliver-only: caller (enrollInInboundConfirmation) owns all audit writes
         });
         if (result.success) {
@@ -166,7 +172,7 @@ async function sendConfirmationEmail(params: {
         providerAttempts.push({ provider: "ghl_direct", error: result.error || "GHL direct send failed" });
       } else {
         // SDR GHL client (no return value)
-        await sdrSendEmail({ contactId: params.ghlContactId, dbContactId: params.contactId, commercialPurpose: "transactional_response", subject: params.subject, htmlBody: params.body });
+        await sdrSendEmail({ contactId: params.ghlContactId, dbContactId: params.contactId, commercialPurpose: "transactional_response", inboundRequestId: params.inboundRequestId, intendedRecipientContactId: params.contactId, subject: params.subject, htmlBody: params.body });
         return { sent: true, provider: "ghl_direct" };
       }
     } catch (err: any) {
@@ -177,7 +183,7 @@ async function sendConfirmationEmail(params: {
   // Provider 2: SMTP (contact.email used directly, no GHL contact ID required)
   if (isSmtpConfigured()) {
     try {
-      const result = await sendSmtpEmail({ to: params.email, subject: params.subject, html: params.body, category: "accounts" });
+      const result = await sendSmtpEmail({ to: params.email, subject: params.subject, html: params.body, category: "accounts", contactId: params.contactId, commercialPurpose: "transactional_response", inboundRequestId: params.inboundRequestId, intendedRecipientContactId: params.contactId });
       if (result.success) {
         return { sent: true, provider: "smtp", providerMessageId: result.messageId ?? null };
       }
@@ -687,6 +693,7 @@ export async function enrollInInboundConfirmation(params: {
       formType,
       bookingLink,
     ),
+    inboundRequestId: submissionId,
   });
 
   if (emailResult.sent) {
@@ -737,6 +744,7 @@ export async function enrollInInboundConfirmation(params: {
         contactId,
         ghlContactId: fallbackGhlContactId,
         body: `Hi ${contact.firstName}, thanks for connecting with Liberty Bancard! We'll review your info and follow up soon. Book a call anytime: ${bookingLink} — Liberty Bancard`,
+        inboundRequestId: submissionId,
       };
       if (ov?.sendSms) {
         await ov.sendSms(smsParams);

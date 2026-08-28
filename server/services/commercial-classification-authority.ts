@@ -23,14 +23,15 @@
 import { db } from "../db";
 import { sql } from "drizzle-orm";
 import crypto from "crypto";
+import { lockCommercialGraphNodes } from "./commercial-graph-locks";
 import {
   COMMERCIAL_CLASS_VALUES,
   contacts,
   deals,
   prospects,
   companies,
+  businesses,
   commercialClassificationEvents,
-  commercialClassificationCommands,
   CLASSIFICATION_POLICY_VERSION,
   type CommercialClass,
 } from "@shared/schema";
@@ -48,7 +49,8 @@ export type ClassificationSubjectType =
   | "contact"
   | "deal"
   | "prospect"
-  | "company";
+  | "company"
+  | "business";
 
 export interface ClassificationAuthResult {
   allowed: boolean;
@@ -70,6 +72,9 @@ export interface ClassificationCommand {
   evidenceFields: Record<string, unknown>;
   actorId?: string;
   approverId?: string;
+  /** Internal only: lets the fenced command workflow commit event and command
+   * state in one database transaction. Never accepted from a route payload. */
+  transaction?: any;
 }
 
 export interface ClassificationPreviewCommand {
@@ -78,8 +83,17 @@ export interface ClassificationPreviewCommand {
   subjectId: number;
   targetClass: CommercialClass;
   evidenceFields: Record<string, unknown>;
+  evidenceRefs: ClassificationEvidenceRef[];
   requestedBy?: string;
 }
+
+export type ClassificationEvidenceRef = {
+  kind: "classification_event" | "contact_source_event" | "import_row_disposition"
+    | "identity_observation" | "merge_operation" | "merge_redirect"
+    | "business_link_decision" | "legacy_company_mapping_decision"
+    | "relationship_review";
+  id: string | number;
+};
 
 export interface ApproveCommandParams {
   commandId: string;
@@ -128,6 +142,17 @@ function hashEvidence(fields: Record<string, unknown>): string {
     .update(JSON.stringify(fields, Object.keys(fields).sort()))
     .digest("hex");
 }
+function hashPreviewPayload(params: ClassificationPreviewCommand, dependencyFingerprint?: string | null): string {
+  const evidenceRefs = [...params.evidenceRefs]
+    .map(ref => ({ kind: ref.kind, id: String(ref.id) }))
+    .sort((a, b) => a.kind.localeCompare(b.kind) || a.id.localeCompare(b.id, undefined, { numeric: true }));
+  return crypto.createHash("sha256").update(JSON.stringify({
+    subjectType: params.subjectType, subjectId: params.subjectId, targetClass: params.targetClass,
+    evidenceFields: Object.fromEntries(Object.entries(params.evidenceFields).sort()),
+    evidenceRefs, policyVersion: CLASSIFICATION_POLICY_VERSION,
+    dependencyFingerprint: dependencyFingerprint ?? null,
+  })).digest("hex");
+}
 
 function assertCommercialClass(value: string): asserts value is CommercialClass {
   if (!(COMMERCIAL_CLASS_VALUES as readonly string[]).includes(value)) {
@@ -138,13 +163,68 @@ function assertCommercialClass(value: string): asserts value is CommercialClass 
 }
 
 function assertSubjectType(value: string): asserts value is ClassificationSubjectType {
-  if (!["contact", "deal", "prospect", "company"].includes(value)) {
+  if (!["contact", "deal", "prospect", "company", "business"].includes(value)) {
     throw new Error(`Invalid classification subject type '${value}'.`);
   }
 }
 
 function rows(result: unknown): any[] {
   return ((result as { rows?: unknown[] })?.rows ?? []) as any[];
+}
+
+async function validateTypedEvidence(
+  tx: any,
+  refs: ClassificationEvidenceRef[],
+  requestedType: ClassificationSubjectType,
+  requestedId: number,
+  effectiveType: ClassificationSubjectType,
+  effectiveId: number,
+): Promise<void> {
+  if (!refs.length) throw new Error("CLASSIFICATION_TYPED_EVIDENCE_REQUIRED");
+  const seen = new Set<string>();
+  for (const ref of refs) {
+    const key = `${ref.kind}:${String(ref.id)}`;
+    if (seen.has(key)) throw new Error("CLASSIFICATION_EVIDENCE_DUPLICATE");
+    seen.add(key);
+    let row: any;
+    switch (ref.kind) {
+      case "classification_event":
+        row = rows(await tx.execute(sql`SELECT subject_type,subject_id FROM commercial_classification_events WHERE id=${Number(ref.id)} FOR UPDATE`))[0];
+        break;
+      case "contact_source_event":
+        row = rows(await tx.execute(sql`SELECT 'contact' subject_type,contact_id subject_id FROM contact_source_events WHERE id=${Number(ref.id)} FOR UPDATE`))[0];
+        break;
+      case "import_row_disposition":
+        row = rows(await tx.execute(sql`SELECT 'contact' subject_type,contact_id subject_id FROM import_row_dispositions WHERE id=${Number(ref.id)} FOR UPDATE`))[0];
+        break;
+      case "identity_observation":
+        row = rows(await tx.execute(sql`SELECT 'contact' subject_type,contact_id subject_id FROM contact_identity_observations WHERE id=${String(ref.id)}::uuid AND superseded_at IS NULL FOR UPDATE`))[0];
+        break;
+      case "merge_operation":
+        row = rows(await tx.execute(sql`SELECT 'contact' subject_type,survivor_contact_id subject_id,deprecated_contact_id alternate_id FROM contact_merge_operations WHERE id=${String(ref.id)}::uuid FOR UPDATE`))[0];
+        break;
+      case "merge_redirect":
+        row = rows(await tx.execute(sql`SELECT 'contact' subject_type,survivor_contact_id subject_id,deprecated_contact_id alternate_id FROM contact_merge_redirects WHERE id=${String(ref.id)}::uuid AND active FOR UPDATE`))[0];
+        break;
+      case "business_link_decision":
+        row = rows(await tx.execute(sql`SELECT 'contact' subject_type,contact_id subject_id,'business' alternate_type,business_id alternate_id FROM contact_business_link_decisions WHERE id=${String(ref.id)}::uuid AND superseded_at IS NULL FOR UPDATE`))[0];
+        break;
+      case "legacy_company_mapping_decision":
+        row = rows(await tx.execute(sql`SELECT 'company' subject_type,company_id subject_id,'business' alternate_type,business_id alternate_id FROM legacy_company_mapping_decisions WHERE id=${String(ref.id)}::uuid AND superseded_at IS NULL FOR UPDATE`))[0];
+        break;
+      case "relationship_review":
+        row = rows(await tx.execute(sql`SELECT 'contact' subject_type,contact_id subject_id,'business' alternate_type,business_id alternate_id FROM commercial_relationship_reviews WHERE id=${String(ref.id)}::uuid AND superseded_at IS NULL FOR UPDATE`))[0];
+        break;
+    }
+    if (!row) throw new Error("CLASSIFICATION_EVIDENCE_MISSING");
+    const matches = (row.subject_type === requestedType && Number(row.subject_id) === requestedId)
+      || (row.subject_type === effectiveType && Number(row.subject_id) === effectiveId)
+      || (row.alternate_type === requestedType && Number(row.alternate_id) === requestedId)
+      || (row.alternate_type === effectiveType && Number(row.alternate_id) === effectiveId)
+      || (requestedType === "contact" && Number(row.alternate_id) === requestedId)
+      || (effectiveType === "contact" && Number(row.alternate_id) === effectiveId);
+    if (!matches) throw new Error("CLASSIFICATION_EVIDENCE_SUBJECT_MISMATCH");
+  }
 }
 
 // ── Current class lookup ─────────────────────────────────────────────────────
@@ -172,6 +252,10 @@ export async function getCurrentClass(
     }
     case "company": {
       const [row] = await db.select({ recordClass: companies.recordClass }).from(companies).where(sql`${companies.id} = ${subjectId}`).limit(1);
+      return (row?.recordClass as CommercialClass | undefined) ?? "unknown";
+    }
+    case "business": {
+      const [row] = await db.select({ recordClass: businesses.recordClass }).from(businesses).where(sql`${businesses.id} = ${subjectId}`).limit(1);
       return (row?.recordClass as CommercialClass | undefined) ?? "unknown";
     }
   }
@@ -313,7 +397,34 @@ export async function applyClassification(
 
   const evidenceHash = hashEvidence(command.evidenceFields);
 
-  return db.transaction(async (tx) => {
+  const applyInTransaction = async (tx: any) => {
+    const graphNodes: Array<{ type: ClassificationSubjectType; id: number }> = [{
+      type: command.subjectType,
+      id: command.subjectId,
+    }];
+    let dealRootHint: { contactId: number | null; companyId: number | null } | null = null;
+    if (command.targetClass === "production" && command.subjectType === "deal") {
+      const hint = rows(await tx.execute(sql`SELECT contact_id,company_id FROM deals
+        WHERE id=${command.subjectId}`))[0];
+      if (hint) {
+        dealRootHint = {
+          contactId: hint.contact_id == null ? null : Number(hint.contact_id),
+          companyId: hint.company_id == null ? null : Number(hint.company_id),
+        };
+        if (dealRootHint.contactId) graphNodes.push({ type: "contact", id: dealRootHint.contactId });
+        if (dealRootHint.companyId) graphNodes.push({ type: "company", id: dealRootHint.companyId });
+      }
+    }
+    await lockCommercialGraphNodes(tx, graphNodes);
+    if (dealRootHint) {
+      const current = rows(await tx.execute(sql`SELECT contact_id,company_id FROM deals
+        WHERE id=${command.subjectId} FOR UPDATE`))[0];
+      if (!current ||
+          Number(current.contact_id ?? 0) !== Number(dealRootHint.contactId ?? 0) ||
+          Number(current.company_id ?? 0) !== Number(dealRootHint.companyId ?? 0)) {
+        throw new Error("CLASSIFICATION_GRAPH_STALE");
+      }
+    }
     // The event key is globally unique, not unique per subject. Lock it before
     // looking up or changing a root so conflicting reuse on different subjects
     // cannot leave an unjournaled projection update behind.
@@ -349,6 +460,11 @@ export async function applyClassification(
     const priorClass = await getCurrentClassInTransaction(tx, command.subjectType, command.subjectId);
     if (command.targetClass === "production") {
       const linkedClasses = await getLinkedClassesInTransaction(tx, command.subjectType, command.subjectId);
+      if (command.subjectType === "deal" && linkedClasses.length === 0) {
+        throw new Error(
+          "COMMERCIAL_REQUIRED_ROOT_MISSING: production promotion requires at least one linked commercial root."
+        );
+      }
       if (linkedClasses.some((value) => value !== "production")) {
         throw new Error(
           "COMMERCIAL_CLASS_CONFLICT: production promotion requires every linked commercial root to be independently classified production."
@@ -359,6 +475,11 @@ export async function applyClassification(
     // Update first. The event insertion below is in the same transaction, so
     // a failed immutable event rolls this projection back with no silent drift.
     await applyClassToSubject(tx, command.subjectType, command.subjectId, command.targetClass as CommercialClass);
+    await tx.execute(sql`INSERT INTO commercial_subject_revisions
+      (subject_type,subject_id,revision,authority_version,updated_at)
+      VALUES(${command.subjectType},${command.subjectId},1,1,now())
+      ON CONFLICT(subject_type,subject_id) DO UPDATE
+      SET revision=commercial_subject_revisions.revision+1,updated_at=now()`);
 
     // Insert immutable event only after the subject projection has changed.
     const [event] = rows(await tx.execute(sql`
@@ -381,7 +502,10 @@ export async function applyClassification(
     }
 
     return { eventId: event.id as number, applied: true, duplicate: false };
-  });
+  };
+  return command.transaction
+    ? applyInTransaction(command.transaction)
+    : db.transaction(applyInTransaction);
 }
 
 /** Resolve an inherited class for a new deal. Any absent or disagreeing source
@@ -449,7 +573,7 @@ async function getLinkedClassesInTransaction(
       LEFT JOIN contacts c ON c.id = d.contact_id
       LEFT JOIN companies co ON co.id = d.company_id
       WHERE d.id = ${subjectId}
-      FOR UPDATE
+      FOR UPDATE OF d
     `))[0];
     return [row?.contact_class, row?.company_class]
       .filter((value): value is CommercialClass => typeof value === "string");
@@ -458,7 +582,7 @@ async function getLinkedClassesInTransaction(
     const row = rows(await tx.execute(sql`
       SELECT c.record_class AS contact_class
       FROM prospects p LEFT JOIN contacts c ON c.id = p.contact_id
-      WHERE p.id = ${subjectId} FOR UPDATE
+      WHERE p.id = ${subjectId} FOR UPDATE OF p
     `))[0];
     return typeof row?.contact_class === "string" ? [row.contact_class as CommercialClass] : [];
   }
@@ -475,6 +599,7 @@ async function getCurrentClassInTransaction(
     deal: "deals",
     prospect: "prospects",
     company: "companies",
+    business: "businesses",
   }[subjectType];
   const result = rows(await tx.execute(sql`
     SELECT record_class FROM ${sql.identifier(tableName)}
@@ -507,6 +632,9 @@ async function applyClassToSubject(
     case "company":
       updated = rows(await tx.execute(sql`UPDATE companies SET record_class = ${newClass} WHERE id = ${subjectId} RETURNING id`));
       break;
+    case "business":
+      updated = rows(await tx.execute(sql`UPDATE businesses SET record_class = ${newClass} WHERE id = ${subjectId} RETURNING id`));
+      break;
   }
   if (!updated?.length) {
     throw new Error(`Commercial classification subject ${subjectType}:${subjectId} disappeared before update.`);
@@ -523,33 +651,52 @@ export async function createPreviewCommand(
   params: ClassificationPreviewCommand
 ): Promise<{ commandId: string; status: "created" | "duplicate" }> {
   assertNoPii(params.evidenceFields);
-
-  const inserted = await db
-    .insert(commercialClassificationCommands)
-    .values({
-      idempotencyKey: params.idempotencyKey as any,
-      subjectType: params.subjectType,
-      subjectId: params.subjectId,
-      targetClass: params.targetClass,
-      status: "preview",
-      requestedBy: params.requestedBy ?? null,
-      evidenceFields: params.evidenceFields,
-      versionLock: 0,
-    })
-    .onConflictDoNothing()
-    .returning();
-
-  if (inserted.length > 0) {
-    return { commandId: inserted[0].id, status: "created" };
-  }
-
-  const [existing] = await db
-    .select({ id: commercialClassificationCommands.id })
-    .from(commercialClassificationCommands)
-    .where(sql`idempotency_key = ${params.idempotencyKey}`)
-    .limit(1);
-
-  return { commandId: existing?.id ?? "", status: "duplicate" };
+  assertSubjectType(params.subjectType);
+  assertCommercialClass(params.targetClass);
+  // Preview captures the current graph vector rather than letting approval or
+  // execution silently use a later graph. The resolver is shadow-only here;
+  // its result cannot change the legacy classification transition semantics.
+  const { resolveCommercialGraph } = await import("./commercial-resolution");
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`classification:${params.idempotencyKey}`}))`);
+    const graph = await resolveCommercialGraph({
+      subjectType: params.subjectType, subjectId: params.subjectId,
+      effect: "commercial_reporting", persist: true, transaction: tx,
+    });
+    if (graph.reasonCodes.includes("SUBJECT_MISSING")) throw new Error("CLASSIFICATION_SUBJECT_MISSING");
+    if (params.targetClass === "production" && params.subjectType === "deal") {
+      const linkedClasses = await getLinkedClassesInTransaction(tx, params.subjectType, params.subjectId);
+      if (linkedClasses.length === 0 || linkedClasses.some(value => value !== "production")) {
+        throw new Error("CLASSIFICATION_GRAPH_QUARANTINED");
+      }
+    }
+    if (graph.policyVersion !== 1 || !graph.policyFingerprint) throw new Error("CLASSIFICATION_PURPOSE_POLICY_INVALID");
+    if (params.targetClass === "production" && (
+      graph.reasonCodes.includes("STALE_GRAPH") ||
+      graph.reasonCodes.includes("REDIRECT_UNRESOLVED") ||
+      (params.subjectType === "deal" && (
+        graph.reasonCodes.includes("REQUIRED_LINK_MISSING") ||
+        graph.reasonCodes.includes("DANGLING_LINK") ||
+        graph.reasonCodes.includes("ROOT_CLASS_CONFLICT")
+      ))
+    )) throw new Error("CLASSIFICATION_GRAPH_QUARANTINED");
+    await validateTypedEvidence(tx, params.evidenceRefs, params.subjectType, params.subjectId,
+      graph.effectiveSubjectType, graph.effectiveSubjectId);
+    const payloadHash = hashPreviewPayload(params, graph.dependencyFingerprint);
+    const inserted = rows(await tx.execute(sql`INSERT INTO commercial_classification_commands
+      (idempotency_key,subject_type,subject_id,target_class,status,requested_by,evidence_fields,evidence_refs,
+       payload_hash,preview_dependency_fingerprint,purpose_policy_fingerprint,policy_version,version_lock)
+      VALUES(${params.idempotencyKey}::uuid,${params.subjectType},${params.subjectId},${params.targetClass},
+       'preview',${params.requestedBy ?? null},${JSON.stringify(params.evidenceFields)}::jsonb,
+       ${JSON.stringify(params.evidenceRefs)}::jsonb,${payloadHash},${graph.dependencyFingerprint},${graph.policyFingerprint},
+       ${CLASSIFICATION_POLICY_VERSION},0)
+      ON CONFLICT(idempotency_key) DO NOTHING RETURNING id`));
+    if (inserted.length) return { commandId: String(inserted[0].id), status: "created" as const };
+    const existing = rows(await tx.execute(sql`SELECT id,payload_hash FROM commercial_classification_commands
+      WHERE idempotency_key=${params.idempotencyKey}::uuid FOR UPDATE`))[0];
+    if (!existing || existing.payload_hash !== payloadHash) throw new Error("CLASSIFICATION_COMMAND_REPLAY_DIVERGENT");
+    return { commandId: String(existing.id), status: "duplicate" as const };
+  });
 }
 
 /**
@@ -569,6 +716,7 @@ export async function approveCommand(
     WHERE id = ${params.commandId}
       AND version_lock = ${params.versionLock}
       AND status = 'preview'
+       AND (requested_by IS NULL OR requested_by <> ${params.approvedBy})
     RETURNING id
   `));
 
@@ -586,52 +734,113 @@ export async function executeApprovedCommand(
   commandId: string,
   actorId: string
 ): Promise<{ executed: boolean; eventId?: number; reason?: string }> {
-  const cmdResult = rows(await db.execute(sql`
-    SELECT id, subject_type, subject_id, target_class, evidence_fields, requested_by, approved_by, version_lock
-    FROM commercial_classification_commands
-    WHERE id = ${commandId} AND status = 'approved'
-    LIMIT 1
-  `))[0];
-
-  if (!cmdResult) {
-    return { executed: false, reason: "Command not found or not in approved state" };
-  }
-
-  const eventNamespace = "bt06:command";
-  const eventKey = `cmd:${commandId}`;
-  const evidenceFields = (cmdResult.evidence_fields as Record<string, unknown>) ?? {};
-
-  assertNoPii(evidenceFields);
-
-  const { eventId, applied, duplicate } = await applyClassification({
-    subjectType: cmdResult.subject_type as ClassificationSubjectType,
-    subjectId: cmdResult.subject_id as number,
-    targetClass: cmdResult.target_class as CommercialClass,
-    eventNamespace,
-    eventKey,
-    evidenceFields: { ...evidenceFields, commandId },
-    // The immutable event actor is the original requester; the invoking admin
-    // is the executor and the independently recorded approver is preserved
-    // separately. This prevents an approve+execute action from erasing the
-    // requester/approver separation required for a production promotion.
-    actorId: (cmdResult.requested_by as string | undefined) ?? actorId,
-    approverId: cmdResult.approved_by as string | undefined,
-  });
-
-  if (applied || duplicate) {
-    // Mark command as executed
-    await db.execute(sql`
-      UPDATE commercial_classification_commands
-      SET status = 'executed',
-          executed_at = now(),
-          updated_at = now(),
-          version_lock = version_lock + 1
-      WHERE id = ${commandId}
-    `);
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT * FROM commercial_shadow_controls WHERE control_key='commercial' FOR UPDATE`);
+    await tx.execute(sql`SELECT * FROM commercial_purpose_policies
+      WHERE purpose='commercial_reporting' AND policy_version=1 FOR UPDATE`);
+    // Command is locked before its root/event key, making state/version fencing
+    // and the immutable event/projection/command transition one commit.
+    const cmdResult = rows(await tx.execute(sql`
+      SELECT id, idempotency_key, subject_type, subject_id, target_class, evidence_fields, evidence_refs, requested_by, approved_by,
+             version_lock, payload_hash, preview_dependency_fingerprint, purpose_policy_fingerprint,
+             policy_version, status, executor_id
+      FROM commercial_classification_commands WHERE id=${commandId} FOR UPDATE
+    `))[0];
+    if (!cmdResult) return { executed: false, reason: "Command not found or not in approved state" };
+    if (cmdResult.status === "executed") {
+      const event = rows(await tx.execute(sql`SELECT id FROM commercial_classification_events
+        WHERE event_namespace='bt06:command' AND event_key=${`cmd:${commandId}`} LIMIT 1`))[0];
+      return event ? { executed: true, eventId: Number(event.id) } : { executed: false, reason: "CLASSIFICATION_EXECUTION_INCONSISTENT" };
+    }
+    if (cmdResult.status !== "approved") return { executed: false, reason: "Command not found or not in approved state" };
+    if (!cmdResult.requested_by || !cmdResult.approved_by ||
+        cmdResult.requested_by === cmdResult.approved_by ||
+        cmdResult.requested_by === actorId || cmdResult.approved_by === actorId) {
+      return { executed: false, reason: "CLASSIFICATION_ACTOR_SEPARATION_VIOLATION" };
+    }
+    const evidenceFields = (cmdResult.evidence_fields as Record<string, unknown>) ?? {};
+    const evidenceRefs = (cmdResult.evidence_refs as ClassificationEvidenceRef[] | null) ?? [];
+    const expectedHash = hashPreviewPayload({
+      idempotencyKey: String(cmdResult.idempotency_key), subjectType: cmdResult.subject_type as ClassificationSubjectType,
+      subjectId: Number(cmdResult.subject_id), targetClass: cmdResult.target_class as CommercialClass,
+      evidenceFields, evidenceRefs, requestedBy: cmdResult.requested_by,
+    }, cmdResult.preview_dependency_fingerprint);
+    if (cmdResult.payload_hash !== expectedHash || Number(cmdResult.policy_version) !== CLASSIFICATION_POLICY_VERSION) {
+      return { executed: false, reason: "CLASSIFICATION_STALE_COMMAND" };
+    }
+    assertNoPii(evidenceFields);
+    const { resolveCommercialGraph } = await import("./commercial-resolution");
+    const graph = await resolveCommercialGraph({
+      subjectType: cmdResult.subject_type as ClassificationSubjectType,
+      subjectId: Number(cmdResult.subject_id), effect: "commercial_reporting",
+      expectedFingerprint: cmdResult.preview_dependency_fingerprint,
+      persist: false, transaction: tx,
+    });
+    if (graph.reasonCodes.includes("STALE_GRAPH")) {
+      return { executed: false, reason: "CLASSIFICATION_STALE_GRAPH" };
+    }
+    if (cmdResult.target_class === "production" && cmdResult.subject_type === "deal") {
+      const linkedClasses = await getLinkedClassesInTransaction(
+        tx, cmdResult.subject_type as ClassificationSubjectType, Number(cmdResult.subject_id),
+      );
+      if (linkedClasses.length === 0 || linkedClasses.some(value => value !== "production")) {
+        return { executed: false, reason: "CLASSIFICATION_GRAPH_QUARANTINED" };
+      }
+    }
+    if (graph.policyVersion !== Number(cmdResult.policy_version)
+        || graph.policyFingerprint !== cmdResult.purpose_policy_fingerprint) {
+      return { executed: false, reason: "CLASSIFICATION_PURPOSE_POLICY_MISMATCH" };
+    }
+    if (cmdResult.target_class === "production" && (
+      graph.reasonCodes.includes("REDIRECT_UNRESOLVED") ||
+      (cmdResult.subject_type === "deal" && (
+        graph.reasonCodes.includes("REQUIRED_LINK_MISSING") ||
+        graph.reasonCodes.includes("DANGLING_LINK") ||
+        graph.reasonCodes.includes("ROOT_CLASS_CONFLICT")
+      ))
+    )) {
+      return { executed: false, reason: "CLASSIFICATION_GRAPH_QUARANTINED" };
+    }
+    await validateTypedEvidence(tx, evidenceRefs,
+      cmdResult.subject_type as ClassificationSubjectType, Number(cmdResult.subject_id),
+      graph.effectiveSubjectType, graph.effectiveSubjectId);
+    const { eventId } = await applyClassification({
+      subjectType: cmdResult.subject_type as ClassificationSubjectType, subjectId: Number(cmdResult.subject_id),
+      targetClass: cmdResult.target_class as CommercialClass, eventNamespace: "bt06:command",
+      eventKey: `cmd:${commandId}`, evidenceFields: { ...evidenceFields, commandId },
+      actorId: cmdResult.requested_by, approverId: cmdResult.approved_by, transaction: tx,
+    });
+    const postGraph = await resolveCommercialGraph({
+      subjectType: cmdResult.subject_type as ClassificationSubjectType,
+      subjectId: Number(cmdResult.subject_id), effect: "commercial_reporting",
+      persist: true, transaction: tx,
+    });
+    if (!postGraph.snapshotId) throw new Error("CLASSIFICATION_SNAPSHOT_MISSING");
+    await tx.execute(sql`INSERT INTO commercial_evidence_references(snapshot_id,classification_event_id)
+      VALUES(${postGraph.snapshotId}::uuid,${eventId})`);
+    for (const ref of evidenceRefs) {
+      const column = {
+        classification_event: "classification_event_id",
+        contact_source_event: "contact_source_event_id",
+        import_row_disposition: "import_row_disposition_id",
+        identity_observation: "identity_observation_id",
+        merge_operation: "merge_operation_id",
+        merge_redirect: "merge_redirect_id",
+        business_link_decision: "business_link_decision_id",
+        legacy_company_mapping_decision: "legacy_company_mapping_decision_id",
+        relationship_review: "relationship_review_id",
+      }[ref.kind];
+      await tx.execute(sql`INSERT INTO commercial_evidence_references
+        (snapshot_id,${sql.identifier(column)}) VALUES(${postGraph.snapshotId}::uuid,${ref.id})`);
+    }
+    const updated = rows(await tx.execute(sql`
+      UPDATE commercial_classification_commands SET status='executed', executor_id=${actorId},
+        executed_at=now(), updated_at=now(), version_lock=version_lock+1, execution_fence=execution_fence+1
+      WHERE id=${commandId} AND status='approved' AND version_lock=${cmdResult.version_lock} RETURNING id
+    `));
+    if (!updated.length) throw new Error("CLASSIFICATION_COMMAND_STATE_CONFLICT");
     return { executed: true, eventId };
-  }
-
-  return { executed: false, reason: "Classification event conflict" };
+  });
 }
 
 // ── Reconciliation helpers ────────────────────────────────────────────────────

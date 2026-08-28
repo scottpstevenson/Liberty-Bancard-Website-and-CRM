@@ -180,9 +180,8 @@ export const contacts = pgTable("contacts", {
   // primarySourceCategory = permanent record of acquisition origin
   primarySourceCategory: text("primary_source_category"),
   primarySourceType: text("primary_source_type"),
-  // DEFERRABLE INITIALLY DEFERRED: allows insert-contact-then-insert-event-then-UPDATE
-  // within a single transaction without violating FK at mid-tx.
-  primarySourceEventId: integer("primary_source_event_id").references((): AnyPgColumn => contactSourceEvents.id),
+  // Source events are assigned after contact insertion and retained once selected.
+  primarySourceEventId: integer("primary_source_event_id").references((): AnyPgColumn => contactSourceEvents.id, { onDelete: "restrict" }),
   // Vertical provenance — server-assigned only; never accepted from client input.
   // verticalSource: which pipeline/process last set the vertical value.
   // verticalConfidence: 0–100 integer; NULL = not yet scored.
@@ -464,13 +463,18 @@ export const validationIntents = pgTable("validation_intents", {
 
 export const eligibilitySnapshots = pgTable("eligibility_snapshots", {
   id: uuid("id").primaryKey().defaultRandom(),
-  contactId: integer("contact_id").notNull().references(() => contacts.id, { onDelete: "cascade" }),
+  // Retained readiness/commercial evidence must not silently disappear when a
+  // contact is removed. A reviewed retention/tombstone workflow owns deletion.
+  contactId: integer("contact_id").notNull().references(() => contacts.id, { onDelete: "restrict" }),
   purpose: text("purpose").notNull(),
   policyVersion: integer("policy_version").notNull(),
   subjectGeneration: integer("subject_generation").notNull(),
   decision: text("decision").notNull(),
   reasonCodes: jsonb("reason_codes").notNull().default([]),
   evidenceRefs: jsonb("evidence_refs").notNull().default([]),
+  // CRO-02 commercial resolution is an immutable lower layer; BT-10 retains
+  // ownership of this snapshot's readiness decision.
+  commercialResolutionSnapshotId: uuid("commercial_resolution_snapshot_id").references(() => commercialResolutionSnapshots.id, { onDelete: "restrict" }),
   evaluatedAt: timestamp("evaluated_at").notNull().defaultNow(),
   expiresAt: timestamp("expires_at"),
 }, (table) => [
@@ -1571,6 +1575,9 @@ export const campaignPreviewMembers = pgTable("campaign_preview_members", {
   prerequisiteVersion: integer("prerequisite_version").notNull().default(1),
   readinessModelVersion: integer("readiness_model_version"),
   contactabilitySnapshotRef: uuid("contactability_snapshot_ref").references(() => eligibilitySnapshots.id, { onDelete: "set null" }),
+  // This is an optional lower-layer CRO-02 observation.  It never replaces the
+  // frozen campaign or BT-10 readiness decision.
+  commercialResolutionSnapshotId: uuid("commercial_resolution_snapshot_id").references(() => commercialResolutionSnapshots.id, { onDelete: "restrict" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (table) => [
   unique("campaign_preview_members_schema_pk").on(table.previewId, table.contactId),
@@ -3389,6 +3396,8 @@ export const businesses = pgTable("businesses", {
   reviewCount: integer("review_count"),
   rating: real("rating"),
   status: text("status").default("new"),
+  // BT-06 mutable commercial root; CRO-02 only observes it in shadow.
+  recordClass: text("record_class").notNull().default("unknown"),
   lastSourceType: text("last_source_type"),
   lastEnrichedAt: timestamp("last_enriched_at"),
   createdAt: timestamp("created_at").defaultNow(),
@@ -6391,6 +6400,13 @@ export const commercialClassificationCommands = pgTable("commercial_classificati
   requestedBy:    text("requested_by"),
   approvedBy:     text("approved_by"),
   evidenceFields: jsonb("evidence_fields").notNull().default(sql`'{}'::jsonb`),
+  evidenceRefs: jsonb("evidence_refs").notNull().default(sql`'[]'::jsonb`),
+  payloadHash: text("payload_hash"),
+  previewDependencyFingerprint: text("preview_dependency_fingerprint"),
+  purposePolicyFingerprint: text("purpose_policy_fingerprint"),
+  policyVersion: integer("policy_version").notNull().default(1),
+  executorId: text("executor_id"),
+  executionFence: integer("execution_fence").notNull().default(0),
   versionLock:    integer("version_lock").notNull().default(0),
   previewAt:      timestamp("preview_at", { withTimezone: true }).notNull().defaultNow(),
   approvedAt:     timestamp("approved_at", { withTimezone: true }),
@@ -6403,6 +6419,121 @@ export const commercialClassificationCommands = pgTable("commercial_classificati
 ]);
 
 export type CommercialClassificationCommand = typeof commercialClassificationCommands.$inferSelect;
+
+// CRO-02 is an additive shadow graph.  These axes intentionally are not
+// commercial classes and snapshots cannot become readiness/campaign truth.
+export const COMMERCIAL_PROVENANCE_VALUES = ["verified", "untraceable", "legacy_unknown", "conflicted", "invalid"] as const;
+export const COMMERCIAL_IDENTITY_VALUES = ["resolved", "unresolved", "collision", "conflicted", "legacy_unknown"] as const;
+export const COMMERCIAL_ORGANIZATION_LINK_VALUES = ["verified", "missing", "conflicted", "legacy_unknown", "rejected"] as const;
+export const COMMERCIAL_RELATIONSHIP_VALUES = ["decision_maker", "not_decision_maker", "unknown", "conflicted"] as const;
+export const COMMERCIAL_EVIDENCE_KINDS = ["classification_event", "contact_source_event", "import_row_disposition", "identity_observation", "merge_operation", "merge_redirect", "business_link_decision", "legacy_company_mapping_decision", "relationship_review"] as const;
+export type CommercialProvenanceResolution = typeof COMMERCIAL_PROVENANCE_VALUES[number];
+export type CommercialIdentityResolution = typeof COMMERCIAL_IDENTITY_VALUES[number];
+export type CommercialOrganizationLinkResolution = typeof COMMERCIAL_ORGANIZATION_LINK_VALUES[number];
+export type CommercialRelationshipResolution = typeof COMMERCIAL_RELATIONSHIP_VALUES[number];
+
+export const commercialSubjectRevisions = pgTable("commercial_subject_revisions", {
+  subjectType: text("subject_type").notNull(), subjectId: integer("subject_id").notNull(),
+  revision: integer("revision").notNull().default(0), authorityVersion: integer("authority_version").notNull().default(1),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [unique("commercial_subject_revisions_pk").on(t.subjectType, t.subjectId)]);
+export const commercialMembershipRevisions = pgTable("commercial_membership_revisions", {
+  edgeType: text("edge_type").notNull(), leftSubjectType: text("left_subject_type").notNull(), leftSubjectId: integer("left_subject_id").notNull(),
+  rightSubjectType: text("right_subject_type").notNull(), rightSubjectId: integer("right_subject_id").notNull(), revision: integer("revision").notNull().default(0),
+  authorityVersion: integer("authority_version").notNull().default(1), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [unique("commercial_membership_revisions_pk").on(t.edgeType, t.leftSubjectType, t.leftSubjectId, t.rightSubjectType, t.rightSubjectId)]);
+export const contactBusinessLinkDecisions = pgTable("contact_business_link_decisions", {
+  id: uuid("id").primaryKey().defaultRandom(), contactId: integer("contact_id").notNull().references(() => contacts.id),
+  businessId: integer("business_id").references(() => businesses.id), decision: text("decision").notNull(),
+  decisionKey: text("decision_key").notNull().unique(), actorId: text("actor_id"), revision: integer("revision").notNull().default(1),
+  evidenceSourceEventId: integer("evidence_source_event_id").references(() => contactSourceEvents.id, { onDelete: "restrict" }),
+  reviewedBy: text("reviewed_by").references(() => users.id, { onDelete: "restrict" }),
+  reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), supersededAt: timestamp("superseded_at", { withTimezone: true }),
+});
+export const contactBusinessLinkCandidates = pgTable("contact_business_link_candidates", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  contactId: integer("contact_id").notNull().references(() => contacts.id, { onDelete: "restrict" }),
+  businessId: integer("business_id").notNull().references(() => businesses.id, { onDelete: "restrict" }),
+  source: text("source").notNull(),
+  sourceVersion: text("source_version"),
+  candidateKey: text("candidate_key").notNull().unique(),
+  confidence: integer("confidence").notNull(),
+  supersedesCandidateId: uuid("supersedes_candidate_id")
+    .references((): AnyPgColumn => contactBusinessLinkCandidates.id, { onDelete: "restrict" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index("contact_business_link_candidate_subject_idx").on(t.contactId, t.businessId, t.createdAt),
+  uniqueIndex("contact_business_link_candidate_superseded_once_uidx")
+    .on(t.supersedesCandidateId).where(sql`${t.supersedesCandidateId} IS NOT NULL`),
+]);
+export const legacyCompanyMappingDecisions = pgTable("legacy_company_mapping_decisions", {
+  id: uuid("id").primaryKey().defaultRandom(), companyId: integer("company_id").notNull().references(() => companies.id),
+  businessId: integer("business_id").references(() => businesses.id), decision: text("decision").notNull(),
+  decisionKey: text("decision_key").notNull().unique(), actorId: text("actor_id"), revision: integer("revision").notNull().default(1),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), supersededAt: timestamp("superseded_at", { withTimezone: true }),
+});
+export const commercialRelationshipCandidates = pgTable("commercial_relationship_candidates", {
+  id: uuid("id").primaryKey().defaultRandom(), contactId: integer("contact_id").notNull().references(() => contacts.id),
+  businessId: integer("business_id").notNull().references(() => businesses.id), source: text("source").notNull(), sourceVersion: text("source_version"),
+  confidence: integer("confidence").notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export const commercialRelationshipReviews = pgTable("commercial_relationship_reviews", {
+  id: uuid("id").primaryKey().defaultRandom(), contactId: integer("contact_id").notNull().references(() => contacts.id),
+  businessId: integer("business_id").notNull().references(() => businesses.id), decision: text("decision").notNull(), reviewKey: text("review_key").notNull().unique(),
+  actorId: text("actor_id").notNull(), revision: integer("revision").notNull().default(1), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  supersededAt: timestamp("superseded_at", { withTimezone: true }),
+});
+export const commercialResolutionSnapshots = pgTable("commercial_resolution_snapshots", {
+  id: uuid("id").primaryKey().defaultRandom(), requestedSubjectType: text("requested_subject_type").notNull(), requestedSubjectId: integer("requested_subject_id").notNull(),
+  effectiveSubjectType: text("effective_subject_type").notNull(), effectiveSubjectId: integer("effective_subject_id").notNull(), purpose: text("purpose").notNull(),
+  policyVersion: integer("policy_version").notNull(), schemaVersion: integer("schema_version").notNull().default(1), mode: text("mode").notNull().default("shadow"),
+  resolution: text("resolution").notNull(), recordClass: text("record_class").notNull(), provenanceResolution: text("provenance_resolution").notNull(),
+  identityResolution: text("identity_resolution").notNull(), organizationLinkResolution: text("organization_link_resolution").notNull(),
+  relationshipResolution: text("relationship_resolution").notNull(), reasonCodes: jsonb("reason_codes").notNull().default([]),
+  dependencyFingerprint: text("dependency_fingerprint").notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export const commercialResolutionDependencies = pgTable("commercial_resolution_dependencies", {
+  snapshotId: uuid("snapshot_id").notNull().references(() => commercialResolutionSnapshots.id, { onDelete: "restrict" }),
+  objectType: text("object_type").notNull(), objectId: text("object_id").notNull(), revision: integer("revision").notNull(),
+  authorityVersion: integer("authority_version").notNull(), rank: integer("rank").notNull(),
+}, (t) => [unique("commercial_resolution_dependencies_pk").on(t.snapshotId, t.objectType, t.objectId)]);
+export const commercialEvidenceReferences = pgTable("commercial_evidence_references", {
+  id: uuid("id").primaryKey().defaultRandom(), snapshotId: uuid("snapshot_id").notNull().references(() => commercialResolutionSnapshots.id, { onDelete: "restrict" }),
+  classificationEventId: integer("classification_event_id").references(() => commercialClassificationEvents.id, { onDelete: "restrict" }),
+  contactSourceEventId: integer("contact_source_event_id").references(() => contactSourceEvents.id, { onDelete: "restrict" }),
+  importRowDispositionId: integer("import_row_disposition_id").references(() => importRowDispositions.id, { onDelete: "restrict" }),
+  identityObservationId: uuid("identity_observation_id").references(() => contactIdentityObservations.id, { onDelete: "restrict" }),
+  mergeOperationId: uuid("merge_operation_id").references(() => contactMergeOperations.id, { onDelete: "restrict" }),
+  mergeRedirectId: uuid("merge_redirect_id").references(() => contactMergeRedirects.id, { onDelete: "restrict" }),
+  businessLinkDecisionId: uuid("business_link_decision_id").references(() => contactBusinessLinkDecisions.id, { onDelete: "restrict" }),
+  legacyCompanyMappingDecisionId: uuid("legacy_company_mapping_decision_id").references(() => legacyCompanyMappingDecisions.id, { onDelete: "restrict" }),
+  relationshipReviewId: uuid("relationship_review_id").references(() => commercialRelationshipReviews.id, { onDelete: "restrict" }),
+});
+export const commercialPurposePolicies = pgTable("commercial_purpose_policies", {
+  purpose: text("purpose").notNull(), policyVersion: integer("policy_version").notNull(), requiredEdges: jsonb("required_edges").notNull().default({}),
+  mode: text("mode").notNull().default("shadow"), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [unique("commercial_purpose_policies_pkey").on(t.purpose, t.policyVersion)]);
+export const commercialShadowControls = pgTable("commercial_shadow_controls", {
+  controlKey: text("control_key").primaryKey().default("commercial"), mode: text("mode").notNull().default("shadow"), schemaVersion: integer("schema_version").notNull().default(1),
+  coverageHighWater: bigint("coverage_high_water", { mode: "number" }).notNull().default(0), approvedDiscrepancyThreshold: numeric("approved_discrepancy_threshold"),
+  releaseSha: text("release_sha"), rollbackMarker: text("rollback_marker").notNull().default("legacy-effective"), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+/** Aggregate-only shadow observations.  Deliberately contains no subject key. */
+export const commercialShadowAggregates = pgTable("commercial_shadow_aggregates", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  purpose: text("purpose").notNull(),
+  coverageHighWater: bigint("coverage_high_water", { mode: "number" }).notNull(),
+  policyVersion: integer("policy_version").notNull(),
+  schemaVersion: integer("schema_version").notNull(),
+  scope: text("scope").notNull(),
+  bucketType: text("bucket_type").notNull(),
+  bucketKey: text("bucket_key").notNull(),
+  subjectCount: integer("subject_count").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("commercial_shadow_aggregates_bucket_uidx").on(t.purpose, t.coverageHighWater, t.policyVersion, t.schemaVersion, t.scope, t.bucketType, t.bucketKey),
+]);
 
 // Aggregate lineage: one row per KPI rebuild storing lineage metadata.
 export const commercialAggregateLineage = pgTable("commercial_aggregate_lineage", {

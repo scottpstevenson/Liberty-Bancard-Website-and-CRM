@@ -126,6 +126,8 @@ async function createTestContact(overrides: Record<string, unknown>): Promise<nu
     consentSms: false,
     consentEmail: false,
     emailOptInAt: null,
+    // Contactability tests begin after BT-06's commercial root gate.
+    recordClass: "production",
     ...overrides,
   };
   const email = String(data.email);

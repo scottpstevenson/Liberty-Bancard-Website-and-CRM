@@ -2,6 +2,8 @@ import type { NextFunction, Request, Response } from "express";
 import { storage } from "../storage";
 import { getInboxItem } from "../storage/inbox";
 import { getInboxItemResolution } from "./inbox-item-resolution";
+import { db } from "../db";
+import { sql } from "drizzle-orm";
 
 type DashboardUser = { role?: string; email?: string | null };
 
@@ -48,6 +50,25 @@ export async function authorizeDealAccess(
     return denyCrmObject(res);
   }
   return deal;
+}
+
+/** Business access is derived from an already-authorized contact or owned,
+ * non-archived deal. Unlinked businesses are deliberately privileged-only. */
+export async function authorizeBusinessAccess(req: Request, res: Response, businessId: number) {
+  if (!Number.isInteger(businessId) || businessId <= 0) return denyCrmObject(res);
+  if (isPrivileged(req.user as DashboardUser | undefined)) {
+    const row = (await db.execute(sql`SELECT id FROM businesses WHERE id=${businessId} LIMIT 1`) as any).rows?.[0];
+    return row ? row : denyCrmObject(res);
+  }
+  const email = agentOwnershipEmail(req.user as DashboardUser | undefined);
+  if (!email) return denyCrmObject(res);
+  const row = (await db.execute(sql`
+    SELECT b.id FROM businesses b WHERE b.id=${businessId} AND (
+      EXISTS (SELECT 1 FROM contacts c WHERE c.business_id=b.id AND (c.assigned_to IS NULL OR c.assigned_to=${email}))
+      OR EXISTS (SELECT 1 FROM deals d JOIN contacts c ON c.id=d.contact_id WHERE c.business_id=b.id AND d.archived_at IS NULL AND d.owner=${email})
+    ) LIMIT 1
+  `) as any).rows?.[0];
+  return row ? row : denyCrmObject(res);
 }
 
 /** Resolve server-derived Inbox metadata; never accept a body contactId as authority. */

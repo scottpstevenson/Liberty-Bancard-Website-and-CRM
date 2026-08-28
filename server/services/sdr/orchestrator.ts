@@ -19,6 +19,7 @@ import { featureFlags } from "../feature-flags";
 import { classifyEligibility } from "../deal-eligibility";
 import OpenAI from "openai";
 import { logAiCall } from "../ai-audit-logger";
+import { recordContactBusinessLinkCandidate } from "../commercial-link-authority";
 
 function getOpenAI() {
   return new OpenAI({ apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY, baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL });
@@ -1771,15 +1772,16 @@ export async function bridgeContactsToSdr(options?: { limit?: number; contactIds
               contactId: contact.id,
             });
             resolvedBusinessId = bizResult.businessId;
-            const [updatedContact] = await db.update(contacts)
-              .set({ businessId: resolvedBusinessId })
-              .where(eq(contacts.id, contact.id))
-              .returning();
+            await recordContactBusinessLinkCandidate({
+              contactId: contact.id, businessId: resolvedBusinessId,
+              source: "sdr_orchestration", sourceVersion: "bridge-v1",
+              candidateKey: `sdr-orchestrator:${contact.id}:${resolvedBusinessId}`, confidence: 70,
+            });
             const { auditChange } = await import("../../services/audit-change");
-            auditChange({ actorType: "system", action: "contact_business_linked",
+            auditChange({ actorType: "system", action: "contact_business_link_candidate_recorded",
               entityType: "contact", entityId: contact.id,
               before: contact as unknown as Record<string, unknown>,
-              after: (updatedContact ?? contact) as unknown as Record<string, unknown> }).catch(() => {});
+              after: { candidateBusinessId: resolvedBusinessId } }).catch(() => {});
             if (existingBusinessIds.has(resolvedBusinessId!)) {
               skipped++;
               continue;

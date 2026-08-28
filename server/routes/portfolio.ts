@@ -4,6 +4,7 @@ import { pool, db } from "../db";
 import { deals } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import { serverError } from "../utils/server-error";
+import { observeCommercialReportingPopulation } from "../services/commercial-resolution";
 
 /**
  * Portfolio API — returns activated merchants with health signals.
@@ -13,6 +14,15 @@ import { serverError } from "../utils/server-error";
  * scope visibility, but neither one creates merchant membership.
  */
 export function registerPortfolioRoutes(app: Express) {
+  app.use("/api/portfolio", async (req, _res, next) => {
+    if (req.user) await Promise.all([
+      observeCommercialReportingPopulation({ subjectType: "contact", actor: req.user as any }),
+      observeCommercialReportingPopulation({ subjectType: "deal", actor: req.user as any }),
+    ]).catch((error) => console.error("[CRO02_PORTFOLIO_OBSERVATION_FAILED]", {
+      errorType: error instanceof Error ? error.name : "UnknownError",
+    }));
+    next();
+  });
   app.get("/api/portfolio", isDashboardUser, async (req, res) => {
     try {
       const user = req.user as any;

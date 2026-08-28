@@ -10,6 +10,7 @@ import type { SignatureType } from "./sender-policy";
 import { sanitizeFirstName } from "./contact-name-utils";
 import { hashEmailToken } from "./provider-readiness-control";
 import { getOrCreateSequenceAbAssignment, recordSequenceAbDelivery } from "./sequence-ab-authority";
+import { authorizeCommercialUseBatch } from "./commercial-resolution";
 
 /**
  * Map a sequence's triggerConfig.category to the correct email signature type.
@@ -361,6 +362,19 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
 
   try {
     const dueEnrollments = await storage.getActiveEnrollments();
+    await authorizeCommercialUseBatch({
+      subjects: dueEnrollments
+        .filter((enrollment) => Number.isInteger(enrollment.contactId))
+        .slice(0, 2_000)
+        .map((enrollment) => ({ subjectType: "contact" as const, subjectId: enrollment.contactId! })),
+      effect: "marketing_outreach",
+      maxSubjects: 2_000,
+    }).catch((error) => {
+      console.error("[CRO02_SEQUENCE_OBSERVATION_FAILED]", {
+        count: Math.min(dueEnrollments.length, 2_000),
+        errorType: error instanceof Error ? error.name : "UnknownError",
+      });
+    });
 
     for (const enrollment of dueEnrollments) {
       heartbeat.assertOwned();

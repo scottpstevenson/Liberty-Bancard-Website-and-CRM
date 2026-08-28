@@ -124,6 +124,8 @@ export async function sendSmtpEmail(params: {
    */
   contactId?: number;
   commercialPurpose?: "marketing_outreach" | "transactional_response";
+  inboundRequestId?: string;
+  intendedRecipientContactId?: number;
 }): Promise<{ success: boolean; messageId?: string; error?: string }> {
   const isCommercial = params.category === "cold_outreach" || params.commercialPurpose === "marketing_outreach";
   let rendered;
@@ -144,18 +146,29 @@ export async function sendSmtpEmail(params: {
   ]);
   if (params.contactId) {
     try {
-      const { authorizeUse } = await import("./commercial-classification-authority");
+      const { authorizeCommercialUse } = await import("./commercial-resolution");
       const trustedTransactionalCategories = new Set<MessageCategory>([
         "security", "onboarding", "support", "partners",
       ]);
-      const decision = await authorizeUse({
-        contactId: params.contactId,
-        purpose: params.commercialPurpose ??
+      const purpose = params.commercialPurpose ??
           (params.category && trustedTransactionalCategories.has(params.category)
             ? "transactional_response"
-            : "marketing_outreach"),
+            : "marketing_outreach");
+      const hasInboundBinding = purpose === "transactional_response"
+        && !!params.inboundRequestId?.trim()
+        && params.intendedRecipientContactId === params.contactId;
+      const decision = await authorizeCommercialUse({
+        subjectType: "contact",
+        subjectId: params.contactId,
+        effect: purpose === "marketing_outreach"
+          ? "marketing_outreach"
+          : hasInboundBinding ? "inbound_transactional_acknowledgement" : "account_transactional",
+        inboundRequestId: hasInboundBinding ? params.inboundRequestId : undefined,
+        intendedRecipientId: hasInboundBinding ? params.intendedRecipientContactId : undefined,
       });
-      if (!decision.allowed) return { success: false, error: decision.reasonCode };
+      if (!decision.effectiveDecision.allowed) {
+        return { success: false, error: decision.effectiveDecision.reasonCode };
+      }
     } catch {
       return { success: false, error: "COMMERCIAL_CLASS_UNKNOWN" };
     }

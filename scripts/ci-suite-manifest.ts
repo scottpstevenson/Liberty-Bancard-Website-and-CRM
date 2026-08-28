@@ -345,6 +345,24 @@ export const SUITE_MANIFEST: SuiteManifestEntry[] = [
     capability: "deterministic-integration",
     providerDenial: "TEST_DATABASE_URL disposable PostgreSQL TEMP tables with rollback; no providers",
   },
+  {
+    name: "CRO-02 Classification Authority",
+    script: "scripts/check-cro02-authority.ts",
+    capability: "deterministic-static",
+    providerDenial: "source-backed shadow authority check; no providers",
+  },
+  {
+    name: "CRO-02 Graph and Import Integration",
+    script: "scripts/test-cro02-integration.ts",
+    capability: "deterministic-integration",
+    providerDenial: "disposable database graph/import contract only; no providers",
+  },
+  {
+    name: "CRO-02 HTTP Privacy and Provider Denial",
+    script: "scripts/test-cro02-http.ts",
+    capability: "server-required",
+    providerDenial: "localhost contract only; no provider transport is invoked",
+  },
   // ── server-required (live server + DB; hard-fails if server absent) ──────
   {
     name: "CRM Operator Experience",

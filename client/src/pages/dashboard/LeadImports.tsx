@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import type { ProspectList } from "@shared/schema";
 import type { CsvImport, MasterLeadBatch } from "@shared/schema";
+import { importDispositionCompatibility, type ImportDisposition } from "@shared/import-disposition-summary";
 
 /** Normalize opt-out counts from either camelCase or snake_case API responses. */
 function normalizeOptOut(data: Record<string, unknown>): { optOutPreserved: number; optOutApplied: number } {
@@ -73,6 +74,18 @@ function hasUnknownBuckets(imp: CsvImport): boolean {
 function fmtOrUnknown(value: number | null | undefined, imp: CsvImport): string {
   if (hasUnknownBuckets(imp) && value == null) return "—";
   return (value ?? 0).toLocaleString();
+}
+
+function durableDispositionOutcomes(imp: CsvImport) {
+  const row = imp as CsvImport & { dispositionCounts?: Partial<Record<ImportDisposition, number>> };
+  return importDispositionCompatibility(row.dispositionCounts ?? {
+    created: imp.newRecords,
+    matched_noop: imp.duplicatesSkipped,
+    updated: imp.updatedRecords,
+    rejected: imp.invalidRows,
+    deferred: imp.skippedRows,
+    failed: imp.errorsCount,
+  });
 }
 
 function getOutcomeSummary(imp: CsvImport): { label: string; className: string } {
@@ -1526,6 +1539,30 @@ export default function LeadImports() {
               </div>
 
               {(() => {
+                const outcomes = durableDispositionOutcomes(imp);
+                const buckets: Array<[ImportDisposition, string, string]> = [
+                  ["created", "Created", "text-green-600 dark:text-green-400"],
+                  ["matched_noop", "Matched (no change)", "text-blue-600 dark:text-blue-400"],
+                  ["updated", "Updated", "text-cyan-600 dark:text-cyan-400"],
+                  ["rejected", "Rejected", "text-amber-600 dark:text-amber-400"],
+                  ["deferred", "Deferred", "text-muted-foreground"],
+                  ["failed", "Failed", "text-red-600 dark:text-red-400"],
+                ];
+                return (
+                  <div className="grid grid-cols-2 md:grid-cols-6 gap-3" data-testid={`import-disposition-ledger-${imp.id}`}>
+                    {buckets.map(([key, label, className]) => (
+                      <div key={key} className="rounded border p-2">
+                        <p className="text-xs text-muted-foreground">{label}</p>
+                        <p className={`font-medium ${className}`} data-testid={`import-${key}-${imp.id}`}>
+                          {outcomes[key].toLocaleString()}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+
+              {(() => {
                 const { optOutPreserved, optOutApplied } = normalizeOptOut(imp as unknown as Record<string, unknown>);
                 if (optOutPreserved === 0 && optOutApplied === 0) return null;
                 const parts: string[] = [];
@@ -1547,7 +1584,8 @@ export default function LeadImports() {
               })()}
 
               {(imp.totalRows ?? 0) > 0 && (() => {
-                const reconciled = (imp.newRecords ?? 0) + (imp.duplicatesSkipped ?? 0) + (imp.invalidRows ?? 0) + (imp.skippedRows ?? 0) + (imp.errorsCount ?? 0);
+                const outcomes = durableDispositionOutcomes(imp);
+                const reconciled = outcomes.total;
                 const mismatch = reconciled !== (imp.totalRows ?? 0);
                 return mismatch ? (
                   <p className="text-xs text-destructive" data-testid={`text-reconciliation-mismatch-${imp.id}`}>
@@ -1555,7 +1593,7 @@ export default function LeadImports() {
                   </p>
                 ) : (
                   <p className="text-xs text-muted-foreground" data-testid={`text-reconciliation-ok-${imp.id}`}>
-                    All {(imp.totalRows ?? 0).toLocaleString()} rows accounted for: {(imp.newRecords ?? 0).toLocaleString()} new + {(imp.duplicatesSkipped ?? 0).toLocaleString()} duplicates + {(imp.skippedRows ?? 0).toLocaleString()} already exist + {(imp.invalidRows ?? 0).toLocaleString()} invalid + {(imp.errorsCount ?? 0).toLocaleString()} errors.
+                    Durable ledger reconciles all {(imp.totalRows ?? 0).toLocaleString()} rows: {outcomes.created.toLocaleString()} created + {outcomes.matched_noop.toLocaleString()} matched/no-op + {outcomes.updated.toLocaleString()} updated + {outcomes.rejected.toLocaleString()} rejected + {outcomes.deferred.toLocaleString()} deferred + {outcomes.failed.toLocaleString()} failed.
                   </p>
                 );
               })()}

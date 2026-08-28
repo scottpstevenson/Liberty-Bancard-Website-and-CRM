@@ -26,7 +26,7 @@ async function main() {
     import("drizzle-orm"),
     import("../server/services/commercial-classification-authority"),
   ]);
-  const { contacts, commercialClassificationEvents } = schema;
+  const { contacts, deals, commercialClassificationEvents } = schema;
   const { and, eq } = drizzle;
   const {
     applyClassification,
@@ -181,18 +181,40 @@ async function main() {
   } catch { missingSubjectRejected = true; }
   assert(missingSubjectRejected, "classification cannot create an event for an absent subject");
 
+  const [rootlessDeal] = await db.insert(deals).values({
+    title: `BT06 rootless deal ${nonce}`,
+    pipeline: "sales",
+    stage: "New Lead",
+  } as any).returning();
+  let rootlessDealRejected = false;
+  try {
+    await createPreviewCommand({
+      idempotencyKey: crypto.randomUUID(),
+      subjectType: "deal",
+      subjectId: rootlessDeal.id,
+      targetClass: "production",
+      evidenceFields: { review_source: "isolated_test" },
+      evidenceRefs: [],
+      requestedBy: "manager-test",
+    });
+  } catch (error) {
+    rootlessDealRejected = String(error).includes("CLASSIFICATION_GRAPH_QUARANTINED");
+  }
+  assert(rootlessDealRejected, "production command rejects a deal with no required commercial root");
+
   const preview = await createPreviewCommand({
     idempotencyKey: crypto.randomUUID(),
     subjectType: "contact",
     subjectId: contact.id,
     targetClass: "test",
     evidenceFields: { review_source: "isolated_test" },
+    evidenceRefs: [{ kind: "classification_event", id: transition.eventId }],
     requestedBy: "manager-test",
   });
   assert(preview.status === "created", "manager preview command is created");
   const approval = await approveCommand({ commandId: preview.commandId, approvedBy: "admin-test", versionLock: 0 });
   assert(approval.approved && !approval.conflict, "admin can approve current command version");
-  const execution = await executeApprovedCommand(preview.commandId, "admin-test");
+  const execution = await executeApprovedCommand(preview.commandId, "executor-test");
   assert(execution.executed, "approved command executes into immutable event");
   assert(await getCurrentClass("contact", contact.id) === "test", "executed command updates root projection");
 

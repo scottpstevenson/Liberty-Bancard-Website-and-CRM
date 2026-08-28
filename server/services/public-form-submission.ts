@@ -6,6 +6,7 @@ import { updateContactLocalFirst, upsertContactSourceEvent } from "./contact-wri
 import type { PublicFormType, PublicContactProfilePayload } from "./public-form-payload";
 import { applyConsentCommand } from "./consent-authority";
 import { recordContactIdentityObservations } from "./contact-identity";
+import { lockCommercialGraph } from "./commercial-graph-locks";
 
 export interface ProcessExistingSubmissionArgs {
   existingContact: Contact;
@@ -61,6 +62,7 @@ export async function processExistingPublicFormSubmission(
   // A: Atomic profile-only transaction. Consent is intentionally excluded: the
   // reducer below is the sole authority for consent and suppression state.
   await db.transaction(async (tx) => {
+    await lockCommercialGraph(tx, [{ type: "contact", id: existingContact.id }], ["identity"]);
     // Re-read inside transaction (read committed: sees latest committed state,
     // closing the race window between route-level lookup and this write).
     const [freshContact] = await tx

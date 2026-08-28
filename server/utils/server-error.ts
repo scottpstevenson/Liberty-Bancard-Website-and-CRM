@@ -1,4 +1,5 @@
 import type { Response } from "express";
+import crypto from "crypto";
 
 /**
  * Returns "Internal server error" in production, or the given message in
@@ -32,7 +33,10 @@ export function serverError(res: Response, err: unknown, context?: string): void
   console.error(`${label}Internal server error:`, err);
 
   const isProduction = process.env.NODE_ENV === "production";
-  res.status(500).json({
+  const correlationId = crypto.randomUUID();
+  res.setHeader("X-Correlation-Id", correlationId).status(500).json({
     message: isProduction ? "Internal server error" : message,
+    code: "INTERNAL_ERROR",
+    correlationId,
   });
 }

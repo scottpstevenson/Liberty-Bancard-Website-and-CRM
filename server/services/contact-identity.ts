@@ -1,6 +1,11 @@
 import crypto from "crypto";
 import { sql } from "drizzle-orm";
 import { db } from "../db";
+import {
+  lockCommercialGraph,
+  lockCommercialGraphMembershipSets,
+  lockCommercialGraphNodes,
+} from "./commercial-graph-locks";
 
 /**
  * Canonical, versioned identity evidence. It intentionally records no raw
@@ -62,7 +67,7 @@ function normalizePhone(value: string | null | undefined) {
   } as const;
 }
 
-export async function recordContactIdentityObservations(
+async function writeContactIdentityObservations(
   executor: SqlExecutor,
   contact: ContactIdentityInput,
   sourceType: IdentitySource,
@@ -99,14 +104,29 @@ export async function recordContactIdentityObservations(
   }
 }
 
+export async function recordContactIdentityObservations(
+  executor: SqlExecutor,
+  contact: ContactIdentityInput,
+  sourceType: IdentitySource,
+  sourceId?: string | null,
+): Promise<void> {
+  await lockCommercialGraph(executor, [{ type: "contact", id: contact.id }], ["identity"]);
+  await writeContactIdentityObservations(executor, contact, sourceType, sourceId);
+}
+
 export async function recordContactIdentityObservationsForContacts(
   executor: SqlExecutor,
   contacts: ContactIdentityInput[],
   sourceType: IdentitySource,
   sourceId?: string | null,
 ): Promise<void> {
-  for (const contact of contacts) {
-    await recordContactIdentityObservations(executor, contact, sourceType, sourceId);
+  const ordered = [...new Map(contacts.map(contact => [contact.id, contact])).values()]
+    .sort((a, b) => a.id - b.id);
+  const nodes = ordered.map(contact => ({ type: "contact" as const, id: contact.id }));
+  await lockCommercialGraphNodes(executor, nodes);
+  await lockCommercialGraphMembershipSets(executor, nodes, ["identity"]);
+  for (const contact of ordered) {
+    await writeContactIdentityObservations(executor, contact, sourceType, sourceId);
   }
 }
 
@@ -114,17 +134,42 @@ export async function recordContactIdentityObservationsForContacts(
 export async function recordContactIdentityObservationsForPg(
   executor: PgExecutor, contact: ContactIdentityInput, sourceType: IdentitySource, sourceId?: string | null,
 ): Promise<void> {
-  for (const [kind, normalizer] of [["email", normalizeEmail(contact.email)] as const, ["phone", normalizePhone(contact.phone)] as const]) {
-    const tokenValue = normalizer.normalized ?? `invalid:${String(kind)}:${normalizer.invalidReason}`;
-    await executor.query(`UPDATE contact_identity_observations SET superseded_at = now() WHERE contact_id = $1 AND identity_kind = $2 AND superseded_at IS NULL`, [contact.id, kind]);
-    await executor.query(`
-      INSERT INTO contact_identity_observations
-      (contact_id, identity_kind, normalized_value, lookup_token, normalization_version, source_type, source_id, country_code, phone_endpoint_type, phone_ownership, eligibility, confidence, invalid_reason, superseded_at)
-      VALUES ($1,$2,NULL,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NULL)
-      ON CONFLICT DO NOTHING`,
-      [contact.id, kind, lookupToken(kind, tokenValue), IDENTITY_NORMALIZATION_VERSION, sourceType, sourceId ?? null,
-        "countryCode" in normalizer ? normalizer.countryCode : null, kind === "phone" ? "unknown" : null,
-        kind === "phone" ? "unknown" : null, normalizer.eligibility, normalizer.confidence, normalizer.invalidReason]);
+  await recordContactIdentityObservationsForPgContacts(executor, [contact], sourceType, sourceId);
+}
+
+export async function recordContactIdentityObservationsForPgContacts(
+  executor: PgExecutor,
+  contacts: ContactIdentityInput[],
+  sourceType: IdentitySource,
+  sourceId?: string | null,
+): Promise<void> {
+  const ordered = [...new Map(contacts.map(contact => [contact.id, contact])).values()]
+    .sort((a, b) => a.id - b.id);
+  for (const contact of ordered) {
+    await executor.query(
+      `SELECT pg_advisory_xact_lock(hashtextextended($1, 1700))`,
+      [`cro02:v1:node:contact:${contact.id}`],
+    );
+  }
+  for (const contact of ordered) {
+    await executor.query(
+      `SELECT pg_advisory_xact_lock(hashtextextended($1, 1700))`,
+      [`cro02:v1:membership-set:identity:contact:${contact.id}`],
+    );
+  }
+  for (const contact of ordered) {
+    for (const [kind, normalizer] of [["email", normalizeEmail(contact.email)] as const, ["phone", normalizePhone(contact.phone)] as const]) {
+      const tokenValue = normalizer.normalized ?? `invalid:${String(kind)}:${normalizer.invalidReason}`;
+      await executor.query(`UPDATE contact_identity_observations SET superseded_at = now() WHERE contact_id = $1 AND identity_kind = $2 AND superseded_at IS NULL`, [contact.id, kind]);
+      await executor.query(`
+        INSERT INTO contact_identity_observations
+        (contact_id, identity_kind, normalized_value, lookup_token, normalization_version, source_type, source_id, country_code, phone_endpoint_type, phone_ownership, eligibility, confidence, invalid_reason, superseded_at)
+        VALUES ($1,$2,NULL,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NULL)
+        ON CONFLICT DO NOTHING`,
+        [contact.id, kind, lookupToken(kind, tokenValue), IDENTITY_NORMALIZATION_VERSION, sourceType, sourceId ?? null,
+          "countryCode" in normalizer ? normalizer.countryCode : null, kind === "phone" ? "unknown" : null,
+          kind === "phone" ? "unknown" : null, normalizer.eligibility, normalizer.confidence, normalizer.invalidReason]);
+    }
   }
 }
 

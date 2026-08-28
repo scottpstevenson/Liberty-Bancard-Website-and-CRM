@@ -69,6 +69,14 @@ export interface ContactabilityInput {
   // Only server-owned inbound confirmation handlers may set this. Every other
   // enforcement call defaults to marketing_outreach and remains fail-closed.
   commercialPurpose?: "marketing_outreach" | "transactional_response";
+  /**
+   * Server-derived binding for the current inbound request/effect. These two
+   * fields are an inseparable pair and the recipient must be this contact.
+   * A transactional response without this binding is account-transactional,
+   * never an unknown-contact inbound acknowledgement bypass.
+   */
+  inboundRequestId?: string;
+  intendedRecipientContactId?: number;
 }
 
 export interface ContactabilityResult {
@@ -320,6 +328,8 @@ export async function evaluateContactability(
     mode,
     sdrMerchantId,
     commercialPurpose = "marketing_outreach",
+    inboundRequestId,
+    intendedRecipientContactId,
   } = input;
   const currentTime = input.currentTime ?? new Date();
 
@@ -538,13 +548,25 @@ export async function evaluateContactability(
       });
     }
     try {
-      const { authorizeUse } = await import("./commercial-classification-authority");
-      const authResult = await authorizeUse({
-        contactId,
+      // CRO-02 observes this safety-critical boundary, but its adapter keeps
+      // BT-06 as effective behavior until a separately approved cutover.
+      const { authorizeCommercialUse } = await import("./commercial-resolution");
+      const hasInboundBinding = commercialPurpose === "transactional_response"
+        && typeof inboundRequestId === "string"
+        && inboundRequestId.trim().length > 0
+        && intendedRecipientContactId === contactId;
+      const commercial = await authorizeCommercialUse({
         subjectType: "contact",
         subjectId: contactId,
-        purpose: commercialPurpose,
+        effect: commercialPurpose === "transactional_response"
+          ? hasInboundBinding
+            ? "inbound_transactional_acknowledgement"
+            : "account_transactional"
+          : "marketing_outreach",
+        inboundRequestId: hasInboundBinding ? inboundRequestId : undefined,
+        intendedRecipientId: hasInboundBinding ? intendedRecipientContactId : undefined,
       });
+      const authResult = commercial.effectiveDecision;
       if (!authResult.allowed) {
         return blocked(
           authResult.reason ??

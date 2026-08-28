@@ -2,6 +2,7 @@ import express, { type Request, Response, NextFunction } from "express";
 import cookieParser from "cookie-parser";
 import * as Sentry from "@sentry/node";
 import { registerRoutes } from "./routes";
+import { assertCro02PurposePolicies, assertCro02ShadowOnly } from "./services/commercial-resolution";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { getQueueManager, shutdownQueueManager } from "./services/queue-manager";
@@ -240,6 +241,10 @@ app.use((req, res, next) => {
   } catch (e: any) {
     console.warn("[CampaignPreview] Startup interrupt-mark failed (non-fatal):", e?.message);
   }
+  // Fail closed before route registration if an operator attempts an
+  // unauthorized CRO-02 compare/enforce activation.
+  assertCro02ShadowOnly();
+  await assertCro02PurposePolicies();
   await registerRoutes(httpServer, app);
   // Resume only durable, expired CSV executions after routes are registered.
   // The recovery processor is request-free and uses the canonical contact

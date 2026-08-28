@@ -4,6 +4,8 @@
  */
 export const CONTACT_AUTHORITY_OWNED_FIELDS = [
   "recordClass",
+  // Commercial graph compatibility projections are authority-only.
+  "businessId", "isDecisionMaker", "decisionMakerConfidence",
   // Provider-validation state is written only by the generation-fenced
   // validation authority; it must never be forgeable through a generic edit.
   "emailTokenHash", "emailMutationGeneration", "emailValidationUpdatedAt",

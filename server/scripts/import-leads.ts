@@ -1,7 +1,9 @@
 import pg from "pg";
 import * as fs from "fs";
 import * as path from "path";
-import { recordContactIdentityObservationsForPg } from "../services/contact-identity";
+import { recordContactIdentityObservationsForPgContacts } from "../services/contact-identity";
+import { ingestBusiness } from "../services/sdr/dedupe";
+import { recordContactBusinessLinkCandidate } from "../services/commercial-link-authority";
 
 const { Pool } = pg;
 import { createRequire } from "module";
@@ -428,7 +430,7 @@ async function bulkInsert(leads: LeadRow[]): Promise<{ inserted: number; skipped
       try {
         await client.query("BEGIN");
         const result = await client.query(query, values);
-        for (const contact of result.rows) await recordContactIdentityObservationsForPg(client, contact, "csv_import", "import-leads");
+        await recordContactIdentityObservationsForPgContacts(client, result.rows, "csv_import", "import-leads");
         await client.query("COMMIT");
         inserted += result.rowCount || 0;
       } catch (error) {
@@ -461,7 +463,7 @@ async function bulkInsert(leads: LeadRow[]): Promise<{ inserted: number; skipped
             lead.employeeCount || null, lead.annualRevenue || null,
             lead.tags || null, lead.notes || null, "New",
           ]);
-          for (const contact of result.rows) await recordContactIdentityObservationsForPg(client, contact, "csv_import", "import-leads");
+          await recordContactIdentityObservationsForPgContacts(client, result.rows, "csv_import", "import-leads");
           await client.query("COMMIT");
           inserted += result.rowCount || 0;
           } catch (error) {
@@ -579,42 +581,18 @@ async function main() {
   let bizCreated = 0, bizMerged = 0, bizErrors = 0;
   for (const row of unbridged.rows) {
     try {
-      const normalizedName = row.company_name.toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\b(llc|inc|corp|ltd|co|company|enterprises?|group|services?|solutions?)\b/g, "").replace(/\s+/g, " ").trim();
-      const domain = row.website ? row.website.replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0].toLowerCase() : null;
-      const phone10 = row.phone ? row.phone.replace(/[^0-9]/g, "").replace(/^1(\d{10})$/, "$1") : null;
-
-      const existingBiz = await pool.query(`
-        SELECT id FROM businesses 
-        WHERE ($1::text IS NOT NULL AND website_domain = $1)
-           OR ($2::text IS NOT NULL AND main_phone = $2)
-           OR (normalized_name = $3 AND city = $4 AND state = $5)
-        LIMIT 1
-      `, [domain, phone10 && phone10.length === 10 ? phone10 : null, normalizedName, row.city, row.state]);
-
-      let businessId: number;
-      if (existingBiz.rows.length > 0) {
-        businessId = existingBiz.rows[0].id;
-        bizMerged++;
-      } else {
-        const newBiz = await pool.query(`
-          INSERT INTO businesses (canonical_name, normalized_name, website_domain, main_phone, main_email,
-            street_address, city, state, vertical, industry_primary, facebook_url,
-            last_source_type, status, created_at, updated_at)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'new', NOW(), NOW())
-          RETURNING id
-        `, [row.company_name, normalizedName, domain, phone10, row.email,
-            row.address, row.city, row.state, row.vertical, row.industry, row.facebook_url,
-            row.lead_source || "csv_import"]);
-        businessId = newBiz.rows[0].id;
-        bizCreated++;
-      }
-
-      await pool.query(`UPDATE contacts SET business_id = $1 WHERE id = $2`, [businessId, row.id]);
-
-      await pool.query(`
-        INSERT INTO lead_sources (business_id, source_type, source_label, contact_id, discovered_at)
-        VALUES ($1, $2, $3, $4, NOW())
-      `, [businessId, row.lead_source || "csv_import", `import_${row.id}`, row.id]);
+      const result = await ingestBusiness({
+        name: row.company_name, website: row.website, phone: row.phone, email: row.email,
+        address: row.address, city: row.city, state: row.state, vertical: row.vertical,
+        industryPrimary: row.industry, facebookUrl: row.facebook_url,
+        sourceType: row.lead_source || "csv_import", sourceLabel: `import_${row.id}`, contactId: row.id,
+      });
+      await recordContactBusinessLinkCandidate({
+        contactId: row.id, businessId: result.businessId,
+        source: "legacy_import", sourceVersion: "import-leads-v1",
+        candidateKey: `legacy-import:${row.id}:${result.businessId}`, confidence: 60,
+      });
+      if (result.isNew) bizCreated++; else bizMerged++;
     } catch (bizErr: any) {
       bizErrors++;
       if (bizErrors <= 5) console.warn(`  Business bridge error for contact ${row.id}:`, bizErr.message);

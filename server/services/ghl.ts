@@ -788,16 +788,25 @@ export async function sendGhlEmail(params: {
   skipActivityLog?: boolean;
   /** Defaults fail-closed to marketing. Only trusted server flows may opt into transactional responses. */
   commercialPurpose?: "marketing_outreach" | "transactional_response";
+  inboundRequestId?: string;
+  intendedRecipientContactId?: number;
 }): Promise<{ success: boolean; messageId?: string; error?: string }> {
   // ── Unavoidable commercial-classification gate (transport boundary) ───────
   try {
-    const { authorizeUse } = await import("./commercial-classification-authority");
-    const commercial = await authorizeUse({
-      contactId: params.contactId,
-      purpose: params.commercialPurpose ?? "marketing_outreach",
+    const { authorizeCommercialUse } = await import("./commercial-resolution");
+    const hasInboundBinding = params.commercialPurpose === "transactional_response"
+      && !!params.inboundRequestId?.trim()
+      && params.intendedRecipientContactId === params.contactId;
+    const commercial = await authorizeCommercialUse({
+      subjectType: "contact", subjectId: params.contactId,
+      effect: params.commercialPurpose === "transactional_response"
+        ? hasInboundBinding ? "inbound_transactional_acknowledgement" : "account_transactional"
+        : "marketing_outreach",
+      inboundRequestId: hasInboundBinding ? params.inboundRequestId : undefined,
+      intendedRecipientId: hasInboundBinding ? params.intendedRecipientContactId : undefined,
     });
-    if (!commercial.allowed) {
-      return { success: false, error: commercial.reasonCode };
+    if (!commercial.effectiveDecision.allowed) {
+      return { success: false, error: commercial.effectiveDecision.reasonCode };
     }
   } catch (error: any) {
     console.error(`[GHL:sendGhlEmail] Commercial authorization error — fail closed: ${error.message}`);
@@ -957,12 +966,15 @@ export async function sendGhlEmailForMerchant(params: {
     return { success: false, error: "COMMERCIAL_CLASS_UNKNOWN" };
   }
   if (!params.internalNotification) try {
-    const { authorizeUse } = await import("./commercial-classification-authority");
-    const commercial = await authorizeUse({
-      contactId: params.contactId,
-      purpose: params.commercialPurpose ?? "marketing_outreach",
+    const { authorizeCommercialUse } = await import("./commercial-resolution");
+    const commercial = await authorizeCommercialUse({
+      subjectType: "contact", subjectId: params.contactId!,
+      effect: params.commercialPurpose === "transactional_response"
+        ? "account_transactional" : "marketing_outreach",
     });
-    if (!commercial.allowed) return { success: false, error: commercial.reasonCode };
+    if (!commercial.effectiveDecision.allowed) {
+      return { success: false, error: commercial.effectiveDecision.reasonCode };
+    }
   } catch (error: any) {
     console.error(`[GHL:sendGhlEmailForMerchant] Commercial authorization error — fail closed: ${error.message}`);
     return { success: false, error: "COMMERCIAL_CLASS_UNKNOWN" };
@@ -1072,16 +1084,25 @@ export async function sendGhlSms(params: {
   templateId?: number;
   /** Defaults fail-closed to marketing. Only trusted server flows may opt into transactional responses. */
   commercialPurpose?: "marketing_outreach" | "transactional_response";
+  inboundRequestId?: string;
+  intendedRecipientContactId?: number;
 }): Promise<{ success: boolean; messageId?: string; error?: string }> {
   // ── Unavoidable commercial-classification gate (transport boundary) ───────
   try {
-    const { authorizeUse } = await import("./commercial-classification-authority");
-    const commercial = await authorizeUse({
-      contactId: params.contactId,
-      purpose: params.commercialPurpose ?? "marketing_outreach",
+    const { authorizeCommercialUse } = await import("./commercial-resolution");
+    const hasInboundBinding = params.commercialPurpose === "transactional_response"
+      && !!params.inboundRequestId?.trim()
+      && params.intendedRecipientContactId === params.contactId;
+    const commercial = await authorizeCommercialUse({
+      subjectType: "contact", subjectId: params.contactId,
+      effect: params.commercialPurpose === "transactional_response"
+        ? hasInboundBinding ? "inbound_transactional_acknowledgement" : "account_transactional"
+        : "marketing_outreach",
+      inboundRequestId: hasInboundBinding ? params.inboundRequestId : undefined,
+      intendedRecipientId: hasInboundBinding ? params.intendedRecipientContactId : undefined,
     });
-    if (!commercial.allowed) {
-      return { success: false, error: commercial.reasonCode };
+    if (!commercial.effectiveDecision.allowed) {
+      return { success: false, error: commercial.effectiveDecision.reasonCode };
     }
   } catch (error: any) {
     console.error(`[GHL:sendGhlSms] Commercial authorization error — fail closed: ${error.message}`);

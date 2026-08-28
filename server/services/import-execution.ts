@@ -2,8 +2,13 @@ import crypto from "crypto";
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "../db";
 import { importExecutions, importRowDispositions } from "@shared/schema";
+import {
+  IMPORT_DISPOSITIONS,
+  summarizeImportDispositionCounts,
+  type ImportDisposition,
+} from "@shared/import-disposition-summary";
 
-export type ImportDisposition = "created" | "matched_noop" | "updated" | "rejected" | "deferred" | "failed";
+export type { ImportDisposition } from "@shared/import-disposition-summary";
 
 export interface ImportExecutionClaim {
   execution: typeof importExecutions.$inferSelect;
@@ -105,7 +110,7 @@ export async function getExpiredRecoverableCsvExecutions() {
 
 export async function recordImportRowDisposition(args: {
   executionId: string;
-  claimToken?: string;
+  claimToken: string;
   sourceRowNumber: number;
   rowFingerprint: string;
   disposition: ImportDisposition;
@@ -113,41 +118,44 @@ export async function recordImportRowDisposition(args: {
   contactId?: number | null;
   diagnostic?: Record<string, unknown> | null;
 }): Promise<boolean> {
-  const { claimToken: _claimToken, ...ledgerRow } = args;
-  if (args.claimToken) {
-    const [owner] = await db.select({ id: importExecutions.id })
-      .from(importExecutions)
-      .where(and(
-        eq(importExecutions.id, args.executionId),
-        eq(importExecutions.claimToken, args.claimToken),
-        eq(importExecutions.status, "running"),
-      ))
-      .limit(1);
-    if (!owner) throw new Error(`IMPORT_EXECUTION_LEASE_LOST:${args.executionId}`);
+  if (!(IMPORT_DISPOSITIONS as readonly string[]).includes(args.disposition)) {
+    throw new Error(`IMPORT_LEDGER_INVALID_DISPOSITION:${args.disposition}`);
   }
-  const result = await db.insert(importRowDispositions).values({
-    ...ledgerRow,
-    contactId: ledgerRow.contactId ?? null,
-    diagnostic: ledgerRow.diagnostic ?? null,
-  }).onConflictDoNothing().returning({ id: importRowDispositions.id });
-  if (result.length === 1) return true;
-  const [existing] = await db.select({
-    rowFingerprint: importRowDispositions.rowFingerprint,
-    disposition: importRowDispositions.disposition,
-    reasonCode: importRowDispositions.reasonCode,
-    contactId: importRowDispositions.contactId,
-  }).from(importRowDispositions).where(and(
-    eq(importRowDispositions.executionId, args.executionId),
-    eq(importRowDispositions.sourceRowNumber, args.sourceRowNumber),
-  )).limit(1);
-  if (
-    existing &&
-    existing.rowFingerprint === args.rowFingerprint &&
-    existing.disposition === args.disposition &&
-    existing.reasonCode === args.reasonCode &&
-    existing.contactId === (args.contactId ?? null)
-  ) return true;
-  throw new Error(`IMPORT_LEDGER_DISPOSITION_CONFLICT:${args.executionId}:${args.sourceRowNumber}`);
+  const { claimToken: _claimToken, ...ledgerRow } = args;
+  // Ownership validation and the durable row insert share one transaction and
+  // one locked execution row; a reclaimed worker cannot write after lease loss.
+  const result = await db.transaction(async (tx) => {
+    const owner = (await tx.execute(sql`
+      SELECT id FROM import_executions WHERE id = ${args.executionId}::uuid
+        AND claim_token = ${args.claimToken}::uuid AND status = 'running'
+        AND lease_expires_at >= now() FOR UPDATE
+    `) as any).rows?.[0];
+    if (!owner) throw new Error(`IMPORT_EXECUTION_LEASE_LOST:${args.executionId}`);
+    const inserted = await tx.insert(importRowDispositions).values({
+      ...ledgerRow, contactId: ledgerRow.contactId ?? null, diagnostic: ledgerRow.diagnostic ?? null,
+    }).onConflictDoNothing().returning({ id: importRowDispositions.id });
+    if (inserted.length === 1) return true;
+    const [existing] = await tx.select({
+      rowFingerprint: importRowDispositions.rowFingerprint,
+      disposition: importRowDispositions.disposition,
+      reasonCode: importRowDispositions.reasonCode,
+      contactId: importRowDispositions.contactId,
+      diagnostic: importRowDispositions.diagnostic,
+    }).from(importRowDispositions).where(and(
+      eq(importRowDispositions.executionId, args.executionId),
+      eq(importRowDispositions.sourceRowNumber, args.sourceRowNumber),
+    )).limit(1);
+    if (
+      existing &&
+      existing.rowFingerprint === args.rowFingerprint &&
+      existing.disposition === args.disposition &&
+      existing.reasonCode === args.reasonCode &&
+      existing.contactId === (args.contactId ?? null) &&
+      JSON.stringify((existing as any).diagnostic ?? null) === JSON.stringify(args.diagnostic ?? null)
+    ) return true;
+    throw new Error(`IMPORT_LEDGER_DISPOSITION_CONFLICT:${args.executionId}:${args.sourceRowNumber}`);
+  });
+  return result;
 }
 
 export async function getImportLedgerSummary(executionId: string) {
@@ -159,39 +167,47 @@ export async function getImportLedgerSummary(executionId: string) {
   `);
   const counts: Record<string, number> = {};
   for (const row of ((rows as any).rows ?? [])) counts[row.disposition] = Number(row.count);
-  const total = Object.values(counts).reduce((sum, count) => sum + count, 0);
-  return { counts, total };
+  return summarizeImportDispositionCounts(counts);
 }
 
 export async function completeImportExecution(args: {
   executionId: string;
   claimToken: string;
   expectedRows: number;
-}): Promise<{ completed: boolean; counts: Record<string, number>; total: number }> {
-  const summary = await getImportLedgerSummary(args.executionId);
-  if (summary.total !== args.expectedRows) {
-    await db.update(importExecutions).set({
-      status: "failed",
-      failureReason: "LEDGER_RECONCILIATION_MISMATCH",
-      heartbeatAt: new Date(),
-    }).where(and(
-      eq(importExecutions.id, args.executionId),
-      eq(importExecutions.claimToken, args.claimToken),
-      eq(importExecutions.status, "running"),
-    ));
+}): Promise<{ completed: boolean; counts: Record<ImportDisposition, number>; total: number }> {
+  return db.transaction(async (tx) => {
+  const execution = (await tx.execute(sql`SELECT id, total_rows FROM import_executions WHERE id = ${args.executionId}::uuid
+    AND claim_token = ${args.claimToken}::uuid AND status = 'running'
+    AND lease_expires_at >= now() FOR UPDATE`) as any).rows?.[0];
+  if (!execution) throw new Error(`IMPORT_EXECUTION_LEASE_LOST:${args.executionId}`);
+  const result = await tx.execute(sql`SELECT disposition, count(*)::int AS count FROM import_row_dispositions WHERE execution_id = ${args.executionId}::uuid GROUP BY disposition`);
+   const counts: Record<string, number> = {};
+  for (const row of (result as any).rows ?? []) counts[row.disposition] = Number(row.count);
+   const summary = summarizeImportDispositionCounts(counts);
+   const expectedRows = Number(execution.total_rows);
+   const rawTotal = Object.values(counts).reduce((total, value) => total + value, 0);
+   const onlyTerminalDispositions = Object.keys(counts)
+     .every((disposition) => (IMPORT_DISPOSITIONS as readonly string[]).includes(disposition));
+   if (
+     expectedRows !== args.expectedRows ||
+     !onlyTerminalDispositions ||
+     rawTotal !== expectedRows ||
+     summary.total !== expectedRows
+   ) {
     return { completed: false, ...summary };
   }
-  const completed = await db.update(importExecutions).set({
+  const completed = await tx.update(importExecutions).set({
     status: "completed",
     completedAt: new Date(),
     heartbeatAt: new Date(),
     leaseExpiresAt: null,
     claimToken: null,
-    insertedRows: summary.counts.created ?? 0,
-    updatedRows: summary.counts.updated ?? 0,
-    skippedRows: (summary.counts.matched_noop ?? 0) + (summary.counts.deferred ?? 0),
-    errorRows: (summary.counts.rejected ?? 0) + (summary.counts.failed ?? 0),
-  }).where(and(eq(importExecutions.id, args.executionId), eq(importExecutions.claimToken, args.claimToken)))
+     insertedRows: summary.counts.created,
+     updatedRows: summary.counts.updated,
+     skippedRows: summary.counts.matched_noop + summary.counts.deferred,
+     errorRows: summary.counts.rejected + summary.counts.failed,
+  }).where(and(eq(importExecutions.id, args.executionId), eq(importExecutions.claimToken, args.claimToken), eq(importExecutions.status, "running")))
     .returning({ id: importExecutions.id });
   return { completed: completed.length === 1, ...summary };
+  });
 }

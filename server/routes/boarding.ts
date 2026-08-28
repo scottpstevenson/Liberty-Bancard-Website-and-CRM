@@ -10,6 +10,7 @@ import { startDealBoardingOutboxWorker } from "../services/deal-boarding-outbox-
 import { auditChange } from "../services/audit-change";
 import { advanceDealStage } from "../services/deal-stage-service";
 import crypto from "crypto";
+import { observeCommercialReportingPopulation } from "../services/commercial-resolution";
 
 const IN_FLIGHT_BOARDING_STATUSES = ["submitted", "under_review", "more_info_needed"];
 
@@ -229,6 +230,14 @@ async function runWithConcurrencyLimit<T, R>(items: T[], limit: number, fn: (ite
 }
 
 export function registerBoardingRoutes(app: Express) {
+  app.use("/api/boarding", async (req, _res, next) => {
+    if (req.user) await observeCommercialReportingPopulation({
+      subjectType: "deal", actor: req.user as any, effect: "account_transactional",
+    }).catch((error) => console.error("[CRO02_BOARDING_OBSERVATION_FAILED]", {
+      errorType: error instanceof Error ? error.name : "UnknownError",
+    }));
+    next();
+  });
   // Start the durable boarding outbox worker exactly once (unref'd timer inside).
   startDealBoardingOutboxWorker();
 

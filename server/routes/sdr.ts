@@ -21,6 +21,8 @@ import { createContactLocalFirst } from "../services/contact-writer";
 import { serverError, safeMessage } from "../utils/server-error";
 import { requireGhlRouteMutationAllowed } from "./ghl-mutation-pause";
 import { applyConsentCommand } from "../services/consent-authority";
+import { authorizeBusinessAccess } from "../services/crm-object-access";
+import { updateOrganizationDescriptive } from "../services/organization-service";
 
 // ── Build identity — frozen at process start, never derived at request time ──
 // RELEASE_SHA must be a 40-hex string injected by the deployment pipeline via
@@ -2176,7 +2178,9 @@ export function registerSdrRoutes(app: Express) {
     }
   });
 
-  app.get("/api/businesses", isAuthenticated, async (req, res) => {
+  // A business collection has no single object on which an agent scope can be
+  // established before querying. Keep this discovery/count boundary privileged.
+  app.get("/api/businesses", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
       const { status, vertical, limit } = req.query;
       const result = await storage.getBusinesses({
@@ -2224,7 +2228,7 @@ export function registerSdrRoutes(app: Express) {
     res.status(410).json({ message: "Deprecated — use POST /api/sdr/bridge with source='contacts' instead" });
   });
 
-  app.get("/api/businesses/dedupe/stats", isAuthenticated, async (_req, res) => {
+  app.get("/api/businesses/dedupe/stats", isDashboardUser, requireRole("admin", "manager"), async (_req, res) => {
     try {
       const stats = await getDedupeStats();
       res.json(stats);
@@ -2235,8 +2239,9 @@ export function registerSdrRoutes(app: Express) {
 
   app.get("/api/businesses/:id", isAuthenticated, async (req, res) => {
     try {
+      if (!await authorizeBusinessAccess(req, res, Number(req.params.id))) return;
       const biz = await storage.getBusiness(Number(req.params.id));
-      if (!biz) return res.status(404).json({ message: "Business not found" });
+      if (!biz) return res.status(404).json({ message: "Not found", code: "CRM_OBJECT_NOT_FOUND" });
       res.json(biz);
     } catch (err: any) {
       serverError(res, err);
@@ -2245,8 +2250,10 @@ export function registerSdrRoutes(app: Express) {
 
   app.put("/api/businesses/:id", isAuthenticated, async (req, res) => {
     try {
+      if (!await authorizeBusinessAccess(req, res, Number(req.params.id))) return;
+      if (!["admin", "manager"].includes((req.user as any)?.role)) return res.status(404).json({ message: "Not found", code: "CRM_OBJECT_NOT_FOUND" });
       const partial = insertBusinessSchema.partial().parse(req.body);
-      const biz = await storage.updateBusiness(Number(req.params.id), partial);
+      const biz = await updateOrganizationDescriptive(Number(req.params.id), partial);
       if (!biz) return res.status(404).json({ message: "Business not found" });
       res.json(biz);
     } catch (err: any) {
@@ -2257,6 +2264,7 @@ export function registerSdrRoutes(app: Express) {
 
   app.get("/api/businesses/:id/aliases", isAuthenticated, async (req, res) => {
     try {
+      if (!await authorizeBusinessAccess(req, res, Number(req.params.id))) return;
       const aliases = await storage.getBusinessAliases(Number(req.params.id));
       res.json(aliases);
     } catch (err: any) {
@@ -2266,6 +2274,8 @@ export function registerSdrRoutes(app: Express) {
 
   app.post("/api/businesses/:id/aliases", isAuthenticated, async (req, res) => {
     try {
+      if (!await authorizeBusinessAccess(req, res, Number(req.params.id))) return;
+      if (!["admin", "manager"].includes((req.user as any)?.role)) return res.status(404).json({ message: "Not found", code: "CRM_OBJECT_NOT_FOUND" });
       const input = insertBusinessAliasSchema.parse({ ...req.body, businessId: Number(req.params.id) });
       const alias = await storage.createBusinessAlias(input);
       res.status(201).json(alias);
@@ -2277,6 +2287,7 @@ export function registerSdrRoutes(app: Express) {
 
   app.get("/api/businesses/:id/locations", isAuthenticated, async (req, res) => {
     try {
+      if (!await authorizeBusinessAccess(req, res, Number(req.params.id))) return;
       const locations = await storage.getBusinessLocations(Number(req.params.id));
       res.json(locations);
     } catch (err: any) {
@@ -2286,6 +2297,8 @@ export function registerSdrRoutes(app: Express) {
 
   app.post("/api/businesses/:id/locations", isAuthenticated, async (req, res) => {
     try {
+      if (!await authorizeBusinessAccess(req, res, Number(req.params.id))) return;
+      if (!["admin", "manager"].includes((req.user as any)?.role)) return res.status(404).json({ message: "Not found", code: "CRM_OBJECT_NOT_FOUND" });
       const input = insertBusinessLocationSchema.parse({ ...req.body, businessId: Number(req.params.id) });
       const loc = await storage.createBusinessLocation(input);
       res.status(201).json(loc);
@@ -2297,6 +2310,7 @@ export function registerSdrRoutes(app: Express) {
 
   app.get("/api/businesses/:id/sources", isAuthenticated, async (req, res) => {
     try {
+      if (!await authorizeBusinessAccess(req, res, Number(req.params.id))) return;
       const sources = await storage.getLeadSources(Number(req.params.id));
       res.json(sources);
     } catch (err: any) {
@@ -2306,6 +2320,7 @@ export function registerSdrRoutes(app: Express) {
 
   app.get("/api/businesses/:id/enrichment-runs", isAuthenticated, async (req, res) => {
     try {
+      if (!await authorizeBusinessAccess(req, res, Number(req.params.id))) return;
       const runs = await storage.getEnrichmentRuns(Number(req.params.id));
       res.json(runs);
     } catch (err: any) {

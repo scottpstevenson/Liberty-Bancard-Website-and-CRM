@@ -271,6 +271,11 @@ export async function queueCampaignMessages(campaignId: number, maxToQueue?: num
 
     // ── Contactability gate for prospects with a linked CRM contact ───────────
     if (prospect.contactId) {
+      const { authorizeCommercialUse } = await import("./commercial-resolution");
+      const commercial = await authorizeCommercialUse({
+        subjectType: "contact", subjectId: prospect.contactId, effect: "marketing_outreach",
+      });
+      if (!commercial.effectiveDecision.allowed) continue;
       const gate = await evaluateContactability({
         contactId: prospect.contactId,
         channel: "email",
@@ -418,6 +423,11 @@ export async function queueContactCampaignMessages(campaignId: number, maxToQueu
       }
 
       // ── KILL LINE: contactability gate BEFORE row creation ────────────────────
+      const { authorizeCommercialUse } = await import("./commercial-resolution");
+      const commercial = await authorizeCommercialUse({
+        subjectType: "contact", subjectId: contact.id, effect: "marketing_outreach",
+      });
+      if (!commercial.effectiveDecision.allowed) continue;
       const gate = await evaluateContactability({
         contactId: contact.id,
         channel: "email",
@@ -519,7 +529,7 @@ export type CampaignPreviewResult = {
   readinessThreshold: number | null;
   readinessModelVersionUsed: number;
   /** Internal-only frozen members. Never returned by the preview API. */
-  _eligibleMembers?: Array<{ contactId: number; subjectGeneration: number; tokenHash: string; subjectMutationAt: Date | null }>;
+  _eligibleMembers?: Array<{ contactId: number; subjectGeneration: number; tokenHash: string; subjectMutationAt: Date | null; commercialResolutionSnapshotId?: string }>;
 };
 
 export async function getCampaignPreviewState(campaignId: number): Promise<{
@@ -647,6 +657,15 @@ export async function previewContactCampaignAudience(campaignId: number, snapsho
       }
 
       // ── Contactability gate (only contacts that passed readiness filter) ────
+      const { authorizeCommercialUse } = await import("./commercial-resolution");
+      const commercial = await authorizeCommercialUse({
+        subjectType: "contact", subjectId: contact.id, effect: "marketing_outreach",
+      });
+      if (!commercial.effectiveDecision.allowed) {
+        blockedCount++;
+        blockReasons.COMMERCIAL_CLASS_UNKNOWN = (blockReasons.COMMERCIAL_CLASS_UNKNOWN ?? 0) + 1;
+        continue;
+      }
       const gate = await evaluateContactability({
         contactId: contact.id,
         channel: "email",
@@ -664,6 +683,7 @@ export async function previewContactCampaignAudience(campaignId: number, snapsho
             subjectGeneration: contact.emailMutationGeneration,
             tokenHash,
             subjectMutationAt: contact.updatedAt ?? null,
+            commercialResolutionSnapshotId: commercial.shadowDecision.snapshotId,
           });
         }
         if (sampleContacts.length < 5) {
@@ -761,6 +781,7 @@ export async function startCampaignPreviewAsync(
               eligibilityDecision: "eligible",
               reasonCodes: [],
               readinessModelVersion: READINESS_MODEL_VERSION,
+              commercialResolutionSnapshotId: member.commercialResolutionSnapshotId,
             }).onConflictDoNothing();
           }
         });

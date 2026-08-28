@@ -68,7 +68,8 @@ assert(
 );
 assert(
   contactability.includes('commercialPurpose = "marketing_outreach"') &&
-    contactability.includes("purpose: commercialPurpose") &&
+    contactability.includes("authorizeCommercialUse({") &&
+    contactability.includes('commercialPurpose === "transactional_response"') &&
     contactability.indexOf("Step 1b: Commercial classification") < contactability.indexOf("BT-04A canonical channel"),
   "commercial authorization runs before canonical consent checks",
 );
@@ -111,15 +112,19 @@ assert(
   "GHL confirmations use transactional purpose while undeclared workflows remain marketing",
 );
 assert(
-  (ghlTransport.match(/authorizeUse\(\{/g) ?? []).length >= 2 &&
-    (ghlTransport.match(/purpose: params\.commercialPurpose \?\? "marketing_outreach"/g) ?? []).length >= 2,
+  (ghlTransport.match(/authorizeCommercialUse\(\{/g) ?? []).length >= 3 &&
+    (ghlTransport.match(/commercial\.effectiveDecision\.allowed/g) ?? []).length >= 3 &&
+    (ghlTransport.match(/"account_transactional"/g) ?? []).length >= 3 &&
+    (ghlTransport.match(/"marketing_outreach"/g) ?? []).length >= 3 &&
+    !ghlTransport.includes('import("./commercial-classification-authority")'),
   "GHL provider email and SMS boundaries fail closed to production marketing",
 );
 assert(
   ghlTransport.includes("sendGhlEmailForMerchant") &&
     ghlTransport.includes('if (!params.contactId && !params.internalNotification)') &&
     ghlTransport.includes("internalNotification?: boolean") &&
-    (ghlTransport.match(/purpose: params\.commercialPurpose \?\? "marketing_outreach"/g) ?? []).length >= 3,
+    ghlTransport.includes("subjectId: params.contactId!") &&
+    ghlTransport.includes("commercial.effectiveDecision.reasonCode"),
   "GHL merchant-email transport also requires classified contact authorization",
 );
 assert(
@@ -147,7 +152,9 @@ assert(
   "SDR GHL email and SMS transport require a locally classified recipient",
 );
 assert(
-  smtpTransport.includes('await import("./commercial-classification-authority")') &&
+  smtpTransport.includes('await import("./commercial-resolution")') &&
+    smtpTransport.includes("authorizeCommercialUse") &&
+    smtpTransport.includes("decision.effectiveDecision.allowed") &&
     smtpTransport.includes("serverOwnedNoContactCategories") &&
     smtpTransport.includes("trustedTransactionalCategories") &&
     smtpTransport.includes('"transactional_response"'),

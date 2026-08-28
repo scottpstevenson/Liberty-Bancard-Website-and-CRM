@@ -11,8 +11,18 @@ import { eq, and, gte, lte, desc, sql, count, inArray, isNull } from "drizzle-or
 import { publicLeadRateLimit } from "../middleware/public-rate-limit";
 import { serverError } from "../utils/server-error";
 import { readPipelineAnalytics } from "../services/revenue-read-authority";
+import { observeCommercialReportingPopulation } from "../services/commercial-resolution";
 
 export function registerAnalyticsRoutes(app: Express) {
+  app.use("/api/analytics", async (req, _res, next) => {
+    if (req.user) await Promise.all([
+      observeCommercialReportingPopulation({ subjectType: "contact", actor: req.user as any }),
+      observeCommercialReportingPopulation({ subjectType: "deal", actor: req.user as any }),
+    ]).catch((error) => console.error("[CRO02_ANALYTICS_OBSERVATION_FAILED]", {
+      errorType: error instanceof Error ? error.name : "UnknownError",
+    }));
+    next();
+  });
 
   // === SALES TOOL CLICK TRACKING ===
   app.post("/api/analytics/tool-click", publicLeadRateLimit, async (req, res) => {
