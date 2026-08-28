@@ -3,8 +3,7 @@ import { isAuthenticated, isDashboardUser, requireRole } from "../replit_integra
 import { storage } from "../storage";
 import { z } from "zod";
 import { DateValidationError } from "../utils/date-coerce";
-import { insertEnrichmentJobSchema, insertProspectListSchema, insertProspectSchema } from "@shared/schema";
-import { enrichProspect, processEnrichmentQueue, runEnrichmentJob } from "../services/enrichment";
+import { insertProspectListSchema, insertProspectSchema } from "@shared/schema";
 import { enqueuePromotionalEnrollment } from "../services/promotional-enrollment-eligibility";
 import { scoreContact } from "../services/lead-scoring";
 import { generateDealBlueprint } from "../services/deal-blueprint";
@@ -731,7 +730,7 @@ export function registerProspectsRoutes(app: Express) {
 
 
   // === ENRICHMENT ===
-  app.get("/api/enrichment-jobs", isAuthenticated, async (req, res) => {
+  app.get("/api/enrichment-jobs", requireRole("admin", "manager"), async (req, res) => {
     try {
       const listId = req.query.listId ? Number(req.query.listId) : undefined;
       const jobs = await storage.getEnrichmentJobs(listId);
@@ -741,33 +740,18 @@ export function registerProspectsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/enrichment-jobs", isAuthenticated, async (req, res) => {
-    try {
-      const input = insertEnrichmentJobSchema.parse(req.body);
-      const job = await storage.createEnrichmentJob(input);
-
-      if (input.prospectId) {
-        enrichProspect(input.prospectId).catch(console.error);
-      } else if (input.listId) {
-        const prospects = await storage.getProspects(input.listId);
-        await storage.updateEnrichmentJob(job.id, { totalCount: (prospects as any).data?.length ?? (prospects as any).length ?? 0 });
-        runEnrichmentJob(job.id).catch(console.error);
-      }
-
-      res.status(201).json(job);
-    } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      serverError(res, err);
-    }
+  app.post("/api/enrichment-jobs", requireRole("admin", "manager"), async (_req, res) => {
+    res.status(503).json({
+      code: "CRO03_STAGING_CONVERSION_REQUIRED",
+      message: "Prospect staging enrichment is unavailable until the subject is converted by canonical intake.",
+    });
   });
 
-  app.post("/api/enrichment/process-queue", isAuthenticated, async (req, res) => {
-    try {
-      processEnrichmentQueue().catch(console.error);
-      res.json({ message: "Enrichment queue processing started" });
-    } catch (err: any) {
-      serverError(res, err);
-    }
+  app.post("/api/enrichment/process-queue", requireRole("admin", "manager"), async (_req, res) => {
+    res.status(503).json({
+      code: "CRO03_LEGACY_QUEUE_RETIRED",
+      message: "The process-local enrichment queue has been retired.",
+    });
   });
 
   // === SUNBIZ LEAD GEN CLEANER ===
@@ -1084,31 +1068,18 @@ export function registerProspectsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/sunbiz/entities/:id/enrich", isAuthenticated, async (req, res) => {
-    try {
-      const outcome = await enrichSunbizEntitySafe(Number(req.params.id));
-      if (outcome.status === "skipped") return res.status(404).json({ message: outcome.reason, ...outcome });
-      res.json(outcome);
-    } catch (err: any) {
-      // enrichSunbizEntitySafe is designed to never throw, but guard the
-      // route anyway so a single bad record can never surface a bare 500.
-      console.error("[Enrich] Unexpected error in single-entity enrich route:", err?.message || err);
-      res.status(200).json({ entityId: Number(req.params.id), status: "failed", reason: safeMessage(err?.message, "Unknown enrichment error") });
-    }
+  app.post("/api/sunbiz/entities/:id/enrich", requireRole("admin", "manager"), async (_req, res) => {
+    res.status(503).json({
+      code: "CRO03_STAGING_CONVERSION_REQUIRED",
+      message: "Sunbiz staging enrichment requires canonical intake conversion.",
+    });
   });
 
-  app.post("/api/sunbiz/enrich-batch", isAuthenticated, async (req, res) => {
-    try {
-      const limit = req.body.limit || 10;
-      const batch = await processSunbizEnrichmentBatch(limit);
-      res.json(batch);
-    } catch (err: any) {
-      // Should be unreachable — processSunbizEnrichmentBatch resolves every
-      // record via the non-throwing safe wrapper — but never let a batch
-      // enrichment failure surface as an opaque 500 to the UI.
-      console.error("[Enrich] Unexpected error in enrich-batch route:", err?.message || err);
-      res.status(200).json({ results: [], summary: { total: 0, success: 0, partial_success: 0, skipped: 0, failed: 0 }, message: err?.message || "Batch enrichment encountered an unexpected error" });
-    }
+  app.post("/api/sunbiz/enrich-batch", requireRole("admin", "manager"), async (_req, res) => {
+    res.status(503).json({
+      code: "CRO03_STAGING_CONVERSION_REQUIRED",
+      message: "Sunbiz staging enrichment is unavailable until canonical intake conversion.",
+    });
   });
 
   app.post("/api/sunbiz/entities/:id/convert", isAuthenticated, async (req, res) => {
@@ -1439,11 +1410,8 @@ export function registerProspectsRoutes(app: Express) {
 
 
   // === BATCH RE-ENRICHMENT & CLASSIFICATION ===
-  app.post("/api/sunbiz/re-enrich-all", isAuthenticated, async (req, res) => {
-    if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
-    const limit = Number(req.body?.limit) || 200;
-    res.json({ message: `Re-enrichment started for up to ${limit} entities.`, started: true });
-    reEnrichAllSunbizEntities(limit).catch(err => console.error("[Re-Enrich API] Error:", err));
+  app.post("/api/sunbiz/re-enrich-all", requireRole("admin", "manager"), async (_req, res) => {
+    res.status(503).json({ code: "CRO03_LEGACY_PATH_RETIRED", message: "Use a CRO-03 durable batch after canonical intake." });
   });
 
   app.get("/api/sunbiz/enrichment-progress", isAuthenticated, async (req, res) => {
@@ -1455,12 +1423,8 @@ export function registerProspectsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/sunbiz/mass-enrich", isAuthenticated, async (req, res) => {
-    if ((req.user as any)?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
-    if (isMassEnrichmentRunning()) return res.status(409).json({ message: "Mass enrichment is already running" });
-    const limit = Number(req.body?.limit) || 2000;
-    res.json({ message: `Mass enrichment started for up to ${limit} hot/warm entities.`, started: true });
-    runMassEnrichment(limit).catch(err => console.error("[Mass Enrich API] Error:", err));
+  app.post("/api/sunbiz/mass-enrich", requireRole("admin"), async (_req, res) => {
+    res.status(503).json({ code: "CRO03_LEGACY_PATH_RETIRED", message: "Use a CRO-03 durable batch after canonical intake." });
   });
 
   app.get("/api/sunbiz/mass-enrich-progress", isAuthenticated, async (req, res) => {
@@ -1498,13 +1462,8 @@ export function registerProspectsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/sunbiz/run-pipeline", isAuthenticated, async (req, res) => {
-    if ((req.user as any)?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
-    if (isPipelineRunning()) return res.status(409).json({ message: "Pipeline is already running" });
-    const classifyLimit = req.body?.classifyLimit !== undefined ? Number(req.body.classifyLimit) : 5000;
-    const enrichLimit = req.body?.enrichLimit !== undefined ? Number(req.body.enrichLimit) : 1000;
-    res.json({ message: `Full pipeline started: classify ${classifyLimit}, enrich ${enrichLimit}.`, started: true });
-    runDailyEnrichmentPipeline({ classifyLimit, enrichLimit }).catch(err => console.error("[Pipeline API] Error:", err));
+  app.post("/api/sunbiz/run-pipeline", requireRole("admin"), async (_req, res) => {
+    res.status(503).json({ code: "CRO03_LEGACY_PATH_RETIRED", message: "The legacy enrichment pipeline has been retired." });
   });
 
   app.get("/api/sunbiz/pipeline-progress", isAuthenticated, async (req, res) => {
@@ -1516,14 +1475,8 @@ export function registerProspectsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/sunbiz/deep-enrich/:id", isAuthenticated, async (req, res) => {
-    if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
-    try {
-      const result = await deepEnrichEntity(Number(req.params.id));
-      res.json({ success: true, result });
-    } catch (err: any) {
-      serverError(res, err);
-    }
+  app.post("/api/sunbiz/deep-enrich/:id", requireRole("admin", "manager"), async (_req, res) => {
+    res.status(503).json({ code: "CRO03_LEGACY_PATH_RETIRED", message: "Use a CRO-03 durable batch after canonical intake." });
   });
 
   app.post("/api/sunbiz/deduplicate", isAuthenticated, async (req, res) => {

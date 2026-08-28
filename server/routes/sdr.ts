@@ -2403,22 +2403,11 @@ export function registerSdrRoutes(app: Express) {
     }
   });
 
-  app.post("/api/sdr/re-enrichment/run", isAuthenticated, async (req, res) => {
-    if (!(globalThis as { __BT10_DURABLE_LONG_OPERATION_OWNER__?: boolean }).__BT10_DURABLE_LONG_OPERATION_OWNER__) {
-      return res.status(503).json({ code: "DURABLE_COMMAND_REQUIRED", message: "Re-enrichment requires a durable command." });
-    }
-    if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin only" });
-    try {
-      const { runReEnrichmentCycle, isReEnrichmentRunning } = await import("../services/sdr/re-enrichment");
-      if (isReEnrichmentRunning()) {
-        return res.status(409).json({ message: "Re-enrichment is already running" });
-      }
-      res.json({ message: "Re-enrichment cycle started", started: true });
-      runReEnrichmentCycle().catch(err => console.error("[ReEnrich API] Error:", err));
-    } catch (err: unknown) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: safeMessage(errMsg) });
-    }
+  app.post("/api/sdr/re-enrichment/run", requireRole("admin", "manager"), async (_req, res) => {
+    res.status(503).json({
+      code: "CRO03_CANONICAL_SUBJECT_REQUIRED",
+      message: "SDR staging re-enrichment is disabled pending canonical subject conversion.",
+    });
   });
 
   app.get("/api/sdr/funnel-metrics", isAuthenticated, async (req, res) => {

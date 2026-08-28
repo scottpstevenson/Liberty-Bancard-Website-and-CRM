@@ -2123,6 +2123,19 @@ Guidelines:
       }
       const durableOutcomes = importDispositionCompatibility(ledgerCompletion.counts);
 
+      if (
+        insertedContactIds.length > 0 &&
+        (sourceFormat === "google_maps_outscraper" || sourceFormat === "apollo_lead_list")
+      ) {
+        const { recordCro03ImportEvidence } = await import("../services/cro03/enrichment-factory");
+        await recordCro03ImportEvidence({
+          executionId: importExecution.id,
+          provider: sourceFormat === "google_maps_outscraper" ? "outscraper" : "apollo",
+          contactIds: insertedContactIds,
+          actorId: actor.actorId,
+        });
+      }
+
       if (insertedContactIds.length > 0) {
         const { inArray } = await import("drizzle-orm");
         const newContacts = await db.select().from(contacts)

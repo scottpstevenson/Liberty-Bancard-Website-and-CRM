@@ -1,5 +1,8 @@
 import { storage } from "../../storage";
 import { assertProviderActivation } from "../provider-manifest";
+import {
+  assertCurrentWorkerContext, type Cro03WorkerProviderContext,
+} from "../cro03/provider-context";
 
 const APOLLO_API_URL = "https://api.apollo.io/v1";
 
@@ -228,7 +231,8 @@ export async function searchApolloForDiscovery(
   metro: string,
   state: string = "FL",
   limit: number = 100,
-  authorization?: { explicitPaidApproval: boolean; caller: string },
+  authorization?: Cro03WorkerProviderContext,
+  fetchOverride?: (url: string, init: RequestInit) => Promise<Response>,
 ): Promise<ApolloBusiness[]> {
   // Credentials alone never authorize paid discovery. The durable command
   // worker must pass its approved caller and explicit reservation approval.
@@ -237,12 +241,16 @@ export async function searchApolloForDiscovery(
     caller: authorization?.caller ?? "unapproved",
     explicitPaidApproval: authorization?.explicitPaidApproval ?? false,
   });
+  if (!authorization || authorization.kind !== "cro03_worker" || authorization.provider !== "apollo") {
+    throw new Error("CRO03_PROVIDER_CONTEXT_REQUIRED");
+  }
   if (!process.env.APOLLO_API_KEY) {
     console.warn("[Apollo] No API key configured. Set APOLLO_API_KEY env variable. Apollo Professional plan or higher required for API access.");
     return [];
   }
 
   await acquireToken();
+  await assertCurrentWorkerContext(authorization);
 
   const perPage = Math.min(limit, 100);
   const ownerTitles = ["owner", "president", "ceo", "founder", "co-founder", "partner", "managing partner", "principal", "gm", "general manager", "director"];
@@ -259,7 +267,7 @@ export async function searchApolloForDiscovery(
       per_page: perPage,
     };
 
-    const response = await fetch(`${APOLLO_API_URL}/mixed_people/search`, {
+    const response = await (fetchOverride ?? fetch)(`${APOLLO_API_URL}/mixed_people/search`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -281,8 +289,7 @@ export async function searchApolloForDiscovery(
       } else {
         console.error(`[Apollo] API error ${response.status}: ${errorText}`);
       }
-      await trackApolloCall(false);
-      return [];
+      throw new Error(`APOLLO_HTTP_${response.status}`);
     }
 
     const data = await response.json() as any;
@@ -310,16 +317,9 @@ export async function searchApolloForDiscovery(
       results.push(parseApolloOrg(org));
     }
 
-    await trackApolloCall(true, peopleCount);
-    console.log(`[Apollo] Found ${results.length} results (${peopleCount} contact records, ${results.length - peopleCount} org-only) for ${vertical} in ${metro}, ${state}`);
     return results;
   } catch (err: any) {
-    if (err?.name === "AbortError") {
-      console.error(`[Apollo] Request timed out for ${vertical} in ${metro}`);
-    } else {
-      console.error(`[Apollo] Search error for ${vertical} in ${metro}:`, err);
-    }
-    await trackApolloCall(false);
-    return [];
+    if (err?.name === "AbortError") throw new Error("APOLLO_TIMEOUT");
+    throw err;
   }
 }

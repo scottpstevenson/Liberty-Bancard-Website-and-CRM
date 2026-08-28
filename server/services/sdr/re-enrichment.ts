@@ -244,23 +244,7 @@ export async function runReEnrichmentCycle(): Promise<ReEnrichmentSummary> {
 }
 
 export function startReEnrichmentWorker(): void {
-  if (reEnrichInterval) {
-    console.log("[ReEnrich Worker] Already running");
-    return;
-  }
-
-  console.log("[ReEnrich Worker] Started - runs weekly (every 7 days)");
-  reEnrichInterval = setInterval(async () => {
-    try {
-      await runReEnrichmentCycle();
-    } catch (err) {
-      console.error("[ReEnrich Worker] Error:", err);
-    }
-  }, 7 * 24 * 60 * 60 * 1000);
-
-  setTimeout(() => {
-    runReEnrichmentCycle().catch(err => console.error("[ReEnrich Worker] Initial run error:", err));
-  }, 5 * 60 * 1000);
+  console.log("[ReEnrich] Legacy scheduler disabled; CRO-03 QueueManager owns enrichment");
 }
 
 export function stopReEnrichmentWorker(): void {

@@ -9,8 +9,6 @@ import { getEmailSignatureHtml } from "./email-signatures";
 import { advanceDealStage } from "./deal-stage-service";
 import { processSequenceEnrollments } from "./sequence-worker";
 import { processSendQueue } from "./campaign-engine";
-import { processEnrichmentQueue } from "./enrichment";
-import { processSunbizEnrichmentQueue } from "./sunbiz-enrichment";
 import { runSunbizAutoConvert } from "./sunbiz-cron";
 import { featureFlags } from "./feature-flags";
 import { scoreContact } from "./lead-scoring";
@@ -1325,10 +1323,6 @@ export function startSlaWorker() {
       } catch (err) {
         console.error("[NewLeadAutoEnroll] Worker check error:", err);
       }
-    }
-    await processEnrichmentQueue().catch(err => console.error("Enrichment queue error:", err));
-    if (featureFlags.SUNBIZ_ENRICHMENT_ENABLED) {
-      await processSunbizEnrichmentQueue(5).catch(err => console.error("Sunbiz enrichment queue error:", err));
     }
     await checkDocumentReadiness().catch(err => console.error("Doc readiness check error:", err));
     await periodicLeadScoring().catch(err => console.error("Periodic scoring error:", err));

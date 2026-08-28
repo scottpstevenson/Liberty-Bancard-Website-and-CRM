@@ -16,7 +16,6 @@ import {
   undoContactMerge,
 } from "../services/contact-merge";
 import { enrollContactInGhlWorkflow } from "../services/ghl-workflow-enrollment";
-import { enrichContactBatch, isContactEnrichRunning } from "../services/enrichment";
 import { enrichContactFromLinkedIn, bulkEnrichFromLinkedIn } from "../services/linkedin-enrichment";
 import { getSerperUsage, isSerperConfigured, resetSerperUsage } from "../services/serper";
 import { enqueuePromotionalEnrollment } from "../services/promotional-enrollment-eligibility";
@@ -40,6 +39,7 @@ import type { LifecycleState } from "../services/lifecycle-service";
 import { applyConsentCommand } from "../services/consent-authority";
 import { agentOwnershipEmail, invalidPagination, parseStrictPagination } from "../services/crm-object-access";
 import { readPeople } from "../services/revenue-read-authority";
+import { createCro03Batch } from "../services/cro03/enrichment-factory";
 
 // ── Canonical email-validation predicates (task #1540A) ─────────────────────
 // Moved to server/services/zerobounce-eligibility.ts in #1541 so the durable
@@ -1152,19 +1152,12 @@ export function registerContactsRoutes(app: Express) {
       const schema = z.object({
         contactIds: z.array(z.number().int().positive()).optional().default([]),
         limit: z.number().int().min(1).max(1000).optional().default(100),
+        idempotencyKey: z.string().min(8).max(200).optional(),
       });
 
       const parsed = schema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ message: parsed.error.errors[0].message, errors: parsed.error.errors });
-      }
-
-      if (isContactEnrichRunning()) {
-        return res.status(409).json({ message: "Contact enrichment is already running. Check progress at /api/contacts/enrich-progress." });
-      }
-
-      if (!isSerperConfigured()) {
-        return res.status(400).json({ message: "Serper API key not configured. Set SERPER_API_KEY environment variable." });
       }
 
       let contactIds = parsed.data.contactIds;
@@ -1182,15 +1175,18 @@ export function registerContactsRoutes(app: Express) {
         return res.json({ message: "No contacts need enrichment", processed: 0 });
       }
 
-      res.json({
-        message: `Enrichment started for ${contactIds.length} contacts`,
-        total: contactIds.length,
-        started: true,
+      const idempotencyKey = parsed.data.idempotencyKey || req.header("idempotency-key");
+      if (!idempotencyKey) {
+        return res.status(400).json({ code: "IDEMPOTENCY_KEY_REQUIRED", message: "Idempotency-Key is required" });
+      }
+      const command = await createCro03Batch({
+        idempotencyKey,
+        contactIds, actorType: "user", actorId: String((req.user as any)?.id ?? ""),
       });
-
-      enrichContactBatch(contactIds).catch(err =>
-        console.error("[ContactEnrich API] Error:", err)
-      );
+      res.status(command.replayed ? 200 : 202).json({
+        message: "Enrichment command accepted", batchId: command.id,
+        statusUrl: `/api/cro03/batches/${command.id}`, total: command.totalCount,
+      });
     } catch (err: any) {
       serverError(res, err);
     }
@@ -1265,36 +1261,24 @@ export function registerContactsRoutes(app: Express) {
 
   // === OFFER ROUTING ===
 
-  app.post("/api/contacts/:id/enrich", isDashboardUser, async (req, res) => {
+  app.post("/api/contacts/:id/enrich", requireRole("admin", "manager"), async (req, res) => {
     try {
       const contactId = Number(req.params.id);
       const contact = await storage.getContact(contactId);
       if (!contact) return res.status(404).json({ message: "Contact not found" });
-
-      await enrichContactBatch([contactId]);
-
-      const enriched = await storage.getContact(contactId);
-      if (!enriched) return res.status(404).json({ message: "Contact not found after enrichment" });
-
-      const { routeOffer } = await import("../services/offer-router");
-      const result = await routeOffer(enriched);
-
-      let updated = enriched;
-      if (result.shouldUpdateContact) {
-        const persisted = await updateContactLocalFirst(contactId, {
-          primaryOfferPath: result.offerRoute,
-          offerConfidence: result.offerConfidence,
-          recommendedNextAction: result.recommendedNextAction,
-          offerReasoning: result.offerReasoning,
-          offerRoutingSource: result.routingSource,
-          processorDetected: result.processorDetected ?? null,
-          offerRoutedAt: new Date(),
-          offerMatchedSignals: result.matchedSignals,
-        }, { actorType: "system", userId: (req.user as any)?.id ?? null });
-        if (persisted) updated = persisted;
+      const idempotencyKey = req.header("idempotency-key");
+      if (!idempotencyKey || idempotencyKey.length < 8 || idempotencyKey.length > 200) {
+        return res.status(400).json({ code: "IDEMPOTENCY_KEY_REQUIRED", message: "A valid Idempotency-Key is required" });
       }
 
-      res.json({ contact: updated, offerRouting: result });
+      const command = await createCro03Batch({
+        idempotencyKey,
+        contactIds: [contactId], actorType: "user",
+        actorId: String((req.user as any)?.id ?? ""),
+      });
+      res.status(command.replayed ? 200 : 202).json({
+        success: true, batchId: command.id, statusUrl: `/api/cro03/batches/${command.id}`,
+      });
     } catch (err: any) {
       serverError(res, err);
     }

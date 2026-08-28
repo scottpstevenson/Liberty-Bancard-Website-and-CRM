@@ -80,6 +80,7 @@ import { registerDailyBriefingRoutes } from "./routes/daily-briefing";
 import { registerOutreachQueueRoutes } from "./routes/outreach-queue";
 import { crmObjectAccessGuard } from "./services/crm-object-access";
 import { registerCommercialShadowRoutes } from "./routes/commercial-shadow";
+import { registerCro03Routes } from "./routes/cro03";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -141,6 +142,7 @@ export async function registerRoutes(
   registerActivationRoutes(app);
   registerQueueMetricsRoutes(app);
   registerCommercialShadowRoutes(app);
+  registerCro03Routes(app);
 
   // SEO #178 — programmatic OG image route + admin coverage endpoint.
   // Registered BEFORE registerSsrRoutes so the 301 redirect for the

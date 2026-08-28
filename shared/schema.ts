@@ -437,6 +437,172 @@ export const providerObservations = pgTable("provider_observations", {
   index("provider_observations_email_schema_idx").on(table.subjectId, table.emailTokenHash, table.subjectGeneration, table.observedAt),
 ]);
 
+// ---------------------------------------------------------------------------
+// CRO-03 durable enrichment factory. Membership/evidence rows are immutable;
+// execution rows are mutable and recoverable through claim leases.
+// Candidate values are encrypted envelopes, never raw provider payloads.
+// ---------------------------------------------------------------------------
+export const cro03EnrichmentBatches = pgTable("cro03_enrichment_batches", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  idempotencyKey: text("idempotency_key").notNull().unique(),
+  actorType: text("actor_type").notNull(),
+  actorId: text("actor_id"),
+  purpose: text("purpose").notNull().default("provider_pre_spend"),
+  selectionPolicyVersion: integer("selection_policy_version").notNull().default(1),
+  routingPolicyVersion: integer("routing_policy_version").notNull().default(1),
+  state: text("state").notNull().default("queued"),
+  totalCount: integer("total_count").notNull().default(0),
+  executableCount: integer("executable_count").notNull().default(0),
+  blockedCount: integer("blocked_count").notNull().default(0),
+  completedCount: integer("completed_count").notNull().default(0),
+  failedCount: integer("failed_count").notNull().default(0),
+  cancelledCount: integer("cancelled_count").notNull().default(0),
+  selectionHash: text("selection_hash").notNull(),
+  cancelRequestedAt: timestamp("cancel_requested_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  startedAt: timestamp("started_at", { withTimezone: true }),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const cro03BatchMemberships = pgTable("cro03_batch_memberships", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  batchId: uuid("batch_id").notNull().references(() => cro03EnrichmentBatches.id, { onDelete: "cascade" }),
+  ordinal: integer("ordinal").notNull(),
+  subjectType: text("subject_type").notNull(),
+  subjectId: integer("subject_id").notNull(),
+  rootSubjectType: text("root_subject_type").notNull(),
+  rootSubjectId: integer("root_subject_id").notNull(),
+  contactId: integer("contact_id").references(() => contacts.id, { onDelete: "restrict" }),
+  businessId: integer("business_id").references(() => businesses.id, { onDelete: "restrict" }),
+  selectionPolicyVersion: integer("selection_policy_version").notNull(),
+  dependencyFingerprint: text("dependency_fingerprint").notNull(),
+  preSpendSnapshotId: uuid("pre_spend_snapshot_id").references(() => commercialResolutionSnapshots.id, { onDelete: "restrict" }),
+  preSpendDecision: text("pre_spend_decision").notNull(),
+  disposition: text("disposition").notNull().default("executable"),
+  dispositionReason: text("disposition_reason"),
+  membershipHash: text("membership_hash").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const cro03EnrichmentItems = pgTable("cro03_enrichment_items", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  batchId: uuid("batch_id").notNull().references(() => cro03EnrichmentBatches.id, { onDelete: "cascade" }),
+  membershipId: uuid("membership_id").notNull().unique().references(() => cro03BatchMemberships.id, { onDelete: "restrict" }),
+  state: text("state").notNull().default("queued"),
+  currentProvider: text("current_provider"),
+  currentProviderRunId: uuid("current_provider_run_id"),
+  attemptCount: integer("attempt_count").notNull().default(0),
+  executionFence: integer("execution_fence").notNull().default(0),
+  claimToken: uuid("claim_token"),
+  leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+  nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
+  terminalCode: text("terminal_code"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  startedAt: timestamp("started_at", { withTimezone: true }),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const cro03ProviderRuns = pgTable("cro03_provider_runs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  itemId: uuid("item_id").notNull().references(() => cro03EnrichmentItems.id, { onDelete: "restrict" }),
+  provider: text("provider").notNull(),
+  operationId: uuid("operation_id").references(() => providerOperations.id, { onDelete: "restrict" }),
+  routePolicyVersion: integer("route_policy_version").notNull(),
+  purpose: text("purpose").notNull(),
+  state: text("state").notNull().default("planned"),
+  providerOutcome: text("provider_outcome"),
+  billingDisposition: text("billing_disposition").notNull().default("none"),
+  targetFingerprint: text("target_fingerprint").notNull(),
+  authorizationContextHash: text("authorization_context_hash"),
+  attemptCount: integer("attempt_count").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+});
+
+export const cro03Candidates = pgTable("cro03_candidates", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  itemId: uuid("item_id").notNull().references(() => cro03EnrichmentItems.id, { onDelete: "restrict" }),
+  providerRunId: uuid("provider_run_id").notNull().references(() => cro03ProviderRuns.id, { onDelete: "restrict" }),
+  observationId: uuid("observation_id").references(() => providerObservations.id, { onDelete: "restrict" }),
+  field: text("field").notNull(),
+  normalizedValueHash: text("normalized_value_hash").notNull(),
+  maskedValue: text("masked_value").notNull(),
+  envelopeCiphertext: text("envelope_ciphertext").notNull(),
+  envelopeNonce: text("envelope_nonce").notNull(),
+  envelopeTag: text("envelope_tag").notNull(),
+  envelopeKeyVersion: integer("envelope_key_version").notNull().default(1),
+  subjectGeneration: integer("subject_generation"),
+  confidence: integer("confidence").notNull().default(0),
+  sourceRank: integer("source_rank").notNull().default(100),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const cro03ArbitrationDecisions = pgTable("cro03_arbitration_decisions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  itemId: uuid("item_id").notNull().references(() => cro03EnrichmentItems.id, { onDelete: "restrict" }),
+  field: text("field").notNull(),
+  state: text("state").notNull().default("pending"),
+  winningCandidateId: uuid("winning_candidate_id").references(() => cro03Candidates.id, { onDelete: "restrict" }),
+  decisionKey: text("decision_key").notNull().unique(),
+  reasonCode: text("reason_code").notNull(),
+  candidateCount: integer("candidate_count").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  decidedAt: timestamp("decided_at", { withTimezone: true }),
+}, (table) => [
+  uniqueIndex("cro03_arbitration_item_field_schema_uidx").on(table.itemId, table.field),
+]);
+
+export const cro03MutationCommands = pgTable("cro03_mutation_commands", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  itemId: uuid("item_id").notNull().references(() => cro03EnrichmentItems.id, { onDelete: "restrict" }),
+  candidateId: uuid("candidate_id").notNull().references(() => cro03Candidates.id, { onDelete: "restrict" }),
+  mutationKey: text("mutation_key").notNull().unique(),
+  subjectType: text("subject_type").notNull(),
+  subjectId: integer("subject_id").notNull(),
+  field: text("field").notNull(),
+  expectedGeneration: integer("expected_generation"),
+  expectedValueHash: text("expected_value_hash").notNull(),
+  state: text("state").notNull().default("pending"),
+  claimToken: uuid("claim_token"),
+  leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+  attemptCount: integer("attempt_count").notNull().default(0),
+  disposition: text("disposition").notNull().default("pending"),
+  failureCode: text("failure_code"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  appliedAt: timestamp("applied_at", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const cro03ProviderLedger = pgTable("cro03_provider_ledger", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  providerRunId: uuid("provider_run_id").notNull().references(() => cro03ProviderRuns.id, { onDelete: "restrict" }),
+  providerOperationId: uuid("provider_operation_id").references(() => providerOperations.id, { onDelete: "restrict" }),
+  provider: text("provider").notNull(),
+  entryKey: text("entry_key").notNull().unique(),
+  disposition: text("disposition").notNull(),
+  units: integer("units").notNull().default(0),
+  amountMicros: bigint("amount_micros", { mode: "number" }).notNull().default(0),
+  receiptReference: text("receipt_reference"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const cro03Receipts = pgTable("cro03_receipts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  providerRunId: uuid("provider_run_id").notNull().references(() => cro03ProviderRuns.id, { onDelete: "restrict" }),
+  providerOperationId: uuid("provider_operation_id").references(() => providerOperations.id, { onDelete: "restrict" }),
+  receiptKey: text("receipt_key").notNull().unique(),
+  providerRequestHash: text("provider_request_hash"),
+  receiptReference: text("receipt_reference"),
+  billingDisposition: text("billing_disposition").notNull(),
+  units: integer("units").notNull().default(0),
+  amountMicros: bigint("amount_micros", { mode: "number" }).notNull().default(0),
+  redactedMetadata: jsonb("redacted_metadata").notNull().default(sql`'{}'::jsonb`),
+  receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const validationIntents = pgTable("validation_intents", {
   id: uuid("id").primaryKey().defaultRandom(),
   contactId: integer("contact_id").notNull().references(() => contacts.id, { onDelete: "cascade" }),

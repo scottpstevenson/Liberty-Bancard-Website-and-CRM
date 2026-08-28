@@ -1,0 +1,76 @@
+Yes. For Task #1709, **hold the merge until the disposable PostgreSQL concurrency suite passes**.
+
+The implementation may be sound, but its verification is incomplete. Task #1709 explicitly says unavailable prerequisites and skipped suites are failures—not passes. Therefore, “Final architectural review: PASS” currently means static review passed, not that the full task passed.
+
+### What you should set up
+
+You need one reusable test-infrastructure pattern, not a permanent shared database for every task:
+
+| Environment        | Purpose                                              | Recommendation                                                      |
+| ------------------ | ---------------------------------------------------- | ------------------------------------------------------------------- |
+| GitHub Actions     | Required merge verification                          | Already provisions disposable PostgreSQL 16 and Redis               |
+| Replit development | Let Replit run stateful suites before returning work | Add a separate test-only PostgreSQL database as `TEST_DATABASE_URL` |
+| Production         | Real application data                                | Never use for testing                                               |
+
+The test database must:
+
+* Be a completely separate database—not a schema inside production.
+* Have a name containing `test` or `ci`, which Liberty’s guards require.
+* Contain synthetic fixtures only.
+* Be safe to migrate, truncate, reset, and destroy.
+* Never share production credentials or copied production data.
+* Be isolated per concurrent task/run when multiple branches are testing.
+
+For test commands only, the process should point both variables at the disposable database:
+
+```bash
+NODE_ENV=test \
+DATABASE_URL="$TEST_DATABASE_URL" \
+TEST_DATABASE_URL="$TEST_DATABASE_URL" \
+npx tsx scripts/run-ci-suites.ts --capability deterministic-integration
+```
+
+Do not permanently replace Replit’s normal `DATABASE_URL`. The override should apply only to the test process.
+
+### Simplest immediate solution
+
+You may not need to purchase or manually maintain another database just to merge #1709.
+
+The existing GitHub Actions workflow already:
+
+* Starts fresh PostgreSQL 16.
+* Starts isolated Redis.
+* Sets `DATABASE_URL` and `TEST_DATABASE_URL` to the disposable database.
+* Migrates the empty database to the branch’s migration head.
+* Runs migrations a second time for idempotency.
+* Runs the deterministic integration capability.
+* Disables provider transports.
+
+So the immediate route is:
+
+1. Push/open the #1709 PR without merging.
+2. Confirm the CRO-03 concurrency suite is registered in `ci-suite-manifest.ts` as `deterministic-integration`.
+3. Let PR CI run it against disposable PostgreSQL.
+4. Confirm the suite did not skip or silently pass with empty fixtures.
+5. Merge only after that passes.
+
+### What #1709 still needs to prove
+
+The database-backed suite should cover at minimum:
+
+* Simultaneous item claims.
+* Lease expiration and reclamation.
+* Stale fencing tokens.
+* Cancellation racing with execution.
+* Replay and idempotency.
+* Crash recovery around reservation, observation, arbitration, projection, and billing.
+* Compare-and-set canonical projection.
+* Exactly-once consumed/refunded/released/ambiguous accounting.
+* Migration bootstrap and second-run idempotency.
+* No real Apollo, Outscraper, Serper, ZeroBounce, GHL, email, or outreach transport.
+
+### Message to send Replit
+
+> Do not merge Task #1709 yet. Static certification and build gates passed, but the required disposable PostgreSQL concurrency suite was not executed. Push the branch through the existing GitHub Actions integration job or run it against a separate test-only PostgreSQL database. Confirm the CRO-03 suite is registered under `deterministic-integration`; migrate a clean database to the branch migration head twice; run the focused CRO-03 concurrency/recovery suite and the complete deterministic-integration capability; deny all provider and outbound transports; and return exact commands, exit codes, durations, fixture counts, and cleanup proof. The final verdict remains PARTIALLY COMPLETE / DO NOT MERGE until this gate passes.
+
+Longer-term, RVR-04 is the task intended to make this isolated certification environment consistently available. But #1709 does not need to wait for RVR-04 if its PR runs successfully through the already-configured GitHub Actions PostgreSQL and Redis services.

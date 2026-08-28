@@ -1,5 +1,8 @@
 import { storage } from "../../storage";
 import { assertProviderActivation } from "../provider-manifest";
+import {
+  assertCurrentWorkerContext, type Cro03WorkerProviderContext,
+} from "../cro03/provider-context";
 
 const OUTSCRAPER_API_URL = "https://api.app.outscraper.com";
 
@@ -136,19 +139,25 @@ function parseOutscraperResult(raw: Record<string, any>): OutscraperBusiness {
 export async function searchOutscraper(
   query: string,
   limit: number = 200,
-  region: string = "US"
+  region: string = "US",
+  authorization?: Cro03WorkerProviderContext,
+  fetchOverride?: (url: string, init: RequestInit) => Promise<Response>,
 ): Promise<OutscraperBusiness[]> {
   assertProviderActivation({
     sourceId: "outscraper",
-    caller: "unapproved",
-    explicitPaidApproval: false,
+    caller: authorization?.caller ?? "unapproved",
+    explicitPaidApproval: authorization?.explicitPaidApproval ?? false,
   });
+  if (!authorization || authorization.kind !== "cro03_worker" || authorization.provider !== "outscraper") {
+    throw new Error("CRO03_PROVIDER_CONTEXT_REQUIRED");
+  }
   if (!process.env.OUTSCRAPER_API_KEY) {
     console.warn("[Outscraper] No API key configured. Set OUTSCRAPER_API_KEY env variable.");
     return [];
   }
 
   await acquireToken();
+  await assertCurrentWorkerContext(authorization);
 
   try {
     const controller = new AbortController();
@@ -162,7 +171,7 @@ export async function searchOutscraper(
       async: "false",
     });
 
-    const response = await fetch(`${OUTSCRAPER_API_URL}/maps/search-v3?${params}`, {
+    const response = await (fetchOverride ?? fetch)(`${OUTSCRAPER_API_URL}/maps/search-v3?${params}`, {
       method: "GET",
       headers: {
         "X-API-KEY": process.env.OUTSCRAPER_API_KEY,
@@ -175,9 +184,7 @@ export async function searchOutscraper(
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => "Unknown error");
-      console.error(`[Outscraper] API error ${response.status}: ${errorText}`);
-      await trackOutscraperCall(false);
-      return [];
+      throw new Error(`OUTSCRAPER_HTTP_${response.status}:${errorText.slice(0, 80)}`);
     }
 
     const data = await response.json();
@@ -190,13 +197,10 @@ export async function searchOutscraper(
       results.push(parseOutscraperResult(item));
     }
 
-    await trackOutscraperCall(true, results.length);
-    console.log(`[Outscraper] Found ${results.length} businesses for query: ${query}`);
     return results;
   } catch (err) {
-    console.error("[Outscraper] Search error:", err);
-    await trackOutscraperCall(false);
-    return [];
+    if ((err as any)?.name === "AbortError") throw new Error("OUTSCRAPER_TIMEOUT");
+    throw err;
   }
 }
 
@@ -204,8 +208,10 @@ export async function searchOutscraperByVerticalMetro(
   vertical: string,
   metro: string,
   state: string = "FL",
-  limit: number = 200
+  limit: number = 200,
+  authorization?: Cro03WorkerProviderContext,
+  fetchOverride?: (url: string, init: RequestInit) => Promise<Response>,
 ): Promise<OutscraperBusiness[]> {
   const query = `${vertical} ${metro} ${state}`;
-  return searchOutscraper(query, limit);
+  return searchOutscraper(query, limit, "US", authorization, fetchOverride);
 }

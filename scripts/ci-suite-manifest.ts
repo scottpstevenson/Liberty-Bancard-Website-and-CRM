@@ -399,6 +399,18 @@ export const SUITE_MANIFEST: SuiteManifestEntry[] = [
     capability: "server-required",
     providerDenial: "localhost contract only; no provider transport is invoked",
   },
+  {
+    name: "CRO-03 Durable Enrichment Factory",
+    script: "scripts/test-cro03-static.ts",
+    capability: "deterministic-static",
+    providerDenial: "injected transports and source checks only; live provider/network transport denied",
+  },
+  {
+    name: "CRO-03 Durable Enrichment Factory Concurrency and Recovery",
+    script: "scripts/test-cro03-integration.ts",
+    capability: "deterministic-integration",
+    providerDenial: "disposable PostgreSQL and isolated Redis; provider and public-network transport denied by certification wrapper",
+  },
   // ── server-required (live server + DB; hard-fails if server absent) ──────
   {
     name: "CRM Operator Experience",

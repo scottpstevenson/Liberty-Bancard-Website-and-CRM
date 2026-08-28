@@ -335,6 +335,11 @@ const MANDATORY_SUITES: Suite[] = [
     requiresServer: true,
   },
   {
+    name: "CRO-03 Durable Enrichment Factory (static transport, privacy, routing, and ownership gates)",
+    script: "scripts/test-cro03-static.ts",
+    timeoutSecs: 60,
+  },
+  {
     name: "Role Guards",
     script: "scripts/smoke-role-guards.ts",
     timeoutSecs: 120,

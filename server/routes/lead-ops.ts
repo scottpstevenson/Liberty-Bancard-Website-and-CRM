@@ -120,6 +120,11 @@ export function registerLeadOpsRoutes(app: Express) {
   // Reset enrichment_status to 'pending' for selected or filtered entities.
   // The existing enrichment worker picks them up automatically on its next tick.
   app.post("/api/lead-ops/bulk-enrich", requireRole("admin", "manager"), async (req, res) => {
+    return res.status(503).json({
+      code: "CRO03_STAGING_CONVERSION_REQUIRED",
+      message: "Lead staging enrichment requires canonical intake conversion.",
+    });
+    /*
     try {
       const { entityIds, all, filter } = req.body as {
         entityIds?: number[];
@@ -188,6 +193,7 @@ export function registerLeadOpsRoutes(app: Express) {
       console.error("[LeadOps] bulk-enrich error:", err?.message);
       res.status(500).json({ error: err?.message || "Failed to queue enrichment" });
     }
+    */
   });
 
   // ── POST /api/lead-ops/ai-segment ─────────────────────────────────────────

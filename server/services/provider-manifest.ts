@@ -52,6 +52,11 @@ export type NormalizedOutcome =
   | "timeout"
   | "provider_error"
   | "parse_error"
+  | "circuit_open"
+  | "cancelled"
+  | "superseded"
+  | "ambiguous_billing"
+  | "conflict"
   | "excluded";
 export type CandidateField =
   | "business_name"
@@ -118,6 +123,7 @@ export interface ProviderSourceManifestRow {
 const STANDARD_OUTCOMES = [
   "success", "no_match", "invalid_input", "not_configured", "disabled",
   "budget_exhausted", "rate_limited", "timeout", "provider_error", "parse_error",
+  "circuit_open", "cancelled", "superseded", "ambiguous_billing", "conflict",
 ] as const satisfies readonly NormalizedOutcome[];
 
 const NO_RETRY: RetryPolicy = { maxAttempts: 1, retryableOutcomes: [], backoffMs: 0 };
@@ -165,8 +171,8 @@ export const PROVIDER_SOURCE_MANIFEST = [
   {
     id: "outscraper", capability: ["business_discovery"], billing: "paid_per_result", parser: "api",
     activationPolicy: "explicit_operator_enablement", approvedAdapters: ["server/services/sdr/outscraper.ts"],
-    approvedCallers: ["server/services/sdr/lead-finder.ts"], secretNames: ["OUTSCRAPER_API_KEY"],
-    durableOperation: "request", budget: { required: true, accounting: "usage_setting", unit: "result" },
+    approvedCallers: ["server/services/cro03/enrichment-factory.ts"], secretNames: ["OUTSCRAPER_API_KEY"],
+    durableOperation: "request", budget: { required: true, accounting: "control_row", unit: "result" },
     timeoutMs: 60_000, retry: TRANSIENT_RETRY, normalizedOutcomes: STANDARD_OUTCOMES,
     candidateFields: ["business_name", "website", "email", "phone", "address", "city", "state", "postal_code", "category"],
     redaction: STANDARD_REDACTION, testTransport: FETCH_TRANSPORT, notes: "Paid map results require an explicit budget gate.",
@@ -184,8 +190,8 @@ export const PROVIDER_SOURCE_MANIFEST = [
   {
     id: "apollo", capability: ["business_discovery", "contact_enrichment"], billing: "paid_subscription", parser: "api",
     activationPolicy: "explicit_operator_enablement", approvedAdapters: ["server/services/sdr/apollo.ts"],
-    approvedCallers: ["server/services/sdr/lead-finder.ts"], secretNames: ["APOLLO_API_KEY"],
-    durableOperation: "request", budget: { required: true, accounting: "usage_setting", unit: "result" },
+    approvedCallers: ["server/services/cro03/enrichment-factory.ts"], secretNames: ["APOLLO_API_KEY"],
+    durableOperation: "request", budget: { required: true, accounting: "control_row", unit: "result" },
     timeoutMs: 30_000, retry: TRANSIENT_RETRY, normalizedOutcomes: STANDARD_OUTCOMES,
     candidateFields: ["business_name", "website", "email", "phone", "address", "city", "state", "postal_code", "category", "owner_name", "owner_title"],
     redaction: STANDARD_REDACTION, testTransport: FETCH_TRANSPORT, notes: "Contact data is sensitive and response payloads are redacted.",

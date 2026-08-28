@@ -1247,6 +1247,13 @@
       "when": 1795700000000,
       "tag": "0173_cro02_graph_lock_order",
       "breakpoints": true
+    },
+    {
+      "idx": 178,
+      "version": "7",
+      "when": 1795800000000,
+      "tag": "0174_cro03_durable_enrichment_factory",
+      "breakpoints": true
     }
   ]
 }

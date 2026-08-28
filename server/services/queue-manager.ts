@@ -2122,29 +2122,22 @@ async function runSequencesTick(): Promise<void> {
 }
 
 async function runEnrichmentTick(): Promise<void> {
-  const { processEnrichmentQueue } = await import("./enrichment");
-  const { featureFlags } = await import("./feature-flags");
-
-  // Isolate processEnrichmentQueue so a thrown error still gets structured
-  // job/tick-context logging and does not prevent sibling enrichment sub-tasks
-  // (Sunbiz enrichment, free contact enrichment) from running, and does not skip
-  // the worker-level "completed" bookkeeping (recordWorkerSuccess) for this tick.
+  const { processNextCro03Item, processNextCro03Mutation } = await import("./cro03/enrichment-factory");
   try {
-    await processEnrichmentQueue();
+    for (let processed = 0; processed < 5; processed++) {
+      if (await processNextCro03Item() === "idle") break;
+    }
+    for (let processed = 0; processed < 10; processed++) {
+      if (await processNextCro03Mutation() === "idle") break;
+    }
     const { recordWorkerSuccess, JOB_NAMES } = await import("./job-registry");
     await recordWorkerSuccess(JOB_NAMES.ENRICHMENT_QUEUE_PROCESSOR);
   } catch (err) {
     const e = err instanceof Error ? err : new Error(String(err));
-    console.error(`[Queue:enrichment] processEnrichmentQueue error (tick=enrichment, job=processEnrichmentQueue):`, e.message);
+    console.error("[Queue:enrichment] CRO-03 durable factory error:", e.message);
     const { recordWorkerFailure, JOB_NAMES } = await import("./job-registry");
     await recordWorkerFailure(JOB_NAMES.ENRICHMENT_QUEUE_PROCESSOR, e.message);
   }
-
-  if (featureFlags.SUNBIZ_ENRICHMENT_ENABLED) {
-    const { processSunbizEnrichmentQueue } = await import("./sunbiz-enrichment");
-    await processSunbizEnrichmentQueue(5).catch(err => console.error("[Queue:enrichment] Sunbiz enrichment error (best-effort):", err));
-  }
-  await runFreeContactEnrichmentTick().catch(err => console.error("[Queue:enrichment] Free contact enrichment error (best-effort):", err));
   const { runLeadScoringDeferredRecovery } = await import("./contact-lead-scoring-trigger");
   await runLeadScoringDeferredRecovery().catch(err => console.error("[Queue:enrichment] Lead scoring deferred recovery error (best-effort):", err));
 }

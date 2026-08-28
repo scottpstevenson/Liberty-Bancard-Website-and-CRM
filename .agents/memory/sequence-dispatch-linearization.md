@@ -26,3 +26,9 @@ Pre-dispatch claims must use expiring owner tokens. Only an expired `pending` cl
 **Why:** A crash before provider I/O is safely retryable, but a timeout or crash after dispatch begins may mean the provider accepted the message. Retrying that state can duplicate delivery.
 
 **How to apply:** Fence authorization with the current claim token, clear the lease when transitioning to dispatch, and treat provider-path failures as ambiguous unless provider evidence proves otherwise.
+
+Paid-provider dispatch follows the same rule: the durable run transition is the irrevocable handoff. Cancellation either wins before that transition or becomes post-dispatch; dispatched runs are never lease-reclaimed, and expiry is reconciled as ambiguous under one accounting lock.
+
+**Why:** A final database check cannot revoke HTTP after it returns, and automatic lease takeover can double-spend while the first request is in flight.
+
+**How to apply:** Serialize normal completion and timeout recovery on the same operation lock, gate side effects on one outstanding-ledger transition, and test both cancellation orderings plus crash-after-dispatch recovery.

@@ -460,6 +460,12 @@ export async function updateContactLocalFirst(
   contactId: number,
   updates: UpdateContactRequest,
   auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null },
+  compareAndSet?: {
+    field: keyof Contact;
+    expectedValue: unknown;
+    expectedEmailGeneration?: number;
+    authorityCheck?: (tx: any) => Promise<boolean>;
+  },
 ): Promise<(Contact & { _ghlSyncFailed: boolean }) | null> {
   assertNoProtectedContactFields(updates as Record<string, unknown>);
   const safeUpdates = stripProvenanceFields(updates as Record<string, unknown>) as UpdateContactRequest;
@@ -467,8 +473,19 @@ export async function updateContactLocalFirst(
   const hasReadinessChange = changedKeys.some(k => READINESS_DEPENDENT_FIELDS.includes(k as any));
   const fingerprint = crypto.createHash("sha256").update(JSON.stringify(safeUpdates)).digest("hex").slice(0, 32);
   const updated = await db.transaction(async (tx) => {
-    const [before] = await tx.select().from(contacts).where(eq(contacts.id, contactId)).limit(1);
+    const [before] = await tx.select().from(contacts).where(eq(contacts.id, contactId)).limit(1).for("update");
     if (!before) return null;
+    if (compareAndSet) {
+      if (compareAndSet.authorityCheck && !(await compareAndSet.authorityCheck(tx))) {
+        throw new ContactWriteConflictError();
+      }
+      const actual = (before as any)[compareAndSet.field];
+      if (String(actual ?? "") !== String(compareAndSet.expectedValue ?? "") ||
+          (compareAndSet.expectedEmailGeneration !== undefined &&
+           before.emailMutationGeneration !== compareAndSet.expectedEmailGeneration)) {
+        throw new ContactWriteConflictError();
+      }
+    }
     const nextEmail = "email" in safeUpdates ? String((safeUpdates as any).email ?? "") : before.email;
     const materialEmailChange = normalizeEmailToken(nextEmail) !== normalizeEmailToken(before.email);
     const nextGeneration = materialEmailChange ? before.emailMutationGeneration + 1 : before.emailMutationGeneration;
@@ -518,4 +535,11 @@ export async function updateContactLocalFirst(
     }
   }
   return { ...updated, _ghlSyncFailed: false };
+}
+
+export class ContactWriteConflictError extends Error {
+  constructor() {
+    super("CONTACT_WRITE_COMPARE_AND_SET_FAILED");
+    this.name = "ContactWriteConflictError";
+  }
 }
