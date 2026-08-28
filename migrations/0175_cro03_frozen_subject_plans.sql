@@ -195,8 +195,32 @@ ALTER TABLE cro03_provider_ledger
   );
 CREATE UNIQUE INDEX IF NOT EXISTS cro03_ledger_one_reservation_per_run
   ON cro03_provider_ledger(provider_run_id) WHERE event_type = 'reservation';
+CREATE UNIQUE INDEX IF NOT EXISTS cro03_ledger_one_reservation_per_operation
+  ON cro03_provider_ledger(provider_operation_id)
+  WHERE event_type = 'reservation' AND provider_operation_id IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS cro03_ledger_one_terminal_per_run
   ON cro03_provider_ledger(provider_run_id) WHERE event_type = 'terminal';
+CREATE OR REPLACE FUNCTION cro03_validate_ledger_terminal_lineage()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF NEW.event_type = 'terminal' AND NOT EXISTS (
+    SELECT 1 FROM cro03_provider_ledger reservation
+     WHERE reservation.id = NEW.reservation_entry_id
+       AND reservation.event_type = 'reservation'
+       AND reservation.provider_run_id = NEW.provider_run_id
+       AND reservation.provider_operation_id IS NOT DISTINCT FROM NEW.provider_operation_id
+       AND reservation.provider = NEW.provider
+       AND reservation.units = NEW.units
+       AND reservation.amount_micros = NEW.amount_micros
+  ) THEN
+    RAISE EXCEPTION 'CRO03_LEDGER_LINEAGE_MISMATCH';
+  END IF;
+  RETURN NEW;
+END $$;
+DROP TRIGGER IF EXISTS cro03_ledger_lineage_guard ON cro03_provider_ledger;
+CREATE TRIGGER cro03_ledger_lineage_guard
+  BEFORE INSERT OR UPDATE ON cro03_provider_ledger
+  FOR EACH ROW EXECUTE FUNCTION cro03_validate_ledger_terminal_lineage();
 DROP TRIGGER IF EXISTS cro03_ledger_immutable ON cro03_provider_ledger;
 CREATE TRIGGER cro03_ledger_immutable
   BEFORE UPDATE OR DELETE ON cro03_provider_ledger

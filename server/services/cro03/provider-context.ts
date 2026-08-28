@@ -32,6 +32,7 @@ export async function reserveCro03ProviderOperation(input: {
   actorId?: string | null;
   requestedUnits?: number;
   itemId: string;
+  providerRunId: string;
   itemClaimToken: string;
   executionFence: number;
 }): Promise<{ operationId: string; context: Cro03WorkerProviderContext } | null> {
@@ -62,7 +63,7 @@ export async function reserveCro03ProviderOperation(input: {
            WHERE id = ${existing.id}::uuid
         `);
       }
-      return providerContext(
+      const issued = providerContext(
         input.provider,
         String(existing.id),
         String(persistedClaimToken),
@@ -70,6 +71,8 @@ export async function reserveCro03ProviderOperation(input: {
         input.itemClaimToken,
         input.executionFence,
       );
+      await attachReservedRun(tx, input, String(existing.id), issued.context, units);
+      return issued;
     }
     const reservation = rows(await tx.execute(sql`
       UPDATE provider_controls
@@ -93,7 +96,7 @@ export async function reserveCro03ProviderOperation(input: {
               NOW() + INTERVAL '5 minutes', NOW())
       RETURNING id
     `))[0];
-    return providerContext(
+    const issued = providerContext(
       input.provider,
       String(operation.id),
       claimToken,
@@ -101,7 +104,51 @@ export async function reserveCro03ProviderOperation(input: {
       input.itemClaimToken,
       input.executionFence,
     );
+    await attachReservedRun(tx, input, String(operation.id), issued.context, units);
+    return issued;
   });
+}
+
+async function attachReservedRun(
+  tx: any,
+  input: {
+    provider: "apollo" | "outscraper";
+    providerRunId: string;
+    itemId: string;
+    itemClaimToken: string;
+    executionFence: number;
+  },
+  operationId: string,
+  context: Cro03WorkerProviderContext,
+  units: number,
+): Promise<void> {
+  const linked = rows(await tx.execute(sql`
+    UPDATE cro03_provider_runs r
+       SET operation_id = ${operationId}::uuid, state = 'reserved',
+           billing_disposition = 'outstanding',
+           authorization_context_hash = ${contextHash(context)}
+      FROM cro03_enrichment_items i, cro03_enrichment_batches b
+     WHERE r.id = ${input.providerRunId}::uuid
+       AND r.item_id = ${input.itemId}::uuid
+       AND r.provider = ${input.provider}
+       AND r.state IN ('planned','reserved')
+       AND (r.operation_id IS NULL OR r.operation_id = ${operationId}::uuid)
+       AND i.id = r.item_id AND i.batch_id = b.id
+       AND i.state = 'running'
+       AND i.claim_token = ${input.itemClaimToken}::uuid
+       AND i.execution_fence = ${input.executionFence}
+       AND i.lease_expires_at > NOW()
+       AND b.state IN ('queued','running')
+     RETURNING r.id
+  `))[0];
+  if (!linked) throw new Error("CRO03_PROVIDER_RUN_RESERVATION_LINK_FAILED");
+  await tx.execute(sql`
+    INSERT INTO cro03_provider_ledger
+      (provider_run_id, provider_operation_id, provider, entry_key, event_type, disposition, units)
+    VALUES (${input.providerRunId}::uuid, ${operationId}::uuid, ${input.provider},
+            ${`reserve:${input.providerRunId}`}, 'reservation', 'outstanding', ${units})
+    ON CONFLICT (entry_key) DO NOTHING
+  `);
 }
 
 function providerContext(

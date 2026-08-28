@@ -80,6 +80,7 @@ async function main() {
   const migration = fs.readFileSync("migrations/0174_cro03_durable_enrichment_factory.sql", "utf8");
   const completionMigration = fs.readFileSync("migrations/0175_cro03_frozen_subject_plans.sql", "utf8");
   const factory = fs.readFileSync("server/services/cro03/enrichment-factory.ts", "utf8");
+  const providerContext = fs.readFileSync("server/services/cro03/provider-context.ts", "utf8");
   const routes = fs.readFileSync("server/routes/cro03.ts", "utf8");
   const queue = fs.readFileSync("server/services/queue-manager.ts", "utf8");
   const sla = fs.readFileSync("server/services/sla-worker.ts", "utf8");
@@ -124,16 +125,24 @@ async function main() {
     assert.match(completionMigration, /cro03_ledger_one_reservation_per_run/);
     assert.match(completionMigration, /cro03_ledger_one_terminal_per_run/);
     assert.match(completionMigration, /cro03_ledger_immutable/);
-    assert.match(factory, /'reservation', 'outstanding'/);
+    assert.match(completionMigration, /CRO03_LEDGER_LINEAGE_MISMATCH/);
+    assert.match(completionMigration, /reservation\.provider_run_id = NEW\.provider_run_id/);
+    assert.match(providerContext, /'reservation', 'outstanding'/);
     assert.match(factory, /'terminal'/);
     assert.doesNotMatch(factory, /UPDATE cro03_provider_ledger/);
   });
+  await check("budget reservation atomically links run and reservation evidence", () => {
+    assert.match(providerContext, /attachReservedRun\(tx/);
+    assert.match(providerContext, /UPDATE cro03_provider_runs/);
+    assert.match(providerContext, /INSERT INTO cro03_provider_ledger/);
+    assert.match(factory, /r\.state = 'reserved'/);
+    assert.match(factory, /undispatched_reservation_expired/);
+  });
   await check("final adapter boundary requires the active item claim and fence", () => {
-    const context = fs.readFileSync("server/services/cro03/provider-context.ts", "utf8");
-    assert.match(context, /i\.claim_token = \$\{context\.itemClaimToken\}/);
-    assert.match(context, /i\.execution_fence = \$\{context\.executionFence\}/);
-    assert.match(context, /i\.lease_expires_at > NOW\(\)/);
-    assert.doesNotMatch(context, /OR r\.state = 'running'/);
+    assert.match(providerContext, /i\.claim_token = \$\{context\.itemClaimToken\}/);
+    assert.match(providerContext, /i\.execution_fence = \$\{context\.executionFence\}/);
+    assert.match(providerContext, /i\.lease_expires_at > NOW\(\)/);
+    assert.doesNotMatch(providerContext, /OR r\.state = 'running'/);
   });
   await check("provider-export evidence is an immutable source-row snapshot", () => {
     assert.match(imports, /__cro03EvidenceValues/);

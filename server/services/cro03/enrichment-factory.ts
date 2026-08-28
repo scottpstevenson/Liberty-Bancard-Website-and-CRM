@@ -12,7 +12,7 @@ import {
 import { sealCandidate, openCandidate } from "./candidate-vault";
 import { selectCro03Route } from "./routing-policy";
 import {
-  assertCurrentWorkerContext, contextHash, isCro03Provider, reserveCro03ProviderOperation,
+  assertCurrentWorkerContext, isCro03Provider, reserveCro03ProviderOperation,
   type Cro03WorkerProviderContext,
 } from "./provider-context";
 
@@ -296,7 +296,7 @@ export async function createCro03Batch(input: CreateCro03BatchInput): Promise<{
               ${CRO03_ROUTING_POLICY_VERSION}, ${executableCount === 0 ? "completed" : "queued"},
                ${input.contactIds.length}, ${executableCount}, ${blockedCount}, ${selectionHash}, ${commandFingerprint},
               CASE WHEN ${executableCount} = 0 THEN NOW() ELSE NULL END)
-      RETURNING id
+        RETURNING id
     `));
     const id = String(batchResult[0].id);
     for (const entry of prepared) {
@@ -358,7 +358,7 @@ export async function getCro03BatchStatus(batchId: string): Promise<any | null> 
   `));
   if (!result[0]) return null;
   const economics = rows(await db.execute(sql`
-    SELECT provider,
+    SELECT l.provider,
       COALESCE(SUM(amount_micros) FILTER (WHERE disposition = 'consumed'), 0)::bigint AS consumed_micros,
       COALESCE(SUM(amount_micros) FILTER (WHERE disposition = 'outstanding'), 0)::bigint AS outstanding_micros,
       COALESCE(SUM(amount_micros) FILTER (WHERE disposition = 'released'), 0)::bigint AS released_micros,
@@ -368,7 +368,7 @@ export async function getCro03BatchStatus(batchId: string): Promise<any | null> 
       JOIN cro03_provider_runs r ON r.id = l.provider_run_id
      WHERE r.item_id IN (SELECT id FROM cro03_enrichment_items WHERE batch_id = ${batchId}::uuid)
         AND l.event_type = 'terminal'
-     GROUP BY provider
+     GROUP BY l.provider
   `));
   const status = result[0];
   const terminalTotal = Number(status.completedCount) + Number(status.failedCount) +
@@ -413,6 +413,24 @@ export async function cancelCro03Batch(batchId: string): Promise<boolean> {
     return true;
   });
   if (!cancelled) return false;
+  const undispatched = rows(await db.execute(sql`
+    SELECT r.id, r.operation_id, r.provider
+      FROM cro03_provider_runs r
+      JOIN cro03_enrichment_items i ON i.id = r.item_id
+     WHERE i.batch_id = ${batchId}::uuid
+       AND r.state = 'reserved' AND r.billing_disposition = 'outstanding'
+  `));
+  for (const run of undispatched) {
+    await completeCro03ProviderAccounting(
+      String(run.id), String(run.operation_id), String(run.provider), "released",
+    );
+    await db.execute(sql`
+      UPDATE cro03_provider_runs
+         SET state = 'cancelled', provider_outcome = 'cancelled',
+             billing_disposition = 'released', completed_at = NOW()
+       WHERE id = ${run.id}::uuid AND state = 'reserved'
+    `);
+  }
   await refreshBatchState(batchId);
   return true;
 }
@@ -533,20 +551,6 @@ async function authorizeCro03TransportDispatch(input: {
   });
 }
 
-export async function reserveCro03ProviderLedger(
-  runId: string,
-  operationId: string,
-  provider: string,
-): Promise<void> {
-  await db.execute(sql`
-    INSERT INTO cro03_provider_ledger
-      (provider_run_id, provider_operation_id, provider, entry_key, event_type, disposition, units)
-    VALUES (${runId}::uuid, ${operationId}::uuid, ${provider},
-            ${`reserve:${runId}`}, 'reservation', 'outstanding', 1)
-    ON CONFLICT (entry_key) DO NOTHING
-  `);
-}
-
 export async function completeCro03ProviderAccounting(
   runId: string,
   operationId: string,
@@ -569,7 +573,7 @@ export async function completeCro03ProviderAccounting(
         FROM cro03_provider_ledger
        WHERE entry_key = ${`reserve:${runId}`} AND event_type = 'reservation'
       ON CONFLICT (entry_key) DO NOTHING
-      RETURNING id
+      RETURNING id, units
     `))[0];
     if (!transitioned) {
       const existingReceipt = rows(await tx.execute(sql`
@@ -589,8 +593,8 @@ export async function completeCro03ProviderAccounting(
     `);
     await tx.execute(sql`
       UPDATE provider_controls
-         SET reserved_units = GREATEST(0, reserved_units - 1),
-             consumed_units = consumed_units + ${disposition === "consumed" ? 1 : 0},
+          SET reserved_units = GREATEST(0, reserved_units - ${Number(transitioned.units)}),
+              consumed_units = consumed_units + ${disposition === "consumed" ? Number(transitioned.units) : 0},
              last_completed_at = NOW(), last_outcome = ${disposition},
              observed_at = NOW(), version = version + 1, updated_at = NOW()
        WHERE provider = ${provider}
@@ -600,7 +604,7 @@ export async function completeCro03ProviderAccounting(
         (provider_run_id, provider_operation_id, receipt_key, provider_request_hash,
          billing_disposition, units, receipt_reference, redacted_metadata)
       VALUES (${runId}::uuid, ${operationId}::uuid, ${`receipt:${runId}:${disposition}`},
-              ${receipt?.requestHash ?? null}, ${disposition}, 1,
+               ${receipt?.requestHash ?? null}, ${disposition}, ${Number(transitioned.units)},
               ${receipt?.receiptReference ?? null}, '{}'::jsonb)
       ON CONFLICT (receipt_key) DO UPDATE SET receipt_key = EXCLUDED.receipt_key
       RETURNING id
@@ -616,16 +620,20 @@ export async function completeCro03ProviderAccounting(
 
 export async function recoverExpiredCro03Dispatches(): Promise<number> {
   const stale = rows(await db.execute(sql`
-    SELECT r.id AS provider_run_id, r.operation_id, r.provider, r.item_id, i.batch_id
+    SELECT r.id AS provider_run_id, r.operation_id, r.provider, r.item_id, i.batch_id,
+           r.state AS run_state
       FROM cro03_provider_runs r
       JOIN cro03_enrichment_items i ON i.id = r.item_id
       JOIN provider_operations o ON o.id = r.operation_id
-     WHERE r.state = 'running'
-       AND (
-         (i.state = 'running' AND i.lease_expires_at < NOW())
-         OR i.state = 'cancelled'
-       )
+     WHERE (
+       r.state = 'reserved'
+       AND (i.state IN ('cancelled','superseded')
+            OR i.lease_expires_at < NOW() OR o.lease_expires_at < NOW())
+     ) OR (
+       r.state = 'running'
+       AND ((i.state = 'running' AND i.lease_expires_at < NOW()) OR i.state = 'cancelled')
        AND o.lease_expires_at < NOW()
+     )
      ORDER BY r.created_at
   `));
   const refreshedBatchIds = new Set<string>();
@@ -637,12 +645,13 @@ export async function recoverExpiredCro03Dispatches(): Promise<number> {
           hashtextextended(${"cro03-accounting:" + candidate.operation_id}, 0)
         )
       `);
+      const terminalDisposition = candidate.run_state === "reserved" ? "released" : "ambiguous";
       const ledger = rows(await tx.execute(sql`
         INSERT INTO cro03_provider_ledger
           (provider_run_id, provider_operation_id, provider, entry_key, event_type,
            reservation_entry_id, disposition, units)
         SELECT provider_run_id, provider_operation_id, provider,
-               ${`settle:${candidate.provider_run_id}`}, 'terminal', id, 'ambiguous', units
+               ${`settle:${candidate.provider_run_id}`}, 'terminal', id, ${terminalDisposition}, units
           FROM cro03_provider_ledger
          WHERE provider_run_id = ${candidate.provider_run_id}::uuid
            AND event_type = 'reservation'
@@ -652,14 +661,16 @@ export async function recoverExpiredCro03Dispatches(): Promise<number> {
       if (!ledger) return false;
       await tx.execute(sql`
         UPDATE cro03_provider_runs
-           SET state = 'failed', provider_outcome = 'ambiguous_billing',
-               billing_disposition = 'ambiguous', completed_at = NOW()
-         WHERE id = ${candidate.provider_run_id}::uuid AND state = 'running'
+           SET state = ${candidate.run_state === "reserved" ? "cancelled" : "failed"},
+               provider_outcome = ${candidate.run_state === "reserved" ? "cancelled" : "ambiguous_billing"},
+               billing_disposition = ${terminalDisposition}, completed_at = NOW()
+         WHERE id = ${candidate.provider_run_id}::uuid AND state = ${candidate.run_state}
       `);
       await tx.execute(sql`
         UPDATE provider_operations
-           SET state = 'failed', billing_state = 'ambiguous',
-               failure_code = 'ambiguous_billing_after_dispatch_timeout',
+           SET state = 'failed', billing_state = ${terminalDisposition},
+               failure_code = ${candidate.run_state === "reserved"
+                 ? "undispatched_reservation_expired" : "ambiguous_billing_after_dispatch_timeout"},
                reserved_units = 0, claim_token = NULL, lease_expires_at = NULL,
                completed_at = NOW(), updated_at = NOW()
          WHERE id = ${candidate.operation_id}::uuid
@@ -667,7 +678,7 @@ export async function recoverExpiredCro03Dispatches(): Promise<number> {
       await tx.execute(sql`
         UPDATE provider_controls
            SET reserved_units = GREATEST(0, reserved_units - ${Number(ledger.units)}),
-               last_completed_at = NOW(), last_outcome = 'ambiguous',
+               last_completed_at = NOW(), last_outcome = ${terminalDisposition},
                observed_at = NOW(), version = version + 1, updated_at = NOW()
          WHERE provider = ${candidate.provider}
       `);
@@ -676,16 +687,20 @@ export async function recoverExpiredCro03Dispatches(): Promise<number> {
           (provider_run_id, provider_operation_id, receipt_key, billing_disposition,
            units, redacted_metadata)
         VALUES (${candidate.provider_run_id}::uuid, ${candidate.operation_id}::uuid,
-                ${`receipt:${candidate.provider_run_id}:ambiguous`}, 'ambiguous',
+                 ${`receipt:${candidate.provider_run_id}:${terminalDisposition}`}, ${terminalDisposition},
                 ${Number(ledger.units)}, '{"reason":"dispatch_timeout"}'::jsonb)
         ON CONFLICT (receipt_key) DO NOTHING
       `);
       await tx.execute(sql`
         UPDATE cro03_enrichment_items
-           SET state = CASE WHEN state = 'cancelled' THEN state ELSE 'failed' END,
+           SET state = CASE WHEN state = 'cancelled' THEN state
+                            WHEN ${candidate.run_state} = 'reserved' THEN 'superseded'
+                            ELSE 'failed' END,
                terminal_code = CASE WHEN state = 'cancelled'
                                     THEN 'cancelled_after_provider_dispatch'
-                                    ELSE 'ambiguous_billing_after_dispatch_timeout' END,
+                                     WHEN ${candidate.run_state} = 'reserved'
+                                     THEN 'undispatched_reservation_expired'
+                                     ELSE 'ambiguous_billing_after_dispatch_timeout' END,
                claim_token = NULL, lease_expires_at = NULL, completed_at = NOW(), updated_at = NOW()
          WHERE id = ${candidate.item_id}::uuid AND state IN ('running','cancelled')
       `);
@@ -1331,6 +1346,7 @@ export async function processNextCro03Item(
     targetFingerprint: membership.dependency_fingerprint, purpose: "provider_pre_spend",
     actorId: "cro03-factory", requestedUnits: 1,
     itemId: String(item.id),
+    providerRunId: String(providerRun.id),
     itemClaimToken: String(item.claim_token),
     executionFence: Number(item.execution_fence),
   });
@@ -1355,13 +1371,6 @@ export async function processNextCro03Item(
     `);
     return "deferred";
   }
-  await db.execute(sql`
-    UPDATE cro03_provider_runs
-       SET operation_id = ${reservation.operationId}::uuid, state = 'reserved',
-           billing_disposition = 'outstanding', authorization_context_hash = ${contextHash(reservation.context)}
-     WHERE id = ${providerRun.id}::uuid
-  `);
-  await reserveCro03ProviderLedger(String(providerRun.id), reservation.operationId, provider);
   const preTransportFence = provider === "outscraper" ? { allowed: true } : await resolveFence({
     subjectType: "contact", subjectId: Number(membership.subject_id),
     effect: "provider_pre_spend", expectedFingerprint: membership.dependency_fingerprint,

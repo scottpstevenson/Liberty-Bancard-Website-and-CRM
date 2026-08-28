@@ -19,11 +19,11 @@ const {
   claimNextCro03Item,
   completeCro03ProviderAccounting,
   createCro03Batch,
+  getCro03BatchStatus,
   processNextCro03Item,
   processNextCro03Mutation,
   projectCro03Mutation,
   recoverExpiredCro03Dispatches,
-  reserveCro03ProviderLedger,
 } = await import("../server/services/cro03/enrichment-factory");
 const { reserveCro03ProviderOperation } = await import(
   "../server/services/cro03/provider-context"
@@ -269,6 +269,24 @@ try {
   );
   check(staleWrite.rowCount === 0, "stale token and fence cannot mutate reclaimed work");
 
+  const terminalBuckets = await createExecutionFixture(5);
+  await pool.query(
+    `UPDATE cro03_enrichment_items i
+        SET state = states.state, completed_at = NOW(), claim_token = NULL, lease_expires_at = NULL
+       FROM (VALUES
+         ($1::uuid,'blocked'),($2::uuid,'completed'),($3::uuid,'failed'),
+         ($4::uuid,'cancelled'),($5::uuid,'superseded')
+       ) AS states(id,state)
+      WHERE i.id=states.id`,
+    terminalBuckets.itemIds,
+  );
+  const terminalStatus = await getCro03BatchStatus(terminalBuckets.batchId);
+  check(terminalStatus?.blockedCount === 1 && terminalStatus?.completedCount === 1 &&
+    terminalStatus?.failedCount === 1 && terminalStatus?.cancelledCount === 1 &&
+    terminalStatus?.supersededCount === 1 && terminalStatus?.terminalTotal === 5 &&
+    terminalStatus?.outstanding === 0 && terminalStatus?.accountingConsistent === true,
+    "batch status exposes every terminal bucket and reconciles total equals terminals plus outstanding");
+
   const mutation = await createMutationFixture();
   const cancelled = await cancelCro03Batch(mutation.batchId);
   const cancellationProjection = await projectCro03Mutation(mutation.commandId);
@@ -298,6 +316,12 @@ try {
             reserved_units=0, consumed_units=0
       WHERE provider='apollo'`,
   );
+  const reservationRun = await pool.query<{ id: string }>(
+    `INSERT INTO cro03_provider_runs
+       (item_id,provider,route_policy_version,purpose,state,billing_disposition,target_fingerprint)
+     VALUES ($1,'apollo',1,'provider_pre_spend','planned','none',$2) RETURNING id`,
+    [expiredItem, suffix],
+  );
   const reservationInput = {
     provider: "apollo" as const,
     operationIdempotencyKey: `${fixtureKey}-apollo`,
@@ -305,6 +329,7 @@ try {
     purpose: "provider_pre_spend",
     requestedUnits: 1,
     itemId: expiredItem,
+    providerRunId: reservationRun.rows[0].id,
     itemClaimToken: String(reclaimed!.claim_token ?? reclaimed!.claimToken),
     executionFence: Number(reclaimed!.execution_fence),
   };
@@ -324,17 +349,7 @@ try {
   check(operationCounts.rows[0].operations === 1 && operationCounts.rows[0].reserved === 1,
     "provider budget authority reserves exactly once");
 
-  const economics = await createExecutionFixture(1);
-  const economicsItem = economics.itemIds[0];
-  const providerRun = await pool.query<{ id: string }>(
-    `INSERT INTO cro03_provider_runs
-       (item_id,provider,operation_id,route_policy_version,purpose,state,
-        billing_disposition,target_fingerprint)
-     VALUES ($1,'apollo',$2,1,'provider_pre_spend','reserved','outstanding',$3)
-     RETURNING id`,
-    [economicsItem, reservationA!.operationId, suffix],
-  );
-  await reserveCro03ProviderLedger(providerRun.rows[0].id, reservationA!.operationId, "apollo");
+  const providerRun = reservationRun;
   await Promise.all([
     completeCro03ProviderAccounting(providerRun.rows[0].id, reservationA!.operationId, "apollo", "consumed"),
     completeCro03ProviderAccounting(providerRun.rows[0].id, reservationA!.operationId, "apollo", "consumed"),
@@ -361,6 +376,83 @@ try {
      [providerRun.rows[0].id],
    ).then(() => false).catch((error) => /immutable/.test(String(error.message)));
    check(immutableLedger, "database rejects in-place economics evidence mutation");
+   const foreignLineageFixture = await createExecutionFixture(1);
+   const foreignRun = await pool.query<{ id: string }>(
+     `INSERT INTO cro03_provider_runs
+        (item_id,provider,route_policy_version,purpose,state,billing_disposition,target_fingerprint)
+      VALUES ($1,'apollo',1,'provider_pre_spend','planned','none',$2) RETURNING id`,
+     [foreignLineageFixture.itemIds[0], `${suffix}-foreign-lineage`],
+   );
+   const reservationEvidence = await pool.query<{ id: string }>(
+     `SELECT id FROM cro03_provider_ledger
+       WHERE provider_run_id=$1 AND event_type='reservation'`,
+     [providerRun.rows[0].id],
+   );
+   const crossRunRejected = await pool.query(
+     `INSERT INTO cro03_provider_ledger
+        (provider_run_id,provider_operation_id,provider,entry_key,event_type,
+         reservation_entry_id,disposition,units,amount_micros)
+      VALUES ($1,$2,'apollo',$3,'terminal',$4,'released',1,0)`,
+     [foreignRun.rows[0].id, reservationA!.operationId,
+       `settle:${foreignRun.rows[0].id}`, reservationEvidence.rows[0].id],
+   ).then(() => false).catch((error) =>
+     /CRO03_LEDGER_LINEAGE_MISMATCH/.test(String(error.message)));
+   check(crossRunRejected, "database rejects terminal economics linked to another run's reservation");
+
+   await pool.query(
+     `UPDATE provider_controls
+         SET enabled=TRUE,circuit_state='closed',local_budget_units=10,reserved_units=0,consumed_units=0
+       WHERE provider='apollo'`,
+   );
+   const reservedCrash = await createExecutionFixture(1);
+   const reservedToken = randomUUID();
+   await pool.query(
+     `UPDATE cro03_enrichment_items
+         SET state='running',claim_token=$2,execution_fence=1,
+             lease_expires_at=NOW()+INTERVAL '5 minutes'
+       WHERE id=$1`,
+     [reservedCrash.itemIds[0], reservedToken],
+   );
+   const reservedCrashRun = await pool.query<{ id: string }>(
+     `INSERT INTO cro03_provider_runs
+        (item_id,provider,route_policy_version,purpose,state,billing_disposition,target_fingerprint)
+      VALUES ($1,'apollo',1,'provider_pre_spend','planned','none',$2) RETURNING id`,
+     [reservedCrash.itemIds[0], `${suffix}-reserved-crash`],
+   );
+   const reservedCrashOperation = await reserveCro03ProviderOperation({
+     provider: "apollo",
+     operationIdempotencyKey: `${fixtureKey}-reserved-crash`,
+     targetFingerprint: suffix,
+     purpose: "provider_pre_spend",
+     requestedUnits: 1,
+     itemId: reservedCrash.itemIds[0],
+     providerRunId: reservedCrashRun.rows[0].id,
+     itemClaimToken: reservedToken,
+     executionFence: 1,
+   });
+   check(reservedCrashOperation, "operation, run linkage, and reservation event commit atomically");
+   providerOperationIds.push(reservedCrashOperation!.operationId);
+   await pool.query(
+     `UPDATE provider_operations SET lease_expires_at=NOW()-INTERVAL '1 second' WHERE id=$1`,
+     [reservedCrashOperation!.operationId],
+   );
+   const recoveredReserved = await recoverExpiredCro03Dispatches();
+   const reservedCrashState = await pool.query(
+     `SELECT r.state,r.billing_disposition,
+             count(*) FILTER (WHERE l.event_type='reservation')::int AS reservations,
+             count(*) FILTER (WHERE l.event_type='terminal')::int AS terminals,
+             max(l.disposition) FILTER (WHERE l.event_type='terminal') AS terminal_disposition
+        FROM cro03_provider_runs r
+        JOIN cro03_provider_ledger l ON l.provider_run_id=r.id
+       WHERE r.id=$1 GROUP BY r.id`,
+     [reservedCrashRun.rows[0].id],
+   );
+   check(recoveredReserved >= 1 &&
+     reservedCrashState.rows[0].billing_disposition === "released" &&
+     reservedCrashState.rows[0].reservations === 1 &&
+     reservedCrashState.rows[0].terminals === 1 &&
+     reservedCrashState.rows[0].terminal_disposition === "released",
+     "expired undispatched reservation appends exactly one release and terminalizes the run");
 
   await pool.query(
     `UPDATE provider_controls
@@ -606,9 +698,15 @@ try {
   await pool.query(
     `UPDATE cro03_enrichment_items
         SET state='running', claim_token=$2, execution_fence=1,
-            lease_expires_at=NOW()-INTERVAL '1 second'
+             lease_expires_at=NOW()+INTERVAL '5 minutes'
       WHERE id=$1`,
     [accountingRace.itemIds[0], accountingToken],
+  );
+  const accountingRun = await pool.query<{ id: string }>(
+    `INSERT INTO cro03_provider_runs
+       (item_id,provider,route_policy_version,purpose,state,billing_disposition,target_fingerprint)
+     VALUES ($1,'apollo',1,'provider_pre_spend','planned','none',$2) RETURNING id`,
+    [accountingRace.itemIds[0], suffix],
   );
   const accountingReservation = await reserveCro03ProviderOperation({
     provider: "apollo",
@@ -617,29 +715,24 @@ try {
     purpose: "provider_pre_spend",
     requestedUnits: 1,
     itemId: accountingRace.itemIds[0],
+    providerRunId: accountingRun.rows[0].id,
     itemClaimToken: accountingToken,
     executionFence: 1,
   });
   check(accountingReservation, "accounting race fixture reserved provider capacity");
   providerOperationIds.push(accountingReservation!.operationId);
-  const accountingRun = await pool.query<{ id: string }>(
-    `INSERT INTO cro03_provider_runs
-       (item_id,provider,operation_id,route_policy_version,purpose,state,
-        billing_disposition,target_fingerprint,authorization_context_hash)
-     VALUES ($1,'apollo',$2,1,'provider_pre_spend','running','outstanding',$3,$4)
-     RETURNING id`,
-    [accountingRace.itemIds[0], accountingReservation!.operationId, suffix,
-      "accounting-race-context"],
-  );
-  await reserveCro03ProviderLedger(
-    accountingRun.rows[0].id,
-    accountingReservation!.operationId,
-    "apollo",
+  await pool.query(
+    `UPDATE cro03_provider_runs SET state='running', authorization_context_hash=$2 WHERE id=$1`,
+    [accountingRun.rows[0].id, "accounting-race-context"],
   );
   await pool.query(
     `UPDATE provider_operations SET lease_expires_at=NOW()-INTERVAL '1 second'
       WHERE id=$1`,
     [accountingReservation!.operationId],
+  );
+  await pool.query(
+    `UPDATE cro03_enrichment_items SET lease_expires_at=NOW()-INTERVAL '1 second' WHERE id=$1`,
+    [accountingRace.itemIds[0]],
   );
   await Promise.all([
     recoverExpiredCro03Dispatches(),
