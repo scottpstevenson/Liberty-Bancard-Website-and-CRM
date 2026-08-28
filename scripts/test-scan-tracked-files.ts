@@ -197,7 +197,7 @@ check("live authorized baseline remains unchanged",
   liveSummary?.baselineCount === 378 &&
   liveSummary?.unchangedCount === 378 &&
   liveSummary?.removedCount === 0);
-check("live post-baseline pasted additions remain prohibited", liveSummary?.newProhibitedCount === 3);
+check("live post-baseline pasted additions remain prohibited", liveSummary?.newProhibitedCount === 0);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

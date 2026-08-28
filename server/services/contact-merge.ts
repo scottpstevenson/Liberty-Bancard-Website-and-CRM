@@ -48,8 +48,10 @@ export const CONTACT_MERGE_MANIFEST: readonly ManifestEntry[] = [
   { key: "commercial_relationship_candidates_evidence_identity", table: "commercial_relationship_candidates", column: "id", disposition: "immutable_retain" },
   { key: "commercial_relationship_reviews", table: "commercial_relationship_reviews", column: "contact_id", disposition: "immutable_retain" },
   { key: "commercial_relationship_reviews_evidence_identity", table: "commercial_relationship_reviews", column: "id", disposition: "immutable_retain" },
+  { key: "contact_business_link_candidates", table: "contact_business_link_candidates", column: "contact_id", disposition: "immutable_retain" },
   { key: "import_row_dispositions", table: "import_row_dispositions", column: "contact_id", disposition: "immutable_retain" },
   { key: "eligibility_snapshots", table: "eligibility_snapshots", column: "contact_id", disposition: "immutable_retain" },
+  { key: "cro03_batch_memberships", table: "cro03_batch_memberships", column: "contact_id", disposition: "immutable_retain" },
   { key: "contact_provider_projections", table: "contact_provider_projections", column: "contact_id", disposition: "terminalize" },
   { key: "validation_intents", table: "validation_intents", column: "contact_id", disposition: "terminalize" },
   // A frozen campaign preview is immutable queue authority. Reassigning it
