@@ -373,7 +373,7 @@ export const SUITE_MANIFEST: SuiteManifestEntry[] = [
     name: "Backlog Preview",
     script: "scripts/test-backlog-preview.ts",
     capability: "deterministic-integration",
-    providerDenial: "no provider calls (DB read-only preview logic)",
+    providerDenial: "disposable PostgreSQL fixtures and injected source failures; no providers",
   },
   {
     name: "CRO-01 Revenue Contract Integration",

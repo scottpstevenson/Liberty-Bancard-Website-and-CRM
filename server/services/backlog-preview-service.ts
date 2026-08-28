@@ -21,6 +21,20 @@ type SourceResult<T> =
   | { status: "ok"; data: T; capturedAt: string }
   | { status: "timeout" | "unavailable" | "schema_missing"; data: null; errorCode: string; capturedAt: string };
 
+export type DeferredGhlEnrollmentsData = {
+  pending: number;
+  dueNow: number;
+  terminalFailed: number;
+};
+
+export interface BacklogPreviewServiceOptions {
+  /**
+   * Deterministic certification seam for the deferred-GHL source. Production
+   * callers leave this unset so the aggregate always comes from PostgreSQL.
+   */
+  deferredGhlEnrollmentsReader?: () => Promise<DeferredGhlEnrollmentsData>;
+}
+
 export interface BacklogPreview {
   partial: boolean;
   nonAdditive: true;
@@ -39,7 +53,7 @@ export interface BacklogPreview {
     eligibilityIndicators: { missingEndpoint: number; knownSuppressed: number; requiresEmailValidation: number };
   }>;
   outboundMessages: SourceResult<{ queued: number; sending: number; staleSending: number }>;
-  deferredGhlEnrollments: SourceResult<{ pending: number; dueNow: number; terminalFailed: number }>;
+  deferredGhlEnrollments: SourceResult<DeferredGhlEnrollmentsData>;
   postEnrichmentIntents: SourceResult<{ pending: number; eligibleNow: number; processing: number; expiredLease: number; failed: number }>;
   generatedAt: string;
 }
@@ -79,14 +93,12 @@ function isTimeoutError(err: unknown): boolean {
 
 function isMissingSchemaError(err: unknown): boolean {
   const code = (err as any)?.code ?? "";
-  const msg = String((err as any)?.message ?? "");
   // 42P01 = undefined_table (table missing)
   // 42703 = undefined_column (table exists but required column missing; e.g. 0137 applied, 0138 not)
-  return (
-    code === "42P01" || msg.includes("42P01") ||
-    code === "42703" || msg.includes("42703") ||
-    msg.toLowerCase().includes("does not exist")
-  );
+  // Only trust PostgreSQL SQLSTATEs. Error prose such as "database does not
+  // exist" describes runtime unavailability and must not masquerade as schema
+  // absence.
+  return code === "42P01" || code === "42703";
 }
 
 function okEnvelope<T>(data: T): { status: "ok"; data: T; capturedAt: string } {
@@ -104,9 +116,14 @@ function errEnvelope(
 
 export class BacklogPreviewService {
   private db: typeof defaultDb;
+  private deferredGhlEnrollmentsReader?: BacklogPreviewServiceOptions["deferredGhlEnrollmentsReader"];
 
-  constructor(db?: typeof defaultDb) {
+  constructor(
+    db?: typeof defaultDb,
+    options: BacklogPreviewServiceOptions = {},
+  ) {
     this.db = db ?? defaultDb;
+    this.deferredGhlEnrollmentsReader = options.deferredGhlEnrollmentsReader;
   }
 
   async getBacklogPreview(): Promise<BacklogPreview> {
@@ -122,7 +139,7 @@ export class BacklogPreviewService {
     const bullmq      = this._settle(bullmqResult);
     const sequenceEnrollments = this._settle(seqResult);
     const outboundMessages    = this._settle(outboundResult);
-    const deferredGhlEnrollments = this._settle(deferredResult);
+    const deferredGhlEnrollments = this._settle(deferredResult, "deferredGhlEnrollments");
     const postEnrichmentIntents  = this._settle(peResult);
 
     const partial =
@@ -147,13 +164,33 @@ export class BacklogPreviewService {
   // ── Settle helper ────────────────────────────────────────────────────────────
 
   private _settle<T>(
-    result: PromiseSettledResult<SourceResult<T>>
+    result: PromiseSettledResult<SourceResult<T>>,
+    source?: "deferredGhlEnrollments",
   ): SourceResult<T> {
     if (result.status === "fulfilled") return result.value;
     const err = result.reason;
-    if (isTimeoutError(err)) return errEnvelope("timeout", "BACKLOG_SOURCE_TIMEOUT");
-    if (isMissingSchemaError(err)) return errEnvelope("schema_missing", String((err as any)?.code ?? "42P01"));
-    return errEnvelope("unavailable", String((err as any)?.code ?? "UNKNOWN"));
+    if (isTimeoutError(err)) {
+      return errEnvelope(
+        "timeout",
+        source === "deferredGhlEnrollments"
+          ? "BACKLOG_DEFERRED_GHL_TIMEOUT"
+          : "BACKLOG_SOURCE_TIMEOUT",
+      );
+    }
+    if (isMissingSchemaError(err)) {
+      return errEnvelope(
+        "schema_missing",
+        source === "deferredGhlEnrollments"
+          ? "BACKLOG_DEFERRED_GHL_SCHEMA_MISSING"
+          : "BACKLOG_SOURCE_SCHEMA_MISSING",
+      );
+    }
+    return errEnvelope(
+      "unavailable",
+      source === "deferredGhlEnrollments"
+        ? "BACKLOG_DEFERRED_GHL_UNAVAILABLE"
+        : "BACKLOG_SOURCE_UNAVAILABLE",
+    );
   }
 
   // ── BullMQ source ─────────────────────────────────────────────────────────────
@@ -425,11 +462,11 @@ export class BacklogPreviewService {
   // P1-5: 42P01/42703 → schema_missing (not zero). Table has a finite set of
   // status values so GROUP BY status is bounded; this source never reads unbounded rows.
 
-  private async _fetchDeferredGhlEnrollmentsSource(): Promise<SourceResult<{
-    pending: number;
-    dueNow: number;
-    terminalFailed: number;
-  }>> {
+  private async _fetchDeferredGhlEnrollmentsSource(): Promise<SourceResult<DeferredGhlEnrollmentsData>> {
+    if (this.deferredGhlEnrollmentsReader) {
+      return okEnvelope(await this.deferredGhlEnrollmentsReader());
+    }
+
     return await this.db.transaction(async (tx) => {
       await tx.execute(sql.raw(`SET LOCAL statement_timeout = '${DB_STATEMENT_TIMEOUT_MS}'`));
 
@@ -509,6 +546,9 @@ export class BacklogPreviewService {
 
 // ── Singleton accessor for route handlers ─────────────────────────────────────
 
-export function createBacklogPreviewService(db?: typeof defaultDb): BacklogPreviewService {
-  return new BacklogPreviewService(db);
+export function createBacklogPreviewService(
+  db?: typeof defaultDb,
+  options?: BacklogPreviewServiceOptions,
+): BacklogPreviewService {
+  return new BacklogPreviewService(db, options);
 }

@@ -3,12 +3,13 @@
  * scripts/test-backlog-preview.ts — Acceptance tests for BacklogPreviewService
  *
  * Tests all per-source envelopes, step-index mapping (current_step+1 = step_order),
- * schema_missing for deferred_ghl_enrollments, non-additive design, and
- * eligibility indicators.
+ * the migrated deferred_ghl_enrollments aggregate, truthful source outages,
+ * non-additive design, and eligibility indicators.
  *
- * Does NOT require a live server or INTEGRATION_TESTS_OPT_IN — reads from DB
- * directly and instantiates BacklogPreviewService directly. No state mutation
- * to outbound systems.
+ * Requires NODE_ENV=test and a DATABASE_URL/TEST_DATABASE_URL pair pointing to
+ * the same clearly disposable database. The guard runs before importing the
+ * application database, Drizzle, or BacklogPreviewService. No state mutation
+ * to outbound systems occurs.
  *
  * Usage: npx tsx scripts/test-backlog-preview.ts
  */
@@ -16,9 +17,17 @@
 import { readFileSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
-import { db } from "../server/db";
-import { sql } from "drizzle-orm";
-import { BacklogPreviewService } from "../server/services/backlog-preview-service";
+import { assertDisposableTestInfrastructure } from "./test-infrastructure-guard";
+
+// This must remain the first application boundary: the guard only imports pg
+// and verifies that all stateful work is directed at the disposable test DB.
+await assertDisposableTestInfrastructure({
+  operation: "Backlog preview certification",
+});
+
+const { db } = await import("../server/db");
+const { sql } = await import("drizzle-orm");
+const { BacklogPreviewService } = await import("../server/services/backlog-preview-service");
 
 // ── Test utilities ────────────────────────────────────────────────────────────
 
@@ -70,6 +79,10 @@ function runStaticGate(): void {
   assert(
     svcSource.includes("42703"),
     "Service treats 42703 (undefined_column) as schema_missing — covers 0137-only state"
+  );
+  assert(
+    svcSource.includes("BACKLOG_DEFERRED_GHL_UNAVAILABLE"),
+    "Deferred-GHL runtime failures use a stable semantic error code"
   );
   // Bounded retrieval: bySequence must use LIMIT to cap rows transferred to Node
   assert(
@@ -376,24 +389,20 @@ async function runServiceTests(): Promise<void> {
     }
   }
 
-  // ─── 6. deferred_ghl_enrollments: ok or schema_missing ──────────────────
-  section("6. deferred_ghl_enrollments — returns ok or schema_missing (never zero-silenced)");
+  // ─── 6. deferred_ghl_enrollments: migrated healthy aggregate ─────────────
+  section("6. deferred_ghl_enrollments — migrated aggregate is healthy");
   {
     const preview = await svc.getBacklogPreview();
     const src = preview.deferredGhlEnrollments;
     assert(
-      src.status === "ok" || src.status === "schema_missing",
-      `deferredGhlEnrollments.status is 'ok' or 'schema_missing', got '${src.status}'`
+      src.status === "ok",
+      `deferredGhlEnrollments.status is 'ok' on the migrated disposable DB, got '${src.status}'`
     );
     if (src.status === "ok") {
       const d = src.data!;
       assert(typeof d.pending === "number", "deferredGhlEnrollments.pending is number");
       assert(typeof d.dueNow === "number", "deferredGhlEnrollments.dueNow is number");
       assert(typeof d.terminalFailed === "number", "deferredGhlEnrollments.terminalFailed is number");
-    }
-    if (src.status === "schema_missing") {
-      assert(src.data === null, "schema_missing envelope has data=null");
-      assert(typeof src.errorCode === "string", "schema_missing envelope has errorCode");
     }
   }
 
@@ -431,26 +440,113 @@ async function runServiceTests(): Promise<void> {
     }
   }
 
-  // ─── 9. Independent timeout error does not fail other sources ─────────────
-  section("9. Error isolation — error envelope shape");
+  // ─── 9. Truthful deferred-GHL outage envelopes and source isolation ───────
+  section("9. Deferred-GHL outages — stable envelopes and other-source preservation");
   {
-    // Verify errEnvelope shape by triggering a schema_missing error class
-    // We do this by verifying that the service wraps each settled result correctly
-    // (structural test — cannot easily inject a timeout in a DB-only test)
-    const preview = await svc.getBacklogPreview();
-    const nonOkSources = [
-      preview.bullmq,
-      preview.sequenceEnrollments,
-      preview.outboundMessages,
-      preview.deferredGhlEnrollments,
-      preview.postEnrichmentIntents,
-    ].filter((s) => s.status !== "ok");
+    const healthy = await svc.getBacklogPreview();
+    const otherSources = [
+      "bullmq",
+      "sequenceEnrollments",
+      "outboundMessages",
+      "postEnrichmentIntents",
+    ] as const;
+    const preservedSources = otherSources.filter(
+      (key) => healthy[key].status === "ok"
+    );
+    assert(
+      preservedSources.length >= 3,
+      "At least the three PostgreSQL-backed peer sources are healthy before outage injection"
+    );
 
-    for (const src of nonOkSources) {
-      assert(src.data === null, `Non-ok source (${src.status}) has data=null`);
-      assert(typeof (src as any).errorCode === "string", `Non-ok source (${src.status}) has errorCode string`);
-      assert(typeof src.capturedAt === "string", `Non-ok source (${src.status}) has capturedAt string`);
+    function isIsoTimestamp(value: unknown): boolean {
+      return (
+        typeof value === "string" &&
+        !Number.isNaN(Date.parse(value)) &&
+        new Date(value).toISOString() === value
+      );
     }
+
+    async function assertDeferredFailure(
+      label: string,
+      injectedError: Error & { code?: string },
+      expectedStatus: "schema_missing" | "unavailable" | "timeout",
+      expectedCode: string,
+    ): Promise<void> {
+      const degraded = await new BacklogPreviewService(db, {
+        deferredGhlEnrollmentsReader: async () => {
+          throw injectedError;
+        },
+      }).getBacklogPreview();
+      const source = degraded.deferredGhlEnrollments;
+      assert(source.status === expectedStatus, `${label}: status=${expectedStatus}`);
+      assert(source.data === null, `${label}: degraded data is null (no fabricated counts)`);
+      assert(
+        (source as any).errorCode === expectedCode,
+        `${label}: stable errorCode=${expectedCode}`
+      );
+      assert(
+        isIsoTimestamp(source.capturedAt),
+        `${label}: capturedAt is a valid ISO timestamp`
+      );
+      assert(degraded.partial === true, `${label}: preview is partial`);
+      const serialized = JSON.stringify(source);
+      assert(
+        !serialized.includes('"pending"') &&
+          !serialized.includes('"dueNow"') &&
+          !serialized.includes('"terminalFailed"'),
+        `${label}: degraded envelope has no count payload`
+      );
+      assert(
+        !/[0-9A-Z]{4,}.*(SQL|postgres|provider|connection)/i.test(
+          String((source as any).errorCode)
+        ) &&
+          !String((source as any).errorCode).includes("42P01") &&
+          !String((source as any).errorCode).includes("42703"),
+        `${label}: public error code contains no raw driver/provider details`
+      );
+      for (const key of preservedSources) {
+        assert(
+          degraded[key].status === "ok" &&
+            JSON.stringify(degraded[key].data) === JSON.stringify(healthy[key].data),
+          `${label}: preserves successful ${key} status and data`
+        );
+      }
+    }
+
+    await assertDeferredFailure(
+      "42P01 schema absence",
+      Object.assign(
+        new Error("relation deferred_ghl_enrollments does not exist"),
+        { code: "42P01" }
+      ),
+      "schema_missing",
+      "BACKLOG_DEFERRED_GHL_SCHEMA_MISSING",
+    );
+    await assertDeferredFailure(
+      "42703 schema absence",
+      Object.assign(
+        new Error("column deferred_ghl_enrollments.next_retry_at does not exist"),
+        { code: "42703" }
+      ),
+      "schema_missing",
+      "BACKLOG_DEFERRED_GHL_SCHEMA_MISSING",
+    );
+    await assertDeferredFailure(
+      "runtime unavailability",
+      Object.assign(new Error("database does not exist on the connection target"), {
+        code: "ECONNREFUSED",
+      }),
+      "unavailable",
+      "BACKLOG_DEFERRED_GHL_UNAVAILABLE",
+    );
+    await assertDeferredFailure(
+      "query timeout",
+      Object.assign(new Error("canceling statement due to statement timeout"), {
+        code: "57014",
+      }),
+      "timeout",
+      "BACKLOG_DEFERRED_GHL_TIMEOUT",
+    );
   }
 
   // ─── 10. No PII in backlog preview ───────────────────────────────────────

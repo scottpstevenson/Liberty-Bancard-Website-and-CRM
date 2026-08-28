@@ -56,6 +56,13 @@ interface Suite {
   timeoutSecs?: number;
   requiresServer?: boolean;
   /**
+   * Stateful certification that must never inherit the release/development DB.
+   * It runs here only when the caller explicitly supplies the same clearly
+   * disposable DATABASE_URL/TEST_DATABASE_URL under NODE_ENV=test. The
+   * deterministic-integration CI capability is its normal execution owner.
+   */
+  requiresDisposableTestDatabase?: boolean;
+  /**
    * When true, the suite is silently skipped if the server is unreachable (e.g.
    * it tests live-mode provider integrations that need real credentials).
    * When false/absent and requiresServer is true, an unreachable server causes
@@ -474,11 +481,12 @@ const MANDATORY_SUITES: Suite[] = [
     script: "scripts/smoke-attrition-cooldown.ts",
     timeoutSecs: 60,
   },
-  // ── #1552 — Backlog preview (per-source envelopes, step-index mapping, schema_missing) ──
+  // ── Backlog preview — disposable DB healthy aggregate + truthful outage envelopes ──
   {
-    name: "Backlog Preview (per-source envelopes, next_action_at, schema_missing, non-additive)",
+    name: "Backlog Preview (migrated aggregate, stable outage envelopes, non-additive)",
     script: "scripts/test-backlog-preview.ts",
     timeoutSecs: 60,
+    requiresDisposableTestDatabase: true,
   },
 ];
 
@@ -984,12 +992,29 @@ async function main() {
     // server is absent.  Suites without that flag that require a server have
     // already caused a hard exit above, so this path is only reached for the
     // soft-skip candidates.
-    const skip = suite.requiresServer && !serverReachable && !!suite.skipWhenServerDown;
+    const serverSkip =
+      suite.requiresServer && !serverReachable && !!suite.skipWhenServerDown;
+    const disposableDatabaseReady =
+      process.env.NODE_ENV === "test" &&
+      Boolean(process.env.DATABASE_URL) &&
+      process.env.DATABASE_URL === process.env.TEST_DATABASE_URL;
+    const disposableDatabaseSkip =
+      Boolean(suite.requiresDisposableTestDatabase) && !disposableDatabaseReady;
+    const skip = serverSkip || disposableDatabaseSkip;
 
     console.log(`\n▶  ${suite.name}`);
 
     if (skip) {
-      console.log("   (skipped — server not reachable; live-mode suite)");
+      if (disposableDatabaseSkip) {
+        console.log(
+          "   (skipped — disposable PostgreSQL certification runs in deterministic-integration CI;",
+        );
+        console.log(
+          "    set NODE_ENV=test with equal DATABASE_URL/TEST_DATABASE_URL to run it here)",
+        );
+      } else {
+        console.log("   (skipped — server not reachable; live-mode suite)");
+      }
       results.push({ suite, exitCode: 0, durationMs: 0, skipped: true, pauseAfter: true });
       continue;
     }
