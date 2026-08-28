@@ -24,6 +24,55 @@ export interface ApolloBusiness {
   ownerTitle: string | null;
 }
 
+/**
+ * Frozen identity values used to resolve an Apollo organization.  These are
+ * comparison inputs only: no value returned by Apollo is allowed to replace
+ * them unless the caller has separately accepted a successful resolution.
+ */
+export interface ApolloFrozenOrganizationIdentity {
+  domain?: string | null;
+  legalName?: string | null;
+  dbaName?: string | null;
+  city?: string | null;
+  state?: string | null;
+  address?: string | null;
+}
+
+export interface ApolloOrganizationAlternative {
+  organizationId: string;
+  organization: ApolloBusiness;
+}
+
+export interface ApolloOrganizationResolutionSuccess {
+  outcome: "success";
+  organizationId: string;
+  organization: ApolloBusiness;
+  people: ApolloBusiness[];
+  alternatives: ApolloOrganizationAlternative[];
+}
+
+export interface ApolloOrganizationResolutionNoResult {
+  outcome: "no_result";
+  alternatives: ApolloOrganizationAlternative[];
+}
+
+export interface ApolloOrganizationResolutionAmbiguous {
+  outcome: "ambiguous";
+  alternatives: ApolloOrganizationAlternative[];
+}
+
+/**
+ * A resolver deliberately has no projected fields for non-success outcomes.
+ * Consumers must therefore not accidentally treat the first search result as
+ * an enrichment candidate.
+ */
+export type ApolloOrganizationResolution =
+  | ApolloOrganizationResolutionSuccess
+  | ApolloOrganizationResolutionNoResult
+  | ApolloOrganizationResolutionAmbiguous;
+
+export type ApolloFetch = (url: string, init: RequestInit) => Promise<Response>;
+
 interface ApolloUsageStats {
   totalCalls: number;
   successfulCalls: number;
@@ -118,6 +167,185 @@ function extractFirstPhone(phoneNumbers: any[]): string | null {
   if (!Array.isArray(phoneNumbers) || phoneNumbers.length === 0) return null;
   const primary = phoneNumbers.find(p => p.type === "work" || p.type === "direct_phone") || phoneNumbers[0];
   return normalizePhone(primary?.sanitized_number || primary?.raw_number);
+}
+
+function normalizeIdentityValue(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const normalized = value.trim().replace(/\s+/g, " ").toLowerCase();
+  return normalized || null;
+}
+
+function organizationId(raw: Record<string, any>): string | null {
+  const id = raw.id ?? raw.organization_id;
+  return typeof id === "string" || typeof id === "number" ? String(id) : null;
+}
+
+function organizationNames(raw: Record<string, any>): string[] {
+  const names = [
+    raw.name, raw.legal_name, raw.legalName, raw.dba_name, raw.dbaName,
+    ...(Array.isArray(raw.alternate_names) ? raw.alternate_names : []),
+    ...(Array.isArray(raw.aliases) ? raw.aliases : []),
+  ];
+  return names
+    .map((name) => typeof name === "string" ? normalizeIdentityValue(name) : null)
+    .filter((name): name is string => Boolean(name));
+}
+
+function isExactFrozenOrganizationMatch(
+  raw: Record<string, any>,
+  identity: Required<Pick<ApolloFrozenOrganizationIdentity, "domain" | "legalName" | "dbaName" | "city" | "state" | "address">>,
+): boolean {
+  const candidateDomain = extractDomain(raw.primary_domain || raw.website_url);
+  const hasDomainMatch = Boolean(identity.domain && candidateDomain === identity.domain);
+  const names = organizationNames(raw);
+  const hasNameMatch = Boolean(
+    (identity.legalName && names.includes(identity.legalName))
+    || (identity.dbaName && names.includes(identity.dbaName)),
+  );
+
+  // A location is an additional exact constraint, not a fuzzy score.
+  if (!hasDomainMatch && !hasNameMatch) return false;
+  if (identity.city && normalizeIdentityValue(raw.city) !== identity.city) return false;
+  if (identity.state && normalizeIdentityValue(raw.state) !== identity.state) return false;
+  if (identity.address && normalizeIdentityValue(raw.street_address ?? raw.address) !== identity.address) return false;
+  return true;
+}
+
+function normalizedFrozenIdentity(identity: ApolloFrozenOrganizationIdentity) {
+  return {
+    domain: extractDomain(identity.domain),
+    legalName: normalizeIdentityValue(identity.legalName),
+    dbaName: normalizeIdentityValue(identity.dbaName),
+    city: normalizeIdentityValue(identity.city),
+    state: normalizeIdentityValue(identity.state),
+    address: normalizeIdentityValue(identity.address),
+  };
+}
+
+function apolloHeaders(): HeadersInit {
+  return {
+    "Content-Type": "application/json",
+    "Cache-Control": "no-cache",
+    "X-Api-Key": process.env.APOLLO_API_KEY || "",
+  };
+}
+
+async function postApollo(
+  path: string,
+  body: Record<string, unknown>,
+  fetchOverride: ApolloFetch,
+): Promise<any> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
+  try {
+    const response = await fetchOverride(`${APOLLO_API_URL}${path}`, {
+      method: "POST",
+      headers: apolloHeaders(),
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error(`APOLLO_HTTP_${response.status}`);
+    return await response.json();
+  } catch (err: any) {
+    if (err?.name === "AbortError") throw new Error("APOLLO_TIMEOUT");
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/**
+ * Resolves a frozen organization identity before looking up people.  Transport
+ * injection is mandatory so this low-level deterministic API cannot silently
+ * make a live paid request; approved callers may explicitly supply transport.
+ */
+export async function resolveApolloOrganizationForFrozenIdentity(
+  frozenIdentity: ApolloFrozenOrganizationIdentity,
+  fetchOverride: ApolloFetch,
+): Promise<ApolloOrganizationResolution> {
+  if (!fetchOverride) throw new Error("APOLLO_FETCH_OVERRIDE_REQUIRED");
+  const identity = normalizedFrozenIdentity(frozenIdentity);
+  if (!identity.domain && !identity.legalName && !identity.dbaName) {
+    return { outcome: "no_result", alternatives: [] };
+  }
+  if (!process.env.APOLLO_API_KEY) {
+    return { outcome: "no_result", alternatives: [] };
+  }
+
+  await acquireToken();
+  const requestCity = frozenIdentity.city?.trim();
+  const requestState = frozenIdentity.state?.trim();
+  const queries: Record<string, unknown>[] = [];
+  if (identity.domain) queries.push({ q_organization_domains: [identity.domain] });
+  if (identity.legalName) queries.push({ q_organization_name: identity.legalName });
+  if (identity.dbaName && identity.dbaName !== identity.legalName) {
+    queries.push({ q_organization_name: identity.dbaName });
+  }
+
+  const organizations = new Map<string, Record<string, any>>();
+  for (const query of queries) {
+    const data = await postApollo("/organizations/search", {
+      ...query,
+      ...(requestCity || requestState
+        ? { organization_locations: [`${requestCity ?? ""}${requestCity && requestState ? ", " : ""}${requestState ?? ""}`] }
+        : {}),
+      page: 1,
+      per_page: 100,
+    }, fetchOverride);
+    for (const raw of data.organizations || []) {
+      const id = organizationId(raw);
+      if (id) organizations.set(id, raw);
+    }
+  }
+
+  const alternatives = [...organizations.values()]
+    .filter((raw) => isExactFrozenOrganizationMatch(raw, identity))
+    .map((raw) => ({ organizationId: organizationId(raw)!, organization: parseApolloOrg(raw) }))
+    .sort((a, b) => a.organizationId.localeCompare(b.organizationId));
+
+  if (alternatives.length === 0) return { outcome: "no_result", alternatives };
+  if (alternatives.length !== 1) return { outcome: "ambiguous", alternatives };
+
+  const selected = alternatives[0];
+  const peopleData = await postApollo("/mixed_people/search", {
+    organization_ids: [selected.organizationId],
+    page: 1,
+    per_page: 100,
+  }, fetchOverride);
+  const people = (peopleData.people || [])
+    .filter((person: Record<string, any>) => organizationId(person.organization || person) === selected.organizationId)
+    .map((person: Record<string, any>) => parseApolloPerson(person));
+
+  return { outcome: "success", ...selected, people, alternatives };
+}
+
+/** Short alias for callers that do not need the policy-oriented name. */
+export const resolveApolloOrganization = resolveApolloOrganizationForFrozenIdentity;
+
+/**
+ * The sole production transport wrapper for deterministic organization
+ * resolution.  It intentionally accepts only the durable CRO03 context; the
+ * injectable resolver above remains the test-facing primitive.
+ */
+export async function resolveApolloOrganizationForCro03Worker(
+  frozenIdentity: ApolloFrozenOrganizationIdentity,
+  authorization: Cro03WorkerProviderContext,
+): Promise<ApolloOrganizationResolution> {
+  assertProviderActivation({
+    sourceId: "apollo",
+    caller: authorization?.caller ?? "unapproved",
+    explicitPaidApproval: authorization?.explicitPaidApproval ?? false,
+  });
+  if (!authorization || authorization.kind !== "cro03_worker" || authorization.provider !== "apollo") {
+    throw new Error("CRO03_PROVIDER_CONTEXT_REQUIRED");
+  }
+  await assertCurrentWorkerContext(authorization);
+  // postApollo owns the abort controller, so the production path retains the
+  // same bounded 30-second transport timeout as injected transport.
+  return resolveApolloOrganizationForFrozenIdentity(
+    frozenIdentity,
+    (url, init) => fetch(url, init),
+  );
 }
 
 function parseApolloPerson(raw: Record<string, any>): ApolloBusiness {

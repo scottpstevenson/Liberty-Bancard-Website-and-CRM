@@ -430,10 +430,28 @@ export const SUITE_MANIFEST: SuiteManifestEntry[] = [
     providerDenial: "injected transports and source checks only; live provider/network transport denied",
   },
   {
+    name: "CRO-03 Apollo Organization Resolution",
+    script: "scripts/test-apollo-organization-resolution.ts",
+    capability: "deterministic-static",
+    providerDenial: "mocked transport only; authorized production wrapper is verified fail-closed",
+  },
+  {
+    name: "CRO-03 Retired Client Endpoint Scan",
+    script: "scripts/scan-cro03-client-endpoints.ts",
+    capability: "deterministic-static",
+    providerDenial: "source-only endpoint scan; no provider transport",
+  },
+  {
     name: "CRO-03 Durable Enrichment Factory Concurrency and Recovery",
     script: "scripts/test-cro03-integration.ts",
     capability: "deterministic-integration",
     providerDenial: "disposable PostgreSQL and isolated Redis; provider and public-network transport denied by certification wrapper",
+  },
+  {
+    name: "CRO-03 HTTP Authorization and Ownership",
+    script: "scripts/test-cro03-http-authorization.ts",
+    capability: "server-required",
+    providerDenial: "localhost authorization contract; CRO-03 providers remain disabled",
   },
   // ── server-required (live server + DB; hard-fails if server absent) ──────
   {

@@ -11,6 +11,7 @@ import {
 } from "./contracts";
 import { sealCandidate, openCandidate } from "./candidate-vault";
 import { selectCro03Route } from "./routing-policy";
+import { hashCro03Evidence } from "./source-staging";
 import {
   assertCurrentWorkerContext, isCro03Provider, reserveCro03ProviderOperation,
   type Cro03WorkerProviderContext,
@@ -19,6 +20,15 @@ import {
 type Row = Record<string, any>;
 const rows = (result: any): Row[] => result?.rows ?? result ?? [];
 export const CRO03_PROVIDER_TRANSPORT_ENABLED = false as const;
+
+function attemptOutcome(outcome: import("./contracts").Cro03ProviderOutcome): string {
+  if (outcome === "success") return "completed";
+  if (outcome === "no_result") return "no_result";
+  if (outcome === "disabled" || outcome === "cancelled") return "blocked";
+  if (outcome === "rate_limited" || outcome === "circuit_open") return "retryable_failed";
+  if (outcome === "timeout" || outcome === "provider_error" || outcome === "ambiguous_billing") return "ambiguous";
+  return "failed";
+}
 
 export interface CreateCro03BatchInput {
   idempotencyKey: string;
@@ -253,7 +263,9 @@ export async function createCro03Batch(input: CreateCro03BatchInput): Promise<{
       routePlan.providers.includes("outscraper"),
     );
     const paidEnrichmentEligible = Boolean(contact && decision.allowed && decision.dependencyFingerprint);
-    const executable = paidEnrichmentEligible || discoveryEligible;
+    // Provider discovery is still a commercial effect. A local field-gap
+    // heuristic may select a route, but it can never authorize execution.
+    const executable = paidEnrichmentEligible;
     prepared.push({
       ordinal, contactId, contact, decision,
       // Discovery eligibility is narrow evidence selection; provider spend has
@@ -319,8 +331,8 @@ export async function createCro03Batch(input: CreateCro03BatchInput): Promise<{
                 ${entry.executable ? "executable" : "blocked"},
                 ${entry.executable ? null : (entry.decision.reasonCodes ?? ["SUBJECT_MISSING"]).join(",")},
                 ${membershipHash},
-                ${JSON.stringify(entry.snapshot ?? {})}::jsonb, ${safeKey(JSON.stringify(entry.snapshot ?? {}))},
-                ${JSON.stringify(entry.routePlan)}::jsonb, ${safeKey(JSON.stringify(entry.routePlan))},
+                 ${JSON.stringify(entry.snapshot ?? {})}::jsonb, ${hashCro03Evidence(entry.snapshot ?? {})},
+                 ${JSON.stringify(entry.routePlan)}::jsonb, ${hashCro03Evidence(entry.routePlan)},
                 ${entry.discoveryEligible}, ${entry.paidEnrichmentEligible})
         RETURNING id
       `))[0];
@@ -330,7 +342,7 @@ export async function createCro03Batch(input: CreateCro03BatchInput): Promise<{
         VALUES (${id}::uuid, ${membership.id}::uuid,
                 ${entry.executable ? "queued" : "blocked"},
                 ${entry.executable ? null : "pre_spend_blocked"},
-                ${safeKey(JSON.stringify(entry.snapshot ?? {}))}, ${safeKey(JSON.stringify(entry.routePlan))})
+                 ${hashCro03Evidence(entry.snapshot ?? {})}, ${hashCro03Evidence(entry.routePlan)})
       `);
     }
     return {
@@ -542,9 +554,20 @@ async function authorizeCro03TransportDispatch(input: {
        FOR UPDATE OF b, i, r, o
     `))[0];
     if (!authority) return false;
+    const attempt = rows(await tx.execute(sql`
+      INSERT INTO provider_attempts
+        (operation_id, attempt_number, outcome, retryable, started_at)
+      SELECT ${input.operationId}::uuid, COALESCE(MAX(attempt_number), 0) + 1,
+             'pending', FALSE, NOW()
+        FROM provider_attempts
+       WHERE operation_id = ${input.operationId}::uuid
+      RETURNING id
+    `))[0];
+    if (!attempt) throw new Error("CRO03_PRETRANSPORT_ATTEMPT_CREATE_FAILED");
     await tx.execute(sql`
       UPDATE cro03_provider_runs
-         SET state = 'running'
+         SET state = 'running', provider_attempt_id = ${attempt.id}::uuid,
+             attempt_count = attempt_count + 1
        WHERE id = ${input.providerRunId}::uuid AND state = 'reserved'
     `);
     return true;
@@ -621,9 +644,10 @@ export async function completeCro03ProviderAccounting(
 export async function recoverExpiredCro03Dispatches(): Promise<number> {
   const stale = rows(await db.execute(sql`
     SELECT r.id AS provider_run_id, r.operation_id, r.provider, r.item_id, i.batch_id,
-           r.state AS run_state
+           r.state AS run_state, m.subject_id
       FROM cro03_provider_runs r
       JOIN cro03_enrichment_items i ON i.id = r.item_id
+      JOIN cro03_batch_memberships m ON m.id = i.membership_id
       JOIN provider_operations o ON o.id = r.operation_id
      WHERE (
        r.state = 'reserved'
@@ -666,6 +690,25 @@ export async function recoverExpiredCro03Dispatches(): Promise<number> {
                billing_disposition = ${terminalDisposition}, completed_at = NOW()
          WHERE id = ${candidate.provider_run_id}::uuid AND state = ${candidate.run_state}
       `);
+      if (candidate.run_state === "running") {
+        const recoveredAttempt = rows(await tx.execute(sql`
+          UPDATE provider_attempts
+             SET outcome = 'ambiguous', retryable = false, completed_at = NOW()
+           WHERE id = (
+             SELECT provider_attempt_id FROM cro03_provider_runs
+              WHERE id = ${candidate.provider_run_id}::uuid
+           ) AND outcome = 'pending'
+          RETURNING id
+        `))[0];
+        await tx.execute(sql`
+          INSERT INTO provider_observations
+            (provider, operation_id, attempt_id, subject_type, subject_id, outcome, observed_at, evidence_hash)
+          VALUES (${candidate.provider}, ${candidate.operation_id}::uuid,
+                  ${recoveredAttempt?.id ?? null}::uuid, 'contact',
+                  ${Number(candidate.subject_id)}, 'ambiguous_billing', NOW(),
+                  ${safeKey(`recovery:${candidate.provider_run_id}:ambiguous`)})
+        `);
+      }
       await tx.execute(sql`
         UPDATE provider_operations
            SET state = 'failed', billing_state = ${terminalDisposition},
@@ -720,12 +763,21 @@ async function executeDefaultApollo(input: {
   identity?: Row;
   context: Cro03WorkerProviderContext;
 }): Promise<ProviderTransportResult> {
-  const { searchApolloForDiscovery } = await import("../sdr/apollo");
-  const results = await searchApolloForDiscovery(
-    input.vertical, input.metro, input.state, input.limit, input.context,
-  );
-  const first = selectFrozenIdentityMatch(results as Row[], input.identity ?? {});
-  if (!first) return { outcome: results.length > 1 ? "conflict" : "no_result", candidates: [] };
+  const { resolveApolloOrganizationForCro03Worker } = await import("../sdr/apollo");
+  const resolution = await resolveApolloOrganizationForCro03Worker({
+    domain: input.identity?.website,
+    legalName: input.identity?.company_name,
+    dbaName: input.identity?.dba,
+    city: input.identity?.city,
+    state: input.identity?.state,
+    address: input.identity?.address,
+  }, input.context);
+  if (resolution.outcome === "ambiguous") return { outcome: "conflict", candidates: [] };
+  if (resolution.outcome === "no_result") return { outcome: "no_result", candidates: [] };
+  const person = resolution.people[0];
+  const first = person
+    ? { ...resolution.organization, ...person, name: resolution.organization.name }
+    : resolution.organization;
   const values: Array<[Cro03CandidateField, string | null, number]> = [
     ["business_name", first.name, 80], ["website", first.website, 80],
     ["email", first.ownerEmail ?? first.email, 75], ["phone", first.ownerPhone ?? first.phone, 75],
@@ -763,7 +815,7 @@ async function executeDefaultOutscraper(input: {
 }
 
 async function recordProviderOutcomeEvidence(input: {
-  provider: "apollo" | "outscraper";
+  provider: Cro03Provider;
   operationId: string;
   providerRunId: string;
   subjectId: number;
@@ -771,44 +823,67 @@ async function recordProviderOutcomeEvidence(input: {
   requestHash?: string;
   evidenceHash?: string;
 }): Promise<string> {
-  const retryable = ["rate_limited", "timeout", "provider_error", "circuit_open"].includes(input.outcome);
+  // Once transport has been authorized, a timeout/transport/provider failure is
+  // an ambiguous delivery and billing outcome. It must never be auto-retried.
+  // Only explicit pre-charge provider refusals are retry-safe.
+  const retryable = ["rate_limited", "circuit_open"].includes(input.outcome);
   const attemptOutcome = input.outcome === "success" ? "completed" :
     input.outcome === "no_result" ? "no_result" :
       retryable ? "retryable_failed" : input.outcome === "ambiguous_billing" ? "ambiguous" :
         input.outcome === "disabled" || input.outcome === "not_configured" ? "blocked" : "failed";
-  const attempt = rows(await db.execute(sql`
-    INSERT INTO provider_attempts
-      (operation_id, attempt_number, outcome, retryable, request_id, error_code, completed_at)
-    SELECT ${input.operationId}::uuid, COALESCE(MAX(attempt_number), 0) + 1,
-           ${attemptOutcome}, ${retryable}, ${input.requestHash ?? null},
-           ${input.outcome === "success" || input.outcome === "no_result" ? null : input.outcome}, NOW()
-      FROM provider_attempts WHERE operation_id = ${input.operationId}::uuid
-    RETURNING id
-  `))[0];
-  const observationOutcome = input.outcome === "disabled" ? "disabled" :
-    input.outcome === "budget_exhausted" ? "budget_blocked" :
-      input.outcome === "circuit_open" ? "circuit_blocked" :
-        input.outcome;
-  const observation = rows(await db.execute(sql`
-    INSERT INTO provider_observations
-      (provider, operation_id, attempt_id, subject_type, subject_id, outcome,
-       request_id, evidence_hash, retryable, observed_at)
-    VALUES (${input.provider}, ${input.operationId}::uuid, ${attempt.id}::uuid, 'contact',
-            ${input.subjectId}, ${observationOutcome}, ${input.requestHash ?? null},
-             ${input.evidenceHash ?? safeKey(`cro03:${input.providerRunId}:${input.outcome}:${input.requestHash ?? ""}`)},
-            ${retryable}, NOW())
-    RETURNING id
-  `))[0];
-  await db.execute(sql`
-    UPDATE cro03_provider_runs
-       SET provider_attempt_id = ${attempt.id}::uuid
-     WHERE id = ${input.providerRunId}::uuid
-  `);
-  return String(observation.id);
+  return db.transaction(async (tx) => {
+    let attempt = rows(await tx.execute(sql`
+      SELECT a.id
+        FROM provider_attempts a
+        JOIN cro03_provider_runs r ON r.provider_attempt_id = a.id
+       WHERE r.id = ${input.providerRunId}::uuid
+         AND a.operation_id = ${input.operationId}::uuid
+       FOR UPDATE
+    `))[0];
+    // Zero-spend/import/disabled observations have no transport boundary, but
+    // still need a complete lineage. Create their terminal attempt locally.
+    if (!attempt) {
+      attempt = rows(await tx.execute(sql`
+        INSERT INTO provider_attempts
+          (operation_id, attempt_number, outcome, retryable, started_at)
+        SELECT ${input.operationId}::uuid, COALESCE(MAX(attempt_number), 0) + 1,
+               'pending', FALSE, NOW()
+          FROM provider_attempts WHERE operation_id = ${input.operationId}::uuid
+        RETURNING id
+      `))[0];
+    }
+    await tx.execute(sql`
+      UPDATE provider_attempts
+         SET outcome = ${attemptOutcome}, retryable = ${retryable},
+             request_id = ${input.requestHash ?? null},
+             error_code = ${input.outcome === "success" || input.outcome === "no_result" ? null : input.outcome},
+             completed_at = NOW()
+       WHERE id = ${attempt.id}::uuid AND outcome = 'pending'
+    `);
+    const observationOutcome = input.outcome === "disabled" ? "disabled" :
+      input.outcome === "budget_exhausted" ? "budget_blocked" :
+        input.outcome === "circuit_open" ? "circuit_blocked" :
+          input.outcome;
+    const observation = rows(await tx.execute(sql`
+      INSERT INTO provider_observations
+        (provider, operation_id, attempt_id, subject_type, subject_id, outcome,
+         request_id, evidence_hash, retryable, observed_at)
+      VALUES (${input.provider}, ${input.operationId}::uuid, ${attempt.id}::uuid, 'contact',
+              ${input.subjectId}, ${observationOutcome}, ${input.requestHash ?? null},
+               ${input.evidenceHash ?? safeKey(`cro03:${input.providerRunId}:${input.outcome}:${input.requestHash ?? ""}`)},
+              ${retryable}, NOW())
+      RETURNING id
+    `))[0];
+    await tx.execute(sql`
+      UPDATE cro03_provider_runs SET provider_attempt_id = ${attempt.id}::uuid
+       WHERE id = ${input.providerRunId}::uuid
+    `);
+    return String(observation.id);
+  });
 }
 
 async function createZeroSpendOperation(input: {
-  provider: "apollo" | "outscraper"; providerRunId: string; targetFingerprint: string; purpose: string;
+  provider: Cro03Provider; providerRunId: string; targetFingerprint: string; purpose: string;
 }): Promise<string> {
   const operation = rows(await db.execute(sql`
     INSERT INTO provider_operations
@@ -1153,7 +1228,13 @@ export async function processNextCro03Item(
   } catch {
     snapshot = {};
   }
-  if (!Number(snapshot.id) || !frozenRouteForMembership(membership)) {
+  const frozenRoutePlan = frozenRouteForMembership(membership);
+  if (!Number(snapshot.id) || !frozenRoutePlan ||
+      hashCro03Evidence(snapshot) !== membership.subject_snapshot_hash ||
+      hashCro03Evidence(typeof membership.frozen_route_plan === "string"
+        ? JSON.parse(membership.frozen_route_plan) : membership.frozen_route_plan ?? {}) !== membership.route_plan_hash ||
+      membership.subject_snapshot_hash !== item.subject_snapshot_hash ||
+      membership.route_plan_hash !== item.route_plan_hash) {
     await db.execute(sql`
       UPDATE cro03_enrichment_items
          SET state = 'superseded', terminal_code = 'missing_or_malformed_frozen_evidence',
@@ -1188,23 +1269,18 @@ export async function processNextCro03Item(
     await refreshBatchState(String(item.batch_id));
     return "completed";
   }
-  // Discovery is selected from the immutable narrow identity recipe before
-  // CRO-02 can resolve a commercial graph. Every other paid step remains
-  // commercial-fence-gated before it can reserve or dispatch.
-  if (provider !== "outscraper") {
-    const fence = await resolveFence({
-      subjectType: "contact", subjectId: Number(membership.subject_id),
-      effect: "provider_pre_spend", expectedFingerprint: membership.dependency_fingerprint,
-    });
-    if (!fence.allowed) {
-      await db.execute(sql`
-        UPDATE cro03_enrichment_items
-           SET state = 'superseded', terminal_code = 'stale_graph',
-               lease_expires_at = NULL, claim_token = NULL, completed_at = NOW(), updated_at = NOW()
-         WHERE id = ${item.id}::uuid AND claim_token = ${item.claim_token}::uuid
-      `);
-      return "superseded";
-    }
+  const fence = await resolveFence({
+    subjectType: "contact", subjectId: Number(membership.subject_id),
+    effect: "provider_pre_spend", expectedFingerprint: membership.dependency_fingerprint,
+  });
+  if (!fence.allowed) {
+    await db.execute(sql`
+      UPDATE cro03_enrichment_items
+         SET state = 'superseded', terminal_code = 'stale_graph',
+             lease_expires_at = NULL, claim_token = NULL, completed_at = NOW(), updated_at = NOW()
+       WHERE id = ${item.id}::uuid AND claim_token = ${item.claim_token}::uuid
+    `);
+    return "superseded";
   }
   const providerRun = rows(await db.execute(sql`
     INSERT INTO cro03_provider_runs
@@ -1229,15 +1305,15 @@ export async function processNextCro03Item(
     !CRO03_PROVIDER_TRANSPORT_ENABLED &&
     !certificationTransportAllowed
   ) {
-    const operationId = isCro03Provider(provider) ? await createZeroSpendOperation({
+    const operationId = await createZeroSpendOperation({
       provider, providerRunId: String(providerRun.id),
       targetFingerprint: membership.dependency_fingerprint, purpose: "provider_pre_spend",
-    }) : null;
+    });
     await db.execute(sql`
       UPDATE cro03_provider_runs SET state = 'completed', provider_outcome = 'disabled',
              billing_disposition = 'none', completed_at = NOW() WHERE id = ${providerRun.id}::uuid
     `);
-    if (operationId && isCro03Provider(provider)) await recordProviderOutcomeEvidence({
+    await recordProviderOutcomeEvidence({
       provider, operationId, providerRunId: String(providerRun.id),
       subjectId: Number(membership.subject_id), outcome: "disabled",
     });
@@ -1264,6 +1340,15 @@ export async function processNextCro03Item(
          AND purpose = 'cro03_winning_email'
        ORDER BY created_at DESC LIMIT 1
     `))[0];
+    const operationId = await createZeroSpendOperation({
+      provider, providerRunId: String(providerRun.id),
+      targetFingerprint: membership.dependency_fingerprint, purpose: "email_validation_backlink",
+    });
+    await recordProviderOutcomeEvidence({
+      provider, operationId, providerRunId: String(providerRun.id),
+      subjectId: Number(membership.subject_id), outcome: "no_result",
+      evidenceHash: safeKey(`validation-intent:${intent?.id ?? "missing"}`),
+    });
     await db.execute(sql`
       UPDATE cro03_provider_runs SET state = 'deferred', provider_outcome = 'no_result',
              outcome_code = 'validation_pending', validation_intent_id = ${intent?.id ?? null}::uuid,
@@ -1371,7 +1456,7 @@ export async function processNextCro03Item(
     `);
     return "deferred";
   }
-  const preTransportFence = provider === "outscraper" ? { allowed: true } : await resolveFence({
+  const preTransportFence = await resolveFence({
     subjectType: "contact", subjectId: Number(membership.subject_id),
     effect: "provider_pre_spend", expectedFingerprint: membership.dependency_fingerprint,
   });
@@ -1465,26 +1550,45 @@ export async function processNextCro03Item(
     result = { outcome: "provider_error", candidates: [] };
   }
   const outcome = normalizeProviderOutcome(result.outcome);
-  const retryable = ["rate_limited", "timeout", "provider_error", "circuit_open"].includes(outcome);
+  const retryable = ["rate_limited", "circuit_open"].includes(outcome);
   const billing = outcome === "success" || outcome === "no_result" ? "consumed" : "ambiguous";
-  await db.execute(sql`
-    UPDATE cro03_provider_runs
-       SET state = ${billing === "ambiguous" ? "failed" : "completed"},
-           provider_outcome = ${outcome}, outcome_code = ${outcome}, retryable = ${retryable},
-           retry_after = ${retryable ? sql`NOW() + INTERVAL '5 minutes'` : null},
-           provider_request_hash = ${result.requestHash ?? null},
-           billing_disposition = ${billing}, completed_at = NOW()
-     WHERE id = ${providerRun.id}::uuid
-  `);
+  const observationId = await db.transaction(async (tx) => {
+    await tx.execute(sql`
+      UPDATE cro03_provider_runs
+         SET state = ${billing === "ambiguous" ? "failed" : "completed"},
+             provider_outcome = ${outcome}, outcome_code = ${outcome}, retryable = ${retryable},
+             retry_after = ${retryable ? sql`NOW() + INTERVAL '5 minutes'` : null},
+             provider_request_hash = ${result.requestHash ?? null},
+             billing_disposition = ${billing}, completed_at = NOW()
+       WHERE id = ${providerRun.id}::uuid
+    `);
+    const evidenceHash = safeKey(`${provider}:${reservation.operationId}:${outcome}:${result.requestHash ?? ""}`);
+    const attempt = rows(await tx.execute(sql`
+      UPDATE provider_attempts
+         SET outcome = ${attemptOutcome(outcome)}, retryable = ${retryable},
+             request_id = ${result.receiptReference ?? null}, completed_at = NOW()
+       WHERE id = (
+         SELECT provider_attempt_id FROM cro03_provider_runs
+          WHERE id = ${providerRun.id}::uuid
+       )
+       RETURNING id
+    `))[0];
+    const observation = rows(await tx.execute(sql`
+      INSERT INTO provider_observations
+        (provider, operation_id, attempt_id, subject_type, subject_id, outcome,
+         observed_at, evidence_hash, request_id)
+      VALUES (${provider}, ${reservation.operationId}::uuid, ${attempt?.id ?? null}::uuid,
+              'contact', ${Number(membership.subject_id)}, ${outcome}, NOW(),
+              ${evidenceHash}, ${result.receiptReference ?? null})
+      RETURNING id
+    `))[0];
+    return String(observation.id);
+  });
   await completeCro03ProviderAccounting(
     String(providerRun.id), reservation.operationId, provider, billing,
     { requestHash: result.requestHash, receiptReference: result.receiptReference },
   );
-  const observationId = await recordProviderOutcomeEvidence({
-    provider, operationId: reservation.operationId, providerRunId: String(providerRun.id),
-    subjectId: Number(membership.subject_id), outcome, requestHash: result.requestHash,
-  });
-  const postTransportFence = provider === "outscraper" ? { allowed: true } : await resolveFence({
+  const postTransportFence = await resolveFence({
     subjectType: "contact", subjectId: Number(membership.subject_id),
     effect: "provider_pre_spend", expectedFingerprint: membership.dependency_fingerprint,
   });

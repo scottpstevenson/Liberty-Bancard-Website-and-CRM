@@ -691,12 +691,7 @@ export default function Contacts() {
     if (bulkUpdating) return;
     setBulkUpdating(true);
     try {
-      const res = await apiRequest("POST", "/api/contacts/bulk-enrich-linkedin", {
-        contactIds: Array.from(selectedIds),
-      });
-      const data = await res.json();
-      toast({ title: "LinkedIn enrichment started", description: data.message });
-      setSelectedIds(new Set());
+      throw new Error("Bulk LinkedIn enrichment is retired; CRO-03 provider transport is disabled.");
     } catch (err: any) {
       toast({ title: "LinkedIn enrichment failed", description: err.message, variant: "destructive" });
     } finally {

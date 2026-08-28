@@ -175,12 +175,8 @@ export default function LeadOpsCenter() {
 
   // ── Mutations ──────────────────────────────────────────────────────────────
   const bulkEnrichMutation = useMutation({
-    mutationFn: async (ids: number[] | "all") => {
-      const body = ids === "all"
-        ? { all: true, filter: { status: filterStatus !== "all" ? filterStatus : undefined, score: filterScore !== "all" ? filterScore : undefined } }
-        : { entityIds: ids };
-      const r = await apiRequest("POST", "/api/lead-ops/bulk-enrich", body);
-      return r.json();
+    mutationFn: async (_ids: number[] | "all") => {
+      throw new Error("Legacy bulk enrichment is retired; CRO-03 provider transport is disabled.");
     },
     onSuccess: (data: any) => {
       toast({ title: "Enrichment queued", description: data.message });

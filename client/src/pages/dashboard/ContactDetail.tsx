@@ -1124,8 +1124,7 @@ export default function ContactDetail() {
 
   const enrichLinkedInMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", `/api/contacts/${contactId}/enrich-linkedin`);
-      return res.json();
+      throw new Error("Direct LinkedIn enrichment is retired; CRO-03 provider transport is disabled.");
     },
     onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/contacts", contactId, "detail"] });

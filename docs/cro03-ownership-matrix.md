@@ -26,3 +26,28 @@ Canary definitions are descriptive and non-executable. Apollo and Outscraper
 ship with controls disabled and a zero local budget. Enabling them, changing
 budgets, creating production batches, or running a production backfill is not
 part of CRO-03.
+
+## HTTP authorization certification (Task #1718)
+
+The CRO-03 HTTP boundary is certified independently of worker and provider
+execution. `scripts/test-cro03-http-authorization.ts` uses direct HTTP
+requests against a server configured with an approved disposable test database;
+its fixtures are local batch rows only and it never invokes a worker or provider.
+
+| Route | Anonymous / agent | Owner Manager A | Non-owner Manager B | Admin |
+|---|---|---|---|---|
+| `POST /api/cro03/batches` | 401 / 403 | allowed | allowed | allowed |
+| `GET /api/cro03/batches/:id` | 401 / 403 | 200 for own batch | exact minimal 404 | 200 for any batch |
+| `POST /api/cro03/batches/:id/cancel` | 401 / 403 | allowed for own batch | exact minimal 404 | allowed for any batch |
+| `GET /api/cro03/reconciliation` | 401 / 403 | 403 | 403 | 200 |
+| `GET /api/cro03/policy` | 401 / 403 | 403 | 403 | 200 |
+
+Malformed batch UUIDs return the same minimal 404 (`{"code":"not_found",
+"message":"Not found"}`) to authorized admin/manager callers. A foreign batch
+uses exactly that response too, so batch existence and owner identity are not
+disclosed.
+
+`scripts/scan-cro03-client-endpoints.ts` is a separate fail-closed static
+client audit. It rejects retired request-detached enrichment endpoint usage and
+requires retirement/disabled vocabulary where such a surface is presented; it
+does not treat a legacy "enriched" success claim as truthful CRO-03 status.

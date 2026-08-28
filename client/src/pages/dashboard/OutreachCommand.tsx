@@ -63,7 +63,9 @@ export default function OutreachCommand() {
   });
 
   const reEnrichMutation = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/sunbiz/re-enrich-all", { limit: Number(enrichLimit) }),
+    mutationFn: async () => {
+      throw new Error("Legacy re-enrichment is retired; use CRO-03 staging review while provider transport is disabled.");
+    },
     onSuccess: () => toast({ title: "Re-enrichment started", description: `Processing up to ${enrichLimit} entities with AI` }),
     onError: () => toast({ title: "Error", variant: "destructive" }),
   });

@@ -367,9 +367,25 @@ const MANDATORY_SUITES: Suite[] = [
     timeoutSecs: 60,
   },
   {
+    name: "CRO-03 Apollo Organization Resolution",
+    script: "scripts/test-apollo-organization-resolution.ts",
+    timeoutSecs: 60,
+  },
+  {
+    name: "CRO-03 Retired Client Endpoint Scan",
+    script: "scripts/scan-cro03-client-endpoints.ts",
+    timeoutSecs: 60,
+  },
+  {
     name: "CRO-03 Durable Enrichment Factory Concurrency and Recovery (disposable PostgreSQL/Redis certification)",
     script: "scripts/test-cro03-integration.ts",
     timeoutSecs: 120,
+  },
+  {
+    name: "CRO-03 HTTP Authorization and Ownership",
+    script: "scripts/test-cro03-http-authorization.ts",
+    timeoutSecs: 120,
+    requiresServer: true,
   },
   {
     name: "Role Guards",

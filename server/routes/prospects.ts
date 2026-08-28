@@ -25,48 +25,74 @@ import {
   convertProspectDurably,
 } from "../services/prospect-conversion";
 import { serverError, safeMessage } from "../utils/server-error";
-import { createCro03Batch } from "../services/cro03/enrichment-factory";
+import { createCro03SourceBatch } from "../services/cro03/source-staging";
 
 export function registerProspectsRoutes(app: Express) {
-  /**
-   * Compatibility boundary for staging screens.  A staging record is first
-   * admitted through the existing durable prospect conversion command; only
-   * its resulting canonical contact is submitted to CRO-03.
-   */
+  /** Evidence-first staging intake. Enrichment never implies CRM promotion. */
   async function createCro03BatchForProspects(input: {
     prospectIds: number[];
     idempotencyKey: string;
     actorId: string;
   }) {
-    const contactIds: number[] = [];
     const blocked: Array<{ prospectId: number; code: string }> = [];
+    const subjects: Parameters<typeof createCro03SourceBatch>[0]["subjects"] = [];
     for (const prospectId of [...new Set(input.prospectIds)].slice(0, 1000)) {
       const prospect = await storage.getProspect(prospectId);
       if (!prospect) {
         blocked.push({ prospectId, code: "PROSPECT_NOT_FOUND" });
         continue;
       }
-      if (prospect.contactId) {
-        contactIds.push(prospect.contactId);
-        continue;
-      }
-      const conversion = await convertProspectDurably(prospect, input.actorId);
-      if ((conversion.status === "converted" || conversion.status === "already_converted" || conversion.status === "conversion_in_progress") && conversion.contactId) {
-        contactIds.push(conversion.contactId);
-      } else {
-        blocked.push({ prospectId, code: conversion.status === "failed" ? conversion.reasonCode : conversion.status });
-      }
+      subjects.push({
+        subjectType: "prospect", subjectKey: String(prospectId), sourceSystem: "prospect_staging",
+        payload: {
+          prospectId, companyName: prospect.companyName ?? null, firstName: prospect.ownerFirstName ?? null,
+          lastName: prospect.ownerLastName ?? null, email: prospect.email ?? prospect.ownerEmail ?? null,
+          phone: prospect.phone ?? prospect.ownerPhone ?? null,
+          website: prospect.website ?? null, city: prospect.city ?? null, state: prospect.state ?? null,
+          industry: prospect.vertical ?? null,
+        },
+        provenance: { sourceSystem: "prospect_staging", prospectId, existingContactId: prospect.contactId ?? null },
+        candidateValues: {
+          ...(prospect.companyName ? { business_name: prospect.companyName } : {}),
+          ...(prospect.email ? { email: prospect.email } : {}),
+          ...(prospect.phone ? { phone: prospect.phone } : {}),
+          ...(prospect.website ? { website: prospect.website } : {}),
+          ...(prospect.city ? { city: prospect.city } : {}),
+          ...(prospect.state ? { state: prospect.state } : {}),
+        },
+      });
     }
-    if (contactIds.length === 0) {
-      return { batch: null, blocked, contactIds };
+    if (subjects.length === 0) {
+      return { batch: null, blocked, contactIds: [] };
     }
-    const batch = await createCro03Batch({
-      idempotencyKey: input.idempotencyKey,
-      contactIds: [...new Set(contactIds)],
-      actorType: "user",
-      actorId: input.actorId,
+    const batch = await createCro03SourceBatch({
+      idempotencyKey: input.idempotencyKey, subjects,
+      actorType: "user", actorId: input.actorId, purpose: "staging_review",
     });
-    return { batch, blocked, contactIds };
+    return { batch, blocked, contactIds: [] };
+  }
+
+  function sunbizSourceSubject(entityId: number, rawEntity: unknown): Parameters<typeof createCro03SourceBatch>[0]["subjects"][number] {
+    const entity = rawEntity as Record<string, any>;
+    const companyName = entity.entityName ?? entity.businessName ?? entity.name ?? null;
+    const address = entity.principalAddress ?? entity.address ?? null;
+    return {
+      subjectType: "sunbiz_entity", subjectKey: String(entityId), sourceSystem: "sunbiz",
+      payload: {
+        entityId, filingNumber: entity.filingNumber ?? null, companyName,
+        status: entity.status ?? null, address, city: entity.city ?? null,
+        state: entity.state ?? "FL", postalCode: entity.zip ?? entity.postalCode ?? null,
+      },
+      provenance: { sourceSystem: "sunbiz", entityId },
+      candidateValues: {
+        ...(companyName ? { business_name: String(companyName) } : {}),
+        ...(entity.filingNumber ? { registry_id: String(entity.filingNumber) } : {}),
+        ...(address ? { address: String(address) } : {}),
+        ...(entity.city ? { city: String(entity.city) } : {}),
+        state: String(entity.state ?? "FL"),
+        ...(entity.zip || entity.postalCode ? { postal_code: String(entity.zip ?? entity.postalCode) } : {}),
+      },
+    };
   }
 
   // === PROSPECT LISTS ===
@@ -1143,11 +1169,14 @@ export function registerProspectsRoutes(app: Express) {
       return res.status(400).json({ code: "IDEMPOTENCY_KEY_REQUIRED", message: "Idempotency-Key is required." });
     }
     try {
-      const prospectId = await convertToProspect(entityId, req.body?.listId);
-      if (!prospectId) return res.status(409).json({ code: "CRO03_CANONICAL_INTAKE_BLOCKED", message: "Entity could not be admitted to canonical intake." });
-      const result = await createCro03BatchForProspects({ prospectIds: [prospectId], idempotencyKey, actorId: String((req.user as any)?.id ?? "") });
-      if (!result.batch) return res.status(409).json({ code: "CRO03_CANONICAL_INTAKE_BLOCKED", message: "Entity is not eligible for canonical enrichment.", blocked: result.blocked });
-      return res.status(result.batch.replayed ? 200 : 202).json({ batchId: result.batch.id, statusUrl: `/api/cro03/batches/${result.batch.id}`, blocked: result.blocked });
+      const batch = await createCro03SourceBatch({
+        idempotencyKey, actorType: "user", actorId: String((req.user as any)?.id ?? ""),
+        subjects: [sunbizSourceSubject(entityId, entity)],
+      });
+      return res.status(batch.replayed ? 200 : 202).json({
+        batchId: batch.id, statusUrl: `/api/cro03/batches/${batch.id}`,
+        blocked: [{ entityId, code: "STAGING_RECIPE_DISABLED" }],
+      });
     } catch (err) {
       serverError(res, err);
     }
@@ -1160,14 +1189,19 @@ export function registerProspectsRoutes(app: Express) {
       return res.status(400).json({ code: "CRO03_INVALID_REQUEST", message: "entityIds and Idempotency-Key are required." });
     }
     try {
-      const prospectIds: number[] = [];
+      const subjects: Parameters<typeof createCro03SourceBatch>[0]["subjects"] = [];
       for (const entityId of entityIds.data) {
-        const prospectId = await convertToProspect(entityId, req.body?.listId);
-        if (prospectId) prospectIds.push(prospectId);
+        const entity = await storage.getSunbizEntity(entityId);
+        if (entity) subjects.push(sunbizSourceSubject(entityId, entity));
       }
-      const result = await createCro03BatchForProspects({ prospectIds, idempotencyKey, actorId: String((req.user as any)?.id ?? "") });
-      if (!result.batch) return res.status(409).json({ code: "CRO03_CANONICAL_INTAKE_BLOCKED", message: "No selected entities are eligible for canonical enrichment.", blocked: result.blocked });
-      return res.status(result.batch.replayed ? 200 : 202).json({ batchId: result.batch.id, statusUrl: `/api/cro03/batches/${result.batch.id}`, total: result.batch.totalCount, blocked: result.blocked });
+      if (!subjects.length) return res.status(404).json({ code: "not_found", message: "No entities found" });
+      const batch = await createCro03SourceBatch({
+        idempotencyKey, actorType: "user", actorId: String((req.user as any)?.id ?? ""), subjects,
+      });
+      return res.status(batch.replayed ? 200 : 202).json({
+        batchId: batch.id, statusUrl: `/api/cro03/batches/${batch.id}`, total: batch.totalCount,
+        blocked: subjects.map((subject) => ({ entityId: Number(subject.subjectKey), code: "STAGING_RECIPE_DISABLED" })),
+      });
     } catch (err) {
       serverError(res, err);
     }

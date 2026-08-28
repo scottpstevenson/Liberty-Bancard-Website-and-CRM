@@ -1776,12 +1776,6 @@ Guidelines:
 
       const batchSize = 100;
       const contactInserts: any[] = [];
-      const cro03ImportEvidence: Array<{
-        contactId: number;
-        rowFingerprint: string;
-        values: Record<string, string>;
-      }> = [];
-
       for (const [rowIndex, record] of records.entries()) {
         if (rowIndex % batchSize === 0 && !await heartbeatImportExecution(importExecution.id, executionClaim.claimToken!)) {
           throw new Error(`IMPORT_EXECUTION_LEASE_LOST:${importExecution.id}`);
@@ -1796,6 +1790,41 @@ Guidelines:
           const normCol = csvCol.toLowerCase().trim().replace(/\s+/g, "_");
           const field = columnMap[normCol] || columnMap[csvCol.toLowerCase().trim()];
           if (field && value) mapped[field] = value.trim();
+        }
+        const isProviderExport = sourceFormat === "google_maps_outscraper" || sourceFormat === "apollo_lead_list";
+        if (isProviderExport) {
+          const { createCro03SourceBatch } = await import("../services/cro03/source-staging");
+          await createCro03SourceBatch({
+            idempotencyKey: `csv-source:${importExecution.id}:${sourceRowNumber}`,
+            actorType: "import", actorId: actor.actorId, purpose: "staging_review",
+            subjects: [{
+              subjectType: "provider_csv_row",
+              subjectKey: `${importExecution.id}:${sourceRowNumber}`,
+              sourceSystem: sourceFormat === "google_maps_outscraper" ? "outscraper" : "apollo",
+              provenance: { importExecutionId: importExecution.id, sourceRowNumber, rowFingerprint },
+              payload: { sourceRowNumber, rowFingerprint, sourceFormat },
+              candidateValues: {
+                ...(mapped.companyName ? { business_name: mapped.companyName } : {}),
+                ...(mapped.website ? { website: mapped.website } : {}),
+                ...(mapped.email ? { email: mapped.email } : {}),
+                ...(mapped.phone ? { phone: mapped.phone } : {}),
+                ...(mapped.address ? { address: mapped.address } : {}),
+                ...(mapped.city ? { city: mapped.city } : {}),
+                ...(mapped.state ? { state: mapped.state } : {}),
+                ...(mapped.title ? { owner_title: mapped.title } : {}),
+              },
+            }],
+          });
+          await recordImportRowDisposition({
+            executionId: importExecution.id,
+            claimToken: executionClaim.claimToken!,
+            sourceRowNumber,
+            rowFingerprint,
+            disposition: "deferred",
+            reasonCode: "cro03_staging_review_required",
+            diagnostic: { sourceFormat, promotion: "not_performed", providerTransport: "disabled" },
+          });
+          continue;
         }
 
         let companyName = mapped.companyName || "";
@@ -2068,17 +2097,16 @@ Guidelines:
           // summaries, not a batch-length subtraction, are reconciliation truth.
           for (const r of result.filter((row) => row._intakeOutcome === "created")) {
             insertedContactIds.push(r.id);
-            if (sourceFormat === "google_maps_outscraper" || sourceFormat === "apollo_lead_list") {
-              cro03ImportEvidence.push({
-                contactId: r.id,
-                rowFingerprint: r._rowFingerprint,
-                values: r._cro03EvidenceValues,
-              });
-            }
             const { auditChange } = await import("../services/audit-change");
             auditChange({ actorType: "system", action: "contact_created", entityType: "contact", entityId: r.id, before: null, after: r as unknown as Record<string, unknown> }).catch(() => {});
           }
           for (const r of result) {
+            // Provider exports are evidence/staging inputs. Import must not
+            // implicitly score or create a qualifying deal.
+            if (sourceFormat === "google_maps_outscraper" || sourceFormat === "apollo_lead_list") {
+              coldLeads++;
+              continue;
+            }
             try {
               const scoreResult = await scoreContact(r.id);
               if (scoreResult) {
@@ -2146,19 +2174,6 @@ Guidelines:
         throw new Error(`CSV ledger reconciliation failed: ${ledgerCompletion.total}/${records.length} terminal rows`);
       }
       const durableOutcomes = importDispositionCompatibility(ledgerCompletion.counts);
-
-      if (
-        insertedContactIds.length > 0 &&
-        (sourceFormat === "google_maps_outscraper" || sourceFormat === "apollo_lead_list")
-      ) {
-        const { recordCro03ImportEvidence } = await import("../services/cro03/enrichment-factory");
-        await recordCro03ImportEvidence({
-          executionId: importExecution.id,
-          provider: sourceFormat === "google_maps_outscraper" ? "outscraper" : "apollo",
-          evidence: cro03ImportEvidence,
-          actorId: actor.actorId,
-        });
-      }
 
       if (insertedContactIds.length > 0) {
         const { inArray } = await import("drizzle-orm");

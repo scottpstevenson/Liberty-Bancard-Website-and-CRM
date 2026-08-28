@@ -154,18 +154,15 @@ async function main() {
   });
   await check("provider-export evidence is an immutable source-row snapshot", () => {
     assert.match(imports, /__cro03EvidenceValues/);
-    assert.match(imports, /rowFingerprint: r\._rowFingerprint/);
-    assert.match(imports, /evidence: cro03ImportEvidence/);
-    const importEvidenceFunction = factory.slice(factory.indexOf("export async function recordCro03ImportEvidence"));
-    assert.match(importEvidenceFunction, /evidence\.rowFingerprint/);
-    assert.match(importEvidenceFunction, /createZeroSpendOperation/);
-    assert.match(importEvidenceFunction, /recordProviderOutcomeEvidence/);
-    assert.doesNotMatch(importEvidenceFunction, /await contactRow/);
-    assert.doesNotMatch(importEvidenceFunction, /contact\.company_name/);
+    assert.match(imports, /createCro03SourceBatch/);
+    assert.match(imports, /subjectType: "provider_csv_row"/);
+    assert.match(imports, /rowFingerprint/);
+    assert.match(imports, /STAGING_RECIPE_DISABLED|purpose: "staging_review"/);
+    assert.ok(imports.indexOf("createCro03SourceBatch") < imports.indexOf("const contact = await writeContact"));
   });
-  await check("only frozen discovery bypasses the commercial fence", () => {
-    assert.match(factory, /provider !== "outscraper"/);
-    assert.match(factory, /provider === "outscraper" \? \{ allowed: true \}/);
+  await check("discovery never bypasses the commercial fence", () => {
+    assert.doesNotMatch(factory, /provider !== "outscraper"/);
+    assert.doesNotMatch(factory, /provider === "outscraper" \? \{ allowed: true \}/);
     assert.match(factory, /discovery_identity_insufficient/);
   });
   await check("paid controls ship disabled and budgetless", () => {
@@ -206,10 +203,10 @@ async function main() {
   });
   await check("CSV exports converge without provider transport", () => {
     const imports = fs.readFileSync("server/routes/imports.ts", "utf8");
-    assert.match(imports, /recordCro03ImportEvidence/);
-    assert.match(factory, /'import_observation'/);
-    assert.match(factory, /recordCro03ImportEvidence[\s\S]*arbitrateField/);
-    assert.match(factory, /recordCro03ImportEvidence[\s\S]*createMutationForWinner/);
+    assert.match(imports, /createCro03SourceBatch/);
+    assert.match(imports, /subjectType: "provider_csv_row"/);
+    assert.match(imports, /purpose: "staging_review"/);
+    assert.match(imports, /Provider exports are evidence\/staging inputs/);
   });
   console.log(`\nCRO-03 static certification passed: ${passed} checks`);
 }
