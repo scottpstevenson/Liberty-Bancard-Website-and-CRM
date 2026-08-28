@@ -140,6 +140,12 @@ export const SUITE_MANIFEST: SuiteManifestEntry[] = [
     providerDenial: "none (pure file scan)",
   },
   {
+    name: "Tracked-File Exposure Scanner Regression",
+    script: "scripts/test-scan-tracked-files.ts",
+    capability: "deterministic-static",
+    providerDenial: "synthetic local Git repositories only; no database, network, or provider transports",
+  },
+  {
     name: "CSP, CORS, JSON-LD Security Controls",
     script: "scripts/test-security-controls.ts",
     capability: "deterministic-static",

@@ -83,6 +83,9 @@ export function registerSdrRoutes(app: Express) {
       builtAt: BUILD_AT,
       env: BUILD_ENV,
       ghlTransportFailFast: isGhlFailFastTransportInstalled(),
+      statementCommandTestStorage:
+        process.env.NODE_ENV !== "production" &&
+        process.env.STATEMENT_COMMAND_TEST_STORAGE === "true",
     });
   });
 

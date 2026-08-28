@@ -1,0 +1,1521 @@
+{
+  "version": 1,
+  "owner": "Repository Owner",
+  "expiresOn": "2026-09-27",
+  "expiryTimeZone": "America/New_York",
+  "baselinePathCount": 378,
+  "entries": [
+    {
+      "path": "attached_assets/Pasted--1598-Prevent-contact-level-validation-errors-from-wedg_1787007998195.txt",
+      "blobSha": "83c8815399104ea4110a3a9a43a3b166278882ad"
+    },
+    {
+      "path": "attached_assets/Pasted--1599-Prevent-repeated-zero-yield-Serper-merchant-searc_1787009005014.txt",
+      "blobSha": "da73a383f8fb37043928758cd4032b0f8bd22ac7"
+    },
+    {
+      "path": "attached_assets/Pasted--1613-is-mostly-fixed-but-the-report-overstates-complet_1787053486722.txt",
+      "blobSha": "937af62032bbf6422a8695424d66988b0d1c3372"
+    },
+    {
+      "path": "attached_assets/Pasted--1628-End-to-End-Audit-Report-VERDICT-DO-NOT-MERGE-AS-W_1787251487231.txt",
+      "blobSha": "c49f0974c8431884eed27ce493f67b7a3fd3f40a"
+    },
+    {
+      "path": "attached_assets/Pasted--AIPEX-MEGA-AUDIT-READ-THIS-ENTIRE-PREAMBLE-BEFORE-TOUC_1783552975629.txt",
+      "blobSha": "a4bc747281bc730aad9467205e0898641e58a07d"
+    },
+    {
+      "path": "attached_assets/Pasted--Audit-verdict-1640-Commercial-Truth-Classification-VER_1787336412698.txt",
+      "blobSha": "102544e640836fdf1fb3a1b04ed45eff93a98858"
+    },
+    {
+      "path": "attached_assets/Pasted--Audit-verdict-NOT-BUILD-READY-DO-NOT-MERGE-The-propose_1787091747223.txt",
+      "blobSha": "0ff8c83b8c53575638fd518abee5c7a171b039d2"
+    },
+    {
+      "path": "attached_assets/Pasted--BT-04-build-readiness-audit-Verdict-NOT-BUILD-READY-Th_1787135676621.txt",
+      "blobSha": "3383d65dbdbe97b30df0101b59cdc4f410b62005"
+    },
+    {
+      "path": "attached_assets/Pasted--Building-merchant-lead-generation-automation-system-Yo_1781910257208.txt",
+      "blobSha": "ee0b0053d926e72acae950a00b829254abf83bd9"
+    },
+    {
+      "path": "attached_assets/Pasted--Claude-finished-the-response-Need-your-help-designing-_1781908768998.txt",
+      "blobSha": "dc791b98b10f252a7dfaf84118e3138730b41dee"
+    },
+    {
+      "path": "attached_assets/Pasted--Claude-finished-the-response-Need-your-help-designing-_1781908789184.txt",
+      "blobSha": "dc791b98b10f252a7dfaf84118e3138730b41dee"
+    },
+    {
+      "path": "attached_assets/Pasted--Data-Discovery-Crawlers-1-Sunbiz-Crawler-server-servic_1786800208541.txt",
+      "blobSha": "8ecacadf1c9a88582c48342a285f2dafde18ebc8"
+    },
+    {
+      "path": "attached_assets/Pasted--Enriching-and-crawling-the-entire-web-for-all-sellers-_1781909495676.txt",
+      "blobSha": "8bc1e535cf19eb0f41b6333265294d4ada9ba95f"
+    },
+    {
+      "path": "attached_assets/Pasted--FitScore-Sparkline-Refinement-Stroke-Weight-Delta-Unit_1783307671475.txt",
+      "blobSha": "c4deeed96801389a357ee93c6bc252356ae1eeb1"
+    },
+    {
+      "path": "attached_assets/Pasted--Invite-team-members-Keyword-Surfer-Humanizer-words-lim_1770740756443.txt",
+      "blobSha": "de25e887796d394713ad70bc7ea802b6b9a5b9dc"
+    },
+    {
+      "path": "attached_assets/Pasted--LIBERTY-BANCARD--1775420179276_1775420179277.txt",
+      "blobSha": "77bfa938424e6ca21c62efaec76ae2fd4cb25100"
+    },
+    {
+      "path": "attached_assets/Pasted--LIBERTY-BANCARD-MASTER-SYSTEM-AUDIT-KNOWLEDGE-BRIEF-CR_1786616711010.txt",
+      "blobSha": "27c0e78ed67d965f60f6fa89a32f67c67dd76deb"
+    },
+    {
+      "path": "attached_assets/Pasted--LIBERTY-BANCARD-PREFLIGHT-BUILD-MODE-MODE-PREFLIGHT-BU_1787511602280.txt",
+      "blobSha": "a243d8bc8e823be5ddadfb25e10ea081d7b76119"
+    },
+    {
+      "path": "attached_assets/Pasted--MASTER-TASK-VG-01-THROUGH-VG-04-FINAL-RUNTIME-OUTREACH_1787786202777.txt",
+      "blobSha": "66f8f015191a16bedb2c65f4d975757475b69a33"
+    },
+    {
+      "path": "attached_assets/Pasted--My-answers-to-the-open-questions-1-Design-direction-Ap_1782437925961.txt",
+      "blobSha": "b55761601479ce21565979541c801b407172a6a8"
+    },
+    {
+      "path": "attached_assets/Pasted--POST-MERGE-REPAIR-1628-1640-CORRECTIONS-MODE-PREFLIGHT_1787416569170.txt",
+      "blobSha": "999fcb16d70b0bcb17d1d9ec37228b72fd20fea1"
+    },
+    {
+      "path": "attached_assets/Pasted--Required-Architecture-Corrections-One-unavoidable-Serp_1787005297923.txt",
+      "blobSha": "daae37898383913fbbdf9846a762e2972e6141d8"
+    },
+    {
+      "path": "attached_assets/Pasted--Verdict-DO-NOT-EXECUTE-1643-AS-WRITTEN-It-is-direction_1787614591362.txt",
+      "blobSha": "8ebe84a62a9dfadb59808894e62e99a6ff14cb14"
+    },
+    {
+      "path": "attached_assets/Pasted--Verdict-DO-NOT-IMPLEMENT-1642-AS-WRITTEN-The-task-is-d_1787596314453.txt",
+      "blobSha": "d4a3cc0fb8d64b044eb2f8863710835ad1b09079"
+    },
+    {
+      "path": "attached_assets/Pasted--Verdict-NOT-BUILD-READY-as-written-Task-1575-has-the-r_1787305741251.txt",
+      "blobSha": "8a18a831b83ee2c1c065aa73ab822f642c53c70d"
+    },
+    {
+      "path": "attached_assets/Pasted--Verdict-NOT-BUILD-READY-AS-WRITTEN-The-core-security-f_1787339070871.txt",
+      "blobSha": "ce360171099b802f24d7b57a28c951a8e6eb60ba"
+    },
+    {
+      "path": "attached_assets/Pasted--VERDICT-PARTIALLY-VALID-DO-NOT-IMPLEMENT-OR-MERGE-AS-W_1787530106629.txt",
+      "blobSha": "b99bc41afba4df2fd85121c4511022e165b0e581"
+    },
+    {
+      "path": "attached_assets/Pasted--Verdict-PREFLIGHT-REQUIRED-The-copy-direction-is-good-_1785076671508.txt",
+      "blobSha": "dee12a46eefcfe49e539f468d5ab54195ed05558"
+    },
+    {
+      "path": "attached_assets/Pasted--workspace-git-checkout-main-git-merge-agent-1629-ghl-r_1787310218380.txt",
+      "blobSha": "d256edc5de0b1ae8c95f5c1f8f2d3241c5be6b26"
+    },
+    {
+      "path": "attached_assets/Pasted--workspace-git-checkout-main-git-merge-agent-1629-ghl-r_1787310226565.txt",
+      "blobSha": "d256edc5de0b1ae8c95f5c1f8f2d3241c5be6b26"
+    },
+    {
+      "path": "attached_assets/Pasted--workspace-git-restore-github-workflows-wave12-ci-yml-r_1786808286550.txt",
+      "blobSha": "3cb7094c246df594c7316603f2ded1d694e42aac"
+    },
+    {
+      "path": "attached_assets/Pasted-1699-Canonical-Revenue-Count-Truth-What-Why-Correct-CRO_1787854613863.txt",
+      "blobSha": "1d20b88bf01452412d498e8c349e7ed618000cc2"
+    },
+    {
+      "path": "attached_assets/Pasted-2026-07-05T16-01-12Z-info-Deployment-149d6d1b-79da-4122_1783267366072.txt",
+      "blobSha": "b70619e36a5d486ff9c67618fd1fe93dd5c8df7c"
+    },
+    {
+      "path": "attached_assets/Pasted-572-Wave-2-Consent-Capture-Form-Conversion-Upgrade-Requ_1782406257895.txt",
+      "blobSha": "bdf6f44a62a61d9c66740fc89e07fa530daaaff0"
+    },
+    {
+      "path": "attached_assets/Pasted-573-Wave-3-High-Converting-Landing-Page-Rebuild-Require_1782395926889.txt",
+      "blobSha": "a3795b8b706e88cbc38a58731774da3b4452ee43"
+    },
+    {
+      "path": "attached_assets/Pasted-574-Wave-4-SEO-Programmatic-Page-Quality-Upgrade-Requir_1782401503417.txt",
+      "blobSha": "82cec3ef0069fdabe0a7a80c575211903b83e187"
+    },
+    {
+      "path": "attached_assets/Pasted-575-Wave-5-Offer-Router-AI-Lead-Qualification-Required-_1782406794214.txt",
+      "blobSha": "6696224cb44b2026eb8742da2f1165e59ab3ea8f"
+    },
+    {
+      "path": "attached_assets/Pasted-576-Wave-6-Compliant-SDR-Sequence-Architecture-Required_1782420438369.txt",
+      "blobSha": "237bb1ebad02053d106b867238255405b07af7f0"
+    },
+    {
+      "path": "attached_assets/Pasted-577-Wave-7-GHL-Replit-Sync-Authority-Hardening-Required_1782427157218.txt",
+      "blobSha": "9513fc0cf33d7cc08bba6f4cee76b4ae3cb1cbc9"
+    },
+    {
+      "path": "attached_assets/Pasted-578-Wave-8-Analytics-Attribution-System-Required-Skills_1782427451799.txt",
+      "blobSha": "ae66e0dc5ec07494b83aa7508c107b5f056316ab"
+    },
+    {
+      "path": "attached_assets/Pasted-579-Wave-9-Operator-Command-Center-Required-Skills-loca_1782435376873.txt",
+      "blobSha": "ac3343a31f7b144601eccd55ffe485830bb3a99e"
+    },
+    {
+      "path": "attached_assets/Pasted-580-Wave-10-Merchant-Application-Onboarding-Conversion-_1782468927377.txt",
+      "blobSha": "0b0468a8f7fa932b937806d5193610a3320b5b22"
+    },
+    {
+      "path": "attached_assets/Pasted-581-Wave-11-Partner-Referral-Growth-Loop-Mode-Start-in-_1782484326366.txt",
+      "blobSha": "6fafdd2fc3f288c66a7d92640d421a7889c3f65d"
+    },
+    {
+      "path": "attached_assets/Pasted-582-Wave-12-Release-QA-Go-Live-Safety-Mode-Start-in-PLA_1782498904766.txt",
+      "blobSha": "a78a6aac0074184cee300953afbc23adf0ee9ed6"
+    },
+    {
+      "path": "attached_assets/Pasted-583-Wave-1B-Minimal-Admin-Channel-Safety-Matrix-Require_1782402716269.txt",
+      "blobSha": "d89de166e993da08224821c467b22dfee0a88c94"
+    },
+    {
+      "path": "attached_assets/Pasted-624-Phase-1-Home-Hero-Visual-System-Liberty-Font-Token-_1782438584132.txt",
+      "blobSha": "dafdcef927134efc88ed1e69fbe22a04169c0eeb"
+    },
+    {
+      "path": "attached_assets/Pasted-624B-Liberty-Bancard-Visual-Direction-Escalation-Mode-S_1782441567245.txt",
+      "blobSha": "64c3a155fea42d0a907b7d989e0442492dcf1719"
+    },
+    {
+      "path": "attached_assets/Pasted-625-Operator-Dashboard-IA-Rebuild-Grouped-Sidebar-Comma_1782439187135.txt",
+      "blobSha": "a0779620d91fce96b37742d59477221ff58238ea"
+    },
+    {
+      "path": "attached_assets/Pasted-631-Liberty-Bancard-Home-Page-10-10-Premium-Rebuild-Sec_1782468182022.txt",
+      "blobSha": "51871b84bc7250ec5a94e98a78eb42ea2501f867"
+    },
+    {
+      "path": "attached_assets/Pasted-631-Liberty-Bancard-Home-Page-10-10-Premium-Rebuild-Sec_1782468410312.txt",
+      "blobSha": "b30deb686baff62c2f192d22558d3bbb4eeef896"
+    },
+    {
+      "path": "attached_assets/Pasted-633-Mobile-Home-P0-Repair-Fixed-UI-Overlay-Section-Clip_1782472824728.txt",
+      "blobSha": "60d380e75eb834b9ff3490139e63ec1a556f609f"
+    },
+    {
+      "path": "attached_assets/Pasted-644-Wave-10-Final-Safety-Patch-Closed-Won-Idempotency-K_1782484178858.txt",
+      "blobSha": "1ea77fcd0ec7170843fef9086832fd392ccadc7d"
+    },
+    {
+      "path": "attached_assets/Pasted-652-Full-Mobile-Desktop-Design-Persistent-UI-Cleanup-Wh_1782483829377.txt",
+      "blobSha": "f4fa4f92a5696af4a09f23a4b360813ed926930e"
+    },
+    {
+      "path": "attached_assets/Pasted-654-Final-Premium-Mobile-Desktop-UI-Audit-Card-System-R_1782486710960.txt",
+      "blobSha": "67a7bab89821c12de0f8ee19e805aeaa622f5086"
+    },
+    {
+      "path": "attached_assets/Pasted-664-Home-Page-Positioning-Section-Architecture-Audit-Mo_1782565529218.txt",
+      "blobSha": "a5c89fd3fcfcd7d1afbc08f0537d9ae692d850e9"
+    },
+    {
+      "path": "attached_assets/Pasted-674-Homepage-Redesign-Recovery-Audit-Why-the-Last-Pass-_1782573225308.txt",
+      "blobSha": "071e27ea8e601746924686fd52daaa79b78f66dd"
+    },
+    {
+      "path": "attached_assets/Pasted-675-Homepage-Recovery-Patch-Safety-Mobile-Architecture-_1782573982504.txt",
+      "blobSha": "47ea9617333cde07e3c4de285820e37356e8de0d"
+    },
+    {
+      "path": "attached_assets/Pasted-676-Homepage-Services-Processing-Identity-Section-Mode-_1782576881233.txt",
+      "blobSha": "9ff83e95f5b93419a3605b3910cc055e3c4bd4d1"
+    },
+    {
+      "path": "attached_assets/Pasted-676-Homepage-Services-Processing-Identity-Section-Mode-_1782578978300.txt",
+      "blobSha": "94dff9b220619647819a67bd0ea91202d792e0fc"
+    },
+    {
+      "path": "attached_assets/Pasted-677-Homepage-Top-of-Page-Section-Treatment-Hero-Proof-S_1782580969147.txt",
+      "blobSha": "57bc52090392a1112b06630698edd76757464aee"
+    },
+    {
+      "path": "attached_assets/Pasted-681-Homepage-Mobile-Content-Diet-Section-Compression-Wh_1782589197392.txt",
+      "blobSha": "a71acd20c00e54b9d9aa2da90c2ea078e22ba674"
+    },
+    {
+      "path": "attached_assets/Pasted-685-Mobile-Homepage-Content-Diet-Section-Compression-Wh_1782589523888.txt",
+      "blobSha": "ea101c65126a484543973a0728eebfc33ba85a7f"
+    },
+    {
+      "path": "attached_assets/Pasted-686-SDR-A-Lead-Review-Queue-No-Outreach-Discovery-Gate-_1782925994652.txt",
+      "blobSha": "8b935569137c2f12609edde2b7b17381fd97723b"
+    },
+    {
+      "path": "attached_assets/Pasted-726-Liberty-End-to-End-Revenue-Readiness-Client-Acquisi_1783191970117.txt",
+      "blobSha": "74814605502ca9416a93a6e893cb0196b23d3e49"
+    },
+    {
+      "path": "attached_assets/Pasted-748-Sidebar-Navigation-Cleanup-Remove-Duplicates-Add-Re_1783274749112.txt",
+      "blobSha": "d95838f3d6f5e4135fe490b940f778b503ed31c6"
+    },
+    {
+      "path": "attached_assets/Pasted-789-Automated-Outreach-Readiness-Audit-What-Why-Liberty_1783436215955.txt",
+      "blobSha": "3f5ca8bb46115ba5de5b6dbe0dfc80ed0b520ef4"
+    },
+    {
+      "path": "attached_assets/Pasted-80-Full-Mobile-Desktop-Design-Persistent-UI-Cleanup-Wha_1782480637779.txt",
+      "blobSha": "33fb9b439d2b0ea38697fab603772d4776b12177"
+    },
+    {
+      "path": "attached_assets/Pasted-804-Apply-Outreach-Compliance-Migration-and-Re-run-Read_1783466295151.txt",
+      "blobSha": "de36c5e73711ed36c6eec664899564889e50eaea"
+    },
+    {
+      "path": "attached_assets/Pasted-805-Cold-Email-Config-Readiness-Check-What-Why-Task-804_1783467756649.txt",
+      "blobSha": "9b3e08f7e64657641e0bdc8749e57be13aa3cf99"
+    },
+    {
+      "path": "attached_assets/Pasted-834-Controlled-Deal-Backfill-Future-Orphan-Prevention-W_1783544873207.txt",
+      "blobSha": "53e21c9b6930a7b93697a4820beabc47183d7c18"
+    },
+    {
+      "path": "attached_assets/Pasted-835-Preflight-Bridge-CRM-Contacts-into-Outreach-Hub-Mod_1783555024474.txt",
+      "blobSha": "a0ae6d7b515a5834a24723ecb054260f90c9ca84"
+    },
+    {
+      "path": "attached_assets/Pasted-835-Preflight-Bridge-CRM-Contacts-into-Outreach-Hub-Mod_1783555104239.txt",
+      "blobSha": "a0ae6d7b515a5834a24723ecb054260f90c9ca84"
+    },
+    {
+      "path": "attached_assets/Pasted-836-Fix-Pipeline-Stalls-with-Controlled-New-Lead-Auto-E_1783567382864.txt",
+      "blobSha": "d96fe74e72ffdcecf64443363de3eb53c05034dc"
+    },
+    {
+      "path": "attached_assets/Pasted-912-Inbound-Confirmation-Without-GHL-Workflow-Dependenc_1783686565215.txt",
+      "blobSha": "49fc9a459dc6d3cb11df31d2aa94368f870a4418"
+    },
+    {
+      "path": "attached_assets/Pasted-Absolutely-below-is-both-1-a-Go-Live-Activation-Plan-fo_1775420370504.txt",
+      "blobSha": "168f63a3338295690422754001c8f7eea753e1fc"
+    },
+    {
+      "path": "attached_assets/Pasted-Addendum-to-639-Mandatory-Safety-Corrections-Before-Bui_1782474214083.txt",
+      "blobSha": "742098cb24cd814c82859847b26ecde992781e80"
+    },
+    {
+      "path": "attached_assets/Pasted-Addendum-to-643-Required-Corrections-Before-Build-Apply_1782474419299.txt",
+      "blobSha": "916f20b7fe7762a43d571b121a15f47c23de5234"
+    },
+    {
+      "path": "attached_assets/Pasted-Addendum-to-654-Partner-System-Boundary-Attribution-Saf_1782487350935.txt",
+      "blobSha": "c34d7ce631d87195704ff8ba4c8267502844bc7d"
+    },
+    {
+      "path": "attached_assets/Pasted-Addendum-to-663-Final-Release-QA-Safety-Corrections-App_1782499738236.txt",
+      "blobSha": "dcbad034fe48be897cf206e4ab1a0554416c8328"
+    },
+    {
+      "path": "attached_assets/Pasted-Addendum-to-693-AI-Statement-Analyzer-Proposal-Generato_1782962780412.txt",
+      "blobSha": "99856a4731ca13791f8bd2c3e5b5c60774ddefc2"
+    },
+    {
+      "path": "attached_assets/Pasted-Addendum-to-694-Contactability-Bridge-Manual-Email-Enro_1782962889072.txt",
+      "blobSha": "46ea38a0efe8b7eb92ec0a1d9cb2b1ad5405c9d1"
+    },
+    {
+      "path": "attached_assets/Pasted-Addendum-to-695-Voice-SMS-Ringless-Go-Live-Audit-Approv_1783094344353.txt",
+      "blobSha": "2b18838310fe9d056d9b4a9aa44ebfa564b4452a"
+    },
+    {
+      "path": "attached_assets/Pasted-Addendum-to-721-Discovery-Vertical-Classification-Mappe_1783084672043.txt",
+      "blobSha": "8938afb81d21af5e842d4a78a9a36ec8780e236a"
+    },
+    {
+      "path": "attached_assets/Pasted-Addendum-to-725-Sync-Inbox-Tagging-With-Canonical-Verti_1783088624895.txt",
+      "blobSha": "e247b1c980ec866d76405d9a5743c6d99164911d"
+    },
+    {
+      "path": "attached_assets/Pasted-Addendum-to-Task-686-Approval-Conditions-Before-Build-T_1782927529048.txt",
+      "blobSha": "9b6b7803ea0f257b118bc6e968794d2994ed16a5"
+    },
+    {
+      "path": "attached_assets/Pasted-Addendum-to-Task-690-Required-Corrections-Before-Build-_1782931532234.txt",
+      "blobSha": "dd77d1dead5efcd303f5cd7eeb077c984cba7cbf"
+    },
+    {
+      "path": "attached_assets/Pasted-Additional-strict-acceptance-criteria-This-task-should-_1782488173654.txt",
+      "blobSha": "911109738daa72ab0274559f779433315682f054"
+    },
+    {
+      "path": "attached_assets/Pasted-Approved-build-ready-This-is-a-real-correctness-fix-and_1783264139041.txt",
+      "blobSha": "99474f1b36a9d04adc50c7485fdfdb2b934ef44a"
+    },
+    {
+      "path": "attached_assets/Pasted-Approved-build-ready-This-is-now-scoped-correctly-The-k_1783089073785.txt",
+      "blobSha": "6e72c0f40de76847e3c8f5604f2b2581e81e5746"
+    },
+    {
+      "path": "attached_assets/Pasted-Approved-directionally-but-I-would-not-add-a-real-produ_1783262565236.txt",
+      "blobSha": "821c2c289b796f3eb601c39673fed2be37513d4d"
+    },
+    {
+      "path": "attached_assets/Pasted-APPROVED-PREFLIGHT-COMPLETE-The-code-trace-cleared-the-_1783871151163.txt",
+      "blobSha": "d1cc6843e3624efab1465d63343c532f700cf230"
+    },
+    {
+      "path": "attached_assets/Pasted-Approved-run-808-This-is-a-smart-compliance-hardening-t_1783470412123.txt",
+      "blobSha": "bbf91df5854bb12f0acfe78990659e64051dbe14"
+    },
+    {
+      "path": "attached_assets/Pasted-Approved-with-addendum-build-ready-assuming-831-828A-is_1783539518114.txt",
+      "blobSha": "f5af00a9ee5c7042c015d38ad8b19bd55bd64fc5"
+    },
+    {
+      "path": "attached_assets/Pasted-Approved-with-addendum-build-ready-This-is-a-good-low-r_1783553672105.txt",
+      "blobSha": "7ae204daec878ade31ccd1aca448d2d82d7ad023"
+    },
+    {
+      "path": "attached_assets/Pasted-Approved-with-addendum-This-is-the-correct-third-blocke_1783442265956.txt",
+      "blobSha": "ed45ad74e5c617eb68d366ede66fbd233fbe27f3"
+    },
+    {
+      "path": "attached_assets/Pasted-Approved-with-addendum-This-is-the-right-decision-PCI-A_1783348054740.txt",
+      "blobSha": "c657c5f2fb33c7cf2275967546ee4734ccf6a54c"
+    },
+    {
+      "path": "attached_assets/Pasted-Approved-with-addendum-This-is-the-right-follow-up-The-_1783381369756.txt",
+      "blobSha": "5cc5e09766f3c632deb6f07cc1c0c52ba052b241"
+    },
+    {
+      "path": "attached_assets/Pasted-Approved-with-correction-build-ready-This-is-a-good-vis_1783590990738.txt",
+      "blobSha": "94d209a5848039dcf2c114f3f276fb111d9fdf3c"
+    },
+    {
+      "path": "attached_assets/Pasted-Approved-with-critical-addendum-build-ready-only-with-s_1783539556272.txt",
+      "blobSha": "9f857f6bd5bc19b71db7eb3da80ceaac39e6b9f9"
+    },
+    {
+      "path": "attached_assets/Pasted-Approved-with-guardrails-This-is-a-safe-cleanup-task-on_1783451691293.txt",
+      "blobSha": "b052e20d5d6b7f748099357a9a212e8cf8746eec"
+    },
+    {
+      "path": "attached_assets/Pasted-Area-11-Dry-Run-Script-Results-Script-Result-test-seque_1783506297983.txt",
+      "blobSha": "5c167ba5b57b7cc7b4a3d62e859719eee231ea38"
+    },
+    {
+      "path": "attached_assets/Pasted-Audit-this-entire-Replit-app-fix-all-critical-issues-an_1775852660083.txt",
+      "blobSha": "e6484080c6483be782a72ec52c25e1a6ee3fd9a4"
+    },
+    {
+      "path": "attached_assets/Pasted-Automated-Outreach-Readiness-Audit-Date-July-7-2026-Mod_1783503893753.txt",
+      "blobSha": "b36fa0a8c1069995cf6a178475532a3db189706b"
+    },
+    {
+      "path": "attached_assets/Pasted-Automated-Outreach-Readiness-Audit-Date-July-7-2026-Mod_1783521856123.txt",
+      "blobSha": "a0354c4b16d6b85fee59c47fe4d37aabb85c3e56"
+    },
+    {
+      "path": "attached_assets/Pasted-Automated-Outreach-Readiness-Audit-What-Why-Liberty-has_1783464879450.txt",
+      "blobSha": "a0191ae4d1144f4550db66626dea72d02652c4b6"
+    },
+    {
+      "path": "attached_assets/Pasted-Below-is-the-Replit-database-schema-workflow-architectu_1773668900905.txt",
+      "blobSha": "9439616c0a2560edf65d41f834b00e35c23480e9"
+    },
+    {
+      "path": "attached_assets/Pasted-BUILD-READY-WITH-CORRECTIONS-The-database-backstop-is-n_1783871283543.txt",
+      "blobSha": "b8d9f4079cdf364d8393d602d049e749e11da9b8"
+    },
+    {
+      "path": "attached_assets/Pasted-Build-Spec-1521-Full-Audit-Fix-Vertical-Bulk-Enrollment_1786771955651.txt",
+      "blobSha": "8cb7c0281302c4aca50d32ea3ce25759fbbff17a"
+    },
+    {
+      "path": "attached_assets/Pasted-Choose-Keep-1679-isolated-and-wait-for-Task-1681-The-co_1787746467481.txt",
+      "blobSha": "66bd13eaa2012e84c1600688c630122fdd0cca89"
+    },
+    {
+      "path": "attached_assets/Pasted-Choose-Option-A-Full-page-rhythm-fix-but-keep-it-discip_1782583005734.txt",
+      "blobSha": "8394991014da8c789f8763d63667328de3757d0a"
+    },
+    {
+      "path": "attached_assets/Pasted-CONTINUE-TASK-1643-BT-09-IN-THE-EXISTING-WORKTREE-Do-no_1787620719626.txt",
+      "blobSha": "0de6c912d7b16dcfbe72b623970f691337331a63"
+    },
+    {
+      "path": "attached_assets/Pasted-Continue-Task-1674-BT-12-in-the-EXISTING-worktree-Do-no_1787708353796.txt",
+      "blobSha": "25cad3c4e34925a2b00da03dc7b5937651529d25"
+    },
+    {
+      "path": "attached_assets/Pasted-Continue-Task-1674-BT-12-in-the-SAME-worktree-Do-not-me_1787711184610.txt",
+      "blobSha": "59a366b3e835dda414df74b01c68155bcc23053d"
+    },
+    {
+      "path": "attached_assets/Pasted-Correction-Replit-manages-this-application-s-database-I_1787738858027.txt",
+      "blobSha": "38b0495a9a0d517f452668363793d201f7416491"
+    },
+    {
+      "path": "attached_assets/Pasted-Corrections-to-692-Sales-Prep-Statement-Acquisition-Com_1782951783344.txt",
+      "blobSha": "ac144f4daba6d6e3cac66abb7e3f320772c22d2e"
+    },
+    {
+      "path": "attached_assets/Pasted-Corrections-to-Task-691-Controlled-Discovery-Activation_1782945488792.txt",
+      "blobSha": "38c8c12d11297419ed0303dddb831d1cca4a5c1c"
+    },
+    {
+      "path": "attached_assets/Pasted-Do-not-run-1562-exactly-as-written-yet-Both-repairs-are_1786921804302.txt",
+      "blobSha": "9880043b8c23c660cfba6469168316784028edf7"
+    },
+    {
+      "path": "attached_assets/Pasted-ere-I-have-multiple-projects-in-replit-we-are-trying-to_1786459863322.txt",
+      "blobSha": "dece70bbcadf2c7fafeee29f77994a40566ba4d4"
+    },
+    {
+      "path": "attached_assets/Pasted-Final-Addendum-to-736-Safe-Validation-Environment-Appro_1783195024127.txt",
+      "blobSha": "f1ef6512c4c99da4333a3018b21ec0faf53788a8"
+    },
+    {
+      "path": "attached_assets/Pasted-Final-Addendum-to-747-Mobile-Dashboard-Layout-Bugs-Appr_1783274609156.txt",
+      "blobSha": "ed85348ad30b51fb5701717fa5ec33f53fe39eb7"
+    },
+    {
+      "path": "attached_assets/Pasted-Final-Addendum-to-753-Tasks-Review-Queue-and-Automation_1783336923422.txt",
+      "blobSha": "259ae6d5659bb465b012b57d6a060b7c082a5d70"
+    },
+    {
+      "path": "attached_assets/Pasted-Final-Addendum-to-754-Dashboard-Crash-Hardening-Approve_1783337055610.txt",
+      "blobSha": "c7cc0969121327aaf22b45c57bfa97c57235c4cf"
+    },
+    {
+      "path": "attached_assets/Pasted-Final-Addendum-to-755-Fix-Misleading-Success-States-App_1783343196804.txt",
+      "blobSha": "04ceb25f5b9a53520abfefd295ddd256e469bd45"
+    },
+    {
+      "path": "attached_assets/Pasted-Final-Addendum-to-757-Stubbed-Integration-Workflow-Surf_1783349706418.txt",
+      "blobSha": "960efff6d7e0f65d1a9f74c9676e1f8e7fc2bd97"
+    },
+    {
+      "path": "attached_assets/Pasted-Final-Addendum-to-758-Schema-Field-Mismatch-Fixes-Appro_1783353952345.txt",
+      "blobSha": "6f46a1bd403e47dee3c11d054b5efc7ff5dba551"
+    },
+    {
+      "path": "attached_assets/Pasted-Final-Addendum-to-759-Background-Worker-Hardening-Appro_1783345726438.txt",
+      "blobSha": "a7dce5d9d962e31cb70bfd9884d3e7f48e7825ee"
+    },
+    {
+      "path": "attached_assets/Pasted-Final-Addendum-to-760-Chargeback-PDF-Boarding-Bulk-Refr_1783345801247.txt",
+      "blobSha": "609c8b17e985461b21ce85c3a01a87bc43e78f14"
+    },
+    {
+      "path": "attached_assets/Pasted-Final-Addendum-to-764-Dashboard-Polish-Follow-ups-Appro_1783372533515.txt",
+      "blobSha": "55002e99a4095da80a24e75294a2ca31371691d0"
+    },
+    {
+      "path": "attached_assets/Pasted-Final-Addendum-to-767-Truthful-State-Follow-ups-Approve_1783375505553.txt",
+      "blobSha": "56a55839254c0b98b5cf83c44cdab2f06a798535"
+    },
+    {
+      "path": "attached_assets/Pasted-Final-Addendum-to-773-Boarding-Persistent-Failure-Alert_1783391955389.txt",
+      "blobSha": "c12272ba25c5f1ad5ce0b73cd436279d07afc32a"
+    },
+    {
+      "path": "attached_assets/Pasted-Final-Addendum-to-776-Pipeline-Board-Proposal-Retry-Ind_1783381652987.txt",
+      "blobSha": "089f3c6385512313bedb50f7ed395d402295fcfa"
+    },
+    {
+      "path": "attached_assets/Pasted-Final-Addendum-to-789-Dashboard-Hub-Consolidation-Appro_1783442696496.txt",
+      "blobSha": "06b3be77d2aed9bce614599b0037a5f8ee7186d0"
+    },
+    {
+      "path": "attached_assets/Pasted-Final-Addendum-to-790-Channel-Resolution-Must-Match-Wor_1783438448488.txt",
+      "blobSha": "6152971d24c68b1e461ffd737c92d881450d955f"
+    },
+    {
+      "path": "attached_assets/Pasted-Final-Addendum-to-791-CAN-SPAM-Footer-Injection-Approve_1783439484987.txt",
+      "blobSha": "252f82c45397a7183b0005c2da02dee22d1b8b9b"
+    },
+    {
+      "path": "attached_assets/Pasted-Final-Addendum-to-791-CAN-SPAM-Footer-Injection-Approve_1783439511039.txt",
+      "blobSha": "252f82c45397a7183b0005c2da02dee22d1b8b9b"
+    },
+    {
+      "path": "attached_assets/Pasted-Final-Addendum-to-809-Dashboard-Crash-Bugs-Broken-Navig_1783512349512.txt",
+      "blobSha": "ad1734f76b4a74df0b5080c66151edce254e3db6"
+    },
+    {
+      "path": "attached_assets/Pasted-Final-Addendum-to-810-Sequence-Grouping-Filtering-Templ_1783514905252.txt",
+      "blobSha": "a533ba5a0de704272c47d2aa414f25dd328f9f75"
+    },
+    {
+      "path": "attached_assets/Pasted-Final-Addendum-to-811-Expand-Collateral-Packets-to-Targ_1783512705891.txt",
+      "blobSha": "fd02827bbece5484bdc69a96fbcf05ab4c5621f7"
+    },
+    {
+      "path": "attached_assets/Pasted-Final-Addendum-to-812-Fix-Misleading-Lead-Import-Summar_1783515301931.txt",
+      "blobSha": "4ed28a7b2b9b3e6f8b25929e6f856f26480206f8"
+    },
+    {
+      "path": "attached_assets/Pasted-Final-Addendum-to-816-Clean-Up-Operator-Dashboard-Array_1783519581701.txt",
+      "blobSha": "e1509b062b2d0d9b43001b57db0f7791a1180b70"
+    },
+    {
+      "path": "attached_assets/Pasted-Final-Addendum-to-822-Stuck-Import-Status-Lead-Source-C_1783535924439.txt",
+      "blobSha": "86addd52cc2cdaab7fdc2924297e75d6460e6438"
+    },
+    {
+      "path": "attached_assets/Pasted-Final-Addendum-to-823-Fix-Hub-Tab-Navigation-Approved-t_1783537507465.txt",
+      "blobSha": "811e5bb605654fef509472e09f0988945c029813"
+    },
+    {
+      "path": "attached_assets/Pasted-Final-Addendum-to-824-Anonymous-Pipeline-Deals-Misleadi_1783538021974.txt",
+      "blobSha": "cf694a177096c13b834ba0cb5e6e0d0101609f63"
+    },
+    {
+      "path": "attached_assets/Pasted-Final-Addendum-to-831-Shared-Email-Preview-Safe-Body-Ed_1783538131608.txt",
+      "blobSha": "860c81604ad56da6708bd5de81b86bda6e963b75"
+    },
+    {
+      "path": "attached_assets/Pasted-Final-Addendum-to-831-Shared-Email-Preview-Safe-Body-Ed_1783538139970.txt",
+      "blobSha": "860c81604ad56da6708bd5de81b86bda6e963b75"
+    },
+    {
+      "path": "attached_assets/Pasted-Final-Addendum-to-833-SDR-Campaign-Template-Content-Bac_1783542836842.txt",
+      "blobSha": "d77eea112f21caf549440ba09b1e285dabdfaf7a"
+    },
+    {
+      "path": "attached_assets/Pasted-Final-Addendum-to-859-Prevent-Re-enrollment-After-Mid-S_1783589492937.txt",
+      "blobSha": "154c5e978af0436ec82e54d00bd187e75d625b4b"
+    },
+    {
+      "path": "attached_assets/Pasted-Final-Addendum-to-860-Per-Vertical-Enrollment-Coverage-_1783590941811.txt",
+      "blobSha": "ab5fde689bebe10b6e0b687057b649e074634ca5"
+    },
+    {
+      "path": "attached_assets/Pasted-Final-Addendum-to-861-Preview-Speed-Avoid-Per-Deal-Seri_1783592272953.txt",
+      "blobSha": "7542b7f5e3fdd359ed6574bbc395258152326840"
+    },
+    {
+      "path": "attached_assets/Pasted-Final-Addendum-to-862-Audit-Trail-Coverage-for-Candidat_1783594041075.txt",
+      "blobSha": "c6e38c851437fb289feaa9c571589b8a3c486b82"
+    },
+    {
+      "path": "attached_assets/Pasted-Final-Addendum-to-864-Prevent-CSV-Import-From-Overwriti_1783599670912.txt",
+      "blobSha": "1bb5c7f322473062017ba5ef49b0af0ed0c71a5e"
+    },
+    {
+      "path": "attached_assets/Pasted-Final-Addendum-to-865-Confirm-GHL-Opt-Out-Suppression-W_1783594991155.txt",
+      "blobSha": "4756827b35fccacc9382fbf54d8d12b5189fb01a"
+    },
+    {
+      "path": "attached_assets/Pasted-Final-Addendum-to-866-Show-Contactability-Reasons-Per-R_1783592505968.txt",
+      "blobSha": "169e834310faa944224faebaabc450a05e7dd6ce"
+    },
+    {
+      "path": "attached_assets/Pasted-Final-Addendum-to-866-Show-Contactability-Reasons-Per-R_1783596320523.txt",
+      "blobSha": "169e834310faa944224faebaabc450a05e7dd6ce"
+    },
+    {
+      "path": "attached_assets/Pasted-Final-Addendum-to-867-Inline-Sequence-Picker-on-Vertica_1783597786819.txt",
+      "blobSha": "57320a08df99f83cfadd5e4d1c135158e6fc09ce"
+    },
+    {
+      "path": "attached_assets/Pasted-Final-Addendum-to-869-Speed-Up-Nightly-New-Lead-Auto-En_1783603291941.txt",
+      "blobSha": "928ffc4030a12924a967f78b742ac0d033d9c67c"
+    },
+    {
+      "path": "attached_assets/Pasted-Final-Addendum-to-871-Prevent-Double-Enrollment-from-Ov_1783600019287.txt",
+      "blobSha": "9588fab9e8d13e5d2a28c0e5e14f2b1fc6d7220a"
+    },
+    {
+      "path": "attached_assets/Pasted-Final-Addendum-to-872-Filter-Vertical-Detail-by-Block-R_1783603933620.txt",
+      "blobSha": "ef6fb0a57ff457352ec9dcdb272a842df6ce777a"
+    },
+    {
+      "path": "attached_assets/Pasted-Final-Addendum-to-880-Show-Explicit-vs-Default-Sequence_1783606722774.txt",
+      "blobSha": "e0303169b5f5093cb063b658656f4025d8845e1c"
+    },
+    {
+      "path": "attached_assets/Pasted-Final-Addendum-to-881-Make-Unknown-Null-Vertical-Mappin_1783606703785.txt",
+      "blobSha": "e0970857cd24b7465ee7d3cf362d9d57a75b1533"
+    },
+    {
+      "path": "attached_assets/Pasted-Final-Addendum-to-882-Show-Opt-Out-Protection-Counts-in_1783606765158.txt",
+      "blobSha": "1f187229a6e1439c2f2a6f021ba01e1d0aef93e8"
+    },
+    {
+      "path": "attached_assets/Pasted-Final-Addendum-to-884-Confirm-GHL-Sync-Preserves-CSV-Ap_1783606742700.txt",
+      "blobSha": "37ea47d5f795e07da32a5b5bf3a0153440b472a7"
+    },
+    {
+      "path": "attached_assets/Pasted-Final-Addendum-to-912-Inbound-Confirmation-Without-GHL-_1783687258468.txt",
+      "blobSha": "def083de890b2c2f0d05646609d734aec894ecbd"
+    },
+    {
+      "path": "attached_assets/Pasted-Final-Addendum-to-913-Auto-Reload-on-Chunk-Load-Error-A_1783686827299.txt",
+      "blobSha": "c7fbcdfc1d823f62616d7f1e426d8d5d6469a891"
+    },
+    {
+      "path": "attached_assets/Pasted-Final-clarifications-for-611-before-Build-mode-1-Do-not_1782432046261.txt",
+      "blobSha": "646cb72909b07f9a5b703d8fef6af63eb5353579"
+    },
+    {
+      "path": "attached_assets/Pasted-Final-Corrections-to-708-Before-Build-The-task-is-appro_1782954838680.txt",
+      "blobSha": "e2a3c10fcdd9de351c9b20bce1dd0aafe63f9929"
+    },
+    {
+      "path": "attached_assets/Pasted-Final-Corrections-to-Task-693-Before-Build-Do-not-build_1782984999447.txt",
+      "blobSha": "89468bd76c63adfa0912200625051cbc56a183ed"
+    },
+    {
+      "path": "attached_assets/Pasted-Final-Corrections-to-Task-699-Before-Build-Do-not-build_1782938587249.txt",
+      "blobSha": "2e2acfc5eeee52253515779760720eb2264a599b"
+    },
+    {
+      "path": "attached_assets/Pasted-For-Florida-auto-med-spa-and-medical-I-d-run-three-sepa_1773668070578.txt",
+      "blobSha": "00cc3068811b06421ad75396ae1ceaa0a936097c"
+    },
+    {
+      "path": "attached_assets/Pasted-For-Florida-auto-med-spa-and-medical-I-d-run-three-sepa_1773668290197.txt",
+      "blobSha": "00cc3068811b06421ad75396ae1ceaa0a936097c"
+    },
+    {
+      "path": "attached_assets/Pasted-Full-Build-Spec-Audit-1523-Redis-Connection-Cap-Worker-_1786773349786.txt",
+      "blobSha": "449f244a98c09e35e3348ed388cc7d853dbac3c3"
+    },
+    {
+      "path": "attached_assets/Pasted-Give-me-the-gap-analysis-here-This-is-full-recap-Identi_1786291768287.txt",
+      "blobSha": "c896dffbfd0e11fabbee51bbbb71583bfd3f6a83"
+    },
+    {
+      "path": "attached_assets/Pasted-Good-That-confirms-the-addendum-was-not-theoretical-tho_1782474557917.txt",
+      "blobSha": "68fec994c0a947f0c05546e097c24159d7a93f04"
+    },
+    {
+      "path": "attached_assets/Pasted-Good-this-confirms-the-actual-risk-was-smaller-than-my-_1783522464687.txt",
+      "blobSha": "12ef4385531aec5c86d0d3004f909400fc633f22"
+    },
+    {
+      "path": "attached_assets/Pasted-Got-it-here-are-30-legit-competitors-in-payments-mercha_1770658244299.txt",
+      "blobSha": "5563c54f4fc26e10406039d3cf360279bf170822"
+    },
+    {
+      "path": "attached_assets/Pasted-Got-it-then-Apollo-can-stay-in-the-pilot-source-selecto_1782948085036.txt",
+      "blobSha": "7cf8230d9a1bea01f8c98c6ea598a418a2ffaf5f"
+    },
+    {
+      "path": "attached_assets/Pasted-Great-let-s-design-the-full-autonomous-merchant-acquisi_1773668972010.txt",
+      "blobSha": "6d5890cfc36d256e8446d74176691615c35cbcde"
+    },
+    {
+      "path": "attached_assets/Pasted-Here-s-a-polished-Replit-Agent-prompt-you-can-paste-dir_1786115601606.txt",
+      "blobSha": "2ec9d5088c236aeb48c492f3c15e9a1af06789ca"
+    },
+    {
+      "path": "attached_assets/Pasted-Here-s-the-exact-stack-and-operating-model-I-d-use-to-g_1773668392591.txt",
+      "blobSha": "7bd307322dcaea80b59b774f353954257b25c985"
+    },
+    {
+      "path": "attached_assets/Pasted-Here-s-the-exact-stack-and-operating-model-I-d-use-to-g_1773668950102.txt",
+      "blobSha": "7bd307322dcaea80b59b774f353954257b25c985"
+    },
+    {
+      "path": "attached_assets/Pasted-Here-s-the-full-Replit-prompt-ready-to-paste-LIBERTY-BA_1779397566169.txt",
+      "blobSha": "ae219e2890a968ed259b426518a324c65fe1c8d9"
+    },
+    {
+      "path": "attached_assets/Pasted-I-agree-with-the-audit-s-core-verdict-READY-FOR-CONTROL_1783193179202.txt",
+      "blobSha": "208b6f8301c1e7ef3cbce398417b5764accb9548"
+    },
+    {
+      "path": "attached_assets/Pasted-I-audited-this-1643-preflight-against-live-main-at-1a85_1787616316599.txt",
+      "blobSha": "3f12bfe335d4a7ae1fb544f587714ae6f58fb368"
+    },
+    {
+      "path": "attached_assets/Pasted-I-audited-this-against-the-live-repository-The-plan-is-_1787701625781.txt",
+      "blobSha": "cbd9e3bc85a3c39c560b193d6766d59f771373da"
+    },
+    {
+      "path": "attached_assets/Pasted-I-can-audit-and-identify-the-fixes-Replit-does-not-need_1786971609638.txt",
+      "blobSha": "45bae07e7cc4cca7024b200f293808bfdd624e67"
+    },
+    {
+      "path": "attached_assets/Pasted-I-d-turn-this-into-a-Replit-Agent-Launch-Command-Center_1786115817544.txt",
+      "blobSha": "0c4d63080e4db34b3d4852b7e7c28247d3b60684"
+    },
+    {
+      "path": "attached_assets/Pasted-I-d-turn-this-into-a-Replit-Agent-Launch-Command-Center_1786116525631.txt",
+      "blobSha": "0c4d63080e4db34b3d4852b7e7c28247d3b60684"
+    },
+    {
+      "path": "attached_assets/Pasted-It-s-much-cleaner-than-the-earlier-Liberty-version-This_1782591139108.txt",
+      "blobSha": "6a5be65548ac92f0121ee3f84f0fa5d80f349885"
+    },
+    {
+      "path": "attached_assets/Pasted-ite-asset-Could-not-load-home-runner-workspace-attached_1772339851117.txt",
+      "blobSha": "5c8c4e97f634c504bc77f62768198a3464ad0d6d"
+    },
+    {
+      "path": "attached_assets/Pasted-Liberty-Bancard-Full-Business-Plan-2026-Scale-to-1-000-_1781908815212.txt",
+      "blobSha": "00d660be051b5e58cf14b1bd347c68904f4fa491"
+    },
+    {
+      "path": "attached_assets/Pasted-Liberty-Bancard-Full-Code-Data-UI-UX-Production-Readine_1786202640301.txt",
+      "blobSha": "e512760d8311e6a4bf7a377d00ff83f95bfbeec8"
+    },
+    {
+      "path": "attached_assets/Pasted-Liberty-Bancard-Full-Code-Data-UI-UX-Production-Readine_1786203147389.txt",
+      "blobSha": "e512760d8311e6a4bf7a377d00ff83f95bfbeec8"
+    },
+    {
+      "path": "attached_assets/Pasted-Liberty-Bancard-Home-Full-Premium-Design-UX-Conversion-_1782446627162.txt",
+      "blobSha": "9a84eb0b85f3e6d7bf80aca8f1c399cc2e4b39a8"
+    },
+    {
+      "path": "attached_assets/Pasted-Liberty-Bancard-Landing-Page-Full-Desktop-Mobile-Design_1782436690162.txt",
+      "blobSha": "829b196f1ef95b1a1cbd83e7e88f90419d0ab70c"
+    },
+    {
+      "path": "attached_assets/Pasted-LIBERTY-BANCARD-MASTER-BUILD-TASK-TASK-Task-ID-TASK-ID-_1787502505263.txt",
+      "blobSha": "5efc6fdbd119dff4e5063fb5c73aead66b541ceb"
+    },
+    {
+      "path": "attached_assets/Pasted-Liberty-Bancard-Master-Replit-Audit-Conversion-Lifecycl_1782387391382.txt",
+      "blobSha": "5ef47c0f907f82246eb491ab651e152171baf805"
+    },
+    {
+      "path": "attached_assets/Pasted-LIBERTY-BANCARD-PREFLIGHT-Audit-1638-MODE-PREFLIGHT-BUI_1787253725582.txt",
+      "blobSha": "f68bbd8acbfa9f66decbcda2e2c94c02fddec8d0"
+    },
+    {
+      "path": "attached_assets/Pasted-LIBERTY-BANCARD-PREFLIGHT-Audit-MODE-PREFLIGHT-BUILD-Fi_1787252784555.txt",
+      "blobSha": "38d856884cb2a6771754922ec18f182d78c56823"
+    },
+    {
+      "path": "attached_assets/Pasted-LIBERTY-BANCARD-PREFLIGHT-Audit-MODE-PREFLIGHT-PLAN-Do-_1787511635193.txt",
+      "blobSha": "549a80a702fd6e1c50237583f9dc36348a27c811"
+    },
+    {
+      "path": "attached_assets/Pasted-LIBERTY-BANCARD-PREFLIGHT-Audit-MODE-PREFLIGHT-PLAN-Do-_1787524517663.txt",
+      "blobSha": "549a80a702fd6e1c50237583f9dc36348a27c811"
+    },
+    {
+      "path": "attached_assets/Pasted-LIBERTY-BANCARD-PREFLIGHT-Audit-MODE-PREFLIGHT-PLAN-Do-_1787524653026.txt",
+      "blobSha": "549a80a702fd6e1c50237583f9dc36348a27c811"
+    },
+    {
+      "path": "attached_assets/Pasted-LIBERTY-BANCARD-PREFLIGHT-Audit-MODE-PREFLIGHT-PLAN-Do-_1787700593216.txt",
+      "blobSha": "549a80a702fd6e1c50237583f9dc36348a27c811"
+    },
+    {
+      "path": "attached_assets/Pasted-LIBERTY-BANCARD-PREFLIGHT-Audit-TASK-1576-1580-MODE-PRE_1787330798183.txt",
+      "blobSha": "97b7684d4c9561770a2986ddef7fbeb56da3e9d6"
+    },
+    {
+      "path": "attached_assets/Pasted-LIBERTY-BANCARD-PREFLIGHT-Audit-TASK-1639-MODE-PREFLIGH_1787263231158.txt",
+      "blobSha": "44cb891a04c51c434e8cc528f6aa2b8b70fd5388"
+    },
+    {
+      "path": "attached_assets/Pasted-LIBERTY-BANCARD-PREFLIGHT-Audit-TASK-1641-MODE-PREFLIGH_1787405068675.txt",
+      "blobSha": "fdb952ae9410e3fdb3ecfa9188fba3eb110b6304"
+    },
+    {
+      "path": "attached_assets/Pasted-LIBERTY-BANCARD-PREFLIGHT-Audit-TASK-1641-MODE-PREFLIGH_1787405125474.txt",
+      "blobSha": "fdb952ae9410e3fdb3ecfa9188fba3eb110b6304"
+    },
+    {
+      "path": "attached_assets/Pasted-LIBERTY-BANCARD-PREFLIGHT-Audit-TASK-1642-1643-MODE-PRE_1787405153954.txt",
+      "blobSha": "ebe951dd0b41cc279f0cc6734feccb5b968796f4"
+    },
+    {
+      "path": "attached_assets/Pasted-LIBERTY-BANCARD-PREFLIGHT-BUILD-MODE-MODE-PREFLIGHT-BUI_1786971657109.txt",
+      "blobSha": "7f7833bc4edcdf7225167815ebd489055716c62e"
+    },
+    {
+      "path": "attached_assets/Pasted-LIBERTY-BANCARD-PREFLIGHT-BUILD-MODE-MODE-PREFLIGHT-BUI_1787239743820.txt",
+      "blobSha": "d373137feba197e45b1d2b712c619f514071514e"
+    },
+    {
+      "path": "attached_assets/Pasted-LIBERTY-BANCARD-PREFLIGHT-BUILD-MODE-MODE-PREFLIGHT-BUI_1787239791912.txt",
+      "blobSha": "d373137feba197e45b1d2b712c619f514071514e"
+    },
+    {
+      "path": "attached_assets/Pasted-LIBERTY-BANCARD-PREFLIGHT-BUILD-MODE-MODE-PREFLIGHT-BUI_1787252723772.txt",
+      "blobSha": "d373137feba197e45b1d2b712c619f514071514e"
+    },
+    {
+      "path": "attached_assets/Pasted-LIBERTY-BANCARD-PREFLIGHT-BUILD-MODE-Task-1510-Fix-Vert_1786747976314.txt",
+      "blobSha": "a635f1448465aaa8aaee50b8f0644225bd4ad42b"
+    },
+    {
+      "path": "attached_assets/Pasted-LIBERTY-BANCARD-PREFLIGHT-BUILD-MODE-Task-1511-Make-Out_1786748033427.txt",
+      "blobSha": "7ba9a11d4f91abbeded47b77f4743ed3224961dd"
+    },
+    {
+      "path": "attached_assets/Pasted-LIBERTY-BANCARD-PREFLIGHT-BUILD-MODE-Task-1512-Fix-Acti_1786797013545.txt",
+      "blobSha": "b59fa4124a6c6c857d280ecf85649308570d42ed"
+    },
+    {
+      "path": "attached_assets/Pasted-LIBERTY-BANCARD-PREFLIGHT-BUILD-MODE-Task-1513-Run-Zero_1786821728196.txt",
+      "blobSha": "3e02f978888482f19964de0875d78b6504777c74"
+    },
+    {
+      "path": "attached_assets/Pasted-LIBERTY-BANCARD-PREFLIGHT-BUILD-MODE-Task-1514-Fix-Redi_1786748274453.txt",
+      "blobSha": "b195a2aed66f40cbe59ab0378feffa28c4eb2223"
+    },
+    {
+      "path": "attached_assets/Pasted-LIBERTY-BANCARD-PREFLIGHT-BUILD-MODE-Task-1532-MODE-PRE_1786822589982.txt",
+      "blobSha": "685392e5680392193078a0cb88531bb71f66f059"
+    },
+    {
+      "path": "attached_assets/Pasted-LIBERTY-BANCARD-PREFLIGHT-BUILD-MODE-Task-1545-1546-154_1786835419002.txt",
+      "blobSha": "aac2376501496101e98e56f951093f404ddd03b1"
+    },
+    {
+      "path": "attached_assets/Pasted-LIBERTY-BANCARD-PREFLIGHT-BUILD-MODE-Task-1549-MODE-PRE_1786885009994.txt",
+      "blobSha": "f72467a0ce5c92cbcf0776ed9614013f558d3cf7"
+    },
+    {
+      "path": "attached_assets/Pasted-LIBERTY-BANCARD-PREFLIGHT-BUILD-MODE-Task-1563-MODE-PRE_1786902359663.txt",
+      "blobSha": "89592763ad1f09d25bdc492bc681f7edb5279eac"
+    },
+    {
+      "path": "attached_assets/Pasted-LIBERTY-BANCARD-PREFLIGHT-BUILD-MODE-Task-1564-GHL-Fail_1786902264016.txt",
+      "blobSha": "a2bbf8d97bb6b73a32e7e7cac7e86fc3e7c45da2"
+    },
+    {
+      "path": "attached_assets/Pasted-LIBERTY-BANCARD-PREFLIGHT-BUILD-MODE-Task-1601-1602-160_1787009868588.txt",
+      "blobSha": "bfed61e99590033927494e58f3efba494f6ea582"
+    },
+    {
+      "path": "attached_assets/Pasted-LIBERTY-BANCARD-PREFLIGHT-BUILD-MODE-Task-1609-MODE-PRE_1787011845750.txt",
+      "blobSha": "e2b317a01021fb528299e5a9eba848fb0e59c23b"
+    },
+    {
+      "path": "attached_assets/Pasted-Liberty-Bancard-Replit-Agent-Prompts-Complete-Replit-Re_1781908758002.txt",
+      "blobSha": "b619f4effb07f3c0b75f96fc8472ebbc8eca10da"
+    },
+    {
+      "path": "attached_assets/Pasted-Liberty-Bancard-Replit-Agent-Prompts-Complete-Replit-Re_1781908824393.txt",
+      "blobSha": "b619f4effb07f3c0b75f96fc8472ebbc8eca10da"
+    },
+    {
+      "path": "attached_assets/Pasted-Liberty-Bancard-Verified-Free-Architecture-v3-Merchant-_1781908798554.txt",
+      "blobSha": "fb555f2b23780ac7cd3d6817126fbbfa418e8ffb"
+    },
+    {
+      "path": "attached_assets/Pasted-Must-fix-before-go-live-security-data-integrity-1175-Me_1786093158300.txt",
+      "blobSha": "ff44280b5b6809d7add42905c3c89a9c49ca619e"
+    },
+    {
+      "path": "attached_assets/Pasted-My-honest-take-the-direction-is-strong-but-the-roadmap-_1781463465796.txt",
+      "blobSha": "9fd5485355f4214e2ab8aac095f3058afed396dc"
+    },
+    {
+      "path": "attached_assets/Pasted-No-the-diagnosis-is-mostly-right-but-Task-1681-is-unsaf_1787746802747.txt",
+      "blobSha": "b0c2a486e41558c0c3d083f98505a057497ab131"
+    },
+    {
+      "path": "attached_assets/Pasted-Not-build-ready-as-written-but-very-close-The-idea-is-r_1783557404529.txt",
+      "blobSha": "e82d5af5ef2a2cd84985fc351fb05df79a020a06"
+    },
+    {
+      "path": "attached_assets/Pasted-Not-build-ready-as-written-close-but-it-needs-tighter-k_1783305890200.txt",
+      "blobSha": "81abfd87d6e32b00b8789f5a1e88fdaacb32dc96"
+    },
+    {
+      "path": "attached_assets/Pasted-Not-build-ready-as-written-This-is-directionally-useful_1783087804633.txt",
+      "blobSha": "c780c3f44706e5db3ef1750d7ae36b8c05823825"
+    },
+    {
+      "path": "attached_assets/Pasted-Not-build-ready-with-the-exact-copy-as-written-The-scri_1783552732320.txt",
+      "blobSha": "424d38c820a9195cb1c39edcf62c2b8f69ac26e8"
+    },
+    {
+      "path": "attached_assets/Pasted-Not-build-ready-with-the-exact-copy-as-written-The-scri_1783552984145.txt",
+      "blobSha": "424d38c820a9195cb1c39edcf62c2b8f69ac26e8"
+    },
+    {
+      "path": "attached_assets/Pasted-Paste-this-into-Replit-Task-Upgrade-the-Liberty-Bancard_1782592502322.txt",
+      "blobSha": "97f5ab3af8a16a2a3e12919fb7489d58611e1a67"
+    },
+    {
+      "path": "attached_assets/Pasted-Perfect-Here-is-the-actual-Liberty-Bancard-build-spec-f_1773619668096.txt",
+      "blobSha": "a1962672f23430b3e7f842f2cd95117859f34572"
+    },
+    {
+      "path": "attached_assets/Pasted-Perform-the-complete-runtime-verification-defined-in-LI_1786896127862.txt",
+      "blobSha": "e1e336dbbafcd76cbaeac074386508bbd45c0803"
+    },
+    {
+      "path": "attached_assets/Pasted-Preflight-Report-Task-833-828C-SDR-Campaign-Template-Co_1783544447128.txt",
+      "blobSha": "9f2c265421567e27272feec180501b194fb747df"
+    },
+    {
+      "path": "attached_assets/Pasted-Rebuild-the-entire-16-slide-Stellor-Media-Strategy-Deck_1784581053189.txt",
+      "blobSha": "f25c74267ecb0039b94ccec0065b186982c50966"
+    },
+    {
+      "path": "attached_assets/Pasted-Rebuild-the-entire-16-slide-Stellor-Media-Strategy-Deck_1784581085472.txt",
+      "blobSha": "f25c74267ecb0039b94ccec0065b186982c50966"
+    },
+    {
+      "path": "attached_assets/Pasted-Required-Addendum-to-680-Homepage-Section-Rhythm-Repair_1782584145135.txt",
+      "blobSha": "97cbc47dd9bc095eedd85812fe6d8096b32c117c"
+    },
+    {
+      "path": "attached_assets/Pasted-Required-Rewrite-for-828-Sequence-Campaign-Editor-Verdi_1783537935714.txt",
+      "blobSha": "0a2457200327169d42a58eb651e2108255c666da"
+    },
+    {
+      "path": "attached_assets/Pasted-Run-a-read-only-post-publish-delta-verification-for-Tas_1787015975020.txt",
+      "blobSha": "d18f410479ecc787787b46ac77cc68c17f7d412f"
+    },
+    {
+      "path": "attached_assets/Pasted-Run-Task-1572-as-an-urgent-read-only-Serper-investigati_1787003411343.txt",
+      "blobSha": "2a5e66a5a2a643c0a05aece711dfd86ce71549ca"
+    },
+    {
+      "path": "attached_assets/Pasted-Run-the-final-post-publish-runtime-evidence-pass-agains_1786996305251.txt",
+      "blobSha": "bf624284ba1c9d3eff3b906584b0ed02a33c5900"
+    },
+    {
+      "path": "attached_assets/Pasted-Task-1540-Repository-Audit-ZeroBounce-Batch-Validation-_1786822875887.txt",
+      "blobSha": "006fe85a9873294b38d540380f5669603cd93fd9"
+    },
+    {
+      "path": "attached_assets/Pasted-Task-1577-should-not-be-approved-as-written-The-correct_1787345253589.txt",
+      "blobSha": "0e33bf03299d8ff8a91ad0c8507e8baf65eab7d2"
+    },
+    {
+      "path": "attached_assets/Pasted-Task-1669-BT-10-End-to-End-Repository-Audit-and-Require_1787654513115.txt",
+      "blobSha": "a37544f4b2eb223cf8ff717a27c48e56c48cd3bc"
+    },
+    {
+      "path": "attached_assets/Pasted-Task-1680-s-Serper-diagnosis-is-mostly-correct-but-do-n_1787746167269.txt",
+      "blobSha": "770b52497f3b5375b3ad17c903e7eb65a7a87409"
+    },
+    {
+      "path": "attached_assets/Pasted-Task-Fix-the-Liberty-Bancard-mobile-hero-after-the-last_1782592747352.txt",
+      "blobSha": "d59abdfdb45a88fb3b8f24b8f7878d76e7138492"
+    },
+    {
+      "path": "attached_assets/Pasted-That-fix-makes-sense-The-issue-wasn-t-literally-two-ter_1782404751269.txt",
+      "blobSha": "437d72d9d3b6abfff9cc8abb50bd99c7fc20c894"
+    },
+    {
+      "path": "attached_assets/Pasted-That-reaction-is-justified-2-656-failures-is-not-a-norm_1787406645351.txt",
+      "blobSha": "5d6fcb7e7868eb70c58ff81690f196efab09f10b"
+    },
+    {
+      "path": "attached_assets/Pasted-That-response-means-Task-1642-is-not-complete-The-remai_1787603369838.txt",
+      "blobSha": "6129fb355f791d0222129d415d3c831f46050411"
+    },
+    {
+      "path": "attached_assets/Pasted-The-feedback-is-right-The-next-version-should-stop-bein_1786195409803.txt",
+      "blobSha": "efde02c64b66770590815d3b8ad7dbf028c8fb1b"
+    },
+    {
+      "path": "attached_assets/Pasted-This-1533-draft-is-not-build-ready-yet-The-core-diagnos_1786797687250.txt",
+      "blobSha": "d84a0aec86f3096528000ada52fa5ca110f42bce"
+    },
+    {
+      "path": "attached_assets/Pasted-This-571-prompt-is-very-close-to-ready-I-would-run-it-a_1782395793862.txt",
+      "blobSha": "ad95174edcfce5f15cd976bc4042ed3456404203"
+    },
+    {
+      "path": "attached_assets/Pasted-This-is-a-coherent-combined-task-but-it-has-several-saf_1787011833887.txt",
+      "blobSha": "e5d93a2f268860444f50adea487bf9c78856be7e"
+    },
+    {
+      "path": "attached_assets/Pasted-This-is-a-strong-analysis-overall-The-app-already-sound_1778722310064.txt",
+      "blobSha": "c5900961020df47db7bdf7357a94990b11417b21"
+    },
+    {
+      "path": "attached_assets/Pasted-This-is-a-strong-audit-The-clearest-takeaway-is-You-do-_1775420246350.txt",
+      "blobSha": "b89b8b6d5815f2bd56771bce7621b12cdd258648"
+    },
+    {
+      "path": "attached_assets/Pasted-This-is-basically-build-ready-This-version-is-much-bett_1782934156195.txt",
+      "blobSha": "cf01276ad2872a5f2de9dc160b8f828739f695ff"
+    },
+    {
+      "path": "attached_assets/Pasted-This-is-in-much-better-shape-I-would-split-my-verdicts-_1783802104326.txt",
+      "blobSha": "c237a9fe7eb59f5eaf20c39f21cdb8fe2a08f08d"
+    },
+    {
+      "path": "attached_assets/Pasted-This-is-much-stronger-than-the-original-912-It-fixes-ne_1783688071107.txt",
+      "blobSha": "736ee4a0b5ce4cbb9cd89b3d09de9b9f26659b03"
+    },
+    {
+      "path": "attached_assets/Pasted-This-is-strong-evidence-but-the-blanket-all-four-PASS-i_1787021685059.txt",
+      "blobSha": "9c2faed5fd0d6cd320f57126f63941c43f038b98"
+    },
+    {
+      "path": "attached_assets/Pasted-This-one-is-finally-build-ready-with-one-correction-The_1782947881416.txt",
+      "blobSha": "191f9d438754545627aa198fc4c82d9ec7fa35f9"
+    },
+    {
+      "path": "attached_assets/Pasted-This-preflight-is-very-good-and-it-confirms-the-answer-_1783436631260.txt",
+      "blobSha": "69f55e0570573c46fc310c34e34f7b74afc03231"
+    },
+    {
+      "path": "attached_assets/Pasted-Totally-understandable-this-got-complicated-Let-me-expl_1783712901277.txt",
+      "blobSha": "42bc2d98b2a3a13d82e30d0abca51b76166519e3"
+    },
+    {
+      "path": "attached_assets/Pasted-TypeScript-clean-Rebuild-dist-and-run-pre-deploy-simult_1786185705948.txt",
+      "blobSha": "6d92ed964652bbfc8c0b624ee5c4460ceb48452d"
+    },
+    {
+      "path": "attached_assets/Pasted-Update-Task-573-using-the-verified-repo-findings-below-_1782397186504.txt",
+      "blobSha": "7acf02fd1efcaeba4d0b32efa78d85dfb9b3e26b"
+    },
+    {
+      "path": "attached_assets/Pasted-Use-this-as-the-next-Replit-execution-prompt-It-is-inte_1786195471275.txt",
+      "blobSha": "3804be629dd302999fbb114e368140dfe32b6a49"
+    },
+    {
+      "path": "attached_assets/Pasted-User-attachment-Yes-this-is-the-right-place-You-are-in-_1786308489032.txt",
+      "blobSha": "a47676877fcfed18fb3efe32a3ef1db0d962e10e"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-2024-is-conditionally-build-ready-only-after-19_1783191943837.txt",
+      "blobSha": "d829822d5c1f18c2129c984cd95f98bb29d93f82"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-601-is-very-close-but-not-build-ready-yet-The-p_1782422299199.txt",
+      "blobSha": "eb01a5d19fc3004720a8db86b026b53f85107ad8"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-610-is-very-close-to-10-10-but-I-would-not-appr_1782430307057.txt",
+      "blobSha": "f6f1998133bcfd58feaa35716cbb0d705eebf8ed"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-BUILD-PHASE-2-NEXT-PREFLIGHT-PHASE-3-IN-PARALLE_1783799790732.txt",
+      "blobSha": "681bca9aca1f24e79e04d2493effd23a70018d10"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-BUILD-READY-WITH-6-CORRECTIONS-The-scope-is-now_1784069220298.txt",
+      "blobSha": "cc8d575fb8e24805b258e01d53562d07ff69c495"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-BUILD-READY-WITH-7-CORRECTIONS-The-resolver-dir_1784080627356.txt",
+      "blobSha": "f4e35daf07c4cf6556f701481c2235fdabe7e7df"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-BUILD-READY-WITH-CORRECTIONS-Root-cause-is-now-_1783697237051.txt",
+      "blobSha": "03e58cfe1d97443fd22485af660167accb96ee9c"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-BUILD-READY-WITH-CORRECTIONS-The-batch-architec_1783709352623.txt",
+      "blobSha": "4479b1e26c42c3d1cae906673ecf535ed5bad58e"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-BUILD-READY-WITH-CORRECTIONS-The-core-fix-is-co_1783810737058.txt",
+      "blobSha": "a9c5458c62e5c816da6490729d361557b5178b5b"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-BUILD-READY-WITH-CORRECTIONS-The-feature-is-low_1783719394921.txt",
+      "blobSha": "8495e9b10aea4908e44e5c869a317377e390d09d"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-BUILD-READY-WITH-CORRECTIONS-The-interim-title-_1783699023456.txt",
+      "blobSha": "76631ce9683955eac6beac206a8b0d67474e4faa"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-BUILD-READY-WITH-CORRECTIONS-The-KPI-architectu_1783716641540.txt",
+      "blobSha": "7aaf9723993e445d988017ca216d40c2857bd8ec"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-BUILD-READY-WITH-CORRECTIONS-The-preflight-is-s_1783695293703.txt",
+      "blobSha": "c937e05cca0a04e5c86b126a500c99d728391d9e"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-BUILD-READY-WITH-CORRECTIONS-The-preflight-is-s_1783697438389.txt",
+      "blobSha": "4b920ba5a9cb1d072443ea748b760ddc7f5fe2cb"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-BUILD-READY-WITH-CORRECTIONS-The-preflight-is-s_1783715603774.txt",
+      "blobSha": "1d21b529e1541dcf397a2853a7f3e42759f52790"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-BUILD-READY-WITH-CORRECTIONS-The-preflight-is-s_1783725479264.txt",
+      "blobSha": "25202e7695cc7838dd2e18ec77ba4a1d9771c4c3"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-BUILD-READY-WITH-CORRECTIONS-The-preflight-is-s_1783725490404.txt",
+      "blobSha": "25202e7695cc7838dd2e18ec77ba4a1d9771c4c3"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-BUILD-READY-WITH-CORRECTIONS-The-root-cause-is-_1783698211424.txt",
+      "blobSha": "76af460c787e4639bfc9019f282eaa9434661bc5"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-BUILD-READY-WITH-CORRECTIONS-The-schema-prerequ_1784072060620.txt",
+      "blobSha": "5866f978747dc5a6396d3dd7fc07985f8e189ff2"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-BUILD-READY-WITH-CORRECTIONS-The-server-side-fi_1783725416823.txt",
+      "blobSha": "22222fa024c5912758bdd19146daa6f084f57fcc"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-BUILD-READY-WITH-CORRECTIONS-The-shared-utility_1783707115123.txt",
+      "blobSha": "b351c2e1ab14d4318a7194ad8e8fa4019cb3aa03"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-BUILD-READY-WITH-CORRECTIONS-The-task-is-mostly_1783700467235.txt",
+      "blobSha": "dae04b11f4a5fa7f386c92a4c1e9ec91bc0d8b03"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-BUILD-READY-WITH-CORRECTIONS-The-test-scope-is-_1783715634357.txt",
+      "blobSha": "1b9a505ad765ad42d363d87ef98c998be4611bff"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-BUILD-READY-WITH-CORRECTIONS-The-UX-fix-is-vali_1783703289273.txt",
+      "blobSha": "5d25161ce5742b82600f18dabb97a0d22292a320"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-BUILD-READY-WITH-CORRECTIONS-This-is-a-reasonab_1783868076992.txt",
+      "blobSha": "5a562109263e0bd9e939d0b7cd9369fb8df257a3"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-BUILD-READY-WITH-CORRECTIONS-This-is-a-useful-c_1783869761108.txt",
+      "blobSha": "a270738557fd74667db05801e309c24fa7c0d757"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-BUILD-READY-WITH-CORRECTIONS-Those-findings-res_1783700258585.txt",
+      "blobSha": "77626f41293b7b87d3e3b949e057cb5f279b2e40"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-COMPLETE-VERIFIED-WITH-ONE-CORRECTION-The-imple_1783699939441.txt",
+      "blobSha": "009707cf47be4123306be35c285ee06fad6554a0"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-DO-NOT-START-Task-Classification-This-is-primar_1783694899870.txt",
+      "blobSha": "1d7cee728c2e1219cfd3c504928aead568843216"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-DO-NOT-START-YET-The-business-diagnosis-is-larg_1783791682460.txt",
+      "blobSha": "34c1515e70ec0804693277b30438697bb3373b7e"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-DO-NOT-START-YET-The-task-itself-is-sound-but-i_1783713517651.txt",
+      "blobSha": "16ea06ee51cdacccad2da660ca99febc957f1d72"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-NOT-BUILD-READY-4-MATERIAL-CORRECTIONS-The-pref_1784048537641.txt",
+      "blobSha": "0d2dcf3ecc1141b2c364cc064552052181ec304b"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-NOT-BUILD-READY-ARCHITECTURE-PREFLIGHT-REQUIRED_1784041424956.txt",
+      "blobSha": "5e1651f1530b7bc67506bdc210c334df91cdf1fd"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-NOT-BUILD-READY-PREFLIGHT-CONFIRMED-TWO-NEW-BLO_1783705821714.txt",
+      "blobSha": "7173c43c44b637ada02252b211449eb5bbea7f77"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-NOT-BUILD-READY-SPLIT-THE-TWO-GAPS-The-promotio_1784068486557.txt",
+      "blobSha": "6d7b2a51edf8c4e326dae124fa17c6be011b8ec6"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-NOT-BUILD-READY-Task-Classification-This-is-not_1783694726842.txt",
+      "blobSha": "11a0758692ea37d926f16fe035449f657caac611"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-NOT-BUILD-READY-The-compliance-concern-is-valid_1784045123955.txt",
+      "blobSha": "4a1eb1c1e1c4d5b28f5afc6d4bf438b361d40976"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-NOT-BUILD-READY-The-direction-is-right-but-the-_1783800567288.txt",
+      "blobSha": "98964db3cd9e9a8fc948de239144635deba822a8"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-NOT-BUILD-READY-The-direction-is-right-but-the-_1784044910305.txt",
+      "blobSha": "3ae9f4c797675d15e772a1c04f52e2900ecfe451"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-NOT-BUILD-READY-The-four-phase-architecture-is-_1783704938673.txt",
+      "blobSha": "2c95cb7d238bc18df0150cae85fe944a53d7ea8d"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-NOT-BUILD-READY-The-intent-is-correct-but-the-p_1783812711124.txt",
+      "blobSha": "66164cce5747055bdf71798724344290dee8a13b"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-NOT-BUILD-READY-The-intent-is-correct-but-this-_1783867218936.txt",
+      "blobSha": "799368aa8d4df97f9e0d4bc52698d4a0da0e37d7"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-NOT-BUILD-READY-The-migration-sequence-is-now-c_1783704675162.txt",
+      "blobSha": "cb245c9a187e29c6753bbc6f383e952accd24e08"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-NOT-BUILD-READY-The-missing-downstream-trigger-_1783983678784.txt",
+      "blobSha": "7b36256aa681f0424e60e98ad4f0aee6294327de"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-NOT-BUILD-READY-The-operational-intent-is-good-_1783704839612.txt",
+      "blobSha": "bcb10b8f11f0bb2b05977c6f6f0cdb00d6053723"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-NOT-BUILD-READY-The-preflight-is-much-better-bu_1783811578285.txt",
+      "blobSha": "4b20c188abe088e46bfdcca2ab161bf99ede6e10"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-NOT-BUILD-READY-The-problem-is-real-but-the-pro_1783810853072.txt",
+      "blobSha": "7c49122d893f937be4c832ab9ed07978ec4b361a"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-NOT-BUILD-READY-The-process-separation-is-now-c_1783717975228.txt",
+      "blobSha": "2fc727f6fe00c8225252caa0dbd72d48c37a40e0"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-NOT-BUILD-READY-The-proposed-SLA-definition-is-_1783698745166.txt",
+      "blobSha": "aa57927e4d3be2afdcaaa9bed672219ea9f719fd"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-NOT-BUILD-READY-The-redesign-fixes-several-real_1783698821698.txt",
+      "blobSha": "0ff67af85ec5453b6075945ce862bbc0243e8eeb"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-NOT-BUILD-READY-The-route-test-scope-is-solid-b_1783716902879.txt",
+      "blobSha": "24f1dfe87c23488c6253e84171047e508554b7a3"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-NOT-BUILD-READY-The-stable-identity-architectur_1783701032941.txt",
+      "blobSha": "3610e870339b402f018832c2360bd3d8afffca12"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-NOT-BUILD-READY-The-status-semantics-and-shared_1783698948573.txt",
+      "blobSha": "729ca649207b00540362f974708183c84909355a"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-NOT-BUILD-READY-The-task-contradicts-itself-and_1783699002036.txt",
+      "blobSha": "567101e0987407ead4ef6b14305baa8cbd4a5a44"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-NOT-BUILD-READY-This-is-much-closer-but-there-a_1783867653674.txt",
+      "blobSha": "8bc982b17cb4073554da4fbc15c6fc1abfd6e698"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-NOT-BUILD-READY-TWO-CONTRACT-MISMATCHES-The-rem_1783982998128.txt",
+      "blobSha": "e2441488b989af7bd988001d71997a5b440e58f7"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-NOT-COMPLETE-DEPLOYMENT-ORDER-BLOCKER-The-code-_1783710790281.txt",
+      "blobSha": "1dbe85fce62ba9d7068b5a11c022a737e49e8d3b"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-NOT-COMPLETE-DST-BUG-The-overall-architecture-i_1783702651893.txt",
+      "blobSha": "3bfe6e8d9950ea0e6017707329f3cb0f36ceea78"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-NOT-COMPLETE-FOLLOW-UP-REQUIRED-The-core-featur_1783798037515.txt",
+      "blobSha": "6e538d71dce264d00de0bf513dfbf58167c26439"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-NOT-COMPLETE-NEEDS-FINAL-VERIFICATION-The-imple_1783798724458.txt",
+      "blobSha": "3a5ec60f877daf5b2842f85f003d28a1e0881ed1"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-NOT-COMPLETE-NEEDS-ONE-CORRECTION-The-Pipeline-_1783702565937.txt",
+      "blobSha": "da7411c635707c4761cc087a801346441ff86892"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-NOT-COMPLETE-NOT-VERIFIED-The-implementation-so_1783696605210.txt",
+      "blobSha": "0d403c493183a5f11a0b40b2fbdd9c6dbf306cc5"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-PREFLIGHT-REQUIRED-Do-not-change-package-json-t_1783701382835.txt",
+      "blobSha": "bdae45459fdcacb5903013f7d25641cd6c00244c"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-PREFLIGHT-REQUIRED-The-campaign-editor-fix-is-l_1783715212093.txt",
+      "blobSha": "311149d4bf555d34afd6cf7d8decca19dc4370e5"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-PREFLIGHT-REQUIRED-The-intent-is-good-but-the-t_1783713409614.txt",
+      "blobSha": "59f911a2e1d9fc9af332aeb96d161184184bbc16"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-PREFLIGHT-REQUIRED-The-interaction-pattern-is-r_1783723500106.txt",
+      "blobSha": "ca0af9cee0c5b2fa9eac68534beea2cd573c3018"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-PREFLIGHT-REQUIRED-The-recovery-need-is-real-bu_1783819288727.txt",
+      "blobSha": "787a16d3643010a7074cef20e353e4cc90577482"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-PREFLIGHT-REQUIRED-The-static-diagnosis-is-stro_1783695955437.txt",
+      "blobSha": "281ef739fb6fbf876fd9ef8beedbed352f1d93ef"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-PREFLIGHT-REQUIRED-This-is-a-production-backfil_1783696329718.txt",
+      "blobSha": "0a996b2599a6a93d21ae2dd637135bdf4cf07c64"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-PREFLIGHT-REQUIRED-This-is-not-build-ready-The-_1783696043218.txt",
+      "blobSha": "f60fc9e81d49e6113850c3a3710f37dedab60309"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-The-preflight-is-correct-Neither-973-nor-987-es_1784023343072.txt",
+      "blobSha": "ae5cbb8adcaaf29b90ba39608b9f651f7b7e4fd8"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-Wave-5-is-a-major-win-but-I-d-do-one-immediate-_1782415935545.txt",
+      "blobSha": "9b983e72ce6b009d991e1c9ea7c1c9ae4bb91653"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-WRITE-THE-SPLIT-TASKS-WITH-TWO-FINAL-CORRECTION_1784068919699.txt",
+      "blobSha": "8134f058db55ca91ac73d12faba96b9c37349374"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-YES-UPDATE-TASK-1009-WITH-THIS-CORRECTED-PLAN-T_1784041949828.txt",
+      "blobSha": "fe202c5d812f495534e5573ed861e4bfa2b27823"
+    },
+    {
+      "path": "attached_assets/Pasted-Verdict-YES-UPDATE-TASK-989-The-preflight-is-complete-a_1784045312068.txt",
+      "blobSha": "e61b1265d63fa8313144993a75aee5f965b9ff49"
+    },
+    {
+      "path": "attached_assets/Pasted-Wave-10-Final-Safety-Verification-Read-only-verificatio_1782483694824.txt",
+      "blobSha": "ec3fa99dfef77f7a1385e0c3709655f25f093e22"
+    },
+    {
+      "path": "attached_assets/Pasted-what-are-all-the-free-merchant-lead-ssouces-6-50-PM-Bas_1781909633342.txt",
+      "blobSha": "e69324a48146f7698554082742dabd8b38fc0a89"
+    },
+    {
+      "path": "attached_assets/Pasted-Yes-1613-should-be-the-next-task-before-the-final-39-ro_1787050089630.txt",
+      "blobSha": "76bcbd88d3711d446805863c2d6438077d43cebb"
+    },
+    {
+      "path": "attached_assets/Pasted-Yes-all-of-those-are-included-but-not-all-in-the-same-t_1782929175769.txt",
+      "blobSha": "d0f970d395d83cc7d100a875fb65df832f538409"
+    },
+    {
+      "path": "attached_assets/Pasted-Yes-approve-it-but-make-clear-it-must-proceed-now-inste_1787531501256.txt",
+      "blobSha": "d854b72948ef467ba5e8b549c34bdd786e548626"
+    },
+    {
+      "path": "attached_assets/Pasted-Yes-Below-is-the-version-I-would-actually-paste-into-Re_1786199312337.txt",
+      "blobSha": "77adc41cfe800fa4ef51a0e6d7a3c30090617821"
+    },
+    {
+      "path": "attached_assets/Pasted-Yes-for-Liberty-Bancard-I-d-make-this-a-much-more-aggre_1786184095873.txt",
+      "blobSha": "6a6174058271fe5253577af23cd2d8135b544226"
+    },
+    {
+      "path": "attached_assets/Pasted-Yes-Here-is-the-feedback-rewritten-in-a-Replit-friendly_1781459809095.txt",
+      "blobSha": "0f0371a7a3181280c8ffbd85e8d8ffb9e81a5216"
+    },
+    {
+      "path": "attached_assets/Pasted-Yes-I-d-give-Replit-separate-tightly-scoped-prompts-not_1786187661118.txt",
+      "blobSha": "799b9c83a618a0ca8863ba5953920682c19d12af"
+    },
+    {
+      "path": "attached_assets/Pasted-Yes-I-d-make-this-the-single-master-backlog-and-stop-wo_1786194801307.txt",
+      "blobSha": "2bbf157b413aaae677d5aec79b400fc6746405fd"
+    },
+    {
+      "path": "attached_assets/Pasted-Yes-I-inspected-the-live-rendered-website-crawled-every_1786965215541.txt",
+      "blobSha": "f3c63ee269af6bd822b90517509a15c77a72a22f"
+    },
+    {
+      "path": "attached_assets/Pasted-Yes-I-reviewed-the-feedback-you-pasted-and-there-are-se_1786292543557.txt",
+      "blobSha": "7e8216982ed2abc7a2c52e3dd4527cfda2354245"
+    },
+    {
+      "path": "attached_assets/Pasted-Yes-I-see-it-now-and-inspected-main-at-commit-10d2101-h_1786964300695.txt",
+      "blobSha": "ef299fae778bcdcc0791203cabfe2e54c2944d33"
+    },
+    {
+      "path": "attached_assets/Pasted-Yes-I-think-the-current-GHL-integration-is-too-deeply-e_1786194249487.txt",
+      "blobSha": "5e9b5b2a9794cf134f05fc72627883c3e6909443"
+    },
+    {
+      "path": "attached_assets/Pasted-Yes-now-this-is-build-ready-because-the-audit-did-the-r_1782567135167.txt",
+      "blobSha": "37bebf6a8e1d6e5ad7c808d3b9ebba442a73ea78"
+    },
+    {
+      "path": "attached_assets/Pasted-Yes-proceed-with-this-task-but-with-a-few-final-clarifi_1782929506071.txt",
+      "blobSha": "b54174eb37ae11f6e1cca9b08490ab6eb6730491"
+    },
+    {
+      "path": "attached_assets/Pasted-Yes-put-it-on-the-task-board-This-is-exactly-the-kind-o_1783084431609.txt",
+      "blobSha": "268d1bdb01921c70f86281b8c6ef1a74029f4051"
+    },
+    {
+      "path": "attached_assets/Pasted-Yes-The-14-task-roadmap-is-too-chopped-up-The-clean-ver_1782929190635.txt",
+      "blobSha": "3d528b43485a6bac858958e800955901a4f5476e"
+    },
+    {
+      "path": "attached_assets/Pasted-Yes-this-app-needs-a-different-audit-prompt-than-Oveeo-_1782348969546.txt",
+      "blobSha": "0b0ecc358caf5183f448bd3b4493727ca3f39c30"
+    },
+    {
+      "path": "attached_assets/Pasted-Yes-this-app-needs-a-different-audit-prompt-than-Oveeo-_1782349383151.txt",
+      "blobSha": "0b0ecc358caf5183f448bd3b4493727ca3f39c30"
+    },
+    {
+      "path": "attached_assets/Pasted-Yes-this-is-basically-the-right-Wave-1-prompt-but-I-wou_1782394659525.txt",
+      "blobSha": "92b2eae8d65b9f459365745bbafa9b2f930b84a7"
+    },
+    {
+      "path": "attached_assets/Pasted-Yes-this-should-be-built-as-a-Replit-hosted-orchestrati_1773619606662.txt",
+      "blobSha": "520eb7c4e2e3671049fd753dcf99aad2b539e007"
+    },
+    {
+      "path": "attached_assets/Pasted-Yes-update-it-The-preflight-is-correct-and-it-caught-th_1783546414253.txt",
+      "blobSha": "7a1ab415795cc0ee2595e6d3eed7df948b111a20"
+    },
+    {
+      "path": "attached_assets/Pasted-Yes-update-the-task-The-preflight-is-correct-the-origin_1783541018792.txt",
+      "blobSha": "1c0678ff494f3bd78053eb2cab376eb84e4c29e7"
+    },
+    {
+      "path": "attached_assets/Pasted-Yes-update-the-task-The-preflight-is-correct-the-origin_1783541034451.txt",
+      "blobSha": "1c0678ff494f3bd78053eb2cab376eb84e4c29e7"
+    },
+    {
+      "path": "attached_assets/Pasted-Yes-use-new-fonts-but-I-would-not-choose-Fraunces-for-L_1782437575123.txt",
+      "blobSha": "2f00771b52ead42584fd4f6612920650a90bedab"
+    },
+    {
+      "path": "attached_assets/Pasted-You-are-the-senior-production-readiness-engineer-for-th_1785063285053.txt",
+      "blobSha": "25ecc60c2c6396f2ea92eed8e57da05992507dc3"
+    },
+    {
+      "path": "attached_assets/Pasted-You-re-right-I-gave-you-the-safety-objection-but-not-th_1783423014775.txt",
+      "blobSha": "e33228fd0112d79fdc9dd817f50c2856c7b0f345"
+    },
+    {
+      "path": "attached_assets/Pasted-You-re-right-the-original-1641-prompt-is-not-safe-to-se_1787496000168.txt",
+      "blobSha": "ded2c0e0bf4f581f529042977d945748d57ad32d"
+    },
+    {
+      "path": "attached_assets/Pasted-You-re-right-The-task-explicitly-says-the-original-work_1787239474801.txt",
+      "blobSha": "6a8e971e5454105d3520f6c575884a64de0ea57b"
+    },
+    {
+      "path": "attached_assets/Pasted-You-were-right-to-stop-me-I-audited-Task-1687-against-t_1787795340429.txt",
+      "blobSha": "77ba504b1d7d7b29bff4310116861cb2e8dcf7d9"
+    },
+    {
+      "path": "attached_assets/Pasted-Your-app-is-already-significantly-more-advanced-than-mo_1778583830045.txt",
+      "blobSha": "cd2a03d474acada5146de1e6719341278626e183"
+    },
+    {
+      "path": "attached_assets/Pasted-Your-recap-is-strong-but-it-is-too-broad-and-mixes-3-th_1780537567796.txt",
+      "blobSha": "8cfdcb1f53ca05eae4d5fc8ba1d1a983dfdab279"
+    }
+  ]
+}

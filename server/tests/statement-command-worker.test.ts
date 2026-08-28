@@ -12,7 +12,7 @@ import { eq } from "drizzle-orm";
 import { db } from "../db";
 import { statementUploadCommands } from "@shared/schema";
 import { claimCommand, computeRequestFingerprint, getCommandForOwner, updateContext } from "../services/statement-upload-idempotency";
-import { executeStatementUploadCommand } from "../services/statement-command-worker";
+import { executeStatementUploadCommand, resolveStatementCommandDirectory } from "../services/statement-command-worker";
 
 let passed = 0;
 let failed = 0;
@@ -48,6 +48,21 @@ async function makeMissingFileCommand(tag: string) {
 
 async function run(): Promise<void> {
   console.log("\n=== Durable Statement Command Worker Tests ===\n");
+
+  console.log("T0: production storage default is unchanged and test storage is disposable");
+  const productionRoot = await resolveStatementCommandDirectory(
+    { NODE_ENV: "production", STATEMENT_COMMAND_TEST_STORAGE: "true" },
+    "/srv/liberty",
+  );
+  assert(productionRoot.dir === "/srv/liberty/uploads/statement-command", "production uses the existing checkout-relative durable path");
+  assert(productionRoot.disposableTestRoot === false, "production ignores the test-storage override");
+  const testRoot = await resolveStatementCommandDirectory({
+    NODE_ENV: "test",
+    STATEMENT_COMMAND_TEST_STORAGE: "true",
+  });
+  assert(testRoot.disposableTestRoot === true, "test mode creates a disposable root");
+  assert(testRoot.dir.startsWith("/tmp/liberty-statement-command-test-"), "test root is collision-safe and outside the checkout");
+  await (await import("fs/promises")).rm(testRoot.dir, { recursive: true, force: true });
 
   console.log("T1: missing durable file is terminally recoverable, never chained");
   const missing = await makeMissingFileCommand("missing");
@@ -109,6 +124,9 @@ async function run(): Promise<void> {
       `${file}: queue failure is 503 and accepted handoff is 202`,
     );
   }
+  const producerCount = queuedRoutes.reduce((count, file) =>
+    count + (readRoute(file).match(/persistAndEnqueueStatementCommand\s*\(\s*\{/g)?.length ?? 0), 0);
+  assert(producerCount === 7, "all seven production statement-command producers remain in the reviewed inventory");
   const sdrRoute = readRoute("server/routes/sdr.ts");
   assert(sdrRoute.includes("STATEMENT_FILE_REQUIRED"), "token upload rejects a missing statement file");
   assert(sdrRoute.includes("STATEMENT_UPLOAD_CONTACT_REQUIRED"), "token upload rejects an unlinked contact");

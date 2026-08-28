@@ -96,8 +96,8 @@ echo ""
 
 # ── 2. Start the dev server in the background ─────────────────────────────────
 # GHL_TRANSPORT_FAILFAST installs the fail-fast fake GHL transport (C-03).
-echo "▶  Starting dev server (npm run dev) with GHL_TRANSPORT_FAILFAST=true…"
-GHL_TRANSPORT_FAILFAST=true npm run dev &
+echo "▶  Starting dev server with provider denial and disposable statement test storage…"
+GHL_TRANSPORT_FAILFAST=true STATEMENT_COMMAND_TEST_STORAGE=true npm run dev &
 SERVER_PID=$!
 echo "   Server PID: $SERVER_PID"
 

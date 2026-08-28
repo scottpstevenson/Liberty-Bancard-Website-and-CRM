@@ -127,6 +127,11 @@ const MANDATORY_SUITES: Suite[] = [
     timeoutSecs: 60,
   },
   {
+    name: "Tracked-File Exposure Scanner Regression (forced-add and ratchet semantics)",
+    script: "scripts/test-scan-tracked-files.ts",
+    timeoutSecs: 60,
+  },
+  {
     name: "CSP, CORS, JSON-LD Security Controls (source-backed CSP, typed CORS denial, safe structured data)",
     script: "scripts/test-security-controls.ts",
     timeoutSecs: 60,

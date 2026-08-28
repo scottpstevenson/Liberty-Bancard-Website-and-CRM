@@ -43,6 +43,9 @@ import { contacts, deals, consentAuditLogs, sdrMerchants, partners, sdrLeadState
 import { pool } from "../server/db";
 import { eq, and, desc } from "drizzle-orm";
 import { sql as drizzleSql } from "drizzle-orm";
+import fs from "fs/promises";
+import path from "path";
+import os from "os";
 
 const BASE_URL = process.env.BASE_URL ?? "http://127.0.0.1:5000";
 
@@ -90,6 +93,13 @@ const cleanupContactIds: number[] = [];
 const cleanupDealIds: number[] = [];
 const cleanupAppIds: number[] = [];
 const cleanupPartnerIds: number[] = [];
+const statementFixture: {
+  commandId?: string;
+  contactId?: number;
+  dealId?: number;
+  partnerId?: number;
+  root?: string;
+} = {};
 
 function assert(label: string, condition: boolean, detail?: string) {
   if (condition) {
@@ -133,6 +143,62 @@ function uniquePhone(): string {
 
 async function cleanup(): Promise<void> {
   console.log("\n── Cleanup ─────────────────────────────────────────────────");
+
+  if (statementFixture.commandId) {
+    const commandResult = await db.execute(drizzleSql`
+      SELECT status, lease_token, context, contact_id, deal_id
+      FROM statement_upload_commands
+      WHERE id = ${statementFixture.commandId}
+      LIMIT 1
+    `).catch(() => null) as any;
+    const commandRows = Array.isArray(commandResult) ? commandResult : commandResult?.rows ?? [];
+    const command = commandRows[0];
+    const durableFilePath = command?.context?.durableFilePath;
+    const root = typeof durableFilePath === "string" ? path.dirname(path.resolve(durableFilePath)) : statementFixture.root;
+    const safeRoot = typeof root === "string" &&
+      root.startsWith(path.resolve(os.tmpdir()) + path.sep) &&
+      path.basename(root).startsWith("liberty-statement-command-test-");
+    const terminalAndUnleased =
+      (command?.status === "succeeded" || command?.status === "recoverable_failed") &&
+      !command?.lease_token;
+    let commandDeleted = !command;
+    if (terminalAndUnleased && safeRoot) {
+      const deleted = await db.execute(drizzleSql`
+        DELETE FROM statement_upload_commands
+        WHERE id = ${statementFixture.commandId}
+          AND status IN ('succeeded', 'recoverable_failed')
+          AND lease_token IS NULL
+        RETURNING id
+      `).catch(() => null) as any;
+      const deletedRows = Array.isArray(deleted) ? deleted : deleted?.rows ?? [];
+      commandDeleted = deletedRows.length === 1;
+      if (commandDeleted) {
+        await fs.rm(root, { recursive: true, force: true });
+        const rootStillExists = await fs.stat(root).then(() => true).catch(() => false);
+        assert("Disposable statement command root removed after terminal command cleanup", !rootStillExists);
+      }
+    }
+    if (!commandDeleted) {
+      const protectedContactIds = new Set(
+        [statementFixture.contactId, command?.contact_id].filter((id): id is number => typeof id === "number"),
+      );
+      const protectedDealIds = new Set(
+        [statementFixture.dealId, command?.deal_id].filter((id): id is number => typeof id === "number"),
+      );
+      for (let i = cleanupContactIds.length - 1; i >= 0; i--) {
+        if (protectedContactIds.has(cleanupContactIds[i])) cleanupContactIds.splice(i, 1);
+      }
+      for (let i = cleanupDealIds.length - 1; i >= 0; i--) {
+        if (protectedDealIds.has(cleanupDealIds[i])) cleanupDealIds.splice(i, 1);
+      }
+      if (statementFixture.partnerId) {
+        const index = cleanupPartnerIds.indexOf(statementFixture.partnerId);
+        if (index !== -1) cleanupPartnerIds.splice(index, 1);
+      }
+      assert("Runnable statement command and all dependent fixture rows are preserved", false,
+        `commandId=${statementFixture.commandId} status=${command?.status ?? "unknown"}`);
+    }
+  }
 
   // consent_audit_logs for test contacts
   for (const id of cleanupContactIds) {
@@ -212,6 +278,7 @@ async function testStatementUpload(): Promise<void> {
     partnerType: "referral",
   }).returning({ id: partners.id });
   cleanupPartnerIds.push(stmtPartner.id);
+  statementFixture.partnerId = stmtPartner.id;
 
   // Statement upload route uses multipart/form-data (upload.single("statementFile"))
   // and expects contactName / mobile (not firstName/phone)
@@ -266,6 +333,9 @@ async function testStatementUpload(): Promise<void> {
     `status=${res.status}`
   );
   if (res.status === 429) return;
+  const statementResponse = await res.json().catch(() => null);
+  const statementCommandId = statementResponse?.statement_upload_request_id;
+  if (statementCommandId) statementFixture.commandId = statementCommandId;
 
   // Statement chain is fire-and-forget; poll for up to 4s for contact + deal to appear
   let contact: typeof import("../shared/schema").contacts.$inferSelect | undefined;
@@ -277,6 +347,7 @@ async function testStatementUpload(): Promise<void> {
   assert("Contact created after statement upload", !!contact, `email=${email}`);
   if (!contact) return;
   cleanupContactIds.push(contact.id);
+  statementFixture.contactId = contact.id;
 
   // Poll for deal — the durable BullMQ command can wait behind other gate jobs
   // during the full pre-deploy run, so allow up to 30s before declaring loss.
@@ -289,6 +360,7 @@ async function testStatementUpload(): Promise<void> {
   }
   assert("Deal created after statement upload", !!dealRow, `contactId=${contact.id}`);
   if (dealRow?.id) cleanupDealIds.push(dealRow.id);
+  if (dealRow?.id) statementFixture.dealId = dealRow.id;
 
   assert(
     "Deal stage is 'Statement Received'",
@@ -316,6 +388,43 @@ async function testStatementUpload(): Promise<void> {
   }
 
   assert("doNotContact not set by form", contact.doNotContact !== true, `doNotContact=${contact.doNotContact}`);
+
+  let commandRow: any;
+  if (statementCommandId) {
+    for (let i = 0; i < 120; i++) {
+      const rawCommand = await db.execute(drizzleSql`
+        SELECT status, context, lease_token FROM statement_upload_commands
+        WHERE id = ${statementCommandId} LIMIT 1
+      `) as any;
+      const commandRows = Array.isArray(rawCommand) ? rawCommand : rawCommand?.rows ?? [];
+      commandRow = commandRows[0];
+      if (commandRow?.status === "succeeded" || commandRow?.status === "recoverable_failed") break;
+      await new Promise(r => setTimeout(r, 500));
+    }
+  }
+  const terminalForTestCleanup =
+    commandRow?.status === "succeeded" || commandRow?.status === "recoverable_failed";
+  assert("Statement command reaches a terminal, unleased state before fixture cleanup",
+    terminalForTestCleanup && !commandRow?.lease_token,
+    `commandId=${statementCommandId ?? "missing"} status=${commandRow?.status ?? "missing"}`);
+
+  const durableFilePath = commandRow?.context?.durableFilePath;
+  if (terminalForTestCleanup && !commandRow?.lease_token && typeof durableFilePath === "string") {
+    const resolvedFile = path.resolve(durableFilePath);
+    const resolvedCheckout = path.resolve(process.cwd());
+    const resolvedTmp = path.resolve(os.tmpdir());
+    const root = path.dirname(resolvedFile);
+    const outsideCheckout = path.relative(resolvedCheckout, resolvedFile).startsWith("..");
+    const underTemp = !path.relative(resolvedTmp, resolvedFile).startsWith("..");
+    const collisionSafeRoot = path.basename(root).startsWith("liberty-statement-command-test-");
+    assert("Statement fixture is stored outside the source checkout", outsideCheckout);
+    assert("Statement fixture uses a validated collision-safe disposable test root", underTemp && collisionSafeRoot);
+    if (outsideCheckout && underTemp && collisionSafeRoot && statementCommandId) {
+      statementFixture.root = root;
+    }
+  } else {
+    assert("Terminal statement command exposes a disposable durable path", false);
+  }
 
   // Verify referral attribution row was created — trackReferral stores referred_email (not contact_id)
   const rawStmtRef = await db.execute(drizzleSql`
@@ -731,6 +840,14 @@ async function main(): Promise<void> {
     process.exit(2);
   }
   console.log("✓ Dev server reachable\n");
+
+  const health = await fetch(`${BASE_URL}/api/health`).then(res => res.json()).catch(() => ({})) as any;
+  if (health?.statementCommandTestStorage !== true) {
+    console.error("❌ Server does not have disposable statement-command test storage enabled.");
+    console.error("   Start it through scripts/run-pre-deploy.sh; refusing to create a fixture beneath the checkout.");
+    process.exit(2);
+  }
+  console.log("✓ Disposable statement-command test storage verified\n");
 
   try {
     await testStatementUpload();

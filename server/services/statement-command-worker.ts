@@ -4,6 +4,7 @@
  */
 import fs from "fs/promises";
 import path from "path";
+import os from "os";
 import { randomUUID } from "crypto";
 import { and, eq, lt, or, sql } from "drizzle-orm";
 import { db } from "../db";
@@ -14,6 +15,19 @@ import { markRecoverableFailed } from "./statement-upload-idempotency";
 const LEASE_MS = 2 * 60 * 1000;
 
 type PersistedInput = Omit<StatementUploadInput, "fileBuffer"> & { durableFilePath?: string };
+
+export async function resolveStatementCommandDirectory(
+  env: NodeJS.ProcessEnv = process.env,
+  cwd = process.cwd(),
+): Promise<{ dir: string; disposableTestRoot: boolean }> {
+  if (env.NODE_ENV !== "production" && env.STATEMENT_COMMAND_TEST_STORAGE === "true") {
+    return {
+      dir: await fs.mkdtemp(path.join(os.tmpdir(), "liberty-statement-command-test-")),
+      disposableTestRoot: true,
+    };
+  }
+  return { dir: path.join(cwd, "uploads", "statement-command"), disposableTestRoot: false };
+}
 
 async function releaseStatementCommandLease(commandId: string, token: string): Promise<void> {
   await db.update(statementUploadCommands).set({
@@ -102,7 +116,7 @@ export async function enqueueStatementUploadCommandId(commandId: string): Promis
 
 export async function persistAndEnqueueStatementCommand(input: StatementUploadInput): Promise<boolean> {
   if (!input.commandId || !input.fileBuffer || !input.fileName) return false;
-  const dir = path.join(process.cwd(), "uploads", "statement-command");
+  const { dir } = await resolveStatementCommandDirectory();
   await fs.mkdir(dir, { recursive: true });
   const durableFilePath = path.join(dir, `${input.commandId}-${path.basename(input.fileName).replace(/[^a-zA-Z0-9._-]/g, "_")}`);
   await fs.writeFile(durableFilePath, input.fileBuffer, { flag: "wx" }).catch(async (error: NodeJS.ErrnoException) => {

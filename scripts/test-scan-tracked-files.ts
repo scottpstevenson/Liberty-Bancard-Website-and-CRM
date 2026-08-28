@@ -1,19 +1,21 @@
 #!/usr/bin/env tsx
 /**
- * scripts/test-scan-tracked-files.ts — Regression tests for the file-exposure gate
- *
- * Builds a throwaway git repo in a temp dir with ONLY synthetic fixtures
- * (tiny text files with fake names — no real backups, exports, or PII),
- * then asserts blocked/allowed behavior of scripts/scan-tracked-files.ts.
- *
- * Never touches the real repository or any real sensitive file.
+ * Deterministic regression coverage for repository artifact containment.
+ * All integration fixtures are synthetic and live in disposable Git repositories.
  */
 
-import { execFileSync } from "child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "fs";
+import { execFileSync, spawnSync } from "child_process";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from "fs";
 import { tmpdir } from "os";
 import { join, dirname } from "path";
-import { classify, scanTree } from "./scan-tracked-files";
+import {
+  classify,
+  getLastPastedDebtSummary,
+  isRatchetExpired,
+  isValidDateOnly,
+  normalizeRepoPath,
+  scanTree,
+} from "./scan-tracked-files";
 
 let pass = 0;
 let fail = 0;
@@ -28,106 +30,174 @@ function check(name: string, cond: boolean, detail?: string) {
   }
 }
 
-// ── Unit tests: classify() ────────────────────────────────────────────────────
-console.log("classify():");
-check("backups dir blocked", classify("backups/db-backup-x.sql.gz") === "BACKUP_DIR");
-check("nested backups dir blocked", classify("data/backups/x.txt") === "BACKUP_DIR");
-check(".sql.gz blocked anywhere", classify("attached_assets/x.sql.gz") === "COMPRESSED_DUMP");
-check(".gz blocked", classify("logs/app.log.gz") === "COMPRESSED_DUMP");
-check(".tar.gz blocked", classify("build/out.tar.gz") === "COMPRESSED_DUMP");
-check(".dump blocked", classify("db.dump") === "DB_DUMP");
-check(".bak blocked", classify("schema.bak") === "DB_DUMP");
-check(".xlsx blocked", classify("attached_assets/leads.xlsx") === "SPREADSHEET_EXPORT");
-check(".xls blocked", classify("old_leads.xls") === "SPREADSHEET_EXPORT");
-check(".zip blocked", classify("attached_assets/cordata.zip") === "ARCHIVE");
-check("csv outside allowlist blocked", classify("exports/contacts.csv") === "CSV_EXPORT");
-check("renamed csv in root blocked", classify("contacts_renamed.csv") === "CSV_EXPORT");
-check("sql outside migrations blocked", classify("scripts/dump.sql") === "RAW_SQL_OUTSIDE_MIGRATIONS");
-check("migrations sql allowed", classify("migrations/0001_init.sql") === null);
-check("migrations nested sql allowed", classify("migrations/guarded/x.sql") === null);
-check("skill csv allowed", classify(".agents/skills/x/data/colors.csv") === null);
-check("fixture csv allowed", classify("fixtures/csv-import/reconciliation_mixed.csv") === null);
-check("exact-allowlisted checklist csv allowed", classify("exports/ghl-workflow-checklist.csv") === null);
-check("exact-allowlisted ddl sql allowed", classify("server/add-indexes.sql") === null);
-check("other exports csv still blocked", classify("exports/contacts_dump.csv") === "CSV_EXPORT");
-check("other server sql still blocked", classify("server/data.sql") === "RAW_SQL_OUTSIDE_MIGRATIONS");
-check("ts source allowed", classify("server/index.ts") === null);
-check("png asset allowed", classify("attached_assets/logo.png") === null);
-check("md doc allowed", classify("docs/history-cleanup-runbook.md") === null);
-check("uppercase extension blocked", classify("Leads.XLSX") === "SPREADSHEET_EXPORT");
-
-// ── Integration tests: scanTree() against a synthetic repo ───────────────────
-console.log("scanTree() on synthetic repo:");
-const tmp = mkdtempSync(join(tmpdir(), "scan-test-"));
-try {
-  execFileSync("git", ["init", "-q"], { cwd: tmp });
-  execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: tmp });
-  execFileSync("git", ["config", "user.name", "test"], { cwd: tmp });
-
-  const fixtures: Record<string, string> = {
-    // allowed
-    "server/index.ts": "// ok",
-    "migrations/0001_init.sql": "-- synthetic",
-    ".agents/skills/demo/data/ref.csv": "a,b",
-    "attached_assets/logo.png": "not-a-real-png",
-    // prohibited (all synthetic tiny text files)
-    "backups/db-backup-synthetic.sql.gz": "synthetic",
-    "attached_assets/synthetic_leads.xlsx": "synthetic",
-    "exports/renamed_export.csv": "synthetic",
-    "deep/nested/dir/archive.zip": "synthetic",
-    "scripts/raw.sql": "-- synthetic",
-  };
-  for (const [rel, content] of Object.entries(fixtures)) {
-    const abs = join(tmp, rel);
-    mkdirSync(dirname(abs), { recursive: true });
-    writeFileSync(abs, content);
-  }
-  execFileSync("git", ["add", "-A", "-f"], { cwd: tmp });
-  execFileSync("git", ["commit", "-qm", "fixtures"], { cwd: tmp });
-
-  const findings = scanTree(tmp);
-  const paths = findings.map((f) => f.path);
-
-  check("finds exactly 5 prohibited files", findings.length === 5, `got ${findings.length}: ${paths.join(", ")}`);
-  check("backup detected", paths.includes("backups/db-backup-synthetic.sql.gz"));
-  check("xlsx detected", paths.includes("attached_assets/synthetic_leads.xlsx"));
-  check("renamed csv detected", paths.includes("exports/renamed_export.csv"));
-  check("nested zip detected", paths.includes("deep/nested/dir/archive.zip"));
-  check("raw sql detected", paths.includes("scripts/raw.sql"));
-  check("allowed files not flagged", !paths.some((p) => p.endsWith(".ts") || p.endsWith(".png") || p.startsWith("migrations/") || p.startsWith(".agents/")));
-  check("output contains no file contents", !JSON.stringify(findings).includes("synthetic\n"));
-
-  // Determinism: repeated scans identical
-  const findings2 = scanTree(tmp);
-  check("repeated scan is deterministic", JSON.stringify(findings) === JSON.stringify(findings2));
-
-  // CLI exit codes
-  let exitBlocked = 0;
-  try {
-    execFileSync("npx", ["tsx", join(process.cwd(), "scripts/scan-tracked-files.ts"), "--dir", tmp], { stdio: "pipe" });
-  } catch (e: any) {
-    exitBlocked = e.status;
-  }
-  check("CLI exits 1 on prohibited tree", exitBlocked === 1);
-
-  // Clean tree passes
-  for (const rel of Object.keys(fixtures)) {
-    if (classify(rel)) execFileSync("git", ["rm", "-q", "--cached", rel], { cwd: tmp });
-  }
-  execFileSync("git", ["commit", "-qm", "clean"], { cwd: tmp });
-  const cleanFindings = scanTree(tmp);
-  check("clean tree yields zero findings", cleanFindings.length === 0);
-  let exitClean = -1;
-  try {
-    execFileSync("npx", ["tsx", join(process.cwd(), "scripts/scan-tracked-files.ts"), "--dir", tmp], { stdio: "pipe" });
-    exitClean = 0;
-  } catch (e: any) {
-    exitClean = e.status;
-  }
-  check("CLI exits 0 on clean tree", exitClean === 0);
-} finally {
-  rmSync(tmp, { recursive: true, force: true });
+function initRepo(dir: string) {
+  execFileSync("git", ["init", "-q"], { cwd: dir });
+  execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: dir });
+  execFileSync("git", ["config", "user.name", "test"], { cwd: dir });
 }
+
+function commitAll(dir: string, message: string) {
+  execFileSync("git", ["add", "-A", "-f"], { cwd: dir });
+  execFileSync("git", ["commit", "-qm", message], { cwd: dir });
+}
+
+function writeFixture(dir: string, rel: string, content = "synthetic") {
+  const abs = join(dir, rel);
+  mkdirSync(dirname(abs), { recursive: true });
+  writeFileSync(abs, content);
+}
+
+function blobSha(dir: string, rel: string): string {
+  return execFileSync("git", ["rev-parse", `:${rel}`], { cwd: dir, encoding: "utf8" }).trim();
+}
+
+function writeDebtManifest(dir: string, entries: Array<{ path: string; blobSha: string }>, expiresOn = "2099-12-31") {
+  writeFixture(dir, "scripts/tracked-pasted-text-debt-manifest.json", JSON.stringify({
+    version: 1,
+    owner: "Synthetic Repository Owner",
+    expiresOn,
+    expiryTimeZone: "America/New_York",
+    baselinePathCount: entries.length,
+    entries: [...entries].sort((a, b) => a.path.localeCompare(b.path)),
+  }, null, 2));
+}
+
+console.log("classify():");
+check("statement command root blocked", classify("uploads/statement-command/x.pdf") === "STATEMENT_COMMAND_RUNTIME_FILE");
+check("statement command nested path blocked", classify("uploads/statement-command/nested/x.pdf") === "STATEMENT_COMMAND_RUNTIME_FILE");
+check("statement command casing blocked", classify("Uploads/Statement-Command/x.pdf") === "STATEMENT_COMMAND_RUNTIME_FILE");
+check("statement command backslashes normalized", classify("uploads\\statement-command\\x.pdf") === "STATEMENT_COMMAND_RUNTIME_FILE");
+check("dot segments normalized", normalizeRepoPath("uploads/./statement-command/x.pdf") === "uploads/statement-command/x.pdf");
+check("backups dir blocked", classify("backups/db.sql.gz") === "BACKUP_DIR");
+check("nested backups blocked", classify("data/backups/x.txt") === "BACKUP_DIR");
+check("spreadsheet blocked", classify("attached_assets/leads.xlsx") === "SPREADSHEET_EXPORT");
+check("archive blocked", classify("deep/archive.zip") === "ARCHIVE");
+check("raw SQL blocked", classify("scripts/dump.sql") === "RAW_SQL_OUTSIDE_MIGRATIONS");
+check("migration SQL allowed", classify("migrations/0001_init.sql") === null);
+check("verified skill data CSV allowed", classify(".agents/skills/ui-ux-pro-max/data/colors.csv") === null);
+check("adjacent agent CSV blocked", classify(".agents/skills/other/data.csv") === "CSV_EXPORT");
+check("local CSV blocked", classify(".local/skills/demo/data.csv") === "CSV_EXPORT");
+check("verified fixture allowed", classify("fixtures/csv-import/reconciliation_mixed.csv") === null);
+check("other fixture CSV blocked", classify("fixtures/other/data.csv") === "CSV_EXPORT");
+check("nested unverified fixture blocked", classify("fixtures/csv-import/nested/export.csv") === "CSV_EXPORT");
+check("case-varied skill prefix blocked", classify(".AGENTS/skills/ui-ux-pro-max/data/colors.csv") === "CSV_EXPORT");
+check("exact checklist allowed", classify("exports/ghl-workflow-checklist.csv") === null);
+check("legitimate PDF allowed", classify("attached_assets/brand-guide.pdf") === null);
+check("legitimate image allowed", classify("attached_assets/logo.png") === null);
+check("calendar-valid expiry accepted", isValidDateOnly("2026-09-27"));
+check("impossible expiry rejected", !isValidDateOnly("2026-02-30"));
+check("ratchet fails on its expiry date", isRatchetExpired("2026-09-27", "2026-09-27"));
+
+console.log("scanTree() forced-add behavior:");
+const blockedRepo = mkdtempSync(join(tmpdir(), "scan-blocked-"));
+try {
+  initRepo(blockedRepo);
+  const fixtures: Record<string, string> = {
+    "server/index.ts": "// synthetic",
+    "migrations/0001_init.sql": "-- synthetic",
+    ".agents/skills/ui-ux-pro-max/data/ref.csv": "a,b",
+    "fixtures/csv-import/reconciliation_mixed.csv": "a,b",
+    "attached_assets/logo.png": "synthetic-image",
+    "uploads/statement-command/nested/runtime.pdf": "synthetic-runtime",
+    "attached_assets/Pasted-new-generated.txt": "synthetic-generated",
+    "exports/renamed_export.csv": "a,b",
+  };
+  for (const [rel, content] of Object.entries(fixtures)) writeFixture(blockedRepo, rel, content);
+  commitAll(blockedRepo, "forced fixtures");
+
+  const findings = scanTree(blockedRepo);
+  const serialized = JSON.stringify(findings);
+  check("forced-added statement file rejected", findings.some((f) =>
+    f.path === "uploads/statement-command/nested/runtime.pdf" && f.reason === "STATEMENT_COMMAND_RUNTIME_FILE"));
+  check("new pasted text rejected without policy", findings.some((f) =>
+    f.path === "attached_assets/Pasted-new-generated.txt" && f.reason === "GENERATED_TEXT_NEW_PROHIBITED"));
+  check("missing ratchet policy fails closed", findings.some((f) =>
+    f.reason === "GENERATED_TEXT_DEBT_MANIFEST_INVALID"));
+  check("unapproved CSV rejected", findings.some((f) => f.reason === "CSV_EXPORT"));
+  check("diagnostics contain no fixture content", !serialized.includes("synthetic-runtime") && !serialized.includes("synthetic-generated"));
+  check("findings are deterministic", JSON.stringify(scanTree(blockedRepo)) === serialized);
+
+  const scanner = join(process.cwd(), "scripts/scan-tracked-files.ts");
+  const blockedCli = spawnSync("npx", ["tsx", scanner, "--dir", blockedRepo], { encoding: "utf8" });
+  const blockedOutput = `${blockedCli.stdout}\n${blockedCli.stderr}`;
+  check("blocked CLI exits exactly 1", blockedCli.status === 1 && blockedCli.signal === null);
+  check("blocked CLI proves expected path and reason",
+    blockedOutput.includes("[STATEMENT_COMMAND_RUNTIME_FILE] uploads/statement-command/nested/runtime.pdf"));
+  check("blocked CLI is not a launcher/runtime failure",
+    !/ERR_MODULE_NOT_FOUND|Cannot find module|npm ERR!|SyntaxError|TypeError:|ReferenceError:/.test(blockedOutput));
+} finally {
+  rmSync(blockedRepo, { recursive: true, force: true });
+}
+
+console.log("bounded pasted-text ratchet:");
+const debtRepo = mkdtempSync(join(tmpdir(), "scan-debt-"));
+try {
+  initRepo(debtRepo);
+  const debtPath = "attached_assets/Pasted-grandfathered.txt";
+  writeFixture(debtRepo, debtPath, "synthetic-debt-v1");
+  commitAll(debtRepo, "baseline debt");
+  const sha = blobSha(debtRepo, debtPath);
+  writeDebtManifest(debtRepo, [{ path: debtPath, blobSha: sha }]);
+  commitAll(debtRepo, "ratchet manifest");
+
+  check("exact unchanged path and blob pair accepted", scanTree(debtRepo).length === 0);
+  check("unchanged summary reconciles", getLastPastedDebtSummary()?.unchangedCount === 1);
+
+  writeFixture(debtRepo, debtPath, "synthetic-debt-v2");
+  commitAll(debtRepo, "changed debt");
+  check("content change rejected by blob identity", scanTree(debtRepo).some((f) =>
+    f.path === debtPath && f.reason === "GENERATED_TEXT_DEBT_CHANGED"));
+
+  execFileSync("git", ["reset", "--hard", "HEAD^"], { cwd: debtRepo, stdio: "ignore" });
+  mkdirSync(join(debtRepo, "docs"), { recursive: true });
+  execFileSync("git", ["mv", debtPath, "docs/Pasted-grandfathered.txt"], { cwd: debtRepo });
+  commitAll(debtRepo, "moved debt");
+  const movedFindings = scanTree(debtRepo);
+  check("renamed known blob rejected", movedFindings.some((f) =>
+    f.path === "docs/Pasted-grandfathered.txt" && f.reason === "GENERATED_TEXT_DEBT_RELOCATED"));
+  check("missing original path fails closed", movedFindings.some((f) =>
+    f.reason === "GENERATED_TEXT_DEBT_MANIFEST_MISSING_PATH"));
+
+  writeFixture(debtRepo, "attached_assets/nested/pAsTeD-copy.TxT", "synthetic-copy");
+  commitAll(debtRepo, "case nested copy");
+  check("nested case-varied generated text rejected", scanTree(debtRepo).some((f) =>
+    f.path === "attached_assets/nested/pAsTeD-copy.TxT" && f.reason === "GENERATED_TEXT_NEW_PROHIBITED"));
+
+  writeDebtManifest(debtRepo, [{ path: debtPath, blobSha: sha }], "2000-01-01");
+  commitAll(debtRepo, "expired manifest");
+  check("expired ratchet fails closed", scanTree(debtRepo).some((f) =>
+    f.reason === "GENERATED_TEXT_DEBT_RATCHET_EXPIRED"));
+
+  writeFixture(debtRepo, "scripts/tracked-pasted-text-debt-manifest.json", "{malformed");
+  commitAll(debtRepo, "malformed manifest");
+  check("malformed manifest fails closed", scanTree(debtRepo).some((f) =>
+    f.reason === "GENERATED_TEXT_DEBT_MANIFEST_INVALID"));
+
+  writeDebtManifest(debtRepo, [{ path: debtPath, blobSha: sha }], "2099-02-30");
+  commitAll(debtRepo, "calendar-invalid manifest");
+  check("calendar-invalid expiry fails closed", scanTree(debtRepo).some((f) =>
+    f.reason === "GENERATED_TEXT_DEBT_MANIFEST_INVALID"));
+} finally {
+  rmSync(debtRepo, { recursive: true, force: true });
+}
+
+console.log("repository manifest metadata:");
+const manifest = JSON.parse(readFileSync(join(process.cwd(), "scripts/tracked-pasted-text-debt-manifest.json"), "utf8"));
+check("authorized baseline contains exactly 378 pairs", manifest.baselinePathCount === 378 && manifest.entries.length === 378);
+check("authorized owner recorded", manifest.owner === "Repository Owner");
+check("authorized expiry recorded", manifest.expiresOn === "2026-09-27");
+check("owner timezone recorded", manifest.expiryTimeZone === "America/New_York");
+check("manifest entries are exact path plus SHA only", manifest.entries.every((entry: Record<string, unknown>) =>
+  Object.keys(entry).sort().join(",") === "blobSha,path" &&
+  typeof entry.path === "string" &&
+  typeof entry.blobSha === "string"));
+scanTree(process.cwd());
+const liveSummary = getLastPastedDebtSummary();
+check("live authorized baseline remains unchanged",
+  liveSummary?.baselineCount === 378 &&
+  liveSummary?.unchangedCount === 378 &&
+  liveSummary?.removedCount === 0);
+check("live post-baseline pasted additions remain prohibited", liveSummary?.newProhibitedCount === 3);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);
