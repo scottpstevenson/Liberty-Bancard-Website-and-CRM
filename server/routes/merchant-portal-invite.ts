@@ -2,7 +2,7 @@
  * Merchant Portal Invitation Routes
  *
  * Public (CSRF-exempt) endpoints:
- *   GET  /api/auth/portal-invite/validate  — check token, return name
+ *   POST /api/auth/portal-invite/validate  — identity-free validity check
  *   POST /api/auth/portal-invite/activate  — set password + create session
  *
  * Dashboard endpoint (requires isDashboardUser):
@@ -10,46 +10,29 @@
  */
 
 import type { Express } from "express";
-import crypto from "crypto";
 import bcrypt from "bcryptjs";
-import { db } from "../db";
 import { users } from "@shared/models/auth";
-import { eq, and, gt } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { isDashboardUser, requireRole } from "../replit_integrations/auth";
-import { serverError } from "../utils/server-error";
+import { logOperationalDiagnostic, serverError } from "../utils/server-error";
 import { parseId } from "./helpers";
 import { sendMerchantPortalInvite } from "../services/merchant-portal-invite";
 import { storage } from "../storage";
+import { consumeAuthAction, isAuthActionValid } from "../services/auth-actions";
+
+function authActionHeaders(res: any) {
+  res.setHeader("Cache-Control", "no-store");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Referrer-Policy", "no-referrer");
+}
 
 export function registerMerchantPortalInviteRoutes(app: Express) {
   // ── Validate invite token (called by the frontend before showing the form) ─
-  app.get("/api/auth/portal-invite/validate", async (req, res) => {
+  app.post("/api/auth/portal-invite/validate", async (req, res) => {
+    authActionHeaders(res);
     try {
-      const { token } = req.query as { token?: string };
-      if (!token) return res.status(400).json({ valid: false, message: "Token is required" });
-
-      const hashedToken = crypto.createHash("sha256").update(token).digest("hex");
-
-      const [user] = await db
-        .select()
-        .from(users)
-        .where(
-          and(
-            eq(users.resetToken, hashedToken),
-            gt(users.resetExpiresAt!, new Date()),
-          ),
-        );
-
-      if (!user) {
-        return res.status(400).json({ valid: false, message: "Invalid or expired invitation link" });
-      }
-
-      return res.json({
-        valid: true,
-        email: user.email,
-        firstName: user.firstName,
-        lastName: user.lastName,
-      });
+      const valid = await isAuthActionValid(typeof req.body?.token === "string" ? req.body.token : "", "merchant_activation");
+      return res.status(valid ? 200 : 400).json({ valid });
     } catch (err: any) {
       serverError(res, err);
     }
@@ -57,6 +40,7 @@ export function registerMerchantPortalInviteRoutes(app: Express) {
 
   // ── Activate portal account (set password + auto-login) ───────────────────
   app.post("/api/auth/portal-invite/activate", async (req, res) => {
+    authActionHeaders(res);
     try {
       const { token, password } = req.body;
 
@@ -70,54 +54,29 @@ export function registerMerchantPortalInviteRoutes(app: Express) {
         return res.status(400).json({ message: "Password must be at least 6 characters" });
       }
 
-      const hashedToken = crypto.createHash("sha256").update(token).digest("hex");
-
-      const [user] = await db
-        .select()
-        .from(users)
-        .where(
-          and(
-            eq(users.resetToken, hashedToken),
-            gt(users.resetExpiresAt!, new Date()),
-          ),
-        );
-
-      if (!user) {
-        return res.status(400).json({ message: "Invalid or expired invitation link. Please request a new invitation from your account manager." });
-      }
-
-      // SECURITY: Only permit activation for merchant accounts.
-      // This is a belt-and-suspenders guard — the invite service already refuses
-      // to issue tokens against non-merchant users, but this ensures the activation
-      // path cannot be used to reset credentials on a privileged account even if a
-      // token somehow ended up on one.
-      if (user.role !== "merchant") {
-        console.error(
-          `[PortalActivate] Blocked activation attempt on non-merchant user ` +
-          `(id=${user.id}, role=${user.role})`,
-        );
-        return res.status(403).json({ message: "This activation link is not valid for this account type." });
-      }
-
-      // Hash the new password and clear the invite token
       const passwordHash = await bcrypt.hash(password, 12);
-      await db
-        .update(users)
-        .set({
-          passwordHash,
-          resetToken: null,
-          resetExpiresAt: null,
-          emailVerified: new Date(), // treat invitation as email verification
-          updatedAt: new Date(),
-        })
-        .where(eq(users.id, user.id));
+      const consumed = await consumeAuthAction({
+        token, purpose: "merchant_activation",
+        mutate: async (subject, tx) => {
+          if (subject.type !== "user") return null;
+          const [user] = await tx.select().from(users).where(eq(users.id, String(subject.id)));
+          if (!user || user.role !== "merchant") return null;
+          await tx.update(users).set({ passwordHash, emailVerified: new Date(), updatedAt: new Date() })
+            .where(eq(users.id, user.id));
+          return user;
+        },
+      });
+      if (!consumed.ok || !consumed.value) {
+        return res.status(400).json({ message: "This link is invalid or expired." });
+      }
+      const user = consumed.value;
 
       // Log the activation
       await storage.createAuditLog({
         action: "merchant_portal_activated",
         entityType: "user",
         entityId: user.id as any,
-        details: { email: user.email, role: user.role },
+        details: { role: user.role },
       });
 
       // Auto-login: create a session for the user
@@ -141,7 +100,7 @@ export function registerMerchantPortalInviteRoutes(app: Express) {
         });
       } catch (sessionErr: any) {
         // Non-fatal — session is still established via req.login
-        console.warn("[PortalActivate] Could not record user_session row:", sessionErr.message);
+        logOperationalDiagnostic("merchant_portal_activation", sessionErr, "session_record_failed", { userId: user.id });
       }
 
       return res.json({
@@ -160,7 +119,7 @@ export function registerMerchantPortalInviteRoutes(app: Express) {
   });
 
   // ── Resend invite (admin/manager only) ───────────────────────────────────
-  // Agents are intentionally excluded: this action rotates a valid invite token
+  // Agents are intentionally excluded: this action consumes merchant activation authority.
   // and sends an activation link, so it must be restricted to staff who have
   // verified deal-ownership authority across all merchants.
   app.post("/api/deals/:id/resend-portal-invite", requireRole("admin", "manager"), async (req, res) => {

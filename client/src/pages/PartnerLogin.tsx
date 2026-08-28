@@ -7,12 +7,19 @@ import { Label } from "@/components/ui/label";
 import { Loader2, Mail, Lock, Shield, Handshake, CheckCircle } from "lucide-react";
 import logoBlue from "@assets/logo-blue.png";
 import { SEO } from "@/components/SEO";
+import { captureAuthActionToken } from "@/lib/auth-action-fragment";
 
 type PartnerLoginView = "login" | "forgot" | "reset" | "set-password";
 
 export default function PartnerLogin() {
   const [, setLocation] = useLocation();
-  const [view, setView] = useState<PartnerLoginView>("login");
+  const [initialAction] = useState(() => {
+    const action = new URLSearchParams(window.location.hash.slice(1)).get("action");
+    const legacy = ["token", "reset", "invite", "code"].some(key => new URLSearchParams(window.location.search).has(key));
+    const token = captureAuthActionToken();
+    return { action, token, legacy };
+  });
+  const [view, setView] = useState<PartnerLoginView>(() => initialAction.token && initialAction.action === "reset" ? "reset" : initialAction.token && initialAction.action === "invite" ? "set-password" : "login");
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -22,24 +29,11 @@ export default function PartnerLogin() {
   const [forgotEmail, setForgotEmail] = useState("");
   const [forgotSubmitted, setForgotSubmitted] = useState(false);
 
-  const [resetToken, setResetToken] = useState<string | null>(null);
-  const [inviteToken, setInviteToken] = useState<string | null>(null);
+  const [resetToken, setResetToken] = useState<string | null>(() => initialAction.action === "reset" ? initialAction.token : null);
+  const [inviteToken, setInviteToken] = useState<string | null>(() => initialAction.action === "invite" ? initialAction.token : null);
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [resetSuccess, setResetSuccess] = useState(false);
-
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const reset = params.get("reset");
-    const invite = params.get("invite");
-    if (reset) {
-      setResetToken(reset);
-      setView("reset");
-    } else if (invite) {
-      setInviteToken(invite);
-      setView("set-password");
-    }
-  }, []);
 
   useEffect(() => {
     fetch("/api/partners/me", { credentials: "include" })
@@ -424,7 +418,8 @@ export default function PartnerLogin() {
           </Link>
           <div className="flex items-center gap-2 text-muted-foreground">
             <Shield className="w-4 h-4" />
-            <span className="text-sm">Partner Portal — Secure Login</span>
+              <span className="text-sm">Partner Portal — Secure Login</span>
+              {initialAction.legacy && <span className="text-xs text-muted-foreground">That legacy link cannot be used. Please request a new secure link.</span>}
           </div>
         </div>
 

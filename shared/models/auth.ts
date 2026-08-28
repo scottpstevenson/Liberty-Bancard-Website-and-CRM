@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { boolean, index, jsonb, pgTable, timestamp, varchar, text } from "drizzle-orm/pg-core";
+import { boolean, index, integer, jsonb, pgTable, timestamp, uniqueIndex, uuid, varchar, text } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -57,6 +57,43 @@ export const userSessions = pgTable(
     index("user_sessions_last_active_idx").on(table.lastActiveAt),
   ]
 );
+
+/**
+ * The sole durable authority for browser-delivered account actions.  Bearers
+ * are deliberately never persisted: tokenHash is SHA-256(raw bearer).
+ * subjectType/subjectId support the non-user credential owners without
+ * coupling this table to a changing collection of foreign keys.
+ */
+export const AUTH_ACTION_PURPOSES = [
+  "user_password_reset",
+  "user_email_verification",
+  "merchant_activation",
+  "partner_password_reset",
+  "partner_invite",
+  "partner_org_activation",
+  "partner_org_password_reset",
+] as const;
+export type AuthActionPurpose = typeof AUTH_ACTION_PURPOSES[number];
+
+export const authActions = pgTable("auth_actions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  purpose: varchar("purpose", { length: 64 }).notNull(),
+  subjectType: varchar("subject_type", { length: 64 }).notNull(),
+  subjectId: varchar("subject_id", { length: 128 }).notNull(),
+  tokenHash: varchar("token_hash", { length: 64 }).notNull(),
+  version: integer("version").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  consumedAt: timestamp("consumed_at", { withTimezone: true }),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  deliveryDisposition: varchar("delivery_disposition", { length: 32 }).notNull().default("pending"),
+  deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("auth_actions_token_hash_uidx").on(table.tokenHash),
+  uniqueIndex("auth_actions_subject_purpose_version_uidx").on(table.subjectType, table.subjectId, table.purpose, table.version),
+  index("auth_actions_subject_purpose_idx").on(table.subjectType, table.subjectId, table.purpose, table.version),
+  index("auth_actions_consume_idx").on(table.tokenHash, table.purpose, table.expiresAt),
+]);
 
 export const insertUserSchema = createInsertSchema(users).omit({
   id: true,

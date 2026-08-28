@@ -15,6 +15,7 @@ import {
   Clock, ArrowRight, Handshake, CalendarDays, MousePointerClick, Code2,
   TrendingDown, Building2, Loader2,
 } from "lucide-react";
+import { captureAuthActionToken } from "@/lib/auth-action-fragment";
 
 type PortalView = "login" | "dashboard" | "forgot" | "reset";
 
@@ -554,25 +555,23 @@ function PartnerEarningsTab() {
 
 export default function PartnerPortal() {
   const { toast } = useToast();
-  const [view, setView] = useState<PortalView>("login");
+  const [initialReset] = useState(() => {
+    const legacy = ["token", "reset", "invite", "code"].some(key => new URLSearchParams(window.location.search).has(key));
+    return { token: captureAuthActionToken(), legacy };
+  });
+  const [view, setView] = useState<PortalView>(() => initialReset.token ? "reset" : "login");
   const [dashboardData, setDashboardData] = useState<PartnerData | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [loginForm, setLoginForm] = useState({ email: "", password: "" });
   const [partnerCode, setPartnerCode] = useState("");
   const [forgotEmail, setForgotEmail] = useState("");
   const [forgotSubmitted, setForgotSubmitted] = useState(false);
-  const [resetToken, setResetToken] = useState<string | null>(null);
+  const [resetToken, setResetToken] = useState<string | null>(() => initialReset.token);
   const [resetForm, setResetForm] = useState({ password: "", confirmPassword: "" });
   const [resetSuccess, setResetSuccess] = useState(false);
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const token = params.get("reset");
-    if (token) {
-      setResetToken(token);
-      setView("reset");
-      return;
-    }
+    if (initialReset.token) return;
     fetch("/api/partner/session", { credentials: "include" })
       .then(res => { if (res.ok) return res.json(); throw new Error("no session"); })
       .then(data => {
@@ -1219,6 +1218,7 @@ export default function PartnerPortal() {
             </div>
             <h1 className="text-2xl font-display font-bold text-foreground mb-2" data-testid="text-portal-title">
               Partner Portal
+              {initialReset.legacy && <p className="text-xs text-muted-foreground mt-2">That legacy link cannot be used. Please request a new secure link.</p>}
             </h1>
             <p className="text-muted-foreground text-sm">
               Log in to view your referred merchants, commission earnings, and sales collateral.

@@ -1261,6 +1261,13 @@
       "when": 1795900000000,
       "tag": "0175_cro03_frozen_subject_plans",
       "breakpoints": true
+    },
+    {
+      "idx": 180,
+      "version": "7",
+      "when": 1796000000000,
+      "tag": "0176_rvr03_auth_actions",
+      "breakpoints": true
     }
   ]
 }

@@ -144,44 +144,9 @@ import { coerceDateFields } from "../utils/date-coerce";
   }
 
 
-  async setPartnerResetToken(id: number, tokenHash: string, expiresAt: Date) {
-    await db.update(partners)
-      .set({ passwordResetToken: tokenHash, passwordResetExpiresAt: expiresAt, updatedAt: new Date() })
-      .where(eq(partners.id, id));
-  }
-
-
-  async getPartnerByResetToken(tokenHash: string) {
-    const [partner] = await db.select().from(partners)
-      .where(and(eq(partners.passwordResetToken, tokenHash), gte(partners.passwordResetExpiresAt, new Date())));
-    return partner;
-  }
-
-
   async updatePartnerPassword(id: number, passwordHash: string) {
     await db.update(partners)
       .set({ passwordHash, passwordResetToken: null, passwordResetExpiresAt: null, updatedAt: new Date() })
-      .where(eq(partners.id, id));
-  }
-
-
-  async setPartnerInviteToken(id: number, tokenHash: string, expiresAt: Date) {
-    await db.update(partners)
-      .set({ inviteToken: tokenHash, inviteTokenExpiresAt: expiresAt, updatedAt: new Date() })
-      .where(eq(partners.id, id));
-  }
-
-
-  async getPartnerByInviteToken(tokenHash: string) {
-    const [partner] = await db.select().from(partners)
-      .where(and(eq(partners.inviteToken, tokenHash), gte(partners.inviteTokenExpiresAt, new Date())));
-    return partner;
-  }
-
-
-  async clearPartnerInviteToken(id: number) {
-    await db.update(partners)
-      .set({ inviteToken: null, inviteTokenExpiresAt: null, updatedAt: new Date() })
       .where(eq(partners.id, id));
   }
 

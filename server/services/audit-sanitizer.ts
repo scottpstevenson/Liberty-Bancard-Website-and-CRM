@@ -135,6 +135,8 @@ const PHONE_RE = /\+?\d[\d\s().-]{7,}\d/g;
 
 const MAX_DEPTH = 8;
 const MAX_ERROR_LEN = 160;
+const MAX_CHANNEL_AUDIT_TEXT_LEN = 500;
+const MAX_CHANNEL_AUDIT_SNAPSHOT_CHARS = 10_000;
 
 /**
  * Scrub an error-message string so raw provider-style content cannot survive:
@@ -167,6 +169,35 @@ export function sanitizeEntityKey(key: string | null | undefined): string | null
 export function redactToken(value: string): string {
   if (!value) return "***";
   return value.length <= 3 ? "***" : `${value.slice(0, 3)}***`;
+}
+
+/**
+ * Sanitize free-form channel-audit text. Channel audit rows are operational
+ * metadata, not communication content, so values are scrubbed, whitespace is
+ * normalized, and length is bounded before persistence or presentation.
+ */
+export function sanitizeChannelAuditText(value: string | null | undefined): string | null | undefined {
+  if (value == null) return value;
+  const scrubbed = scrubErrorString(value).replace(/\s+/g, " ").trim();
+  return scrubbed.length > MAX_CHANNEL_AUDIT_TEXT_LEN
+    ? `${scrubbed.slice(0, MAX_CHANNEL_AUDIT_TEXT_LEN)}…`
+    : scrubbed;
+}
+
+/**
+ * Sanitize a channel checklist snapshot at its dedicated audit boundary. The
+ * snapshot is not communication_events business content; it must remain
+ * bounded and safe for both admin reads and CSV/PDF exports.
+ */
+export function sanitizeChannelAuditSnapshot(snapshot: unknown): unknown {
+  const sanitized = sanitizeAuditPayload(snapshot);
+  try {
+    return JSON.stringify(sanitized).length > MAX_CHANNEL_AUDIT_SNAPSHOT_CHARS
+      ? { truncated: true, reason: "snapshot_too_large" }
+      : sanitized;
+  } catch {
+    return { truncated: true, reason: "snapshot_not_serializable" };
+  }
 }
 
 function isSensitiveKey(key: string): boolean {

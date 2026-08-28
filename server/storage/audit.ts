@@ -101,6 +101,26 @@ import {
 } from "@shared/schema";
 import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, count } from "drizzle-orm";
   import { type PaginationParams, type PaginatedResult, normalizePagination } from "./_shared";
+import {
+  redactToken,
+  sanitizeAuditPayload,
+  sanitizeChannelAuditSnapshot,
+  sanitizeChannelAuditText,
+  sanitizeEntityKey,
+} from "../services/audit-sanitizer";
+
+function sanitizeChannelAuditEntry<T extends InsertChannelAuditLog | ChannelAuditLog>(entry: T): T {
+  return {
+    ...entry,
+    channel: sanitizeChannelAuditText(entry.channel) ?? "",
+    action: sanitizeChannelAuditText(entry.action) ?? "",
+    actorUserId: sanitizeEntityKey(sanitizeChannelAuditText(entry.actorUserId)) ?? null,
+    // Actor email is operationally useful only as a redacted correlation hint.
+    actorEmail: entry.actorEmail ? redactToken(entry.actorEmail) : entry.actorEmail ?? null,
+    notes: sanitizeChannelAuditText(entry.notes) ?? null,
+    checklistSnapshot: sanitizeChannelAuditSnapshot(entry.checklistSnapshot) as T["checklistSnapshot"],
+  } as T;
+}
 
   export class AuditStorage {
     async getAuditLogs(filters?: {
@@ -159,7 +179,6 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
   async createAuditLog(insertLog: InsertAuditLog) {
     // C-13 (#1626): sanitize caller payloads at the DB-insert boundary.
     // communication_events (business message content) does NOT go through here.
-    const { sanitizeAuditPayload, sanitizeEntityKey } = await import("../services/audit-sanitizer");
     const sanitized = {
       ...insertLog,
       entityKey: sanitizeEntityKey((insertLog as any).entityKey),
@@ -172,8 +191,8 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
   }
 
   async createChannelAuditLog(entry: InsertChannelAuditLog): Promise<ChannelAuditLog> {
-    const [log] = await db.insert(channelAuditLog).values(entry).returning();
-    return log;
+     const [log] = await db.insert(channelAuditLog).values(sanitizeChannelAuditEntry(entry)).returning();
+     return sanitizeChannelAuditEntry(log);
   }
 
   async getChannelAuditLog(channel: string, filters?: {
@@ -209,7 +228,8 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
       db.select({ value: count() }).from(channelAuditLog).where(whereClause),
     ]);
 
-    return { entries, total: Number(total) };
+     // Defend legacy rows and all admin/export callers at the read boundary.
+     return { entries: entries.map((entry) => sanitizeChannelAuditEntry(entry)), total: Number(total) };
   }
 
   async getAiAuditLog(id: number): Promise<AiAuditLog | undefined> {

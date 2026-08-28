@@ -14,17 +14,21 @@ import { isGhlConfigured, sendGhlInternalNotification as sendGhlEmail } from "..
 import { getEmailSignatureHtml } from "../../services/email-signatures";
 import { sendSmtpEmail, isSmtpConfigured } from "../../services/smtp-email";
 import { db } from "../../db";
-import { systemSettings, users } from "@shared/schema";
+import { systemSettings, users, userSessions } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import { csrfProtection } from "../../middleware/csrf";
 import { merchantAuthRateLimit, verifyEmailRateLimit } from "../../middleware/public-rate-limit";
 
 import { getCanonicalUrl } from "../../lib/canonical-url";
-import { serverError } from "../../utils/server-error";
+import { logOperationalDiagnostic, serverError } from "../../utils/server-error";
+import { consumeAuthAction, issueAuthAction, setAuthActionDelivery, type AuthActionDeliveryDisposition } from "../../services/auth-actions";
 const APP_URL = getCanonicalUrl();
+const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (char) => ({
+  "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+}[char]!));
 
 function buildPasswordChangedEmail(firstName: string): string {
-  const displayName = firstName || "there";
+  const displayName = escapeHtml(firstName || "there");
   return `
 <div style="font-family:Arial,sans-serif;font-size:14px;color:#333;max-width:600px;">
   <div style="background-color:#1e3a5f;padding:20px 24px;border-radius:6px 6px 0 0;">
@@ -43,7 +47,8 @@ function buildPasswordChangedEmail(firstName: string): string {
 }
 
 function buildPasswordResetEmail(firstName: string, resetUrl: string): string {
-  const displayName = firstName || "there";
+  const displayName = escapeHtml(firstName || "there");
+  const safeResetUrl = escapeHtml(resetUrl);
   return `
 <div style="font-family:Arial,sans-serif;font-size:14px;color:#333;max-width:600px;">
   <div style="background-color:#1e3a5f;padding:20px 24px;border-radius:6px 6px 0 0;">
@@ -53,10 +58,10 @@ function buildPasswordResetEmail(firstName: string, resetUrl: string): string {
     <p style="margin:0 0 16px;">Hi ${displayName},</p>
     <p style="margin:0 0 16px;">We received a request to reset the password for your Liberty Bancard account. Click the button below to set a new password. This link expires in <strong>1 hour</strong>.</p>
     <div style="text-align:center;margin:28px 0;">
-      <a href="${resetUrl}" style="display:inline-block;background-color:#1e3a5f;color:#ffffff;padding:14px 28px;border-radius:5px;text-decoration:none;font-size:14px;font-weight:bold;">Reset My Password &rarr;</a>
+      <a href="${safeResetUrl}" style="display:inline-block;background-color:#1e3a5f;color:#ffffff;padding:14px 28px;border-radius:5px;text-decoration:none;font-size:14px;font-weight:bold;">Reset My Password &rarr;</a>
     </div>
     <p style="margin:0 0 16px;">If the button above doesn't work, copy and paste this link into your browser:</p>
-    <p style="margin:0 0 16px;word-break:break-all;font-size:12px;color:#555;">${resetUrl}</p>
+    <p style="margin:0 0 16px;word-break:break-all;font-size:12px;color:#555;">${safeResetUrl}</p>
     <p style="margin:0 0 8px;">If you did not request a password reset, you can safely ignore this email — your password will not be changed.</p>
     <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0;"/>
     <p style="margin:0;font-size:12px;color:#6b7280;">Liberty Bancard &bull; <a href="https://libertybancard.com" style="color:#1e3a5f;">libertybancard.com</a> &bull; 954-266-8214</p>
@@ -66,7 +71,8 @@ function buildPasswordResetEmail(firstName: string, resetUrl: string): string {
 }
 
 function buildVerificationEmail(firstName: string, verifyUrl: string): string {
-  const displayName = firstName || "there";
+  const displayName = escapeHtml(firstName || "there");
+  const safeVerifyUrl = escapeHtml(verifyUrl);
   return `
 <div style="font-family:Arial,sans-serif;font-size:14px;color:#333;max-width:600px;">
   <div style="background-color:#1e3a5f;padding:20px 24px;border-radius:6px 6px 0 0;">
@@ -76,10 +82,10 @@ function buildVerificationEmail(firstName: string, verifyUrl: string): string {
     <p style="margin:0 0 16px;">Hi ${displayName},</p>
     <p style="margin:0 0 16px;">Thanks for signing up with Liberty Bancard! Please verify your email address to activate your merchant account. This link expires in <strong>24 hours</strong>.</p>
     <div style="text-align:center;margin:28px 0;">
-      <a href="${verifyUrl}" style="display:inline-block;background-color:#1e3a5f;color:#ffffff;padding:14px 28px;border-radius:5px;text-decoration:none;font-size:14px;font-weight:bold;">Verify My Email &rarr;</a>
+      <a href="${safeVerifyUrl}" style="display:inline-block;background-color:#1e3a5f;color:#ffffff;padding:14px 28px;border-radius:5px;text-decoration:none;font-size:14px;font-weight:bold;">Verify My Email &rarr;</a>
     </div>
     <p style="margin:0 0 16px;">If the button above doesn't work, copy and paste this link into your browser:</p>
-    <p style="margin:0 0 16px;word-break:break-all;font-size:12px;color:#555;">${verifyUrl}</p>
+    <p style="margin:0 0 16px;word-break:break-all;font-size:12px;color:#555;">${safeVerifyUrl}</p>
     <p style="margin:0 0 8px;">If you did not sign up for a Liberty Bancard account, you can safely ignore this email.</p>
     <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0;"/>
     <p style="margin:0;font-size:12px;color:#6b7280;">Liberty Bancard &bull; <a href="https://libertybancard.com" style="color:#1e3a5f;">libertybancard.com</a> &bull; 954-266-8214</p>
@@ -93,7 +99,7 @@ async function sendAuthEmail(params: {
   subject: string;
   html: string;
   label: string;
-}): Promise<void> {
+}): Promise<AuthActionDeliveryDisposition> {
   // All account-security / auth messages use security@libertybancard.com per sender policy.
   const SECURITY_FROM = "security@libertybancard.com";
   const SECURITY_NAME = "Liberty Bancard Security";
@@ -105,8 +111,7 @@ async function sendAuthEmail(params: {
       html: params.html,
       category: "security",
     });
-    if (result.success) return;
-    console.error(`[Auth] SMTP send failed for ${params.label} to ${params.to}: ${result.error} — attempting GHL fallback`);
+    if (result.success) return "sent";
     if (isGhlConfigured()) {
       const ghlResult = await sendGhlEmail({
         email: params.to,
@@ -115,10 +120,9 @@ async function sendAuthEmail(params: {
         fromEmail: SECURITY_FROM,
         fromName: SECURITY_NAME,
       });
-      if (ghlResult.success) return;
-      console.error(`[Auth] GHL fallback also failed for ${params.label} to ${params.to}: ${ghlResult.error}`);
+      if (ghlResult.success) return "sent";
     }
-    return;
+    return "definite_failure";
   }
 
   if (isGhlConfigured()) {
@@ -129,13 +133,11 @@ async function sendAuthEmail(params: {
       fromEmail: SECURITY_FROM,
       fromName: SECURITY_NAME,
     });
-    if (!result.success) {
-      console.error(`[Auth] GHL send failed for ${params.label} to ${params.to}: ${result.error}`);
-    }
-    return;
+    return result.success ? "sent" : "definite_failure";
   }
 
-  console.warn(`[Auth] WARNING: No email transport configured (set SMTP_HOST/SMTP_USER/SMTP_PASS or GHL credentials). ${params.label} email NOT sent to ${params.to}`);
+  logOperationalDiagnostic("auth_email_delivery", new Error("transport unavailable"), "transport_unavailable");
+  return "definite_failure";
 }
 
 export function getSession() {
@@ -197,14 +199,12 @@ async function seedAdminUser() {
       role: "admin",
       authProvider: "local",
     });
-    console.log(`[Auth] Admin user seeded: ${adminEmail}`);
   } else {
     // Safe default: do NOT overwrite an existing admin password from env vars.
     // This prevents an env var leak from silently re-hashing the admin password on every boot.
     // Set ADMIN_SEED_FORCE_UPDATE=true only in controlled dev environments to opt back into sync behavior.
     const forceUpdate = process.env.ADMIN_SEED_FORCE_UPDATE === "true";
     if (!forceUpdate) {
-      console.log(`[Auth] Admin seeding skipped — existing admin password preserved (set ADMIN_SEED_FORCE_UPDATE=true to overwrite): ${adminEmail}`);
       return;
     }
     // Only reached when ADMIN_SEED_FORCE_UPDATE=true is explicitly set
@@ -213,7 +213,6 @@ async function seedAdminUser() {
       .update(users)
       .set({ passwordHash, updatedAt: new Date() })
       .where(eq(users.email, adminEmail.toLowerCase()));
-    console.log(`[Auth] Admin password force-updated from env (ADMIN_SEED_FORCE_UPDATE=true): ${adminEmail}`);
   }
 }
 
@@ -236,7 +235,7 @@ async function registerLoginSession(req: any, userId: string, role: string): Pro
       await authStorage.createUserSession({ userId, sessionId, ip, userAgent });
     }
   } catch (err) {
-    console.error("[Auth] Failed to register login session:", err);
+    logOperationalDiagnostic("auth_session_registration", err, "session_registration_failed");
   }
 }
 
@@ -468,7 +467,7 @@ export async function setupAuth(app: Express) {
               body: `<p>Hi ${user.firstName},</p><p>A new device has been added to your list of trusted devices on your Liberty Bancard account.</p><p><strong>Device:</strong> ${trustedDeviceName}<br/><strong>When:</strong> ${timestamp} ET</p><p>If this wasn't you, please contact us immediately at <a href="mailto:security@libertybancard.com">security@libertybancard.com</a> so we can secure your account.</p>${getEmailSignatureHtml("security")}`,
               fromEmail: "security@libertybancard.com",
               fromName: "Liberty Bancard Security",
-            }).catch(err => console.error("[Auth] Trusted device email error:", err));
+            }).catch(err => logOperationalDiagnostic("auth_email_delivery", err, "trusted_device_delivery_failed", { userId: user.id }));
           }
         }
 
@@ -526,7 +525,7 @@ export async function setupAuth(app: Express) {
           body: `<p>Hi ${user.firstName},</p><p>Two-factor authentication (2FA) has been <strong>enabled</strong> on your Liberty Bancard account.</p><p><strong>When:</strong> ${timestamp} ET<br/><strong>Device:</strong> ${deviceInfo}</p><p>If this wasn't you, please contact us immediately at <a href="mailto:security@libertybancard.com">security@libertybancard.com</a> so we can secure your account.</p>${getEmailSignatureHtml("security")}`,
           fromEmail: "security@libertybancard.com",
           fromName: "Liberty Bancard Security",
-        }).catch(err => console.error("[Auth] 2FA-enabled email error:", err));
+        }).catch(err => logOperationalDiagnostic("auth_email_delivery", err, "two_factor_enabled_delivery_failed", { userId: user.id }));
       }
 
       res.json({ success: true, backupCodes: plain });
@@ -559,7 +558,7 @@ export async function setupAuth(app: Express) {
           body: `<p>Hi ${fullUser.firstName || user.firstName},</p><p>Two-factor authentication (2FA) has been <strong>disabled</strong> on your Liberty Bancard account.</p><p><strong>When:</strong> ${timestamp} ET<br/><strong>Device:</strong> ${deviceInfo}</p><p>If this wasn't you, please contact us immediately at <a href="mailto:security@libertybancard.com">security@libertybancard.com</a> so we can secure your account.</p>${getEmailSignatureHtml("security")}`,
           fromEmail: "security@libertybancard.com",
           fromName: "Liberty Bancard Security",
-        }).catch(err => console.error("[Auth] 2FA-disabled email error:", err));
+        }).catch(err => logOperationalDiagnostic("auth_email_delivery", err, "two_factor_disabled_delivery_failed", { userId: user.id }));
       }
 
       res.json({ success: true });
@@ -680,18 +679,18 @@ export async function setupAuth(app: Express) {
         role: "merchant",
         authProvider: "local",
       });
-      const rawToken = crypto.randomBytes(32).toString("hex");
-      const hashedToken = crypto.createHash("sha256").update(rawToken).digest("hex");
-      const verificationExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
-      await authStorage.updateUserVerificationToken(user.id, hashedToken, verificationExpiresAt);
-      const verifyUrl = `${APP_URL}/verify-email?token=${rawToken}`;
+       const verificationAction = await issueAuthAction({
+         purpose: "user_email_verification", subject: { type: "user", id: user.id }, ttlMs: 24 * 60 * 60 * 1000,
+       });
+       const verifyUrl = `${APP_URL}/verify-email#token=${encodeURIComponent(verificationAction.token)}`;
       const verifyHtml = buildVerificationEmail(firstName, verifyUrl);
-      sendAuthEmail({
+       sendAuthEmail({
         to: email.toLowerCase(),
         subject: "Verify your Liberty Bancard email address",
         html: verifyHtml,
         label: "email-verification",
-      }).catch(err => console.error("[Auth] Verification email error:", err));
+       }).then(disposition => setAuthActionDelivery(verificationAction.id, disposition))
+         .catch(() => setAuthActionDelivery(verificationAction.id, "ambiguous"));
       req.logIn(user, async (err) => {
         if (err) return res.status(500).json({ message: "Signup succeeded but login failed" });
 
@@ -703,7 +702,7 @@ export async function setupAuth(app: Express) {
           title: "Welcome to Liberty Bancard!",
           message: "Your account has been created. Visit your Merchant Portal to get started with onboarding.",
           type: "info",
-        }).catch(err => console.error("Welcome notification error:", err));
+        }).catch(err => logOperationalDiagnostic("auth_signup_notification", err, "notification_write_failed"));
 
         storage.createAuditLog({
           action: "merchant_signup",
@@ -711,40 +710,47 @@ export async function setupAuth(app: Express) {
           entityId: 0,
           userId: user.id,
           details: { email: user.email, firstName: user.firstName },
-        }).catch(err => console.error("Signup audit error:", err));
+        }).catch(err => logOperationalDiagnostic("auth_signup_audit", err, "audit_write_failed"));
 
         if (isGhlConfigured()) {
           sendGhlEmail({
             email: user.email!,
             subject: "Welcome to Liberty Bancard",
             body: `<p>Hi ${user.firstName},</p><p>Welcome to Liberty Bancard! Your merchant account has been created.</p><p>Next steps:</p><ul><li>Complete your merchant application</li><li>Upload your processing statement for a free savings analysis</li><li>Review your onboarding checklist in the Merchant Portal</li></ul><p>If you have questions, our team is here to help.</p><p>Best regards,<br/>Liberty Bancard Team</p><p style="font-size:11px;color:#888;">This communication is from Liberty Bancard. Eligibility, underwriting, card brand rules, and applicable laws apply.</p>`,
-          }).catch(err => console.error("Welcome email error:", err));
+          }).catch(err => logOperationalDiagnostic("auth_email_delivery", err, "welcome_delivery_failed"));
         }
 
         const { passwordHash: _, totpSecret: __, ...safeUser } = user;
         return res.status(201).json(safeUser);
       });
     } catch (error: any) {
-      console.error("Signup error:", error);
+      logOperationalDiagnostic("auth_signup", error, "signup_failed");
       return res.status(500).json({ message: "Signup failed" });
     }
   });
 
-  app.get("/api/auth/verify-email", verifyEmailRateLimit, async (req, res) => {
+  app.post("/api/auth/verify-email", verifyEmailRateLimit, async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Referrer-Policy", "no-referrer");
     try {
-      const { token } = req.query;
+      const { token } = req.body;
       if (!token || typeof token !== "string") {
         return res.status(400).json({ message: "Verification token is required" });
       }
-      const hashedToken = crypto.createHash("sha256").update(token).digest("hex");
-      const user = await authStorage.getUserByVerificationToken(hashedToken);
-      if (!user) {
-        return res.status(400).json({ message: "Invalid or expired verification link" });
-      }
-      await authStorage.markEmailVerified(user.id);
-      return res.json({ message: "Email verified successfully" });
+      const consumed = await consumeAuthAction({
+        token, purpose: "user_email_verification",
+        mutate: async (subject, tx) => {
+          if (subject.type !== "user") return false;
+          const result = await tx.update(users).set({ emailVerified: new Date(), updatedAt: new Date() })
+            .where(eq(users.id, String(subject.id))).returning({ id: users.id });
+          return result.length === 1;
+        },
+      });
+      return res.status(consumed.ok && consumed.value ? 200 : 400)
+        .json({ message: consumed.ok && consumed.value ? "Email verified successfully" : "This link is invalid or expired." });
     } catch (error: any) {
-      console.error("Email verification error:", error);
+      logOperationalDiagnostic("auth_email_verification", error, "verification_failed");
       return res.status(500).json({ message: "Something went wrong" });
     }
   });
@@ -757,27 +763,30 @@ export async function setupAuth(app: Express) {
       }
       const user = await authStorage.getUserByEmail(email.toLowerCase());
       if (user) {
-        const rawToken = crypto.randomBytes(32).toString("hex");
-        const hashedToken = crypto.createHash("sha256").update(rawToken).digest("hex");
-        const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
-        await authStorage.updateUserResetToken(email.toLowerCase(), hashedToken, expiresAt);
-        const resetUrl = `${APP_URL}/reset-password?token=${rawToken}`;
+        const resetAction = await issueAuthAction({
+          purpose: "user_password_reset", subject: { type: "user", id: user.id }, ttlMs: 60 * 60 * 1000,
+        });
+        const resetUrl = `${APP_URL}/reset-password#token=${encodeURIComponent(resetAction.token)}`;
         const html = buildPasswordResetEmail(user.firstName || "", resetUrl);
         sendAuthEmail({
           to: user.email!,
           subject: "Reset your Liberty Bancard password",
           html,
           label: "password-reset",
-        }).catch(err => console.error("[Auth] Password reset email error:", err));
+        }).then(disposition => setAuthActionDelivery(resetAction.id, disposition))
+          .catch(() => setAuthActionDelivery(resetAction.id, "ambiguous"));
       }
       return res.json({ message: "If an account with that email exists, a reset link has been sent." });
     } catch (error: any) {
-      console.error("Forgot password error:", error);
+      logOperationalDiagnostic("auth_password_reset", error, "reset_request_failed");
       return res.status(500).json({ message: "Something went wrong" });
     }
   });
 
   app.post("/api/auth/reset-password", resetPasswordRateLimit, async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Referrer-Policy", "no-referrer");
     try {
       const { token, password } = req.body;
       if (!token || !password) {
@@ -786,14 +795,23 @@ export async function setupAuth(app: Express) {
       if (password.length < 6) {
         return res.status(400).json({ message: "Password must be at least 6 characters" });
       }
-      const hashedToken = crypto.createHash("sha256").update(token).digest("hex");
-      const user = await authStorage.getUserByResetToken(hashedToken);
-      if (!user) {
-        return res.status(400).json({ message: "Invalid or expired reset token" });
-      }
       const passwordHash = await bcrypt.hash(password, 12);
-      await authStorage.updateUserPassword(user.id, passwordHash);
-      // Invalidate ALL sessions for this user (password was reset, security event)
+      const consumed = await consumeAuthAction({
+        token, purpose: "user_password_reset",
+        mutate: async (subject, tx) => {
+          if (subject.type !== "user") return null;
+          const [user] = await tx.select().from(users).where(eq(users.id, String(subject.id)));
+          if (!user) return null;
+          await tx.update(users).set({ passwordHash, updatedAt: new Date() }).where(eq(users.id, user.id));
+          // Durable invalidation joins the credential mutation transaction.
+          await tx.update(userSessions).set({ isInvalidated: true, invalidatedAt: new Date() })
+            .where(eq(userSessions.userId, user.id));
+          return user;
+        },
+      });
+      if (!consumed.ok || !consumed.value) return res.status(400).json({ message: "This link is invalid or expired." });
+      const user = consumed.value;
+      // Remove session-store entries after the durable invalidation commits.
       await authStorage.invalidateAllUserSessions(user.id);
       // Send confirmation email so the account holder is alerted
       sendAuthEmail({
@@ -801,10 +819,10 @@ export async function setupAuth(app: Express) {
         subject: "Your Liberty Bancard password was changed",
         html: buildPasswordChangedEmail(user.firstName || ""),
         label: "password-changed-confirmation",
-      }).catch(err => console.error("[Auth] Password change confirmation email error:", err));
+      }).catch(err => logOperationalDiagnostic("auth_email_delivery", err, "password_change_delivery_failed"));
       return res.json({ message: "Password has been reset successfully" });
     } catch (error: any) {
-      console.error("Reset password error:", error);
+      logOperationalDiagnostic("auth_password_reset", error, "password_reset_failed");
       return res.status(500).json({ message: "Something went wrong" });
     }
   });
@@ -847,7 +865,7 @@ export async function setupAuth(app: Express) {
     // Log clearly but do not crash the server — the admin may already exist
     // from a prior seed, or will be managed manually. The env vars should be
     // set before the first deployment to ensure the account is created.
-    console.error("[Auth] Admin seed error:", err.message);
+    logOperationalDiagnostic("auth_admin_seed", err, "admin_seed_failed");
   }
 }
 
@@ -914,7 +932,7 @@ async function checkSessionValidity(req: any): Promise<"session_expired" | "sess
 
     return null;
   } catch (err) {
-    console.error("[Auth] Session validity check error:", err);
+    logOperationalDiagnostic("auth_session_validation", err, "session_validation_failed");
     // On error, allow through (fail open to avoid breaking the app)
     return null;
   }

@@ -17,11 +17,7 @@ export interface IAuthStorage {
   getUser(id: string): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
   upsertUser(user: UpsertUser): Promise<User>;
-  updateUserResetToken(email: string, token: string, expiresAt: Date): Promise<boolean>;
-  getUserByResetToken(tokenHash: string): Promise<User | undefined>;
   updateUserPassword(userId: string, passwordHash: string): Promise<void>;
-  updateUserVerificationToken(userId: string, token: string, expiresAt: Date): Promise<void>;
-  getUserByVerificationToken(tokenHash: string): Promise<User | undefined>;
   markEmailVerified(userId: string): Promise<void>;
   saveTotpSecret(userId: string, secret: string): Promise<void>;
   enableTotp(userId: string, backupCodes: IBackupCode[]): Promise<void>;
@@ -110,28 +106,6 @@ class AuthStorage implements IAuthStorage {
     }
   }
 
-  async updateUserResetToken(email: string, token: string, expiresAt: Date): Promise<boolean> {
-    const result = await db
-      .update(users)
-      .set({ resetToken: token, resetExpiresAt: expiresAt, updatedAt: new Date() })
-      .where(eq(users.email, email.toLowerCase()))
-      .returning();
-    if (result.length > 0) {
-      const { auditChange } = await import("../../services/audit-change");
-      await auditChange({ actorType: "system", action: "user_password_reset_requested", entityType: "user",
-        entityKey: result[0].id, before: null, after: { email, resetExpiresAt: expiresAt } });
-    }
-    return result.length > 0;
-  }
-
-  async getUserByResetToken(tokenHash: string): Promise<User | undefined> {
-    const [user] = await db
-      .select()
-      .from(users)
-      .where(and(eq(users.resetToken, tokenHash), gt(users.resetExpiresAt, new Date())));
-    return user;
-  }
-
   async updateUserPassword(userId: string, passwordHash: string): Promise<void> {
     await db
       .update(users)
@@ -139,24 +113,6 @@ class AuthStorage implements IAuthStorage {
       .where(eq(users.id, userId));
     const { auditChange } = await import("../../services/audit-change");
     await auditChange({ actorType: "user", userId, action: "user_password_changed", entityType: "user", entityKey: userId, before: null, after: { passwordChangedAt: new Date().toISOString() } });
-  }
-
-  async updateUserVerificationToken(userId: string, token: string, expiresAt: Date): Promise<void> {
-    await db
-      .update(users)
-      .set({ verificationToken: token, verificationExpiresAt: expiresAt, updatedAt: new Date() })
-      .where(eq(users.id, userId));
-    const { auditChange } = await import("../../services/audit-change");
-    await auditChange({ actorType: "system", action: "user_verification_token_issued", entityType: "user",
-      entityKey: userId, before: null, after: { verificationExpiresAt: expiresAt } });
-  }
-
-  async getUserByVerificationToken(tokenHash: string): Promise<User | undefined> {
-    const [user] = await db
-      .select()
-      .from(users)
-      .where(and(eq(users.verificationToken, tokenHash), gt(users.verificationExpiresAt, new Date())));
-    return user;
   }
 
   async markEmailVerified(userId: string): Promise<void> {

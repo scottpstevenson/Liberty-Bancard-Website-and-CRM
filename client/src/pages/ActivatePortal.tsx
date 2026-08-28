@@ -2,10 +2,10 @@
  * Merchant Portal Activation Page
  *
  * Reached via the one-time invite link in the approval email:
- *   /activate-portal?token=<raw_token>
+ *   /activate-portal#token=<opaque_bearer>
  *
  * Flow:
- *   1. Validate the token against the server (GET /api/auth/portal-invite/validate)
+ *   1. Validate the token against the server with a POST request
  *   2. Show a "set your password" form
  *   3. POST /api/auth/portal-invite/activate — creates the session
  *   4. Redirect to /dashboard/merchant-portal
@@ -18,6 +18,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Loader2, CheckCircle2, AlertTriangle, Eye, EyeOff } from "lucide-react";
+import { captureAuthActionToken } from "@/lib/auth-action-fragment";
 
 interface ValidateResponse {
   valid: boolean;
@@ -32,15 +33,9 @@ type PageState = "loading" | "form" | "invalid" | "success" | "error";
 export default function ActivatePortal() {
   const [, navigate] = useLocation();
 
-  const params = new URLSearchParams(window.location.search);
-  const token = params.get("token") ?? "";
+  const [token] = useState(() => captureAuthActionToken() ?? "");
 
   const [pageState, setPageState] = useState<PageState>("loading");
-  const [userInfo, setUserInfo] = useState<{ email: string; firstName: string; lastName: string }>({
-    email: "",
-    firstName: "",
-    lastName: "",
-  });
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -55,17 +50,15 @@ export default function ActivatePortal() {
       return;
     }
 
-    fetch(`/api/auth/portal-invite/validate?token=${encodeURIComponent(token)}`, {
+    fetch("/api/auth/portal-invite/validate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       credentials: "include",
+      body: JSON.stringify({ token }),
     })
       .then((r) => r.json())
       .then((data: ValidateResponse) => {
         if (data.valid) {
-          setUserInfo({
-            email: data.email ?? "",
-            firstName: data.firstName ?? "",
-            lastName: data.lastName ?? "",
-          });
           setPageState("form");
         } else {
           setPageState("invalid");
@@ -163,24 +156,11 @@ export default function ActivatePortal() {
             <CardHeader>
               <CardTitle>Activate Your Portal Account</CardTitle>
               <CardDescription>
-                {userInfo.firstName ? `Welcome, ${userInfo.firstName}! ` : ""}
                 Set a password to access your merchant portal.
               </CardDescription>
             </CardHeader>
             <CardContent>
               <form onSubmit={handleSubmit} className="space-y-4">
-                {/* Email (read-only) */}
-                <div className="space-y-1">
-                  <Label htmlFor="email">Email</Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    value={userInfo.email}
-                    readOnly
-                    className="bg-muted"
-                  />
-                </div>
-
                 {/* Password */}
                 <div className="space-y-1">
                   <Label htmlFor="password">New Password</Label>

@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { captureAuthActionToken } from "@/lib/auth-action-fragment";
 import {
   Loader2, Users, DollarSign, TrendingUp, CheckCircle,
   LogIn, LogOut, BarChart3, Building2, UserPlus, X,
@@ -73,6 +74,14 @@ interface Proposal {
 export default function PartnerOrgDashboard() {
   const { slug } = useParams<{ slug: string }>();
   const { toast } = useToast();
+  const [authAction] = useState(() => {
+    const purpose = new URLSearchParams(window.location.hash.slice(1)).get("action");
+    const token = captureAuthActionToken();
+    return token && (purpose === "activate" || purpose === "reset") ? { token, purpose } : null;
+  });
+  const [actionPassword, setActionPassword] = useState("");
+  const [actionValid, setActionValid] = useState<boolean | null>(null);
+  const [actionDone, setActionDone] = useState(false);
 
   const [session, setSession] = useState<OrgSession | null>(null);
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
@@ -80,6 +89,28 @@ export default function PartnerOrgDashboard() {
   const [submitting, setSubmitting] = useState(false);
   const [loginForm, setLoginForm] = useState({ email: "", password: "" });
   const [wrongOrg, setWrongOrg] = useState(false);
+
+  useEffect(() => {
+    if (!authAction) return;
+    fetch("/api/partner-org/auth-action/validate", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: authAction.token, purpose: authAction.purpose === "activate" ? "partner_org_activation" : "partner_org_password_reset" }),
+    }).then(r => setActionValid(r.ok)).catch(() => setActionValid(false));
+  }, [authAction]);
+
+  const submitAuthAction = async () => {
+    if (!authAction || actionPassword.length < 8) return;
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/partner-org/auth-action/consume", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: authAction.token, password: actionPassword,
+          purpose: authAction.purpose === "activate" ? "partner_org_activation" : "partner_org_password_reset" }),
+      });
+      if (!res.ok) { setActionValid(false); return; }
+      setActionDone(true);
+    } finally { setSubmitting(false); }
+  };
 
   // Team management state
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
@@ -307,6 +338,19 @@ export default function PartnerOrgDashboard() {
     if (stage === "Proposal Sent") return "bg-blue-100 text-blue-800";
     return "bg-gray-100 text-gray-800";
   };
+
+  if (authAction) {
+    return <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
+      <Card className="w-full max-w-sm"><CardContent className="p-8 space-y-4">
+        <h1 className="text-xl font-bold">{actionDone ? "Password updated" : "Set your password"}</h1>
+        {actionValid === null ? <Loader2 className="w-5 h-5 animate-spin" /> : actionValid === false ?
+          <p className="text-sm text-muted-foreground">This link is invalid or expired.</p> : actionDone ?
+          <p className="text-sm text-muted-foreground">You can now sign in.</p> :
+          <><Input type="password" autoComplete="new-password" value={actionPassword} onChange={e => setActionPassword(e.target.value)} placeholder="At least 8 characters" />
+          <Button className="w-full" onClick={submitAuthAction} disabled={submitting || actionPassword.length < 8}>Set Password</Button></>}
+      </CardContent></Card>
+    </div>;
+  }
 
   if (loading) {
     return (

@@ -4,12 +4,12 @@ import { Link } from "wouter";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { CheckCircle, XCircle, Loader2 } from "lucide-react";
+import { captureAuthActionToken } from "@/lib/auth-action-fragment";
 
 type VerifyState = "loading" | "success" | "error";
 
 export default function VerifyEmail() {
-  const params = new URLSearchParams(window.location.search);
-  const token = params.get("token");
+  const [token] = useState(captureAuthActionToken);
   const [state, setState] = useState<VerifyState>("loading");
   const [message, setMessage] = useState("");
 
@@ -20,7 +20,11 @@ export default function VerifyEmail() {
       return;
     }
 
-    fetch(`/api/auth/verify-email?token=${encodeURIComponent(token)}`)
+    fetch("/api/auth/verify-email", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token }),
+    })
       .then(async (res) => {
         const data = await res.json();
         if (res.ok) {

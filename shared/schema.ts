@@ -4768,6 +4768,8 @@ export const partnerOrgUsers = pgTable("partner_org_users", {
   passwordHash: text("password_hash"),
   role: text("role").default("member"),
   status: text("status").default("active"),
+  // Incremented on credential recovery; cookie sessions carry and must match it.
+  sessionVersion: integer("session_version").notNull().default(0),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
   uniqueIndex("partner_org_users_email_org_idx").on(table.email, table.partnerOrgId),

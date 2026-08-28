@@ -11,44 +11,187 @@
  */
 
 import type { Express, Response } from "express";
-import { safeMessage } from "../utils/server-error";
 import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
 import sharp from "sharp";
 
-const OG_CACHE_DIR = path.resolve(process.cwd(), "uploads", "og-cache");
-try {
-  fs.mkdirSync(OG_CACHE_DIR, { recursive: true });
-} catch {
-  // best-effort
-}
+let ogCacheDir = path.resolve(process.cwd(), "uploads", "og-cache");
 
 function cacheKey(template: string, slug: string, customTitle?: string): string {
   return crypto
-    .createHash("sha1")
-    .update(`${template}|${slug}|${customTitle || ""}`)
+    .createHash("sha256")
+    // Structured input prevents delimiter ambiguity between slug and title.
+    .update(JSON.stringify([template, slug, customTitle || ""]))
     .digest("hex")
-    .slice(0, 32);
+    ;
+}
+
+const CACHE_KEY_RE = /^[a-f0-9]{64}$/;
+const CACHE_EXTENSIONS = new Set(["svg", "png"]);
+
+function assertTrustedCacheRoot(root: string): string {
+  let ownerUid: number | undefined;
+  if (process.platform !== "win32") {
+    const getuid = process.getuid;
+    if (typeof getuid !== "function") {
+      throw new Error("Unable to validate OG cache root owner");
+    }
+    ownerUid = getuid();
+  }
+
+  let entry: fs.Stats;
+  try {
+    // lstat is intentionally used before mkdir/open: an existing cache-root
+    // symlink is never a valid root, even if its target is otherwise safe.
+    entry = fs.lstatSync(root);
+  } catch (error: unknown) {
+    if (!(error && typeof error === "object" && "code" in error && error.code === "ENOENT")) {
+      throw error;
+    }
+    fs.mkdirSync(root, { recursive: true, mode: 0o700 });
+    entry = fs.lstatSync(root);
+  }
+  if (!entry.isDirectory() || entry.isSymbolicLink()) {
+    throw new Error("Invalid OG cache root");
+  }
+
+  if (ownerUid !== undefined) {
+    if (entry.uid !== ownerUid || (entry.mode & 0o077) !== 0) {
+      throw new Error("Untrusted OG cache root");
+    }
+  }
+
+  // Re-open the path with O_NOFOLLOW so a replacement between lstat and use
+  // cannot make this process trust a symlink. O_DIRECTORY also rejects files.
+  const fd = fs.openSync(
+    root,
+    fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW,
+  );
+  try {
+    const opened = fs.fstatSync(fd);
+    if (!opened.isDirectory() || (ownerUid !== undefined && (
+      opened.uid !== ownerUid || (opened.mode & 0o077) !== 0
+    ))) {
+      throw new Error("Untrusted OG cache root");
+    }
+  } finally {
+    fs.closeSync(fd);
+  }
+  return root;
+}
+
+/**
+ * This is the sole filesystem path construction point for cache artifacts.
+ * Cache keys are hashes produced above, but validate again here so a future
+ * caller cannot turn this cache into an arbitrary file read/write primitive.
+ */
+function cacheFilePath(key: string, ext: string): string {
+  if (!CACHE_KEY_RE.test(key) || !CACHE_EXTENSIONS.has(ext)) {
+    throw new Error("Invalid OG cache artifact");
+  }
+  const root = assertTrustedCacheRoot(ogCacheDir);
+  const file = path.resolve(root, `${key}.${ext}`);
+  if (path.dirname(file) !== root) {
+    throw new Error("Invalid OG cache artifact");
+  }
+  return file;
 }
 
 function readCached(key: string, ext: "svg" | "png"): Buffer | null {
+  let fd: number | undefined;
   try {
-    const file = path.join(OG_CACHE_DIR, `${key}.${ext}`);
-    if (fs.existsSync(file)) return fs.readFileSync(file);
+    // O_NOFOLLOW and fstat on the opened descriptor prevent symlink reads and
+    // ensure that only regular cache files are ever served.
+    fd = fs.openSync(
+      cacheFilePath(key, ext),
+      fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW,
+    );
+    const stat = fs.fstatSync(fd);
+    if (!stat.isFile() || stat.nlink !== 1) return null;
+    return fs.readFileSync(fd);
   } catch {
     /* ignore */
+  } finally {
+    if (fd !== undefined) {
+      try {
+        fs.closeSync(fd);
+      } catch {
+        /* ignore */
+      }
+    }
   }
   return null;
 }
 
-function writeCached(key: string, ext: "svg" | "png", data: Buffer): void {
+function writeCached(key: string, ext: "svg" | "png", data: Buffer): boolean {
+  let fd: number | undefined;
+  let tempFile: string | undefined;
+  let committed = false;
   try {
-    fs.writeFileSync(path.join(OG_CACHE_DIR, `${key}.${ext}`), data);
+    const destination = cacheFilePath(key, ext);
+    // A random, exclusive, owner-only temp file avoids partial cache entries.
+    // Atomic link publication below never replaces an existing artifact.
+    tempFile = path.resolve(
+      ogCacheDir,
+      `.${key}.${crypto.randomBytes(16).toString("hex")}.tmp`,
+    );
+    if (path.dirname(tempFile) !== ogCacheDir) throw new Error("Invalid OG cache artifact");
+    fd = fs.openSync(
+      tempFile,
+      fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW,
+      0o600,
+    );
+    fs.writeFileSync(fd, data);
+    fs.fsyncSync(fd);
+    const tempStat = fs.fstatSync(fd);
+    if (!tempStat.isFile() || tempStat.nlink !== 1) {
+      throw new Error("Invalid OG cache temp file");
+    }
+    fs.closeSync(fd);
+    fd = undefined;
+    // link(2) atomically publishes only when the final name is absent. Unlike
+    // rename, it can never replace a hostile existing symlink/device/hardlink
+    // or a concurrently published cache entry.
+    fs.linkSync(tempFile, destination);
+    fs.unlinkSync(tempFile);
+    committed = true;
+    return true;
   } catch {
     /* ignore — cache is best-effort */
+    return false;
+  } finally {
+    if (fd !== undefined) {
+      try {
+        fs.closeSync(fd);
+      } catch {
+        /* ignore */
+      }
+    }
+    if (tempFile && !committed) {
+      try {
+        fs.unlinkSync(tempFile);
+      } catch {
+        /* ignore */
+      }
+    }
   }
 }
+
+// Limited test hooks keep cache-boundary regression tests independent of HTTP
+// rendering and do not affect the route contract.
+export const ogCacheTestHooks = {
+  cacheKey,
+  cacheFilePath,
+  readCached,
+  writeCached,
+  get cacheDir(): string {
+    return ogCacheDir;
+  },
+  setCacheDirForTest(dir: string): void {
+    ogCacheDir = path.resolve(dir);
+  },
+};
 
 const TEMPLATES = ["default", "article", "industry", "compare", "location", "service"] as const;
 type Template = (typeof TEMPLATES)[number];
@@ -204,14 +347,25 @@ async function servePngResponse(
   res.send(buf);
 }
 
+function sendOgError(res: Response): void {
+  // Keep both response formats and server diagnostics deliberately generic:
+  // cache keys can encode titles and must never be exposed in diagnostics.
+  console.error("[OG] image generation failed");
+  res.status(500).json({ error: "OG image render failed" });
+}
+
 export function registerOgRoutes(app: Express) {
   // SVG endpoint
   app.get("/og/:template/:slug.svg", (req, res) => {
-    const template = resolveTemplate(String(req.params.template || "default"));
-    const slug = String(req.params.slug || "");
-    const customTitle = typeof req.query.title === "string" ? req.query.title : undefined;
-    const key = cacheKey(template, slug, customTitle);
-    serveSvgResponse(key, template, slug, customTitle, res);
+    try {
+      const template = resolveTemplate(String(req.params.template || "default"));
+      const slug = String(req.params.slug || "");
+      const customTitle = typeof req.query.title === "string" ? req.query.title : undefined;
+      const key = cacheKey(template, slug, customTitle);
+      serveSvgResponse(key, template, slug, customTitle, res);
+    } catch {
+      sendOgError(res);
+    }
   });
 
   // PNG endpoint — rasterized from SVG via sharp (1200×630 branded card)
@@ -222,19 +376,21 @@ export function registerOgRoutes(app: Express) {
     const key = cacheKey(template, slug, customTitle);
     try {
       await servePngResponse(key, template, slug, customTitle, res);
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "OG image render failed";
-      console.error("[OG] Render error:", msg);
-      res.status(500).json({ error: safeMessage(msg, "OG image render failed") });
+    } catch {
+      sendOgError(res);
     }
   });
 
   // Legacy bare route (no extension) — SVG for backward compatibility
   app.get("/og/:template/:slug", (req, res) => {
-    const template = resolveTemplate(String(req.params.template || "default"));
-    const slug = String(req.params.slug || "").replace(/\.(svg|png)$/i, "");
-    const customTitle = typeof req.query.title === "string" ? req.query.title : undefined;
-    const key = cacheKey(template, slug, customTitle);
-    serveSvgResponse(key, template, slug, customTitle, res);
+    try {
+      const template = resolveTemplate(String(req.params.template || "default"));
+      const slug = String(req.params.slug || "").replace(/\.(svg|png)$/i, "");
+      const customTitle = typeof req.query.title === "string" ? req.query.title : undefined;
+      const key = cacheKey(template, slug, customTitle);
+      serveSvgResponse(key, template, slug, customTitle, res);
+    } catch {
+      sendOgError(res);
+    }
   });
 }

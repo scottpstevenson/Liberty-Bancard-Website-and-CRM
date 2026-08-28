@@ -11,7 +11,11 @@
  * Exits 0 if all assertions pass, 1 if any fail.
  */
 
-import { sanitizeAuditPayload } from "../server/services/audit-sanitizer";
+import {
+  sanitizeAuditPayload,
+  sanitizeChannelAuditSnapshot,
+  sanitizeChannelAuditText,
+} from "../server/services/audit-sanitizer";
 
 let passed = 0;
 let failed = 0;
@@ -161,6 +165,23 @@ console.log("\n== Null / non-string sensitive values are safe ==");
   assert("null ein preserved as null", out.ein === null);
   assertNoRaw("numeric routing not raw", out, "21000021");
   assertNoRaw("numeric dob not raw", out, "19800514");
+}
+
+console.log("\n== Channel audit boundary helpers ==");
+{
+  const notes = sanitizeChannelAuditText("  Provider rejected jane@example.com at +1 (212) 555-0199  ");
+  assert("channel notes scrub embedded email", !String(notes).includes("jane@example.com"));
+  assert("channel notes scrub embedded phone", !String(notes).includes("212) 555-0199"));
+
+  const snapshot = sanitizeChannelAuditSnapshot({
+    items: [{ label: "Provider", detail: "recipient jane@example.com", rawBody: '{"token":"secret"}' }],
+    subject: "private subject",
+  });
+  assertNoRaw("channel snapshot does not retain subject", snapshot, "private subject");
+  assertNoRaw("channel snapshot does not retain raw provider body", snapshot, "secret");
+
+  const oversized = sanitizeChannelAuditSnapshot({ detail: "x".repeat(10_001) }) as Record<string, unknown>;
+  assert("oversized channel snapshot is replaced", oversized.truncated === true);
 }
 
 console.log("\n================================");

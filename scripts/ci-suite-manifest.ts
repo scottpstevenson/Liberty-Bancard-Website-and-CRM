@@ -188,6 +188,30 @@ export const SUITE_MANIFEST: SuiteManifestEntry[] = [
     providerDenial: "isolated Express fixture and pure renderer/source checks; no providers",
   },
   {
+    name: "RVR-03 Security Static Recurrence Scanner",
+    script: "scripts/test-rvr03-security-static.ts",
+    capability: "deterministic-static",
+    providerDenial: "synthetic source fixtures and deterministic lexical callsite scan; no providers",
+  },
+  {
+    name: "RVR-03 Auth Action Source Contract",
+    script: "server/tests/auth-actions.source.test.ts",
+    capability: "deterministic-static",
+    providerDenial: "source and schema contract assertions only; no database or providers",
+  },
+  {
+    name: "RVR-03 Auth Action Concurrency",
+    script: "server/tests/auth-actions.integration.test.ts",
+    capability: "deterministic-integration",
+    providerDenial: "TEST_DATABASE_URL disposable PostgreSQL schema only; no providers",
+  },
+  {
+    name: "RVR-03 OG Cache Hardening",
+    script: "server/tests/og-cache-hardening.test.ts",
+    capability: "deterministic-static",
+    providerDenial: "isolated temporary filesystem cache and pure helpers; no providers",
+  },
+  {
     name: "Release Artifact Gate",
     script: "scripts/release-artifact-gate.ts",
     capability: "deterministic-static",

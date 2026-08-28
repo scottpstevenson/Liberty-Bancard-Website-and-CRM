@@ -11,7 +11,6 @@
  * reset-password endpoint, which also creates a session on success.
  */
 
-import crypto from "crypto";
 import { db } from "../db";
 import { users } from "@shared/models/auth";
 import { merchantProfiles, deals, contacts } from "@shared/schema";
@@ -20,16 +19,22 @@ import { storage } from "../storage";
 import { getCanonicalUrl } from "../lib/canonical-url";
 import { isSmtpConfigured, sendSmtpEmail } from "./smtp-email";
 import { getEmailSignatureHtml } from "./email-signatures";
+import { issueAuthAction, setAuthActionDelivery } from "./auth-actions";
+import { logOperationalDiagnostic } from "../utils/server-error";
 
 const INVITE_TTL_MS = 72 * 60 * 60 * 1000; // 72 hours
+const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (char) => ({
+  "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+}[char]!));
 
 function buildPortalInviteEmail(
   firstName: string,
   businessName: string,
   activateUrl: string,
 ): string {
-  const displayName = firstName || "there";
-  const displayBiz = businessName ? ` for <strong>${businessName}</strong>` : "";
+  const displayName = escapeHtml(firstName || "there");
+  const displayBiz = businessName ? ` for <strong>${escapeHtml(businessName)}</strong>` : "";
+  const safeActivateUrl = escapeHtml(activateUrl);
   const signature = getEmailSignatureHtml("onboarding", undefined, null);
 
   return `
@@ -41,14 +46,14 @@ function buildPortalInviteEmail(
   <p>Click the button below to set your password and activate your account. This link expires in <strong>72 hours</strong>.</p>
 
   <p style="text-align:center;margin:28px 0;">
-    <a href="${activateUrl}"
+    <a href="${safeActivateUrl}"
        style="display:inline-block;background-color:#1e3a5f;color:#ffffff;padding:12px 28px;border-radius:4px;text-decoration:none;font-size:14px;font-weight:bold;">
       Activate My Portal Account &rarr;
     </a>
   </p>
 
   <p>If the button doesn't work, paste this link into your browser:</p>
-  <p style="word-break:break-all;font-size:12px;color:#555;">${activateUrl}</p>
+  <p style="word-break:break-all;font-size:12px;color:#555;">${safeActivateUrl}</p>
 
   <p>If you weren't expecting this email or don't recognise Liberty Bancard, you can safely ignore it.</p>
 
@@ -80,18 +85,20 @@ export async function sendMerchantPortalInvite(
   dealId: number,
   opts: { resend?: boolean } = {},
 ): Promise<InviteResult> {
+  let issuedActionId: string | undefined;
+  let definiteFailure = false;
   try {
     // 1. Load deal
     const deal = await storage.getDeal(dealId);
     if (!deal || !deal.contactId) {
-      console.warn(`[MerchantInvite] Deal #${dealId} missing or has no contact — skipping`);
+      logOperationalDiagnostic("merchant_portal_invite", new Error("missing deal contact"), "no_contact", { dealId });
       return { sent: false, reason: "no_contact" };
     }
 
     // 2. Load contact → get email
     const contact = await storage.getContact(deal.contactId);
     if (!contact?.email) {
-      console.warn(`[MerchantInvite] Contact #${deal.contactId} has no email — skipping`);
+      logOperationalDiagnostic("merchant_portal_invite", new Error("missing contact email"), "no_email", { dealId, contactId: deal.contactId });
       return { sent: false, reason: "no_email" };
     }
 
@@ -118,21 +125,15 @@ export async function sendMerchantPortalInvite(
         })
         .returning();
       merchantUser = created;
-      console.log(`[MerchantInvite] Created merchant user for deal #${dealId}`);
     } else {
       // A user with this email already exists — only proceed if it is a merchant account.
       if (existingUser.role !== "merchant") {
-        console.error(
-          `[MerchantInvite] Email collision: deal #${dealId} contact email belongs to a ` +
-          `non-merchant user (role=${existingUser.role}, id=${existingUser.id}). ` +
-          `Invitation blocked to prevent privilege escalation.`,
-        );
+        logOperationalDiagnostic("merchant_portal_invite", new Error("privileged email collision"), "email_collision_privileged_role", { dealId });
         return { sent: false, reason: "email_collision_privileged_role" };
       }
 
       // Resend is always allowed; on initial send, skip if already fully activated.
       if (!opts.resend && merchantUser.passwordHash) {
-        console.log(`[MerchantInvite] User already activated for deal #${dealId} — skipping initial invite`);
         return { sent: false, reason: "already_activated", userId: merchantUser.id };
       }
     }
@@ -155,7 +156,6 @@ export async function sendMerchantPortalInvite(
         })
         .returning();
       profileId = created.id;
-      console.log(`[MerchantInvite] Created merchantProfile #${profileId} for deal #${dealId}`);
     } else {
       profileId = existingProfile.id;
       // If the profile isn't linked to the correct user yet, update it
@@ -164,23 +164,18 @@ export async function sendMerchantPortalInvite(
           .update(merchantProfiles)
           .set({ userId: merchantUser.id, updatedAt: new Date() })
           .where(eq(merchantProfiles.id, existingProfile.id));
-        console.log(`[MerchantInvite] Re-linked merchantProfile #${profileId} to user ${merchantUser.id}`);
       }
     }
 
-    // 5. Generate invite token (stored as SHA-256 hash; raw token goes in the email)
-    const rawToken = crypto.randomBytes(32).toString("hex");
-    const hashedToken = crypto.createHash("sha256").update(rawToken).digest("hex");
-    const expiresAt = new Date(Date.now() + INVITE_TTL_MS);
-
-    await db
-      .update(users)
-      .set({ resetToken: hashedToken, resetExpiresAt: expiresAt, updatedAt: new Date() })
-      .where(eq(users.id, merchantUser.id));
+    // The canonical authority revokes older deliveries before issuing this one.
+    const action = await issueAuthAction({
+      purpose: "merchant_activation", subject: { type: "user", id: merchantUser.id }, ttlMs: INVITE_TTL_MS,
+    });
+    issuedActionId = action.id;
 
     // 6. Build and send email
     const appUrl = getCanonicalUrl();
-    const activateUrl = `${appUrl}/activate-portal?token=${rawToken}`;
+    const activateUrl = `${appUrl}/activate-portal#token=${encodeURIComponent(action.token)}`;
 
     const html = buildPortalInviteEmail(
       contact.firstName ?? "",
@@ -190,10 +185,9 @@ export async function sendMerchantPortalInvite(
 
     if (!isSmtpConfigured()) {
       // SECURITY: never log the raw token or activation URL — it is a bearer credential.
-      console.warn(
-        `[MerchantInvite] SMTP not configured — portal invite NOT sent for deal #${dealId}. ` +
-        `Token stored; configure SMTP to deliver it.`,
-      );
+      logOperationalDiagnostic("merchant_portal_invite_delivery", new Error("mail transport unavailable"), "smtp_not_configured", { dealId, profileId });
+      await setAuthActionDelivery(action.id, "definite_failure");
+      definiteFailure = true;
       return { sent: false, reason: "smtp_not_configured", userId: merchantUser.id, profileId };
     }
 
@@ -206,9 +200,12 @@ export async function sendMerchantPortalInvite(
     });
 
     if (!result.success) {
-      console.error(`[MerchantInvite] SMTP failed for deal #${dealId}: ${result.error}`);
+      logOperationalDiagnostic("merchant_portal_invite_delivery", new Error("mail delivery failed"), "smtp_error", { dealId, profileId });
+      await setAuthActionDelivery(action.id, "definite_failure");
+      definiteFailure = true;
       return { sent: false, reason: "smtp_error", userId: merchantUser.id, profileId };
     }
+    await setAuthActionDelivery(action.id, "sent");
 
     await storage.createAuditLog({
       action: opts.resend ? "merchant_portal_invite_resent" : "merchant_portal_invite_sent",
@@ -216,16 +213,17 @@ export async function sendMerchantPortalInvite(
       entityId: dealId,
       details: {
         contactId: deal.contactId,
-        email: contact.email,
         userId: merchantUser.id,
         profileId,
       },
     });
 
-    console.log(`[MerchantInvite] Invitation sent to ${contact.email} for deal #${dealId}`);
     return { sent: true, userId: merchantUser.id, profileId };
   } catch (err: any) {
-    console.error(`[MerchantInvite] Unexpected error for deal #${dealId}:`, err.message);
+    if (issuedActionId && !definiteFailure) {
+      await setAuthActionDelivery(issuedActionId, "ambiguous").catch(() => {});
+    }
+    logOperationalDiagnostic("merchant_portal_invite", err, "unexpected_failure", { dealId });
     return { sent: false, reason: "unknown_error" };
   }
 }

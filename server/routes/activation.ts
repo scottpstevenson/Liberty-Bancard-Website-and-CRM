@@ -10,7 +10,7 @@ import { featureFlags } from "../services/feature-flags";
 import { runStageProgressionSweep } from "../services/stage-progression";
 import { getGhlCircuitState } from "../services/ghl-sync";
 import { createPreferenceAwareNotification, sendCriticalEmailNotification } from "../services/digest-service";
-import { serverError, safeMessage } from "../utils/server-error";
+import { serverError, safeMessage, logOperationalDiagnostic } from "../utils/server-error";
 
 const CHANNEL_LABEL: Record<string, string> = {
   sms: "SMS",
@@ -53,7 +53,7 @@ async function notifyChannelApproved(params: {
       )
     );
   } catch (err) {
-    console.error(`[Activation] Failed to create internal notifications for ${channel} approval:`, err);
+    logOperationalDiagnostic("channel_approval_notification", err, "notification_write_failed", { auditId });
   }
 
   await sendCriticalEmailNotification({
@@ -72,6 +72,22 @@ async function notifyChannelApproved(params: {
 // "voice_ai", "ringless_vm" — never "voice", "ringless", or bare "call".
 export const VALID_CHANNELS = ["sms", "voice_ai", "ringless_vm"] as const;
 export type ChannelKey = typeof VALID_CHANNELS[number];
+
+function safeReasonBucket(value: unknown): string {
+  const normalized = typeof value === "string" ? value.toLowerCase().replace(/[^a-z0-9_]/g, "_").slice(0, 48) : "";
+  return normalized && /^[a-z0-9_]+$/.test(normalized) ? normalized : "other";
+}
+
+function channelAuditChecklistSnapshot(checklist: { passed: boolean; items?: Array<{ ok?: boolean }> }) {
+  const items = Array.isArray(checklist.items) ? checklist.items : [];
+  const passedCount = items.filter((item) => item.ok === true).length;
+  return {
+    passed: checklist.passed === true,
+    totalChecks: items.length,
+    passedCount,
+    failedCount: items.length - passedCount,
+  };
+}
 
 const CHANNEL_ACTION_TYPE: Record<ChannelKey, string> = {
   sms: "sms",
@@ -129,7 +145,8 @@ export async function evaluateChannelChecklist(channel: ChannelKey): Promise<Cha
       sequenceDetail = `Found ${rows.length} active step(s) with actionType="${actionType}" (e.g. sequence "${rows[0].sequenceName}")`;
     }
   } catch (err: any) {
-    sequenceDetail = `Error evaluating sequence steps: ${err.message}`;
+    logOperationalDiagnostic("channel_checklist", err, "sequence_check_failed");
+    sequenceDetail = "Unable to evaluate active sequence steps.";
   }
 
   // 2. PEWC (Prior Express Written Consent) evidence — real predicate from
@@ -153,7 +170,8 @@ export async function evaluateChannelChecklist(channel: ChannelKey): Promise<Cha
       pewcDetail = "At least one express_written consent record with a disclosure version and consented phone found.";
     }
   } catch (err: any) {
-    pewcDetail = `Error evaluating PEWC evidence: ${err.message}`;
+    logOperationalDiagnostic("channel_checklist", err, "consent_evidence_check_failed");
+    pewcDetail = "Unable to evaluate consent evidence.";
   }
 
   // 3. Quiet hours are enforced structurally (no global system_settings
@@ -181,7 +199,8 @@ export async function evaluateChannelChecklist(channel: ChannelKey): Promise<Cha
       ? "isWithinBusinessHours() correctly allows a Tue 10am ET sample and blocks a Tue 2am ET sample, and evaluateContactability() calls it before any send."
       : `Quiet-hours behavior check failed (businessHours=${duringBusinessHours}, quietHours=${duringQuietHours}, wiredIntoGate=${wiredIntoGate}).`;
   } catch (err: any) {
-    quietHoursDetail = `Error verifying quiet-hours enforcement: ${err.message}`;
+    logOperationalDiagnostic("channel_checklist", err, "quiet_hours_check_failed");
+    quietHoursDetail = "Unable to verify quiet-hours enforcement.";
   }
 
   const items: ChannelChecklistItem[] = [
@@ -268,7 +287,8 @@ export function registerActivationRoutes(app: Express) {
           ghlAuthOk = true;
           ghlAuthDetail = `Auth probe OK (${Array.isArray(cals) ? cals.length : 0} calendars)`;
         } catch (err: any) {
-          ghlAuthDetail = `Auth probe failed: ${err.message}`;
+          logOperationalDiagnostic("activation_ghl_auth_probe", err, "auth_probe_failed");
+          ghlAuthDetail = "Auth probe failed.";
         }
       }
 
@@ -1250,7 +1270,7 @@ export function registerActivationRoutes(app: Express) {
       await storage.createChannelAuditLog({
         channel,
         action: "checklist_viewed",
-        checklistSnapshot: checklist,
+        checklistSnapshot: channelAuditChecklistSnapshot(checklist),
         actorUserId,
         actorEmail,
         notes: null,
@@ -1276,10 +1296,10 @@ export function registerActivationRoutes(app: Express) {
         await storage.createChannelAuditLog({
           channel,
           action: "checklist_viewed",
-          checklistSnapshot: checklist,
+          checklistSnapshot: channelAuditChecklistSnapshot(checklist),
           actorUserId,
           actorEmail,
-          notes: "Approval request denied — checklist requirements not met.",
+          notes: "approval_denied_checklist_failed",
         });
         return res.status(400).json({
           approvedToEnable: false,
@@ -1291,10 +1311,10 @@ export function registerActivationRoutes(app: Express) {
       const auditRow = await storage.createChannelAuditLog({
         channel,
         action: "enable_approved",
-        checklistSnapshot: checklist,
+        checklistSnapshot: channelAuditChecklistSnapshot(checklist),
         actorUserId,
         actorEmail,
-        notes: req.body?.notes ? String(req.body.notes).slice(0, 2000) : null,
+        notes: "approval_approved",
       });
 
       const manualStep = `Approval recorded (audit #${auditRow.id}). To actually activate this channel, an operator must manually set the Replit Secret ${envFlag}=true and restart the app. This system never modifies environment variables or secrets on its own.`;
@@ -1303,7 +1323,7 @@ export function registerActivationRoutes(app: Express) {
       // approved and is now waiting on a manual Secret flip + restart. This
       // is purely informational — it never touches process.env or Secrets.
       notifyChannelApproved({ channel, envFlag, actorEmail, auditId: auditRow.id, manualStep }).catch((err) => {
-        console.error(`[Activation] Failed to send channel-approved notification for ${channel}:`, err);
+        logOperationalDiagnostic("channel_approval_notification", err, "notification_delivery_failed", { auditId: auditRow.id });
       });
 
       // This route only records an approval decision. It NEVER sets the
@@ -1391,12 +1411,16 @@ export function registerActivationRoutes(app: Express) {
         checklistSnapshot: {
           scannedCount: pool.length,
           eligibleCount: candidates.length,
-          previewedContactIds: candidates.map((c) => c.id),
-          evaluated,
+          evaluatedCount: evaluated.length,
+          reasonBuckets: evaluated.reduce<Record<string, number>>((buckets, result) => {
+            const bucket = safeReasonBucket(result.reason);
+            buckets[bucket] = (buckets[bucket] ?? 0) + 1;
+            return buckets;
+          }, {}),
         },
         actorUserId,
         actorEmail,
-        notes: "Dry-run preview only — no outbound communication was sent or queued.",
+        notes: "dry_run_no_outbound_delivery",
       });
 
       res.json({

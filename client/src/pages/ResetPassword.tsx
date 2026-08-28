@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Loader2, Lock, CheckCircle, ArrowLeft } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
+import { captureAuthActionToken } from "@/lib/auth-action-fragment";
 
 export default function ResetPassword() {
   const [password, setPassword] = useState("");
@@ -15,7 +16,7 @@ export default function ResetPassword() {
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState("");
 
-  const token = new URLSearchParams(window.location.search).get("token");
+  const [token] = useState(captureAuthActionToken);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

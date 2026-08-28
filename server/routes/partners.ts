@@ -6,7 +6,7 @@ import { storage } from "../storage";
 import { publicLeadRateLimit } from "../middleware/public-rate-limit";
 import { authStorage } from "../replit_integrations/auth/storage";
 import { db } from "../db";
-import { users } from "@shared/schema";
+import { partners, users, userSessions } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { DateValidationError } from "../utils/date-coerce";
@@ -19,7 +19,8 @@ import { syncFormSubmissionToGhl, syncAffiliateSignupToGhl } from "../services/g
 import { sendPartnerWelcomeEmail } from "../services/partner-welcome";
 import { isGhlConfigured, sendGhlPartnerTransactionalEmail } from "../services/ghl";
 import { sendSmtpEmail, isSmtpConfigured } from "../services/smtp-email";
-import { serverError } from "../utils/server-error";
+import { logOperationalDiagnostic, serverError } from "../utils/server-error";
+import { consumeAuthAction, issueAuthAction, setAuthActionDelivery } from "../services/auth-actions";
 import { authorizeGhlRouteMutation, requireGhlRouteMutationAllowed } from "./ghl-mutation-pause";
 
 const partnerForgotPasswordRateLimit = rateLimit({
@@ -37,6 +38,76 @@ const partnerLoginRateLimit = rateLimit({
   legacyHeaders: false,
   message: { message: "Too many login attempts, please try again later." },
 });
+const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (char) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[char]!));
+function authActionHeaders(res: any) {
+  res.setHeader("Cache-Control", "no-store"); res.setHeader("Pragma", "no-cache"); res.setHeader("Referrer-Policy", "no-referrer");
+}
+async function consumePartnerPassword(token: string, purpose: "partner_password_reset" | "partner_invite", passwordHash: string) {
+  return consumeAuthAction({
+    token, purpose,
+    mutate: async (subject, tx) => {
+      if (subject.type !== "partner") return false;
+      const [partner] = await tx.select().from(partners).where(eq(partners.id, Number(subject.id)));
+      if (!partner) return false;
+      // Validate all ownership/role invariants before changing either
+      // credential record; a false result rolls back the claimed action too.
+      const normalizedEmail = partner.email?.toLowerCase();
+      const [user] = normalizedEmail
+        ? await tx.select().from(users).where(eq(users.email, normalizedEmail))
+        : [undefined];
+      if (user && user.role !== "partner") return false;
+      await tx.update(partners).set({ passwordHash, passwordResetToken: null, passwordResetExpiresAt: null,
+        inviteToken: null, inviteTokenExpiresAt: null, updatedAt: new Date() }).where(eq(partners.id, partner.id));
+      if (!partner.email) return true;
+      if (user) {
+        await tx.update(users).set({ passwordHash, updatedAt: new Date() }).where(eq(users.id, user.id));
+        await tx.update(userSessions).set({ isInvalidated: true, invalidatedAt: new Date() })
+          .where(eq(userSessions.userId, user.id));
+      } else {
+        const names = (partner.contactName || "").split(" ");
+        await tx.insert(users).values({ email: partner.email.toLowerCase(), firstName: names[0] || "Partner",
+          lastName: names.slice(1).join(" "), passwordHash, role: "partner", authProvider: "local" });
+      }
+      return true;
+    },
+  });
+}
+async function createPartnerWithCredential(input: InsertPartner) {
+  return db.transaction(async tx => {
+    const email = input.email?.trim().toLowerCase();
+    const [linked] = email ? await tx.select().from(users).where(eq(users.email, email)) : [undefined];
+    if (linked && linked.role !== "partner") throw new Error("An account with this email already exists.");
+    const [partner] = await tx.insert(partners).values({ ...input, email }).returning();
+    if (input.passwordHash && email) {
+      if (linked) {
+        await tx.update(users).set({ passwordHash: input.passwordHash, updatedAt: new Date() }).where(eq(users.id, linked.id));
+        await tx.update(userSessions).set({ isInvalidated: true, invalidatedAt: new Date() }).where(eq(userSessions.userId, linked.id));
+      } else {
+        const names = (input.contactName || "").split(" ");
+        await tx.insert(users).values({ email, firstName: names[0] || "Partner", lastName: names.slice(1).join(" "),
+          passwordHash: input.passwordHash, role: "partner", authProvider: "local" });
+      }
+    }
+    return partner;
+  });
+}
+async function registerPartnerLoginSession(req: any, userId: string): Promise<void> {
+  const sessionId = req.sessionID;
+  if (!sessionId) throw new Error("Missing authenticated session");
+  await authStorage.invalidateOldestSessionsForUser(userId, 4);
+  if (!await authStorage.getUserSession(sessionId)) {
+    const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.socket?.remoteAddress;
+    await authStorage.createUserSession({ userId, sessionId, ip, userAgent: req.headers["user-agent"] });
+  }
+}
+async function failPartnerLoginClosed(req: any, res: any): Promise<void> {
+  await new Promise<void>(resolve => req.logout(() => resolve()));
+  await new Promise<void>(resolve => {
+    if (!req.session) return resolve();
+    req.session.destroy(() => resolve());
+  });
+  res.clearCookie("connect.sid");
+}
 
 export function registerPartnersRoutes(app: Express) {
   // === PARTNERS (admin) ===
@@ -62,7 +133,7 @@ export function registerPartnersRoutes(app: Express) {
   app.post("/api/partners", requireRole("admin"), async (req, res) => {
     try {
       const input = insertPartnerSchema.parse(req.body);
-      const partner = await storage.createPartner(input);
+      const partner = await createPartnerWithCredential(input);
       res.status(201).json(partner);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join(".") });
@@ -90,31 +161,30 @@ export function registerPartnersRoutes(app: Express) {
           try {
             const partnerEmail = updated.email?.trim().toLowerCase();
             if (!partnerEmail) {
-              console.warn(`[Partners] Approval trigger skipped for partner #${partnerId} — no email on record.`);
+              logOperationalDiagnostic("partner_approval_enrollment", new Error("missing partner email"), "no_email", { partnerId });
               return;
             }
 
             const contact = await storage.getContactByEmail(partnerEmail);
 
             if (!contact) {
-              console.info(`[Partners] Approval trigger: no CRM contact found for partner email "${partnerEmail}" (partner #${partnerId}) — sequence enrollment skipped.`);
               await (storage as any).createAuditLog({
                 action: "partner_approved_sequence_skip",
                 entityType: "partner",
                 entityId: partnerId,
-                details: { reason: "no_contact_found", email: partnerEmail },
+                details: { reason: "no_contact_found" },
                 type: "info",
               });
               return;
             }
 
             if (contact.email?.trim().toLowerCase() !== partnerEmail) {
-              console.warn(`[Partners] Email mismatch — partner email "${partnerEmail}" does not match contact email "${contact.email}" (contact #${contact.id}). Skipping enrollment.`);
+              logOperationalDiagnostic("partner_approval_enrollment", new Error("partner contact mismatch"), "email_mismatch", { partnerId, contactId: contact.id });
               await (storage as any).createAuditLog({
                 action: "partner_approved_sequence_skip",
                 entityType: "partner",
                 entityId: partnerId,
-                details: { reason: "email_mismatch", partnerEmail, contactEmail: contact.email, contactId: contact.id },
+                details: { reason: "email_mismatch", contactId: contact.id },
                 type: "warning",
               });
               return;
@@ -127,37 +197,37 @@ export function registerPartnersRoutes(app: Express) {
               action: "partner_approved_sequence_enrolled",
               entityType: "partner",
               entityId: partnerId,
-              details: { contactId: contact.id, sequencesEnrolled: enrollResult.count, email: partnerEmail },
+              details: { contactId: contact.id, sequencesEnrolled: enrollResult.count },
               type: "info",
             });
           } catch (e) {
-            console.error(`[Partners] Post-approval sequence error for partner #${partnerId}:`, e);
+            logOperationalDiagnostic("partner_approval_enrollment", e, "enrollment_failed", { partnerId });
           }
         })();
         if (!existing.passwordHash) {
           (async () => {
+            let inviteActionId: string | undefined;
             try {
-              const rawToken = crypto.randomBytes(32).toString("hex");
-              const hashedToken = crypto.createHash("sha256").update(rawToken).digest("hex");
-              const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000);
-              await storage.setPartnerInviteToken(partnerId, hashedToken, expiresAt);
+               const inviteAction = await issueAuthAction({
+                 purpose: "partner_invite", subject: { type: "partner", id: partnerId }, ttlMs: 72 * 60 * 60 * 1000,
+               });
+               inviteActionId = inviteAction.id;
 
               const replitDomain = process.env.REPLIT_DOMAINS?.split(",")[0]?.trim();
               const baseUrl = process.env.APP_URL ||
                 (replitDomain ? `https://${replitDomain}` : "https://libertybancard.com");
-              const inviteUrl = `${baseUrl}/partner-login?invite=${rawToken}`;
-
-              console.log(`[Partners] Invite URL for partner #${partnerId}: ${inviteUrl}`);
+               const inviteUrl = `${baseUrl}/partner-login#action=invite&token=${encodeURIComponent(inviteAction.token)}`;
 
               if (updated.email) {
                 const firstName = (updated.contactName || "").split(" ")[0] || "there";
+                const safeInviteUrl = escapeHtml(inviteUrl);
                 const html = `
 <div style="font-family:Arial,sans-serif;font-size:14px;color:#333;max-width:600px;">
-  <p>Hi ${firstName},</p>
+   <p>Hi ${escapeHtml(firstName)},</p>
   <p>Congratulations — your Liberty Bancard partner application has been <strong>approved</strong>!</p>
   <p>To activate your partner account, please set your password by clicking the button below:</p>
-  <p><a href="${inviteUrl}" style="display:inline-block;background-color:#1e3a5f;color:#ffffff;padding:10px 20px;border-radius:4px;text-decoration:none;font-size:13px;font-weight:bold;">Set Your Password &amp; Access Your Portal &rarr;</a></p>
-  <p>Or copy and paste this link:<br/><span style="font-family:monospace;font-size:12px;color:#555;">${inviteUrl}</span></p>
+   <p><a href="${safeInviteUrl}" style="display:inline-block;background-color:#1e3a5f;color:#ffffff;padding:10px 20px;border-radius:4px;text-decoration:none;font-size:13px;font-weight:bold;">Set Your Password &amp; Access Your Portal &rarr;</a></p>
+   <p>Or copy and paste this link:<br/><span style="font-family:monospace;font-size:12px;color:#555;">${safeInviteUrl}</span></p>
   <p>This link expires in 72 hours. Once you set your password, you'll have full access to your partner dashboard with referral tracking, commission reports, and marketing materials.</p>
   <p>Questions? Reply to this email, call us at <a href="tel:9542668214" style="color:#1e3a5f;">954-266-8214</a>, or email <a href="mailto:scott@libertybancard.com" style="color:#1e3a5f;">scott@libertybancard.com</a>.</p>
   <p>Welcome aboard!</p>
@@ -172,38 +242,43 @@ ${getEmailSignatureHtml("partners")}
                   category: "internal_ops",
                 });
                 if (smtpResult.success) {
-                  console.log(`[Partners] Invite email sent via SMTP to partner #${partnerId}`);
+                  await setAuthActionDelivery(inviteAction.id, "sent");
                 } else {
-                  console.warn(`[Partners] SMTP invite failed for partner #${partnerId}: ${smtpResult.error} — falling back to GHL`);
                   if (isGhlConfigured()) {
-                    await sendGhlPartnerTransactionalEmail({
+                    try {
+                      const ghlResult = await sendGhlPartnerTransactionalEmail({
                       email: updated.email,
                       subject,
                       body: html,
                       fromEmail: "partners@libertybancard.com",
                       fromName: "Liberty Bancard Partner Program",
-                    });
-                    console.log(`[Partners] Invite email sent via GHL fallback to partner #${partnerId}`);
+                      });
+                      await setAuthActionDelivery(inviteAction.id, ghlResult.success ? "sent" : "definite_failure");
+                    } catch {
+                      await setAuthActionDelivery(inviteAction.id, "ambiguous");
+                    }
+                  } else {
+                    await setAuthActionDelivery(inviteAction.id, "definite_failure");
                   }
                 }
+              } else {
+                await setAuthActionDelivery(inviteAction.id, "definite_failure");
               }
             } catch (err) {
-              console.error(`[Partners] Invite token/email error for partner #${partnerId}:`, err);
-              sendPartnerWelcomeEmail(updated).catch(e =>
-                console.error(`[Partners] Fallback welcome email error for partner #${partnerId}:`, e)
-              );
+              if (inviteActionId) await setAuthActionDelivery(inviteActionId, "ambiguous").catch(() => {});
+              logOperationalDiagnostic("partner_invite_delivery", err, "invite_delivery_failed", { partnerId });
             }
           })();
         } else {
           sendPartnerWelcomeEmail(updated).catch(err =>
-            console.error(`[Partners] Welcome email error for partner #${partnerId}:`, err)
+            logOperationalDiagnostic("partner_invite_delivery", err, "welcome_delivery_failed", { partnerId })
           );
         }
       }
 
       res.json(updated);
     } catch (err: any) {
-      res.status(400).json({ message: err.message });
+      serverError(res, err, "partner_update");
     }
   });
 
@@ -262,7 +337,7 @@ ${getEmailSignatureHtml("partners")}
         referralType ? `Referral type: ${referralType}` : "",
       ].filter(Boolean).join(" | ");
 
-      const partner = await storage.createPartner({
+      const partner = await createPartnerWithCredential({
         companyName: (companyName || `${firstName} ${lastName || ""}`.trim()).slice(0, 200),
         contactName: `${firstName} ${lastName || ""}`.trim().slice(0, 200),
         email: email.toLowerCase().slice(0, 200),
@@ -274,22 +349,6 @@ ${getEmailSignatureHtml("partners")}
         commissionPercent: mappedType === "iso_agent" ? 50 : 10,
         notes: notesText || null,
       });
-
-      if (existingAuthUser) {
-        await db.update(users).set({ passwordHash, updatedAt: new Date() }).where(eq(users.email, email.toLowerCase()));
-        const { auditChange } = await import("../services/audit-change");
-        auditChange({ actorType: "user", userId: (req.user as any)?.id ?? null, action: "user_password_set",
-          entityType: "user", entityKey: existingAuthUser.id, before: null, after: null }).catch(() => {});
-      } else {
-        await authStorage.upsertUser({
-          email: email.toLowerCase(),
-          firstName,
-          lastName: lastName || "",
-          passwordHash,
-          role: "partner",
-          authProvider: "local",
-        });
-      }
 
       createContactLocalFirst({
         firstName,
@@ -309,9 +368,9 @@ ${getEmailSignatureHtml("partners")}
               partner_type: referralType || mappedType,
               number_of_clients: numberOfClients || "",
             },
-          }).catch(err => console.error("GHL partner sync error:", err));
+          }).catch(err => logOperationalDiagnostic("partner_application_sync", err, "form_sync_failed", { partnerId: partner.id }));
         }
-      }).catch(err => console.error("GHL partner contact error:", err));
+      }).catch(err => logOperationalDiagnostic("partner_application_sync", err, "contact_create_failed", { partnerId: partner.id }));
 
       syncAffiliateSignupToGhl({
         firstName,
@@ -320,7 +379,7 @@ ${getEmailSignatureHtml("partners")}
         phone,
         companyName: companyName || undefined,
         affiliateCode: partner.affiliateCode || code,
-      }).catch(err => console.error("GHL partner affiliate sync error:", err));
+      }).catch(err => logOperationalDiagnostic("partner_application_sync", err, "affiliate_sync_failed", { partnerId: partner.id }));
 
       return res.status(201).json({
         message: "Application submitted! We will review and contact you within 1 business day.",
@@ -365,8 +424,13 @@ ${getEmailSignatureHtml("partners")}
       } else if (user.role !== "partner") {
         return res.status(403).json({ message: "This email belongs to an existing account. Please contact support." });
       }
-      req.logIn(user, (loginErr) => {
+      req.logIn(user, async (loginErr) => {
         if (loginErr) return res.status(500).json({ message: "Login failed." });
+        try { await registerPartnerLoginSession(req, user!.id); }
+        catch {
+          await failPartnerLoginClosed(req, res);
+          return res.status(500).json({ message: "Login failed." });
+        }
         return res.json({
           affiliateCode: partner.affiliateCode,
           name: partner.contactName,
@@ -399,6 +463,7 @@ ${getEmailSignatureHtml("partners")}
 
   // === PASSWORD RESET (legacy routes kept for backward compat, now rate-limited) ===
   app.post("/api/partner/reset-password-request", partnerForgotPasswordRateLimit, async (req, res) => {
+    let issuedActionId: string | undefined;
     try {
       const { email } = req.body;
       if (!email || typeof email !== "string") {
@@ -406,50 +471,55 @@ ${getEmailSignatureHtml("partners")}
       }
       const partner = await storage.getPartnerByEmail(email.toLowerCase());
       if (partner) {
-        const rawToken = crypto.randomBytes(32).toString("hex");
-        const hashedToken = crypto.createHash("sha256").update(rawToken).digest("hex");
-        const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
-        await storage.setPartnerResetToken(partner.id, hashedToken, expiresAt);
+         const resetAction = await issueAuthAction({
+           purpose: "partner_password_reset", subject: { type: "partner", id: partner.id }, ttlMs: 60 * 60 * 1000,
+         });
+         issuedActionId = resetAction.id;
 
         const replitDomain = process.env.REPLIT_DOMAINS?.split(",")[0]?.trim();
         const baseUrl = process.env.APP_URL ||
           (replitDomain ? `https://${replitDomain}` : "https://libertybancard.com");
-        const resetUrl = `${baseUrl}/partner-portal?reset=${rawToken}`;
-
-        // Reset URL logged only in development to aid local testing
-        if (process.env.NODE_ENV !== "production") console.log(`[Partner Auth] Password reset URL: ${resetUrl}`);
+         const resetUrl = `${baseUrl}/partner-portal#action=reset&token=${encodeURIComponent(resetAction.token)}`;
 
         if (partner.email) {
           const displayName = partner.contactName || "there";
+          const safeResetUrl = escapeHtml(resetUrl);
           const subject = "Reset your Liberty Bancard partner password";
           const html = `
 <div style="font-family:Arial,sans-serif;font-size:14px;color:#333;max-width:600px;">
-  <p>Hi ${displayName},</p>
+   <p>Hi ${escapeHtml(displayName)},</p>
   <p>We received a request to reset the password for your Liberty Bancard partner account.</p>
-  <p><a href="${resetUrl}" style="display:inline-block;background-color:#1e3a5f;color:#ffffff;padding:10px 20px;border-radius:4px;text-decoration:none;font-size:13px;font-weight:bold;">Reset Your Password</a></p>
-  <p>Or copy and paste this link into your browser:<br/><span style="font-family:monospace;font-size:12px;color:#555;">${resetUrl}</span></p>
+  <p><a href="${safeResetUrl}" style="display:inline-block;background-color:#1e3a5f;color:#ffffff;padding:10px 20px;border-radius:4px;text-decoration:none;font-size:13px;font-weight:bold;">Reset Your Password</a></p>
+  <p>Or copy and paste this link into your browser:<br/><span style="font-family:monospace;font-size:12px;color:#555;">${safeResetUrl}</span></p>
   <p>This link will expire in 1 hour. If you didn't request a password reset, you can safely ignore this email.</p>
 ${getEmailSignatureHtml("partners")}
 </div>`;
           if (isGhlConfigured()) {
             sendGhlPartnerTransactionalEmail({ email: partner.email, subject, body: html, fromEmail: "partners@libertybancard.com", fromName: "Liberty Bancard Partner Program" })
-              .catch(err => console.error("[Partner Auth] Reset email (GHL) error:", err));
+              .then(result => setAuthActionDelivery(resetAction.id, result.success ? "sent" : "definite_failure"))
+              .catch(() => setAuthActionDelivery(resetAction.id, "ambiguous"));
           } else if (isSmtpConfigured()) {
             sendSmtpEmail({ to: partner.email, subject, html, category: "partners" })
-              .catch(err => console.error("[Partner Auth] Reset email (SMTP) error:", err));
+              .then(result => setAuthActionDelivery(resetAction.id, result.success ? "sent" : "definite_failure"))
+              .catch(() => setAuthActionDelivery(resetAction.id, "ambiguous"));
           } else {
-            console.warn(`[Partner Auth] No email provider configured — reset link for partner #${partner.id}: ${resetUrl}`);
+             logOperationalDiagnostic("partner_password_reset_delivery", new Error("transport unavailable"), "transport_unavailable", { partnerId: partner.id });
+             await setAuthActionDelivery(resetAction.id, "definite_failure");
           }
+        } else {
+          await setAuthActionDelivery(resetAction.id, "definite_failure");
         }
       }
       return res.json({ message: "If an account with that email exists, a reset link has been sent." });
     } catch (err: any) {
-      console.error("[Partner Auth] reset-password-request error:", err);
+      if (issuedActionId) await setAuthActionDelivery(issuedActionId, "ambiguous").catch(() => {});
+      logOperationalDiagnostic("partner_password_reset", err, "reset_request_failed");
       return res.status(500).json({ message: "Something went wrong" });
     }
   });
 
   app.post("/api/partner/reset-password", publicLeadRateLimit, async (req, res) => {
+    authActionHeaders(res);
     try {
       const { token, password } = req.body;
       if (!token || !password || typeof token !== "string" || typeof password !== "string") {
@@ -458,24 +528,12 @@ ${getEmailSignatureHtml("partners")}
       if (password.length < 6) {
         return res.status(400).json({ message: "Password must be at least 6 characters." });
       }
-      const hashedToken = crypto.createHash("sha256").update(token).digest("hex");
-      const partner = await storage.getPartnerByResetToken(hashedToken);
-      if (!partner) {
-        return res.status(400).json({ message: "Invalid or expired reset link." });
-      }
       const passwordHash = await bcrypt.hash(password, 12);
-      await storage.updatePartnerPassword(partner.id, passwordHash);
-
-      if (partner.email) {
-        const existingUser = await authStorage.getUserByEmail(partner.email.toLowerCase());
-        if (existingUser && existingUser.role === "partner") {
-          await authStorage.updateUserPassword(existingUser.id, passwordHash);
-        }
-      }
-
-      return res.json({ message: "Your password has been reset. You can now log in." });
+      const consumed = await consumePartnerPassword(token, "partner_password_reset", passwordHash);
+      return res.status(consumed.ok && consumed.value ? 200 : 400)
+        .json({ message: consumed.ok && consumed.value ? "Your password has been reset. You can now log in." : "This link is invalid or expired." });
     } catch (err: any) {
-      console.error("[Partner Auth] reset-password error:", err);
+      logOperationalDiagnostic("partner_password_reset", err, "password_reset_failed");
       return res.status(500).json({ message: "Something went wrong" });
     }
   });
@@ -511,8 +569,13 @@ ${getEmailSignatureHtml("partners")}
       } else if (user.role !== "partner") {
         return res.status(403).json({ message: "This email belongs to an existing account. Please contact support." });
       }
-      req.logIn(user, (loginErr) => {
+      req.logIn(user, async (loginErr) => {
         if (loginErr) return res.status(500).json({ message: "Login failed." });
+        try { await registerPartnerLoginSession(req, user!.id); }
+        catch {
+          await failPartnerLoginClosed(req, res);
+          return res.status(500).json({ message: "Login failed." });
+        }
         return res.json({
           affiliateCode: partner.affiliateCode,
           name: partner.contactName,
@@ -547,6 +610,7 @@ ${getEmailSignatureHtml("partners")}
   });
 
   app.post("/api/partners/forgot-password", partnerForgotPasswordRateLimit, async (req, res) => {
+    let issuedActionId: string | undefined;
     try {
       const { email } = req.body;
       if (!email || typeof email !== "string") {
@@ -554,49 +618,53 @@ ${getEmailSignatureHtml("partners")}
       }
       const partner = await storage.getPartnerByEmail(email.toLowerCase());
       if (partner) {
-        const rawToken = crypto.randomBytes(32).toString("hex");
-        const hashedToken = crypto.createHash("sha256").update(rawToken).digest("hex");
-        const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
-        await storage.setPartnerResetToken(partner.id, hashedToken, expiresAt);
+         const resetAction = await issueAuthAction({
+           purpose: "partner_password_reset", subject: { type: "partner", id: partner.id }, ttlMs: 60 * 60 * 1000,
+         });
+         issuedActionId = resetAction.id;
 
         const replitDomain = process.env.REPLIT_DOMAINS?.split(",")[0]?.trim();
         const baseUrl = process.env.APP_URL ||
           (replitDomain ? `https://${replitDomain}` : "https://libertybancard.com");
-        const resetUrl = `${baseUrl}/partner-login?reset=${rawToken}`;
-
-        if (process.env.NODE_ENV !== "production") console.log(`[Partner Auth] Password reset URL (canonical): ${resetUrl}`);
+         const resetUrl = `${baseUrl}/partner-login#action=reset&token=${encodeURIComponent(resetAction.token)}`;
 
         if (partner.email) {
           const displayName = partner.contactName || "there";
+          const safeResetUrl = escapeHtml(resetUrl);
           const subject = "Reset your Liberty Bancard partner password";
           const html = `
 <div style="font-family:Arial,sans-serif;font-size:14px;color:#333;max-width:600px;">
-  <p>Hi ${displayName},</p>
+   <p>Hi ${escapeHtml(displayName)},</p>
   <p>We received a request to reset the password for your Liberty Bancard partner account.</p>
-  <p><a href="${resetUrl}" style="display:inline-block;background-color:#1e3a5f;color:#ffffff;padding:10px 20px;border-radius:4px;text-decoration:none;font-size:13px;font-weight:bold;">Reset Your Password</a></p>
-  <p>Or copy and paste this link into your browser:<br/><span style="font-family:monospace;font-size:12px;color:#555;">${resetUrl}</span></p>
+  <p><a href="${safeResetUrl}" style="display:inline-block;background-color:#1e3a5f;color:#ffffff;padding:10px 20px;border-radius:4px;text-decoration:none;font-size:13px;font-weight:bold;">Reset Your Password</a></p>
+  <p>Or copy and paste this link into your browser:<br/><span style="font-family:monospace;font-size:12px;color:#555;">${safeResetUrl}</span></p>
   <p>This link will expire in 1 hour. If you didn't request a password reset, you can safely ignore this email.</p>
 ${getEmailSignatureHtml("partners")}
 </div>`;
           if (isGhlConfigured()) {
             sendGhlPartnerTransactionalEmail({ email: partner.email, subject, body: html, fromEmail: "partners@libertybancard.com", fromName: "Liberty Bancard Partner Program" })
-              .catch(err => console.error("[Partner Auth] Reset email (GHL) error:", err));
+              .then(result => setAuthActionDelivery(resetAction.id, result.success ? "sent" : "definite_failure"))
+              .catch(() => setAuthActionDelivery(resetAction.id, "ambiguous"));
           } else if (isSmtpConfigured()) {
             sendSmtpEmail({ to: partner.email, subject, html, category: "partners" })
-              .catch(err => console.error("[Partner Auth] Reset email (SMTP) error:", err));
+              .then(result => setAuthActionDelivery(resetAction.id, result.success ? "sent" : "definite_failure"))
+              .catch(() => setAuthActionDelivery(resetAction.id, "ambiguous"));
           } else {
-            console.warn(`[Partner Auth] No email provider configured — reset link for partner #${partner.id}: ${resetUrl}`);
+             logOperationalDiagnostic("partner_password_reset_delivery", new Error("transport unavailable"), "transport_unavailable", { partnerId: partner.id });
+             await setAuthActionDelivery(resetAction.id, "definite_failure");
           }
         }
       }
       return res.json({ message: "If an account with that email exists, a reset link has been sent." });
     } catch (err: any) {
-      console.error("[Partner Auth] forgot-password error:", err);
+      if (issuedActionId) await setAuthActionDelivery(issuedActionId, "ambiguous").catch(() => {});
+      logOperationalDiagnostic("partner_password_reset", err, "reset_request_failed");
       return res.status(500).json({ message: "Something went wrong" });
     }
   });
 
   app.post("/api/partners/reset-password", publicLeadRateLimit, async (req, res) => {
+    authActionHeaders(res);
     try {
       const { token, password } = req.body;
       if (!token || !password || typeof token !== "string" || typeof password !== "string") {
@@ -605,29 +673,18 @@ ${getEmailSignatureHtml("partners")}
       if (password.length < 6) {
         return res.status(400).json({ message: "Password must be at least 6 characters." });
       }
-      const hashedToken = crypto.createHash("sha256").update(token).digest("hex");
-      const partner = await storage.getPartnerByResetToken(hashedToken);
-      if (!partner) {
-        return res.status(400).json({ message: "Invalid or expired reset link." });
-      }
       const passwordHash = await bcrypt.hash(password, 12);
-      await storage.updatePartnerPassword(partner.id, passwordHash);
-
-      if (partner.email) {
-        const existingUser = await authStorage.getUserByEmail(partner.email.toLowerCase());
-        if (existingUser && existingUser.role === "partner") {
-          await authStorage.updateUserPassword(existingUser.id, passwordHash);
-        }
-      }
-
-      return res.json({ message: "Your password has been reset. You can now log in." });
+      const consumed = await consumePartnerPassword(token, "partner_password_reset", passwordHash);
+      return res.status(consumed.ok && consumed.value ? 200 : 400)
+        .json({ message: consumed.ok && consumed.value ? "Your password has been reset. You can now log in." : "This link is invalid or expired." });
     } catch (err: any) {
-      console.error("[Partner Auth] reset-password error:", err);
+      logOperationalDiagnostic("partner_password_reset", err, "password_reset_failed");
       return res.status(500).json({ message: "Something went wrong" });
     }
   });
 
   app.post("/api/partners/set-password", publicLeadRateLimit, async (req, res) => {
+    authActionHeaders(res);
     try {
       const { token, password } = req.body;
       if (!token || !password || typeof token !== "string" || typeof password !== "string") {
@@ -636,35 +693,12 @@ ${getEmailSignatureHtml("partners")}
       if (password.length < 8) {
         return res.status(400).json({ message: "Password must be at least 8 characters." });
       }
-      const hashedToken = crypto.createHash("sha256").update(token).digest("hex");
-      const partner = await storage.getPartnerByInviteToken(hashedToken);
-      if (!partner) {
-        return res.status(400).json({ message: "Invalid or expired invite link. Please contact support." });
-      }
       const passwordHash = await bcrypt.hash(password, 12);
-      await storage.updatePartner(partner.id, { passwordHash, status: partner.status === "pending" ? partner.status : partner.status });
-      await storage.clearPartnerInviteToken(partner.id);
-
-      if (partner.email) {
-        let user = await authStorage.getUserByEmail(partner.email.toLowerCase());
-        if (user && user.role === "partner") {
-          await authStorage.updateUserPassword(user.id, passwordHash);
-        } else if (!user) {
-          const nameParts = (partner.contactName || "").split(" ");
-          await authStorage.upsertUser({
-            email: partner.email.toLowerCase(),
-            firstName: nameParts[0] || "Partner",
-            lastName: nameParts.slice(1).join(" ") || "",
-            passwordHash,
-            role: "partner",
-            authProvider: "local",
-          });
-        }
-      }
-
-      return res.json({ message: "Password set successfully. You can now log in to your partner portal." });
+      const consumed = await consumePartnerPassword(token, "partner_invite", passwordHash);
+      return res.status(consumed.ok && consumed.value ? 200 : 400)
+        .json({ message: consumed.ok && consumed.value ? "Password set successfully. You can now log in to your partner portal." : "This link is invalid or expired." });
     } catch (err: any) {
-      console.error("[Partner Auth] set-password error:", err);
+      logOperationalDiagnostic("partner_invite_activation", err, "password_set_failed");
       return res.status(500).json({ message: "Something went wrong" });
     }
   });
@@ -831,12 +865,12 @@ ${getEmailSignatureHtml("partners")}
       // ── Auto-enroll referred prospect in GHL partner-referral workflow ─────
       if (referral.referredEmail) {
         autoEnrollPartnerReferral(referral).catch(err =>
-          console.error("[Referrals] Partner referral auto-enroll error:", err.message)
+          logOperationalDiagnostic("partner_referral_enrollment", err, "referral_auto_enroll_failed", { referralId: referral.id })
         );
       }
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join(".") });
-      res.status(400).json({ message: err.message });
+      serverError(res, err, "referral_create");
     }
   });
 
@@ -853,7 +887,7 @@ ${getEmailSignatureHtml("partners")}
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join(".") });
       if (err instanceof DateValidationError) return res.status(400).json({ message: err.message, field: err.field });
-      res.status(400).json({ message: err.message });
+      serverError(res, err, "referral_update");
     }
   });
 
@@ -1131,14 +1165,14 @@ async function autoEnrollPartnerReferral(referral: {
       tags: ["LB-PARTNER-REFERRAL", "src_partner_referral"],
     });
     if (!created) {
-      console.warn(`[Referrals] Could not create contact for ${email} — partner referral enrollment skipped`);
+      logOperationalDiagnostic("partner_referral_enrollment", new Error("contact creation failed"), "referral_contact_create_failed", { referralId: referral.id });
       return;
     }
     contact = created;
   }
 
   if (contact.doNotContact) {
-    console.log(`[Referrals] Contact ${contact.id} is DNC — partner referral enrollment skipped`);
+    logOperationalDiagnostic("partner_referral_enrollment", new Error("contact blocked"), "referral_dnc_blocked", { referralId: referral.id, contactId: contact.id });
     return;
   }
 
@@ -1146,7 +1180,7 @@ async function autoEnrollPartnerReferral(referral: {
   // the fire-and-forget task may start after the pause epoch changes.
   const pauseDecision = await authorizeGhlRouteMutation();
   if (!pauseDecision.allowed) {
-    console.warn(`[Referrals] GHL auto-enrollment skipped: ${pauseDecision.reasonCode}`);
+    logOperationalDiagnostic("partner_referral_enrollment", new Error("provider mutation paused"), "referral_mutation_paused", { referralId: referral.id, contactId: contact.id });
     return;
   }
 
@@ -1173,7 +1207,7 @@ async function autoEnrollPartnerReferral(referral: {
     s.name === "SDR: Reply Engaged" || s.name === "1. Switch & Save — Statement Audit"
   );
   if (!seq) {
-    console.warn("[Referrals] Could not find SDR: Reply Engaged sequence — partner referral enrollment incomplete");
+    logOperationalDiagnostic("partner_referral_enrollment", new Error("sequence unavailable"), "referral_sequence_missing", { referralId: referral.id, contactId: contact.id });
     return;
   }
 
@@ -1184,5 +1218,5 @@ async function autoEnrollPartnerReferral(referral: {
     sequenceId: seq.id,
   });
 
-  console.log(`[Referrals] Partner referral auto-enrolled contact ${contact.id} (${email}) — method: ${result.method}, enrolled: ${result.enrolled}`);
+  void result;
 }

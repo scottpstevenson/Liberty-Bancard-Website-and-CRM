@@ -174,6 +174,26 @@ const MANDATORY_SUITES: Suite[] = [
     timeoutSecs: 60,
   },
   {
+    name: "RVR-03 Security Static Recurrence Scanner (credential, identity, token, and channel-audit callsites)",
+    script: "scripts/test-rvr03-security-static.ts",
+    timeoutSecs: 60,
+  },
+  {
+    name: "RVR-03 Auth Action Source Contract",
+    script: "server/tests/auth-actions.source.test.ts",
+    timeoutSecs: 60,
+  },
+  {
+    name: "RVR-03 Auth Action Concurrency",
+    script: "server/tests/auth-actions.integration.test.ts",
+    timeoutSecs: 120,
+  },
+  {
+    name: "RVR-03 OG Cache Hardening",
+    script: "server/tests/og-cache-hardening.test.ts",
+    timeoutSecs: 60,
+  },
+  {
     name: "Release Artifact Gate (typecheck, production build, redacting artifact secret scan)",
     script: "scripts/release-artifact-gate.ts",
     timeoutSecs: 300,

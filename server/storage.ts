@@ -470,12 +470,7 @@ export interface IStorage {
   createPartner(partner: InsertPartner): Promise<Partner>;
   updatePartner(id: number, updates: Partial<InsertPartner>): Promise<Partner | undefined>;
   incrementPartnerClicks(code: string): Promise<void>;
-  setPartnerResetToken(id: number, tokenHash: string, expiresAt: Date): Promise<void>;
-  getPartnerByResetToken(tokenHash: string): Promise<Partner | undefined>;
   updatePartnerPassword(id: number, passwordHash: string): Promise<void>;
-  setPartnerInviteToken(id: number, tokenHash: string, expiresAt: Date): Promise<void>;
-  getPartnerByInviteToken(tokenHash: string): Promise<Partner | undefined>;
-  clearPartnerInviteToken(id: number): Promise<void>;
 
   getReferrals(partnerId?: number): Promise<Referral[]>;
   getReferral(id: number): Promise<Referral | undefined>;
