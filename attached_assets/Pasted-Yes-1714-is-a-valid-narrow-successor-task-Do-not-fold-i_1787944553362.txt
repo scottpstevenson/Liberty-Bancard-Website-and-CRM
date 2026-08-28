@@ -1,0 +1,164 @@
+Yes—#1714 is a valid, narrow successor task. Do **not** fold it into #1712.
+
+## Verdict
+
+**BUILD-READY WITH FOUR REQUIRED CORRECTIONS**
+
+Current audited baseline:
+
+* `origin/main`: `13ad61c960a7fdc69df4a1a4def368ba96f72241`
+* Migration head: `0175`
+* CI manifest: **75 suites**, valid
+* Working tree: clean
+
+Despite the task UI saying #1712 is awaiting merge, its final SHA is already the current `origin/main`.
+
+## Verified root cause
+
+The service already models outages truthfully:
+
+* `unavailable`, `timeout`, and `schema_missing` all return `data: null`.
+* Every envelope includes `capturedAt`.
+* Any non-`ok` source makes the overall response `partial: true`.
+* The deferred-GHL query only produces numeric counts after a successful query.
+
+The false blocker is exactly in [test-backlog-preview.ts](sandbox:/workspace/scratch/59dcc156118b/cro03-live-audit-cn1Ze3/scripts/test-backlog-preview.ts), lines 379–397. It permits only:
+
+```ts
+src.status === "ok" || src.status === "schema_missing"
+```
+
+The service legitimately permits `unavailable` and `timeout`.
+
+## Required corrections
+
+| Priority | Correction                                                                                                                                                                                                                                                    |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| P0       | The test currently inserts and deletes contacts, sequences, enrollments, and outbound messages without first enforcing `TEST_DATABASE_URL`. Add the shared disposable-infrastructure guard before dynamically importing `server/db` or the service.           |
+| P0       | Do not merely widen the status allowlist. A fully migrated disposable database must still prove the deferred-GHL query returns `ok`; separately inject failures to prove degraded envelopes. Otherwise a broken query could masquerade as an accepted outage. |
+| P0       | Freeze a privacy-safe unavailable code. The service currently exposes raw `err.code` or `UNKNOWN`, which is not a stable contract. Use a semantic code such as `BACKLOG_DEFERRED_GHL_UNAVAILABLE`.                                                            |
+| P1       | Test all three distinct degraded states: `schema_missing`, `unavailable`, and `timeout`. Each must have `data === null`, an exact stable code, valid ISO `capturedAt`, and `partial === true`, with no fabricated zero-count object.                          |
+
+This task should remain limited to:
+
+* [scripts/test-backlog-preview.ts](sandbox:/workspace/scratch/59dcc156118b/cro03-live-audit-cn1Ze3/scripts/test-backlog-preview.ts)
+* [server/services/backlog-preview-service.ts](sandbox:/workspace/scratch/59dcc156118b/cro03-live-audit-cn1Ze3/server/services/backlog-preview-service.ts)
+* Read-only use of `scripts/test-infrastructure-guard.ts`
+
+No migration is needed.
+
+## Corrected execution directive
+
+```markdown
+# 1714 — Make backlog certification accept truthful source outages
+
+## Objective
+
+Correct backlog-preview certification so truthful deferred-GHL outages are
+validated without weakening the healthy-query contract or fabricating zero counts.
+
+This is an independent successor repair on top of CRO-03. Do not reopen or
+rewrite Task #1712.
+
+## Mandatory preflight
+
+1. Recapture current main, working-tree state, migration head, and CI manifest.
+2. Verify Task #1712's final SHA is in current ancestry.
+3. Confirm the deferred-GHL source supports:
+   - ok
+   - schema_missing
+   - unavailable
+   - timeout
+4. Confirm no production database or provider transport will be used.
+
+## Database safety boundary
+
+`scripts/test-backlog-preview.ts` creates and deletes database records.
+
+Before importing `server/db`, `BacklogPreviewService`, or any application module:
+
+1. Require `NODE_ENV=test`.
+2. Require both `DATABASE_URL` and `TEST_DATABASE_URL`.
+3. Require them to be exactly equal.
+4. Invoke `assertDisposableTestInfrastructure`.
+5. Refuse databases not clearly named test/CI/disposable.
+6. Dynamically import the DB and service only after the guard passes.
+
+Never fall back to the developer or production database.
+
+## Implementation requirements
+
+1. Preserve the current successful deferred-GHL aggregate query.
+2. Preserve `data: null` for every non-ok source.
+3. Preserve `partial: true` whenever any source is non-ok.
+4. Give deferred-GHL runtime unavailability the stable semantic code:
+   `BACKLOG_DEFERRED_GHL_UNAVAILABLE`.
+5. Keep schema absence distinct from runtime unavailability.
+6. Keep timeout distinct using a stable timeout code.
+7. Do not expose raw SQL, database messages, connection details, or arbitrary
+   driver error codes.
+8. Add the smallest deterministic classification/test seam necessary.
+9. Do not add queues, workers, providers, migrations, or new runtime behavior.
+
+## Test requirements
+
+Prove independently:
+
+1. Current migration-head disposable database:
+   - deferred-GHL source returns `ok`;
+   - `pending`, `dueNow`, and `terminalFailed` are numeric.
+2. Synthetic `42P01` and `42703`:
+   - status is `schema_missing`;
+   - data is null;
+   - capturedAt is valid ISO;
+   - errorCode is stable;
+   - partial is true.
+3. Synthetic runtime failure:
+   - status is `unavailable`;
+   - data is null;
+   - errorCode is `BACKLOG_DEFERRED_GHL_UNAVAILABLE`;
+   - capturedAt is valid ISO;
+   - partial is true.
+4. Synthetic timeout:
+   - status is `timeout`;
+   - data is null;
+   - timeout code is stable;
+   - capturedAt is valid ISO;
+   - partial is true.
+5. No degraded envelope contains pending, dueNow, terminalFailed, or any
+   fabricated zero-count payload.
+6. One failed source does not erase successful results from the other sources.
+
+## Required gates
+
+Run and report exact command, exit code, and result:
+
+- Focused backlog-preview test against disposable PostgreSQL.
+- `node --import tsx scripts/ci-suite-manifest.ts --check`
+- Deterministic integration capability.
+- Full pre-deploy wrapper after Task #1713 is also available.
+- TypeScript check.
+- Production build.
+- `git diff --check`.
+- Final status, stat, and complete diff review.
+
+## Kill lines
+
+Stop if:
+
+- the test can touch a non-disposable database;
+- `unavailable` is merely added to an allowlist without deterministic failure proof;
+- a broken query can pass as an accepted outage in the migrated-database test;
+- schema absence and runtime outage collapse into one state;
+- timeout remains an unrecognized truthful state;
+- raw database/provider details enter the public error code;
+- any non-ok source returns a zero-count data object;
+- a migration, provider call, GHL mutation, deployment, or outreach action is introduced.
+
+## Final status rule
+
+Task #1714 may merge independently after its focused and deterministic gates pass.
+Run the complete CRO-03 release wrapper only after both #1713 and #1714 are present.
+```
+
+And yes: **you should provision a dedicated disposable test database now.** This particular test writes and deletes records, so running it without an enforced test database is unsafe.
