@@ -57,9 +57,9 @@ assert.equal(decideMarketingEmailValidation(email, {
 
 assert.equal(validateProviderManifest().ok, true, "every in-scope source must have a valid manifest row");
 assert.throws(
-  () => assertProviderActivation({ sourceId: "apollo", caller: "server/services/sdr/lead-finder.ts" }),
+  () => assertProviderActivation({ sourceId: "apollo", caller: "server/services/cro03/enrichment-factory.ts" }),
   /explicit approval/,
-  "a configured paid secret alone must not activate a provider",
+  "an approved caller and configured paid secret alone must not activate a provider",
 );
 
 console.log("Provider readiness controls: PASS");

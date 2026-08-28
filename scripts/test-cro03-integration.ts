@@ -175,11 +175,30 @@ async function createRoutableExecutionFixture(): Promise<{
     `INSERT INTO cro03_batch_memberships
        (batch_id,ordinal,subject_type,subject_id,root_subject_type,root_subject_id,
         contact_id,selection_policy_version,dependency_fingerprint,pre_spend_decision,
-        disposition,membership_hash,created_at)
-     VALUES ($1,0,'contact',$2,'contact',$2,$2,1,$3,'allowed','executable',$4,'1999-01-01')
+         disposition,membership_hash,subject_snapshot,subject_snapshot_hash,
+         frozen_route_plan,route_plan_hash,discovery_eligible,paid_enrichment_eligible,created_at)
+      VALUES ($1,0,'contact',$2,'contact',$2,$2,1,$3,'allowed','executable',$4,
+              $5::jsonb,$6,$7::jsonb,$8,FALSE,TRUE,'1999-01-01')
      RETURNING id`,
     [batchId, contactId, `provider-fingerprint-${suffix}-${batchIds.length}`,
-      `provider-membership-${suffix}-${batchIds.length}`],
+      `provider-membership-${suffix}-${batchIds.length}`,
+      JSON.stringify({
+        companyName: "Certification Merchant",
+        website: "example.test",
+        phone: `556${suffix.slice(0, 7)}`,
+        email: `race-${suffix}-${contactIds.length - 1}@example.test`,
+        emailStatus: "valid",
+      }),
+      `subject-snapshot-${suffix}-${batchIds.length}`,
+      JSON.stringify({
+        policyVersion: 1,
+        providers: ["apollo", "zerobounce"],
+        recipes: [
+          { provider: "apollo", operation: "contact_enrichment", requiresPaidEligibility: true },
+          { provider: "zerobounce", operation: "email_validation_backlink", requiresPaidEligibility: false },
+        ],
+      }),
+      `route-plan-${suffix}-${batchIds.length}`],
   );
   const item = await pool.query<{ id: string }>(
     `INSERT INTO cro03_enrichment_items
@@ -323,15 +342,16 @@ try {
     `SELECT pc.reserved_units, pc.consumed_units,
             (SELECT count(*)::int FROM cro03_provider_ledger WHERE provider_run_id=$1) AS ledger_rows,
             (SELECT count(*)::int FROM cro03_receipts WHERE provider_run_id=$1) AS receipt_rows,
-            (SELECT disposition FROM cro03_provider_ledger WHERE provider_run_id=$1) AS disposition
+             (SELECT disposition FROM cro03_provider_ledger WHERE provider_run_id=$1) AS disposition,
+             (SELECT receipt_id FROM cro03_provider_runs WHERE id=$1) AS receipt_id
        FROM provider_controls pc WHERE pc.provider='apollo'`,
     [providerRun.rows[0].id],
   );
   check(accounting.rows[0].reserved_units === 0 && accounting.rows[0].consumed_units === 1,
     "terminal accounting replay cannot double-consume or double-release budget");
   check(accounting.rows[0].ledger_rows === 1 && accounting.rows[0].receipt_rows === 1 &&
-    accounting.rows[0].disposition === "consumed",
-    "one immutable ledger transition reconciles to one receipt");
+    accounting.rows[0].disposition === "consumed" && accounting.rows[0].receipt_id,
+    "one immutable ledger transition reconciles to a linked receipt");
 
   await pool.query(
     `UPDATE provider_controls
@@ -555,14 +575,16 @@ try {
     [routeChain.itemId],
   );
   const validationIntent = await pool.query(
-    `SELECT purpose FROM validation_intents
-      WHERE contact_id=$1 AND purpose='cro03_winning_email'`,
+    `SELECT v.purpose, r.validation_intent_id, r.provider_outcome
+       FROM validation_intents v
+       JOIN cro03_provider_runs r ON r.validation_intent_id=v.id
+      WHERE v.contact_id=$1 AND v.purpose='cro03_winning_email'`,
     [routeChain.contactId],
   );
   check(routeOrder.rows[0].providers === "{apollo,zerobounce}",
     "Apollo and ZeroBounce execute in the persisted policy order");
-  check(validationIntent.rowCount === 1,
-    "ZeroBounce intent is created only after the preceding provider step completes");
+  check(validationIntent.rowCount === 1 && validationIntent.rows[0].provider_outcome === "no_result",
+    "ZeroBounce run links an existing-authority validation_pending intent without claiming success");
 
   await pool.query(
     `UPDATE provider_controls
@@ -665,6 +687,12 @@ try {
     await pool.query(`ALTER TABLE cro03_candidates DISABLE TRIGGER cro03_candidate_immutable`);
     await pool.query(`ALTER TABLE cro03_batch_memberships DISABLE TRIGGER cro03_membership_immutable`);
     if (batchIds.length) {
+      await pool.query(
+        `UPDATE cro03_provider_runs SET receipt_id=NULL
+          WHERE item_id IN (
+            SELECT id FROM cro03_enrichment_items WHERE batch_id = ANY($1::uuid[]))`,
+        [batchIds],
+      );
       await pool.query(
         `DELETE FROM cro03_receipts WHERE provider_run_id IN (
            SELECT r.id FROM cro03_provider_runs r JOIN cro03_enrichment_items i ON i.id=r.item_id

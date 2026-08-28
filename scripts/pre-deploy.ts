@@ -340,6 +340,11 @@ const MANDATORY_SUITES: Suite[] = [
     timeoutSecs: 60,
   },
   {
+    name: "CRO-03 Durable Enrichment Factory Concurrency and Recovery (disposable PostgreSQL/Redis certification)",
+    script: "scripts/test-cro03-integration.ts",
+    timeoutSecs: 120,
+  },
+  {
     name: "Role Guards",
     script: "scripts/smoke-role-guards.ts",
     timeoutSecs: 120,

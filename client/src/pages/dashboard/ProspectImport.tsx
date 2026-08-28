@@ -132,8 +132,8 @@ export default function ProspectImport() {
   const enrichAllMutation = useMutation({
     mutationFn: async (listId: number) => {
       await apiRequest("POST", "/api/enrichment-jobs", {
-        jobType: "full_enrich",
         listId,
+        idempotencyKey: crypto.randomUUID(),
       });
     },
     onSuccess: () => {

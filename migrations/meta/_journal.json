@@ -1254,6 +1254,13 @@
       "when": 1795800000000,
       "tag": "0174_cro03_durable_enrichment_factory",
       "breakpoints": true
+    },
+    {
+      "idx": 179,
+      "version": "7",
+      "when": 1795900000000,
+      "tag": "0175_cro03_frozen_subject_plans",
+      "breakpoints": true
     }
   ]
 }

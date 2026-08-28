@@ -1,6 +1,7 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "crypto";
 import {
   candidateHash, maskCandidate, normalizeCandidateValue,
+  canonicalCandidateDisplay,
   type Cro03CandidateField,
 } from "./contracts";
 
@@ -29,11 +30,12 @@ export function sealCandidate(input: {
   subjectGeneration?: number | null;
 }): CandidateEnvelope {
   const normalized = normalizeCandidateValue(input.field, input.value);
+  const display = canonicalCandidateDisplay(input.field, input.value);
   const nonce = randomBytes(12);
   const cipher = createCipheriv("aes-256-gcm", derivedKey(), nonce);
   const aad = `${AAD_PREFIX}:${input.subjectId}:${input.field}:${input.subjectGeneration ?? "none"}`;
   cipher.setAAD(Buffer.from(aad));
-  const ciphertext = Buffer.concat([cipher.update(normalized, "utf8"), cipher.final()]);
+  const ciphertext = Buffer.concat([cipher.update(display, "utf8"), cipher.final()]);
   return {
     normalizedValueHash: candidateHash(input.field, normalized),
     maskedValue: maskCandidate(input.field, normalized),

@@ -13,6 +13,7 @@ export interface Cro03RoutePlan {
   policyVersion: number;
   providers: Cro03Provider[];
   stopReasons: string[];
+  recipes: ReadonlyArray<{ provider: Cro03Provider; operation: string; requiresPaidEligibility: boolean }>;
 }
 
 /**
@@ -35,7 +36,17 @@ export function selectCro03Route(input: Cro03RoutingInput): Cro03RoutePlan {
     stopReasons.push("existing_evidence_sufficient");
   }
   if (input.needsEmailValidation && input.hasEmail) providers.push("zerobounce");
-  return { policyVersion: CRO03_ROUTING_POLICY_VERSION, providers, stopReasons };
+  const recipes = providers.map((provider) => ({
+    provider,
+    operation: provider === "zerobounce" ? "email_validation_backlink" :
+      provider === "outscraper" ? "business_discovery" :
+        provider === "apollo" ? "contact_enrichment" : "search_enrichment",
+    // Outscraper is the narrow discovery-stage exception: it may gather
+    // candidate evidence for an unresolved business, but it may not authorize
+    // any later paid-enrichment step. Apollo remains link/fence gated.
+    requiresPaidEligibility: provider === "apollo",
+  }));
+  return { policyVersion: CRO03_ROUTING_POLICY_VERSION, providers, stopReasons, recipes };
 }
 
 export const CRO03_CANARY_DEFINITIONS = Object.freeze([

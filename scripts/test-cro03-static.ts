@@ -22,6 +22,11 @@ async function main() {
   await check("selection hash is order-stable", () => {
     assert.equal(contracts.stableSelectionHash([3, 1, 2]), contracts.stableSelectionHash([2, 3, 1]));
   });
+  await check("command idempotency includes purpose and policy", () => {
+    const base = { subjectIds: [3, 1], purpose: "provider_pre_spend", selectionPolicyVersion: 1, routingPolicyVersion: 1 };
+    assert.equal(contracts.stableCro03CommandFingerprint(base), contracts.stableCro03CommandFingerprint({ ...base, subjectIds: [1, 3] }));
+    assert.notEqual(contracts.stableCro03CommandFingerprint(base), contracts.stableCro03CommandFingerprint({ ...base, purpose: "internal_test" }));
+  });
   await check("routing is selective", () => {
     const result = routing.selectCro03Route({
       hasWebsite: false, hasPhone: false, hasEmail: false,
@@ -37,7 +42,7 @@ async function main() {
     assert.equal(sealed.maskedValue, "o***@ex***");
     assert.equal(vault.openCandidate({
       field: "email", subjectId: 42, subjectGeneration: 3, envelope: sealed,
-    }), "owner@example.com");
+    }), "Owner@Example.com");
     assert.throws(() => vault.openCandidate({
       field: "email", subjectId: 43, subjectGeneration: 3, envelope: sealed,
     }));
@@ -73,16 +78,59 @@ async function main() {
   });
 
   const migration = fs.readFileSync("migrations/0174_cro03_durable_enrichment_factory.sql", "utf8");
+  const completionMigration = fs.readFileSync("migrations/0175_cro03_frozen_subject_plans.sql", "utf8");
   const factory = fs.readFileSync("server/services/cro03/enrichment-factory.ts", "utf8");
   const routes = fs.readFileSync("server/routes/cro03.ts", "utf8");
   const queue = fs.readFileSync("server/services/queue-manager.ts", "utf8");
   const sla = fs.readFileSync("server/services/sla-worker.ts", "utf8");
   const prospects = fs.readFileSync("server/routes/prospects.ts", "utf8");
+  const imports = fs.readFileSync("server/routes/imports.ts", "utf8");
   await check("membership and immutable evidence have guards", () => {
     assert.match(migration, /cro03_membership_immutable/);
     assert.match(migration, /cro03_candidate_immutable/);
     assert.match(migration, /cro03_receipt_immutable/);
     assert.match(migration, /UNIQUE \(item_id, field\)/);
+  });
+  await check("versioned subject identity and full route recipe are frozen", () => {
+    assert.match(completionMigration, /subject_snapshot JSONB/);
+    assert.match(completionMigration, /frozen_route_plan JSONB/);
+    assert.match(completionMigration, /subject_snapshot_hash/);
+    assert.match(factory, /frozenSubjectSnapshot/);
+    assert.match(factory, /frozenRouteForMembership/);
+  });
+  await check("superseded work is terminally accounted in the total equation", () => {
+    assert.match(completionMigration, /superseded_count/);
+    assert.match(completionMigration, /outstanding_count/);
+    assert.match(factory, /accountingEquation/);
+  });
+  await check("provider response selection requires a unique frozen-identity match", () => {
+    assert.match(factory, /selectFrozenIdentityMatch/);
+    assert.match(factory, /score < 4/);
+    assert.match(factory, /scored\[1\]\?\.score === scored\[0\]\.score/);
+  });
+  await check("provider lineage records attempts, observations, receipts, and validation backlinks", () => {
+    assert.match(completionMigration, /provider_attempt_id/);
+    assert.match(completionMigration, /validation_intent_id/);
+    assert.match(factory, /recordProviderOutcomeEvidence/);
+    assert.match(factory, /provider_observations/);
+    assert.match(factory, /receipt_id/);
+    assert.match(factory, /validation_pending/);
+  });
+  await check("provider-export evidence is an immutable source-row snapshot", () => {
+    assert.match(imports, /__cro03EvidenceValues/);
+    assert.match(imports, /rowFingerprint: r\._rowFingerprint/);
+    assert.match(imports, /evidence: cro03ImportEvidence/);
+    const importEvidenceFunction = factory.slice(factory.indexOf("export async function recordCro03ImportEvidence"));
+    assert.match(importEvidenceFunction, /evidence\.rowFingerprint/);
+    assert.match(importEvidenceFunction, /createZeroSpendOperation/);
+    assert.match(importEvidenceFunction, /recordProviderOutcomeEvidence/);
+    assert.doesNotMatch(importEvidenceFunction, /await contactRow/);
+    assert.doesNotMatch(importEvidenceFunction, /contact\.company_name/);
+  });
+  await check("only frozen discovery bypasses the commercial fence", () => {
+    assert.match(factory, /provider !== "outscraper"/);
+    assert.match(factory, /provider === "outscraper" \? \{ allowed: true \}/);
+    assert.match(factory, /discovery_identity_insufficient/);
   });
   await check("paid controls ship disabled and budgetless", () => {
     assert.match(migration, /\('apollo'.*FALSE.*0/s);

@@ -1,6 +1,8 @@
 import type { Express } from "express";
 import { z } from "zod";
 import { requireRole } from "../replit_integrations/auth";
+import { db } from "../db";
+import { sql } from "drizzle-orm";
 import {
   cancelCro03Batch, createCro03Batch, getCro03BatchStatus, getCro03Reconciliation,
 } from "../services/cro03/enrichment-factory";
@@ -16,6 +18,16 @@ function safeError(error: unknown): { code: string; message: string } {
   const code = error instanceof Error && error.message.startsWith("CRO03_")
     ? error.message : "CRO03_REQUEST_FAILED";
   return { code, message: "The enrichment command could not be accepted." };
+}
+
+async function canManageBatch(req: any, batchId: string): Promise<boolean> {
+  if (req.user?.role === "admin") return true;
+  const result: any = await db.execute(sql`
+    SELECT actor_id AS "actorId" FROM cro03_enrichment_batches
+    WHERE id = ${batchId}::uuid
+  `);
+  const batch = (result?.rows ?? result ?? [])[0];
+  return Boolean(batch && batch.actorId && String(batch.actorId) === String(req.user?.id));
 }
 
 export function registerCro03Routes(app: Express): void {
@@ -39,6 +51,9 @@ export function registerCro03Routes(app: Express): void {
   app.get("/api/cro03/batches/:id", requireRole("admin", "manager"), async (req, res) => {
     try {
       const batchId = String(req.params.id);
+      if (!await canManageBatch(req, batchId)) {
+        return res.status(404).json({ code: "not_found", message: "Not found" });
+      }
       const status = await getCro03BatchStatus(batchId);
       if (!status) return res.status(404).json({ code: "not_found", message: "Not found" });
       res.json(status);
@@ -50,6 +65,9 @@ export function registerCro03Routes(app: Express): void {
   app.post("/api/cro03/batches/:id/cancel", requireRole("admin", "manager"), async (req, res) => {
     try {
       const batchId = String(req.params.id);
+      if (!await canManageBatch(req, batchId)) {
+        return res.status(404).json({ code: "not_found", message: "Not found" });
+      }
       const changed = await cancelCro03Batch(batchId);
       if (!changed) return res.status(404).json({ code: "not_found", message: "Not found" });
       res.status(202).json({ batchId, state: "cancelled" });
@@ -58,11 +76,12 @@ export function registerCro03Routes(app: Express): void {
     }
   });
 
-  app.get("/api/cro03/reconciliation", requireRole("admin", "manager"), async (_req, res) => {
+  // Reconciliation is an aggregate economic read, never a manager-scoped batch view.
+  app.get("/api/cro03/reconciliation", requireRole("admin"), async (_req, res) => {
     res.json(await getCro03Reconciliation());
   });
 
-  app.get("/api/cro03/policy", requireRole("admin", "manager"), (_req, res) => {
+  app.get("/api/cro03/policy", requireRole("admin"), (_req, res) => {
     res.json({
       schemaVersion: 1, routingPolicyVersion: 1, providers: ["zerobounce", "serper", "outscraper", "apollo"],
       liveTransport: false, canaries: CRO03_CANARY_DEFINITIONS,

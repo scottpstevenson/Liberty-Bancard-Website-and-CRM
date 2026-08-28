@@ -33,12 +33,18 @@ export type Cro03CandidateField = typeof CRO03_CANDIDATE_FIELDS[number];
 
 export type Cro03ItemDisposition = "executable" | "blocked" | "staging" | "superseded" | "deleted";
 
+/** Comparison keys are deliberately lossy; never use them as display values. */
 export function normalizeCandidateValue(field: Cro03CandidateField, value: string): string {
   const trimmed = value.trim();
   if (field === "email") return trimmed.toLowerCase();
   if (field === "phone") return trimmed.replace(/[^\d+]/g, "");
   if (field === "website") return trimmed.toLowerCase().replace(/^https?:\/\/(www\.)?/, "").replace(/\/+$/, "");
   return trimmed.replace(/\s+/g, " ").toLowerCase();
+}
+
+/** The value that may be projected after authority/arbitration succeeds. */
+export function canonicalCandidateDisplay(_field: Cro03CandidateField, value: string): string {
+  return value.trim().replace(/\s+/g, " ");
 }
 
 export function candidateHash(field: Cro03CandidateField, value: string): string {
@@ -58,6 +64,20 @@ export function maskCandidate(field: Cro03CandidateField, value: string): string
 
 export function stableSelectionHash(subjectIds: readonly number[]): string {
   return createHash("sha256").update([...subjectIds].sort((a, b) => a - b).join(",")).digest("hex");
+}
+
+export function stableCro03CommandFingerprint(input: {
+  subjectIds: readonly number[];
+  purpose: string;
+  selectionPolicyVersion: number;
+  routingPolicyVersion: number;
+}): string {
+  return createHash("sha256").update(JSON.stringify({
+    purpose: input.purpose,
+    routingPolicyVersion: input.routingPolicyVersion,
+    selectionPolicyVersion: input.selectionPolicyVersion,
+    subjectIds: [...input.subjectIds].sort((a, b) => a - b),
+  })).digest("hex");
 }
 
 export function normalizeProviderOutcome(value: unknown): Cro03ProviderOutcome {

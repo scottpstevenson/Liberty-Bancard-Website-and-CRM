@@ -119,7 +119,7 @@ export default function LeadGenCleaner() {
 
   const enrichMutation = useMutation({
     mutationFn: async (id: number) => {
-      const res = await apiRequest("POST", `/api/sunbiz/entities/${id}/enrich`);
+      const res = await apiRequest("POST", `/api/sunbiz/entities/${id}/enrich`, { idempotencyKey: crypto.randomUUID() });
       return res.json();
     },
     onSuccess: () => {
@@ -129,8 +129,8 @@ export default function LeadGenCleaner() {
   });
 
   const enrichBatchMutation = useMutation({
-    mutationFn: async (limit: number) => {
-      const res = await apiRequest("POST", "/api/sunbiz/enrich-batch", { limit });
+    mutationFn: async (entityIds: number[]) => {
+      const res = await apiRequest("POST", "/api/sunbiz/enrich-batch", { entityIds, idempotencyKey: crypto.randomUUID() });
       return res.json();
     },
     onSuccess: (data) => {
@@ -253,7 +253,7 @@ export default function LeadGenCleaner() {
         <div className="flex flex-wrap items-center gap-2">
           <Button
             variant="outline"
-            onClick={() => enrichBatchMutation.mutate(25)}
+            onClick={() => enrichBatchMutation.mutate(entities.filter((entity) => entity.enrichmentStatus !== "enriched").slice(0, 25).map((entity) => entity.id))}
             disabled={enrichBatchMutation.isPending || !stats?.pending}
             data-testid="button-enrich-all"
           >

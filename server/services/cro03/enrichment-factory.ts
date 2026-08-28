@@ -6,7 +6,8 @@ import { ContactWriteConflictError, updateContactLocalFirst } from "../contact-w
 import {
   CRO03_CANDIDATE_FIELDS, CRO03_PROVIDERS, CRO03_ROUTING_POLICY_VERSION,
   CRO03_SELECTION_POLICY_VERSION, candidateHash, normalizeCandidateValue,
-  stableSelectionHash, type Cro03CandidateField, type Cro03Provider,
+  normalizeProviderOutcome, stableCro03CommandFingerprint, stableSelectionHash,
+  type Cro03CandidateField, type Cro03Provider,
 } from "./contracts";
 import { sealCandidate, openCandidate } from "./candidate-vault";
 import { selectCro03Route } from "./routing-policy";
@@ -28,7 +29,7 @@ export interface CreateCro03BatchInput {
 }
 
 export interface ProviderTransportResult {
-  outcome: string;
+  outcome: import("./contracts").Cro03ProviderOutcome;
   candidates?: Array<{
     field: Cro03CandidateField;
     value: string;
@@ -37,6 +38,25 @@ export interface ProviderTransportResult {
   }>;
   requestHash?: string;
   receiptReference?: string;
+}
+
+function selectFrozenIdentityMatch<T extends Row>(results: T[], identity: Row): T | null {
+  const norm = (value: unknown) => String(value ?? "").trim().toLowerCase().replace(/\W+/g, "");
+  const expectedName = norm(identity.company_name ?? identity.companyName);
+  const expectedWebsite = normalizeCandidateValue("website", String(identity.website ?? ""));
+  const expectedPhone = normalizeCandidateValue("phone", String(identity.phone ?? ""));
+  const scored = results.map((candidate) => {
+    let score = 0;
+    if (expectedWebsite && normalizeCandidateValue("website", String(candidate.website ?? "")) === expectedWebsite) score += 8;
+    if (expectedPhone && normalizeCandidateValue("phone", String(candidate.phone ?? candidate.ownerPhone ?? "")) === expectedPhone) score += 7;
+    if (expectedName && norm(candidate.name) === expectedName) score += 4;
+    if (norm(identity.city) && norm(candidate.city) === norm(identity.city)) score += 1;
+    if (norm(identity.state) && norm(candidate.state) === norm(identity.state)) score += 1;
+    return { candidate, score };
+  }).sort((a, b) => b.score - a.score);
+  // Never write from an unanchored or tied multi-result response.
+  if (!scored[0] || scored[0].score < 4 || scored[1]?.score === scored[0].score) return null;
+  return scored[0].candidate;
 }
 
 export interface Cro03FactoryDependencies {
@@ -49,11 +69,13 @@ export interface Cro03FactoryDependencies {
     metro: string;
     state: string;
     limit: number;
+    identity?: Row;
     context: Cro03WorkerProviderContext;
   }) => Promise<ProviderTransportResult>;
   outscraper?: (input: {
     query: string;
     limit: number;
+    identity?: Row;
     context: Cro03WorkerProviderContext;
   }) => Promise<ProviderTransportResult>;
 }
@@ -75,6 +97,29 @@ function routeForContact(contact: Row) {
   });
 }
 
+function frozenSubjectSnapshot(contact: Row): Row {
+  // Only the bounded identity/routing input is frozen.  This is not a copy of
+  // the mutable contact row and remains safe to retain as batch evidence.
+  return {
+    id: Number(contact.id), businessId: contact.business_id ?? null,
+    companyName: contact.company_name ?? null, title: contact.title ?? null,
+    website: contact.website ?? null, phone: contact.phone ?? null,
+    email: contact.email ?? null, emailStatus: contact.email_status ?? null,
+    city: contact.city ?? null, state: contact.state ?? null, industry: contact.industry ?? null,
+  };
+}
+
+function frozenRouteForMembership(membership: Row, fallback: Row): Cro03Provider[] {
+  const plan = membership.frozen_route_plan;
+  const parsed = typeof plan === "string" ? JSON.parse(plan) : plan;
+  if (Number(parsed?.policyVersion) > 0 && Array.isArray(parsed?.providers) &&
+      parsed.providers.every((provider: unknown) => CRO03_PROVIDERS.includes(provider as Cro03Provider))) {
+    return parsed.providers as Cro03Provider[];
+  }
+  // Backward compatibility for 0174 rows only; all newly created rows freeze.
+  return routeForContact(fallback).providers;
+}
+
 async function nextProviderForItem(
   itemId: string,
   contact: Row,
@@ -85,7 +130,11 @@ async function nextProviderForItem(
        AND state IN ('completed','deferred','failed','cancelled','superseded')
   `));
   const finished = new Set(terminalRuns.map((run) => String(run.provider)));
-  return routeForContact(contact).providers.find((provider) => !finished.has(provider));
+  const membership = rows(await db.execute(sql`
+    SELECT frozen_route_plan FROM cro03_batch_memberships
+     WHERE id = (SELECT membership_id FROM cro03_enrichment_items WHERE id = ${itemId}::uuid)
+  `))[0];
+  return frozenRouteForMembership(membership ?? {}, contact).find((provider) => !finished.has(provider));
 }
 
 async function advanceAfterProviderStep(input: {
@@ -120,7 +169,7 @@ async function advanceAfterProviderStep(input: {
 
 async function contactRow(contactId: number): Promise<Row | null> {
   const result = await db.execute(sql`
-    SELECT id, email, phone, company_name, title, website, address, city, state,
+    SELECT id, email, phone, company_name, title, website, address, city, state, industry,
            email_status, email_mutation_generation, business_id
       FROM contacts WHERE id = ${contactId} LIMIT 1
   `);
@@ -140,13 +189,20 @@ export async function createCro03Batch(input: CreateCro03BatchInput): Promise<{
   if (input.contactIds.some((id) => !Number.isInteger(id) || id <= 0)) {
     throw new Error("CRO03_INVALID_SUBJECT_ID");
   }
+  const purpose = input.purpose ?? "provider_pre_spend";
   const selectionHash = stableSelectionHash(input.contactIds);
+  const commandFingerprint = stableCro03CommandFingerprint({
+    subjectIds: input.contactIds, purpose, selectionPolicyVersion: CRO03_SELECTION_POLICY_VERSION,
+    routingPolicyVersion: CRO03_ROUTING_POLICY_VERSION,
+  });
   const existing = rows(await db.execute(sql`
-    SELECT id, selection_hash, total_count, executable_count, blocked_count
+    SELECT id, selection_hash, command_fingerprint, total_count, executable_count, blocked_count
       FROM cro03_enrichment_batches WHERE idempotency_key = ${input.idempotencyKey}
   `))[0];
   if (existing) {
-    if (existing.selection_hash !== selectionHash) throw new Error("CRO03_IDEMPOTENCY_PAYLOAD_MISMATCH");
+    if (existing.selection_hash !== selectionHash || existing.command_fingerprint !== commandFingerprint) {
+      throw new Error("CRO03_IDEMPOTENCY_PAYLOAD_MISMATCH");
+    }
     return {
       id: String(existing.id), replayed: true, totalCount: Number(existing.total_count),
       executableCount: Number(existing.executable_count), blockedCount: Number(existing.blocked_count),
@@ -162,6 +218,10 @@ export async function createCro03Batch(input: CreateCro03BatchInput): Promise<{
     contact: Row | null;
     decision: any;
     executable: boolean;
+    discoveryEligible: boolean;
+    paidEnrichmentEligible: boolean;
+    snapshot: Row | null;
+    routePlan: ReturnType<typeof routeForContact>;
   }> = [];
   for (const [ordinal, contactId] of input.contactIds.entries()) {
     const contact = await contactRow(contactId);
@@ -172,9 +232,24 @@ export async function createCro03Batch(input: CreateCro03BatchInput): Promise<{
       })
       : { allowed: false, resolution: "quarantined", reasonCodes: ["SUBJECT_MISSING"],
         dependencyFingerprint: "", policyVersion: 0, snapshotId: undefined };
+    const routePlan = contact
+      ? routeForContact(contact)
+      : { policyVersion: CRO03_ROUTING_POLICY_VERSION, providers: [], stopReasons: ["subject_missing"], recipes: [] };
+    const discoveryEligible = Boolean(
+      contact?.company_name &&
+      (contact.city || contact.state || contact.website) &&
+      routePlan.providers.includes("outscraper"),
+    );
+    const paidEnrichmentEligible = Boolean(contact && decision.allowed && decision.dependencyFingerprint);
+    const executable = paidEnrichmentEligible || discoveryEligible;
     prepared.push({
       ordinal, contactId, contact, decision,
-      executable: Boolean(contact && decision.allowed && decision.dependencyFingerprint),
+      // Discovery eligibility is narrow evidence selection; provider spend has
+      // its own commercial-resolution gate.
+      executable,
+      discoveryEligible, paidEnrichmentEligible,
+      snapshot: contact ? frozenSubjectSnapshot(contact) : null,
+      routePlan,
     });
   }
   const executableCount = prepared.filter((entry) => entry.executable).length;
@@ -184,11 +259,12 @@ export async function createCro03Batch(input: CreateCro03BatchInput): Promise<{
       SELECT pg_advisory_xact_lock(hashtextextended(${"cro03-batch:" + input.idempotencyKey}, 0))
     `);
     const concurrentExisting = rows(await tx.execute(sql`
-      SELECT id, selection_hash, total_count, executable_count, blocked_count
+      SELECT id, selection_hash, command_fingerprint, total_count, executable_count, blocked_count
         FROM cro03_enrichment_batches WHERE idempotency_key = ${input.idempotencyKey}
     `))[0];
     if (concurrentExisting) {
-      if (concurrentExisting.selection_hash !== selectionHash) {
+      if (concurrentExisting.selection_hash !== selectionHash ||
+          concurrentExisting.command_fingerprint !== commandFingerprint) {
         throw new Error("CRO03_IDEMPOTENCY_PAYLOAD_MISMATCH");
       }
       return {
@@ -202,11 +278,11 @@ export async function createCro03Batch(input: CreateCro03BatchInput): Promise<{
       INSERT INTO cro03_enrichment_batches
         (idempotency_key, actor_type, actor_id, purpose, selection_policy_version,
          routing_policy_version, state, total_count, executable_count, blocked_count,
-         selection_hash, completed_at)
+          selection_hash, command_fingerprint, completed_at)
       VALUES (${input.idempotencyKey}, ${input.actorType}, ${input.actorId ?? null},
-              ${input.purpose ?? "provider_pre_spend"}, ${CRO03_SELECTION_POLICY_VERSION},
+              ${purpose}, ${CRO03_SELECTION_POLICY_VERSION},
               ${CRO03_ROUTING_POLICY_VERSION}, ${executableCount === 0 ? "completed" : "queued"},
-              ${input.contactIds.length}, ${executableCount}, ${blockedCount}, ${selectionHash},
+               ${input.contactIds.length}, ${executableCount}, ${blockedCount}, ${selectionHash}, ${commandFingerprint},
               CASE WHEN ${executableCount} = 0 THEN NOW() ELSE NULL END)
       RETURNING id
     `));
@@ -220,7 +296,9 @@ export async function createCro03Batch(input: CreateCro03BatchInput): Promise<{
         INSERT INTO cro03_batch_memberships
           (batch_id, ordinal, subject_type, subject_id, root_subject_type, root_subject_id,
            contact_id, business_id, selection_policy_version, dependency_fingerprint,
-           pre_spend_snapshot_id, pre_spend_decision, disposition, disposition_reason, membership_hash)
+            pre_spend_snapshot_id, pre_spend_decision, disposition, disposition_reason, membership_hash,
+            subject_snapshot, subject_snapshot_hash, frozen_route_plan, route_plan_hash,
+            discovery_eligible, paid_enrichment_eligible)
         VALUES (${id}::uuid, ${entry.ordinal}, 'contact', ${entry.contactId}, 'contact', ${entry.contactId},
                 ${entry.contact?.id ?? null}, ${entry.contact?.business_id ?? null},
                 ${CRO03_SELECTION_POLICY_VERSION}, ${entry.decision.dependencyFingerprint ?? ""},
@@ -228,15 +306,19 @@ export async function createCro03Batch(input: CreateCro03BatchInput): Promise<{
                 ${entry.decision.allowed ? "allowed" : "quarantined"},
                 ${entry.executable ? "executable" : "blocked"},
                 ${entry.executable ? null : (entry.decision.reasonCodes ?? ["SUBJECT_MISSING"]).join(",")},
-                ${membershipHash})
+                ${membershipHash},
+                ${JSON.stringify(entry.snapshot ?? {})}::jsonb, ${safeKey(JSON.stringify(entry.snapshot ?? {}))},
+                ${JSON.stringify(entry.routePlan)}::jsonb, ${safeKey(JSON.stringify(entry.routePlan))},
+                ${entry.discoveryEligible}, ${entry.paidEnrichmentEligible})
         RETURNING id
       `))[0];
       await tx.execute(sql`
         INSERT INTO cro03_enrichment_items
-          (batch_id, membership_id, state, terminal_code)
+          (batch_id, membership_id, state, terminal_code, subject_snapshot_hash, route_plan_hash)
         VALUES (${id}::uuid, ${membership.id}::uuid,
                 ${entry.executable ? "queued" : "blocked"},
-                ${entry.executable ? null : "pre_spend_blocked"})
+                ${entry.executable ? null : "pre_spend_blocked"},
+                ${safeKey(JSON.stringify(entry.snapshot ?? {}))}, ${safeKey(JSON.stringify(entry.routePlan))})
       `);
     }
     return {
@@ -252,7 +334,8 @@ export async function getCro03BatchStatus(batchId: string): Promise<any | null> 
     SELECT b.id, b.state, b.total_count AS "totalCount",
            b.executable_count AS "executableCount", b.blocked_count AS "blockedCount",
            b.completed_count AS "completedCount", b.failed_count AS "failedCount",
-           b.cancelled_count AS "cancelledCount", b.selection_policy_version AS "selectionPolicyVersion",
+            b.cancelled_count AS "cancelledCount", b.superseded_count AS "supersededCount",
+            b.outstanding_count AS "outstandingCount", b.selection_policy_version AS "selectionPolicyVersion",
            b.routing_policy_version AS "routingPolicyVersion", b.created_at AS "createdAt",
            b.updated_at AS "updatedAt", b.completed_at AS "completedAt",
            COUNT(i.id) FILTER (WHERE i.state IN ('queued','running','waiting'))::int AS outstanding
@@ -274,7 +357,15 @@ export async function getCro03BatchStatus(batchId: string): Promise<any | null> 
      WHERE r.item_id IN (SELECT id FROM cro03_enrichment_items WHERE batch_id = ${batchId}::uuid)
      GROUP BY provider
   `));
-  return { ...result[0], asOf: new Date().toISOString(), economics };
+  const status = result[0];
+  const terminalTotal = Number(status.completedCount) + Number(status.failedCount) +
+    Number(status.cancelledCount) + Number(status.supersededCount) + Number(status.blockedCount);
+  return {
+    ...status, terminalTotal,
+    accountingEquation: `${status.totalCount}=${terminalTotal}+${status.outstanding}`,
+    accountingConsistent: Number(status.totalCount) === terminalTotal + Number(status.outstanding),
+    asOf: new Date().toISOString(), economics,
+  };
 }
 
 export async function cancelCro03Batch(batchId: string): Promise<boolean> {
@@ -317,21 +408,34 @@ async function refreshBatchState(batchId: string): Promise<void> {
   await db.execute(sql`
     WITH counts AS (
       SELECT batch_id,
+        COUNT(*) FILTER (WHERE state = 'blocked')::int AS blocked_count,
         COUNT(*) FILTER (WHERE state = 'completed')::int AS completed_count,
         COUNT(*) FILTER (WHERE state = 'failed')::int AS failed_count,
-        COUNT(*) FILTER (WHERE state = 'cancelled')::int AS cancelled_count,
+         COUNT(*) FILTER (WHERE state = 'cancelled')::int AS cancelled_count,
+         COUNT(*) FILTER (WHERE state = 'superseded')::int AS superseded_count,
         COUNT(*) FILTER (WHERE state IN ('queued','running','waiting'))::int AS outstanding_count
       FROM cro03_enrichment_items WHERE batch_id = ${batchId}::uuid GROUP BY batch_id
     )
     UPDATE cro03_enrichment_batches b
-       SET completed_count = c.completed_count,
+       SET blocked_count = c.blocked_count,
+           completed_count = c.completed_count,
            failed_count = c.failed_count,
            cancelled_count = c.cancelled_count,
+           superseded_count = c.superseded_count,
+           outstanding_count = c.outstanding_count,
            state = CASE
              WHEN b.cancel_requested_at IS NOT NULL AND c.outstanding_count = 0 THEN 'cancelled'
-             WHEN c.outstanding_count = 0 THEN 'completed'
-             WHEN c.completed_count + c.failed_count > 0 THEN 'running'
-             ELSE b.state END,
+             WHEN c.outstanding_count > 0 AND
+                  (c.completed_count + c.failed_count + c.cancelled_count + c.superseded_count) > 0
+               THEN 'running'
+             WHEN c.outstanding_count > 0 THEN b.state
+             WHEN c.completed_count = 0 AND
+                  (c.failed_count + c.superseded_count) > 0 THEN 'failed'
+             WHEN c.completed_count > 0 AND
+                  (c.failed_count + c.cancelled_count + c.superseded_count) > 0
+               THEN 'partially_completed'
+             ELSE 'completed'
+           END,
            completed_at = CASE WHEN c.outstanding_count = 0 THEN COALESCE(b.completed_at, NOW()) ELSE NULL END,
            updated_at = NOW()
       FROM counts c WHERE b.id = c.batch_id
@@ -436,8 +540,8 @@ export async function completeCro03ProviderAccounting(
   provider: string,
   disposition: "consumed" | "released" | "ambiguous",
   receipt?: { requestHash?: string; receiptReference?: string },
-): Promise<void> {
-  await db.transaction(async (tx) => {
+): Promise<string | null> {
+  return db.transaction(async (tx) => {
     await tx.execute(sql`
       SELECT pg_advisory_xact_lock(
         hashtextextended(${"cro03-accounting:" + operationId}, 0)
@@ -449,7 +553,13 @@ export async function completeCro03ProviderAccounting(
        WHERE entry_key = ${`reserve:${runId}`} AND disposition = 'outstanding'
        RETURNING id
     `))[0];
-    if (!transitioned) return;
+    if (!transitioned) {
+      const existingReceipt = rows(await tx.execute(sql`
+        SELECT id FROM cro03_receipts WHERE provider_run_id = ${runId}::uuid
+        ORDER BY received_at DESC LIMIT 1
+      `))[0];
+      return existingReceipt ? String(existingReceipt.id) : null;
+    }
     await tx.execute(sql`
       UPDATE provider_operations
          SET state = ${disposition === "consumed" ? "completed" : "failed"},
@@ -467,15 +577,22 @@ export async function completeCro03ProviderAccounting(
              observed_at = NOW(), version = version + 1, updated_at = NOW()
        WHERE provider = ${provider}
     `);
-    await tx.execute(sql`
+    const receiptRow = rows(await tx.execute(sql`
       INSERT INTO cro03_receipts
         (provider_run_id, provider_operation_id, receipt_key, provider_request_hash,
          billing_disposition, units, receipt_reference, redacted_metadata)
       VALUES (${runId}::uuid, ${operationId}::uuid, ${`receipt:${runId}:${disposition}`},
               ${receipt?.requestHash ?? null}, ${disposition}, 1,
               ${receipt?.receiptReference ?? null}, '{}'::jsonb)
-      ON CONFLICT (receipt_key) DO NOTHING
+      ON CONFLICT (receipt_key) DO UPDATE SET receipt_key = EXCLUDED.receipt_key
+      RETURNING id
+    `));
+    const receiptId = String(receiptRow[0].id);
+    await tx.execute(sql`
+      UPDATE cro03_provider_runs SET receipt_id = ${receiptId}::uuid
+       WHERE id = ${runId}::uuid
     `);
+    return receiptId;
   });
 }
 
@@ -562,14 +679,15 @@ export async function recoverExpiredCro03Dispatches(): Promise<number> {
 
 async function executeDefaultApollo(input: {
   vertical: string; metro: string; state: string; limit: number;
+  identity?: Row;
   context: Cro03WorkerProviderContext;
 }): Promise<ProviderTransportResult> {
   const { searchApolloForDiscovery } = await import("../sdr/apollo");
   const results = await searchApolloForDiscovery(
     input.vertical, input.metro, input.state, input.limit, input.context,
   );
-  const first = results[0];
-  if (!first) return { outcome: "no_result", candidates: [] };
+  const first = selectFrozenIdentityMatch(results as Row[], input.identity ?? {});
+  if (!first) return { outcome: results.length > 1 ? "conflict" : "no_result", candidates: [] };
   const values: Array<[Cro03CandidateField, string | null, number]> = [
     ["business_name", first.name, 80], ["website", first.website, 80],
     ["email", first.ownerEmail ?? first.email, 75], ["phone", first.ownerPhone ?? first.phone, 75],
@@ -587,11 +705,12 @@ async function executeDefaultApollo(input: {
 
 async function executeDefaultOutscraper(input: {
   query: string; limit: number; context: Cro03WorkerProviderContext;
+  identity?: Row;
 }): Promise<ProviderTransportResult> {
   const { searchOutscraper } = await import("../sdr/outscraper");
   const results = await searchOutscraper(input.query, input.limit, "US", input.context);
-  const first = results[0];
-  if (!first) return { outcome: "no_result", candidates: [] };
+  const first = selectFrozenIdentityMatch(results as Row[], input.identity ?? {});
+  if (!first) return { outcome: results.length > 1 ? "conflict" : "no_result", candidates: [] };
   const values: Array<[Cro03CandidateField, string | null, number]> = [
     ["business_name", first.name, 75], ["website", first.website, 75],
     ["email", first.email, 65], ["phone", first.phone, 70], ["address", first.address, 70],
@@ -603,6 +722,70 @@ async function executeDefaultOutscraper(input: {
     candidates: values.filter((entry): entry is [Cro03CandidateField, string, number] => Boolean(entry[1]))
       .map(([field, value, confidence]) => ({ field, value, confidence, sourceRank: 30 })),
   };
+}
+
+async function recordProviderOutcomeEvidence(input: {
+  provider: "apollo" | "outscraper";
+  operationId: string;
+  providerRunId: string;
+  subjectId: number;
+  outcome: import("./contracts").Cro03ProviderOutcome;
+  requestHash?: string;
+  evidenceHash?: string;
+}): Promise<string> {
+  const retryable = ["rate_limited", "timeout", "provider_error", "circuit_open"].includes(input.outcome);
+  const attemptOutcome = input.outcome === "success" ? "completed" :
+    input.outcome === "no_result" ? "no_result" :
+      retryable ? "retryable_failed" : input.outcome === "ambiguous_billing" ? "ambiguous" :
+        input.outcome === "disabled" || input.outcome === "not_configured" ? "blocked" : "failed";
+  const attempt = rows(await db.execute(sql`
+    INSERT INTO provider_attempts
+      (operation_id, attempt_number, outcome, retryable, request_id, error_code, completed_at)
+    SELECT ${input.operationId}::uuid, COALESCE(MAX(attempt_number), 0) + 1,
+           ${attemptOutcome}, ${retryable}, ${input.requestHash ?? null},
+           ${input.outcome === "success" || input.outcome === "no_result" ? null : input.outcome}, NOW()
+      FROM provider_attempts WHERE operation_id = ${input.operationId}::uuid
+    RETURNING id
+  `))[0];
+  const observationOutcome = input.outcome === "disabled" ? "disabled" :
+    input.outcome === "budget_exhausted" ? "budget_blocked" :
+      input.outcome === "circuit_open" ? "circuit_blocked" :
+        input.outcome;
+  const observation = rows(await db.execute(sql`
+    INSERT INTO provider_observations
+      (provider, operation_id, attempt_id, subject_type, subject_id, outcome,
+       request_id, evidence_hash, retryable, observed_at)
+    VALUES (${input.provider}, ${input.operationId}::uuid, ${attempt.id}::uuid, 'contact',
+            ${input.subjectId}, ${observationOutcome}, ${input.requestHash ?? null},
+             ${input.evidenceHash ?? safeKey(`cro03:${input.providerRunId}:${input.outcome}:${input.requestHash ?? ""}`)},
+            ${retryable}, NOW())
+    RETURNING id
+  `))[0];
+  await db.execute(sql`
+    UPDATE cro03_provider_runs
+       SET provider_attempt_id = ${attempt.id}::uuid
+     WHERE id = ${input.providerRunId}::uuid
+  `);
+  return String(observation.id);
+}
+
+async function createZeroSpendOperation(input: {
+  provider: "apollo" | "outscraper"; providerRunId: string; targetFingerprint: string; purpose: string;
+}): Promise<string> {
+  const operation = rows(await db.execute(sql`
+    INSERT INTO provider_operations
+      (provider, operation_type, purpose, idempotency_key, actor_type, target_fingerprint,
+       state, requested_units, reserved_units, billing_state, completed_at)
+    VALUES (${input.provider}, 'cro03_enrichment', ${input.purpose}, ${`cro03-zero:${input.providerRunId}`},
+            'cro03_worker', ${input.targetFingerprint}, 'completed', 0, 0, 'none', NOW())
+    ON CONFLICT (provider, idempotency_key) DO UPDATE SET idempotency_key = EXCLUDED.idempotency_key
+    RETURNING id
+  `))[0];
+  await db.execute(sql`
+    UPDATE cro03_provider_runs SET operation_id = ${operation.id}::uuid
+     WHERE id = ${input.providerRunId}::uuid
+  `);
+  return String(operation.id);
 }
 
 async function recordCandidate(input: {
@@ -925,20 +1108,14 @@ export async function processNextCro03Item(
     `);
     return "superseded";
   }
-  const fence = await resolveFence({
-    subjectType: "contact", subjectId: Number(membership.subject_id),
-    effect: "provider_pre_spend", expectedFingerprint: membership.dependency_fingerprint,
-  });
-  if (!fence.allowed) {
-    await db.execute(sql`
-      UPDATE cro03_enrichment_items
-         SET state = 'superseded', terminal_code = 'stale_graph',
-             lease_expires_at = NULL, claim_token = NULL, completed_at = NOW(), updated_at = NOW()
-       WHERE id = ${item.id}::uuid AND claim_token = ${item.claim_token}::uuid
-    `);
-    return "superseded";
-  }
-  const provider = await nextProviderForItem(String(item.id), contact);
+  const snapshot = typeof membership.subject_snapshot === "string"
+    ? JSON.parse(membership.subject_snapshot) : (membership.subject_snapshot ?? {});
+  const frozenIdentity = {
+    company_name: snapshot.companyName, website: snapshot.website, phone: snapshot.phone,
+    email: snapshot.email, email_status: snapshot.emailStatus, city: snapshot.city,
+    state: snapshot.state, industry: snapshot.industry, business_id: snapshot.businessId,
+  };
+  const provider = await nextProviderForItem(String(item.id), frozenIdentity);
   if (!provider) {
     await db.execute(sql`
       UPDATE cro03_enrichment_items
@@ -947,6 +1124,34 @@ export async function processNextCro03Item(
        WHERE id = ${item.id}::uuid AND claim_token = ${item.claim_token}::uuid
     `);
     return "completed";
+  }
+  if (provider === "outscraper" && membership.discovery_eligible === false) {
+    await db.execute(sql`
+      UPDATE cro03_enrichment_items
+         SET state = 'completed', terminal_code = 'discovery_identity_insufficient',
+             lease_expires_at = NULL, claim_token = NULL, completed_at = NOW(), updated_at = NOW()
+       WHERE id = ${item.id}::uuid AND claim_token = ${item.claim_token}::uuid
+    `);
+    await refreshBatchState(String(item.batch_id));
+    return "completed";
+  }
+  // Discovery is selected from the immutable narrow identity recipe before
+  // CRO-02 can resolve a commercial graph. Every other paid step remains
+  // commercial-fence-gated before it can reserve or dispatch.
+  if (provider !== "outscraper") {
+    const fence = await resolveFence({
+      subjectType: "contact", subjectId: Number(membership.subject_id),
+      effect: "provider_pre_spend", expectedFingerprint: membership.dependency_fingerprint,
+    });
+    if (!fence.allowed) {
+      await db.execute(sql`
+        UPDATE cro03_enrichment_items
+           SET state = 'superseded', terminal_code = 'stale_graph',
+               lease_expires_at = NULL, claim_token = NULL, completed_at = NOW(), updated_at = NOW()
+         WHERE id = ${item.id}::uuid AND claim_token = ${item.claim_token}::uuid
+      `);
+      return "superseded";
+    }
   }
   const providerRun = rows(await db.execute(sql`
     INSERT INTO cro03_provider_runs
@@ -971,10 +1176,18 @@ export async function processNextCro03Item(
     !CRO03_PROVIDER_TRANSPORT_ENABLED &&
     !certificationTransportAllowed
   ) {
+    const operationId = isCro03Provider(provider) ? await createZeroSpendOperation({
+      provider, providerRunId: String(providerRun.id),
+      targetFingerprint: membership.dependency_fingerprint, purpose: "provider_pre_spend",
+    }) : null;
     await db.execute(sql`
       UPDATE cro03_provider_runs SET state = 'completed', provider_outcome = 'disabled',
              billing_disposition = 'none', completed_at = NOW() WHERE id = ${providerRun.id}::uuid
     `);
+    if (operationId && isCro03Provider(provider)) await recordProviderOutcomeEvidence({
+      provider, operationId, providerRunId: String(providerRun.id),
+      subjectId: Number(membership.subject_id), outcome: "disabled",
+    });
     await advanceAfterProviderStep({
       item,
       contactId: Number(contact.id),
@@ -991,8 +1204,16 @@ export async function processNextCro03Item(
         generation: Number(contact.email_mutation_generation), purpose: "cro03_winning_email",
       });
     });
+    const intent = rows(await db.execute(sql`
+      SELECT id FROM validation_intents
+       WHERE contact_id = ${Number(contact.id)}
+         AND subject_generation = ${Number(contact.email_mutation_generation)}
+         AND purpose = 'cro03_winning_email'
+       ORDER BY created_at DESC LIMIT 1
+    `))[0];
     await db.execute(sql`
-      UPDATE cro03_provider_runs SET state = 'completed', provider_outcome = 'success',
+      UPDATE cro03_provider_runs SET state = 'deferred', provider_outcome = 'no_result',
+             outcome_code = 'validation_pending', validation_intent_id = ${intent?.id ?? null}::uuid,
              billing_disposition = 'none', completed_at = NOW() WHERE id = ${providerRun.id}::uuid
     `);
     await advanceAfterProviderStep({
@@ -1076,11 +1297,19 @@ export async function processNextCro03Item(
     executionFence: Number(item.execution_fence),
   });
   if (!reservation) {
+    const operationId = await createZeroSpendOperation({
+      provider, providerRunId: String(providerRun.id),
+      targetFingerprint: membership.dependency_fingerprint, purpose: "provider_pre_spend",
+    });
     await db.execute(sql`
       UPDATE cro03_provider_runs SET state = 'deferred', provider_outcome = 'disabled',
              billing_disposition = 'none', completed_at = NOW()
        WHERE id = ${providerRun.id}::uuid
     `);
+    await recordProviderOutcomeEvidence({
+      provider, operationId, providerRunId: String(providerRun.id),
+      subjectId: Number(membership.subject_id), outcome: "disabled",
+    });
     await db.execute(sql`
       UPDATE cro03_enrichment_items SET state = 'waiting', terminal_code = 'provider_control_unavailable',
              next_attempt_at = NOW() + INTERVAL '15 minutes', lease_expires_at = NULL, claim_token = NULL
@@ -1095,7 +1324,7 @@ export async function processNextCro03Item(
      WHERE id = ${providerRun.id}::uuid
   `);
   await reserveCro03ProviderLedger(String(providerRun.id), reservation.operationId, provider);
-  const preTransportFence = await resolveFence({
+  const preTransportFence = provider === "outscraper" ? { allowed: true } : await resolveFence({
     subjectType: "contact", subjectId: Number(membership.subject_id),
     effect: "provider_pre_spend", expectedFingerprint: membership.dependency_fingerprint,
   });
@@ -1153,14 +1382,15 @@ export async function processNextCro03Item(
     await assertCurrentWorkerContext(reservation.context);
     if (provider === "apollo") {
       result = await (deps.apollo ?? executeDefaultApollo)({
-          vertical: String(contact.industry ?? "business"),
-          metro: String(contact.city ?? "Florida"),
-          state: String(contact.state ?? "FL"), limit: 25, context: reservation.context,
+          vertical: String(frozenIdentity.industry ?? "business"),
+          metro: String(frozenIdentity.city ?? "Florida"),
+          state: String(frozenIdentity.state ?? "FL"), limit: 25, identity: frozenIdentity,
+          context: reservation.context,
         });
     } else if (provider === "outscraper") {
       result = await (deps.outscraper ?? executeDefaultOutscraper)({
-          query: `${contact.company_name ?? "business"} ${contact.city ?? ""} ${contact.state ?? ""}`,
-          limit: 25, context: reservation.context,
+          query: `${frozenIdentity.company_name ?? "business"} ${frozenIdentity.city ?? ""} ${frozenIdentity.state ?? ""}`,
+          limit: 25, identity: frozenIdentity, context: reservation.context,
         });
     } else {
       result = { outcome: "disabled", candidates: [] };
@@ -1168,19 +1398,27 @@ export async function processNextCro03Item(
   } catch {
     result = { outcome: "provider_error", candidates: [] };
   }
-  const outcome = result.outcome;
+  const outcome = normalizeProviderOutcome(result.outcome);
+  const retryable = ["rate_limited", "timeout", "provider_error", "circuit_open"].includes(outcome);
   const billing = outcome === "success" || outcome === "no_result" ? "consumed" : "ambiguous";
   await db.execute(sql`
     UPDATE cro03_provider_runs
        SET state = ${billing === "ambiguous" ? "failed" : "completed"},
-           provider_outcome = ${outcome}, billing_disposition = ${billing}, completed_at = NOW()
+           provider_outcome = ${outcome}, outcome_code = ${outcome}, retryable = ${retryable},
+           retry_after = ${retryable ? sql`NOW() + INTERVAL '5 minutes'` : null},
+           provider_request_hash = ${result.requestHash ?? null},
+           billing_disposition = ${billing}, completed_at = NOW()
      WHERE id = ${providerRun.id}::uuid
   `);
   await completeCro03ProviderAccounting(
     String(providerRun.id), reservation.operationId, provider, billing,
     { requestHash: result.requestHash, receiptReference: result.receiptReference },
   );
-  const postTransportFence = await resolveFence({
+  const observationId = await recordProviderOutcomeEvidence({
+    provider, operationId: reservation.operationId, providerRunId: String(providerRun.id),
+    subjectId: Number(membership.subject_id), outcome, requestHash: result.requestHash,
+  });
+  const postTransportFence = provider === "outscraper" ? { allowed: true } : await resolveFence({
     subjectType: "contact", subjectId: Number(membership.subject_id),
     effect: "provider_pre_spend", expectedFingerprint: membership.dependency_fingerprint,
   });
@@ -1202,6 +1440,7 @@ export async function processNextCro03Item(
         confidence: Math.max(0, Math.min(100, candidate.confidence ?? 0)),
         sourceRank: candidate.sourceRank ?? 100, subjectId: Number(membership.subject_id),
         generation: contact.email_mutation_generation,
+        observationId,
       });
     }
   }
@@ -1261,10 +1500,15 @@ export async function getCro03Reconciliation(): Promise<any> {
 export async function recordCro03ImportEvidence(input: {
   executionId: string;
   provider: "apollo" | "outscraper";
-  contactIds: number[];
+  evidence: Array<{
+    contactId: number;
+    rowFingerprint: string;
+    values: Partial<Record<Cro03CandidateField, string>>;
+  }>;
   actorId?: string | null;
 }): Promise<{ batchId: string; recorded: number }> {
-  const uniqueContactIds = [...new Set(input.contactIds)].sort((a, b) => a - b);
+  const evidenceByContact = new Map(input.evidence.map((row) => [row.contactId, row]));
+  const uniqueContactIds = [...evidenceByContact.keys()].sort((a, b) => a - b);
   const batch = await createCro03Batch({
     idempotencyKey: `csv-cro03:${input.executionId}:${input.provider}`,
     contactIds: uniqueContactIds,
@@ -1283,8 +1527,8 @@ export async function recordCro03ImportEvidence(input: {
   `));
   let recorded = 0;
   for (const item of items) {
-    const contact = await contactRow(Number(item.contact_id));
-    if (!contact) continue;
+    const evidence = evidenceByContact.get(Number(item.contact_id));
+    if (!evidence) continue;
     const run = rows(await db.execute(sql`
       INSERT INTO cro03_provider_runs
         (item_id, provider, route_policy_version, purpose, state, provider_outcome,
@@ -1297,34 +1541,22 @@ export async function recordCro03ImportEvidence(input: {
       ON CONFLICT (item_id, provider) DO UPDATE SET completed_at = EXCLUDED.completed_at
       RETURNING id
     `))[0];
-    const evidenceHash = safeKey(`${input.executionId}:${input.provider}:${item.subject_id}`);
-    let observation = rows(await db.execute(sql`
-      SELECT id FROM provider_observations
-       WHERE provider = ${input.provider} AND subject_type = 'contact'
-         AND subject_id = ${item.subject_id} AND evidence_hash = ${evidenceHash}
-       ORDER BY observed_at LIMIT 1
-    `))[0];
-    if (!observation) observation = rows(await db.execute(sql`
-      INSERT INTO provider_observations
-        (provider, operation_id, attempt_id, subject_type, subject_id, outcome,
-         evidence_hash, retryable, observed_at)
-      VALUES (${input.provider}, NULL, NULL, 'contact', ${item.subject_id}, 'success',
-              ${evidenceHash}, FALSE, NOW())
-      RETURNING id
-    `))[0];
-    const values: Array<[Cro03CandidateField, unknown, number]> = [
-      ["business_name", contact.company_name, 70], ["website", contact.website, 70],
-      ["email", String(contact.email).includes("no-email-") ? null : contact.email, 70],
-      ["phone", contact.phone, 70], ["address", contact.address, 65],
-      ["city", contact.city, 65], ["state", contact.state, 65], ["owner_title", contact.title, 60],
-    ];
-    for (const [field, value, confidence] of values) {
+    const evidenceHash = safeKey(`${input.executionId}:${input.provider}:${evidence.rowFingerprint}`);
+    const operationId = await createZeroSpendOperation({
+      provider: input.provider, providerRunId: String(run.id),
+      targetFingerprint: String(item.subject_id), purpose: "import_observation",
+    });
+    const observationId = await recordProviderOutcomeEvidence({
+      provider: input.provider, operationId, providerRunId: String(run.id),
+      subjectId: Number(item.subject_id), outcome: "success",
+      requestHash: evidenceHash, evidenceHash,
+    });
+    for (const [field, value] of Object.entries(evidence.values) as Array<[Cro03CandidateField, string]>) {
       if (typeof value !== "string" || !value.trim()) continue;
       await recordCandidate({
         itemId: String(item.id), providerRunId: String(run.id), provider: input.provider,
-        field, value, confidence, sourceRank: 60, subjectId: Number(item.subject_id),
-        generation: field === "email" ? Number(contact.email_mutation_generation) : null,
-        observationId: String(observation.id),
+        field, value, confidence: field === "owner_title" ? 60 : field === "address" || field === "city" || field === "state" ? 65 : 70,
+        sourceRank: 60, subjectId: Number(item.subject_id), observationId,
       });
     }
     const candidateFields = rows(await db.execute(sql`

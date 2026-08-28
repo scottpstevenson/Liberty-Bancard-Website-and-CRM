@@ -438,10 +438,10 @@ export default function LeadCommandCenter() {
     mutationFn: async () => {
       const promises: Promise<any>[] = [];
       if (selectedEntities.length > 0) {
-        promises.push(apiRequest("POST", "/api/sunbiz/enrich-batch", { limit: selectedEntities.length }).then((r) => r.json()));
+        promises.push(apiRequest("POST", "/api/sunbiz/enrich-batch", { entityIds: selectedEntities, idempotencyKey: crypto.randomUUID() }).then((r) => r.json()));
       }
       for (const pid of selectedProspects) {
-        promises.push(apiRequest("POST", "/api/enrichment-jobs", { jobType: "full_enrich", prospectId: pid }));
+        promises.push(apiRequest("POST", "/api/enrichment-jobs", { prospectId: pid, idempotencyKey: crypto.randomUUID() }));
       }
       return Promise.all(promises);
     },

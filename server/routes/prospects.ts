@@ -25,8 +25,50 @@ import {
   convertProspectDurably,
 } from "../services/prospect-conversion";
 import { serverError, safeMessage } from "../utils/server-error";
+import { createCro03Batch } from "../services/cro03/enrichment-factory";
 
 export function registerProspectsRoutes(app: Express) {
+  /**
+   * Compatibility boundary for staging screens.  A staging record is first
+   * admitted through the existing durable prospect conversion command; only
+   * its resulting canonical contact is submitted to CRO-03.
+   */
+  async function createCro03BatchForProspects(input: {
+    prospectIds: number[];
+    idempotencyKey: string;
+    actorId: string;
+  }) {
+    const contactIds: number[] = [];
+    const blocked: Array<{ prospectId: number; code: string }> = [];
+    for (const prospectId of [...new Set(input.prospectIds)].slice(0, 1000)) {
+      const prospect = await storage.getProspect(prospectId);
+      if (!prospect) {
+        blocked.push({ prospectId, code: "PROSPECT_NOT_FOUND" });
+        continue;
+      }
+      if (prospect.contactId) {
+        contactIds.push(prospect.contactId);
+        continue;
+      }
+      const conversion = await convertProspectDurably(prospect, input.actorId);
+      if ((conversion.status === "converted" || conversion.status === "already_converted" || conversion.status === "conversion_in_progress") && conversion.contactId) {
+        contactIds.push(conversion.contactId);
+      } else {
+        blocked.push({ prospectId, code: conversion.status === "failed" ? conversion.reasonCode : conversion.status });
+      }
+    }
+    if (contactIds.length === 0) {
+      return { batch: null, blocked, contactIds };
+    }
+    const batch = await createCro03Batch({
+      idempotencyKey: input.idempotencyKey,
+      contactIds: [...new Set(contactIds)],
+      actorType: "user",
+      actorId: input.actorId,
+    });
+    return { batch, blocked, contactIds };
+  }
+
   // === PROSPECT LISTS ===
   app.get("/api/prospect-lists", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
@@ -740,11 +782,35 @@ export function registerProspectsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/enrichment-jobs", requireRole("admin", "manager"), async (_req, res) => {
-    res.status(503).json({
-      code: "CRO03_STAGING_CONVERSION_REQUIRED",
-      message: "Prospect staging enrichment is unavailable until the subject is converted by canonical intake.",
-    });
+  app.post("/api/enrichment-jobs", requireRole("admin", "manager"), async (req, res) => {
+    const parsed = z.object({
+      prospectId: z.number().int().positive().optional(),
+      listId: z.number().int().positive().optional(),
+      idempotencyKey: z.string().trim().min(8).max(200).optional(),
+    }).strict().safeParse(req.body);
+    if (!parsed.success || (!parsed.data.prospectId && !parsed.data.listId)) {
+      return res.status(400).json({ code: "CRO03_INVALID_REQUEST", message: "Provide a prospectId or listId." });
+    }
+    try {
+      const listProspects = parsed.data.listId ? await storage.getProspects(parsed.data.listId) : null;
+      const prospectIds = parsed.data.prospectId
+        ? [parsed.data.prospectId]
+        : ((listProspects as any)?.data ?? listProspects ?? []).map((p: any) => p.id);
+      const key = parsed.data.idempotencyKey ?? req.header("idempotency-key");
+      if (!key) return res.status(400).json({ code: "IDEMPOTENCY_KEY_REQUIRED", message: "Idempotency-Key is required." });
+      const result = await createCro03BatchForProspects({
+        prospectIds, idempotencyKey: key, actorId: String((req.user as any)?.id ?? ""),
+      });
+      if (!result.batch) {
+        return res.status(409).json({ code: "CRO03_CANONICAL_INTAKE_BLOCKED", message: "No selected prospect could be admitted to canonical intake.", blocked: result.blocked });
+      }
+      return res.status(result.batch.replayed ? 200 : 202).json({
+        batchId: result.batch.id, statusUrl: `/api/cro03/batches/${result.batch.id}`,
+        total: result.batch.totalCount, blocked: result.blocked,
+      });
+    } catch (err) {
+      serverError(res, err);
+    }
   });
 
   app.post("/api/enrichment/process-queue", requireRole("admin", "manager"), async (_req, res) => {
@@ -1068,18 +1134,43 @@ export function registerProspectsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/sunbiz/entities/:id/enrich", requireRole("admin", "manager"), async (_req, res) => {
-    res.status(503).json({
-      code: "CRO03_STAGING_CONVERSION_REQUIRED",
-      message: "Sunbiz staging enrichment requires canonical intake conversion.",
-    });
+  app.post("/api/sunbiz/entities/:id/enrich", requireRole("admin", "manager"), async (req, res) => {
+    const entityId = Number(req.params.id);
+    const entity = await storage.getSunbizEntity(entityId);
+    if (!entity) return res.status(404).json({ code: "not_found", message: "Entity not found" });
+    const idempotencyKey = req.body?.idempotencyKey ?? req.header("idempotency-key");
+    if (typeof idempotencyKey !== "string" || idempotencyKey.length < 8) {
+      return res.status(400).json({ code: "IDEMPOTENCY_KEY_REQUIRED", message: "Idempotency-Key is required." });
+    }
+    try {
+      const prospectId = await convertToProspect(entityId, req.body?.listId);
+      if (!prospectId) return res.status(409).json({ code: "CRO03_CANONICAL_INTAKE_BLOCKED", message: "Entity could not be admitted to canonical intake." });
+      const result = await createCro03BatchForProspects({ prospectIds: [prospectId], idempotencyKey, actorId: String((req.user as any)?.id ?? "") });
+      if (!result.batch) return res.status(409).json({ code: "CRO03_CANONICAL_INTAKE_BLOCKED", message: "Entity is not eligible for canonical enrichment.", blocked: result.blocked });
+      return res.status(result.batch.replayed ? 200 : 202).json({ batchId: result.batch.id, statusUrl: `/api/cro03/batches/${result.batch.id}`, blocked: result.blocked });
+    } catch (err) {
+      serverError(res, err);
+    }
   });
 
-  app.post("/api/sunbiz/enrich-batch", requireRole("admin", "manager"), async (_req, res) => {
-    res.status(503).json({
-      code: "CRO03_STAGING_CONVERSION_REQUIRED",
-      message: "Sunbiz staging enrichment is unavailable until canonical intake conversion.",
-    });
+  app.post("/api/sunbiz/enrich-batch", requireRole("admin", "manager"), async (req, res) => {
+    const entityIds = z.array(z.number().int().positive()).max(1000).optional().safeParse(req.body?.entityIds);
+    const idempotencyKey = req.body?.idempotencyKey ?? req.header("idempotency-key");
+    if (!entityIds.success || !entityIds.data?.length || typeof idempotencyKey !== "string" || idempotencyKey.length < 8) {
+      return res.status(400).json({ code: "CRO03_INVALID_REQUEST", message: "entityIds and Idempotency-Key are required." });
+    }
+    try {
+      const prospectIds: number[] = [];
+      for (const entityId of entityIds.data) {
+        const prospectId = await convertToProspect(entityId, req.body?.listId);
+        if (prospectId) prospectIds.push(prospectId);
+      }
+      const result = await createCro03BatchForProspects({ prospectIds, idempotencyKey, actorId: String((req.user as any)?.id ?? "") });
+      if (!result.batch) return res.status(409).json({ code: "CRO03_CANONICAL_INTAKE_BLOCKED", message: "No selected entities are eligible for canonical enrichment.", blocked: result.blocked });
+      return res.status(result.batch.replayed ? 200 : 202).json({ batchId: result.batch.id, statusUrl: `/api/cro03/batches/${result.batch.id}`, total: result.batch.totalCount, blocked: result.blocked });
+    } catch (err) {
+      serverError(res, err);
+    }
   });
 
   app.post("/api/sunbiz/entities/:id/convert", isAuthenticated, async (req, res) => {

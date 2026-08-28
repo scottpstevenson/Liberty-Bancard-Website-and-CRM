@@ -92,7 +92,7 @@ export default function Prospects() {
   // ── Mutations ──────────────────────────────────────────────────────────────
   const enrichMutation = useMutation({
     mutationFn: async (prospectId: number) => {
-      await apiRequest("POST", "/api/enrichment-jobs", { jobType: "full_enrich", prospectId });
+      await apiRequest("POST", "/api/enrichment-jobs", { prospectId, idempotencyKey: crypto.randomUUID() });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/prospects"] });
@@ -107,7 +107,7 @@ export default function Prospects() {
     mutationFn: async (ids: number[]) => {
       // Enrich each selected prospect in sequence (uses existing endpoint)
       const results = await Promise.allSettled(
-        ids.map(id => apiRequest("POST", "/api/enrichment-jobs", { jobType: "full_enrich", prospectId: id }))
+        ids.map(id => apiRequest("POST", "/api/enrichment-jobs", { prospectId: id, idempotencyKey: crypto.randomUUID() }))
       );
       const failed = results.filter(r => r.status === "rejected").length;
       return { queued: ids.length - failed, failed };

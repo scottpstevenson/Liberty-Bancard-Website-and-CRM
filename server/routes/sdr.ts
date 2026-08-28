@@ -2590,28 +2590,20 @@ export function registerSdrRoutes(app: Express) {
 
   app.post("/api/sdr/serper-enrichment/run", isAuthenticated, async (req, res) => {
     if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin only" });
-    try {
-      const { runSerperEnrichmentBatch } = await import("../services/sdr/serper-enrichment");
-      const limit = parseInt(req.body.limit as string || "50", 10);
-      const stats = await runSerperEnrichmentBatch(limit);
-      res.json(stats);
-    } catch (err: unknown) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: safeMessage(errMsg) });
-    }
+    // SDR merchant records are staging projections, not canonical CRO-03
+    // subjects.  Do not dispatch Serper or start a second scheduler here.
+    res.status(409).json({
+      code: "CRO03_CANONICAL_INTAKE_REQUIRED",
+      message: "Admit the subject to a canonical contact, then submit a CRO-03 batch.",
+    });
   });
 
   app.post("/api/sdr/serper-enrichment/merchant/:id", isAuthenticated, async (req, res) => {
     if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin only" });
-    try {
-      const { enrichMerchantWithSerper } = await import("../services/sdr/serper-enrichment");
-      const merchantId = parseInt(req.params.id as string, 10);
-      const result = await enrichMerchantWithSerper(merchantId);
-      res.json(result);
-    } catch (err: unknown) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: safeMessage(errMsg) });
-    }
+    res.status(409).json({
+      code: "CRO03_CANONICAL_INTAKE_REQUIRED",
+      message: "Direct SDR provider enrichment is denied; use a canonical CRO-03 batch.",
+    });
   });
 
   app.post("/api/sdr/sending-identities/bulk-action", isAuthenticated, async (req, res) => {

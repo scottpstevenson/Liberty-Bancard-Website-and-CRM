@@ -6,7 +6,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Loader2, Lock, CheckCircle, ArrowLeft } from "lucide-react";
-import logoBlue from "@assets/logo-blue.png";
 import { apiRequest } from "@/lib/queryClient";
 
 export default function ResetPassword() {
@@ -54,7 +53,7 @@ export default function ResetPassword() {
       <div className="w-full max-w-md space-y-6">
         <div className="flex flex-col items-center gap-3">
           <Link href="/">
-            <img src={logoBlue} alt="Liberty Bancard" className="h-12 object-contain cursor-pointer" data-testid="logo-reset-password" />
+            <img src="/logo-blue.png" alt="Liberty Bancard" className="h-12 object-contain cursor-pointer" data-testid="logo-reset-password" />
           </Link>
         </div>
 

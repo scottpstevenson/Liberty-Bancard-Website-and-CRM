@@ -1776,6 +1776,11 @@ Guidelines:
 
       const batchSize = 100;
       const contactInserts: any[] = [];
+      const cro03ImportEvidence: Array<{
+        contactId: number;
+        rowFingerprint: string;
+        values: Record<string, string>;
+      }> = [];
 
       for (const [rowIndex, record] of records.entries()) {
         if (rowIndex % batchSize === 0 && !await heartbeatImportExecution(importExecution.id, executionClaim.claimToken!)) {
@@ -1944,6 +1949,18 @@ Guidelines:
         contactInserts.push({
           __sourceRowNumber: sourceRowNumber,
           __rowFingerprint: rowFingerprint,
+          // This is deliberately a snapshot of source-row values, not the
+          // contact mutation (which contains defaults and derived fields).
+          __cro03EvidenceValues: {
+            ...(companyName ? { business_name: companyName } : {}),
+            ...(website ? { website } : {}),
+            ...(email ? { email } : {}),
+            ...(phone ? { phone } : {}),
+            ...(mapped.address ? { address: mapped.address } : {}),
+            ...(mapped.city ? { city: mapped.city } : {}),
+            ...(mapped.state ? { state: mapped.state } : {}),
+            ...(mapped.title ? { owner_title: mapped.title } : {}),
+          },
           firstName: firstName || "",   // already sanitized; blank is better than a URL
           lastName: lastName || "",
           // contacts.email is NOT NULL with a unique index (per non-archived
@@ -2019,7 +2036,7 @@ Guidelines:
         try {
           const result: any[] = [];
           for (const source of batch) {
-            const { __sourceRowNumber, __rowFingerprint, ...mutation } = source;
+            const { __sourceRowNumber, __rowFingerprint, __cro03EvidenceValues, ...mutation } = source;
             const contact = await writeContact({
               mode: "local_only",
               mutation,
@@ -2044,13 +2061,20 @@ Guidelines:
                 matchedReasonCode: "EXACT_ELIGIBLE_IDENTITY_MATCH",
               },
             });
-            result.push(contact);
+            result.push({ ...contact, _cro03EvidenceValues: __cro03EvidenceValues, _rowFingerprint: __rowFingerprint });
           }
           inserted += result.filter((row) => row._intakeOutcome === "created").length;
           // writeContact either returns a durable disposition or throws; ledger
           // summaries, not a batch-length subtraction, are reconciliation truth.
           for (const r of result.filter((row) => row._intakeOutcome === "created")) {
             insertedContactIds.push(r.id);
+            if (sourceFormat === "google_maps_outscraper" || sourceFormat === "apollo_lead_list") {
+              cro03ImportEvidence.push({
+                contactId: r.id,
+                rowFingerprint: r._rowFingerprint,
+                values: r._cro03EvidenceValues,
+              });
+            }
             const { auditChange } = await import("../services/audit-change");
             auditChange({ actorType: "system", action: "contact_created", entityType: "contact", entityId: r.id, before: null, after: r as unknown as Record<string, unknown> }).catch(() => {});
           }
@@ -2131,7 +2155,7 @@ Guidelines:
         await recordCro03ImportEvidence({
           executionId: importExecution.id,
           provider: sourceFormat === "google_maps_outscraper" ? "outscraper" : "apollo",
-          contactIds: insertedContactIds,
+          evidence: cro03ImportEvidence,
           actorId: actor.actorId,
         });
       }
