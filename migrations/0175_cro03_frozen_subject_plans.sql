@@ -27,6 +27,72 @@ ALTER TABLE cro03_enrichment_items
   ADD COLUMN IF NOT EXISTS subject_snapshot_hash TEXT,
   ADD COLUMN IF NOT EXISTS route_plan_hash TEXT;
 
+-- 0174 did not persist its routing inputs.  Freeze the only deterministic
+-- legacy evidence available (the membership-bound contact) before any worker
+-- can read these rows.  A membership without that evidence is not executable:
+-- it is terminally superseded rather than routed from a mutable contact later.
+ALTER TABLE cro03_batch_memberships DISABLE TRIGGER cro03_membership_immutable;
+WITH legacy AS (
+  SELECT m.id,
+    jsonb_build_object(
+      'id', c.id, 'businessId', c.business_id, 'companyName', c.company_name,
+      'title', c.title, 'website', c.website, 'phone', c.phone, 'email', c.email,
+      'emailStatus', c.email_status, 'city', c.city, 'state', c.state,
+      'industry', c.industry
+    ) AS snapshot,
+    CASE
+      WHEN c.company_name IS NOT NULL AND c.business_id IS NULL
+       AND c.website IS NULL AND c.phone IS NULL THEN ARRAY['outscraper']::text[]
+      WHEN c.company_name IS NOT NULL AND (c.title IS NULL OR c.title = '') THEN ARRAY['apollo']::text[]
+      WHEN c.website IS NULL OR c.phone IS NULL THEN ARRAY['serper']::text[]
+      ELSE ARRAY[]::text[]
+    END ||
+    CASE WHEN c.email IS NOT NULL AND c.email NOT LIKE '%no-email-%'
+               AND COALESCE(c.email_status, '') NOT IN ('valid','invalid','risky')
+         THEN ARRAY['zerobounce']::text[] ELSE ARRAY[]::text[] END AS providers
+  FROM cro03_batch_memberships m
+  JOIN contacts c ON c.id = m.contact_id
+  WHERE m.subject_snapshot = '{}'::jsonb
+     OR m.frozen_route_plan = '{"providers":[],"recipes":[]}'::jsonb
+)
+UPDATE cro03_batch_memberships m
+   SET subject_snapshot = legacy.snapshot,
+       subject_snapshot_hash = md5(legacy.snapshot::text),
+       frozen_route_plan = jsonb_build_object(
+         'policyVersion', 1, 'providers', to_jsonb(legacy.providers),
+         'stopReasons', jsonb_build_array('legacy_0174_frozen_at_migration'),
+         'recipes', (
+           SELECT COALESCE(jsonb_agg(jsonb_build_object(
+             'provider', p,
+             'operation', CASE p WHEN 'zerobounce' THEN 'email_validation_backlink'
+               WHEN 'outscraper' THEN 'business_discovery' WHEN 'apollo' THEN 'contact_enrichment'
+               ELSE 'search_enrichment' END,
+             'requiresPaidEligibility', p = 'apollo'
+           )), '[]'::jsonb)
+           FROM unnest(legacy.providers) AS p
+         )
+       ),
+       route_plan_hash = md5(jsonb_build_object(
+         'policyVersion', 1, 'providers', to_jsonb(legacy.providers),
+         'stopReasons', jsonb_build_array('legacy_0174_frozen_at_migration')
+       )::text)
+  FROM legacy WHERE m.id = legacy.id;
+
+UPDATE cro03_batch_memberships
+   SET disposition = 'superseded',
+       disposition_reason = 'legacy_frozen_evidence_unavailable'
+ WHERE subject_snapshot = '{}'::jsonb
+    OR COALESCE((frozen_route_plan->>'policyVersion')::integer, 0) < 1
+    OR jsonb_typeof(frozen_route_plan->'providers') <> 'array';
+UPDATE cro03_enrichment_items i
+   SET state = 'superseded', terminal_code = 'legacy_frozen_evidence_unavailable',
+       claim_token = NULL, lease_expires_at = NULL, completed_at = COALESCE(completed_at, NOW()),
+       updated_at = NOW()
+  FROM cro03_batch_memberships m
+ WHERE i.membership_id = m.id AND m.disposition = 'superseded'
+   AND i.state IN ('queued','running','waiting');
+ALTER TABLE cro03_batch_memberships ENABLE TRIGGER cro03_membership_immutable;
+
 ALTER TABLE cro03_provider_runs
   ADD COLUMN IF NOT EXISTS outcome_code TEXT,
   ADD COLUMN IF NOT EXISTS retryable BOOLEAN NOT NULL DEFAULT FALSE,
@@ -93,7 +159,45 @@ DROP TRIGGER IF EXISTS cro03_item_accounting_refresh ON cro03_enrichment_items;
 CREATE TRIGGER cro03_item_accounting_refresh
 AFTER INSERT OR UPDATE OR DELETE ON cro03_enrichment_items
 FOR EACH ROW EXECUTE FUNCTION cro03_refresh_batch_accounting();
+-- The legacy supersession above predates this trigger; touch those terminal
+-- rows once so persisted batch counters reconcile immediately.
+UPDATE cro03_enrichment_items SET updated_at = updated_at
+ WHERE state = 'superseded' AND terminal_code = 'legacy_frozen_evidence_unavailable';
 
 -- The existing membership immutability trigger makes these versioned snapshots
 -- and plans append-only.  Provider run receipt links are mutable only while a
 -- run settles; receipts and ledger rows remain immutable evidence.
+
+-- Ledger evidence is an append-only two-event lineage: reservation followed by
+-- exactly one terminal settlement.  Existing one-row ledgers are normalized
+-- while the migration is applied, then database guards prohibit mutation.
+ALTER TABLE cro03_provider_ledger
+  ADD COLUMN IF NOT EXISTS event_type TEXT NOT NULL DEFAULT 'reservation',
+  ADD COLUMN IF NOT EXISTS reservation_entry_id UUID REFERENCES cro03_provider_ledger(id) ON DELETE RESTRICT;
+UPDATE cro03_provider_ledger SET event_type = 'terminal'
+ WHERE disposition <> 'outstanding';
+INSERT INTO cro03_provider_ledger
+  (provider_run_id, provider_operation_id, provider, entry_key, event_type, disposition, units, amount_micros)
+SELECT l.provider_run_id, l.provider_operation_id, l.provider, 'reserve:legacy:' || l.id,
+       'reservation', 'outstanding', l.units, l.amount_micros
+  FROM cro03_provider_ledger l
+ WHERE l.event_type = 'terminal' AND l.reservation_entry_id IS NULL;
+UPDATE cro03_provider_ledger terminal
+   SET reservation_entry_id = reservation.id
+  FROM cro03_provider_ledger reservation
+ WHERE terminal.event_type = 'terminal' AND terminal.reservation_entry_id IS NULL
+   AND reservation.entry_key = 'reserve:legacy:' || terminal.id;
+ALTER TABLE cro03_provider_ledger
+  ADD CONSTRAINT cro03_ledger_event_type_chk CHECK (event_type IN ('reservation','terminal')),
+  ADD CONSTRAINT cro03_ledger_terminal_lineage_chk CHECK (
+    (event_type = 'reservation' AND reservation_entry_id IS NULL AND disposition = 'outstanding')
+    OR (event_type = 'terminal' AND reservation_entry_id IS NOT NULL AND disposition IN ('consumed','released','refunded','ambiguous'))
+  );
+CREATE UNIQUE INDEX IF NOT EXISTS cro03_ledger_one_reservation_per_run
+  ON cro03_provider_ledger(provider_run_id) WHERE event_type = 'reservation';
+CREATE UNIQUE INDEX IF NOT EXISTS cro03_ledger_one_terminal_per_run
+  ON cro03_provider_ledger(provider_run_id) WHERE event_type = 'terminal';
+DROP TRIGGER IF EXISTS cro03_ledger_immutable ON cro03_provider_ledger;
+CREATE TRIGGER cro03_ledger_immutable
+  BEFORE UPDATE OR DELETE ON cro03_provider_ledger
+  FOR EACH ROW EXECUTE FUNCTION cro03_immutable_row_guard();

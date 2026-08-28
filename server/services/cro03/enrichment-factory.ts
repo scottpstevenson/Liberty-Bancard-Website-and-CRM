@@ -109,20 +109,22 @@ function frozenSubjectSnapshot(contact: Row): Row {
   };
 }
 
-function frozenRouteForMembership(membership: Row, fallback: Row): Cro03Provider[] {
-  const plan = membership.frozen_route_plan;
-  const parsed = typeof plan === "string" ? JSON.parse(plan) : plan;
-  if (Number(parsed?.policyVersion) > 0 && Array.isArray(parsed?.providers) &&
-      parsed.providers.every((provider: unknown) => CRO03_PROVIDERS.includes(provider as Cro03Provider))) {
-    return parsed.providers as Cro03Provider[];
+function frozenRouteForMembership(membership: Row): Cro03Provider[] | null {
+  try {
+    const plan = typeof membership.frozen_route_plan === "string"
+      ? JSON.parse(membership.frozen_route_plan) : membership.frozen_route_plan;
+    if (Number(plan?.policyVersion) > 0 && Array.isArray(plan?.providers) &&
+        plan.providers.every((provider: unknown) => CRO03_PROVIDERS.includes(provider as Cro03Provider))) {
+      return plan.providers as Cro03Provider[];
+    }
+  } catch {
+    // Persisted route evidence is malformed: never derive a new route from mutable contact data.
   }
-  // Backward compatibility for 0174 rows only; all newly created rows freeze.
-  return routeForContact(fallback).providers;
+  return null;
 }
 
 async function nextProviderForItem(
   itemId: string,
-  contact: Row,
 ): Promise<Cro03Provider | undefined> {
   const terminalRuns = rows(await db.execute(sql`
     SELECT provider FROM cro03_provider_runs
@@ -134,7 +136,17 @@ async function nextProviderForItem(
     SELECT frozen_route_plan FROM cro03_batch_memberships
      WHERE id = (SELECT membership_id FROM cro03_enrichment_items WHERE id = ${itemId}::uuid)
   `))[0];
-  return frozenRouteForMembership(membership ?? {}, contact).find((provider) => !finished.has(provider));
+  const route = frozenRouteForMembership(membership ?? {});
+  if (!route) {
+    await db.execute(sql`
+      UPDATE cro03_enrichment_items
+         SET state = 'superseded', terminal_code = 'missing_or_malformed_frozen_route_plan',
+             claim_token = NULL, lease_expires_at = NULL, completed_at = NOW(), updated_at = NOW()
+       WHERE id = ${itemId}::uuid AND state IN ('queued','running','waiting')
+    `);
+    return undefined;
+  }
+  return route.find((provider) => !finished.has(provider));
 }
 
 async function advanceAfterProviderStep(input: {
@@ -145,7 +157,7 @@ async function advanceAfterProviderStep(input: {
 }): Promise<void> {
   const freshContact = await contactRow(input.contactId);
   const nextProvider = freshContact
-    ? await nextProviderForItem(String(input.item.id), freshContact)
+    ? await nextProviderForItem(String(input.item.id))
     : undefined;
   const state = input.pendingMutations > 0 ? "waiting" : nextProvider ? "queued" : "completed";
   const terminalCode = input.pendingMutations > 0
@@ -355,6 +367,7 @@ export async function getCro03BatchStatus(batchId: string): Promise<any | null> 
       FROM cro03_provider_ledger l
       JOIN cro03_provider_runs r ON r.id = l.provider_run_id
      WHERE r.item_id IN (SELECT id FROM cro03_enrichment_items WHERE batch_id = ${batchId}::uuid)
+        AND l.event_type = 'terminal'
      GROUP BY provider
   `));
   const status = result[0];
@@ -527,9 +540,9 @@ export async function reserveCro03ProviderLedger(
 ): Promise<void> {
   await db.execute(sql`
     INSERT INTO cro03_provider_ledger
-      (provider_run_id, provider_operation_id, provider, entry_key, disposition, units)
+      (provider_run_id, provider_operation_id, provider, entry_key, event_type, disposition, units)
     VALUES (${runId}::uuid, ${operationId}::uuid, ${provider},
-            ${`reserve:${runId}`}, 'outstanding', 1)
+            ${`reserve:${runId}`}, 'reservation', 'outstanding', 1)
     ON CONFLICT (entry_key) DO NOTHING
   `);
 }
@@ -548,10 +561,15 @@ export async function completeCro03ProviderAccounting(
       )
     `);
     const transitioned = rows(await tx.execute(sql`
-      UPDATE cro03_provider_ledger
-         SET disposition = ${disposition}, receipt_reference = ${receipt?.receiptReference ?? null}
-       WHERE entry_key = ${`reserve:${runId}`} AND disposition = 'outstanding'
-       RETURNING id
+      INSERT INTO cro03_provider_ledger
+        (provider_run_id, provider_operation_id, provider, entry_key, event_type,
+         reservation_entry_id, disposition, units, receipt_reference)
+      SELECT provider_run_id, provider_operation_id, provider, ${`settle:${runId}`}, 'terminal',
+             id, ${disposition}, units, ${receipt?.receiptReference ?? null}
+        FROM cro03_provider_ledger
+       WHERE entry_key = ${`reserve:${runId}`} AND event_type = 'reservation'
+      ON CONFLICT (entry_key) DO NOTHING
+      RETURNING id
     `))[0];
     if (!transitioned) {
       const existingReceipt = rows(await tx.execute(sql`
@@ -620,11 +638,16 @@ export async function recoverExpiredCro03Dispatches(): Promise<number> {
         )
       `);
       const ledger = rows(await tx.execute(sql`
-        UPDATE cro03_provider_ledger
-           SET disposition = 'ambiguous'
+        INSERT INTO cro03_provider_ledger
+          (provider_run_id, provider_operation_id, provider, entry_key, event_type,
+           reservation_entry_id, disposition, units)
+        SELECT provider_run_id, provider_operation_id, provider,
+               ${`settle:${candidate.provider_run_id}`}, 'terminal', id, 'ambiguous', units
+          FROM cro03_provider_ledger
          WHERE provider_run_id = ${candidate.provider_run_id}::uuid
-           AND disposition = 'outstanding'
-         RETURNING units
+           AND event_type = 'reservation'
+        ON CONFLICT (entry_key) DO NOTHING
+        RETURNING units
       `))[0];
       if (!ledger) return false;
       await tx.execute(sql`
@@ -863,7 +886,7 @@ async function reconcileMutationItem(itemId: string): Promise<void> {
   `))[0];
   const contact = item?.contact_id ? await contactRow(Number(item.contact_id)) : null;
   const nextProvider = failed === 0 && pending === 0 && contact
-    ? await nextProviderForItem(itemId, contact)
+    ? await nextProviderForItem(itemId)
     : undefined;
   await db.execute(sql`
     UPDATE cro03_enrichment_items
@@ -872,7 +895,7 @@ async function reconcileMutationItem(itemId: string): Promise<void> {
            next_attempt_at = CASE WHEN ${Boolean(nextProvider)} THEN NOW() ELSE next_attempt_at END,
            completed_at = CASE WHEN ${pending} = 0 AND ${Boolean(nextProvider)} = FALSE THEN NOW() ELSE NULL END,
            updated_at = NOW()
-     WHERE id = ${itemId}::uuid AND state <> 'cancelled'
+      WHERE id = ${itemId}::uuid AND state NOT IN ('cancelled','superseded')
   `);
   if (item?.batch_id) await refreshBatchState(String(item.batch_id));
 }
@@ -1108,14 +1131,29 @@ export async function processNextCro03Item(
     `);
     return "superseded";
   }
-  const snapshot = typeof membership.subject_snapshot === "string"
-    ? JSON.parse(membership.subject_snapshot) : (membership.subject_snapshot ?? {});
+  let snapshot: Row;
+  try {
+    snapshot = typeof membership.subject_snapshot === "string"
+      ? JSON.parse(membership.subject_snapshot) : (membership.subject_snapshot ?? {});
+  } catch {
+    snapshot = {};
+  }
+  if (!Number(snapshot.id) || !frozenRouteForMembership(membership)) {
+    await db.execute(sql`
+      UPDATE cro03_enrichment_items
+         SET state = 'superseded', terminal_code = 'missing_or_malformed_frozen_evidence',
+             lease_expires_at = NULL, claim_token = NULL, completed_at = NOW(), updated_at = NOW()
+       WHERE id = ${item.id}::uuid AND claim_token = ${item.claim_token}::uuid
+    `);
+    await refreshBatchState(String(item.batch_id));
+    return "superseded";
+  }
   const frozenIdentity = {
     company_name: snapshot.companyName, website: snapshot.website, phone: snapshot.phone,
     email: snapshot.email, email_status: snapshot.emailStatus, city: snapshot.city,
     state: snapshot.state, industry: snapshot.industry, business_id: snapshot.businessId,
   };
-  const provider = await nextProviderForItem(String(item.id), frozenIdentity);
+  const provider = await nextProviderForItem(String(item.id));
   if (!provider) {
     await db.execute(sql`
       UPDATE cro03_enrichment_items
@@ -1377,9 +1415,28 @@ export async function processNextCro03Item(
     return "superseded";
   }
   await deps.afterProviderDispatch?.();
-  let result: ProviderTransportResult;
+  // This is deliberately immediately adjacent to adapter invocation.  The
+  // dispatch transaction only authorizes a handoff; cancellation, revocation,
+  // lease expiry, or a fence takeover in the intervening turn must still stop
+  // the adapter without treating an unmade call as ambiguous spend.
   try {
     await assertCurrentWorkerContext(reservation.context);
+  } catch {
+    await completeCro03ProviderAccounting(
+      String(providerRun.id), reservation.operationId, provider, "released",
+    );
+    await db.execute(sql`
+      UPDATE cro03_provider_runs
+         SET state = 'superseded', provider_outcome = 'superseded',
+             billing_disposition = 'released', completed_at = NOW()
+       WHERE id = ${providerRun.id}::uuid
+         AND state = 'running' AND billing_disposition = 'outstanding'
+    `);
+    await refreshBatchState(String(item.batch_id));
+    return "superseded";
+  }
+  let result: ProviderTransportResult;
+  try {
     if (provider === "apollo") {
       result = await (deps.apollo ?? executeDefaultApollo)({
           vertical: String(frozenIdentity.industry ?? "business"),

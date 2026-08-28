@@ -183,6 +183,7 @@ async function createRoutableExecutionFixture(): Promise<{
     [batchId, contactId, `provider-fingerprint-${suffix}-${batchIds.length}`,
       `provider-membership-${suffix}-${batchIds.length}`,
       JSON.stringify({
+         id: contactId,
         companyName: "Certification Merchant",
         website: "example.test",
         phone: `556${suffix.slice(0, 7)}`,
@@ -341,17 +342,25 @@ try {
   const accounting = await pool.query(
     `SELECT pc.reserved_units, pc.consumed_units,
             (SELECT count(*)::int FROM cro03_provider_ledger WHERE provider_run_id=$1) AS ledger_rows,
+            (SELECT count(*)::int FROM cro03_provider_ledger WHERE provider_run_id=$1 AND event_type='reservation') AS reservations,
+            (SELECT count(*)::int FROM cro03_provider_ledger WHERE provider_run_id=$1 AND event_type='terminal') AS terminals,
             (SELECT count(*)::int FROM cro03_receipts WHERE provider_run_id=$1) AS receipt_rows,
-             (SELECT disposition FROM cro03_provider_ledger WHERE provider_run_id=$1) AS disposition,
+              (SELECT disposition FROM cro03_provider_ledger WHERE provider_run_id=$1 AND event_type='terminal') AS disposition,
              (SELECT receipt_id FROM cro03_provider_runs WHERE id=$1) AS receipt_id
        FROM provider_controls pc WHERE pc.provider='apollo'`,
     [providerRun.rows[0].id],
   );
   check(accounting.rows[0].reserved_units === 0 && accounting.rows[0].consumed_units === 1,
     "terminal accounting replay cannot double-consume or double-release budget");
-  check(accounting.rows[0].ledger_rows === 1 && accounting.rows[0].receipt_rows === 1 &&
+   check(accounting.rows[0].ledger_rows === 2 && accounting.rows[0].reservations === 1 &&
+     accounting.rows[0].terminals === 1 && accounting.rows[0].receipt_rows === 1 &&
     accounting.rows[0].disposition === "consumed" && accounting.rows[0].receipt_id,
-    "one immutable ledger transition reconciles to a linked receipt");
+     "one reservation and one immutable terminal event reconcile to a linked receipt");
+   const immutableLedger = await pool.query(
+     `UPDATE cro03_provider_ledger SET disposition='released' WHERE provider_run_id=$1`,
+     [providerRun.rows[0].id],
+   ).then(() => false).catch((error) => /immutable/.test(String(error.message)));
+   check(immutableLedger, "database rejects in-place economics evidence mutation");
 
   await pool.query(
     `UPDATE provider_controls
@@ -392,7 +401,7 @@ try {
             l.disposition AS ledger_disposition
        FROM cro03_enrichment_items i
        JOIN cro03_provider_runs r ON r.item_id=i.id
-       JOIN cro03_provider_ledger l ON l.provider_run_id=r.id
+       JOIN cro03_provider_ledger l ON l.provider_run_id=r.id AND l.event_type='terminal'
       WHERE i.id=$1`,
     [race.itemId],
   );
@@ -452,15 +461,15 @@ try {
             max(r.billing_disposition) AS billing,
             max(l.disposition) AS ledger
        FROM cro03_provider_runs r
-       JOIN cro03_provider_ledger l ON l.provider_run_id=r.id
+        JOIN cro03_provider_ledger l ON l.provider_run_id=r.id AND l.event_type='terminal'
       WHERE r.item_id=$1`,
     [dispatchedRace.itemId],
   );
-  check(dispatchedTransportCalls === 1 && dispatchedState.rows[0].runs === 1,
-    "cancellation after durable dispatch permits exactly one provider handoff");
-  check(dispatchedState.rows[0].billing === "consumed" &&
-    dispatchedState.rows[0].ledger === "consumed",
-    "post-dispatch cancellation reconciles incurred cost while projection remains fenced");
+   check(dispatchedTransportCalls === 0 && dispatchedState.rows[0].runs === 1,
+     "cancellation after dispatch authorization but before adapter invocation prevents handoff");
+   check(dispatchedState.rows[0].billing === "released" &&
+     dispatchedState.rows[0].ledger === "released",
+     "revoked final adapter authority releases an unmade provider call");
 
   await pool.query(
     `UPDATE provider_controls
@@ -507,7 +516,7 @@ try {
             l.disposition AS ledger_disposition, o.billing_state
        FROM cro03_enrichment_items i
        JOIN cro03_provider_runs r ON r.item_id=i.id
-       JOIN cro03_provider_ledger l ON l.provider_run_id=r.id
+        JOIN cro03_provider_ledger l ON l.provider_run_id=r.id AND l.event_type='terminal'
        JOIN provider_operations o ON o.id=r.operation_id
       WHERE i.id=$1`,
     [crashRace.itemId],
@@ -646,7 +655,7 @@ try {
             (SELECT count(*)::int FROM cro03_receipts WHERE provider_run_id=$1) AS receipts,
             (SELECT reserved_units FROM provider_controls WHERE provider='apollo') AS reserved,
             (SELECT consumed_units FROM provider_controls WHERE provider='apollo') AS consumed
-       FROM cro03_provider_ledger l WHERE l.provider_run_id=$1`,
+       FROM cro03_provider_ledger l WHERE l.provider_run_id=$1 AND l.event_type='terminal'`,
     [accountingRun.rows[0].id],
   );
   check(["consumed", "ambiguous"].includes(accountingRaceState.rows[0].disposition) &&
@@ -684,6 +693,7 @@ try {
   await pool.query("BEGIN");
   try {
     await pool.query(`ALTER TABLE cro03_receipts DISABLE TRIGGER cro03_receipt_immutable`);
+    await pool.query(`ALTER TABLE cro03_provider_ledger DISABLE TRIGGER cro03_ledger_immutable`);
     await pool.query(`ALTER TABLE cro03_candidates DISABLE TRIGGER cro03_candidate_immutable`);
     await pool.query(`ALTER TABLE cro03_batch_memberships DISABLE TRIGGER cro03_membership_immutable`);
     if (batchIds.length) {
@@ -741,6 +751,7 @@ try {
         WHERE provider='apollo'`,
     );
     await pool.query(`ALTER TABLE cro03_receipts ENABLE TRIGGER cro03_receipt_immutable`);
+    await pool.query(`ALTER TABLE cro03_provider_ledger ENABLE TRIGGER cro03_ledger_immutable`);
     await pool.query(`ALTER TABLE cro03_candidates ENABLE TRIGGER cro03_candidate_immutable`);
     await pool.query(`ALTER TABLE cro03_batch_memberships ENABLE TRIGGER cro03_membership_immutable`);
     await pool.query("COMMIT");

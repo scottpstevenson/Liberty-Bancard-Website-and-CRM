@@ -144,14 +144,11 @@ export async function assertCurrentWorkerContext(context: Cro03WorkerProviderCon
        AND o.lease_expires_at > NOW()
        AND r.state = 'running'
        AND r.authorization_context_hash = ${authorizationHash}
-       AND (
-         (i.claim_token = ${context.itemClaimToken}::uuid
-          AND i.execution_fence = ${context.executionFence}
-          AND i.state = 'running'
-          AND i.lease_expires_at > NOW()
-          AND b.state IN ('queued','running'))
-         OR r.state = 'running'
-       )
+        AND i.claim_token = ${context.itemClaimToken}::uuid
+        AND i.execution_fence = ${context.executionFence}
+        AND i.state = 'running'
+        AND i.lease_expires_at > NOW()
+        AND b.state IN ('queued','running')
      LIMIT 1
   `);
   if (!rows(result)[0]) throw new Error("CRO03_PROVIDER_CONTEXT_INVALID");

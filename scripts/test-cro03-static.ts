@@ -97,6 +97,8 @@ async function main() {
     assert.match(completionMigration, /subject_snapshot_hash/);
     assert.match(factory, /frozenSubjectSnapshot/);
     assert.match(factory, /frozenRouteForMembership/);
+    assert.doesNotMatch(factory, /routeForContact\(fallback\)/);
+    assert.match(factory, /missing_or_malformed_frozen_evidence/);
   });
   await check("superseded work is terminally accounted in the total equation", () => {
     assert.match(completionMigration, /superseded_count/);
@@ -115,6 +117,23 @@ async function main() {
     assert.match(factory, /provider_observations/);
     assert.match(factory, /receipt_id/);
     assert.match(factory, /validation_pending/);
+  });
+  await check("economics lineage is append-only reservation plus settlement", () => {
+    assert.match(completionMigration, /event_type TEXT NOT NULL DEFAULT 'reservation'/);
+    assert.match(completionMigration, /reservation_entry_id UUID REFERENCES cro03_provider_ledger/);
+    assert.match(completionMigration, /cro03_ledger_one_reservation_per_run/);
+    assert.match(completionMigration, /cro03_ledger_one_terminal_per_run/);
+    assert.match(completionMigration, /cro03_ledger_immutable/);
+    assert.match(factory, /'reservation', 'outstanding'/);
+    assert.match(factory, /'terminal'/);
+    assert.doesNotMatch(factory, /UPDATE cro03_provider_ledger/);
+  });
+  await check("final adapter boundary requires the active item claim and fence", () => {
+    const context = fs.readFileSync("server/services/cro03/provider-context.ts", "utf8");
+    assert.match(context, /i\.claim_token = \$\{context\.itemClaimToken\}/);
+    assert.match(context, /i\.execution_fence = \$\{context\.executionFence\}/);
+    assert.match(context, /i\.lease_expires_at > NOW\(\)/);
+    assert.doesNotMatch(context, /OR r\.state = 'running'/);
   });
   await check("provider-export evidence is an immutable source-row snapshot", () => {
     assert.match(imports, /__cro03EvidenceValues/);
