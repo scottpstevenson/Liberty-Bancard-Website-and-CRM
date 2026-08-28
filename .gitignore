@@ -6,6 +6,7 @@ vite.config.ts.*
 *.tar.gz
 uploads/og-cache/
 uploads/statements/
+uploads/statement-command/
 
 # Large uploaded assets — never commit these to git
 attached_assets/*.zip
@@ -24,9 +25,10 @@ backups/
 *.xls
 *.zip
 *.csv
-!.agents/**/*.csv
-!.local/**/*.csv
-!fixtures/**/*.csv
+!.agents/skills/ui-ux-pro-max/data/**/*.csv
+!fixtures/csv-import/outscraper_missing_emails.csv
+!fixtures/csv-import/reconciliation_all_invalid.csv
+!fixtures/csv-import/reconciliation_mixed.csv
 !exports/ghl-workflow-checklist.csv
 *.sql
 !migrations/**/*.sql

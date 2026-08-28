@@ -1,0 +1,784 @@
+Task #1700 / CRO-02 — End-to-End Audit and Required Corrections
+
+Task: #1700 — CRO-02 Classification Provenance Quarantine
+Audit date: 2026-08-27 UTC
+Repository: scottpstevenson/Liberty-Bancard-Website-and-CRM
+Audited branch: main
+Audited SHA: 2f463398029fdc5adcd992ac4f068f81a2dfe640
+Mode: Read-only repository and plan audit; no application, migration, configuration, provider, database, deployment, or task mutation
+
+Executive verdict
+
+NOT BUILD-READY AS WRITTEN.
+
+The attached plan correctly identifies the repository's major CRO-02 defects. All 15 P0 findings, all 10 P1 findings, and all five P2 ownership boundaries remain materially supported by the current source, subject to the qualifications recorded below.
+
+The proposed remedy, however, introduces or leaves unresolved eight cutover-level P0 risks:
+
+It changes transactional_response from an intentional unknown-contact allowance to a production-graph requirement, which would block legitimate inbound confirmations for newly created contacts.
+
+It requires new business-root graph enforcement while prohibiting reconstruction/backfill, so existing records would be quarantined immediately.
+
+It has no compatibility rule for pre-CRO-02 historical events that possess only immutable record_class_at_event truth.
+
+It overlooks BT-10's existing eligibility_snapshots authority and would create competing purpose-decision snapshots.
+
+Its graph-generation requirement is not executable as specified for cross-subject dependencies, redirects, mappings, and merges.
+
+Its typed-evidence requirement does not freeze a concrete schema and its blanket source-event immutability conflicts with canonical intake replay.
+
+It does not choose one canonical organization/link/relationship writer or define the disposition of existing heuristic relationship rows.
+
+It declares an agent object-scope rule that is not consistently authoritative in the repository and is incomplete for unowned businesses.
+
+Task #1700 may safely proceed only after the implementation contract is replaced with the corrected phased contract in this report. The safe code-side tranche can build additive schema, shadow resolution, command/import fencing, authority consolidation, tests, and a runbook. Enforcement cutover, historical reconstruction, production classification, and live operations remain separate authorizations.
+
+Baseline independently verified
+
+Item
+
+Result
+
+Local audited worktree
+
+Clean
+
+HEAD
+
+2f463398029fdc5adcd992ac4f068f81a2dfe640
+
+origin/main
+
+Same SHA
+
+Latest commit
+
+Establish canonical revenue read and conversion contracts
+
+Migration journal
+
+170 entries; head index 169
+
+Migration head
+
+0165_outbound_send_claim_lease
+
+Journal high-water
+
+1794900000000
+
+CI manifest
+
+63 suites
+
+Mandatory pre-deploy inventory
+
+63 suites; exact manifest match
+
+Read-only checks executed successfully at this SHA:
+
+Check
+
+Exit
+
+Result
+
+scripts/check-migration-integrity.ts
+
+0
+
+364 checks passed; two documented historical timestamp warnings
+
+scripts/ci-suite-manifest.ts --check
+
+0
+
+63 suites; no duplicates or stale entries
+
+scripts/test-commercial-classification-static.ts
+
+0
+
+24 checks passed
+
+scripts/check-contact-identity-writers.ts
+
+0
+
+Passed
+
+scripts/test-canonical-intake-authority.ts
+
+0
+
+Passed
+
+scripts/check-route-guards.ts
+
+0
+
+Passed
+
+scripts/check-api-coverage.ts
+
+0
+
+No new unmatched client route
+
+Database-backed, server-backed, build, and production checks were not executed. This audit environment has no disposable TEST_DATABASE_URL and no project dependency installation. Static success is not runtime or production evidence.
+
+Confirmed current-state evidence
+
+Commercial authority
+
+server/services/commercial-classification-authority.ts is the sole intended five-value classification authority.
+
+transactional_response intentionally permits production and unknown; the source explicitly documents newly submitted forms as the reason.
+
+internal_test checks NODE_ENV=test but currently does not require a fixture subject or verify that the subject is non-production.
+
+Deal/prospect linked-root checks can collapse missing LEFT JOIN rows to an empty array.
+
+Preview idempotency replay returns the existing command ID without comparing payloads.
+
+Approval does not prevent requester self-approval.
+
+Execution reads an unlocked command, commits classification separately, and marks the command executed later.
+
+The executor is not independently persisted.
+
+Existing historical and purpose snapshots
+
+Only outbound_send_log and statement_upload_commands currently have immutable record_class_at_event snapshots.
+
+Migration 0150_commercial_classification.sql explicitly initializes historical rows as unknown; it does not fabricate prior truth.
+
+BT-10 migration 0158_provider_health_readiness_controls.sql already owns eligibility_snapshots.
+
+server/services/provider-readiness-control.ts writes those snapshots.
+
+campaign_preview_members.contactability_snapshot_ref references them.
+
+server/services/contact-merge.ts classifies them as immutable retained evidence.
+
+Existing eligibility_snapshots.contact_id uses ON DELETE CASCADE, which is incompatible with claiming that it is permanent commercial-history authority.
+
+Canonical organization and relationships
+
+businesses is the current canonical organization table, but it has no record_class.
+
+organization-resolver.ts serializes match/create decisions.
+
+sdr/dedupe.ts calls that resolver but separately updates business identity/descriptive fields and lead-source rows.
+
+CSV import, SDR dedupe, SDR orchestration, and other paths directly update contacts.business_id.
+
+storage/businesses.ts still exposes generic create/update/alias/location methods.
+
+entity_relationships is an unconstrained polymorphic graph with mutable/upserted heuristic rows.
+
+relationship-extractor.ts writes phone, address, company, MID, owner, and fingerprint-derived relationships directly.
+
+The same decision-maker PATCH route is registered in both contacts.ts and conversation-ai-config.ts; enrichment also writes decision-maker compatibility fields directly.
+
+Import accounting
+
+Canonical writeContact already commits accepted contact/source/identity/audit/disposition/projection-intent work transactionally.
+
+recordImportRowDisposition checks the claim and inserts the disposition in separate operations.
+
+completeImportExecution summarizes and finalizes in separate operations.
+
+Replay response mapping omits the updated bucket.
+
+The reconciliation smoke test also omits updated from its equation.
+
+Route-local conflictSkipped = batch.length - result.length is unreachable under the current writeContact return-or-throw contract.
+
+Contact-to-business linking happens after ledger completion and directly mutates contacts.business_id.
+
+Authorization and privacy
+
+/api/businesses, business detail, business update, aliases, locations, sources, and enrichment-run routes are broadly dashboard-authenticated; many have no object-scope predicate.
+
+The shared CRM guard scopes contact/deal paths for agents, but it does not cover /api/businesses*.
+
+Revenue reads use owned_or_unassigned rules, while other code comments state that all dashboard users may access all contacts because the product is single-tenant.
+
+A business has no direct owner field, so “owned/unassigned business” is not a complete access rule.
+
+Relationship graph handlers can disclose counterparty names and raw IDs; not every relationship route applies the same object-access check.
+
+New P0 corrections required before build
+
+P0-A — Preserve legitimate inbound transactional responses
+
+The plan's matrix requires a production commercial graph for every transactional response. That contradicts BT-06 and would deny newly created unknown contacts before they can receive the confirmation that acknowledges their inbound form, statement, application, booking, callback, support, or equipment request.
+
+The repository has many trusted transactional call sites, including public forms, GHL workflow enrollment, SMTP/GHL transports, statement/proposal flows, booking reminders, merchant status messages, and chat replies. One coarse purpose is no longer sufficient.
+
+Required contract:
+
+Purpose
+
+Commercial requirement
+
+Additional authority
+
+inbound_transactional_ack
+
+production or unknown; never test, demo, or synthetic
+
+Current server-owned inbound request/effect evidence, intended recipient binding, contactability, pause, and transport gates; no marketing content
+
+account_transactional
+
+Production graph or an independently verified active merchant/account relationship
+
+Contactability, pause, and transport gates
+
+marketing_outreach
+
+Production commercial graph
+
+CRO-04 consent, suppression, channel, cohort, and send authority
+
+internal_notification
+
+Server-owned internal destination; not a contact-class bypass
+
+Internal notification registry and pause/security rules
+
+internal_test
+
+NODE_ENV=test and an existing explicitly non-production fixture subject
+
+Disposable database/network denial
+
+Every current transactional_response caller must be inventoried and mapped to one of these effects. Unknown may never become a generic transport bypass.
+
+P0-B — Separate shadow build from enforcement cutover
+
+Adding businesses.record_class DEFAULT 'unknown', new reviewed link/mapping facts, and graph snapshots while forbidding reconstruction means existing production records will lack the new dependencies. Migrating all safety-critical consumers to enforce the new resolver in the same release would zero reports, block payouts/pre-spend, and quarantine current workflows by construction.
+
+Required phased rollout:
+
+Additive/shadow: add schema, authorities, resolvers, indexes, and tests. Existing consumers remain authoritative. New resolver runs read-only in shadow and records aggregate comparisons only.
+
+Dual-read comparison: compare legacy and CRO-02 decisions by purpose at a frozen data high-water mark. No changed business behavior.
+
+Separately authorized reconstruction: owner-approved, bounded, restart-safe dry run and reconstruction; no inference or promotion without evidence.
+
+Purpose-by-purpose enforcement: enable only after exact-SHA deployment, coverage thresholds, discrepancy review, rollback proof, and explicit authorization.
+
+The build must default to shadow mode. Startup must refuse enforcement when required policy version, schema version, coverage high-water mark, or rollback marker is absent.
+
+P0-C — Define pre-CRO-02 historical compatibility
+
+Pre-CRO-02 events cannot reference a snapshot that did not exist. The task cannot both require every historical reader to have a new snapshot and prohibit historical reconstruction.
+
+Required contract:
+
+Freeze a cutover timestamp, release SHA, and policy version.
+
+For pre-cutover outbound_send_log and statement_upload_commands, preserve immutable record_class_at_event as legacy_class_snapshot_v1.
+
+Missing CRO-02 snapshot on a pre-cutover row is a known legacy state, not a dangling-runtime defect.
+
+Never convert legacy unknown to production or synthesize evidence.
+
+New post-cutover events must atomically reference a CRO-02 resolution snapshot and must agree with record_class_at_event while that compatibility column remains.
+
+Historical aggregate output must expose legacy/unknown coverage separately.
+
+P0-D — Layer commercial and channel/provider snapshots
+
+Do not create a second generic purpose authority that competes with BT-10.
+
+Required ownership:
+
+Layer
+
+Owner
+
+Meaning
+
+commercial_resolution_snapshots
+
+CRO-02
+
+Commercial class, provenance, identity, organization link, relationship policy, graph fingerprint
+
+eligibility_snapshots
+
+BT-10/CRO-04 boundary
+
+Provider/channel/contactability eligibility, freshness, validation, readiness
+
+Frozen campaign member
+
+Campaign authority
+
+Reviewed membership and references to both applicable decisions
+
+Add a nullable commercial_resolution_snapshot_id to the existing eligibility snapshot for forward compatibility, then require it for new enforced marketing decisions after cutover. Preserve legacy BT-10 rows without inventing commercial evidence. Do not reuse BT-10's decision enum for allowed/quarantined. Replace cascade-delete semantics for retained evidence with a deliberate retention/tombstone policy.
+
+P0-E — Freeze an executable graph-generation algorithm
+
+A single per-subject integer cannot prove freshness when a decision depends on multiple roots and edges. A contact decision can become stale when a business, company mapping, redirect, identity observation, link review, or relationship review changes.
+
+Required algorithm:
+
+Give every typed root and every authority edge a monotonic revision.
+
+Bump both endpoints for two-ended link/mapping/relationship changes in the same transaction.
+
+Redirect/merge mutations bump requested, deprecated, and survivor dependency revisions as applicable.
+
+A snapshot stores a sorted dependency vector of {typed object, object ID, revision, authority version} and its canonical SHA-256 fingerprint.
+
+Revalidation locks and rereads every dependency in one documented order.
+
+The current fingerprint must exactly equal the preview fingerprint before approval/execution.
+
+New dependency phantoms must be prevented by advisory/key-range locks or detected by a deterministic membership revision.
+
+Missing rows, zero required edges, cycles, depth overflow, or dependency drift quarantine.
+
+The schema, lock order, membership rule, and canonical serialization must be frozen before implementation begins.
+
+P0-F — Freeze typed evidence and preserve intake replay
+
+The plan requests “exactly one typed FK” without enumerating legal evidence kinds or columns. It also says referenced source events cannot be updated, while writeContact legitimately updates only last_seen_at during idempotent replay.
+
+Required contract:
+
+Define one checked evidence-kind enum and one nullable FK per supported authority row.
+
+Enforce num_nonnulls(...) = 1 at the database layer.
+
+Initially support only explicitly required kinds: classification event, contact source event, import row disposition, identity observation, merge operation/redirect, business-link decision, legacy-company mapping decision, and relationship review.
+
+Validate same-subject/effective-subject compatibility in the authority transaction.
+
+Reference immutable authority facts; do not copy source payloads.
+
+For contact_source_events, freeze authority-bearing fields but continue to allow last_seen_at replay updates, or reference a separate immutable evidence assertion/hash.
+
+Use ON DELETE RESTRICT or an approved tombstone/retention mechanism for referenced evidence.
+
+Do not place raw emails, phones, names, source payloads, identity tokens, or protected values in snapshots or logs.
+
+P0-G — Choose one organization/link/relationship authority
+
+“Existing organization resolver/business-ingest authority” is ambiguous because the resolver and SDR ingest path own different writes today.
+
+Required ownership:
+
+organization-resolver.ts owns organization identity match/create and strong identity fields.
+
+A single organization service wraps it and owns allowed descriptive projections with a checked field-ownership matrix.
+
+sdr/dedupe.ts, CSV, orchestration, storage, and routes become callers/adapters; they may not update organization identity or contacts.business_id directly.
+
+Append-only contact_business_link_decisions owns link truth; contacts.business_id is a projection updated in the same transaction.
+
+Existing entity_relationships rows are heuristic candidates only. They never authorize decision-maker state or commercial eligibility.
+
+A new reviewed business-scoped relationship history owns decision-maker truth; compatibility fields are projections.
+
+Legacy company-to-business mapping is reviewed and append-only; no name/domain/phone-only automatic mapping.
+
+The field-ownership matrix and exact adapter list must be part of the build contract.
+
+P0-H — Freeze one object-scope policy
+
+Single tenancy does not imply that every agent can inspect every graph object. Conversely, revenue-specific ownership code is not automatically the global CRM policy.
+
+Required policy:
+
+Admin/manager: global read; sensitive authority mutations remain role- and dual-control-gated.
+
+Agent contact/deal access: reuse the shared CRM object-access predicate, including the chosen unassigned behavior.
+
+Agent business access: only if an authorized contact or deal links to that business. Unlinked businesses are admin/manager-only.
+
+Classification, mapping, business-link review, and relationship review: admin/manager or stricter task-specific role; an agent may submit a candidate only if explicitly allowed.
+
+Lists, counts, detail, child resources, and errors apply scope before fetching/aggregating and use the same non-enumerating 404 convention.
+
+Raw authority graph/evidence remains unavailable to general dashboard roles; expose only safe aggregate/review projections.
+
+Update the shared object-access authority rather than duplicating SQL ownership rules across routes.
+
+Corrected persistence contract
+
+If migration head remains 0165, reserve one legal 0166_* migration at journal index 170 with a unique when > 1794900000000. Revalidate immediately before implementation. The migration may be split into more than one forward migration if transactional review shows that one file would make bootstrap, rollback, or ownership review unsafe; “smallest additive” is more important than an arbitrary one-file rule.
+
+Minimum forward model:
+
+Typed commercial subject revision rows with exactly one root FK.
+
+Append-only contact-business link decisions and current projection.
+
+Append-only legacy-company mapping decisions and current projection.
+
+Append-only relationship candidates/reviews and current compatibility projection.
+
+Typed evidence-reference rows with exactly-one-FK constraints.
+
+Immutable CRO-02 commercial-resolution snapshots and dependency-vector rows.
+
+Classification command payload hash, graph fingerprint, policy version, requester, approver, executor, and fenced state/version.
+
+Forward references from new historical events and BT-10 eligibility snapshots.
+
+Purpose/policy registry and enforcement-mode metadata.
+
+Required FK/current/purpose/revision/fingerprint/lease indexes.
+
+Append-only or field-level immutability triggers with explicit allowed operational fields.
+
+Do not add mutable commercial class columns to statements, applications, MIDs, tasks, campaign members, import rows, or event ledgers.
+
+Corrected build sequence
+
+Recapture task state, SHA, worktree, migration head, and suite baseline.
+
+Freeze the purpose/effect matrix, object scope, organization field ownership, typed evidence matrix, dependency vector, lock order, retention, and legacy cutover contract.
+
+Add additive schema and shadow-mode configuration only.
+
+Harden classification preview/approve/execute replay, actor separation, locking, and atomic commit.
+
+Fence import row disposition and completion; unify the six-bucket compatibility mapping.
+
+Consolidate organization/link and decision-maker writer ownership; remove duplicate routes and direct compatibility-field writes.
+
+Implement current commercial resolution plus immutable snapshot creation in shadow mode.
+
+Integrate CRO-02 snapshot references into BT-10 eligibility without replacing BT-10 authority.
+
+Add aggregate coverage and discrepancy reports using one DB snapshot and privacy-safe scoping.
+
+Migrate consumers to a shared adapter that can compare legacy and CRO-02 decisions; do not enable enforcement.
+
+Add non-empty structural, disposable integration, HTTP/privacy, concurrency, and provider-denial proof.
+
+Register exactly three focused suites if baseline remains 63, producing an expected manifest/pre-deploy total of 66.
+
+Author the owner-only reconstruction/cutover runbook; do not run it.
+
+Repeat writer/consumer/route searches, review the full diff, and issue a merge verdict distinct from deployment or enforcement readiness.
+
+Original 30-finding verification register
+
+Finding
+
+Audit status
+
+Required disposition
+
+P0-01 Separate class from readiness
+
+Confirmed
+
+Preserve independent axes; do not make downstream readiness a class predicate
+
+P0-02 Freeze vocabulary
+
+Confirmed
+
+Keep five classes; use independent constrained axis/reason enums
+
+P0-03 Root/derived/evidence ownership
+
+Confirmed
+
+Add business root only under phased cutover; derived/event rows remain non-root
+
+P0-04 Purpose-specific dependencies
+
+Confirmed with plan correction
+
+Split transactional effects; preserve unknown inbound acknowledgement
+
+P0-05 Vacuous linked-root success
+
+Confirmed
+
+Require subject/FK/row/cardinality before class evaluation
+
+P0-06 Typed immutable same-subject evidence
+
+Confirmed with plan correction
+
+Freeze exact evidence schema; preserve allowed intake replay field
+
+P0-07 Canonical business/link authority
+
+Confirmed with plan correction
+
+Choose one writer and field-ownership matrix; make link fact authoritative
+
+P0-08 Legacy company mapping
+
+Confirmed
+
+Reviewed, append-only mapping only; no heuristic copy/inference
+
+P0-09 Identity readiness/concurrency
+
+Confirmed with plan correction
+
+Dependency-vector revisions, not an underspecified single generation
+
+P0-10 Decision-maker authority
+
+Confirmed
+
+One reviewed business-scoped authority; heuristics are candidates only
+
+P0-11 Command replay/dual control/atomicity
+
+Confirmed
+
+Hash comparison, three actors, locks, graph revalidation, atomic commit/recovery
+
+P0-12 Consumer migration matrix
+
+Confirmed with plan correction
+
+Shadow/dual-read first; no immediate enforcement over unresolved legacy data
+
+P0-13 CRO-03/CRO-04 boundaries
+
+Confirmed
+
+Commercial handoff only; no provider/channel/send authority
+
+P0-14 Authorization/graph exposure
+
+Confirmed with plan correction
+
+Freeze shared object policy, including business access and raw-graph denial
+
+P0-15 Import accounting/fencing
+
+Confirmed
+
+Preserve existing atomic intake; fix only lease/completion/counter gaps
+
+P1-01 Smallest additive migration
+
+Confirmed with qualification
+
+Use legal forward migrations; do not force one file if unsafe
+
+P1-02 Aggregate coverage API
+
+Confirmed
+
+Snapshot-consistent, scoped, zero-filled, distinct denominators, no PII/IDs
+
+P1-03 Immutable resolution snapshots
+
+Confirmed with plan correction
+
+Layer CRO-02 under BT-10 eligibility; add pre-cutover compatibility
+
+P1-04 Structural certification
+
+Confirmed
+
+Structural writer/route/consumer ownership plus semantic fixtures
+
+P1-05 Non-empty disposable fixtures
+
+Confirmed
+
+Assert setup cardinality and every mandatory case
+
+P1-06 HTTP behavior matrix
+
+Confirmed
+
+Stable safe codes, non-enumerating access, correlation IDs, no SQL/evidence leak
+
+P1-07 Lock/index/cardinality/N+1
+
+Confirmed with plan correction
+
+Freeze dependency and phantom algorithm before build
+
+P1-08 Authoritative inventory
+
+Confirmed with plan correction
+
+Add all transactional callers, BT-10 snapshot consumers, relationship paths, and current direct writers
+
+P1-09 CI/pre-deploy registration
+
+Confirmed
+
+Baseline 63; expected 66 only if exactly three new suites are added
+
+P1-10 Owner-only runbook
+
+Confirmed
+
+Documentation only; separate approval for production execution
+
+P2-01 Operator remediation UX
+
+Confirmed successor boundary
+
+CRO-05/operations UX; aggregate-only in CRO-02
+
+P2-02 Historical reconstruction
+
+Confirmed successor boundary
+
+Separate Data Owner task/authorization; no execution here
+
+P2-03 Provider economics/activation
+
+Confirmed successor boundary
+
+CRO-03/live verification; network denied here
+
+P2-04 Consent/channel/enrollment
+
+Confirmed successor boundary
+
+CRO-04; commercial allow never bypasses channel authority
+
+P2-05 Broader legacy/performance work
+
+Confirmed successor boundary
+
+Named residual inventory; safety-critical paths cannot be deferred
+
+Expanded consumer and writer inventory required
+
+The attached file list is directionally strong but incomplete for a change to purpose semantics. Recapture at build start and include, at minimum:
+
+All authorizeUse, transactional_response, and marketing_outreach callers, including public forms, helpers, GHL workflows/enrollment, Gmail/SMTP/GHL transports, chat replies, proposal flows, merchant status, partner welcome, and contactability.
+
+Existing BT-10 eligibility_snapshots, provider readiness, campaign preview member, sequence worker, ZeroBounce campaign, and merge-manifest paths.
+
+All record_class/recordClass readers in analytics, portfolio, revenue, KPI, digest, funnel, residual, campaign, sequence, contactability, and storage paths.
+
+Every businesses and contacts.business_id writer, including scripts and background services.
+
+Both decision-maker route registrations, generic contact writers, enrichment writes, relationship routes, relationship extractor, and storage relationship methods.
+
+Historical event creation/read paths for outbound logs, statement commands, payouts, analytics facts, and future event snapshots.
+
+No new or discovered safety-critical writer/consumer may be silently relegated to a future inventory.
+
+Mandatory test and release gates
+
+Build/merge gates
+
+Fresh disposable migration bootstrap and second application.
+
+Exact/divergent/concurrent command replay and three-actor separation.
+
+Fault injection around class event, projection, graph revision, snapshot, audit, and command state.
+
+Missing/dangling/duplicate dependency and redirect/collision tests.
+
+Dependency-vector staleness and phantom-edge tests.
+
+Source-event replay after evidence reference.
+
+All six import dispositions, lease theft, stale completion, crash recovery, and UI/API equation.
+
+Duplicate route removal and direct-writer denial.
+
+Two-agent/admin/manager/anonymous privacy tests across business, relationship, command, and aggregate routes.
+
+Pre-cutover and post-cutover historical snapshot behavior.
+
+CRO-02/BT-10 snapshot layering and campaign-freeze compatibility.
+
+Shadow comparison with non-empty fixtures; enforcement disabled.
+
+Global network denial and deliberate real-adapter denial.
+
+Query-count and distinct-cardinality proof.
+
+Migration integrity, 66-suite manifest/pre-deploy match if +3, all capability-owned CI suites, typecheck, production build, and git diff --check.
+
+Separate release/cutover gates
+
+Exact deployed SHA and applied migration evidence.
+
+Read-only aggregate coverage against a frozen high-water mark.
+
+Discrepancy thresholds approved per purpose.
+
+Owner-approved reconstruction plan, bounded cohort, stop conditions, checkpoint/recovery, and rollback/forward-fix authority.
+
+No live provider, GHL, campaign, sequence, SMTP, payout, or outreach activity as part of CRO-02 cutover verification.
+
+Purpose-by-purpose enforcement authorization; no blanket switch.
+
+Kill lines added by this audit
+
+Stop if unknown newly submitted contacts cannot receive a tightly bound inbound acknowledgement.
+
+Stop if unknown can authorize any generic transactional, lifecycle, or marketing effect.
+
+Stop if new graph enforcement is enabled before existing-data coverage and legacy compatibility are proven.
+
+Stop if a pre-cutover event is required to reference a snapshot that did not exist.
+
+Stop if CRO-02 replaces or duplicates BT-10 provider/channel eligibility authority.
+
+Stop if a snapshot is cascade-deleted while claimed as immutable retained evidence.
+
+Stop if graph freshness is represented by one subject counter without a complete dependency vector.
+
+Stop if referenced source-event immutability breaks last_seen_at replay or canonical intake idempotency.
+
+Stop if organization-resolver, SDR ingest, storage, CSV, or orchestration remain competing organization/link writers.
+
+Stop if heuristic entity_relationships rows can authorize decision-maker or commercial eligibility.
+
+Stop if an agent can enumerate an unlinked business or cross-scope graph counterparty.
+
+Stop if shadow-mode merge is presented as production enforcement or coverage completion.
+
+Final audit disposition
+
+Decision
+
+Status
+
+Original defect diagnosis
+
+SUPPORTED, with qualifications above
+
+Attached implementation contract
+
+REJECT — CORRECTION REQUIRED
+
+Safe additive/shadow build after contract replacement
+
+ELIGIBLE TO BEGIN
+
+Production reconstruction/classification
+
+OUT OF SCOPE / SEPARATE AUTHORIZATION
+
+Enforcement cutover
+
+BLOCKED pending exact-SHA deployment, coverage, reconstruction, and approval
+
+Live providers, GHL, campaigns, sequences, payout execution, or outreach
+
+OUT OF SCOPE
+
+No repository files, task records, production data, providers, GHL records, campaigns, messages, secrets, migrations, branches, or deployments were modified during this audit.
