@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, getCsrfToken, queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -40,6 +40,16 @@ interface QueueContact {
   createdAt: string;
   lastScoredAt: string | null;
   emailStatus: string | null;
+  primaryOfferPath: string | null;
+  dataReadinessScore: number | null;
+  decision: {
+    qualified: boolean;
+    channel: "email" | "manual_call" | "sms";
+    sequenceId: number | null;
+    policyVersion: number;
+    expiresAt: string;
+    reasonCodes: string[];
+  };
 }
 
 interface QueuePage {
@@ -47,6 +57,10 @@ interface QueuePage {
   total: number;
   page: number;
   limit: number;
+  channel: "email" | "manual_call" | "sms";
+  policyVersion: number;
+  asOf: string;
+  reasonBuckets: Record<string, number>;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -91,6 +105,7 @@ export default function OutreachQueue() {
   const [filterScore,    setFilterScore]    = useState("all");
   const [filterVertical, setFilterVertical] = useState("all");
   const [filterAssigned, setFilterAssigned] = useState("all");
+  const [channel, setChannel] = useState<"email" | "manual_call" | "sms">("email");
 
   // ── Selection ──────────────────────────────────────────────────────────────
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -104,10 +119,11 @@ export default function OutreachQueue() {
     ...(filterScore    !== "all" ? { score:    filterScore    } : {}),
     ...(filterVertical !== "all" ? { vertical: filterVertical } : {}),
     ...(filterAssigned !== "all" && isAdmin ? { assignedTo: filterAssigned } : {}),
+    channel,
   });
 
   const queueQuery = useQuery<QueuePage>({
-    queryKey: ["/api/outreach-queue", page, filterScore, filterVertical, filterAssigned],
+    queryKey: ["/api/outreach-queue", page, filterScore, filterVertical, filterAssigned, channel],
     queryFn: async () => {
       const r = await fetch(`/api/outreach-queue?${queueParams}`, { credentials: "include" });
       if (!r.ok) throw new Error(await r.text());
@@ -118,9 +134,9 @@ export default function OutreachQueue() {
 
   // Server-backed assignee list so the filter shows all reps, not just the current page
   const assigneesQuery = useQuery<{ assignees: (string | null)[] }>({
-    queryKey: ["/api/outreach-queue/assignees"],
+    queryKey: ["/api/outreach-queue/assignees", channel],
     queryFn: async () => {
-      const r = await fetch("/api/outreach-queue/assignees", { credentials: "include" });
+      const r = await fetch(`/api/outreach-queue/assignees?channel=${channel}`, { credentials: "include" });
       if (!r.ok) return { assignees: [] };
       return r.json();
     },
@@ -134,11 +150,22 @@ export default function OutreachQueue() {
 
   // ── Mutations ──────────────────────────────────────────────────────────────
   const startMutation = useMutation({
-    mutationFn: async (contactId: number) => {
-      const r = await apiRequest("POST", `/api/outreach-queue/${contactId}/start`, {});
+    mutationFn: async (contact: QueueContact) => {
+      if (!contact.decision.sequenceId) throw new Error("No qualified sequence is available");
+      const r = await fetch(`/api/outreach-queue/${contact.id}/start`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": getCsrfToken() ?? "",
+          "Idempotency-Key": crypto.randomUUID(),
+        },
+        body: JSON.stringify({ channel, sequenceId: contact.decision.sequenceId }),
+      });
+      if (!r.ok) throw new Error(await r.text());
       return r.json();
     },
-    onSuccess: (data: any, contactId) => {
+    onSuccess: (data: any, contact) => {
       if (data.alreadyEnrolled) {
         toast({ title: "Already enrolled", description: data.message });
       } else {
@@ -146,7 +173,7 @@ export default function OutreachQueue() {
           title: "Outreach started!",
           description: `Enrolled in ${data.sequenceName ?? "sequence"}${data.dealAdvanced ? " · deal advanced to Enriched" : ""}`,
         });
-        setEnrolledIds(prev => new Set(prev).add(contactId));
+        setEnrolledIds(prev => new Set(prev).add(contact.id));
       }
       queryClient.invalidateQueries({ queryKey: ["/api/outreach-queue"] });
     },
@@ -174,7 +201,23 @@ export default function OutreachQueue() {
       const toEnroll = ids.slice(0, BULK_CAP);
       const skipped  = ids.length - toEnroll.length;
       const results = await Promise.allSettled(
-        toEnroll.map(id => apiRequest("POST", `/api/outreach-queue/${id}/start`, {}).then(r => r.json()))
+        toEnroll.map(id => {
+          const contact = contacts.find((candidate) => candidate.id === id);
+          if (!contact?.decision.sequenceId) return Promise.reject(new Error("No qualified sequence"));
+          return fetch(`/api/outreach-queue/${id}/start`, {
+            method: "POST",
+            credentials: "include",
+            headers: {
+              "Content-Type": "application/json",
+              "X-CSRF-Token": getCsrfToken() ?? "",
+              "Idempotency-Key": crypto.randomUUID(),
+            },
+            body: JSON.stringify({ channel, sequenceId: contact.decision.sequenceId }),
+          }).then(async (r) => {
+            if (!r.ok) throw new Error(await r.text());
+            return r.json();
+          });
+        })
       );
       const succeeded = results.filter(r => r.status === "fulfilled").length;
       const failed    = results.filter(r => r.status === "rejected").length;
@@ -218,7 +261,7 @@ export default function OutreachQueue() {
   }, []);
 
   const isPending = (id: number) =>
-    (startMutation.isPending && startMutation.variables === id) ||
+    (startMutation.isPending && startMutation.variables?.id === id) ||
     (skipMutation.isPending && skipMutation.variables === id);
 
   // ── Server-backed rep list for manager filter ──────────────────────────────
@@ -235,7 +278,7 @@ export default function OutreachQueue() {
             Ready for Outreach
           </h1>
           <p className="text-muted-foreground text-sm mt-0.5">
-            Enriched leads with contact data, not yet in a sequence.
+            Channel-qualified leads from policy v{queueQuery.data?.policyVersion ?? "—"}.
             {total > 0 && (
               <span className="ml-1 font-medium text-foreground">{total.toLocaleString()} waiting.</span>
             )}
@@ -253,6 +296,16 @@ export default function OutreachQueue() {
 
       {/* ── Filters ───────────────────────────────────────────────────────── */}
       <div className="flex flex-wrap gap-2">
+        <Select value={channel} onValueChange={(value) => { setChannel(value as typeof channel); setPage(1); setSelectedIds(new Set()); }}>
+          <SelectTrigger className="w-44 h-8 text-sm">
+            <SelectValue placeholder="Channel" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="email">Email qualified</SelectItem>
+            <SelectItem value="manual_call">Manual call qualified</SelectItem>
+            <SelectItem value="sms">SMS qualified</SelectItem>
+          </SelectContent>
+        </Select>
         <Select value={filterScore} onValueChange={v => { setFilterScore(v); setPage(1); }}>
           <SelectTrigger className="w-36 h-8 text-sm">
             <SelectValue placeholder="All scores" />
@@ -290,7 +343,7 @@ export default function OutreachQueue() {
       </div>
 
       {/* ── Bulk action bar ───────────────────────────────────────────────── */}
-      {someSelected && (
+      {false && someSelected && (
         <div className="flex items-center gap-3 px-4 py-2.5 bg-primary/5 rounded-lg border border-primary/20">
           <Checkbox checked={allPageSelected} onCheckedChange={toggleAll} className="shrink-0" />
           <span className="text-sm font-medium">
@@ -450,10 +503,11 @@ export default function OutreachQueue() {
                             <Button
                               size="sm"
                               className="h-7 text-xs gap-1 px-2"
-                              onClick={() => startMutation.mutate(contact.id)}
-                              disabled={isPending(contact.id) || startMutation.isPending}
+                              onClick={() => startMutation.mutate(contact)}
+                              disabled
+                              title="Freeze an authorized cohort before enrollment"
                             >
-                              {startMutation.isPending && startMutation.variables === contact.id
+                              {startMutation.isPending && startMutation.variables?.id === contact.id
                                 ? <Loader2 className="h-3 w-3 animate-spin" />
                                 : <Rocket className="h-3 w-3" />}
                               Start

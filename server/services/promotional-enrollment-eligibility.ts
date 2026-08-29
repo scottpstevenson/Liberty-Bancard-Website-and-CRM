@@ -239,6 +239,22 @@ export async function evaluatePromotionalEnrollmentEligibility(
     };
   }
 
+  // CR-04 is the promotional intent authority. A usable field or legacy
+  // status can never create promotional enrollment intent by itself.
+  const { evaluateCr04ChannelQualification } = await import("./cr04-cohort-ready-authority");
+  const cr04Decisions = await Promise.all(
+    (["email", "manual_call", "sms"] as const).map((channel) =>
+      evaluateCr04ChannelQualification(contactId, { channel }),
+    ),
+  );
+  if (!cr04Decisions.some((decision) => decision.qualified)) {
+    return {
+      eligible: false,
+      reasonCodes: ["no_usable_channel"],
+      contactabilityByChannel: {},
+    };
+  }
+
   if (contact.doNotContact) {
     return {
       eligible: false,

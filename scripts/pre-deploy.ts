@@ -367,6 +367,11 @@ const MANDATORY_SUITES: Suite[] = [
     timeoutSecs: 60,
   },
   {
+    name: "CR-04 Channel Cohort Authority Contract",
+    script: "scripts/test-cr04-authority-static.ts",
+    timeoutSecs: 60,
+  },
+  {
     name: "CRO-03 Apollo Organization Resolution",
     script: "scripts/test-apollo-organization-resolution.ts",
     timeoutSecs: 60,

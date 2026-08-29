@@ -17,7 +17,7 @@ import { storage } from "../storage";
 import { db, pool } from "../db";
 import { sql } from "drizzle-orm";
 import { serverError } from "../utils/server-error";
-import { readyForOutreachPredicate } from "../services/outreach-queue-membership";
+import { queryCr04ReadyProjection } from "../services/cr04-cohort-ready-authority";
 
 function getTodayStr(): string {
   return new Date().toISOString().split("T")[0]; // YYYY-MM-DD
@@ -152,9 +152,14 @@ async function buildDailyBriefing(user: any, bypassCache = false) {
       // ── 4. Hot leads ready for outreach ─────────────────────────────────────
       let outreachReadyCount = 0;
       try {
-        const membership = readyForOutreachPredicate({ ownerEmail: !isAdminOrManager ? userEmail : undefined });
-        const readyRows = await pool.query(`SELECT COUNT(*)::int AS cnt FROM contacts WHERE ${membership.where}`, membership.params);
-        outreachReadyCount = Number((readyRows.rows[0] as any)?.cnt || 0);
+        const role = user?.role as "admin" | "manager" | "agent";
+        const ready = await queryCr04ReadyProjection({
+          scope: { role, actorId: String(user?.id ?? userEmail), email: userEmail },
+          filters: { channel: "email", score: "hot" },
+          page: 1,
+          limit: 1,
+        });
+        outreachReadyCount = ready.total;
         sectionStatus.outreach = "ok";
       } catch { sectionStatus.outreach = "degraded"; }
 

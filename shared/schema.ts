@@ -1652,6 +1652,9 @@ export const campaignPreviews = pgTable("campaign_previews", {
   readinessThreshold: integer("readiness_threshold"),
   readinessModelVersion: integer("readiness_model_version"),
   readinessBreakdown: jsonb("readiness_breakdown"),
+  cr04CohortRunId: uuid("cr04_cohort_run_id"),
+  cr04PolicyVersion: integer("cr04_policy_version"),
+  cr04DependencyFingerprint: text("cr04_dependency_fingerprint"),
 });
 
 export const insertCampaignPreviewSchema = createInsertSchema(campaignPreviews).omit({ id: true, createdAt: true });
@@ -1744,6 +1747,8 @@ export const campaignPreviewMembers = pgTable("campaign_preview_members", {
   // This is an optional lower-layer CRO-02 observation.  It never replaces the
   // frozen campaign or BT-10 readiness decision.
   commercialResolutionSnapshotId: uuid("commercial_resolution_snapshot_id").references(() => commercialResolutionSnapshots.id, { onDelete: "restrict" }),
+  cr04DecisionId: uuid("cr04_decision_id"),
+  cr04CohortOrdinal: integer("cr04_cohort_ordinal"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (table) => [
   unique("campaign_preview_members_schema_pk").on(table.previewId, table.contactId),
@@ -1786,6 +1791,107 @@ export const campaignQueueItems = pgTable("campaign_queue_items", {
   uniqueIndex("campaign_queue_items_member_schema_uidx").on(table.queueRunId, table.contactId, table.stepId),
   index("campaign_queue_items_run_schema_idx").on(table.queueRunId, table.disposition, table.contactId),
 ]);
+
+// CR-04 — channel-qualified decisions and immutable cohort authority.
+export const cr04QualificationPolicies = pgTable("cr04_qualification_policies", {
+  version: integer("version").primaryKey(),
+  status: text("status").notNull().default("active"),
+  decisionTtlSeconds: integer("decision_ttl_seconds").notNull(),
+  taxonomyVersion: text("taxonomy_version").notNull(),
+  document: jsonb("document").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const cr04ChannelDecisions = pgTable("cr04_channel_decisions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  contactId: integer("contact_id").notNull().references(() => contacts.id, { onDelete: "cascade" }),
+  channel: text("channel").notNull(),
+  purpose: text("purpose").notNull().default("marketing_outreach"),
+  policyVersion: integer("policy_version").notNull().references(() => cr04QualificationPolicies.version),
+  taxonomyVersion: text("taxonomy_version").notNull(),
+  decision: text("decision").notNull(),
+  reasonCodes: text("reason_codes").array().notNull(),
+  dependencyFingerprint: text("dependency_fingerprint").notNull(),
+  inputSnapshot: jsonb("input_snapshot").notNull(),
+  evidenceRefs: jsonb("evidence_refs").notNull().default([]),
+  commercialResolutionSnapshotId: uuid("commercial_resolution_snapshot_id").references(() => commercialResolutionSnapshots.id),
+  decidedAt: timestamp("decided_at").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("cr04_channel_decisions_schema_uidx").on(
+    table.contactId, table.channel, table.purpose, table.policyVersion, table.dependencyFingerprint,
+  ),
+  index("cr04_channel_decisions_schema_current_idx").on(table.contactId, table.channel, table.expiresAt),
+]);
+
+export const cr04CohortDefinitions = pgTable("cr04_cohort_definitions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  purpose: text("purpose").notNull(),
+  channel: text("channel").notNull(),
+  policyVersion: integer("policy_version").notNull().references(() => cr04QualificationPolicies.version),
+  scope: jsonb("scope").notNull(),
+  filters: jsonb("filters").notNull(),
+  definitionFingerprint: text("definition_fingerprint").notNull(),
+  createdBy: text("created_by").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("cr04_cohort_definitions_schema_fingerprint_uidx").on(table.definitionFingerprint),
+]);
+
+export const cr04CohortRuns = pgTable("cr04_cohort_runs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  definitionId: uuid("definition_id").notNull().references(() => cr04CohortDefinitions.id),
+  idempotencyKey: text("idempotency_key").notNull(),
+  status: text("status").notNull().default("frozen"),
+  asOf: timestamp("as_of").notNull(),
+  frozenAt: timestamp("frozen_at").notNull().defaultNow(),
+  expiresAt: timestamp("expires_at").notNull(),
+  cancelledAt: timestamp("cancelled_at"),
+  consumedAt: timestamp("consumed_at"),
+  memberCount: integer("member_count").notNull().default(0),
+  membershipFingerprint: text("membership_fingerprint").notNull(),
+  createdBy: text("created_by").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("cr04_cohort_runs_schema_uidx").on(table.definitionId, table.idempotencyKey),
+]);
+
+export const cr04CohortMembers = pgTable("cr04_cohort_members", {
+  runId: uuid("run_id").notNull().references(() => cr04CohortRuns.id),
+  ordinal: integer("ordinal").notNull(),
+  contactId: integer("contact_id").notNull().references(() => contacts.id),
+  decisionId: uuid("decision_id").notNull().references(() => cr04ChannelDecisions.id),
+  dependencyFingerprint: text("dependency_fingerprint").notNull(),
+  includedAt: timestamp("included_at").notNull().defaultNow(),
+  removedAt: timestamp("removed_at"),
+  removalReasonCode: text("removal_reason_code"),
+}, (table) => [
+  unique("cr04_cohort_members_schema_pk").on(table.runId, table.ordinal),
+  unique("cr04_cohort_members_schema_contact_uidx").on(table.runId, table.contactId),
+  index("cr04_cohort_members_schema_order_idx").on(table.runId, table.ordinal),
+]);
+
+export const cr04EnrollmentIntents = pgTable("cr04_enrollment_intents", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  idempotencyKey: text("idempotency_key").notNull().unique(),
+  contactId: integer("contact_id").notNull().references(() => contacts.id),
+  sequenceId: integer("sequence_id").notNull().references(() => followUpSequences.id),
+  channel: text("channel").notNull(),
+  source: text("source").notNull(),
+  actorId: text("actor_id").notNull(),
+  decisionId: uuid("decision_id").notNull().references(() => cr04ChannelDecisions.id),
+  cohortRunId: uuid("cohort_run_id").references(() => cr04CohortRuns.id),
+  status: text("status").notNull().default("approved"),
+  reasonCode: text("reason_code"),
+  enrollmentId: integer("enrollment_id").references(() => sequenceEnrollments.id),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  completedAt: timestamp("completed_at"),
+});
+
+export type Cr04ChannelDecision = typeof cr04ChannelDecisions.$inferSelect;
+export type Cr04CohortRun = typeof cr04CohortRuns.$inferSelect;
+export type Cr04CohortMember = typeof cr04CohortMembers.$inferSelect;
 
 export const insertOutboundMessageSchema = createInsertSchema(outboundMessages).omit({
   id: true,

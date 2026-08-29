@@ -1275,6 +1275,13 @@
       "when": 1796100000000,
       "tag": "0177_cro03_source_staging_evidence",
       "breakpoints": true
+    },
+    {
+      "idx": 182,
+      "version": "7",
+      "when": 1796200000000,
+      "tag": "0178_cr04_channel_cohort_authority",
+      "breakpoints": true
     }
   ]
 }

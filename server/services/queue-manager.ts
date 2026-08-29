@@ -1287,7 +1287,14 @@ class QueueManager {
                 enrollResult = await autoEnrollFromTrigger(
                   triggerType,
                   { contactId, formType: formType ?? undefined },
-                  { preEvaluated: { contactabilityByChannel: eligibility.contactabilityByChannel } }
+                  {
+                    preEvaluated: { contactabilityByChannel: eligibility.contactabilityByChannel },
+                    promotionalIntent: {
+                      idempotencyKey: `promotional-job:${jobRowId}`,
+                      actorId: "promotional-enrollment-worker",
+                      source: "promotional_enrollment_job",
+                    },
+                  }
                 );
 
                 // Determine terminal status:

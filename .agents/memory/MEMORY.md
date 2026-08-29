@@ -124,3 +124,4 @@
 - [Certification process isolation](certification-process-isolation.md) — spawn application children with replacement envs; in-process scrubbing and fetch-only denial are insufficient.
 - [Sequence dispatch linearization](sequence-dispatch-linearization.md) — serialize inbound writes and final dispatch; only expired pre-dispatch leases are retryable.
 - [Commercial resolution authority](commercial-resolution-authority.md) — five-value class stays separate from provenance/identity/link/relationship axes; shadow never replaces legacy before approved cutover.
+- [Channel cohort authority](channel-cohort-authority.md) — channel qualification freezes immutable evidence; qualification never implies activation or cohort consumption.

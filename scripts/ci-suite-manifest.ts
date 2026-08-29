@@ -212,6 +212,12 @@ export const SUITE_MANIFEST: SuiteManifestEntry[] = [
     providerDenial: "isolated temporary filesystem cache and pure helpers; no providers",
   },
   {
+    name: "CR-04 Channel Cohort Authority Contract",
+    script: "scripts/test-cr04-authority-static.ts",
+    capability: "deterministic-static",
+    providerDenial: "source and migration contract assertions only; no database, network, queues, or providers",
+  },
+  {
     name: "Release Artifact Gate",
     script: "scripts/release-artifact-gate.ts",
     capability: "deterministic-static",

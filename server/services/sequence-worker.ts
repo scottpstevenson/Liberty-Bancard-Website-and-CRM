@@ -2493,10 +2493,32 @@ export async function autoEnrollFromTrigger(triggerType: string, data: {
   preEvaluated?: {
     contactabilityByChannel: Partial<Record<string, import("./contactability").ContactabilityResult>>;
   };
+  promotionalIntent?: {
+    idempotencyKey: string;
+    actorId: string;
+    source: string;
+  };
 }): Promise<{ count: number; enrollmentIds: number[]; alreadyEnrolledCount: number }> {
   let enrolled = 0;
   let alreadyEnrolledCount = 0;
   const enrollmentIds: number[] = [];
+
+  // CR-04 fail-closed boundary: direct trigger callers (including public
+  // contact_created routes) cannot activate promotional sequences. The durable
+  // promotional job is the only admitted caller, and its CR-04 path currently
+  // records a blocked activation attempt until pilot authority exists.
+  if (!opts?.promotionalIntent) {
+    if (data.contactId) {
+      await storage.createAuditLog({
+        action: "cr04_auto_enrollment_blocked",
+        entityType: "contact",
+        entityId: data.contactId,
+        actorType: "system",
+        details: { triggerType, reasonCode: "CR04_PROMOTIONAL_INTENT_REQUIRED" },
+      });
+    }
+    return { count: 0, enrollmentIds: [], alreadyEnrolledCount: 0 };
+  }
 
   try {
     const allSequences = await storage.getFollowUpSequences();
@@ -2650,14 +2672,34 @@ export async function autoEnrollFromTrigger(triggerType: string, data: {
         ? ((firstStep.delayDays || 0) * 86400000) + ((firstStep.delayHours || 0) * 3600000)
         : 0;
 
-      const newEnrollment = await storage.createSequenceEnrollment({
-        sequenceId: seq.id,
-        contactId: data.contactId,
-        dealId: data.dealId || undefined,
-        status: "active",
-        currentStep: 0,
-        nextActionAt: new Date(Date.now() + Math.max(delayMs, 1000)),
-      });
+      let newEnrollment: { id: number } | null = null;
+      if (opts?.promotionalIntent && data.contactId) {
+        const { enrollThroughCr04Fence } = await import("./cr04-cohort-ready-authority");
+        const firstChannel = steps
+          .map((step) => step.actionType === "email" ? "email" : step.actionType === "sms" ? "sms" : step.actionType === "task" ? "manual_call" : null)
+          .find((channel): channel is "email" | "sms" | "manual_call" => channel !== null) ?? "manual_call";
+        const fenced = await enrollThroughCr04Fence({
+          contactId: data.contactId,
+          sequenceId: seq.id,
+          channel: firstChannel as "email" | "sms" | "manual_call",
+          idempotencyKey: `${opts.promotionalIntent.idempotencyKey}:${seq.id}`,
+          source: opts.promotionalIntent.source,
+          actor: { role: "admin", actorId: opts.promotionalIntent.actorId, email: null },
+          dealId: data.dealId ?? null,
+          nextActionAt: new Date(Date.now() + Math.max(delayMs, 1000)),
+        });
+        if ((fenced as any).blocked) continue;
+        if (fenced.enrollmentId) newEnrollment = { id: fenced.enrollmentId };
+      } else {
+        newEnrollment = await storage.createSequenceEnrollment({
+          sequenceId: seq.id,
+          contactId: data.contactId,
+          dealId: data.dealId || undefined,
+          status: "active",
+          currentStep: 0,
+          nextActionAt: new Date(Date.now() + Math.max(delayMs, 1000)),
+        });
+      }
 
       if (newEnrollment?.id) {
         enrollmentIds.push(newEnrollment.id);

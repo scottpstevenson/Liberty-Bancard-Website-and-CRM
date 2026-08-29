@@ -13,6 +13,17 @@ import { hashEmailToken } from "./provider-readiness-control";
 import { db } from "../db";
 import { campaignPreviews, campaignPreviewMembers, campaignQueueItems, campaignQueueRuns, outboundMessages, contacts } from "@shared/schema";
 import { and, eq, isNull, sql } from "drizzle-orm";
+import {
+  CR04_POLICY_VERSION,
+  evaluateCr04ChannelQualification,
+} from "./cr04-cohort-ready-authority";
+
+// Deliberately not an environment flag: CR-04 permanently retires the mutable
+// legacy selectors. Kept as a function so TypeScript still checks their dead
+// implementation while static scans can prove both entry points fail closed.
+function legacyCampaignQueueDisabled(): boolean {
+  return true;
+}
 
 // ZeroBounce statuses that are undeliverable — contacts with these are skipped without queuing.
 /**
@@ -224,6 +235,7 @@ export async function queueCampaignMessages(campaignId: number, maxToQueue?: num
 
   const steps = await storage.getCampaignSteps(campaignId);
   if (steps.length === 0) return 0;
+  if (legacyCampaignQueueDisabled()) throw new Error("CR04_FROZEN_PREVIEW_REQUIRED");
 
   const prospects = campaign.targetListId
     ? await storage.getProspects(campaign.targetListId)
@@ -326,6 +338,7 @@ export async function queueContactCampaignMessages(campaignId: number, maxToQueu
 
   const steps = await storage.getCampaignSteps(campaignId);
   if (steps.length === 0) return 0;
+  if (legacyCampaignQueueDisabled()) throw new Error("CR04_FROZEN_PREVIEW_REQUIRED");
 
   // Hard caps: DEFAULT_QUEUE_LIMIT (2000) per call, dailySendLimit per day.
   const batchCap = Math.min(maxToQueue ?? DEFAULT_QUEUE_LIMIT, DEFAULT_QUEUE_LIMIT);
@@ -529,7 +542,7 @@ export type CampaignPreviewResult = {
   readinessThreshold: number | null;
   readinessModelVersionUsed: number;
   /** Internal-only frozen members. Never returned by the preview API. */
-  _eligibleMembers?: Array<{ contactId: number; subjectGeneration: number; tokenHash: string; subjectMutationAt: Date | null; commercialResolutionSnapshotId?: string }>;
+  _eligibleMembers?: Array<{ contactId: number; subjectGeneration: number; tokenHash: string; subjectMutationAt: Date | null; commercialResolutionSnapshotId?: string; cr04DecisionId: string; dependencyFingerprint: string }>;
 };
 
 export async function getCampaignPreviewState(campaignId: number): Promise<{
@@ -656,24 +669,18 @@ export async function previewContactCampaignAudience(campaignId: number, snapsho
         continue;
       }
 
-      // ── Contactability gate (only contacts that passed readiness filter) ────
-      const { authorizeCommercialUse } = await import("./commercial-resolution");
-      const commercial = await authorizeCommercialUse({
-        subjectType: "contact", subjectId: contact.id, effect: "marketing_outreach",
-      });
-      if (!commercial.effectiveDecision.allowed) {
-        blockedCount++;
-        blockReasons.COMMERCIAL_CLASS_UNKNOWN = (blockReasons.COMMERCIAL_CLASS_UNKNOWN ?? 0) + 1;
-        continue;
-      }
-      const gate = await evaluateContactability({
-        contactId: contact.id,
+      // CR-04 is the single campaign qualification authority. It composes
+      // commercial, source, completeness, provider, contactability, offer,
+      // ownership, sequence, sender/content and reply-route dependencies.
+      const authority = await evaluateCr04ChannelQualification(contact.id, {
         channel: "email",
-        campaignType: "marketing_campaign",
-        mode: "dryRun",
+        campaignId,
+        contentVersion: computeTargetingHash(campaign, await storage.getCampaignSteps(campaignId)),
+        senderVersion: "sender-policy-v1",
+        replyRouteVersion: "campaign-reply-v1",
       });
 
-      if (gate.allowed) {
+      if (authority.qualified && authority.id) {
         eligibleCount++;
         queueable++;
         const tokenHash = hashEmailToken(contact.email);
@@ -683,7 +690,9 @@ export async function previewContactCampaignAudience(campaignId: number, snapsho
             subjectGeneration: contact.emailMutationGeneration,
             tokenHash,
             subjectMutationAt: contact.updatedAt ?? null,
-            commercialResolutionSnapshotId: commercial.shadowDecision.snapshotId,
+            commercialResolutionSnapshotId: authority.commercialResolutionSnapshotId ?? undefined,
+            cr04DecisionId: authority.id,
+            dependencyFingerprint: authority.dependencyFingerprint,
           });
         }
         if (sampleContacts.length < 5) {
@@ -697,8 +706,9 @@ export async function previewContactCampaignAudience(campaignId: number, snapsho
       } else {
         blockedCount++;
         blockedByContactability++;
-        const reason = gate.reason || "unknown";
-        blockReasons[reason] = (blockReasons[reason] || 0) + 1;
+        for (const reason of authority.reasonCodes) {
+          blockReasons[reason] = (blockReasons[reason] || 0) + 1;
+        }
       }
     }
 
@@ -755,6 +765,7 @@ export async function startCampaignPreviewAsync(
     // verify model version hasn't changed between preview and queue.
     readinessThreshold: campaign.readinessThreshold ?? null,
     readinessModelVersion: READINESS_MODEL_VERSION,
+    cr04PolicyVersion: CR04_POLICY_VERSION,
   });
 
   const previewId = preview.id;
@@ -771,7 +782,7 @@ export async function startCampaignPreviewAsync(
       // re-run mutable selector.
       if (result._eligibleMembers?.length) {
         await db.transaction(async (tx) => {
-          for (const member of result._eligibleMembers!) {
+          for (const [index, member] of result._eligibleMembers!.entries()) {
             await tx.insert(campaignPreviewMembers).values({
               previewId,
               contactId: member.contactId,
@@ -782,6 +793,8 @@ export async function startCampaignPreviewAsync(
               reasonCodes: [],
               readinessModelVersion: READINESS_MODEL_VERSION,
               commercialResolutionSnapshotId: member.commercialResolutionSnapshotId,
+              cr04DecisionId: member.cr04DecisionId,
+              cr04CohortOrdinal: index + 1,
             }).onConflictDoNothing();
           }
         });
@@ -809,6 +822,10 @@ export async function startCampaignPreviewAsync(
         sampleContacts: result.sampleContacts,
         completedAt: now,
         expiresAt: new Date(now.getTime() + PREVIEW_TTL_MS),
+        cr04PolicyVersion: CR04_POLICY_VERSION,
+        cr04DependencyFingerprint: createHash("sha256")
+          .update(result._eligibleMembers?.map((member) => member.dependencyFingerprint).join("|") ?? "")
+          .digest("hex"),
       });
   } catch (err: any) {
       // Sanitize before persisting: strip file paths, SQL detail, stack frames.
@@ -922,17 +939,19 @@ export async function processCampaignQueueRun(runId: string): Promise<void> {
       hashEmailToken(contact.email ?? "") !== member.normalizedEmailTokenHash;
     let disposition: "excluded" | "queued" = "excluded";
     let reason = changed ? "subject_changed" : "send_time_ineligible";
-    if (!changed && contact) {
-      const { evaluateMarketingEmailEligibility, enqueueCurrentValidationIntent } = await import("./provider-readiness-control");
-      const validation = await evaluateMarketingEmailEligibility(contact.id);
-      if (!validation.allowed) {
-        reason = `validation_${validation.reason}`;
-        await enqueueCurrentValidationIntent(contact.id).catch(() => {});
+    if (!changed && contact && campaign) {
+      const current = await evaluateCr04ChannelQualification(contact.id, {
+        channel: "email",
+        campaignId: run.campaign_id,
+        contentVersion: computeTargetingHash(campaign, steps),
+        senderVersion: "sender-policy-v1",
+        replyRouteVersion: "campaign-reply-v1",
+      });
+      if (current.qualified) {
+        disposition = "queued";
+        reason = "";
       } else {
-        const gate = await evaluateContactability({
-          contactId: contact.id, channel: "email", campaignType: "marketing_campaign", mode: "enforcement",
-        });
-        if (gate.allowed) { disposition = "queued"; reason = ""; }
+        reason = current.reasonCodes[0] ?? "send_time_ineligible";
       }
     }
     await db.transaction(async (tx) => {
