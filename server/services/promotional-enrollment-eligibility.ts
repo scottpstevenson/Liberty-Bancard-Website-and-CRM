@@ -29,6 +29,7 @@ import {
   type ContactabilityResult,
 } from "./contactability";
 import { getQueueManager } from "./queue-manager";
+import { decideCr06PromotionalLifecycle } from "./cr06-promotional-lifecycle-decision";
 
 export type { PromotionalEligibilityReason };
 
@@ -226,6 +227,13 @@ export async function evaluatePromotionalEnrollmentEligibility(
   triggerType: string,
   opts?: { isResubmission?: boolean }
 ): Promise<PromotionalEnrollmentEligibilityResult> {
+  const lifecycle = decideCr06PromotionalLifecycle({
+    boundary: "promotional_enrollment",
+    purpose: "promotional",
+  });
+  if (!lifecycle.allowed) {
+    return { eligible: false, reasonCodes: ["no_usable_channel"], contactabilityByChannel: {} };
+  }
   const [contact] = await db
     .select()
     .from(contacts)
@@ -366,6 +374,13 @@ export async function enqueuePromotionalEnrollment(
   input: EnqueuePromotionalEnrollmentInput
 ): Promise<EnqueuePromotionalEnrollmentResult> {
   const { contactId, triggerType, formType, sourceEventId, isResubmission } = input;
+  const lifecycle = decideCr06PromotionalLifecycle({
+    boundary: "promotional_enrollment",
+    purpose: "promotional",
+  });
+  if (!lifecycle.allowed) {
+    return { status: "blocked_prequeue", reasonCodes: ["no_usable_channel"] };
+  }
 
   let dbRow: PromotionalEnrollmentJob | undefined;
 

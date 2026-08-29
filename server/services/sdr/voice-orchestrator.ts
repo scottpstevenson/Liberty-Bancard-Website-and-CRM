@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { isSdrGhlConfigured } from "./ghl-client";
 import { onStageChange } from "./ghl-sync-rules";
 import { applyConsentCommand } from "../consent-authority";
+import { decideCr06SequenceLifecycle } from "../cr06-promotional-lifecycle-decision";
 
 export const VOICE_BOT_MODES = [
   "intro_qualification",
@@ -574,7 +575,7 @@ export async function handleCallDisposition(
             const firstName = (merchant as any).ownerName?.split(" ")[0] || "there";
             const smsBody = `Just left you a voicemail, ${firstName} — best way to reach me is here: ${calendarLink} — Scott, Liberty Bancard`;
 
-            if (vmSmsSeq) {
+            if (vmSmsSeq && decideCr06SequenceLifecycle(vmSmsSeq).allowed) {
               await storage.createSequenceEnrollment({
                 sequenceId: vmSmsSeq.id,
                 contactId: contact.id,
@@ -582,7 +583,7 @@ export async function handleCallDisposition(
                 currentStep: 0,
                 nextActionAt: followUpAt,
               });
-            } else if (isGhlConfigured()) {
+            } else if (!vmSmsSeq && isGhlConfigured()) {
               await sendGhlSms({ contactId: contact.id, body: smsBody });
               await storage.createAuditLog({
                 action: "voicemail_sms_sent",

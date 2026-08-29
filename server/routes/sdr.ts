@@ -2874,18 +2874,29 @@ export function registerSdrRoutes(app: Express) {
     try {
       const { sequenceEnrollments } = await import("@shared/schema");
       const { and, gt } = await import("drizzle-orm");
+      const { decideCr06SequenceLifecycle } = await import("../services/cr06-promotional-lifecycle-decision");
 
       const now = new Date();
-      const result = await db
-        .update(sequenceEnrollments)
-        .set({ nextActionAt: now, updatedAt: now })
+      const candidates = await db
+        .select({ id: sequenceEnrollments.id, sequenceId: sequenceEnrollments.sequenceId })
+        .from(sequenceEnrollments)
         .where(
           and(
             eq(sequenceEnrollments.status, "active"),
             gt(sequenceEnrollments.currentStep, 0)
           )
-        )
-        .returning({ id: sequenceEnrollments.id });
+        );
+      const result: Array<{ id: number }> = [];
+      for (const candidate of candidates) {
+        if (!candidate.sequenceId) continue;
+        const sequence = await storage.getFollowUpSequence(candidate.sequenceId);
+        if (!sequence || !decideCr06SequenceLifecycle(sequence, "legacy_release").allowed) continue;
+        const [released] = await db.update(sequenceEnrollments)
+          .set({ nextActionAt: now, updatedAt: now })
+          .where(eq(sequenceEnrollments.id, candidate.id))
+          .returning({ id: sequenceEnrollments.id });
+        if (released) result.push(released);
+      }
 
       res.json({
         message: `Re-triggered ${result.length} mid-sequence enrollment(s). The next step for each will be sent on the next sequence-worker tick using updated subject lines.`,

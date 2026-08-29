@@ -1,5 +1,6 @@
 import { storage } from "../storage";
 import type { Contact } from "@shared/schema";
+import { decideCr06SequenceLifecycle } from "./cr06-promotional-lifecycle-decision";
 
 interface RoutingResult {
   sequenceIds: number[];
@@ -173,6 +174,8 @@ export async function routeContact(contactId: number): Promise<RoutingResult> {
   const existing = await storage.getContactEnrollments(contactId);
 
   for (const match of matches) {
+    const sequence = await storage.getFollowUpSequence(match.sequenceId);
+    if (!sequence || !decideCr06SequenceLifecycle(sequence).allowed) continue;
     const alreadyEnrolled = existing.some(
       e => e.sequenceId === match.sequenceId && (e.status === "active" || e.status === "completed")
     );

@@ -29,6 +29,7 @@ import {
 import { eq, and, gte, desc, sql, inArray } from "drizzle-orm";
 import { createPreferenceAwareNotification } from "./digest-service";
 import { classifyTier } from "./churn-score";
+import { decideCr06SequenceLifecycle } from "./cr06-promotional-lifecycle-decision";
 
 // ── Default thresholds ────────────────────────────────────────────────────────
 const DEFAULT_VOLUME_DROP_PCT = 20;      // trigger when MoM drop exceeds this %
@@ -215,7 +216,8 @@ async function triggerAttritionAlert(
   try {
     const seqId = await resolveReactivationSequenceId();
     if (seqId !== null) {
-      await storage.createSequenceEnrollment({
+      const sequence = await storage.getFollowUpSequence(seqId);
+      if (sequence && decideCr06SequenceLifecycle(sequence).allowed) await storage.createSequenceEnrollment({
         contactId,
         sequenceId: seqId,
         status: "active",

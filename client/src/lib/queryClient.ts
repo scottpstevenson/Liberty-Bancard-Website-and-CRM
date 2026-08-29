@@ -18,8 +18,9 @@ export async function apiRequest(
   method: string,
   url: string,
   data?: unknown | undefined,
+  additionalHeaders?: Record<string, string>,
 ): Promise<Response> {
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = { ...additionalHeaders };
   if (data) headers["Content-Type"] = "application/json";
 
   const upperMethod = method.toUpperCase();

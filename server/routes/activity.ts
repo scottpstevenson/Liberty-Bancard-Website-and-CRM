@@ -13,6 +13,7 @@ import { resolveCollateralPacket } from "../services/workflow-executor";
 import { serverError } from "../utils/server-error";
 import { authorizeContactAccess, authorizeDealAccess } from "../services/crm-object-access";
 import { LifecycleService } from "../services/lifecycle-service";
+import { decideCr06SequenceLifecycle } from "../services/cr06-promotional-lifecycle-decision";
 
 export function registerActivityRoutes(app: Express) {
 
@@ -679,7 +680,7 @@ Respond in this exact JSON format:
         if (sequenceName) {
           const allSequences = await storage.getFollowUpSequences();
           const matchedSeq = allSequences.find((s) => s.name === sequenceName);
-          if (matchedSeq) {
+          if (matchedSeq && decideCr06SequenceLifecycle(matchedSeq).allowed) {
             await storage.createSequenceEnrollment({
               sequenceId: matchedSeq.id,
               contactId: Number(contactId),

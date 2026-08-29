@@ -17,6 +17,7 @@ import {
   CR04_POLICY_VERSION,
   evaluateCr04ChannelQualification,
 } from "./cr04-cohort-ready-authority";
+import { decideCr06PromotionalLifecycle } from "./cr06-promotional-lifecycle-decision";
 
 // Deliberately not an environment flag: CR-04 permanently retires the mutable
 // legacy selectors. Kept as a function so TypeScript still checks their dead
@@ -857,6 +858,9 @@ export async function queueFrozenCampaignPreviewMembers(
   previewId: number,
   actorId?: string,
 ): Promise<{ queued: number; excluded: number; queueRunId: string | null; deferred?: boolean }> {
+  if (!decideCr06PromotionalLifecycle({ boundary: "campaign_queue", purpose: "promotional" }).allowed) {
+    return { queued: 0, excluded: 0, queueRunId: null };
+  }
   const steps = await storage.getCampaignSteps(campaignId);
   const step = steps.sort((a, b) => a.stepOrder - b.stepOrder)[0];
   if (!step) return { queued: 0, excluded: 0, queueRunId: null };
@@ -903,6 +907,9 @@ export async function queueFrozenCampaignPreviewMembers(
 /** Queue-owned, claim-fenced campaign queue execution. Membership remains the
  * frozen preview ledger; send-time checks can only exclude rows. */
 export async function processCampaignQueueRun(runId: string): Promise<void> {
+  if (!decideCr06PromotionalLifecycle({ boundary: "campaign_claim", purpose: "promotional" }).allowed) {
+    return;
+  }
   const token = randomUUID();
   const claimed = await db.execute(sql`
     UPDATE campaign_queue_runs
@@ -1053,6 +1060,10 @@ export async function processSendQueue(maxToSend?: number): Promise<{ sent: numb
     if (maxToSend !== undefined && sent >= maxToSend) break;
 
     try {
+      if (!decideCr06PromotionalLifecycle({ boundary: "campaign_transport", purpose: "promotional" }).allowed) {
+        await storage.updateOutboundMessage(msg.id, { status: "skipped", error: "CR06_PROMOTIONAL_EXECUTION_DISABLED" });
+        continue;
+      }
       // ── Skip messages from paused/draft campaigns ──────────────────────────
       if (msg.campaignId) {
         let campaignStatus = campaignStatusCache.get(msg.campaignId);
@@ -1312,6 +1323,10 @@ async function sendContactCampaignMessage(
   msg: Awaited<ReturnType<typeof storage.getQueuedMessages>>[number],
   storedSig: EmailSignature
 ): Promise<"sent" | "failed" | "skipped"> {
+  if (!decideCr06PromotionalLifecycle({ boundary: "campaign_transport", purpose: "promotional" }).allowed) {
+    await storage.updateOutboundMessage(msg.id, { status: "skipped", error: "CR06_PROMOTIONAL_EXECUTION_DISABLED" });
+    return "skipped";
+  }
   if (!msg.contactId) return "failed";
 
   const contact = await storage.getContact(msg.contactId);

@@ -20,6 +20,7 @@ import { db } from "../db";
 import { merchantMids, contacts, followUpSequences as sequences, sequenceEnrollments } from "@shared/schema";
 import { eq, and, isNotNull, lt, gte, isNull, inArray } from "drizzle-orm";
 import { storage } from "../storage";
+import { decideCr06SequenceLifecycle } from "./cr06-promotional-lifecycle-decision";
 
 const MILESTONES: Array<{ days: number; family: string }> = [
   { days: 30,  family: "merchant_success_30d" },
@@ -58,7 +59,12 @@ export async function runMerchantSuccessSequences(): Promise<{
   // Load all active sequences with a merchant_success family so we look them
   // up once instead of per-contact.
   const successSequences = await db
-    .select({ id: sequences.id, family: sequences.sequenceFamily, status: sequences.status })
+    .select({
+      id: sequences.id,
+      family: sequences.sequenceFamily,
+      status: sequences.status,
+      triggerConfig: sequences.triggerConfig,
+    })
     .from(sequences)
     .where(
       inArray(
@@ -70,7 +76,7 @@ export async function runMerchantSuccessSequences(): Promise<{
   const activeByFamily = new Map(
     successSequences
       .filter((s) => s.status === "active")
-      .map((s) => [s.family!, s.id]),
+      .map((s) => [s.family!, s]),
   );
 
   const now = Date.now();
@@ -95,7 +101,8 @@ export async function runMerchantSuccessSequences(): Promise<{
 
     for (const milestone of MILESTONES) {
       const { days, family } = milestone;
-      const seqId = activeByFamily.get(family);
+      const sequence = activeByFamily.get(family);
+      const seqId = sequence?.id;
 
       // Skip if milestone not yet due or past the re-check window
       if (daysSince < days - WINDOW_DAYS || daysSince > days + WINDOW_DAYS) continue;
@@ -109,6 +116,10 @@ export async function runMerchantSuccessSequences(): Promise<{
           actorType: "system",
           details: { family, days, midId: row.midId, daysSinceActivation: Math.round(daysSince) },
         }).catch(() => {});
+        skipped++;
+        continue;
+      }
+      if (!sequence || !decideCr06SequenceLifecycle(sequence).allowed) {
         skipped++;
         continue;
       }
@@ -132,7 +143,7 @@ export async function runMerchantSuccessSequences(): Promise<{
 
       // Enroll the contact
       try {
-        await db.insert(sequenceEnrollments).values({
+        await storage.createSequenceEnrollment({
           contactId:     row.contactId,
           sequenceId:    seqId,
           status:        "active",

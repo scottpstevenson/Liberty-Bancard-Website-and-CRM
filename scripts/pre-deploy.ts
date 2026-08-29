@@ -383,6 +383,39 @@ const MANDATORY_SUITES: Suite[] = [
     timeoutSecs: 60,
   },
   {
+    name: "CR-06 Content, Cadence, and Deterministic Renderer Certification",
+    script: "scripts/test-cr06-governance.ts",
+    timeoutSecs: 60,
+  },
+  {
+    name: "CR-06 Promotional Enrollment Boundary Inventory",
+    script: "server/tests/cr06-promotional-boundary-inventory.source.test.ts",
+    timeoutSecs: 60,
+  },
+  {
+    name: "CR-06 Feedback Privacy and History Contract",
+    script: "server/tests/cr06-feedback-strict.source.test.ts",
+    timeoutSecs: 60,
+  },
+  {
+    name: "CR-06 Disposable Authority Certification (Task 1722 corrections 7-9)",
+    script: "scripts/test-cr06-disposable-certification.ts",
+    timeoutSecs: 180,
+    requiresDisposableTestDatabase: true,
+  },
+  {
+    name: "CR-06 HTTP Authorization, CSRF, and Opaque-ID Contract",
+    script: "scripts/test-cr06-http-authorization.ts",
+    timeoutSecs: 120,
+    requiresServer: true,
+  },
+  {
+    name: "CR-06 Clean-Zero and Prior-0183 Migration Upgrade Proof",
+    script: "scripts/test-cr06-migration-upgrade.ts",
+    timeoutSecs: 180,
+    requiresDisposableTestDatabase: true,
+  },
+  {
     name: "CRO-03 Apollo Organization Resolution",
     script: "scripts/test-apollo-organization-resolution.ts",
     timeoutSecs: 60,

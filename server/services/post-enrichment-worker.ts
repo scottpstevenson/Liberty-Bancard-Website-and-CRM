@@ -28,6 +28,7 @@ import { db, pool } from "../db";
 import { sql } from "drizzle-orm";
 import { storage } from "../storage";
 import { advanceDealStage } from "./deal-stage-service";
+import { decideCr06SequenceLifecycle } from "./cr06-promotional-lifecycle-decision";
 
 // Stages that are considered "contactless / early" — the worker only advances
 // deals that are still in one of these stages. Any other stage means the deal
@@ -318,6 +319,15 @@ export async function executePostEnrichmentEnrollmentIntent(
       errorClass: "permanent",
       reason: `Sequence "${sequence.name}" is not active (status=${sequence.status})`,
       eligibilitySnapshot: { sequenceStatus: sequence.status },
+    };
+  }
+  const cr06Decision = decideCr06SequenceLifecycle(sequence);
+  if (!cr06Decision.allowed) {
+    return {
+      success: false,
+      errorCode: "cr06_promotional_execution_disabled",
+      errorClass: "permanent",
+      reason: cr06Decision.reasonCode,
     };
   }
 

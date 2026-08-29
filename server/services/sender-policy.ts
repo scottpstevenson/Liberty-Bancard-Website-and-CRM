@@ -42,7 +42,10 @@ export type MessageCategory =
 
 export type SignatureType = "sales" | "support" | "onboarding" | "security" | "partners" | "accounts";
 
+export const SENDER_POLICY_VERSION = "sender-policy-v2";
+
 export interface SenderPolicy {
+  policyVersion: typeof SENDER_POLICY_VERSION;
   category: MessageCategory;
   from: string;
   replyTo: string;
@@ -56,6 +59,7 @@ export const COLD_OUTREACH_FROM = "Scott@mail.libertybancard.com";
 
 const POLICY_REGISTRY: Record<MessageCategory, SenderPolicy> = {
   cold_outreach: {
+    policyVersion: SENDER_POLICY_VERSION,
     category: "cold_outreach",
     from: COLD_OUTREACH_FROM,
     replyTo: COLD_OUTREACH_FROM,
@@ -63,6 +67,7 @@ const POLICY_REGISTRY: Record<MessageCategory, SenderPolicy> = {
     signatureType: "sales",
   },
   support: {
+    policyVersion: SENDER_POLICY_VERSION,
     category: "support",
     from: "support@libertybancard.com",
     replyTo: "support@libertybancard.com",
@@ -70,6 +75,7 @@ const POLICY_REGISTRY: Record<MessageCategory, SenderPolicy> = {
     signatureType: "support",
   },
   onboarding: {
+    policyVersion: SENDER_POLICY_VERSION,
     category: "onboarding",
     from: "onboarding@libertybancard.com",
     replyTo: "onboarding@libertybancard.com",
@@ -77,6 +83,7 @@ const POLICY_REGISTRY: Record<MessageCategory, SenderPolicy> = {
     signatureType: "onboarding",
   },
   security: {
+    policyVersion: SENDER_POLICY_VERSION,
     category: "security",
     from: "security@libertybancard.com",
     replyTo: "security@libertybancard.com",
@@ -84,6 +91,7 @@ const POLICY_REGISTRY: Record<MessageCategory, SenderPolicy> = {
     signatureType: "security",
   },
   partners: {
+    policyVersion: SENDER_POLICY_VERSION,
     category: "partners",
     from: "partners@libertybancard.com",
     replyTo: "partners@libertybancard.com",
@@ -91,6 +99,7 @@ const POLICY_REGISTRY: Record<MessageCategory, SenderPolicy> = {
     signatureType: "partners",
   },
   accounts: {
+    policyVersion: SENDER_POLICY_VERSION,
     category: "accounts",
     from: "accounts@libertybancard.com",
     replyTo: "accounts@libertybancard.com",
@@ -98,6 +107,7 @@ const POLICY_REGISTRY: Record<MessageCategory, SenderPolicy> = {
     signatureType: "accounts",
   },
   internal_ops: {
+    policyVersion: SENDER_POLICY_VERSION,
     category: "internal_ops",
     from: "accounts@libertybancard.com",
     replyTo: "accounts@libertybancard.com",

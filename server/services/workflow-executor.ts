@@ -5,6 +5,10 @@ import { updateContactLocalFirst } from "./contact-writer";
 import { resolvePacketVertical, GENERAL_FALLBACK_VERTICAL } from "../../shared/collateral-packet-verticals";
 import { applyConsentCommand } from "./consent-authority";
 import crypto from "crypto";
+import {
+  classifyCr06SequencePurpose,
+  decideCr06PromotionalLifecycle,
+} from "./cr06-promotional-lifecycle-decision";
 
 async function canSendWorkflowTemplate(templateId: number, contactId: number): Promise<{ allowed: boolean; reason?: string }> {
   const template = await storage.getMessageTemplate(templateId);
@@ -307,15 +311,24 @@ export async function executeWorkflowActions(
             resolvedSequenceId = match?.id;
           }
           if (resolvedSequenceId) {
-            await storage.createSequenceEnrollment({
-              sequenceId: resolvedSequenceId,
-              contactId,
-              dealId,
-              status: "active",
-              nextActionAt: new Date(),
-              currentStep: 0,
+            const sequence = await storage.getFollowUpSequence(resolvedSequenceId);
+            const decision = decideCr06PromotionalLifecycle({
+              boundary: "workflow_enrollment",
+              purpose: sequence ? classifyCr06SequencePurpose(sequence) : "promotional",
             });
-            logEntries.push({ step: i + 1, action: "enroll_sequence", sequenceId: resolvedSequenceId, sequenceName: action.sequenceName, status: "completed", timestamp: new Date().toISOString() });
+            if (!sequence || !decision.allowed) {
+              logEntries.push({ step: i + 1, action: "enroll_sequence", sequenceId: resolvedSequenceId, status: "skipped", reason: !sequence ? "Sequence not found" : decision.reasonCode, timestamp: new Date().toISOString() });
+            } else {
+              await storage.createSequenceEnrollment({
+                sequenceId: resolvedSequenceId,
+                contactId,
+                dealId,
+                status: "active",
+                nextActionAt: new Date(),
+                currentStep: 0,
+              });
+              logEntries.push({ step: i + 1, action: "enroll_sequence", sequenceId: resolvedSequenceId, sequenceName: action.sequenceName, status: "completed", timestamp: new Date().toISOString() });
+            }
           } else {
             logEntries.push({ step: i + 1, action: "enroll_sequence", status: "skipped", reason: "Sequence not found or not specified", timestamp: new Date().toISOString() });
           }

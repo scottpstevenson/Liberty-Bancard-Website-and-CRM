@@ -3456,94 +3456,21 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  // ── Controlled Cohort Launch (#1396) ───────────────────────────────────────
-  // POST /api/admin/outbound/cohort-launch
-  // Validates preflight, caps cohort size, removes global pause, returns status.
-  app.post("/api/admin/outbound/cohort-launch", requireRole("admin"), async (req, res) => {
-    try {
-      const { cohortSize, sequenceId } = req.body as { cohortSize?: number; sequenceId?: number };
-
-      // ── Enforce cohort size cap ─────────────────────────────────────────────
-      const MAX_COHORT_SIZE = 500;
-      const resolvedSize = typeof cohortSize === "number" ? Math.max(1, Math.min(cohortSize, MAX_COHORT_SIZE)) : MAX_COHORT_SIZE;
-
-      // ── Run preflight checks — abort if any FAIL (not BLOCKED/WARN) ─────────
-      const { isGhlConfigured } = await import("../services/ghl");
-      const { isSmtpConfigured } = await import("../services/smtp-email");
-      const { pool: pgPool } = await import("../db");
-
-      const ghlOk = isGhlConfigured();
-      const smtpOk = isSmtpConfigured();
-
-      const seqResult = await pgPool.query<{ count: string }>(
-        `SELECT COUNT(*)::text AS count FROM follow_up_sequences WHERE status = 'active'`
-      );
-      const activeSequences = parseInt(seqResult.rows[0]?.count ?? "0", 10);
-
-      const blockingFailures: string[] = [];
-      if (!ghlOk && !smtpOk) blockingFailures.push("No sending transport configured (need GHL or SMTP)");
-      if (activeSequences === 0) blockingFailures.push("No active sequences — activate at least one sequence first");
-
-      if (blockingFailures.length > 0) {
-        return res.status(400).json({
-          launched: false,
-          error: "Preflight gate failed",
-          failures: blockingFailures,
-        });
-      }
-
-      // ── Verify sequence if specified ────────────────────────────────────────
-      if (sequenceId) {
-        const { followUpSequences: seqTable } = await import("@shared/schema");
-        const [seq] = await db.select({ id: seqTable.id, status: seqTable.status }).from(seqTable).where(eq(seqTable.id, sequenceId)).limit(1);
-        if (!seq) return res.status(400).json({ launched: false, error: `Sequence ${sequenceId} not found` });
-        if (seq.status !== "active") return res.status(400).json({ launched: false, error: `Sequence ${sequenceId} is not active` });
-      }
-
-      // ── Remove global outbound pause ────────────────────────────────────────
-      // Route through OutboundControlService so the canonical control table,
-      // audit log, epoch, and legacy system_settings are all updated atomically.
-      {
-        const { applyPauseMutation } = await import("../services/outbound-control-service");
-        await applyPauseMutation({
-          outboundGlobalPaused: false,
-          reason: "Cohort launch initiated — global pause lifted for outbound enrollment",
-          actor: (req as any).user?.email ?? "cohort-launch",
-          idempotencyKey: `cohort-launch-${Date.now()}`,
-        }).catch((mutErr: any) => {
-          // Log but don't block the cohort launch audit entry; canonical
-          // system_settings was NOT written; callers must check control table.
-          console.error("[CohortLaunch] applyPauseMutation failed:", mutErr?.message);
-          throw mutErr; // re-throw so the response shows a 500
-        });
-      }
-
-      // ── Audit ───────────────────────────────────────────────────────────────
-      await storage.createAuditLog({
-        action: "cohort_launch_initiated",
-        entityType: "system",
-        actorType: "admin",
-        actorId: (req as any).user?.id?.toString(),
-        details: {
-          cohortSize: resolvedSize,
-          sequenceId: sequenceId ?? null,
-          initiatedBy: (req as any).user?.email ?? "unknown",
-          timestamp: new Date().toISOString(),
-        },
-      });
-
-      console.log(`[CohortLaunch] Admin ${(req as any).user?.email} launched controlled cohort: size=${resolvedSize}, sequenceId=${sequenceId ?? "all"}`);
-
-      return res.json({
-        launched: true,
-        cohortSize: resolvedSize,
-        sequenceId: sequenceId ?? null,
-        timestamp: new Date().toISOString(),
-        message: `Outbound enabled. Sending capped at ${resolvedSize} contacts per cycle. Monitor progress in the Operator Dashboard → Send Monitoring tab.`,
-      });
-    } catch (err: any) {
-      serverError(res, err);
-    }
+  // Legacy "launch" is intentionally fenced. It cannot unpause, enroll, or
+  // dispatch. Existing clients receive a truthful migration response.
+  app.post("/api/admin/outbound/cohort-launch", requireRole("admin"), async (_req, res) => {
+    return res.status(409).json({
+      launched: false,
+      prepared: false,
+      globalPauseChanged: false,
+      code: "CR06_GOVERNED_COMMAND_REQUIRED",
+      message: "Use CR-06 preflight, campaign gate, and prepare/hold commands. Preparation ends READY_HELD — SENDING OFF.",
+      governedEndpoints: {
+        preflight: "/api/admin/cr06/preflight",
+        gate: "/api/admin/cr06/gates",
+        prepare: "/api/admin/cr06/prepare",
+      },
+    });
   });
 
   // ── Cohort Send Metrics (#1396) ─────────────────────────────────────────────

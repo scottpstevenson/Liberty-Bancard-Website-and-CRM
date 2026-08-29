@@ -128,6 +128,24 @@ export async function recoverDeferredEnrollments(): Promise<{
       const retriesSoFar = typeof meta._capDeferRetries === "number" ? meta._capDeferRetries : 0;
 
       try {
+        const { classifyCr06SequencePurpose, decideCr06PromotionalLifecycle } =
+          await import("./cr06-promotional-lifecycle-decision");
+        const sequence = sequenceId ? await storage.getFollowUpSequence(sequenceId) : null;
+        const cr06Decision = decideCr06PromotionalLifecycle({
+          boundary: "legacy_release",
+          purpose: sequence ? classifyCr06SequencePurpose(sequence) : "promotional",
+        });
+        if (!cr06Decision.allowed) {
+          skipped++;
+          await storage.createAuditLog({
+            action: "sequence_deferred_recovery_blocked_cr06",
+            entityType: "contact",
+            entityId: contactId,
+            actorType: "system",
+            details: { enrollmentId, sequenceId, reasonCode: cr06Decision.reasonCode },
+          });
+          continue;
+        }
         // ── Audit: recovery attempted ───────────────────────────────────────
         await storage.createAuditLog({
           action: "sequence_deferred_recovery_attempted",

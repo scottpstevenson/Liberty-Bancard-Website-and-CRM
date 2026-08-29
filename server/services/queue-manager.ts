@@ -2,6 +2,7 @@ import { Queue, Worker, type ConnectionOptions, type Job } from "bullmq";
 import { sql } from "drizzle-orm";
 import { getBullMqTestPrefix, getRedisConnection, type QueueMode } from "./queue-connection";
 import { storage } from "../storage";
+import { decideCr06PromotionalLifecycle } from "./cr06-promotional-lifecycle-decision";
 
 const dlqAlertCooldown = new Map<string, number>();
 const DLQ_ALERT_COOLDOWN_MS = 60 * 60 * 1000;
@@ -1086,6 +1087,11 @@ class QueueManager {
             // Non-fatal: depth check should never block the actual tick
           }
 
+          // Sequence rows are purpose-classified at their claim boundary; this
+          // runner must remain available for explicitly transactional/human
+          // response rows rather than globally treating that mixed queue as
+          // promotional.
+          decideCr06PromotionalLifecycle({ boundary: "queue_runner", purpose: "transactional" });
           if (featureFlags.LEGACY_OUTREACH_ENABLED) {
             await runSequencesTick();
           }
@@ -1096,8 +1102,10 @@ class QueueManager {
             const { processValidationIntent } = await import("./provider-readiness-control");
             await processValidationIntent(_job.data.intentId);
           } else if (_job.name === "campaign-queue-run" && typeof _job.data?.runId === "string") {
-            const { processCampaignQueueRun } = await import("./campaign-engine");
-            await processCampaignQueueRun(_job.data.runId);
+            if (decideCr06PromotionalLifecycle({ boundary: "queue_runner", purpose: "promotional" }).allowed) {
+              const { processCampaignQueueRun } = await import("./campaign-engine");
+              await processCampaignQueueRun(_job.data.runId);
+            }
           } else if (_job.name === "statement-blueprint" && typeof _job.data?.dealId === "number") {
             await runStatementBlueprintJob(_job.data.dealId);
           } else if (_job.name === "free-contact-enrichment" && typeof _job.data?.merchantId === "number") {
@@ -1249,6 +1257,13 @@ class QueueManager {
             const { autoEnrollFromTrigger } = await import("./sequence-worker");
 
             const jobRowId: number = _job.data.promotionalEnrollmentJobId;
+            if (!decideCr06PromotionalLifecycle({ boundary: "queue_runner", purpose: "promotional" }).allowed) {
+              await dbInst
+                .update(promotionalEnrollmentJobs)
+                .set({ status: "blocked", reasonCodes: ["no_usable_channel"], processedAt: new Date() })
+                .where(eq(promotionalEnrollmentJobs.id, jobRowId));
+              return;
+            }
             let contactId: number = _job.data.contactId;
             const {
               CONTACT_MERGE_EFFECT_HOLD_REASON,

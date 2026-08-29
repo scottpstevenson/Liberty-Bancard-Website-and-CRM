@@ -1,12 +1,13 @@
 import { useState, useEffect } from "react";
 import { useLocation, useSearch } from "wouter";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Zap, Megaphone, ListOrdered, LineChart, Users } from "lucide-react";
+import { Zap, Megaphone, ListOrdered, LineChart, Users, ShieldCheck } from "lucide-react";
 import OutreachCommandPage from "./OutreachCommand";
 import CampaignsPage from "./Campaigns";
 import SequencesPage from "./Sequences";
 import OutreachAnalyticsPage from "./OutreachAnalytics";
 import ColdLeadsPage from "./ColdLeads";
+import Cr06Governance from "./Cr06Governance";
 
 /**
  * Outbound Command Center — unified tabbed shell
@@ -34,7 +35,7 @@ export default function OutboundCenter() {
 
   const params = new URLSearchParams(search);
   const rawTab = params.get("tab") ?? "command";
-  const validTabs = ["command", "campaigns", "sequences", "prospects", "analytics"];
+  const validTabs = ["command", "campaigns", "sequences", "governance", "prospects", "analytics"];
   const initialTab = validTabs.includes(rawTab) ? rawTab : "command";
   const [tab, setTab] = useState(initialTab);
 
@@ -64,6 +65,10 @@ export default function OutboundCenter() {
             <ListOrdered className="w-4 h-4" />
             Sequences
           </TabsTrigger>
+          <TabsTrigger value="governance" className="gap-2" data-testid="tab-outbound-governance">
+            <ShieldCheck className="w-4 h-4" />
+            Governance
+          </TabsTrigger>
           <TabsTrigger value="prospects" className="gap-2" data-testid="tab-outbound-prospects">
             <Users className="w-4 h-4" />
             Prospects
@@ -84,6 +89,10 @@ export default function OutboundCenter() {
 
         <TabsContent value="sequences" data-testid="tab-content-sequences">
           <SequencesPage />
+        </TabsContent>
+
+        <TabsContent value="governance" data-testid="tab-content-governance">
+          <Cr06Governance />
         </TabsContent>
 
         <TabsContent value="prospects" data-testid="tab-content-prospects">

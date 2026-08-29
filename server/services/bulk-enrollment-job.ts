@@ -23,6 +23,7 @@ import { isNull, eq, and, gte, sql, inArray } from "drizzle-orm";
 import { storage } from "../storage";
 import { canEnrollContactInSequence } from "./sequence-eligibility";
 import { evaluateContactability } from "./contactability";
+import { decideCr06SequenceLifecycle } from "./cr06-promotional-lifecycle-decision";
 
 const BULK_ENROLL_PROGRESS_KEY = "bulk_enroll_job_progress";
 const BULK_ENROLL_CANCEL_KEY = "bulk_enroll_job_cancel_requested";
@@ -215,6 +216,8 @@ export async function startBulkEnrollJob(params: {
   const sequence = await storage.getFollowUpSequence(sequenceId);
   if (!sequence) throw new Error(`Sequence ${sequenceId} not found.`);
   if (sequence.status !== "active") throw new Error(`Sequence ${sequenceId} is not active.`);
+  const cr06Decision = decideCr06SequenceLifecycle(sequence, "bulk_enrollment");
+  if (!cr06Decision.allowed) throw new Error(cr06Decision.reasonCode);
 
   const rows = await _fetchCandidates(vertical, minScore);
 
@@ -270,6 +273,9 @@ async function runBulkEnrollAsync(opts: {
 
   const steps = await storage.getSequenceSteps(sequence.id);
   const requiresPewc = steps.some(s => SMS_VOICE_RINGLESS_TYPES.has(s.actionType ?? ""));
+  if (!decideCr06SequenceLifecycle(sequence, "bulk_enrollment").allowed) {
+    return;
+  }
 
   try {
     for (const row of rows) {

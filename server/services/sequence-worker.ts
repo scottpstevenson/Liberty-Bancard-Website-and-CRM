@@ -11,6 +11,10 @@ import { sanitizeFirstName } from "./contact-name-utils";
 import { hashEmailToken } from "./provider-readiness-control";
 import { getOrCreateSequenceAbAssignment, recordSequenceAbDelivery } from "./sequence-ab-authority";
 import { authorizeCommercialUseBatch } from "./commercial-resolution";
+import {
+  classifyCr06SequencePurpose,
+  decideCr06PromotionalLifecycle,
+} from "./cr06-promotional-lifecycle-decision";
 
 /**
  * Map a sequence's triggerConfig.category to the correct email signature type.
@@ -381,6 +385,25 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
       try {
         const sequence = await storage.getFollowUpSequence(enrollment.sequenceId!);
         if (!sequence || sequence.status !== "active") {
+          continue;
+        }
+        // This is both the durable-work claim boundary and a final safety net
+        // before any sequence step can reach a transport. Non-promotional
+        // sequences must declare their purpose explicitly in triggerConfig.
+        const cr06Purpose = classifyCr06SequencePurpose(sequence);
+        const cr06Decision = decideCr06PromotionalLifecycle({
+          boundary: "sequence_claim",
+          purpose: cr06Purpose,
+        });
+        if (!cr06Decision.allowed) {
+          await storage.updateSequenceEnrollment(enrollment.id, {
+            nextActionAt: new Date(Date.now() + 60 * 60 * 1000),
+            metadata: {
+              ...((enrollment.metadata as Record<string, unknown> | null) ?? {}),
+              deferral: { reason: cr06Decision.reasonCode, currentStep: enrollment.currentStep ?? 0 },
+            },
+          });
+          processed++;
           continue;
         }
 
@@ -1767,6 +1790,20 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
               }
               let emailDispatchAuthorized = false;
               const authorizeClaimedEmailDispatch = async (): Promise<boolean> => {
+                if (!decideCr06PromotionalLifecycle({
+                  boundary: "sequence_transport",
+                  purpose: cr06Purpose,
+                }).allowed) {
+                  await defaultSequenceWorkerDb.update(sequenceEnrollmentsTable).set({
+                    nextActionAt: new Date(Date.now() + 60 * 60 * 1000),
+                    updatedAt: new Date(),
+                  }).where(drizzleAnd(
+                    drizzleEq(sequenceEnrollmentsTable.id, enrollment.id),
+                    drizzleEq(sequenceEnrollmentsTable.status, "active"),
+                  ));
+                  await releaseColdCapReservation();
+                  return false;
+                }
                 const authorization = await authorizeSequenceDispatch({
                   attemptId: emailSendClaimId.attemptId,
                   claimToken: emailSendClaimId.claimToken,
@@ -2097,6 +2134,19 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
             }
             let smsDispatchAuthorized = false;
             const authorizeClaimedSmsDispatch = async (): Promise<boolean> => {
+              if (!decideCr06PromotionalLifecycle({
+                boundary: "sequence_transport",
+                purpose: cr06Purpose,
+              }).allowed) {
+                await defaultSequenceWorkerDb.update(sequenceEnrollmentsTable).set({
+                  nextActionAt: new Date(Date.now() + 60 * 60 * 1000),
+                  updatedAt: new Date(),
+                }).where(drizzleAnd(
+                  drizzleEq(sequenceEnrollmentsTable.id, enrollment.id),
+                  drizzleEq(sequenceEnrollmentsTable.status, "active"),
+                ));
+                return false;
+              }
               const authorization = await authorizeSequenceDispatch({
                 attemptId: smsSendClaimId.attemptId,
                 claimToken: smsSendClaimId.claimToken,
@@ -2542,7 +2592,6 @@ export async function autoEnrollFromTrigger(triggerType: string, data: {
   let enrolled = 0;
   let alreadyEnrolledCount = 0;
   const enrollmentIds: number[] = [];
-
   // CR-04 fail-closed boundary: direct trigger callers (including public
   // contact_created routes) cannot activate promotional sequences. The durable
   // promotional job is the only admitted caller, and its CR-04 path currently
@@ -2711,6 +2760,20 @@ export async function autoEnrollFromTrigger(triggerType: string, data: {
       const delayMs = firstStep
         ? ((firstStep.delayDays || 0) * 86400000) + ((firstStep.delayHours || 0) * 3600000)
         : 0;
+      const cr06EnrollmentDecision = decideCr06PromotionalLifecycle({
+        boundary: "sequence_enrollment",
+        purpose: classifyCr06SequencePurpose(seq),
+      });
+      if (!cr06EnrollmentDecision.allowed) {
+        await storage.createAuditLog({
+          action: "cr06_auto_enrollment_blocked",
+          entityType: "contact",
+          entityId: data.contactId ?? 0,
+          actorType: "system",
+          details: { triggerType, sequenceId: seq.id, reasonCode: cr06EnrollmentDecision.reasonCode },
+        });
+        continue;
+      }
 
       let newEnrollment: { id: number } | null = null;
       if (opts?.promotionalIntent && data.contactId) {

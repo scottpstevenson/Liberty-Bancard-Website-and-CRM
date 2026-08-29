@@ -14,6 +14,8 @@ export async function terminalizeSequenceEnrollment(params: {
   expectedCurrentStep: number;
   terminalCurrentStep: number;
   noResponseReason: "sequence_exhausted_no_response" | "sms_skipped_no_response";
+  forcedReplyEventKey?: string;
+  terminalReason?: string;
 }): Promise<SequenceTerminalizationResult> {
   const client = await pool.connect().catch(() => null);
   if (!client) return { outcome: "UNAVAILABLE" };
@@ -27,16 +29,17 @@ export async function terminalizeSequenceEnrollment(params: {
       WHERE contact_id = $1 AND direction = 'inbound' AND created_at > $2
       LIMIT 1
     `, [params.contactId, params.enrolledAt]);
-    const isReply = inbound.rows.length > 0;
+    const isReply = Boolean(params.forcedReplyEventKey) || inbound.rows.length > 0;
     const category = isReply ? "reply" : "no_response";
-    const reason = isReply ? "contact_replied" : params.noResponseReason;
+    const reason = params.terminalReason ?? (isReply ? "contact_replied" : params.noResponseReason);
     const changed = await client.query(`
       UPDATE sequence_enrollments
       SET status = 'completed',
           completed_at = NOW(),
           current_step = $1,
           metadata = COALESCE(metadata, '{}'::jsonb)
-            || jsonb_build_object('terminal', jsonb_build_object('category', $2::text, 'reason', $3::text)),
+            || jsonb_build_object('terminal', jsonb_strip_nulls(jsonb_build_object(
+                 'category', $2::text, 'reason', $3::text, 'eventKey', $7::text))),
           updated_at = NOW()
       WHERE id = $4 AND status = 'active' AND current_step = $5 AND contact_id = $6
       RETURNING id
@@ -47,6 +50,7 @@ export async function terminalizeSequenceEnrollment(params: {
       params.enrollmentId,
       params.expectedCurrentStep,
       params.contactId,
+      params.forcedReplyEventKey ?? null,
     ]);
     await client.query("COMMIT");
     if (!changed.rows.length) return { outcome: "STALE" };

@@ -2,6 +2,7 @@ import { storage } from "../storage";
 import { db } from "../db";
 import { tasks } from "@shared/schema";
 import { and, eq, ilike } from "drizzle-orm";
+import { decideCr06SequenceLifecycle } from "./cr06-promotional-lifecycle-decision";
 
 const STATEMENT_CHASE_SEQ_NAME = "SDR: Statement Chase";
 const STATEMENT_CHASE_CATEGORY = "sdr_statement_chase";
@@ -87,7 +88,7 @@ export async function runAbandonedStatementCheck(): Promise<{ checked: number; t
                 lifecycleStagesAllowed: chaseSeq.lifecycleStagesAllowed,
               });
 
-              if (eligibility.allowed) {
+              if (eligibility.allowed && decideCr06SequenceLifecycle(chaseSeq).allowed) {
                 const enrollment = await storage.createSequenceEnrollment({
                   sequenceId: chaseSeq.id,
                   contactId: liveContactId,

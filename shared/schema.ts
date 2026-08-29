@@ -7052,3 +7052,235 @@ export const contactMergeReconciliations = pgTable("contact_merge_reconciliation
   completedAt: timestamp("completed_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+// ─── CR-06 Premium Campaign Governance ──────────────────────────────────────
+// These additive tables intentionally do not replace the legacy campaign,
+// sequence, enrollment, or message status columns.
+export const cr06Artifacts = pgTable("cr06_artifacts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  identityKey: text("identity_key").notNull(),
+  artifactKind: text("artifact_kind").notNull(),
+  recordClass: text("record_class").notNull().default("production"),
+  purpose: text("purpose").notNull().default("cold_marketing"),
+  governanceState: text("governance_state").notNull().default("draft"),
+  compatibilityState: text("compatibility_state").notNull().default("governed"),
+  preparationState: text("preparation_state").notNull().default("not_prepared"),
+  version: integer("version").notNull(),
+  parentArtifactId: uuid("parent_artifact_id").references((): AnyPgColumn => cr06Artifacts.id, { onDelete: "restrict" }),
+  document: jsonb("document").notNull(),
+  contentHash: text("content_hash").notNull(),
+  dependencyFingerprint: text("dependency_fingerprint"),
+  createdBy: text("created_by").notNull(),
+  reviewedBy: text("reviewed_by"),
+  approvedAt: timestamp("approved_at", { withTimezone: true }),
+  retiredAt: timestamp("retired_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type Cr06Artifact = typeof cr06Artifacts.$inferSelect;
+
+export const cr06RolloutManifests = pgTable("cr06_rollout_manifests", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  manifestVersion: text("manifest_version").notNull().unique(),
+  manifestHash: text("manifest_hash").notNull(),
+  status: text("status").notNull().default("dry_run"),
+  programCount: integer("program_count").notNull().default(0),
+  sequenceCount: integer("sequence_count").notNull().default(0),
+  contentCount: integer("content_count").notNull().default(0),
+  manualTaskCount: integer("manual_task_count").notNull().default(0),
+  document: jsonb("document").notNull(),
+  actorId: text("actor_id"),
+  claimToken: uuid("claim_token"),
+  leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+  fence: integer("fence").notNull().default(0),
+  receipt: jsonb("receipt"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  appliedAt: timestamp("applied_at", { withTimezone: true }),
+});
+export type Cr06RolloutManifest = typeof cr06RolloutManifests.$inferSelect;
+
+export const cr06ApprovalSnapshots = pgTable("cr06_approval_snapshots", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  artifactId: uuid("artifact_id").notNull().unique().references(() => cr06Artifacts.id, { onDelete: "restrict" }),
+  artifactHash: text("artifact_hash").notNull(),
+  snapshot: jsonb("snapshot").notNull(),
+  dependencyFingerprint: text("dependency_fingerprint").notNull(),
+  reviewerId: text("reviewer_id").notNull(),
+  compareAndSetHash: text("compare_and_set_hash").notNull(),
+  dependencySnapshot: jsonb("dependency_snapshot").notNull().default(sql`'{}'::jsonb`),
+  snapshotVersion: integer("snapshot_version").notNull().default(1),
+  approvedAt: timestamp("approved_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const cr06CampaignGates = pgTable("cr06_campaign_gates", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  programArtifactId: uuid("program_artifact_id").notNull().references(() => cr06Artifacts.id, { onDelete: "restrict" }),
+  cohortRunId: uuid("cohort_run_id").notNull().references(() => cr04CohortRuns.id, { onDelete: "restrict" }),
+  approvalId: uuid("approval_id").notNull().references(() => cr06ApprovalSnapshots.id, { onDelete: "restrict" }),
+  preflightHash: text("preflight_hash").notNull(),
+  cap: integer("cap").notNull(),
+  state: text("state").notNull().default("closed"),
+  confirmation: text("confirmation"),
+  actorId: text("actor_id").notNull(),
+  idempotencyKey: text("idempotency_key").notNull().unique(),
+  // Mutating a gate requires the caller to compare this exact revision.
+  revision: integer("revision").notNull().default(1),
+  dependencySnapshot: jsonb("dependency_snapshot").notNull().default(sql`'{}'::jsonb`),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  openedAt: timestamp("opened_at", { withTimezone: true }),
+  closedAt: timestamp("closed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const cr06CampaignGateRevisions = pgTable("cr06_campaign_gate_revisions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  campaignGateId: uuid("campaign_gate_id").notNull().references(() => cr06CampaignGates.id, { onDelete: "restrict" }),
+  revision: integer("revision").notNull(),
+  state: text("state").notNull(),
+  actorId: text("actor_id").notNull(),
+  dependencySnapshot: jsonb("dependency_snapshot").notNull(),
+  openedAt: timestamp("opened_at", { withTimezone: true }),
+  closedAt: timestamp("closed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("cr06_campaign_gate_revision_schema_uidx").on(table.campaignGateId, table.revision),
+]);
+
+export const cr06PreparationRuns = pgTable("cr06_preparation_runs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  idempotencyKey: text("idempotency_key").notNull().unique(),
+  programArtifactId: uuid("program_artifact_id").notNull().references(() => cr06Artifacts.id, { onDelete: "restrict" }),
+  approvalId: uuid("approval_id").notNull().references(() => cr06ApprovalSnapshots.id, { onDelete: "restrict" }),
+  cohortRunId: uuid("cohort_run_id").notNull().references(() => cr04CohortRuns.id, { onDelete: "restrict" }),
+  dependencyFingerprint: text("dependency_fingerprint").notNull(),
+  dependencySnapshot: jsonb("dependency_snapshot").notNull().default(sql`'{}'::jsonb`),
+  dependencyVersion: integer("dependency_version").notNull().default(1),
+  state: text("state").notNull().default("building"),
+  requestedCount: integer("requested_count").notNull().default(0),
+  preparedCount: integer("prepared_count").notNull().default(0),
+  blockedCount: integer("blocked_count").notNull().default(0),
+  deferredCount: integer("deferred_count").notNull().default(0),
+  runHash: text("run_hash"),
+  claimToken: uuid("claim_token"),
+  leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+  fence: integer("fence").notNull().default(0),
+  blockerSummary: jsonb("blocker_summary").notNull().default(sql`'{}'::jsonb`),
+  receipt: jsonb("receipt"),
+  receiptVersion: integer("receipt_version").notNull().default(1),
+  createdBy: text("created_by").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+});
+
+export const cr06PreparedEnrollments = pgTable("cr06_prepared_enrollments", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  preparationRunId: uuid("preparation_run_id").notNull().references(() => cr06PreparationRuns.id, { onDelete: "restrict" }),
+  cohortOrdinal: integer("cohort_ordinal").notNull(),
+  contactId: integer("contact_id").notNull().references(() => contacts.id, { onDelete: "restrict" }),
+  contactGeneration: integer("contact_generation").notNull(),
+  emailTokenHash: text("email_token_hash"),
+  senderPolicyVersion: text("sender_policy_version").notNull(),
+  dependencyFingerprint: text("dependency_fingerprint").notNull(),
+  evidenceSnapshot: jsonb("evidence_snapshot").notNull(),
+  state: text("state").notNull().default("ready_held"),
+  removalReason: text("removal_reason"),
+  manualTaskId: integer("manual_task_id").references(() => tasks.id, { onDelete: "restrict" }),
+  sequenceEnrollmentId: integer("sequence_enrollment_id").references(() => sequenceEnrollments.id, { onDelete: "restrict" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const cr06DeliveryIntents = pgTable("cr06_delivery_intents", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  preparationRunId: uuid("preparation_run_id").notNull().references(() => cr06PreparationRuns.id, { onDelete: "restrict" }),
+  preparedEnrollmentId: uuid("prepared_enrollment_id").notNull().references(() => cr06PreparedEnrollments.id, { onDelete: "restrict" }),
+  sequenceArtifactId: uuid("sequence_artifact_id").notNull().references(() => cr06Artifacts.id, { onDelete: "restrict" }),
+  contentArtifactId: uuid("content_artifact_id").notNull().references(() => cr06Artifacts.id, { onDelete: "restrict" }),
+  recipientContactId: integer("recipient_contact_id").notNull().references(() => contacts.id, { onDelete: "restrict" }),
+  touchNumber: integer("touch_number").notNull(),
+  scheduledFor: timestamp("scheduled_for", { withTimezone: true }).notNull(),
+  state: text("state").notNull().default("held"),
+  recipientSnapshot: jsonb("recipient_snapshot").notNull(),
+  renderHash: text("render_hash").notNull(),
+  dependencySnapshot: jsonb("dependency_snapshot").notNull().default(sql`'{}'::jsonb`),
+  dependencyVersion: integer("dependency_version").notNull().default(1),
+  providerAttemptCount: integer("provider_attempt_count").notNull().default(0),
+  terminalReason: text("terminal_reason"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  releasedAt: timestamp("released_at", { withTimezone: true }),
+});
+
+// Every preparation persists one immutable, non-capacity-bearing reservation
+// for each authority scope. These are evidence of held work only, never
+// authorization to transmit.
+export const cr06PreparationReservations = pgTable("cr06_preparation_reservations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  preparationRunId: uuid("preparation_run_id").notNull().references(() => cr06PreparationRuns.id, { onDelete: "restrict" }),
+  reservationKey: text("reservation_key").notNull(),
+  scopeType: text("scope_type").notNull(),
+  scopeIdentity: text("scope_identity").notNull(),
+  scopeWindow: timestamp("scope_window", { withTimezone: true }),
+  reservedMemberCap: integer("reserved_member_cap").notNull(),
+  effectiveCap: integer("effective_cap").notNull().default(0),
+  currentUsage: integer("current_usage").notNull().default(0),
+  sendCapacityUnits: integer("send_capacity_units").notNull().default(0),
+  dependencySnapshot: jsonb("dependency_snapshot").notNull(),
+  receipt: jsonb("receipt").notNull(),
+  receiptHash: text("receipt_hash").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  state: text("state").notNull().default("held"),
+  reconciledAt: timestamp("reconciled_at", { withTimezone: true }),
+  reconciliationReceipt: jsonb("reconciliation_receipt"),
+  reconciliationReceiptHash: text("reconciliation_receipt_hash"),
+  reconciliationActorId: text("reconciliation_actor_id"),
+  reconciliationAsOf: timestamp("reconciliation_as_of", { withTimezone: true }),
+  reconciliationKey: text("reconciliation_key"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("cr06_preparation_reservation_run_scope_uidx").on(table.preparationRunId, table.scopeType),
+  uniqueIndex("cr06_preparation_reservation_key_uidx").on(table.reservationKey),
+  index("cr06_preparation_reservation_expiry_idx").on(table.state, table.expiresAt),
+]);
+
+export const cr06ManualTaskIntents = pgTable("cr06_manual_task_intents", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  preparationRunId: uuid("preparation_run_id").notNull().references(() => cr06PreparationRuns.id, { onDelete: "restrict" }),
+  preparedEnrollmentId: uuid("prepared_enrollment_id").notNull().unique().references(() => cr06PreparedEnrollments.id, { onDelete: "restrict" }),
+  taskDefinitionArtifactId: uuid("task_definition_artifact_id").notNull().references(() => cr06Artifacts.id, { onDelete: "restrict" }),
+  triggerTouchNumber: integer("trigger_touch_number").notNull().default(2),
+  state: text("state").notNull().default("held"),
+  scheduledAfter: timestamp("scheduled_after", { withTimezone: true }).notNull(),
+  cr05TaskId: integer("cr05_task_id").references(() => tasks.id, { onDelete: "restrict" }),
+  commandKey: text("command_key").notNull().unique(),
+  dependencySnapshot: jsonb("dependency_snapshot").notNull().default(sql`'{}'::jsonb`),
+  dependencyVersion: integer("dependency_version").notNull().default(1),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const cr06AttributionEvents = pgTable("cr06_attribution_events", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  preparationRunId: uuid("preparation_run_id").notNull().references(() => cr06PreparationRuns.id, { onDelete: "restrict" }),
+  deliveryIntentId: uuid("delivery_intent_id").references(() => cr06DeliveryIntents.id, { onDelete: "restrict" }),
+  contactId: integer("contact_id").notNull().references(() => contacts.id, { onDelete: "restrict" }),
+  eventType: text("event_type").notNull(),
+  outcome: text("outcome").notNull(),
+  provider: text("provider"),
+  providerEventKey: text("provider_event_key"),
+  payload: jsonb("payload").notNull().default(sql`'{}'::jsonb`),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const cr06FeedbackReceipts = pgTable("cr06_feedback_receipts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  deliveryIntentId: uuid("delivery_intent_id").notNull().references(() => cr06DeliveryIntents.id, { onDelete: "restrict" }),
+  preparationRunId: uuid("preparation_run_id").notNull().references(() => cr06PreparationRuns.id, { onDelete: "restrict" }),
+  contactId: integer("contact_id").notNull().references(() => contacts.id, { onDelete: "restrict" }),
+  source: text("source").notNull(),
+  eventKey: text("event_key").notNull(),
+  eventType: text("event_type").notNull(),
+  payload: jsonb("payload").notNull().default(sql`'{}'::jsonb`),
+  receivedBy: text("received_by").notNull(),
+  processedAt: timestamp("processed_at", { withTimezone: true }),
+  effectVersion: integer("effect_version").notNull().default(1),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("cr06_feedback_receipt_source_key_schema_uidx").on(table.source, table.eventKey),
+]);

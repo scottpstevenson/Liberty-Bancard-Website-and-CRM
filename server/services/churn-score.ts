@@ -8,6 +8,7 @@ import {
 import { eq, and, gte, desc, sql, asc } from "drizzle-orm";
 import { createPreferenceAwareNotification } from "./digest-service";
 import { upsertEntityFact, recordAiDecision } from "./ai-memory";
+import { decideCr06SequenceLifecycle } from "./cr06-promotional-lifecycle-decision";
 
 export type ChurnSignalBreakdown = {
   volumeTrend: number;
@@ -445,7 +446,7 @@ async function enrollInWinBackSequence(
   const WIN_BACK_SEQ = "Win-Back: Critical Churn Risk";
   try {
     const [seq] = await db
-      .select({ id: followUpSequences.id, status: followUpSequences.status })
+      .select()
       .from(followUpSequences)
       .where(eq(followUpSequences.name, WIN_BACK_SEQ))
       .limit(1);
@@ -454,6 +455,7 @@ async function enrollInWinBackSequence(
       console.log(`[ChurnScore] Win-back sequence "${WIN_BACK_SEQ}" not found or paused — skipping`);
       return;
     }
+    if (!decideCr06SequenceLifecycle(seq).allowed) return;
 
     // Idempotency: skip if already enrolled
     const [existing] = await db

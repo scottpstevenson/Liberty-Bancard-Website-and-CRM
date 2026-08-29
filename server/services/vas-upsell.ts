@@ -24,6 +24,7 @@
 import { storage } from "../storage";
 import { db } from "../db";
 import { sql } from "drizzle-orm";
+import { decideCr06SequenceLifecycle } from "./cr06-promotional-lifecycle-decision";
 
 // ── Sequence name → canonical DB name mappings ─────────────────────────────
 const SEQ_RECURRING_BILLING      = "13. Recurring Billing — Subscription Merchants";
@@ -157,6 +158,10 @@ export async function triggerDay30VasUpsell(
         actorType: "system",
         details: { sequenceName: seqName, vertical, dealId },
       });
+      continue;
+    }
+    if (!decideCr06SequenceLifecycle(sequence).allowed) {
+      result.blocked++;
       continue;
     }
 

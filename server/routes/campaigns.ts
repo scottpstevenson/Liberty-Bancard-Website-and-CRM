@@ -14,6 +14,7 @@ import { pool, db } from "../db";
 import { eq, and, count } from "drizzle-orm";
 import { serverError } from "../utils/server-error";
 import { applyConsentCommand } from "../services/consent-authority";
+import { decideCr06SequenceLifecycle } from "../services/cr06-promotional-lifecycle-decision";
 
 interface AbTestResultRow {
   sequenceId: number;
@@ -885,6 +886,10 @@ export function registerCampaignsRoutes(app: Express) {
       const seq = await storage.getFollowUpSequence(input.sequenceId);
       if (!seq) return res.status(404).json({ message: "Sequence not found." });
       if (seq.status !== "active") return res.status(409).json({ message: `Sequence "${seq.name}" is ${seq.status}. Activate it before enrolling contacts.` });
+      const cr06Decision = decideCr06SequenceLifecycle(seq);
+      if (!cr06Decision.allowed) {
+        return res.status(409).json({ message: cr06Decision.reasonCode, code: cr06Decision.reasonCode });
+      }
 
       // ── Resolve contact — always required for eligibility evaluation ────
       // Fix deal-only bypass: when only dealId is provided the original code
@@ -1301,6 +1306,10 @@ export function registerCampaignsRoutes(app: Express) {
       }
 
       const userId = (req as any).user?.id?.toString() ?? null;
+      const cr06Decision = decideCr06SequenceLifecycle(seq, "bulk_enrollment");
+      if (!cr06Decision.allowed) {
+        return res.status(409).json({ message: cr06Decision.reasonCode, code: cr06Decision.reasonCode });
+      }
       await storage.createAuditLog({
         action: "sequence_vertical_bulk_enroll_previewed",
         entityType: "sequence",

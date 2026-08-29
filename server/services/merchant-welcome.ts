@@ -4,6 +4,7 @@ import { syncFormSubmissionToGhl } from "./ghl-form-sync";
 import { sendSmtpEmail, isSmtpConfigured } from "./smtp-email";
 import { storage } from "../storage";
 import type { Contact, Deal, MerchantProfile } from "@shared/schema";
+import { decideCr06SequenceLifecycle } from "./cr06-promotional-lifecycle-decision";
 
 const APPLICATION_SEQUENCE_NAME = "3. Fast Approval — Application Completion";
 
@@ -58,6 +59,7 @@ async function enrollInApplicationSequence(contact: Contact, deal: Deal): Promis
       console.warn(`[Closed Won] Sequence "${APPLICATION_SEQUENCE_NAME}" not found or inactive — skipping enrollment`);
       return;
     }
+    if (!decideCr06SequenceLifecycle(appSequence).allowed) return;
 
     const existingEnrollments = await storage.getContactEnrollments(contact.id);
     const alreadyEnrolled = existingEnrollments.some(

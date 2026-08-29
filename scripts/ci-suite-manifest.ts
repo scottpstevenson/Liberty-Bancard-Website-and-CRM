@@ -245,6 +245,42 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
     providerDenial: "source and migration authority assertions only; no database, network, queues, or providers",
   },
   {
+    name: "CR-06 Content, Cadence, and Deterministic Renderer Certification",
+    script: "scripts/test-cr06-governance.ts",
+    capability: "deterministic-static",
+    providerDenial: "immutable content/cadence and pure MIME-equivalent renderer certification; no database, AI, network, queue, or provider calls",
+  },
+  {
+    name: "CR-06 Promotional Enrollment Boundary Inventory",
+    script: "server/tests/cr06-promotional-boundary-inventory.source.test.ts",
+    capability: "deterministic-static",
+    providerDenial: "source-only exhaustive enrollment and release mutation inventory; no database, queues, network, or providers",
+  },
+  {
+    name: "CR-06 Feedback Privacy and History Contract",
+    script: "server/tests/cr06-feedback-strict.source.test.ts",
+    capability: "deterministic-static",
+    providerDenial: "source-only strict feedback allowlist, replay, terminalization, and immutable-history assertions; no database, network, queues, or providers",
+  },
+  {
+    name: "CR-06 Disposable Authority Certification",
+    script: "scripts/test-cr06-disposable-certification.ts",
+    capability: "deterministic-integration",
+    providerDenial: "disposable PostgreSQL and suite-isolated Redis only; certification wrapper denies all provider and public-network transports, and CR-06 dispatch is unavailable",
+  },
+  {
+    name: "CR-06 HTTP Authorization, CSRF, and Opaque-ID Contract",
+    script: "scripts/test-cr06-http-authorization.ts",
+    capability: "server-required",
+    providerDenial: "localhost isolated-test-auth requests only; CR-06 release remains unavailable and no provider transport is invoked",
+  },
+  {
+    name: "CR-06 Clean-Zero and Prior-0183 Migration Upgrade Proof",
+    script: "scripts/test-cr06-migration-upgrade.ts",
+    capability: "deterministic-integration",
+    providerDenial: "two freshly created disposable PostgreSQL databases; production migration harness only and no providers",
+  },
+  {
     name: "Release Artifact Gate",
     script: "scripts/release-artifact-gate.ts",
     capability: "writable-build",

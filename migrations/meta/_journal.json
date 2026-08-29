@@ -1303,6 +1303,41 @@
       "when": 1796500000000,
       "tag": "0181_cr05_task_ticket_authority",
       "breakpoints": true
+    },
+    {
+      "idx": 186,
+      "version": "7",
+      "when": 1796600000000,
+      "tag": "0182_cr06_premium_campaign_governance",
+      "breakpoints": true
+    },
+    {
+      "idx": 187,
+      "version": "7",
+      "when": 1796700000000,
+      "tag": "0183_cr06_preparation_fences",
+      "breakpoints": true
+    },
+    {
+      "idx": 188,
+      "version": "7",
+      "when": 1796800000000,
+      "tag": "0184_cr06_corrections",
+      "breakpoints": true
+    },
+    {
+      "idx": 189,
+      "version": "7",
+      "when": 1796900000000,
+      "tag": "0185_cr06_history_and_feedback",
+      "breakpoints": true
+    },
+    {
+      "idx": 190,
+      "version": "7",
+      "when": 1797000000000,
+      "tag": "0186_cr06_scoped_reservation_contract",
+      "breakpoints": true
     }
   ]
 }

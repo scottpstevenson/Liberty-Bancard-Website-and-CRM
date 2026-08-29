@@ -28,6 +28,7 @@ import { GO_LIVE_GATE_STAGES, checkGoLiveReadiness, GoLiveGateError } from "../s
 import { requireGhlRouteMutationAllowed } from "./ghl-mutation-pause";
 import { agentOwnershipEmail, authorizeDealAccess, denyCrmObject, parseStrictPagination } from "../services/crm-object-access";
 import { readRevenueDeals } from "../services/revenue-read-authority";
+import { decideCr06SequenceLifecycle } from "../services/cr06-promotional-lifecycle-decision";
 
 export function registerDealsRoutes(app: Express) {
   // === DEALS ===
@@ -291,7 +292,8 @@ export function registerDealsRoutes(app: Express) {
                   description: action.description || `Auto-generated follow-up from stage automation rule: ${rule.name}`,
                 });
               } else if (action.type === "enroll_sequence" && action.sequenceId) {
-                await storage.createSequenceEnrollment({
+                const sequence = await storage.getFollowUpSequence(action.sequenceId);
+                if (sequence && decideCr06SequenceLifecycle(sequence).allowed) await storage.createSequenceEnrollment({
                   sequenceId: action.sequenceId,
                   contactId: updated.contactId || undefined,
                   dealId: updated.id,

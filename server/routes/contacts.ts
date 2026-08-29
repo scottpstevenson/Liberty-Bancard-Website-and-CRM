@@ -22,6 +22,7 @@ import { enqueuePromotionalEnrollment } from "../services/promotional-enrollment
 import { triggerWorkflowsByEvent } from "../services/workflow-executor";
 import { scoreContact } from "../services/lead-scoring";
 import { routeContact } from "../services/smart-router";
+import { decideCr06SequenceLifecycle } from "../services/cr06-promotional-lifecycle-decision";
 import { createPreferenceAwareNotification, sendCriticalEmailNotification } from "../services/digest-service";
 import { ingestBusinessFromContact } from "../services/sdr/dedupe";
 import { isGhlConfigured } from "../services/ghl";
@@ -2081,6 +2082,10 @@ export function registerContactsRoutes(app: Express) {
       const sequence = await storage.getFollowUpSequence(sequenceId);
       if (!sequence || sequence.status !== "active") {
         return res.status(422).json({ message: "Sequence not found or not active" });
+      }
+      const cr06Decision = decideCr06SequenceLifecycle(sequence);
+      if (!cr06Decision.allowed) {
+        return res.status(409).json({ message: cr06Decision.reasonCode, code: cr06Decision.reasonCode });
       }
 
       // Gate 5: sequence must be email-only

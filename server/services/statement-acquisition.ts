@@ -33,6 +33,7 @@ import { db } from "../db";
 import { sequenceEnrollments, followUpSequences, sequenceSteps } from "@shared/schema";
 import { eq, and, inArray } from "drizzle-orm";
 import { advanceDealStage } from "./deal-stage-service";
+import { decideCr06SequenceLifecycle } from "./cr06-promotional-lifecycle-decision";
 
 // ─── Cadence config ───────────────────────────────────────────────────────────
 
@@ -273,7 +274,7 @@ export async function onStatementRequested(
           sequences.find(isProductionStatementSequenceCandidate)
         );
 
-    if (statementSequence) {
+    if (statementSequence && decideCr06SequenceLifecycle(statementSequence).allowed) {
       // #1385 — Check autoEnrollmentSuppressedAt before re-enrolling.
       // If a rep manually stopped the statement-chase sequence (or set the
       // suppression flag from the deal detail panel), do not re-enroll.

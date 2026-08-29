@@ -2,6 +2,7 @@ import { storage } from "../storage";
 import { db } from "../db";
 import { merchantApplications } from "@shared/schema";
 import { lt, and, or, eq, sql } from "drizzle-orm";
+import { decideCr06SequenceLifecycle } from "./cr06-promotional-lifecycle-decision";
 
 const TWO_DAYS_MS = 2 * 24 * 60 * 60 * 1000;
 const ABANDON_THRESHOLD_MS = 24 * 60 * 60 * 1000; // 24 hours stale before attempting recovery
@@ -294,7 +295,7 @@ async function runAbandonedDraftRecovery(): Promise<void> {
                 eligibleConsentTiers: abandonedSeq.eligibleConsentTiers,
                 lifecycleStagesAllowed: abandonedSeq.lifecycleStagesAllowed,
               });
-              if (eligibility.allowed) {
+              if (eligibility.allowed && decideCr06SequenceLifecycle(abandonedSeq).allowed) {
                 await storage.createSequenceEnrollment({
                   sequenceId: abandonedSeq.id,
                   contactId: matchedContact.id,

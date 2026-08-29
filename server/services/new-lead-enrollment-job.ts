@@ -26,6 +26,7 @@ import { eq, and, isNull, inArray, isNotNull, sql } from "drizzle-orm";
 import { storage } from "../storage";
 import { canEnrollContactInSequence } from "./sequence-eligibility";
 import { evaluateContactability } from "./contactability";
+import { decideCr06SequenceLifecycle } from "./cr06-promotional-lifecycle-decision";
 
 const NEW_LEAD_PROGRESS_KEY = "new_lead_enrollment_progress";
 const NEW_LEAD_CANCEL_KEY = "new_lead_enrollment_cancel_requested";
@@ -495,6 +496,10 @@ async function _runAsync(opts: {
           });
           continue;
         }
+        if (!decideCr06SequenceLifecycle(sequence, "new_lead_enrollment").allowed) {
+          progress.eligibilityBlocked++;
+          continue;
+        }
 
         // Channel-aware contact-method + PEWC gate:
         // SMS/voice/ringless sequences require PEWC consent + phone; email sequences require email.
@@ -799,6 +804,7 @@ export async function runNewLeadAutoEnrollCheck(): Promise<void> {
       // Map lookup — no DB call
       const sequence = sequencesById.get(seqId);
       if (!sequence || sequence.status !== "active") { skipped++; continue; }
+      if (!decideCr06SequenceLifecycle(sequence, "new_lead_enrollment").allowed) { skipped++; continue; }
 
       // Channel-aware contact-method + PEWC gate — no DB call
       const requiresPewc = requiresPewcCached(seqId);

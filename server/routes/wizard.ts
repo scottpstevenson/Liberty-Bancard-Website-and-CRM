@@ -19,6 +19,7 @@ import { analyzeStatementBuffer } from "../services/statement-analyzer";
 import { writeContact } from "../services/contact-writer";
 import { getQueueManager } from "../services/queue-manager";
 import { serverError, safeMessage } from "../utils/server-error";
+import { decideCr06SequenceLifecycle } from "../services/cr06-promotional-lifecycle-decision";
 
 const wizardUpload = multer({
   storage: multer.memoryStorage(),
@@ -475,6 +476,10 @@ export function registerWizardRoutes(app: Express): void {
         sequenceName: sequence.name,
         sequenceId: sequence.id,
       });
+    }
+    const cr06Decision = decideCr06SequenceLifecycle(sequence);
+    if (!cr06Decision.allowed) {
+      return res.json({ ok: false, error: cr06Decision.reasonCode, sequenceName: sequence.name, sequenceId: sequence.id });
     }
 
     const steps = await storage.getSequenceSteps(sequence.id);
