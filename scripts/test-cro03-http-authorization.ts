@@ -52,7 +52,8 @@ async function login(email: string, password: string): Promise<string> {
     method: "POST", headers: { "content-type": "application/json" },
     body: JSON.stringify({ email, password }),
   });
-  assert.equal(response.status, 200, `login failed for ${email}: ${await response.text()}`);
+  const responseBody = await response.text();
+  assert.equal(response.status, 200, `login failed for ${email}: ${bounded(responseBody)}`);
   const headers = response.headers as Headers & { getSetCookie?: () => string[] };
   const setCookies = headers.getSetCookie?.() ?? [response.headers.get("set-cookie") ?? ""];
   const cookie = setCookies.map((value) => value.split(";")[0].trim()).filter(Boolean).join("; ");
@@ -75,8 +76,28 @@ async function request(path: string, init: RequestInit = {}, cookie?: string, to
   return fetch(`${BASE_URL}${path}`, { ...init, headers });
 }
 
-async function expectStatus(response: Response, status: number, label: string): Promise<void> {
-  assert.equal(response.status, status, `${label}: expected ${status}, got ${response.status}: ${await response.text()}`);
+function bounded(value: string, maxLength = 1000): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  return normalized.length > maxLength ? `${normalized.slice(0, maxLength)}…` : normalized;
+}
+
+async function expectStatus(response: Response, status: number, label: string): Promise<string> {
+  const responseBody = await response.text();
+  assert.equal(
+    response.status,
+    status,
+    `${label}: expected ${status}, got ${response.status}; response body: ${bounded(responseBody)}`,
+  );
+  return responseBody;
+}
+
+function parseJson<T>(responseBody: string, label: string): T {
+  try {
+    return JSON.parse(responseBody) as T;
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    assert.fail(`${label}: malformed JSON response: ${bounded(responseBody)} (${bounded(detail, 300)})`);
+  }
 }
 
 async function main(): Promise<void> {
@@ -91,6 +112,7 @@ async function main(): Promise<void> {
   const { eq } = await import("drizzle-orm");
   const { db } = await import("../server/db");
   const fixtureBatchIds: string[] = [];
+  const cleanupFailures: Array<{ stage: string; error: unknown }> = [];
 
   async function ensureUser(email: string, role: "manager" | "agent"): Promise<void> {
     const hash = await bcrypt.hash(PASSWORD, 12);
@@ -119,6 +141,7 @@ async function main(): Promise<void> {
     return id;
   }
 
+  let primaryFailure: unknown;
   try {
     await Promise.all([ensureUser(MANAGER_A, "manager"), ensureUser(MANAGER_B, "manager"), ensureUser(AGENT, "agent")]);
     const [managerACookie, managerBCookie, agentCookie, adminCookie] = await Promise.all([
@@ -155,8 +178,12 @@ async function main(): Promise<void> {
       [`/api/cro03/batches/${ownerBatch}/cancel`, { method: "POST" }],
     ] as const) {
       const response = await request(path, init, managerBCookie, managerBCsrf);
-      await expectStatus(response, 404, `non-owner manager ${init.method ?? "GET"}`);
-      assert.deepEqual(await response.json(), NOT_FOUND, "foreign batch response must be privacy-safe");
+      const responseBody = await expectStatus(response, 404, `non-owner manager ${init.method ?? "GET"}`);
+      assert.deepEqual(
+        parseJson(responseBody, `non-owner manager ${init.method ?? "GET"}`),
+        NOT_FOUND,
+        "foreign batch response must be privacy-safe",
+      );
     }
     await expectStatus(await request("/api/cro03/reconciliation", {}, managerACookie), 403, "manager reconciliation");
     await expectStatus(await request("/api/cro03/policy", {}, managerACookie), 403, "manager policy");
@@ -167,8 +194,17 @@ async function main(): Promise<void> {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ idempotencyKey: `cro03-http-${randomUUID()}`, contactIds: [], purpose: "internal_test" }),
     }, adminCookie, adminCsrf);
-    await expectStatus(create, 202, "admin create");
-    const created = await create.json() as { batchId: string };
+    const createBody = await expectStatus(create, 202, "admin create");
+    const created = parseJson<{ batchId?: unknown }>(createBody, "admin create");
+    assert.ok(
+      typeof created.batchId === "string" && created.batchId.trim().length > 0,
+      "admin create: response batchId must be a non-empty string",
+    );
+    assert.match(
+      created.batchId,
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+      "admin create: response batchId must be a UUID",
+    );
     fixtureBatchIds.push(created.batchId);
     await expectStatus(await request(`/api/cro03/batches/${ownerBatch}`, {}, adminCookie), 200, "admin foreign GET");
     await expectStatus(await request(`/api/cro03/batches/${adminBatch}/cancel`, { method: "POST" }, adminCookie, adminCsrf), 202, "admin cancel");
@@ -176,12 +212,57 @@ async function main(): Promise<void> {
     await expectStatus(await request(`/api/cro03/batches/${malformed}/cancel`, { method: "POST" }, adminCookie, adminCsrf), 404, "admin malformed cancel");
     await expectStatus(await request("/api/cro03/reconciliation", {}, adminCookie), 200, "admin reconciliation");
     await expectStatus(await request("/api/cro03/policy", {}, adminCookie), 200, "admin policy");
-    console.log("CRO-03 HTTP authorization certification passed (no worker/provider transport invoked).");
+  } catch (error) {
+    primaryFailure = error;
   } finally {
-    if (fixtureBatchIds.length) await pool.query("DELETE FROM cro03_enrichment_batches WHERE id = ANY($1::uuid[])", [fixtureBatchIds]);
-    await Promise.all([MANAGER_A, MANAGER_B, AGENT].map((email) => db.delete(users).where(eq(users.email, email)).catch(() => {})));
-    await pool.end();
+    const attemptCleanup = async (stage: string, cleanup: () => Promise<unknown>): Promise<void> => {
+      try {
+        await cleanup();
+      } catch (error) {
+        cleanupFailures.push({ stage, error });
+        const detail = error instanceof Error ? error.message : String(error);
+        console.error(`[cleanup] ${stage} failed: ${bounded(detail, 500)}`);
+      }
+    };
+
+    if (fixtureBatchIds.length) {
+      await attemptCleanup(
+        "batch deletion",
+        () => pool.query("DELETE FROM cro03_enrichment_batches WHERE id = ANY($1::uuid[])", [fixtureBatchIds]),
+      );
+    }
+    for (const email of [MANAGER_A, MANAGER_B, AGENT]) {
+      await attemptCleanup(`fixture-user deletion for ${email}`, () => db.delete(users).where(eq(users.email, email)));
+    }
+    await attemptCleanup("pool closure", () => pool.end());
   }
+
+  if (primaryFailure) {
+    if (cleanupFailures.length) {
+      throw new AggregateError(
+        [
+          primaryFailure,
+          ...cleanupFailures.map(({ stage, error }) =>
+            new Error(`${stage}: ${error instanceof Error ? error.message : String(error)}`),
+          ),
+        ],
+        "CRO-03 HTTP authorization certification and cleanup failed",
+      );
+    }
+    throw primaryFailure;
+  }
+  if (cleanupFailures.length) {
+    throw new AggregateError(
+      cleanupFailures.map(({ stage, error }) =>
+        new Error(`${stage}: ${error instanceof Error ? error.message : String(error)}`),
+      ),
+      "CRO-03 HTTP authorization cleanup failed",
+    );
+  }
+  console.log("CRO-03 HTTP authorization certification passed (no worker/provider transport invoked).");
 }
 
-main().catch((error) => { console.error(error); process.exit(1); });
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
