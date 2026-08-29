@@ -78,25 +78,19 @@ interface ABTestResult {
 
 function ABTestCard({ test }: { test: ABTestResult }) {
   const r = test.abTestResults;
-  const aSent = r.variantASent ?? 0;
-  const bSent = r.variantBSent ?? 0;
-  const aOpens = r.aOpens ?? 0;
-  const bOpens = r.bOpens ?? 0;
-  const aClicks = r.aClicks ?? 0;
-  const bClicks = r.bClicks ?? 0;
-  const aReplies = r.aReplies ?? 0;
-  const bReplies = r.bReplies ?? 0;
-  const aOpenRate = aSent > 0 ? ((aOpens / aSent) * 100).toFixed(1) : "—";
-  const bOpenRate = bSent > 0 ? ((bOpens / bSent) * 100).toFixed(1) : "—";
-  const aClickRate = aSent > 0 ? ((aClicks / aSent) * 100).toFixed(1) : "—";
-  const bClickRate = bSent > 0 ? ((bClicks / bSent) * 100).toFixed(1) : "—";
-  const aReplyRate = aSent > 0 ? ((aReplies / aSent) * 100).toFixed(1) : "—";
-  const bReplyRate = bSent > 0 ? ((bReplies / bSent) * 100).toFixed(1) : "—";
+  const rate = (numerator: number | undefined, denominator: number | undefined) =>
+    denominator != null && denominator > 0 && numerator != null ? ((numerator / denominator) * 100).toFixed(1) : "—";
+  const aOpenRate = rate(r.aOpens, r.variantASent);
+  const bOpenRate = rate(r.bOpens, r.variantBSent);
+  const aClickRate = rate(r.aClicks, r.variantASent);
+  const bClickRate = rate(r.bClicks, r.variantBSent);
+  const aReplyRate = rate(r.aReplies, r.variantASent);
+  const bReplyRate = rate(r.bReplies, r.variantBSent);
   const winnerCriteria = test.abTestConfig.winnerCriteria;
   const aConversionRate = winnerCriteria === "reply_rate" ? aReplyRate : winnerCriteria === "click_rate" ? aClickRate : aOpenRate;
   const bConversionRate = winnerCriteria === "reply_rate" ? bReplyRate : winnerCriteria === "click_rate" ? bClickRate : bOpenRate;
   const conversionLabel = winnerCriteria === "reply_rate" ? "Reply Rate" : winnerCriteria === "click_rate" ? "Click Rate" : "Open Rate";
-  const totalSent = aSent + bSent;
+  const totalSent = (r.variantASent ?? 0) + (r.variantBSent ?? 0);
   const minSample = test.abTestConfig.minSampleSize;
   const hasWinner = !!r.winnerSelected;
   const isRunning = !hasWinner && totalSent < minSample;
@@ -149,7 +143,7 @@ function ABTestCard({ test }: { test: ABTestResult }) {
             <div className="grid grid-cols-2 gap-1 text-xs">
               <div>
                 <span className="text-muted-foreground">Sent</span>
-                <p className="font-semibold" data-testid={`text-ab-a-sent-${test.stepId}`}>{aSent}</p>
+                <p className="font-semibold" data-testid={`text-ab-a-sent-${test.stepId}`}>{r.variantASent ?? "—"}</p>
               </div>
               <div className="col-span-2 border-t pt-1 mt-1">
                 <span className="text-muted-foreground font-medium">Conversion Rate ({conversionLabel})</span>
@@ -182,7 +176,7 @@ function ABTestCard({ test }: { test: ABTestResult }) {
             <div className="grid grid-cols-2 gap-1 text-xs">
               <div>
                 <span className="text-muted-foreground">Sent</span>
-                <p className="font-semibold" data-testid={`text-ab-b-sent-${test.stepId}`}>{bSent}</p>
+                <p className="font-semibold" data-testid={`text-ab-b-sent-${test.stepId}`}>{r.variantBSent ?? "—"}</p>
               </div>
               <div className="col-span-2 border-t pt-1 mt-1">
                 <span className="text-muted-foreground font-medium">Conversion Rate ({conversionLabel})</span>
@@ -224,7 +218,7 @@ function ABTestCard({ test }: { test: ABTestResult }) {
 export default function OutreachAnalytics() {
   const { toast } = useToast();
 
-  const { data: campaigns, isLoading: campaignsLoading } = useQuery<Campaign[]>({
+  const { data: campaigns, isLoading: campaignsLoading, isError: campaignsError } = useQuery<Campaign[]>({
     queryKey: ["/api/campaigns"],
   });
 
@@ -258,14 +252,18 @@ export default function OutreachAnalytics() {
     },
   });
 
-  const totalCampaigns = campaigns?.length || 0;
-  const totalSent = campaigns?.reduce((sum, c) => sum + (c.totalSent || 0), 0) || 0;
-  const totalOpened = campaigns?.reduce((sum, c) => sum + (c.totalOpened || 0), 0) || 0;
-  const totalReplied = campaigns?.reduce((sum, c) => sum + (c.totalReplied || 0), 0) || 0;
-  const totalBounced = campaigns?.reduce((sum, c) => sum + (c.totalBounced || 0), 0) || 0;
-  const openRate = totalSent > 0 ? ((totalOpened / totalSent) * 100).toFixed(1) : "0.0";
-  const replyRate = totalSent > 0 ? ((totalReplied / totalSent) * 100).toFixed(1) : "0.0";
-  const bounceRate = totalSent > 0 ? ((totalBounced / totalSent) * 100).toFixed(1) : "0.0";
+  const campaignMetricsAvailable = !!campaigns && campaigns.every(c =>
+    [c.totalSent, c.totalOpened, c.totalReplied, c.totalBounced].every(value => typeof value === "number"),
+  );
+  const totalCampaigns = campaigns?.length;
+  const totalSent = campaignMetricsAvailable ? campaigns.reduce((sum, c) => sum + c.totalSent!, 0) : null;
+  const totalOpened = campaignMetricsAvailable ? campaigns.reduce((sum, c) => sum + c.totalOpened!, 0) : null;
+  const totalReplied = campaignMetricsAvailable ? campaigns.reduce((sum, c) => sum + c.totalReplied!, 0) : null;
+  const totalBounced = campaignMetricsAvailable ? campaigns.reduce((sum, c) => sum + c.totalBounced!, 0) : null;
+  const campaignRate = (value: number | null) => totalSent != null && totalSent > 0 && value != null ? ((value / totalSent) * 100).toFixed(1) : "—";
+  const openRate = campaignRate(totalOpened);
+  const replyRate = campaignRate(totalReplied);
+  const bounceRate = campaignRate(totalBounced);
 
   const sortedCampaigns = campaigns
     ? [...campaigns].sort((a, b) => {
@@ -307,20 +305,23 @@ export default function OutreachAnalytics() {
       </div>
     );
   }
+  if (campaignsError || !campaigns) {
+    return <div className="py-8 text-center text-destructive">Campaign reporting is unavailable. Please retry after the service recovers.</div>;
+  }
 
   return (
     <div className="space-y-6">
       <div>
         <div>
           <h2 className="text-2xl font-bold" data-testid="text-outreach-analytics-title">Outreach Analytics</h2>
-          <p className="text-sm text-muted-foreground">Campaign performance, outbound message tracking, and A/B test results</p>
+           <p className="text-sm text-muted-foreground">Campaign performance, outbound message tracking, and A/B test results. Summary metrics cover loaded campaign records, not a global aggregate.</p>
         </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
         <Card data-testid="card-kpi-total-campaigns">
           <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Total Campaigns</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">Loaded Campaigns</CardTitle>
             <BarChart2 className="w-4 h-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -330,11 +331,11 @@ export default function OutreachAnalytics() {
 
         <Card data-testid="card-kpi-total-sent">
           <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Messages Sent</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">Messages Sent (loaded)</CardTitle>
             <Send className="w-4 h-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold" data-testid="text-total-sent">{totalSent}</div>
+            <div className="text-2xl font-bold" data-testid="text-total-sent">{totalSent ?? "—"}</div>
           </CardContent>
         </Card>
 
@@ -345,7 +346,7 @@ export default function OutreachAnalytics() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold" data-testid="text-open-rate">{openRate}%</div>
-            <p className="text-xs text-muted-foreground mt-1">{totalOpened} opened</p>
+            <p className="text-xs text-muted-foreground mt-1">{totalOpened ?? "—"} opened</p>
           </CardContent>
         </Card>
 
@@ -356,7 +357,7 @@ export default function OutreachAnalytics() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold" data-testid="text-reply-rate">{replyRate}%</div>
-            <p className="text-xs text-muted-foreground mt-1">{totalReplied} replied</p>
+            <p className="text-xs text-muted-foreground mt-1">{totalReplied ?? "—"} replied</p>
           </CardContent>
         </Card>
 
@@ -367,7 +368,7 @@ export default function OutreachAnalytics() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold" data-testid="text-bounce-rate">{bounceRate}%</div>
-            <p className="text-xs text-muted-foreground mt-1">{totalBounced} bounced</p>
+            <p className="text-xs text-muted-foreground mt-1">{totalBounced ?? "—"} bounced</p>
           </CardContent>
         </Card>
       </div>
@@ -416,12 +417,14 @@ export default function OutreachAnalytics() {
                     </TableRow>
                   ) : (
                     sortedCampaigns.map((campaign) => {
-                      const cSent = campaign.totalSent || 0;
-                      const cOpened = campaign.totalOpened || 0;
-                      const cReplied = campaign.totalReplied || 0;
-                      const cBounced = campaign.totalBounced || 0;
-                      const cOpenRate = cSent > 0 ? ((cOpened / cSent) * 100).toFixed(1) : "0.0";
-                      const cReplyRate = cSent > 0 ? ((cReplied / cSent) * 100).toFixed(1) : "0.0";
+                      const cSent = campaign.totalSent;
+                      const cOpened = campaign.totalOpened;
+                      const cReplied = campaign.totalReplied;
+                      const cBounced = campaign.totalBounced;
+                      const cRate = (value: number | null | undefined) =>
+                        cSent != null && cSent > 0 && value != null ? ((value / cSent) * 100).toFixed(1) : "—";
+                      const cOpenRate = cRate(cOpened);
+                      const cReplyRate = cRate(cReplied);
 
                       return (
                         <TableRow key={campaign.id} data-testid={`row-campaign-${campaign.id}`}>
@@ -437,10 +440,10 @@ export default function OutreachAnalytics() {
                               {campaign.status || "draft"}
                             </Badge>
                           </TableCell>
-                          <TableCell className="text-right" data-testid={`text-campaign-sent-${campaign.id}`}>{cSent}</TableCell>
-                          <TableCell className="text-right" data-testid={`text-campaign-opened-${campaign.id}`}>{cOpened}</TableCell>
-                          <TableCell className="text-right" data-testid={`text-campaign-replied-${campaign.id}`}>{cReplied}</TableCell>
-                          <TableCell className="text-right" data-testid={`text-campaign-bounced-${campaign.id}`}>{cBounced}</TableCell>
+                          <TableCell className="text-right" data-testid={`text-campaign-sent-${campaign.id}`}>{cSent ?? "—"}</TableCell>
+                          <TableCell className="text-right" data-testid={`text-campaign-opened-${campaign.id}`}>{cOpened ?? "—"}</TableCell>
+                          <TableCell className="text-right" data-testid={`text-campaign-replied-${campaign.id}`}>{cReplied ?? "—"}</TableCell>
+                          <TableCell className="text-right" data-testid={`text-campaign-bounced-${campaign.id}`}>{cBounced ?? "—"}</TableCell>
                           <TableCell className="text-right" data-testid={`text-campaign-open-rate-${campaign.id}`}>{cOpenRate}%</TableCell>
                           <TableCell className="text-right" data-testid={`text-campaign-reply-rate-${campaign.id}`}>{cReplyRate}%</TableCell>
                         </TableRow>

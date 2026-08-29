@@ -1592,7 +1592,7 @@ export async function syncTaskFromGhl(ghlTask: any, ghlContactId: string): Promi
       return { success: true, taskId: existingTask.id };
     }
 
-    const newTask = await storage.createTask({
+    const newTask = await storage.createAuthorityTask({
       title: ghlTask.title || "Task from GHL",
       contactId: contact.id,
       status: ghlTask.completed ? "completed" : "pending",

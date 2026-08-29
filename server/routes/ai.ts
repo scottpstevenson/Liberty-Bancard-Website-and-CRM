@@ -322,7 +322,7 @@ FORMAT your response as JSON: {"subject": "...", "body": "..."}${verticalBlock}`
       // Create all tasks concurrently instead of sequentially to avoid N round-trips
       const created = await Promise.all(
         newTasks.slice(0, 10).map(task =>
-          storage.createTask({
+          storage.createAuthorityTask({
             title: task.title,
             description: task.description,
             priority: task.priority,

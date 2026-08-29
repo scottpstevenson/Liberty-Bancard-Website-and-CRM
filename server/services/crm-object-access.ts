@@ -1,7 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
 import { storage } from "../storage";
 import { getInboxItem } from "../storage/inbox";
-import { getInboxItemResolution } from "./inbox-item-resolution";
 import { db } from "../db";
 import { sql } from "drizzle-orm";
 
@@ -79,16 +78,16 @@ export async function authorizeInboxItemAccess(
   options: { exactAssignment?: boolean } = {},
 ) {
   const item = await getInboxItem(sourceItemId);
-  const remembered = getInboxItemResolution(sourceItemId);
-  const contactId = item?.contactId ?? remembered?.contactId;
+  const contactId = item?.contactId;
   if (!contactId) return denyCrmObject(res);
   const contact = await authorizeContactAccess(req, res, contactId, options);
   if (!contact) return false;
   return {
     item,
     contact,
-    channel: remembered?.channel ?? (item?.sourceItemType as "email" | "sms" | "ghl_chat" | "voicemail" | "site" | undefined),
-    providerConversationId: remembered?.providerConversationId,
+    channel: item?.sourceItemType as "email" | "sms" | "ghl_chat" | "voicemail" | "site" | undefined,
+    providerConversationId: item?.providerConversationId ?? undefined,
+    body: item?.sourceBody ?? undefined,
   };
 }
 

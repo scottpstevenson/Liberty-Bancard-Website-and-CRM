@@ -16,7 +16,7 @@ import { classifyIntent, mapIntentToAction } from "../services/sdr/reply-intelli
 import { resolvePolicy } from "../services/sender-policy";
 import { serverError, safeMessage } from "../utils/server-error";
 import { authorizeContactAccess, authorizeInboxItemAccess } from "../services/crm-object-access";
-import { rememberInboxItemResolutions } from "../services/inbox-item-resolution";
+import { rememberInboxSourceItem } from "../storage/inbox";
 import { applyConsentCommand } from "../services/consent-authority";
 
 const GHL_API_BASE = "https://services.leadconnectorhq.com";
@@ -47,14 +47,62 @@ async function ghlFetch(path: string, options: RequestInit = {}): Promise<any> {
     });
     clearTimeout(timer);
     if (!response.ok) {
-      const body = await response.text().catch(() => "");
-      throw new Error(`GHL ${response.status}: ${body}`);
+      // Never copy provider bodies into exceptions: callers log stable codes.
+      throw new Error(`GHL_HTTP_${response.status}`);
     }
     const text = await response.text();
     return text ? JSON.parse(text) : {};
   } catch (err) {
     clearTimeout(timer);
     throw err;
+  }
+}
+
+const INBOX_CURSOR_VERSION = 1;
+const MAX_INBOX_CURSOR_BYTES = 48 * 1024;
+const MAX_INBOX_CURSOR_REMAINDER = 10;
+type SourceCursor = { offset?: number; afterId?: string; highWater?: string; exhausted?: boolean };
+type InboxCursorPayload = {
+  v: number;
+  query: string;
+  actor: string;
+  sort: "receivedAt:desc,source:asc,id:asc";
+  merge?: { timestamp: string; source: string; id: string };
+  sources: Record<string, SourceCursor>;
+  remainder?: InboxItem[];
+};
+function inboxCursorSecret(): string {
+  const secret = process.env.SESSION_SECRET || process.env.GHL_PRIVATE_INTEGRATION_TOKEN;
+  if (!secret) throw new Error("INBOX_CURSOR_SECRET_UNAVAILABLE");
+  return secret;
+}
+function fingerprint(value: string): string {
+  return crypto.createHash("sha256").update(value).digest("base64url");
+}
+function encodeInboxCursor(payload: InboxCursorPayload): string {
+  if ((payload.remainder?.length || 0) > MAX_INBOX_CURSOR_REMAINDER) throw new Error("INBOX_CURSOR_REMAINDER_TOO_LARGE");
+  const serialized = JSON.stringify(payload);
+  if (Buffer.byteLength(serialized) > MAX_INBOX_CURSOR_BYTES) throw new Error("INBOX_CURSOR_TOO_LARGE");
+  const encoded = Buffer.from(serialized).toString("base64url");
+  const signature = crypto.createHmac("sha256", inboxCursorSecret()).update(encoded).digest("base64url");
+  return `${encoded}.${signature}`;
+}
+function decodeInboxCursor(raw: string): InboxCursorPayload | null {
+  try {
+    if (raw.length > Math.ceil(MAX_INBOX_CURSOR_BYTES * 4 / 3) + 128) return null;
+    const [encoded, signature] = raw.split(".");
+    if (!encoded || !signature) return null;
+    const expected = crypto.createHmac("sha256", inboxCursorSecret()).update(encoded).digest();
+    const actual = Buffer.from(signature, "base64url");
+    if (actual.length !== expected.length || !crypto.timingSafeEqual(actual, expected)) return null;
+    const parsed = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8"));
+    return parsed?.v === INBOX_CURSOR_VERSION
+      && parsed?.sources
+      && (!parsed.remainder || (Array.isArray(parsed.remainder) && parsed.remainder.length <= MAX_INBOX_CURSOR_REMAINDER))
+      && parsed?.sort === "receivedAt:desc,source:asc,id:asc"
+      ? parsed as InboxCursorPayload : null;
+  } catch {
+    return null;
   }
 }
 
@@ -84,6 +132,36 @@ export interface InboxItem {
   liveChatSessionId?: string | null;
   liveChatStatus?: string | null;
   pageUrl?: string | null;
+}
+
+/** Stable, gap-free merge. Provider continuations may advance through the
+ * fetched batches because every non-emitted winner is carried in remainder. */
+export function mergeInboxPage(
+  remainder: InboxItem[],
+  fetched: InboxItem[],
+  limit: number,
+): { page: InboxItem[]; remainder: InboxItem[] } {
+  const byId = new Map<string, InboxItem>();
+  for (const item of [...remainder, ...fetched]) if (!byId.has(item.id)) byId.set(item.id, item);
+  const ordered = [...byId.values()].sort((a, b) =>
+    new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime()
+    || a.id.split("::")[0].localeCompare(b.id.split("::")[0])
+    || a.id.localeCompare(b.id));
+  return { page: ordered.slice(0, limit), remainder: ordered.slice(limit) };
+}
+function cursorSafeInboxItem(item: InboxItem): InboxItem {
+  return {
+    ...item,
+    contactName: item.contactName.slice(0, 256),
+    companyName: item.companyName.slice(0, 256),
+    body: item.body.slice(0, 2000),
+    subject: item.subject?.slice(0, 512),
+    preview: item.preview?.slice(0, 512),
+    phone: item.phone?.slice(0, 64),
+    voicemailUrl: item.voicemailUrl?.slice(0, 2048),
+    transcript: item.transcript?.slice(0, 4000),
+    pageUrl: item.pageUrl?.slice(0, 2048),
+  };
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
@@ -202,20 +280,35 @@ export function registerInboxRoutes(app: Express) {
         return res.status(400).json({ code: "INVALID_INBOX_QUERY", reason: "filter" });
       }
       const cursor = req.query.cursor as string | undefined;
-      let cursorTuple: { timestamp: string; id: string } | null = null;
+      const queryFingerprint = fingerprint(JSON.stringify({ channel, filter, limit }));
+      const actorFingerprint = fingerprint(JSON.stringify({
+        id: (req.user as any)?.id || null,
+        role: (req.user as any)?.role || null,
+        email: (req.user as any)?.email || null,
+      }));
+      let cursorPayload: InboxCursorPayload | null = null;
       if (cursor) {
-        try {
-          cursorTuple = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"));
-          if (!cursorTuple?.timestamp || !cursorTuple.id || Number.isNaN(new Date(cursorTuple.timestamp).getTime())) throw new Error("invalid");
-        } catch {
+        cursorPayload = decodeInboxCursor(cursor);
+        if (!cursorPayload || cursorPayload.query !== queryFingerprint || cursorPayload.actor !== actorFingerprint) {
+          // Do not reveal whether a cursor belonged to a different actor/query.
           return res.status(400).json({ code: "INVALID_INBOX_QUERY", reason: "cursor" });
         }
       }
-      const items: InboxItem[] = [];
+      const requestedSources = channel === "all"
+        ? ["email_audit", "ghl_sms", "ghl_chat", "ghl_voicemail", "live_chat"]
+        : [channel === "email" ? "email_audit" : channel === "sms" ? "ghl_sms" : channel === "ghl_chat" ? "ghl_chat" : channel === "voicemail" ? "ghl_voicemail" : "live_chat"];
+      // At most one overfetch item per source is needed for a stable merge, so
+      // the signed remainder stays small even at the maximum API limit.
+      const bufferedCount = cursorPayload?.remainder?.length || 0;
+      const drainRemainderOnly = bufferedCount >= limit;
+      const fetchBudget = Math.max(1, limit - bufferedCount);
+      const perSourceLimit = Math.max(1, Math.ceil(fetchBudget / requestedSources.length));
+      const items: InboxItem[] = [...(cursorPayload?.remainder || [])];
       const sources: Array<{ source: string; status: "ok" | "failed" | "not_configured"; fetched: number; truncated: boolean; errorCode?: string }> = [];
+      const sourceContinuations: Record<string, SourceCursor> = { ...(cursorPayload?.sources || {}) };
 
       // 1. Inbound email events from audit_logs
-      if (channel === "all" || channel === "email")
+      if (!drainRemainderOnly && (channel === "all" || channel === "email"))
       try {
         const emailRows = await db.execute(sql`
           SELECT
@@ -226,7 +319,8 @@ export function registerInboxRoutes(app: Express) {
           FROM audit_logs al
           WHERE al.action IN ('inbound_message_processed', 'inbound_email_received', 'email_inbound')
           ORDER BY al.created_at DESC
-          LIMIT ${limit}
+           LIMIT ${perSourceLimit}
+           OFFSET ${sourceContinuations.email_audit?.offset || 0}
         `);
 
         for (const row of emailRows.rows as any[]) {
@@ -247,7 +341,7 @@ export function registerInboxRoutes(app: Express) {
           }
 
           items.push({
-            id: `email-${row.id}`,
+            id: `audit:local::email:${row.id}`,
             contactId: row.contact_id ? Number(row.contact_id) : null,
             contactName,
             companyName,
@@ -260,23 +354,30 @@ export function registerInboxRoutes(app: Express) {
             isRead: !!details.isRead,
           });
         }
-         sources.push({ source: "email_audit", status: "ok", fetched: items.filter(i => i.channel === "email").length, truncated: true });
+         const emailFetched = emailRows.rows.length;
+         const emailExhausted = emailFetched < perSourceLimit;
+         sourceContinuations.email_audit = {
+           offset: (sourceContinuations.email_audit?.offset || 0) + emailFetched,
+           highWater: emailRows.rows[0] ? String((emailRows.rows[0] as any).created_at) : sourceContinuations.email_audit?.highWater,
+           exhausted: emailExhausted,
+         };
+          sources.push({ source: "email_audit", status: "ok", fetched: items.filter(i => i.channel === "email").length, truncated: !emailExhausted });
        } catch (emailErr: any) {
-        console.warn("[Inbox] Email audit_logs query failed:", emailErr.message);
+         console.warn("[Inbox] source_failed code=EMAIL_QUERY_FAILED");
          sources.push({ source: "email_audit", status: "failed", fetched: 0, truncated: true, errorCode: "QUERY_FAILED" });
       }
 
       // 2. Inbound SMS/GHL conversation messages
       const config = getGhlConfig();
-      if (config) {
+      if (config && !drainRemainderOnly) {
         if (channel === "all" || channel === "sms")
         try {
           const result = await ghlFetch(
-            `/conversations/search?locationId=${config.locationId}&limit=${limit}&type=TYPE_PHONE`
+            `/conversations/search?locationId=${config.locationId}&limit=${perSourceLimit}&type=TYPE_PHONE${sourceContinuations.ghl_sms?.afterId ? `&startAfterId=${encodeURIComponent(sourceContinuations.ghl_sms.afterId)}` : ""}`
           );
           const conversations = result?.conversations || result?.data || [];
 
-          for (const c of conversations.slice(0, 40)) {
+          for (const c of conversations) {
             const lastMsg = c.lastMessage || c.lastMessageBody || "";
             if (!lastMsg) continue;
             // Only show inbound
@@ -300,7 +401,7 @@ export function registerInboxRoutes(app: Express) {
               }
 
               items.push({
-                id: `sms-${c.id}`,
+                id: `ghl:${config.locationId}::sms:${c.id}`,
                 contactId,
                 contactName,
                 companyName: "",
@@ -316,9 +417,12 @@ export function registerInboxRoutes(app: Express) {
               });
             }
           }
-          sources.push({ source: "ghl_sms", status: "ok", fetched: items.filter(i => i.channel === "sms").length, truncated: true });
+          const smsLastId = result?.lastId || conversations[conversations.length - 1]?.id;
+          const smsExhausted = conversations.length < perSourceLimit && !result?.nextPage;
+          sourceContinuations.ghl_sms = { afterId: smsLastId, highWater: conversations[0]?.lastMessageDate, exhausted: smsExhausted };
+          sources.push({ source: "ghl_sms", status: "ok", fetched: items.filter(i => i.channel === "sms").length, truncated: !smsExhausted });
         } catch (smsErr: any) {
-          console.warn("[Inbox] GHL SMS fetch failed:", smsErr.message);
+          console.warn("[Inbox] source_failed code=GHL_SMS_PROVIDER_FAILED");
           sources.push({ source: "ghl_sms", status: "failed", fetched: 0, truncated: true, errorCode: "PROVIDER_FAILED" });
         }
 
@@ -326,10 +430,10 @@ export function registerInboxRoutes(app: Express) {
         if (channel === "all" || channel === "ghl_chat") {
           try {
             const result = await ghlFetch(
-              `/conversations/search?locationId=${config.locationId}&limit=${Math.min(limit, 30)}&type=TYPE_EMAIL`
+              `/conversations/search?locationId=${config.locationId}&limit=${perSourceLimit}&type=TYPE_EMAIL${sourceContinuations.ghl_chat?.afterId ? `&startAfterId=${encodeURIComponent(sourceContinuations.ghl_chat.afterId)}` : ""}`
             );
             const conversations = result?.conversations || result?.data || [];
-            for (const c of conversations.slice(0, 20)) {
+            for (const c of conversations) {
               const lastMsg = c.lastMessage || c.lastMessageBody || "";
               if (!lastMsg) continue;
 
@@ -352,7 +456,7 @@ export function registerInboxRoutes(app: Express) {
               }
 
               items.push({
-                id: `ghl-${c.id}`,
+                id: `ghl:${config.locationId}::chat:${c.id}`,
                 contactId,
                 contactName,
                 companyName: "",
@@ -367,9 +471,13 @@ export function registerInboxRoutes(app: Express) {
                 ghlConversationId: c.id,
               });
             }
-            sources.push({ source: "ghl_chat", status: "ok", fetched: items.filter(i => i.channel === "ghl_chat").length, truncated: true });
+            const chatPageLimit = perSourceLimit;
+            const chatLastId = result?.lastId || conversations[conversations.length - 1]?.id;
+            const chatExhausted = conversations.length < chatPageLimit && !result?.nextPage;
+            sourceContinuations.ghl_chat = { afterId: chatLastId, highWater: conversations[0]?.lastMessageDate, exhausted: chatExhausted };
+            sources.push({ source: "ghl_chat", status: "ok", fetched: items.filter(i => i.channel === "ghl_chat").length, truncated: !chatExhausted });
           } catch (chatErr: any) {
-            console.warn("[Inbox] GHL chat fetch failed:", chatErr.message);
+            console.warn("[Inbox] source_failed code=GHL_CHAT_PROVIDER_FAILED");
             sources.push({ source: "ghl_chat", status: "failed", fetched: 0, truncated: true, errorCode: "PROVIDER_FAILED" });
           }
         }
@@ -378,10 +486,10 @@ export function registerInboxRoutes(app: Express) {
         if ((channel === "all" || channel === "voicemail") && process.env.VOICEMAIL_SYNC_ENABLED !== "false") {
           try {
             const result = await ghlFetch(
-              `/conversations/search?locationId=${config.locationId}&limit=20&type=TYPE_VOICE`
+              `/conversations/search?locationId=${config.locationId}&limit=${perSourceLimit}&type=TYPE_VOICE${sourceContinuations.ghl_voicemail?.afterId ? `&startAfterId=${encodeURIComponent(sourceContinuations.ghl_voicemail.afterId)}` : ""}`
             );
             const conversations = result?.conversations || result?.data || [];
-            for (const c of conversations.slice(0, 20)) {
+            for (const c of conversations) {
               const lastMsg = c.lastMessage || c.lastMessageBody || c.transcriptText || "";
               let contactName = c.fullName || c.contactName || `${c.firstName || ""} ${c.lastName || ""}`.trim() || "Unknown";
               let contactId: number | null = null;
@@ -402,7 +510,7 @@ export function registerInboxRoutes(app: Express) {
               }
 
               items.push({
-                id: `vm-${c.id}`,
+                id: `ghl:${config.locationId}::voicemail:${c.id}`,
                 contactId,
                 contactName,
                 companyName: "",
@@ -421,23 +529,31 @@ export function registerInboxRoutes(app: Express) {
                 transcript: c.transcriptText || null,
               });
             }
-            sources.push({ source: "ghl_voicemail", status: "ok", fetched: items.filter(i => i.channel === "voicemail").length, truncated: true });
+            const vmLastId = result?.lastId || conversations[conversations.length - 1]?.id;
+            const vmExhausted = conversations.length < perSourceLimit && !result?.nextPage;
+            sourceContinuations.ghl_voicemail = { afterId: vmLastId, highWater: conversations[0]?.lastMessageDate, exhausted: vmExhausted };
+            sources.push({ source: "ghl_voicemail", status: "ok", fetched: items.filter(i => i.channel === "voicemail").length, truncated: !vmExhausted });
           } catch (vmErr: any) {
-            console.warn("[Inbox] GHL voicemail fetch failed:", vmErr.message);
+            console.warn("[Inbox] source_failed code=GHL_VOICEMAIL_PROVIDER_FAILED");
             sources.push({ source: "ghl_voicemail", status: "failed", fetched: 0, truncated: true, errorCode: "PROVIDER_FAILED" });
           }
+        }
+        if ((channel === "all" || channel === "voicemail") && process.env.VOICEMAIL_SYNC_ENABLED === "false") {
+          sourceContinuations.ghl_voicemail = { ...sourceContinuations.ghl_voicemail, exhausted: false };
+          sources.push({ source: "ghl_voicemail", status: "not_configured", fetched: 0, truncated: true });
         }
       }
 
       // 5. Live-chat sessions as "site" channel items
-      if (channel === "all" || channel === "site") {
+      if (!drainRemainderOnly && (channel === "all" || channel === "site")) {
         try {
-          const liveChats = await storage.getAllLiveChats({ limit: 30 });
+          const liveChatLimit = perSourceLimit;
+          const liveChats = await storage.getAllLiveChats({ limit: liveChatLimit, offset: sourceContinuations.live_chat?.offset || 0 });
           for (const chat of liveChats) {
             const contactName = chat.visitorName || chat.visitorEmail || "Site Visitor";
             const preview = `${chat.status === "active" ? "Active" : "Closed"} chat${chat.pageUrl ? ` from ${chat.pageUrl}` : ""}`;
             items.push({
-              id: `chat-${chat.id}`,
+              id: `live_chat:local::session:${chat.id}`,
               contactId: chat.contactId || null,
               contactName,
               companyName: "",
@@ -454,24 +570,54 @@ export function registerInboxRoutes(app: Express) {
               liveChatStatus: chat.status,
             });
           }
-          sources.push({ source: "live_chat", status: "ok", fetched: items.filter(i => i.channel === "site").length, truncated: true });
+          const liveChatExhausted = liveChats.length < liveChatLimit;
+          sourceContinuations.live_chat = {
+            offset: (sourceContinuations.live_chat?.offset || 0) + liveChats.length,
+            highWater: liveChats[0] ? String(liveChats[0].lastMessageAt) : sourceContinuations.live_chat?.highWater,
+            exhausted: liveChatExhausted,
+          };
+          sources.push({ source: "live_chat", status: "ok", fetched: items.filter(i => i.channel === "site").length, truncated: !liveChatExhausted });
         } catch (lcErr: any) {
-          console.warn("[Inbox] Live chat fetch failed:", (lcErr as any).message);
+          console.warn("[Inbox] source_failed code=LIVE_CHAT_QUERY_FAILED");
           sources.push({ source: "live_chat", status: "failed", fetched: 0, truncated: true, errorCode: "QUERY_FAILED" });
         }
       }
       if (!config) {
-        sources.push({ source: "ghl_sms", status: "not_configured", fetched: 0, truncated: true });
-        sources.push({ source: "ghl_chat", status: "not_configured", fetched: 0, truncated: true });
-        sources.push({ source: "ghl_voicemail", status: "not_configured", fetched: 0, truncated: true });
+        const unavailableProviderSources = [
+          ...(channel === "all" || channel === "sms" ? ["ghl_sms"] : []),
+          ...(channel === "all" || channel === "ghl_chat" ? ["ghl_chat"] : []),
+          ...(channel === "all" || channel === "voicemail" ? ["ghl_voicemail"] : []),
+        ];
+        for (const providerSource of unavailableProviderSources) {
+          sourceContinuations[providerSource] = { ...sourceContinuations[providerSource], exhausted: false };
+          sources.push({ source: providerSource, status: "not_configured", fetched: 0, truncated: true });
+        }
       }
-      rememberInboxItemResolutions(items
+      for (const source of sources) {
+        if (source.status !== "ok") sourceContinuations[source.source] = { ...sourceContinuations[source.source], exhausted: false };
+      }
+      if (drainRemainderOnly && sources.length === 0) {
+        for (const source of requestedSources) {
+          sources.push({
+            source,
+            status: "ok",
+            fetched: 0,
+            truncated: sourceContinuations[source]?.exhausted !== true,
+          });
+        }
+      }
+      // Persist a source-scoped, immutable server observation before exposing it.
+      // No mutation can rely on a browser-provided contact, channel, or body.
+      await Promise.all(items
         .filter((item) => item.contactId !== null)
-        .map((item) => ({
+        .map((item) => rememberInboxSourceItem({
           sourceItemId: item.id,
+          sourceItemType: item.channel,
+          sourceNamespace: item.id.split("::")[0],
+          providerConversationId: item.ghlConversationId ?? item.liveChatSessionId ?? null,
+          sourceBody: item.body,
+          sourceReceivedAt: new Date(item.receivedAt),
           contactId: item.contactId!,
-          channel: item.channel,
-          providerConversationId: item.ghlConversationId || undefined,
         })));
 
       // Agents only see records with a locally mapped owned/unassigned contact.
@@ -486,43 +632,54 @@ export function registerInboxRoutes(app: Express) {
         for (let i = items.length - 1; i >= 0; i--) if (!visibility[i]) items.splice(i, 1);
       }
 
-      // Sort by recency, apply cursor pagination
-      items.sort((a, b) => new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime() || b.id.localeCompare(a.id));
-      let cursorFiltered = items;
-      if (cursorTuple) {
-        cursorFiltered = items.filter(i => {
-          const at = new Date(i.receivedAt).getTime();
-          const cursorAt = new Date(cursorTuple!.timestamp).getTime();
-          return at < cursorAt || (at === cursorAt && i.id < cursorTuple!.id);
-        });
-      }
-
       // Apply smart filters
-      let filtered = cursorFiltered;
+      let filtered = items;
       if (filter === "unread") {
-        filtered = cursorFiltered.filter(i => !i.isRead);
+        filtered = items.filter(i => !i.isRead);
       } else if (filter === "needs_reply") {
         // Items that are unread and have an intent that warrants a reply
-        filtered = cursorFiltered.filter(i => !i.isRead && i.intentLabel !== "stop" && i.intentLabel !== "not_interested");
+        filtered = items.filter(i => !i.isRead && i.intentLabel !== "stop" && i.intentLabel !== "not_interested");
       }
 
-      const page = filtered.slice(0, limit);
-      const nextCursor = page.length === limit
-        ? Buffer.from(JSON.stringify({ timestamp: page[page.length - 1].receivedAt, id: page[page.length - 1].id })).toString("base64url")
+      const merged = mergeInboxPage([], filtered, limit);
+      const page = merged.page;
+      if (merged.remainder.length > MAX_INBOX_CURSOR_REMAINDER) {
+        throw new Error("INBOX_CURSOR_REMAINDER_TOO_LARGE");
+      }
+      const hasMoreKnown = merged.remainder.length > 0;
+      const sourcesComplete = requestedSources.every(source => sourceContinuations[source]?.exhausted === true);
+      const complete = sourcesComplete && !hasMoreKnown;
+      const nextCursor = (hasMoreKnown || !sourcesComplete)
+        ? encodeInboxCursor({
+            v: INBOX_CURSOR_VERSION,
+            query: queryFingerprint,
+            actor: actorFingerprint,
+            sort: "receivedAt:desc,source:asc,id:asc",
+            merge: page.length ? {
+              timestamp: page[page.length - 1].receivedAt,
+              source: page[page.length - 1].id.split("::")[0],
+              id: page[page.length - 1].id.split("::")[1] || page[page.length - 1].id,
+            } : cursorPayload?.merge,
+            sources: sourceContinuations,
+            remainder: merged.remainder.map(cursorSafeInboxItem),
+          })
         : null;
 
       res.json({
         items: page,
-        knownFilteredTotal: filtered.length,
-        resultScope: "fetched_window",
-        complete: sources.every(source => source.status === "ok" && !source.truncated),
-        hasMoreKnown: page.length === limit,
+        knownFilteredCount: filtered.length,
+        totalIsExact: complete,
+        resultScope: complete ? "all_sources_exhausted" : "partial_source_pages",
+        complete,
+        partial: !complete,
+        incompleteSources: sources.filter(source => source.status !== "ok" || source.truncated).map(source => source.source),
+        hasMoreKnown,
         sourceStatus: sources,
         nextCursor,
         ghlConfigured: !!config,
       });
     } catch (err: any) {
-      console.error("[Inbox] items error:", err.message);
+      console.error("[Inbox] request_failed code=INBOX_ITEMS_FAILED");
       serverError(res, err);
     }
   });
@@ -530,17 +687,9 @@ export function registerInboxRoutes(app: Express) {
   // ─── POST /api/inbox/items/:id/classify ───────────────────────────────────
   app.post("/api/inbox/items/:id/classify", isDashboardUser, async (req, res) => {
     try {
-      const { body: messageBody, contactId, channel } = req.body as {
-        body: string;
-        contactId?: number;
-        channel?: string;
-      };
-
-      if (!messageBody) {
-        return res.status(400).json({ message: "body is required" });
-      }
       const resolved = await authorizeInboxItemAccess(req, res, String(req.params.id));
       if (!resolved) return;
+      if (!resolved.body) return res.status(409).json({ message: "Inbox item has no immutable server-observed content" });
 
       // Build context
       let merchantName: string | undefined;
@@ -555,7 +704,7 @@ export function registerInboxRoutes(app: Express) {
         } catch { /* ignore */ }
       }
 
-      const classification = await classifyIntent(messageBody, {
+      const classification = await classifyIntent(resolved.body, {
         merchantName,
         merchantVertical,
       });
@@ -574,7 +723,7 @@ export function registerInboxRoutes(app: Express) {
       const globalPausedRaw = await storage.getSystemSetting("outboundGlobalPaused");
       const globalPaused = globalPausedRaw === true || globalPausedRaw === "true";
 
-      const channelStr = channel || "email";
+      const channelStr = resolved.channel || "email";
       let channelPaused = false;
       if (channelStr === "email") {
         const emailPausedRaw = await storage.getSystemSetting("emailChannelPaused");
@@ -890,7 +1039,7 @@ export function registerInboxRoutes(app: Express) {
         const calendarId = process.env.GHL_CALENDAR_ID;
         if (!calendarId && contactId) {
           // Create a manual task
-          await storage.createTask({
+          await storage.createAuthorityTask({
             title: `Book appointment manually`,
             description: `AI Inbox: book_appointment action — intent: ${intent || "meeting_intent"}. Contact ID: ${contactId}. No GHL calendar configured.`,
             contactId,
@@ -911,7 +1060,7 @@ export function registerInboxRoutes(app: Express) {
 
       // ── create_task ───────────────────────────────────────────────────────
       if (action === "create_task" && contactId) {
-        await storage.createTask({
+        await storage.createAuthorityTask({
           title: `Follow up with contact — ${intent || "unclear"} intent`,
           description: `AI Inbox classified inbound message as "${intent}" (confidence: ${confidence ? Math.round(confidence * 100) : "?"}%). Manual follow-up required.`,
           contactId,
@@ -924,7 +1073,7 @@ export function registerInboxRoutes(app: Express) {
 
       // ── assign_to_sales ───────────────────────────────────────────────────
       if (action === "assign_to_sales" && contactId) {
-        await storage.createTask({
+        await storage.createAuthorityTask({
           title: "Route to Sales — AI Inbox",
           description: `Inbound message classified as "${intent}" — route to sales team. Review original message in inbox.`,
           contactId,
@@ -937,7 +1086,7 @@ export function registerInboxRoutes(app: Express) {
 
       // ── assign_to_support ─────────────────────────────────────────────────
       if (action === "assign_to_support" && contactId) {
-        await storage.createTask({
+        await storage.createAuthorityTask({
           title: "Route to Support — AI Inbox",
           description: `Inbound message classified as "${intent}" — route to support/onboarding team.`,
           contactId,
@@ -1004,7 +1153,7 @@ export function registerInboxRoutes(app: Express) {
 
       // ── escalate_to_scott ─────────────────────────────────────────────────
       if (action === "escalate_to_scott" && contactId) {
-        await storage.createTask({
+        await storage.createAuthorityTask({
           title: "Escalate to Scott — AI Inbox",
           description: `AI Inbox: message classified as "${intent}" and flagged for Scott's review. High priority.`,
           contactId,
@@ -1114,22 +1263,25 @@ export function registerInboxRoutes(app: Express) {
   // ─── POST /api/inbox/reply — email reply via SMTP ─────────────────────────
   app.post("/api/inbox/reply", requireRole("admin", "manager", "agent"), async (req, res) => {
     try {
-      const { contactId, subject, body: replyBody, inReplyTo } = req.body as {
-        contactId?: number;
+      const { sourceItemId, subject, body: replyBody } = req.body as {
+        sourceItemId?: string;
         subject?: string;
         body?: string;
-        inReplyTo?: string;
       };
 
       if (!replyBody?.trim()) {
         return res.status(400).json({ message: "body is required" });
       }
-      if (!contactId) {
-        return res.status(400).json({ message: "contactId is required" });
+      if (!sourceItemId || typeof sourceItemId !== "string") {
+        return res.status(400).json({ message: "sourceItemId is required" });
       }
-
-      const contact = await authorizeContactAccess(req, res, contactId, { exactAssignment: true });
-      if (!contact) return;
+      const resolved = await authorizeInboxItemAccess(req, res, sourceItemId, { exactAssignment: true });
+      if (!resolved) return;
+      if (resolved.channel !== "email" && resolved.channel !== "ghl_chat") {
+        return res.status(409).json({ message: "Inbox item is not an email reply target" });
+      }
+      const contactId = resolved.contact.id;
+      const contact = resolved.contact;
       if (!contact.email) {
         return res.status(400).json({ message: "Contact has no email address" });
       }
@@ -1237,7 +1389,7 @@ export function registerInboxRoutes(app: Express) {
           body: replyBody,
           // recordOutboundSend status enum has no "not_configured" — map to "skipped"
           status: deliveryOutcome === "blocked" ? "blocked" : deliveryOutcome === "not_configured" ? "skipped" : "failed",
-          metadata: { repliedBy: userId, inReplyTo: inReplyTo || null, deliveryOutcome, error: deliveryError },
+          metadata: { repliedBy: userId, deliveryOutcome, error: deliveryError },
         }).catch(() => {});
         await storage.createAuditLog({
           action: "inbox_email_reply_failed",
@@ -1257,7 +1409,7 @@ export function registerInboxRoutes(app: Express) {
         subject: subject || null,
         body: replyBody,
         status: "sent",
-        metadata: { repliedBy: userId, inReplyTo: inReplyTo || null },
+        metadata: { repliedBy: userId },
       });
 
       await storage.createAuditLog({

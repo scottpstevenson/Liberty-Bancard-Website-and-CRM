@@ -1031,7 +1031,7 @@ export async function notifyRepWithBriefing(dealId: number): Promise<void> {
     });
 
     if (deal.owner) {
-      await storage.createTask({
+      await storage.createAuthorityTask({
         dealId: deal.id,
         contactId: deal.contactId || undefined,
         title: `Follow up on proposal — ${contact?.companyName || contact?.firstName || "Unknown"}`,

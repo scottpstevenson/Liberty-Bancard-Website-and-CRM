@@ -1940,7 +1940,7 @@ export function registerContactsRoutes(app: Express) {
 
       if (req.query.createTask === "true") {
         const marker = `statement_request_id:${statementRequest.id}`;
-        await storage.createTask({
+        await storage.createAuthorityTask({
           contactId,
           title: "Request statement from merchant",
           description: `Statement request created. Upload URL sent. ${marker}`,

@@ -9,10 +9,15 @@ type Tab = typeof VALID_TABS[number];
 
 export default function FinancialHub() {
   const search = useSearch();
-  const raw = new URLSearchParams(search).get("tab") ?? "";
+  const raw = new URLSearchParams(search).get("financialTab") ?? "";
   const tab: Tab = (VALID_TABS as readonly string[]).includes(raw) ? (raw as Tab) : "revenue";
   const [, navigate] = useLocation();
-  const goTab = (v: string) => navigate(`/dashboard/financial-hub?tab=${v}`);
+  const goTab = (v: string) => {
+    const params = new URLSearchParams(search);
+    params.set("tab", "financial");
+    params.set("financialTab", v);
+    navigate(`/dashboard/reporting?${params.toString()}`);
+  };
 
   return (
     <Tabs value={tab} onValueChange={goTab} className="space-y-4">

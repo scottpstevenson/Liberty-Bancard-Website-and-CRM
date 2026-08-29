@@ -326,7 +326,7 @@ export function registerProspectsRoutes(app: Express) {
       generateDealBlueprint(dealId).catch(err => console.error("[Convert] Blueprint error:", err));
       storage.getMatchingStageRules("sales", null, "New Lead").then(async (rules) => {
         for (const rule of rules) for (const action of ((rule.actions as any[]) || [])) {
-          if (action.type === "create_task") await storage.createTask({
+          if (action.type === "create_task") await storage.createAuthorityTask({
             title: action.title || "Auto: New Lead", assignedTo: action.assignedTo || "Scott Stevenson",
             priority: action.priority || "medium", dueDate: action.dueHours ? new Date(Date.now() + action.dueHours * 3600000) : undefined, dealId, contactId: convertedContactId,
           });

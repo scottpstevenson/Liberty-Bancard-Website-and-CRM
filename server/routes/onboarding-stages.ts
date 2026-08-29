@@ -297,7 +297,7 @@ export function registerOnboardingStagesRoutes(app: Express) {
       const created = [];
       for (const tp of touchpoints) {
         const dueDate = new Date(now.getTime() + tp.daysFromNow * 24 * 60 * 60 * 1000);
-        const task = await storage.createTask({
+        const task = await storage.createAuthorityTask({
           contactId,
           title: tp.title,
           description: tp.description,
@@ -442,7 +442,7 @@ export function registerOnboardingStagesRoutes(app: Express) {
 
       // Create follow-up task for referral owner
       if (matched.referralOwner) {
-        await storage.createTask({
+        await storage.createAuthorityTask({
           contactId: contactId || undefined,
           dealId: dealId || undefined,
           title: `Follow up with referred lead — ${referredCompany || referredName || referredEmail || "New Lead"}`,
@@ -455,7 +455,7 @@ export function registerOnboardingStagesRoutes(app: Express) {
       }
 
       // Create 30-day follow-up task for the partner
-      await storage.createTask({
+      await storage.createAuthorityTask({
         title: `Partner check-in — ${matched.companyName}`,
         description: `Monthly check-in with partner ${matched.companyName}. Review recent referrals and pipeline status.`,
         assignedTo: matched.referralOwner || "Account Manager",

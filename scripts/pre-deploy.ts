@@ -373,6 +373,16 @@ const MANDATORY_SUITES: Suite[] = [
     timeoutSecs: 60,
   },
   {
+    name: "CR-05 Reporting Boundary and Exactness Contract",
+    script: "scripts/test-reporting-boundaries.ts",
+    timeoutSecs: 60,
+  },
+  {
+    name: "CR-05 Task, Inbox, and Statement Authority Contract",
+    script: "scripts/test-task1721-inbox-statement-structure.ts",
+    timeoutSecs: 60,
+  },
+  {
     name: "CRO-03 Apollo Organization Resolution",
     script: "scripts/test-apollo-organization-resolution.ts",
     timeoutSecs: 60,

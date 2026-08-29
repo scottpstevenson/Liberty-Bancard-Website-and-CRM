@@ -13,7 +13,7 @@ import { storage } from "../storage";
 import { z } from "zod";
 import { upsertInboxItem, getInboxItem, updateInboxItem } from "../storage/inbox";
 import { serverError } from "../utils/server-error";
-import { authorizeInboxItemAccess } from "../services/crm-object-access";
+import { authorizeDealAccess, authorizeInboxItemAccess } from "../services/crm-object-access";
 
 const DEPARTMENT_SLA_HOURS: Record<string, number> = {
   sales: 4,
@@ -41,23 +41,9 @@ export function registerInboxOwnershipRoutes(app: Express) {
   // GET /api/inbox/items/:id/ownership — get ownership record for an inbox item
   app.get("/api/inbox/items/:id/ownership", isDashboardUser, async (req, res) => {
     try {
-      const item = await getInboxItem(String(req.params.id));
-      if (!item) {
-        // Return empty defaults — ownership hasn't been set yet
-        return res.json({
-          sourceItemId: String(req.params.id),
-          ownerId: null,
-          ownerName: null,
-          department: "sales",
-          status: "new",
-          priority: "normal",
-          slaDueAt: null,
-          nextAction: null,
-          escalationPath: null,
-          notes: null,
-        });
-      }
       if (!await authorizeInboxItemAccess(req, res, String(req.params.id))) return;
+      const item = await getInboxItem(String(req.params.id));
+      if (!item) return;
       res.json(item);
     } catch (err: any) {
       serverError(res, err);
@@ -95,6 +81,13 @@ export function registerInboxOwnershipRoutes(app: Express) {
         const resolved = await authorizeInboxItemAccess(req, res, itemId, { exactAssignment: true });
         if (!resolved) return;
         const resolvedContactId = resolved.contact.id;
+        if (parsed.data.dealId !== undefined) {
+          const deal = await authorizeDealAccess(req, res, parsed.data.dealId, { exactAssignment: true });
+          if (!deal) return;
+          if (deal.contactId !== resolvedContactId) {
+            return res.status(409).json({ message: "Deal does not belong to the inbox item's contact" });
+          }
+        }
 
         const department = parsed.data.department || existing?.department || "sales";
         const slaDueAt = existing?.slaDueAt ?? computeSlaDueAt(department);
@@ -102,7 +95,7 @@ export function registerInboxOwnershipRoutes(app: Express) {
         const updated = await upsertInboxItem({
           sourceItemId: itemId,
           sourceItemType: existing?.sourceItemType || "email",
-          ...existing ? {} : { contactId: parsed.data.contactId, dealId: parsed.data.dealId },
+          ...existing ? {} : { dealId: parsed.data.dealId },
           contactId: resolvedContactId,
           ...(parsed.data.dealId !== undefined && { dealId: parsed.data.dealId }),
           ownerId: parsed.data.ownerId ?? existing?.ownerId ?? null,
@@ -179,7 +172,7 @@ export function registerInboxOwnershipRoutes(app: Express) {
 
         // Create escalation task
         if (resolvedContactId) {
-          await storage.createTask({
+          await storage.createAuthorityTask({
             title: `🚨 Escalated to Scott — Review Required`,
             description: `AI Inbox item ${itemId} escalated. Intent: ${intent || "unknown"}. Reason: ${reason || "Manual escalation"}. Review and respond ASAP.`,
             contactId: resolvedContactId,
@@ -231,21 +224,10 @@ export function registerInboxOwnershipRoutes(app: Express) {
         const user = req.user as any;
         const userId = String(user?.id || "");
 
-        const {
-          contactId,
-          contactName,
-          contactEmail,
-          companyName,
-          intent,
-          ownerName,
-        } = req.body as {
-          contactId?: number;
-          contactName?: string;
-          contactEmail?: string;
-          companyName?: string;
-          intent?: string;
-          ownerName?: string;
-        };
+        const { intent } = req.body as { intent?: string };
+        const contactName = [resolved.contact.firstName, resolved.contact.lastName].filter(Boolean).join(" ") || resolved.contact.email || "Contact";
+        const contactEmail = resolved.contact.email || "";
+        const companyName = resolved.contact.companyName || "";
 
         const calendarId = process.env.GHL_CALENDAR_ID;
 
@@ -269,16 +251,16 @@ export function registerInboxOwnershipRoutes(app: Express) {
             "https://api.leadconnectorhq.com/widget/booking/YFiIy7oIOUXN2qZZPnOr";
 
           taskTitle = `Book appointment for ${contactName || companyName || "Contact"}`;
-          taskDescription = `AI Inbox: manual booking required. Intent: ${intent || "meeting_intent"}. Contact ID: ${contactId || "?"}. Use booking link: ${bookingUrl}`;
+          taskDescription = `AI Inbox: manual booking required. Intent: ${intent || "meeting_intent"}. Contact ID: ${resolvedContactId}. Use booking link: ${bookingUrl}`;
         }
 
-        const assignedTo = ownerName || user?.firstName
+        const assignedTo = user?.firstName
           ? `${user?.firstName || ""} ${user?.lastName || ""}`.trim() || "Scott Stevenson"
           : "Scott Stevenson";
 
         // Create "Confirm booking" task
         if (resolvedContactId) {
-          await storage.createTask({
+          await storage.createAuthorityTask({
             title: taskTitle,
             description: taskDescription,
             contactId: resolvedContactId,
@@ -350,7 +332,7 @@ export function registerInboxOwnershipRoutes(app: Express) {
           : process.env.GHL_CALENDAR_BOOKING_URL || "https://api.leadconnectorhq.com/widget/booking/YFiIy7oIOUXN2qZZPnOr";
 
         if (resolvedContactId) {
-          await storage.createTask({
+          await storage.createAuthorityTask({
             title: `Reschedule appointment — No-Show`,
             description: `Contact did not show for scheduled appointment. Send reschedule link: ${bookingUrl}`,
             contactId: resolvedContactId,

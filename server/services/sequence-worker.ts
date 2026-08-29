@@ -2154,7 +2154,7 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
           }
 
           case "call_reminder": {
-            await storage.createTask({
+            await storage.createAuthorityTask({
               title: `Call Reminder — ${firstName} ${lastName}`,
               description: `Sequence "${sequence.name}" Step ${step.stepOrder}: Manual call reminder.\n${step.body ?? ""}`,
               assignedTo: sequence.createdBy || "Unassigned",
@@ -2290,7 +2290,7 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
 
             if (enrollment.contactId && vmScript) {
               try {
-                await storage.createTask({
+                await storage.createAuthorityTask({
                   title: `Voicemail Drop — ${firstName} ${lastName}`,
                   description: `GHL Voicemail Drop for sequence "${sequence.name}" Step ${step.stepOrder}.\n\nScript (record and upload to GHL Voicemail Drops library):\n${vmScript}\n\n${ghlNote}\n\nInstruction: In GHL workflow, add a Voicemail Drop action node and select the pre-recorded audio for this script. Tag 'vm-drop-pending' on the contact signals it is ready to trigger.`,
                   assignedTo: sequence.createdBy || "Unassigned",
@@ -2357,7 +2357,7 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
             // Creates a CRM task only — does NOT place a call, invoke AI voice,
             // trigger autodialing, or send an RVM.  Gate (b) above ensures this
             // path is only reached when evaluateContactability("manual_call") passes.
-            await storage.createTask({
+            await storage.createAuthorityTask({
               title: interpolate(step.subject) || `Follow-up task from sequence`,
               description: `Auto-created by sequence "${sequence.name}" - Step ${step.stepOrder}`,
               assignedTo: sequence.createdBy || "Unassigned",

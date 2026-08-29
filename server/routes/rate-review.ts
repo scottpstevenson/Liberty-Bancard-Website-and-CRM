@@ -198,7 +198,7 @@ export function registerRateReviewRoutes(app: Express) {
       const taskTitle = `Rate Review Requested — ${merchantName}`;
       const assignedTo = (contact as any).assignedTo || null;
 
-      await storage.createTask({
+      await storage.createAuthorityTask({
         contactId: contact.id,
         dealId: contactDeal?.id ?? null,
         title: taskTitle,

@@ -9,6 +9,11 @@ Do NOT use `db.insert(...).onConflictDoNothing({ target: [...], targetWhere: sql
 ## What to use instead
 Use `db.execute(sql\`INSERT ... ON CONFLICT (col1, col2) WHERE <partial-predicate> DO NOTHING RETURNING *\`)` with explicit raw SQL.
 
+If any unique conflict should be treated as an idempotent replay, the builder's
+argument-free `.onConflictDoNothing()` is also safe because PostgreSQL does not
+need to infer a specific partial index. Follow it with a canonical identity read
+when no row is returned.
+
 ```ts
 const result = await db.execute(sql`
   INSERT INTO tasks (deal_id, ..., source, automation_key)
@@ -28,4 +33,4 @@ const task = Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
 
 **Why:** Drizzle's ORM builder does not support partial index conflict targets. The `targetWhere` option exists in the type signature but does not generate correct SQL for PostgreSQL partial indexes.
 
-**How to apply:** Whenever you need `ON CONFLICT (cols) WHERE predicate DO NOTHING` against a partial unique index, bypass Drizzle's builder and use raw SQL via `db.execute(sql\`...\`)`. Parse the returned `rows` field from the result.
+**How to apply:** Use explicit raw SQL when one partial index is the intended arbiter. Use argument-free `DO NOTHING` plus a canonical read when every uniqueness conflict has replay semantics. Never name only the partial-index columns without its predicate.

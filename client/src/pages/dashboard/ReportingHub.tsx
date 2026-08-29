@@ -15,7 +15,12 @@ export default function ReportingHub() {
   const raw = new URLSearchParams(search).get("tab") ?? "";
   const tab: Tab = (VALID_TABS as readonly string[]).includes(raw) ? (raw as Tab) : "overview";
   const [, navigate] = useLocation();
-  const goTab = (v: string) => navigate(`/dashboard/reporting?tab=${v}`);
+  const goTab = (v: string) => {
+    const params = new URLSearchParams(search);
+    params.set("tab", v);
+    if (v !== "financial") params.delete("financialTab");
+    navigate(`/dashboard/reporting?${params.toString()}`);
+  };
 
   return (
     <Tabs value={tab} onValueChange={goTab} className="space-y-4">

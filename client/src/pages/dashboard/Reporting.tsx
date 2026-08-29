@@ -37,9 +37,10 @@ interface SupportData {
   open: number;
   resolved: number;
   slaBreaches: number;
-  avgResolutionHours: number;
+  avgResolutionHours: number | null;
   categoryBreakdown: Record<string, number>;
   priorityBreakdown: Record<string, number>;
+  meta: { exact: boolean; asOf: string; scope: string };
 }
 
 interface TaskData {
@@ -49,6 +50,7 @@ interface TaskData {
   completed: number;
   overdue: number;
   priorityBreakdown: Record<string, number>;
+  meta: { exact: boolean; asOf: string; scope: string };
 }
 
 function LoadingSkeleton() {
@@ -87,15 +89,15 @@ function LoadingSkeleton() {
 }
 
 export default function Reporting() {
-  const { data: pipeline, isLoading: pipelineLoading } = useQuery<PipelineData>({
+  const { data: pipeline, isLoading: pipelineLoading, isError: pipelineError } = useQuery<PipelineData>({
     queryKey: ["/api/analytics/pipeline"],
   });
 
-  const { data: support, isLoading: supportLoading } = useQuery<SupportData>({
+  const { data: support, isLoading: supportLoading, isError: supportError } = useQuery<SupportData>({
     queryKey: ["/api/analytics/support"],
   });
 
-  const { data: tasks, isLoading: tasksLoading } = useQuery<TaskData>({
+  const { data: tasks, isLoading: tasksLoading, isError: tasksError } = useQuery<TaskData>({
     queryKey: ["/api/analytics/tasks"],
   });
 
@@ -105,15 +107,23 @@ export default function Reporting() {
     return <LoadingSkeleton />;
   }
 
-  const sales = pipeline?.sales;
-  const onboarding = pipeline?.onboarding;
-  const stageMax = sales?.stageDistribution
+  if (pipelineError || supportError || tasksError || !pipeline?.sales || !pipeline.onboarding || !support || !tasks || !support.meta?.exact || !tasks.meta?.exact) {
+    return (
+      <div className="py-8 text-center text-destructive" data-testid="reporting-unavailable">
+        Reporting data is unavailable. Please retry after the reporting services recover.
+      </div>
+    );
+  }
+
+  const sales = pipeline.sales;
+  const onboarding = pipeline.onboarding;
+  const stageMax = sales.stageDistribution
     ? Math.max(...Object.values(sales.stageDistribution), 1)
     : 1;
-  const categoryMax = support?.categoryBreakdown
+  const categoryMax = support.categoryBreakdown
     ? Math.max(...Object.values(support.categoryBreakdown), 1)
     : 1;
-  const taskTotal = (tasks?.pending || 0) + (tasks?.inProgress || 0) + (tasks?.completed || 0);
+  const taskTotal = tasks.pending + tasks.inProgress + tasks.completed;
 
   return (
     <div className="space-y-8" data-testid="reporting-page">
@@ -126,17 +136,17 @@ export default function Reporting() {
           <CardContent>
             <div className="flex items-baseline gap-2">
               <span className="text-2xl font-bold" data-testid="text-win-rate">
-                {sales?.winRate ?? 0}%
+                 {sales.winRate}%
               </span>
               <span
-                className={`text-xs font-medium ${(sales?.winRate ?? 0) >= 50 ? "text-green-600" : "text-destructive"}`}
+                 className={`text-xs font-medium ${sales.winRate >= 50 ? "text-green-600" : "text-destructive"}`}
                 data-testid="text-win-rate-indicator"
               >
-                {(sales?.winRate ?? 0) >= 50 ? "On track" : "Below target"}
+                 {sales.winRate >= 50 ? "On track" : "Below target"}
               </span>
             </div>
             <p className="text-xs text-muted-foreground mt-1">
-              {sales?.closedWon ?? 0}W / {sales?.closedLost ?? 0}L
+               {sales.closedWon}W / {sales.closedLost}L
             </p>
           </CardContent>
         </Card>
@@ -148,10 +158,10 @@ export default function Reporting() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold" data-testid="text-active-pipeline">
-              {sales?.active ?? 0}
+               {sales.active}
             </div>
             <p className="text-xs text-muted-foreground mt-1">
-              {sales?.total ?? 0} total deals
+               {sales.total} total deals
             </p>
           </CardContent>
         </Card>
@@ -163,10 +173,10 @@ export default function Reporting() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold" data-testid="text-open-tickets">
-              {support?.open ?? 0}
+               {support.open}
             </div>
             <p className="text-xs text-muted-foreground mt-1">
-              {support?.total ?? 0} total tickets
+               {support.total} total tickets
             </p>
           </CardContent>
         </Card>
@@ -174,17 +184,17 @@ export default function Reporting() {
         <Card data-testid="card-kpi-overdue-tasks">
           <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Overdue Tasks</CardTitle>
-            <ClipboardList className={`w-4 h-4 ${(tasks?.overdue ?? 0) > 0 ? "text-destructive" : "text-muted-foreground"}`} />
+             <ClipboardList className={`w-4 h-4 ${tasks.overdue > 0 ? "text-destructive" : "text-muted-foreground"}`} />
           </CardHeader>
           <CardContent>
             <div
-              className={`text-2xl font-bold ${(tasks?.overdue ?? 0) > 0 ? "text-destructive" : ""}`}
+               className={`text-2xl font-bold ${tasks.overdue > 0 ? "text-destructive" : ""}`}
               data-testid="text-overdue-tasks"
             >
-              {tasks?.overdue ?? 0}
+               {tasks.overdue}
             </div>
             <p className="text-xs text-muted-foreground mt-1">
-              {tasks?.total ?? 0} total tasks
+               {tasks.total} total tasks
             </p>
           </CardContent>
         </Card>
@@ -200,7 +210,7 @@ export default function Reporting() {
         <CardContent className="space-y-6">
           <div className="space-y-3" data-testid="pipeline-stage-distribution">
             <p className="text-sm font-medium text-muted-foreground">Stage Distribution</p>
-            {sales?.stageDistribution && Object.keys(sales.stageDistribution).length > 0 ? (
+             {Object.keys(sales.stageDistribution).length > 0 ? (
               Object.entries(sales.stageDistribution).map(([stage, count]) => (
                 <div key={stage} className="space-y-1" data-testid={`stage-row-${stage.toLowerCase().replace(/\s+/g, "-")}`}>
                   <div className="flex items-center justify-between gap-2">
@@ -223,21 +233,21 @@ export default function Reporting() {
             <div className="flex items-center gap-2 p-3 rounded-md bg-muted/50">
               <TrendingUp className="w-4 h-4 text-primary shrink-0" />
               <div>
-                <p className="text-sm font-medium" data-testid="text-new-deals-30d">{sales?.newLast30Days ?? 0}</p>
+                 <p className="text-sm font-medium" data-testid="text-new-deals-30d">{sales.newLast30Days}</p>
                 <p className="text-xs text-muted-foreground">New deals (30d)</p>
               </div>
             </div>
             <div className="flex items-center gap-2 p-3 rounded-md bg-muted/50">
               <CheckCircle2 className="w-4 h-4 text-green-600 shrink-0" />
               <div>
-                <p className="text-sm font-medium" data-testid="text-won-deals-30d">{sales?.wonLast30Days ?? 0}</p>
+                 <p className="text-sm font-medium" data-testid="text-won-deals-30d">{sales.wonLast30Days}</p>
                 <p className="text-xs text-muted-foreground">Won deals (30d)</p>
               </div>
             </div>
             <div className="flex items-center gap-2 p-3 rounded-md bg-muted/50">
               <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
               <div>
-                <p className="text-sm font-medium" data-testid="text-stalling-deals">{sales?.stallingDeals ?? 0}</p>
+                 <p className="text-sm font-medium" data-testid="text-stalling-deals">{sales.stallingDeals}</p>
                 <p className="text-xs text-muted-foreground">Stalling deals</p>
               </div>
             </div>
@@ -247,10 +257,10 @@ export default function Reporting() {
             <p className="text-sm font-medium text-muted-foreground mb-2">Onboarding Summary</p>
             <div className="flex flex-wrap gap-2">
               <Badge variant="secondary" data-testid="badge-onboarding-active">
-                Active: {onboarding?.active ?? 0}
+                 Active: {onboarding.active}
               </Badge>
               <Badge variant="secondary" className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400" data-testid="badge-onboarding-completed">
-                Completed: {onboarding?.completed ?? 0}
+                 Completed: {onboarding.completed}
               </Badge>
             </div>
           </div>
@@ -268,7 +278,7 @@ export default function Reporting() {
           <CardContent className="space-y-6">
             <div className="space-y-3" data-testid="support-category-breakdown">
               <p className="text-sm font-medium text-muted-foreground">Category Breakdown</p>
-              {support?.categoryBreakdown && Object.keys(support.categoryBreakdown).length > 0 ? (
+               {Object.keys(support.categoryBreakdown).length > 0 ? (
                 Object.entries(support.categoryBreakdown).map(([category, count]) => (
                   <div key={category} className="space-y-1" data-testid={`category-row-${category.toLowerCase().replace(/[\s\/&]+/g, "-")}`}>
                     <div className="flex items-center justify-between gap-2">
@@ -289,7 +299,7 @@ export default function Reporting() {
             <div data-testid="support-priority-breakdown">
               <p className="text-sm font-medium text-muted-foreground mb-2">Priority Breakdown</p>
               <div className="flex flex-wrap gap-2">
-                {support?.priorityBreakdown && Object.entries(support.priorityBreakdown).map(([priority, count]) => (
+                 {Object.entries(support.priorityBreakdown).map(([priority, count]) => (
                   <Badge
                     key={priority}
                     variant={priority === "Urgent" ? "destructive" : "secondary"}
@@ -305,18 +315,18 @@ export default function Reporting() {
               <div className="flex items-center gap-2 p-3 rounded-md bg-muted/50">
                 <Clock className="w-4 h-4 text-muted-foreground shrink-0" />
                 <div>
-                  <p className="text-sm font-medium" data-testid="text-avg-resolution">{support?.avgResolutionHours ?? 0}h</p>
+                  <p className="text-sm font-medium" data-testid="text-avg-resolution">{support.avgResolutionHours == null ? "—" : `${support.avgResolutionHours}h`}</p>
                   <p className="text-xs text-muted-foreground">Avg resolution</p>
                 </div>
               </div>
               <div className="flex items-center gap-2 p-3 rounded-md bg-muted/50">
-                <AlertTriangle className={`w-4 h-4 shrink-0 ${(support?.slaBreaches ?? 0) > 0 ? "text-destructive" : "text-green-600"}`} />
+                <AlertTriangle className={`w-4 h-4 shrink-0 ${support.slaBreaches > 0 ? "text-destructive" : "text-green-600"}`} />
                 <div>
                   <Badge
-                    variant={(support?.slaBreaches ?? 0) > 0 ? "destructive" : "secondary"}
+                    variant={support.slaBreaches > 0 ? "destructive" : "secondary"}
                     data-testid="badge-sla-breaches"
                   >
-                    {support?.slaBreaches ?? 0} SLA breaches
+                    {support.slaBreaches} SLA breaches
                   </Badge>
                 </div>
               </div>
@@ -374,7 +384,7 @@ export default function Reporting() {
             </div>
 
             <div className="flex items-center gap-2 p-3 rounded-md bg-muted/50" data-testid="task-overdue-warning">
-              {(tasks?.overdue ?? 0) > 0 ? (
+               {tasks.overdue > 0 ? (
                 <>
                   <AlertTriangle className="w-4 h-4 text-destructive shrink-0" />
                   <span className="text-sm text-destructive font-medium" data-testid="text-task-overdue-count">
@@ -394,7 +404,7 @@ export default function Reporting() {
             <div data-testid="task-priority-breakdown">
               <p className="text-sm font-medium text-muted-foreground mb-2">Priority Breakdown</p>
               <div className="flex flex-wrap gap-2">
-                {tasks?.priorityBreakdown && Object.entries(tasks.priorityBreakdown).map(([priority, count]) => (
+                 {Object.entries(tasks.priorityBreakdown).map(([priority, count]) => (
                   <Badge
                     key={priority}
                     variant={priority === "urgent" ? "destructive" : "secondary"}

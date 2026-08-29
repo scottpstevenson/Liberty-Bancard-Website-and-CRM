@@ -600,7 +600,7 @@ Respond in this exact JSON format:
       }
 
       if (nextFollowUpDate) {
-        await storage.createTask({
+        await storage.createAuthorityTask({
           contactId: Number(contactId),
           dealId: dealId ? Number(dealId) : undefined,
           title: `Follow up: ${outcome} - ${contact.firstName} ${contact.lastName || ""}`.trim(),

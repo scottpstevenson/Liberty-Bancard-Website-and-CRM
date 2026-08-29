@@ -109,7 +109,7 @@ export function registerTerminalEconomicsRoutes(app: Express) {
       const managers = await storage.getUsersByRole(["manager"]);
       const managerEmail = managers[0]?.email || process.env.ADMIN_EMAIL || "admin";
 
-      const task = await storage.createTask({
+      const task = await storage.createAuthorityTask({
         dealId,
         contactId: deal.contactId || undefined,
         title: `Terminal approval needed — ${merchantName} — $${result.terminalCost.toFixed(0)} terminal, ${paybackStr} payback`,

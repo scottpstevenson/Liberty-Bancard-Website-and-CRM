@@ -24,6 +24,7 @@
     "test:merchant-migration-safety": "npx tsx scripts/test-merchant-migration-safety.ts"
     ,"test:consent-authority": "npx tsx scripts/test-consent-authority.ts"
     ,"test:consent-writer-dominance": "npx tsx scripts/test-consent-writer-dominance.ts"
+    ,"test:task1721-structure": "npx tsx scripts/test-task1721-inbox-statement-structure.ts && npx tsx scripts/test-task1721-inbox-pagination.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.115.0",

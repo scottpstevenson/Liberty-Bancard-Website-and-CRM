@@ -387,7 +387,7 @@ export function registerDocumentsRoutes(app: Express) {
             }
 
             // Create analyst review task
-            await storage.createTask({
+            await storage.createAuthorityTask({
               title: `Review statement — ${fileName}`,
               description: `Processing statement uploaded by ${uploadedBy}. Document ID: ${doc.id}. Review and prepare savings proposal.`,
               contactId: cid,

@@ -151,7 +151,7 @@ export async function executeWorkflowActions(
     const action = actions[i];
     try {
       if (action.type === "create_task") {
-        await storage.createTask({
+        await storage.createAuthorityTask({
           title: await interpolateTemplate(action.title || "Auto-task", contactId, dealId),
           assignedTo: action.assignedTo || "Scott Stevenson",
           priority: action.priority || "medium",

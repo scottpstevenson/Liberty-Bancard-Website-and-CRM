@@ -126,3 +126,4 @@
 - [Commercial resolution authority](commercial-resolution-authority.md) — five-value class stays separate from provenance/identity/link/relationship axes; shadow never replaces legacy before approved cutover.
 - [Channel cohort authority](channel-cohort-authority.md) — channel qualification freezes immutable evidence; qualification never implies activation or cohort consumption.
 - [Certification capability isolation](certification-capability-isolation.md) — classify HTTP suites as server-required; reserve exact per-suite Redis prefixes; snapshot completion must cover omitted pre-snapshot DDL.
+- [Multi-source cursor buffering](multi-source-cursor-buffering.md) — merged pagination must retain fetched-but-not-emitted items or advancing source cursors silently drops them.

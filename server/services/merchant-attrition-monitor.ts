@@ -196,7 +196,7 @@ async function triggerAttritionAlert(
   const dealOwner = await resolveDealOwner(contactId);
   const dueDate = new Date(Date.now() + 24 * 60 * 60 * 1000); // due tomorrow
 
-  await storage.createTask({
+  await storage.createAuthorityTask({
     contactId,
     title: `Churn Signal — ${displayName}`,
     description:

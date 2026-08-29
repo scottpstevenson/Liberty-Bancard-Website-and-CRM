@@ -54,8 +54,11 @@ interface QueueContact {
 
 interface QueuePage {
   data: QueueContact[];
-  total: number;
-  page: number;
+  total: number | null;
+  exactTotal: boolean;
+  cursor: number;
+  nextCursor: number | null;
+  hasMore: boolean;
   limit: number;
   channel: "email" | "manual_call" | "sms";
   policyVersion: number;
@@ -101,6 +104,7 @@ export default function OutreachQueue() {
 
   // ── Filters & pagination ───────────────────────────────────────────────────
   const [page, setPage] = useState(1);
+  const [cursor, setCursor] = useState(0);
   const LIMIT = 50;
   const [filterScore,    setFilterScore]    = useState("all");
   const [filterVertical, setFilterVertical] = useState("all");
@@ -116,6 +120,7 @@ export default function OutreachQueue() {
   const queueParams = new URLSearchParams({
     page: String(page),
     limit: String(LIMIT),
+    ...(cursor ? { cursor: String(cursor) } : {}),
     ...(filterScore    !== "all" ? { score:    filterScore    } : {}),
     ...(filterVertical !== "all" ? { vertical: filterVertical } : {}),
     ...(filterAssigned !== "all" && isAdmin ? { assignedTo: filterAssigned } : {}),
@@ -123,7 +128,7 @@ export default function OutreachQueue() {
   });
 
   const queueQuery = useQuery<QueuePage>({
-    queryKey: ["/api/outreach-queue", page, filterScore, filterVertical, filterAssigned, channel],
+    queryKey: ["/api/outreach-queue", cursor, filterScore, filterVertical, filterAssigned, channel],
     queryFn: async () => {
       const r = await fetch(`/api/outreach-queue?${queueParams}`, { credentials: "include" });
       if (!r.ok) throw new Error(await r.text());
@@ -145,8 +150,7 @@ export default function OutreachQueue() {
   });
 
   const contacts = queueQuery.data?.data ?? [];
-  const total    = queueQuery.data?.total ?? 0;
-  const totalPages = Math.ceil(total / LIMIT);
+  const total    = queueQuery.data?.total ?? null;
 
   // ── Mutations ──────────────────────────────────────────────────────────────
   const startMutation = useMutation({
@@ -279,7 +283,7 @@ export default function OutreachQueue() {
           </h1>
           <p className="text-muted-foreground text-sm mt-0.5">
             Channel-qualified leads from policy v{queueQuery.data?.policyVersion ?? "—"}.
-            {total > 0 && (
+            {total != null && total > 0 && (
               <span className="ml-1 font-medium text-foreground">{total.toLocaleString()} waiting.</span>
             )}
           </p>
@@ -296,7 +300,7 @@ export default function OutreachQueue() {
 
       {/* ── Filters ───────────────────────────────────────────────────────── */}
       <div className="flex flex-wrap gap-2">
-        <Select value={channel} onValueChange={(value) => { setChannel(value as typeof channel); setPage(1); setSelectedIds(new Set()); }}>
+        <Select value={channel} onValueChange={(value) => { setChannel(value as typeof channel); setPage(1); setCursor(0); setSelectedIds(new Set()); }}>
           <SelectTrigger className="w-44 h-8 text-sm">
             <SelectValue placeholder="Channel" />
           </SelectTrigger>
@@ -306,7 +310,7 @@ export default function OutreachQueue() {
             <SelectItem value="sms">SMS qualified</SelectItem>
           </SelectContent>
         </Select>
-        <Select value={filterScore} onValueChange={v => { setFilterScore(v); setPage(1); }}>
+        <Select value={filterScore} onValueChange={v => { setFilterScore(v); setPage(1); setCursor(0); }}>
           <SelectTrigger className="w-36 h-8 text-sm">
             <SelectValue placeholder="All scores" />
           </SelectTrigger>
@@ -318,7 +322,7 @@ export default function OutreachQueue() {
           </SelectContent>
         </Select>
 
-        <Select value={filterVertical} onValueChange={v => { setFilterVertical(v); setPage(1); }}>
+        <Select value={filterVertical} onValueChange={v => { setFilterVertical(v); setPage(1); setCursor(0); }}>
           <SelectTrigger className="w-44 h-8 text-sm">
             <SelectValue placeholder="All verticals" />
           </SelectTrigger>
@@ -329,7 +333,7 @@ export default function OutreachQueue() {
         </Select>
 
         {isAdmin && (
-          <Select value={filterAssigned} onValueChange={v => { setFilterAssigned(v); setPage(1); }}>
+          <Select value={filterAssigned} onValueChange={v => { setFilterAssigned(v); setPage(1); setCursor(0); }}>
             <SelectTrigger className="w-48 h-8 text-sm">
               <SelectValue placeholder="All reps" />
             </SelectTrigger>
@@ -402,8 +406,10 @@ export default function OutreachQueue() {
                   <TableCell colSpan={isAdmin ? 10 : 9} className="text-center h-40">
                     <div className="flex flex-col items-center gap-2 text-muted-foreground">
                       <CheckCircle className="h-8 w-8 text-green-400" />
-                      <p className="font-medium text-foreground">All caught up</p>
-                      <p className="text-sm">No leads ready for outreach right now.</p>
+                      <p className="font-medium text-foreground">{queueQuery.data?.hasMore ? "No matches in this scan" : "All caught up"}</p>
+                      <p className="text-sm">{queueQuery.data?.hasMore
+                        ? "Continue to scan the next bounded set of leads."
+                        : "No leads ready for outreach right now."}</p>
                     </div>
                   </TableCell>
                 </TableRow>
@@ -536,24 +542,24 @@ export default function OutreachQueue() {
       </Card>
 
       {/* ── Pagination ───────────────────────────────────────────────────── */}
-      {totalPages > 1 && (
+      {(page > 1 || queueQuery.data?.hasMore) && (
         <div className="flex items-center justify-between text-sm text-muted-foreground">
           <span>
-            Showing {((page - 1) * LIMIT) + 1}–{Math.min(page * LIMIT, total)} of {total.toLocaleString()}
+            {total == null ? `Showing continuation page ${page}` : `Showing ${((page - 1) * LIMIT) + 1}–${Math.min(page * LIMIT, total)} of ${total.toLocaleString()}`}
           </span>
           <div className="flex items-center gap-1">
             <Button
               variant="outline" size="sm" className="h-7 px-2"
-              onClick={() => setPage(p => Math.max(1, p - 1))}
+              onClick={() => { setPage(1); setCursor(0); }}
               disabled={page <= 1}
             >
               <ChevronLeft className="h-4 w-4" />
             </Button>
-            <span className="px-2 text-xs">Page {page} of {totalPages}</span>
+            <span className="px-2 text-xs">Page {page}{total == null ? " (partial)" : ""}</span>
             <Button
               variant="outline" size="sm" className="h-7 px-2"
-              onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-              disabled={page >= totalPages}
+              onClick={() => { if (queueQuery.data?.nextCursor != null) { setCursor(queueQuery.data.nextCursor); setPage(p => p + 1); } }}
+              disabled={!queueQuery.data?.hasMore || queueQuery.data.nextCursor == null}
             >
               <ChevronRight className="h-4 w-4" />
             </Button>

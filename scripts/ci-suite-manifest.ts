@@ -233,6 +233,18 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
     providerDenial: "source and migration contract assertions only; no database, network, queues, or providers",
   },
   {
+    name: "CR-05 Reporting Boundary and Exactness Contract",
+    script: "scripts/test-reporting-boundaries.ts",
+    capability: "deterministic-static",
+    providerDenial: "source-only role, metric, URL-state, and exactness assertions; no database, network, queues, or providers",
+  },
+  {
+    name: "CR-05 Task, Inbox, and Statement Authority Contract",
+    script: "scripts/test-task1721-inbox-statement-structure.ts",
+    capability: "deterministic-static",
+    providerDenial: "source and migration authority assertions only; no database, network, queues, or providers",
+  },
+  {
     name: "Release Artifact Gate",
     script: "scripts/release-artifact-gate.ts",
     capability: "writable-build",

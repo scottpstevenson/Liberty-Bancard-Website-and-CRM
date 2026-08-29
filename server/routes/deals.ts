@@ -263,7 +263,7 @@ export function registerDealsRoutes(app: Express) {
             const ruleActions = (rule.actions as any[]) || [];
             for (const action of ruleActions) {
               if (action.type === "create_task") {
-                await storage.createTask({
+                await storage.createAuthorityTask({
                   title: action.title || `Auto: Stage moved to ${updated.stage}`,
                   assignedTo: action.assignedTo || updated.owner || "Unassigned",
                   priority: action.priority || "medium",
@@ -281,7 +281,7 @@ export function registerDealsRoutes(app: Express) {
                 });
               } else if (action.type === "create_follow_up") {
                 const followUpDate = new Date(Date.now() + (action.delayHours || 24) * 3600000);
-                await storage.createTask({
+                await storage.createAuthorityTask({
                   title: action.title || `Follow up: ${updated.stage}`,
                   assignedTo: updated.owner || "Unassigned",
                   priority: "high",
@@ -368,7 +368,7 @@ export function registerDealsRoutes(app: Express) {
               const merchantName = contact?.companyName || [contact?.firstName, contact?.lastName].filter(Boolean).join(" ") || `Deal #${updated.id}`;
               const paybackStr = econ.paybackMonths ? `${econ.paybackMonths}-month` : "unknown";
 
-              const task = await storage.createTask({
+              const task = await storage.createAuthorityTask({
                 dealId: updated.id,
                 contactId: updated.contactId || undefined,
                 title: `Terminal approval needed — ${merchantName} — $${econ.terminalCost.toFixed(0)} terminal, ${paybackStr} payback`,

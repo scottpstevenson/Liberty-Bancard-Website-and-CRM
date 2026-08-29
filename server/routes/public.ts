@@ -1314,7 +1314,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         });
       }
 
-      await storage.createTask({
+      await storage.createAuthorityTask({
         dealId: deal.id, contactId: contact.id,
         title: `Setup & test terminal: ${primaryTerminal} (24hr processing)`.slice(0, 255),
         assignedTo: "Scott Stevenson",

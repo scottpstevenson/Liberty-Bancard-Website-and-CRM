@@ -68,6 +68,7 @@ interface StatementReviewRecord {
   followUpDraft: string | null;
   followUpSentAt: string | null;
   reviewedAt: string | null;
+  version: number;
   createdAt: string;
   updatedAt: string;
   // enriched
@@ -82,7 +83,6 @@ const REVIEW_STATUS_STEPS = [
   { key: "in_review",      label: "In Review",      icon: Eye },
   { key: "ai_analyzed",   label: "AI Analyzed",    icon: Bot },
   { key: "reviewed",       label: "Reviewed",       icon: CheckCircle2 },
-  { key: "follow_up_sent", label: "Follow-Up Sent", icon: Send },
   { key: "complete",       label: "Complete",       icon: Star },
 ];
 
@@ -138,7 +138,10 @@ function StatementOperationsPanel() {
   const updateMutation = useMutation({
     mutationFn: async (updates: Record<string, any>) => {
       if (!selectedReview) throw new Error("No review selected");
-      const res = await apiRequest("PATCH", `/api/statement-reviews/${selectedReview.id}`, updates);
+      const res = await apiRequest("PATCH", `/api/statement-reviews/${selectedReview.id}`, {
+        ...updates,
+        version: selectedReview.version,
+      });
       return res.json();
     },
     onSuccess: (updated) => {
@@ -157,8 +160,9 @@ function StatementOperationsPanel() {
       const res = await apiRequest("POST", `/api/statement-reviews/${selectedReview.id}/follow-up-draft`);
       return res.json();
     },
-    onSuccess: (data: { draft: string }) => {
+    onSuccess: (data: { draft: string; review: StatementReviewRecord }) => {
       setFollowUpDraft(data.draft);
+      setSelectedReview(data.review);
       queryClient.invalidateQueries({ queryKey: ["/api/statement-reviews"] });
       toast({ title: "Follow-up draft generated" });
     },
@@ -186,7 +190,8 @@ function StatementOperationsPanel() {
   };
 
   const nextStatus = (current: string): string | null => {
-    const idx = STATUS_INDEX[current] ?? 0;
+    const idx = STATUS_INDEX[current];
+    if (idx === undefined) return null;
     return REVIEW_STATUS_STEPS[idx + 1]?.key ?? null;
   };
 
@@ -323,7 +328,7 @@ function StatementOperationsPanel() {
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          {REVIEW_STATUS_STEPS.map((s) => (
+                          {REVIEW_STATUS_STEPS.filter((s) => s.key !== "follow_up_sent").map((s) => (
                             <SelectItem key={s.key} value={s.key}>
                               {s.label}
                             </SelectItem>
@@ -387,12 +392,13 @@ function StatementOperationsPanel() {
                     <Input
                       value={savingsOverride}
                       onChange={(e) => setSavingsOverride(e.target.value)}
-                      placeholder="e.g. $4,200/year or 22%"
+                      inputMode="decimal"
+                      placeholder="Annual savings amount, e.g. 4200.00"
                       className="text-sm h-8"
                       data-testid="input-savings-override"
                     />
                     <p className="text-[10px] text-muted-foreground">
-                      Overrides the AI estimate in the merchant follow-up email
+                      Numeric annual savings only. The analyzed statement is retained as evidence.
                     </p>
                   </div>
                   <Button
@@ -466,23 +472,16 @@ function StatementOperationsPanel() {
                           variant="outline"
                           className="h-7 text-xs"
                           onClick={() => {
-                            updateMutation.mutate({
-                              followUpDraft,
-                              status: "follow_up_sent",
-                            });
+                            updateMutation.mutate({ followUpDraft });
                           }}
                           disabled={updateMutation.isPending}
-                          data-testid="button-mark-follow-up-sent"
+                          data-testid="button-save-follow-up-draft"
                         >
                           <Mail className="w-3 h-3 mr-1" />
-                          Mark Follow-Up Sent
+                          Save Draft
                         </Button>
                       </div>
-                      {selectedReview.followUpSentAt && (
-                        <p className="text-[10px] text-green-600 dark:text-green-400">
-                          ✓ Follow-up sent {new Date(selectedReview.followUpSentAt).toLocaleDateString()}
-                        </p>
-                      )}
+                      <p className="text-[10px] text-muted-foreground">Draft only — this workflow does not send merchant communications.</p>
                     </>
                   )}
                 </CardContent>

@@ -122,7 +122,7 @@ async function execute(intent: ClaimedIntent) {
     }
     case "proposal_followup_task": {
       if (!deal.owner || !deal.contactId) { result = { disposition: "not_applicable" }; break; }
-      await storage.createTask({
+      await storage.createAuthorityTask({
         contactId: deal.contactId, dealId: deal.id,
         title: `Follow up on proposal — Deal #${deal.id}`,
         description: "Check if the merchant has reviewed the proposal and address any questions.",

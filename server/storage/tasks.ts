@@ -5,7 +5,7 @@ import type { InternalTaskInsert } from "../types/task-types";
 import {
   liveChats, liveChatMessages,
   type LiveChat, type InsertLiveChat, type LiveChatMessage, type InsertLiveChatMessage,
-  contacts, companies, deals, tickets, tasks, documents, auditLogs, notifications, workflowRuns, workflows, rfis, users,
+  contacts, companies, deals, tickets, tasks, taskAuthorityEvents, ticketAuthorityEvents, documents, auditLogs, notifications, workflowRuns, workflows, rfis, users,
   chargebacks,
   type Chargeback, type InsertChargeback, type UpdateChargebackRequest,
   messageTemplates, collateralPackets, ghlActivityLog, slaConfigs,
@@ -102,6 +102,36 @@ import {
 import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, count } from "drizzle-orm";
   import { type PaginationParams, type PaginatedResult, normalizePagination } from "./_shared";
 
+export const TASK_AUTHORITY_STATES = ["open", "in_progress", "completed", "cancelled"] as const;
+export type TaskAuthorityState = typeof TASK_AUTHORITY_STATES[number];
+
+// Explicit compatibility mapping for legacy task readers and writers.
+export function legacyTaskStatusToAuthorityState(status?: string | null): TaskAuthorityState {
+  switch ((status ?? "").toLowerCase()) {
+    case "in progress":
+    case "in_progress":
+      return "in_progress";
+    case "completed":
+    case "complete":
+    case "done":
+      return "completed";
+    case "cancelled":
+    case "canceled":
+      return "cancelled";
+    default:
+      return "open";
+  }
+}
+
+export function authorityStateToLegacyTaskStatus(state: TaskAuthorityState): string {
+  return ({
+    open: "pending",
+    in_progress: "in_progress",
+    completed: "completed",
+    cancelled: "cancelled",
+  })[state];
+}
+
   export class TasksStorage {
     async getTasks(opts?: { limit?: number; offset?: number; source?: "sla" | "manual" }) {
     let whereClause;
@@ -129,11 +159,206 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
 
 
   async createTask(insertTask: InternalTaskInsert) {
+    if (insertTask.completedAt || legacyTaskStatusToAuthorityState(insertTask.status) !== "open") {
+      throw new Error("Raw task writes cannot set authority completion/state; use transitionAuthorityTask");
+    }
     const [task] = await db.insert(tasks).values(insertTask as typeof tasks.$inferInsert).returning();
     return task;
   }
 
+  async getTicketsForActor(email: string, params?: PaginationParams) {
+    const { limit, offset } = normalizePagination(params);
+    const scope = or(isNull(contacts.assignedTo), eq(contacts.assignedTo, email));
+    const [totalResult] = await db.select({ count: count() }).from(tickets)
+      .innerJoin(contacts, eq(tickets.contactId, contacts.id)).where(scope);
+    const data = await db.select({ ticket: tickets }).from(tickets)
+      .innerJoin(contacts, eq(tickets.contactId, contacts.id)).where(scope)
+      .orderBy(desc(tickets.createdAt)).limit(limit).offset(offset);
+    return { data: data.map(row => row.ticket), total: totalResult.count, limit, offset };
+  }
+
+  async createAuthorityTicket(insertTicket: InsertTicket, authority: { producer?: string; commandKey?: string; issueKey?: string; generation?: number } = {}) {
+    if (insertTicket.contactId) {
+      const contact = await db.select({ id: contacts.id }).from(contacts).where(eq(contacts.id, insertTicket.contactId));
+      if (!contact[0]) throw new Error("Linked contact is outside ticket scope");
+    }
+    const producer = authority.producer ?? "manual";
+    const issueKey = authority.issueKey ?? `${insertTicket.category ?? "Other"}:${insertTicket.subject.trim().toLowerCase()}`;
+    const subjectType = insertTicket.contactId ? "contact" : "ticket";
+    const subjectId = insertTicket.contactId ?? 0;
+    const identityKey = `${producer}:${issueKey}:${subjectType}:${subjectId}`;
+    return db.transaction(async tx => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${identityKey}))`);
+      if (authority.commandKey) {
+        const [replay] = await tx.select().from(tickets).where(eq(tickets.commandKey, authority.commandKey));
+        if (replay) return replay;
+      }
+      const [active] = await tx.select().from(tickets).where(and(
+        eq(tickets.producer, producer), eq(tickets.issueKey, issueKey),
+        eq(tickets.subjectType, subjectType), eq(tickets.subjectId, subjectId),
+        inArray(tickets.authorityState, ["open", "in_progress"]),
+      )).limit(1);
+      if (active) return active;
+      const [generationRow] = await tx.select({
+        generation: sql<number>`coalesce(max(${tickets.generation}), -1) + 1`,
+      }).from(tickets).where(and(
+        eq(tickets.producer, producer), eq(tickets.issueKey, issueKey),
+        eq(tickets.subjectType, subjectType), eq(tickets.subjectId, subjectId),
+      ));
+      const generation = Number(generationRow?.generation ?? 0);
+      const commandKey = authority.commandKey ?? `${identityKey}:g${generation}`;
+      const values = {
+        ...insertTicket, producer, issueKey, commandKey, subjectType, subjectId, generation,
+        canonicalAssignee: insertTicket.assignedTo ?? null, authorityState: "open" as const,
+        authorityFence: 0, terminalReason: null,
+        slaDeadline: new Date(Date.now() + (insertTicket.priority === "Urgent" ? 1 : 4) * 60 * 60 * 1000),
+      };
+      const inserted = await tx.insert(tickets).values(values).onConflictDoNothing().returning();
+      const ticket = inserted[0] ?? (await tx.select().from(tickets).where(eq(tickets.commandKey, commandKey)))[0];
+      if (!ticket) throw new Error("An active ticket already exists for this issue, subject, and generation");
+      await tx.insert(ticketAuthorityEvents).values({
+        ticketId: ticket.id, eventKey: `create:${commandKey}`,
+        eventType: "created", producer, commandKey, fence: ticket.authorityFence, toState: "open",
+      }).onConflictDoNothing({ target: [ticketAuthorityEvents.ticketId, ticketAuthorityEvents.eventKey] });
+      return ticket;
+    });
+  }
+
+  async transitionAuthorityTicket(
+    id: number,
+    input: { toState: TaskAuthorityState; expectedFence: number; producer: string; eventKey: string; commandKey?: string; terminalReason?: string | null; canonicalAssignee?: string | null },
+  ) {
+    return db.transaction(async tx => {
+      const [current] = await tx.select().from(tickets).where(eq(tickets.id, id));
+      if (!current || current.authorityFence !== input.expectedFence) return null;
+      const terminal = input.toState === "completed" || input.toState === "cancelled";
+      const [updated] = await tx.update(tickets).set({
+        authorityState: input.toState, authorityFence: input.expectedFence + 1,
+        terminalReason: terminal ? input.terminalReason ?? null : null,
+        canonicalAssignee: input.canonicalAssignee === undefined ? current.canonicalAssignee : input.canonicalAssignee,
+      }).where(and(eq(tickets.id, id), eq(tickets.authorityFence, input.expectedFence))).returning();
+      if (!updated) return null;
+      await tx.insert(ticketAuthorityEvents).values({
+        ticketId: id, eventKey: input.eventKey, eventType: "transition", producer: input.producer,
+        commandKey: input.commandKey ?? null, fence: updated.authorityFence,
+        fromState: current.authorityState, toState: input.toState, terminalReason: updated.terminalReason,
+      }).onConflictDoNothing({ target: [ticketAuthorityEvents.ticketId, ticketAuthorityEvents.eventKey] });
+      return updated;
+    });
+  }
+
+  /**
+   * The single write boundary for non-human task producers.  Existing workers
+   * can be cut over without each one implementing its own retry semantics.
+   */
+  async createAuthorityTask(
+    insertTask: InternalTaskInsert,
+    authority: {
+      producer?: string;
+      subjectType?: string;
+      subjectId?: number;
+      generation?: number;
+      commandKey?: string;
+      issueKey?: string;
+    } = {},
+  ) {
+    await this.assertTaskLinkedObjectScope(insertTask);
+    const subjectType = authority.subjectType ?? (insertTask.ticketId ? "ticket" : insertTask.dealId ? "deal" : insertTask.contactId ? "contact" : "task");
+    const subjectId = authority.subjectId ?? insertTask.ticketId ?? insertTask.dealId ?? insertTask.contactId ?? 0;
+    const producer = authority.producer ?? insertTask.source ?? "automatic";
+    // This is deliberately stable and does not contain a clock value. Callers
+    // with more precise business identity may supply commandKey explicitly.
+    const issueKey = authority.issueKey ?? (insertTask.automationKey ?? insertTask.title).trim().toLowerCase();
+    const identityKey = `${producer}:${issueKey}:${subjectType}:${subjectId}`;
+    return db.transaction(async tx => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${identityKey}))`);
+      if (authority.commandKey) {
+        const [replay] = await tx.select().from(tasks).where(eq(tasks.commandKey, authority.commandKey));
+        if (replay) return replay;
+      }
+      const [active] = await tx.select().from(tasks).where(and(
+        eq(tasks.producer, producer), eq(tasks.issueKey, issueKey),
+        eq(tasks.subjectType, subjectType), eq(tasks.subjectId, subjectId),
+        inArray(tasks.authorityState, ["open", "in_progress"]), isNull(tasks.deletedAt),
+      )).limit(1);
+      if (active) return active;
+      const [generationRow] = await tx.select({
+        generation: sql<number>`coalesce(max(${tasks.generation}), -1) + 1`,
+      }).from(tasks).where(and(
+        eq(tasks.producer, producer), eq(tasks.issueKey, issueKey),
+        eq(tasks.subjectType, subjectType), eq(tasks.subjectId, subjectId),
+      ));
+      const generation = Number(generationRow?.generation ?? 0);
+      const commandKey = authority.commandKey ?? `${identityKey}:g${generation}`;
+      const values = {
+        ...insertTask, producer, issueKey, subjectType, subjectId, generation,
+        canonicalAssignee: insertTask.assignedTo ?? null, commandKey,
+        authorityState: legacyTaskStatusToAuthorityState(insertTask.status), terminalReason: null,
+      } as typeof tasks.$inferInsert;
+      const inserted = await tx.insert(tasks).values(values).onConflictDoNothing().returning();
+      const task = inserted[0] ?? (await tx.select().from(tasks).where(eq(tasks.commandKey, commandKey)))[0];
+      if (!task) throw new Error("An active task already exists for this issue, subject, and generation");
+      await tx.insert(taskAuthorityEvents).values({
+        taskId: task.id, eventKey: `create:${commandKey}`, eventType: "created",
+        producer, commandKey, fence: task.authorityFence, toState: task.authorityState,
+      }).onConflictDoNothing({ target: [taskAuthorityEvents.taskId, taskAuthorityEvents.eventKey] });
+      return task;
+    });
+  }
+
+  async appendTaskAuthorityEvent(taskId: number, event: {
+    eventKey: string; eventType: string; producer: string; commandKey?: string | null;
+    fence: number; fromState?: string | null; toState?: string | null;
+    terminalReason?: string | null; payload?: Record<string, unknown> | null;
+  }) {
+    await db.insert(taskAuthorityEvents).values({ taskId, ...event }).onConflictDoNothing({
+      target: [taskAuthorityEvents.taskId, taskAuthorityEvents.eventKey],
+    });
+  }
+
+  async transitionAuthorityTask(
+    id: number,
+    input: { toState: TaskAuthorityState; expectedFence: number; producer: string; eventKey: string; commandKey?: string; terminalReason?: string | null; canonicalAssignee?: string | null },
+  ) {
+    return db.transaction(async tx => {
+      const [current] = await tx.select().from(tasks).where(eq(tasks.id, id));
+      if (!current || current.authorityFence !== input.expectedFence) return null;
+      const terminal = input.toState === "completed" || input.toState === "cancelled";
+      const [updated] = await tx.update(tasks).set({
+        authorityState: input.toState, status: authorityStateToLegacyTaskStatus(input.toState),
+        completedAt: input.toState === "completed" ? new Date() : null,
+        terminalReason: terminal ? input.terminalReason ?? null : null,
+        canonicalAssignee: input.canonicalAssignee === undefined ? current.canonicalAssignee : input.canonicalAssignee,
+        authorityFence: input.expectedFence + 1,
+      }).where(and(eq(tasks.id, id), eq(tasks.authorityFence, input.expectedFence))).returning();
+      if (!updated) return null;
+      await tx.insert(taskAuthorityEvents).values({
+        taskId: id, eventKey: input.eventKey, eventType: "transition", producer: input.producer,
+        commandKey: input.commandKey ?? null, fence: updated.authorityFence,
+        fromState: current.authorityState, toState: input.toState, terminalReason: updated.terminalReason,
+      }).onConflictDoNothing({ target: [taskAuthorityEvents.taskId, taskAuthorityEvents.eventKey] });
+      return updated;
+    });
+  }
+
+  async assertTaskLinkedObjectScope(input: Pick<InternalTaskInsert, "contactId" | "dealId" | "ticketId">) {
+    const [contact, deal, ticket] = await Promise.all([
+      input.contactId ? db.select().from(contacts).where(eq(contacts.id, input.contactId)).then(rows => rows[0]) : undefined,
+      input.dealId ? db.select().from(deals).where(eq(deals.id, input.dealId)).then(rows => rows[0]) : undefined,
+      input.ticketId ? db.select().from(tickets).where(eq(tickets.id, input.ticketId)).then(rows => rows[0]) : undefined,
+    ]);
+    if (input.contactId && !contact) throw new Error("Linked contact is outside task scope");
+    if (input.dealId && !deal) throw new Error("Linked deal is outside task scope");
+    if (input.ticketId && !ticket) throw new Error("Linked ticket is outside task scope");
+    if (input.contactId && deal?.contactId && deal.contactId !== input.contactId) throw new Error("Task contact must match linked deal");
+    if (input.contactId && ticket?.contactId && ticket.contactId !== input.contactId) throw new Error("Task contact must match linked ticket");
+    if (deal?.contactId && ticket?.contactId && deal.contactId !== ticket.contactId) throw new Error("Task deal and ticket must share a contact");
+  }
+
   async updateTask(id: number, updates: UpdateTaskRequest) {
+    if ("status" in updates || "completedAt" in updates) {
+      throw new Error("Raw task updates cannot set authority completion/state; use transitionAuthorityTask");
+    }
     const ALLOWED_KEYS = [
       'dealId', 'contactId', 'ticketId', 'title', 'description',
       'assignedTo', 'dueDate', 'status', 'priority', 'completedAt',
@@ -157,6 +382,7 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
         }
       }
     }
+    await this.assertTaskLinkedObjectScope({ contactId: typed.contactId, dealId: typed.dealId, ticketId: typed.ticketId });
     const [updated] = await db.update(tasks).set(typed).where(eq(tasks.id, id)).returning();
     return updated;
   }
@@ -221,11 +447,9 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
     }
   }
 
-
   async bulkAssignTasks(taskIds: number[], assignedTo: string): Promise<void> {
     await db.update(tasks).set({ assignedTo }).where(inArray(tasks.id, taskIds));
   }
-
 
   async getTaskByGhlTaskId(ghlTaskId: string) {
     const [task] = await db.select().from(tasks).where(eq(tasks.ghlTaskId, ghlTaskId));

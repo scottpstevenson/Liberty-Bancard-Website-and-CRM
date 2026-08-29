@@ -1,15 +1,13 @@
 import type { Express } from "express";
-import { isAuthenticated, isDashboardUser } from "../replit_integrations/auth";
+import { isDashboardUser } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { z } from "zod";
-import { and } from "drizzle-orm";
 import { insertTaskSchema, insertTicketCommentSchema, insertTicketSchema } from "@shared/schema";
 import { normalizeTaskCompletionState } from "../services/task-normalization";
-import { triggerWorkflowsByEvent } from "../services/workflow-executor";
-import { enrollInGhlWorkflow, enrollInGhlWorkflowCompliant } from "../services/ghl-workflows";
 import { createPreferenceAwareNotification } from "../services/digest-service";
-import { parse } from "csv-parse/sync";
 import { serverError } from "../utils/server-error";
+import { authorizeContactAccess, authorizeDealAccess, denyCrmObject } from "../services/crm-object-access";
+import { legacyTaskStatusToAuthorityState } from "../storage/tasks";
 
 const updateTicketSchema = insertTicketSchema.partial().extend({
   slaDeadline: z.coerce.date().optional().nullable(),
@@ -22,13 +20,63 @@ const updateTaskSchema = insertTaskSchema.partial().extend({
   completedAt: z.coerce.date().optional().nullable(),
 });
 
+function legacyTicketStatusToAuthorityState(status: string | null | undefined): "open" | "in_progress" | "completed" | "cancelled" {
+  switch ((status ?? "").toLowerCase()) {
+    case "in progress": return "in_progress";
+    case "resolved": case "closed": case "completed": return "completed";
+    case "cancelled": case "canceled": return "cancelled";
+    default: return "open";
+  }
+}
+
+async function authorizeTicketScope(req: any, res: any, ticket: { contactId: number | null }) {
+  if (!ticket.contactId) return req.user?.role === "agent" ? denyCrmObject(res) : true;
+  return !!await authorizeContactAccess(req, res, ticket.contactId);
+}
+
+async function authorizeTaskScope(req: any, res: any, task: { contactId?: number | null; dealId?: number | null; ticketId?: number | null }) {
+  if (task.contactId && !await authorizeContactAccess(req, res, task.contactId)) return false;
+  if (task.dealId && !await authorizeDealAccess(req, res, task.dealId)) return false;
+  if (task.ticketId) {
+    const ticket = await storage.getTicket(task.ticketId);
+    if (!ticket || !await authorizeTicketScope(req, res, ticket)) return false;
+  }
+  return task.contactId || task.dealId || task.ticketId || req.user?.role !== "agent" ? true : denyCrmObject(res);
+}
+
+async function canListTask(req: any, task: any) {
+  if (req.user?.role !== "agent") return true;
+  const email = req.user?.email;
+  let hasLinkedObject = false;
+  if (task.contactId) {
+    hasLinkedObject = true;
+    const contact = await storage.getContact(task.contactId);
+    if (!contact || contact.assignedTo !== email) return false;
+  }
+  if (task.dealId) {
+    hasLinkedObject = true;
+    const deal = await storage.getDeal(task.dealId);
+    if (!deal || deal.owner !== email) return false;
+  }
+  if (task.ticketId) {
+    hasLinkedObject = true;
+    const ticket = await storage.getTicket(task.ticketId);
+    const contact = ticket?.contactId ? await storage.getContact(ticket.contactId) : null;
+    if (!contact || contact.assignedTo !== email) return false;
+  }
+  return hasLinkedObject;
+}
+
 export function registerTicketsTasksRoutes(app: Express) {
   // === TICKETS ===
   app.get("/api/tickets", isDashboardUser, async (req, res) => {
     try {
       const limit = req.query.limit ? Number(req.query.limit) : undefined;
       const offset = req.query.offset ? Number(req.query.offset) : undefined;
-      const result = await storage.getTickets({ limit, offset });
+      const user = req.user as any;
+      const result = user?.role === "agent"
+        ? await storage.getTicketsForActor(user.email, { limit, offset })
+        : await storage.getTickets({ limit, offset });
       res.json(result);
     } catch (err: any) {
       serverError(res, err);
@@ -38,19 +86,9 @@ export function registerTicketsTasksRoutes(app: Express) {
   app.post("/api/tickets", isDashboardUser, async (req, res) => {
     try {
       const input = insertTicketSchema.parse(req.body);
-      const ticket = await storage.createTicket(input);
-      await storage.createAuditLog({ action: "ticket_created", entityType: "ticket", entityId: ticket.id, details: { category: ticket.category, priority: ticket.priority } });
-      await createPreferenceAwareNotification({ channel: "internal", title: `New ${ticket.priority} Support Ticket`, message: `${ticket.subject} - Category: ${ticket.category}`, type: ticket.priority === "Urgent" ? "urgent" : "info", metadata: { ticketId: ticket.id, eventType: "ticket_created" } }, "ticket_created");
-      triggerWorkflowsByEvent("ticket_created", { entityType: "ticket", entityId: ticket.id }).catch(err => console.error("Workflow trigger error:", err));
-      if (ticket.contactId) {
-        storage.getContact(ticket.contactId).then(contact => {
-          if (contact?.ghlContactId) {
-            enrollInGhlWorkflowCompliant({ workflowKey: "support_ticket", ghlContactId: contact.ghlContactId, contactId: contact.id, metadata: { ticketId: ticket.id, priority: ticket.priority, category: ticket.category } }).catch(err =>
-              console.error("[Tickets] GHL workflow enrollment error:", err)
-            );
-          }
-        }).catch(() => {});
-      }
+      if (input.contactId && !await authorizeContactAccess(req, res, input.contactId, { exactAssignment: true })) return;
+      if (!input.contactId && (req.user as any)?.role === "agent") return void denyCrmObject(res);
+      const ticket = await storage.createAuthorityTicket(input, { producer: "dashboard" });
       res.status(201).json(ticket);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
@@ -62,6 +100,7 @@ export function registerTicketsTasksRoutes(app: Express) {
     try {
       const ticket = await storage.getTicket(Number(req.params.id));
       if (!ticket) return res.status(404).json({ message: "Not found" });
+      if (!await authorizeTicketScope(req, res, ticket)) return;
       res.json(ticket);
     } catch (err: any) {
       serverError(res, err);
@@ -75,8 +114,24 @@ export function registerTicketsTasksRoutes(app: Express) {
       if (!parseResult.success) {
         return res.status(400).json({ message: parseResult.error.errors[0].message });
       }
-      const { data: existing } = await storage.getTickets({ limit: 500 });
-      const oldTicket = existing.find(t => t.id === ticketId);
+      const oldTicket = await storage.getTicket(ticketId);
+      if (!oldTicket) return res.status(404).json({ message: "Not found" });
+      if (!await authorizeTicketScope(req, res, oldTicket)) return;
+      const candidateContactId = parseResult.data.contactId === undefined ? oldTicket.contactId : parseResult.data.contactId;
+      if (candidateContactId) {
+        if (!await authorizeContactAccess(req, res, candidateContactId, { exactAssignment: true })) return;
+      }
+      if ((parseResult.data.status !== undefined && parseResult.data.status !== oldTicket.status)
+        || (parseResult.data.assignedTo !== undefined && parseResult.data.assignedTo !== oldTicket.assignedTo)) {
+        const transitioned = await storage.transitionAuthorityTicket(ticketId, {
+          toState: parseResult.data.status === undefined ? oldTicket.authorityState as any : legacyTicketStatusToAuthorityState(parseResult.data.status),
+          expectedFence: oldTicket.authorityFence,
+          producer: "dashboard",
+          eventKey: `dashboard-update:${ticketId}:${oldTicket.authorityFence}`,
+          canonicalAssignee: parseResult.data.assignedTo,
+        });
+        if (!transitioned) return res.status(409).json({ message: "Ticket was updated concurrently; refresh and retry" });
+      }
       const updated = await storage.updateTicket(ticketId, parseResult.data);
       if (!updated) return res.status(404).json({ message: "Not found" });
 
@@ -128,7 +183,8 @@ export function registerTicketsTasksRoutes(app: Express) {
     try {
       const allTasks = await storage.getTasks({});
       const now = new Date();
-      const count = allTasks.filter((t: any) =>
+      const visibility = await Promise.all(allTasks.map((t: any) => canListTask(req, t)));
+      const count = allTasks.filter((t: any, i: number) => visibility[i] &&
         t.dueDate && new Date(t.dueDate) < now && t.status !== "completed" && t.status !== "done"
       ).length;
       res.json({ count });
@@ -145,7 +201,8 @@ export function registerTicketsTasksRoutes(app: Express) {
           return res.status(400).json({ message: "Cannot combine dealId and source filters" });
         }
         const tasks = await storage.getTasksByDeal(dealId);
-        return res.json(tasks);
+        if (!await authorizeDealAccess(req, res, dealId)) return;
+        return res.json((await Promise.all(tasks.map(async task => await canListTask(req, task) ? task : null))).filter(Boolean));
       }
       let source: "sla" | "manual" | undefined;
       try {
@@ -154,7 +211,7 @@ export function registerTicketsTasksRoutes(app: Express) {
         return res.status(400).json({ message: "Invalid source filter. Allowed values: sla, manual" });
       }
       const tasks = await storage.getTasks({ source });
-      res.json(tasks);
+      res.json((await Promise.all(tasks.map(async (task: any) => await canListTask(req, task) ? task : null))).filter(Boolean));
     } catch (err: any) {
       serverError(res, err);
     }
@@ -163,6 +220,8 @@ export function registerTicketsTasksRoutes(app: Express) {
   app.post("/api/tasks", isDashboardUser, async (req, res) => {
     try {
       const input = insertTaskSchema.parse(req.body);
+      if (!await authorizeTaskScope(req, res, input)) return;
+      await storage.assertTaskLinkedObjectScope(input);
       const task = await storage.createTask(input);
       if (task.assignedTo) {
         await createPreferenceAwareNotification({ channel: "internal", title: "Task Assigned", message: `"${task.title}" has been assigned to ${task.assignedTo}.`, type: "info", metadata: { taskId: task.id, eventType: "task_assigned", assignedTo: task.assignedTo } }, "task_assigned");
@@ -184,8 +243,25 @@ export function registerTicketsTasksRoutes(app: Express) {
       const allTasks = await storage.getTasks();
       const existing = allTasks.find((t: any) => t.id === taskId);
       if (!existing) return res.status(404).json({ message: "Not found" });
+      if (!await authorizeTaskScope(req, res, existing)) return;
       const normalized = normalizeTaskCompletionState(parseResult.data, existing);
-      const updated = await storage.updateTask(taskId, normalized);
+      await storage.assertTaskLinkedObjectScope({
+        contactId: normalized.contactId === undefined ? existing.contactId : normalized.contactId,
+        dealId: normalized.dealId === undefined ? existing.dealId : normalized.dealId,
+        ticketId: normalized.ticketId === undefined ? existing.ticketId : normalized.ticketId,
+      });
+      const { status, completedAt: _completedAt, ...nonStateChanges } = normalized;
+      if (status !== undefined || normalized.assignedTo !== undefined) {
+        const transitioned = await storage.transitionAuthorityTask(taskId, {
+          toState: status === undefined ? existing.authorityState : legacyTaskStatusToAuthorityState(status),
+          expectedFence: existing.authorityFence,
+          producer: "dashboard",
+          eventKey: `dashboard-update:${taskId}:${existing.authorityFence}`,
+          canonicalAssignee: normalized.assignedTo,
+        });
+        if (!transitioned) return res.status(409).json({ message: "Task was updated concurrently; refresh and retry" });
+      }
+      const updated = await storage.updateTask(taskId, nonStateChanges);
       if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
     } catch (err: any) {
@@ -197,7 +273,10 @@ export function registerTicketsTasksRoutes(app: Express) {
   // === TICKET COMMENTS (Conversation Threading) ===
   app.get("/api/tickets/:id/comments", isDashboardUser, async (req, res) => {
     try {
-      const result = await storage.getTicketComments(Number(req.params.id));
+      const ticket = await storage.getTicket(Number(req.params.id));
+      if (!ticket) return res.status(404).json({ message: "Not found" });
+      if (!await authorizeTicketScope(req, res, ticket)) return;
+      const result = await storage.getTicketComments(ticket.id);
       res.json(result);
     } catch (err: any) {
       serverError(res, err);
@@ -206,9 +285,13 @@ export function registerTicketsTasksRoutes(app: Express) {
 
   app.post("/api/tickets/:id/comments", isDashboardUser, async (req, res) => {
     try {
+      const ticketId = Number(req.params.id);
+      const ticket = await storage.getTicket(ticketId);
+      if (!ticket) return res.status(404).json({ message: "Not found" });
+      if (!await authorizeTicketScope(req, res, ticket)) return;
       const input = insertTicketCommentSchema.parse({
         ...req.body,
-        ticketId: Number(req.params.id),
+        ticketId,
       });
       const comment = await storage.createTicketComment({
         ...input,

@@ -264,7 +264,9 @@ function ThreadPanel({ item, onBack }: { item: InboxItem; onBack: () => void }) 
   // For live-chat, fetch messages
   const chatId = item.id.startsWith("chat-")
     ? parseInt(item.id.replace("chat-", ""), 10)
-    : null;
+    : item.channel === "site"
+      ? Number(item.id.match(/:(\d+)$/)?.[1]) || null
+      : null;
   const { data: liveChatData, isLoading: liveChatLoading } = useQuery<{ messages: any[]; chat: any }>({
     queryKey: ["/api/live-chat/sessions", chatId, "messages"],
     queryFn: async () => {
@@ -297,7 +299,7 @@ function ThreadPanel({ item, onBack }: { item: InboxItem; onBack: () => void }) 
   const emailReplyMutation = useMutation({
     mutationFn: async (body: string) => {
       const res = await apiRequest("POST", "/api/inbox/reply", {
-        contactId: item.contactId,
+        sourceItemId: item.id,
         subject: `Re: Your inquiry`,
         body,
       });
@@ -687,8 +689,9 @@ export default function CommsHub() {
 
   const { data, isLoading, isError, refetch } = useQuery<{
     items: InboxItem[];
-    knownFilteredTotal: number;
-    resultScope: "fetched_window";
+    knownFilteredCount: number;
+    totalIsExact: boolean;
+    resultScope: "all_sources_exhausted" | "partial_source_pages";
     complete: boolean;
     hasMoreKnown: boolean;
     sourceStatus: Array<{ source: string; status: "ok" | "failed" | "not_configured"; fetched: number; truncated: boolean; errorCode?: string }>;
@@ -743,7 +746,7 @@ export default function CommsHub() {
             Unified Inbox
             {unreadCount > 0 && (
               <Badge variant="destructive" className="text-xs" data-testid="badge-unread-count">
-                {unreadCount}
+                {unreadCount} on page
               </Badge>
             )}
           </h2>
@@ -760,13 +763,13 @@ export default function CommsHub() {
           {voicemailCount > 0 && (
             <Badge className="bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400 gap-1">
               <Voicemail className="w-3 h-3" />
-              {voicemailCount} voicemail{voicemailCount !== 1 ? "s" : ""}
+              {voicemailCount} voicemail{voicemailCount !== 1 ? "s" : ""} on page
             </Badge>
           )}
           {siteActiveCount > 0 && (
             <Badge className="bg-teal-100 text-teal-800 dark:bg-teal-900/30 dark:text-teal-400 gap-1">
               <Globe className="w-3 h-3" />
-              {siteActiveCount} live
+              {siteActiveCount} live on page
             </Badge>
           )}
           <Button variant="outline" size="sm" onClick={() => refetch()} data-testid="button-refresh-inbox">
@@ -877,8 +880,8 @@ export default function CommsHub() {
           {!isLoading && items.length > 0 && (
             <div className="px-4 py-2 border-t border-border shrink-0">
               <p className="text-[10px] text-muted-foreground">
-                {items.length} message{items.length !== 1 ? "s" : ""}
-                {data && data.knownFilteredTotal > items.length ? ` (within ${data.resultScope})` : ""}
+                {items.length} message{items.length !== 1 ? "s" : ""} on this page
+                {data && !data.totalIsExact ? " · more may be available" : ""}
               </p>
             </div>
           )}

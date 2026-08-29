@@ -244,7 +244,7 @@ async function checkDealSla(rule: typeof DEFAULT_SLA_RULES[0]) {
       } catch { /* non-critical — fall through to create task */ }
     }
 
-    await storage.createTask({
+    await storage.createAuthorityTask({
       dealId: deal.id,
       contactId: deal.contactId || undefined,
       title: `SLA: ${rule.name} — Deal #${deal.id} (${hoursStuck}hr overdue)`,
@@ -345,7 +345,7 @@ async function checkTicketSla() {
       ? Math.round((Date.now() - new Date(ticket.slaDeadline).getTime()) / 60000)
       : 0;
 
-    await storage.createTask({
+    await storage.createAuthorityTask({
       ticketId: ticket.id,
       contactId: ticket.contactId || undefined,
       title: `SLA Breach: Ticket #${ticket.id} - "${ticket.subject}" past SLA by ${minutesPastSla}min`,
@@ -544,7 +544,7 @@ async function checkLeadFreshnessSla(): Promise<{ escalated: number }> {
         const assignee = contact.assignedTo || "Scott Stevenson";
 
         // Create in-app task for the assigned rep
-        await storage.createTask({
+        await storage.createAuthorityTask({
           contactId: contact.id,
           title: `Speed-to-Lead SLA Breach: ${contactName} overdue ${minutesOverdue}m`,
           assignedTo: assignee,
@@ -885,7 +885,7 @@ async function checkDocumentReadiness() {
       const contact = deal.contactId ? await storage.getContact(deal.contactId) : null;
       if (!contact) continue;
 
-      await storage.createTask({
+      await storage.createAuthorityTask({
         dealId: deal.id,
         contactId: deal.contactId || undefined,
         title: `Doc Nudge: ${contact.firstName} ${contact.lastName} missing ${missing.join(", ")}`,
@@ -1005,7 +1005,7 @@ async function runScheduledAiOps() {
     for (const lead of newLeads.slice(0, 3)) {
       const title = `Contact new lead: ${lead.firstName} ${lead.lastName}`;
       if (!existingTaskTitles.has(title)) {
-        await storage.createTask({ title, description: `${lead.firstName} ${lead.lastName} has been a new lead for 3+ days.`, priority: "high", dueDate: new Date(now.getTime() + 24 * 60 * 60 * 1000) });
+        await storage.createAuthorityTask({ title, description: `${lead.firstName} ${lead.lastName} has been a new lead for 3+ days.`, priority: "high", dueDate: new Date(now.getTime() + 24 * 60 * 60 * 1000) });
         tasksGenerated++;
       }
     }
@@ -1053,7 +1053,7 @@ async function checkChargebackDeadlines() {
         ? Math.round((Date.now() - new Date(cb.responseDeadline).getTime()) / (1000 * 60 * 60 * 24))
         : 0;
 
-      await storage.createTask({
+      await storage.createAuthorityTask({
         contactId: cb.contactId || undefined,
         dealId: cb.dealId || undefined,
         title: `OVERDUE Chargeback #${cb.id} — $${cb.amount.toFixed(2)} (${cb.cardBrand}) past deadline by ${deadlineDays}d`,
@@ -1210,7 +1210,7 @@ async function checkRetentionCampaigns() {
         }
       }
 
-      await storage.createTask({
+      await storage.createAuthorityTask({
         contactId: alert.contactId || undefined,
         dealId: alert.dealId || undefined,
         title: `[Retention] ${config.campaignName} — ${alert.title}`,

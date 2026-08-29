@@ -3,7 +3,7 @@
  * and enrollment intents. Lower-layer authorities remain authoritative; this
  * service composes their decisions and never writes their source state.
  */
-import { createHash } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { db, pool } from "../db";
 import {
@@ -30,6 +30,10 @@ export const CR04_POLICY_VERSION = 1;
 export const CR04_REASON_TAXONOMY_VERSION = "cr04-reasons-v1";
 export const CR04_DECISION_TTL_MS = 15 * 60 * 1000;
 export const CR04_COHORT_TTL_MS = 24 * 60 * 60 * 1000;
+// A freeze request is deliberately a small unit of work.  Runs retain their
+// cursor in membership_fingerprint while they are being built/reconciled; this
+// avoids turning an admin HTTP request into an unbounded scan.
+export const CR04_COHORT_BATCH_SIZE = 100;
 
 export type Cr04Channel = "email" | "manual_call" | "sms";
 export type Cr04DecisionValue = "qualified" | "blocked" | "unavailable";
@@ -411,18 +415,20 @@ function scoreTier(score: number | null): "hot" | "warm" | "cold" | "unqualified
 export async function queryCr04ReadyProjection(input: {
   scope: Cr04ActorScope;
   filters?: Cr04ReadyFilters;
-  page?: number;
+  /** Keyset continuation, not an offset into a post-qualified array. */
+  cursor?: number;
   limit?: number;
   asOf?: Date;
 }) {
   const filters = input.filters ?? {};
   const channel = filters.channel ?? "email";
-  const page = input.page ?? 1;
-  const limit = input.limit ?? 50;
+  const cursor = input.cursor ?? 0;
+  const limit = Math.min(Math.max(input.limit ?? 50, 1), 100);
+  const candidateBudget = Math.max(limit, Math.min(500, limit * 10));
   if (input.scope.role !== "admin" && !input.scope.email) throw new Error("CR04_SCOPE_UNAVAILABLE");
 
-  const params: unknown[] = [];
-  const conditions = ["c.archived_at IS NULL"];
+  const params: unknown[] = [cursor];
+  const conditions = ["c.archived_at IS NULL", "c.id > $1"];
   if (input.scope.role !== "admin") {
     params.push(input.scope.email);
     conditions.push(`c.assigned_to = $${params.length}`);
@@ -455,26 +461,36 @@ export async function queryCr04ReadyProjection(input: {
       FROM contacts c
      WHERE ${conditions.join(" AND ")}
      ORDER BY c.id ASC
-  `, params);
+     LIMIT $${params.length + 1}
+  `, [...params, candidateBudget]);
 
   const qualified: any[] = [];
   const reasonBuckets: Record<string, number> = {};
+  let lastEvaluatedId = cursor;
   for (const row of rows.rows) {
+    // Stop at the requested qualified page.  The next keyset starts after the
+    // last decision actually evaluated, so no candidate is silently skipped.
     const decision = await evaluateCr04ChannelQualification(row.id, {
       channel,
       scope: input.scope,
       asOf: input.asOf,
     });
+    lastEvaluatedId = row.id;
     for (const reason of decision.reasonCodes) reasonBuckets[reason] = (reasonBuckets[reason] ?? 0) + 1;
     if (decision.qualified) qualified.push({ ...row, scoreTier: scoreTier(row.leadScore), decision });
+    if (qualified.length >= limit) break;
   }
-  const offset = (page - 1) * limit;
   const assignees = [...new Set(qualified.map((row) => row.assignedTo as string | null))]
     .sort((a, b) => String(a ?? "").localeCompare(String(b ?? "")));
   return {
-    data: qualified.slice(offset, offset + limit),
-    total: qualified.length,
-    page,
+    data: qualified,
+    // There is deliberately no total: deriving one needs an unbounded
+    // qualification scan.  Consumers must treat this as a continuation page.
+    total: null,
+    exactTotal: false,
+    cursor,
+    nextCursor: lastEvaluatedId > cursor ? lastEvaluatedId : null,
+    hasMore: rows.rows.length === candidateBudget || qualified.length === limit,
     limit,
     channel,
     policyVersion: CR04_POLICY_VERSION,
@@ -503,22 +519,7 @@ export async function freezeCr04Cohort(input: {
     scope: scopeDocument,
     filters,
   });
-  const projection = await queryCr04ReadyProjection({
-    scope: input.scope,
-    filters,
-    page: 1,
-    limit: Number.MAX_SAFE_INTEGER,
-    asOf,
-  });
-  const members = projection.data.map((row: any, index: number) => ({
-    ordinal: index + 1,
-    contactId: row.id as number,
-    decisionId: row.decision.id as string,
-    dependencyFingerprint: row.decision.dependencyFingerprint as string,
-  }));
-  const membershipFingerprint = fingerprint(members);
-
-  return db.transaction(async (tx) => {
+  const run = await db.transaction(async (tx) => {
     let [definition] = await tx.select().from(cr04CohortDefinitions)
       .where(eq(cr04CohortDefinitions.definitionFingerprint, definitionFingerprint)).limit(1);
     if (!definition) {
@@ -544,18 +545,148 @@ export async function freezeCr04Cohort(input: {
     const [run] = await tx.insert(cr04CohortRuns).values({
       definitionId: definition.id,
       idempotencyKey: input.idempotencyKey,
-      status: "frozen",
+      status: "building",
       asOf,
       expiresAt: new Date(asOf.getTime() + CR04_COHORT_TTL_MS),
-      memberCount: members.length,
-      membershipFingerprint,
+      memberCount: 0,
+      membershipFingerprint: fingerprint([]),
+      buildCursor: 0,
+      reconciliationCursor: 0,
+      buildPhase: "building",
       createdBy: input.createdBy,
     }).returning();
-    if (members.length) {
-      await tx.insert(cr04CohortMembers).values(members.map((member) => ({ runId: run.id, ...member })));
-    }
     return run;
   });
+
+  // Terminal runs and cancellation replays are intentionally no-ops.  In
+  // particular, cancellation is never converted back to a frozen cohort.
+  if (run.status !== "building") return run;
+  // A command-scoped lease serializes each bounded checkpoint.  The fence is
+  // incremented only under the row lock, and every later checkpoint/finalize
+  // write is conditional on this token/fence.  An expired owner can therefore
+  // be safely taken over without allowing its late write to win.
+  const leaseToken = randomUUID();
+  const leased = await db.transaction(async (tx) => {
+    const locked = await tx.execute(sql`SELECT status, lease_expires_at FROM cr04_cohort_runs WHERE id=${run.id}::uuid FOR UPDATE`);
+    const row = (locked as any).rows?.[0];
+    if (!row || row.status !== "building" ||
+        (row.lease_expires_at && new Date(row.lease_expires_at) > new Date())) return null;
+    const [claimed] = await tx.update(cr04CohortRuns).set({
+      leaseOwner: leaseToken,
+      leaseExpiresAt: new Date(Date.now() + 60_000),
+      buildFence: sql`${cr04CohortRuns.buildFence} + 1`,
+    }).where(eq(cr04CohortRuns.id, run.id)).returning();
+    return claimed;
+  });
+  // Another in-flight command owns a valid lease.  Return the durable state;
+  // callers retry with the same idempotency key rather than racing it.
+  if (!leased) return run;
+  const heartbeat = async () => {
+    const renewed = await db.update(cr04CohortRuns).set({
+      leaseExpiresAt: new Date(Date.now() + 60_000),
+    }).where(and(
+      eq(cr04CohortRuns.id, leased.id),
+      eq(cr04CohortRuns.status, "building"),
+      eq(cr04CohortRuns.leaseOwner, leaseToken),
+      eq(cr04CohortRuns.buildFence, leased.buildFence),
+      sql`${cr04CohortRuns.leaseExpiresAt} > NOW()`,
+    )).returning({ id: cr04CohortRuns.id });
+    if (!renewed[0]) throw new Error("CR04_COHORT_LEASE_LOST");
+  };
+  // Idempotent resumes retain the run's authority instant; callers cannot
+  // silently move a cohort's snapshot by retrying later.
+  const runAsOf = leased.asOf;
+  const phase = leased.buildPhase;
+  if (phase !== "building" && phase !== "reconciling") throw new Error("CR04_COHORT_BUILD_STATE_INVALID");
+
+  if (phase === "building") {
+    const params: unknown[] = [leased.buildCursor];
+    const conditions = ["c.archived_at IS NULL", "c.id > $1"];
+    if (input.scope.role !== "admin") {
+      params.push(input.scope.email);
+      conditions.push(`c.assigned_to = $${params.length}`);
+    } else if (filters.assignedTo) {
+      if (filters.assignedTo === "unassigned") conditions.push("c.assigned_to IS NULL");
+      else { params.push(filters.assignedTo); conditions.push(`c.assigned_to = $${params.length}`); }
+    }
+    if (filters.vertical) { params.push(filters.vertical); conditions.push(`c.vertical = $${params.length}`); }
+    if (filters.city) { params.push(`%${filters.city.toLowerCase()}%`); conditions.push(`LOWER(COALESCE(c.city,'')) LIKE $${params.length}`); }
+    if (filters.score === "hot") conditions.push("COALESCE(c.lead_score,0) >= 70");
+    if (filters.score === "warm") conditions.push("COALESCE(c.lead_score,0) >= 45 AND COALESCE(c.lead_score,0) < 70");
+    if (filters.score === "cold") conditions.push("COALESCE(c.lead_score,0) >= 20 AND COALESCE(c.lead_score,0) < 45");
+    params.push(CR04_COHORT_BATCH_SIZE);
+    const candidates = await pool.query(`SELECT c.id FROM contacts c WHERE ${conditions.join(" AND ")}
+      ORDER BY c.id ASC LIMIT $${params.length}`, params);
+    let rolling = leased.membershipFingerprint;
+    let count = leased.memberCount;
+    const additions: Array<{ runId: string; ordinal: number; contactId: number; decisionId: string; dependencyFingerprint: string }> = [];
+    for (const candidate of candidates.rows) {
+      await heartbeat();
+      const decision = await evaluateCr04ChannelQualification(candidate.id, {
+        channel: input.channel, scope: input.scope, asOf: runAsOf, persist: true,
+      });
+      if (decision.qualified && decision.id) {
+        count++;
+        rolling = fingerprint([rolling, candidate.id, decision.dependencyFingerprint]);
+        additions.push({ runId: leased.id, ordinal: count, contactId: candidate.id, decisionId: decision.id, dependencyFingerprint: decision.dependencyFingerprint });
+      }
+    }
+    const buildComplete = candidates.rows.length < CR04_COHORT_BATCH_SIZE;
+    const nextCursor = buildComplete ? leased.buildCursor : candidates.rows[candidates.rows.length - 1].id;
+    await db.transaction(async (tx) => {
+      const locked = await tx.execute(sql`SELECT status FROM cr04_cohort_runs WHERE id=${leased.id}::uuid AND lease_owner=${leaseToken} AND build_fence=${leased.buildFence} AND lease_expires_at > NOW() FOR UPDATE`);
+      if ((locked as any).rows?.[0]?.status !== "building") return;
+      if (additions.length) await tx.insert(cr04CohortMembers).values(additions).onConflictDoNothing();
+      await tx.update(cr04CohortRuns).set({
+        memberCount: count, membershipFingerprint: rolling, buildCursor: nextCursor,
+        buildPhase: buildComplete ? "reconciling" : "building",
+        leaseExpiresAt: new Date(Date.now() + 60_000),
+      })
+        .where(and(eq(cr04CohortRuns.id, leased.id), eq(cr04CohortRuns.status, "building"),
+          eq(cr04CohortRuns.leaseOwner, leaseToken), eq(cr04CohortRuns.buildFence, leased.buildFence)));
+    });
+  } else {
+    // Reconciliation is separate and equally bounded.  A member may only be
+    // frozen after its current authority fingerprint exactly matches the
+    // recorded qualified decision.
+    const members = await db.select({
+      ordinal: cr04CohortMembers.ordinal, contactId: cr04CohortMembers.contactId,
+      authorityFingerprint: cr04ChannelDecisions.inputSnapshot,
+    }).from(cr04CohortMembers).innerJoin(cr04ChannelDecisions,
+      eq(cr04ChannelDecisions.id, cr04CohortMembers.decisionId))
+      .where(and(eq(cr04CohortMembers.runId, leased.id), sql`${cr04CohortMembers.ordinal} > ${leased.reconciliationCursor}`))
+      .orderBy(asc(cr04CohortMembers.ordinal)).limit(CR04_COHORT_BATCH_SIZE);
+    for (const member of members) {
+      await heartbeat();
+      const current = await evaluateCr04ChannelQualification(member.contactId, {
+        channel: input.channel, scope: input.scope, asOf: runAsOf, persist: true,
+      });
+      if (!current.qualified || (member.authorityFingerprint as any)?.authorityFingerprint !== current.authorityFingerprint) {
+        await db.update(cr04CohortRuns).set({ status: "failed", failedAt: new Date(), failureCode: "FINAL_RECONCILIATION_FAILED" })
+          .where(and(eq(cr04CohortRuns.id, leased.id), eq(cr04CohortRuns.status, "building"),
+            eq(cr04CohortRuns.leaseOwner, leaseToken), eq(cr04CohortRuns.buildFence, leased.buildFence),
+            sql`${cr04CohortRuns.leaseExpiresAt} > NOW()`));
+        throw new Error("CR04_COHORT_FINAL_RECONCILIATION_FAILED");
+      }
+    }
+    if (members.length < CR04_COHORT_BATCH_SIZE) {
+      await db.update(cr04CohortRuns).set({
+        status: "frozen", frozenAt: new Date(), buildPhase: "complete",
+        leaseOwner: null, leaseExpiresAt: null,
+      }).where(and(eq(cr04CohortRuns.id, leased.id), eq(cr04CohortRuns.status, "building"),
+        eq(cr04CohortRuns.leaseOwner, leaseToken), eq(cr04CohortRuns.buildFence, leased.buildFence),
+        sql`${cr04CohortRuns.leaseExpiresAt} > NOW()`));
+    } else {
+      await db.update(cr04CohortRuns).set({
+        reconciliationCursor: members[members.length - 1].ordinal,
+        leaseExpiresAt: new Date(Date.now() + 60_000),
+      }).where(and(eq(cr04CohortRuns.id, leased.id), eq(cr04CohortRuns.status, "building"),
+        eq(cr04CohortRuns.leaseOwner, leaseToken), eq(cr04CohortRuns.buildFence, leased.buildFence),
+        sql`${cr04CohortRuns.leaseExpiresAt} > NOW()`));
+    }
+  }
+  const [updated] = await db.select().from(cr04CohortRuns).where(eq(cr04CohortRuns.id, leased.id)).limit(1);
+  return updated!;
 }
 
 export async function enrollThroughCr04Fence(input: {
@@ -657,6 +788,8 @@ export async function enrollThroughCr04Fence(input: {
     if (!member || member.removedAt || !["frozen", "consumed"].includes(member.runStatus) ||
         member.runExpiresAt <= now || member.decisionExpiresAt <= now ||
         member.decisionChannel !== input.channel || member.decisionValue !== "qualified" ||
+         member.memberFingerprint !== member.decisionFingerprint ||
+         member.memberFingerprint !== decision.dependencyFingerprint ||
         (member.decisionInputSnapshot as any)?.authorityFingerprint !== decision.authorityFingerprint) {
       return { replayed: false, blocked: true, reasonCode: "COHORT_MEMBER_NOT_CURRENT", enrollmentId: null };
     }

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 
 const migration = fs.readFileSync("migrations/0178_cr04_channel_cohort_authority.sql", "utf8");
+const resumableMigration = fs.readFileSync("migrations/0179_cr04_resumable_projection_runs.sql", "utf8");
 const authority = fs.readFileSync("server/services/cr04-cohort-ready-authority.ts", "utf8");
 const queue = fs.readFileSync("server/routes/outreach-queue.ts", "utf8");
 const campaign = fs.readFileSync("server/services/campaign-engine.ts", "utf8");
@@ -50,5 +51,26 @@ assert.doesNotMatch(authority, /set\(\{\s*status:\s*"consumed"/);
 assert.match(authority, /status:\s*"blocked"/);
 assert.match(authority, /ACTIVATION_AUTHORITY_NOT_ENABLED/);
 assert.doesNotMatch(queue, /readyForOutreachPredicate/);
+// Projection must keyset/bound candidates before qualification; it must not
+// qualify the entire population then slice an in-memory result.
+assert.match(authority, /c\.id > \$1/);
+assert.match(authority, /candidateBudget/);
+assert.match(authority, /LIMIT \$\$\{params\.length \+ 1\}/);
+assert.doesNotMatch(authority, /Number\.MAX_SAFE_INTEGER/);
+assert.doesNotMatch(authority, /qualified\.slice\(/);
+assert.doesNotMatch(authority, /const offset = \(page - 1\)/);
+assert.match(authority, /CR04_COHORT_BATCH_SIZE = 100/);
+assert.match(authority, /buildPhase: "building"/);
+assert.match(authority, /buildPhase: "complete"/);
+assert.match(resumableMigration, /'building','frozen','failed','consumed','cancelled','expired'/);
+assert.match(resumableMigration, /build_cursor/);
+assert.match(resumableMigration, /reconciliation_cursor/);
+assert.match(resumableMigration, /build_fence INTEGER NOT NULL DEFAULT 0/);
+assert.match(authority, /const leaseToken = randomUUID\(\)/);
+assert.match(authority, /lease_expires_at > NOW\(\) FOR UPDATE/);
+assert.match(authority, /buildFence: sql`\$\{cr04CohortRuns\.buildFence\} \+ 1`/);
+assert.match(authority, /const heartbeat = async/);
+assert.match(authority, /eq\(cr04CohortRuns\.leaseOwner, leaseToken\)/);
+assert.match(authority, /eq\(cr04CohortRuns\.buildFence, leased\.buildFence\)/);
 
 console.log("CR-04 static authority contract: PASS");

@@ -2,7 +2,7 @@
  * Statement Review Routes — /api/statement-reviews/*
  *
  * Analyst workflow for processing statement reviews:
- * received → in_review → ai_analyzed → reviewed → follow_up_sent → complete
+ * received → in_review → ai_analyzed → reviewed → complete (draft-only)
  */
 import type { Express } from "express";
 import { isDashboardUser, requireRole } from "../replit_integrations/auth";
@@ -16,49 +16,71 @@ import {
 import { z } from "zod";
 import { serverError } from "../utils/server-error";
 import { observeCommercialReportingPopulation } from "../services/commercial-resolution";
+import { authorizeContactAccess, authorizeDealAccess } from "../services/crm-object-access";
 
-const VALID_STATUSES = [
-  "received",
-  "in_review",
-  "ai_analyzed",
-  "reviewed",
-  "follow_up_sent",
-  "complete",
-] as const;
+const DRAFT_STATUSES = ["received", "in_review", "ai_analyzed", "reviewed", "complete"] as const;
+const TRANSITIONS: Record<string, readonly string[]> = {
+  received: ["in_review"],
+  in_review: ["ai_analyzed"],
+  ai_analyzed: ["reviewed"],
+  reviewed: ["complete"],
+  complete: [],
+  // Retained only to read historic records; no new "sent" assertion is allowed.
+  follow_up_sent: [],
+};
+
+async function authorizeReview(req: any, res: any, review: any, exact = false) {
+  if (!review) {
+    res.status(404).json({ message: "Statement review not found" });
+    return false;
+  }
+  if (!review.contactId) {
+    res.status(404).json({ message: "Statement review has no linked contact" });
+    return false;
+  }
+  const contact = await authorizeContactAccess(req, res, review.contactId, { exactAssignment: exact });
+  if (!contact) return false;
+  if (review.dealId) {
+    const deal = await authorizeDealAccess(req, res, review.dealId, { exactAssignment: exact });
+    if (!deal || deal.contactId !== review.contactId) {
+      if (deal) res.status(409).json({ message: "Review deal/contact relationship is inconsistent" });
+      return false;
+    }
+  }
+  if (review.documentId) {
+    const doc = await storage.getDocumentById(review.documentId);
+    if (!doc || (doc.contactId && doc.contactId !== review.contactId) || (review.dealId && doc.dealId && doc.dealId !== review.dealId)) {
+      res.status(409).json({ message: "Review document relationship is inconsistent" });
+      return false;
+    }
+  }
+  return contact;
+}
 
 function buildFollowUpDraft(params: {
   contactName: string;
   companyName: string;
-  effectiveRate?: string;
-  monthlyVolume?: string;
-  savingsEstimate?: string;
   processor?: string;
+  savings?: { amount: string; currency: string; period: "annual" | "monthly" };
 }): string {
-  const { contactName, companyName, effectiveRate, monthlyVolume, savingsEstimate, processor } = params;
+  const { contactName, companyName, processor, savings } = params;
   const firstName = contactName.split(" ")[0] || "there";
-  const savings = savingsEstimate || "significant savings";
-  const rateInfo = effectiveRate ? `Your current effective rate is approximately ${effectiveRate}` : "Based on your processing statement";
-  const volumeInfo = monthlyVolume ? ` on ~$${monthlyVolume}/month in volume` : "";
   const processorInfo = processor ? ` (currently with ${processor})` : "";
+  const savingsText = savings
+    ? `Our documented estimate identifies potential savings of ${savings.currency} ${savings.amount} per ${savings.period}.`
+    : "We have prepared a review draft for your discussion.";
 
   return `Hi ${firstName},
 
-Thank you for submitting your processing statement${processorInfo}. Our team has completed a full review for ${companyName || "your business"}.
+Thank you for submitting your processing statement${processorInfo}. Our team has completed a review draft for ${companyName || "your business"}.
 
-Here's what we found:
+${savingsText}
 
-${rateInfo}${volumeInfo}, we've identified potential savings of ${savings} per year by switching to our program.
-
-Key findings from your statement:
-• Effective rate is above the industry benchmark for your vertical
-• Several fee categories show room for immediate reduction
-• Our Cash Discount or Interchange+ program would be a strong fit
-
-Next step: Let's connect for a 10-minute call to walk through the numbers and answer any questions.
+Next step: Let's connect for a 10-minute call to walk through the review and answer any questions.
 
 Book a time that works for you: ${process.env.GHL_CALENDAR_BOOKING_URL || "https://api.leadconnectorhq.com/widget/booking/YFiIy7oIOUXN2qZZPnOr"}
 
-There's no obligation — just a clear picture of what you could save.
+There's no obligation — just a chance to discuss the review.
 
 Best,
 Liberty Bancard Team`;
@@ -77,7 +99,11 @@ export function registerStatementReviewRoutes(app: Express) {
   // GET /api/statement-reviews — list all reviews
   app.get("/api/statement-reviews", isDashboardUser, async (req, res) => {
     try {
-      const reviews = await getStatementReviews();
+      const allReviews = await getStatementReviews();
+      const visible = await Promise.all(allReviews.map(async (review) =>
+        (await authorizeReview(req, { status: () => ({ json: () => undefined }) } as any, review)) ? review : null,
+      ));
+      const reviews = visible.filter(Boolean) as typeof allReviews;
 
       // Enrich with contact and document info
       const enriched = await Promise.all(
@@ -85,6 +111,7 @@ export function registerStatementReviewRoutes(app: Express) {
           let contactName = "";
           let companyName = "";
           let documentName = "";
+          const relatedData: Record<string, "ok" | "missing" | "unavailable"> = {};
 
           if (r.contactId) {
             try {
@@ -92,18 +119,24 @@ export function registerStatementReviewRoutes(app: Express) {
               if (c) {
                 contactName = [c.firstName, c.lastName].filter(Boolean).join(" ") || c.email || "";
                 companyName = c.companyName || "";
+                relatedData.contact = "ok";
+              } else {
+                relatedData.contact = "missing";
               }
-            } catch { /* ignore */ }
+            } catch { relatedData.contact = "unavailable"; }
           }
 
           if (r.documentId) {
             try {
               const doc = await storage.getDocumentById(r.documentId);
-              if (doc) documentName = doc.fileName;
-            } catch { /* ignore */ }
+              if (doc) {
+                documentName = doc.fileName;
+                relatedData.document = "ok";
+              } else relatedData.document = "missing";
+            } catch { relatedData.document = "unavailable"; }
           }
 
-          return { ...r, contactName, companyName, documentName };
+          return { ...r, contactName, companyName, documentName, relatedData };
         })
       );
 
@@ -117,12 +150,13 @@ export function registerStatementReviewRoutes(app: Express) {
   app.get("/api/statement-reviews/:id", isDashboardUser, async (req, res) => {
     try {
       const review = await getStatementReview(Number(req.params.id));
-      if (!review) return res.status(404).json({ message: "Statement review not found" });
+      if (!review || !await authorizeReview(req, res, review)) return;
 
       let contactName = "";
       let companyName = "";
       let documentName = "";
       let deal: any = null;
+      const relatedData: Record<string, "ok" | "missing" | "unavailable"> = {};
 
       if (review.contactId) {
         try {
@@ -130,42 +164,48 @@ export function registerStatementReviewRoutes(app: Express) {
           if (c) {
             contactName = [c.firstName, c.lastName].filter(Boolean).join(" ") || c.email || "";
             companyName = c.companyName || "";
+            relatedData.contact = "ok";
+          } else {
+            relatedData.contact = "missing";
           }
-        } catch { /* ignore */ }
+        } catch { relatedData.contact = "unavailable"; }
       }
 
       if (review.documentId) {
         try {
           const doc = await storage.getDocumentById(review.documentId);
-          if (doc) documentName = doc.fileName;
-        } catch { /* ignore */ }
+          if (doc) {
+            documentName = doc.fileName;
+            relatedData.document = "ok";
+          } else relatedData.document = "missing";
+        } catch { relatedData.document = "unavailable"; }
       }
 
       if (review.dealId) {
         try {
           deal = await storage.getDeal(review.dealId);
-        } catch { /* ignore */ }
+          relatedData.deal = deal ? "ok" : "missing";
+        } catch { relatedData.deal = "unavailable"; }
       }
 
-      res.json({ ...review, contactName, companyName, documentName, deal });
+      res.json({ ...review, contactName, companyName, documentName, deal, relatedData });
     } catch (err: any) {
       serverError(res, err);
     }
   });
 
-  // PATCH /api/statement-reviews/:id — update review (status, analyst, notes, savings override)
-  app.patch("/api/statement-reviews/:id", isDashboardUser, async (req, res) => {
+  // PATCH is an analyst-owned, optimistic-concurrency controlled draft workflow.
+  app.patch("/api/statement-reviews/:id", requireRole("admin", "manager", "agent"), async (req, res) => {
     try {
       const id = Number(req.params.id);
       const user = req.user as any;
 
       const updateSchema = z.object({
-        status: z.enum(VALID_STATUSES).optional(),
-        analystId: z.string().optional(),
-        analystName: z.string().optional(),
-        analystNotes: z.string().optional(),
-        savingsEstimateOverride: z.string().optional(),
-        followUpDraft: z.string().optional(),
+        status: z.enum(DRAFT_STATUSES).optional(),
+        analystNotes: z.string().max(10000).optional(),
+        savingsEstimateOverride: z.string().regex(/^\d+(?:\.\d{1,2})?$/).optional(),
+        followUpDraft: z.string().max(20000).optional(),
+        version: z.number().int().nonnegative(),
       });
 
       const parsed = updateSchema.safeParse(req.body);
@@ -174,36 +214,48 @@ export function registerStatementReviewRoutes(app: Express) {
       }
 
       const existing = await getStatementReview(id);
-      if (!existing) return res.status(404).json({ message: "Statement review not found" });
+      if (!existing || !await authorizeReview(req, res, existing, true)) return;
+      if (parsed.data.version !== existing.version) {
+        return res.status(409).json({ code: "STATEMENT_REVIEW_VERSION_CONFLICT", currentVersion: existing.version });
+      }
+      const existingStatus = existing.status ?? "received";
+      if (parsed.data.status && !TRANSITIONS[existingStatus]?.includes(parsed.data.status)) {
+        return res.status(409).json({ message: "Invalid statement review status transition" });
+      }
 
       const updates: Record<string, any> = { ...parsed.data };
+      delete updates.version;
 
       // Auto-set analystName from user if assigning analyst without a name
-      if (updates.analystId && !updates.analystName) {
-        updates.analystName = user?.firstName
-          ? `${user.firstName} ${user.lastName || ""}`.trim()
-          : user?.email || "Unknown";
+      const actorId = String(user?.id || "");
+      const actorName = user?.firstName ? `${user.firstName} ${user.lastName || ""}`.trim() : user?.email || "Unknown";
+      if (existing.analystId && existing.analystId !== actorId && user?.role === "agent") {
+        return res.status(403).json({ message: "Review is assigned to another analyst" });
       }
+      updates.analystId = existing.analystId || actorId;
+      updates.analystName = existing.analystName || actorName;
 
       // Auto-set reviewedAt when marking reviewed
       if (updates.status === "reviewed" && !existing.reviewedAt) {
         updates.reviewedAt = new Date();
       }
 
-      // Auto-set followUpSentAt when marking follow_up_sent
-      if (updates.status === "follow_up_sent" && !existing.followUpSentAt) {
-        updates.followUpSentAt = new Date();
+      if (updates.savingsEstimateOverride !== undefined) {
+        if (!existing.documentId || !existing.aiSummary) {
+          return res.status(409).json({ message: "Savings override requires an analyzed statement document as evidence" });
+        }
+        updates.savingsEvidence = {
+          documentId: existing.documentId,
+          aiSummaryRecordedAt: existing.updatedAt,
+          overriddenBy: actorId,
+          amount: updates.savingsEstimateOverride,
+          currency: "USD",
+          period: "annual",
+        };
       }
 
-      // Auto-assign analyst if unset and user is logged in
-      if (updates.status && updates.status !== "received" && !existing.analystId && !updates.analystId) {
-        updates.analystId = String(user?.id || "");
-        updates.analystName = user?.firstName
-          ? `${user.firstName} ${user.lastName || ""}`.trim()
-          : user?.email || "Unknown";
-      }
-
-      const updated = await updateStatementReview(id, updates);
+      const updated = await updateStatementReview(id, updates, existing.version);
+      if (!updated) return res.status(409).json({ code: "STATEMENT_REVIEW_VERSION_CONFLICT" });
 
       // Audit log every status change
       await storage.createAuditLog({
@@ -231,7 +283,7 @@ export function registerStatementReviewRoutes(app: Express) {
     try {
       const id = Number(req.params.id);
       const review = await getStatementReview(id);
-      if (!review) return res.status(404).json({ message: "Statement review not found" });
+      if (!review || !await authorizeReview(req, res, review, true)) return;
 
       let contactName = "";
       let companyName = "";
@@ -246,29 +298,28 @@ export function registerStatementReviewRoutes(app: Express) {
         } catch { /* ignore */ }
       }
 
-      // Pull AI summary metrics if available
+      // Unstructured AI values are not evidence for merchant-facing claims.
       const aiSummary = review.aiSummary as any;
-      const effectiveRate = aiSummary?.effectiveRate || aiSummary?.current?.effectiveRate || "";
-      const monthlyVolume = aiSummary?.monthlyVolume || aiSummary?.current?.monthlyVolume || "";
       const processor = aiSummary?.processor || aiSummary?.current?.processor || "";
-      const savingsEstimate =
-        review.savingsEstimateOverride ||
-        aiSummary?.potentialSavings ||
-        aiSummary?.annualSavings ||
-        aiSummary?.monthlySavings ||
-        "";
+      const evidence = review.savingsEvidence as any;
+      const savings = evidence?.documentId === review.documentId
+        && typeof evidence.amount === "string"
+        && /^\d+(?:\.\d{1,2})?$/.test(evidence.amount)
+        && typeof evidence.currency === "string"
+        && (evidence.period === "annual" || evidence.period === "monthly")
+        ? { amount: evidence.amount, currency: evidence.currency, period: evidence.period }
+        : undefined;
 
       const draft = buildFollowUpDraft({
         contactName,
         companyName,
-        effectiveRate: effectiveRate ? String(effectiveRate) : undefined,
-        monthlyVolume: monthlyVolume ? String(monthlyVolume) : undefined,
-        savingsEstimate: savingsEstimate ? String(savingsEstimate) : undefined,
         processor: processor ? String(processor) : undefined,
+        savings,
       });
 
       // Persist draft on the review record
-      await updateStatementReview(id, { followUpDraft: draft });
+      const updated = await updateStatementReview(id, { followUpDraft: draft }, review.version);
+      if (!updated) return res.status(409).json({ code: "STATEMENT_REVIEW_VERSION_CONFLICT" });
 
       const user = req.user as any;
       await storage.createAuditLog({
@@ -281,7 +332,7 @@ export function registerStatementReviewRoutes(app: Express) {
         details: { contactId: review.contactId, dealId: review.dealId },
       });
 
-      res.json({ draft });
+      res.json({ draft, review: updated });
     } catch (err: any) {
       serverError(res, err);
     }
@@ -291,19 +342,33 @@ export function registerStatementReviewRoutes(app: Express) {
   app.post("/api/statement-reviews", requireRole("admin", "manager"), async (req, res) => {
     try {
       const schema = z.object({
-        documentId: z.number().optional(),
-        contactId: z.number().optional(),
-        dealId: z.number().optional(),
-        status: z.enum(VALID_STATUSES).optional(),
-        analystName: z.string().optional(),
+        documentId: z.number().int().positive().optional(),
+        contactId: z.number().int().positive().optional(),
+        dealId: z.number().int().positive().optional(),
+        createCommandKey: z.string().min(16).max(200),
       });
 
       const parsed = schema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ message: parsed.error.errors[0].message });
 
+      if (!parsed.data.documentId && !parsed.data.contactId) return res.status(400).json({ message: "documentId or contactId is required" });
+      const doc = parsed.data.documentId ? await storage.getDocumentById(parsed.data.documentId) : undefined;
+      if (parsed.data.documentId && !doc) return res.status(404).json({ message: "Statement document not found" });
+      const contactId = doc?.contactId ?? parsed.data.contactId;
+      if (!contactId || !await authorizeContactAccess(req, res, contactId, { exactAssignment: true })) return;
+      const dealId = doc?.dealId ?? parsed.data.dealId;
+      if (parsed.data.contactId && parsed.data.contactId !== contactId) return res.status(409).json({ message: "Document does not belong to contact" });
+      if (dealId) {
+        const deal = await authorizeDealAccess(req, res, dealId, { exactAssignment: true });
+        if (!deal) return;
+        if (deal.contactId !== contactId || (doc?.dealId && doc.dealId !== dealId)) return res.status(409).json({ message: "Deal does not belong to contact/document" });
+      }
       const review = await createStatementReview({
-        ...parsed.data,
-        status: parsed.data.status || "received",
+        documentId: parsed.data.documentId,
+        contactId,
+        dealId: dealId ?? null,
+        createCommandKey: parsed.data.createCommandKey,
+        status: "received",
       });
 
       res.status(201).json(review);

@@ -1467,7 +1467,7 @@ export async function handleGhlWebhook(payload: any): Promise<void> {
       }
 
       if (messageClassification.intent === "support" || messageClassification.intent === "question") {
-        await storage.createTask({
+        await storage.createAuthorityTask({
           title: `Follow up: ${contact.firstName} ${contact.lastName} - ${messageClassification.intent}`,
           assignedTo: contactDeal?.owner || "Unassigned",
           priority: messageClassification.priority === "high" ? "high" : "medium",
@@ -1478,7 +1478,7 @@ export async function handleGhlWebhook(payload: any): Promise<void> {
       }
 
       if (messageClassification.intent === "booking_intent") {
-        await storage.createTask({
+        await storage.createAuthorityTask({
           title: `CALLBACK REQUEST: ${contact.firstName} ${contact.lastName}`,
           assignedTo: contactDeal?.owner || "Unassigned",
           priority: "high",
@@ -1512,7 +1512,7 @@ export async function handleGhlWebhook(payload: any): Promise<void> {
           messageClassification.intent
         );
         if (!taskAlreadyCreated && messageClassification.intent !== "neutral") {
-          await storage.createTask({
+          await storage.createAuthorityTask({
             title: `Review inbound reply: ${contact.firstName} ${contact.lastName} — ${messageClassification.intent}`,
             assignedTo: contactDeal?.owner || "Unassigned",
             priority: messageClassification.priority === "high" ? "high" : "medium",

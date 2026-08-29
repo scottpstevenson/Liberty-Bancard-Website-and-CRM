@@ -1,5 +1,5 @@
 import type { Express } from "express";
-import { isAuthenticated, isDashboardUser } from "../replit_integrations/auth";
+import { isAuthenticated, isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { pool } from "../db";
 import { contacts, toolClickEvents } from "@shared/schema";
@@ -396,7 +396,8 @@ export function registerAnalyticsRoutes(app: Express) {
 
 
   // === ANALYTICS / REPORTING ===
-  app.get("/api/analytics/pipeline", isDashboardUser, async (req, res) => {
+  // Reporting management aggregates intentionally exclude agent sessions.
+  app.get("/api/analytics/pipeline", requireRole("admin", "manager"), async (req, res) => {
     try {
       const { data } = await readPipelineAnalytics(req.user as any);
       res.json(data);
@@ -405,59 +406,81 @@ export function registerAnalyticsRoutes(app: Express) {
     }
   });
 
-  app.get("/api/analytics/support", isDashboardUser, async (req, res) => {
+  app.get("/api/analytics/support", requireRole("admin", "manager"), async (req, res) => {
     try {
-      const { data: allTickets } = await storage.getTickets({ limit: 500 });
       const now = new Date();
-
-      const open = allTickets.filter(t => t.status !== "Resolved" && t.status !== "Closed");
-      const resolved = allTickets.filter(t => t.status === "Resolved" || t.status === "Closed");
-      const breached = allTickets.filter(t => t.slaDeadline && new Date(t.slaDeadline) < now && t.status !== "Resolved" && t.status !== "Closed");
-
-      const categoryBreakdown: Record<string, number> = {};
-      allTickets.forEach(t => { categoryBreakdown[t.category || "Other"] = (categoryBreakdown[t.category || "Other"] || 0) + 1; });
-
-      const priorityBreakdown: Record<string, number> = {};
-      allTickets.forEach(t => { priorityBreakdown[t.priority || "Normal"] = (priorityBreakdown[t.priority || "Normal"] || 0) + 1; });
-
-      const resolvedWithTimes = resolved.filter(t => t.createdAt && t.resolvedAt);
-      const avgResolutionHours = resolvedWithTimes.length > 0
-        ? Math.round(resolvedWithTimes.reduce((sum, t) => sum + (new Date(t.resolvedAt!).getTime() - new Date(t.createdAt!).getTime()) / (1000 * 60 * 60), 0) / resolvedWithTimes.length)
-        : 0;
+      const [summaryRows, categoryRows, priorityRows] = await Promise.all([
+        pool.query<{ total: string; open: string; resolved: string; breaches: string; avg_resolution_hours: string | null }>(`
+          SELECT
+            COUNT(*)::text AS total,
+            COUNT(*) FILTER (WHERE COALESCE(status, 'New Ticket') NOT IN ('Resolved', 'Closed'))::text AS open,
+            COUNT(*) FILTER (WHERE status IN ('Resolved', 'Closed'))::text AS resolved,
+            COUNT(*) FILTER (WHERE sla_deadline < $1 AND COALESCE(status, 'New Ticket') NOT IN ('Resolved', 'Closed'))::text AS breaches,
+            ROUND(AVG(EXTRACT(EPOCH FROM (resolved_at - created_at)) / 3600)
+              FILTER (WHERE resolved_at IS NOT NULL AND created_at IS NOT NULL))::text AS avg_resolution_hours
+          FROM tickets
+        `, [now]),
+        pool.query<{ category: string; count: string }>(`
+          SELECT COALESCE(category, 'Other') AS category, COUNT(*)::text AS count
+          FROM tickets GROUP BY COALESCE(category, 'Other')
+        `),
+        pool.query<{ priority: string; count: string }>(`
+          SELECT COALESCE(priority, 'Normal') AS priority, COUNT(*)::text AS count
+          FROM tickets GROUP BY COALESCE(priority, 'Normal')
+        `),
+      ]);
+      // The resolution average intentionally covers resolved tickets only; the
+      // remaining aggregates and breakdowns cover the complete tickets table.
+      const summary = summaryRows.rows[0];
+      const categoryBreakdown = Object.fromEntries(categoryRows.rows.map(row => [row.category, parseInt(row.count, 10)]));
+      const priorityBreakdown = Object.fromEntries(priorityRows.rows.map(row => [row.priority, parseInt(row.count, 10)]));
 
       res.json({
-        total: allTickets.length,
-        open: open.length,
-        resolved: resolved.length,
-        slaBreaches: breached.length,
-        avgResolutionHours,
+        total: parseInt(summary?.total ?? "0", 10),
+        open: parseInt(summary?.open ?? "0", 10),
+        resolved: parseInt(summary?.resolved ?? "0", 10),
+        slaBreaches: parseInt(summary?.breaches ?? "0", 10),
+        avgResolutionHours: summary?.avg_resolution_hours == null ? null : parseFloat(summary.avg_resolution_hours),
         categoryBreakdown,
         priorityBreakdown,
+        meta: { exact: true, asOf: now.toISOString(), scope: "all tickets" },
       });
     } catch (err: any) {
       serverError(res, err);
     }
   });
 
-  app.get("/api/analytics/tasks", isDashboardUser, async (req, res) => {
+  app.get("/api/analytics/tasks", requireRole("admin", "manager"), async (req, res) => {
     try {
-      const allTasks = await storage.getTasks();
       const now = new Date();
-      const pending = allTasks.filter((t: any) => t.status === "pending");
-      const inProgress = allTasks.filter((t: any) => t.status === "in_progress");
-      const completed = allTasks.filter((t: any) => t.status === "completed");
-      const overdue = allTasks.filter((t: any) => t.status !== "completed" && t.dueDate && new Date(t.dueDate) < now);
-
-      const priorityBreakdown: Record<string, number> = {};
-      allTasks.forEach((t: any) => { priorityBreakdown[t.priority || "normal"] = (priorityBreakdown[t.priority || "normal"] || 0) + 1; });
+      const [summaryRows, priorityRows] = await Promise.all([
+        pool.query<{ total: string; pending: string; in_progress: string; completed: string; overdue: string }>(`
+          SELECT
+            COUNT(*)::text AS total,
+            COUNT(*) FILTER (WHERE status = 'pending')::text AS pending,
+            COUNT(*) FILTER (WHERE status = 'in_progress')::text AS in_progress,
+            COUNT(*) FILTER (WHERE status = 'completed')::text AS completed,
+            COUNT(*) FILTER (WHERE COALESCE(status, 'pending') <> 'completed' AND due_date < $1)::text AS overdue
+          FROM tasks
+          WHERE deleted_at IS NULL
+        `, [now]),
+        pool.query<{ priority: string; count: string }>(`
+          SELECT COALESCE(priority, 'normal') AS priority, COUNT(*)::text AS count
+          FROM tasks WHERE deleted_at IS NULL
+          GROUP BY COALESCE(priority, 'normal')
+        `),
+      ]);
+      const summary = summaryRows.rows[0];
+      const priorityBreakdown = Object.fromEntries(priorityRows.rows.map(row => [row.priority, parseInt(row.count, 10)]));
 
       res.json({
-        total: allTasks.length,
-        pending: pending.length,
-        inProgress: inProgress.length,
-        completed: completed.length,
-        overdue: overdue.length,
+        total: parseInt(summary?.total ?? "0", 10),
+        pending: parseInt(summary?.pending ?? "0", 10),
+        inProgress: parseInt(summary?.in_progress ?? "0", 10),
+        completed: parseInt(summary?.completed ?? "0", 10),
+        overdue: parseInt(summary?.overdue ?? "0", 10),
         priorityBreakdown,
+        meta: { exact: true, asOf: now.toISOString(), scope: "non-deleted tasks" },
       });
     } catch (err: any) {
       serverError(res, err);

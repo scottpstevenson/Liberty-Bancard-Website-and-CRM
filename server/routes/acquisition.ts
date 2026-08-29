@@ -1002,12 +1002,12 @@ export function registerAcquisitionRoutes(app: Express): void {
           `SELECT
              COALESCE(c.utm_source, 'organic/direct') AS source,
              COUNT(DISTINCT c.id)::text AS leads,
-             COUNT(DISTINCT CASE WHEN d.stage = 'Call Booked' THEN d.id END)::text AS booked,
-             COUNT(DISTINCT CASE WHEN d.stage = 'Closed Won' THEN d.id END)::text AS signed
+             COUNT(DISTINCT CASE WHEN d.stage = 'Call Booked' AND d.record_class = 'production' THEN d.id END)::text AS booked,
+             COUNT(DISTINCT CASE WHEN d.stage = 'Closed Won' AND d.record_class = 'production' THEN d.id END)::text AS signed
            FROM contacts c
            LEFT JOIN deals d ON d.contact_id = c.id
-           WHERE c.created_at >= $1 AND c.archived_at IS NULL
-           GROUP BY source ORDER BY leads::int DESC LIMIT 20`,
+           WHERE c.created_at >= $1 AND c.archived_at IS NULL AND c.record_class = 'production'
+           GROUP BY source ORDER BY leads::int DESC`,
           [since],
         ),
         // Close rate by vertical: leads → booked → signed
@@ -1017,38 +1017,50 @@ export function registerAcquisitionRoutes(app: Express): void {
           `SELECT
              COALESCE(c.industry, 'Unknown') AS vertical,
              COUNT(DISTINCT c.id)::text AS leads,
-             COUNT(DISTINCT CASE WHEN d.stage = 'Call Booked' THEN d.id END)::text AS booked,
-             COUNT(DISTINCT CASE WHEN d.stage = 'Closed Won' THEN d.id END)::text AS signed
+             COUNT(DISTINCT CASE WHEN d.stage = 'Call Booked' AND d.record_class = 'production' THEN d.id END)::text AS booked,
+             COUNT(DISTINCT CASE WHEN d.stage = 'Closed Won' AND d.record_class = 'production' THEN d.id END)::text AS signed
            FROM contacts c
            LEFT JOIN deals d ON d.contact_id = c.id
-           WHERE c.created_at >= $1 AND c.archived_at IS NULL
-           GROUP BY vertical ORDER BY leads::int DESC LIMIT 20`,
+           WHERE c.created_at >= $1 AND c.archived_at IS NULL AND c.record_class = 'production'
+           GROUP BY vertical ORDER BY leads::int DESC`,
           [since],
         ),
-        // Sequence reply rates (converted ÷ enrolled)
+        // There is no authoritative sequence-to-reply relation. Do not proxy
+        // enrollment conversion as a reply metric.
         pool.query<{
-          seq_id: string; seq_name: string; status: string;
-          enrolled: string; converted: string;
+          seq_id: string; seq_name: string; status: string; enrolled: string;
         }>(
           `SELECT
              s.id::text AS seq_id, s.name AS seq_name, s.status,
-             COUNT(se.id)::text AS enrolled,
-             COUNT(CASE WHEN se.status = 'converted' THEN 1 END)::text AS converted
+             COUNT(se.id)::text AS enrolled
            FROM sequences s
            LEFT JOIN sequence_enrollments se ON se.sequence_id = s.id
              AND se.created_at >= $1
-           GROUP BY s.id, s.name, s.status
-           ORDER BY enrolled::int DESC LIMIT 25`,
+           LEFT JOIN contacts c ON c.id = se.contact_id
+           WHERE c.record_class = 'production'
+           GROUP BY s.id, s.name, s.status ORDER BY enrolled::int DESC`,
           [since],
         ),
-        // Funnel by lifecycle stage
+        // Distinct, authoritative facts; these are deliberately not lifecycle
+        // labels, which are mutable projections rather than event evidence.
         pool.query<{ stage: string; cnt: string }>(
-          `SELECT
-             COALESCE(lifecycle_stage, 'prospect') AS stage,
-             COUNT(*)::text AS cnt
-           FROM contacts
-           WHERE created_at >= $1 AND archived_at IS NULL
-           GROUP BY stage`,
+          `SELECT 'Leads' AS stage, COUNT(*)::text AS cnt FROM contacts
+             WHERE created_at >= $1 AND archived_at IS NULL AND record_class = 'production'
+           UNION ALL SELECT 'Replies', COUNT(*)::text FROM outbound_messages om
+             JOIN contacts c ON c.id = om.contact_id
+             WHERE om.replied_at >= $1 AND c.record_class = 'production'
+           UNION ALL SELECT 'Proposals', COUNT(*)::text FROM statement_proposals sp
+             JOIN contacts c ON c.id = sp.contact_id
+             WHERE sp.created_at >= $1 AND c.record_class = 'production'
+           UNION ALL SELECT 'Applications', COUNT(*)::text FROM merchant_applications ma
+             JOIN contacts c ON c.id = ma.contact_id
+             WHERE ma.submitted_at >= $1 AND c.record_class = 'production'
+           UNION ALL SELECT 'Closed Won', COUNT(*)::text FROM deals d
+             JOIN contacts c ON c.id = d.contact_id
+             WHERE d.closed_at >= $1 AND d.stage = 'Closed Won' AND d.record_class = 'production' AND c.record_class = 'production'
+           UNION ALL SELECT 'Active Merchants', COUNT(*)::text FROM merchant_profiles mp
+             JOIN contacts c ON c.id = mp.contact_id
+             WHERE mp.go_live_date >= $1 AND mp.account_status = 'active' AND c.record_class = 'production'`,
           [since],
         ),
         // Overdue tasks (status pending/in_progress, past due, not deleted)
@@ -1079,17 +1091,18 @@ export function registerAcquisitionRoutes(app: Express): void {
              AND created_at >= $1`,
           [since7d],
         ),
-        // Most recent queue error message
-        pool.query<{ details: any }>(
-          `SELECT details FROM audit_logs
+        // Most recent queue failure classification. Raw audit details stay
+        // server-side because provider/internal messages are not report data.
+        pool.query<{ action: string; created_at: Date }>(
+          `SELECT action, created_at FROM audit_logs
            WHERE entity_type = 'queue' AND action LIKE '%fail%'
              AND created_at >= $1
            ORDER BY created_at DESC LIMIT 1`,
           [since7d],
         ),
-        // Most recent GHL error message
-        pool.query<{ details: any; action: string }>(
-          `SELECT details, action FROM audit_logs
+        // Most recent GHL failure classification (no raw details).
+        pool.query<{ action: string; created_at: Date }>(
+          `SELECT action, created_at FROM audit_logs
            WHERE entity_type = 'ghl_sync'
              AND (action LIKE '%fail%' OR action LIKE '%error%')
              AND created_at >= $1
@@ -1114,6 +1127,7 @@ export function registerAcquisitionRoutes(app: Express): void {
           cpl: adSpend > 0 && leads > 0 ? Math.round(allocatedSpend / leads) : null,
           cpb: adSpend > 0 && booked > 0 ? Math.round(allocatedSpend / booked) : null,
           cps: adSpend > 0 && signed > 0 ? Math.round(allocatedSpend / signed) : null,
+          costEstimate: true,
         };
       });
 
@@ -1127,38 +1141,32 @@ export function registerAcquisitionRoutes(app: Express): void {
           leads,
           booked,
           signed,
-          leadToBooked: leads > 0 ? Math.round((booked / leads) * 1000) / 1000 : 0,
-          bookedToSigned: booked > 0 ? Math.round((signed / booked) * 1000) / 1000 : 0,
-          leadToSigned: leads > 0 ? Math.round((signed / leads) * 1000) / 1000 : 0,
+          leadToBooked: leads > 0 ? Math.round((booked / leads) * 1000) / 1000 : null,
+          bookedToSigned: booked > 0 ? Math.round((signed / booked) * 1000) / 1000 : null,
+          leadToSigned: leads > 0 ? Math.round((signed / leads) * 1000) / 1000 : null,
         };
       });
 
       // ── Sequence reply rates ──
       const sequenceReplyRates = seqRows.rows.map(r => {
         const enrolled = parseInt(r.enrolled, 10);
-        const converted = parseInt(r.converted, 10);
         return {
           id: r.seq_id,
           name: r.seq_name,
           status: r.status,
           enrolled,
-          converted,
-          replyRate: enrolled > 0 ? Math.round((converted / enrolled) * 1000) / 1000 : 0,
+          replies: null,
+          replyRate: null,
         };
       });
 
       // ── Funnel ──
-      const FUNNEL_ORDER = [
-        "prospect", "lead", "contacted", "replied", "booked",
-        "applied", "approved", "active",
-      ];
       const stageCounts: Record<string, number> = {};
       for (const r of funnelRows.rows) stageCounts[r.stage] = parseInt(r.cnt, 10);
-      const topCount = Math.max(1, Object.values(stageCounts).reduce((s, v) => s + v, 0));
-      const funnel = FUNNEL_ORDER.map(stage => {
-        const count = stageCounts[stage] ?? 0;
-        return { stage: stage.charAt(0).toUpperCase() + stage.slice(1), count, pct: count / topCount };
-      });
+      const leadCount = stageCounts.Leads ?? 0;
+      const funnel = Object.entries(stageCounts).map(([stage, count]) => ({
+        stage, count, pct: leadCount > 0 ? count / leadCount : null,
+      }));
 
       // ── Overdue tasks ──
       const overdueTasks = overdueRows.rows.map(r => ({
@@ -1170,13 +1178,23 @@ export function registerAcquisitionRoutes(app: Express): void {
       }));
 
       // ── Incident summary ──
-      const queueErr = recentQueueErr.rows[0]?.details as any;
+      const queueErr = recentQueueErr.rows[0];
       const ghlErr = recentGhlErr.rows[0];
       const incidentSummary = {
         queueFailures7d: parseInt(queueFailures7d.rows[0]?.cnt ?? "0", 10),
         ghlSyncFailures7d: parseInt(ghlFailures7d.rows[0]?.cnt ?? "0", 10),
-        mostRecentQueueError: queueErr?.error ?? queueErr?.message ?? null,
-        mostRecentGhlError: (ghlErr?.details as any)?.error ?? ghlErr?.action ?? null,
+        mostRecentQueueIncident: queueErr
+          ? { code: "QUEUE_FAILURE", category: queueErr.action, occurredAt: queueErr.created_at }
+          : null,
+        mostRecentGhlIncident: ghlErr
+          ? { code: "GHL_SYNC_FAILURE", category: ghlErr.action, occurredAt: ghlErr.created_at }
+          : null,
+      };
+      const responseAsOf = new Date().toISOString();
+      const independentCapture = {
+        requestedAt: now.toISOString(),
+        completedBy: responseAsOf,
+        consistency: "independent database query; no shared transaction snapshot",
       };
 
       res.json({
@@ -1188,6 +1206,25 @@ export function registerAcquisitionRoutes(app: Express): void {
         funnel,
         overdueTasks,
         incidentSummary,
+        meta: {
+          exact: true,
+          asOf: responseAsOf,
+          scope: "production records in the requested date window; operational facts are independently counted",
+          snapshotConsistency: "unavailable",
+          sourceCapture: {
+            acquisition: independentCapture,
+            sequences: independentCapture,
+            operationalFacts: independentCapture,
+            tasks: independentCapture,
+            incidents: independentCapture,
+          },
+          completeness: { sequenceReplies: "unavailable: no authoritative sequence-to-reply relation" },
+          spendAllocation: {
+            kind: "estimate",
+            assumption: "User-entered total ad spend is allocated to each source in proportion to that source's share of production leads in the selected window.",
+            authoritativeSpendSource: false,
+          },
+        },
       });
     } catch (err: any) {
       console.error("[Acquisition] /reporting/operations error:", err.message);

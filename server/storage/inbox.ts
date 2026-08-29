@@ -2,35 +2,60 @@
 import { db } from "../db";
 import { inboxItems, statementReviews } from "@shared/schema";
 import type { InboxItemRow, InsertInboxItem, StatementReview, InsertStatementReview } from "@shared/schema";
-import { eq, desc, and, sql } from "drizzle-orm";
+import { eq, desc, and, sql, or, isNull, and as drizzleAnd } from "drizzle-orm";
+
+export type InboxSourceIdentity = { sourceNamespace: string; sourceItemId: string };
+
+/** Public identifiers are opaque but structurally bind provider item ID to its
+ * account/location namespace. Legacy IDs remain readable during migration. */
+export function parseInboxSourceIdentity(value: string): InboxSourceIdentity {
+  const separator = value.lastIndexOf("::");
+  return separator > 0
+    ? { sourceNamespace: value.slice(0, separator), sourceItemId: value.slice(separator + 2) }
+    : { sourceNamespace: "legacy", sourceItemId: value };
+}
+
+function normalizeInboxSource(
+  data: InsertInboxItem & { sourceItemId: string },
+): InsertInboxItem & { sourceItemId: string; sourceNamespace: string } {
+  const identity = parseInboxSourceIdentity(data.sourceItemId);
+  return { ...data, ...identity, sourceNamespace: data.sourceNamespace || identity.sourceNamespace };
+}
+function sourceIdentityWhere(identity: InboxSourceIdentity) {
+  const namespace = identity.sourceNamespace === "legacy"
+    ? or(eq(inboxItems.sourceNamespace, "legacy"), isNull(inboxItems.sourceNamespace))
+    : eq(inboxItems.sourceNamespace, identity.sourceNamespace);
+  return drizzleAnd(namespace, eq(inboxItems.sourceItemId, identity.sourceItemId));
+}
 
 export async function upsertInboxItem(
   data: InsertInboxItem & { sourceItemId: string }
 ): Promise<InboxItemRow> {
-  const existing = await db
-    .select()
-    .from(inboxItems)
-    .where(eq(inboxItems.sourceItemId, data.sourceItemId))
-    .limit(1);
+  const normalized = normalizeInboxSource(data);
+  const [created] = await db.insert(inboxItems).values(normalized).onConflictDoNothing().returning();
+  if (created) return created;
+  const existing = await getInboxItem(`${normalized.sourceNamespace}::${normalized.sourceItemId}`);
+  if (!existing) throw new Error("Inbox source identity conflict could not be resolved");
+  return (await updateInboxItem(`${normalized.sourceNamespace}::${normalized.sourceItemId}`, normalized)) || existing;
+}
 
-  if (existing.length > 0) {
-    const [updated] = await db
-      .update(inboxItems)
-      .set({ ...data, updatedAt: new Date() })
-      .where(eq(inboxItems.sourceItemId, data.sourceItemId))
-      .returning();
-    return updated;
-  }
-
-  const [created] = await db.insert(inboxItems).values(data).returning();
-  return created;
+/** Persist an observed source item once. Immutable content is never refreshed
+ * from a client request or a later provider conversation summary. */
+export async function rememberInboxSourceItem(data: InsertInboxItem & { sourceItemId: string }): Promise<InboxItemRow> {
+  const normalized = normalizeInboxSource(data);
+  const [created] = await db.insert(inboxItems).values(normalized).onConflictDoNothing().returning();
+  if (created) return created;
+  const existing = await getInboxItem(`${normalized.sourceNamespace}::${normalized.sourceItemId}`);
+  if (!existing) throw new Error("Inbox source identity conflict could not be resolved");
+  return existing;
 }
 
 export async function getInboxItem(sourceItemId: string): Promise<InboxItemRow | undefined> {
+  const identity = parseInboxSourceIdentity(sourceItemId);
   const [row] = await db
     .select()
     .from(inboxItems)
-    .where(eq(inboxItems.sourceItemId, sourceItemId))
+    .where(sourceIdentityWhere(identity))
     .limit(1);
   return row;
 }
@@ -39,10 +64,22 @@ export async function updateInboxItem(
   sourceItemId: string,
   updates: Partial<InsertInboxItem>
 ): Promise<InboxItemRow | undefined> {
+  const identity = parseInboxSourceIdentity(sourceItemId);
+  // Deliberately copy only routing/workflow fields. Source identity, provider
+  // target and observed content are immutable after insertion.
+  const operationalUpdates: Partial<InsertInboxItem> = {};
+  const allowed = [
+    "contactId", "dealId", "ownerId", "ownerName",
+    "department", "status", "priority", "slaDueAt", "nextAction",
+    "escalationPath", "notes",
+  ] as const;
+  for (const key of allowed) {
+    if (updates[key] !== undefined) (operationalUpdates as any)[key] = updates[key];
+  }
   const [updated] = await db
     .update(inboxItems)
-    .set({ ...updates, updatedAt: new Date() })
-    .where(eq(inboxItems.sourceItemId, sourceItemId))
+    .set({ ...operationalUpdates, updatedAt: new Date() })
+    .where(sourceIdentityWhere(identity))
     .returning();
   return updated;
 }
@@ -62,8 +99,18 @@ export async function getInboxItemsWithSlaBreaches(): Promise<InboxItemRow[]> {
 
 // Statement reviews
 export async function createStatementReview(data: InsertStatementReview): Promise<StatementReview> {
-  const [created] = await db.insert(statementReviews).values(data).returning();
-  return created;
+  const created = await db.insert(statementReviews).values(data).onConflictDoNothing().returning();
+  if (created[0]) return created[0];
+  if (data.createCommandKey) {
+    const [byCommand] = await db.select().from(statementReviews)
+      .where(eq(statementReviews.createCommandKey, data.createCommandKey)).limit(1);
+    if (byCommand) return byCommand;
+  }
+  if (data.documentId) {
+    const existing = await getStatementReviewByDocument(data.documentId);
+    if (existing) return existing;
+  }
+  throw new Error("Statement review create command could not be resolved");
 }
 
 export async function getStatementReviews(): Promise<StatementReview[]> {
@@ -90,12 +137,16 @@ export async function getStatementReviewByDocument(documentId: number): Promise<
 
 export async function updateStatementReview(
   id: number,
-  updates: Partial<InsertStatementReview>
+  updates: Partial<InsertStatementReview>,
+  expectedVersion?: number,
 ): Promise<StatementReview | undefined> {
+  const where = expectedVersion === undefined
+    ? eq(statementReviews.id, id)
+    : drizzleAnd(eq(statementReviews.id, id), eq(statementReviews.version, expectedVersion));
   const [updated] = await db
     .update(statementReviews)
-    .set({ ...updates, updatedAt: new Date() })
-    .where(eq(statementReviews.id, id))
+    .set({ ...updates, version: sql`${statementReviews.version} + 1`, updatedAt: new Date() })
+    .where(where)
     .returning();
   return updated;
 }

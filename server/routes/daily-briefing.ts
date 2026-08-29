@@ -44,7 +44,7 @@ async function generateAiBriefing(stats: {
   tasksDueToday: number;
   overdueSlaCount: number;
   unreadCount: number;
-  outreachReadyCount: number;
+  outreachReadyCount: number | null;
   closedWonYesterday: number;
   role: string;
 }): Promise<string | null> {
@@ -150,17 +150,16 @@ async function buildDailyBriefing(user: any, bypassCache = false) {
       } catch { sectionStatus.inbox = "degraded"; }
 
       // ── 4. Hot leads ready for outreach ─────────────────────────────────────
-      let outreachReadyCount = 0;
+      let outreachReadyCount: number | null = null;
       try {
         const role = user?.role as "admin" | "manager" | "agent";
         const ready = await queryCr04ReadyProjection({
           scope: { role, actorId: String(user?.id ?? userEmail), email: userEmail },
           filters: { channel: "email", score: "hot" },
-          page: 1,
           limit: 1,
         });
-        outreachReadyCount = ready.total;
-        sectionStatus.outreach = "ok";
+        outreachReadyCount = ready.exactTotal ? ready.total : null;
+        sectionStatus.outreach = ready.exactTotal ? "ok" : "degraded";
       } catch { sectionStatus.outreach = "degraded"; }
 
       // ── 5. Yesterday's closed/won deals ─────────────────────────────────────

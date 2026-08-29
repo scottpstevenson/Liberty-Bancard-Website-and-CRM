@@ -194,6 +194,9 @@ export interface IStorage {
   getTickets(params?: PaginationParams): Promise<PaginatedResult<typeof tickets.$inferSelect>>;
   getTicket(id: number): Promise<typeof tickets.$inferSelect | undefined>;
   createTicket(ticket: InsertTicket): Promise<typeof tickets.$inferSelect>;
+  getTicketsForActor(email: string, params?: PaginationParams): Promise<PaginatedResult<typeof tickets.$inferSelect>>;
+  createAuthorityTicket(ticket: InsertTicket, authority?: { producer?: string; commandKey?: string; issueKey?: string; generation?: number }): Promise<typeof tickets.$inferSelect>;
+  transitionAuthorityTicket(id: number, input: { toState: import("./storage/tasks").TaskAuthorityState; expectedFence: number; producer: string; eventKey: string; commandKey?: string; terminalReason?: string | null; canonicalAssignee?: string | null }): Promise<typeof tickets.$inferSelect | null>;
   updateTicket(id: number, ticket: UpdateTicketRequest): Promise<typeof tickets.$inferSelect | undefined>;
 
   getTasks(opts?: { limit?: number; offset?: number }): Promise<typeof tasks.$inferSelect[]>;
@@ -201,6 +204,9 @@ export interface IStorage {
   getTaskById(id: number): Promise<typeof tasks.$inferSelect | null>;
   getTaskByGhlTaskId(ghlTaskId: string): Promise<typeof tasks.$inferSelect | undefined>;
   createTask(task: InternalTaskInsert): Promise<typeof tasks.$inferSelect>;
+  createAuthorityTask(task: InternalTaskInsert, authority?: { producer?: string; subjectType?: string; subjectId?: number; generation?: number; commandKey?: string; issueKey?: string }): Promise<typeof tasks.$inferSelect>;
+  transitionAuthorityTask(id: number, input: { toState: import("./storage/tasks").TaskAuthorityState; expectedFence: number; producer: string; eventKey: string; commandKey?: string; terminalReason?: string | null; canonicalAssignee?: string | null }): Promise<typeof tasks.$inferSelect | null>;
+  assertTaskLinkedObjectScope(input: Pick<InternalTaskInsert, "contactId" | "dealId" | "ticketId">): Promise<void>;
   updateTask(id: number, task: UpdateTaskRequest): Promise<typeof tasks.$inferSelect | undefined>;
   createStallingDealFollowUpTask(payload: Omit<InternalTaskInsert, 'source' | 'automationKey'>): Promise<{ task: typeof tasks.$inferSelect | null; created: boolean }>;
   softDeleteTask(id: number): Promise<void>;

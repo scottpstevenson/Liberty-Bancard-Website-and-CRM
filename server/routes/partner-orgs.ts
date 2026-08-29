@@ -349,7 +349,7 @@ export function registerPartnerOrgsRoutes(app: Express) {
       }
 
       await storage.updateDeal(deal.id, { statementReceived: true, docReadinessScore: fileBuffer.length > 0 ? 2 : 1 });
-      await storage.createTask({
+      await storage.createAuthorityTask({
         dealId: deal.id, contactId: contact!.id,
         title: "Review partner statement + send breakdown",
         assignedTo: "Scott Stevenson",

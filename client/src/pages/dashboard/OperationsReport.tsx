@@ -26,6 +26,7 @@ interface CplMetrics {
   cpl: number | null;
   cpb: number | null;
   cps: number | null;
+  costEstimate: true;
 }
 
 interface VerticalCloseRate {
@@ -33,9 +34,9 @@ interface VerticalCloseRate {
   leads: number;
   booked: number;
   signed: number;
-  leadToBooked: number;
-  bookedToSigned: number;
-  leadToSigned: number;
+  leadToBooked: number | null;
+  bookedToSigned: number | null;
+  leadToSigned: number | null;
 }
 
 interface SequenceReplyRate {
@@ -43,14 +44,14 @@ interface SequenceReplyRate {
   name: string;
   status: string;
   enrolled: number;
-  converted: number;
-  replyRate: number;
+  replies: number | null;
+  replyRate: number | null;
 }
 
 interface FunnelStage {
   stage: string;
   count: number;
-  pct: number;
+  pct: number | null;
 }
 
 interface OverdueTask {
@@ -77,6 +78,15 @@ interface OperationsReportData {
   funnel: FunnelStage[];
   overdueTasks: OverdueTask[];
   incidentSummary: IncidentSummary;
+  meta: {
+    exact: boolean;
+    asOf: string;
+    scope: string;
+    snapshotConsistency: "unavailable";
+    sourceCapture: Record<string, { requestedAt: string; completedBy: string; consistency: string }>;
+    completeness: { sequenceReplies: string };
+    spendAllocation: { kind: "estimate"; assumption: string; authoritativeSpendSource: false };
+  };
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -85,8 +95,8 @@ function fmt$(n: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
 }
 
-function fmtPct(n: number) {
-  return `${Math.round(n * 100)}%`;
+function fmtPct(n: number | null | undefined) {
+  return n == null ? "—" : `${Math.round(n * 100)}%`;
 }
 
 function downloadCsv(filename: string, rows: string[][], headers: string[]) {
@@ -130,7 +140,7 @@ function CplTable({ rows, adSpend }: { rows: CplMetrics[]; adSpend: number }) {
               <DollarSign className="w-4 h-4 text-green-600" /> Cost Per Lead / Booked / Signed
             </CardTitle>
             <CardDescription className="text-xs mt-0.5">
-              {adSpend > 0 ? `Based on $${adSpend.toLocaleString()} ad spend input` : "Enter ad spend above to see CPL/CPB/CPS"}
+               {adSpend > 0 ? `Estimate only: $${adSpend.toLocaleString()} user-entered spend allocated proportionally by production lead volume` : "Enter user-supplied ad spend to estimate CPL/CPB/CPS; no authoritative spend source is connected"}
             </CardDescription>
           </div>
           <Button size="sm" variant="outline" onClick={exportCsv}>
@@ -242,7 +252,7 @@ function CloseRateTable({ rows }: { rows: VerticalCloseRate[] }) {
                   <TableCell className="text-right">{fmtPct(r.leadToBooked)}</TableCell>
                   <TableCell className="text-right">{fmtPct(r.bookedToSigned)}</TableCell>
                   <TableCell className="text-right">
-                    <Badge variant={r.leadToSigned >= 0.15 ? "default" : r.leadToSigned > 0 ? "secondary" : "outline"}>
+                      <Badge variant={r.leadToSigned != null && r.leadToSigned >= 0.15 ? "default" : r.leadToSigned != null && r.leadToSigned > 0 ? "secondary" : "outline"}>
                       {fmtPct(r.leadToSigned)}
                     </Badge>
                   </TableCell>
@@ -260,8 +270,8 @@ function SequenceReplyRateTable({ rows }: { rows: SequenceReplyRate[] }) {
   const exportCsv = () => {
     downloadCsv(
       "sequence-reply-rates.csv",
-      rows.map(r => [r.name, r.status, String(r.enrolled), String(r.converted), fmtPct(r.replyRate)]),
-      ["Sequence", "Status", "Enrolled", "Converted", "Reply Rate"],
+       rows.map(r => [r.name, r.status, String(r.enrolled), r.replies == null ? "Unavailable" : String(r.replies), fmtPct(r.replyRate)]),
+       ["Sequence", "Status", "Enrolled", "Replies", "Reply Rate"],
     );
   };
 
@@ -270,10 +280,10 @@ function SequenceReplyRateTable({ rows }: { rows: SequenceReplyRate[] }) {
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <div>
-            <CardTitle className="text-base flex items-center gap-2">
-              <Zap className="w-4 h-4 text-orange-500" /> Reply Rate by Sequence
+             <CardTitle className="text-base flex items-center gap-2">
+               <Zap className="w-4 h-4 text-orange-500" /> Sequence Reply Attribution
             </CardTitle>
-            <CardDescription className="text-xs mt-0.5">Converted ÷ enrolled per sequence family</CardDescription>
+             <CardDescription className="text-xs mt-0.5">Unavailable until replies have an authoritative sequence attribution; conversions are not used as a proxy.</CardDescription>
           </div>
           <Button size="sm" variant="outline" onClick={exportCsv}>
             <Download className="w-3 h-3 mr-1" /> CSV
@@ -288,7 +298,7 @@ function SequenceReplyRateTable({ rows }: { rows: SequenceReplyRate[] }) {
                 <TableHead>Sequence</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">Enrolled</TableHead>
-                <TableHead className="text-right">Converted</TableHead>
+                 <TableHead className="text-right">Replies</TableHead>
                 <TableHead className="text-right">Reply Rate</TableHead>
               </TableRow>
             </TableHeader>
@@ -302,10 +312,10 @@ function SequenceReplyRateTable({ rows }: { rows: SequenceReplyRate[] }) {
                     <Badge variant={r.status === "active" ? "default" : "secondary"} className="text-xs">{r.status}</Badge>
                   </TableCell>
                   <TableCell className="text-right">{r.enrolled}</TableCell>
-                  <TableCell className="text-right text-green-600">{r.converted}</TableCell>
+                   <TableCell className="text-right text-muted-foreground">{r.replies ?? "—"}</TableCell>
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-2">
-                      <Progress value={Math.round(r.replyRate * 100)} className="w-16 h-1.5" />
+                       {r.replyRate != null && <Progress value={Math.round(r.replyRate * 100)} className="w-16 h-1.5" />}
                       <span className="text-sm font-medium w-10 text-right">{fmtPct(r.replyRate)}</span>
                     </div>
                   </TableCell>
@@ -324,7 +334,7 @@ function FunnelTable({ stages }: { stages: FunnelStage[] }) {
     downloadCsv(
       "funnel-conversion.csv",
       stages.map(s => [s.stage, String(s.count), fmtPct(s.pct)]),
-      ["Stage", "Count", "vs. Top"],
+       ["Operational Fact", "Count", "vs. Leads"],
     );
   };
 
@@ -333,7 +343,7 @@ function FunnelTable({ stages }: { stages: FunnelStage[] }) {
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <CardTitle className="text-base flex items-center gap-2">
-            <BarChart3 className="w-4 h-4 text-blue-500" /> Funnel Conversion
+             <BarChart3 className="w-4 h-4 text-blue-500" /> Production Operational Facts
           </CardTitle>
           <Button size="sm" variant="outline" onClick={exportCsv}>
             <Download className="w-3 h-3 mr-1" /> CSV
@@ -342,10 +352,12 @@ function FunnelTable({ stages }: { stages: FunnelStage[] }) {
       </CardHeader>
       <CardContent>
         <div className="space-y-3">
-          {stages.map((s) => (
+          {stages.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-4">No funnel data in this period.</p>
+          ) : stages.map((s) => (
             <div key={s.stage} className="flex items-center gap-3">
               <span className="text-sm w-32 shrink-0 text-muted-foreground truncate">{s.stage}</span>
-              <Progress value={Math.round(s.pct * 100)} className="flex-1 h-3" />
+              <Progress value={Math.round((s.pct ?? 0) * 100)} className="flex-1 h-3" />
               <span className="text-sm font-semibold w-12 text-right">{s.count.toLocaleString()}</span>
               <span className="text-xs text-muted-foreground w-10 text-right">{fmtPct(s.pct)}</span>
             </div>
@@ -467,7 +479,7 @@ export default function OperationsReport() {
 
   const spendVal = parseFloat(adSpend.replace(/[^0-9.]/g, "")) || 0;
 
-  const { data, isLoading, refetch } = useQuery<OperationsReportData>({
+  const { data, isLoading, isError, error, refetch } = useQuery<OperationsReportData>({
     queryKey: ["/api/reporting/operations", days, adSpendApplied],
     queryFn: async () => {
       const params = new URLSearchParams({ days, adSpend: String(adSpendApplied) });
@@ -490,8 +502,8 @@ export default function OperationsReport() {
     );
   }
 
-  if (!data) {
-    return <div className="py-8 text-center text-destructive">Failed to load report.</div>;
+  if (isError || !data || !data.meta?.exact) {
+    return <div className="py-8 text-center text-destructive">Operations report unavailable: {error instanceof Error ? error.message : "failed to load data."}</div>;
   }
 
   return (
@@ -530,6 +542,10 @@ export default function OperationsReport() {
           </div>
         </CardContent>
       </Card>
+      <p className="text-xs text-muted-foreground">
+        Captured around {new Date(data.meta.asOf).toLocaleString()} · Scope: {data.meta.scope}. Snapshot consistency is unavailable because sources are queried independently.
+      </p>
+      <p className="text-xs text-muted-foreground">Spend estimate assumption: {data.meta.spendAllocation.assumption}</p>
 
       {/* CPL by source */}
       <CplTable rows={data.cplBySource} adSpend={data.adSpend} />

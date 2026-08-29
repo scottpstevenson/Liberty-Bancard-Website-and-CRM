@@ -1,8 +1,6 @@
 import type { Express } from "express";
 import { isDashboardUser, requireRole } from "../replit_integrations/auth";
-import { pool, db } from "../db";
-import { deals } from "@shared/schema";
-import { eq } from "drizzle-orm";
+import { pool } from "../db";
 import { serverError } from "../utils/server-error";
 import { observeCommercialReportingPopulation } from "../services/commercial-resolution";
 
@@ -166,6 +164,7 @@ export function registerPortfolioRoutes(app: Express) {
           WHERE d_user.contact_id = c.id
             AND d_user.owner = ${userEmailParam}
             AND d_user.archived_at IS NULL
+             AND d_user.record_class = 'production'
           ORDER BY d_user.created_at DESC
           LIMIT 1
         ) user_deal ON true
@@ -186,7 +185,7 @@ export function registerPortfolioRoutes(app: Express) {
         LEFT JOIN (
           SELECT contact_id, COUNT(*)::int AS open_count
           FROM tasks
-          WHERE status IN ('pending', 'open')
+           WHERE authority_state IN ('open', 'in_progress')
             AND contact_id IS NOT NULL
             AND deleted_at IS NULL
           GROUP BY contact_id
@@ -221,7 +220,7 @@ export function registerPortfolioRoutes(app: Express) {
              (SELECT COUNT(*)::int FROM tickets t JOIN eligible e ON e.id=t.contact_id
                WHERE t.status NOT IN ('Closed','Resolved')) AS open_tickets,
              (SELECT COUNT(*)::int FROM tasks t JOIN eligible e ON e.id=t.contact_id
-               WHERE t.status IN ('pending','open') AND t.deleted_at IS NULL) AS open_tasks,
+                WHERE t.authority_state IN ('open','in_progress') AND t.deleted_at IS NULL) AS open_tasks,
              CURRENT_TIMESTAMP AS as_of
          `, scopeParams);
          aggregate = aggregateResult.rows[0] ?? {};
@@ -278,8 +277,8 @@ export function registerPortfolioRoutes(app: Express) {
     isDashboardUser,
     async (req, res) => {
       try {
-        const dealId = parseInt(req.params["dealId"] as string, 10);
-        if (!dealId || isNaN(dealId)) {
+        const dealId = Number(req.params["dealId"]);
+        if (!Number.isSafeInteger(dealId) || dealId <= 0) {
           return res.status(400).json({ message: "Invalid dealId" });
         }
 
@@ -287,47 +286,48 @@ export function registerPortfolioRoutes(app: Express) {
         const role: string = user?.role ?? "agent";
         const email: string = user?.email ?? "";
 
-        // Load deal to check ownership
-        const [deal] = await db.select().from(deals).where(eq(deals.id, dealId)).limit(1);
-        if (!deal) {
-          return res.status(404).json({ message: "Deal not found" });
+        if (!req.body || typeof req.body !== "object" || Array.isArray(req.body) ||
+            Object.keys(req.body).some((key) => key !== "suppressed" && key !== "reason") ||
+            typeof req.body.suppressed !== "boolean" ||
+            (req.body.reason != null && (typeof req.body.reason !== "string" || req.body.reason.length > 500))) {
+          return res.status(400).json({ message: "Invalid suppression request" });
         }
-
-        // Agents may only modify their own deals
-        if (role === "agent" && deal.owner !== email) {
-          return res.status(403).json({ message: "You may only manage suppression for your own deals" });
-        }
-
         const { suppressed, reason } = req.body as { suppressed: boolean; reason?: string };
-
-        if (suppressed) {
-          await db
-            .update(deals)
-            .set({
-              vasUpsellSuppressedAt: new Date(),
-              vasUpsellSuppressedReason: reason || `Suppressed by ${email}`,
-            } as any)
-            .where(eq(deals.id, dealId));
-        } else {
-          await db
-            .update(deals)
-            .set({
-              vasUpsellSuppressedAt: null,
-              vasUpsellSuppressedReason: null,
-            } as any)
-            .where(eq(deals.id, dealId));
+        const client = await pool.connect();
+        try {
+          await client.query("BEGIN");
+          // A suppression is a merchant action, not merely a mutable deal
+          // field: require an active linked MID and production, live records.
+          const found = await client.query(`
+            SELECT d.contact_id AS "contactId", d.owner
+              FROM deals d JOIN contacts c ON c.id=d.contact_id
+             WHERE d.id=$1 AND d.archived_at IS NULL AND d.record_class='production'
+               AND c.archived_at IS NULL AND c.record_class='production'
+               AND EXISTS (SELECT 1 FROM merchant_mids mm WHERE mm.contact_id=c.id
+                           AND mm.status='active' AND mm.activated_at IS NOT NULL)
+             FOR UPDATE`, [dealId]);
+          const deal = found.rows[0];
+          if (!deal) { await client.query("ROLLBACK"); return res.status(404).json({ message: "Linked active merchant deal not found" }); }
+          if (role === "agent" && deal.owner !== email) {
+            await client.query("ROLLBACK");
+            return res.status(403).json({ message: "You may only manage suppression for your own linked merchant deal" });
+          }
+          const at = suppressed ? new Date() : null;
+          const effectiveReason = suppressed ? (reason?.trim() || `Suppressed by ${email}`) : null;
+          await client.query(`UPDATE deals SET vas_upsell_suppressed_at=$2, vas_upsell_suppressed_reason=$3 WHERE id=$1`,
+            [dealId, at, effectiveReason]);
+          await client.query(`INSERT INTO audit_logs (user_id,action,entity_type,entity_id,actor_type,actor_id,details)
+            VALUES ($1,$2,'deal',$3,'user',$1,$4::jsonb)`,
+            [String(user?.id ?? email) || null, suppressed ? "vas_upsell_suppressed" : "vas_upsell_suppression_lifted",
+              dealId, JSON.stringify({ suppressed, reason: reason ?? null, actor: email, contactId: deal.contactId })]);
+          await client.query("COMMIT");
+          res.json({ ok: true, dealId, suppressed, vasUpsellSuppressedAt: at });
+        } catch (error) {
+          await client.query("ROLLBACK").catch(() => {});
+          throw error;
+        } finally {
+          client.release();
         }
-
-        const { storage } = await import("../storage");
-        await storage.createAuditLog({
-          action: suppressed ? "vas_upsell_suppressed" : "vas_upsell_suppression_lifted",
-          entityType: "deal",
-          entityId: dealId,
-          actorType: "user",
-          details: { suppressed, reason: reason || null, actor: email, contactId: deal.contactId },
-        });
-
-        res.json({ ok: true, dealId, suppressed, vasUpsellSuppressedAt: suppressed ? new Date() : null });
       } catch (err: any) {
         serverError(res, err);
       }

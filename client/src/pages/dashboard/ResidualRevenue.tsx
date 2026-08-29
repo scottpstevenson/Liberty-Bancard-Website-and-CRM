@@ -126,7 +126,8 @@ interface ResidualImportRow {
   agentName: string | null;
 }
 
-function formatCurrency(value: number | string): string {
+function formatCurrency(value: number | string | null | undefined): string {
+  if (value == null) return "—";
   const num = typeof value === "string" ? parseFloat(value) : value;
   return new Intl.NumberFormat("en-US", {
     style: "currency",
@@ -136,7 +137,8 @@ function formatCurrency(value: number | string): string {
   }).format(isNaN(num) ? 0 : num);
 }
 
-function formatCurrencyDetailed(value: number | string): string {
+function formatCurrencyDetailed(value: number | string | null | undefined): string {
+  if (value == null) return "—";
   const num = typeof value === "string" ? parseFloat(value) : value;
   return new Intl.NumberFormat("en-US", {
     style: "currency",
@@ -273,7 +275,7 @@ function ByPartnerTab() {
                       <TableCell className="text-right">{row.activeMerchants}</TableCell>
                       <TableCell className="text-right">{formatCurrency(row.totalGrossResidual)}</TableCell>
                       <TableCell className="text-right font-semibold text-foreground">{formatCurrency(row.totalNetResidual)}</TableCell>
-                      <TableCell className="text-right font-semibold text-emerald-600 dark:text-emerald-400">{formatCurrencyDetailed(row.totalPartnerCommission ?? "0")}</TableCell>
+                       <TableCell className="text-right font-semibold text-emerald-600 dark:text-emerald-400">{formatCurrencyDetailed(row.totalPartnerCommission)}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -545,7 +547,7 @@ export default function ResidualRevenue() {
     return mids;
   }, [groupFilterParentId, allContacts, allDeals]);
 
-  const { data: reports, isLoading: reportsLoading } = useQuery<ResidualReport[]>({
+  const { data: reports, isLoading: reportsLoading, isError: reportsError } = useQuery<ResidualReport[]>({
     queryKey: ["/api/residual-reports"],
   });
 
@@ -696,11 +698,13 @@ export default function ResidualRevenue() {
   const last6Months = reports?.slice(0, 6).reverse() || [];
   const maxRevenue = last6Months.length > 0 ? Math.max(...last6Months.map((r) => r.totalRevenue)) : 0;
 
-  const totalRevenue = currentMonth?.totalRevenue || 0;
-  const activeMerchants = currentMonth?.activeMerchants || 0;
-  const avgRevenuePerMerchant = activeMerchants > 0 ? totalRevenue / activeMerchants : 0;
-  const attritionRate = currentMonth?.attritionRate || 0;
-  const hasData = reports && reports.length > 0;
+  const totalRevenue = currentMonth?.totalRevenue;
+  const activeMerchants = currentMonth?.activeMerchants;
+  const avgRevenuePerMerchant = totalRevenue != null && activeMerchants != null && activeMerchants > 0
+    ? totalRevenue / activeMerchants
+    : null;
+  const attritionRate = currentMonth?.attritionRate;
+  const hasData = !!reports && reports.length > 0;
 
   const filteredMerchants = useMemo(() => {
     if (!merchantResiduals) return [];
@@ -791,7 +795,11 @@ export default function ResidualRevenue() {
             </Button>
           </div>
 
-          {!hasData && !reportsLoading && (
+          {reportsError ? (
+            <Card className="border-destructive/50" data-testid="card-residuals-unavailable">
+              <CardContent className="py-8 text-center text-destructive">Residual report data is unavailable. No portfolio totals are shown.</CardContent>
+            </Card>
+          ) : !hasData && !reportsLoading && (
             <Card className="bg-primary/5 dark:bg-primary/10" data-testid="card-no-data">
               <CardContent className="py-8 text-center">
                 <AlertTriangle className="w-8 h-8 text-muted-foreground mx-auto mb-3" />
@@ -823,7 +831,7 @@ export default function ResidualRevenue() {
                     <Users className="w-4 h-4 text-primary" />
                   </CardHeader>
                   <CardContent>
-                    <div className="text-2xl font-bold" data-testid="text-active-merchants">{activeMerchants.toLocaleString()}</div>
+                    <div className="text-2xl font-bold" data-testid="text-active-merchants">{activeMerchants?.toLocaleString() ?? "—"}</div>
                     <p className="text-xs text-muted-foreground mt-1">Processing merchants</p>
                   </CardContent>
                 </Card>
@@ -843,7 +851,7 @@ export default function ResidualRevenue() {
                     <Percent className="w-4 h-4 text-orange-500" />
                   </CardHeader>
                   <CardContent>
-                    <div className="text-2xl font-bold" data-testid="text-attrition-rate">{attritionRate.toFixed(1)}%</div>
+                    <div className="text-2xl font-bold" data-testid="text-attrition-rate">{attritionRate == null ? "—" : `${attritionRate.toFixed(1)}%`}</div>
                     <p className="text-xs text-muted-foreground mt-1">Monthly merchant churn</p>
                   </CardContent>
                 </Card>

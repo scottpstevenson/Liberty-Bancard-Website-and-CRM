@@ -46,6 +46,27 @@ function parseFilters(query: Record<string, unknown>, channel: Cr04Channel): Cr0
   };
 }
 
+function parseFreezeFilters(value: unknown, channel: Cr04Channel): Cr04ReadyFilters | null {
+  if (value == null) return { channel };
+  if (typeof value !== "object" || Array.isArray(value)) return null;
+  const source = value as Record<string, unknown>;
+  if (Object.keys(source).some((key) => !["score", "vertical", "city", "assignedTo", "channel"].includes(key))) return null;
+  const string = (key: "vertical" | "city" | "assignedTo") => {
+    const value = source[key];
+    return value == null || (typeof value === "string" && value.length <= 120);
+  };
+  if (!string("vertical") || !string("city") || !string("assignedTo") ||
+      (source.score != null && !["hot", "warm", "cold"].includes(String(source.score))) ||
+      (source.channel != null && source.channel !== channel)) return null;
+  return {
+    channel,
+    score: source.score as Cr04ReadyFilters["score"] | undefined,
+    vertical: source.vertical as string | undefined,
+    city: source.city as string | undefined,
+    assignedTo: source.assignedTo as string | undefined,
+  };
+}
+
 export function registerOutreachQueueRoutes(app: Express) {
   app.get("/api/outreach-queue", isDashboardUser, async (req, res) => {
     try {
@@ -57,12 +78,14 @@ export function registerOutreachQueueRoutes(app: Express) {
         page: true,
       });
       if ("error" in pagination) return invalidPagination(res);
+      const cursor = req.query.cursor == null ? 0 : Number(req.query.cursor);
+      if (!Number.isSafeInteger(cursor) || cursor < 0) return invalidPagination(res);
       const channel = parseChannel(req.query.channel);
       if (!channel) return res.status(400).json({ message: "Invalid channel" });
       const result = await queryCr04ReadyProjection({
         scope,
         filters: parseFilters(req.query as Record<string, unknown>, channel),
-        page: pagination.page,
+        cursor,
         limit: pagination.limit,
       });
       res.json(result);
@@ -80,11 +103,13 @@ export function registerOutreachQueueRoutes(app: Express) {
       const result = await queryCr04ReadyProjection({
         scope,
         filters: parseFilters(req.query as Record<string, unknown>, channel),
-        page: 1,
+        cursor: 0,
         limit: 1,
       });
       res.json({
         count: result.total,
+          exact: result.exactTotal,
+          incomplete: !result.exactTotal,
         channel,
         policyVersion: result.policyVersion,
         asOf: result.asOf,
@@ -107,10 +132,15 @@ export function registerOutreachQueueRoutes(app: Express) {
         const result = await queryCr04ReadyProjection({
           scope,
           filters: parseFilters(req.query as Record<string, unknown>, channel),
-          page: 1,
+          cursor: 0,
           limit: 1,
         });
-        res.json({ assignees: result.assignees, policyVersion: result.policyVersion, channel });
+        res.json({
+          assignees: result.assignees,
+          complete: false,
+          policyVersion: result.policyVersion,
+          channel,
+        });
       } catch (err) {
         serverError(res, err);
       }
@@ -157,14 +187,16 @@ export function registerOutreachQueueRoutes(app: Express) {
         if (!idempotencyKey || idempotencyKey.length > 200) {
           return res.status(400).json({ message: "Idempotency-Key is required" });
         }
+        const filters = parseFreezeFilters(req.body?.filters, channel);
+        if (!filters) return res.status(400).json({ message: "Invalid cohort filters" });
         const run = await freezeCr04Cohort({
           scope,
           channel,
-          filters: { ...(req.body?.filters ?? {}), channel },
+          filters,
           idempotencyKey,
           createdBy: scope.actorId,
         });
-        res.status(201).json(run);
+        res.status(run.status === "frozen" ? 201 : 202).json(run);
       } catch (err) {
         serverError(res, err);
       }
@@ -182,7 +214,7 @@ export function registerOutreachQueueRoutes(app: Express) {
         const result = await pool.query(
           `UPDATE cr04_cohort_runs
               SET status='cancelled', cancelled_at=COALESCE(cancelled_at,NOW())
-            WHERE id=$1 AND status IN ('frozen','cancelled')
+             WHERE id=$1 AND status IN ('building','frozen','cancelled')
             RETURNING id,status,cancelled_at AS "cancelledAt"`,
           [id],
         );

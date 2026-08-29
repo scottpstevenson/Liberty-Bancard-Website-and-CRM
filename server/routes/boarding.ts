@@ -64,7 +64,7 @@ async function recordBoardingFailureAndAlert(
     return { alertCreated: false, existingAlert: true };
   }
 
-  await storage.createTask({
+  await storage.createAuthorityTask({
     dealId,
     contactId: deal.contactId || undefined,
     title: `Persistent Boarding Failure — Deal #${dealId}`,
@@ -177,7 +177,7 @@ async function performBoardingStatusRefresh(dealId: number): Promise<BoardingRef
         (t: any) => t.dealId === dealId && t.title?.includes("More Info Required") && t.status === "pending"
       );
       if (!hasInfoTask) {
-        await storage.createTask({
+        await storage.createAuthorityTask({
           dealId,
           contactId: deal.contactId || undefined,
           title: `More Info Required — Processor for Deal #${dealId}`,

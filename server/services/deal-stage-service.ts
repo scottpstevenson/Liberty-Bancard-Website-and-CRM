@@ -315,7 +315,7 @@ async function ensureOnboardingSLATasks(
   for (const slaTask of CLOSED_WON_SLA_TASKS) {
     if (existingTitles.has(slaTask.title)) continue;
     try {
-      await storage.createTask({
+      await storage.createAuthorityTask({
         title: slaTask.title,
         priority: slaTask.priority,
         dueDate: new Date(baseDate.getTime() + slaTask.dueDays * 86_400_000),

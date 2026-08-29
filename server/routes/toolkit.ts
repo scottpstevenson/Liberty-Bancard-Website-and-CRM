@@ -125,6 +125,13 @@ export function registerToolkitRoutes(app: Express) {
     try {
       const config = getGhlConfig();
       if (!config) return res.status(503).json({ message: "GHL not configured" });
+      // A provider conversation ID is not sufficient authority: resolve it to
+      // the configured account's local CRM contact before returning its PII.
+      const conversation = await ghlFetch(`/conversations/${req.params.conversationId}`);
+      const ghlContactId = conversation?.contactId || conversation?.conversation?.contactId;
+      if (!ghlContactId || !await storage.getContactByGhlContactId(ghlContactId)) {
+        return res.status(404).json({ message: "Conversation is not linked to a CRM contact" });
+      }
       const result = await ghlFetch(
         `/conversations/${req.params.conversationId}/messages?limit=50`
       );
@@ -273,6 +280,11 @@ export function registerToolkitRoutes(app: Express) {
       const config = getGhlConfig();
       if (!config) return res.status(503).json({ message: "GHL not configured" });
       const { conversationId } = req.params;
+      const conversation = await ghlFetch(`/conversations/${conversationId}`);
+      const ghlContactId = conversation?.contactId || conversation?.conversation?.contactId;
+      if (!ghlContactId || !await storage.getContactByGhlContactId(ghlContactId)) {
+        return res.status(404).json({ message: "Conversation is not linked to a CRM contact" });
+      }
       await ghlFetch(`/conversations/${conversationId}`, {
         method: "PUT",
         body: JSON.stringify({ unreadCount: 0 }),

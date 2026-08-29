@@ -129,7 +129,7 @@ export async function runAbandonedStatementCheck(): Promise<{ checked: number; t
         }
 
         // ── Rep task ─────────────────────────────────────────────────────────────
-        await storage.createTask({
+        await storage.createAuthorityTask({
           contactId: req.contactId,
           dealId: req.dealId ?? undefined,
           title: "Follow up: merchant statement upload not completed",

@@ -834,15 +834,61 @@ export const tickets = pgTable("tickets", {
   slaDeadline: timestamp("sla_deadline"),
   firstResponseAt: timestamp("first_response_at"),
   resolvedAt: timestamp("resolved_at"),
+  // Authority fields are additive.  The display status remains a legacy
+  // projection while authorityState is the only state used by new commands.
+  producer: text("producer"),
+  issueKey: text("issue_key"),
+  subjectType: text("subject_type"),
+  subjectId: integer("subject_id"),
+  generation: integer("generation").notNull().default(0),
+  canonicalAssignee: text("canonical_assignee"),
+  commandKey: text("command_key"),
+  authorityFence: integer("authority_fence").notNull().default(0),
+  terminalReason: text("terminal_reason"),
+  authorityState: text("authority_state").notNull().default("open"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => [
+  uniqueIndex("tickets_command_key_uidx").on(table.commandKey).where(sql`command_key IS NOT NULL`),
+  index("tickets_subject_identity_idx").on(table.subjectType, table.subjectId, table.generation),
+  uniqueIndex("tickets_active_authority_subject_uidx").on(table.producer, table.issueKey, table.subjectType, table.subjectId)
+    .where(sql`producer IS NOT NULL AND authority_state IN ('open', 'in_progress')`),
+  check("tickets_authority_state_check", sql`authority_state IN ('open', 'in_progress', 'completed', 'cancelled')`),
+]);
 
 export const insertTicketSchema = createInsertSchema(tickets).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
+  producer: true,
+  issueKey: true,
+  subjectType: true,
+  subjectId: true,
+  generation: true,
+  canonicalAssignee: true,
+  commandKey: true,
+  authorityFence: true,
+  terminalReason: true,
+  authorityState: true,
 });
+
+export const ticketAuthorityEvents = pgTable("ticket_authority_events", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  ticketId: integer("ticket_id").notNull().references(() => tickets.id, { onDelete: "cascade" }),
+  eventKey: text("event_key").notNull(),
+  eventType: text("event_type").notNull(),
+  producer: text("producer").notNull(),
+  commandKey: text("command_key"),
+  fence: integer("fence").notNull(),
+  fromState: text("from_state"),
+  toState: text("to_state"),
+  terminalReason: text("terminal_reason"),
+  payload: jsonb("payload"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("ticket_authority_events_ticket_key_uidx").on(table.ticketId, table.eventKey),
+  index("ticket_authority_events_ticket_created_idx").on(table.ticketId, table.createdAt),
+]);
 
 export const DOCUMENT_CATEGORIES = [
   "Application",
@@ -920,13 +966,62 @@ export const tasks = pgTable("tasks", {
   createdAt: timestamp("created_at").defaultNow(),
   source: text("source"),
   automationKey: text("automation_key"),
-});
+  // Task 1721 authority projection. `status` deliberately remains intact for
+  // legacy readers; authorityState has the constrained canonical vocabulary.
+  producer: text("producer"),
+  issueKey: text("issue_key"),
+  subjectType: text("subject_type"),
+  subjectId: integer("subject_id"),
+  generation: integer("generation").notNull().default(0),
+  canonicalAssignee: text("canonical_assignee"),
+  commandKey: text("command_key"),
+  authorityFence: integer("authority_fence").notNull().default(0),
+  terminalReason: text("terminal_reason"),
+  authorityState: text("authority_state").notNull().default("open"),
+}, (table) => [
+  uniqueIndex("tasks_command_key_uidx").on(table.commandKey).where(sql`command_key IS NOT NULL`),
+  uniqueIndex("tasks_active_authority_issue_uidx")
+    .on(table.producer, table.issueKey, table.subjectType, table.subjectId)
+    .where(sql`producer IS NOT NULL AND issue_key IS NOT NULL AND authority_state IN ('open', 'in_progress')`),
+  index("tasks_subject_identity_idx").on(table.subjectType, table.subjectId, table.generation),
+  check("tasks_authority_state_check", sql`authority_state IN ('open', 'in_progress', 'completed', 'cancelled')`),
+]);
+
+// Append-only command/transition record. This intentionally has no updatedAt:
+// retries use eventKey and cannot mutate an already recorded authority fact.
+export const taskAuthorityEvents = pgTable("task_authority_events", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  taskId: integer("task_id").notNull().references(() => tasks.id, { onDelete: "cascade" }),
+  eventKey: text("event_key").notNull(),
+  eventType: text("event_type").notNull(),
+  producer: text("producer").notNull(),
+  commandKey: text("command_key"),
+  fence: integer("fence").notNull(),
+  fromState: text("from_state"),
+  toState: text("to_state"),
+  terminalReason: text("terminal_reason"),
+  payload: jsonb("payload"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("task_authority_events_task_key_uidx").on(table.taskId, table.eventKey),
+  index("task_authority_events_task_created_idx").on(table.taskId, table.createdAt),
+]);
 
 export const insertTaskSchema = createInsertSchema(tasks).omit({
   id: true,
   createdAt: true,
   source: true,
   automationKey: true,
+  producer: true,
+  issueKey: true,
+  subjectType: true,
+  subjectId: true,
+  generation: true,
+  canonicalAssignee: true,
+  commandKey: true,
+  authorityFence: true,
+  terminalReason: true,
+  authorityState: true,
 });
 
 export const auditLogs = pgTable("audit_logs", {
@@ -1851,6 +1946,14 @@ export const cr04CohortRuns = pgTable("cr04_cohort_runs", {
   consumedAt: timestamp("consumed_at"),
   memberCount: integer("member_count").notNull().default(0),
   membershipFingerprint: text("membership_fingerprint").notNull(),
+  buildCursor: integer("build_cursor").notNull().default(0),
+  reconciliationCursor: integer("reconciliation_cursor").notNull().default(0),
+  buildPhase: text("build_phase").notNull().default("building"),
+  leaseOwner: text("lease_owner"),
+  leaseExpiresAt: timestamp("lease_expires_at"),
+  buildFence: integer("build_fence").notNull().default(0),
+  failedAt: timestamp("failed_at"),
+  failureCode: text("failure_code"),
   createdBy: text("created_by").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (table) => [
@@ -5854,8 +5957,15 @@ export type InsertMasterLeadBatch = typeof masterLeadBatches.$inferInsert;
 // ---------------------------------------------------------------------------
 export const inboxItems = pgTable("inbox_items", {
   id: serial("id").primaryKey(),
-  sourceItemId: text("source_item_id").notNull(), // e.g. "email-123", "sms-456"
+  // Provider item ID only. The public route key is namespace::sourceItemId.
+  sourceItemId: text("source_item_id").notNull(),
   sourceItemType: text("source_item_type").notNull().default("email"), // email|sms|ghl_chat|statement
+  // Immutable, server-observed identity/content. The namespace binds provider
+  // account/location separately from the provider item ID.
+  sourceNamespace: text("source_namespace").default("legacy"),
+  providerConversationId: text("provider_conversation_id"),
+  sourceBody: text("source_body"),
+  sourceReceivedAt: timestamp("source_received_at"),
   contactId: integer("contact_id").references(() => contacts.id),
   dealId: integer("deal_id").references(() => deals.id),
   ownerId: text("owner_id"),
@@ -5870,7 +5980,7 @@ export const inboxItems = pgTable("inbox_items", {
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
-  uniqueIndex("inbox_items_source_item_id_uidx").on(table.sourceItemId),
+  uniqueIndex("inbox_items_source_identity_uidx").on(sql`COALESCE(${table.sourceNamespace}, 'legacy')`, table.sourceItemId),
   index("inbox_items_status_idx").on(table.status),
   index("inbox_items_contact_id_idx").on(table.contactId),
   index("inbox_items_sla_due_at_idx").on(table.slaDueAt),
@@ -5894,15 +6004,21 @@ export const statementReviews = pgTable("statement_reviews", {
   aiSummary: jsonb("ai_summary"),
   analystNotes: text("analyst_notes"),
   savingsEstimateOverride: text("savings_estimate_override"),
+  // Server-derived evidence used for every human-entered savings figure.
+  savingsEvidence: jsonb("savings_evidence"),
   followUpDraft: text("follow_up_draft"),
   followUpSentAt: timestamp("follow_up_sent_at"),
   reviewedAt: timestamp("reviewed_at"),
+  version: integer("version").notNull().default(0),
+  createCommandKey: text("create_command_key"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
   index("statement_reviews_contact_id_idx").on(table.contactId),
   index("statement_reviews_status_idx").on(table.status),
   index("statement_reviews_document_id_idx").on(table.documentId),
+  uniqueIndex("statement_reviews_document_identity_uidx").on(table.documentId).where(sql`document_id IS NOT NULL`),
+  uniqueIndex("statement_reviews_create_command_key_uidx").on(table.createCommandKey).where(sql`create_command_key IS NOT NULL`),
 ]);
 
 export const insertStatementReviewSchema = createInsertSchema(statementReviews).omit({ id: true, createdAt: true, updatedAt: true });
