@@ -873,8 +873,48 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
         // Contact redirects are resolved only at a live delivery boundary.
         // Historical reads intentionally keep their original contact IDs.
         if (enrollment.contactId) {
-          const { resolveLiveContactId } = await import("./contact-identity");
-          const resolvedContactId = await resolveLiveContactId(enrollment.contactId);
+          const {
+            CONTACT_MERGE_EFFECT_HOLD_REASON,
+            resolveLiveContactRedirect,
+          } = await import("./contact-identity");
+          const redirect = await resolveLiveContactRedirect(enrollment.contactId);
+          const resolvedContactId = redirect.effectiveContactId;
+          if (redirect.effectHold) {
+            const enrollMeta = (enrollment.metadata as Record<string, unknown> | null) ?? {};
+            const holdReason = CONTACT_MERGE_EFFECT_HOLD_REASON;
+            const alreadyDeferred =
+              enrollMeta._holdDeferredStep === currentStep
+              && enrollMeta._holdDeferredReason === holdReason;
+            await storage.updateSequenceEnrollment(enrollment.id, {
+              nextActionAt: new Date(Date.now() + 5 * 60 * 1000),
+              metadata: {
+                ...enrollMeta,
+                _holdDeferredStep: currentStep,
+                _holdDeferredReason: holdReason,
+                _holdDeferredAt: new Date().toISOString(),
+              },
+            });
+            if (!alreadyDeferred) {
+              await storage.createAuditLog({
+                action: "sequence_step_merge_handoff_deferred",
+                entityType: "contact",
+                entityId: resolvedContactId,
+                actorType: "system",
+                details: {
+                  enrollmentId: enrollment.id,
+                  sequenceId: sequence.id,
+                  currentStep,
+                  reason: holdReason,
+                  redirectOperationIds: redirect.effectHoldOperationIds,
+                },
+              });
+            }
+            processed++;
+            continue;
+          }
+          // Keep the deprecated ID as redirect provenance while a temporary
+          // handoff hold is active. Move the enrollment only after the hold
+          // clears so every retry tick must rediscover and honor that hold.
           if (resolvedContactId !== enrollment.contactId) {
             await storage.updateSequenceEnrollment(enrollment.id, { contactId: resolvedContactId });
             enrollment.contactId = resolvedContactId;

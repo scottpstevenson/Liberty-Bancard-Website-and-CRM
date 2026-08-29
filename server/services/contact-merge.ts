@@ -107,6 +107,17 @@ export class ContactMergeError extends Error {
   constructor(public readonly code: string, message: string) { super(message); }
 }
 
+type ContactMergeTestHooks = {
+  afterLocalCommit?: (operation: any) => Promise<void>;
+};
+let contactMergeTestHooks: ContactMergeTestHooks | null = null;
+export function setContactMergeTestHooks(hooks: ContactMergeTestHooks | null): void {
+  if (process.env.NODE_ENV !== "test") {
+    throw new Error("Contact merge test hooks are available only in NODE_ENV=test");
+  }
+  contactMergeTestHooks = hooks;
+}
+
 export type MergePreview = {
   operationId: string;
   previewHash: string;
@@ -531,6 +542,7 @@ export async function executeContactMerge(operationId: string, actorId: string) 
 
   // No provider call occurs above. The authority handoff adds only restrictive
   // survivor facts with a stable merge event key and leaves source subjects intact.
+  await contactMergeTestHooks?.afterLocalCommit?.(operation);
   const { carryRestrictiveConsentForContactMerge } = await import("./consent-authority");
   try {
     await carryRestrictiveConsentForContactMerge(Number(operation.survivor_contact_id), Number(operation.deprecated_contact_id), operationId);

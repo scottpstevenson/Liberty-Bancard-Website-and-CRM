@@ -24,6 +24,11 @@ export async function runAbandonedStatementCheck(): Promise<{ checked: number; t
         const { resolveLiveContactRedirect } = await import("./contact-identity");
         const redirect = await resolveLiveContactRedirect(req.contactId);
         const liveContactId = redirect.effectiveContactId;
+        if (redirect.effectHold) {
+          // This worker is periodic. Leave the request untouched so the next
+          // tick retries after restrictive consent handoff completes.
+          continue;
+        }
 
         const existingTask = await db.select({ id: tasks.id })
           .from(tasks)

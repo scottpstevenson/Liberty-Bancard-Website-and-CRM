@@ -35,7 +35,7 @@ const REQUIRED_NON_FK_AND_PAYLOADS = [
   ["outbound_send_log", "contact_id"],
   ["zerobounce_validation_attempts", "contact_id"],
   ["abandoned-statement-worker.ts", "resolveLiveContactRedirect"],
-  ["sequence-worker.ts", "resolveLiveContactId"],
+  ["sequence-worker.ts", "resolveLiveContactRedirect"],
   ["queue-manager.ts", "resolveLiveContactId"],
 ] as const;
 for (const [fileOrTable, required] of REQUIRED_NON_FK_AND_PAYLOADS) {

@@ -276,6 +276,36 @@ ok(identityAuthoritySource.includes("lockCommercialGraph(executor") &&
   identityAuthoritySource.includes("lockCommercialGraphMembershipSets(executor, nodes, [\"identity\"])") &&
   identityAuthoritySource.includes("recordContactIdentityObservationsForPgContacts"),
   "identity observation adapters bypass the shared graph lock order");
+ok(identityAuthoritySource.includes("CONTACT_REDIRECT_IDENTITY_STATUSES") &&
+  identityAuthoritySource.includes('"committed"') &&
+  identityAuthoritySource.includes('"reconciliation_pending"') &&
+  identityAuthoritySource.includes('"completed"') &&
+  identityAuthoritySource.includes("isContactMergeEffectHoldState"),
+  "live redirect authority does not separate canonical identity from temporary effect holds");
+ok(resolutionText.includes("isIdentityAuthoritativeRedirectState") &&
+  resolutionText.includes("isContactMergeEffectHoldState") &&
+  resolutionText.includes("CONTACT_MERGE_CONSENT_HANDOFF_PENDING"),
+  "commercial redirect readers drifted from the shared redirect-state contract");
+const sequenceWorkerSource = read("server/services/sequence-worker.ts");
+const promotionalWorkerSource = read("server/services/queue-manager.ts");
+const promotionalEligibilitySource = read("server/services/promotional-enrollment-eligibility.ts");
+const abandonedStatementSource = read("server/services/abandoned-statement-worker.ts");
+ok(sequenceWorkerSource.includes("sequence_step_merge_handoff_deferred") &&
+  sequenceWorkerSource.includes("redirect.effectHold"),
+  "sequence work does not retryably defer the temporary merge hold");
+ok(sequenceWorkerSource.indexOf("if (redirect.effectHold)") <
+  sequenceWorkerSource.indexOf("if (resolvedContactId !== enrollment.contactId)"),
+  "sequence work rewrites redirect provenance before enforcing the temporary hold");
+ok(promotionalWorkerSource.includes("redirect.effectHold") &&
+  promotionalWorkerSource.includes("CONTACT_MERGE_EFFECT_HOLD_REASON"),
+  "promotional enrollment work does not defer the temporary merge hold");
+ok(promotionalWorkerSource.includes("recoverDeferredPromotionalEnrollments") &&
+  promotionalEligibilitySource.includes("RESUBMISSION_RECOVERY_MARKER") &&
+  promotionalEligibilitySource.includes("FOR UPDATE SKIP LOCKED"),
+  "promotional merge-hold recovery is not durable or does not preserve resubmission intent");
+ok(abandonedStatementSource.includes("redirect.effectHold") &&
+  abandonedStatementSource.includes("Leave the request untouched"),
+  "periodic abandoned-statement work does not retry the temporary merge hold");
 const mergeAuthoritySource = read("server/services/contact-merge.ts");
 ok((mergeAuthoritySource.match(/lockCommercialGraph\(tx/g) ?? []).length >= 2 &&
   mergeAuthoritySource.includes("[\"contact_redirect\"]"),
@@ -286,6 +316,7 @@ ok(!lockOrderMigration.includes("pg_advisory_xact_lock") &&
   "graph revision trigger still discovers advisory locks after domain-row locking");
 
 const contactability = source("server/services/contactability.ts");
+const contactabilityText = read("server/services/contactability.ts");
 let contactabilityBindingType = false;
 let inboundAuthorizationBound = false;
 let accountTransactionalPresent = false;
@@ -303,6 +334,11 @@ walk(contactability, (node) => {
 ok(contactabilityBindingType, "contactability input lacks the typed inbound request/recipient binding");
 ok(inboundAuthorizationBound, "contactability does not pass both inbound binding fields to commercial authority");
 ok(accountTransactionalPresent, "unbound transactional contactability is not mapped to account_transactional");
+ok(contactabilityText.includes("isContactMergeEffectHoldState") &&
+  !contactabilityText.includes("status IN ('executing', 'committed')"),
+  "contactability merge fence drifted from the shared temporary-hold contract");
+ok(!/status IN \('committed','reconciliation_pending'\)[\s\S]{0,80}LIMIT 1/.test(contactabilityText),
+  "contactability samples one merge operation and can miss another active hold");
 
 const migration = read("migrations/0166_cro02_shadow_graph.sql");
 for (const constraint of [

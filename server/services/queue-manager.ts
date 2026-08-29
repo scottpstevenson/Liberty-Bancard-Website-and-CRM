@@ -1,4 +1,5 @@
 import { Queue, Worker, type ConnectionOptions, type Job } from "bullmq";
+import { sql } from "drizzle-orm";
 import { getBullMqTestPrefix, getRedisConnection, type QueueMode } from "./queue-connection";
 import { storage } from "../storage";
 
@@ -1249,8 +1250,12 @@ class QueueManager {
 
             const jobRowId: number = _job.data.promotionalEnrollmentJobId;
             let contactId: number = _job.data.contactId;
-            const { resolveLiveContactId } = await import("./contact-identity");
-            contactId = await resolveLiveContactId(contactId);
+            const {
+              CONTACT_MERGE_EFFECT_HOLD_REASON,
+              resolveLiveContactRedirect,
+            } = await import("./contact-identity");
+            const redirect = await resolveLiveContactRedirect(contactId);
+            contactId = redirect.effectiveContactId;
             const triggerType: string = _job.data.triggerType;
             const formType: string | null = _job.data.formType ?? null;
             const isResubmission: boolean = _job.data.isResubmission ?? false;
@@ -1258,6 +1263,22 @@ class QueueManager {
             // Top-level try/catch ensures the row never gets stranded in "processing"
             // regardless of where an error originates (eligibility eval, enroll, DB write).
             try {
+              if (redirect.effectHold) {
+                await dbInst.execute(sql`
+                  UPDATE promotional_enrollment_jobs
+                  SET status='deferred_queue_unavailable',
+                      reason_codes=ARRAY(
+                        SELECT DISTINCT unnest(
+                          COALESCE(reason_codes,ARRAY[]::text[])
+                          || ARRAY[${CONTACT_MERGE_EFFECT_HOLD_REASON}]::text[]
+                        )
+                      ),
+                      attempts=attempts+1,
+                      processed_at=NULL
+                  WHERE id=${jobRowId}
+                `);
+                return;
+              }
               await dbInst
                 .update(promotionalEnrollmentJobs)
                 .set({ status: "processing", attempts: (_job.attemptsMade ?? 0) + 1 })
@@ -1313,6 +1334,7 @@ class QueueManager {
                   .set({
                     status: terminalStatus,
                     enrollmentIds: enrollResult.enrollmentIds.length > 0 ? enrollResult.enrollmentIds : null,
+                    reasonCodes: null,
                     processedAt: new Date(),
                   })
                   .where(eq(promotionalEnrollmentJobs.id, jobRowId));
@@ -1339,6 +1361,8 @@ class QueueManager {
             await recoverValidationIntents();
             const { recoverCampaignQueueRuns } = await import("./campaign-engine");
             await recoverCampaignQueueRuns();
+            const { recoverDeferredPromotionalEnrollments } = await import("./promotional-enrollment-eligibility");
+            await recoverDeferredPromotionalEnrollments();
           }
           break;
         }

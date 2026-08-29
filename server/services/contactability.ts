@@ -12,6 +12,7 @@ import { contacts, consentAuditLogs, consentSubjects, consentSubjectChannelState
 import { eq, and, desc, count, gte, sql, not, isNull, inArray } from "drizzle-orm";
 import { featureFlags } from "./feature-flags";
 import { normalizeConsentPhone } from "./consent-authority";
+import { isContactMergeEffectHoldState } from "./contact-identity";
 import {
   isWithinBusinessHours,
   getTimezoneFromState,
@@ -428,15 +429,12 @@ export async function evaluateContactability(
   // consent handoff; no automated send may proceed until the operation reaches
   // a post-handoff state.
   const mergeFence = await db.execute(sql`
-    SELECT 1 FROM contact_merge_operations
+    SELECT status,reconciliation_status FROM contact_merge_operations
     WHERE (${contactId} IN (survivor_contact_id, deprecated_contact_id))
-      AND (
-        status IN ('executing', 'committed')
-        OR (status = 'reconciliation_pending' AND reconciliation_status = 'consent_handoff_retry_required')
-      )
-    LIMIT 1
+      AND status IN ('committed','reconciliation_pending')
   `);
-  if ((mergeFence as any).rows?.[0]) {
+  if (((mergeFence as any).rows ?? []).some((row: any) =>
+    isContactMergeEffectHoldState(String(row.status), row.reconciliation_status))) {
     return blocked("contact_merge_consent_handoff_pending", {
       nextBestCompliantAction: "Wait for the reviewed contact merge consent handoff to complete",
     });

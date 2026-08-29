@@ -10,6 +10,10 @@ import {
   type ClassificationSubjectType,
 } from "./commercial-classification-authority";
 import { lockCommercialGraph } from "./commercial-graph-locks";
+import {
+  isContactMergeEffectHoldState,
+  isIdentityAuthoritativeRedirectState,
+} from "./contact-identity";
 import type {
   CommercialClass, CommercialIdentityResolution,
   CommercialOrganizationLinkResolution, CommercialProvenanceResolution,
@@ -76,6 +80,20 @@ export type ShadowDecision = {
 };
 type Executor = { execute: (query: ReturnType<typeof sql>) => Promise<unknown> };
 const rows = (result: unknown) => ((result as any)?.rows ?? []) as any[];
+
+type CommercialResolutionTestHooks = {
+  afterInitialRedirectDiscovery?: (discoveries: ReadonlyArray<{
+    startId: number; effectiveId: number; chain: number[]; conflict: boolean;
+  }>, attempt: number) => Promise<void>;
+  forceGraphDiscoveryDrift?: (attempt: number) => boolean;
+};
+let commercialResolutionTestHooks: CommercialResolutionTestHooks | null = null;
+export function setCommercialResolutionTestHooks(hooks: CommercialResolutionTestHooks | null): void {
+  if (process.env.NODE_ENV !== "test") {
+    throw new Error("Commercial resolution test hooks are available only in NODE_ENV=test");
+  }
+  commercialResolutionTestHooks = hooks;
+}
 const canonicalJson = (value: unknown): string => {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
   if (value && typeof value === "object") return `{${Object.entries(value as Record<string, unknown>)
@@ -309,7 +327,7 @@ export async function resolveCommercialGraph(input: {
     return { ...failed, allowed: false, resolution: "quarantined",
       reasonCodes: ["SUBJECT_MISSING"], policyVersion: 0, policyFingerprint: "" };
   }
-  const run = async (tx: Executor, retryOnDiscoveryDrift = false) => {
+  const run = async (tx: Executor, retryOnDiscoveryDrift = false, attempt = 0) => {
     // The singleton control row is configuration metadata, not an observation
     // mutex. Passive authorization must never serialize globally on it.
     const lockPolicy = Boolean(input.persist || input.transaction || input.expectedFingerprint);
@@ -332,12 +350,14 @@ export async function resolveCommercialGraph(input: {
       let conflict = false;
       const visited = new Set(chain);
       for (let depth = 0; depth < 8; depth++) {
-        const found = rows(await tx.execute(sql`SELECT r.id,r.survivor_contact_id,r.operation_id
+        const found = rows(await tx.execute(sql`SELECT r.id,r.survivor_contact_id,r.operation_id,o.status,o.reconciliation_status
           FROM contact_merge_redirects r JOIN contact_merge_operations o ON o.id=r.operation_id
-          WHERE r.deprecated_contact_id=${currentId} AND r.active
-            AND o.status IN ('completed','reconciliation_pending') ORDER BY r.id`));
+          WHERE r.deprecated_contact_id=${currentId} AND r.active ORDER BY r.id`));
         if (found.length > 1) { conflict = true; break; }
         if (!found.length) break;
+        if (!isIdentityAuthoritativeRedirectState(String(found[0].status))) {
+          conflict = true; break;
+        }
         const next = Number(found[0].survivor_contact_id);
         if (visited.has(next) || depth === 7) { conflict = true; break; }
         visited.add(next); chain.push(next); currentId = next;
@@ -350,12 +370,14 @@ export async function resolveCommercialGraph(input: {
       let conflict = false;
       const visited = new Set(chain);
       for (let depth = 0; depth < 8; depth++) {
-        const found = (await pool.query(`SELECT r.id,r.survivor_contact_id,r.operation_id
+        const found = (await pool.query(`SELECT r.id,r.survivor_contact_id,r.operation_id,o.status,o.reconciliation_status
           FROM contact_merge_redirects r JOIN contact_merge_operations o ON o.id=r.operation_id
-          WHERE r.deprecated_contact_id=$1 AND r.active
-            AND o.status IN ('completed','reconciliation_pending') ORDER BY r.id`, [currentId])).rows;
+          WHERE r.deprecated_contact_id=$1 AND r.active ORDER BY r.id`, [currentId])).rows;
         if (found.length > 1) { conflict = true; break; }
         if (!found.length) break;
+        if (!isIdentityAuthoritativeRedirectState(String(found[0].status))) {
+          conflict = true; break;
+        }
         const next = Number(found[0].survivor_contact_id);
         if (visited.has(next) || depth === 7) { conflict = true; break; }
         visited.add(next); chain.push(next); currentId = next;
@@ -404,6 +426,7 @@ export async function resolveCommercialGraph(input: {
         ref.id = discovery.effectiveId;
       }
     }
+    await commercialResolutionTestHooks?.afterInitialRedirectDiscovery?.(redirectDiscoveries, attempt);
     rootRefs.sort((a, b) => ranks[a.type] - ranks[b.type] || a.id - b.id);
     const graphNodes = [
       ...rootRefs.map(ref => ({ type: ref.type, id: ref.id })),
@@ -421,7 +444,7 @@ export async function resolveCommercialGraph(input: {
       "contact_business", "contact_redirect", "identity",
       "legacy_company_business", "relationship",
     ]);
-    let graphDiscoveryDrift = false;
+    let graphDiscoveryDrift = commercialResolutionTestHooks?.forceGraphDiscoveryDrift?.(attempt) ?? false;
     for (const discovery of redirectDiscoveries) {
       const current = await discoverContactRedirect(discovery.startId);
       const committed = await discoverCommittedContactRedirect(discovery.startId);
@@ -458,7 +481,8 @@ export async function resolveCommercialGraph(input: {
     const contactIdList = sql.join(contactIds.map(id => sql`${id}`), sql`, `);
     const graphContactIds = [...new Set(graphNodes.filter(r => r.type === "contact").map(r => r.id))];
     const graphContactIdList = sql.join(graphContactIds.map(id => sql`${id}`), sql`, `);
-    const redirectRows = graphContactIds.length ? rows(await tx.execute(sql`SELECT r.*,o.status AS operation_status
+    const redirectRows = graphContactIds.length ? rows(await tx.execute(sql`SELECT r.*,o.status AS operation_status,
+      o.reconciliation_status AS operation_reconciliation_status
       FROM contact_merge_redirects r JOIN contact_merge_operations o ON o.id=r.operation_id
       WHERE r.deprecated_contact_id IN (${graphContactIdList}) OR r.survivor_contact_id IN (${graphContactIdList})
       ORDER BY r.deprecated_contact_id,r.survivor_contact_id,r.id FOR UPDATE`)) : [];
@@ -504,8 +528,13 @@ export async function resolveCommercialGraph(input: {
       ? rows(await tx.execute(sql`SELECT * FROM contact_source_events
           WHERE id IN (${sourcePointerList}) ORDER BY contact_id,id FOR UPDATE`)) : [];
 
-    if (purposePolicy.axes.identity === "required"
-        && (redirectConflict || redirectRows.some(r => r.operation_status === "reconciliation_pending"))) reasons.push("REDIRECT_UNRESOLVED");
+    if (purposePolicy.axes.identity === "required" && redirectConflict) reasons.push("REDIRECT_UNRESOLVED");
+    const mergeHandoffBlocksEffect = input.effect !== "commercial_reporting"
+      && input.effect !== "internal_test";
+    if (mergeHandoffBlocksEffect && redirectRows.some(r => isContactMergeEffectHoldState(
+      String(r.operation_status),
+      r.operation_reconciliation_status,
+    ))) reasons.push("CONTACT_MERGE_CONSENT_HANDOFF_PENDING");
     if (purposePolicy.axes.identity === "required" && collisions.length) reasons.push("IDENTITY_COLLISION");
     const effectiveLinks = links.filter(r => Number(r.contact_id) === effectiveId);
     const isReviewedVerifiedLink = (link: any) =>
@@ -603,11 +632,14 @@ export async function resolveCommercialGraph(input: {
     }
     return decision;
   };
-  if (input.transaction) return run(input.transaction);
+  // A caller-owned transaction cannot be transparently replaced here. Throwing
+  // the same drift signal forces its owner to roll back instead of accepting or
+  // persisting a STALE_GRAPH decision from the obsolete discovery.
+  if (input.transaction) return run(input.transaction, true);
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       return await db.transaction(
-        (tx: any) => run(tx, true),
+        (tx: any) => run(tx, true, attempt),
         { isolationLevel: "serializable" },
       );
     } catch (error) {

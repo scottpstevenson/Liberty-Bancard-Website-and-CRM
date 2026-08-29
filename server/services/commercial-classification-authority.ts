@@ -172,6 +172,23 @@ function rows(result: unknown): any[] {
   return ((result as { rows?: unknown[] })?.rows ?? []) as any[];
 }
 
+const CLASSIFICATION_GRAPH_DRIFT_RETRIES = 3;
+async function withClassificationGraphDriftRetry<T>(
+  run: (tx: any) => Promise<T>,
+): Promise<T> {
+  for (let attempt = 0; attempt < CLASSIFICATION_GRAPH_DRIFT_RETRIES; attempt++) {
+    try {
+      return await db.transaction(run);
+    } catch (error) {
+      if ((error as Error).message !== "CRO02_GRAPH_DISCOVERY_DRIFT") throw error;
+      if (attempt === CLASSIFICATION_GRAPH_DRIFT_RETRIES - 1) {
+        throw new Error("CRO02_GRAPH_RETRY_EXHAUSTED");
+      }
+    }
+  }
+  throw new Error("CRO02_GRAPH_RETRY_EXHAUSTED");
+}
+
 async function validateTypedEvidence(
   tx: any,
   refs: ClassificationEvidenceRef[],
@@ -657,7 +674,7 @@ export async function createPreviewCommand(
   // execution silently use a later graph. The resolver is shadow-only here;
   // its result cannot change the legacy classification transition semantics.
   const { resolveCommercialGraph } = await import("./commercial-resolution");
-  return db.transaction(async (tx) => {
+  return withClassificationGraphDriftRetry(async (tx) => {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`classification:${params.idempotencyKey}`}))`);
     const graph = await resolveCommercialGraph({
       subjectType: params.subjectType, subjectId: params.subjectId,
@@ -734,7 +751,7 @@ export async function executeApprovedCommand(
   commandId: string,
   actorId: string
 ): Promise<{ executed: boolean; eventId?: number; reason?: string }> {
-  return db.transaction(async (tx) => {
+  return withClassificationGraphDriftRetry(async (tx) => {
     await tx.execute(sql`SELECT * FROM commercial_shadow_controls WHERE control_key='commercial' FOR UPDATE`);
     await tx.execute(sql`SELECT * FROM commercial_purpose_policies
       WHERE purpose='commercial_reporting' AND policy_version=1 FOR UPDATE`);

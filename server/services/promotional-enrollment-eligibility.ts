@@ -22,7 +22,7 @@ import type {
   PromotionalEnrollmentJobStatus,
   PromotionalEligibilityReason,
 } from "@shared/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import {
   evaluateContactability,
   type ContactabilityChannel,
@@ -52,6 +52,7 @@ export interface EnqueuePromotionalEnrollmentResult {
   reasonCodes?: PromotionalEligibilityReason[];
 }
 
+const RESUBMISSION_RECOVERY_MARKER = "resubmission_intent";
 const PROMO_CHANNELS: ContactabilityChannel[] = ["email", "sms", "voice_ai", "ringless_vm"];
 
 /**
@@ -397,6 +398,7 @@ export async function enqueuePromotionalEnrollment(
           formType: formType ?? null,
           status: "pending",
           attempts: 0,
+          reasonCodes: isResubmission ? [RESUBMISSION_RECOVERY_MARKER] : null,
         })
         .onConflictDoNothing()
         .returning();
@@ -478,4 +480,62 @@ export async function enqueuePromotionalEnrollment(
     console.error("[PromotionalEnrollment] Unexpected error in enqueuePromotionalEnrollment:", err);
     return { status: "deferred_queue_unavailable" };
   }
+}
+
+/**
+ * Periodically re-enqueue promotional jobs deferred by temporary infrastructure
+ * or merge-consent holds. A hold increments attempts in the worker, so each
+ * recovery uses a distinct BullMQ job id and cannot be deduplicated by the
+ * completed prior attempt. The database row remains the idempotency authority.
+ */
+export async function recoverDeferredPromotionalEnrollments(limit = 100): Promise<number> {
+  const { requireQueueManagerReady } = await import("./queue-manager");
+  let queue: any;
+  try {
+    queue = requireQueueManagerReady().getQueue("enrichment");
+  } catch {
+    return 0;
+  }
+  if (!queue) return 0;
+
+  let recovered = 0;
+  await db.transaction(async (tx) => {
+    const result = await tx.execute(sql`
+      SELECT id,source_event_id,contact_id,trigger_type,form_type,attempts,reason_codes
+      FROM promotional_enrollment_jobs
+      WHERE status='deferred_queue_unavailable'
+      ORDER BY created_at,id
+      LIMIT ${limit}
+      FOR UPDATE SKIP LOCKED
+    `);
+    for (const row of (result as any).rows ?? []) {
+      const jobId = `promotional-enroll-${row.source_event_id}-r${Number(row.attempts)}`;
+      try {
+        await queue.add("promotional-enrollment-eval", {
+          promotionalEnrollmentJobId: Number(row.id),
+          contactId: Number(row.contact_id),
+          triggerType: String(row.trigger_type),
+          formType: row.form_type ?? null,
+          sourceEventId: String(row.source_event_id),
+          isResubmission: Array.isArray(row.reason_codes)
+            && row.reason_codes.includes(RESUBMISSION_RECOVERY_MARKER),
+        }, {
+          jobId,
+          attempts: 3,
+          backoff: { type: "exponential", delay: 10000 },
+          removeOnComplete: { age: 7 * 24 * 3600 },
+          removeOnFail: { count: 200 },
+        });
+        await tx.execute(sql`
+          UPDATE promotional_enrollment_jobs
+          SET status='pending',job_id=${jobId},processed_at=NULL
+          WHERE id=${Number(row.id)} AND status='deferred_queue_unavailable'
+        `);
+        recovered++;
+      } catch (error) {
+        console.warn("[PromotionalEnrollment] Deferred recovery enqueue failed:", (error as Error).message);
+      }
+    }
+  });
+  return recovered;
 }

@@ -652,85 +652,160 @@ async function main() {
     });
     check(mergePreview.conflicts.length === 0, "redirect race fixture produces an executable merge");
     await merge.approveContactMerge(mergePreview.operationId, `cro02-merge-approver-${nonce}`);
-    const mergeBlocker = await pool.connect();
-    try {
-      await mergeBlocker.query("BEGIN");
-      await mergeBlocker.query(
-        `SELECT pg_advisory_xact_lock(hashtextextended($1, 1700))`,
-        [`cro02:v1:node:contact:${mergeDeprecated.id}`],
-      );
-      const mergeWrite = merge.executeContactMerge(
-        mergePreview.operationId, `cro02-merge-executor-${nonce}`,
-      );
-      let waiters = 0;
-      const mergeWaitDeadline = Date.now() + 3_000;
-      while (Date.now() < mergeWaitDeadline && waiters < 1) {
-        waiters = Number((await scalar(client, `SELECT count(*)::int AS n FROM pg_stat_activity
-          WHERE datname=current_database() AND wait_event='advisory'
-            AND query ILIKE '%pg_advisory_xact_lock%'`)).n);
-        if (waiters < 1) await new Promise(resolve => setTimeout(resolve, 25));
-      }
-      const racedResolution = resolution.resolveCommercialGraph({
+    let releaseInitialDiscovery!: () => void;
+    let initialDiscoveryObserved!: () => void;
+    const initialDiscoveryReady = new Promise<void>(resolve => { initialDiscoveryObserved = resolve; });
+    const initialDiscoveryGate = new Promise<void>(resolve => { releaseInitialDiscovery = resolve; });
+    let releaseConsentHandoff!: () => void;
+    let localCommitObserved!: () => void;
+    const localCommitReady = new Promise<void>(resolve => { localCommitObserved = resolve; });
+    const consentHandoffGate = new Promise<void>(resolve => { releaseConsentHandoff = resolve; });
+    resolution.setCommercialResolutionTestHooks({
+      afterInitialRedirectDiscovery: async (discoveries: any[], attempt: number) => {
+        if (attempt !== 0) return;
+        check(discoveries.length === 1 &&
+          discoveries[0].effectiveId === Number(mergeDeprecated.id) &&
+          discoveries[0].chain.length === 1,
+        "resolver deterministically discovers the pre-merge graph");
+        initialDiscoveryObserved();
+        await initialDiscoveryGate;
+      },
+    });
+    merge.setContactMergeTestHooks({
+      afterLocalCommit: async (operation: any) => {
+        check(operation.status === "committed",
+          "merge seam observes the post-local-commit state before consent handoff");
+        localCommitObserved();
+        await consentHandoffGate;
+      },
+    });
+    const snapshotsBeforeRace = Number((await scalar(client,
+      `SELECT count(*)::int AS n FROM commercial_resolution_snapshots
+       WHERE requested_subject_type='contact' AND requested_subject_id=$1`,
+      [mergeDeprecated.id])).n);
+    const racedResolution = resolution.resolveCommercialGraph({
+      subjectType: "contact", subjectId: Number(mergeDeprecated.id),
+      effect: "commercial_reporting", persist: true,
+    });
+    await initialDiscoveryReady;
+    const mergeWrite = merge.executeContactMerge(
+      mergePreview.operationId, `cro02-merge-executor-${nonce}`,
+    );
+    await localCommitReady;
+    const committedState = await scalar(client, `SELECT o.status,r.active,c.archived_at
+      FROM contact_merge_operations o
+      JOIN contact_merge_redirects r ON r.operation_id=o.id
+      JOIN contacts c ON c.id=o.deprecated_contact_id
+      WHERE o.id=$1`, [mergePreview.operationId]);
+    check(committedState.status === "committed" && committedState.active &&
+      Boolean(committedState.archived_at),
+    "active redirect and archived deprecated contact are visible during committed handoff window");
+    const liveCommitted = await identity.resolveLiveContactRedirect(Number(mergeDeprecated.id));
+    check(liveCommitted.effectiveContactId === Number(mergeSurvivor.id) &&
+      liveCommitted.effectHold,
+    "committed redirect resolves the survivor with a temporary effect hold");
+    releaseInitialDiscovery();
+    const resolvedAfterMerge = await racedResolution;
+    const raceSnapshots = (await client.query(`SELECT effective_subject_id FROM commercial_resolution_snapshots
+      WHERE requested_subject_type='contact' AND requested_subject_id=$1
+      ORDER BY created_at DESC`, [mergeDeprecated.id])).rows;
+    check(resolvedAfterMerge.effectiveSubjectId === Number(mergeSurvivor.id) &&
+      !resolvedAfterMerge.reasonCodes.includes("STALE_GRAPH") &&
+      Boolean(resolvedAfterMerge.snapshotId),
+    "resolver retries redirect drift and resolves the survivor during committed state");
+    check(raceSnapshots.length === snapshotsBeforeRace + 1 &&
+      Number(raceSnapshots[0].effective_subject_id) === Number(mergeSurvivor.id),
+    "stale resolver attempt persists no snapshot or dependency authority");
+    resolution.setCommercialResolutionTestHooks(null);
+    const concurrentCommitted = await Promise.all(Array.from({ length: 2 }, () =>
+      resolution.resolveCommercialGraph({
         subjectType: "contact", subjectId: Number(mergeDeprecated.id),
         effect: "commercial_reporting", persist: true,
-      });
-      const resolverWaitDeadline = Date.now() + 3_000;
-      while (Date.now() < resolverWaitDeadline && waiters < 2) {
-        waiters = Number((await scalar(client, `SELECT count(*)::int AS n FROM pg_stat_activity
-          WHERE datname=current_database() AND wait_event='advisory'
-            AND query ILIKE '%pg_advisory_xact_lock%'`)).n);
-        if (waiters < 2) await new Promise(resolve => setTimeout(resolve, 25));
-      }
-      check(waiters >= 2, "merge executes ahead of a resolver that discovered the pre-redirect graph");
-      await mergeBlocker.query("COMMIT");
-      const [mergeResult, resolvedAfterMerge] = await Promise.all([mergeWrite, racedResolution]);
-      check(["completed", "reconciliation_pending"].includes(mergeResult.status) &&
-        resolvedAfterMerge.effectiveSubjectId === Number(mergeSurvivor.id) &&
-        !resolvedAfterMerge.reasonCodes.includes("STALE_GRAPH") &&
-        Boolean(resolvedAfterMerge.snapshotId),
-        "resolver retries redirect drift and persists only the post-merge effective graph");
-    } finally {
-      await mergeBlocker.query("ROLLBACK").catch(() => undefined);
-      mergeBlocker.release();
-    }
-    const undoBlocker = await pool.connect();
-    try {
-      await undoBlocker.query("BEGIN");
-      await undoBlocker.query(
-        `SELECT pg_advisory_xact_lock(hashtextextended($1, 1700))`,
-        [`cro02:v1:node:contact:${mergeDeprecated.id}`],
-      );
-      const undoWrite = merge.undoContactMerge(mergePreview.operationId, `cro02-merge-undo-${nonce}`);
-      let waiters = 0;
-      const undoWaitDeadline = Date.now() + 3_000;
-      while (Date.now() < undoWaitDeadline && waiters < 1) {
-        waiters = Number((await scalar(client, `SELECT count(*)::int AS n FROM pg_stat_activity
-          WHERE datname=current_database() AND wait_event='advisory'
-            AND query ILIKE '%pg_advisory_xact_lock%'`)).n);
-        if (waiters < 1) await new Promise(resolve => setTimeout(resolve, 25));
-      }
-      const racedResolution = resolution.resolveCommercialGraph({
-        subjectType: "contact", subjectId: Number(mergeDeprecated.id),
-        effect: "commercial_reporting", persist: true,
-      });
-      const resolverWaitDeadline = Date.now() + 3_000;
-      while (Date.now() < resolverWaitDeadline && waiters < 2) {
-        waiters = Number((await scalar(client, `SELECT count(*)::int AS n FROM pg_stat_activity
-          WHERE datname=current_database() AND wait_event='advisory'
-            AND query ILIKE '%pg_advisory_xact_lock%'`)).n);
-        if (waiters < 2) await new Promise(resolve => setTimeout(resolve, 25));
-      }
-      check(waiters >= 2, "merge undo executes ahead of a resolver that discovered the active redirect");
-      await undoBlocker.query("COMMIT");
-      const [, resolvedAfterUndo] = await Promise.all([undoWrite, racedResolution]);
-      check(resolvedAfterUndo.effectiveSubjectId === Number(mergeDeprecated.id) &&
-        !resolvedAfterUndo.reasonCodes.includes("STALE_GRAPH") &&
-        Boolean(resolvedAfterUndo.snapshotId),
-        "resolver retries redirect drift and persists only the post-undo effective graph");
-    } finally {
-      await undoBlocker.query("ROLLBACK").catch(() => undefined);
-      undoBlocker.release();
-    }
+      })));
+    check(concurrentCommitted.every(result =>
+      result.effectiveSubjectId === Number(mergeSurvivor.id)),
+    "concurrent resolvers converge on the survivor during committed state");
+    releaseConsentHandoff();
+    const mergeResult = await mergeWrite;
+    check(["completed", "reconciliation_pending"].includes(mergeResult.status),
+      "consent handoff advances the locally committed merge");
+    merge.setContactMergeTestHooks(null);
+
+    await client.query(`UPDATE contact_merge_operations
+      SET status='reconciliation_pending',reconciliation_status='consent_handoff_retry_required'
+      WHERE id=$1`, [mergePreview.operationId]);
+    const retryPendingLive = await identity.resolveLiveContactRedirect(Number(mergeDeprecated.id));
+    const retryPendingEffect = await resolution.resolveCommercialGraph({
+      subjectType: "contact", subjectId: Number(mergeDeprecated.id),
+      effect: "provider_pre_spend", persist: false,
+    });
+    check(retryPendingLive.effectiveContactId === Number(mergeSurvivor.id) &&
+      retryPendingLive.effectHold &&
+      retryPendingEffect.reasonCodes.includes("CONTACT_MERGE_CONSENT_HANDOFF_PENDING"),
+    "consent-handoff retry keeps survivor identity but fails effect eligibility closed");
+
+    await client.query(`UPDATE contact_merge_operations
+      SET status='reconciliation_pending',reconciliation_status='pending'
+      WHERE id=$1`, [mergePreview.operationId]);
+    const ghlPendingLive = await identity.resolveLiveContactRedirect(Number(mergeDeprecated.id));
+    const ghlPendingGraph = await resolution.resolveCommercialGraph({
+      subjectType: "contact", subjectId: Number(mergeDeprecated.id),
+      effect: "commercial_reporting", persist: false,
+    });
+    check(ghlPendingLive.effectiveContactId === Number(mergeSurvivor.id) &&
+      !ghlPendingLive.effectHold &&
+      !ghlPendingGraph.reasonCodes.includes("REDIRECT_UNRESOLVED") &&
+      !ghlPendingGraph.reasonCodes.includes("CONTACT_MERGE_CONSENT_HANDOFF_PENDING"),
+    "GHL-only reconciliation pending retains survivor identity without a consent hold");
+
+    await client.query(`UPDATE contact_merge_operations
+      SET status='completed',reconciliation_status='not_required',conflict_reason=NULL
+      WHERE id=$1`, [mergePreview.operationId]);
+    let releaseUndoDiscovery!: () => void;
+    let undoDiscoveryObserved!: () => void;
+    const undoDiscoveryReady = new Promise<void>(resolve => { undoDiscoveryObserved = resolve; });
+    const undoDiscoveryGate = new Promise<void>(resolve => { releaseUndoDiscovery = resolve; });
+    resolution.setCommercialResolutionTestHooks({
+      afterInitialRedirectDiscovery: async (discoveries: any[], attempt: number) => {
+        if (attempt !== 0) return;
+        check(discoveries[0]?.effectiveId === Number(mergeSurvivor.id),
+          "undo race deterministically discovers the active redirect");
+        undoDiscoveryObserved();
+        await undoDiscoveryGate;
+      },
+    });
+    const racedUndoResolution = resolution.resolveCommercialGraph({
+      subjectType: "contact", subjectId: Number(mergeDeprecated.id),
+      effect: "commercial_reporting", persist: true,
+    });
+    await undoDiscoveryReady;
+    await merge.undoContactMerge(mergePreview.operationId, `cro02-merge-undo-${nonce}`);
+    releaseUndoDiscovery();
+    const resolvedAfterUndo = await racedUndoResolution;
+    check(resolvedAfterUndo.effectiveSubjectId === Number(mergeDeprecated.id) &&
+      !resolvedAfterUndo.reasonCodes.includes("STALE_GRAPH") &&
+      Boolean(resolvedAfterUndo.snapshotId),
+    "resolver retries undo drift and restores the deprecated contact as canonical");
+    resolution.setCommercialResolutionTestHooks(null);
+
+    const snapshotsBeforeExhaustion = Number((await scalar(client,
+      `SELECT count(*)::int AS n FROM commercial_resolution_snapshots
+       WHERE requested_subject_type='contact' AND requested_subject_id=$1`,
+      [mergeDeprecated.id])).n);
+    resolution.setCommercialResolutionTestHooks({
+      forceGraphDiscoveryDrift: () => true,
+    });
+    await rejects(() => resolution.resolveCommercialGraph({
+      subjectType: "contact", subjectId: Number(mergeDeprecated.id),
+      effect: "commercial_reporting", persist: true,
+    }), "bounded redirect churn exhausts retries", "CRO02_GRAPH_RETRY_EXHAUSTED");
+    resolution.setCommercialResolutionTestHooks(null);
+    const snapshotsAfterExhaustion = Number((await scalar(client,
+      `SELECT count(*)::int AS n FROM commercial_resolution_snapshots
+       WHERE requested_subject_type='contact' AND requested_subject_id=$1`,
+      [mergeDeprecated.id])).n);
+    check(snapshotsAfterExhaustion === snapshotsBeforeExhaustion,
+      "retry exhaustion persists no snapshot");
     const beforeObservation = await scalar(client, `SELECT
       (SELECT coverage_high_water FROM commercial_shadow_controls WHERE control_key='commercial')::bigint AS control_high_water,
       (SELECT COUNT(*) FROM commercial_resolution_snapshots)::bigint AS snapshots,

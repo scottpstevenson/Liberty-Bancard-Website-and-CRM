@@ -182,7 +182,29 @@ export type LiveContactRedirectResolution = {
   effectiveContactId: number;
   chain: number[];
   operationIds: string[];
+  effectHold: boolean;
+  effectHoldOperationIds: string[];
 };
+
+export const CONTACT_MERGE_EFFECT_HOLD_REASON = "contact_merge_consent_handoff_pending";
+export const CONTACT_REDIRECT_IDENTITY_STATUSES = [
+  "committed",
+  "reconciliation_pending",
+  "completed",
+] as const;
+
+export function isIdentityAuthoritativeRedirectState(status: string): boolean {
+  return (CONTACT_REDIRECT_IDENTITY_STATUSES as readonly string[]).includes(status);
+}
+
+export function isContactMergeEffectHoldState(
+  status: string,
+  reconciliationStatus: string | null | undefined,
+): boolean {
+  return status === "committed"
+    || (status === "reconciliation_pending"
+      && reconciliationStatus === "consent_handoff_retry_required");
+}
 
 /**
  * Resolve only at live work boundaries; never use this in generic reads.
@@ -192,23 +214,40 @@ export type LiveContactRedirectResolution = {
 export async function resolveLiveContactRedirect(contactId: number): Promise<LiveContactRedirectResolution> {
   const chain = [contactId];
   const operationIds: string[] = [];
+  const effectHoldOperationIds: string[] = [];
   const visited = new Set<number>([contactId]);
   let current = contactId;
   for (let depth = 0; depth < 8; depth++) {
-    const row = (await db.execute(sql`
-      SELECT r.survivor_contact_id, r.operation_id
+    const found = ((await db.execute(sql`
+      SELECT r.survivor_contact_id, r.operation_id, op.status, op.reconciliation_status
       FROM contact_merge_redirects r
       JOIN contact_merge_operations op ON op.id = r.operation_id
       WHERE r.deprecated_contact_id = ${current} AND r.active
-        AND (op.status = 'completed' OR (op.status = 'reconciliation_pending' AND op.reconciliation_status = 'pending'))
-      LIMIT 1
-    `) as any).rows?.[0];
-    if (!row) return { requestedContactId: contactId, effectiveContactId: current, chain, operationIds };
+      ORDER BY r.id
+    `) as any).rows ?? []) as any[];
+    if (!found.length) {
+      return {
+        requestedContactId: contactId,
+        effectiveContactId: current,
+        chain,
+        operationIds,
+        effectHold: effectHoldOperationIds.length > 0,
+        effectHoldOperationIds,
+      };
+    }
+    if (found.length !== 1 || !isIdentityAuthoritativeRedirectState(String(found[0].status))) {
+      throw new ContactRedirectResolutionError(`Invalid or ambiguous active contact merge redirect for ${contactId}`);
+    }
+    const row = found[0];
     const next = Number(row.survivor_contact_id);
     if (!Number.isInteger(next) || visited.has(next)) {
       throw new ContactRedirectResolutionError(`Invalid or cyclic contact merge redirect for ${contactId}`);
     }
-    visited.add(next); chain.push(next); operationIds.push(String(row.operation_id)); current = next;
+    const operationId = String(row.operation_id);
+    visited.add(next); chain.push(next); operationIds.push(operationId); current = next;
+    if (isContactMergeEffectHoldState(String(row.status), row.reconciliation_status)) {
+      effectHoldOperationIds.push(operationId);
+    }
   }
   throw new ContactRedirectResolutionError(`Contact merge redirect depth exceeded for ${contactId}`);
 }
