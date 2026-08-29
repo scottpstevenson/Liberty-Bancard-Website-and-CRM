@@ -20,6 +20,7 @@ export default function VerifyEmail() {
       return;
     }
 
+    // CSRF_EXEMPT: TOKEN_AUTH_FLOW — verifies the one-time email token before a session exists
     fetch("/api/auth/verify-email", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

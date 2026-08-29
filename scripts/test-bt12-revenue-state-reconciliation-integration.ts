@@ -14,7 +14,7 @@ async function main() {
     throw new Error("DATABASE_URL must explicitly equal TEST_DATABASE_URL before this integration suite starts.");
   }
   await assertDisposableTestInfrastructure({ operation: "BT-12 revenue reconciliation", requireRedis: false });
-  const { db } = await import("../server/db");
+  const { db, pool } = await import("../server/db");
   const { sql } = await import("drizzle-orm");
   const { parseCurrencyToMinor, minorToCurrency, applyPercentToMinor } = await import("../server/services/money");
 
@@ -41,5 +41,6 @@ async function main() {
     if (!rejected) throw new Error(`malformed money accepted: ${invalid}`);
   }
   console.log("BT-12 integration infrastructure, durable ledger, migration, and exact-money checks passed.");
+  await pool.end();
 }
 main().catch((error) => { console.error(error); process.exit(1); });

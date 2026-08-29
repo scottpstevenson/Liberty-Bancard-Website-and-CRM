@@ -41,6 +41,7 @@
 
 import { spawnSync } from "child_process";
 import { readFileSync, existsSync, readdirSync, statSync } from "fs";
+import path from "node:path";
 import { db } from "../server/db";
 import { systemSettings } from "../shared/schema";
 import { eq } from "drizzle-orm";
@@ -610,12 +611,16 @@ function checkServerReachable(): boolean {
 function runSuite(suite: Suite): { exitCode: number; durationMs: number } {
   const start = Date.now();
   const env = { ...process.env, ...(suite.env ?? {}) };
-  const result = spawnSync("npx", ["tsx", suite.script], {
+  const result = spawnSync(
+    process.execPath,
+    [path.resolve(process.cwd(), "node_modules/tsx/dist/cli.mjs"), suite.script],
+    {
     env,
     stdio: "inherit",
     encoding: "utf8",
     timeout: (suite.timeoutSecs ?? 120) * 1000,
-  });
+    },
+  );
   const durationMs = Date.now() - start;
   return {
     exitCode: result.status ?? 1,
@@ -1024,7 +1029,7 @@ async function main() {
     suite: Suite;
     exitCode: number;
     durationMs: number;
-    skipped: boolean;
+    status: "executed_pass" | "executed_fail" | "delegated_unverified" | "skipped_optional";
     pauseAfter: boolean;
   }> = [];
 
@@ -1056,7 +1061,13 @@ async function main() {
       } else {
         console.log("   (skipped — server not reachable; live-mode suite)");
       }
-      results.push({ suite, exitCode: 0, durationMs: 0, skipped: true, pauseAfter: true });
+      results.push({
+        suite,
+        exitCode: 0,
+        durationMs: 0,
+        status: disposableDatabaseSkip ? "delegated_unverified" : "skipped_optional",
+        pauseAfter: true,
+      });
       continue;
     }
 
@@ -1072,7 +1083,13 @@ async function main() {
     const icon = exitCode === 0 ? "✓" : "✗";
     console.log(`   ${icon} exit=${exitCode}  time=${formatDuration(durationMs)}  pause-after=${pauseAfter ? "true ✓" : "FALSE ← RESTORED"}`);
 
-    results.push({ suite, exitCode, durationMs, skipped: false, pauseAfter });
+    results.push({
+      suite,
+      exitCode,
+      durationMs,
+      status: exitCode === 0 ? "executed_pass" : "executed_fail",
+      pauseAfter,
+    });
   }
 
   // ── 3. Final pause state verification ─────────────────────────────────────
@@ -1169,18 +1186,20 @@ async function main() {
   // ── 5. Summary ─────────────────────────────────────────────────────────────
   printBanner("Pre-Deploy Gate Results");
 
-  const passed = results.filter(r => r.exitCode === 0).length;
-  const failedSuites = results.filter(r => r.exitCode !== 0);
-  const skipped = results.filter(r => r.skipped).length;
+  const passed = results.filter(r => r.status === "executed_pass").length;
+  const failedSuites = results.filter(r => r.status === "executed_fail");
+  const delegatedUnverified = results.filter(r => r.status === "delegated_unverified");
+  const skipped = results.filter(r => r.status === "skipped_optional").length;
   const total = MANDATORY_SUITES.length;
 
-  console.log(`\n  Suites:  ${passed}/${total} passed  (${skipped} skipped — live-mode server suites)`);
+  console.log(`\n  Suites:  ${passed}/${total} executed and passed`);
+  console.log(`  Delegated/unverified: ${delegatedUnverified.length}; optional skipped: ${skipped}`);
   console.log(`  Pause state: ${finalPaused ? "TRUE ✓" : "RESTORED ✓"} after all suites`);
   console.log(`  External config: ${EXTERNAL_CONFIG.length - missingConfig.length}/${EXTERNAL_CONFIG.length} set`);
 
   for (const r of results) {
-    const icon = r.skipped ? "○" : r.exitCode === 0 ? "✓" : "✗";
-    const tag = r.skipped ? " (skipped)" : r.exitCode === 0 ? "" : " ← FAILED";
+    const icon = r.status === "executed_pass" ? "✓" : r.status === "executed_fail" ? "✗" : "○";
+    const tag = ` (${r.status})`;
     console.log(`  ${icon} ${r.suite.name}${tag}`);
   }
 
@@ -1189,14 +1208,13 @@ async function main() {
   // ── 6. Persist gate result to system_settings ─────────────────────────────
   const gateResult = {
     ranAt: new Date().toISOString(),
-    passed: failedSuites.length === 0,
+    passed: failedSuites.length === 0 && delegatedUnverified.length === 0,
     passedCount: passed,
     totalCount: total,
     skippedCount: skipped,
     suites: results.map(r => ({
       name: r.suite.name,
-      passed: r.exitCode === 0,
-      skipped: r.skipped,
+      status: r.status,
       durationMs: r.durationMs,
     })),
   };
@@ -1213,10 +1231,13 @@ async function main() {
     console.warn(`  ⚠ Could not persist gate result: ${persistErr?.message}`);
   }
 
-  if (failedSuites.length > 0) {
+  if (failedSuites.length > 0 || delegatedUnverified.length > 0) {
     console.error(`\n❌  PRE-DEPLOY GATE FAILED — ${failedSuites.length} suite(s) failed:`);
     for (const r of failedSuites) {
       console.error(`     ✗ ${r.suite.name} (exit ${r.exitCode})`);
+    }
+    for (const r of delegatedUnverified) {
+      console.error(`     ✗ ${r.suite.name} (delegated execution not verified for this release)`);
     }
     console.error("\n   Fix all failures before deploying.\n");
     process.exit(1);

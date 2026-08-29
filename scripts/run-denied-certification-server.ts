@@ -1,6 +1,7 @@
 #!/usr/bin/env tsx
 import {
   spawnCertificationTsx,
+  terminateCertificationChild,
   waitForCertificationChild,
 } from "./certification-child-process";
 import { randomUUID } from "node:crypto";
@@ -16,9 +17,15 @@ const infrastructure = await assertDisposableTestInfrastructure({
 });
 try {
   const child = spawnCertificationTsx("scripts/run-denied-certification-server-child.ts");
-  process.once("SIGINT", () => child.kill("SIGINT"));
-  process.once("SIGTERM", () => child.kill("SIGTERM"));
+  let forwardedSignal: NodeJS.Signals | undefined;
+  const forward = (signal: NodeJS.Signals) => {
+    forwardedSignal = signal;
+    void terminateCertificationChild(child);
+  };
+  process.once("SIGINT", () => forward("SIGINT"));
+  process.once("SIGTERM", () => forward("SIGTERM"));
   await waitForCertificationChild(child);
+  if (forwardedSignal) process.exitCode = 128 + (forwardedSignal === "SIGINT" ? 2 : 15);
 } finally {
   await infrastructure.releaseRedisReservation();
 }

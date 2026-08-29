@@ -41,6 +41,15 @@ function isLoopbackUrl(url: URL): boolean {
   return ["127.0.0.1", "localhost", "::1", "[::1]"].includes(url.hostname);
 }
 
+function isPermittedUrl(url: URL): boolean {
+  if (isLoopbackUrl(url)) return true;
+  const allowed = (process.env.CERTIFICATION_ALLOWED_NETWORK_ORIGINS ?? "")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  return allowed.includes(url.origin);
+}
+
 function recordBlockedAttempt(origin: string, label: string): never {
   blockedNetworkAttempts++;
   lastBlockedNetworkOrigin = origin;
@@ -121,7 +130,7 @@ function assertLoopbackRequest(args: unknown[], protocol: "http:" | "https:"): v
       "Blocked certification custom HTTP connection hook",
     );
   }
-  if (!isLoopbackUrl(url)) {
+  if (!isPermittedUrl(url)) {
     return recordBlockedAttempt(url.origin, "Blocked certification HTTP request origin");
   }
 }
@@ -160,7 +169,7 @@ export function applyCertificationProviderDenyBoundary(
           ? input.href
           : input.url;
     const url = new URL(rawUrl, "http://127.0.0.1");
-    if (isLoopbackUrl(url)) {
+    if (isPermittedUrl(url)) {
       return originalFetch(input, init);
     }
     return recordBlockedAttempt(url.origin, "Blocked certification fetch origin");

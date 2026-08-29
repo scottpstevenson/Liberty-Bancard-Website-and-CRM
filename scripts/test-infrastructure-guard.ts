@@ -13,6 +13,7 @@ export interface DisposableInfrastructureOptions {
   operation: string;
   requireRedis?: boolean;
   reserveRedisNamespace?: boolean;
+  env?: NodeJS.ProcessEnv;
 }
 
 export interface DisposableInfrastructureAssertion {
@@ -74,7 +75,28 @@ async function releaseRedisReservation(
   const redis = createRedisClient(redisUrl);
   try {
     await redis.connect();
-    await redis.eval(
+    const currentToken = await redis.get(reservationKey);
+    if (currentToken !== reservationToken) {
+      throw new Error("Redis namespace reservation token no longer belongs to this certification owner.");
+    }
+    const prefix = reservationKey.slice(
+      0,
+      -"__certification_namespace_reservation".length,
+    );
+    let cursor = "0";
+    do {
+      const [nextCursor, keys] = await redis.scan(
+        cursor,
+        "MATCH",
+        `${prefix}*`,
+        "COUNT",
+        100,
+      );
+      cursor = nextCursor;
+      const ownedKeys = keys.filter((key) => key !== reservationKey);
+      if (ownedKeys.length > 0) await redis.del(...ownedKeys);
+    } while (cursor !== "0");
+    const released = await redis.eval(
       `if redis.call("get", KEYS[1]) == ARGV[1] then
          return redis.call("del", KEYS[1])
        end
@@ -83,6 +105,13 @@ async function releaseRedisReservation(
       reservationKey,
       reservationToken,
     );
+    if (released !== 1) {
+      throw new Error("Redis namespace reservation release lost its owner token.");
+    }
+    const residual = await redis.scan("0", "MATCH", `${prefix}*`, "COUNT", 1);
+    if (residual[1].length > 0) {
+      throw new Error("Redis namespace cleanup left residual owned keys.");
+    }
   } finally {
     redis.disconnect();
   }
@@ -96,10 +125,11 @@ export async function assertDisposableTestInfrastructure(
   options: DisposableInfrastructureOptions,
 ): Promise<DisposableInfrastructureAssertion> {
   const prefix = `[${options.operation}]`;
-  const activeUrl = process.env.DATABASE_URL;
-  const testUrl = process.env.TEST_DATABASE_URL;
+  const environment = options.env ?? process.env;
+  const activeUrl = environment.DATABASE_URL;
+  const testUrl = environment.TEST_DATABASE_URL;
 
-  if (process.env.NODE_ENV !== "test") {
+  if (environment.NODE_ENV !== "test") {
     throw new Error(`${prefix} refused: NODE_ENV must be "test".`);
   }
   if (!activeUrl || !testUrl || activeUrl !== testUrl) {
@@ -108,8 +138,8 @@ export async function assertDisposableTestInfrastructure(
     );
   }
   if (
-    process.env.PRODUCTION_DATABASE_URL &&
-    process.env.PRODUCTION_DATABASE_URL === testUrl
+    environment.PRODUCTION_DATABASE_URL &&
+    environment.PRODUCTION_DATABASE_URL === testUrl
   ) {
     throw new Error(`${prefix} refused: TEST_DATABASE_URL matches PRODUCTION_DATABASE_URL.`);
   }
@@ -122,7 +152,7 @@ export async function assertDisposableTestInfrastructure(
   }
 
   const redisPrefix = options.requireRedis
-    ? testRedisPrefix(process.env.TEST_REDIS_PREFIX, options.operation)
+    ? testRedisPrefix(environment.TEST_REDIS_PREFIX, options.operation)
     : undefined;
   if (options.reserveRedisNamespace && !options.requireRedis) {
     throw new Error(`${prefix} refused: Redis reservation requires requireRedis=true.`);
@@ -131,12 +161,12 @@ export async function assertDisposableTestInfrastructure(
     assertReservationEntropy(redisPrefix, options.operation);
   }
   if (options.requireRedis) {
-    if (!process.env.REDIS_URL) {
+    if (!environment.REDIS_URL) {
       throw new Error(`${prefix} refused: REDIS_URL is required for this stateful test.`);
     }
     if (
-      process.env.PRODUCTION_REDIS_URL &&
-      process.env.PRODUCTION_REDIS_URL === process.env.REDIS_URL
+      environment.PRODUCTION_REDIS_URL &&
+      environment.PRODUCTION_REDIS_URL === environment.REDIS_URL
     ) {
       throw new Error(`${prefix} refused: REDIS_URL matches PRODUCTION_REDIS_URL.`);
     }
@@ -155,12 +185,12 @@ export async function assertDisposableTestInfrastructure(
       );
     }
     if (options.requireRedis && redisPrefix) {
-      const redis = createRedisClient();
+      const redis = createRedisClient(environment.REDIS_URL);
       const key = `${redisPrefix}infrastructure_guard:${process.pid}:${Date.now()}`;
       try {
         await redis.connect();
         if (options.reserveRedisNamespace) {
-          const redisUrl = process.env.REDIS_URL!;
+          const redisUrl = environment.REDIS_URL!;
           const reservationKey = `${redisPrefix}__certification_namespace_reservation`;
           const reservationToken = randomUUID();
           const acquired = await redis.set(

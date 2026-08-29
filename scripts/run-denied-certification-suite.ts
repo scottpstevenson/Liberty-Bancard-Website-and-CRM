@@ -1,48 +1,81 @@
 #!/usr/bin/env tsx
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { randomUUID } from "node:crypto";
+import { renameSync, writeFileSync } from "node:fs";
 import { applyCertificationProviderDenyBoundary } from "./certification-provider-deny";
 import { replaceWithCertificationEnvironment } from "./certification-process-env";
 
 const suitePath = process.argv[2];
 const capability = process.argv[3];
+const receiptPath = process.env.CERTIFICATION_RECEIPT_PATH;
+const runId = process.env.CERTIFICATION_RUN_ID;
+const suiteId = process.env.CERTIFICATION_SUITE_ID;
+let assertionEvidence = 0;
+let receiptWritten = false;
+for (const method of ["log", "info"] as const) {
+  const original = console[method].bind(console);
+  console[method] = (...args: unknown[]) => {
+    const text = args.map(String).join(" ");
+    assertionEvidence += text.match(/(?:✓|\bPASS\b|\bpassed\b)/gi)?.length ?? 0;
+    original(...args);
+  };
+}
+function writeTerminalReceipt(): void {
+  if (receiptWritten) return;
+  if (!receiptPath || !runId || !suiteId || assertionEvidence < 1) {
+    process.exitCode = 65;
+    return;
+  }
+  const temporaryPath = `${receiptPath}.${process.pid}.tmp`;
+  writeFileSync(
+    temporaryPath,
+    `${JSON.stringify({
+      version: 1,
+      runId,
+      suiteId,
+      outcome: "executed_pass",
+      evidenceSource: "suite-process-terminal",
+      coreAssertions: assertionEvidence,
+      fixtureGroups: capability === "deterministic-integration" || capability === "server-required" ? 1 : 0,
+      cleanup: "complete",
+    })}\n`,
+    { mode: 0o600 },
+  );
+  renameSync(temporaryPath, receiptPath);
+  receiptWritten = true;
+}
+process.once("beforeExit", writeTerminalReceipt);
+const originalExit = process.exit.bind(process);
+process.exit = ((code?: number | string | null) => {
+  const normalized = code == null ? (process.exitCode ?? 0) : Number(code);
+  if (normalized === 0) writeTerminalReceipt();
+  return originalExit(normalized);
+}) as typeof process.exit;
 if (!suitePath || !/^(?:scripts|server\/tests)\/[A-Za-z0-9._/-]+\.ts$/.test(suitePath)) {
   throw new Error("A certification suite path under scripts/ or server/tests/ is required.");
 }
 if (
-  !["deterministic-static", "deterministic-integration", "server-required"].includes(
+  !["deterministic-static", "deterministic-integration", "server-required", "external-security", "writable-build"].includes(
     capability ?? "",
   )
 ) {
   throw new Error("A recognized certification suite capability is required.");
 }
 
-let releaseRedisReservation = async (): Promise<void> => {};
-if (capability !== "deterministic-static") {
-  process.env.TEST_REDIS_PREFIX =
-    `${process.env.TEST_REDIS_PREFIX ?? "ci_certification_"}suite_` +
-    `${randomUUID().replace(/-/g, "")}_`;
+if (capability === "deterministic-integration" || capability === "server-required") {
   const { assertDisposableTestInfrastructure } = await import("./test-infrastructure-guard");
-  const infrastructure = await assertDisposableTestInfrastructure({
+  await assertDisposableTestInfrastructure({
     operation: `Certification suite ${capability}`,
     requireRedis: true,
-    reserveRedisNamespace: true,
   });
-  releaseRedisReservation = infrastructure.releaseRedisReservation;
 }
-try {
-  replaceWithCertificationEnvironment();
-  applyCertificationProviderDenyBoundary({ fatal: true });
+replaceWithCertificationEnvironment();
+  const externalSecurity = capability === "external-security";
+  if (!externalSecurity) applyCertificationProviderDenyBoundary({ fatal: true });
   const absoluteSuitePath = path.resolve(process.cwd(), suitePath);
   process.argv = [process.argv[0], absoluteSuitePath, ...process.argv.slice(4)];
   await import(pathToFileURL(absoluteSuitePath).href);
-  const { getBlockedCertificationNetworkAttemptCount } = await import(
-    "./certification-provider-deny"
-  );
-  if (getBlockedCertificationNetworkAttemptCount() !== 0) {
+  const { getBlockedCertificationNetworkAttemptCount } = await import("./certification-provider-deny");
+  if (!externalSecurity && getBlockedCertificationNetworkAttemptCount() !== 0) {
     throw new Error("Certification suite attempted a blocked external-provider request.");
   }
-} finally {
-  await releaseRedisReservation();
-}

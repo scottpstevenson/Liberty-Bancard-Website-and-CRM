@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
-import fs from "node:fs";
 import pg from "pg";
 
 if (process.env.NODE_ENV !== "test") throw new Error("NODE_ENV=test is required");
@@ -12,10 +11,15 @@ if (process.env.DATABASE_URL && process.env.DATABASE_URL !== process.env.TEST_DA
 process.env.DATABASE_URL = process.env.TEST_DATABASE_URL;
 
 const bootstrap = new pg.Pool({ connectionString: process.env.TEST_DATABASE_URL, max: 1 });
-const migration = fs.readFileSync(new URL("../../migrations/0176_rvr03_auth_actions.sql", import.meta.url), "utf8")
-  .split("ALTER TABLE partner_org_users")[0];
-await bootstrap.query(migration);
+const schema = await bootstrap.query<{ auth_actions: string | null }>(
+  "SELECT to_regclass('public.auth_actions')::text AS auth_actions",
+);
 await bootstrap.end();
+assert.equal(
+  schema.rows[0]?.auth_actions,
+  "auth_actions",
+  "canonical migration 0176 must be applied before the auth-action integration suite",
+);
 
 const [{ issueAuthAction, consumeAuthAction, revokeAuthActions }, { db, pool }, { authActions }] =
   await Promise.all([import("../services/auth-actions"), import("../db"), import("../../shared/models/auth")]);

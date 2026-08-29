@@ -51,12 +51,42 @@ const CERTIFICATION_ENV_ALLOWLIST = [
   "CI_SUITE_TIMEOUT_MS",
 ] as const;
 
+const CERTIFICATION_DECLARED_OVERRIDE_ALLOWLIST = new Set([
+  "AUTH_ACTION_DB_TEST_OPT_IN",
+  "CERTIFICATION_RUN_ID",
+  "CERTIFICATION_SUITE_ID",
+  "CERTIFICATION_RECEIPT_PATH",
+  "HOME",
+  "XDG_CONFIG_HOME",
+  "XDG_CACHE_HOME",
+  "NPM_CONFIG_USERCONFIG",
+  "NPM_CONFIG_CACHE",
+  "TEST_REDIS_PREFIX",
+  "NODE_OPTIONS",
+  "CERTIFICATION_ALLOWED_NETWORK_ORIGINS",
+  "CERTIFICATION_ALLOW_LOOPBACK",
+]);
+
 export function buildCertificationEnvironment(
   source: NodeJS.ProcessEnv = process.env,
+  declaredOverrides: NodeJS.ProcessEnv = {},
+  profile: "stateful" | "stateless" = "stateful",
 ): NodeJS.ProcessEnv {
   const environment: NodeJS.ProcessEnv = {};
   for (const key of CERTIFICATION_ENV_ALLOWLIST) {
+    if (
+      profile === "stateless" &&
+      /^(?:DATABASE_URL|TEST_DATABASE_URL|REDIS_URL|TEST_REDIS_PREFIX|SESSION_SECRET|CREDENTIAL_ENCRYPTION_KEY|MERCHANT_DATA_ENCRYPTION_KEY|ADMIN_|TEST_USER_)/.test(key)
+    ) {
+      continue;
+    }
     if (source[key] !== undefined) environment[key] = source[key];
+  }
+  for (const [key, value] of Object.entries(declaredOverrides)) {
+    if (!CERTIFICATION_DECLARED_OVERRIDE_ALLOWLIST.has(key)) {
+      throw new Error(`Undeclared certification child environment override: ${key}`);
+    }
+    if (value !== undefined) environment[key] = value;
   }
 
   // These are invariants, not caller-controlled values.
@@ -69,7 +99,11 @@ export function buildCertificationEnvironment(
 }
 
 export function replaceWithCertificationEnvironment(): NodeJS.ProcessEnv {
-  const environment = buildCertificationEnvironment();
+  const declaredOverrides: NodeJS.ProcessEnv = {};
+  for (const key of CERTIFICATION_DECLARED_OVERRIDE_ALLOWLIST) {
+    if (process.env[key] !== undefined) declaredOverrides[key] = process.env[key];
+  }
+  const environment = buildCertificationEnvironment(process.env, declaredOverrides);
   process.env = environment;
   return environment;
 }

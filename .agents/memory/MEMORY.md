@@ -125,3 +125,4 @@
 - [Sequence dispatch linearization](sequence-dispatch-linearization.md) — serialize inbound writes and final dispatch; only expired pre-dispatch leases are retryable.
 - [Commercial resolution authority](commercial-resolution-authority.md) — five-value class stays separate from provenance/identity/link/relationship axes; shadow never replaces legacy before approved cutover.
 - [Channel cohort authority](channel-cohort-authority.md) — channel qualification freezes immutable evidence; qualification never implies activation or cohort consumption.
+- [Certification capability isolation](certification-capability-isolation.md) — classify HTTP suites as server-required; reserve exact per-suite Redis prefixes; snapshot completion must cover omitted pre-snapshot DDL.

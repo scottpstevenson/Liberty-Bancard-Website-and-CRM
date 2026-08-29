@@ -26,6 +26,7 @@ const inherited: NodeJS.ProcessEnv = {
   APOLLO_API_KEY: "must-not-cross-process-boundary",
   OCR_API_KEY: "must-not-cross-process-boundary",
   FUTURE_PROVIDER_SECRET: "must-not-cross-process-boundary",
+  AUTH_ACTION_DB_TEST_OPT_IN: "must-not-cross-unless-declared",
 };
 
 const forbidden = [
@@ -58,6 +59,29 @@ for (const role of ["migration", "integration", "server"]) {
   }
   assert.equal(childEnv.VG_PROVIDER_DENY_MODE, "1");
   assert.equal(childEnv.GHL_TRANSPORT_FAILFAST, "true");
+  assert.equal(childEnv.AUTH_ACTION_DB_TEST_OPT_IN, undefined);
+}
+
+const authEnvironment = buildCertificationEnvironment(inherited, {
+  AUTH_ACTION_DB_TEST_OPT_IN: "1",
+});
+assert.equal(authEnvironment.AUTH_ACTION_DB_TEST_OPT_IN, "1");
+assert.throws(
+  () => buildCertificationEnvironment(inherited, { UNDECLARED_OPT_IN: "1" }),
+  /Undeclared certification child environment override/,
+);
+const statelessEnvironment = buildCertificationEnvironment(inherited, {}, "stateless");
+for (const key of [
+  "DATABASE_URL",
+  "TEST_DATABASE_URL",
+  "REDIS_URL",
+  "SESSION_SECRET",
+  "CREDENTIAL_ENCRYPTION_KEY",
+  "MERCHANT_DATA_ENCRYPTION_KEY",
+  "ADMIN_SEED_EMAIL",
+  "ADMIN_SEED_PASSWORD",
+]) {
+  assert.equal(statelessEnvironment[key], undefined, `stateless child must scrub ${key}`);
 }
 
 for (const [outerPath, childPath] of [
@@ -98,6 +122,10 @@ for (const [outerPath, childPath] of [
 }
 
 const queueManager = readFileSync("server/services/queue-manager.ts", "utf8");
+const childProcess = readFileSync("scripts/certification-child-process.ts", "utf8");
+assert.ok(childProcess.includes("detached: process.platform !== \"win32\""));
+assert.ok(childProcess.includes("terminateCertificationChild"));
+assert.ok(childProcess.includes("-child.pid"));
 assert.ok(
   queueManager.includes('process.env.VG_PROVIDER_DENY_MODE !== "1"'),
   "queue startup health sweep is not suppressed in certification deny mode",

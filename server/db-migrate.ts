@@ -73,6 +73,7 @@ const DRIZZLE_TABLE = "__drizzle_migrations";
  */
 const BASELINE_WHEN = 1777739833710;
 const CI_SNAPSHOT_TAG = "0109_fearless_starhawk";
+const DEFERRED_GHL_MIGRATION_TAG = "0106_deferred_ghl_enrollments";
 
 // Synthetic `when` value used to record 0054 in drizzle_migrations when we
 // apply it manually. Must be higher than 0053's `when` (1784600000000).
@@ -273,6 +274,27 @@ export async function runDrizzleMigrations(): Promise<void> {
     // only a snapshot applied by this invocation. Existing databases are checked
     // for drift and fail closed rather than being silently repaired.
     await verifyOrCompleteFreshSnapshotFoundation(client, appliedFreshSnapshot);
+    const { rows: deferredGhlFingerprint } = await client.query(
+      `SELECT to_regclass('public.deferred_ghl_enrollments') IS NOT NULL AS present`,
+    );
+    if (!deferredGhlFingerprint[0]?.present) {
+      if (!appliedFreshSnapshot) {
+        throw new Error(
+          "[DB Migrate] Existing database is missing deferred_ghl_enrollments; refusing silent repair.",
+        );
+      }
+      const deferredGhlPath = path.join(
+        MIGRATIONS_FOLDER,
+        `${DEFERRED_GHL_MIGRATION_TAG}.sql`,
+      );
+      if (!fs.existsSync(deferredGhlPath)) {
+        throw new Error(`Snapshot completion SQL missing: ${deferredGhlPath}`);
+      }
+      await client.query(fs.readFileSync(deferredGhlPath, "utf8"));
+      console.log(
+        `[DB Migrate] Completed fresh ${CI_SNAPSHOT_TAG} with ${DEFERRED_GHL_MIGRATION_TAG}.`,
+      );
+    }
 
     if (isExistingDatabase) {
       // Read the journal and baseline all entries with when <= BASELINE_WHEN.

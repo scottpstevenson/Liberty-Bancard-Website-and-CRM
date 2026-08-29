@@ -53,19 +53,34 @@ export type SuiteCapability =
   | "deterministic-static"
   | "deterministic-integration"
   | "server-required"
-  | "server-optional";
+  | "server-optional"
+  | "external-security"
+  | "writable-build";
 
 export interface SuiteManifestEntry {
   name: string;
   script: string;
   capability: SuiteCapability;
+  database: "none" | "disposable";
+  redis: "none" | "suite-isolated" | "server-shared";
+  server: "none" | "required" | "optional";
+  network: "denied-loopback" | "npm-registry-only" | "operator-controlled";
+  workspace: "read-only" | "repository-build";
+  completion: "runner-owned" | "module-receipt";
+  preDeploy: "execute" | "delegated-disposable";
+  requiredEnv?: Readonly<Record<string, string>>;
   /** For server-optional: why real credentials are needed */
   providerNote?: string;
   /** For deterministic suites: which providers are denied and how */
   providerDenial?: string;
 }
 
-export const SUITE_MANIFEST: SuiteManifestEntry[] = [
+type SuiteManifestDefinition = Omit<
+  SuiteManifestEntry,
+  "database" | "redis" | "server" | "network" | "workspace" | "completion" | "preDeploy"
+>;
+
+const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
   // ── deterministic-static ─────────────────────────────────────────────────
   {
     name: "BT-12 Revenue State Reconciliation Authority Guard",
@@ -148,7 +163,7 @@ export const SUITE_MANIFEST: SuiteManifestEntry[] = [
   {
     name: "Dependency Audit Policy",
     script: "scripts/dependency-audit-policy.ts",
-    capability: "deterministic-integration",
+    capability: "external-security",
     providerDenial: "public npm advisory registry only; no application providers",
   },
   {
@@ -220,7 +235,7 @@ export const SUITE_MANIFEST: SuiteManifestEntry[] = [
   {
     name: "Release Artifact Gate",
     script: "scripts/release-artifact-gate.ts",
-    capability: "deterministic-static",
+    capability: "writable-build",
     providerDenial: "local typecheck/build/artifact scan only; no provider calls",
   },
   {
@@ -300,7 +315,7 @@ export const SUITE_MANIFEST: SuiteManifestEntry[] = [
   {
     name: "Contactability Engine",
     script: "scripts/test-contactability.ts",
-    capability: "deterministic-integration",
+    capability: "server-required",
     providerDenial: "GHL: GHL_TRANSPORT_FAILFAST=true; SMTP: outboundGlobalPaused=true",
   },
   {
@@ -318,7 +333,7 @@ export const SUITE_MANIFEST: SuiteManifestEntry[] = [
   {
     name: "Speed-to-Lead Pipeline",
     script: "scripts/test-speed-to-lead.ts",
-    capability: "deterministic-integration",
+    capability: "server-required",
     providerDenial: "GHL: GHL_TRANSPORT_FAILFAST=true; outboundGlobalPaused=true",
   },
   {
@@ -572,6 +587,48 @@ export const SUITE_MANIFEST: SuiteManifestEntry[] = [
   },
 ];
 
+function defineSuite(definition: SuiteManifestDefinition): SuiteManifestEntry {
+  const stateful =
+    definition.capability === "deterministic-integration" ||
+    definition.capability === "server-required";
+  return {
+    ...definition,
+    database: stateful ? "disposable" : "none",
+    redis:
+      definition.capability === "deterministic-integration"
+        ? "suite-isolated"
+        : definition.capability === "server-required"
+          ? "server-shared"
+          : "none",
+    server:
+      definition.capability === "server-required"
+        ? "required"
+        : definition.capability === "server-optional"
+          ? "optional"
+          : "none",
+    network:
+      definition.capability === "external-security"
+        ? "npm-registry-only"
+        : definition.capability === "server-optional"
+          ? "operator-controlled"
+          : "denied-loopback",
+    workspace:
+      definition.capability === "writable-build" ? "repository-build" : "read-only",
+    completion: stateful ? "module-receipt" : "runner-owned",
+    preDeploy:
+      definition.script === "scripts/test-backlog-preview.ts"
+        ? "delegated-disposable"
+        : "execute",
+    requiredEnv:
+      definition.script === "server/tests/auth-actions.integration.test.ts"
+        ? { AUTH_ACTION_DB_TEST_OPT_IN: "1" }
+        : undefined,
+  };
+}
+
+export const SUITE_MANIFEST: SuiteManifestEntry[] =
+  RAW_SUITE_MANIFEST.map(defineSuite);
+
 // ── Validation ────────────────────────────────────────────────────────────────
 
 /**
@@ -613,6 +670,8 @@ function main() {
     "deterministic-integration",
     "server-required",
     "server-optional",
+    "external-security",
+    "writable-build",
   ];
 
   for (const tier of tiers) {
@@ -638,6 +697,25 @@ function main() {
     errors++;
   } else {
     console.log("  ✓ No duplicate script entries in manifest");
+  }
+
+  for (const suite of SUITE_MANIFEST) {
+    if (!fs.existsSync(path.join(process.cwd(), suite.script))) {
+      console.error(`  ✗ MANIFEST ERROR: suite file does not exist: ${suite.script}`);
+      errors++;
+    }
+    if (suite.server === "required" && suite.capability !== "server-required") {
+      console.error(`  ✗ MANIFEST ERROR: ${suite.script} has an inconsistent server contract`);
+      errors++;
+    }
+    if (suite.network === "npm-registry-only" && suite.capability !== "external-security") {
+      console.error(`  ✗ MANIFEST ERROR: ${suite.script} has an inconsistent network contract`);
+      errors++;
+    }
+    if (suite.workspace === "repository-build" && suite.capability !== "writable-build") {
+      console.error(`  ✗ MANIFEST ERROR: ${suite.script} has an inconsistent workspace contract`);
+      errors++;
+    }
   }
 
   // server-optional suites must not also be in server-required.
@@ -702,9 +780,8 @@ function main() {
     const stale = manifestScripts.filter(s => !preDeployScripts.includes(s));
     if (stale.length > 0) {
       for (const s of stale) {
-        // Warn only — a manifest can document suites that have been removed from
-        // pre-deploy for deprecation tracking purposes.
-        console.log(`  ⚠ STALE: '${s}' is in SUITE_MANIFEST but not in MANDATORY_SUITES (deprecated or upcoming?)`);
+        console.error(`  ✗ MANIFEST STALE: '${s}' is in SUITE_MANIFEST but not in MANDATORY_SUITES`);
+        errors++;
       }
     } else {
       console.log("  ✓ No stale manifest entries (all manifest scripts are in MANDATORY_SUITES)");

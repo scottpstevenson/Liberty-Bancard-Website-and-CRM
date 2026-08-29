@@ -47,6 +47,12 @@ jobs:
           DATABASE_URL: postgresql://ci-static:ci-static@127.0.0.1:1/ci_static?connect_timeout=1
         run: npx tsx scripts/run-ci-suites.ts --capability deterministic-static
 
+      - name: Run restricted external dependency audit
+        run: npx tsx scripts/run-ci-suites.ts --capability external-security
+
+      - name: Build and scan the release artifact
+        run: npx tsx scripts/run-ci-suites.ts --capability writable-build
+
   # ── Integration job: DB + Redis; GHL and live providers are blocked ─────────
   integration:
     name: Integration Tests
@@ -203,5 +209,19 @@ jobs:
         if: always()
         run: |
           if [ -f ci-server.pid ]; then
-            kill "$(cat ci-server.pid)" 2>/dev/null || true
+            server_pid="$(cat ci-server.pid)"
+            kill "$server_pid" 2>/dev/null || true
+            for attempt in $(seq 1 10); do
+              if ! kill -0 "$server_pid" 2>/dev/null; then
+                wait "$server_pid" 2>/dev/null || true
+                exit 0
+              fi
+              sleep 1
+            done
+            kill -9 "$server_pid" 2>/dev/null || true
+            wait "$server_pid" 2>/dev/null || true
+            if kill -0 "$server_pid" 2>/dev/null; then
+              echo "Owned CI server did not terminate"
+              exit 1
+            fi
           fi

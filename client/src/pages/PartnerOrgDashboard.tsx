@@ -92,6 +92,7 @@ export default function PartnerOrgDashboard() {
 
   useEffect(() => {
     if (!authAction) return;
+    // CSRF_EXEMPT: TOKEN_AUTH_FLOW — validates a one-time auth-action token before a session exists
     fetch("/api/partner-org/auth-action/validate", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ token: authAction.token, purpose: authAction.purpose === "activate" ? "partner_org_activation" : "partner_org_password_reset" }),
@@ -102,6 +103,7 @@ export default function PartnerOrgDashboard() {
     if (!authAction || actionPassword.length < 8) return;
     setSubmitting(true);
     try {
+      // CSRF_EXEMPT: TOKEN_AUTH_FLOW — consumes a one-time auth-action token before a session exists
       const res = await fetch("/api/partner-org/auth-action/consume", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token: authAction.token, password: actionPassword,

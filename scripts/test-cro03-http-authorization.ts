@@ -31,16 +31,16 @@ function required(name: string): string {
 }
 
 async function approveTestDatabase(url: string): Promise<void> {
-  if (url === process.env.DATABASE_URL) {
-    throw new Error("TEST_DATABASE_URL must differ from DATABASE_URL.");
+  if (!process.env.DATABASE_URL || url !== process.env.DATABASE_URL) {
+    throw new Error("DATABASE_URL and TEST_DATABASE_URL must identify the same disposable database.");
   }
   const client = new Client({ connectionString: url });
   try {
     await client.connect();
     const result = await client.query<{ current_database: string }>("SELECT current_database()");
     const name = result.rows[0]?.current_database ?? "";
-    if (!name.includes("_test") && !name.includes("_dev") && name !== process.env.INTEGRATION_TEST_DB_NAME) {
-      throw new Error(`Refusing database "${name}"; use a _test/_dev database or explicitly set INTEGRATION_TEST_DB_NAME.`);
+    if (/(prod|production|live)/i.test(name) || !/(^|[_-])(test|ci)([_-]|$)|^(test|ci)/i.test(name)) {
+      throw new Error(`Refusing database "${name}"; use a clearly named test/CI database.`);
     }
   } finally {
     await client.end();
