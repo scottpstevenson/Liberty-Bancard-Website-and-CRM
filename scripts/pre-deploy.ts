@@ -540,6 +540,12 @@ const MANDATORY_SUITES: Suite[] = [
     timeoutSecs: 60,
     requiresDisposableTestDatabase: true,
   },
+  {
+    name: "Prospect Import Idempotency (catalog, storage ownership, status matrix, race)",
+    script: "scripts/test-import-idempotency.ts",
+    timeoutSecs: 120,
+    requiresDisposableTestDatabase: true,
+  },
 ];
 
 // ── External config items — non-blocking, reported separately ─────────────────

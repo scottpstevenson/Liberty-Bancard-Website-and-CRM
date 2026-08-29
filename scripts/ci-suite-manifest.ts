@@ -325,6 +325,12 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
     providerDenial: "Sunbiz: disposable PostgreSQL only; no real network",
   },
   {
+    name: "Prospect Import Idempotency",
+    script: "scripts/test-import-idempotency.ts",
+    capability: "deterministic-integration",
+    providerDenial: "PostgreSQL catalog/storage contract on disposable infrastructure; no providers",
+  },
+  {
     name: "Contactability Engine",
     script: "scripts/test-contactability.ts",
     capability: "server-required",

@@ -26,6 +26,7 @@ import {
 } from "../services/prospect-conversion";
 import { serverError, safeMessage } from "../utils/server-error";
 import { createCro03SourceBatch } from "../services/cro03/source-staging";
+import { isProspectListReplayConflict } from "../storage/prospects";
 
 export function registerProspectsRoutes(app: Express) {
   /** Evidence-first staging intake. Enrichment never implies CRM promotion. */
@@ -594,7 +595,7 @@ export function registerProspectsRoutes(app: Express) {
       } catch (createErr: any) {
         // Race: another concurrent request for the same file committed first.
         // pg unique_violation = error code 23505
-        if (createErr?.code === "23505") {
+        if (isProspectListReplayConflict(createErr)) {
           const raceExisting = await storage.getProspectListByHash("prospect_csv", fileHash);
           if (raceExisting) {
             return res.status(200).json({
@@ -1051,7 +1052,7 @@ export function registerProspectsRoutes(app: Express) {
           actor: (req as any).user?.email ?? null,
         });
       } catch (createErr: any) {
-        if (createErr?.code === "23505") {
+        if (isProspectListReplayConflict(createErr)) {
           const raceExisting = await storage.getProspectListByHash("sunbiz_corevt", fileHash);
           if (raceExisting) {
             try { if (filePath) fs.unlinkSync(filePath); } catch {}

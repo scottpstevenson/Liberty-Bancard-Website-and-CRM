@@ -101,6 +101,26 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
 import { coerceDateFields } from "../utils/date-coerce";
   import { type PaginationParams, type PaginatedResult, normalizePagination } from "./_shared";
 
+  /**
+   * True only for the prospect-list replay fence. Other unique violations must
+   * continue through normal error handling instead of becoming replay responses.
+   */
+  export function isProspectListReplayConflict(error: unknown): boolean {
+    const candidates: unknown[] = [];
+    const seen = new Set<unknown>();
+    let current: unknown = error;
+    while (current && typeof current === "object" && !seen.has(current)) {
+      seen.add(current);
+      candidates.push(current);
+      const record = current as Record<string, unknown>;
+      current = record.cause ?? record.originalError ?? record.error;
+    }
+    return candidates.some((candidate) => {
+      const record = candidate as Record<string, unknown>;
+      return record.code === "23505" && record.constraint === "prospect_lists_import_type_hash_uidx";
+    });
+  }
+
   export class ProspectsStorage {
     async getProspectLists(opts?: { includeArchived?: boolean }) {
     const condition = opts?.includeArchived ? undefined : isNull(prospectLists.archivedAt);
@@ -174,7 +194,7 @@ import { coerceDateFields } from "../utils/date-coerce";
     // Use Drizzle insert so camelCase field names are mapped to snake_case columns
     // automatically.  ON CONFLICT DO NOTHING (no target) covers both:
     //   • prospects_execution_row_uidx  (import_execution_id, source_row_index) — retry protection
-    //   • prospects_email_unique_idx    (email)                                 — cross-import email backstop
+    //   • prospects_email_import_unique_idx (email)                             — cross-import email backstop
     const BATCH = 500;
     let totalInserted = 0;
     for (let i = 0; i < prospectsList.length; i += BATCH) {
