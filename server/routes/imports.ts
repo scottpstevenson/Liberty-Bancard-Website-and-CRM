@@ -24,7 +24,7 @@ import { syncFormSubmissionToGhl } from "../services/ghl-form-sync";
 import { enrollInInboundConfirmation } from "../services/ghl-workflow-enrollment";
 import { updateContactLocalFirst, createContactLocalFirst, writeContact } from "../services/contact-writer";
 import { importExecutions, contactSourceEvents, importRowDispositions } from "@shared/schema";
-import { computeFileHash } from "../services/import-normalizer";
+import { classifyCsvSourceFormat, computeFileHash } from "../services/import-normalizer";
 import {
   claimCsvExecution,
   completeImportExecution,
@@ -1553,13 +1553,7 @@ Guidelines:
         return res.status(400).json({ message: "CSV file is empty or could not be parsed" });
       }
 
-      const headers = Object.keys(records[0]).map(h => h.toLowerCase().trim());
-      let sourceFormat = "custom";
-      if (headers.some(h => /^(name|telephone|category|rating|review_count|keyword|address)$/i.test(h))) {
-        sourceFormat = "google_maps_outscraper";
-      } else if (headers.some(h => /^(first name|last name|company|title|email|mobile phone|corporate phone|person linkedin url|industry)$/i.test(h.replace(/_/g, " ")))) {
-        sourceFormat = "apollo_lead_list";
-      }
+      const sourceFormat = classifyCsvSourceFormat(Object.keys(records[0]));
 
       // Permanent execution identity is claimed before a UI projection is
       // created. A repeated or concurrent request never gets a second worker.
@@ -2219,6 +2213,7 @@ Guidelines:
         skippedRows: durableOutcomes.deferred,
         errorsCount: durableOutcomes.failed,
         processedRows: durableOutcomes.total,
+        lastProgressAt: new Date(),
         verticalBreakdown: verticalCounts,
         status: "completed",
         completedAt: new Date(),

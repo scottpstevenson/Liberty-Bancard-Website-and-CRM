@@ -45,3 +45,67 @@ export function computeRowFingerprint(normalized: {
 export function computeFileHash(buf: Buffer): string {
   return crypto.createHash("sha256").update(buf).digest("hex");
 }
+
+export type CsvSourceFormat = "custom" | "google_maps_outscraper" | "apollo_lead_list";
+
+function normalizeCsvHeader(header: string): string {
+  return header
+    .replace(/^\uFEFF/, "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_")
+    .replace(/_+/g, "_");
+}
+
+/**
+ * Classify provider exports only when their headers contain a distinctive
+ * multi-field signature. Common contact headers are deliberately insufficient:
+ * a normal CSV with Name, Phone, and Email must remain custom.
+ */
+export function classifyCsvSourceFormat(headers: string[]): CsvSourceFormat {
+  const normalized = new Set(headers.map(normalizeCsvHeader));
+
+  const outscraperMarkers = [
+    "telephone",
+    "category",
+    "rating",
+    "review_count",
+    "reviews",
+    "keyword",
+  ];
+  const hasOutscraperName = normalized.has("name");
+  const outscraperMarkerCount = outscraperMarkers.filter((header) => normalized.has(header)).length;
+  if (hasOutscraperName && outscraperMarkerCount >= 2) {
+    return "google_maps_outscraper";
+  }
+
+  const apolloMarkers = [
+    "first_name",
+    "last_name",
+    "person_linkedin_url",
+    "mobile_phone",
+    "corporate_phone",
+    "company_name",
+    "#_employees",
+    "annual_revenue",
+    "email_status",
+    "primary_domain",
+  ];
+  const apolloHighSignal = new Set([
+    "person_linkedin_url",
+    "mobile_phone",
+    "corporate_phone",
+    "company_name",
+    "#_employees",
+    "annual_revenue",
+    "email_status",
+    "primary_domain",
+  ]);
+  const apolloMarkerCount = apolloMarkers.filter((header) => normalized.has(header)).length;
+  const hasApolloHighSignal = [...apolloHighSignal].some((header) => normalized.has(header));
+  if (apolloMarkerCount >= 3 && hasApolloHighSignal) {
+    return "apollo_lead_list";
+  }
+
+  return "custom";
+}
